@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import {
@@ -12,6 +12,7 @@ import {
   declineBuylistRequest,
   cancelBuylistOffer,
   decideBuylistItem,
+  rejectBuylistItems,
   convertBuylistItemToInventory,
   revealBuylistClabe,
   paySpeiBuylist,
@@ -35,6 +36,8 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { CardImage } from '@/components/ui/CardImage';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { Textarea } from '@/components/ui/Textarea';
+import { asApiError } from '@/lib/api-client';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { useBuylistSteps } from '@/lib/pipelines';
@@ -190,6 +193,30 @@ function pesosToCents(value: string): number | null {
 /** Estados terminales de item: ya no admiten decisión. */
 const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
 
+/** Diálogo de rechazo múltiple (§60.5 c): más de 6 cartas ⇒ las 6 primeras + «y {r} más» desplegable. */
+const BULK_VISIBLE = 6;
+
+/** `receive` salió bien y `verify` no (§60.5 a): la fila queda en `recibida` con «Iniciar verificación» de respaldo. */
+class VerifyStepError extends Error {
+  constructor(readonly cause: unknown) {
+    super('verify failed after receive');
+  }
+}
+
+/**
+ * ¿Esta carta se puede marcar para «Rechazar seleccionadas»? (§60.5 c · contrato v1.82 §PNL.4). En `verificacion`,
+ * ⛔ nunca una `skip` (F-4: no se rechaza lo que no se compró), ni una ya rechazada, ni una terminal. El servidor
+ * re-valida bajo candado (todo o nada): esto solo decide QUÉ casillas existen.
+ */
+export function isBulkRejectable(reqStatus: SellRequestStatus, it: SellItemDTO): boolean {
+  return (
+    reqStatus === 'verificacion' &&
+    it.offerDecision !== 'skip' &&
+    !ITEM_TERMINAL.has(it.itemStatus) &&
+    it.itemStatus !== 'rechazada'
+  );
+}
+
 export function M5View() {
   const t = useTranslations('admin.m5');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
@@ -243,14 +270,40 @@ export function M5View() {
    */
 
   // --- Recibir / Verificar (contrato POST /admin/buylist/:id/receive|verify) ---
+  // §60.5 a · §PNL.4 (REGLA GENERAL: lo más automático posible): en `en_transito` UN clic encadena `receive → verify`,
+  // con un solo `loading`. Si `verify` falla tras un `receive` bueno, la fila queda en `recibida` con el «Iniciar
+  // verificación» de hoy como respaldo y un aviso en la fila.
+  const [verifyFailedFor, setVerifyFailedFor] = useState<string | null>(null);
+  const [goVerifying, setGoVerifying] = useState(false);
   const receiveMutation = useMutation({
-    mutationFn: (id: string) => receiveBuylistRequest(id),
-    onSuccess: (_d, id) => ok(id, t('feedback.received')),
-    onError: (e, id) => fail(id, e),
+    mutationFn: async (id: string) => {
+      await receiveBuylistRequest(id);
+      try {
+        await verifyBuylistRequest(id);
+      } catch (e) {
+        throw new VerifyStepError(e);
+      }
+    },
+    onSuccess: (_d, id) => {
+      setFeedback(null);
+      setVerifyFailedFor(null);
+      setPageNotice(t('receiveReview.done', { id }));
+      setGoVerifying(true);
+      refresh();
+    },
+    onError: (e, id) => {
+      if (e instanceof VerifyStepError) {
+        setVerifyFailedFor(id);
+        refresh();
+      } else fail(id, e);
+    },
   });
   const verifyMutation = useMutation({
     mutationFn: (id: string) => verifyBuylistRequest(id),
-    onSuccess: (_d, id) => ok(id, t('feedback.verified')),
+    onSuccess: (_d, id) => {
+      if (verifyFailedFor === id) setVerifyFailedFor(null);
+      ok(id, t('feedback.verified'));
+    },
     onError: (e, id) => fail(id, e),
   });
 
@@ -267,6 +320,89 @@ export function M5View() {
   const rejectReasonTrimmed = rejectReason.trim();
   const rejectReasonValid =
     rejectReasonTrimmed.length >= REJECT_REASON_MIN && rejectReasonTrimmed.length <= REJECT_REASON_MAX;
+
+  // --- Rechazo de VARIAS cartas con un motivo y UN correo (§60.5 c · contrato v1.82 §PNL.4) ---
+  const [bulkSelected, setBulkSelected] = useState<Record<string, string[]>>({});
+  const [bulkTarget, setBulkTarget] = useState<{ requestId: string; itemIds: string[] } | null>(null);
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkReasonError, setBulkReasonError] = useState<string | null>(null);
+  /** Cartas que el servidor dijo NO COMPRADAS en un `422 ITEM_NOT_OFFERED` (se marcan en su fila). */
+  const [notOfferedIds, setNotOfferedIds] = useState<Set<string>>(new Set());
+  const bulkReasonTrimmed = bulkReason.trim();
+  const bulkReasonValid = bulkReasonTrimmed.length >= REJECT_REASON_MIN && bulkReasonTrimmed.length <= REJECT_REASON_MAX;
+  const bulkReasonRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (bulkTarget) setTimeout(() => bulkReasonRef.current?.focus(), 0);
+  }, [bulkTarget]);
+
+  function setSelectedFor(requestId: string, ids: string[]) {
+    setBulkSelected((cur) => ({ ...cur, [requestId]: ids }));
+  }
+  function dropFromSelection(requestId: string, ids: readonly string[]) {
+    setBulkSelected((cur) => ({ ...cur, [requestId]: (cur[requestId] ?? []).filter((x) => !ids.includes(x)) }));
+  }
+  function openBulk(requestId: string, itemIds: string[]) {
+    setBulkTarget({ requestId, itemIds });
+    setBulkReason('');
+    setBulkError(null);
+    setBulkReasonError(null);
+  }
+  function closeBulk() {
+    setBulkTarget(null);
+    setBulkReason('');
+    setBulkError(null);
+    setBulkReasonError(null);
+  }
+  const bulkMutation = useMutation({
+    mutationFn: (vars: { requestId: string; itemIds: string[]; reason: string }) =>
+      rejectBuylistItems(vars.requestId, { itemIds: vars.itemIds, reason: vars.reason }),
+    onSuccess: async (_d, vars) => {
+      const k = vars.itemIds.length;
+      closeBulk();
+      setSelectedFor(vars.requestId, []);
+      void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+      void qc.invalidateQueries({ queryKey: ['admin-buylist-closed'] });
+      // ⛔ La pantalla NO predice «se cerrará»: lo dice la solicitud RECARGADA (regla de auto-transición del servidor).
+      await qc.invalidateQueries({ queryKey: ['admin-buylist'] });
+      const fresh = qc.getQueryData<{ data: AdminBuylistDTO[] }>(['admin-buylist'])?.data.find((r) => r.id === vars.requestId);
+      if (fresh?.status === 'rechazada') {
+        setFeedback(null);
+        setGoVerifying(false);
+        setPageNotice(`${t('bulkReject.done', { k })} ${t('bulkReject.closed')}`);
+      } else setFeedback({ requestId: vars.requestId, kind: 'success', message: t('bulkReject.done', { k }) });
+    },
+    onError: (e, vars) => {
+      const err = asApiError(e);
+      const ids = Array.isArray(err?.details?.itemIds) ? (err!.details!.itemIds as unknown[]).filter((x): x is string => typeof x === 'string') : null;
+      if (err?.status === 422 && err.code === 'ITEM_NOT_OFFERED' && ids) {
+        setNotOfferedIds((cur) => new Set([...cur, ...ids]));
+        dropFromSelection(vars.requestId, ids);
+        setBulkTarget((cur) => (cur ? { ...cur, itemIds: cur.itemIds.filter((x) => !ids.includes(x)) } : cur));
+        setBulkError(t('bulkReject.error.notOffered', { n: ids.length }));
+        return;
+      }
+      if (err?.status === 409 && err.code === 'CONFLICT') {
+        refresh();
+        if (ids) {
+          dropFromSelection(vars.requestId, ids);
+          setBulkTarget((cur) => (cur ? { ...cur, itemIds: cur.itemIds.filter((x) => !ids.includes(x)) } : cur));
+          setBulkError(t('bulkReject.error.conflictItems', { n: ids.length }));
+        } else setBulkError(t('bulkReject.error.closed'));
+        return;
+      }
+      if (err?.status === 404) {
+        refresh();
+        setBulkError(t('bulkReject.error.notFound'));
+        return;
+      }
+      if (err?.status === 400 && err.code === 'VALIDATION_ERROR' && err.details?.field !== 'itemIds') {
+        setBulkReasonError(t('rejectReasonInvalid'));
+        return;
+      }
+      setBulkError(getError(e));
+    },
+  });
 
   const decisionMutation = useMutation({
     mutationFn: (vars: {
@@ -381,6 +517,7 @@ export function M5View() {
       void qc.invalidateQueries({ queryKey: ['buylist-pending-auth'] });
       void qc.invalidateQueries({ queryKey: ['buylist-live-sellers'] });
       setFeedback(null);
+      setGoVerifying(false);
       setPageNotice(
         vars.kind === 'decline'
           ? tDesk('decline.done', { id: vars.requestId })
@@ -566,6 +703,21 @@ export function M5View() {
         <div data-testid="m5-page-notice">
           <Banner variant="success" role="status">
             {pageNotice}
+            {goVerifying && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  className="underline underline-offset-4 hover:text-accent"
+                  onClick={() => {
+                    setTab('verificando');
+                    setGoVerifying(false);
+                  }}
+                >
+                  {t('receiveReview.goVerifying')}
+                </button>
+              </>
+            )}
           </Banner>
         </div>
       )}
@@ -1108,7 +1260,12 @@ export function M5View() {
               </div>
 
               {deskFor === req.id && (
-                <BuylistDecisionDesk sellRequestId={req.id} onClose={() => setDeskFor(null)} />
+                <BuylistDecisionDesk
+                  sellRequestId={req.id}
+                  onClose={() => setDeskFor(null)}
+                  // §60.5 d: «Declinar» DENTRO de la mesa abre el MISMO diálogo y verbo que el de la fila.
+                  onDecline={req.status === 'cotizada' && req.isTerminal === false ? () => openCloseAction('decline', req.id) : undefined}
+                />
               )}
 
               {/* Guía + confirmación: solo en `aceptada`, que es el único estado donde las dos
@@ -1116,6 +1273,72 @@ export function M5View() {
                   actos separados porque el plazo mide algo del VENDEDOR y nos enteramos por algo
                   NUESTRO. */}
               {req.status === 'aceptada' && <BuylistShipmentActions request={req} />}
+              {/* §60.5 b (HECHOS.md:45): una `aceptada` NO se cancela — la fila dice dónde está la acción. */}
+              {req.status === 'aceptada' && (
+                <p className="text-xs text-muted" data-testid={`m5-accepted-note-${req.id}`}>
+                  {t('acceptedNote')}
+                </p>
+              )}
+              {verifyFailedFor === req.id && req.status === 'recibida' && (
+                <Banner variant="warning" role="status">
+                  {t('receiveReview.verifyFailed')}
+                </Banner>
+              )}
+
+              {(() => {
+                // §60.5 c — barra de rechazo múltiple: solo con ≥ 1 rechazable (⛔ las `skip` no cuentan).
+                const rejectable = req.items.filter((it) => isBulkRejectable(req.status, it) && !notOfferedIds.has(it.id));
+                if (rejectable.length === 0) return null;
+                const sel = (bulkSelected[req.id] ?? []).filter((id) => rejectable.some((it) => it.id === id));
+                const n = rejectable.length;
+                const k = sel.length;
+                const hintId = `m5-bulk-hint-${req.id}`;
+                return (
+                  <div className="flex flex-wrap items-center gap-3 border-y border-border py-2" data-testid={`m5-bulk-bar-${req.id}`}>
+                    <label className="flex min-h-[44px] items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5 accent-text"
+                        checked={k > 0 && k === n}
+                        aria-checked={k > 0 && k < n ? 'mixed' : k === n}
+                        ref={(el) => {
+                          if (el) el.indeterminate = k > 0 && k < n;
+                        }}
+                        onChange={() => setSelectedFor(req.id, k === n ? [] : rejectable.map((it) => it.id))}
+                      />
+                      {t('bulkReject.all', { n })}
+                    </label>
+                    <span className="text-sm" aria-live="polite">
+                      {t('bulkReject.count', { k })}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={k === 0}
+                      aria-describedby={k === 0 ? hintId : undefined}
+                      onClick={() => openBulk(req.id, rejectable.filter((it) => sel.includes(it.id)).map((it) => it.id))}
+                    >
+                      {t('bulkReject.selected', { k })}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        const ids = rejectable.map((it) => it.id);
+                        setSelectedFor(req.id, ids);
+                        openBulk(req.id, ids);
+                      }}
+                    >
+                      {t('bulkReject.allCta', { n })}
+                    </Button>
+                    {k === 0 && (
+                      <span id={hintId} className="text-xs text-muted">
+                        {t('bulkReject.hint')}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="flex flex-col divide-y divide-border">
                 {req.items.map((it) => {
@@ -1123,16 +1346,47 @@ export function M5View() {
                     decisionMutation.isPending && decisionMutation.variables?.itemId === it.id;
                   const decidable = !ITEM_TERMINAL.has(it.itemStatus);
                   const isRejected = it.itemStatus === 'rechazada';
+                  // §60.7 a / §E2E-ADM.2 (F-4): la decisión por carta va por `offerDecision`. `skip` ⇒ «NO COMPRADA»
+                  // y ningún botón ni casilla; `buy` ⇒ Aprobar y Rechazar (⛔ Ajustar); `null` (pre-ciclo) ⇒ los tres.
+                  const notBought = it.offerDecision === 'skip' || notOfferedIds.has(it.id);
+                  const canAdjust = it.offerDecision !== 'buy' && it.offerDecision !== 'skip';
+                  const bulkable = isBulkRejectable(req.status, it) && !notOfferedIds.has(it.id);
+                  const checked = (bulkSelected[req.id] ?? []).includes(it.id);
+                  const cardBlock = (
+                    <>
+                      {/* Imagen de catálogo por ítem: único referente visual para verificar
+                          la carta física contra la que llegó a la bóveda. */}
+                      <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="w-10 shrink-0" />
+                      <span className="text-sm font-medium" lang="en">
+                        {it.card.name}
+                      </span>
+                    </>
+                  );
                   return (
-                    <div key={it.id} className="flex flex-col gap-1 py-3">
+                    <div key={it.id} className="flex flex-col gap-1 py-3" data-testid={`m5-item-${it.id}`}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-3">
-                        {/* Imagen de catálogo por ítem: único referente visual para verificar
-                            la carta física contra la que llegó a la bóveda. */}
-                        <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="w-10 shrink-0" />
-                        <span className="text-sm font-medium" lang="en">
-                          {it.card.name}
-                        </span>
+                        {bulkable ? (
+                          <label className="flex min-h-[44px] items-center gap-3">
+                            <input
+                              type="checkbox"
+                              className="h-5 w-5 accent-text"
+                              checked={checked}
+                              aria-label={t('bulkReject.selectOne', { card: it.card.name, folio: it.id })}
+                              onChange={(e) =>
+                                setSelectedFor(
+                                  req.id,
+                                  e.target.checked
+                                    ? [...(bulkSelected[req.id] ?? []), it.id]
+                                    : (bulkSelected[req.id] ?? []).filter((x) => x !== it.id),
+                                )
+                              }
+                            />
+                            {cardBlock}
+                          </label>
+                        ) : (
+                          cardBlock
+                        )}
                         <FinishBadge finish={it.finish} productType={it.productType} />
                         {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
                         <span className={cn('tabular text-xs text-muted', isRejected && 'line-through')}>
@@ -1144,6 +1398,11 @@ export function M5View() {
                           </span>
                         )}
                         <StatusBadge domain="sellItem" value={it.itemStatus} />
+                        {notBought && (
+                          <span className={cn('font-mono text-[11px] uppercase tracking-[0.06em]', notOfferedIds.has(it.id) ? 'text-accent' : 'text-muted')} data-testid={`m5-not-bought-${it.id}`}>
+                            {t('notBought.tag')}
+                          </span>
+                        )}
                         {isRejected && (
                           <Badge tone="danger" shape="outline">
                             {t('rejectedOutOfTotal')}
@@ -1151,7 +1410,7 @@ export function M5View() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {canDecide && decidable && (
+                        {canDecide && decidable && !notBought && (
                           <>
                             <Button
                               size="sm"
@@ -1163,9 +1422,11 @@ export function M5View() {
                             >
                               {t('approve')}
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => openAdjust(req.id, it)}>
-                              {t('adjust')}
-                            </Button>
+                            {canAdjust && (
+                              <Button size="sm" variant="ghost" onClick={() => openAdjust(req.id, it)}>
+                                {t('adjust')}
+                              </Button>
+                            )}
                             {/* v1.18: el rechazo exige MOTIVO (3–500) → abre el mini-diálogo. */}
                             <Button size="sm" variant="ghost" onClick={() => openReject(req.id, it)}>
                               {t('reject')}
@@ -1191,6 +1452,9 @@ export function M5View() {
                         )}
                       </div>
                     </div>
+                    {notBought && (
+                      <p className="pl-14 text-xs text-muted">{t('notBought.note')}</p>
+                    )}
                     {/* Detalle del rechazo dentro de la solicitud: motivo + plazos (server). */}
                     {isRejected && (
                       <div className="flex flex-col gap-0.5 pl-14 text-xs text-muted">
@@ -1292,6 +1556,90 @@ export function M5View() {
           ))}
       </QueryState>
       )}
+
+      {/* §60.5 c — «Rechazar seleccionadas / todas»: un motivo, UN correo (contrato v1.82 §PNL.4). Foco en el motivo. */}
+      <Modal
+        open={bulkTarget !== null}
+        onClose={closeBulk}
+        title={t('bulkReject.title', { k: bulkTarget?.itemIds.length ?? 0 })}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeBulk}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!bulkReasonValid || (bulkTarget?.itemIds.length ?? 0) === 0}
+              loading={bulkMutation.isPending}
+              onClick={() =>
+                bulkTarget &&
+                bulkMutation.mutate({
+                  requestId: bulkTarget.requestId,
+                  itemIds: Array.from(new Set(bulkTarget.itemIds)),
+                  reason: bulkReasonTrimmed,
+                })
+              }
+              data-testid="m5-bulk-confirm"
+            >
+              {t('bulkReject.confirm', { k: bulkTarget?.itemIds.length ?? 0 })}
+            </Button>
+          </>
+        }
+      >
+        {bulkTarget && (() => {
+          const req = all.find((r) => r.id === bulkTarget.requestId);
+          const rows = bulkTarget.itemIds
+            .map((id) => req?.items.find((it) => it.id === id))
+            .filter((it): it is SellItemDTO => !!it);
+          const row = (it: SellItemDTO) => (
+            <li key={it.id} className="flex flex-wrap items-center gap-2 py-1 text-sm">
+              <span lang="en" className="font-medium">
+                {it.card.name}
+              </span>
+              <span className="text-xs text-muted" lang="en">
+                {it.card.setName} · #{it.card.number}
+              </span>
+              <FinishBadge finish={it.finish} productType={it.productType} />
+              <span className="tabular font-mono text-[11px] text-muted">{it.id}</span>
+            </li>
+          );
+          return (
+            <div className="flex flex-col gap-3">
+              <ul className="divide-y divide-border" data-testid="m5-bulk-list">
+                {rows.slice(0, BULK_VISIBLE).map(row)}
+              </ul>
+              {rows.length > BULK_VISIBLE && (
+                <details>
+                  <summary className="cursor-pointer text-sm underline underline-offset-4">
+                    {t('bulkReject.more', { r: rows.length - BULK_VISIBLE })}
+                  </summary>
+                  <ul className="divide-y divide-border">{rows.slice(BULK_VISIBLE).map(row)}</ul>
+                </details>
+              )}
+              <Textarea
+                ref={bulkReasonRef}
+                label={t('bulkReject.reasonLabel')}
+                hint={t('bulkReject.reasonHint')}
+                value={bulkReason}
+                maxLength={REJECT_REASON_MAX}
+                counter={{ max: REJECT_REASON_MAX }}
+                error={bulkReasonError ?? (bulkReason !== '' && !bulkReasonValid ? t('rejectReasonInvalid') : undefined)}
+                onChange={(e) => {
+                  setBulkReason(e.target.value);
+                  setBulkReasonError(null);
+                }}
+                data-testid="m5-bulk-reason"
+              />
+              <p className="text-sm text-text">{t('bulkReject.notice')}</p>
+              {bulkError && (
+                <Banner variant="danger" role="alert">
+                  <span data-testid="m5-bulk-error">{bulkError}</span>
+                </Banner>
+              )}
+            </div>
+          );
+        })()}
+      </Modal>
 
       {/* Cierre explícito de la solicitud (v1.24 · POST /admin/buylist/:id/reject). Confirmación
           destructiva (DESIGN_SYSTEM §7.6: «rechazar buylist»): resumen de consecuencia + motivo

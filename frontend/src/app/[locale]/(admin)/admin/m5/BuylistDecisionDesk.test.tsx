@@ -454,7 +454,10 @@ describe('Mesa de decisión — decidir y emitir', () => {
 
   it('emitida ⇒ la mesa es de SOLO LECTURA (el override vive solo antes del correo)', async () => {
     render(table({ status: 'ofertada' }));
-    expect(await screen.findByText('La oferta ya salió: la mesa es de solo lectura.')).toBeInTheDocument();
+    // §60.5 d: fuera de `cotizada` el texto dice DÓNDE está la acción, por estado.
+    expect(
+      await screen.findByText('La oferta ya salió y el vendedor la tiene. Para cambiarla o cerrarla, usa «Cancelar la oferta» en la solicitud.'),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Emitir oferta' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Precio ofertado para Charizard VMAX')).not.toBeInTheDocument();
   });
@@ -466,5 +469,33 @@ describe('Mesa de decisión — decidir y emitir', () => {
     expect(screen.getByText('Not yet')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Issue offer' })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/admin\.m5\.desk/);
+  });
+});
+
+/**
+ * BRJ-UI-2 = FE-BRJ-2 (DESIGN_SYSTEM §60.5 d · contrato v1.82 §PNL.4): «Declinar» DENTRO de la mesa en `cotizada`,
+ * que llama al MISMO `onDecline` que abre el diálogo de la fila; en `aceptada` no hay «Declinar» y el texto dice
+ * dónde está la acción. Canario: ofrecer «Declinar» en `aceptada`.
+ */
+describe('BRJ-UI-2 · «Declinar» en la mesa', () => {
+  it('cotizada ⇒ «Declinar» junto a «Emitir oferta», y lo pulsa ⇒ onDecline', async () => {
+    const onDecline = vi.fn();
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue(table());
+    renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} onDecline={onDecline} />, 'es');
+    await screen.findByRole('button', { name: 'Emitir oferta' });
+    fireEvent.click(screen.getByTestId('desk-decline'));
+    expect(onDecline).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['aceptada', 'El vendedor aceptó: la solicitud ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, con su motivo.'],
+    ['en_transito', 'El paquete viene en camino. Cuando llegue, pulsa «Recibida: empezar revisión» y rechaza ahí las cartas que vengan mal.'],
+    ['verificacion', 'Está en revisión: aprueba o rechaza cada carta en la solicitud, o marca varias y «Rechazar seleccionadas».'],
+    ['pagada', 'Esta solicitud ya no tiene nada que decidir aquí.'],
+  ] as const)('%s ⇒ sin «Declinar» y con su texto', async (status, text) => {
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue(table({ status }));
+    renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} onDecline={() => {}} />, 'es');
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.queryByTestId('desk-decline')).not.toBeInTheDocument();
   });
 });

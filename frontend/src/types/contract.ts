@@ -4062,6 +4062,12 @@ export interface PendingPublishRowDTO {
   createdAt: string;
 }
 
+/** v1.82 (§PNL.4) — `POST /admin/buylist/:id/reject-items`. `itemIds` 1–200 sin repetidos; `reason` 3–500 tras `trim()`. */
+export interface RejectBuylistItemsRequest {
+  itemIds: string[];
+  reason: string;
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;

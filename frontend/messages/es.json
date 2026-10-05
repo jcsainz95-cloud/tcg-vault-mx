@@ -2339,7 +2339,7 @@
     },
     "m5": {
       "title": "Solicitudes de venta",
-      "receive": "Marcar recibida",
+      "receive": "Recibida: empezar revisión",
       "verify": "Iniciar verificación",
       "approve": "Aprobar",
       "adjust": "Ajustar",
@@ -2374,7 +2374,7 @@
       "rejectConfirm": "Rechazar y notificar",
       "rejectRequest": "Rechazar solicitud",
       "rejectRequestTitle": "Rechazar solicitud completa",
-      "rejectRequestConsequence": "Se cerrará la solicitud como rechazada. Solo procede cuando todos sus ítems ya están rechazados; no mueve dinero ni envía correos (los avisos por carta ya salieron al rechazar cada ítem).",
+      "rejectRequestConsequence": "Se cerrará la solicitud como rechazada. Solo procede cuando todos sus ítems ya están rechazados; no mueve dinero ni envía correos (el vendedor ya recibió el aviso de las cartas rechazadas).",
       "rejectRequestReasonLabel": "Motivo interno (opcional)",
       "rejectRequestReasonHint": "Opcional, hasta 500 caracteres. Queda en bitácora; no se muestra al vendedor.",
       "rejectRequestConfirm": "Rechazar solicitud",
@@ -2520,7 +2520,6 @@
         },
         "sent": "Oferta emitida: el correo salió y el vendedor ya tiene {netAmount} sobre la mesa.",
         "pendingAuthorization": "Preparada y esperando autorización del súper-admin. El correo NO se ha mandado y la solicitud sigue igual para el vendedor.",
-        "readOnly": "La oferta ya salió: la mesa es de solo lectura.",
         "decline": {
           "action": "Declinar",
           "title": "Declinar esta solicitud",
@@ -2539,7 +2538,14 @@
           "confirm": "Cancelar la oferta y avisarle",
           "done": "Oferta de {id} cancelada: la solicitud volvió a «Por ofertar»."
         },
-        "reasonTooLong": "El motivo no puede pasar de 500 caracteres."
+        "reasonTooLong": "El motivo no puede pasar de 500 caracteres.",
+        "readOnlyByStatus": {
+          "ofertada": "La oferta ya salió y el vendedor la tiene. Para cambiarla o cerrarla, usa «Cancelar la oferta» en la solicitud.",
+          "aceptada": "El vendedor aceptó: la solicitud ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, con su motivo.",
+          "en_transito": "El paquete viene en camino. Cuando llegue, pulsa «Recibida: empezar revisión» y rechaza ahí las cartas que vengan mal.",
+          "review": "Está en revisión: aprueba o rechaza cada carta en la solicitud, o marca varias y «Rechazar seleccionadas».",
+          "done": "Esta solicitud ya no tiene nada que decidir aquí."
+        }
       },
       "shipment": {
         "title": "Guía y envío",
@@ -2625,6 +2631,38 @@
           "oldest": "La más antigua",
           "latestStatus": "Último estado",
           "note": "Es la lista de gente a la que le debemos una respuesta. La más antigua va primero."
+        }
+      },
+      "receiveReview": {
+        "done": "Solicitud {id} recibida y en revisión.",
+        "goVerifying": "Ir a «Verificando»",
+        "verifyFailed": "La marcamos como recibida, pero no se pudo abrir la revisión. Pulsa «Iniciar verificación»."
+      },
+      "acceptedNote": "Aceptada: ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo.",
+      "notBought": {
+        "tag": "NO COMPRADA",
+        "note": "Se marcó como no comprada al ofertar: no se aprueba ni se rechaza."
+      },
+      "bulkReject": {
+        "all": "Todas las que se pueden rechazar ({n})",
+        "count": "{k, plural, one {# seleccionada} other {# seleccionadas}}",
+        "selected": "Rechazar seleccionadas ({k})",
+        "allCta": "Rechazar todas ({n})",
+        "hint": "Marca las cartas que llegaron mal.",
+        "selectOne": "Seleccionar {card} · {folio}",
+        "title": "Rechazar {k, plural, one {# carta} other {# cartas}}",
+        "more": "y {r} más",
+        "reasonLabel": "Motivo (el vendedor lo lee en el correo)",
+        "reasonHint": "Uno solo para todas. Ej.: «llegaron con dobleces y desgaste en las orillas».",
+        "notice": "Al confirmar, el vendedor recibe un solo correo con estas cartas, el motivo y sus opciones: tiene 7 días para pedir que se las regresemos (el envío corre por su cuenta); si no, a los 30 días se dan por abandonadas. Si con esto ya no queda ninguna carta por aprobar, la solicitud se cierra sola.",
+        "confirm": "Rechazar {k} y avisarle",
+        "done": "{k, plural, one {# carta rechazada} other {# cartas rechazadas}}. Se le avisa al vendedor en un solo correo.",
+        "closed": "La solicitud quedó cerrada: no queda ninguna carta por aprobar.",
+        "error": {
+          "notOffered": "{n, plural, one {Una de las cartas elegidas no entró} other {# de las cartas elegidas no entraron}} en la compra: se marcaron como no compradas al ofertar y no se rechazan. Las quitamos de la selección. No se guardó nada.",
+          "conflictItems": "{n, plural, one {Una carta ya no se puede rechazar} other {# cartas ya no se pueden rechazar}}: alguien la aprobó, la convirtió o la rechazó mientras tanto. No se guardó nada. Actualizamos la lista: revisa y vuelve a intentarlo.",
+          "closed": "Esta solicitud ya está cerrada: sus cartas ya no se tocan. No se guardó nada.",
+          "notFound": "Alguna carta ya no es de esta solicitud. Actualizamos la lista. No se guardó nada."
         }
       }
     },
@@ -5054,7 +5092,8 @@
     "INVALID_TRANSITION_WITH_DETAILS": "Esta solicitud está en «{from}»: {verb} solo aplica cuando está en {allowedFrom}. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
     "INVALID_TRANSITION_VERB": {
       "receive": "«Marcar recibida»",
-      "verify": "«Iniciar verificación»"
+      "verify": "«Iniciar verificación»",
+      "rejectItems": "Rechazar cartas"
     },
     "INVALID_TRANSITION_ALLOWED_FROM_JOIN": " o ",
     "PAYMENT_IN_PROGRESS": "Tu intento anterior ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa ese pedido antes de reintentar.",
@@ -5069,7 +5108,8 @@
     "DECLINE_NOT_ALLOWED": "Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada.",
     "OFFER_NOT_CANCELLABLE": "Esta oferta ya no se puede cancelar: no hay una oferta viva o la solicitud ya avanzó (una aceptada no se cancela por aquí). Vuelve a cargarla para ver su estado. No se guardó nada.",
     "DISPUTES_DISCONTINUED": "Ya no se abren aclaraciones desde la tienda. Si tienes un problema con tu pedido, escríbenos con tu número de pedido.",
-    "DISPUTES_DISCONTINUED_WITH_DETAILS": "Ya no se abren aclaraciones desde la tienda. Si tienes un problema con tu pedido, escríbenos a {contact} con tu número de pedido."
+    "DISPUTES_DISCONTINUED_WITH_DETAILS": "Ya no se abren aclaraciones desde la tienda. Si tienes un problema con tu pedido, escríbenos a {contact} con tu número de pedido.",
+    "ITEM_NOT_OFFERED": "Esta carta no entró en la compra: al emitir la oferta se marcó como no comprada, así que no se puede aprobar. Déjala como está —no la apruebes con otro monto ni la rechaces— y sigue con las cartas que sí compramos. No se guardó nada."
   },
   "payment": {
     "title": "Pago",

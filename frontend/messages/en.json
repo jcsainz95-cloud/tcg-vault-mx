@@ -2339,7 +2339,7 @@
     },
     "m5": {
       "title": "Sell requests",
-      "receive": "Mark received",
+      "receive": "Received: start review",
       "verify": "Start verification",
       "approve": "Approve",
       "adjust": "Adjust",
@@ -2374,7 +2374,7 @@
       "rejectConfirm": "Reject and notify",
       "rejectRequest": "Reject request",
       "rejectRequestTitle": "Reject entire request",
-      "rejectRequestConsequence": "The request will be closed as rejected. This only applies once all of its items are already rejected; it moves no money and sends no emails (per-card notices already went out when each item was rejected).",
+      "rejectRequestConsequence": "The request will be closed as rejected. It only applies when all its items are already rejected; it doesn't move money or send emails (the seller already got the notice about the rejected cards).",
       "rejectRequestReasonLabel": "Internal reason (optional)",
       "rejectRequestReasonHint": "Optional, up to 500 characters. Kept in the audit log; not shown to the seller.",
       "rejectRequestConfirm": "Reject request",
@@ -2520,7 +2520,6 @@
         },
         "sent": "Offer issued: the email went out and the seller now has {netAmount} on the table.",
         "pendingAuthorization": "Prepared and waiting for super admin approval. The email has NOT been sent and nothing changed for the seller.",
-        "readOnly": "The offer is out: the desk is read-only.",
         "decline": {
           "action": "Decline",
           "title": "Decline this request",
@@ -2539,7 +2538,14 @@
           "confirm": "Cancel the offer and notify them",
           "done": "Offer on {id} cancelled: the request is back in “To offer”."
         },
-        "reasonTooLong": "The reason cannot be longer than 500 characters."
+        "reasonTooLong": "The reason cannot be longer than 500 characters.",
+        "readOnlyByStatus": {
+          "ofertada": "The offer is out and the seller has it. To change or close it, use “Cancel the offer” on the request.",
+          "aceptada": "The seller accepted: the request can no longer be cancelled. If a card arrives in bad condition, you reject it during review, with its reason.",
+          "en_transito": "The package is on its way. When it arrives, press “Received: start review” and reject there any cards that arrive in bad shape.",
+          "review": "It's under review: approve or reject each card on the request, or select several and “Reject selected”.",
+          "done": "There's nothing left to decide here for this request."
+        }
       },
       "shipment": {
         "title": "Label and shipping",
@@ -2625,6 +2631,38 @@
           "oldest": "Oldest",
           "latestStatus": "Latest status",
           "note": "This is the list of people we owe an answer to. Oldest first."
+        }
+      },
+      "receiveReview": {
+        "done": "Request {id} received and under review.",
+        "goVerifying": "Go to “Verifying”",
+        "verifyFailed": "We marked it as received, but the review couldn't be opened. Press “Start verification”."
+      },
+      "acceptedNote": "Accepted: it can no longer be cancelled. If a card arrives in bad condition, you reject it during review, stating the reason.",
+      "notBought": {
+        "tag": "NOT BOUGHT",
+        "note": "It was marked as not bought when the offer went out: it isn't approved or rejected."
+      },
+      "bulkReject": {
+        "all": "All that can be rejected ({n})",
+        "count": "{k, plural, one {# selected} other {# selected}}",
+        "selected": "Reject selected ({k})",
+        "allCta": "Reject all ({n})",
+        "hint": "Mark the cards that arrived in bad shape.",
+        "selectOne": "Select {card} · {folio}",
+        "title": "Reject {k, plural, one {# card} other {# cards}}",
+        "more": "and {r} more",
+        "reasonLabel": "Reason (the seller reads it in the email)",
+        "reasonHint": "One for all of them. E.g. “they arrived creased with worn edges”.",
+        "notice": "On confirming, the seller gets a single email with these cards, the reason and their options: they have 7 days to ask us to send them back (shipping at their cost); otherwise, after 30 days they're considered abandoned. If no card is left to approve after this, the request closes by itself.",
+        "confirm": "Reject {k} and notify them",
+        "done": "{k, plural, one {# card rejected} other {# cards rejected}}. The seller is notified in a single email.",
+        "closed": "The request is closed: no card is left to approve.",
+        "error": {
+          "notOffered": "{n, plural, one {One of the chosen cards wasn't} other {# of the chosen cards weren't}} part of the purchase: they were marked as not bought when the offer went out and aren't rejected. We removed them from the selection. Nothing was saved.",
+          "conflictItems": "{n, plural, one {One card can no longer be rejected} other {# cards can no longer be rejected}}: someone approved, converted or rejected them meanwhile. Nothing was saved. We've refreshed the list: check and try again.",
+          "closed": "This request is already closed: its cards can't be changed. Nothing was saved.",
+          "notFound": "A card no longer belongs to this request. We've refreshed the list. Nothing was saved."
         }
       }
     },
@@ -5054,7 +5092,8 @@
     "INVALID_TRANSITION_WITH_DETAILS": "This request is in “{from}”: {verb} only applies when it is in {allowedFrom}. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
     "INVALID_TRANSITION_VERB": {
       "receive": "“Mark received”",
-      "verify": "“Start verification”"
+      "verify": "“Start verification”",
+      "rejectItems": "Reject cards"
     },
     "INVALID_TRANSITION_ALLOWED_FROM_JOIN": " or ",
     "PAYMENT_IN_PROGRESS": "Your previous attempt already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check that order before retrying.",
@@ -5069,7 +5108,8 @@
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
     "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved.",
     "DISPUTES_DISCONTINUED": "Claims are no longer opened from the store. If you have a problem with your order, write to us with your order number.",
-    "DISPUTES_DISCONTINUED_WITH_DETAILS": "Claims are no longer opened from the store. If you have a problem with your order, write to {contact} with your order number."
+    "DISPUTES_DISCONTINUED_WITH_DETAILS": "Claims are no longer opened from the store. If you have a problem with your order, write to {contact} with your order number.",
+    "ITEM_NOT_OFFERED": "This card was not part of the purchase: it was marked as not bought when the offer went out, so it cannot be approved. Leave it as it is —do not approve it at some other amount and do not reject it— and move on to the cards we did buy. Nothing was saved."
   },
   "payment": {
     "title": "Payment",

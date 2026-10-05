@@ -77,6 +77,7 @@ import type {
   PreparationDestination,
   RefundOrderResponse,
   RefundDeliveredItemRequest,
+  RejectBuylistItemsRequest,
   WithdrawalDeliveredPreviewDTO,
   CreateWithdrawalDeliveredRefundRequest,
   CreateWithdrawalDeliveredRefundResponse,
@@ -4938,6 +4939,56 @@ export async function decideBuylistItem(
   item.itemStatus = next[input.decision];
   item.approvedPriceCents = input.approvedPriceCents ?? item.quotedPriceCents ?? 0;
   return delay({ ...item });
+}
+
+/**
+ * Rechazar VARIAS cartas de una solicitud en verificación con UN motivo y UN correo (contrato v1.82 §PNL.4 ·
+ * `POST /admin/buylist/:id/reject-items`, operador+, ⛔ no es dinero saliente). Todo o nada. Respuestas: `200`
+ * (la proyección de la decisión por carta), `422 ITEM_NOT_OFFERED { itemIds }`, `409 CONFLICT { itemIds }` (o
+ * sin `itemIds` si la solicitud cerró), `409 INVALID_TRANSITION { from, allowedFrom }`, `404`, `400`.
+ */
+export async function rejectBuylistItems(requestId: string, body: RejectBuylistItemsRequest): Promise<unknown> {
+  if (!config.useMocks) {
+    return apiRequest<unknown>(`/admin/buylist/${requestId}/reject-items`, { method: 'POST', body });
+  }
+  // MOCK: espeja las guardas de §PNL.4 (en ese orden) sobre la solicitud en memoria.
+  const req = fx.mockAdminBuylist.find((r) => r.id === requestId);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  const reason = body.reason?.trim() ?? '';
+  if (reason.length < 3 || reason.length > 500) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'reason 3-500', details: { field: 'reason' } });
+  }
+  if (new Set(body.itemIds).size !== body.itemIds.length) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'duplicates', details: { field: 'itemIds', rule: 'duplicates' } });
+  }
+  if (fx.mockAdminBuylistDTO(req).isTerminal) throw new ApiClientError(409, { code: 'CONFLICT', message: 'closed', details: { status: req.status } });
+  if (req.status !== 'verificacion') {
+    throw new ApiClientError(409, {
+      code: 'INVALID_TRANSITION',
+      message: 'not in verification',
+      details: { verb: 'rejectItems', from: req.status, allowedFrom: ['verificacion'] },
+    });
+  }
+  const items = body.itemIds.map((id) => req.items.find((it) => it.id === id));
+  if (items.some((it) => !it)) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'item not in request' });
+  const skip = items.filter((it) => it!.offerDecision === 'skip').map((it) => it!.id);
+  if (skip.length > 0) throw new ApiClientError(422, { code: 'ITEM_NOT_OFFERED', message: 'not offered', details: { itemIds: skip } });
+  const stuck = items.filter((it) => it!.itemStatus === 'rechazada' || it!.itemStatus === 'pagada' || it!.itemStatus === 'convertida_inventario').map((it) => it!.id);
+  if (stuck.length > 0) throw new ApiClientError(409, { code: 'CONFLICT', message: 'not rejectable', details: { itemIds: stuck } });
+  const rejectedAt = new Date().toISOString();
+  const deadlines = mockRejectDeadlines(rejectedAt);
+  for (const it of items) {
+    it!.itemStatus = 'rechazada';
+    it!.approvedPriceCents = undefined;
+    it!.rejectionReason = reason;
+    it!.rejectedAt = rejectedAt;
+    it!.returnDeadlineAt = deadlines.returnDeadlineAt;
+    it!.abandonDeadlineAt = deadlines.abandonDeadlineAt;
+  }
+  // Auto-transición (§M5 «(1)»): si no queda ninguna carta de la compra sin rechazar, la solicitud se cierra sola.
+  const live = req.items.filter((it) => it.offerDecision !== 'skip' && it.itemStatus !== 'rechazada');
+  if (live.length === 0) req.status = 'rechazada';
+  return delay({ itemIds: body.itemIds, requestClosed: live.length === 0 });
 }
 
 /**

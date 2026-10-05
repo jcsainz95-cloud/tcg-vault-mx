@@ -146,7 +146,8 @@ const DETAILED_ERRORS: Record<
    * devuelve `null` y se pinta la base: **no se inventa un estado ni un verbo**.
    */
   INVALID_TRANSITION: (d, t) => {
-    const verb = d.verb === 'receive' || d.verb === 'verify' ? d.verb : null;
+    // v1.82 (§PNL.4): + `rejectItems` (`POST /admin/buylist/:id/reject-items`).
+    const verb = d.verb === 'receive' || d.verb === 'verify' || d.verb === 'rejectItems' ? d.verb : null;
     const label = (status: unknown): string | null => {
       if (typeof status !== 'string' || status === '') return null;
       const key = getBadgeSpec('sellRequest', status).i18nKey;
