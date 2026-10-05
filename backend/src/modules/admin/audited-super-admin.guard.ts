@@ -4,8 +4,11 @@ import { Role } from '@prisma/client';
 import { BusinessException } from '../../common/business.exception';
 import { AuditService } from '../audit/audit.service';
 
-/** Qué intentó quien fue rechazado (`AuditLog.after.attempted`, §M6-U.6). */
-export type AdminDeniedAttempt = 'create' | 'reset_password';
+/**
+ * Qué intentó quien fue rechazado (`AuditLog.after.attempted`, §M6-U.6). 🔒 D2g (§19.30.2 (2)): gana `'status' | 'delete'` — los
+ * rechazos `OWNER_ACCOUNT_PROTECTED` (con `after.reason: 'owner_protected'`), que escribe `AdminUsersController`.
+ */
+export type AdminDeniedAttempt = 'create' | 'reset_password' | 'status' | 'delete';
 
 export const AUDITED_SUPER_ADMIN_KEY = 'auditedSuperAdmin';
 

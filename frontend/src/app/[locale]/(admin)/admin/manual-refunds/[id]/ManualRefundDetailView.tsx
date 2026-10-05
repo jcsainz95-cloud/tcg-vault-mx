@@ -20,6 +20,7 @@ import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { ManualRefundConfirmationRequiredDetails, ManualRefundDTO, RevealManualRefundClabeResponse } from '@/types/contract';
 import { MANUAL_REFUNDS_KEY } from '../ManualRefundsView';
+import { manualRefundWhy } from '../why';
 
 const DASH = '—';
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
@@ -46,6 +47,7 @@ function ManualRefundDetail({ id }: { id: string }) {
   const tStatus = useTranslations('status.manualRefund');
   const tOrder = useTranslations('status.order');
   const tc = useTranslations('common');
+  const tsr = useTranslations('admin.m3.shippedReason');
   const locale = useLocale() as AppLocale;
   const router = useRouter();
   const qc = useQueryClient();
@@ -227,10 +229,15 @@ function ManualRefundDetail({ id }: { id: string }) {
                 <span className="text-muted">{m.customer.email}</span>
               </div>
               <p className="text-sm text-text" lang="en">
-                {t(`source.${m.source}`, { card: m.case.card.name, folio: m.case.folio })}{' '}
-                <Link href={`/admin/m4/reponer/${m.case.id}`} className="underline underline-offset-4 hover:text-accent">
-                  {t('viewCase')}
-                </Link>
+                {manualRefundWhy(m, t, tsr)}
+                {m.case && (
+                  <>
+                    {' '}
+                    <Link href={`/admin/m4/reponer/${m.case.id}`} className="underline underline-offset-4 hover:text-accent">
+                      {t('viewCase')}
+                    </Link>
+                  </>
+                )}
                 {m.origin && (
                   <>
                     {' · '}
@@ -242,6 +249,28 @@ function ManualRefundDetail({ id }: { id: string }) {
                 )}
               </p>
               <p className="text-sm text-muted">{t('createdBy', { name: m.createdBy.name?.trim() || DASH, date: formatDateTimeMx(m.createdAt, locale) })}</p>
+              {/* §60.4 c: en lugar de «caso», el bloque «Retiro entregado» (v1.82 §PNL.3). */}
+              {m.source === 'withdrawal_delivered' && m.withdrawal && (
+                <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 border-t border-border pt-3 text-sm text-text" data-testid="mr-withdrawal-block">
+                  <dt className="col-span-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted">{t('withdrawal.title')}</dt>
+                  <dt className="text-muted">{t('withdrawal.folio')}</dt>
+                  <dd>
+                    <Link href="/admin/m4?tab=envios" className="tabular font-mono underline underline-offset-4 hover:text-accent">
+                      {m.withdrawal.shipmentId}
+                    </Link>
+                  </dd>
+                  <dt className="text-muted">{t('withdrawal.card')}</dt>
+                  <dd lang="en">
+                    {m.withdrawal.card.name} · <span className="tabular font-mono">{m.withdrawal.folio}</span>
+                  </dd>
+                  <dt className="text-muted">{t('withdrawal.reason')}</dt>
+                  <dd>{tsr(m.withdrawal.reason)}</dd>
+                  <dt className="text-muted">{t('withdrawal.note')}</dt>
+                  <dd className="whitespace-pre-wrap">{m.withdrawal.note}</dd>
+                  <dt className="text-muted">{t('withdrawal.deliveredAt')}</dt>
+                  <dd className="tabular">{m.withdrawal.deliveredAt ? formatDateTimeMx(m.withdrawal.deliveredAt, locale) : DASH}</dd>
+                </dl>
+              )}
               {m.reissuedFromId && (
                 <Link href={`/admin/manual-refunds/${m.reissuedFromId}`} className="text-sm text-text underline underline-offset-4 hover:text-accent">
                   {t('reissue.from', { id: m.reissuedFromId })}

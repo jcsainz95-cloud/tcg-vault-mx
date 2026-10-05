@@ -1,3 +1,703 @@
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de la errata v1.80.12.9 (control del gasto §Z y cierres C-14…C-18)** (`API_CONTRACT §M4-SHIP.19.29`; `ARCHITECTURE §4.60 (v)`) · SHA **`0363f7e2`** (rama `claude/skydropx-d`, medido con `git log -1` y `git fetch`: local = remoto) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **C-14…C-18: CERRADAS en diseño.** C-14 cierra SDX-D-21 lo bastante para construir D2d. Queda un residuo bajo
+>   (SDX-Z-5), que entra en D2d como C-19.
+> - **§Z (TG-1, TG-2, avisos, `isOwnerAccount`, endpoints): APROBADO CON CONDICIONES.** No hay críticos ni altos. Hay
+>   **3 medios**: el «dueño» se deduce de un dato que no lo garantiza (SDX-Z-1); un súper-admin vigilado puede apagar su
+>   propia vigilancia (SDX-Z-2); y cancelar con reembolso desconocido baja el contador del tope (SDX-Z-3).
+> - **D2c: DESBLOQUEADA**, con C-22 y C-23 dentro (abajo, como pruebas que deben fallar).
+> - **D2d: DESBLOQUEADA**, con C-19 dentro.
+> - **D2g: DESBLOQUEADA para construir.** C-20 y C-21 deben estar en verde **antes de fusionar D2g** y, en cualquier caso,
+>   antes de que el dueño encienda `shipping_label_purchase` en producción.
+>
+> **0 críticos · 0 altos · 3 medios · 3 bajos · 3 info** (todos nuevos).
+>
+> **Lo mínimo para aprobar la errata entera:** una errata del arquitecto que meta C-20…C-23 (y C-19 en §19.29.1.5), y la
+> medición de SDX-Z-1 en producción (la corre el dueño, solo lectura). **No es el veredicto de la release.** La fase
+> completa sigue pendiente en el gate E.
+
+**Lo que medí yo (2026-10-04).** Lectura y grep sobre el árbol vivo y sobre `HEAD`. **No ejecuté nada**, así que no hice
+copia. Lo que hay en `backend/` sin commitear (D2a en curso) **no** lo revisé.
+- Contrato `:27119-27500` (§19.29 entera), `:26977-27003` (§19.28.6), `:24006-24012` (`PurchaseInput`), `:24373-24385`
+  (`auto_close`). Arquitectura `:27687-27722`. `HECHOS.md:51,58,62`.
+- **¿Algún verbo cambia el rol de una cuenta?** Medí `git grep` de `user.update|updateMany|upsert` en `backend/src`,
+  `backend/prisma/*.ts` y scripts, más `UPDATE "User"` crudo. **Ningún** escritor toca `role` después del alta:
+  `admin.service.ts:1456-1462` (solo `status`), `:1489-1497` (contraseña), `:1616-1630` (anonimizar), `auth.service.ts:132,
+  222,301,388,499` (versión de token, verificación, contraseña, enlace de Google por correo **existente**),
+  `users.service.ts:225-237` (`updateMe` arma `data` a mano: `name`, `phone`, `locale`), `reset-admin-password.ts:214`
+  (contraseña). `seed.ts:55,74` hace `upsert` con `update: {}`. Y **ningún** verbo añade correo a una cuenta sin correo:
+  no hay flujo de cambio de correo (`git grep changeEmail|newEmail` ⇒ 0), y el alta de staff con correo da `422`
+  (`admin.service.ts:730-735`). **Respuesta a la pregunta del arquitecto: no existe hoy.** El hueco está en otro sitio
+  (SDX-Z-1).
+- `M-63` (`20261005120000_m63_staff_username/migration.sql:11-12`): **sin backfill**, «ninguna cuenta existente pierde su
+  correo». Antes de v1.80.9 el correo era obligatorio para todos.
+- `admin.service.ts:1473-1499` (`resetPassword`) y `audited-super-admin.guard.ts:44`: **cualquier** súper-admin restablece
+  la contraseña de **cualquier** cuenta, incluida otra de súper-admin, y la temporal vuelve en la respuesta.
+  `updateUserStatus` (`:1456`) tampoco filtra por rol.
+- `money-out.guard.ts:32-46`: lee el rol del JWT; si no es `super_admin` escribe `money_out.blocked` y responde `403
+  MONEY_OUT_FORBIDDEN`. `audit.service.ts:101-115`: la bitácora por usuario que ve el operador **nunca** trae
+  `before/after`, así que las cifras de `label_purchase_limited` no le llegan por ahí.
+- `settings.controller.ts:18-19`: hoy `@Roles(super_admin)` de clase, como dice la errata.
+
+## 1. ¿Cierran C-14…C-18?
+
+| Cond. | Estado | Por qué | Prueba |
+|---|---|---|---|
+| **C-14** (SDX-D-21) | **Cerrada.** D2d desbloqueada | (b) prohíbe cancelar si la guía vigente es `manual`, y eso por sí solo mata el camino de SDX-D-21 («Liberar» y capturar a mano). (c) añade una defensa independiente por número de rastreo. (a) falla cerrado sin rastreo. (d) limita el radio de un parseo roto a 3 por día. Residuo en SDX-Z-5 | PS-130 (a)(b)(c) + control positivo |
+| **C-15** (SDX-D-20) | **Cerrada**, con un ajuste (SDX-Z-4) | `folioTokenOf` anclado a `^PEDIDO ENV-(\d{6,})-(\d{2})$`. Para forjarlo, un campo del cliente tendría que volver **entero** como `reference`. La neutralización enumera seis campos, y la colonia, el municipio y el estado (ahora texto libre del cliente, `HECHOS` «Colonia como Mercado Libre») viajan en la cotización y no están en la lista | PS-129 (i)(j), PS-135 (c)(d) |
+| **C-16** (SDX-D-24) | **Cerrada** | I-SENT es una columna (`sentAt`) con `@@unique(envío, since)`, escrita en la tx del 7b, y el fallo de esa escritura da 0 `purchase`. Ya no se busca en JSON | PS-134 (c)(d) |
+| **C-17** (SDX-D-22) | **Cerrada** | Doble CAS (fila del envío y fila del intento con `sentAt: null`), con el CAS inverso al liberar. Las dos ramas se excluyen **por fila**, así que el desfase de reloj entre instancias ya no decide nada | PS-137 |
+| **C-18** (SDX-D-23) | **Cerrada** | `-NN` fijo, `\d{6,}`, `lpad` con `greatest(6, length)`; `attemptNo` en una fila sin purga, `1 + max` bajo el candado de fila. Buen hallazgo del arquitecto: el `lpad` de `M-67` truncaba | PS-135 (d)(e) |
+
+## 2. Las preguntas del encargo
+
+### 2.1 ¿Se pueden saltar los topes?
+
+| Vía | Juicio |
+|---|---|
+| **Carrera** (dos `POST …/label` a la vez) | **Resiste.** `checkLabelLimits` va dentro de la tx de `pg_try_advisory_xact_lock`, y el `INSERT` del intento va en la misma tx. El segundo ve el intento del primero o recibe `purchase_in_flight`. PS-140 con N ≥ 10 |
+| **Comprobación previa (paso 2) contra la del paso 7** | **Resiste.** La del paso 2 es solo lectura y sirve para negar antes de la red. La que manda es la del paso 7 |
+| **Otra cuenta (operador)** | Por diseño, el tope es por persona. Dos operadores suman 2 × MX$2,500, y eso es aceptado. Un operador no puede crear cuentas (alta solo súper-admin, `AuditedSuperAdmin('create')`). **Un súper-admin vigilado sí puede:** crea N operadores y gasta N × tope ⇒ SDX-Z-2 |
+| **«Capturar a mano»** | Fuera de los topes por decisión (criterio 338), y es correcto: no gasta de nuestro saldo. **Excepto** si quien captura compró la guía en el **panel de Skydropx** con nuestra cuenta: esa compra no pasa por TG-1/TG-2 ni lleva folio, y la conciliación solo mira guías con folio ⇒ **nada** avisa salvo AG-7 (saldo bajo) ⇒ SDX-I-7 |
+| **Cancelar para bajar el contador** | **Se puede. SDX-Z-3 (Media).** `spendOfPaidLabel` = `unrefundedCents ?? 0` para una cancelada. Con `CANCEL_REFUND_VERIFIABLE = false`, toda cancelación sin cifra cuenta **0** al instante. El bucle es: compra MX$2,500, cancela todo (vuelve a 0), compra otra vez. Lo acota TG-2 (2 guías pagadas por envío) y el número de envíos preparados. Lo **detectan** AG-4 (iii) a las 3 cancelaciones en 24 h (🔴 con correo) y AG-8 al día 3, pero el tope **preventivo** queda roto justo en el caso que el dueño quería cubrir: que Skydropx no devuelva el dinero (SEC-SDX-11, NO MEDIDO) |
+| **`auto_close` como vía de cancelación** | No aporta. Solo lo disparan el contracargo y el reembolso total (`API_CONTRACT:24373-24376`), que tienen su propio tope y su aviso (AG-14) |
+| **Súper-admin vigilado** | **Puede subir su tope o apagar los avisos.** Ver SDX-Z-2 |
+
+### 2.2 ¿Se puede conseguir `isOwnerAccount`?
+
+- **Cambio de rol: no** (medido arriba, ningún escritor de `role` ni de `email` después del alta).
+- **Alta nueva de súper-admin con correo: no** (`422 staff_without_email`).
+- **Cuentas heredadas: sí, y es la forma probable. SDX-Z-1 (Media).** Todo súper-admin dado de alta **antes de v1.80.9**
+  tiene correo, porque `M-63` no hizo backfill (`migration.sql:11-12`). Cada uno de esos `isOwnerAccount = true`
+  significa: exento de TG-1/TG-2, sus actos no generan avisos «sobre una persona», y **recibe los correos del dueño**
+  (nombres del personal, montos, gasto por persona). La premisa de §19.29.3, «hoy la única forma de ser súper-admin con
+  correo es ser la cuenta del dueño», **no se cumple por construcción. Es un hecho de datos sin medir.** Cuántos
+  súper-admin con correo hay en producción: **NO MEDIDO.** Lo mide el dueño con una consulta de solo lectura (C-20).
+- **Tomar la cuenta del dueño: sí. Es parte de SDX-Z-2.** Cualquier súper-admin pulsa «Restablecer contraseña» sobre la
+  cuenta del dueño (`admin.service.ts:1473-1499`, sin filtro de rol ni de dueño), recibe la temporal y entra **como
+  dueño**. Ya no tiene topes y sus actos dejan de avisar. Antes de §Z ser súper-admin y ser el dueño daba los mismos
+  poderes, así que esto no ganaba nada. **§Z crea un escalón nuevo («el dueño») y no protege la entrada.** Se nota: el
+  dueño queda fuera de su sesión y sin poder entrar hasta que use «olvidé mi contraseña». Queda bitácora
+  `user.reset_password`. Bloquear o borrar al dueño (`updateUserStatus`, `deleteUser`) deja al sistema **sin
+  destinatario** (`no_recipient`, solo un `warn` en el log).
+
+### 2.3 ¿Los correos al dueño filtran datos del cliente? — **No, por diseño.**
+La lista blanca por tipo (`toSpendAlertMail`), AG-1 con `changedKeys` sin valores, `facts` sin PII y PS-153 con
+canarios en **cada** tipo cubren lo que pedí. Lo que viaja (nombre del personal, número de pedido, folio, montos) no es
+del cliente. Una sola condición de forma: el «enlace al interruptor `shipping_label_purchase`» debe llevar a una
+**página**. Nunca un GET que cambie estado ni un enlace con token, porque los escáneres de correo siguen los enlaces ⇒
+SDX-I-8.
+
+### 2.4 ¿Se puede inundar al dueño o tapar un aviso grave?
+- **Inundar: no.** Como máximo 5 correos más 1 de lote por hora de reloj (en el cambio de hora pueden juntarse 10 en dos
+  minutos, y es aceptable). El `dedupKey` único impide repetir: AG-3 repetido sube `occurrenceCount`, no manda correo. El
+  envío es a lo sumo una vez (`failed_unknown` no se reintenta).
+- **Tapar: se puede retrasar, no perder. SDX-Z-6 (Baja).** El cupo de 5 se reparte por orden de llegada. Un operador
+  que corrige la dirección y compra en 5 envíos genera 5 AG-1 🔴 reales y gasta el cupo de la hora. El siguiente 🔴 del
+  sistema (fusible de huérfanas, paquete destruido, gasto sin explicar) baja al lote y llega hasta ~65 min después, como
+  una línea entre otras. Ningún aviso se pierde: sigue en el panel y en el resumen.
+- **Apagar avisos:** `spend_alerts_disabled` hace `no-op` **sin fila**. En manos del dueño es su decisión. En manos de
+  otro súper-admin borra la evidencia ⇒ SDX-Z-2.
+
+### 2.5 ¿El operador ve o marca avisos sobre sí mismo? — **No.**
+`@Roles(op, sa)` + `@MoneyOut()` de clase: el operador recibe `403 MONEY_OUT_FORBIDDEN` con `money_out.blocked` en
+**todas** las rutas, incluidos los `GET` (`money-out.guard.ts:32-46`), y `workQueue.spendControl = null`. La bitácora por
+usuario que sí ve no trae `after` (`audit.service.ts:101-115`). La negativa `LABEL_PURCHASE_LIMIT` no lleva cifras.
+**El súper-admin vigilado sí puede:** lista y marca como vistos los avisos sobre sí mismo. Con eso los saca de la tarjeta
+del dueño (`unseenImmediate`), aunque no del correo ni del resumen ⇒ parte de SDX-Z-2.
+
+## 3. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-Z-1** | Media | `isOwnerAccount` deduce «dueño» de «súper-admin con correo». Todo súper-admin anterior a v1.80.9 tiene correo (`M-63` sin backfill), así que sería «dueño»: exento de topes, sin avisos sobre él, destinatario de los correos. Cuántos hay en producción: NO MEDIDO | §19.29.3; `M-63:11-12` | **humano** (medir) → arquitecto (errata) → backend |
+| **SDX-Z-2** | Media | Un súper-admin que no es el dueño controla su propia vigilancia, en contra de P-GAS-9 («vigilar también a otros súper-admin») y de «configurable **por el dueño**» (`HECHOS.md:62`): **(i)** cambia los diales de §Z (tope hasta 1e8, recompras hasta 10, `spend_alerts_disabled`, que ni siquiera deja fila); **(ii)** restablece la contraseña del dueño y entra como él, o lo bloquea y deja el sistema sin destinatario; **(iii)** crea operadores para multiplicar el tope; **(iv)** marca como vistos los avisos sobre sí mismo. Todo queda en bitácora, pero **nada avisa al dueño** | §19.29.3, §19.29.8 (SettingsController), §19.29.9 (`seen`); `admin.service.ts:1456,1473-1499` | arquitecto → backend |
+| **SDX-Z-3** | Media | TG-1 falla abierto con el reembolso desconocido: una guía cancelada con `unrefundedCents = null` cuenta 0 al instante. Con `CANCEL_REFUND_VERIFIABLE = false` es **toda** cancelación sin cifra. Bucle compra–cancela–compra por encima del tope, acotado por envíos × (1 + recompras). Se detecta (AG-4 (iii), AG-8), pero no se previene | §19.29.4 (`spendOfPaidLabel`), PS-139 («con `null` ⇒ 0») | arquitecto → backend |
+| **SDX-Z-4** | Baja | C-15 enumera seis campos de `PurchaseInput.to`. La colonia, el municipio y el estado (texto libre del cliente) viajan en la **cotización** sin neutralizar, y no hay normalización Unicode (`ＥＮＶ－`, guiones tipográficos) antes del patrón | §19.29.1.2 | arquitecto → backend |
+| **SDX-Z-5** | Baja | Residuo de C-14 con el envío `cancelado`. Si S llevaba una guía **manual** que ya salió (contracargo o reembolso total en tránsito) y la comparación de rastreo falla (formato con guiones, rastreo maestro contra rastreo de bulto), (b) pasa por «cancelado» y se cancela la guía en tránsito. Además, el fusible cuenta filas que se escriben **después** de `cancel`: una cancelación con resultado desconocido no gasta fusible | §19.29.1.5 (b)(c)(d) | arquitecto → backend (D2d) |
+| **SDX-Z-6** | Baja | El cupo de 5 correos por hora se gasta por orden de llegada. Los avisos 🔴 de una persona retrasan hasta el lote (~65 min) un 🔴 del sistema | §19.29.5 | arquitecto → backend (D2g) |
+| **SDX-I-7** | Info | Una guía comprada en el **panel de Skydropx** (sin folio, id desconocido) no pasa por TG ni genera AG. Solo AG-7 la delata. Las credenciales del panel deben ser solo del dueño | §19.28.6, §19.29.6 AG-9 | humano; arquitecto (opcional: AG-9 `cause:'unattributed'`) |
+| **SDX-I-8** | Info | El enlace al interruptor en el correo debe llevar a la página de ajustes, nunca a un GET que actúe ni a un token | §19.29.5 | backend / ux-ui |
+| **SDX-I-9** | Info | La cuenta del dueño pasa a ser la única identidad sin tope y la que recibe los avisos, y entra sin segundo factor (`HECHOS.md:50`). Es la cuenta más valiosa del sistema | §19.29.3 | humano |
+
+## 4. Condiciones, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-18: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera
+y N ≥ 10 con su proporción y su autor, reloj y constantes inyectados, ⛔ nunca la red.
+
+| # | Antes de | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|---|
+| **C-19** | D2d | PS-130 gana **(d)**: S `cancelado` cuya guía vigente es `manual` con `trackingNumber = "1Z-999-AA1"` y `getShipment(Y)` con rastreo `"1Z999AA1"` y estado de paquetería `in_transit` ⇒ **0** `cancel` y AG-9 🔴. Dos reglas nuevas: `normalize` quita **todo** lo que no sea alfanumérico; y se exige que `getShipment(Y)` no muestre movimiento de paquetería (`carrierStatus ∈ {null, created}`). **(e)** Fusible: el doble de `cancel` lanza un *timeout* (resultado desconocido) tres veces ⇒ la 4.ª huérfana **no** se cancela. El fusible cuenta una fila de intención escrita **antes** de llamar (por ejemplo `ShipmentPaidLabel.cancelKind='orphan_auto'` con un sello previo), no la bitácora posterior | quitar la condición de movimiento ⇒ (d); normalizar solo espacios ⇒ (d); contar solo los éxitos ⇒ (e) | SDX-Z-5 | arquitecto → backend |
+| **C-20** | fusionar D2g / encender en prod | **(a)** Medición del dueño, de solo lectura: `SELECT count(*) FROM "User" WHERE role='super_admin' AND email IS NOT NULL AND status='active' AND "deletedAt" IS NULL` ⇒ esperado **1**. Si sale > 1, el arquitecto decide (quitar el correo a los heredados, o marcar al dueño de forma explícita). **(b)** Prueba: con dos súper-admin con correo activos en la base, `spend-watch` crea **un** aviso 🔴 `owner_set_changed` (o el arranque registra `error`), y el conjunto «dueño» queda **fijado**: un id nuevo que aparezca en el conjunto respecto de la corrida anterior ⇒ aviso al conjunto anterior. Con la errata actual no hay nada que lo detecte | quitar la comprobación ⇒ (b) en verde sin aviso | SDX-Z-1 | humano (a); arquitecto → backend (b) |
+| **C-21** | fusionar D2g | Con un súper-admin **sin** correo (vigilado) V: **(a)** `PUT /admin/settings` de `operatorLabelCap24hCents`, `shippingLabelReissueMaxPerShipment`, `spendAlertsDisabled` o cualquier dial de §19.29.8 ⇒ `403` con bitácora (solo `isOwnerAccount` los cambia), **o** bien se permite pero crea un aviso 🔴 con correo inmediato al dueño (decide el arquitecto; prefiero el `403`). **(b)** `POST /admin/users/<dueño>/reset-password` y `PATCH …/<dueño>/status` hechos por V ⇒ `403` con bitácora. El dueño se restablece por «olvidé mi contraseña» o con el script de rescate. **(c)** V da de alta un operador ⇒ aviso al dueño (🟡 en el resumen basta). **(d)** `POST /admin/spend-alerts/seen` de V sobre un aviso con `subjectUserId = V` ⇒ `updated: 0` y el aviso sigue sin ver. **(e)** `spend_alerts_disabled` apaga el **correo**, no la fila: un tipo apagado sigue creando el aviso en el panel con `mailStatus='not_applicable'` | `@MoneyOut()` a secas sin `isOwnerAccount` ⇒ (a); `resetPassword` sin filtro ⇒ (b); `seen` sin excluir al sujeto ⇒ (d); `no-op` sin fila ⇒ (e) | SDX-Z-2 | arquitecto → backend |
+| **C-22** | D2c | PS-139 cambia una fila: guía cancelada con `unrefundedCents = null` ⇒ cuenta **`chargedCents`** en TG-1 (falla cerrado) mientras el reembolso no esté confirmado. Y PS-138 gana: operador con tope 250000 compra 15 guías de 15000 (225000), las cancela todas con reembolso **desconocido** y pide otra de 30000 ⇒ `403 LABEL_PURCHASE_LIMIT {limit:'daily_spend'}` y **0** llamadas al doble. Con reembolso **entero** conocido sigue pasando (fila actual de PS-138). El P&L puede seguir con su supuesto; el tope no | `unrefundedCents ?? 0` ⇒ compra la 16.ª | SDX-Z-3 | arquitecto → backend |
+| **C-23** | D2c | PS-135 (c) se amplía: la fixture pone «Pedido ENV-000046-01» también en colonia, municipio, estado, `line2` y referencias, y en una variante con `ＥＮＶ－000046－01` (ancho completo) y con `‐`/`–`. Ni el cuerpo de la **cotización** ni el de la **compra** que recibe el doble contienen, tras NFKC, `/ENV\s*[-‐–—]\s*\d/i` fuera de `address_to.reference`. La neutralización se aplica **por construcción** a todo campo de texto de `address_to` en los dos puertos, recorriendo las llaves, no con una lista | lista fija de seis campos ⇒ la colonia pasa; sin NFKC ⇒ el ancho completo pasa | SDX-Z-4 | arquitecto → backend |
+| **C-24** | D2g (no bloquea) | PS-153 gana: 5 AG-1 🔴 del mismo sujeto en 10 min y luego un AG-9 🔴 `orphan_fuse` ⇒ el AG-9 sale como correo **individual** en esa hora. Regla sugerida: como máximo 2 correos inmediatos por `subjectUserId` y hora; lo demás de esa persona va al lote | cupo solo global ⇒ el AG-9 baja al lote | SDX-Z-6 | arquitecto → backend |
+
+## 5. Deuda aceptada (no bloquea)
+- **Tope por persona, no por equipo.** Dos operadores suman dos topes. Disparador: el dueño pide un tope global de
+  guías al día.
+- **Comprobar el reembolso de una cancelación** (`CANCEL_REFUND_VERIFIABLE = false`). Con C-22 deja de ser un hueco del
+  tope y queda como deuda de exactitud del P&L. Disparador: `M-PRD-7` mide `transaction_stats`.
+- **La puerta de la hora de reloj** (hasta 10 correos en dos minutos alrededor del cambio de hora). Disparador: queja
+  del dueño.
+- SDX-I-5 sigue aceptada (el folio secuencial; `§19.29.1.7`).
+
+## 6. Banderas para el humano
+1. **Mide cuántos súper-admin con correo hay** (C-20 (a)). La consulta es de solo lectura y la corres tú donde ya vive la
+   credencial. Si sale más de uno, el sistema trataría a esa persona como «el dueño».
+2. **Las credenciales del panel de Skydropx, solo tuyas.** Una guía comprada en el panel no pasa por los topes ni avisa
+   (SDX-I-7).
+3. **Tu cuenta pasa a ser la más valiosa:** sin tope y la que recibe los avisos. Conviene un segundo factor en ella
+   antes de operar con el gasto encendido (SDX-I-9).
+4. Siguen vigentes: la fase completa de la release, PG-1 con el saldo medido antes y después, y un pentest de terceros
+   antes de operar con dinero real.
+
+---
+
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de la errata v1.80.12.8 (el folio nuestro), antes de D2c** (`API_CONTRACT §M4-SHIP.19.28`; `ARCHITECTURE §4.60 (u)`) · SHA **`2612064e`** (rama `claude/skydropx-d`, medido con `git log -1` y `git fetch`: local = remoto) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **D2c (§19.28.1–.5, .7–.12): APROBADO CON CONDICIONES.** Las condiciones son C-15, C-16, C-17 y C-18, abajo,
+>   escritas como pruebas que deben fallar. C-8 y C-10…C-13 quedan **cerradas en diseño**. C-9 queda cerrada para la adopción.
+> - **§19.28.6, la rama «cancelación automática de una huérfana cuyo envío ya tiene otra guía viva»: RECHAZADA tal
+>   como está escrita.** Hay **1 alto** (SDX-D-21): el job puede cancelar la guía que va pegada al paquete. Esa rama es
+>   de **D2d**, no de D2c, así que **no bloquea empezar D2c**. Sí bloquea construir D2d hasta que haya una errata que
+>   cumpla C-14.
+>
+> **0 críticos · 1 alto · 2 medios · 2 bajos · 2 info** (todos nuevos).
+>
+> **Lo mínimo para aprobar la errata entera:** una línea de errata en §19.28.6 que cumpla C-14; que C-15, C-16 y C-18
+> entren en PS-129/PS-134/PS-135 y en el formato del token; y que C-17 entre en el 7b. **No es el veredicto de la release.** La fase completa sigue pendiente en el gate E.
+
+**Lo que medí yo (2026-10-04).** Fue lectura y grep sobre el árbol vivo. **No ejecuté nada**, así que no hice copia.
+- Contrato `:26810-27073`, arquitectura `:27636-27685`, `HECHOS.md:55-62`, `PROJECT.md:8625-8645` (§Z.4).
+- `skydropx-client.ts:304-335`: la puerta `spec.guard` corre **después** de `getToken()` y de `bucket.acquire()`, justo
+  antes de mandar la petición. Así que poner el `notAfter` de §19.28.2 en esa puerta es el sitio correcto: un token
+  lento no puede sacar un `POST` fuera de plazo. `:434-435` (`clearTimeout` en el `finally`) y `:339,375,388`
+  (`safeText` después): confirmo que hoy el cuerpo de la respuesta se lee **sin temporizador**.
+- `git grep "\.purchase(" HEAD -- backend/src` ⇒ **0** llamadores fuera de pruebas. No hay código viejo capaz de
+  comprar sin pasar por el 7b. Eso confirma §19.28.5, último punto.
+- `audit.service.ts:50-55`: `log()` no se traga el error. Si falla la escritura del 7b, la compra no sigue.
+- Lo que hay en `backend/` sin commitear (D2a en curso) no lo revisé.
+- **NO MEDIDO**, igual que el arquitecto: si `address_to.reference` vuelve en el listado o en el detalle, si Skydropx
+  lo trunca, y si alguna paquetería lo mezcla con `further_information`. Ninguna conducta real de Skydropx con envíos.
+
+## 1. ¿Cierra C-8…C-13?
+
+| Cond. | Estado | Por qué | Prueba |
+|---|---|---|---|
+| **C-8** (SDX-D-14) | **Cerrada**, condicionada a C-15 | La ventana tiene cota superior (+5 min). Un `createdAt` nulo ya no es candidato. El cuadre exige el folio exacto **con su intento**. La dirección de destino se busca por relación, no por posición. El total ya no sirve para cuadrar. Comparar el destinatario se sustituye por el folio, y lo acepto: es un dato que escribimos nosotros, no un parecido. **Pero** el argumento entero descansa en que nadie más que nosotros pueda poner `ENV-…` en lo que leemos ⇒ SDX-D-20 | PS-129 (a)…(h) |
+| **C-9** (SDX-D-15) | **Cerrada para la adopción** (§19.28.7). **Abierta para la conciliación nueva** | Cancelar tras adoptar exige el folio exacto. Pero §19.28.6 abre un segundo camino de `cancel` sin persona, y ese camino **no** prueba que la huérfana no sea la guía que va en el paquete ⇒ SDX-D-21 | PS-130 (ampliar: C-14) |
+| **C-10** (SDX-D-16) | **Cerrada** | Las escrituras usan `since` exacto. La clasificación de `count 0` nunca descarta un id (`label_orphan`). La compra tiene plazo y el cuerpo queda bajo temporizador. Las relaciones entre constantes se asertan. El job arranca en `since + 180 s` | PS-131 (a)…(d) |
+| **C-11** (SDX-D-18) | **Cerrada** | `pg_try_advisory_xact_lock`, clave `65_310_701` con censo. Comprobé las dos claves `bigint` existentes: no chocan (63_120_863, 64_440_950) | PS-132 |
+| **C-12** (SDX-D-17) | **Cerrada** | La contaminación se mide en `[since − T_REFUND_LAG, now]` (30 días hasta medir). Hay cable trampa. La regla de encendido pasa a N ≥ 60 con la cola de las lentas. Cumple los 4 requisitos que puse para encender `INFLIGHT_NEGATIVE_VERIFIED` | PS-133 |
+| **C-13** | **Cerrada** | PS-120 ampliada, tal como la pedí | PS-120 |
+
+## 2. Las preguntas del encargo
+
+### 2.1 El folio como dato que viaja a un tercero y se imprime en la etiqueta
+
+**¿Filtra algo?** Sí: el **volumen**, y nada más.
+- `ENV-` más 6 dígitos de secuencia global, sobre **todos** los `ShipmentRequest`, incluidos los retiros de bóveda.
+  Quien reciba dos paquetes separados por un tiempo sabe cuántos envíos hubo entre ellos. Eso cuenta la actividad de
+  la tienda **y la de custodia**.
+- El `-n` dice además que esa guía es una recompra.
+- No filtra PII, ni el id interno, ni Stripe, ni el número de pedido (§19.28.1 lo prohíbe y PS-135 (b) lo asevera).
+- El dueño lo aceptó (palabras relayadas en §19.28.1). ⚠️ La fila `HECHOS.md:61` recoge el folio, pero **no** recoge la
+  aceptación de que el volumen quede visible ⇒ bandera 1. Hay una alternativa sin coste para el cruce: un folio no
+  secuencial (por ejemplo, base32 aleatorio de 6 caracteres). El cruce funciona igual; lo que se pierde es el «pedido
+  1, 2, 3» que pidió el dueño. La decisión es suya ⇒ **SDX-I-5 (Info)**.
+- **Superficie:** el folio es enumerable. Hoy solo viaja en DTOs de admin (§19.28.11). Debe seguir así: ningún
+  endpoint de cliente, de invitado o público debe resolver nada por folio. Así nunca será una llave ⇒ **SDX-I-6**.
+
+**¿Se puede forjar o colisionar?**
+
+| Vía | ¿Adopta una guía ajena? | Juicio |
+|---|---|---|
+| Otro envío nuestro | No. El token lleva folio e intento, y `ENV-000046-1 ≠ ENV-000045-1` (PS-129 (e)) | Resiste |
+| Intento viejo del mismo envío | No: pasa a `label_orphan` (PS-129 (f)) | Resiste |
+| La dirección de **origen** con nuestra `reference` | No: se busca por relación (PS-129 (h)) | Resiste |
+| **El cliente escribe `ENV-000046-1`** (o «Pedido ENV-000046-1») en sus referencias, nombre o calle | **Depende de algo NO MEDIDO.** Si Skydropx, o una paquetería, devuelve `further_information` como `reference`, o mezcla los dos campos, el token que leemos **es el que escribió el cliente**. La secuencia es predecible. Si la guía de A cae en la ventana de B (posible, porque el bloqueo bajó a 3 min y la ventana dura +5), con la misma paquetería y el mismo CP, **B adopta la guía de A**: el paquete de B sale con la dirección de A. **Y en ese mundo el camino legítimo no funciona** (nuestro token nunca vuelve), así que la única adopción posible es la forjada. `folioTokenOf` busca con `\b…\b` en cualquier parte del texto, **sin anclar**, y nada impide que un campo del cliente lleve el patrón | **SDX-D-20 (Media).** Se arregla barato: anclar y sanear (C-15) |
+| Personal con acceso al panel que teclea el folio en una compra a mano | Sí, si cae en [−2, +5 min] con la misma paquetería y el mismo CP, y la compra por API no llegó a Skydropx. Si la compra por API sí llegó, sale `duplicate`. Si es por error, la guía es de ese mismo envío, que es lo correcto. Si es a propósito, quien lo hace ya tiene la custodia física y puede corregir la dirección | Info. No añade riesgo marginal (SDX-D-19 ya lo cubre) |
+
+**¿Qué pasa si Skydropx no lo devuelve o lo trunca?**
+- **No lo devuelve.** No hay adopción y sale «incierto», que lleva a «Liberar». Falla cerrado. La conciliación queda
+  ciega (no ve huérfanas) y la evidencia negativa no vota (§19.28.9: exige el folio en **todos** los candidatos). Se
+  pierde dinero sin vigilancia, pero no se pierde seguridad. Lo mide `M-PRD-7` tras PG-1.
+- **Lo trunca.** Si corta el texto en un sitio cualquiera, el token queda `null` y falla cerrado. **Excepto en un
+  caso:** con intento de dos dígitos, «Pedido ENV-000045-12» cortado en 19 caracteres da «Pedido ENV-000045-1», que
+  es un token **válido de otro intento**. Hoy el resultado es una huérfana falsa del intento 1. Con §19.28.6 tal como
+  está, eso alimenta la cancelación automática. Lo mismo ocurre al pasar de `ENV-999999`: con `\d{6}` exacto, el
+  folio 1 000 000 deja de leerse para siempre, sin aviso ⇒ **SDX-D-23 (Baja)**.
+
+### 2.2 La cancelación automática de un duplicado pagado: ¿puede cancelar una guía viva legítima? — **Sí. SDX-D-21 (Alta).**
+
+La regla (§19.28.6) dice: una huérfana (folio legible, id desconocido, intento que no es el vigente) cuyo envío
+«ya tiene **otra** guía viva» ⇒ `port.cancel` sin persona. El fallo está en «otra». **Nada comprueba que la guía viva
+del envío no sea la propia huérfana, capturada a mano.** El camino lo marca nuestra propia pantalla:
+1. S queda en vuelo. Skydropx tarda en listarla y a T+15 sale `label_unknown`.
+2. El súper-admin abre «Liberar». La ventana le dice «busca en el panel de Skydropx: **Pedido ENV-000045-1**»
+   (§19.28.11) y la encuentra: la compra sí se hizo.
+3. Libera. Ahora `labelPending = null`, así que aparece «Capturar a mano» (`API_CONTRACT:25254`, PS-101), y la
+   persona captura **el número de rastreo de esa misma guía**. Es lo sensato: la guía existe y está pagada.
+4. La captura a mano guarda paquetería y número, **no** `providerShipmentId` (`labelSource='manual'`,
+   `API_CONTRACT:23718`). Por eso su id no entra en `knownIds`.
+5. Más tarde el listado la muestra: id desconocido, token `(ENV-000045, 1)`, y el reclamo vigente ya no existe. Pasa a
+   `label_orphan`. Su envío «tiene otra guía viva» (la manual, que **es ella**). El resultado es **`port.cancel` sobre
+   la guía pegada al paquete**, que ya va con la paquetería.
+
+Impacto: un paquete con cartas en custodia viaja con una guía cancelada (devolución, retención o pérdida), y no hace
+falta atacante, solo seguir la operación normal. Por eso es **Alta**, la misma clase que SDX-D-14.
+
+Hay también un **riesgo de radio**. Es el único `cancel` masivo que puede hacer una máquina, y no tiene tope. Un fallo
+de parseo (SDX-D-23, o un cambio de forma en `included`) podría convertir muchas guías en «huérfanas» en una sola
+corrida. Pido un fusible.
+
+Lo que **sí** resiste, y es la mayoría de los casos:
+- La huérfana de un envío `cancelado` (no va a salir).
+- Los dos sobrantes de un `duplicate` cuando el envío ya tiene la guía buena **comprada por API**
+  (`providerShipmentId ≠` el de la huérfana).
+
+### 2.3 `not_sent` automático: ¿puede liberar una compra que sí salió?
+
+El diseño es correcto en la idea: I-SENT convierte «no salió» en un hecho local. Hay tres caminos por los que
+fallaría **abierto**, que ahora mismo significa una segunda compra pagada:
+1. **La búsqueda de la fila del 7b falla en silencio. SDX-D-24 (Media).** Se busca por `after.since` dentro del JSON
+   de la bitácora. Cualquier desajuste (formato ISO contra `Date`, milisegundos, zona horaria, otra llave) hace que
+   **toda** compra en vuelo parezca «no salió» y se libere a los 3 min. PS-134 (a) solo prueba la **ausencia**, y una
+   búsqueda rota pasa esa prueba en verde. Falta el control positivo **contra Postgres real**, con la fila escrita por
+   el 7b real (C-16).
+2. **Relojes distintos o un 7b lento sin CAS. SDX-D-22 (Baja).** El 7b.2 (§19.27.3) solo inserta en la bitácora: **no**
+   comprueba que el reclamo siga vivo. Hoy lo salva `notAfter` (120 s < 180 s), **si** `since`, `notAfter` y el `now`
+   del job vienen del mismo reloj. Con desfase de más de 60 s entre instancias, o con `since` sacado de `now()` de la
+   base y `notAfter` del reloj de la aplicación, el job libera, el 7b tardío inserta y el `POST` sale. Improbable,
+   pero el cinturón cuesta una línea: el 7b.2 hace un CAS sobre la fila en la misma tx (C-17).
+3. **Código que compra sin 7b.** Hoy no lo hay (medido: 0 llamadores). PS-117 (un solo llamador) y PS-134 (b) lo
+   vigilan. Resiste.
+
+### 2.4 `INFLIGHT_ADOPTION_ENABLED = true`: ¿justificado? — **Sí, con C-15 construida.**
+El argumento del arquitecto (§4.60 (u)) es correcto: una adopción falsa exige que nos vuelva **nuestro** token en un
+envío que no compramos. La única forma realista de que eso pase sin un insider es SDX-D-20. Con C-15, la acepto
+encendida. Además el apagado de emergencia es por errata y las pruebas la inyectan en `false`. Sin C-15, pediría
+`false` hasta que la segunda corrida de `M-PRD-7` mida que `reference` vuelve **exactamente como la mandamos**.
+
+### 2.5 Control del gasto (`HECHOS.md:62`, `PROJECT.md §Z.4`): ¿choca con §19.28? — **No choca, pero hay tres puntos de unión que el arquitecto debe fijar al meterlo.** No lo reviso todavía.
+- **TG-2 («una re-emisión por envío») no puede contarse con el `n` del token.** `n` cuenta intentos con
+  `label_purchase_sent`, e incluye los que no costaron nada (`PurchaseDeadlineError`, rechazo sin id). Con `n`, un fallo
+  de red gastaría la única recompra del operador. Al revés, contar solo las guías persistidas deja fuera las huérfanas y
+  los `duplicate`, que **sí** se pagaron. Se deben contar las **guías pagadas**: persistidas, adoptadas o huérfanas con
+  id.
+- **TG-1 (MX$2,500 en 24 h) y la compra en vuelo.**
+  - Un reclamo en vuelo o incierto cuenta por `expectedChargeCents` hasta que se resuelva. `not_sent` lo descuenta.
+  - La adopción y la huérfana se atribuyen a **quien reclamó** (el actor de `label_requested`), nunca a
+    `system:label-verify`.
+  - La cancelación automática solo descuenta lo que se devolvió (SEC-SDX-11: el seguro, NO MEDIDO).
+- **Concurrencia (§Z.4).** El candado `SKYDROPX_PURCHASE_LOCK_KEY` ya serializa el paso 7 de toda la cuenta. Si TG-1 y
+  TG-2 se comprueban **dentro** de esa tx, la concurrencia queda resuelta sin mecanismo nuevo.
+- Coherente: «la 3.ª la compra el dueño» y P-SDX-REL por defecto (solo súper-admin). Ojo: la excepción de §Z es **el
+  dueño** (Z.0.5), no el rol `super_admin` («vigilar también a otros súper-admin»).
+
+## 3. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-D-21** | **Alta** | La conciliación cancela sola una huérfana cuyo envío «tiene otra guía viva», sin comprobar que esa guía viva no sea **la misma**, capturada a mano tras «Liberar» (la captura manual no guarda `providerShipmentId`). Resultado: cancela la guía del paquete en tránsito. Además no hay fusible de cancelaciones automáticas. Detalle en 2.2 | §19.28.6 (primera viñeta de «Qué se hace»), PS-130 (fila de la huérfana), §4.60 (u) última fila | **arquitecto** (errata) → backend (D2d) |
+| **SDX-D-20** | Media | El folio se puede forjar con datos del cliente si Skydropx devuelve o mezcla `further_information` (o algún otro campo del cliente) en `reference` (NO MEDIDO). `folioTokenOf` no está anclado y los campos del cliente no se sanean del patrón. En ese mundo, la única adopción posible es la forjada | §19.28.1 (extracción), §19.28.4, PS-129, PS-135 | **arquitecto** → backend |
+| **SDX-D-24** | Media | `not_sent` falla abierto si la búsqueda de `label_purchase_sent` por `since` no encuentra una fila que existe, y PS-134 no lo detectaría (solo prueba la ausencia) | §19.28.5, PS-134 | **arquitecto** (prueba) → backend |
+| **SDX-D-22** | Baja | El 7b.2 no comprueba que el reclamo siga vivo. La seguridad de `not_sent` frente a un 7b tardío depende de que `since`, `notAfter` y el job compartan reloj | §19.27.3 paso 2, §19.28.2, §19.28.5 | backend (y arquitecto: una línea) |
+| **SDX-D-23** | Baja | Formato del token: con intento de dos dígitos, un truncado deja un token válido de otro intento; `\d{6}` exacto deja de leer al pasar del folio 999 999; `n` sale de contar la bitácora (si esas filas tuvieran purga, `n` se repetiría: **NO MEDIDO** si `shipment.*` tiene retención) | §19.28.1 | arquitecto → backend |
+| **SDX-I-5** | Info | El folio secuencial revela el volumen de envíos y de retiros de bóveda. Aceptado por el dueño según relato, sin fila en `HECHOS` | §19.28.1 | **humano** |
+| **SDX-I-6** | Info | El folio no debe ser nunca llave de búsqueda en superficies de cliente, invitado o públicas (es enumerable) | §19.28.11 | arquitecto (una línea) |
+
+## 4. Condiciones, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-13: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera
+y N ≥ 10 con su proporción, todo con el doble (⛔ nunca la red).
+
+| # | Antes de | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|---|
+| **C-14** | **D2d** (bloquea) | PS-130 gana tres filas. **(a)** S en vuelo; «Liberar»; captura a mano con el `trackingNumber` que `getShipment(Y)` devuelve para la huérfana Y (`ENV-000045-1`). El listado muestra después Y ⇒ **0** `cancel` y alerta `label_orphan` para una persona. **(b)** Si `getShipment(Y)` no se lee, o la guía viva de S es `labelSource='manual'` ⇒ **0** `cancel` y alerta. **(c)** Fusible: con 3 cancelaciones automáticas de huérfanas en las últimas 24 h, la 4.ª ⇒ **0** `cancel`, aviso 🔴 al dueño y bitácora. Control positivo: la guía viva de S es `skydropx` con `providerShipmentId ≠ Y` y el rastreo de Y ≠ todo número de rastreo nuestro ⇒ `cancel` **una** vez | quitar la comparación del rastreo ⇒ (a); aceptar una guía viva manual ⇒ (b); quitar el fusible ⇒ (c) | SDX-D-21 | arquitecto → backend |
+| **C-15** | D2c | **(a)** PS-135 gana: con `Address.references = "Pedido ENV-000046-1"`, y el mismo patrón en `name` y en `street1`, el cuerpo que recibe el doble **no** contiene ninguna coincidencia de `/ENV-\d+-\d+/i` fuera de `address_to.reference` (el patrón se neutraliza al armar la compra). **(b)** PS-129 gana: el doble devuelve como `reference` de destino el texto del cliente «Pedido ENV-000046-1» para la guía de A, dentro de la ventana de B, con la misma paquetería y el mismo CP ⇒ B **no** adopta. **(c)** Unitaria de `folioTokenOf`: solo acepta el texto **entero** (tras recortar y en mayúsculas) con la forma exacta que mandamos. «Pedido ENV-000045-01 casa azul» ⇒ `null`; «x ENV-000045-01» ⇒ `null` | quitar el saneado ⇒ (a)/(b); volver a `\b…\b` sin anclar ⇒ (c) | SDX-D-20 | arquitecto → backend |
+| **C-16** | D2c | PS-134 gana **(c)** de integración, contra Postgres real y con el 7b **real** (sin repositorio falso): reclamo, 7b comiteado, la `purchase` del doble colgada, reloj en `since + 180 s` ⇒ el job **no** sale `not_sent` (0 liberaciones). Y **(d)**: la escritura del 7b.2 falla ⇒ **0** `purchase` | buscar la fila por otra forma de `since` (por ejemplo, `Date` contra ISO, o `createdAt` en lugar de `after.since`) ⇒ (c) libera; tragarse el error del 7b.2 ⇒ (d) | SDX-D-24 | arquitecto → backend |
+| **C-17** | D2c | El 7b.2 hace, en la misma tx que la bitácora, `updateMany({id, labelProcessingSince: since, providerShipmentId: null})` y exige `count = 1`. Si no ⇒ **0** `purchase`. Prueba con barrera: una liberación (`not_sent` o «Liberar») entra entre el 7b.1 y el 7b.2 ⇒ **0** `purchase`, N ≥ 10, con su proporción. Además, unitaria: `since`, `notAfter` y el `now` del job salen de **un** reloj inyectado | quitar el CAS ⇒ sale `purchase` | SDX-D-22 | backend |
+| **C-18** | D2c | Formato del token: intento con ancho fijo de 2 (`-01`) y folio `\d{6,}`. Unitarias: «Pedido ENV-000045-1» (truncado de `-12`) ⇒ `null`; «Pedido ENV-1000000-01» ⇒ token. Y `n` sale de una fuente sin purga (si la bitácora `shipment.*` tiene retención, de un contador en la fila) | volver a `\d{1,3}` ⇒ el truncado se lee como intento 1 | SDX-D-23 | arquitecto → backend |
+
+**Para cuando el arquitecto meta §Z** (no son de D2c y no las reviso todavía): TG-2 cuenta guías pagadas, nunca `n`.
+TG-1 cuenta los reclamos en vuelo y los atribuye a quien reclamó. Las dos se comprueban dentro de la tx del candado
+`SKYDROPX_PURCHASE_LOCK_KEY` (2.5). La revisión de seguridad de esa errata vendrá después.
+
+## 5. Deuda aceptada (no bloquea)
+- **SDX-I-5.** Volumen visible en la etiqueta. Disparador: que el dueño diga que no lo quiere, o un competidor que lo
+  explote.
+- **La conciliación queda ciega si el folio no vuelve.** Se pierde dinero sin vigilancia, pero falla cerrado.
+  Disparador: la segunda corrida de `M-PRD-7` tras PG-1.
+- **Folio tecleado en el panel por el personal (2.1).** Lo cubre SDX-D-19 y §Z.
+- Siguen igual SDX-D-6 (ahora mitigada por `labelPending.providerReference`), SDX-D-18 (c) y SDX-D-19 (ahora la recoge
+  §Z, `HECHOS.md:60,62`).
+
+## 6. Banderas para el humano
+1. **El folio impreso cuenta cuántos envíos y retiros de bóveda hacemos.** El cruce funciona igual con un folio no
+   secuencial. Si lo aceptas, conviene que quede en `HECHOS.md` con tus palabras (hoy la fila 61 no lo dice).
+2. **P-SDX-REL sigue sin respuesta.** Queda el valor por defecto, solo súper-admin, y lo sigo recomendando.
+3. Mientras C-15 no esté construida, **nadie compra en el panel de Skydropx tecleando el folio a mano** salvo para el
+   mismo envío.
+4. Siguen vigentes: la fase completa de la release, PG-1 con el saldo medido antes y después (y ahora también: ¿vuelve
+   `reference` tal cual?), y un pentest de terceros antes de operar con dinero real.
+
+---
+
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de las erratas v1.80.12.6 y v1.80.12.7, antes de D2c** (`API_CONTRACT §M4-SHIP.19.26`, `§M4-SHIP.19.27`; `ARCHITECTURE §4.60 (s)`, `(t)`) · SHA **`eade24d3`** (rama `claude/skydropx-d`, medido con `git log -1`) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO
+> - **v1.80.12.6 (§19.26): APROBADO.** Cierra en diseño SDX-D-1, -2, -3 y -10 tal como pedí, y C-1…C-6 están
+>   completas como PS-116…PS-121. SDX-D-5 y SDX-I-1 las cerró el dueño (`HECHOS.md:58`). SDX-D-6 queda como deuda con
+>   disparador. El modo `operators` no abre un camino nuevo para gastar; solo cambia quién (ver 1.2).
+> - **v1.80.12.7 (§19.27): RECHAZADO tal como está escrito.** Hay **1 alto** (SDX-D-14: la adopción automática puede
+>   tomar una guía que no es de ese envío) y **3 medios** (SDX-D-15, -16, -17).
+>
+> **0 críticos · 1 alto · 3 medios · 2 bajos · 1 info** (todos nuevos; los de `ace57032` están abajo, en 0.2).
+>
+> **Lo mínimo para aprobar:** una errata del arquitecto que cierre SDX-D-14 y SDX-D-16 (condiciones **C-8** y **C-10**)
+> y que meta C-9, C-11 y C-12 como pruebas. **Hay otra vía** si no se quiere esperar la errata: D2c construye §19.26
+> completo y §19.27.2/.3 (serialización y foto del saldo), con la **adopción automática apagada** detrás de una
+> constante `INFLIGHT_ADOPTION_ENABLED = false`, igual que `INFLIGHT_NEGATIVE_VERIFIED`. En ese caso el job solo
+> escribe `label_verify_uncertain` y «Liberar» busca, pero **no adopta sin persona**. C-10 sigue siendo obligatoria en
+> las dos vías: no depende de la adopción.
+> **No es el veredicto de la release.** La fase completa (pentester + seguridad sobre D2 ya construido) sigue pendiente
+> en el gate E.
+
+**Lo que medí yo (2026-10-04).** Fue lectura y grep sobre el árbol vivo; **no ejecuté nada**, así que no hice copia.
+- Contrato y arquitectura leídos en `eade24d3`.
+- El código que cito coincide con `HEAD`: `git diff --quiet HEAD` sobre `shipping-provider/`,
+  `admin-shipments.controller.ts` y `audit/` da vacío.
+- Los ficheros sin commitear de D2a (`shipping-dials.ts`, migración `m66`) son obra en curso y solo los cité de
+  referencia.
+- **NO MEDIDO:** cualquier conducta de Skydropx con envíos reales (la cuenta nunca compró). Tampoco medí la duración
+  real de una compra con reintentos: la calculé con las constantes (ver SDX-D-16).
+
+## 0. Lo que traen las erratas, contra mi veredicto anterior
+
+### 0.1 v1.80.12.6 (§19.26), hallazgo por hallazgo
+| Mío | Estado en el diseño | Dónde | Prueba |
+|---|---|---|---|
+| SDX-D-1 | **Cerrado.** Hay una matriz con 4 filas; un id presente nunca se descarta; `null`, nunca `''`; un `400/422` con id va a «rechazo con id» con **un** solo parser | §19.26.1 | PS-116 = C-1 completa |
+| SDX-D-2 | **Cerrado.** Replay tachado sin condición; `purchase` tiene un solo llamador. ⚠️ Pero §19.27 hace que el job **sí** llame a `cancel` tras una adopción (SDX-D-15) | §19.26.2 | PS-117 (+ ampliada) = C-2 |
+| SDX-D-3 | **Cerrado.** Guarda previa `rate_already_purchased` (cero red) más el cinturón `provider_id_taken` (cero `500`, A intacta, B retenido, `confirmConflict` para liberar) | §19.26.3 | PS-118 = C-3 |
+| SDX-D-5 | **Cerrado por el dueño** (`HECHOS.md:58`): el personal también compra. El modelo de amenazas cambia (1.2, SDX-D-19) | §19.26.6 | PS-120 |
+| SDX-D-6 | **Deuda aceptada.** La API no tiene campo de referencia (lectura del arquitecto de `SKYDROPX_API_REFERENCIA.md:142-186`; yo no lo releí). La ventana de «Liberar» muestra con qué cuadrar, más `priceCents` | §19.26.5 | — |
+| SDX-D-10 | **Cerrado.** Reclamo deshecho y `409 allow_spend`; se distingue por clase antes del manejo genérico | §19.26.4 | PS-119 = C-4 |
+| SDX-I-1 | **Cerrado por el dueño:** cancelar sigue siendo operador o superior | §19.26.6 | PS-120 |
+| SDX-D-4 / C-7 | **Abierto, sin cambio.** Lo tiene devops antes de PG-1 | — | — |
+| SDX-D-7, -8, -9, -12, -13 | Sin cambio (deuda o release) | — | — |
+
+### 0.2 Qué cambia el modo `operators` en C-5
+- **C-5 (i)** («un segundo `super_admin` ⇒ `200`») **sigue igual**. El dueño amplió, no restringió.
+- **PS-120 ya trae** lo que el modo `operators` exige: `operators` + `vault_operator` ⇒ `200`; `super_admin_only` +
+  `vault_operator` ⇒ `403`; `label/cancel` funciona como operador con el dial en `disabled`; `label/release` como
+  operador ⇒ `403`.
+- **Le falta una fila** (C-13): el dial pasa de `operators` a `super_admin_only` entre dos llamadas del mismo operador
+  ⇒ la segunda da `403`. Hoy solo se prueba el paso a `disabled`, y la caché del dial que mordería a esta fila es
+  justo la del modo nuevo.
+- **La puerta se escribe con un conjunto explícito** `{vault_operator, super_admin}`, nunca como `role ≠ customer`.
+  Hoy son equivalentes porque `Role` tiene tres valores (`schema.prisma:16-20`); un rol nuevo mañana entraría a
+  comprar sin que nadie lo decidiera.
+
+## 1. Las preguntas del encargo
+
+### 1.1 ¿Puede la adopción tomar una guía que no es de ese envío? — **Sí. SDX-D-14 (Alta).**
+Candidato, según §19.27.4: id desconocido, `createdAt ≥ since − 2 min` **(sin cota superior)** o `createdAt` nulo, y
+`source` nulo o `'api'`. Cuadre: misma paquetería y **al menos uno** de {total, CP} legible e igual. La adopción corre
+**cada minuto hasta T+15 min y cada 10 min hasta T+24 h** (§19.27.5). La serialización de §19.27.2 solo ordena
+**nuestras** compras por API, y se levanta a los 15 min.
+
+| Origen de la guía ajena | ¿La adopta? |
+|---|---|
+| **Guía comprada en el panel de Skydropx** para otro pedido y capturada con «Capturar a mano». Se guarda número de rastreo, **no** `providerShipmentId`, así que no entra en `knownIds` | **Sí**, si es única y cuadra: misma paquetería y mismo CP (cualquier cliente del mismo CP) **o** mismo total (mismo empaque y zona ⇒ misma tarifa, que es justo el caso M-5). `source` en el listado: NO MEDIDO ⇒ nulo ⇒ entra |
+| Compra en el panel **durante la cola de 24 h** | **Sí**: sin cota superior en `createdAt`, cualquier compra del panel en las 24 h siguientes es candidata |
+| **El diseño empuja a esto**: mientras S verifica, `409 purchase_in_flight` bloquea las demás compras hasta 15 min y la ventana sigue ofreciendo «Capturar a mano» para S2 | El camino natural del personal es comprar S2 en el panel **dentro de la ventana de S** |
+| Otro envío nuestro en vuelo S' | **No**, cubierto por el paso 3 (`matches(c, S')`) |
+| Una guía ya conocida (persistida, cancelada, `label_failed` con `kept`, adoptada) | **No** (`knownIds`) |
+
+**Impacto.** S queda con la guía de **otro paquete**:
+- La etiqueta que se imprime para S lleva la dirección de otro cliente, y las cartas de S (custodia) van a parar ahí.
+- El rastreo de S marca «entregado» con los eventos de otro paquete.
+- La compra real de S, si existió, queda huérfana y sin vigilar: la conciliación es deuda de (t).
+- Si S ya estaba `cancelado`, el job cancela sola la guía ajena (SDX-D-15).
+
+No hace falta atacante: basta la operación normal. Por eso es **Alta**. Arreglarlo es barato (C-8).
+
+### 1.2 Modelo de amenazas con `operators` (`HECHOS.md:58`)
+- **Gastar saldo con credenciales de operador.** El personal entra con usuario y contraseña, **sin segundo factor**
+  (`HECHOS.md:50`). Con el dial en `operators`, una credencial robada compra guías. El daño tiene tope: solo envíos
+  preparados, un reclamo por envío, y `rate_already_purchased` corta comprar la misma tarifa dos veces. Lo que
+  **no** tiene tope es el bucle cancelar–recomprar: en cada vuelta se pierde lo que Skydropx no reembolsa (el
+  seguro, SEC-SDX-11, NO MEDIDO) ⇒ **SDX-D-19 (Baja)**.
+- **Desviar un paquete.** El mismo operador corrige la dirección completa (`PUT :id/address`, operador o superior,
+  `admin-shipments.controller.ts:15,116`; `HECHOS.md:50`) y compra la guía, sin un segundo par de ojos. El riesgo
+  marginal es bajo porque el operador **ya tiene la custodia física**, y queda bitácora con actor (revisión SKX-SEC-1).
+  Mitigación sugerida, sin contradecir al dueño: un aviso en el panel del dueño cuando la misma persona corrige la
+  dirección y compra la guía del mismo envío ⇒ SDX-D-19.
+- **«Liberar» es el único control de segregación que queda en el camino a una guía duplicada.** Recomiendo
+  **P-SDX-REL (a)**: solo el súper-admin (SDX-I-4).
+
+### 1.3 Cuando se encienda, ¿puede la liberación automática abrir una segunda compra pagada? — **Sí, por tres caminos.** SDX-D-16 (Media, hoy) y SDX-D-17 (Media, latente)
+La liberación no compra; compra el clic del operador que viene después. Una liberación falsa ⇒ dos guías pagadas.
+1. **Respuesta tardía de la compra (SDX-D-16).** Calculé la vida de una llamada de compra con las constantes
+   (`skydropx-client.ts:53,56,58,350,361`): 30 s por intento, un reintento tras `401` y tres tras `429` con
+   `Retry-After` de hasta 60 s ⇒ **5 intentos × 30 s + 3 × 60 s ≈ 330 s, más la obtención del token**. Eso son unos
+   6 minutos, y **un `POST` nuevo puede salir al minuto 5,5**. La liberación automática lee a T+5 y T+7.
+   - Peor: **todas** las escrituras de la respuesta (§19.7 paso 9, `API_CONTRACT:24208,24232`; §19.26.1;
+     §19.18.3) llevan `labelProcessingSince:{not:null}` en el `WHERE`, **no el `since` exacto** de su reclamo. Una
+     respuesta tardía del reclamo T1, tras liberar y recomprar con T2:
+     - si es éxito sin número, escribe su id sobre el reclamo **T2**;
+     - si es rechazo, **deshace el reclamo T2** con la compra T2 aún en vuelo ⇒ el envío vuelve a «comprable» ⇒ tercera compra.
+     - Y si la respuesta T2 encuentra después `count 0` con `status = picking`, §19.18.3 punto 1 **cancela la guía
+       buena**.
+   - Hoy la liberación manual exige más de 15 min (`too_early`), así que el solape no ocurre con la duración
+     calculada. Con la liberación automática a los 7 min, sí.
+   - **El otro lado es real ya desde el día 1:** la adopción empieza a T+1 min con la compra viva. Si la respuesta
+     llega después con un id Z distinto del adoptado, §19.18.3 punto 1 responde `409` y **Z se pierde sin
+     bitácora**. Eso contradice «un id presente nunca se descarta» (§19.26.1).
+2. **Envenenar el saldo con un reembolso (SDX-D-17).** Ver 1.4.
+3. **Una calibración débil (SDX-D-17).** La regla `M-PRD-8` acepta **K ≥ 5** compras limpias. Si el 10 % de las
+   compras tardan en aparecer o en debitarse, 5/5 limpias sale con probabilidad 0.9⁵ ≈ **59 %**: la muestra no ve la
+   cola. Además la calibración se hace sobre compras **que respondieron**, y las que quedan en vuelo ocurren justo
+   cuando Skydropx va lento. Es una **población distinta**: sesgo de selección.
+
+### 1.4 ¿Se puede envenenar con recargas, cargos extra o cancelaciones?
+| Movimiento en la ventana | Efecto | ¿Seguro? |
+|---|---|---|
+| Recarga | Saldo sube ⇒ `balance_moved` ⇒ incierto | Sí, falla cerrado |
+| Cargo extra (sobrepeso) de otra guía | Si es igual a `expectedChargeCents` ⇒ `charged_not_found`; si no, `balance_moved` | Sí, incierto |
+| Compra en el panel | Crea un candidato ⇒ la lectura no está limpia (negativo) **pero** puede adoptarse (SDX-D-14) | Negativo sí; positivo **no** |
+| **Reembolso de una cancelación anterior a `since`** que llega dentro de la ventana, **por la misma cifra** que nuestro cargo | Neto 0 ⇒ «saldo igual al centavo». Si además el listado tarda ⇒ **dos lecturas limpias falsas ⇒ `not_charged` falso** | **No.** La contaminación solo mira `label_cancelled` y `providerCancelConfirmedAt` **dentro de `[since, now]`**. Cuándo entra el reembolso al saldo: NO MEDIDO. La cifra igual **es el caso común**: el remedio documentado de `label_processing_stuck` es «cancela y re-emite» (§19.26.1), misma ruta y mismo empaque ⇒ misma tarifa (M-5). ⇒ **SDX-D-17** |
+| Recarga y cargo que se compensan | Neto 0 | No, pero es improbable: las recargas son cifras redondas. Se cubre con el libro de movimientos (`M-PRD-7`) |
+
+Hoy la liberación automática está **apagada**, así que el envenenamiento solo cambia el `reason` del incierto. Por eso
+SDX-D-17 es Media latente: bloquea el **encendido**, no D2c.
+
+### 1.5 ¿El job llama a `purchase` en algún camino? — **No.** Pero sí llama a `cancel`.
+- `purchase` tiene un solo llamador (§19.26.2, §19.27.5 «el reintento es un clic»). PS-117 ampliada lo cubre con
+  censo y con conducta. La lectura del listado va por la ruta **v1**, distinta de la de compra que vigila PS-99 (d). Bien.
+- **Pero** `found` sobre un S `cancelado` ⇒ §19.18.3 punto 3 ⇒ **`port.cancel`** post-commit. Es una mutación en
+  Skydropx hecha por un cron **sin actor**. Solo la protege el candado de entorno (`skydropx.adapter.ts:314`, por
+  `mutate`). Con una adopción bien atribuida, esa cancelación es deseable (devuelve saldo). Con la de SDX-D-14,
+  **cancela la guía viva de otro paquete** que ya va en camino ⇒ **SDX-D-15 (Media)**. PS-117 ampliada lo deja fuera
+  del censo a propósito («la `cancel` de §19.18.3 sigue en su función»).
+
+### 1.6 `409 purchase_in_flight` como denegación de servicio — **SDX-D-18 (Baja)**
+- **Falla cerrado, y no lo controla un atacante.** Solo bloquea un reclamo sin id de menos de 15 min, y eso exige un
+  fallo del proveedor o que el proceso muera entre el reclamo y el paso 7b. Un operador malicioso no puede fabricarlo.
+- **Peor caso**, con Skydropx degradado: cada intento queda en vuelo ⇒ **un intento cada 15 min**. Es aceptable: es
+  exactamente cuando no se debe comprar en paralelo.
+- **Efecto lateral:** empuja al personal al panel de Skydropx durante la ventana, lo que alimenta SDX-D-14. El texto
+  de la pantalla debería decir «no compres en el panel mientras tanto» (ux-ui).
+- **Detalles de construcción:**
+  - (a) `pg_advisory_xact_lock` **espera**. Si alguien metiera la red dentro de la tx del paso 7, el candado se
+    sostendría 30 s y las peticiones agotarían la tx interactiva o el pool. Hace falta una prueba de que el candado
+    se suelta antes de la red, o usar `pg_try_advisory_xact_lock` ⇒ `409`.
+  - (b) La clave `bigint` nueva comparte espacio con `FX_GATE_LOCK_KEY = 63_120_863` (`fx-mode.ts:515`) y con
+    `IVA_TRANSFER_GATE_LOCK_KEY = 64_440_950` (`iva-transfer.ts:259`). Los espacios de dos `int` no se cruzan con
+    `bigint`. Hace falta un censo de claves únicas.
+  - (c) `retryAfterSeconds = 5` supone que una compra dura ≤ 35 s, pero puede durar ~6 min (1.3). Es cosmético.
+
+## 2. Hallazgos nuevos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-D-14** | **Alta** | **La adopción automática puede atribuir a S una guía ajena** (panel, «Capturar a mano», cola de 24 h). Causas: `createdAt` sin cota superior; un `createdAt` nulo cuenta como candidato y puede ser **el único**; el cuadre es «paquetería + **uno** de {total, CP}»; y no se compara el destinatario. Detalle en 1.1 | §19.27.4 (candidatos, cuadre, paso 3), §19.27.5 fila `found`, §19.27.7 | **arquitecto** (errata) → backend |
+| **SDX-D-15** | Media | **El cron cancela en Skydropx sin actor** tras adoptar sobre un S `cancelado` (§19.18.3 p. 3). Junto con SDX-D-14, cancela la guía viva de otro paquete | §19.27.5 fila `found`, §19.18.3 p. 3, PS-117 ampliada | **arquitecto** → backend |
+| **SDX-D-16** | Media | **Respuesta tardía de la compra.** (a) Las escrituras del paso 9 y de §19.18.3 no condicionan por el `since` **exacto** ⇒ la respuesta de un reclamo liberado pisa o deshace el reclamo nuevo y puede cancelar la guía buena. (b) Tras una adopción, una respuesta con otro id ⇒ `409` y ese id se pierde sin bitácora. (c) La vida de una compra (~6 min calculados) no está atada por ninguna constante a `T_VERIFY_MIN` ni a `too_early` | §19.7 paso 9 (`API_CONTRACT:24208,24232`), §19.26.1, §19.18.3 p. 1–2, §19.27.7; `skydropx-client.ts:53,56,58,350,361` | **arquitecto** → backend |
+| **SDX-D-17** | Media (latente: liberación apagada) | **La evidencia negativa se puede envenenar y la regla de encendido es débil.** Un reembolso de una cancelación anterior a `since`, por la misma cifra, deja el saldo igual. K ≥ 5 no ve una cola del 10 % (59 %). La calibración se hace sobre compras que respondieron. Y la conciliación de huérfanas está como «disparador», no como requisito | §19.27.4 paso 4 (contaminación), §19.27.7 (`M-PRD-8`), deuda de (t) | **arquitecto** (regla) · **devops** (`M-PRD-7`/`-8`) |
+| **SDX-D-18** | Baja | `purchase_in_flight`: el candado espera (no es *try*), la clave `bigint` no tiene censo, `retryAfterSeconds` parte de una premisa equivocada, y la pantalla no avisa de no comprar en el panel. Detalle en 1.6 | §19.27.2 | backend · ux-ui (texto) |
+| **SDX-D-19** | Baja | Con `operators`: no hay segundo factor del personal (`HECHOS.md:50`); el bucle cancelar–recomprar no tiene tope; y una persona sola corrige la dirección y compra. Mitigación: un tope diario de compras por operador con alerta, y un aviso «misma persona corrigió y compró» en el panel del dueño | §19.26.6; `admin-shipments.controller.ts:15,116` | **humano** (decide si quiere tope y aviso) → arquitecto |
+| **SDX-I-4** | Info | P-SDX-REL: recomiendo **(a) solo el súper-admin**. Con el personal comprando, es la única segregación que queda en el camino a una guía duplicada | §19.27.6 | **humano** |
+
+`label_purchase_sent` lleva `balanceBeforeCents` (dato del súper-admin). Lo verifiqué: los lectores de la bitácora no
+seleccionan `before`/`after` (`audit.service.ts:105-117`). El listado de Skydropx trae direcciones (PII): el diseño
+prohíbe guardarlas o loguearlas (§19.27.4). Se verifica en la release.
+
+## 3. Condiciones antes de construir D2c, escritas como pruebas que deben fallar
+
+Mismas reglas que C-1…C-6: copia del árbol **entero** con su sha, mutación demostrada en rojo, carreras con barrera y
+N ≥ 10 con proporción, todo con el doble (⛔ nunca la red). C-1…C-6 quedan como PS-116…PS-121, sin cambio.
+
+| # | Prueba que debe fallar con el diseño actual | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|
+| **C-8** | Adopción estricta. S en vuelo desde T. El doble lista un **único** desconocido Y. **No** se adopta (incierto a T+15, **0** `purchase`, `providerShipmentId` nulo) en cada uno de estos casos: (a) Y con `createdAt = T+20 min` (compra de panel en la ventana) y (a') `T+3 h` en la cola; (b) Y con paquetería y CP iguales pero `totalCents` nulo; (c) Y con `createdAt` nulo; (d) Y con paquetería, total y CP iguales, pero `getShipment(Y)` trae otro destinatario o calle (comparado **en memoria**, sin log). Control positivo: Y con `createdAt ∈ [T−2 min, T + vida máx. de compra + 2 min]` y todo igual, destinatario y calle incluidos ⇒ se adopta | quitar la cota superior ⇒ (a)/(a') adoptan; volver a «uno de {total, CP}» ⇒ (b) adopta; aceptar `createdAt` nulo ⇒ (c); omitir la comparación del destinatario ⇒ (d) | SDX-D-14 | arquitecto → backend |
+| **C-9** | S `cancelado` y adopción por el job ⇒ `port.cancel` se llama **solo** si la adopción pasó el cuadre estricto de C-8. Con Y que pasa paquetería, total y CP pero falla el destinatario ⇒ **0** `cancel`, **0** adopción y alerta para una persona | cancelar antes de comparar el destinatario | SDX-D-15 | arquitecto → backend |
+| **C-10** | Respuesta tardía. (a) Reclamo T1 ⇒ el doble retiene la respuesta ⇒ liberar (reloj +16 min) ⇒ nuevo reclamo T2 (otra tarifa) ⇒ el doble suelta la respuesta de T1 en dos variantes, «éxito sin número `sdx-old`» y «rechazo sin id». Esperado: la fila de T2 **intacta byte a byte** (`labelProcessingSince = T2`, `providerShipmentId` nulo). En la de éxito, bitácora `label_conflict` (o la que norme el arquitecto) **con `sdx-old`** y una alerta. (b) Adopción de Y a T+1 min y luego la respuesta viva con Z ≠ Y ⇒ Z queda en la bitácora con alerta, **nunca** un `409` mudo; con Z = Y ⇒ `200` idempotente. (c) Unitaria: `T_VERIFY_MIN` y `too_early` > vida máxima de compra calculada con las constantes del cliente (intentos × timeout + esperas `429`) | `WHERE labelProcessingSince:{not:null}` en vez de `= since` ⇒ (a) en rojo; descartar el id en §19.18.3 p. 1 ⇒ (b); subir `MAX_429_RETRIES` ⇒ (c) | SDX-D-16 | arquitecto → backend |
+| **C-11** | (a) Con la `purchase` del doble demorada 10 s, un `POST …/label` de otro envío recibe `409 purchase_in_flight` en **< 1 s**: el candado se soltó antes de la red. Con N ≥ 10, se reporta la proporción. (b) Censo: toda constante usada en `pg_advisory_xact_lock(<bigint>)` en `backend/src` es única | meter `port.purchase` dentro de la tx del paso 7 ⇒ (a) espera ≥ 10 s; reutilizar `FX_GATE_LOCK_KEY` ⇒ (b) | SDX-D-18 | backend |
+| **C-12** | PS-127 gana una variante: un `label_cancelled` de **otro** envío con `createdAt = since − 2 h` (reembolso aún no observado), la constante inyectada en `true`, el saldo igual al centavo y el listado vacío en las dos lecturas ⇒ **no** se libera (contaminado o incierto) | limitar la contaminación a `[since, now]` | SDX-D-17 (la parte que se construye en D2c) | arquitecto → backend |
+| **C-13** | PS-120 gana dos filas: el dial pasa de `operators` a `super_admin_only` entre dos llamadas del mismo `vault_operator` ⇒ `200` y luego `403`; y la puerta compara contra el conjunto explícito `{vault_operator, super_admin}` (unitaria de la función de puerta con un rol fuera del conjunto ⇒ niega) | cachear el dial; escribir `role !== 'customer'` | C-5 / `HECHOS.md:58` | backend |
+
+**Requisito para encender `INFLIGHT_NEGATIVE_VERIFIED`** (no para D2c). Es una errata del arquitecto **con revisión
+de seguridad**, y exige:
+1. K justificada con proporción y N (O-3/O-15), no K ≥ 5 a secas: con la regla de tres, 0 fallos en 60 compras acota la cola por debajo del 5 % con 95 % de confianza.
+2. El tiempo hasta que el reembolso de una cancelación entra al saldo, medido, y la ventana de contaminación
+   ajustada a esa medida. Alternativa: el libro de movimientos (`M-PRD-7`).
+3. La conciliación «envíos de la cuenta que no son nuestros» **construida**, no como disparador.
+4. C-10 en verde.
+
+## 4. Deuda aceptada (no bloquea)
+- **SDX-D-6.** El disparador es el de §19.26.5.
+- **SDX-D-18 (c).** Cosmético.
+- **SDX-D-19.** Mientras el dueño no decida el tope y el aviso. Disparador: la primera compra de un operador con el
+  dial en `operators`, o el primer bucle cancelar–recomprar del mismo envío.
+
+## 5. Banderas para el humano
+1. **P-SDX-REL:** recomiendo (a), solo el súper-admin (SDX-I-4).
+2. **¿Tope diario de compras de guías por operador y aviso «misma persona corrigió la dirección y compró»?**
+   (SDX-D-19). Hoy el personal entra sin segundo factor (`HECHOS.md:50`).
+3. **Mientras la verificación esté activa, nadie compra guías en el panel de Skydropx a mano.** Es el vector
+   principal de SDX-D-14 hasta que C-8 esté construida.
+4. Siguen vigentes las banderas 3 de la revisión anterior: la fase completa de la release, PG-1 con el saldo medido
+   antes y después, y un pentest de terceros antes de operar con dinero real.
+
+---
+
+# VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO del delta Skydropx antes de D2c** (fila «🔒 Revisión» de `API_CONTRACT §M4-SHIP.19.19.15`; v1.80.11 … v1.80.12.5) · SHA **`ace57032`** (rama `claude/skydropx-d`) · 2026-10-04
+
+> ## VEREDICTO DE DISEÑO — **APROBADO CON CONDICIONES** sobre `ace57032`
+>
+> **0 críticos · 0 altos · 4 medios · 6 bajos · 3 info.** Nada de lo construido (D0, D0', D1a–D1c, fase C, errata
+> v1.80.12.2/.5) permite hoy comprar una guía. Los cuatro hallazgos medios están en el **diseño de D2c**. Si se
+> construye tal como está escrito, cada uno puede terminar en **una guía pagada y huérfana** o en **una segunda
+> compra**. **D2c se puede construir** siempre que se cumplan las condiciones **C-1…C-6** (abajo, escritas como
+> pruebas que deben fallar). C-7 (devops) se exige antes de `PG-1`, no antes de D2c.
+> **No es el veredicto de la release:** la fase completa (pentester + seguridad sobre lo construido) sigue pendiente
+> en el gate E.
+
+**Lo que medí yo** (copia `git archive ace57032` del árbol entero, en mi ruta de scratchpad; ya está borrada.
+Carga 0.15 al empezar):
+- `skydropx.no-real-purchase.spec`, `skydropx-client.spec`, `skydropx-provider-url.spec` y
+  `shipping-provider.factory.spec` ⇒ **4/4 suites, 111/111 verdes**.
+- **Mutación 1:** en `label-proxy.ts:52` cambié `if (host === deps.api.apiHost)` por `if (true)`, es decir, el token
+  va siempre. Resultado: **2 rojas** en PS-100 («cubeta sin Authorization» y «redirección de la API a la cubeta: el
+  segundo salto va sin token»).
+- **Mutación 2:** en `spend-gate.ts:30` quité la rama `ci`. Resultado: **4 rojas** en PS-99 (b) (`CI=true`, `CI=1`,
+  `CI=false` y «prod con CI y llave girada»).
+- Las dos mutaciones son deterministas y no dependen de carreras, así que con N=1 basta. Restauré la copia antes de
+  cada corrida.
+- **NO MEDIDO por mí:** las integraciones con Postgres de la fase C, PS-112 incluida. Acepto el informe de backend
+  (`BACKEND_NOTES §59.2`, cinco mutaciones en rojo). Tampoco medí nada de Railway (C-7).
+
+## 1. Las cuatro preguntas del encargo
+
+### 1.1 La puerta de compra: ¿quién puede comprar una guía, o comprarla dos veces, sin ser el dueño?
+| Camino | ¿Compra? | Dónde lo veo |
+|---|---|---|
+| Operador (`vault_operator`) con el dial en `super_admin_only` | **No.** Recibe `403` y queda en bitácora (diseño §19.19.7). El rol viene del JWT, pero ninguna ruta cambia el rol (revisión STF, `b688bb5d`) | `jwt-auth.guard.ts:85-88` |
+| Operador que gira el dial | **No.** `PUT /admin/settings` es solo `super_admin` y escribe la bitácora en la misma tx | `settings.controller.ts:19,32-58` |
+| **Otro `super_admin` que no es el dueño** | **Sí.** `super_admin_only` significa «cualquier súper-admin», y el dueño puede crear más (STF-S1) | ⇒ **SDX-D-5** |
+| jest (unitaria o integración) | **No, por tres capas.** (a) `JEST_WORKER_ID` o `NODE_ENV=test` ⇒ `test_runtime`; con `NODE_ENV=test` la fábrica solo da `Noop`/`Fake`; (c) la red a `*.skydropx.com` está vetada en los dos `setupFiles` | `spend-gate.ts:29`, `shipping-provider.factory.ts:363`, `jest.config.js:16`, `test/jest-integration.config.js:21`; mutación 2 |
+| CI | **No.** No hay credenciales (`.github/` solo nombra la sonda en modo `test`, `ci.yml:188-193`) y `CI` con cualquier valor niega | `spend-gate.ts:30` |
+| Pila local o E2E en el contenedor de Claude, **que tiene las credenciales de producción** (`HECHOS.md:48`) | **No.** `NODE_ENV=development` (`stack-native.sh:196`) ⇒ `not_enabled`; se exporta `SHIPPING_PROVIDER_ADAPTER=fake` y lo vigila `check-skydropx-spend-lock-canary.sh` | — |
+| Reintento HTTP | **No** tras un timeout, red, `5xx`, `404`, `403` de aplicación o un 2xx sin id: todos son «en vuelo», sin reintento. Sí reintenta tras `401` (una vez) y `429` (hasta 3), y la puerta se re-evalúa antes de cada intento | `skydropx-client.ts:311,324-335,350-372,394-411`; `skydropx.adapter.ts:281-283` ⇒ **SDX-D-8** |
+| **Job `shipment-label-processing` o `label/release` (replay de la compra)** | **Lo permite el diseño** si alguien construye la rama condicional (3a). El job no tiene actor y no pasa por el dial | §19.18.4 (3a), §19.7 paso 9 ⇒ **SDX-D-2** |
+| **Dos compras para el mismo envío** | Cerrado por el reclamo CAS (`labelProcessingSince`) antes de la red y por `providerShipmentId @unique`. **Quedan tres huecos de diseño** | ⇒ **SDX-D-1, SDX-D-3, SDX-D-6** |
+| Railway: un entorno que no es producción con `SKYDROPX_ALLOW_SPEND=true` | **NO MEDIDO.** El candado no sabe en qué entorno corre | ⇒ **SDX-D-4** |
+
+### 1.2 `Authorization` solo al host de la API (PS-100): SSRF y fuga del token
+**Correcto en lo construido.**
+- El token se decide **por salto**: `label-proxy.ts:50-55` compara `URL.host` con `apiHost`, ambos en minúsculas.
+- `assertProviderUrl` rechaza el puerto explícito, así que si la base trajera puerto el token nunca se adjunta. Falla cerrado.
+- Cada `Location` se vuelve a validar, con `redirect:'manual'` y como máximo 3 saltos. El tipo de contenido, el tamaño
+  y el timeout están acotados y la URL se re-valida al leer.
+- Una redirección de la API a la cubeta va **sin** token (mutación 1).
+- El cliente usa `redirect:'manual'` hacia `SKYDROPX_BASE_URL` (`skydropx-client.ts:78-85`) y `skydropxOrigin` exige
+  `https` y no admite credenciales.
+- **Residual: SDX-D-7 (Baja).**
+
+### 1.3 La unicidad de `ShipmentQuote`: ¿puede una carrera acabar en doble cobro?
+**No por sí sola.** La cotización no es un candado. Lo que garantiza una sola guía es el CAS sobre `ShipmentRequest`
+(§19.7 paso 7) más `providerShipmentId @unique` (`API_CONTRACT:23671`). Los pasos 2 y 4 vuelven a comprobar `rateId`
+y el precio que vio el operador contra la fila de la cotización, así que si una carrera actualiza `ratesJson`, la
+compra sale en `409` y no a una cifra que nadie vio.
+
+Hay dos residuos:
+- **SDX-D-3 (Media):** la misma `rate_id` usada por dos envíos (M-5, NO MEDIDO) y la `P2002` en `providerShipmentId`.
+- **SDX-D-9 (Baja):** un `500` en `quote` por un upsert concurrente.
+
+### 1.4 Lo que traen v1.80.12.1…v1.80.12.5
+- **La dirección escrita a mano (§19.25): no abre una clase nueva de inyección.**
+  - Hacia Skydropx el cuerpo sale por `JSON.stringify` y el PDF lo genera Skydropx, no nosotros.
+  - En nuestros sumideros: React escapa; las plantillas de correo no llevan colonia, municipio ni estado (`grep` en
+    `modules/mail`: 0); el CSV de admin lee el snapshot por lista blanca de tres claves (`admin.service.ts:351,612`).
+  - Lo que sí amplía es la superficie de texto libre (colonia; municipio y estado cuando el CP no está en el
+    catálogo), con la misma falta de filtro de caracteres de control y bidi que ya tenían `line1` y `references` ⇒
+    **SDX-D-12 (Baja)**.
+  - Que una colonia mal escrita acabe en una compra rechazada falla de forma segura: `422`, el reclamo se deshace y
+    no hay compra.
+- **SKX-SEC-1: CERRADO EN CÓDIGO tal como lo pedí (opción (a)).**
+  - `shipment-address.service.ts:150-181`: los valores van a `ShipmentAddressRevision` y la bitácora guarda solo
+    `{addressVersion, changedKeys, revisionId}`, en la misma tx.
+  - `admin.service.ts:1606-1614`: el borrado suave purga las revisiones de los retiros (`userId`) **y** de los envíos
+    directos (`order.userId`).
+  - Hay FK en cascada (`schema.prisma:1564`).
+  - La prueba que pedí existe: PS-112 (`sdx-c-address.e2e-spec.ts:613+`) busca canarios en **toda** la tabla
+    `AuditLog` antes y después de anonimizar.
+  - Queda verificar PS-112 en la release, porque yo no corrí la integración.
+  - Residuos: **SDX-D-13 (Baja)**, porque los canarios no cubren los campos que ahora son texto libre, y **SDX-I-2
+    (Info)**, porque los invitados no tienen cuenta que anonimizar.
+  - Precondición de despliegue, sin cambio: `SELECT count(*) FROM "AuditLog" WHERE action='shipment.address_corrected'`
+    debe dar 0 en producción antes de M-65. Le toca a devops en la ventana; yo no lo medí.
+
+## 2. Hallazgos, por severidad
+
+| Id | Sev. | Qué pasa | Dónde | Dueño |
+|---|---|---|---|---|
+| **SDX-D-1** | **Media** | **Una compra con `error_detail` y con `data.id` se trata como rechazo y se pierde el id.** El contrato manda «`error_detail.error_code ≠ null` ⇒ rama de rechazo», y esa rama deshace el reclamo. El adaptador ya devuelve `providerShipmentId = data.id` **junto con** `error`. Si Skydropx creó el envío (y cobró, o cobra después: NO MEDIDO), la guía queda pagada y huérfana, y el envío vuelve a «preparado sin guía», listo para **una segunda compra**. Además, sin id el adaptador devuelve `providerShipmentId: ''`, un valor que no debe persistirse nunca. | §19.19.8 «Respuesta», §19.7 paso 9; `skydropx.adapter.ts:279-285` | **arquitecto** (norma: un id presente nunca se descarta) → backend |
+| **SDX-D-2** | **Media** | **El replay de la compra (§19.18.4 (3a), §19.7 paso 9) sigue en el contrato como rama condicional** («si PS-SBX-1 confirma `Idempotency-Key`»). PS-SBX-1 no se puede correr: no hay sandbox (`HECHOS.md:17`), y §19.19.18 prohíbe medirlo comprando dos veces. Además lo ejecutaría el **cron** `shipment-label-processing`, sin actor y sin dial. §19.21.6 dice «no se ejecuta», pero el texto normativo sigue invitando a construirlo detrás de una bandera. Construido, es una compra automática sin clic del dueño. | §19.18.4 paso 3(a), §19.7 paso 9, §19.10 (job), §19.21.6 | **arquitecto** (tachar (3a) sin condición) → backend |
+| **SDX-D-3** | **Media** | **`P2002` en `ShipmentRequest.providerShipmentId @unique` dentro de §19.7 paso 9: el diseño no dice qué hacer.** Es el caso M-5 (NO MEDIDO): dos envíos comparten `providerQuotationId` y `rate_id`, y Skydropx devuelve para el segundo el envío ya creado. Hoy acabaría en `500` con el reclamo puesto ⇒ `label_unknown` ⇒ `label/release` ⇒ compra otra vez, en bucle, y con un paquete sin guía. | §19.7 paso 9, §19.19.4 (M-5), `API_CONTRACT:23671` | **arquitecto** → backend |
+| **SDX-D-4** | **Media (NO MEDIDO)** | **El candado no tiene identidad de entorno.** `allowed` = `NODE_ENV=production ∧ !CI ∧ !JEST ∧ ALLOW_SPEND=true`. Un entorno de Railway que no sea producción (entorno de PR o duplicado) que herede las variables cumple las cuatro. Hoy solo está medido «marvelous-kindness / production» (`HECHOS.md:80-85`). Que Railway tenga entornos de PR o variables compartidas está NO MEDIDO. | `spend-gate.ts:28-33`; §19.19.7 | **devops** (medir y acotar); arquitecto si decide añadir `RAILWAY_ENVIRONMENT_NAME` al candado |
+| **SDX-D-5** | Baja | **`super_admin_only` ≠ «solo el dueño».** `HECHOS.md:48` dice «autorización explícita del dueño guía por guía». Cualquier cuenta `super_admin` compra, y el dueño puede crear más (STF-S1). Cuántas hay en producción: NO MEDIDO. | §19.19.7 | **humano** (decide); PO lo refleja |
+| **SDX-D-6** | Baja | **La compra no lleva una referencia nuestra.** El cuerpo de §19.19.8 no incluye `shipmentId` ni el número de pedido. «Liberar» (§19.18.4) exige una nota del tipo «lo comprobé en el panel», y la única forma de cuadrar es por destinatario. Un error humano ahí = segunda compra. | §19.19.8, §19.18.4 | **arquitecto** (mandar la referencia si la API lo admite, M-PRD-6/PG-1; mientras tanto, la pantalla de «Liberar» muestra destinatario, CP y la hora del reclamo) |
+| **SDX-D-7** | Baja | **Proxy: en el host de la API, el `Bearer` va a una ruta que elige el proveedor.** Solo es `GET` y solo se sirve si es PDF. Además, una lista **por host** no acota un bucket con estilo de ruta (`s3.amazonaws.com/<cualquiera>`) ni un comodín sobre un dominio compartido. No hay fuga de token (mutación 1). | `label-proxy.ts:50-55`, `provider-url.ts:24-54`; §19.19.9 | **arquitecto** (prefijo de ruta cuando PG-1 mida el host) · **devops** (⛔ comodines o hosts multi-inquilino sin prefijo) |
+| **SDX-D-8** | Baja (aceptada) | La compra se reintenta tras un `429` hasta 3 veces. Que un `429` no procese está NO MEDIDO y el soporte de `Idempotency-Key` también. Aceptado por diseño (la semántica HTTP lo respalda). | §19.19.3 (4); `skydropx-client.ts:361-372` | backend · **disparador:** el primer `429` en una compra en los logs ⇒ el arquitecto lo pasa a «en vuelo» |
+| **SDX-D-9** | Baja | Dos `quote` concurrentes del **mismo** envío que reciben el mismo `providerQuotationId` ⇒ `P2002` en el upsert ⇒ `500`. PS-95 solo cubre dos envíos distintos. No toca dinero (ver 1.3). | §19.19.4, PS-95 | backend |
+| **SDX-D-10** | Baja | Ni §19.7 paso 9 ni la matriz dicen a qué rama va `SkydropxMutationForbiddenError` lanzado **después** del reclamo. Es seguro que no salió nada a la red ⇒ debe deshacer el reclamo. Si cae en «en vuelo», el envío queda atascado hasta «Liberar» con nota y empuja a una liberación por costumbre. | §19.19.7, §19.7 paso 9 | backend (prueba) |
+| **SDX-D-12** | Baja | Los campos de texto libre de la dirección (ahora también colonia, municipio y estado) admiten caracteres de control C0/C1 y los de bidi (`U+202A–202E`, `U+2066–2069`). Un cliente puede hacer que en la ventana «Capturar guía» o en la etiqueta el texto se vea distinto de lo que se manda. Ya pasaba con `line1`/`references`. | `users.dto.ts:44-52`, `guest-checkout.dto.ts:30-60`, `address-rules.ts` (`requiredText`) | arquitecto (cota) → backend · deuda; **disparador:** el primer snapshot con esos caracteres o cualquier cambio en `address-rules.ts` |
+| **SDX-D-13** | Baja | Los canarios de PS-112 van solo en `recipientName`, `line1`, `line2` y `references`. Los campos que §19.25 volvió texto libre (`neighborhood`; `city`/`state` con el CP fuera del catálogo) no tienen canario. Hoy la bitácora solo escribe claves, así que es un riesgo de regresión, no un defecto. | `sdx-c-address.e2e-spec.ts:618` | backend |
+| **SDX-I-1** | Info | `label/cancel` es operador+ y no mira el dial de compra: un operador puede cancelar la guía que compró el dueño. No gasta (devuelve saldo), pero lo que no se reembolsa (¿el seguro?) es NO MEDIDO (SEC-SDX-11). | §19.8 | **humano** (¿cancelar también solo el dueño?) |
+| **SDX-I-2** | Info | Las revisiones de dirección de un **invitado** (sin cuenta) no se purgan nunca, igual que su `shippingAddressSnapshot`. Es coherente con la retención vigente. | `admin.service.ts:1610-1612` | se reabre si se define una política de retención o llega una solicitud ARCO de un invitado |
+| **SDX-I-3** | Info | Si Railway pusiera `CI` en el runtime, la primera compra del dueño saldría `409 allow_spend` (falla cerrado). NO MEDIDO. Se ve en PG-1. | `spend-gate.ts:30` | devops (en PG-1) |
+
+## 3. Condiciones antes de construir D2c, escritas como pruebas que deben fallar
+
+Cada una con su mutación roja demostrada, en la copia del árbol entero con su sha. La de carrera va con N ≥ 10 y
+proporción.
+
+| # | Prueba que debe fallar hoy (o con la mutación) | Mutación ⇒ rojo | Cierra | Dueño |
+|---|---|---|---|---|
+| **C-1** | Escenario: el doble responde `2xx` con `data.id='sdx-1'` y `error_detail.error_code='X'`. Esperado: (a) el reclamo **no** se deshace; (b) `providerShipmentId='sdx-1'` queda persistido (o la fila queda «en vuelo» con ese id) con alerta y bitácora `label_failed` que **lleva el id**; (c) un segundo `POST …/label` ⇒ **0** llamadas a `purchase`. Escenario aparte: `error` sin id ⇒ nunca se escribe `providerShipmentId=''` | tratar «id + error» como rechazo ⇒ (c) registra una segunda `purchase` | SDX-D-1 | arquitecto → backend |
+| **C-2** | Censo estático: `.purchase(` aparece en `backend/src/modules/shipments/` en **una sola** función (el verbo `label`), después del CAS del reclamo. En `recoverInFlightLabel`, el job `shipment-label-processing` y `label/release` aparece **0** veces. `.protect(` tiene **0** llamadores (`API_CONTRACT:84`). Prueba de conducta: el job, con un envío «en vuelo sin id», registra 0 `purchase` en el doble | añadir un replay de `purchase` en `recoverInFlightLabel` ⇒ rojo en el censo **y** en la conducta | SDX-D-2 | arquitecto (tachar (3a)) → backend |
+| **C-3** | Escenario: el envío A ya tiene `providerShipmentId='sdx-1'`, y la compra del envío B devuelve `sdx-1`. Esperado: **cero** `500`; A queda intacto; B no queda con un reclamo que «Liberar» suelte sin más (alerta `label_conflict` o la rama que norme el arquitecto); `label/release` sobre B ⇒ 0 `purchase` nuevas | dejar que la `P2002` suba ⇒ `500` | SDX-D-3 | arquitecto → backend |
+| **C-4** | `SkydropxMutationForbiddenError` después del reclamo (candado cerrado, con el dial y el rol abiertos) ⇒ `409 {missing:['allow_spend']}`, reclamo **deshecho** (`labelProcessingSince` NULL) y 0 peticiones en el transporte | mapearlo a «en vuelo» ⇒ `labelProcessingSince` queda puesto | SDX-D-10 | backend |
+| **C-5** | PS-98 completa, más dos filas: (i) un **segundo `super_admin`** con el dial en `super_admin_only` ⇒ `200` (documenta SDX-D-5 hasta que decida el humano; si decide «solo el dueño», la fila pasa a `403`); (ii) el dial cambia a `disabled` entre dos llamadas ⇒ la segunda responde `404` (la puerta se lee en cada llamada, sin caché) | quitar la comprobación de rol; cachear el dial | PS-98 | backend |
+| **C-6** | PS-73 con N ≥ 10 y barrera: 10 `POST …/label` simultáneos ⇒ **1** `purchase` en el doble en **10/10** rondas. Además: el doble tarda más de 30 s ⇒ «en vuelo», 1 sola llamada, y un `label` posterior ⇒ `in_progress` sin llamada | quitar `labelProcessingSince:null` del `where` del CAS | SDX-R4 | backend |
+| **C-7** *(antes de PG-1, no de D2c)* | Medición escrita en `DEVOPS_NOTES`: los entornos de Railway que no son `production` (PR, duplicados) tienen **0** variables `SKYDROPX_*`, `SKYDROPX_ALLOW_SPEND` está acotada al entorno `production` (no compartida) y los entornos de PR están desactivados o no heredan | — (es medición; si falla, el arquitecto añade la identidad de entorno al candado) | SDX-D-4 | devops |
+
+## 4. Deuda aceptada (no bloquea)
+- **SDX-D-7.** Disparador: PG-1 mide el host de `label_url`. Si es multi-inquilino o de estilo de ruta, el
+  arquitecto añade el prefijo de ruta antes de ponerlo en `SKYDROPX_URL_HOSTS`.
+- **SDX-D-8.** Disparador: el primer `429` en una compra.
+- **SDX-D-9** y **SDX-D-13.** Se cierran en la release.
+- **SDX-D-12.** Disparadores en la tabla.
+- **SDX-I-2.** Se reabre con una política de retención.
+
+## 5. Banderas para el humano
+1. **¿«Solo el dueño» o «cualquier súper-admin»?** (SDX-D-5) Hoy el sistema entiende lo segundo. Si en producción
+   solo existe su cuenta `super_admin`, es lo mismo; si hay otra, no. NO MEDIDO.
+2. **¿Puede un operador cancelar una guía que compró el dueño?** (SDX-I-1)
+3. Antes de operar con dinero real en Skydropx, la fase completa de la release (pentester + seguridad sobre D2
+   construido) y PG-1 con el saldo medido antes y después. Que se recomiende un pentest de terceros y bug bounty
+   antes de dinero real sigue vigente para la tienda en general.
+
+---
+
 # VEREDICTO BLUE TEAM — **STF «Usuarios de back-office sin correo»** (v1.80.9 + v1.80.9.1, M-63) **y pase RETROACTIVO de la PR #69** (precios y reembolsos, `aab55abe..da3e8ae2`) · SHA **`b688bb5d`** (rama `claude/staff-sin-correo`) · 2026-10-04
 
 > ## VEREDICTO 1 — Stream STF: **APROBADO** sobre `b688bb5d`
@@ -13718,6 +14418,124 @@ release, sigue siendo obligatoria: aquí no se ha ejecutado nada.
 
 ---
 
+# Revisión de DISEÑO (blue team) — §M4-SHIP v1.81 «Envíos con Skydropx» · rama `claude/skydropx-envios` · sha **`62d0c46`** · 2026-09-29
+
+> Solo lectura sobre `API_CONTRACT §M4-SHIP.19` (.2–.17, mapa SDX-R1…R14, PS-67…PS-90, PS-SBX-1…12), §R.3/§R.7, §1
+> Direcciones, `GET /geo/postal-codes/:cp`; `ARCHITECTURE §4.58` y `M-62`; `PROJECT §T` (T.10/T.11); `SKYDROPX_LEVANTAMIENTO
+> §8`. Del código vigente medí solo lo que cambia una severidad: `disputes.service.ts:155-166` (ventana = `deliveredAt +
+> 7 d`), `main.ts:56` (`forbidNonWhitelisted: false`), `shipments.service.ts:1013-1151` (`entregado` ⇒ `in_custody →
+> withdrawn`, sin verbo inverso), `app.module.ts:46` (throttler global por IP). ⛔ Nada ejecutado; la red no llega a
+> Skydropx (no es hallazgo). Sin `PENTEST_NOTES` para esta versión (fase de diseño): SDX-R1…R14 es el insumo del red team.
+
+## 1. Lo que RESISTE (con su sitio)
+
+| Lente | Veredicto | Dónde |
+|---|---|---|
+| PII al tercero | Lista blanca `PurchaseInput.to` (nombre, `company=name`, tel, correo, calle, referencia) + niveles de dirección + valor declarado; `email` = `guestEmail` si existe; ⛔ pago/cartas/`User.email`; `C-SDX-2`/PS-85 asertan las claves exactas | §19.4 (6), T.11 |
+| Secretos | Solo env (`SKYDROPX_*`), token OAuth en memoria, ningún dial ni `GET /admin/settings` los lleva, `502 SHIPPING_PROVIDER_ERROR {provider, op, status}` sin cuerpo, `C-SDX-1` + canario (PS-86), SAST regla devops | §19.2, §19.4 (1)(5)(7), §19.13 |
+| `labelUrl` | Columna interna, fuera de todo DTO (lista blanca `toAdminShipmentRow`, PS-84), proxy operador+ `no-store` + bitácora `label_printed`, ⛔ sin redirect; DAST `label.pdf` sin sesión asignado a devops | §19.7, §19.8, §19.17 |
+| Una guía por N clics | CAS `labelProcessingSince` **antes** de la red, `providerShipmentId @unique`, `SHIPMENT_ALREADY_LABELED`, rechazo deshace el reclamo (PS-73 N≥10, PS-74) | §19.7 pasos 7–9 |
+| Cifras vistas / saldo | `expectedPriceCents/MarginCents` contra `ratesJson` del servidor, `QUOTE_EXPIRED` **sin comprar en la misma llamada**, `LABEL_CONFIRMATION_REQUIRED`, `SHIPPING_INSUFFICIENT_BALANCE` sin cifra al operador | §19.7 pasos 3–6 |
+| Guardas de negocio | `quote`/`label` reusan **las mismas funciones** de §M4-SHIP.6 (`preparedAt`, casos `open`, `ORDER_NOT_SETTLED`, origen reembolsado) bajo candado de fila; PS-69 muta la reimplementación | §19.6 paso 2 |
+| Costo | Ningún campo de costo en ningún cuerpo (PS-81), IVA `16/116` constante nombrada (no el dial), cargos extra `providerChargeId @unique` (PS-80 N=10), `chargedAt` propia | §19.11, §19.10 |
+| Rastreo | `applyCarrierStatus` un cuerpo, `@@unique(shipmentRequestId, providerEventKey)` + CAS de estado (PS-72), manual ⇒ `applied:false` y no se sondea, ⛔ sin ruta de webhook (SDX-R8, por ausencia), `delivered_to_branch` nunca `entregado` | §19.3, §19.10 |
+| Kill switch | `shipping_provider='off'` seed, fail-closed: `quote`/`label` ⇒ `404`, tres jobs no-op (PS-90); env faltante ⇒ `NOT_CONFIGURED` sin valor | §19.2 |
+| Dirección | `GET /geo/postal-codes/:cp` público, catálogo local (sin cuota del tercero), 60/min/IP, datos SEPOMEX; `PATCH …/address-neighborhood` operador+, solo `picking` sin guía, solo colonia/municipio/estado, `before/after` (PS-68); colonia de lista cerrada, `references` ≤ 70 sin control chars | §19.5, SDX-R9/R10 |
+| Autorización | Cotizar/comprar/etiqueta/cancelar/salida/refresco: operador+; saldo, catálogos, empaques, diales, jobs: `super_admin` (PS-90); elección con nombre en bitácora | §19.6–.13 |
+| Guía manual | `POST …/tracking` intacto + guarda `SHIPMENT_ALREADY_LABELED`; no pasa por el puerto; `departed` la acepta; `PATCH …/status` sin cambio; funciona con el dial `off` | §19.4, §19.7, §19.9, T.10 |
+
+## 2. Hallazgos (ninguno crítico ni alto)
+
+### MEDIA — entran al contrato antes de construir la parte que tocan (fase D); no exigen otra vuelta de seguridad
+
+**SEC-SDX-1 (dinero/cliente) · La ventana de disputa de 7 días se ancla a un sello del tercero.** §19.3 `delivered` ⇒
+`deliveredAt = event.occurredAt`; `disputes.service.ts:160,166` calcula `deadline = deliveredAt + 7 d`. Un `occurredAt`
+atrasado (sondeo tardío, evento histórico, transportista que fecha atrás) **consume** parte o toda la ventana antes de
+que `AV-17` salga; el correo anuncia una fecha ya vencida. Cierre: la ventana se calcula desde cuando **nosotros** lo
+supimos — `deliveredAt = max(event.occurredAt, observedAt)` para guía Skydropx (o disputas usa
+`max(deliveredAt, deliveredNoticeSentAt)`), `carrierStatusAt` conserva la fecha del transportista para el registro.
+Mutación en PS-78: `delivered` con `occurredAt = now − 8 d` ⇒ la disputa **sigue abierta**. Dueño: arquitecto → backend.
+
+**SEC-SDX-2 (correo/idempotencia) · El evento sintetizado con `occurredAt: updated_at ?? now` crea una llave nueva por
+sondeo.** §19.10: si la API solo da el estado actual (NO MEDIDO, PS-SBX-5), `providerEventKey = status:occurredAt` con
+`now` cambia en cada corrida ⇒ una fila de `ShipmentCarrierEvent` por hora, línea de tiempo pública que crece, y `AV-19`
+**repetido** en cada sondeo mientras el estado siga `delivery_attempt` (el sello `lastDeliveryAttemptAt <
+event.occurredAt` lo deja pasar). Rompe el criterio 241 en la rama de respaldo; PS-72 no lo ve porque el doble da fechas
+estables. Cierre: sintetizar **solo si `status ≠ carrierStatus` leído bajo el candado**, con llave `status:<updated_at>`
+y, sin `updated_at`, `status:<carrierStatusAt del cambio>` — nunca `now`. Añadir a PS-72 el doble «solo estado actual»
+×10 ⇒ 1 fila, 1 correo. Dueño: arquitecto → backend.
+
+**SEC-SDX-3 (dinero, carrera estrecha) · Compra que gana en Skydropx pero pierde el CAS a `guia`: rama no
+especificada.** Durante la llamada de red (paso 8) el envío puede pasar a `cancelado` (contracargo de un directo u
+`onFullRefund`, §19.8): `cancelProviderLabelIfAny` ve `labelSource IS NULL` y no cancela nada. Al volver, «éxito con
+número» hace `setTrackingFromProvider` con `WHERE status='picking'` ⇒ `count 0` y el contrato no dice qué pasa con la
+guía **ya pagada**; «éxito sin número» escribe `providerShipmentId` con `WHERE labelProcessingSince ≠ null` **sin**
+condición de estado ⇒ guía viva y pagada sobre un envío `cancelado`, sin alerta (`carrierStatus` sigue `null`, así que ni
+`label_live_on_cancelled`). Cierre: ambas ramas del paso 9 llevan `status:'picking'` en el `WHERE`; con `count 0` ⇒
+persistir `providerShipmentId`, `labelSource:'skydropx'`, sello `providerCanceledAt/Reason='auto_close'`, `port.cancel`
+post-commit y alerta `label_live_on_cancelled`; y los dos escritores de `cancelado` tratan `labelProcessingSince ≠ null`
+como «compra en vuelo» (alerta). Mutación en PS-83: `cancelado` entre el reclamo y la respuesta del doble ⇒ `cancel`
+llamado una vez, cero guías vivas. Dueño: arquitecto → backend.
+
+**SEC-SDX-4 (dinero/operación) · El escape de «`providerShipmentId = null` con reclamo puesto» no existe como verbo.**
+§19.7 paso 9 ⚠️ remite a `POST …/label/cancel {reason:'unknown'}` por el súper-admin; §19.8 lo rechaza (`labelSource ≠
+'skydropx'` ⇒ `409 LABEL_NOT_CANCELLABLE {not_provider}`) y el verbo es operador+. Resultado: envío atorado en
+`LABEL_IN_PROGRESS` para siempre, o —si se «libera» sin saber el id en Skydropx— una guía pagada huérfana y una segunda
+compra (**doble costo**), justo el caso que la búsqueda por referencia (NO MEDIDO, PS-SBX-6) pretende cerrar. Cierre:
+verbo **`super_admin`** explícito (`POST …/label/release`, o `cancel` con `reason:'unknown'` admitido) con precondición
+`labelProcessingSince ≠ null ∧ providerShipmentId IS NULL ∧ labelProcessingSince < now − 15 min`, `note` obligatoria («lo
+comprobé en el panel de Skydropx»), bitácora `shipment.label_released`; y si PS-SBX-1 confirma `Idempotency-Key`, el
+reintento del sondeo lo usa. Dueño: arquitecto → backend.
+
+**SEC-SDX-5 (SSRF / enlace al cliente) · Las URLs que devuelve el proveedor se consumen sin validar esquema ni host.**
+El proxy `label.pdf` hace `fetch(labelUrl)` desde el servidor y devuelve el cuerpo (§19.8): una URL manipulada o un
+cambio del proveedor (`http://`, host interno de Railway/metadata, redirección cross-host) convierte al operador en
+lector de red interna. `trackingUrl` se pone como `href` en `AV-4/5/17/18` y en los tres DTOs del cliente (§19.12) sin
+regla de forma. Es confianza en un tercero, no un atacante externo; sigue siendo el único sitio del sistema que hace
+`fetch` a una URL leída de una respuesta ajena. Cierre: `assertProviderUrl(url)` al **escribir** `labelUrl`/`trackingUrl`
+— `https:` obligatorio, host en lista blanca (`SKYDROPX_URL_HOSTS`, env, poblada con lo medido en PS-SBX-4/5), sin
+credenciales embebidas; el proxy no sigue redirecciones a otro host y limita tamaño (p. ej. 5 MB) y tipo
+(`application/pdf`). Mutación en PS-84/PS-88: doble con `labelUrl='http://169.254.169.254/'` ⇒ no se persiste, alerta.
+Dueño: arquitecto → backend (regla) · devops (env).
+
+### BAJA — deuda aceptada con disparador
+
+| # | Hallazgo | Disparador / cierre | Dueño |
+|---|---|---|---|
+| **SEC-SDX-6** | `ShipmentQuote.rawResponseJson` se guarda **sin redactar** (la cotización puede ecoar `address_to`) y **sin retención**: filas efímeras de 24 h que viven para siempre con carga cruda del tercero | Antes del primer mes en producción: `redactProviderPayload` también antes de persistir, y purga en el job diario (`expiresAt < now − 30 d` salvo la cotización comprada) | arquitecto → backend |
+| **SEC-SDX-7** | `redactProviderPayload` es **lista negra** (`phone,email,street1,name,reference`) sobre un esquema NO MEDIDO: no cubre `company`, `further_information` ni un renombre del proveedor. Y §19.5 manda `references` como `further_information` mientras §19.4 (6) lista `reference?` **y** `furtherInformation?`: `C-SDX-2` necesita una sola verdad | Al cerrar PS-SBX-3/4: log por **lista blanca** de claves (`op,status,ms,ids,codes`); el arquitecto fija en qué campo viaja `Address.references` | arquitecto → backend |
+| **SEC-SDX-8** | `label` con `quoteId` vencido re-cotiza con `force` en **cada** llamada (§19.7 paso 3): un operador (o un cliente que repite) consume la cuota de 2 rps y crea filas; no toca dinero | Cerrar en el contrato: reusar la cotización vigente (§19.6 paso 6) y solo `force` si no hay ninguna | arquitecto |
+| **SEC-SDX-9** | `applyCarrierStatus` paso 4 escribe `carrierStatus` sin orden temporal ⇒ eventos fuera de orden **retroceden** `carrierStatus` (tarjeta/alertas; `ShipmentStatus` no, por CAS). La alerta derivada solo se ve en envíos vivos: un `exception` tras `delivered` es invisible. `@@unique` del evento no incluye `providerShipmentId` (re-emisión) | Cierre barato con D1: `WHERE carrierStatusAt IS NULL OR carrierStatusAt <= event.occurredAt`; `@@unique([shipmentRequestId, providerShipmentId, providerEventKey])` | arquitecto → backend |
+| **SEC-SDX-10** (dinero/custodia) | Un `delivered` del tercero mueve `in_custody → withdrawn` (irreversible: sin verbo inverso, `shipments.service.ts:1141-1151`) aunque el paquete no haya llegado. Mitigado por `AV-17` + ventana de 7 d + disputas; NO MEDIDO que la resolución de una disputa pueda devolver `withdrawn → in_custody` | Primera disputa «no me llegó» sobre una guía Skydropx: el arquitecto confirma el camino de reversión en `disputes` (o lo añade) | arquitecto |
+| **SEC-SDX-11** (P&L) | `label/cancel` pone el costo a **0** asumiendo que el saldo regresa entero (seguro incluido; PS-SBX-8 NO MEDIDO). Si no regresa, el P&L subestima el costo; no explotable | PS-SBX-8: si no reembolsa (todo o el seguro) ⇒ `ShipmentCostAdjustment kind:'other'` con lo no devuelto en vez de 0 | arquitecto (errata v1.81.1) |
+| **SEC-SDX-12** | Con `shipping_provider='off'` el contrato define `quote`/`label`/jobs; **no** dice qué hacen `label/cancel`, `label.pdf`, `departed`, `refresh-tracking` (`Noop` ⇒ `NOT_CONFIGURED`?). Y PS-81 dice «`400` con `forbidNonWhitelisted` si aplica»: `main.ts:56` es `false` ⇒ el campo se **ignora**, no da `400` — la prueba debe asertar «sin efecto» | Una línea en §19.2: `off` ⇒ `label.pdf` y `label/cancel` **siguen** (son de seguridad/operación sobre guías ya compradas), `refresh-tracking` ⇒ `409 FEATURE_DISABLED`; PS-81 corregida | arquitecto |
+| **SEC-SDX-13** (PII/secretos) | `docs/specs/SKYDROPX_SANDBOX_RESULTADOS.md` (guion PS-SBX) va al **repo público**: además del token, las respuestas traen ids de cuenta, `label_url` firmadas y la plantilla de origen con **teléfono/correo del dueño** | `sbx-probe.ts` redacta por lista blanca y el revisor del PR lo comprueba antes de fusionar | devops |
+
+## 3. Banderas para el humano
+
+- **Datos personales a un tercero (T.11):** Skydropx recibirá nombre, teléfono, correo y dirección de cada cliente. Conviene
+  que el aviso de privacidad nombre a la paquetería/intermediario como encargado y que exista (o se pida) el acuerdo de
+  tratamiento de datos de Skydropx; no es técnico y no lo mide nadie del equipo.
+- **Un `delivered` de la paquetería cierra la custodia (SEC-SDX-10):** la carta deja de estar «en bóveda» por un dato
+  ajeno. La ventana de 7 días es la defensa del cliente; que la regla de disputa por «no me llegó» esté escrita donde el
+  operador la lea.
+- **Sin tope de gasto por operador (SDX-R6, aceptado):** el saldo prepagado es el único límite; la bitácora tiene nombre.
+  Si el saldo va a ser grande, pedir el dial de tope antes de operar.
+- **Saldo y sandbox:** ninguna prueba compra guías reales; PS-SBX-4 compra en sandbox. Antes de la primera guía real:
+  apagar los avisos propios de Skydropx (T.6) y medir el doble seguro «SOS Protección» (§4.58 (h)(4)).
+- Sigue vigente la fase de seguridad completa (pentester con SDX-R1…R14 + seguridad) **sobre el código**, por release.
+
+## 4. VEREDICTO
+
+**APROBADO** sobre el diseño en **`62d0c46`** (§M4-SHIP v1.81 + ARCHITECTURE §4.58, M-62). Sin hallazgos críticos ni altos.
+**El diseño §M4-SHIP v1.81 puede pasar a construcción (fases C y D).** Fase C no está tocada por ningún hallazgo. Antes
+de que backend construya la parte que lo toca en fase D, el arquitecto escribe en el contrato **SEC-SDX-1** (ventana de
+disputa desde `observedAt`), **SEC-SDX-2** (evento sintetizado solo al cambiar), **SEC-SDX-3** (rama «pagada pero
+cancelado»), **SEC-SDX-4** (verbo de liberación `super_admin`) y **SEC-SDX-5** (`assertProviderUrl` + proxy sin
+redirecciones), cada uno con su mutación en PS-78/72/83/74/84; no hace falta otra vuelta de seguridad de diseño: lo
+verifico en la fase de seguridad sobre el código. SEC-SDX-6…13 quedan como deuda con disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-29 · diseño `62d0c46` · §M4-SHIP v1.81 / ARCHITECTURE §4.58 · **APROBADO** (SEC-SDX-1…5 al contrato antes de D; 6…13 deuda)
 # Veredicto de seguridad sobre el CÓDIGO — stream §M4-SHIP «Preparar envíos» · sha FIJADO **`59a0c1f`** (rama `claude/envio-preparar`) · 2026-09-29
 
 > **En una línea:** las carreras de dinero que el pentester dejó sin disparar (`SHIP-P4`) las disparé en vivo con N≥10 y

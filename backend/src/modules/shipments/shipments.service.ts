@@ -4,6 +4,7 @@ import {
   Address,
   Card,
   CardSet,
+  CarrierStatus,
   Finish,
   FulfillmentMode,
   InventoryItem,
@@ -14,7 +15,11 @@ import {
   PreparationItemStatus,
   Prisma,
   ReplacementCaseStatus,
+  Role,
+  ShipmentCostAdjustmentKind,
+  ShippingIvaSource,
   ShipmentItem,
+  ShipmentLabelSource,
   ShipmentRequest,
   ShipmentStatus,
   VaultLocation,
@@ -28,6 +33,8 @@ import { StripeService } from '../payments/stripe.service';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
   computeShipmentBreakdown,
+  netShippingRevenueCents,
+  shipmentNetRevenueCents,
   shippingFeeDisplayCentsOf,
 } from '../../common/money';
 import { parseEnumFilter } from '../../common/enum-filter';
@@ -47,15 +54,72 @@ import {
 } from '../vault/vault-preparation.view';
 import {
   ShipmentNoticeParams,
+  shipmentAtBranchTemplate,
   shipmentCancelledTemplate,
+  shipmentDeliveredTemplate,
+  shipmentDeliveryAttemptTemplate,
   shipmentGuideTemplate,
   shipmentShippedTemplate,
 } from './mail/shipment-notice.templates';
+import { appUrl } from '../buylist/mail-shell';
+import { CarrierNotice, CarrierNoticeEvent } from './carrier-notices';
+import { OrderMailLinkTarget, OrderMailNotice, orderMailLinkOf, safeErrorTag } from './guest-mail-link';
+import { OrderAccessTokenService } from '../orders/order-access-token.service';
+import { CUSTOMER_TIMELINE_EVENTS_SELECT, providerTrackingUrlOf, toCustomerTimeline } from './customer-timeline';
 import { CustomerRefDTO, ShipPreparationItemDTO, ShipPreparationStateDTO, ShipmentPrepService } from './shipment-prep.service';
 import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { customerDisplayName } from '../vault/customer-display-name';
 import { originsBeingRefunded } from '../payments/refunds/origin';
+import { addressMissing } from '../users/address-rules';
+import { ShipmentAddressMissingField, shipmentAddressMissing } from './shipment-address-missing';
+import { NeighborhoodCheck, PostalCodeService } from '../shipping-provider/geo/postal-code';
+import { DEFAULT_LABEL_VERIFY_CONFIG, LABEL_VERIFY_CONFIG, LabelVerifyConfig, ORPHAN_ALERT_TTL_MS } from './label-verify.constants';
+import { alertShipmentIdsOf } from './shipping-work-queue';
+import { LabelClock, SHIPMENTS_LABEL_CLOCK, systemLabelClock } from './label-clock';
+import {
+  CarrierAlertDTO,
+  InFlightUncertainReason,
+  LabelAlertDTO,
+  LabelOptionsDTO,
+  LabelPendingDTO,
+  ShipmentLabelDTO,
+  carrierAlertActive,
+  labelAlertOf,
+  toLabelPendingDTO,
+  toShipmentLabelDTO,
+} from './label-view';
+import { labelSourceOf } from './label-source';
+
+/** ⭐ v1.80.12 (§M4-SHIP.19.20.1) — el bloque `address` de `AdminShipmentDTO`. */
+export interface ShipmentAddressStateDTO {
+  /** ⇔ `missing.length === 0` (v1.80.12.2). */
+  complete: boolean;
+  version: number;
+  corrected: { at: string; by: { userId: string; name: string | null } } | null;
+  /** ⭐ v1.80.12.2 (§M4-SHIP.19.22.2): SIEMPRE presente (`[]` si completa); `shipmentAddressMissing`, orden fijo. */
+  missing: ShipmentAddressMissingField[];
+  /**
+   * ⭐ v1.80.12.5 (§M4-SHIP.19.25.3): si la colonia del snapshot se comprobó contra el catálogo. Calculado AL LEER
+   * (`PostalCodeService.neighborhoodCheckOf`), ⛔ nunca guardado: el día que se cargue el catálogo, los envíos ya
+   * capturados pasan a `'in_catalog'` sin tocarlos. Solo en `AdminShipmentDTO`.
+   */
+  neighborhoodCheck: NeighborhoodCheck;
+}
+
+/** ⭐ v1.80.12.2 (§M4-SHIP.19.22.4): un ajuste de costo en `AdminShipmentDTO` (lista blanca; ⛔ `providerChargeId`). */
+export interface ShipmentCostAdjustmentDTO {
+  id: string;
+  kind: ShipmentCostAdjustmentKind;
+  providerChargeType: string;
+  amountCents: number;
+  ivaCents: number;
+  ivaSource: ShippingIvaSource;
+  netCents: number;
+  chargedAt: string;
+  observedAt: string;
+  note: string | null;
+}
 
 /** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
 const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(ShipmentStatus);
@@ -67,6 +131,22 @@ const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(S
  * `API_CONTRACT §M4`. Antes: `if (kind === 'guest_direct_ship')…` ⇒ un valor desconocido se
  * **ignoraba en silencio** (§0-Q punto 1 lo prohíbe). Ahora fuera de dominio ⇒ `400`.
  */
+/** ⭐ v1.80.12.12 — `?labelSource=` de `GET /admin/shipments`: clase E, DERIVADO del enum (⛔ nunca transcrito). */
+export const SHIPMENT_LABEL_SOURCE_FILTER_VALUES = Object.values(ShipmentLabelSource) as ShipmentLabelSource[];
+/** ⭐ v1.80.12.12 — `?alert=` de `GET /admin/shipments`: clase L, dominio `true` (§19.3, §19.20.2). */
+export const SHIPMENT_ALERT_FILTER_VALUES = ['true'] as const;
+/** S-GAS-2: `?folio=` — formato del folio de `M-67`. */
+export const SHIPMENT_FOLIO_FILTER_RE = /^ENV-\d{6,}$/;
+
+/** `?folio=`: ausente o en blanco ⇒ sin filtro; fuera de `^ENV-\d{6,}$` ⇒ `400 VALIDATION_ERROR {field:'folio'}`. */
+export function parseFolioFilter(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'string') throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid folio filter', { field: 'folio' });
+  if (raw.trim() === '') return undefined;
+  if (!SHIPMENT_FOLIO_FILTER_RE.test(raw)) throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid folio filter', { field: 'folio' });
+  return raw;
+}
+
 export const SHIPMENT_KIND_VALUES = ['guest_direct_ship', 'vault_withdrawal'] as const;
 export type ShipmentKind = (typeof SHIPMENT_KIND_VALUES)[number];
 
@@ -137,6 +217,10 @@ export interface ShipPreparationOrderDTO {
     postalCode: string;
     country: string;
     phone: string;
+    /** ⭐ v1.81 (M-64): décimo campo del snapshot (`null` en los anteriores). */
+    references: string | null;
+    /** ⭐ v1.80.12 (§M4-SHIP.19.20.1): el operador corrigió la dirección de este envío (`addressCorrectedAt ≠ null`). */
+    addressCorrected: boolean;
   };
   /** ⭐ v1.80 (§M4-SHIP.3) — la preparación (marcas, conteos, `refundPreviewCents` del servidor). */
   preparation: ShipPreparationStateDTO;
@@ -150,6 +234,21 @@ export interface ShipPreparationOrderDTO {
 export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
 
 /** El join a `Order` que §M4-PREP necesita: el folio legible y el discriminador de destino. */
+/** ⭐ D2e — el reclamo de un sello de aviso: la condición extra del `WHERE` y lo que escribe (`claimAndNotify`). */
+type NoticeSeal = {
+  where: Prisma.ShipmentRequestWhereInput;
+  column: 'trackingNoticeSentAt' | 'deliveredNoticeSentAt' | 'branchNoticeSentAt' | 'lastDeliveryAttemptAt';
+  value: Date;
+};
+
+/**
+ * 🔒 v1.80.12.16 (§M4-SHIP.19.35.1, PS-87 reescrita) — de QUÉ cuelga el enlace del CTA de un aviso de envío. `resolveRecipient`
+ * solo lo DESCRIBE (⛔ no emite nada: también lo usa `recipientEmailOf`, la compra de la guía); el enlace se resuelve en
+ * `claimAndNotify` DESPUÉS de ganar el sello ({@link ShipmentsService.customerUrlFor}): retiro ⇒ `shipments/<id>`; pedido ⇒
+ * `orderMailLinkOf` (registrado/reclamado ⇒ `orders/<id>`; invitado ⇒ token nuevo SIN rotar; > 365 días ⇒ sin CTA).
+ */
+type CustomerLinkTarget = { kind: 'shipment'; shipmentId: string } | { kind: 'order'; order: OrderMailLinkTarget };
+
 type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode; userId?: string | null; guestEmail?: string | null; user?: { name: string; nameSource?: NameSource | null; email?: string | null } | null } | null;
 
 /** `ShipmentItem` con la pieza, su carta (+set) y su ubicación resueltas (§M4-PREP). */
@@ -186,6 +285,8 @@ const CLIENT_SHIPMENT_INCLUDE = {
     },
   },
   refunds: true,
+  // ⭐ D2e (§19.12, PS-89): los eventos del transportista para la línea de tiempo pública (`toCustomerTimeline`).
+  carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT,
 } satisfies Prisma.ShipmentRequestInclude;
 
 /**
@@ -219,6 +320,10 @@ function toAdminShipmentRow(s: ShipmentRequest) {
     stripePaymentIntentId: s.stripePaymentIntentId,
     carrier: s.carrier,
     trackingNumber: s.trackingNumber,
+    // ⭐ v1.80.12.8 (M-67, §19.28.11): NUESTRO folio (admin; ⛔ nunca en superficies de cliente, SDX-I-6).
+    folio: s.folio,
+    // ⭐ v1.81 (§19.7): `manual | skydropx | null` — la lectura de `labelSourceOf` (fila legada ⇒ `manual`).
+    labelSource: labelSourceOf(s),
     requestedAt: s.requestedAt,
     pickingAt: s.pickingAt,
     shippedAt: s.shippedAt,
@@ -243,7 +348,21 @@ export class ShipmentsService {
     @Optional() private readonly prep?: ShipmentPrepService,
     // ⭐ v1.80.2 (§M4-SHIP.15.13): lo que el CLIENTE ve de las transferencias de un caso reembolsado.
     @Optional() private readonly manual?: ManualRefundService,
+    // ⭐ v1.80.12.5 (§M4-SHIP.19.25.3): `address.neighborhoodCheck` de `AdminShipmentDTO`. `@Optional()` por los tests
+    // unitarios legacy que construyen el servicio a mano; quien lea `address` sin él falla ruidoso (`requirePostalCodes`).
+    @Optional() private readonly postalCodes?: PostalCodeService,
+    // ⭐💰 v1.81 D2c (§19.20.2): umbrales de `labelPending`/`labelAlert` y el reloj de la guía (C-17: un reloj).
+    @Optional() @Inject(LABEL_VERIFY_CONFIG) private readonly labelCfg: LabelVerifyConfig = DEFAULT_LABEL_VERIFY_CONFIG,
+    @Optional() @Inject(SHIPMENTS_LABEL_CLOCK) private readonly labelClock: LabelClock = systemLabelClock,
+    // 🔒 v1.80.12.16 (§19.35.1): la liga del invitado en los avisos (token nuevo SIN rotar). `@Optional()` por los tests
+    // unitarios legacy; sin él el invitado va sin CTA (y se avisa en el log).
+    @Optional() private readonly orderTokens?: OrderAccessTokenService,
   ) {}
+
+  private requirePostalCodes(): PostalCodeService {
+    if (!this.postalCodes) throw new Error('PostalCodeService no disponible');
+    return this.postalCodes;
+  }
 
   private requirePrep(): ShipmentPrepService {
     if (!this.prep) throw new Error('ShipmentPrepService no disponible');
@@ -379,6 +498,17 @@ export class ShipmentsService {
             : 'NOT_FOUND';
       throw BusinessException.validation(code, 'Some items are not eligible', { ineligible });
     }
+    // ⭐ v1.81 (M-64, §M4-SHIP.19.5, criterio 235): una dirección vieja de la libreta (`complete=false`) no sirve
+    // para un retiro hasta completarla. ANTES de la tx y del PaymentIntent. Va DESPUÉS de
+    // la elegibilidad de las piezas: «esa pieza ya no es tuya» (`NOT_FOUND`, `ITEM_ORIGIN_REFUNDED`…) manda sobre la dirección
+    // (precedencia medida en `full-refund-vault.e2e-spec.ts`, PS-55/63/65).
+    const missing = addressMissing(address);
+    if (missing.length > 0) {
+      throw BusinessException.validation('ADDRESS_INCOMPLETE', 'The selected address is incomplete; complete it and retry', {
+        addressId: address.id,
+        missing,
+      });
+    }
 
     const breakdown = await this.breakdown();
 
@@ -425,6 +555,8 @@ export class ShipmentsService {
               postalCode: address.postalCode,
               country: address.country,
               phone: address.phone,
+              // ⭐ v1.81 (M-64): décimo campo (§M4-SHIP.19.5).
+              references: address.references,
             },
             status: 'solicitado',
             shippingFeeCents: breakdown.subtotalCents,
@@ -494,8 +626,13 @@ export class ShipmentsService {
    * ADMIN (`adminGet`/`adminList`) siguen devolviendo la fila cruda con el costo.
    */
   private toClientShipment<
-    T extends ShipmentRequest & { items: EnrichedShipmentItem[]; refunds?: PaymentRefund[] },
+    T extends ShipmentRequest & {
+      items: EnrichedShipmentItem[];
+      refunds?: PaymentRefund[];
+      carrierEvents?: { status: CarrierStatus; occurredAt: Date; branchName: string | null; providerShipmentId: string }[];
+    },
   >(s: T, transfers: Map<string, CustomerTransferView> = new Map()) {
+    const trackingUrl = providerTrackingUrlOf(s);
     return {
       id: s.id,
       status: s.status,
@@ -514,6 +651,9 @@ export class ShipmentsService {
       pickingAt: s.pickingAt,
       shippedAt: s.shippedAt,
       deliveredAt: s.deliveredAt,
+      // ⭐ D2e (§19.12, PS-88/PS-89): la liga de rastreo SOLO si Skydropx la dio (ausente si no) y la línea de tiempo pública.
+      ...(trackingUrl ? { trackingUrl } : {}),
+      timeline: toCustomerTimeline(s.carrierEvents ?? [], s),
       // v1.17: items enriquecidos (folio + acabado + carta) para la vista de rastreo.
       items: s.items.map((si) => this.toClientShipmentItem(si, transfers)),
     };
@@ -599,8 +739,11 @@ export class ShipmentsService {
     userId?: string,
     kind?: string,
     q?: string,
+    actorRole?: Role,
+    filters: { labelSource?: string; alert?: string; folio?: string } = {},
   ) {
     const where: Prisma.ShipmentRequestWhereInput = {};
+    const and: Prisma.ShipmentRequestWhereInput[] = [];
     // ⭐ v1.80 (§M4-SHIP.10) — `?q=` (gramática de §M3: trim, vacío ≡ ausente, ≤ 200 ⇒ 400): contains
     // insensible OR sobre `Order.orderNumber`, `Order.guestEmail`, `User.name`/`User.email` (del retiro Y de la
     // orden), `addressSnapshot.recipientName` (ruta JSON, parametrizado) e `id` exacto. ⛔ SQL crudo concatenado.
@@ -635,6 +778,18 @@ export class ShipmentsService {
     const kindFilter = parseEnumFilter('kind', kind, SHIPMENT_KIND_VALUES);
     if (kindFilter === 'guest_direct_ship') where.orderId = { not: null };
     else if (kindFilter === 'vault_withdrawal') where.orderId = null;
+    // ⭐ v1.80.12.12 (§M4-SHIP.19.31.10 pieza 1; §19.7 «filtros nuevos», §19.20.2, §19.30.8 S-GAS-2).
+    // `?labelSource=` — clase E (`ShipmentLabelSource`), con la MISMA derivación que `labelSourceOf` (una guía manual
+    // anterior a v1.81 tiene número y `labelSource` nulo).
+    const labelSourceFilter = parseEnumFilter('labelSource', filters.labelSource, SHIPMENT_LABEL_SOURCE_FILTER_VALUES);
+    if (labelSourceFilter === 'skydropx') and.push({ labelSource: 'skydropx' });
+    else if (labelSourceFilter === 'manual') and.push({ OR: [{ labelSource: 'manual' }, { labelSource: null, trackingNumber: { not: null } }] });
+    // `?alert=true` — clase L, dominio `true`: `carrierAlert ≠ null ∨ labelAlert ≠ null`, con las MISMAS funciones del DTO.
+    if (parseEnumFilter('alert', filters.alert, SHIPMENT_ALERT_FILTER_VALUES) === 'true') and.push({ id: { in: await this.alertShipmentIds() } });
+    // `?folio=` — igualdad exacta, `^ENV-\d{6,}$`; fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}`. Admin (SDX-I-6).
+    const folio = parseFolioFilter(filters.folio);
+    if (folio !== undefined) and.push({ folio });
+    if (and.length > 0) where.AND = and;
     const [data, total] = await Promise.all([
       this.prisma.shipmentRequest.findMany({
         where,
@@ -649,7 +804,7 @@ export class ShipmentsService {
       this.prisma.shipmentRequest.count({ where }),
     ]);
     const rows = [];
-    for (const s of data) rows.push({ ...this.withAdminKind(s), ...(await this.adminIdentity(s)) });
+    for (const s of data) rows.push({ ...this.withAdminKind(s), ...(await this.adminIdentity(s)), ...(await this.labelFieldsOf(s, actorRole ?? null)) });
     return { data: rows, page, pageSize, total };
   }
 
@@ -662,6 +817,7 @@ export class ShipmentsService {
     preparedAt: string | null;
     preparedBy: { userId: string; name: string | null } | null;
     missingCount: number;
+    address: ShipmentAddressStateDTO;
   }> {
     const buyerId = s.userId ?? s.order?.userId ?? null;
     const buyer = buyerId ? await this.prisma.user.findUnique({ where: { id: buyerId }, select: { email: true, name: true, nameSource: true } }) : null;
@@ -674,10 +830,201 @@ export class ShipmentsService {
       preparedAt: s.preparedAt ? s.preparedAt.toISOString() : null,
       preparedBy,
       missingCount: s.items.filter((i) => i.prepStatus === 'missing').length,
+      address: await this.addressStateOf(s),
     };
   }
 
-  async adminGet(id: string) {
+  /**
+   * ⭐ v1.80.12 (§M4-SHIP.19.20.1, «lo que ve la pantalla») — `address` del `AdminShipmentDTO` (fila y detalle):
+   * `complete` (misma regla que la libreta, sobre el SNAPSHOT), `version` (lo que la pantalla manda como
+   * `expectedAddressVersion`) y la ÚLTIMA corrección (el historial entero es la bitácora `shipment.address_corrected`).
+   */
+  private async addressStateOf(s: ShipmentRequest): Promise<ShipmentAddressStateDTO> {
+    let corrected: ShipmentAddressStateDTO['corrected'] = null;
+    if (s.addressCorrectedAt && s.addressCorrectedByUserId) {
+      const by = await this.prisma.user.findUnique({ where: { id: s.addressCorrectedByUserId }, select: { name: true } });
+      corrected = {
+        at: s.addressCorrectedAt.toISOString(),
+        by: { userId: s.addressCorrectedByUserId, name: nullIfBlank(by?.name ?? null) },
+      };
+    }
+    const missing = shipmentAddressMissing(s.addressSnapshot);
+    const snap = (s.addressSnapshot !== null && typeof s.addressSnapshot === 'object' && !Array.isArray(s.addressSnapshot)
+      ? s.addressSnapshot
+      : {}) as Record<string, unknown>;
+    const neighborhoodCheck = await this.requirePostalCodes().neighborhoodCheckOf(snap.postalCode, snap.neighborhood);
+    return { complete: missing.length === 0, version: s.addressVersion, corrected, missing, neighborhoodCheck };
+  }
+
+  /**
+   * ⭐💰 v1.81 D2c — lo de la guía de Skydropx en `AdminShipmentDTO` (fila y detalle): `label` (§19.7), `labelPending` y
+   * `labelAlert` (§19.20.2 con §19.27.9 y §19.28.11) y `costAdjustments` (§19.22.4). Lista blanca; ⛔ `labelUrl` no viaja.
+   */
+  private async labelFieldsOf(s: ShipmentRequest, actorRole: Role | null): Promise<{
+    label: ShipmentLabelDTO | null;
+    labelPending: LabelPendingDTO | null;
+    labelAlert: LabelAlertDTO | null;
+    costAdjustments: ShipmentCostAdjustmentDTO[];
+    carrierAlert: CarrierAlertDTO | null;
+  }> {
+    const chosenByName = s.rateChosenByUserId
+      ? nullIfBlank((await this.prisma.user.findUnique({ where: { id: s.rateChosenByUserId }, select: { name: true } }))?.name ?? null)
+      : null;
+    const adjustments = await this.prisma.shipmentCostAdjustment.findMany({ where: { shipmentRequestId: s.id }, orderBy: [{ chargedAt: 'asc' }, { id: 'asc' }] });
+    const costAdjustments: ShipmentCostAdjustmentDTO[] = adjustments.map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      providerChargeType: a.providerChargeType,
+      amountCents: a.amountCents,
+      ivaCents: a.ivaCents,
+      ivaSource: a.ivaSource,
+      netCents: a.amountCents - a.ivaCents,
+      chargedAt: a.chargedAt.toISOString(),
+      observedAt: a.observedAt.toISOString(),
+      note: a.note,
+    }));
+    let label: ShipmentLabelDTO | null = null;
+    if (s.labelSource === 'skydropx') {
+      const charged = s.orderId
+        ? await this.prisma.order.findUnique({ where: { id: s.orderId }, select: { subtotalCents: true, shippingFeeCents: true, ivaCents: true, ivaRatePct: true, priceConvention: true } })
+        : null;
+      const chargedNet = charged ? netShippingRevenueCents(charged) : shipmentNetRevenueCents(s);
+      label = toShipmentLabelDTO(s, chosenByName, chargedNet, costAdjustments.reduce((t, a) => t + a.netCents, 0));
+    }
+    let providerReference: string | null = null;
+    let uncertainReason: InFlightUncertainReason | null = null;
+    if (s.labelProcessingSince) {
+      const attempt = await this.prisma.shipmentLabelAttempt.findUnique({
+        where: { shipmentRequestId_since: { shipmentRequestId: s.id, since: s.labelProcessingSince } },
+        select: { providerReference: true },
+      });
+      providerReference = attempt?.providerReference ?? null;
+      const uncertain = await this.prisma.auditLog.findFirst({
+        where: { entityId: s.id, action: 'shipment.label_verify_uncertain', after: { path: ['since'], equals: s.labelProcessingSince.toISOString() } },
+        orderBy: { createdAt: 'desc' },
+        select: { after: true },
+      });
+      const reason = (uncertain?.after as { reason?: string } | null)?.reason;
+      uncertainReason = (reason as InFlightUncertainReason | undefined) ?? null;
+    }
+    const orphan = await this.prisma.auditLog.findFirst({
+      where: { entityId: s.id, action: 'shipment.label_orphan', createdAt: { gt: new Date(this.labelClock.now().getTime() - ORPHAN_ALERT_TTL_MS) } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    return {
+      label,
+      labelPending: toLabelPendingDTO(s, chosenByName, providerReference, this.labelCfg.tUnknownMs),
+      labelAlert: labelAlertOf(s, this.labelClock.now(), actorRole, { tUnknownMs: this.labelCfg.tUnknownMs, orphanSince: orphan?.createdAt ?? null, uncertainReason }),
+      costAdjustments,
+      carrierAlert: await this.carrierAlertOf(s),
+    };
+  }
+
+  /**
+   * ⭐ D2d (§19.3 «Alertas al admin», §19.32.5) — `carrierAlert` del `AdminShipmentDTO`: SOLO si `carrierAlertActive` (el MISMO
+   * cuerpo que `?alert=true` y `workQueue.shipping.withCarrierAlert`; ⛔ ninguna segunda definición). `detail` = el del último
+   * evento de ESE estado en la guía vigente; `at` = `carrierStatusAt` (la fecha del transportista).
+   */
+  private async carrierAlertOf(s: ShipmentRequest): Promise<CarrierAlertDTO | null> {
+    if (!carrierAlertActive(s) || s.carrierStatus == null) return null;
+    const ev = s.providerShipmentId
+      ? await this.prisma.shipmentCarrierEvent.findFirst({
+          where: { shipmentRequestId: s.id, providerShipmentId: s.providerShipmentId, status: s.carrierStatus },
+          orderBy: [{ occurredAt: 'desc' }, { observedAt: 'desc' }],
+          select: { detail: true },
+        })
+      : null;
+    return { status: s.carrierStatus, detail: ev?.detail ?? null, at: (s.carrierStatusAt ?? s.carrierPolledAt ?? s.requestedAt).toISOString() };
+  }
+
+  /**
+   * `?alert=true` (§19.20.2 «Filtro y tablero»): los envíos con `carrierAlert ≠ null ∨ labelAlert ≠ null` = `alertShipmentIdsOf`
+   * (`shipping-work-queue.ts`), la unión de `carrierAlertShipmentIds` y `labelAlertShipmentIds` — los MISMOS cuerpos que cuenta
+   * el tablero y que pintan el DTO (`carrierAlertActive`, `labelAlertOf`). ⛔ Ninguna segunda definición en SQL.
+   */
+  private async alertShipmentIds(): Promise<string[]> {
+    // C-TL-1 (gate techlead sobre 31af0883): la UNIÓN de los dos cuerpos que cuenta el tablero (`shipping-work-queue.ts`), con el
+    // MISMO reloj y el MISMO `tUnknownMs` que el DTO. ⛔ Ninguna consulta ancha aquí.
+    return alertShipmentIdsOf(this.prisma, this.labelClock.now(), this.labelCfg.tUnknownMs);
+  }
+
+  /**
+   * ⭐💰 v1.81 D2c — `lastLabelRelease` (§19.27.9, solo detalle): la última `shipment.label_released` de las últimas 24 h si
+   * el envío quedó «preparado sin guía»; si no, `null`. ⛔ Sin importes.
+   */
+  private async lastLabelReleaseOf(s: ShipmentRequest): Promise<{ at: string; via: string } | null> {
+    if (s.labelSource !== null || s.labelProcessingSince !== null) return null;
+    const r = await this.prisma.auditLog.findFirst({
+      where: { entityId: s.id, action: 'shipment.label_released', createdAt: { gt: new Date(this.labelClock.now().getTime() - 24 * 60 * 60 * 1000) } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true, after: true },
+    });
+    if (!r) return null;
+    return { at: r.createdAt.toISOString(), via: String((r.after as { via?: string } | null)?.via ?? 'manual') };
+  }
+
+  /** §R.5 — el destinatario del envío (el MISMO cuerpo que los avisos), para `address_to.email` de la compra (T.11). */
+  async recipientEmailOf(shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId'>): Promise<string | null> {
+    return (await this.resolveRecipient(shipment))?.email ?? null;
+  }
+
+  /** ⭐💰 v1.81 D2c — `AV-4` de una guía de Skydropx (`setTrackingFromProvider`): el MISMO sello y la misma plantilla que `setTracking`. */
+  async notifyLabelCaptured(id: string): Promise<void> {
+    const row = await this.prisma.shipmentRequest.findUnique({ where: { id } });
+    if (!row || !row.carrier || !row.trackingNumber) return;
+    await this.claimAndNotify(id, 'trackingNoticeSentAt', 'AV-4', row, (l, p) =>
+      shipmentGuideTemplate(
+        { ...p, carrier: row.carrier as string, trackingNumber: row.trackingNumber as string, trackingUrl: providerTrackingUrlOf(row) },
+        l,
+      ),
+    );
+  }
+
+  /**
+   * ⭐ D2e (§19.12, §19.3 paso 5) — `AV-17`/`AV-18`/`AV-19`: el proveedor REAL del puerto `CARRIER_NOTICES`. `applyCarrierStatus`
+   * decide QUÉ hecho ocurrió (evento nuevo, post-commit); aquí se SELLA y se manda (el mismo `claimAndNotify` de §R: sin
+   * destinatario no se quema el sello; un fallo de correo no se propaga):
+   *  - `AV-17` (`delivered`): sello `deliveredNoticeSentAt` con `labelSource='skydropx'` en el `WHERE` (y el CHECK) — una vez.
+   *  - `AV-18` (`delivered_to_branch`): sello `branchNoticeSentAt` — una vez por envío.
+   *  - `AV-19` (`delivery_attempt`): `lastDeliveryAttemptAt` reclamado con `IS NULL OR < occurredAt` y escrito con el
+   *    `occurredAt` del intento ⇒ uno por intento, nunca dos por el mismo evento.
+   */
+  async notifyCarrierNotice(id: string, notice: CarrierNotice, event: CarrierNoticeEvent): Promise<void> {
+    const row = await this.prisma.shipmentRequest.findUnique({ where: { id } });
+    if (!row || row.labelSource !== 'skydropx') return;
+    const base = { carrier: row.carrier, trackingNumber: row.trackingNumber, trackingUrl: providerTrackingUrlOf(row) };
+    if (notice === 'AV-17') {
+      const carrierStatusAt = row.carrierStatus === 'delivered' && row.carrierStatusAt ? row.carrierStatusAt : event.occurredAt;
+      await this.claimAndNotify(
+        id,
+        { where: { deliveredNoticeSentAt: null, labelSource: 'skydropx' }, column: 'deliveredNoticeSentAt', value: new Date() },
+        notice,
+        row,
+        (l, p) => shipmentDeliveredTemplate({ ...p, ...base, carrierStatusAt }, l),
+      );
+      return;
+    }
+    if (notice === 'AV-18') {
+      await this.claimAndNotify(id, { where: { branchNoticeSentAt: null }, column: 'branchNoticeSentAt', value: new Date() }, notice, row, (l, p) =>
+        shipmentAtBranchTemplate({ ...p, ...base, branchName: event.branchName }, l),
+      );
+      return;
+    }
+    await this.claimAndNotify(
+      id,
+      {
+        where: { OR: [{ lastDeliveryAttemptAt: null }, { lastDeliveryAttemptAt: { lt: event.occurredAt } }] },
+        column: 'lastDeliveryAttemptAt',
+        value: event.occurredAt,
+      },
+      notice,
+      row,
+      (l, p) => shipmentDeliveryAttemptTemplate({ ...p, ...base, attemptAt: event.occurredAt }, l),
+    );
+  }
+
+  async adminGet(id: string, actor?: { id: string; role: Role }, labelOptionsFor?: (actor: { id: string; role: Role }, shipmentId: string) => Promise<LabelOptionsDTO>) {
     const shipment = await this.prisma.shipmentRequest.findUnique({
       where: { id },
       include: {
@@ -698,6 +1045,9 @@ export class ShipmentsService {
     return {
       ...this.withAdminKind(shipment),
       ...(await this.adminIdentity(shipment)),
+      ...(await this.labelFieldsOf(shipment, actor?.role ?? null)),
+      lastLabelRelease: await this.lastLabelReleaseOf(shipment),
+      ...(actor && labelOptionsFor ? { labelOptions: await labelOptionsFor(actor, id) } : {}),
       refunds,
       items: shipment.items.map((si) => ({ ...si, prepStatus: si.prepStatus, missingReason: si.missingReason })),
     };
@@ -1000,7 +1350,7 @@ export class ShipmentsService {
       destination,
       requestedAt: s.requestedAt.toISOString(),
       customer,
-      shipTo: snapshot,
+      shipTo: { ...snapshot, addressCorrected: s.addressCorrectedAt != null },
       preparation: view.preparation,
       items,
     };
@@ -1043,7 +1393,7 @@ export class ShipmentsService {
    */
   private static addressSnapshotOf(
     raw: Prisma.JsonValue,
-  ): ShipPreparationOrderDTO['shipTo'] {
+  ): Omit<ShipPreparationOrderDTO['shipTo'], 'addressCorrected'> {
     const s =
       raw !== null && typeof raw === 'object' && !Array.isArray(raw)
         ? (raw as Record<string, unknown>)
@@ -1061,6 +1411,7 @@ export class ShipmentsService {
       postalCode: str('postalCode'),
       country: str('country'),
       phone: str('phone'),
+      references: opt('references'),
     };
   }
 
@@ -1241,61 +1592,9 @@ export class ShipmentsService {
         }
         const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
 
-        if (isDirectShip && (to === 'enviado' || to === 'entregado')) {
-          const fromStatus = to === 'enviado' ? 'picking' : 'shipped';
-          const toStatus = to === 'enviado' ? 'shipped' : 'delivered';
-          // ⭐ v1.80: una faltante ya es `lost/damaged` — se excluye por legibilidad y defensa en profundidad.
-          const shipmentItems = await tx.shipmentItem.findMany({
-            where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
-            select: { inventoryItemId: true },
-          });
-          for (const si of shipmentItems) {
-            // Guardia POSITIVA + idempotente: solo avanza la pieza que está en el estado previo esperado.
-            const moved = await tx.inventoryItem.updateMany({
-              where: { id: si.inventoryItemId, status: fromStatus },
-              data: { status: toStatus },
-            });
-            if (moved.count !== 1) continue;
-            await tx.inventoryMovement.create({
-              data: {
-                itemId: si.inventoryItemId,
-                fromStatus,
-                toStatus,
-                // `sale`: la pieza sale por una VENTA con envío directo, no por un retiro de bóveda.
-                reason: MovementReason.sale,
-                note: `guest shipment ${id} ${to}`,
-              },
-            });
-          }
-          return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
-        }
-
-        if (!isDirectShip && to === 'entregado') {
-          // 🔴 v1.80 (§M4-SHIP.6, corrige H1): `withdrawn` SOLO desde `in_custody` del dueño del retiro (guarda
-          // en el `WHERE`) y movimiento solo si `count = 1`; una faltante (`lost`, del cliente o de plataforma)
-          // ⛔ jamás pasa a `withdrawn` al entregar el resto.
-          const shipmentItems = await tx.shipmentItem.findMany({
-            where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
-            select: { inventoryItemId: true },
-          });
-          for (const si of shipmentItems) {
-            const moved = await tx.inventoryItem.updateMany({
-              where: { id: si.inventoryItemId, status: 'in_custody', ownerType: 'customer', ownerUserId: shipment.userId },
-              // Solo cambia `status`; conserva ownerType/ownerUserId/ownershipStatus.
-              data: { status: 'withdrawn' },
-            });
-            if (moved.count !== 1) continue;
-            await tx.inventoryMovement.create({
-              data: {
-                itemId: si.inventoryItemId,
-                fromStatus: 'in_custody',
-                toStatus: 'withdrawn',
-                reason: MovementReason.withdrawal,
-                note: `shipment ${id} delivered`,
-              },
-            });
-          }
-        }
+        // ⭐💰 v1.81 D2d (§19.3): el movimiento de piezas vive en `movePiecesOnTransition`, el MISMO cuerpo que usa
+        // `transitionFromProvider` (sondeo y «Salida de hoy»). Sin cambio de conducta: mismas guardas y movimientos.
+        await this.movePiecesOnTransition(tx, id, shipment.userId, to, isDirectShip);
         return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
       },
       { maxWait: 10_000, timeout: 30_000 },
@@ -1303,6 +1602,126 @@ export class ShipmentsService {
     // v1.74 (§R) — `AV-5`/`AV-6`, POST-COMMIT y best-effort; avisa el GANADOR del CAS y nadie más.
     if (result.gane) await this.notifyStatus(shipment, to);
     return result.row;
+  }
+
+  /**
+   * El movimiento de las PIEZAS de una transición (§M4, D4 + §M4-SHIP.6 H1 corregida). UN cuerpo: lo usan `updateStatus`
+   * (`PATCH …/status`) y `transitionFromProvider` (sondeo de Skydropx y «Salida de hoy»). Directo: `enviado` ⇒
+   * `picking → shipped`, `entregado` ⇒ `shipped → delivered`. Retiro: solo `entregado`, `in_custody` del dueño del retiro
+   * ⇒ `withdrawn` (⛔ una faltante `lost` jamás). Guardas POSITIVAS en el `WHERE` y movimiento solo con `count = 1`.
+   */
+  private async movePiecesOnTransition(
+    tx: Prisma.TransactionClient,
+    id: string,
+    shipmentUserId: string | null,
+    to: ShipmentStatus,
+    isDirectShip: boolean,
+  ): Promise<void> {
+    if (isDirectShip && (to === 'enviado' || to === 'entregado')) {
+      const fromStatus = to === 'enviado' ? 'picking' : 'shipped';
+      const toStatus = to === 'enviado' ? 'shipped' : 'delivered';
+      // ⭐ v1.80: una faltante ya es `lost/damaged` — se excluye por legibilidad y defensa en profundidad.
+      const shipmentItems = await tx.shipmentItem.findMany({
+        where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
+        select: { inventoryItemId: true },
+      });
+      for (const si of shipmentItems) {
+        // Guardia POSITIVA + idempotente: solo avanza la pieza que está en el estado previo esperado.
+        const moved = await tx.inventoryItem.updateMany({
+          where: { id: si.inventoryItemId, status: fromStatus },
+          data: { status: toStatus },
+        });
+        if (moved.count !== 1) continue;
+        await tx.inventoryMovement.create({
+          data: {
+            itemId: si.inventoryItemId,
+            fromStatus,
+            toStatus,
+            // `sale`: la pieza sale por una VENTA con envío directo, no por un retiro de bóveda.
+            reason: MovementReason.sale,
+            note: `guest shipment ${id} ${to}`,
+          },
+        });
+      }
+      return;
+    }
+    if (!isDirectShip && to === 'entregado') {
+      // 🔴 v1.80 (§M4-SHIP.6, corrige H1): `withdrawn` SOLO desde `in_custody` del dueño del retiro (guarda en el `WHERE`) y
+      // movimiento solo si `count = 1`; una faltante (`lost`, del cliente o de plataforma) ⛔ jamás pasa a `withdrawn`.
+      const shipmentItems = await tx.shipmentItem.findMany({
+        where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
+        select: { inventoryItemId: true },
+      });
+      for (const si of shipmentItems) {
+        const moved = await tx.inventoryItem.updateMany({
+          where: { id: si.inventoryItemId, status: 'in_custody', ownerType: 'customer', ownerUserId: shipmentUserId },
+          // Solo cambia `status`; conserva ownerType/ownerUserId/ownershipStatus.
+          data: { status: 'withdrawn' },
+        });
+        if (moved.count !== 1) continue;
+        await tx.inventoryMovement.create({
+          data: {
+            itemId: si.inventoryItemId,
+            fromStatus: 'in_custody',
+            toStatus: 'withdrawn',
+            reason: MovementReason.withdrawal,
+            note: `shipment ${id} delivered`,
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * ⭐💰 v1.81 D2d — `transitionFromProvider(tx, id, to)` (API_CONTRACT §M4-SHIP.19.3 paso 5 y §19.9 `departed`): el
+   * cuerpo de `updateStatus` para las transiciones que NO pide una persona por `PATCH` sino un hecho del transportista (el
+   * sondeo) o el lote de «Salida de hoy». ⚠️ El llamador YA tiene el candado de la fila (`FOR UPDATE`, primera sentencia).
+   *  - `enviado`: guardas de §M4-SHIP.6 (`assertCanAdvance(…,'enviado')`, lanzan su `BusinessException`) y CAS
+   *    `WHERE status='guia'` ⇒ `count 1`: `shippedAt`, piezas `shipped` (directo); `count 0` ⇒ nada (ya salió).
+   *  - `entregado`: si aún está en `guia` ⇒ primero `enviado` (con sus guardas y su AV-5) y luego `entregado`, en la MISMA
+   *    tx; CAS `WHERE status='enviado'`; `deliveredAt` lo da el llamador (`max(occurredAt, observedAt)`, SEC-SDX-1).
+   * Devuelve qué ganó: el AV-5 lo manda el llamador POST-COMMIT solo si `shipped` (el ganador del CAS y nadie más, REL-B).
+   */
+  async transitionFromProvider(
+    tx: Prisma.TransactionClient,
+    id: string,
+    to: 'enviado' | 'entregado',
+    at: { now: Date; deliveredAt?: Date },
+  ): Promise<{ shipped: boolean; delivered: boolean }> {
+    const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id }, select: { status: true, userId: true, orderId: true } });
+    let isDirectShip = false;
+    if (row.orderId != null) {
+      const order = await tx.order.findUnique({ where: { id: row.orderId }, select: { fulfillmentMode: true } });
+      isDirectShip = this.kindForFulfillment(order?.fulfillmentMode, id) === 'guest_direct_ship';
+    }
+    let shipped = false;
+    let delivered = false;
+    if (row.status === 'guia') {
+      // D-1 (gate techlead sobre 31af0883): sin `ShipmentPrepService` la guarda NO se salta — falla ruidoso.
+      await this.requirePrep().assertCanAdvance(tx, id, 'enviado');
+      const moved = await tx.shipmentRequest.updateMany({ where: { id, status: 'guia' }, data: { status: 'enviado', shippedAt: at.now } });
+      if (moved.count === 1) {
+        shipped = true;
+        await this.movePiecesOnTransition(tx, id, row.userId, 'enviado', isDirectShip);
+      }
+    }
+    if (to === 'entregado') {
+      const done = await tx.shipmentRequest.updateMany({
+        where: { id, status: 'enviado' },
+        data: { status: 'entregado', deliveredAt: at.deliveredAt ?? at.now },
+      });
+      if (done.count === 1) {
+        delivered = true;
+        await this.movePiecesOnTransition(tx, id, row.userId, 'entregado', isDirectShip);
+      }
+    }
+    return { shipped, delivered };
+  }
+
+  /** ⭐ D2d — el `AV-5` de una transición a `enviado` que ganó `transitionFromProvider` (post-commit, best-effort). */
+  async notifyShipped(id: string): Promise<void> {
+    const row = await this.prisma.shipmentRequest.findUnique({ where: { id } });
+    if (row) await this.notifyStatus(row, 'enviado');
   }
 
   /** §M4-SHIP.9 — cancelar el PI de un `solicitado`; cobrado/en proceso/desconocido ⇒ `409 PAID_SHIPMENT_NOT_CANCELLABLE`. */
@@ -1425,13 +1844,25 @@ export class ShipmentsService {
     const data = {
       carrier,
       trackingNumber,
+      // ⭐ v1.81 (§19.7 «POST …/tracking con Skydropx»): la captura a mano AFIRMA su origen (antes se derivaba).
+      labelSource: 'manual' as const,
       ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
-      ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents } : {}),
+      ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents, shippingIvaSource: 'manual' as const } : {}),
     };
     const relabelled = await this.prisma.$transaction(
       async (tx) => {
         // ⭐ v1.80 (§M4-SHIP.6) — candado de la fila y las guardas de la guía bajo él (un cuerpo en `prep`).
-        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
+        // ⭐💰 v1.81 (§19.7, criterio 247; §19.22.5): ⛔ no se captura a mano encima de una guía de Skydropx ni con una compra
+        // en curso (la MISMA condición con que la ventana pinta «Capturar a mano»: `label = null ∧ labelPending = null`).
+        // Se leen EN la misma sentencia que toma el candado (la lectura ya es bajo él).
+        const [locked] = await tx.$queryRaw<{ labelSource: string | null; labelProcessingSince: Date | null }[]>`
+          SELECT "labelSource"::text AS "labelSource", "labelProcessingSince" FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
+        if (locked?.labelSource === 'skydropx') {
+          throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Shipment already has a Skydropx label', { labelSource: 'skydropx' });
+        }
+        if ((locked?.labelProcessingSince ?? null) !== null) {
+          throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A label purchase is in progress for this shipment');
+        }
         if (advances && this.prep) await this.prep.assertCanAdvance(tx, id, 'guia');
         // ⭐⭐ `REL-C` — EL AVANCE DE ESTADO, Y SU PRECONDICIÓN ES UN CONJUNTO, NO UNA LECTURA. ⭐ v1.80: y la
         // guía exige `preparedAt` y cero casos `open` TAMBIÉN en el `WHERE` (§M4-SHIP.6, §M4-SHIP.15.6).
@@ -1490,7 +1921,7 @@ export class ShipmentsService {
     );
     // ⛔ POST-COMMIT y best-effort; ⚠️ solo avisa quien escribió la etiqueta (`relabelled === 1`).
     if (relabelled === 1) {
-      await this.claimAndNotify(id, 'trackingNoticeSentAt', shipment, (l, p) =>
+      await this.claimAndNotify(id, 'trackingNoticeSentAt', 'AV-4', shipment, (l, p) =>
         shipmentGuideTemplate({ ...p, carrier, trackingNumber }, l),
       );
     }
@@ -1540,6 +1971,11 @@ export class ShipmentsService {
     orderNumber: string | null;
     /** `Order.id` solo para el titular registrado (CTA al detalle); `null` para invitado/bóveda. */
     orderId: string | null;
+    /**
+     * 🔒 v1.80.12.16 (§19.35.1) — de qué cuelga el CTA. ⛔ Aquí NO se emite ningún token: este cuerpo también lo usa
+     * `recipientEmailOf` (la compra de la guía). El enlace se resuelve tras ganar el sello ({@link customerUrlFor}).
+     */
+    link: CustomerLinkTarget;
   } | null> {
     if (shipment.userId) {
       const user = await this.prisma.user.findUnique({
@@ -1548,12 +1984,15 @@ export class ShipmentsService {
       });
       // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): sin correo ⇒ sin destinatario (el llamador omite con aviso).
       if (!user || user.anonymizedAt || !user.email) return null;
-      return { email: user.email, locale: user.locale, orderNumber: null, orderId: null };
+      return { email: user.email, locale: user.locale, orderNumber: null, orderId: null, link: { kind: 'shipment', shipmentId: shipment.id } };
     }
     if (shipment.orderId) {
       const order = await this.prisma.order.findUnique({
         where: { id: shipment.orderId },
         select: {
+          id: true,
+          userId: true,
+          createdAt: true,
           orderNumber: true,
           guestEmail: true,
           locale: true,
@@ -1561,12 +2000,18 @@ export class ShipmentsService {
         },
       });
       if (!order) return null;
+      const link: CustomerLinkTarget = {
+        kind: 'order',
+        order: { id: order.id, userId: order.userId, guestEmail: order.guestEmail, createdAt: order.createdAt },
+      };
       if (order.guestEmail) {
+        const locale = order.locale ?? order.user?.locale ?? null;
         return {
           email: order.guestEmail,
-          locale: order.locale ?? order.user?.locale ?? null,
+          locale,
           orderNumber: order.orderNumber,
           orderId: null,
+          link,
         };
       }
       // v1.80.9 (D-STF-2): sin correo ⇒ sin destinatario.
@@ -1576,9 +2021,19 @@ export class ShipmentsService {
         locale: order.locale ?? order.user.locale,
         orderNumber: order.orderNumber,
         orderId: shipment.orderId,
+        link,
       };
     }
     return null;
+  }
+
+  /**
+   * 🔒 v1.80.12.16 (§M4-SHIP.19.35.1) — el enlace del CTA, resuelto en el CAMINO DE ENVÍO (lo llama SOLO `claimAndNotify`, tras
+   * ganar el sello): retiro de bóveda ⇒ `shipments/<id>`; pedido ⇒ {@link orderMailLinkOf} (el MISMO cuerpo que `AV-12`).
+   */
+  private async customerUrlFor(to: { locale: string | null; link: CustomerLinkTarget }, notice: OrderMailNotice): Promise<string | null> {
+    if (to.link.kind === 'shipment') return appUrl(`shipments/${encodeURIComponent(to.link.shipmentId)}`, to.locale) ?? null;
+    return orderMailLinkOf({ prisma: this.prisma, tokens: this.orderTokens, logger: this.logger }, to.link.order, to.locale, notice);
   }
 
   /**
@@ -1633,7 +2088,8 @@ export class ShipmentsService {
    */
   private async claimAndNotify(
     id: string,
-    sealField: 'trackingNoticeSentAt' | null,
+    sealField: 'trackingNoticeSentAt' | NoticeSeal | null,
+    notice: OrderMailNotice,
     shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId'>,
     build: (locale: string | null, params: ShipmentNoticeParams) => Omit<MailMessage, 'to'>,
   ): Promise<void> {
@@ -1649,23 +2105,31 @@ export class ShipmentsService {
         return;
       }
       if (sealField) {
+        // ⭐ D2e: el sello puede ser una columna «IS NULL» (AV-4, AV-17, AV-18) o un reclamo con su propia condición (AV-19).
+        const seal: NoticeSeal =
+          typeof sealField === 'string' ? { where: { [sealField]: null }, column: sealField, value: new Date() } : sealField;
         const sealed = await this.prisma.shipmentRequest.updateMany({
-          where: { id, [sealField]: null },
-          data: { [sealField]: new Date() },
+          where: { id, ...seal.where },
+          data: { [seal.column]: seal.value },
         });
         if (sealed.count !== 1) return; // ya se avisó de este hecho: ⛔ no se manda un segundo correo.
       }
+      // 🔒 v1.80.12.16 (§19.35.1): el enlace se resuelve AQUÍ — sello ganado, destinatario y puerto presentes, justo antes de
+      // renderizar. Sello perdido / sin destinatario / sin MAIL_PORT ⇒ ya se salió arriba ⇒ cero tokens.
+      const customerUrl = await this.customerUrlFor(to, notice);
       const msg = build(to.locale, {
         shipmentId: id,
         orderNumber: to.orderNumber,
         orderId: to.orderId,
+        // ⭐ D2e (§19.12, PS-87): el enlace lo resuelve el SERVICIO (⛔ no la plantilla).
+        customerUrl,
       });
       await this.mail.send({ ...msg, to: to.email });
     } catch (e) {
       // ⛔ NUNCA propaga: un fallo de correo no revierte una transición ni tumba el endpoint.
-      this.logger.error(
-        `shipment mail failed for ${id}: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      // D-8 (gate techlead sobre 31af0883): ⛔ el mensaje crudo (puede citar el enlace con token o valores de Prisma): solo
+      // la clase y el código, como `guest-mail-link.ts`.
+      this.logger.error(`shipment mail failed for ${id} (${safeErrorTag(e)})`);
     }
   }
 
@@ -1681,20 +2145,22 @@ export class ShipmentsService {
    * lo que costaría la alternativa, está en el docstring de `claimAndNotify`.
    */
   private async notifyStatus(
-    shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId' | 'carrier' | 'trackingNumber'>,
+    shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId' | 'carrier' | 'trackingNumber'> &
+      Partial<Pick<ShipmentRequest, 'labelSource' | 'trackingUrl'>>,
     to: ShipmentStatus,
   ): Promise<void> {
     if (to === 'enviado') {
-      await this.claimAndNotify(shipment.id, null, shipment, (l, p) =>
+      await this.claimAndNotify(shipment.id, null, 'AV-5', shipment, (l, p) =>
         shipmentShippedTemplate(
-          { ...p, carrier: shipment.carrier, trackingNumber: shipment.trackingNumber },
+          // ⭐ D2e (PS-88): la liga de rastreo solo si Skydropx la dio.
+          { ...p, carrier: shipment.carrier, trackingNumber: shipment.trackingNumber, trackingUrl: providerTrackingUrlOf(shipment) },
           l,
         ),
       );
       return;
     }
     if (to === 'cancelado') {
-      await this.claimAndNotify(shipment.id, null, shipment, (l, p) =>
+      await this.claimAndNotify(shipment.id, null, 'AV-6', shipment, (l, p) =>
         shipmentCancelledTemplate(p, l),
       );
     }

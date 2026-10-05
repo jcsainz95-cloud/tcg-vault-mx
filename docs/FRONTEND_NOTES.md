@@ -19112,6 +19112,825 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
   (real 2/2, mock 2/2), M-5 en navegador (2/2, el `403` de QA reproducido), M-5 Vitest, A-1, STF-36, M-3, M-4 ×2,
   TD-5; canario B-1 con el `temp-actors.ts` previo ⇒ `422 staff_without_email`.
 
+## §97 · **Skydropx en «Capturar guía»** — la ventana de cuatro pasos, las tarjetas, «Salida de hoy», «Configuración › Envíos» y el cliente (2026-10-04, rama `claude/skydropx-d`; contrato v1.80.11/v1.80.12 (`§M4-SHIP.19.19`, `§19.20`; la errata v1.80.12.1 dice «frontend: nada»), diseño v4.15/v4.16 `§43`; código en `f9996337`, `bd9ab31e`, `eed6b6a0`, `9a8e3969`)
+
+> **Renumerada al fusionar `production` (2026-10-05):** en la rama `claude/skydropx-d` esta sección era **§87** (y su
+> subsección §87.1). Chocó con la §87 de `claude/staff-sin-correo` (PR #70, arriba), que conserva su número. Las
+> referencias «`FRONTEND_NOTES §87`» de `API_CONTRACT.md`, `DESIGN_SYSTEM.md §43.5a` y `ARCHITECTURE.md` hechas en el
+> contexto de Skydropx («Capturar guía», solicitudes 1–3) apuntan **aquí**.
+
+**Contra qué se construyó.** El backend de cotizar/comprar no existe (solo el cliente y el doble de D1). La pantalla
+consume la API **tal como la fija el contrato** (`lib/api.ts`), y en modo mock la sirve un **servidor falso**
+(`lib/mock/skydropx.ts`) con las cifras medidas de PROD §4.4–§4.6. Las pruebas espían la API (equivalente a MSW).
+Sin Playwright: ni `@real` (no hay backend) ni mock — el censo `mockOnly`/`realOnly` **no cambia**.
+
+**Dónde vive cada pieza (FS-n de §43.14).**
+
+| FS | Fichero | Qué |
+|---|---|---|
+| FS-1/2/3/4 | `m4/CaptureLabelDialog.tsx` (+ `m4/capture/`) | La ventana: `M4View` la monta una vez con `key` por apertura; lee `GET /admin/shipments/:id` al abrir; `onClose` no cierra con la compra o el `PUT` en curso (sin tocar `Modal.tsx`); el banner de la página dice «Guía comprada para…» |
+| FS-15 | `capture/AddressStep.tsx` | Modo leer (`<dl>`, ausencias con nombre) y modo corregir (6 controles; municipio/estado/teléfono no son campos); CP ⇒ `GET /geo/postal-codes/:cp` en caché por CP |
+| FS-16/18 | `capture/sdx-errors.ts` | Un copy por `error.code` (+ `details.reason/missing/op/required`), función pura; SK5 decide por relectura |
+| FS-17 | `capture/QuoteViews.tsx` | Opciones (chips «Recomendada»/«Promoción» del servidor, sucursal plegada, excluidas, «Cambiar empaque») y compra (desglose, frase de dinero, confirmaciones) |
+| FS-5/19/20 | `m4/ShipPreparationCard.tsx` | Compra pendiente por `state`, sin «Deshacer preparado», chip «Dirección corregida», `labelAlert` |
+| FS-6/21 | `m4/SkydropxLabelBlock.tsx`, `m4/LabelActions.tsx`, `m4/ShipmentsQueue.tsx` | Bloque de guía Skydropx; imprimir / actualizar rastreo / cancelar y re-emitir; las cuatro alertas; «Liberar» ⇔ `canRelease`; «Reintentar cancelación» |
+| FS-7 | `m4/DepartureBoard.tsx`, `m4/tabs.ts` | `?tab=salida`, grupos del servidor, casillas, confirmación (S9), hoja imprimible |
+| FS-8 | `m10/sections/ShippingSection.tsx` | Puerta de compra (se guarda sola; `operators` con diálogo antes del `PUT`), escalones, Carta Porte, empaques, preferidas, sucursales y diales |
+| FS-9/10/11 | `components/domain/ShipmentTrackingExtras.tsx` | `TrackingLink` + `ShipmentTimeline` en las cuatro superficies del cliente |
+| FS-12/22 | `types/contract.ts`, `lib/api.ts` (zona compartida) | Tipos de §19.19.4/§19.20 y 15 llamadas; ⛔ sin `address-neighborhood` |
+| FS-13/23 | `messages/{es,en}.json` | Claves de §43.13 (retiradas de v4.16 ausentes; teléfono **sin** claves: P-ADR-1) |
+| FS-14/24 | `lib/mock/skydropx.ts`, `lib/mock/fixtures.ts` | Servidor falso + diales sembrados con el seed del contrato (`shippingProvider:'off'`, compra `disabled`) |
+
+**Decisiones de implementación.**
+- **PDF de la etiqueta (§43.5 lo dejó a frontend):** `fetch` autenticado (`requestBlob`) ⇒ `blob:` local ⇒ pestaña
+  nueva (imprimir) o `<a download="guia-<ref>.pdf">`. La sesión es un Bearer en `localStorage`, no una cookie: un
+  enlace directo al proxy saldría sin credenciales. ⛔ Nunca la URL de Skydropx.
+- **Sin `labelOptions` en el DTO** (servidor anterior a la fase D) ⇒ la ventana es el formulario de hoy. Falla
+  segura: el operador nunca queda sin la salida manual.
+- **`address.missing` no está en el contrato** (§19.20.1 fija `{ complete, version, corrected }`), y §43.2a decide el
+  modo del paso 1 por él. Queda opcional y marcado `// MOCK: pendiente de contrato`: si llega, la ventana hace lo de
+  §43.2a; si no, **no lo deduce** (sería una regla en pantalla): deja cotizar y el `422 SHIPMENT_ADDRESS_INCOMPLETE
+  {missing}` la lleva al paso 1 en modo corregir (o a «a mano» si es el teléfono). Solicitud abajo.
+- **502 `edge_blocked` en la COMPRA:** es `5xx` ⇒ SK5 relee. Si la relectura dice «no se compró nada», se pinta el
+  texto de `edge_blocked` (no «Puedes volver a intentarlo») y el botón **no vuelve**: §43.7 dice «no sirve reintentar».
+- **La puerta de compra se guarda sola** (no con «Guardar envíos»): es una llave de dinero con su propia
+  confirmación, el patrón de §39.1. El resto de los diales va en un `PUT` parcial.
+- **Escalones:** la única validación en pantalla es la que UX-SDX-17 exige (creciente, ≥ MX$1.00, costo ≥ 0, fecha):
+  con error de fila, cero `PUT`. El resto lo decide el servidor (`422` bajo el botón).
+- **Servidor falso:** da `SKYDROPX_ALLOW_SPEND` por puesta y compra al instante con un número `MOCK…`; no hay red.
+  Con el seed (`off`), la demo enseña el formulario de hoy; para ver los cuatro pasos se enciende en
+  «Configuración › Envíos», como lo haría el dueño.
+- `M4View.test.tsx` (captura manual) cambió `getByLabelText` por `findByLabelText`: la ventana ahora lee el envío al
+  abrir. No se debilitó ninguna aserción.
+
+**Candados de §43.15 y su mutación** (medidas sobre copia del árbol ENTERO con `git archive` — `eed6b6a0` para G1–G15
+y `9a8e3969` para H1–H7 —, `node_modules` enlazado; una tirada por mutación: ninguna depende de carreras ni de
+reloj real — el sondeo usa reloj falso):
+
+| Candado | Suite | Mutación | Resultado |
+|---|---|---|---|
+| UX-SDX-1 | `CaptureLabelDialog.test.tsx` | abrir siempre los cuatro pasos (ignorar `provider`) | 2 rojas |
+| UX-SDX-2 | ídem + `sdx-cards.test.tsx` | «a mano» en «Compra sin confirmar» | 6 rojas (con UX-SDX-11) |
+| UX-SDX-4 | ídem | preseleccionar la más barata | 2 rojas |
+| UX-SDX-7 (SK3) | ídem | «Total» = suma del desglose | 2 rojas |
+| UX-SDX-8 (SK2/4) | ídem | botón de compra sin `canPurchase` | 5 rojas |
+| UX-SDX-9 | ídem | `confirmBranchDelivery:true` siempre | 1 roja |
+| UX-SDX-11 ⭐💰 (SK5) | ídem | tratar el 5xx como «no se compró nada» sin releer | 5 rojas |
+| UX-SDX-12 | ídem | todo 409 de la compra = saldo (ramificar por status) | 4 rojas |
+| UX-SDX-13 | ídem | sondeo sin tope de 2 min | 1 roja |
+| UX-SDX-14 | `lib/i18n-skydropx.test.ts` | borrar `options.promoNote` en `en.json` | 1 roja |
+| UX-SDX-15 | `ShipmentTrackingExtras.test.tsx` | liga construida sin `trackingUrl` | 1 roja |
+| UX-SDX-16 | `sdx-cards.test.tsx` | «Liberar» sin mirar `canRelease` | 1 roja |
+| UX-SDX-17 | `ShippingSection.test.tsx` | `PUT` al elegir `operators`, sin confirmar | 1 roja |
+| UX-SDX-18/21 | `CaptureLabelDialog.test.tsx` | `expectedAddressVersion + 1` | 2 rojas |
+| UX-SDX-19 | ídem | `<form>` sin `aria-describedby` | 1 roja |
+| UX-SDX-20 💰 | ídem | no tirar la cotización tras `corrected` | 1 roja |
+| UX-SDX-22 | ídem | mismo texto para `expired` y `address_changed` | 1 roja |
+| UX-SDX-23 | ídem | conservar la colonia del CP viejo / consultar con 4 dígitos | 1 roja / 1 roja (la primera **sobrevivía**: la prueba miraba el `select` y no el cuerpo del `PUT`; se reforzó y ahora muerde) |
+| UX-SDX-24 | ídem | «Promoción» por `planType` | 1 roja |
+| UX-SDX-25 | ídem | ofrecer empaques inactivos | 1 roja |
+| UX-SDX-26 | `sdx-cards.test.tsx` | «Deshacer preparado» con compra pendiente | 1 roja |
+
+UX-SDX-3 está retirado (v4.16). Sin mutación propia: UX-SDX-5, -6 y -10 (cubiertos por la misma suite; no medido
+que muerdan por separado).
+
+**Fuera de este encargo / pendiente.**
+- Los correos `AV-17/18/19` (backend).
+- A-6: la alerta `label_processing_stuck` va **sin** botón (default de §43.17).
+- P-ADR-1: teléfono no editable, claves `address.phone.*` **sin** añadir (un candado lo vigila).
+- Playwright: ningún spec nuevo (ni mock ni `@real`).
+- «Imprimir lista» de «Salida de hoy» usa `window.print()` sobre la misma vista con clases `print:`; la hoja no se
+  midió en un navegador (NO MEDIDO).
+
+**Solicitudes al arquitecto.**
+1. `AdminShipmentDTO.address.missing: ('neighborhood'|'postalCode'|'phone'|'recipientName'|'line1')[]` (o una regla
+   equivalente) — `DESIGN_SYSTEM §43.2a` lo necesita para abrir el paso 1 en modo corregir y para el aviso del
+   teléfono sin cotizar antes.
+2. Forma de la respuesta de `GET /admin/shipping/catalogs/consignment-notes?description=` (§19.19.6 solo dice «una
+   página») y de `PUT /admin/shipping/packages` (§19.13 no la da). La pantalla asume `{code, description}[]` y
+   `{ packages }`.
+3. `ShipmentCostAdjustmentDTO` (§19.7 lo nombra sin definirlo); la pantalla solo cuenta las filas.
+4. El `GET /admin/settings` con los diales nuevos se lee como opcional (servidor anterior a `M-SDX-D` ⇒ la sección dice
+   «Este servidor todavía no trae los ajustes de envío»).
+
+**Desacuerdos con el diseño (para ux-ui, no bloquean).**
+- **UX-SDX-2 pide «Capturar a mano» en el paso 4** (`DESIGN_SYSTEM.md:24092`, y «en los cuatro pasos» en `:23092`),
+  pero el mismo §43 lo prohíbe en «Compra sin confirmar» (`:23469`, SK5) y SK6 lo excluye «con guía ya comprada»
+  (`:23064`). En `processing` la guía **ya existe** en Skydropx (`labelSource:'skydropx'` desde el paso 9 de §19.7) y el
+  `POST …/tracking` respondería `409 SHIPMENT_ALREADY_LABELED`. Implementado: en el paso 4 «a mano» solo aparece en
+  «Skydropx no creó la guía» (`CaptureLabelDialog.tsx`, rama `stage === 'notCreated'` del pie); en `labeled`,
+  `processing`, `in_progress` e `in_flight`, no. La prueba lo fija así.
+- **«Volver a cotizar» en `502 edge_blocked` de la compra:** ver arriba (no se ofrece reintentar ni vuelve el botón).
+
+### §97.1 · Respuestas del contrato v1.80.12.2 (`§M4-SHIP.19.22`, `4b3f3c10`) y diseño v4.17 (`f6cb8fdb`)
+- **Solicitud 1 — cerrada.** `address.missing: ShipmentAddressMissingField[]` es obligatorio (`[]` si completa, orden
+  fijo `recipientName, line1, neighborhood, postalCode, phone`) y es la misma lista del `422`. El tipo deja de ser
+  «MOCK»; el paso 1 lo usa como pide §43.2a. Se conserva una defensa: si un servidor anterior no lo manda, la ventana no
+  deduce nada y decide el `422` (prueba propia, con el DTO forzado).
+- **Solicitud 2 — cerrada, y corrige lo que se asumió.** `consignment-notes` ⇒ `{ consignmentNotes, hasMore }` (no un
+  arreglo pelado); `hasMore` ⇒ «Hay más resultados: afina la descripción.»; `400 {field:'description'}` (3..60) ⇒
+  «Escribe de 3 a 60 caracteres para buscar.» (copy nuevo de frontend: §43.10c no lo fija — ux-ui puede cambiarlo).
+  `PUT …/packages` ⇒ `{ packages }` (ratificado); sin activo con código ⇒ **`400`** `{reason:'no_active_package'}`, que
+  ahora se traduce a «Debe quedar al menos un empaque activo…». La pantalla dejó de bloquear el botón por esa regla
+  (la decide el servidor).
+- **Solicitud 3 — cerrada.** `ShipmentCostAdjustmentDTO` completo (§19.22.4) con `ShipmentCostAdjustmentKind`.
+- **«Capturar a mano» en el paso 4:** ux-ui ratificó lo construido (v4.17, §43.5a); sin cambio de código.
+- El servidor falso habla las formas nuevas (`missing` siempre, `400` en empaques, `{consignmentNotes, hasMore}`);
+  candado `lib/mock/skydropx-contract.test.ts`.
+
+## §88 · **Fase C en el cliente — colonia de lista por CP** en la libreta, el alta inline del buylist, el checkout de invitado y el retiro; y `line2` 0..200 (errata v1.80.12.3) (2026-10-04, rama `claude/skydropx-d`, base `f0009e92`; contrato v1.80.12 `§M4-SHIP.19.5`/`§19.20.1`, errata v1.80.12.3 `§19.23.4`; backend `eea04309`, `BACKEND_NOTES §58`)
+
+### 88.1 Qué mandaban los formularios ANTES (medido sobre `cd761248`)
+- **Libreta** (`components/domain/AddressManager.tsx`, también el alta inline de `BuylistPickupAddressField.tsx:129-133`):
+  colonia `Input` de texto libre y opcional (`:406-410`), ciudad y estado tecleados y obligatorios (`:344-345`,
+  `:411-414`), CP «≥ 3» y teléfono «≥ 7» (`:346-347`), sin `references`. ⇒ con fase C el servidor responde `400`
+  (colonia obligatoria, CP 5, tel 10) o `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE`.
+- **Invitado** (`checkout/GuestCheckoutForm.tsx:222-246`, `guest-validation.ts:108-133`): colonia texto libre opcional
+  (`neighborhood?.trim() || undefined`), ciudad/estado tecleados; CP 5 y tel 10 ya estaban; sin `references`.
+- **Retiro** (`shipments/ShipmentsView.tsx`): no había nada para `ADDRESS_INCOMPLETE` (caía a `getMessage` genérico,
+  `:157-160`) ni lectura de `complete`.
+- **`line2`**: el frontend NO fijaba ninguna cota (ni `maxLength` ni validación) en libreta, invitado ni «Capturar
+  guía» (`Grep` de `line2` con 120/200/`maxLength` en `frontend/src` ⇒ 0).
+
+### 88.2 Qué hay ahora
+- **Un hook, tres pantallas:** `hooks/usePostalCodeLookup.ts` (⚠️ zona compartida) — consulta `GET /geo/postal-codes/:cp`
+  con 5 dígitos (clave `['postal-code', cp]`, sin reintentos, `staleTime: Infinity`), distingue `unknown`
+  (`404`/`POSTAL_CODE_UNKNOWN`) de `failed` (red/5xx, con «Reintentar»), aplica `allowedOverride` (la lista del `422`)
+  y reconcilia la colonia elegida con la lista que llega (`matchNeighborhood`: grafía canónica o vacío). El paso 1
+  de «Capturar guía» (`m4/capture/AddressStep.tsx`) **usa ese mismo hook**: se quitó su copia de la consulta y del
+  efecto de reconciliación (sin cambio de conducta; 192/192 de `m4` verdes tras el cambio).
+- **`lib/address-rules.ts`** (⚠️ zona compartida): `POSTAL_CODE_RE`, `PHONE_RE`, `REFERENCES_MAX = 70`, `LINE2_MAX = 200`,
+  `normalizeMxPhone` (movida desde `guest-validation.ts`, que la re-exporta), `normalizeColonia` (la del servidor) y
+  `matchNeighborhood`.
+- **`components/domain/PostalCodeNeighborhoodFields.tsx`** (⚠️ zona compartida): CP → `Select` de colonias (⛔ sin texto
+  libre; apagado con su motivo por `aria-describedby` mientras no hay 5 dígitos / consulta / catálogo) → línea
+  «Municipio y estado: {city}, {state} (salen del CP).» (no son campos). La usan la libreta y el invitado.
+- **Libreta:** orden destinatario · calle · interior · CP · colonia · (municipio/estado) · teléfono (10, normalizado) ·
+  referencias (`Textarea` con contador, ≤ 70) · país. Al llegar la lista del CP el formulario toma colonia, `city` y
+  `state` **canónicos** (el servidor los sobrescribe igual; los manda porque el DTO los exige). Alta: referencias
+  vacías no viajan; edición: vacías ⇒ `null`. `422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE` ⇒ aviso bajo «Colonia» y la lista
+  pasa a `allowed`; `422 POSTAL_CODE_UNKNOWN` ⇒ bajo «Código postal»; `400 {field}` (los del servicio) ⇒ bajo el campo.
+  Validación local de CP 5 / tel 10 / colonia / referencias ≤ 70 / interior ≤ 200 porque el `400` del `ValidationPipe`
+  no trae `field` (`BACKEND_NOTES §58.2` punto 2) y no se podría pintar bajo el campo. Fila con `complete:false`
+  (decisión del servidor; ⛔ un DTO sin el campo no se marca) ⇒ «Dirección incompleta…» + «Completar dirección», que
+  abre la edición con el foco en el primer campo que falta.
+- **Invitado:** mismo componente; `GuestField` pierde `city`/`state` y gana `neighborhood`, `references`, `line2`.
+  `422` de colonia/CP de la session ⇒ aviso bajo el campo + el mensaje `error.<CODE>` junto al botón (cero órdenes).
+- **Retiro:** `complete:false` ⇒ CTA deshabilitado con motivo enlazado («A la dirección elegida le falta {…}») y
+  «Completar dirección» (el `AddressFormModal` de la libreta sobre ESA dirección). `422 ADDRESS_INCOMPLETE` del
+  servidor ⇒ se marca ESA dirección con su `missing` (manda el servidor).
+- **`line2` 0..200 (§19.23.4):** libreta e invitado la validan con `LINE2_MAX`; «Capturar guía» **no** pone cota en
+  pantalla (`§43.2b`: «no replica longitudes») — admite 200 y un `400 {field:'line2'}` va bajo el campo; el doble
+  (`lib/mock/skydropx.ts`) rechaza 201 como el servidor.
+- **Tipos** (`types/contract.ts`, ⚠️ zona compartida): `AddressDTO` + `references`, `complete` (y `line2`/`neighborhood`
+  admiten `null`, como emite el servidor); `GuestAddressInput.neighborhood` obligatoria + `references?`;
+  `AddressIncompleteField`; `AddressErrorCode` (los tres códigos nuevos, con su `error.<CODE>` en es/en — lo exige el
+  candado de `i18n-parity`). Mocks: `createAddress`/`updateAddress` validan colonia con el mismo catálogo que
+  `getPostalCode` y derivan `complete`.
+- **Playwright:** `guest-checkout.spec.ts:146`, `checkout-retry.spec.ts:126` (44100 → «Guadalajara Centro») y
+  `buylist.spec.ts:136` (06600 → «Juárez») eligen la colonia con `e2e/utils/address.ts#chooseNeighborhood` y ya no
+  teclean ciudad/estado. Censo `scripts/check-e2e-skip-census.sh`: sin cambios (todo `= baseline`).
+
+### 88.3 Pendiente para ux-ui (diseño del cliente NO escrito; apliqué lo mínimo coherente con §43.2b)
+1. Copy de la libreta/invitado/retiro: claves `addresses.geo.*`, `addresses.references*`, `addresses.line2TooLong`,
+   `addresses.phoneHint`, `addresses.incomplete.*`, `shipments.addressIncomplete.*` y `error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE`
+   / `POSTAL_CODE_UNKNOWN` / `ADDRESS_INCOMPLETE` (es/en). El «CP no está en el catálogo» del cliente NO dice «captura la
+   guía a mano» (eso es del operador): dice «Revisa que esté bien escrito.» — ¿qué remedio se le da al cliente si su CP
+   real no está en SEPOMEX?
+2. `addresses.line2` pasó de «Interior / referencia» a «Número interior o depto. (opcional)»: con `references` como campo
+   propio, la etiqueta vieja mezclaba las dos cosas (lo mismo que §43.2b señala de `es.json:5019`).
+3. El orden de campos, el contador de referencias (`Textarea counter`) y la marca de fila «Dirección incompleta».
+4. Retiro: el bloque «le falta {…}» + «Completar dirección» (hermano del de destinatario de §33.10b).
+
+### 88.4 Pruebas y mutaciones (medido por mí)
+Nuevas: `lib/address-rules.test.ts` (4), `components/domain/AddressManager.colonia.test.tsx` (10),
+`checkout/GuestCheckoutColonia.test.tsx` (4), 5 casos en `guest-validation.test.ts`, 3 en `ShipmentsView.test.tsx`,
+1 en `lib/mock/skydropx-contract.test.ts` y 1 en `m4/CaptureLabelDialog.test.tsx`. Ajustadas a la conducta nueva:
+`AddressManager.test.tsx`, `CheckoutRetry.test.tsx`, `CheckoutUnavailable.test.tsx`, `api.test.ts`, `KycReviewView.test.tsx`.
+
+Suites (árbol vivo, load < 2,5): `tsc` 0 errores · `next lint` 0 · vitest **220/220 ficheros, 2649/2649** · Playwright
+modo mock de los tres specs tocados **45/45** (N=1; contra el stack real: NO MEDIDO).
+
+Mutaciones (copia `git archive f0009e92` del árbol ENTERO + mis ficheros encima; N=1, todas deterministas; copia borrada):
+
+| Mutación | Resultado |
+|---|---|
+| M1 libreta sin exigir colonia | rojo (1) |
+| M2 libreta manda ciudad/estado tecleados, no los del CP | rojo (1) |
+| M3 colonia comparada sin normalizar | rojo (2) |
+| M4 `line2` con la cota vieja 120 | rojo (3) |
+| M5 retiro ignora `complete:false` | rojo (2) |
+| M6 invitado: `422` de colonia cae al genérico | rojo (2) |
+| M7 doble de «Capturar guía» sin cota de `line2` | rojo (1) |
+| M8 invitado: municipio/estado no salen del CP | rojo (1) |
+| M9 el hook no consulta el CP | rojo (8, incluye «Capturar guía») |
+
+## §89 · **Dirección del cliente — diseño v4.18 (`DESIGN_SYSTEM §43.18`) sobre lo construido en §88** (2026-10-04, rama `claude/skydropx-d`, base `5fb5085a`)
+
+Cierra §88.3 (los cuatro puntos los juzgó ux-ui en §43.18). FC-1…FC-15 (§43.18j) y UX-ADR-1…7 (§43.18k).
+
+### 89.1 Qué cambió
+- **CP fuera del catálogo (FC-1, §43.18d):** `geo.cpUnknown` lleva `{contact}` = `SUPPORT_CONTACT_FALLBACK`
+  (`checkout/support-contact.ts`) en los TRES sitios que lo pintan: el componente (consulta `404`), `addressServerFieldError`
+  de la libreta (`422` al guardar) y `GuestCheckoutView` (`422` de la session). Junto al botón del invitado queda
+  `error.POSTAL_CODE_UNKNOWN`, que remite al campo **sin** el correo (el remedio vive una vez).
+- **`PostalCodeNeighborhoodFields` (⚠️ zona compartida `components/`):** opciones ordenadas con `sortNeighborhoods`
+  (`localeCompare('es', {sensitivity:'base'})`, valores intactos; FC-2); `resolveNeighborhoodMatch` preselecciona la
+  colonia cuando la lista del CP tiene UNA y no hay ninguna válida elegida (FC-3; se aplica al envolver `onResolved`, así
+  que llega en el mismo `setForm`/`onAddressChange` que municipio y estado — sin un segundo `set` que pise al primero);
+  línea `geo.notListed` (`text-xs text-muted`, `data-testid="neighborhood-not-listed"`) bajo el select solo con lista ≥ 1
+  y CP conocido, con su id en el `aria-describedby` del select (FC-4). El hook `usePostalCodeLookup` **no** cambió: la
+  ventana del operador sigue con el orden del servidor.
+- **Orden de campos (FC-6/FC-7):** referencias antes que teléfono en la libreta (y por tanto en el alta inline del buylist,
+  que monta `AddressFormFields`) y en el invitado; `FIELD_ORDER` igual. `FIELD_ORDER`/`FIELD_ID` pasan a exportarse (los
+  lee el candado UX-ADR-5).
+- **Teléfono del invitado (FC-8):** `hint={ta('phoneHint')}`; `checkout.guest.phoneHelp` retirada (no tenía otro lector).
+- **Contador (FC-14, ⚠️ zona compartida `components/ui/Textarea.tsx`):** `text-accent` con `length > max`, `text-muted`
+  hasta el tope; `data-testid="textarea-counter"`. Los demás usuarios del contador (motivos de admin, 500) ponen
+  `maxLength` y nunca rebasan: sin cambio visible para ellos. Referencias sigue **sin** `maxLength`.
+- **Fila de la libreta (FC-5):** `rowMissing` con las palabras de `useMissingText()`; sin hueco deducible ⇒ `row`
+  (genérico); la marca sigue saliendo SOLO de `complete === false`. «Completar dirección» con `py-1.5` (≥ 24 px) y
+  `aria-describedby` al renglón de la dirección (`useId`).
+- **Modo completar (FC-9):** `AddressFormModal` gana `completeMissing?: AddressIncompleteField[]`: con él (y `address`),
+  título `incomplete.cta` y, encima de los campos, `formIntro`/`formIntroGeneric` (`data-testid="address-complete-intro"`).
+  Lo usan la fila de la libreta y el bloque del retiro.
+- **Una sola fuente de palabras (FC-13, CA-5):** `joinMissing` y `useMissingText` viven en `AddressManager.tsx`
+  (exportadas); `ShipmentsView` las importa. `shipments.addressIncomplete.missing.*`/`.and` retiradas.
+- **Retiro (FC-10…FC-12):** `422 ADDRESS_INCOMPLETE` ⇒ `reqError = addressIncomplete.notCharged`; el botón apagado
+  apunta a `recipient-required` **y** `address-incomplete` cuando faltan los dos; al guardar en modo completar, región
+  `role="status"` (`data-testid="address-saved-status"`, siempre montada para que el lector anuncie el cambio) con
+  `addressIncomplete.saved` y foco al radio marcado del selector cuando la lista refrescada ya trae la dirección completa.
+  El aviso se limpia al elegir otra dirección.
+- **Textos (FC-15):** la tabla de §43.18i entera en es/en.
+
+### 89.2 Decisiones propias (para ux-ui, sin norma explícita)
+1. La región `saved` usa `text-[13px] leading-[1.7] text-text` (el mismo cuerpo que `rule-note`) y `empty:mt-0` para no
+   dejar hueco cuando está vacía. §43.18h.4 no fija estilo.
+2. Preselección de colonia única: si la dirección guardada tenía una colonia que NO está en la lista de un CP con una sola
+   colonia, se preselecciona la del CP (la vieja ya no era válida). Con la lista `allowed` de un `422` no se preselecciona
+   (no llega por `onResolved`); sí se ordena.
+3. `geo.notListed` va en texto plano (sin `mailto:`), como `cpUnknown`.
+
+### 89.3 Pruebas y mutaciones (medido por mí)
+Nuevas/ajustadas: `AddressManager.colonia.test.tsx` (10 → 20: UX-ADR-1/2/3/5/6, `notListed`, contador en el tope, modo
+completar y «Editar» sin intro), `GuestCheckoutColonia.test.tsx` (4 → 7: UX-ADR-1/2/5 y el error junto al botón sin
+correo), `ShipmentsView.test.tsx` (+2: UX-ADR-4 doble id y §43.18h.4 foco + status; textos y `notCharged` en los dos
+existentes), `lib/i18n-client-address.test.ts` (nuevo, UX-ADR-7: 37 claves con paridad de placeholders, `{contact}`,
+claves retiradas).
+
+Suites (árbol vivo, load < 3,2): `tsc` 0 · `next lint` 0 · vitest **221/221 ficheros, 2705/2705** (incluye `i18n-parity`) ·
+Playwright modo mock `guest-checkout` + `checkout-retry` + `buylist` **45/45** (N=1, 2 workers, build propio :3061;
+contra el stack real: NO MEDIDO) · censo `check-e2e-skip-census.sh` = baseline (mockOnly 135).
+
+Mutaciones (copia `git archive 5fb5085a` del árbol ENTERO + mis ficheros encima; N=1, todas deterministas; copia borrada):
+**22/22 rojas** — FC-1 sin `{contact}` (2) · FC-2 sin ordenar (2) · FC-3 preselección con 2+ (4) · FC-3 sin preselección (2) ·
+FC-4 fuera del `aria-describedby` (1) · FC-4 con CP desconocido (2) · FC-5 texto genérico siempre (2) · FC-5 marca deducida
+de los campos (2) · FC-5 sin `aria-describedby` (1) · FC-6 teléfono antes (1) · FC-7 `FIELD_ORDER` viejo (1) · FC-8 otra
+ayuda (1) · FC-9 sin título de completar (2) · FC-10 vuelve a `getMessage` (1) · FC-11 solo el primer id (1) · FC-12 sin
+foco (1) · FC-12 sin status (1) · FC-13 palabras de otra fuente (5) · FC-14 contador siempre gris (1) · FC-14 `maxLength`
+(1) · FC-15 dejar `shipments.addressIncomplete.missing` (1). ⚠️ **FC-7 sobrevivió en la primera tirada**: el candado
+cortaba `FIELD_ORDER` en `'phone'` y con el orden viejo dejaba fuera `references`. Se corrigió (corta en `'terms'` y
+exige `guest-references`) y la mutación quedó roja.
+
+### 89.4 Lo que NO hice
+- Capturas `360×740`/`390×844` del select con 30+ colonias y de la hoja de completar (N-8, de QA): NO MEDIDO.
+- Objetivo táctil de «Editar»/«Borrar»/«Marcar predeterminada» (N-9): fuera de este encargo, deuda no bloqueante.
+- El ≥ 24 px de «Completar dirección» se asevera por clase (`py-1.5`), no por medida: jsdom no hace layout.
+
+## §90 · **La colonia como Mercado Libre** — la lista del CP ayuda, no bloquea (2026-10-04, rama `claude/skydropx-d`, base `011b5924`; `HECHOS.md:57`; contrato v1.80.12.5 `§M4-SHIP.19.25`; diseño v4.19 `DESIGN_SYSTEM §43.18m`, FC-16…FC-27, UX-ADR-1, 7, 8…13)
+
+### 90.1 Qué cambió
+- **Un solo cuerpo para el modo de la colonia:** `hooks/useNeighborhoodMode.ts` (nuevo). Lo usan
+  `PostalCodeNeighborhoodFields` (libreta, alta inline del buylist, invitado) y el paso 1 de «Capturar guía»
+  (`capture/AddressStep.tsx`). Modos de §43.18m.1: `pending` (CP incompleto, consultando o falló) · `list` ·
+  `manualNeighborhood` · `manualAll` (`404`, `200` sin colonias, o elegido mientras consulta/falla).
+  `usePostalCodeLookup` pierde `allowedOverride` (§19.25.2 p. 5); `404` sigue leyéndose como «sin lista».
+- **Reglas del hook (las que muerden las mutaciones de 90.3):** el modo no cambia solo al llegar una respuesta
+  (UX-ADR-10); solo **cambiar el CP** lo reinicia, y además vacía municipio y estado (eran del CP anterior). Lo
+  tecleado a mano queda en memoria al ir y volver de la lista (CA-9). **CA-9 / FC-22 / FC-25 parte 1:** al
+  abrir con una colonia guardada que no está en la lista del CP con el que se abrió, entra en
+  `manualNeighborhood` con su valor — ni `''` ni la colonia única del CP. **El defecto de `AddressStep.tsx:104-105`
+  (vaciaba la colonia al llegar la lista) sale en este mismo commit.**
+- **Cliente:** «Mi colonia no está» es un **botón** bajo el control (⛔ ninguna `option` centinela, UX-ADR-13); el
+  `Input` sustituye al `Select` con el mismo `id`/label y recibe el foco; «Escribir la colonia a mano» desde el
+  primer instante de la consulta y tras un fallo (junto a «Reintentar», `role="alert"` solo en el texto del
+  fallo). «Todo a mano»: `geo.cpNotInCatalog` (o `geo.manualAllIntro` si lo eligió el cliente) en un
+  `<p aria-live="polite">`, ⛔ no es error (CA-7: el CP no lleva `aria-invalid`); municipio = `Input`, estado =
+  `<select>` de 32 entidades (`lib/mx-states.ts`, nuevo). Validación por modo (§43.18m.7):
+  `neighborhoodRequired` / `neighborhoodTypeRequired` / `cityRequired` / `stateRequired`; `400 {field, max}` ⇒
+  `geo.tooLong`. Invitado: `FIELD_ORDER`/`FIELD_ID` ganan `city`, `state` tras `neighborhood`.
+- **Fuera los `422` geográficos** (C-2): ramas de `NEIGHBORHOOD_NOT_IN_POSTAL_CODE`/`POSTAL_CODE_UNKNOWN` en
+  libreta, invitado y operador; `AddressErrorCode = 'ADDRESS_INCOMPLETE'`; claves `addresses.geo.cpUnknown`,
+  `.notListed`, `.noNeighborhoods`, `.notInCp`, `error.NEIGHBORHOOD_NOT_IN_POSTAL_CODE`,
+  `error.POSTAL_CODE_UNKNOWN` y `…sdx.address.neighborhoodNotInCp` retiradas (UX-ADR-7 lo asevera). Los dobles
+  del modo mock (`lib/api.ts`, `lib/mock/skydropx.ts`) implementan `resolveAddressGeo` (cuatro casos, nunca lanza
+  por geografía) y el `PATCH` exige `neighborhood`/`city`/`state` con `postalCode` (§19.25.1).
+- **Operador (C-3/C-4):** `CorrectShipmentAddressReq` gana `city`/`state` (siempre viajan); con el CP fuera del
+  catálogo, colonia, municipio y estado son editables y `cpUnknown` es aviso, no error. `AddressReadView` pinta
+  `manualMark` bajo Colonia, `manualCityStateMark` bajo Estado y `manualReview.*` al pie del paso **solo** con
+  `address.neighborhoodCheck` del servidor (⛔ no se deduce; sin el dato, cero marcas; «Ver opciones de envío»
+  sigue habilitado). `ShipmentAddressStateDTO.neighborhoodCheck` es **opcional** en el tipo solo para un servidor
+  anterior a v1.80.12.5.
+- **Libreta:** la rehidratación del formulario al cambiar de dirección pasa de efecto a **durante el render**: con el
+  efecto los campos montaban con el CP del formulario anterior y luego «veían» cambiar el CP, que apaga CA-9 y vacía
+  municipio y estado (M16 lo mide).
+
+### 90.2 Decisiones
+1. **`value` del estado = nombre oficial de SEPOMEX** (`d_estado`, lo que guarda `PostalCode.state`:
+   «Michoacán de Ocampo», «México», «Coahuila de Zaragoza», «Veracruz de Ignacio de la Llave»); la etiqueta es la
+   corta de §43.18m.4. El encargo dijo «el nombre de la entidad»; el contrato no fija otra cosa (texto 1..120). Así
+   una dirección escrita y una de la lista se leen igual en la guía. Un estado guardado que no es ninguno de los 32
+   se ofrece como opción extra tal cual (no se pierde el dato).
+2. **Marcas del operador con colonia ausente:** si falta la colonia o el CP no es de 5 dígitos, la fila ya dice
+   «Falta…» (`missing`) y no se añade «escrita a mano» aunque el servidor diga `postal_code_not_in_catalog`.
+3. **El `select` de colonia del operador sigue enfocable mientras consulta** (como antes de §43.18m): el paso 1 abre
+   con el foco en «Colonia» cuando falta (§43.2c) y la lista llega después. El del cliente sí se apaga mientras
+   consulta (§43.18m.1).
+4. **Operador consultando/falló:** reusa `addresses.geo.typeInstead`/`.failed`/`.manualHint`/`.manualAllIntro` y
+   `.statePlaceholder` (§43.18m.8 no define claves de operador para esos casos).
+
+### 90.3 Pruebas y mutaciones (medido por mí)
+Nuevas/ajustadas: `AddressManager.colonia.test.tsx` (20 → 28: UX-ADR-1 ×2, §43.18m.7, UX-ADR-8, 9 ×2, 10, 13, 11 ×2,
+`400 city`), `GuestCheckoutColonia.test.tsx` (7: UX-ADR-1/PS-114 con resumen en orden del DOM, UX-ADR-8, `tooLong`;
+UX-ADR-5 ahora en «todo a mano» con los 9 ids), `capture/AddressStep.colonia.test.tsx` (nuevo, 9: UX-ADR-11 ×2 del
+operador, C-4 ×2, UX-ADR-12 ×4), `CaptureLabelDialog.test.tsx` (el `PUT` lleva `city`/`state`),
+`skydropx-contract.test.ts` (+4: el doble con los casos (a)–(d) de PS-103), `i18n-client-address.test.ts`.
+E2E nuevo `e2e/address-colonia.spec.ts` (2, `@real`, sin salvaguardas): invitado con CP `20000` (fuera de
+`E2E_POSTAL_CODES` y del doble) escribe colonia/municipio/estado y **paga**; libreta con CP `06600` + «Mi colonia no
+está» guarda (y borra la fila al final).
+
+Suites (árbol vivo): `tsc` 0 · `next lint` 0 · vitest **222/222 ficheros, 2744/2744** (incluye `i18n-parity`; load ≈ 3,8) ·
+Playwright modo mock `address-colonia` + `guest-checkout` + `checkout-retry` + `buylist` **47/47** (N=1, build propio
+:3471, load final 8,4; contra el stack real: NO MEDIDO) · censo `check-e2e-skip-census.sh` = baseline (mockOnly 135).
+
+Mutaciones (copia `git archive 011b5924` del árbol ENTERO + mis ficheros encima, en
+`scratchpad/fe-colonia-ml/`, ya borrada): **18/18 rojas en vitest** (N=1; M3 y M4 repetidas, 3/3 rojas cada una) —
+M1 CA-9 apagado (4) · M2 sin campos con `404` (7) · M3 la lista arranca el modo elegido (1) · M4 sin foco al pulsar (3) ·
+M5 se pierde lo tecleado (1) · M6 sin salida mientras consulta (2) · M7 sin «a mano» tras fallar (1) · M8 CP desconocido
+como error (2) · M9 `option` centinela (3) · M10 invitado sin exigir municipio/estado (1) · M11 texto de lista a mano (1) ·
+M12 `PUT` sin `city`/`state` (5) · M13 CP nuevo conserva municipio/estado (1) · M14 marca deducida sin dato (1) · M15 sin
+marca de estado (1) · M16 rehidratación en efecto (3) · M17 el doble vuelve a lanzar `422` (1) · M18 `neighborhoodCheck`
+constante (2). **E2E:** la mutación de §19.25.6 (sin campos de texto con `404`) ⇒ `address-colonia` invitado **rojo**
+(1/1; el de la libreta sigue verde, como debe).
+
+### 90.4 Lo que NO hice / hallazgos
+- **E2E «Capturar guía muestra el aviso»** (tercera parte de la fila E2E de §19.25.6): no está. En modo mock el
+  proveedor arranca `off` y llegar a la ventana Skydropx exige cambiar «Configuración › Envíos» en el mismo spec;
+  queda cubierto por vitest (UX-ADR-12). Pendiente para QA / un pase con el stack.
+- **Defecto anterior, no tocado:** tras un intento de pago fallido, el resumen de errores del invitado toma el foco
+  **cada vez que cambia el número de errores** (`GuestCheckoutForm.tsx`, efecto `[submitAttempted, listed.length]`):
+  al teclear el primer carácter de un campo con error, el foco salta al resumen. Medido en
+  `GuestCheckoutColonia.test.tsx` (con `userEvent.type` solo entraba la primera letra). Afecta a todos los campos, no
+  solo a la colonia. Va como hallazgo para ux-ui/orquestador.
+- Capturas a 390 px del modo a mano y de «todo a mano»: NO MEDIDO.
+
+## §91 · **Foco del resumen de errores del checkout de invitado: solo en el intento de pago** (2026-10-04, rama `claude/skydropx-d`, base `9a0b6d19`; cierra el hallazgo anotado al final de §90)
+
+- **Defecto (en producción):** `GuestCheckoutForm.tsx` llevaba el foco al resumen con un efecto
+  `[submitAttempted, listed.length]`. Tras un pago fallido, la primera letra tecleada en un campo con error quitaba ese
+  error, cambiaba `listed.length` y el foco saltaba al resumen: solo entraba esa letra. Todos los campos.
+- **Arreglo:** `GuestCheckoutView` lleva un contador `submitAttemptId` que sube en **cada** clic en pagar; el efecto
+  depende solo de él. Conducta = `DESIGN_SYSTEM §15.3` («Resumen de errores al intentar pagar … el foco va al bloque»):
+  el foco va al resumen en cada intento con errores, nunca al teclear. El resumen sigue montándose con
+  `submitAttempted && listed.length > 0` (sin cambio visual).
+- **Prueba:** `checkout/GuestCheckoutFocus.test.tsx` — (1) tras el pago fallido, «Juan Pérez» y «Av. Vallarta 1234»
+  entran completos y el foco se queda en el campo (antes: `Received: "J"`); (2) un segundo clic en pagar vuelve a
+  enfocar el resumen. Mutación (reponer `listed.length` en las dependencias) sobre copia `git archive` del árbol
+  entero: la prueba (1) se pone roja.
+- **Otros formularios revisados, sin el mismo defecto:** `PasswordForm.tsx:64-67` (ya usa contador de evento);
+  `AddressManager.tsx:564-577` (libreta: `focusField` fijado al abrir el editor, no derivado de errores vivos; en
+  retiro `ShipmentsView.tsx:437` sale de la dirección guardada); `AuthForm.tsx:129-131` (registro/login: solo
+  `rateLimited`, respuesta del servidor); `KycRejectDialog.tsx:78-80`, `PricingCurveSection.tsx:219-221`,
+  `BountyRowEditor.tsx:123-125` (estado de error puesto por la respuesta del servidor, no recalculado al teclear);
+  buylist (`SellCartContents.tsx:154`, `BuylistView.tsx`): no mueve el foco por errores.
+
+## §92 · **Skydropx v4.20 (`DESIGN_SYSTEM §43.19`) y el control del gasto** — compra del personal, negativa por tope, `409` por `reason`, «Verificando…», «Liberar» con folio, el folio en pantallas, avisos de gasto y la cuenta del dueño (2026-10-04, rama `claude/skydropx-d`, base `50a04523`; contrato v1.80.12.6 → .11, `§M4-SHIP.19.26…19.30`; FS-25…FS-43, UX-SDX-27…34, UX-GAS-1…7, PS-128/136/158/164 del lado frontend)
+
+**Commits** (uno por bloque, cada uno empujado): `921c58c1` tipos/API/servidor falso · `09b0a05c` ventana «Capturar
+guía» · `1a504c15` alertas, «Liberar», folio en tarjeta/fila/hoja/«Salida de hoy» · `4a72ea00` «Avisos de gasto»,
+tarjeta del tablero, menú y `?folio=` en «Envíos» · `3df2edd8` «Configuración › Control del gasto» y diales del dueño ·
+`d01c626d` Usuarios y la cuenta del dueño · `37891624` UX-GAS-7 y orden del menú.
+
+**Zonas compartidas tocadas:** `types/contract.ts` (aditivo: §19.26–§19.30), `lib/api.ts` (`releaseShipmentLabel(id,
+note, confirmConflict)`, `listSpendAlerts`, `getSpendAlertSummary`, `getSpendAlert`, `markSpendAlertsSeen`, filtro
+`folio` de `getAdminShipments`, servidor falso de `OWNER_ONLY_SETTING` y `isOwner` en `getMe`), `lib/mock/`
+(`skydropx.ts`, `fixtures.ts`, `spend-alerts.ts` nuevo), `components/layout/AdminSidebar.tsx`. Ningún componente de
+`components/ui/` cambió.
+
+**Decisiones de implementación**
+- **Todo contra la API espiada** (patrón de §97: `vi.spyOn(api, …)`, equivalente a MSW) y el servidor falso `// MOCK:
+  pendiente de backend real` (`lib/mock/skydropx.ts`, `lib/mock/spend-alerts.ts`). El servidor falso siembra 5 avisos de
+  demo; los **13 tipos**, los cinco `reason` de `409`, los dos `limit`, los cuatro `via`, los ocho motivos, `label_orphan`,
+  `verdict` y el resumen que no cuadra viven como fixtures **en las pruebas** (FS-43 parcial en la demo).
+- **Relectura (FS-30):** el intervalo sigue de 5 s (las pruebas viejas fingen solo `setInterval`/`Date`); pasados 2 min
+  se **salta vueltas** hasta 30 s entre lecturas, y para en `max(2 min, verifyingUntil + 60 s)`. El reloj solo decide
+  *cuándo releer*; el resultado lo decide el estado (`label`, `labelPending`, `labelAlert.kind`, `lastLabelRelease.via`).
+- **«Verificando…» vs «Compra sin confirmar»:** `in_flight` sin `label_unknown` ⇒ «Verificando con Skydropx…»; con
+  `label_unknown`, o si nunca se pudo leer el envío ⇒ «Compra sin confirmar» con `inFlight.body {reason}` (`reason.none`
+  sin motivo). Siete aserciones de `CaptureLabelDialog.test.tsx` cambiaron por esto (manda v4.20).
+- **La espera de `purchase_in_flight`:** la cuenta atrás va en un bloque con el **aspecto** de `Banner` pero **sin
+  `role`** (el `Banner` de `components/ui` siempre lleva región viva y anunciaría cada segundo); el anuncio, una vez al
+  empezar y otra al terminar, lo hace un `role="status"` `sr-only`. El botón queda pintado, deshabilitado y con
+  `aria-describedby` al bloque; ⛔ no compra solo al llegar a 0.
+- **Negativa por tope:** `labelOptions.limit` ⇒ el botón no está y su sitio dice el motivo; `403 LABEL_PURCHASE_LIMIT`
+  ⇒ `Banner danger` y el sitio del botón queda vacío (efecto `blockPurchase {banner:true}`).
+- **El folio (SK15):** `folio` opcional en los tipos (servidor anterior a `M-67` ⇒ el uuid de hoy). Cabecera de la
+  ventana «{pedido} · Envío ENV-…» / «Retiro de bóveda · Envío ENV-…». Un retiro se nombra por su folio también en el
+  aviso de «Guía guardada» (`M4View.test.tsx` ajustado). Las cuatro superficies de cliente se prueban con un DTO que trae
+  `folio` por error ⇒ `/ENV-\d/` 0 veces.
+- **«Liberar» (FS-34):** el diálogo solo se monta con `label_unknown ∧ canRelease`. `confirmConflict` viaja **solo** si la
+  casilla estaba pintada y marcada (`releaseShipmentLabel(…, false)` ⇒ la clave no va en el cuerpo; lo prueba la rama
+  real en `lib/api.spend-alerts.test.ts`).
+- **Avisos de gasto:** filtros en la URL con `replaceState` (patrón de M3/Reembolsos); la página de servidor los lee
+  (`spend-alerts/filters.ts`, sin `'use client'`). Tabla desde `md` y tarjetas en móvil (las dos en el DOM; las pruebas
+  miran dentro de la tabla). La `<dl>` del detalle pinta solo la lista blanca de `facts` (`alert-text.ts`), ⛔ `cause`
+  no se pinta crudo (la frase ya lo dice). El aviso de un retiro enlaza a `/admin/m4?tab=envios&folio=ENV-…` (S-GAS-2):
+  «Envíos» gana un filtro por folio con su ✕ (`tabs.ts › parseFolio`).
+- **Menú (UX-GAS-1):** «Avisos de gasto» tras «Reembolsos», `superAdminOnly` y además `hiddenUnlessSuperAdmin` (al
+  operador no se le pinta, ⛔ ni bloqueada: el candado dice «el menú no tiene "Avisos de gasto"»). Badge =
+  `spendAlertsUnseenImmediate` del summary (S-GAS-3).
+- **La cuenta del dueño:** `useIsOwner()` (`(admin)/admin/_owner/`) lee `['me']` (`GET /users/me`), **solo para
+  mostrar**; mientras no se sabe ⇒ `false` (falla cerrado: deshabilitado). Diales del dueño deshabilitados para los
+  demás (interruptor de compra, saldo bajo y toda «Control del gasto»); un no dueño no manda `skydropxLowBalanceCents`.
+  `403 OWNER_ONLY_SETTING` se pinta por `keys` (⛔ nunca por `message`). En Usuarios: `isOwner ∧ ¬isSelf` ⇒ sin
+  restablecer/bloquear/borrar; el propio dueño ⇒ sin bloquear/borrar; `403 OWNER_ACCOUNT_PROTECTED` con su texto.
+
+**Copys que NO estaban en el diseño (provisionales, para ux-ui):** el diseño v4.20 es anterior a v1.80.12.10. Se usaron
+las frases del contrato donde las había (`OWNER_ACCOUNT_PROTECTED` «Esta es la cuenta del dueño: no se puede cambiar
+desde otra cuenta», «Solo el dueño puede cambiar esto», AG-21 «Cambió la cuenta del dueño» / «No hay cuenta de dueño»)
+y se escribieron estas: `admin.m10.ownerOnly.denied` + `field.*`; `admin.m6.ownerAccount`; `admin.spendAlerts.skipped`
+(`seen` con `skipped`), `mutedTag`, `kind.AG-4.denied` (S-GAS-5), `kind.AG-9.other` (causa sin texto, p. ej.
+`orphan_cancel_unknown`), `kind.AG-22.text` (por `act`), `chargeKind.overweight/extended_zone/return` (S-GAS-4),
+`cancelKind.*`, `summary.byKindEmpty/labelSpendEmpty`, `pageInfo`, el texto «Inmediato o resumen, según el caso»
+(AG-1, AG-9) y la frase de «Salida de hoy» con folio (`departure-folio-*`, reutiliza «Envío»). Y
+`admin.m4.folioFilter(/Remove)`.
+
+**Nota para ux-ui:** el canario (c) de UX-SDX-28 pide `/\d/ ⇒ 0` sobre la negativa, pero el propio copy dice «últimas
+**24** horas». La prueba descuenta esa frase y exige cero dígitos, `MX$` y `%` en lo demás.
+
+**Mutaciones** (cada una sobre una copia `git archive HEAD` del árbol entero en
+`scratchpad/fe-sdx-gas/tree`, borrada al terminar; N=1 cada una: son deterministas, sin carrera ni temporizador real):
+| Bloque | Mutación | Resultado |
+|---|---|---|
+| ventana (`09b0a05c`) | `CONFLICT` sin mirar `reason` | 6 rojas (UX-SDX-29) |
+| ventana | relectura que para a los 2 min | 1 roja (UX-SDX-31 (a): `expected +0 to be 4`) |
+| ventana | texto único para los cuatro `via` | 4 rojas (UX-SDX-31 (b)) |
+| tarjetas (`1a504c15`) | «Liberar» manda siempre `confirmConflict:true` | 2 rojas (UX-SDX-16/33) |
+| tarjetas | pintar el `reason` crudo | 16 rojas (UX-SDX-32/33) |
+| tarjetas | la fila enseña el uuid | 1 roja (UX-SDX-34) |
+| avisos (`4a72ea00`) | el detalle pinta todas las claves de `facts` | rojas en los 13 detalles (UX-GAS-6) |
+| avisos | quitar la fila al marcarla | 1 roja (UX-GAS-2) |
+| ajustes (`3df2edd8`) | mandar los marcados | 2 rojas (UX-GAS-4) |
+| ajustes | apagar sin confirmar | 1 roja (UX-GAS-4) |
+| ajustes | campo del dueño habilitado para el no dueño | 1 roja (PS-164) |
+| usuarios (`d01c626d`) | bloquear/borrar visibles en la cuenta del dueño | 2 rojas (PS-164) |
+| i18n | volver a poner `labelAlert.unknown.ownerOnly` | 3 rojas (UX-GAS-7 + UX-SDX-14) |
+
+## §93 · **Errata v4.21 (`DESIGN_SYSTEM §43.20`)** — la cuenta del dueño, AG-21/AG-22, `seen` con «Lo marca el dueño», los avisos apagados, «del {ref}» y el canario de «24 horas» (2026-10-05, rama `claude/skydropx-d`, base `04494049`; FS-44…FS-53 y FS-55, UX-GAS-8…13, UX-SDX-28 (c) sustituida)
+
+**Commit:** `e47c0bf4` (código, i18n y pruebas juntos: las pruebas que fijaban los textos viejos —`SpendAlerts.test.tsx`
+«de el», `skipped`, el `403` de Configuración— cambian en el mismo commit que sus claves).
+
+**Zonas compartidas tocadas:** ninguna de código (`types/contract.ts`, `lib/api.ts`, `lib/mock/`, `components/` sin
+cambio). Solo la prueba de paridad `src/lib/i18n-spend-v420.test.ts` (añadido el bloque FS-44).
+
+**Decisiones de implementación**
+- **FS-44 (i18n):** aplicado con un script sobre el JSON (round-trip medido idéntico salvo el escape ` `, que se
+  conserva). Retiradas `kind.AG-22.text` y `m10.spend.alerts.byCase`. `summary.muted` existe en los dos idiomas pero
+  **sin lector** (ver FS-54).
+- **FS-46 AG-21:** la variante sale de `cause` y de si `previousOwner` es objeto con `userId`; `{previous}`/`{current}`
+  por `name` (vacío ⇒ «una cuenta sin nombre»). Ni `userId` ni correo llegan al texto.
+- **FS-47 AG-22:** `act` fuera de los seis ⇒ `act.other`. `{target}` = `target` con rol si el rol tiene rótulo
+  (`kind.AG-22.role.*`), si no solo el nombre; `target:null` ⇒ `targetNone`. `{owner}` = nombre sin rol (con
+  `target:null`, `targetNone`). `{settings}`: los rótulos de `admin.m10.ownerOnly.field.*` llegan por
+  `AlertTextCtx.ownerSetting` (una fuente, la misma que el `403`), sin repetidos, con `joinAnd`; vacío/`null` ⇒
+  `field.other`.
+- **`403 OWNER_ONLY_SETTING`:** `useOwnerOnlyDenied` une ahora con `joinAnd` («…por persona y qué avisos…»), como pide
+  §43.20.1 bajo la tabla; antes `", "`.
+- **FS-49 `?muted=`:** `muted:false` («Sin los apagados») cuenta como filtro activo («Limpiar filtros» y el vacío
+  filtrado); antes `hasFilters` descartaba todo valor `false`.
+- **FS-50/51 «Lo marca el dueño»:** `useOwnerMarks()` (en `SpendAlertsView.tsx`) = `known ∧ ¬isOwner ∧ (code = AG-21 ∨
+  subject.userId = me.id)`. `useIsOwner` devuelve además `userId` (de `GET /users/me`). Mientras `me` no se sabe ⇒ se
+  pinta el botón (§43.20.6: no se falla cerrado). La selección múltiple no se recorta.
+- **Apagados:** `MailStatus` pinta `mutedTag` en lugar de la línea del correo (lista y fila «Correo» del detalle);
+  `SeverityTag` recibe `muted` y deja el bermellón.
+- **FS-52:** `ALWAYS_ON_CODES = ['AG-21','AG-22']` vive en `spend-alerts/filters.ts` (lo importan el filtro «Tipo» y
+  Configuración; no se tocó `types/contract.ts`). Las dos casillas van marcadas, `disabled`, `aria-describedby` al párrafo
+  `alwaysOn`; el `PUT` sigue filtrando por `SPEND_ALERT_SWITCHABLE_CODES`.
+- **FS-53:** `OwnerTag` (versalita mono `text-muted`, sin color) junto al nombre en la columna de la lista y en la
+  cabecera del detalle; nota `ownerAccountSelf` cuando `isOwner ∧ isSelf`.
+- **FS-55:** `figures()` quita solo `/(?<!\d)24 (horas|hours)\b/g`; prueba nueva con el canario: el texto real pasa y
+  «MX$2,500.00», «2500», «MX$24.00», «80 %» y «124 horas» muerden.
+
+**Lo que NO hice**
+- **FS-54 (`summary.muted` en «Resumen de un día") fuera:** `SpendAlertSummaryDTO` no trae la cuenta de apagados
+  (`grep mutedCount docs/API_CONTRACT.md` ⇒ 0 resultados, medido 2026-10-05). Pendiente del arquitecto (**S-GAS-7**).
+  La clave i18n queda lista.
+- **Observación para ux-ui (no cambiada):** el subtítulo de «Envíos» (`admin.m10.shipping.subtitle`) sigue diciendo
+  «Solo el súper-admin. Cada cambio queda en la bitácora.», y esa sección tiene diales del dueño (`compra-guias`, saldo
+  bajo). §43.20.6 no la lista; con OWN-1 quizá debería decir «el dueño» en parte. No lo toqué sin diseño.
+
+**Pruebas (medido por mí, árbol vivo con el contenido de `e47c0bf4`):** `tsc --noEmit` limpio · `next lint` sin
+avisos · i18n (`src/lib/i18n*`) 156/156 · vitest completa **231/231 ficheros, 2880/2880 pruebas**. Nuevas:
+`SpendAlerts.v421.test.tsx` (UX-GAS-8…12, AG-9, `cancelKind`), bloques UX-GAS-11 (Configuración) y UX-GAS-13 en
+`SpendControlSection.test.tsx`, §43.20.6 en `M6View.owner.test.tsx`, canario (c) en `CaptureLabelDialog.v420.test.tsx`,
+FS-44 en `i18n-spend-v420.test.ts`.
+
+**Mutaciones** (copia `git archive e47c0bf4` del árbol entero en el scratchpad `fe-v421/`, borrada al terminar; N=1
+cada una — son deterministas: render sin carreras ni temporizadores; base de la copia 85/85 verde):
+
+| Bloque | Mutación | Resultado |
+|---|---|---|
+| AG-21 | `no_owner` siempre `textNoOwner` | 1 roja (UX-GAS-8) |
+| AG-22 | `{settings}` = `keys.join(', ')` crudo | 2 rojas (UX-GAS-9) |
+| AG-9 | quitar `orphan_cancel_unknown` de las causas | 1 roja |
+| `cancelKind` | volver a `String(v)` | 1 roja |
+| `seen` | `ownerMarks` nunca | 2 rojas (UX-GAS-10, lista y detalle) |
+| apagados | `MailStatus` sin la rama `muted` (pinta las dos líneas) | 2 rojas (UX-GAS-11) |
+| apagados | gravedad apagada en bermellón | 1 roja (UX-GAS-11) |
+| filtro | `?muted=` no se escribe en la URL | 1 roja (UX-GAS-11) |
+| filtro | «Tipo» sin AG-21/AG-22 | 1 roja |
+| Configuración | AG-21/AG-22 añadidos al `PUT` | 3 rojas (UX-GAS-11 + UX-GAS-4) |
+| Configuración | `403` con `join(', ')` | 1 roja (PS-164) |
+| i18n | `ref.order` = «el pedido {orderNumber}» | 14 rojas (UX-GAS-12 + UX-GAS-6) |
+| i18n | `cap.hint` vuelve a «Tú no tienes tope; … sin correo sí» | 1 roja (UX-GAS-13) |
+| Usuarios | `ownerAccountSelf` nunca | 1 roja |
+| Usuarios | sin `OwnerTag` en la lista | 1 roja |
+| canario (c) | cambiar la excepción anclada por `/\S*24\S*( (horas\|hours))?/g` (deja pasar «MX$24.00») | 1 roja (UX-SDX-28 (c)) |
+
+- 2026-10-05 · G5 (errata v1.80.12.15 §M4-SHIP.19.34.3/§19.33.10): `SpendAlertDTO.shipment.kind` pasa a `AdminShipmentKind | null` (obligatorio, sin `'order_ship'`). Medido con grep: ningún lector del campo en `frontend/src` (`AlertRef` decide por `alert.order`, no por `kind`); `null` ⇒ envíos por folio ya es el comportamiento.
+
+## §94 · **«Alertas de envíos» del tablero y el filtro `?alert=true` en «Envíos»** — F-1 y F-2 de la errata v1.80.12.16 (2026-10-05, rama `claude/skydropx-d`, base `a132cf59`; contrato `§M4-SHIP.19.35.5` fila 1 y `§19.35.8` F-1/F-2; diseño v4.24 `DESIGN_SYSTEM §43.22`, FS-63…FS-67, UX-SDX-39…44)
+
+**Comprobado antes de construir:** `GET /admin/shipments?alert=true` existe en el contrato (§0-Q clase **L**, dominio `true`;
+§19.20.2: la unión `carrierAlert ≠ null ∨ labelAlert ≠ null`) y en el servidor (`backend/src/modules/shipments/
+admin-shipments.controller.ts:52-66`, `@Query('alert')`; leído, no ejecutado).
+
+**Qué se construyó**
+- **F-1** `types/contract.ts`: `DashboardDTO.workQueue.shipping?: { lowBalance: boolean | null; withCarrierAlert; withLabelAlert;
+  labelProcessing } | null` — el tipo del contrato tal cual (`withLabelAlert: number`, no opcional). La ausencia de
+  `withLabelAlert` (servidor con D2f sin B-3, §43.22.2) se defiende en la **lectura** con `Number.isFinite`, el mismo patrón
+  que `salesPeriod.netAmountCents` (hueco 9), en vez de debilitar el tipo.
+- **FS-64** `AdminDashboard.tsx`: `ShippingAlertsCard` tras «Pedidos por preparar», para los **dos** roles; `shipping`
+  ausente/`null` ⇒ no existe. Cifra grande = `withLabelAlert` (`—` si falta; bermellón solo si `> 0`); línea-enlace a
+  `/admin/m4?tab=envios&alert=true` (`alerts` o `alertsCarrierOnly`); sin alertas ⇒ `none` sin enlace; `overlap` solo con las
+  dos `> 0`; `processing` (plural) con `labelProcessing > 0`; `lowBalance` **solo** con `=== true`, en `text-accent`, y
+  «Ver el saldo» → `/admin/m10#envios-skydropx` solo súper-admin. ⛔ La pantalla no suma cifras ni lee `balanceCents`.
+- **FS-65/66** `m4/tabs.ts` `parseAlert` (solo el literal `'true'`), `page.tsx` → `M4View` → `ShipmentsQueue` (`initialAlert`),
+  estado `alertFilter` en el `queryKey`, línea con ✕ como la del folio. **Decisión (§43.22.4 la deja a frontend):** quitar el
+  filtro **no** reescribe la URL, igual que el folio. `lib/api.ts`: `AdminShipmentsFilters.alert?: boolean` ⇒
+  `query.alert = 'true'` solo si es `true` (`false` sería `400`).
+- **FS-67** `ShippingSection.tsx`: `id="envios-skydropx"` en la `section` + salto a mano al montar si el hash coincide (la
+  sección se monta tras la carga y el salto nativo puede no encontrarla; patrón de `AccountView`).
+- **FS-63** claves `admin.dashboard.shippingAlerts.*` (8) y `admin.m4.alertFilter`/`alertFilterRemove`, ES/EN.
+- **Mock:** `mockLiveAdminShipments()` es ahora la única fuente de filas para la lista y para `workQueue.shipping` del
+  tablero (§19.35.5: «el mismo cuerpo»); `?alert=true` filtra por la unión. `lowBalance` del mock = `mockShippingBalance()`.
+
+**Pruebas** (escritas primero; rojas 22/36 antes de construir, medido): `ShippingAlertsCard.test.tsx` (UX-SDX-39…42),
+`m4/alert-filter.test.tsx` (UX-SDX-43: `parseAlert`, la cola, la rama REAL de `getAdminShipments`, el mock de la unión con
+una alerta sembrada), `lib/i18n-shipping-alerts.test.ts` (UX-SDX-44), FS-67 en `ShippingSection.test.tsx`. E2E
+`e2e/shipping-alerts.spec.ts` (mock-only: los dos roles sin `MX$`, y `?tab=envios&alert=true` con su ✕).
+
+**Mutaciones** (copia del árbol entero, N=3 cada una, 17/17 rojas 3/3): tarjeta solo súper-admin; tarjeta vacía con `null`;
+`lowBalance !== false`; pintar `balanceCents`; «Ver el saldo» al operador; enlace sin `alert=true`; sumar las dos cifras;
+nota de la unión siempre; `withLabelAlert` ausente sin defensa; api sin `alert`; api con `alert` siempre; la cola no manda
+el filtro; `parseAlert` acepta `1`; el mock sin filtro de unión; sin ancla; clave borrada en `en.json`; «AG-7» en `lowBalance`.
+- **F-5** (errata v1.80.12.17, §M4-SHIP.19.36): `ShipmentTimeline` ya no re-ordena por `at`; el servidor manda `at asc` y la pantalla solo invierte (`[...known].reverse()`). Prueba de empate; mutación (volver al sort) roja N=3.
+
+## §95 · 💰 **F-3 — el estado de resultados de M7 completo: ocho renglones con signo y los «Incluye…» de ajustes de paquetería y seguro** (2026-10-05, rama `claude/skydropx-d`, base `d1184262`; contrato v1.80.12.17 `§M4-SHIP.19.36.1` y `.4` fila F-3, forma `§M10-IVA.8`; diseño v4.25 `DESIGN_SYSTEM §43.23`, FS-68…FS-70, UX-PNL-1…6, N-PNL-1)
+
+### 95.1 Comprobación previa del servidor (medida por lectura antes de tocar nada)
+`backend/src/modules/admin/admin.service.ts:1807-1823` en este árbol (sin cambios locales en ese fichero, `git diff --stat`
+vacío): el objeto lleva, en este orden, `shippingCostMissingCount, shippingAdjustmentsCents, shippingInsuranceCents,
+refundsCents, refundedFeesCents, compensationsCents, profitCents`, y `profitCents = income + shippingRevenue − cogs −
+stripeFees − shippingCost − refunds − refundedFees − compensations` (`:1807-1809`); los ajustes se suman DENTRO de
+`shippingCostCents` (`:1797`) y el seguro es informativo (`:1767`). Cuadra con el contrato: nombres y signos iguales.
+
+### 95.2 Qué cambió
+- `types/contract.ts` — `PnlDTO` con los cinco campos que faltaban (obligatorios, en el orden del servidor).
+- `lib/mock/fixtures.ts` — `mockPnl` con ajustes 4 200 y seguro 2 500 (< `shippingCostCents` 31 800, N-PNL-1), reembolsos
+  35 000, comisión devuelta 1 400, compensaciones 12 000; `profitCents` = la fórmula de ocho términos = 534 000.
+  ⚠️ `mockCsv('pnl')` NO se tocó: ya divergía del CSV del servidor (formato `metric,valueCents`) antes de este encargo.
+- `M7View.tsx` — `PnlLine` con `data-testid="pnl-line"`, `data-sign`, `sr-only` «suma»/«resta» antes del rótulo y monto en
+  `pnl-amount`; nuevo `PnlIncluded` (`pnl-included`, sin signo ni `data-sign`, `pl-6 text-xs`, monto `text-muted
+  font-normal`). Ocho renglones; «Costo de envío» y sus «Incluye…» en un único hijo del `divide-y`, cada «Incluye…» con
+  `> 0`. La ganancia sigue siendo `profitCents` (`data-testid="pnl-profit"`). Quitada la rama muerta `sign '='`.
+- `messages/{es,en}.json` — `formula` nueva y las 7 claves de §43.23.3, textos literales.
+
+### 95.3 Decisiones
+- Estructura con `div`s (§43.23.4 lo permite); el «Incluye…» no es hermano con signo de nadie.
+- `items-start` en los renglones para que un rótulo largo parta línea en móvil sin truncar (§43.23.4).
+
+### 95.4 Pruebas
+`(admin)/admin/m7/M7View.pnl.test.tsx` (fixture N-PNL-1 + UX-PNL-1…5, UX-PNL-5 en ES y EN) y `lib/i18n-pnl.test.ts`
+(UX-PNL-6). Rojo previo medido: 18 de 20 rojas antes del código (las 2 verdes, paridad y P66-3, lo son en vacío).
+`M7View.test.tsx` actualiza la ganancia esperada a MX$5,340.00 por el cambio del fixture.
+
+### 95.5 Suites y mutaciones (medido por mí, copia del árbol entero `git archive HEAD` d1184262 + mis ficheros)
+- `tsc --noEmit` 0 · `next lint` sin avisos · `vitest run` **236/236 ficheros, 2927/2927 pruebas** (carga al arrancar 7.97).
+- Mutaciones sobre otra copia, cada una **N=3**, sobre `M7View.pnl.test.tsx` + `i18n-pnl.test.ts` + `i18n-parity.test.ts`
+  (línea base 65/65 verde): quitar el renglón de reembolsos (UX-PNL-1/4) **3/3 rojo**; «Incluye» ajustes como `pnl-line`
+  con signo (UX-PNL-1/2/4) **3/3**; `−` visible en el sub-renglón (UX-PNL-2) **3/3**; «Incluye» sin `> 0` (UX-PNL-2) **3/3**;
+  `!= null` en vez de `> 0` (UX-PNL-2) **3/3**; ganancia calculada en el cliente (UX-PNL-3) **3/3**; esconder un renglón con
+  signo en 0 (UX-PNL-4) **3/3**; quitar el `sr-only` (UX-PNL-5) **3/3**; «resta» `sr-only` en un «Incluye» (UX-PNL-5) **3/3**;
+  `text-danger` en el monto de un «Incluye» (UX-PNL-2) **3/3**; `data-sign` en un «Incluye» (UX-PNL-2) **3/3**; borrar
+  `signAdds` de `en.json` (UX-PNL-5/6) **3/3**; quitar «Stripe» de la fórmula (UX-PNL-6 y §29.4b) **3/3**; «(M-1)» en un rótulo
+  (UX-PNL-6) **3/3**.
+- ⚠️ **Hallazgo:** el grep P66-3 tal como lo escribe §43.23.5 (`\b(M1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b`) **no caza «M-1»** (el guion):
+  en la primera tirada de esa mutación solo se puso roja la prueba de texto exacto. `i18n-pnl.test.ts` usa `M-?1?[0-9]`;
+  medido: «(M-1)», «(M7)», «(AG-7)» ⇒ prueba P66-3 roja 3/3 cada uno; textos reales verdes. Los demás candados P66-3 del
+  proyecto (`i18n-shipping-alerts`, `i18n-skydropx`, `AdminPageTitles`) usan el patrón sin guion: NO MEDIDO si alguno
+  debería ampliarse (para ux-ui / orquestador).
+
+### 95.6 Notas para otros roles
+- **NO MEDIDO / para arquitecto-backend:** `admin.service.ts:1784` suma `insuranceCostCents` tal cual, mientras
+  `shippingCostCents` es NETO de IVA (`:1781`). Si `insuranceCostCents` llega con IVA, el «Incluye seguro del envío» estaría
+  en una base distinta del renglón que lo contiene (y en teoría podría excederlo). No lo medí; solo lo leí.
+
+## §96 · NT2-a — un único patrón P66-3 para los barridos de copy (2026-10-05, rama `claude/skydropx-d`, base `7d930c4e`)
+
+### 96.1 Qué cambió
+- `frontend/src/lib/i18n-p66-3.testkit.ts` (solo pruebas; no lo importa la app): `P66_3_CODE_RE =
+  /\b(M-?1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b/` (sin bandera `g`), `get()`, `flatten()`, `P66_3_KNOWN_HITS` y
+  `p66_3Offenders(locale, entries)`.
+- Lo usan los cuatro barridos: `lib/i18n-pnl.test.ts`, `lib/i18n-shipping-alerts.test.ts`, `lib/i18n-skydropx.test.ts`
+  y `admin/AdminPageTitles.test.tsx` (P66-1 y P66-3). Antes tres usaban `M1?[0-9]` (no caza «M-1») y dos solo
+  miraban «M»; `get()` y `flat()` estaban copiados.
+- `AdminPageTitles` barría **líneas** de `messages/*.json`; ahora barre **valores** aplanados. Con el patrón
+  ampliado, las líneas de clave `admin.m10.spend.kind.AG-1…AG-22` habrían sido falsos aciertos (son claves, no texto).
+
+### 96.2 Acierto real que afloró (no cambié el texto)
+- `admin.m10.shipping.lowBalanceHint` — ES «Debajo de esta cifra le llega un correo al dueño (aviso AG-7), una vez por
+  cada vez que baja.» / EN «Below this amount the owner gets an email (alert AG-7), once each time it drops.» Es el
+  literal de `DESIGN_SYSTEM.md:25349`/`:25795` y lo afirma `SpendControlSection.test.tsx:141`, pero choca con P66-3.
+  Queda en `P66_3_KNOWN_HITS` con su motivo; `p66_3Offenders` marca `stale:` si deja de acertar, así que la excepción
+  no puede sobrevivir al arreglo. Decisión de copy: orquestador → ux-ui.
+- Ningún «M-n» con guion en `messages/*.json` (grep medido 2026-10-05 sobre `7d930c4e`).
+
+## §98 · **Arreglos del panel — `DESIGN_SYSTEM §60` (v5.0) contra el contrato v1.82 §PNL** (2026-10-05, rama `claude/arreglos-panel`; commits `e6760b49` · `7ce3bff4` · `91cb27a1` · `6f10d315` · `5dc6357e` · `53ee8c35` · `2e93eb0f`)
+
+> **Nota de renumeración (fusión `claude/arreglos-panel` + `claude/skydropx-d`, 2026-10-05):** en la rama del panel estas secciones eran **§88, §89, §90 y §91**; Skydropx ya usaba §88…§97, así que aquí pasan a **§98, §99, §100 y §101** (mismo orden). Las citas «`FRONTEND_NOTES §88`…`§91`» escritas en la rama del panel se leen §98…§101; ⛔ no se reescribieron en la fusión.
+
+**Alcance:** F-1…F-25 y F-27…F-32 de §60.11. ⛔ **F-26 (retiro de M8) NO se tocó**: espera la errata del arquitecto
+(§60.8, N-4). Respuestas del dueño aplicadas (HECHOS, última fila 2026-10-05): **sin plazo escrito** para escribir tras la
+entrega (sale `legal.disputeWindowNote`) y **sin mencionar el contracargo** en los términos.
+
+**Zonas compartidas tocadas:** `lib/api.ts` (`getSupportContact`, fuera `createDispute`, `refundDeliveredItem`,
+`getAdminShipment`, `previewWithdrawalDeliveredRefund`, `createWithdrawalDeliveredRefund`, `rejectBuylistItems`, mocks),
+`lib/mock/{m4-ship,fixtures}.ts`, `lib/error-audience.ts`, `types/contract.ts`, `components/ui/QueryState.tsx`
+(`DISPUTES_DISCONTINUED`, verbo `rejectItems`), `components/domain/{SupportContact,OrderItemStatusLine,DisputeEvidenceContact}`,
+`components/layout/AdminShell.tsx`, `hooks/useSupportContact.ts`. ⚠️ El hook vive en `src/hooks/` (no existe `lib/hooks/`).
+
+**Decisiones de implementación:**
+1. **`DisputeEvidenceContact` se queda SOLO para M8** (en transición) con sus claves `dispute.*`; la tienda usa
+   `SupportContact`. Se retiran juntos con F-26.
+2. **`useSupportContact`**: `['support-contact']`, 5 min; mientras carga `contact = null` ⇒ `Skeleton` y «Copiar» apagado
+   (⛔ nunca el respaldo antes de tiempo); error ⇒ `SUPPORT_CONTACT_FALLBACK`. Los contactos neutros (confirmación de
+   invitado, enlace caducado, pie de `/pedido`) pintan su frase cuando el correo ya llegó. Términos (servidor): `fetch`
+   con `revalidate: 300` en `terminos/support-contact-server.ts` (un `page.tsx` no admite exportaciones extra).
+   ⚠️ **Siguen con el valor fijo** (fuera de la lista F-9, zonas de buylist/reclamo): `ClaimableOrdersNotice.tsx:118` y
+   `SellRequestDetailView.tsx:289,560`. Medido con `grep SUPPORT_CONTACT_FALLBACK`.
+3. **`OrderItemStatusLine`** ramifica por `refund.kind`; el motivo de `after_delivery` sale de
+   `orders.item.refundReasonAfterDelivery.*` (mapa propio por tipo, para no mezclar `MissingReason` y `ShippedRefundReason`).
+4. **M3:** `items[].orderItemId` — ratificado en el contrato v1.82.1 §PNL.10 (E-6) mientras se construía; tipado
+   opcional por tolerancia, sin él no hay botón. (`784ab697` alinea además `reject-items` a `{ items, requestClosed }`.)
+   ⚠️ **Pendiente de copy (ux-ui):** FE-BRJ-4 de §PNL.10 — `409 CONFLICT { reason: 'ITEM_FINAL' }` en la decisión por
+   carta; hoy cae al copy base de `error.CONFLICT`. No se improvisa texto.
+   El reintento de una fila `item_delivered` se ofrece solo al súper-admin (conservador: es dinero saliente del súper-admin).
+5. **SPEI de retiro:** el diálogo vive en `admin/refunds/` y reusa textos de `admin.m4.replace.refund.*` (referencias,
+   re-escribir, bloqueo) y `pesosToCents` de M4 sin tocar M4. El mock del retiro entregado (`shp-7201`) solo aparece en
+   búsquedas (`?q=`), para no mover la cola de envíos ni sus pruebas. «Entregado el» en el paso 1 se omite: la fila de
+   `GET /admin/shipments` no trae `deliveredAt` (NO MEDIDO en backend real).
+6. **M5:** un clic encadena `receive → verify` en el cliente (`VerifyStepError` distingue el fallo del 2.º paso).
+   `admin.m5.receive` pasa a «Recibida: empezar revisión»; `error.INVALID_TRANSITION_VERB.receive` sigue diciendo
+   «Marcar recibida» (nombra el verbo del servidor; ux-ui decide si cambia). `ITEM_NOT_OFFERED` pasa del lote 2 pendiente
+   a cableado (copy literal de §27.2); `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` sigue pendiente (Ajustar ya no se ofrece en `buy`).
+   El cierre de la solicitud tras el rechazo múltiple lo dice la lista **recargada**, no la pantalla.
+7. **M10:** sección propia `BuylistCycleSection` (draft, guardado y errores propios); el `422` por clave pinta la regla
+   del campo y nunca `errors[clave]`. `admin.m5.desk.readOnly` se retiró (sustituido por `readOnlyByStatus.*`).
+8. **Celular:** el contenedor lo decide el CSS (`hidden sm:flex`, `sticky … sm:static`, `lg:hidden`), ⛔ sin media
+   query en JS (§37.1a). No se tocó `components/ui/Modal` (hoja inferior a lo ancho en `< sm`, patrón del sistema): los
+   diálogos de preparar/deshacer apilan botones con confirmar arriba. El conteo NO se duplica en el pie pegajoso (dos
+   nodos con el mismo texto romperían la región `role="status"`); el pie lleva «Pedido preparado». Playwright midió dos
+   enlaces de 15 px en la tarjeta («Por reponer →», «Ver en «Por reponer»») y se subieron a 44 px.
+
+**Censo E2E:** `needsSeed` 34 → **36** (9 → 10 ficheros): `e2e/m4-mobile.spec.ts` (import + una llamada en `beforeEach`:
+la cola de preparar exige un envío en `picking`, mismo motivo que `m4-preparation.spec.ts`). El baseline es de devops:
+`./scripts/check-e2e-skip-census.sh --update --motivo "m4-mobile.spec: MOB-1…5 necesitan un envío en picking"`.
+
+**Mediciones (2026-10-05, árbol vivo):** `tsc` 0 · lint 0 · vitest **220/220 ficheros, 2616/2616** · i18n **4307 = 4307**,
+0 vacías · Playwright mock (bundle propio `.next-e2e-mock-fepnl`, `:3317`) suite completa **270 passed, 9 skipped, 0
+failed** (antes de `2e93eb0f`: 3 rojas de specs propios, arregladas en ese commit y re-corridas 33/33).
+Mutaciones (copia `git archive HEAD` entera, N=1 cada una, deterministas): B1 4/4 rojas · B2 3/3 · B3 3/3 · B4 5/5 ·
+B5 3/3 · B6 4/4 (MOB-3 en Playwright sobre build de la copia, 2 rojas a 360 y 390).
+
+## §99 · **F-26 — M8 «Disputas» se retira de la interfaz** (2026-10-05, rama `claude/arreglos-panel`, base `5a8a5852`; contrato §PNL.10.7 / §PNL.11 errata v1.82.2; `DESIGN_SYSTEM §60.8`)
+
+**Un commit propio y revertible** (§PNL.10.7 paso 3 (b)): si la medición posterior al despliegue da alguna disputa
+`abierta`/`en_revision`, `git revert` de ese commit devuelve menú, ruta, pantalla, enlace del tablero y textos. La API de
+disputas **no cambia** (lecturas y `resolve` siguen; los correos 20/21 tampoco se tocan) — `lib/api.ts` y
+`types/contract.ts` se dejaron intactos a propósito (`getAdminDisputes`, `resolveDispute`, `getAdminUserDisputes`,
+`workQueue.disputes`).
+
+**Qué cambió:**
+1. **Menú:** sale la línea `{ href: '/admin/m8', key: 'm8' }` de `AdminSidebar.tsx` y nada más (cambio mínimo: la rama
+   Skydropx añade «Avisos de gasto» en el mismo grupo, unas líneas más arriba).
+2. **Ruta:** `m8/page.tsx` redirige a `/admin` en el servidor conservando el idioma (patrón de `manual-refunds/page.tsx`).
+   Salen `M8View.tsx`, `M8View.test.tsx` y `components/domain/DisputeEvidenceContact.tsx` (solo lo usaba M8, §88 decisión 1).
+3. **Tablero:** la cola suma envíos + buylist (sin `workQueue.disputes`) y pierde el enlace a M8.
+4. **M6:** la pestaña «Disputas» de la ficha solo se pinta si `detail.disputes?.length > 0`; con cero ni pestaña ni
+   llamada a `GET /admin/disputes?userId=`. Es historia de lectura.
+5. **Textos (es/en):** salen `admin.modules.m8`, `admin.m8.*`, `admin.dashboard.disputes` y el namespace `dispute.*` (el de
+   `DisputeEvidenceContact`). Se quedan `admin.m6.tabs.disputes`, `admin.m6.disputes`, `admin.m6.disputeType.*` y todos los
+   «en disputa» del contracargo. i18n 4287 = 4287 claves.
+6. **Candado de títulos:** sale la fila de M8 y el mapa `PAGES` en el mismo commit; el menú pasa de 16 a 15 entradas.
+7. **E2E:** los dos tests de M8 (`admin.spec.ts`) se sustituyen por uno `@real`: `/es/admin/m8` ⇒ `/es/admin`,
+   `/en/admin/m8` ⇒ `/en/admin`, sin enlaces a `/admin/m8`. Censo: `needsSeed` 36 → **35** (10 ficheros); bajar no es rojo,
+   el baseline (de devops) puede regenerarse para fijar el techo.
+
+**Pruebas:** FE-M8-1…3 en `admin/M8Retired.test.tsx`, FE-M8-4 en `m6/M6View.test.tsx` (tres casos: `[]`, ausente, una).
+Rojas antes del cambio (9 rojas por el motivo esperado; FE-M8-3 `expected '11' to be '8'`).
+
+**Mediciones (copia del árbol entero en scratchpad, sin `.git`):** `tsc` 0 · lint 0 · vitest **219/220 ficheros,
+2618/2619** — la única roja es `error-audience.test.ts` LITERALIDAD §26 («Recibida: empezar revisión»), que ux-ui cambió en
+`DESIGN_SYSTEM` v5.1 y se cierra con F-34 (no es de F-26). Mutaciones, N=3 cada una, deterministas: devolver la entrada
+del menú ⇒ FE-M8-1 3/3 rojo · volver a sumar disputas ⇒ FE-M8-3 3/3 · pestaña sin condición ⇒ FE-M8-4 3/3 · redirigir sin
+idioma ⇒ FE-M8-2 3/3 (rojo el caso `en`). Playwright del nuevo E2E: NO MEDIDO (carga de la máquina > 2× CPUs).
+
+## §100 · **F-33 (FE-BRJ-4 · `409 CONFLICT {reason:'ITEM_FINAL'}`) y F-34 («Recibida: empezar revisión»)** (2026-10-05, rama `claude/arreglos-panel`; `DESIGN_SYSTEM` v5.1 §60.14, §60.15, §26.3; contrato §PNL.10.2 / §PNL.10.6)
+
+**F-34** (commit propio, antes que F-33): `error.REQUEST_NOT_RECEIVED` e `error.INVALID_TRANSITION_VERB.receive` (es/en)
+nombran el botón por su nombre de hoy. Cierra el rojo de literalidad de `error-audience.test.ts` que dejó el cambio de §26.
+Candado **BRJ-UI-6** (`m5/M5ReceiveCopy.test.ts`): ningún valor de los catálogos contiene «Marcar recibida» / “Mark
+received”, y los dos textos carácter por carácter. `M5View.transitions.test.tsx:158` esperaba el texto viejo y se
+actualizó (prueba propia). Mutación (N=3): devolver la cadena vieja a `es` ⇒ 3/3 rojo (3 pruebas cada vez).
+
+**F-33** — `decisionMutation.onError` (`M5View.tsx`):
+1. **Primera rama** del error: `409` + `code === 'CONFLICT'` + `details.reason === 'ITEM_FINAL'`. Claves planas
+   `error.CONFLICT_ITEM_FINAL` / `error.CONFLICT_ITEM_FINAL_WITH_DETAILS` (no se usó la alternativa anidada: medido, ningún
+   candado exige que toda clave `error.*` sea un código del contrato). Los textos se copiaron de la tabla de §60.14 con un
+   script, no a mano.
+2. `itemStatus` ∈ `ITEM_TERMINAL` (`pagada`/`convertida_inventario`) ⇒ `_WITH_DETAILS` (el `select` elige la frase);
+   ausente o desconocido ⇒ la base.
+3. Cierra el diálogo de Ajustar/Rechazar, llama a `refresh()` (misma invalidación de `['admin-buylist']`) y pinta el aviso
+   **en la fila** con `Banner variant="warning" role="status"` (la variante existe: no se creó ninguna). El aviso va
+   envuelto en un `div tabIndex={-1}` que recibe el foco (`Banner` no reenvía `ref`; no se tocó el componente compartido).
+4. El rechazo múltiple no cambia (§60.14 punto 6).
+5. **Mock** (`lib/api.ts`, `decideBuylistItem`): espeja el peldaño — carta `convertida_inventario`/`pagada` ⇒
+   `409 CONFLICT {itemId, itemStatus, reason:'ITEM_FINAL'}` sin escribir, en los tres verbos.
+
+**Pruebas (BRJ-UI-5 = FE-BRJ-4, `m5/M5View.pnl.test.tsx`):** textos de los catálogos = tabla de §60.14 (la prueba lee
+`docs/DESIGN_SYSTEM.md`); Rechazar desde el diálogo sobre una convertida ⇒ diálogo cerrado, recarga (2.ª llamada a
+`getAdminBuylist`), texto de la rama `convertida_inventario` en `role="status"`, foco en el aviso, carta sin
+Aprobar/Ajustar/Rechazar ni casilla; Aprobar sobre una pagada ⇒ texto de `pagada`; Ajustar sin `itemStatus` y con uno
+desconocido ⇒ base; ⛔ en todas, ni «Hubo un conflicto con el estado actual.», ni «Esta solicitud ya está cerrada», ni el
+`message` del servidor. Mock: los tres verbos ⇒ 409 con los `details` exactos y la carta intacta.
+Mutaciones (copia del árbol, N=3 cada una, deterministas): comprobar `CONCURRENT_UPDATE` en vez de `ITEM_FINAL` ⇒ 3/3 rojo
+(4 pruebas) · quitar la rama ⇒ 3/3 (4) · ignorar `itemStatus` (siempre la base) ⇒ 3/3 (2) · quitar el espejo del mock
+⇒ 3/3 (2).
+
+**Verificación de solo lectura pedida (M5 oculta los botones de cartas finales), medida en `M5View.tsx` de este commit:**
+`ITEM_TERMINAL` (`:194`) gobierna `decidable` (`:1375`) ⇒ sin Aprobar/Ajustar/Rechazar para `pagada` y
+`convertida_inventario`; `isBulkRejectable` (`:211`) excluye `ITEM_TERMINAL` ⇒ sin casilla. Lo comprueban ahora BRJ-UI-5
+(las dos ramas, tras la recarga). ⚠️ **Observación, no cambiada:** «Convertir a inventario» (`:1467`) se oculta solo para
+`convertida_inventario`; con `pagada` se pinta **deshabilitado** con el título `convertNeedsApproval`. No es un botón de
+decisión y no lo pide §60.14; si una carta pagada debe poder convertirse (o el título es engañoso), lo decide ux-ui.
+
+**Mediciones (copia del árbol entero, idéntica al vivo por `diff -r`):** `tsc` 0 · lint 0 · vitest **221/221 ficheros,
+2629/2629** · i18n es = en (4289 claves).
+
+## §101 · **Errata v1.82.3 — «Rechazar solicitud» sale de `isRejectable` (contrato §PNL.12.3; FE-SKP-1/2)** (2026-10-05, rama `claude/arreglos-panel`, base `b06ac1ca`)
+
+**Qué cambió.** `M5View.tsx`: `canRejectRequest = req.isRejectable === true`. ⛔ **Se borró `allItemsRejected`**: era la
+copia local de la Regla C **sin el filtro `skip`** — el defecto (con una `skip` viva la solicitud quedaba en
+`verificacion` sin salida). El `isTerminal === false` que vivía junto a ella ya está dentro de `isRejectable`
+(§PNL.12.1 d). Botón, diálogo y verbo (`openRejectRequest`, `POST …/reject`) sin cambios; `rejectRequestConsequence`
+se queda (la propuesta de §PNL.12.4 espera a ux-ui y no bloquea).
+
+**Tipo.** `AdminBuylistDTO.isRejectable: boolean` (obligatorio, como lo pidió el orquestador y como lo escribe la
+proyección del contrato; §PNL.12.3 lo escribe `?:`). La pantalla igual lo lee fail-closed (`=== true`), y FE-SKP-2 prueba
+el campo ausente con un cast deliberado.
+
+**Servidor falso (`lib/mock/fixtures.ts`, `lib/api.ts`).** Una sola copia de la regla: `mockCountingItems`
+(`offerDecision !== 'skip'`: en JS conserva `null`, a diferencia del `<>` de SQL) y `mockRuleC`. La usan la proyección
+(`isRejectable = !terminal ∧ Regla C`), la guarda de `POST …/reject` (`422 REQUEST_HAS_NON_REJECTED_ITEMS` con
+`nonRejectedItemStatuses` de las líneas que cuentan; con 0 líneas que cuentan, los de todas) y el auto-cierre de
+`reject-items` (que ya filtraba `skip` a mano; misma conducta, ahora por el helper). ⚠️ La decisión por carta del mock
+**no** auto-cierra (no lo hacía antes; fuera de este alcance).
+
+**Pruebas.** `m5/M5View.pnl.test.tsx` · FE-SKP-1 (`isRejectable: true`, `buy` rechazadas + `skip` viva ⇒ botón, diálogo,
+`rejectBuylistRequest('sr-pnl', …)`), FE-SKP-2 (todas `rechazada` con `false` ⇒ sin botón; con el campo ausente ⇒ sin
+botón). `lib/mock/rejectability.test.ts` · la derivación del mock (SKP-1/3, SKP-4, SKP-5 pre-ciclo, 0 líneas que cuentan,
+terminal) y la guarda de `/reject` (cierra la atorada con la `skip` intacta; `422` solo con `['aprobada']`; `422`
+fail-closed). Las 3 de FE-SKP y 7 de 8 del mock salieron **rojas antes del cambio**. M5-NC-1…4 sin tocar.
+
+**Mutaciones (copia del árbol entero, N=3 cada una, deterministas):** volver al `every(itemStatus === 'rechazada')` local
+⇒ 3/3 rojo (FE-SKP-1 y las dos FE-SKP-2) · `isRejectable !== false` ⇒ 3/3 (1) · mock sin el filtro `skip` ⇒ 3/3 (4) ·
+mock contando solo `buy` (pierde las `null`) ⇒ 3/3 (1) · mock sin «∃ ≥1 línea que cuenta» ⇒ 3/3 (2).
+
+**Mediciones (copia del árbol entero, idéntica al vivo por `diff -rq`):** `tsc` 0 · lint 0 · vitest **222/222 ficheros,
+2640/2640**.
+
 ## Hotfix D-SP-5 · textos de `admin.sealedFinalPrice.*` (SP-F-8b, solo textos) — 2026-10-05
 
 Rama `claude/hotfix-texto-sellado` desde `production` `3e09685a`. El editor del sellado escribe `listPriceCents`
@@ -19140,7 +19959,12 @@ tienda a {price}». Se aplican los 16 textos corregidos de la tabla D-SP-5 (`DES
   con 4 CPU; sin rojos). Mutaciones N=1 sobre `git archive` del tree `795f4d90`: `basis.manual` es ⇒ «precio final a
   mano» ⇒ rojo (2/7); `note` en ⇒ «…hand-set final price here.» ⇒ rojo (1/7). Copia borrada.
 
-## §88 · **SP-F — el precio del sellado es del PRODUCTO** (`DESIGN_SYSTEM §70` v6.1 + `API_CONTRACT §M11-SP` v1.83 / v1.83.1 §M11-SP.12 / v1.83.2 §M11-SP.13) — 2026-10-05, rama `claude/precio-sellado`, base `66b72c15`
+## §102 · **SP-F — el precio del sellado es del PRODUCTO** (`DESIGN_SYSTEM §70` v6.1 + `API_CONTRACT §M11-SP` v1.83 / v1.83.1 §M11-SP.12 / v1.83.2 §M11-SP.13) — 2026-10-05, rama `claude/precio-sellado`, base `66b72c15`
+
+> **Renumerada en la fusión con `claude/arreglos-panel` (2026-10-05, orquestador):** en la rama `claude/precio-sellado`
+> esta sección era la **§88**; el panel trae su propia §88 (Fase C en el cliente) y llega hasta la §101. Las referencias
+> «`FRONTEND_NOTES §88`» escritas en la rama de sellado (p. ej. la que decide `admin.m1.publishQueue.reason.sealedNoPrice`)
+> apuntan **aquí, a §102**. Contenido sin cambios.
 
 Decisiones del dueño: `HECHOS.md:50` y `:51` (2026-10-05): respaldo automático, precio **por producto**, se edita en la
 hoja de sellado sin retirar, **solo el dueño**; mercado a mano en el alta solo el dueño; el personal ve costo y margen;

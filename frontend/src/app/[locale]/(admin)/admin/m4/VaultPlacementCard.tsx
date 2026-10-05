@@ -471,7 +471,7 @@ export function VaultPlacementCard({
             )}
             <Button
               variant="primary"
-              className="self-start sm:min-h-[44px]"
+              className="self-start min-h-[44px]"
               disabled={preparation.pending > 0}
               loading={prepare.isPending}
               aria-describedby={preparation.pending > 0 ? prepareReasonId : undefined}
@@ -515,7 +515,7 @@ export function VaultPlacementCard({
                 ) : locations.isError ? (
                   <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-text">
                     <span>{getMessage(locations.error)}</span>
-                    <Button size="sm" variant="secondary" className="sm:min-h-[44px]" onClick={() => locations.refetch()}>
+                    <Button size="sm" variant="secondary" className="min-h-[44px]" onClick={() => locations.refetch()}>
                       {tc('retry')}
                     </Button>
                   </div>
@@ -558,7 +558,7 @@ export function VaultPlacementCard({
             <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between">
               <Button
                 variant="ghost"
-                className="self-start sm:min-h-[44px]"
+                className="self-start min-h-[44px]"
                 disabled={confirm.isPending}
                 onClick={() => setDialogOpen(true)}
               >
@@ -566,7 +566,7 @@ export function VaultPlacementCard({
               </Button>
               <Button
                 variant="primary"
-                className="self-start sm:min-h-[44px]"
+                className="self-start min-h-[44px]"
                 disabled={hasPicked && !targetDrawer}
                 loading={confirm.isPending}
                 aria-describedby={summaryId}
@@ -614,7 +614,7 @@ function ErrorLine({ error, tc }: { error: ShownError; tc: Translator }) {
     <div role="alert" className="flex flex-col items-start gap-2 text-sm text-text">
       <p>{error.text}</p>
       {error.retry && (
-        <Button size="sm" variant="secondary" className="sm:min-h-[44px]" onClick={error.retry}>
+        <Button size="sm" variant="secondary" className="min-h-[44px]" onClick={error.retry}>
           {tc('retry')}
         </Button>
       )}
@@ -680,7 +680,7 @@ function VaultItemRow({
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="min-h-[44px] flex-1 sm:min-h-[44px] sm:flex-none"
+                  className="min-h-[44px] flex-1 sm:flex-none"
                   aria-label={aria(tv('item.pick'))}
                   loading={busy === 'picked'}
                   disabled={anyBusy && busy !== 'picked'}
@@ -691,7 +691,7 @@ function VaultItemRow({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="min-h-[44px] flex-1 sm:min-h-[44px] sm:flex-none"
+                  className="min-h-[44px] flex-1 sm:flex-none"
                   aria-label={aria(tv('item.miss'))}
                   loading={busy === 'missing'}
                   disabled={anyBusy && busy !== 'missing'}
@@ -704,7 +704,7 @@ function VaultItemRow({
               <Button
                 size="sm"
                 variant="ghost"
-                className="min-h-[44px] sm:min-h-[44px]"
+                className="min-h-[44px]"
                 aria-label={aria(tv('item.undo'))}
                 loading={busy === 'pending'}
                 onClick={() => onMark('pending')}
@@ -741,12 +741,12 @@ function VaultItemRow({
         <div role="alert" className="flex flex-col items-start gap-2 text-sm text-text">
           <p>{error.text}</p>
           {error.offerUnprepare && (
-            <Button size="sm" variant="ghost" className="min-h-[44px] sm:min-h-[44px]" onClick={onUnprepare}>
+            <Button size="sm" variant="ghost" className="min-h-[44px]" onClick={onUnprepare}>
               {tv('unprepare.cta')}
             </Button>
           )}
           {error.retry && (
-            <Button size="sm" variant="secondary" className="min-h-[44px] sm:min-h-[44px]" onClick={error.retry}>
+            <Button size="sm" variant="secondary" className="min-h-[44px]" onClick={error.retry}>
               {tc('retry')}
             </Button>
           )}
@@ -785,10 +785,10 @@ function UnprepareDialog({
       title={tv('unprepare.title')}
       footer={
         <>
-          <Button ref={cancelRef} variant="secondary" className="sm:min-h-[44px]" onClick={onCancel}>
+          <Button ref={cancelRef} variant="secondary" className="min-h-[44px]" onClick={onCancel}>
             {tv('unprepare.cancel')}
           </Button>
-          <Button variant="secondary" className="sm:min-h-[44px]" loading={pending} onClick={onConfirm}>
+          <Button variant="secondary" className="min-h-[44px]" loading={pending} onClick={onConfirm}>
             {tv('unprepare.confirm')}
           </Button>
         </>

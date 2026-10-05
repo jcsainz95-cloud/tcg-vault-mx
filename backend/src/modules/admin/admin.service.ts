@@ -1,3 +1,4 @@
+import { isOwnerAccount } from '../spend-alerts/owner';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { REFUND_REVIEW_PENDING_WHERE } from '../payments/refunds/refund-review';
 import { randomBytes, randomUUID } from 'crypto';
@@ -42,6 +43,7 @@ import { PasswordAttemptsService } from '../auth/password-attempts.service';
 import { LoginAttemptStoreUnavailableError } from '../auth/login-attempt.store';
 import { ShipmentPrepService } from '../shipments/shipment-prep.service';
 import { ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { DashboardShippingService } from './dashboard-shipping.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
   MIN_PASSWORD_LENGTH,
@@ -189,6 +191,8 @@ interface AdminUserRow {
   anonymizedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  // ⭐ v1.80.12.12 (§M4-SHIP.19.31.8): para `isOwner` (misma derivación que el resto: `isOwnerAccount` de la fila).
+  isOwner: boolean;
 }
 
 function toAdminUserHeader(u: AdminUserRow) {
@@ -213,6 +217,8 @@ function toAdminUserHeader(u: AdminUserRow) {
     deletedAt: u.deletedAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
+    // ⭐ v1.80.12.12 (§M4-SHIP.19.31.8): en los DOS DTOs de la ficha. ⛔ Nunca autoriza en el front (la base decide).
+    isOwner: isOwnerAccount(u),
     // FUERA por construcción: `passwordHash`, `tokenVersion` (revocación de sesiones) y `googleId`
     // — ninguno tiene por qué viajar en una ficha de back-office, y **ya no se leen de la BD**
     // (`ADMIN_USER_DETAIL_SELECT`).
@@ -526,6 +532,7 @@ const ADMIN_USER_DETAIL_SELECT = {
   anonymizedAt: true,
   createdAt: true,
   updatedAt: true,
+  isOwner: true,
   kycProfile: {
     select: {
       ...ADMIN_KYC_SELECT,
@@ -549,7 +556,8 @@ const ADMIN_USER_DETAIL_SELECT = {
       updatedAt: true,
     },
   },
-  // Las 11 columnas de `AddressDTO` (§11) — las MISMAS que `/users/me/addresses`.
+  // Las 12 columnas de `AddressDTO` (§11; v1.81: + `references`; `complete` se deriva) — las MISMAS que
+  // `/users/me/addresses` (`ADDRESS_ROW_KEYS`).
   addresses: {
     select: {
       id: true,
@@ -562,6 +570,7 @@ const ADMIN_USER_DETAIL_SELECT = {
       postalCode: true,
       country: true,
       phone: true,
+      references: true,
       isDefault: true,
     },
   },
@@ -647,6 +656,10 @@ export class AdminService {
     // 🔒 v1.80.7 (punto 19): la CLABE la borra su módulo dueño (`UsersService.eraseClabe`, `C-CLABE-1`). `@Optional()`
     // por el mismo motivo que los de arriba; `deleteUser` exige que esté.
     @Optional() private readonly users?: UsersService,
+    // 💰 D2f (§19.13, §19.29.9): `workQueue.shipping` y `workQueue.spendControl` — leen DIALES, así que viven en su propio
+    // servicio (este ⛔ tiene el servicio de diales: candado IVA-11 (c-estructural)). `@Optional()` por los unitarios que
+    // construyen a mano; en DI siempre está (`AdminModule` lo provee).
+    @Optional() private readonly dashboardShipping?: DashboardShippingService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -924,6 +937,9 @@ export class AdminService {
           role: true,
           status: true,
           createdAt: true,
+          // 🔒 D2g (§M4-SHIP.19.30.3): `isOwner` = `isOwnerAccount` de la fila (la marca + forma); `deletedAt` solo para eso.
+          isOwner: true,
+          deletedAt: true,
           kycProfile: { select: { kycStatus: true } },
         },
         skip: (page - 1) * pageSize,
@@ -949,6 +965,9 @@ export class AdminService {
       // «no tiene perfil» y «tiene perfil en none» son el mismo hecho para quien lee la cola.
       kycStatus: u.kycProfile?.kycStatus ?? KycStatus.none,
       lockedUntil: locks.values[i],
+      // 🔒 D2g (§M4-SHIP.19.30.3): la MISMA derivación que las fichas y `GET /users/me`. El front la usa SOLO para mostrar u
+      // ocultar; ⛔ nunca autoriza (autoriza el servidor, `OWNER_ACCOUNT_PROTECTED`).
+      isOwner: isOwnerAccount(u),
     }));
 
     return { data, page, pageSize, total, lockState: locks.state };
@@ -1452,12 +1471,35 @@ export class AdminService {
    * consumidor recibe la forma que ya conoce.
    */
   async updateUserStatus(id: string, status: 'active' | 'blocked') {
-    return this.prisma.user.update({
-      where: { id },
-      data: { status },
-      // v1.80.9 (§M6-U.6): + `username`; `email` anulable.
-      select: { id: true, email: true, username: true, name: true, role: true, status: true, createdAt: true },
-    });
+    // 🔒 D2g (§19.30.2 (2), C-21 (b)): la cuenta MARCADA como del dueño no se bloquea ni se reactiva por aquí — ⛔ ni por él
+    // mismo (un dueño bloqueado deja el sistema sin destinatario). La guarda va en el `where` de la escritura (`isOwner: false`,
+    // `where` único extendido): no hay lectura previa que una carrera pueda saltar. Sin fila que cumpla ⇒ se distingue «no
+    // existe» (`404`) de «es la del dueño» (`403 OWNER_ACCOUNT_PROTECTED`).
+    let u;
+    try {
+      u = await this.prisma.user.update({
+        where: { id, isOwner: false },
+        data: { status },
+        // v1.80.9 (§M6-U.6): + `username`; `email` anulable.
+        select: { id: true, email: true, username: true, name: true, role: true, status: true, createdAt: true },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2025') throw e;
+      const exists = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      if (!exists) throw BusinessException.notFound();
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
+    // §19.30.3: `AdminUserSummaryDTO` + `isOwner`. Por construcción es `false`: la escritura exigió `isOwner = false`.
+    return { ...u, isOwner: false };
+  }
+
+  /**
+   * 🔒 D2g (§19.30.2 (3)) — quién es el destino de un acto sobre una cuenta (para AG-22 y la bitácora del rechazo). Solo `id`,
+   * `name`, `role` e `isOwner` (la marca CRUDA: la protección de la cuenta del dueño se decide por la marca, falla cerrado).
+   */
+  async staffTargetOf(id: string): Promise<{ userId: string; name: string; role: Role; isOwner: boolean } | null> {
+    const u = await this.prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true, isOwner: true } });
+    return u ? { userId: u.id, name: u.name, role: u.role, isOwner: u.isOwner } : null;
   }
 
   /**
@@ -1468,16 +1510,24 @@ export class AdminService {
    * SEGURIDAD: la contraseña temporal se devuelve UNA vez y NUNCA se persiste en claro ni se
    * loguea/audita (el AuditLog solo guarda action + actor + target).
    */
-  async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
+  async resetPassword(
+    id: string,
+    actorUserId?: string,
+  ): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
     // SEC-C7-OPT: se comprueba ANTES de escribir nada. Sin servicio no hay reset «a medias» (hash
     // nuevo persistido, candado puesto, contraseña temporal nunca devuelta): se falla en seco.
     const attempts = this.requirePasswordAttempts('resetPassword');
     const user = await this.prisma.user.findUnique({
       where: { id },
       // v1.80.9 (§M6-U.6): + `username`, para que `clearForUser` limpie el cubo de SU identificador.
-      select: { id: true, status: true, email: true, username: true },
+      // 🔒 D2g (§19.30.2 (2)): + `isOwner` — la cuenta del dueño no se restablece desde OTRA cuenta.
+      select: { id: true, status: true, email: true, username: true, isOwner: true },
     });
     if (!user) throw BusinessException.notFound();
+    if (user.isOwner === true && actorUserId !== id) {
+      // El dueño se restablece por «olvidé mi contraseña» o con `prisma/reset-admin-password.ts`.
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
     if (user.status === 'deleted') {
       throw BusinessException.validation('USER_DELETED', 'Cannot reset a deleted account');
     }
@@ -1485,13 +1535,19 @@ export class AdminService {
     const tempPassword = randomBytes(18).toString('base64url');
     const passwordHash = await argon2.hash(tempPassword);
     await this.prisma.user.update({
-      where: { id },
+      // 🔒 D2g: la protección también en el `where` de la escritura (`where` único extendido; un P2025 aquí ⇒ `403`).
+      where: { id, ...(actorUserId === id ? {} : { isOwner: false }) },
       data: {
         passwordHash,
         mustChangePassword: true,
         // Revoca refresh/access vigentes (el guard y /auth/refresh rechazan la versión previa).
         tokenVersion: { increment: 1 },
       },
+    }).catch((e: unknown) => {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+      }
+      throw e;
     });
     // v1.80 (C7): es la vía para que el dueño desbloquee a un operador (contrato §M6).
     await attempts.clearForUser(user);
@@ -1545,6 +1601,10 @@ export class AdminService {
       include: { kycProfile: true },
     });
     if (!user) throw BusinessException.notFound();
+    // 🔒 D2g (§19.30.2 (2), C-21 (b)): primero `CANNOT_DELETE_SELF` (arriba, sin cambio); luego la cuenta del dueño ⇒ `403`.
+    if (user.isOwner === true) {
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
 
     // Idempotente: re-DELETE sobre una cuenta ya soft-deleted es no-op.
     if (user.status === 'deleted') {
@@ -1604,6 +1664,13 @@ export class AdminService {
       await tx.billingProfile.deleteMany({ where: { userId: id } });
       await tx.address.deleteMany({ where: { userId: id } });
       await tx.portfolioSnapshot.deleteMany({ where: { userId: id } });
+      // ⭐ v1.80.12.2 (API_CONTRACT §M4-SHIP.19.22.1, SKX-SEC-1): los VALORES intermedios de las correcciones de dirección
+      // de SUS envíos — retiros (`ShipmentRequest.userId`) Y envíos directos (nacen con `userId: null`; su dueño es
+      // `order.userId`). Se borran (no se redactan): quién y cuándo siguen en la bitácora, que no lleva valores.
+      // ⛔ `ShipmentRequest.addressSnapshot` y `Order.shippingAddressSnapshot` se conservan (registro económico).
+      await tx.shipmentAddressRevision.deleteMany({
+        where: { shipmentRequest: { OR: [{ userId: id }, { order: { userId: id } }] } },
+      });
       await tx.user.update({
         where: { id },
         data: {
@@ -1697,6 +1764,13 @@ export class AdminService {
     // una señal para un humano —«estos N envíos no tienen costo: revísalos»—, ⛔ no una afirmación
     // fiscal.* Un cero silencioso convierte el ingreso de ese envío en **ganancia fantasma**.
     let shippingCostMissingCount = 0;
+    // 💰 D2f (§19.11): el seguro del periodo, INFORMATIVO (⛔ no se resta aparte: ya va DENTRO de `shippingCostCents`, que
+    // aquí es NETO). Por qué el neto lo contiene entero (techlead NT1-a sobre 7d930c4e): al capturar,
+    // `label-purchase.service.ts` `costOf` congela `shippingCostCents = totalCents + insuranceCostCents` y el IVA sale de
+    // `rate.breakdown.ivaCents` o de 16/116 sobre `totalCents − serviceFeeCents` — ⛔ nunca sobre el seguro. El seguro va
+    // SIN línea de IVA (§19.19.11), así que en `netShippingCostCents` su neto = su bruto. ⚠️ NO MEDIDO si Skydropx cobra IVA
+    // sobre la protección: depende de PS-SBX-4; si lo cobra, cambia la captura (no este sumador).
+    let shippingInsuranceCents = 0;
     for (const s of shipments) {
       // v1.64 (§4.44.j, sitio 2): neteado por la convención de ESTA `ShipmentRequest`. En el retiro
       // de bóveda el «subtotal» del desglose ES la tarifa de envío (`computeShipmentBreakdown`
@@ -1710,9 +1784,22 @@ export class AdminService {
       // yo pague, trátalo como si no hubiera margen»*). El neto es una **RESTA** del crédito
       // CONGELADO al capturar, ⛔ jamás una división por `(1+r)` ni una lectura del dial vivo.
       shippingCostCents += netShippingCostCents(s);
-      if (s.shippingCostCents === 0) shippingCostMissingCount += 1;
+      // 💰 D2f (§19.11): una guía de Skydropx trae su costo de la respuesta del proveedor ⇒ ⛔ no es «costo sin capturar».
+      if (s.shippingCostCents === 0 && s.labelSource !== 'skydropx') shippingCostMissingCount += 1;
+      shippingInsuranceCents += s.insuranceCostCents ?? 0;
       stripeFeesCents += s.processingFeeCents;
     }
+    // 💰 D2f (§19.11, pregunta 89 DECIDIDA, `HECHOS.md:41`): los AJUSTES de costo (cargos extra, lo no devuelto de una
+    // cancelación) cuentan en el mes de su CARGO (`chargedAt`, ⛔ `observedAt`, ⛔ el `pickingAt` del envío), netos (resta
+    // del IVA congelado, ⛔ división), sin filtrar por el estado del envío (el dinero salió igual). Van DENTRO de
+    // `shippingCostCents` y aparte en `shippingAdjustmentsCents` («ajustes de paquetería») para verlos.
+    // ⛔ P-SDX-PNL-1 (huérfanas y duplicados) NO entra: sin respuesta del dueño, nada cambia (§19.33.3).
+    const adjustments = await this.prisma.shipmentCostAdjustment.findMany({
+      where: shipmentRange ? { chargedAt: shipmentRange } : {},
+      select: { amountCents: true, ivaCents: true },
+    });
+    const shippingAdjustmentsCents = adjustments.reduce((acc, a) => acc + a.amountCents - a.ivaCents, 0);
+    shippingCostCents += shippingAdjustmentsCents;
     // ⭐ v1.80 / v1.80.2 (§M4-SHIP, PS-40) — EL DINERO QUE VUELVE resta en el periodo en que SALIÓ: las filas del
     // libro aceptadas por Stripe (`submitted|succeeded`, por `submittedAt`) y las transferencias SPEI `paid` (por
     // `paidAt`; ⛔ `pending` y `cancelled` no restan; la fila Stripe `failed` no resta y su sustituta SPEI no duplica).
@@ -1732,6 +1819,8 @@ export class AdminService {
       stripeFeesCents,
       shippingCostCents,
       shippingCostMissingCount,
+      shippingAdjustmentsCents,
+      shippingInsuranceCents,
       refundsCents: refunds.refundsCents,
       refundedFeesCents: refunds.refundedFeesCents,
       compensationsCents: refunds.compensationsCents,
@@ -1783,8 +1872,11 @@ export class AdminService {
     const now = new Date();
     const summary = await this.prep.summary(role, now);
     const toPrepare = { ship: summary.ship, vault: summary.vault, toReplace: summary.toReplace, toReplaceOverdue: summary.toReplaceOverdue, stuckRefunds: summary.stuckRefunds };
+    // 💰 D2f (§19.13): `shipping` para los dos roles (el operador recibe `lowBalance`, ⛔ nunca la cifra).
+    const shipping = this.dashboardShipping ? await this.dashboardShipping.shipping() : null;
     // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): `refundReviews` — `null` para `vault_operator` (como `manualRefunds`).
-    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null, refundReviews: null };
+    // 💰 D2f (§19.29.9): `spendControl` — `null` para `vault_operator` (GAS-1: la tarjeta no existe).
+    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null, refundReviews: null, shipping, spendControl: null };
     const opWhere = { requestedByRole: Role.vault_operator, status: { not: 'failed' as const } };
     const [manualRefunds, last24h, last30d, reviews] = await Promise.all([
       this.manualRefunds ? this.manualRefunds.pendingSummary() : Promise.resolve(null),
@@ -1797,6 +1889,8 @@ export class AdminService {
       manualRefunds,
       refundReviews: { pending: reviews._count._all, oldestRefundedAt: reviews._min.refundedAt ? reviews._min.refundedAt.toISOString() : null },
       operatorRefunds: { last24hCount: last24h._count._all, last24hCents: last24h._sum.amountCents ?? 0, last30dCents: last30d._sum.amountCents ?? 0 },
+      shipping,
+      spendControl: this.dashboardShipping ? await this.dashboardShipping.spendControl(now) : null,
     };
   }
 
@@ -1928,9 +2022,11 @@ export class AdminService {
       // CSV cuyo orden de columnas no es el del DTO es dos contratos para una cifra.
       return (
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-        'shippingCostMissingCount,refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
+        'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,' +
+        'refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
         `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
-        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
+        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.shippingAdjustmentsCents},${p.shippingInsuranceCents},` +
+        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
       );
     }
     if (report === 'iva') {

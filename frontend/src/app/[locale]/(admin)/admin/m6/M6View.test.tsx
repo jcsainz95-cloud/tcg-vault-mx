@@ -299,3 +299,51 @@ describe('M6View · Usuarios / KYC', () => {
 async function waitForRemoved() {
   await new Promise((r) => setTimeout(r, 200));
 }
+
+/**
+ * F-26 · **FE-M8-4** (contrato §PNL.10.7 · `DESIGN_SYSTEM §60.8`): con M8 retirado, la pestaña «Disputas» de la ficha
+ * 360° es **historia de lectura** y solo existe si el usuario tiene alguna (`detail.disputes?.length > 0`). Con cero,
+ * la pestaña no se pinta y su endpoint no se llama.
+ */
+describe('F-26 · FE-M8-4 — la pestaña «Disputas» de la ficha solo existe si hay alguna', () => {
+  async function openFicha() {
+    renderWithProviders(<M6View />, 'es');
+    const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
+    fireEvent.click(viewButtons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
+    await within(dialog).findByRole('tab', { name: 'Compras' });
+    return dialog;
+  }
+
+  it('con `detail.disputes = []`: sin pestaña «Disputas»; el resto de pestañas sigue', async () => {
+    const { mockAdminUserDetail } = await import('@/lib/mock/fixtures');
+    vi.spyOn(api, 'getAdminUser').mockImplementation(async (id) => ({ ...mockAdminUserDetail(id), disputes: [] }));
+    const disputesSpy = vi.spyOn(api, 'getAdminUserDisputes');
+    const dialog = await openFicha();
+    expect(within(dialog).queryByRole('tab', { name: 'Disputas' })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('tab', { name: 'Envíos' })).toBeInTheDocument();
+    expect(disputesSpy).not.toHaveBeenCalled();
+  });
+
+  it('sin el campo (`disputes` ausente): tampoco hay pestaña', async () => {
+    const { mockAdminUserDetail } = await import('@/lib/mock/fixtures');
+    vi.spyOn(api, 'getAdminUser').mockImplementation(async (id) => {
+      const { disputes: _omit, ...rest } = mockAdminUserDetail(id);
+      return rest;
+    });
+    const dialog = await openFicha();
+    expect(within(dialog).queryByRole('tab', { name: 'Disputas' })).not.toBeInTheDocument();
+  });
+
+  it('con una disputa: la pestaña existe y al abrirla lee `GET /admin/disputes?userId=`', async () => {
+    const { mockAdminUserDetail } = await import('@/lib/mock/fixtures');
+    vi.spyOn(api, 'getAdminUser').mockImplementation(async (id) => ({
+      ...mockAdminUserDetail(id),
+      disputes: [{ id: 'dsp-5001', status: 'en_revision', type: 'condition_raw', createdAt: '2026-08-12T16:00:00Z' }],
+    }));
+    const disputesSpy = vi.spyOn(api, 'getAdminUserDisputes');
+    const dialog = await openFicha();
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Disputas' }));
+    await waitFor(() => expect(disputesSpy).toHaveBeenCalledWith('u-777', expect.objectContaining({ page: 1 })));
+  });
+});

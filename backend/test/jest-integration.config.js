@@ -17,6 +17,8 @@ module.exports = {
     '^src/(.*)$': '<rootDir>/src/$1',
   },
   testEnvironment: 'node',
+  // ⭐💰🔒 PS-99 (c) — la red a *.skydropx.com vetada en TODA la suite (API_CONTRACT §M4-SHIP.19.19.17).
+  setupFiles: ['<rootDir>/test/setup/forbid-skydropx-network.ts'],
   setupFilesAfterEnv: ['<rootDir>/test/integration/setup.ts'],
   // Estado de DB compartido entre specs → serializa para evitar carreras.
   maxWorkers: 1,

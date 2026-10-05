@@ -15,6 +15,7 @@ import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { ManualRefundDTO, ManualRefundStatus } from '@/types/contract';
+import { manualRefundWhy } from './why';
 
 const DASH = '—';
 export const MANUAL_REFUNDS_KEY = ['admin-manual-refunds'] as const;
@@ -138,6 +139,7 @@ function ManualRefundsList() {
 }
 
 function ManualRefundRow({ m, locale, t, tStatus }: { m: ManualRefundDTO; locale: AppLocale; t: ReturnType<typeof useTranslations>; tStatus: ReturnType<typeof useTranslations> }) {
+  const tsr = useTranslations('admin.m3.shippedReason');
   const beneficiary = m.beneficiaryName?.trim() || m.customer.fullName?.trim() || t('noName');
   return (
     <li data-testid={`mr-row-${m.id}`} className="grid gap-x-6 gap-y-2 py-4 text-sm text-text md:grid-cols-[1.4fr_auto_1.6fr_1fr_1fr_1fr_auto] md:items-start">
@@ -152,7 +154,7 @@ function ManualRefundRow({ m, locale, t, tStatus }: { m: ManualRefundDTO; locale
       </div>
       <div className="flex min-w-0 flex-col">
         <span className={LABEL}>{t('col.why')}</span>
-        <span lang="en">{t(`source.${m.source}`, { card: m.case.card.name, folio: m.case.folio })}</span>
+        <span lang="en">{manualRefundWhy(m, t, tsr)}</span>
       </div>
       <div className="flex flex-col">
         <span className={LABEL}>{t('col.purchase')}</span>

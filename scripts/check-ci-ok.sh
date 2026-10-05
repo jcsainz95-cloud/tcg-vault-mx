@@ -57,6 +57,7 @@ declare -A PUNTERO=(
   [db-pool-limit]="el \`connection_limit\` que hace visible el 500 de checkout (\`398c58a\`) dejó de estar escrito y vuelve a depender del runner. DEVOPS_NOTES §57"
   [e2e-skip-census]="el censo de salvaguardas E2E (mockOnly/needsSeed/realOnly/…) creció sin nota. DEVOPS_NOTES §56.9 (N7) y §66"
   [stack-kill-scope]="el apagado de \`stack-native.sh\` volvió a poder matar el stack de OTRA sesión (I-QA2). DEVOPS_NOTES §67"
+  [boot-no-geo]="un arranque (CMD, imagen, railway.json o compose) vuelve a cargar el catálogo de CP: con la tabla vacía la imagen no arrancaría (G-BOOT, §M4-SHIP.19.25.4). DEVOPS_NOTES §81"
 )
 
 CI_YML=".github/workflows/ci.yml"; SOLO_ESTATICO=0

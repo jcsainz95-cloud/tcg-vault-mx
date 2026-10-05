@@ -39,6 +39,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus, Prisma, ShippedRefundReason } from '@prisma/client';
+import { cancelProviderLabelIfAny } from '../../shipments/label-auto-close';
 import { CurrentPiece, currentPiecesOf, resolveOriginsBatch } from './origin';
 import { isSettleableOrderStatus } from '../settleable-order-statuses';
 import { lockReservedOfOrder, releaseReservedOfUnsettledRefund, reservedIdsOfOrder } from './release-unsettled-refund';
@@ -334,6 +335,9 @@ export class FullRefundService {
       data: { status: 'cancelado' },
     });
     if (res.count !== 1) return false;
+    // 💰 §M4-SHIP.19.8 «Cancelación automática» (criterio 244, `C-SDX-5`): sello `auto_close` en ESTA tx; el `cancel`
+    // va post-commit (`afterAutoCloseVia` con `closedShipmentIds`, en quien comitea).
+    await cancelProviderLabelIfAny(tx, id, 'auto_close');
     if ('orderId' in owner) {
       const lines = await tx.shipmentItem.findMany({
         where: { shipmentRequestId: id, inventoryItem: { status: 'picking', ownerType: 'platform' } },

@@ -6,6 +6,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { SETTING_DEFAULTS } from '../src/modules/settings/settings.constants';
+import { DEFAULT_SHIPPING_PACKAGES } from '../src/modules/settings/shipping-dials';
 import { deriveNumberParts } from '../src/common/card-order';
 
 const prisma = new PrismaClient();
@@ -48,6 +49,12 @@ async function main() {
     });
   }
   console.log(`ConfigSetting: ${Object.keys(SETTING_DEFAULTS).length} diales sembrados.`);
+
+  // 1b. ⭐ v1.81 (M-66 = `M-SDX-D`, §M4-SHIP.19.19.6): los dos empaques estándar. Regla §11.0: `update: {}` — no pisa lo
+  // que el dueño corrigió en M10. (La migración M-66 los siembra igual con `ON CONFLICT DO NOTHING`.)
+  for (const p of DEFAULT_SHIPPING_PACKAGES) {
+    await prisma.shippingPackage.upsert({ where: { code: p.code }, create: { ...p }, update: {} });
+  }
 
   // 2. Usuario super_admin (el negocio ES el admin en el MVP).
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@tcg.local';

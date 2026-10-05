@@ -12,6 +12,7 @@ function request(over: Partial<AdminBuylistDTO> = {}): AdminBuylistDTO {
     status: 'aceptada',
     isTerminal: false,
     isPayable: false,
+    isRejectable: false,
     quotedTotalCents: 90000,
     createdAt: '2026-08-28T14:00:00Z',
     items: [],

@@ -158,6 +158,40 @@ const MIGRADOS: Record<string, Render> = {
       name,
       locale,
     ),
+  // v1.82 · PNL-4 (DESIGN_SYSTEM §60.6): el correo 29, en sus dos formas (una carta y la solicitud sigue;
+  // tres cartas y la solicitud se cerró). Sin CTA, como el 4.
+  '29a · cartas no aceptadas (1, abierta)': (locale, name = NOMBRE) =>
+    buylistTemplates.sellItemsRejectedTemplate(
+      {
+        folio: FOLIO,
+        cards: [{ cardName: 'Snorlax V', setName: 'Sword & Shield', cardNumber: '141/202', finish: 'reverse_holo' }],
+        reason: 'No llegó en Near Mint',
+        rejectedAt: new Date('2026-09-09T18:00:00-06:00'),
+        returnDeadlineAt: new Date('2026-09-16T18:00:00-06:00'),
+        abandonDeadlineAt: new Date('2026-10-09T18:00:00-06:00'),
+        requestClosed: false,
+      },
+      name,
+      locale,
+    ),
+  '29b · cartas no aceptadas (3, cerrada)': (locale, name = NOMBRE) =>
+    buylistTemplates.sellItemsRejectedTemplate(
+      {
+        folio: FOLIO,
+        cards: [
+          { cardName: 'Snorlax V', setName: 'Sword & Shield', cardNumber: '141/202', finish: 'reverse_holo' },
+          { cardName: 'Pikachu', setName: 'Base Set', cardNumber: '58/102', finish: 'normal' },
+          { cardName: 'Charizard', setName: 'Darkness Ablaze', cardNumber: '020/189', finish: 'holofoil' },
+        ],
+        reason: 'Llegaron con dobleces',
+        rejectedAt: new Date('2026-09-09T18:00:00-06:00'),
+        returnDeadlineAt: new Date('2026-09-16T18:00:00-06:00'),
+        abandonDeadlineAt: new Date('2026-10-09T18:00:00-06:00'),
+        requestClosed: true,
+      },
+      name,
+      locale,
+    ),
   '5a · vencida (no respondió)': expirada('no_response'),
   '5b · vencida (no envió)': expirada('not_shipped'),
   '6 · solicitud cerrada': (locale, name = NOMBRE) =>
@@ -177,7 +211,8 @@ const TODOS_LOS_CORREOS: Record<string, Render> = {
 };
 
 /** Los que llevan botón. El correo 4 no lleva: §31.7 le asigna «el de coordinación» y §31 no lo define. */
-const CON_CTA = Object.keys(MIGRADOS).filter((k) => !k.startsWith('4 ·'));
+// v1.82: el 29 (§60.6) tampoco lleva botón — la acción es escribir a soporte, que va en el cuerpo.
+const CON_CTA = Object.keys(MIGRADOS).filter((k) => !k.startsWith('4 ·') && !k.startsWith('29'));
 
 // =================================================================================================
 // ML-1 ⭐⭐ — LA MARCA, MEDIDA POR ABLACIÓN

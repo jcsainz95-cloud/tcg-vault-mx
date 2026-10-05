@@ -76,11 +76,11 @@ describe('C-REF-1 — quién crea filas del libro y quién habla con Stripe', ()
     expect(census(/paymentRefund\.create(Many)?\(/g)).toEqual({ 'modules/payments/refunds/refund-ledger.service.ts': 1 });
   });
 
-  it('`createRows` tiene EXACTAMENTE los llamadores del contrato: preparado, M3, reembolso del caso y `closeWithdrawalIfEmpty`', () => {
+  it('`createRows` tiene EXACTAMENTE los llamadores del contrato: preparado, M3 (total y una carta tras la entrega), reembolso del caso y `closeWithdrawalIfEmpty`', () => {
     const callers = census(/\.createRows\(/g);
     expect(callers).toEqual({
       'modules/shipments/shipment-prep.service.ts': 1, // POST /admin/shipments/:id/prepared
-      'modules/orders/order-refund.service.ts': 1, // M3 order_full
+      'modules/orders/order-refund.service.ts': 2, // M3 order_full + v1.82 §PNL.2 item_delivered (refund-delivered)
       'modules/vault/replacement-case.service.ts': 2, // refund (case_refund) + closeWithdrawalIfEmpty (shipment_fee)
     });
   });
@@ -111,10 +111,11 @@ describe('C-MREF-1 — la cubeta SPEI: tres creadores, dos escritores de estado,
     expect(census(/manualRefund\.create(Many)?\(/g)).toEqual({ 'modules/payments/refunds/manual-refund.service.ts': 1 });
   });
 
-  it('`createRow` tiene EXACTAMENTE tres llamadores: el reembolso del caso, `to-manual` y `reissue`', () => {
+  it('`createRow` tiene EXACTAMENTE cuatro llamadores: el reembolso del caso, `to-manual`, `reissue` y (v1.82 §PNL.3) el retiro entregado', () => {
     expect(census(/manual\.createRow\(|this\.createRow\(/g)).toEqual({
       'modules/vault/replacement-case.service.ts': 1,
       'modules/payments/refunds/manual-refund.service.ts': 2,
+      'modules/payments/refunds/withdrawal-delivered-refund.service.ts': 1,
     });
     const svc = text('modules/payments/refunds/manual-refund.service.ts');
     const reissue = svc.slice(svc.indexOf('async reissue('), svc.indexOf('async toManual('));

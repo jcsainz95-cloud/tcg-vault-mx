@@ -23,6 +23,14 @@ export function withM61Defaults<T extends Record<string, any>>(db: T): T {
   d.user ??= {};
   d.user.findMany ??= jest.fn(async () => []);
   d.user.findUnique ??= jest.fn(async () => null);
+  // v1.80.12 (D2c) — `labelFieldsOf` del detalle admin: ajustes de costo, última liberación y token del intento.
+  d.shipmentCostAdjustment ??= {};
+  d.shipmentCostAdjustment.findMany ??= jest.fn(async () => []);
+  d.auditLog ??= {};
+  d.auditLog.findFirst ??= jest.fn(async () => null);
+  d.shipmentLabelAttempt ??= {};
+  d.shipmentLabelAttempt.findUnique ??= jest.fn(async () => null);
+  d.shipmentLabelAttempt.findFirst ??= jest.fn(async () => null);
   d.$queryRaw ??= jest.fn(async () => [{ status: 'settled' }]);
   // El candado de fila vive dentro de `$transaction`: si la suite no modela la tx, el propio doble hace de tx.
   d.$transaction ??= jest.fn(async (cb: (tx: unknown) => unknown) => cb(d));

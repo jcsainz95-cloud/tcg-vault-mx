@@ -21,6 +21,11 @@ export interface Item {
    * fuera de su ruta). Entran en la MISMA regla de `isActiveHref` («con barra / gana la más específica»).
    */
   activeAlso?: readonly string[];
+  /**
+   * 🔒 v4.20 (§43.19.8, UX-GAS-1): la entrada NO se pinta para quien no es súper-admin (⛔ ni bloqueada): los avisos de
+   * gasto son del dueño y al operador no le dicen nada que pueda hacer.
+   */
+  hiddenUnlessSuperAdmin?: boolean;
 }
 
 /**
@@ -54,6 +59,15 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
         activeAlso: ['/admin/manual-refunds'],
         badge: (s) => (s.manualRefundsPending ? { count: s.manualRefundsPending } : null),
       },
+      // v4.20 (§43.19.8, GAS-1): «Avisos de gasto», súper-admin, justo tras «Reembolsos». Badge = inmediatos sin ver
+      // (🔒 v1.80.12.10 S-GAS-3: `spendAlertsUnseenImmediate` del summary, `null` para el operador ⇒ sin badge).
+      {
+        href: '/admin/spend-alerts',
+        key: 'spendAlerts',
+        superAdminOnly: true,
+        hiddenUnlessSuperAdmin: true,
+        badge: (s) => (s.spendAlertsUnseenImmediate ? { count: s.spendAlertsUnseenImmediate } : null),
+      },
       // v1.80 «Pedidos por preparar»: badge = envíos + bóveda + por reponer (§M4-SHIP.11).
       {
         href: '/admin/m4',
@@ -63,7 +77,6 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
           return count > 0 ? { count, overdue: s.toReplaceOverdue > 0 } : null;
         },
       },
-      { href: '/admin/m8', key: 'm8' },
     ],
   },
   {
@@ -168,14 +181,16 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
             </p>
           )}
           <ul className="flex flex-col">
-            {g.items.map((item) => {
+            {g.items.filter((item) => isSuperAdmin || !item.hiddenUnlessSuperAdmin).map((item) => {
               const active = isActiveHref(pathname, item.href);
               const locked = item.superAdminOnly && !isSuperAdmin;
               const badge = badgeFor(item);
               const badgeLabel = badge
                 ? item.key === 'refunds'
                   ? t('modules.manualRefundsBadge', { count: badge.count })
-                  : `${t('modules.m4Badge', { count: badge.count })}${badge.overdue ? ` · ${t('modules.m4BadgeOverdue')}` : ''}`
+                  : item.key === 'spendAlerts'
+                    ? t('modules.spendAlertsBadge', { count: badge.count })
+                    : `${t('modules.m4Badge', { count: badge.count })}${badge.overdue ? ` · ${t('modules.m4BadgeOverdue')}` : ''}`
                 : null;
               return (
                 <li key={item.href}>

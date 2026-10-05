@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { useTranslations } from 'next-intl';
 import { getTranslations } from 'next-intl/server';
 import { ShieldCheck, BadgeCheck } from 'lucide-react';
 import { Banner } from '@/components/ui/Banner';
+import { fetchSupportContactForServer } from './support-contact-server';
 
 export async function generateMetadata({
   params,
@@ -19,8 +19,10 @@ export async function generateMetadata({
   };
 }
 
-export default function TermsPage() {
-  const t = useTranslations('legal');
+export default async function TermsPage({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: 'legal' });
+  const contact = await fetchSupportContactForServer();
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8">
@@ -45,16 +47,16 @@ export default function TermsPage() {
       <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-5">
         <h2 className="flex items-center gap-2 text-h3 font-semibold">
           <ShieldCheck size={20} className="shrink-0 text-info" aria-hidden />
-          {t('disputeTitle')}
+          {t('deliveryIssueTitle')}
         </h2>
-        <p className="text-sm text-text/90">{t('disputeBody')}</p>
-        <p className="text-sm text-text/90">{t('disputeWindowNote')}</p>
-        <p className="text-sm font-medium text-text">{t('disputeOutcome')}</p>
+        {/* HECHOS 2026-10-05: sin plazo escrito y sin mencionar el contracargo del banco. */}
+        <p className="text-sm text-text/90">{t('deliveryIssueBody', { contact })}</p>
+        <p className="text-sm font-medium text-text">{t('deliveryIssueOutcome')}</p>
       </section>
 
       <section className="flex flex-col gap-2">
         <h2 className="text-h3 font-semibold">{t('questionsTitle')}</h2>
-        <p className="text-sm text-muted">{t('questionsBody')}</p>
+        <p className="text-sm text-muted">{t('questionsBody', { contact })}</p>
       </section>
     </div>
   );

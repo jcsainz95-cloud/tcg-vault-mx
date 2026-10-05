@@ -24,6 +24,8 @@ import { Link } from '@/i18n/navigation';
 import { useRole } from '@/lib/role';
 import type { AdminShipmentDTO, ShipmentStatus, WithdrawalLineOriginRefundedDetails } from '@/types/contract';
 import { LABEL, TAG } from './prep-shared';
+import { LabelAlertBlock } from './LabelActions';
+import { SkydropxLabelBlock } from './SkydropxLabelBlock';
 
 /**
  * Campo string del `addressSnapshot` (contrato §M4 v1.67.1). Vacío/ausente ⇒ `undefined`.
@@ -64,7 +66,16 @@ const MANUAL_TRANSITIONS: Partial<Record<ShipmentStatus, ShipmentStatus[]>> = {
  * §M4-SHIP.9/.10): quién es quién (número de pedido y COMPRADOR), búsqueda `?q=`, guía, enviado/entregado
  * con confirmación y el «Cancelar» que solo existe en `solicitado`.
  */
-export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminShipmentDTO) => void }) {
+export function ShipmentsQueue({
+  onCaptureGuide,
+  initialFolio = null,
+  initialAlert = false,
+}: {
+  onCaptureGuide: (s: AdminShipmentDTO) => void;
+  initialFolio?: string | null;
+  /** §43.22.4 (FS-65/66): `?alert=true` — la unión de las dos alertas; se quita con su ✕, como el folio. */
+  initialAlert?: boolean;
+}) {
   const t = useTranslations('admin.m4');
   const ts = useTranslations('shipments');
   const tStatus = useTranslations('status.shipment');
@@ -84,9 +95,19 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
   const tooLong = search.trim().length > 200;
   const q = tooLong ? '' : debounced.trim();
 
+  // 🔒 S-GAS-2: `?folio=` (enlace de un aviso de retiro) filtra por igualdad exacta; se quita con su ✕.
+  const [folioFilter, setFolioFilter] = useState<string | null>(initialFolio);
+  // v1.80.12.16 (§43.22.4): el filtro de alertas. ⛔ La lista no recuenta ni muestra «N de M»: la cifra es la del tablero.
+  const [alertFilter, setAlertFilter] = useState<boolean>(initialAlert);
   const shipments = useQuery({
-    queryKey: ['admin-shipments', statusFilter, q],
-    queryFn: () => getAdminShipments({ status: statusFilter || undefined, q: q || undefined }),
+    queryKey: ['admin-shipments', statusFilter, q, folioFilter ?? '', alertFilter],
+    queryFn: () =>
+      getAdminShipments({
+        status: statusFilter || undefined,
+        q: q || undefined,
+        folio: folioFilter ?? undefined,
+        alert: alertFilter || undefined,
+      }),
   });
 
   // --- Cambio de estado manual (contrato §M4 · PATCH /admin/shipments/:id/status) ---
@@ -168,6 +189,22 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
           />
         </div>
       </div>
+      {folioFilter && (
+        <p className="flex items-center gap-1 text-sm text-text" data-testid="shipments-folio-filter">
+          {t('folioFilter', { folio: folioFilter })}
+          <Button size="sm" variant="ghost" aria-label={t('folioFilterRemove', { folio: folioFilter })} onClick={() => setFolioFilter(null)}>
+            ✕
+          </Button>
+        </p>
+      )}
+      {alertFilter && (
+        <p className="flex items-center gap-1 text-sm text-text" data-testid="shipments-alert-filter">
+          {t('alertFilter')}
+          <Button size="sm" variant="ghost" aria-label={t('alertFilterRemove')} onClick={() => setAlertFilter(false)}>
+            ✕
+          </Button>
+        </p>
+      )}
       {statusChanged && (
         <Banner variant="success" role="status">
           {t('statusActions.changed', { id: statusChanged })}
@@ -191,7 +228,10 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
                       ) : isWithdrawal ? (
                         <span className="font-serif text-lg text-text">{t('withdrawal')}</span>
                       ) : null}
-                      <span className="tabular text-sm font-medium text-muted">{s.id}</span>
+                      {/* 🔒 §43.19.7: «Envío ENV-000045» en el hueco del uuid; sin folio (servidor anterior) ⇒ lo de hoy. */}
+                      <span className="tabular text-sm font-medium text-muted" data-testid={`shipment-ref-${s.id}`}>
+                        {s.folio ? `${t('prep.shipmentRef')} ${s.folio}` : s.id}
+                      </span>
                       <StatusBadge domain="shipment" value={s.status} />
                       {s.items && <span className="text-xs text-muted">{t('itemCount', { count: s.items.length })}</span>}
                     </div>
@@ -204,7 +244,8 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
                     {(s.missingCount ?? 0) > 0 && <p className={cn(TAG, 'text-accent')}>{t('missingCount', { count: s.missingCount! })}</p>}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {s.status !== 'cancelado' && s.status !== 'entregado' && s.status !== 'solicitado' && (
+                    {/* §43.8b (FS-6): con guía Skydropx NO hay «Capturar guía» (el servidor la rechazaría, criterio 247). */}
+                    {s.status !== 'cancelado' && s.status !== 'entregado' && s.status !== 'solicitado' && s.labelSource !== 'skydropx' && (
                       <Button size="sm" variant="secondary" onClick={() => onCaptureGuide(s)}>
                         {t('tracking.capture')}
                       </Button>
@@ -278,7 +319,27 @@ export function ShipmentsQueue({ onCaptureGuide }: { onCaptureGuide: (s: AdminSh
                     )}
                   </p>
                 </div>
-                {(s.carrier || s.trackingNumber) && (
+                {s.labelSource === 'skydropx' && s.label && <SkydropxLabelBlock shipment={s} />}
+                {/* §43.8c (FS-21): las cuatro alertas de guía, donde lleguen; «Liberar» ⇔ `canRelease`. */}
+                {s.labelAlert && (
+                  <LabelAlertBlock
+                    shipmentId={s.id}
+                    alert={s.labelAlert}
+                    trackingNumber={s.label?.trackingNumber ?? s.trackingNumber ?? null}
+                    labelPending={s.labelPending ?? null}
+                    recipient={
+                      s.addressSnapshot
+                        ? {
+                            recipientName: s.addressSnapshot.recipientName ?? null,
+                            line1: s.addressSnapshot.line1 ?? null,
+                            neighborhood: s.addressSnapshot.neighborhood ?? null,
+                            postalCode: s.addressSnapshot.postalCode ?? null,
+                          }
+                        : null
+                    }
+                  />
+                )}
+                {s.labelSource !== 'skydropx' && (s.carrier || s.trackingNumber) && (
                   <p className="text-sm text-muted">
                     <span className="font-medium text-text">{ts('carrier')}:</span> {s.carrier ?? DASH}
                     {' · '}

@@ -1,4 +1,10 @@
 import type { GuestAddressInput } from '@/types/contract';
+import type { NeighborhoodMode } from '@/hooks/useNeighborhoodMode';
+import { isMxPhone, isPostalCode, LINE2_MAX, normalizeMxPhone, REFERENCES_MAX } from '@/lib/address-rules';
+
+// N-3: `normalizeMxPhone` vive desde v1.81 en `lib/address-rules` (la libreta la usa también); se
+// re-exporta para no mover a quien ya la importaba de aquí.
+export { normalizeMxPhone };
 
 /**
  * Validación LOCAL del checkout de invitado (DESIGN_SYSTEM §15.3, criterios 47 y 48b).
@@ -48,14 +54,18 @@ export type GuestField =
   | 'email'
   | 'recipientName'
   | 'line1'
+  | 'line2'
+  | 'postalCode'
+  | 'neighborhood'
   | 'city'
   | 'state'
-  | 'postalCode'
   | 'phone'
+  | 'references'
   | 'terms'
   | 'emailConfirmed';
 
-export type GuestErrorCode = 'required' | 'invalid' | 'unconfirmed';
+/** `typeRequired`: la colonia vacía en modo a mano (§43.18m.7: «Escribe el nombre de tu colonia.»). */
+export type GuestErrorCode = 'required' | 'typeRequired' | 'invalid' | 'unconfirmed' | 'tooLong';
 
 export type GuestErrors = Partial<Record<GuestField, GuestErrorCode>>;
 
@@ -78,27 +88,19 @@ export const EMPTY_GUEST_ADDRESS: GuestAddressInput = {
   // fuera de MX la rechaza el backend con 422 ADDRESS_NOT_MX (criterio 31/48b).
   country: 'MX',
   phone: '',
+  references: '',
 };
-
-/**
- * N-3: normaliza un teléfono MX a sus 10 dígitos nacionales. Acepta lo que la gente
- * teclea de verdad — `55 4017 0606`, `(55) 4017-0606`, `+52 55 4017 0606`,
- * `+521 55...` — quitando separadores y la lada de país 52/521. Antes solo pasaba si
- * quedaban EXACTAMENTE 10 dígitos, así que `+525540170606` (12) reventaba en silencio.
- */
-export function normalizeMxPhone(raw: string): string {
-  let d = raw.replace(/\D/g, '');
-  if (d.length === 12 && d.startsWith('52')) d = d.slice(2); // +52 55...
-  else if (d.length === 13 && d.startsWith('521')) d = d.slice(3); // +521 55... (móvil legacy)
-  return d;
-}
 
 /**
  * Valida el formulario completo. `postalCode` = ^\d{5}$ y `phone` = 10 dígitos MX,
  * exactamente como el `GuestAddressInput` del contrato §4-G.1 (que exige además
  * `recipientName`, porque un invitado no tiene `User.name`).
+ *
+ * v1.80.12.5 (§M4-SHIP.19.25, §43.18m.7): la colonia es OBLIGATORIA como texto — de la lista o escrita a
+ * mano; el texto del error depende del modo (`geoMode`). En «todo a mano» (CP fuera del catálogo, catálogo
+ * vacío o consulta fallida) municipio y estado son campos y también se exigen. `references` ≤ 70.
  */
-export function validateGuestForm(state: GuestFormState): GuestErrors {
+export function validateGuestForm(state: GuestFormState, geoMode: NeighborhoodMode = 'list'): GuestErrors {
   const errors: GuestErrors = {};
   const email = state.email.trim();
   if (!email) errors.email = 'required';
@@ -108,10 +110,18 @@ export function validateGuestForm(state: GuestFormState): GuestErrors {
   const a = state.address;
   if (!a.recipientName.trim()) errors.recipientName = 'required';
   if (!a.line1.trim()) errors.line1 = 'required';
-  if (!a.city.trim()) errors.city = 'required';
-  if (!a.state.trim()) errors.state = 'required';
-  if (!/^\d{5}$/.test(a.postalCode.trim())) errors.postalCode = 'invalid';
-  if (!/^\d{10}$/.test(normalizeMxPhone(a.phone))) errors.phone = 'invalid';
+  if ((a.line2 ?? '').trim().length > LINE2_MAX) errors.line2 = 'tooLong';
+  if (!isPostalCode(a.postalCode)) errors.postalCode = 'invalid';
+  else {
+    const manual = geoMode === 'manualNeighborhood' || geoMode === 'manualAll';
+    if (!(a.neighborhood ?? '').trim()) errors.neighborhood = manual ? 'typeRequired' : 'required';
+    if (geoMode === 'manualAll') {
+      if (!(a.city ?? '').trim()) errors.city = 'required';
+      if (!(a.state ?? '').trim()) errors.state = 'required';
+    }
+  }
+  if (!isMxPhone(a.phone)) errors.phone = 'invalid';
+  if ((a.references ?? '').trim().length > REFERENCES_MAX) errors.references = 'tooLong';
 
   if (!state.acceptedTerms) errors.terms = 'required';
   return errors;
@@ -124,11 +134,12 @@ export function toAddressPayload(address: GuestAddressInput): GuestAddressInput 
     recipientName: address.recipientName.trim(),
     line1: address.line1.trim(),
     line2: address.line2?.trim() || undefined,
-    neighborhood: address.neighborhood?.trim() || undefined,
+    neighborhood: address.neighborhood.trim(),
     city: address.city.trim(),
     state: address.state.trim(),
     postalCode: address.postalCode.trim(),
     phone: normalizeMxPhone(address.phone),
+    references: address.references?.trim() || undefined,
     country: 'MX',
   };
 }

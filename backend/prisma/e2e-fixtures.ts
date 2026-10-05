@@ -108,6 +108,25 @@ export const E2E_PICKUP_ADDRESS = {
 } as const;
 
 /**
+ * ⭐ v1.81 (M-64 = `M-SDX-C`, API_CONTRACT §M4-SHIP.19.5) — **el catálogo de CP del arnés.**
+ *
+ * En producción la tabla `PostalCode` la llena devops desde SEPOMEX (`scripts/geo/import-sepomex.ts`); la migración
+ * la deja VACÍA, y vacía ⇒ toda dirección nueva es `422 POSTAL_CODE_UNKNOWN`. El arnés siembra solo los CP que sus
+ * pruebas usan (backend y Playwright: 44100 en `guest-checkout`/`checkout-retry`, 06600 en `buylist`), con la forma
+ * de SEPOMEX (colonia, municipio/alcaldía, estado). ⛔ Son datos de PRUEBA escritos a mano, no una copia de SEPOMEX:
+ * nada de producción debe leerlos como fuente.
+ */
+export const E2E_POSTAL_CODES: readonly { postalCode: string; neighborhood: string; municipality: string; state: string }[] = [
+  { postalCode: '01000', neighborhood: 'San Ángel', municipality: 'Álvaro Obregón', state: 'Ciudad de México' },
+  { postalCode: '01000', neighborhood: 'Centro', municipality: 'Álvaro Obregón', state: 'Ciudad de México' },
+  { postalCode: '06600', neighborhood: 'Juárez', municipality: 'Cuauhtémoc', state: 'Ciudad de México' },
+  { postalCode: '06600', neighborhood: 'Roma Norte', municipality: 'Cuauhtémoc', state: 'Ciudad de México' },
+  { postalCode: '14210', neighborhood: 'Jardines de la Montaña', municipality: 'Tlalpan', state: 'Ciudad de México' },
+  { postalCode: '44100', neighborhood: 'Guadalajara Centro', municipality: 'Guadalajara', state: 'Jalisco' },
+  { postalCode: '64000', neighborhood: 'Monterrey Centro', municipality: 'Monterrey', state: 'Nuevo León' },
+];
+
+/**
  * ⚠️ v1.67 (`M-52`) — **QUIEN RECIBE en la dirección por defecto de los DOS customers.**
  *
  * **Por qué existe y no es una constante más:** `M-52` añadió `Address.recipientName` y la puerta

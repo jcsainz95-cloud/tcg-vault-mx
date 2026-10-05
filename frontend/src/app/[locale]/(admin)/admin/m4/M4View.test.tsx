@@ -49,10 +49,10 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
     const ownSpy = vi.spyOn(api, 'getShipments');
     renderWithProviders(<M4View initialTab="envios" />, 'es');
 
-    // Los tres envíos de clientes del fixture admin (shp-7002 sale también en picking → findAll).
-    expect(await screen.findByText('shp-7001')).toBeInTheDocument();
-    expect(screen.getAllByText('shp-7002').length).toBeGreaterThan(0);
-    expect(screen.getByText('shp-7003')).toBeInTheDocument();
+    // Los tres envíos de clientes del fixture admin. v4.20 (§43.19.7): la fila dice «Envío ENV-…», no el uuid ⇒ por testid.
+    expect(await screen.findByTestId('shipment-row-shp-7001')).toBeInTheDocument();
+    expect(screen.getByTestId('shipment-row-shp-7002')).toBeInTheDocument();
+    expect(screen.getByTestId('shipment-row-shp-7003')).toBeInTheDocument();
     expect(spy).toHaveBeenCalled();
     // La vista admin NO consume los envíos del propio admin.
     expect(ownSpy).not.toHaveBeenCalled();
@@ -61,13 +61,13 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
   it('filtra por estado re-consultando con ?status=', async () => {
     const spy = vi.spyOn(api, 'getAdminShipments');
     renderWithProviders(<M4View initialTab="envios" />, 'es');
-    await screen.findByText('shp-7001');
+    await screen.findByTestId('shipment-row-shp-7001');
 
     fireEvent.change(screen.getByLabelText('Filtrar por estado'), { target: { value: 'picking' } });
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ status: 'picking' }));
-    expect((await screen.findAllByText('shp-7002')).length).toBeGreaterThan(0);
-    await waitFor(() => expect(screen.queryByText('shp-7001')).not.toBeInTheDocument());
+    expect(await screen.findByTestId('shipment-row-shp-7002')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('shipment-row-shp-7001')).not.toBeInTheDocument());
   });
 
   it('monta «Pedidos por preparar» (GET /admin/shipments/picking-list) y ya NO la lista plana de piezas', async () => {
@@ -93,22 +93,26 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
       items: [],
     });
     renderWithProviders(<M4View initialTab="envios" />, 'es');
-    await screen.findAllByText('shp-7002');
+    await screen.findByTestId('shipment-row-shp-7002');
 
     // shp-7002 (picking) admite captura de guía (el 409 «sin preparar» lo decide el servidor, §37.6).
     const row = screen.getByTestId('shipment-row-shp-7002');
     fireEvent.click(within(row).getByRole('button', { name: 'Capturar guía' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Captura de guía' });
-    fireEvent.change(within(dialog).getByLabelText('Paquetería'), { target: { value: 'DHL' } });
+    // §43.1: la ventana lee el envío al abrir (GET /admin/shipments/:id) y, con Skydropx apagado (seed),
+    // pinta el formulario de hoy cuando la lectura vuelve — de ahí el `findBy`.
+    fireEvent.change(await within(dialog).findByLabelText('Paquetería'), { target: { value: 'DHL' } });
     fireEvent.change(within(dialog).getByLabelText('Número de guía'), { target: { value: 'MX123' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar guía' }));
 
     await waitFor(() =>
       expect(trackSpy).toHaveBeenCalledWith('shp-7002', { carrier: 'DHL', trackingNumber: 'MX123' }),
     );
-    // v1.80 (§37.16 `guide.saved`): confirma con el ref (retiro ⇒ id) y dice que sale de la lista.
-    expect(await screen.findByText('Guía guardada para shp-7002. Sale de la lista.')).toBeInTheDocument();
+    // v1.80 (§37.16 `guide.saved`): confirma con el ref y dice que sale de la lista. v4.20 (§43.19.7): un retiro se
+    // nombra por su folio (`ENV-…`), ⛔ ya no por el uuid.
+    expect(await screen.findByText(/^Guía guardada para ENV-\d{6}\. Sale de la lista\.$/)).toBeInTheDocument();
+    expect(screen.queryByText('Guía guardada para shp-7002. Sale de la lista.')).not.toBeInTheDocument();
   });
 });
 
@@ -118,7 +122,7 @@ describe('M4View · cambio de estado manual (F4)', () => {
       .spyOn(api, 'updateAdminShipmentStatus')
       .mockResolvedValue({ id: 'shp-7001', status: 'entregado' });
     renderWithProviders(<M4View initialTab="envios" />, 'es');
-    await screen.findByText('shp-7001');
+    await screen.findByTestId('shipment-row-shp-7001');
 
     fireEvent.click(screen.getByRole('button', { name: 'Marcar entregado' }));
     // v1.80 (§37.6, S9) + hueco 15 (arreglos-operador): entregado es irreversible desde esta pantalla ⇒
@@ -135,7 +139,7 @@ describe('M4View · cambio de estado manual (F4)', () => {
       .spyOn(api, 'updateAdminShipmentStatus')
       .mockResolvedValue({ id: 'shp-7003', status: 'cancelado' });
     renderWithProviders(<M4View initialTab="envios" />, 'es');
-    await screen.findByText('shp-7003');
+    await screen.findByTestId('shipment-row-shp-7003');
 
     // v1.80 (§37.6): «Cancelar» SOLO en `solicitado` (shp-7003); un envío pagado no se cancela a mano.
     const cancelButtons = screen.getAllByRole('button', { name: 'Cancelar' });

@@ -34,6 +34,7 @@ const ROWS = [
     postalCode: '06700',
     country: 'MX',
     phone: '5555555555',
+    references: 'Portón verde',
     isDefault: true,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-02T00:00:00Z'),
@@ -51,6 +52,7 @@ const ROWS = [
     postalCode: '01000',
     country: 'MX',
     phone: '5544443333',
+    references: null,
     isDefault: false,
     createdAt: new Date('2025-12-01T00:00:00Z'),
     updatedAt: new Date('2025-12-01T00:00:00Z'),
@@ -109,6 +111,9 @@ describe('AddressDTO — paridad users ↔ admin (una sola proyección, v1.67.1)
     }
     expect(expected[0].recipientName).toBe('Mamá de Ana');
     expect(expected[1].recipientName).toBeNull();
+    // ⭐ v1.81 (M-64): `references` viaja y `complete` se DERIVA (colonia + CP 5 + tel 10).
+    expect(expected[0]).toMatchObject({ references: 'Portón verde', complete: true });
+    expect(expected[1]).toMatchObject({ references: null, complete: false });
   });
 
   it('GET /users/me/addresses emite toAddressDTO(row) tal cual', async () => {

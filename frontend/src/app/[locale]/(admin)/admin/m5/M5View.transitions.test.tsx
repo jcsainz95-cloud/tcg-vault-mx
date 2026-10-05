@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M5View, M5_STATUS_TAB } from './M5View';
 import es from '../../../../../../messages/es.json';
@@ -86,15 +86,49 @@ describe('M5View · §M5-S candado S-3: matriz de render por estado (11 × {rece
     else expect(verify).toBeNull();
   });
 
-  it('en_transito: «Marcar recibida» dispara POST /receive y confirma', async () => {
+  // BRJ-UI-3 = FE-BRJ-3 (DESIGN_SYSTEM §60.5 a · contrato v1.82 §PNL.4). Canario: no encadenar `verify`.
+  it('BRJ-UI-3 · en_transito: UN clic llama `receive` y luego `verify`; aviso de página con «Ir a «Verificando»»', async () => {
     vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({ data: [rowIn('en_transito')], page: 1, pageSize: 25, total: 1 });
-    const spy = vi.spyOn(api, 'receiveBuylistRequest').mockResolvedValue(rowIn('recibida'));
+    const order: string[] = [];
+    const receive = vi.spyOn(api, 'receiveBuylistRequest').mockImplementation(async () => {
+      order.push('receive');
+      return rowIn('recibida');
+    });
+    const verify = vi.spyOn(api, 'verifyBuylistRequest').mockImplementation(async () => {
+      order.push('verify');
+      return rowIn('verificacion');
+    });
     renderWithProviders(<M5View />, 'es');
     await openTabFor('en_transito');
 
     fireEvent.click(screen.getByRole('button', { name: RECEIVE_LABEL }));
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-en_transito'));
-    expect(await screen.findByText(es.admin.m5.feedback.received)).toBeInTheDocument();
+    await waitFor(() => expect(verify).toHaveBeenCalledWith('sr-en_transito'));
+    expect(receive).toHaveBeenCalledWith('sr-en_transito');
+    expect(order).toEqual(['receive', 'verify']);
+    const notice = await screen.findByTestId('m5-page-notice');
+    expect(notice).toHaveTextContent('Solicitud sr-en_transito recibida y en revisión.');
+    expect(within(notice).getByRole('button', { name: 'Ir a «Verificando»' })).toBeInTheDocument();
+  });
+
+  it('BRJ-UI-3 · `verify` falla tras un `receive` bueno ⇒ la fila en `recibida` con «Iniciar verificación» y el aviso', async () => {
+    const list = vi
+      .spyOn(api, 'getAdminBuylist')
+      .mockResolvedValue({ data: [rowIn('en_transito')], page: 1, pageSize: 25, total: 1 });
+    vi.spyOn(api, 'receiveBuylistRequest').mockImplementation(async () => {
+      list.mockResolvedValue({ data: [{ ...rowIn('recibida'), id: 'sr-en_transito' }], page: 1, pageSize: 25, total: 1 });
+      return rowIn('recibida');
+    });
+    vi.spyOn(api, 'verifyBuylistRequest').mockRejectedValue(new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }));
+    renderWithProviders(<M5View />, 'es');
+    await openTabFor('en_transito');
+
+    fireEvent.click(screen.getByRole('button', { name: RECEIVE_LABEL }));
+    fireEvent.click(await screen.findByRole('tab', { name: new RegExp(`^${TAB_LABELS.verificando}`) }));
+    expect(await screen.findByRole('button', { name: VERIFY_LABEL })).toBeInTheDocument();
+    expect(
+      screen.getByText('La marcamos como recibida, pero no se pudo abrir la revisión. Pulsa «Iniciar verificación».'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('m5-page-notice')).not.toBeInTheDocument();
   });
 });
 
@@ -121,7 +155,8 @@ describe('M5View · §M5-S: 409 INVALID_TRANSITION dice DESDE QUÉ ESTADO se per
     const msg = await screen.findByText(/solo aplica cuando está en/);
     expect(msg.textContent).toContain('En verificación');
     expect(msg.textContent).toContain('En tránsito');
-    expect(msg.textContent).toContain('«Marcar recibida»');
+    // F-34 (§60.15): el verbo nombra el botón por su nombre de hoy.
+    expect(msg.textContent).toContain('«Recibida: empezar revisión»');
     // Ni el enum crudo ni el inglés del servidor.
     expect(msg.textContent).not.toMatch(/verificacion|en_transito|not allowed/);
     expect(screen.queryByText('Hubo un conflicto con el estado actual.')).toBeNull();
@@ -173,7 +208,7 @@ describe('M5View · §M5-S: 409 INVALID_TRANSITION dice DESDE QUÉ ESTADO se per
     renderWithProviders(<M5View />, 'en');
     fireEvent.click(await screen.findByRole('tab', { name: /^With the seller|^Con el vendedor/ }));
     await screen.findByText('sr-en_transito');
-    fireEvent.click(screen.getByRole('button', { name: /Mark received/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Received: start review/ }));
 
     const msg = await screen.findByText(/only applies when it is in/);
     expect(msg.textContent).toContain('In transit');
