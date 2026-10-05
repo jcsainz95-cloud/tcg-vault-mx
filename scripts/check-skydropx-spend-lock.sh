@@ -35,6 +35,18 @@
 #   (F) La sonda D0 (`scripts/skydropx/prod-probe.ts`) existe con su prueba, un
 #       workflow corre la prueba (`run-prod-probe.sh test`) y NINGUNO la ejecuta
 #       contra la red (`run-prod-probe.sh run`).
+#   (G) La llave DEL DOBLE (`SHIPPING_FAKE_PURCHASE`, §M4-SHIP.19.31.5/.11, v1.80.12.12;
+#       el contrato lo llama «candado (E)» — aquí la letra E ya era el catálogo):
+#       solo existe junto a `SHIPPING_PROVIDER_ADAPTER=fake`. En cada compose, el
+#       MISMO servicio que la pone con valor fija el adaptador `fake` literal (un
+#       `${…:-}` vacío es el único pass-through admitido); en cada fichero de
+#       infraestructura (scripts/, security/, ficheros sueltos de la raíz) que la
+#       pone, el adaptador está fijado a `fake` y a nada más; `.github/` no la nombra
+#       (0 apariciones); `.env.example` la trae UNA vez y VACÍA. Y en positivo: la
+#       pila E2E (staging compose + arnés nativo) la gira con `true` literal, para
+#       que la compra se pruebe de punta a punta. Fuera de alcance: `backend/` y
+#       `frontend/` (PS-166 (b) pone la llave con `skydropx` A PROPÓSITO, para
+#       probar que el backend no arranca; ese censo es de backend).
 #
 # Uso:  scripts/check-skydropx-spend-lock.sh [--root <árbol>]
 # Canario: scripts/check-skydropx-spend-lock-canary.sh. DEVOPS_NOTES §78.
@@ -173,6 +185,127 @@ if [ -d .github ]; then
   else
     mal "Un workflow ejecuta la sonda: el CI no habla con Skydropx."
     while IFS= read -r l; do [ -n "$l" ] && nota "$l"; done <<< "$F_RUN"
+  fi
+fi
+
+# --- (G) la llave del doble -------------------------------------------------------
+printf '\n\033[1m(G) La llave del doble (SHIPPING_FAKE_PURCHASE) solo vive junto a SHIPPING_PROVIDER_ADAPTER=fake\033[0m\n'
+FK='SHIPPING_FAKE_''PURCHASE'
+AD='SHIPPING_PROVIDER_ADAPTER'
+# (G.1) .github/: ninguna aparición, ni comentada (los workflows levantan la pila por
+# sus ficheros; una env propia en un workflow es una segunda fuente que nadie vigila).
+if [ -d .github ]; then
+  G_GH="$(grep -rn "$FK" .github 2>/dev/null || true)"
+  if [ -z "$G_GH" ]; then
+    ok "Ningún fichero de .github/ nombra ${FK}."
+  else
+    mal "Un workflow nombra ${FK} (§19.31.5 (4): nunca como env propia de un workflow):"
+    while IFS= read -r l; do [ -n "$l" ] && nota "$l"; done <<< "$G_GH"
+  fi
+fi
+# (G.2) compose: por SERVICIO. Si un servicio pone la llave con un valor (literal, o
+# `${…}` con respaldo no vacío), ese mismo servicio fija `ADAPTER: fake` literal.
+# Respaldo vacío `${FK:-}` admitido: lo que pase el host lo filtra el arranque del
+# backend (no arranca con otro adaptador).
+G_CMP_ALL=""
+for f in "${COMPOSES[@]}"; do
+  G_CMP="$(awk -v fk="$FK" -v ad="$AD" -v f="$f" '
+    function cierra() {
+      if (svc != "" && pone != "" && !fake) print f ": servicio «" svc "» pone " fk " (" pone ") sin " ad ": fake literal" (otro != "" ? " — tiene «" otro "»" : "")
+      pone=""; fake=0; otro=""
+    }
+    /^[^[:space:]#]/ { cierra(); svc=""; ensvc=($0 ~ /^services:[[:space:]]*$/); next }
+    ensvc && /^  [A-Za-z0-9_.-]+:[[:space:]]*$/ { cierra(); svc=$1; sub(/:$/,"",svc); next }
+    /^[[:space:]]*#/ { next }
+    svc != "" {
+      linea=$0; sub(/[[:space:]]+#.*$/,"",linea)
+      if (index(linea, fk)) {
+        v=linea; sub(/^[[:space:]]*-?[[:space:]]*/,"",v)
+        if (v ~ "^" fk "[[:space:]]*[:=]") {
+          sub("^" fk "[[:space:]]*[:=][[:space:]]*","",v)
+          if (v != "" && v != "${" fk ":-}" && v != "\"${" fk ":-}\"" && v != "\"\"" && v != "'\'''\''") pone=(pone=="" ? NR ": " v : pone)
+        } else if (linea !~ /^[[:space:]]*-?[[:space:]]*[A-Za-z0-9_]+[[:space:]]*:[[:space:]]*\$\{[A-Za-z0-9_]+:-\}[[:space:]]*$/) {
+          pone=(pone=="" ? NR ": " linea : pone)
+        }
+      }
+      if (index(linea, ad)) {
+        v=linea; sub(/^[[:space:]]*-?[[:space:]]*/,"",v)
+        if (v ~ "^" ad "[[:space:]]*[:=]") {
+          sub("^" ad "[[:space:]]*[:=][[:space:]]*","",v)
+          if (v ~ /^["'\'']?fake["'\'']?[[:space:]]*$/) fake=1; else otro=v
+        }
+      }
+    }
+    END { cierra() }' "$f")"
+  [ -n "$G_CMP" ] && G_CMP_ALL+="$G_CMP"$'\n'
+done
+if [ -z "$G_CMP_ALL" ]; then
+  ok "Ningún compose (${#COMPOSES[@]}) pone ${FK} en un servicio sin ${AD}: fake literal."
+else
+  mal "Un compose pone la llave del doble en un servicio que no fija el doble:"
+  while IFS= read -r l; do [ -n "$l" ] && nota "$l"; done <<< "$G_CMP_ALL"
+  nota "Con \`skydropx\` el backend no arrancaría; con \`\${…}\` el host decide el adaptador. La llave va con \`fake\` literal."
+fi
+# (G.3) el resto de la infraestructura: scripts/, security/ y los ficheros sueltos de
+# la raíz (Dockerfile*, railway.json, vercel.json…). Si un fichero pone la llave, fija
+# el adaptador a `fake` (`export AD=fake` / `AD=fake` / `AD: fake`) y a nada más.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ "$(git rev-parse --show-toplevel)" = "$ROOT_DIR" ]; then
+  mapfile -t G_FILES < <(git ls-files --cached --others --exclude-standard -- scripts security ':(glob)*' 2>/dev/null)
+else
+  mapfile -t G_FILES < <( { find scripts security -path '*/node_modules' -prune -o -type f -print 2>/dev/null; find . -maxdepth 1 -type f -printf '%P\n'; } )
+fi
+G_INF=""
+for f in "${G_FILES[@]}"; do
+  case "$f" in
+    scripts/check-skydropx-spend-lock.sh|scripts/check-skydropx-spend-lock-canary.sh) continue ;;
+    .env.example|docker-compose*.yml|*.md) continue ;;
+  esac
+  [ -f "$f" ] || continue
+  # Menciones que PONEN la llave: ni comentario ni `unset`.
+  PONE="$(grep -nI "$FK" "$f" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vE "^[0-9]+:[[:space:]]*unset[[:space:]]" || true)"
+  [ -n "$PONE" ] || continue
+  ADV="$(grep -nIE "(^|[^A-Za-z0-9_])${AD}[[:space:]]*[:=]" "$f" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+  FAKE_OK="$(grep -E ":[[:space:]]*(export[[:space:]]+)?${AD}[[:space:]]*[:=][[:space:]]*[\"']?fake[\"']?[[:space:]]*(#.*)?$" <<< "$ADV" || true)"
+  OTRO="$(grep -vE ":[[:space:]]*(export[[:space:]]+)?${AD}[[:space:]]*[:=][[:space:]]*[\"']?fake[\"']?[[:space:]]*(#.*)?$" <<< "$ADV" | grep . || true)"
+  if [ -z "$FAKE_OK" ] || [ -n "$OTRO" ]; then
+    G_INF+="$f: pone ${FK} ($(head -1 <<< "$PONE"))"$'\n'
+    [ -z "$FAKE_OK" ] && G_INF+="    sin fijar ${AD}=fake"$'\n'
+    [ -n "$OTRO" ] && G_INF+="    y fija el adaptador a otra cosa: $(head -1 <<< "$OTRO")"$'\n'
+  fi
+done
+if [ -z "$G_INF" ]; then
+  ok "Ningún fichero de infraestructura (${#G_FILES[@]} mirados) pone ${FK} sin fijar el adaptador a fake."
+else
+  mal "Un fichero de infraestructura pone la llave del doble sin fijar el doble:"
+  while IFS= read -r l; do [ -n "$l" ] && nota "$l"; done <<< "$G_INF"
+fi
+# (G.4) .env.example: una vez y vacía.
+if [ -f .env.example ]; then
+  mapfile -t GV < <(valor_de "$FK")
+  if [ "${#GV[@]}" -eq 0 ]; then
+    mal ".env.example no trae \`${FK}=\`: la plantilla tiene que decir que existe y que va vacía."
+  elif [ "${#GV[@]}" -gt 1 ]; then
+    mal ".env.example trae \`${FK}=\` ${#GV[@]} veces: la última gana al copiarla."
+  elif [ -n "${GV[0]}" ]; then
+    mal ".env.example trae \`${FK}\` CON VALOR. Va vacía: solo la pila E2E la gira, en su propio fichero."
+  else
+    ok "\`${FK}=\` presente una vez y vacía en .env.example."
+  fi
+fi
+# (G.5) en positivo: la pila E2E la gira (si no, la compra no se prueba y los flujos F
+# de Playwright se quedan en el botón, §19.31.5 (4)).
+if [ -f "$STG" ]; then
+  if awk -v fk="$FK" '/^  backend:[[:space:]]*$/{b=1;next} /^  [A-Za-z0-9_.-]+:[[:space:]]*$/{b=0} /^[^[:space:]#]/{b=0} b && $0 ~ "^[[:space:]]+" fk ":[[:space:]]*[\"'\'']true[\"'\''][[:space:]]*(#.*)?$" {e=1} END{exit !e}' "$STG"; then
+    ok "$STG gira ${FK}: \"true\" (literal) en el servicio backend."
+  else
+    mal "$STG no gira ${FK}: \"true\" literal en el servicio backend: la E2E no puede comprar con el doble."
+  fi
+fi
+if [ -f "$NAT" ]; then
+  if grep -qE "^[[:space:]]*export[[:space:]]+${FK}=true[[:space:]]*(#.*)?$" "$NAT"; then
+    ok "$NAT exporta ${FK}=true (fijo)."
+  else
+    mal "$NAT no exporta ${FK}=true (fijo, sin \`:-\`): la E2E nativa no puede comprar con el doble."
   fi
 fi
 

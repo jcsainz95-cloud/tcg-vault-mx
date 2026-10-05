@@ -13146,6 +13146,9 @@ El canario (`check-skydropx-spend-lock-canary.sh`) copia lo que el candado lee, 
 planta **21** fugas, cada una con **ROJO** nombrando su bloque. Determinista (sin carreras): una corrida por
 mutación. Medido 2026-10-04 en este árbol: **22/22**.
 
+> ⭐ **Actualización 2026-10-05 (§82):** el candado gana el bloque **(G)** —la llave del doble,
+> `SHIPPING_FAKE_PURCHASE`— y el canario pasa a **36/36** (prístino + 35 mutaciones).
+
 Con esto **D-SDX-3** queda cerrado del lado de devops; backend puede endurecer su aserción de
 `.env.example` de «nunca con valor» a «presente y vacía» (`backend/test/skydropx.no-real-purchase.spec.ts`).
 
@@ -13617,3 +13620,120 @@ railway run --service <servicio-de-la-API> --environment production -- \
 bloqueo** (en Railway, sin manifiesto, la imagen no arranca: §80.0). El job `boot-no-geo` se va con el revert (si se
 revierte solo el código y no el job, G-BOOT se pone rojo, que es lo correcto). Datos: ninguno; este cambio no toca
 `PostalCode` ni migraciones.
+
+---
+
+## §82 · Skydropx fase D, errata v1.80.12.12 — la compra de punta a punta en la pila E2E con el doble (`SHIPPING_FAKE_PURCHASE`), candado (G) y el dueño en la siembra (2026-10-05, rama `claude/skydropx-d`)
+
+Fuente normativa: `API_CONTRACT §M4-SHIP.19.31.5` (la llave del doble; puntos 4 y 5) y `§19.31.11` (fila devops);
+PS-166 (e). Lo de backend (`isPurchaseKeyTurned`, el arranque que se niega con la llave mal puesta, el PDF del doble)
+es de backend y no está aquí.
+
+### 82.1 Qué quedó en el entorno
+
+| Dónde | Qué | Por qué |
+|---|---|---|
+| `scripts/stack-native.sh` (bloque «Envíos») | `export SHIPPING_FAKE_PURCHASE=true` **fijo**, junto a `export SHIPPING_PROVIDER_ADAPTER=fake` | El arnés de QA tiene que poder comprar contra el doble. Fija, como el adaptador (§19.31.5 (4): ⛔ sin `${…:-}` en la pila E2E) |
+| `docker-compose.staging.yml` (servicio `backend`) | `SHIPPING_FAKE_PURCHASE: "true"` **literal**, junto a `SHIPPING_PROVIDER_ADAPTER: fake` | La pila de `e2e-real.yml` y del DAST compra con el doble |
+| `docker-compose.yml` (dev, servicio `backend`) | `SHIPPING_FAKE_PURCHASE: ${SHIPPING_FAKE_PURCHASE:-}` | Vacía salvo que el dev la exporte. Si la exporta con un adaptador que no sea `fake`, el backend **no arranca** (PS-166 (b), de backend) |
+| `.env.example` (bloque «Envíos con Skydropx») | **una** línea `SHIPPING_FAKE_PURCHASE=` vacía, con su aviso | La plantilla dice que existe y que va vacía |
+| `.github/` | **0** apariciones | Los workflows levantan la pila por esos dos ficheros; una env propia en un workflow sería una segunda fuente |
+| `SKYDROPX_ALLOW_SPEND` | Sin cambio: en ningún fichero salvo `.env.example` vacía y el `unset` del arnés | PS-98/PS-99: la llave de gasto nunca acompaña al doble |
+
+*Por qué esto no debilita PS-99:* la llave del doble solo abre la compra con `kind = 'fake'`, donde «comprar» es
+escribir filas en la base de la pila (sin red, sin dinero). Con el adaptador real la llave **impide arrancar**, y
+`evaluateMutationGate` no la lee (§19.31.5, «por qué PS-99 no se debilita»).
+
+### 82.2 Candado (G) en `check-skydropx-spend-lock.sh` (+ canario)
+
+El contrato lo llama «candado (E)»; en el fichero la letra E ya era el catálogo de secretos, así que es el bloque
+**(G)**. Comprueba:
+
+- **(G.1)** `.github/` no nombra `SHIPPING_FAKE_PURCHASE` (ni comentada).
+- **(G.2)** En cada `docker-compose*.yml`, **por servicio**: si un servicio pone la llave con valor (literal o
+  `${…}` con respaldo no vacío), **ese mismo servicio** fija `SHIPPING_PROVIDER_ADAPTER: fake` literal. El único
+  pass-through admitido es `${SHIPPING_FAKE_PURCHASE:-}` (vacío), que el arranque del backend filtra.
+- **(G.3)** El resto de la infraestructura (`scripts/`, `security/` y los ficheros sueltos de la raíz: `Dockerfile*`,
+  `railway.json`, `vercel.json`…; con git, los ficheros versionados o nuevos no ignorados): si un fichero pone la
+  llave (sin contar comentarios ni `unset`), fija el adaptador a `fake` **y a nada más** (una línea buena no tapa una
+  que lo pise después).
+- **(G.4)** `.env.example`: una vez y vacía.
+- **(G.5)** En positivo: la pila E2E **sí** la gira (`"true"` literal en el servicio `backend` del compose de
+  staging; `export …=true` en el arnés nativo). Sin esto, los flujos F de compra de Playwright vuelven a quedarse en el
+  botón y nadie lo nota.
+
+Fuera de alcance, a propósito: `backend/` y `frontend/` (PS-166 (b) pone la llave con `skydropx` **adrede** para
+probar que el backend no arranca; ese censo es de backend, `test/skydropx.no-real-purchase.spec.ts`).
+
+**Canario:** 14 mutaciones nuevas del bloque (G): un workflow la pone; la pila E2E con adaptador `skydropx`; el
+compose dev con `"true"` y con `${…:-true}` (adaptador `${…}`); la llave en el servicio `frontend`; `.env.example` con
+`true`, sin la línea, repetida; un script que fija `fake` y luego lo pisa con `skydropx`; un script que la pone sin
+fijar el adaptador; `railway.json` con la llave; el arnés nativo con el adaptador `${…:-fake}`; la pila E2E y el arnés
+sin girarla. Medido 2026-10-05 en este árbol: **36/36** (prístino VERDE + 35 en ROJO nombrando su bloque).
+Determinista: una corrida por mutación.
+
+**Mutaciones del candado** (sobre una copia en el scratchpad, no sobre el árbol; 2026-10-05): (M1) el compose
+acepta cualquier adaptador como `fake` ⇒ canario 34/36; (M2) el bloque de infraestructura no mira si el adaptador
+se pisa ⇒ 35/36 (la primera versión del canario lo dejaba pasar: el caso solo tenía `skydropx`, y «sin fijar» ya lo
+ponía rojo; se rehízo con `fake` + `skydropx`); (M3) no se mira `.github/` ⇒ 35/36; (M4) un valor en compose no
+cuenta como «poner» ⇒ 33/36. Las cuatro, mordidas.
+
+### 82.3 El dueño en la pila E2E (§19.31.5 (5))
+
+**Medido 2026-10-05** con un Postgres 16 desechable (base vacía → `prisma migrate deploy` → `seed-e2e.ts`, el mismo
+orden que `stack-native.sh up --seed` y `e2e-real.yml`): la semilla deja **exactamente un** súper-admin
+(`admin@e2e.local`, de `prisma/e2e-fixtures.ts:21`) **con `isOwner = false`; nadie marcado**. El motivo: M-68
+marca al dueño **dentro de la migración**, y en una base nueva la migración corre **antes** de que el seed cree a
+nadie (0 candidatos ⇒ nadie). La frase «así M-68 lo marca» de §19.31.5 (5) no se cumple en la E2E.
+
+El contrato da la otra vía y es la que se tomó: **el arnés corre `prisma/set-owner.ts`** (el único escritor admitido
+además de M-68, censo `C-OWN-1`) con el correo del fixture, leído de `prisma/e2e-fixtures.ts` por `ts-node`
+(no copiado en el arnés):
+
+- `scripts/stack-native.sh` → `mark_owner`, tras `npm run seed:synthetic` (solo con `--seed`).
+- `.github/workflows/e2e-real.yml` → paso «Seed sintético», tras el seed, dentro del contenedor `backend`.
+- `.github/workflows/e2e.yml` **no** se tocó: su job corre la integración de jest, que siembra lo suyo; no levanta
+  la UI contra la pila.
+
+Medido en el mismo Postgres: `set-owner` ⇒ `dueño marcado … (antes: nadie)`, `admin@e2e.local | t` y una fila
+`user.owner_set {actor:'script:set-owner', previousOwnerUserId:null}`; **re-siembra** ⇒ la marca sobrevive (el
+`update` del upsert no toca `isOwner`) y un segundo `set-owner` ⇒ `sin cambios`. Se probaron la función
+`mark_owner` extraída del arnés y la línea del workflow (con `sh`, la ruta de `node_modules/.bin` cambiada a la
+local). **NO MEDIDO:** la línea dentro del contenedor real de `e2e-real.yml` (lo mide la primera corrida del
+workflow). Si `set-owner` se niega, el paso falla en ruido (mejor que un `403` lejano en la prueba de compra).
+
+### 82.4 ⛔ Comprobación en CADA despliegue a producción: Railway sin el doble
+
+El candado del repo no ve el panel de Railway. Un `SHIPPING_PROVIDER_ADAPTER=fake` **con**
+`SHIPPING_FAKE_PURCHASE=true` en producción «compraría» guías falsas: sin dinero, pero con números de rastreo falsos
+al cliente (§19.31.5, *Residuo*). Antes de fusionar `main → production` (y en la solicitud de fusión, como paso del
+dueño):
+
+1. Railway → servicio del backend → entorno **production** → *Variables*.
+2. **`SHIPPING_FAKE_PURCHASE` no existe.** Si existe (con cualquier valor), se borra antes de fusionar.
+3. **`SHIPPING_PROVIDER_ADAPTER` no existe o vale `skydropx`.** Nunca `fake`.
+
+Quién la hace: **el dueño** (o un usuario de Railway de solo lectura creado para eso). ⛔ No se piden credenciales
+ni se pegan variables por chat. Por CLI, si el dueño la prefiere, es leer solo esos dos nombres con
+`railway variables` en el entorno `production` filtrando por `SHIPPING_` (la forma exacta del comando: **NO
+MEDIDO**, no hay CLI de Railway en este contenedor). Si el backend ve la llave con `skydropx` no arranca
+(PS-166 (b)), así que la combinación peligrosa es solo `fake` + llave; `fake` sin llave deja el Fake sin poder comprar,
+pero igualmente **no** es producción: es un error de configuración que se corrige.
+
+### 82.5 Mediciones de este cambio (2026-10-05, en el árbol)
+
+- `check-skydropx-spend-lock.sh` ⇒ VERDE (bloques A–G).
+- `check-skydropx-spend-lock-canary.sh` ⇒ **36/36**.
+- `check-secret-defaults.sh` ⇒ VERDE; el manifiesto `security/secretos-publicados.sha256` **no cambia** (ningún
+  valor nuevo con forma de secreto: `true` y `fake` no son nombres de secreto).
+- `check-secret-defaults-canary.sh` ⇒ **70/70**; `check-secret-masking.sh` ⇒ 6/6; su canario ⇒ 5/5.
+- `check-ci-ok.sh --static` ⇒ estática OK (25 jobs, 24 en `needs`, 4 opcionales; el job del candado ya estaba).
+- `gitleaks` 8.30.1 (la versión que fija `security-sast.yml`), descargado al scratchpad, sobre el commit de esta
+  sección con `security/gitleaks.toml`: ver el informe de entrega (se mide sobre el commit, no antes).
+
+### 82.6 Rollback
+
+`git revert` del commit de esta sección: quita la llave del doble de la pila E2E (vuelve `409 {missing:['allow_spend']}`
+en `label`), el bloque (G) y sus 14 casos de canario, y el `set-owner` del arnés. Datos: ninguno en producción; en la
+base de la pila E2E queda la marca `isOwner` del admin del fixture, que es inocua.
+

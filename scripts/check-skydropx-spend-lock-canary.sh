@@ -101,6 +101,26 @@ m_catalogo()   { printf '%s\n' "$SEC" >> "$1/security/secretos-exigidos.txt"; }
 m_wf_probe()   { printf '      - run: scripts/skydropx/run-prod-probe.sh run --only M-PRD-1\n' >> "$1/.github/workflows/deploy.yml"; }
 m_wf_notest()  { quitar_lineas "$1/.github/workflows/ci.yml" 'run-prod-probe\.sh test'; }
 m_probe_test() { rm -f "$1/scripts/skydropx/prod-probe.test.ts"; }
+# --- (G) la llave del doble (§19.31.5/.11; el contrato lo llama «candado (E)») -------
+FK='SHIPPING_FAKE_''PURCHASE'
+AD='SHIPPING_PROVIDER_ADAPTER'
+m_g_wf()       { insertar_tras "$1/.github/workflows/e2e-real.yml" 'runs-on: ubuntu-latest' "    env: { ${FK}: '${SI}' }"; }
+m_g_stg_real() { sed -E "s/${AD}: fake/${AD}: skydropx/" "$1/docker-compose.staging.yml" > "$1/x" && mv "$1/x" "$1/docker-compose.staging.yml"; }
+m_g_dev_true() { sed -E "s/${FK}: \\\$\{${FK}:-\}/${FK}: \"${SI}\"/" "$1/docker-compose.yml" > "$1/x" && mv "$1/x" "$1/docker-compose.yml"; }
+m_g_dev_dflt() { sed -E "s/${FK}: \\\$\{${FK}:-\}/${FK}: \\\$\{${FK}:-${SI}\}/" "$1/docker-compose.yml" > "$1/x" && mv "$1/x" "$1/docker-compose.yml"; }
+m_g_front()    { # tras el NODE_ENV del servicio frontend (el primero es el de backend)
+  awk -v linea="      ${FK}: \"${SI}\"" '{print} /^  frontend:/{f=1} f && !hecho && /^[[:space:]]+NODE_ENV:/ {print linea; hecho=1}' \
+    "$1/docker-compose.staging.yml" > "$1/x" && mv "$1/x" "$1/docker-compose.staging.yml"; }
+m_g_env_true() { sed -E "s/^${FK}=.*/${FK}=${SI}/" "$1/.env.example" > "$1/x" && mv "$1/x" "$1/.env.example"; }
+m_g_env_gone() { quitar_lineas "$1/.env.example" "^${FK}="; }
+m_g_env_dup()  { printf '%s=\n' "$FK" >> "$1/.env.example"; }
+m_g_scr_real() { # fija `fake`… y luego lo pisa: la línea buena no tapa la mala
+  printf '#!/usr/bin/env bash\nexport %s=fake\nexport %s=%s\nexport %s=skydropx\n' "$AD" "$FK" "$SI" "$AD" > "$1/scripts/compra-demo.sh"; }
+m_g_scr_bare() { printf '#!/usr/bin/env bash\n%s=%s node dist/main.js\n' "$FK" "$SI" > "$1/scripts/compra-demo.sh"; }
+m_g_root_json(){ printf '{ "deploy": { "env": { "%s": "%s" } } }\n' "$FK" "$SI" > "$1/railway.json"; }
+m_g_nat_intp() { sed -E "s/^export ${AD}=fake\$/export ${AD}=\\\$\{${AD}:-fake\}/" "$1/scripts/stack-native.sh" > "$1/x" && mv "$1/x" "$1/scripts/stack-native.sh"; }
+m_g_stg_off()  { quitar_lineas "$1/docker-compose.staging.yml" "^[[:space:]]+${FK}:"; }
+m_g_nat_off()  { quitar_lineas "$1/scripts/stack-native.sh" "^export ${FK}="; }
 
 printf '\n\033[1m== ¿El candado de PS-99 (d) se pone ROJO cuando toca? ==\033[0m\n\n'
 
@@ -135,6 +155,20 @@ caso "(E) el CI genera una credencial de Skydropx"                "catálogo"   
 caso "(F) un workflow lanza la sonda contra la red"               "ejecuta la sonda"         m_wf_probe
 caso "(F) ningún workflow corre la prueba de la sonda"            "Ningún workflow corre"    m_wf_notest
 caso "(F) la sonda sin su prueba"                                 "Falta"                    m_probe_test
+caso "(G) un workflow pone la llave del doble"                    "Un workflow nombra"       m_g_wf
+caso "(G) la pila E2E con la llave del doble y adaptador real"     "sin SHIPPING_PROVIDER_ADAPTER: fake literal" m_g_stg_real
+caso "(G) el compose dev gira la llave del doble (adaptador \${…})" "sin SHIPPING_PROVIDER_ADAPTER: fake literal" m_g_dev_true
+caso "(G) el compose dev con respaldo \${…:-true}"                 "sin SHIPPING_PROVIDER_ADAPTER: fake literal" m_g_dev_dflt
+caso "(G) la llave en un servicio sin el doble (frontend)"         "servicio «frontend»"      m_g_front
+caso "(G) .env.example con la llave del doble =true"               "PURCHASE\` CON VALOR"     m_g_env_true
+caso "(G) .env.example sin la línea de la llave del doble"         "PURCHASE=\`: la plantilla" m_g_env_gone
+caso "(G) .env.example con la llave del doble repetida"            "PURCHASE=\` 2 veces"      m_g_env_dup
+caso "(G) un script fija fake y luego lo pisa con el real"        "otra cosa"                m_g_scr_real
+caso "(G) un script la pone sin fijar el adaptador"                "sin fijar"                m_g_scr_bare
+caso "(G) una config de despliegue de la raíz la pone"             "railway.json: pone"       m_g_root_json
+caso "(G) el arnés nativo con el adaptador encendible desde fuera" "otra cosa"                m_g_nat_intp
+caso "(G) la pila E2E sin girar la llave del doble"                "no gira"                  m_g_stg_off
+caso "(G) el arnés nativo sin girar la llave del doble"            "no exporta SHIPPING_FAKE_PURCHASE=true" m_g_nat_off
 
 TOTAL=$((PASADAS+FALLOS))
 echo

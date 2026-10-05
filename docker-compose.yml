@@ -244,6 +244,10 @@ services:
       # backend cae a Noop. ⛔ Ninguna credencial de Skydropx ni la llave de gasto
       # aquí. Candado: scripts/check-skydropx-spend-lock.sh (DEVOPS_NOTES §78).
       SHIPPING_PROVIDER_ADAPTER: ${SHIPPING_PROVIDER_ADAPTER:-fake}
+      # La llave del doble (§19.31.5): vacía salvo que el dev la exporte para probar
+      # la compra contra el Fake. Con un adaptador que no sea `fake` el backend NO
+      # arranca (PS-166 (b)): no hay forma de que compre de verdad. Candado (G).
+      SHIPPING_FAKE_PURCHASE: ${SHIPPING_FAKE_PURCHASE:-}
       # Sonda de SOLO LECTURA del ingest de graded (§4.38h.1-quater): con la llave
       # presente, `on` hace que el barrido PREGUNTE al proveedor y NO ESCRIBA nada.
       # Es la segunda forma admitida de incapacitar un entorno (§4.38r.6.1). NO es un
