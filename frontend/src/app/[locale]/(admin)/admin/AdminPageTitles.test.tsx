@@ -58,8 +58,6 @@ import M6Page from './m6/page';
 // eslint-disable-next-line import/first
 import M7Page from './m7/page';
 // eslint-disable-next-line import/first
-import M8Page from './m8/page';
-// eslint-disable-next-line import/first
 import M9Page from './m9/page';
 // eslint-disable-next-line import/first
 import M10Page from './m10/page';
@@ -104,7 +102,6 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/m5': M5Page,
   '/admin/m6': M6Page,
   '/admin/m7': M7Page,
-  '/admin/m8': M8Page,
   '/admin/m9': M9Page,
   '/admin/m10': M10Page,
   '/admin/m11': M11Page,
@@ -153,7 +150,7 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     // «Pedidos por preparar»: elección del dueño (HECHOS.md, 2026-09-29) sobre el «Preparar y
     // enviar» que proponía §37.2b. Menú y `h1` salen de la MISMA clave (`admin.modules.m4`).
     ['Día a día', '/admin/m4', 'Pedidos por preparar', 'Orders to prepare', false],
-    ['Día a día', '/admin/m8', 'Disputas', 'Disputes', false],
+    // F-26 (§PNL.10.7 · §60.8): «Disputas» sale del menú; su fila sale de este candado en el MISMO commit.
     ['Existencias', '/admin/m1', 'Inventario', 'Inventory', false],
     ['Existencias', '/admin/m11', 'Sellado', 'Sealed', false],
     ['Existencias', '/admin/vaults', 'Bóvedas de clientes', 'Customer vaults', false],
@@ -193,8 +190,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     pathState.pathname = '/admin';
     renderWithProviders(<AdminSidebar />, 'es');
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
-    // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16.
-    expect(hrefs).toHaveLength(16);
+    // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16; F-26 retira «Disputas» ⇒ 15.
+    expect(hrefs).toHaveLength(15);
     expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
     const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
     expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);

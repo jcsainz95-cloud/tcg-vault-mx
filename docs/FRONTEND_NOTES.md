@@ -19166,3 +19166,36 @@ la cola de preparar exige un envío en `picking`, mismo motivo que `m4-preparati
 failed** (antes de `2e93eb0f`: 3 rojas de specs propios, arregladas en ese commit y re-corridas 33/33).
 Mutaciones (copia `git archive HEAD` entera, N=1 cada una, deterministas): B1 4/4 rojas · B2 3/3 · B3 3/3 · B4 5/5 ·
 B5 3/3 · B6 4/4 (MOB-3 en Playwright sobre build de la copia, 2 rojas a 360 y 390).
+
+## §89 · **F-26 — M8 «Disputas» se retira de la interfaz** (2026-10-05, rama `claude/arreglos-panel`, base `5a8a5852`; contrato §PNL.10.7 / §PNL.11 errata v1.82.2; `DESIGN_SYSTEM §60.8`)
+
+**Un commit propio y revertible** (§PNL.10.7 paso 3 (b)): si la medición posterior al despliegue da alguna disputa
+`abierta`/`en_revision`, `git revert` de ese commit devuelve menú, ruta, pantalla, enlace del tablero y textos. La API de
+disputas **no cambia** (lecturas y `resolve` siguen; los correos 20/21 tampoco se tocan) — `lib/api.ts` y
+`types/contract.ts` se dejaron intactos a propósito (`getAdminDisputes`, `resolveDispute`, `getAdminUserDisputes`,
+`workQueue.disputes`).
+
+**Qué cambió:**
+1. **Menú:** sale la línea `{ href: '/admin/m8', key: 'm8' }` de `AdminSidebar.tsx` y nada más (cambio mínimo: la rama
+   Skydropx añade «Avisos de gasto» en el mismo grupo, unas líneas más arriba).
+2. **Ruta:** `m8/page.tsx` redirige a `/admin` en el servidor conservando el idioma (patrón de `manual-refunds/page.tsx`).
+   Salen `M8View.tsx`, `M8View.test.tsx` y `components/domain/DisputeEvidenceContact.tsx` (solo lo usaba M8, §88 decisión 1).
+3. **Tablero:** la cola suma envíos + buylist (sin `workQueue.disputes`) y pierde el enlace a M8.
+4. **M6:** la pestaña «Disputas» de la ficha solo se pinta si `detail.disputes?.length > 0`; con cero ni pestaña ni
+   llamada a `GET /admin/disputes?userId=`. Es historia de lectura.
+5. **Textos (es/en):** salen `admin.modules.m8`, `admin.m8.*`, `admin.dashboard.disputes` y el namespace `dispute.*` (el de
+   `DisputeEvidenceContact`). Se quedan `admin.m6.tabs.disputes`, `admin.m6.disputes`, `admin.m6.disputeType.*` y todos los
+   «en disputa» del contracargo. i18n 4287 = 4287 claves.
+6. **Candado de títulos:** sale la fila de M8 y el mapa `PAGES` en el mismo commit; el menú pasa de 16 a 15 entradas.
+7. **E2E:** los dos tests de M8 (`admin.spec.ts`) se sustituyen por uno `@real`: `/es/admin/m8` ⇒ `/es/admin`,
+   `/en/admin/m8` ⇒ `/en/admin`, sin enlaces a `/admin/m8`. Censo: `needsSeed` 36 → **35** (10 ficheros); bajar no es rojo,
+   el baseline (de devops) puede regenerarse para fijar el techo.
+
+**Pruebas:** FE-M8-1…3 en `admin/M8Retired.test.tsx`, FE-M8-4 en `m6/M6View.test.tsx` (tres casos: `[]`, ausente, una).
+Rojas antes del cambio (9 rojas por el motivo esperado; FE-M8-3 `expected '11' to be '8'`).
+
+**Mediciones (copia del árbol entero en scratchpad, sin `.git`):** `tsc` 0 · lint 0 · vitest **219/220 ficheros,
+2618/2619** — la única roja es `error-audience.test.ts` LITERALIDAD §26 («Recibida: empezar revisión»), que ux-ui cambió en
+`DESIGN_SYSTEM` v5.1 y se cierra con F-34 (no es de F-26). Mutaciones, N=3 cada una, deterministas: devolver la entrada
+del menú ⇒ FE-M8-1 3/3 rojo · volver a sumar disputas ⇒ FE-M8-3 3/3 · pestaña sin condición ⇒ FE-M8-4 3/3 · redirigir sin
+idioma ⇒ FE-M8-2 3/3 (rojo el caso `en`). Playwright del nuevo E2E: NO MEDIDO (carga de la máquina > 2× CPUs).

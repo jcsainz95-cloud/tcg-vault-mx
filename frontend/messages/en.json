@@ -1165,14 +1165,6 @@
     "deliveryIssueBody": "If a card reached you damaged or wrong, or the package didn't arrive, write to {contact} with your order or withdrawal number and, if you can, photos. We review the case and, if it applies, refund that card. You don't need to open anything in the store.",
     "deliveryIssueOutcome": "If it applies, you keep the card: there's no product return."
   },
-  "dispute": {
-    "evidenceTitle": "Send your evidence by email",
-    "evidenceBody": "Email your photos and evidence to our support inbox, citing your order or dispute number. No photo upload in the app.",
-    "copyEmail": "Copy email",
-    "copied": "Copied",
-    "mailSubject": "Condition dispute evidence {reference}",
-    "mailSubjectGeneric": "Condition dispute evidence"
-  },
   "auth": {
     "loginTitle": "Log in",
     "registerTitle": "Create account",
@@ -1298,7 +1290,6 @@
       "m5": "Sell requests",
       "m6": "Users",
       "m7": "Finance",
-      "m8": "Disputes",
       "m9": "Reports",
       "m10": "Settings",
       "m11": "Sealed",
@@ -1328,7 +1319,6 @@
       "dataHealth": "Data health",
       "launch": "Launch progress",
       "shipments": "Shipments",
-      "disputes": "Disputes",
       "pendingPrices": "Pending prices",
       "lastSync": "Last price sync",
       "lastFx": "Last FX rate",
@@ -2670,20 +2660,6 @@
           "notFound": "A card no longer belongs to this request. We've refreshed the list. Nothing was saved."
         }
       }
-    },
-    "m8": {
-      "title": "Disputes",
-      "empty": "No disputes right now.",
-      "emptyBody": "When a customer opens a dispute it will show up here to resolve.",
-      "resolveRepurchase": "Resolve with repurchase",
-      "resolveReject": "Reject dispute",
-      "resolveConfirm": "Confirm resolution",
-      "repurchaseQuestion": "Confirm the repurchase at the price paid? The customer keeps the card and money leaves the platform.",
-      "rejectQuestion": "Confirm rejecting this dispute?",
-      "noteLabel": "Resolution note",
-      "noteHint": "Required; recorded in the audit log.",
-      "resolvedRepurchase": "Dispute resolved with repurchase.",
-      "resolvedReject": "Dispute rejected."
     },
     "m2": {
       "title": "Catalog & pricing",

@@ -156,7 +156,6 @@ describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
       '/admin/m3',
       '/admin/refunds',
       '/admin/m4',
-      '/admin/m8',
       '/admin/m1',
       '/admin/m11',
       '/admin/vaults',

@@ -1165,14 +1165,6 @@
     "deliveryIssueBody": "Si una carta te llegó dañada o equivocada, o el paquete no llegó, escríbenos a {contact} con tu número de pedido o de retiro y, si puedes, fotos. Revisamos el caso y, si procede, te devolvemos el dinero de esa carta. No tienes que abrir nada en la tienda.",
     "deliveryIssueOutcome": "Si procede, conservas la carta: no hay devolución del producto."
   },
-  "dispute": {
-    "evidenceTitle": "Envía tu evidencia por correo",
-    "evidenceBody": "Envía tus fotos y evidencia por correo a nuestro buzón de soporte, citando tu número de orden o disputa. No se sube foto en la app.",
-    "copyEmail": "Copiar correo",
-    "copied": "Copiado",
-    "mailSubject": "Evidencia de disputa {reference}",
-    "mailSubjectGeneric": "Evidencia de disputa de condición"
-  },
   "auth": {
     "loginTitle": "Iniciar sesión",
     "registerTitle": "Crear cuenta",
@@ -1298,7 +1290,6 @@
       "m5": "Solicitudes de venta",
       "m6": "Usuarios",
       "m7": "Finanzas",
-      "m8": "Disputas",
       "m9": "Reportes",
       "m10": "Configuración",
       "m11": "Sellado",
@@ -1328,7 +1319,6 @@
       "dataHealth": "Salud de datos",
       "launch": "Progreso de lanzamiento",
       "shipments": "Envíos",
-      "disputes": "Disputas",
       "pendingPrices": "Precios pendientes",
       "lastSync": "Último sync de precios",
       "lastFx": "Último tipo de cambio",
@@ -2670,20 +2660,6 @@
           "notFound": "Alguna carta ya no es de esta solicitud. Actualizamos la lista. No se guardó nada."
         }
       }
-    },
-    "m8": {
-      "title": "Disputas",
-      "empty": "Sin disputas por ahora.",
-      "emptyBody": "Cuando un cliente abra una disputa aparecerá aquí para resolverla.",
-      "resolveRepurchase": "Resolver con recompra",
-      "resolveReject": "Rechazar disputa",
-      "resolveConfirm": "Confirmar resolución",
-      "repurchaseQuestion": "¿Confirmas la recompra al precio pagado? El cliente conserva la carta y el dinero sale de la plataforma.",
-      "rejectQuestion": "¿Confirmas el rechazo de esta disputa?",
-      "noteLabel": "Nota de resolución",
-      "noteHint": "Obligatoria; queda en bitácora.",
-      "resolvedRepurchase": "Disputa resuelta con recompra.",
-      "resolvedReject": "Disputa rechazada."
     },
     "m2": {
       "title": "Catálogo y precios",
