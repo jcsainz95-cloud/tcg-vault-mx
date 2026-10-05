@@ -3,7 +3,7 @@ import { StorefrontHeader } from '@/components/layout/StorefrontHeader';
 import { VerifyEmailBanner } from '@/components/domain/VerifyEmailBanner';
 import { PrivateRouteGuard } from '@/components/layout/PrivateRouteGuard';
 import { Link } from '@/i18n/navigation';
-import { resolveLegalEntity } from './footer';
+import { privacyLinkVisible, resolveLegalEntity } from './footer';
 
 /*
  * Dirección 5a: el ancho de lectura es 1280px (max-w-7xl) y el margen crece a 32px
@@ -56,6 +56,8 @@ function Footer() {
   // tcghunt.mx · © {año}», coherente y sin placeholder colgando.
   // D7: el año es dinámico (§20.10 «© {año}»), no un literal que caduque.
   const legalEntity = resolveLegalEntity(t('footer.legalEntity'));
+  const tp = useTranslations('privacy');
+  const showPrivacy = privacyLinkVisible();
   return (
     <div className="flex flex-col gap-3 font-mono text-[11px] uppercase tracking-label text-muted sm:flex-row sm:items-center sm:justify-between">
       <p>
@@ -63,9 +65,17 @@ function Footer() {
         {`© ${new Date().getFullYear()}`}
         {legalEntity ? ` ${legalEntity}` : ''}
       </p>
-      <Link href="/terminos" className="text-text hover:text-accent">
-        {tn('terms')}
-      </Link>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        <Link href="/terminos" className="text-text hover:text-accent">
+          {tn('terms')}
+        </Link>
+        {/* LIVE-8: solo cuando /privacidad se sirve (sin marcadores en producción). */}
+        {showPrivacy && (
+          <Link href="/privacidad" className="text-text hover:text-accent">
+            {tp('link')}
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

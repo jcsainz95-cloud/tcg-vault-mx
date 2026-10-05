@@ -12,6 +12,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "check:legal": "LEGAL_PUBLISH_CHECK=1 vitest run src/content/legal/publish-ready.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:report": "playwright show-report"
   },

@@ -5235,5 +5235,13 @@
       "emptyTitle": "Pega una lista para empezar",
       "emptyBody": "Aún no has pegado nada. Copia tu lista y pégala arriba."
     }
+  },
+  "privacy": {
+    "link": "Aviso de privacidad",
+    "title": "Aviso de privacidad",
+    "updated": "Última actualización:",
+    "spanishOnly": "Legal notice available in Spanish only.",
+    "draftTitle": "Borrador — no publicado",
+    "draftBody": "Este texto es un borrador pendiente de revisión legal y de los datos del responsable. Los huecos resaltados los llena el dueño; mientras existan, esta página no se publica en la tienda."
   }
 }

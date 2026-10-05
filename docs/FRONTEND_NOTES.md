@@ -19111,3 +19111,87 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
 - STF-17-E2E en mock: 2/2. Mutaciones deterministas, N=1 cada una, todas rojas y restauradas: enlace «Mi cuenta»
   (real 2/2, mock 2/2), M-5 en navegador (2/2, el `403` de QA reproducido), M-5 Vitest, A-1, STF-36, M-3, M-4 ×2,
   TD-5; canario B-1 con el `temp-actors.ts` previo ⇒ `422 staff_without_email`.
+
+## §94 · **Listo para dinero real — LIVE-3 (CSP con nonce), LIVE-7 (error.tsx + telemetría) y LIVE-8 (`/privacidad` con candado)** (2026-10-05, rama `claude/listo-real`, base `2fe1cea1`; contrato v1.84 §14)
+
+> Número §94 elegido para no chocar: `claude/skydropx-d` llega a §93 y `claude/arreglos-panel` a §88
+> (medido con `git show origin/<rama>:docs/FRONTEND_NOTES.md`, 2026-10-05).
+
+### 94.1 LIVE-3 · CSP con nonce (`src/security/csp.ts`, `src/middleware.ts`)
+
+- **Fuente única**: `buildCsp(nonce, env, mode)` en `src/security/csp.ts` escribe la política del §14.3;
+  el middleware la pone en la respuesta **y** en la petición. Next saca el nonce de la cabecera CSP de
+  la petición (`content-security-policy` **o** `-report-only`, `next/dist/server/app-render/app-render.js:108`)
+  y lo pone en todos sus `<script>`; `x-nonce` queda para el layout. next-intl copia `request.headers`
+  a su `NextResponse.next/rewrite`, así que basta fijarlas antes de llamarlo.
+- **Fase**: `CSP_MODE = 'report-only'` (constante en código, §14.3 paso 1). Candado
+  `csp.test.ts › fase vigente` — pasar a `enforce` cambia ese caso en el mismo commit y exige el
+  cambio de devops en `baseline.conf` (10038/10055 a FAIL).
+- **Desviaciones del texto del contrato (deliberadas, con su porqué; van al arquitecto):**
+  1. `upgrade-insecure-requests` **solo en `enforce`**. En Report-Only el navegador la ignora y escribe
+     «directive … is ignored when delivered in a report-only policy» en consola **en cada página**:
+     medido en Chromium, era la única «violación» del recorrido y ensucia el criterio A3 de §14.9
+     («sin violaciones CSP en consola»).
+  2. Con la API en `http:` (stack local) tampoco va: la mejora rompería las llamadas a `localhost:3001`.
+  3. `NEXT_PUBLIC_UPLOAD_ORIGIN` se valida (`http(s)://[*.]host[:puerto]`, sin ruta, sin `;`/comillas);
+     si no casa, cae al comodín de R2. Un valor mal escrito en Vercel no puede abrir ni inyectar directivas.
+- **`[locale]/layout.tsx` lee `headers()`** para forzar render por petición. **Medido: hoy NO es
+  portante** — las páginas ya se renderizaban por petición antes del cambio (`Cache-Control: private,
+  no-store` en `/es` del árbol base; no hay `es.html` en `.next/server/app`), y quitar la línea deja
+  `csp.spec.ts` 8/8 verde (N=1, build `enforce`). Se queda como defensa: si alguien añade
+  `setRequestLocale` para volver estáticas las páginas, el nonce seguiría llegando.
+- **TTFB de `/es` (coste del §14.3)** — medido en LOCAL (`next start`, mocks, mismo host, rondas
+  intercaladas), N=10 por medida: antes p50 33.5/24.3 ms, p90 49.2/34.0 ms; después p50 29.2/26.9 ms,
+  p90 38.8/31.1 ms. Sin diferencia medible, coherente con que ya era dinámico. ⚠️ **La medida que pide
+  el contrato es en la vista previa de Vercel: NO MEDIDA** (las ramas `claude/*` no despliegan,
+  `frontend/vercel.json`). Hay que tomarla antes de `enforce`.
+- **Dos cabeceras CSP en `enforce` — medido, corrige al contrato:** con `next start`, la cabecera del
+  middleware **sustituye** a la estática de `next.config.mjs` (sale una sola `content-security-policy`,
+  la completa), no se «intersecan». No abre nada porque la completa ya lleva `frame-ancestors 'none'`,
+  y `csp.spec.ts › CSP-1` lo vigila. En Vercel: NO MEDIDO.
+- **Mutación `'unsafe-inline'` del contrato (§14.3 «⇒ CSP-5 roja») — medido, no muerde en el
+  navegador:** con nonce presente, CSP3 **ignora** `'unsafe-inline'`; build `enforce` con la mutación ⇒
+  `csp.spec.ts` 8/8 verde (N=1). La cubre el unitario (`csp.test.ts`, rojo). Sí muerde en el
+  navegador: añadir una directiva `script-src-elem 'unsafe-inline'` (por eso el unitario fija la lista
+  EXACTA de directivas — esa mutación sobrevivía antes de añadir el caso).
+- **E2E** `e2e/csp.spec.ts`: CSP-1, CSP-2 (cuatro rutas), CSP-5 (reescribe el HTML con un `<script>`
+  sin nonce: en `report-only` debe haber violación `report`; en `enforce`, además, no se ejecuta) y
+  un recorrido sin violaciones (portada, catálogo, login, registro, checkout, vender). **CSP-3 (pago
+  3DS) y CSP-4 (Google) no están en este spec**: necesitan Stripe y Google reales — son §14.9 fase A.
+- `vitest.config.ts`: `server.deps.inline: ['next-intl']` para que `middleware.test.ts` ejercite el
+  middleware REAL de next-intl (su ESM importa `next/server` sin extensión y Node no lo resuelve).
+
+### 94.2 LIVE-7 · `error.tsx`, `global-error.tsx` y `POST /telemetry/client-error`
+
+- `src/app/report-client-error.ts`: `fetch` directo (no `apiRequest`: ese adjunta el token y puede
+  disparar el refresh; una pantalla de error no toca la sesión), `credentials: 'omit'`, `keepalive`,
+  sin `Authorization`. Topes del contrato en cliente (300/64/200/40). ⛔ La ruta sale sin query ni
+  fragmento, y a las URL dentro del mensaje se les quita la query (`verify-email?token=…`). En mocks
+  no llama. Si falla, calla. `release` = `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` (si Vercel expone las
+  variables de sistema; si no, el campo no viaja — NO MEDIDO en el proyecto de Vercel).
+- `app/[locale]/error.tsx`: reutiliza `common.errorTitle/errorGeneric/retry` (sin claves nuevas);
+  no pinta `error.message`. `app/global-error.tsx`: sin proveedor de i18n, bilingüe y con estilos en
+  línea con los tokens de papel/tinta (`globals.css`). Uno y otro reportan **una vez por error**
+  (ref + deps; la prueba StrictMode es la que hace portante al ref).
+
+### 94.3 LIVE-8 · `/privacidad` — estructura con candado, texto en BORRADOR
+
+- **Texto**: `src/content/legal/privacidad.es.ts` = borrador del product-owner (`PROJECT.md §LEG.2`)
+  transcrito verbatim salvo formato (sin `*` de cursiva; «(SUPUESTO …)» pasa a «[SUPUESTO …]» para que
+  el candado lo vea). **No está validado por el dueño ni por su abogado**, y faltan P-LEG-1…3 (razón
+  social/RFC, domicilio, correo de privacidad), P-LEG-11 (plazos) y la fecha. **No se inventó ninguno.**
+- **Candado** (`src/content/legal/legal-gate.ts`): marcador = cualquier `[…]` o las frases de trabajo
+  («dato del dueño», «nota para el abogado», SUPUESTO, BORRADOR, «fecha de publicación», las dos de
+  razón social pendiente). Con marcadores: producción de Vercel ⇒ **404 y sin enlace en el pie**;
+  servidor sin `VERCEL_ENV` ⇒ igual (falla hacia lo seguro); vista previa, `next dev` o
+  `LEGAL_DRAFT_PREVIEW=1` (fuera de producción) ⇒ borrador visible con aviso «Borrador — no publicado»,
+  marcadores resaltados (`<mark data-legal-marker>`) y `noindex`. Sin marcadores ⇒ publicado.
+- **Puerta de publicación (criterio 501)**: `npm run check:legal` — hoy **ROJO a propósito** (exit 1:
+  el aviso tiene marcadores y `common.footer.legalEntity` sigue siendo «[Razón social pendiente]»). En la
+  suite normal ese caso se salta y lo dice.
+- **Hecho**: página, módulo de contenido, enlace del pie (aparece solo cuando la página se sirve),
+  textos de interfaz en el espacio nuevo `privacy.*` de `messages/*.json` (no se tocó `legal.*`).
+- **Pendiente (no hecho aquí, a propósito)**: los enlaces en registro, checkout de invitado
+  (`GuestCheckoutForm`, zona de choque con skydropx), checkout con cuenta, subida de INE y
+  `pedido/layout.tsx` (zona de choque con panel). Llevarían al mismo 404 mientras haya marcadores, y
+  sus textos (p. ej. la leyenda del registro, default P-LEG-9) no tienen copy de ux-ui todavía.

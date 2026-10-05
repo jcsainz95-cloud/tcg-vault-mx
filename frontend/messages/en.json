@@ -5235,5 +5235,13 @@
       "emptyTitle": "Paste a list to get started",
       "emptyBody": "You haven't pasted anything yet. Copy your list and paste it above."
     }
+  },
+  "privacy": {
+    "link": "Privacy notice",
+    "title": "Privacy notice",
+    "updated": "Last updated:",
+    "spanishOnly": "Legal notice available in Spanish only.",
+    "draftTitle": "Draft — not published",
+    "draftBody": "This text is a draft pending legal review and the data controller's details. The owner fills in the highlighted gaps; while any remain, this page is not published on the store."
   }
 }
