@@ -2,8 +2,34 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.82**, stream «Arreglos
-> del panel», rama `claude/arreglos-panel`; antes rev v1.80.10 y errata v1.80.9.1).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.82.1** sobre rev
+> **v1.82**, stream «Arreglos del panel», rama `claude/arreglos-panel`; antes rev v1.80.10 y errata v1.80.9.1).
+>
+> **Errata v1.82.1 — RESPUESTAS A BACKEND (§58, §59), 💰 LA DECISIÓN POR CARTA YA NO TOCA UNA CARTA QUE ES INVENTARIO,
+> 💰 LA CONVERSIÓN A INVENTARIO GANA SU CAS, Y M8 SE RETIRA (2026-10-05, arquitecto, árbol `/home/user/tcg-panel`, rama
+> `claude/arreglos-panel`, HEAD dado por el orquestador `03939a70` o posterior; ⛔ sha NO MEDIDO por el arquitecto: sin
+> Bash).** Origen: `BACKEND_NOTES §58` (58.2, 58.3, 58.6) y `§59` (59.3, 59.5), `HECHOS.md:50` (3) (cero disputas abiertas
+> o en revisión, leído por el dueño en su panel), `DESIGN_SYSTEM §60.8`. Norma entera: **[§PNL.10](#PNL-10)**. Porqué:
+> `ARCHITECTURE §4.61.7`. ⛔ Sin schema, sin migración, sin enum, sin endpoint nuevo, sin código de error nuevo (un valor
+> nuevo de `details.reason` en un `409 CONFLICT` existente).
+>
+> | # | Pregunta / hallazgo | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | **E-1** (Q-1 §59.5) | Forma del `200` de `reject-items` | **Ratificada la de backend:** `{ items: AdminSellItemDTO[] /* orden de itemIds */; requestClosed: boolean }` | No (ya construido) | frontend la usa |
+> | **E-2** 💰 (Q-2 §59.5, **defecto en producción**) | `PATCH …/decision {reject}` sobre carta `convertida_inventario` ⇒ `200` (medido por backend por HTTP, 1/1, determinista) | La decisión por carta (**los tres verbos**) gana un peldaño: carta en `convertida_inventario`/`pagada` ⇒ **`409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`**, cero escrituras; y el `where` del rechazo excluye esos estados. **Un** predicado para `PATCH` y `reject-items` | **Sí**: `200` ⇒ `409` en ese caso | backend 💰 (`buylist`) + frontend (mensaje) |
+> | **E-3** 💰 (hallazgo del arquitecto al revisar E-2, **NO MEDIDO por HTTP**) | `convert-to-inventory` escribe `convertida_inventario` con `update({where:{id}})` **sin CAS** (`buylist.service.ts:7503-7506`): un rechazo que confirme entre su lectura y su escritura deja una carta **rechazada, fuera del pago y dentro del inventario vendible** | La escritura de la conversión gana **CAS** (`itemStatus = 'aprobada' ∧ inventoryItemId IS NULL`); si no casa ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }` y la tx entera (pieza + movimiento) se deshace | **Sí** solo en la carrera | backend 💰 (`buylist`) |
+> | **E-4** | `reject-items` con una carta ya `rechazada` | **Confirmado:** `409 CONFLICT { itemIds }` (no mueve `rejectedAt`, no reinicia plazos). `PATCH …{reject}` sobre `rechazada` **sigue** siendo no-op `200` (v1.18): ninguno de los dos mueve `rejectedAt` | No (ya construido) | — |
+> | **E-5** | Los dos defectos que backend cerró en `5cbbe29b` (BRJ-8) | **Ratificados como norma:** CAS por estado leído en `approve`/`adjust` ⇒ `409 CONFLICT {itemId, itemStatus, reason:'CONCURRENT_UPDATE'}`; el recálculo suelto de `approvedTotalCents` toma `SellRequest FOR UPDATE` antes de agregar | No (ya construido) | — |
+> | **E-6** (§58.2) | `items[].orderItemId` en `GET /admin/orders/:id` | **Ratificado y declarado** en `AdminOrderItemDTO`: `orderItemId: string` | No (ya construido) | frontend lo usa |
+> | **E-7** (§58.3) | PNL-3 con origen `IVA_EXCLUSIVE`; guardas de la previsualización | **Ratificado:** `Q = null`, `R = M`, componentes «todo compensación», `orderId` = el origen; la previsualización aplica las mismas guardas `409`/`404` que el verbo. Falta una prueba (WDR-11) | No (ya construido) | backend (una prueba) |
+> | **E-8** (§58.6) | `NO_ENUM_POR_RUTA` de `C-EQ-1`, tope 44 ⇒ 46 | **Ratificado:** `shipmentItemId` (identificador) y `amountCents` (importe) de la previsualización no son dominios de tokens | No | — |
+> | **E-9** (`HECHOS.md:50` (3)) | Pantalla M8 | **Se retira de la interfaz** (§60.8) con la consulta SQL **antes y después** del despliegue. ⛔ La API de disputas **no cambia** en esta errata (la resolución queda como salida de emergencia) | Solo frontend | frontend + ux-ui (dos ajustes a §60.8) |
+> | **E-10** | Dos rojos intermitentes fuera de este stream | Nombrados como pendientes con dueño ([§PNL.10.8](#PNL-10)); ⛔ sin diseño | — | orquestador los anota |
+>
+> - **Pruebas que deben fallar hoy:** BRJ-10 (medida por backend), BRJ-11, BRJ-12, BRJ-13 (carrera, N ≥ 10; NO MEDIDO si
+>   hoy muerde), FE-BRJ-4, FE-M8-1…4. Ya verdes que se añaden como candado: BRJ-14, WDR-11 y el unitario de composición.
+> - **Medición en la ventana de despliegue (solo lectura):** cartas de buylist ya dañadas por E-2/E-3 ([§PNL.10.2](#PNL-10)
+>   paso 5) y disputas abiertas, **antes y después** ([§PNL.10.7](#PNL-10) paso 3).
 >
 > **Rev v1.82 — 💰 ARREGLOS DEL PANEL: DISPUTAS FUERA (§V), REEMBOLSO DE UNA CARTA TRAS LA ENTREGA, RETIRO ENTREGADO POR
 > SPEI, RECHAZO DE VARIAS CARTAS DE UNA SOLICITUD DE VENTA CON UN SOLO CORREO, LO QUE SIGUE VIVO DE v1.80.10 Y R69-1
@@ -6967,6 +6993,10 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
   puede reembolsar** (envío directo) **ni devolver por SPEI** (retiro) por la vía pedida. `details: { reason:
   'not_direct_ship' | 'order_not_settled' | 'legacy_convention' | 'not_delivered' | 'already_refunded' | 'not_withdrawal'
   | 'not_shipped' | 'no_reference'; refundId?: string; manualRefundId?: string }`. No escribió nada; ⛔ ni fila ni Stripe.
+- 💰 **`409 CONFLICT` con `details.reason: 'ITEM_FINAL'` (v1.82.1 — valor nuevo de `reason`, ⛔ no es código nuevo,
+  [§PNL.10.2](#PNL-10)):** `PATCH /admin/buylist/items/:itemId/decision` (cualquier `decision`) sobre una carta
+  `convertida_inventario` o `pagada`. `details: { itemId, itemStatus, reason: 'ITEM_FINAL' }`. No escribió nada. Se
+  distingue de la carrera (`reason: 'CONCURRENT_UPDATE'`, misma forma) por `details.reason`.
 - ⛔ **`410 DISPUTES_DISCONTINUED` (v1.82 — NUEVO, [§PNL.1](#PNL)):** `POST /disputes` ya no crea disputas (`HECHOS.md:44`).
   `details: { supportContact }` (el mismo valor que `GET /support/contact`). Se responde a todo cliente con sesión **antes de
   leer el cuerpo o la pieza** (⛔ sin oráculo). El front pinta «Escríbenos a {supportContact}».
@@ -12279,7 +12309,9 @@ Cabecera y tabla: rev **v1.82**. Porqué y reparto: `ARCHITECTURE §4.61`. Rama 
   la vía B (§E2E-ADM.1).
 - **En transición (default de P-DSP-1, `PROJECT §V.5`):** `GET /disputes`, `GET /disputes/:id`, `GET /admin/disputes`, la
   resolución de M8 y los correos de disputa **no cambian**: sirven para cerrar las que existan. Se retiran en una errata
-  posterior **cuando** la consulta de PNL.9 (Q-0) dé **0** en producción.
+  posterior **cuando** la consulta de PNL.9 (Q-0) dé **0** en producción. ⚠️ **v1.82.1 (E-9, [§PNL.10.7](#PNL-10)):** la
+  **pantalla** M8 se retira ya (el dueño leyó 0, `HECHOS.md:50` (3)); la **API** sigue sin cambio hasta que la medición
+  posterior al despliegue dé 0.
 - **NUEVO `GET /api/v1/support/contact` — público** (sin sesión, con el limitador público de siempre), `Cache-Control:
   public, max-age=300`. Res `200 { contact: string }` (no vacío). Fuente: **un** resolutor,
   `supportContact()` en `backend/src/modules/mail/support-contact.ts` = `envOr(SUPPORT_EMAIL, envOr(DISPUTE_EVIDENCE_CONTACT,
@@ -12358,7 +12390,8 @@ descarta llaves extra (⛔ un `amountCents` que llegue se ignora: el importe **l
 - `GET /admin/orders/:id` — `items[]` gana `deliveredRefund: { kind: 'refundable'; amountCents: number } | { kind:
   'not_refundable'; reason: 'not_direct_ship' | 'order_not_settled' | 'legacy_convention' | 'not_delivered' } | null`
   (`null` ⇔ la línea ya tiene `refund`, que se pinta). Mismo cuerpo que los pasos 3–4, **sin** candados. Para el
-  súper-admin; al operador se le envía igual (lectura) y la pantalla no le ofrece el botón.
+  súper-admin; al operador se le envía igual (lectura) y la pantalla no le ofrece el botón. ⚠️ **v1.82.1 (E-6):** `items[]`
+  gana también **`orderItemId: string`** (la llave del verbo; [§PNL.10.5](#PNL-10)).
 - `GET /orders/:orderId`, `GET /shipments/:id` y seguimiento del invitado — `items[].refund` gana **`kind: 'missing_at_prep'
   | 'after_delivery'`**, y `reason` pasa a `MissingReason | ShippedRefundReason`. Solo filas `submitted|succeeded` (sin
   cambio).
@@ -12409,7 +12442,8 @@ null }` — el subconjunto de `CaseRefundPreviewDTO` sin las cifras de Stripe.
    `case_refund_hard_multiplier` — y **los mismos códigos** `422 CASE_REFUND_CONFIRMATION_REQUIRED` / `422
    CASE_REFUND_ABOVE_LIMIT` (⛔ un segundo juego de topes).
 6. Componentes: con origen ⇒ `caseRefundComponents(A)` sobre la orden de origen (§M4-SHIP.15.5, un cuerpo); sin origen ⇒
-   todo `compensationCents = A`.
+   todo `compensationCents = A`. ⚠️ **v1.82.1 (E-7):** origen `IVA_EXCLUSIVE` ⇒ también todo `compensationCents = A`, con
+   `orderId` = el origen; la previsualización aplica las mismas guardas `404`/`409` ([§PNL.10.5](#PNL-10), WDR-11).
 7. Fila `ManualRefund { source: 'withdrawal_delivered', status: 'pending', customerUserId: shipmentRequest.userId,
    replacementCaseId: null, paymentRefundId: null, orderId: origen | null, shipmentItemId, deliveredReason: reason,
    deliveredNote: note, componentes, createdByUserId }`, `idempotencyKey = 'withdrawal-delivered:' + <id de la fila>`. La
@@ -12448,8 +12482,12 @@ se añade a la pantalla de M4 en este stream (es zona de Skydropx, `ARCHITECTURE
   8. Tras el commit, **UN** correo al vendedor (`sellItemsRejectedTemplate`): **cuáles** (nombre, set, número, acabado),
      **el motivo**, los plazos de devolución de hoy y si la solicitud quedó cerrada. Falla del correo ⇒ `log`, sin
      deshacer (patrón `sendItemRejectedMail`, `buylist.service.ts:7082`).
-  Res `200`: la misma proyección que devuelve la decisión por carta.
-- `PATCH …/decision {reject}` **sin cambio** (sigue con su correo por carta).
+  Res `200`: la misma proyección que devuelve la decisión por carta. ⚠️ **v1.82.1:** forma fijada en
+  [§PNL.10.1](#PNL-10): `{ items: AdminSellItemDTO[] (orden de itemIds), requestClosed }`. Carta ya `rechazada` ⇒ `409
+  CONFLICT {itemIds}` (E-4); el predicado «no rechazable» es `[...ITEM_FINAL_STATUSES, 'rechazada']` (E-2).
+- `PATCH …/decision {reject}` **sin cambio** (sigue con su correo por carta). ⚠️ **v1.82.1 (💰 E-2):** salvo un peldaño
+  nuevo en los **tres** verbos de la decisión por carta: carta `convertida_inventario`/`pagada` ⇒ `409 CONFLICT {itemId,
+  itemStatus, reason:'ITEM_FINAL'}` ([§PNL.10.2](#PNL-10)). Y la conversión a inventario gana CAS (E-3, [§PNL.10.3](#PNL-10)).
 - **M5 (frontend):** en `verificacion`, casilla por carta rechazable (no `skip`) + «Rechazar seleccionadas» y «Rechazar
   todas» con diálogo de motivo. **Mesa de decisión:** en `cotizada` gana «Declinar» (el mismo diálogo y verbo de la fila,
   `declineBuylistRequest`); fuera de `cotizada` dice qué toca y dónde (texto de ux-ui). **`en_transito`** (REGLA GENERAL,
@@ -12580,6 +12618,224 @@ de esa carta; retiro real ⇒ entregado ⇒ SPEI capturado ⇒ aparece en la cub
   dejarlo así.
 - **Supuesto tomado, sin pregunta (dilo si no):** el reembolso de UNA carta tras la entrega devuelve **la carta más su
   parte de la comisión, sin envío** — lo mismo que respondiste para la carta que falta al preparar (`HECHOS.md:30`, D-1).
+
+##### <a id="PNL-10"></a>PNL.10 — Errata v1.82.1 (2026-10-05, **NORMATIVA**, 💰 en .2 y .3)
+
+Origen: `BACKEND_NOTES §58`/`§59` (preguntas de los dos agentes backend tras construir PNL-1…6 y `M-70`), `HECHOS.md:50`
+(3). Las líneas de código las **leyó el arquitecto en `/home/user/tcg-panel` el 2026-10-05** con `Read`/`Grep` (⛔ sha NO
+MEDIDO: sin Bash). Lo que dice «medido por backend» es de backend, con su N; lo que dice «leído en código» **no** se ha
+medido por HTTP.
+
+###### PNL.10.1 — E-1: el `200` de `reject-items` (ratifica §59.3 / Q-1)
+
+```ts
+// POST /api/v1/admin/buylist/:id/reject-items — Res 200
+{
+  items: AdminSellItemDTO[];   // una por cada id de `itemIds`, EN SU ORDEN; la misma proyección que devuelve
+                               // `PATCH /admin/buylist/items/:itemId/decision` (en código: `toAdminSellItemRow`)
+  requestClosed: boolean;      // true ⇔ ESTA llamada cerró la solicitud (auto-transición a `rechazada` + `closedAt`)
+}
+```
+Sustituye la frase «Res `200`: la misma proyección que devuelve la decisión por carta» de §PNL.4. Tras el `200` el front
+**recarga el detalle** de la solicitud (el total aprobado y el estado de la solicitud no viajan en este cuerpo; ⛔ el front
+no los recalcula).
+
+###### PNL.10.2 — 💰 E-2: la decisión por carta no toca una carta que ya es inventario (Q-2 §59.5)
+
+**Lo medido.** Backend, por HTTP sobre su copia, 1/1, determinista (`BACKEND_NOTES §59.5`): `PATCH …/decision {reject}`
+sobre una carta `convertida_inventario` con `approvedPriceCents = 8000` ⇒ `200`, la carta queda `rechazada` y
+`approvedPriceCents = null`. **Leído en código** (por qué): el rechazo solo guarda la solicitud no terminal
+(`buylist.service.ts:7042-7046`, `rejectItemWrite` sin `expectedItemStatus` desde `:6779`). El `approve`/`adjust` tampoco
+tiene el peldaño: su CAS (`:6868`) fija el estado **leído**, sea cual sea, así que una carta `convertida_inventario` pasa a
+`aprobada`/`ajustada` y, fuera del ciclo de oferta, con el `approvedPriceCents` del cuerpo (`:6821`, `:6837`) — un precio
+pagado distinto del `acquisitionCostCents` que la pieza congeló al convertirse (`:7489-7490`): **dos fuentes para un
+hecho**. ⛔ Esto último NO MEDIDO por HTTP.
+
+**Por qué es dinero.** La carta convertida **ya es nuestra** (pieza `in_stock`, `sourceSellRequestItemId`); el rechazo la
+saca de `approvedTotalCents` (BL-1) ⇒ **al vendedor se le paga menos por una carta que nos quedamos**.
+
+**Norma.**
+1. **Un predicado, un cuerpo:** `ITEM_FINAL_STATUSES = ['convertida_inventario', 'pagada']` (la carta ya es inventario
+   o ya se pagó). `REJECT_ITEMS_BLOCKED_STATUSES` (`buylist-reject-items.ts:65-67`) pasa a **componerse** de él:
+   `[...ITEM_FINAL_STATUSES, 'rechazada']` (⛔ dos listas escritas a mano).
+   ⚠️ `pagada` como **estado de carta** hoy **no lo escribe nadie** (`Grep "itemStatus:\s*'pagada'"` en `backend/src`,
+   2026-10-05: 0 escrituras; solo aparece en la lista de `reject-items`). Va en el predicado por el enum
+   (`schema.prisma:320`), no por un camino medido.
+2. **`PATCH /admin/buylist/items/:itemId/decision` — los tres verbos (`approve`, `adjust`, `reject`).** Peldaño nuevo de
+   la escalera, **inmediatamente después** de `409 NO_LIVE_ADJUSTMENT` (la solicitud cerrada sigue ganando a todo) y
+   **antes** de cualquier otro (incluida la idempotencia del `reject`, que no se solapa: `rechazada` no es final):
+   carta en `ITEM_FINAL_STATUSES` ⇒ **`409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`**, ⛔ cero escrituras,
+   cero correo, cero bitácora, cero recálculo.
+   Escalera completa: `409 NO_LIVE_ADJUSTMENT` → **`409 CONFLICT ITEM_FINAL`** → (reject sobre `rechazada` ⇒ `200` no-op)
+   → `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` → `422 ITEM_NOT_OFFERED` → `422 REQUEST_NOT_RECEIVED` → `422
+   OFFER_PRICE_IMMUTABLE` → `500 OFFERED_PRICE_MISSING`.
+3. **La guarda del motor, no solo el `if`:**
+   - **Rechazo** (los dos llamadores de `rejectItemWrite`): el `where` gana **siempre** `itemStatus NOT IN
+     ITEM_FINAL_STATUSES` (además del `expectedItemStatus` de `reject-items` cuando viene). Si `count ≠ 1` en el `PATCH`,
+     se relee: solicitud terminal ⇒ lo de hoy (`throwTerminalConflict`); carta en estado final ⇒ `409 CONFLICT … ITEM_FINAL`.
+     ⛔ El `PATCH {reject}` **no** gana CAS por estado leído: rechazar sobre una aprobación concurrente es la dirección
+     segura y su conducta frente a `approve` no cambia (§PNL.4 «sin cambio» salvo este peldaño).
+   - **`approve`/`adjust`:** el CAS por estado leído de E-5 **ya** es la guarda del motor (si el `if` dejó pasar un estado
+     no final y la conversión confirma en medio, el CAS no casa ⇒ `CONCURRENT_UPDATE`). Solo se añade el peldaño del paso 2.
+4. **Detalle del `409`:** `reason: 'ITEM_FINAL'` es un **valor nuevo de `details.reason`** del `409 CONFLICT` que ya
+   existe (forma de `CONCURRENT_UPDATE`, mismo endpoint). ⛔ Sin código de error nuevo. El front lo distingue de la
+   carrera por `details.reason`.
+5. **Medición en la ventana de despliegue (¿ya pasó en producción?).** Solo lectura, por una vía admitida (usuario de
+   solo lectura o la corre el dueño):
+   ```sql
+   -- (a) E-2: carta con pieza en inventario cuyo estado ya no dice que es inventario
+   SELECT id, "sellRequestId", "itemStatus", "inventoryItemId", "approvedPriceCents", "rejectedAt"
+   FROM "SellRequestItem"
+   WHERE "inventoryItemId" IS NOT NULL AND "itemStatus" <> 'convertida_inventario';
+   -- (b) E-3: carta convertida que alguien rechazó o dejó sin precio aprobado
+   SELECT id, "sellRequestId", "approvedPriceCents", "rejectedAt"
+   FROM "SellRequestItem"
+   WHERE "itemStatus" = 'convertida_inventario' AND ("rejectedAt" IS NOT NULL OR "approvedPriceCents" IS NULL);
+   ```
+   Cero filas en las dos ⇒ nada que reparar. **Alguna fila** ⇒ se lista al dueño en la solicitud de fusión con el
+   `sellRequestId` y si la solicitud ya está `pagada` (qué se le pagó al vendedor por esa carta) — ⛔ **ningún `UPDATE` a
+   mano**: el remedio (pagar la diferencia por SPEI, o no) lo decide el dueño.
+   ⚠️ Una fila de (b) con `approvedPriceCents IS NULL` y `rejectedAt IS NULL` **puede** ser legítima solo si una
+   conversión precede a M-46 con otro camino de aprobación: NO MEDIDO; se reporta igual, no se juzga.
+
+###### PNL.10.3 — 💰 E-3: la conversión a inventario gana su CAS (lo mismo, por la otra puerta)
+
+**Leído en código, ⛔ NO MEDIDO por HTTP:** `convertToInventory` comprueba `itemStatus === 'aprobada'` sobre una lectura
+(`buylist.service.ts:7419-7448`) y escribe la carta con `tx.sellRequestItem.update({ where: { id: itemId } })`
+(`:7503-7506`), sin estado en el `where`. Un rechazo (`PATCH` o `reject-items`) que confirme entre esa lectura y esa
+escritura deja la carta `convertida_inventario` con `rejectedAt`, `approvedPriceCents = null` y una pieza `in_stock`:
+**una carta rechazada, que no se le paga al vendedor, a la venta en nuestra tienda.** El candado de `reject-items` (CAS
+por estado leído) **no** lo cubre, porque es la conversión la que escribe a ciegas.
+
+**Norma.** La escritura de la carta en la conversión pasa a `updateMany({ where: { id, itemStatus: 'aprobada',
+inventoryItemId: null } })` con `count === 1`, **dentro de la misma tx** que crea la pieza y su `InventoryMovement`. Si no
+casa ⇒ se relee la carta: `inventoryItemId` ya puesto ⇒ la respuesta idempotente de hoy (`alreadyConverted`, `:7427-7437`);
+si no ⇒ **`409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }`** y la tx se deshace entera (ni pieza, ni
+movimiento, ni folio usado en la pieza — el folio consumido por `nextFolio()` fuera de la tx se pierde, como hoy en `P2002`).
+El índice único `InventoryItem.sourceSellRequestItemId` (SEC-A3) **sigue**: cubre conversión contra conversión; el CAS
+cubre conversión contra rechazo.
+
+###### PNL.10.4 — E-4 y E-5: confirmaciones (sin cambio de conducta)
+
+- **E-4.** `reject-items` con alguna carta ya `rechazada` ⇒ **`409 CONFLICT { itemIds }`** (todo o nada). *Por qué no
+  `200` idempotente como el `PATCH`:* el lote es una decisión nueva con un motivo nuevo y **un** correo; aceptarlo sobre
+  una carta ya rechazada movería `rejectedAt` —el ancla de los plazos de devolución (+7 d) y abandono (+30 d)— o, si no lo
+  moviera, el correo diría un motivo que no es el registrado. El `PATCH {reject}` sobre `rechazada` sigue **no-op `200`**
+  (§M5 v1.18, `buylist.service.ts:6757-6761`): no escribe, no manda correo. **Ninguno de los dos mueve `rejectedAt`.**
+  Frontend: la casilla de «Rechazar seleccionadas» **no** se ofrece en cartas `rechazada`, `convertida_inventario`,
+  `pagada` ni `skip`.
+- **E-5.** Quedan como norma de `PATCH …/decision`:
+  1. **`approve`/`adjust` hacen CAS por el estado de carta leído** (`buylist.service.ts:6868`); si otra escritura lo movió
+     ⇒ **`409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }`** (⛔ no `NO_LIVE_ADJUSTMENT`: la solicitud
+     no está cerrada y decirlo mentiría).
+  2. **El recálculo suelto de `approvedTotalCents` toma `SellRequest FOR UPDATE` antes de agregar**
+     (`buylist.service.ts:6914-6926`), y `reject-items` lo corre dentro de su tx con la fila ya tomada.
+  ⚠️ **Cómo se sostiene el 2:** su prueba por HTTP **no es sensible** (backend: mutación sin `FOR UPDATE` ⇒ BRJ-8 (c)
+  0/6 corridas rojas a N = 20; el único rojo por HTTP fue 1/4 corridas a N = 12 antes del arreglo — `BACKEND_NOTES
+  §59.4`). Lo sostiene el **unitario de orden de llamadas** (candado antes del `aggregate`). Ese unitario es el candado
+  normativo; ⛔ no se borra «porque BRJ-8 ya lo cubre».
+
+###### PNL.10.5 — E-6, E-7, E-8: lo de `BACKEND_NOTES §58`
+
+- **E-6 — `items[].orderItemId` en el detalle de M3.** Ratificado. `AdminOrderItemDTO` gana `orderItemId: string` (la
+  llave de `POST /admin/orders/:id/items/:orderItemId/refund-delivered`). ⛔ Nunca nulo en la práctica: toda línea de M3
+  es una `OrderItem` de esa misma orden (`order-refund.service.ts:359-372` construye el mapa desde `order.items`); el
+  `?? null` de `admin-orders.controller.ts:229` es un respaldo de tipo. **Regla del front:** el botón «Reembolsar esta
+  carta» solo existe con `deliveredRefund.kind = 'refundable'`, y ese valor sale del **mismo** mapa que `orderItemId` ⇒
+  con `refundable`, `orderItemId` está. Visible también para el operador (es un id, no dinero).
+- **E-7 — PNL.3 con origen `IVA_EXCLUSIVE`.** Ratificado lo que construyó backend (§58.3):
+  - `Q = null` (la fórmula de `item_missing` solo es exacta con el IVA dentro, §M4-SHIP.4), así que `R = M ?? 0`; `R = 0` ⇒
+    `409 ITEM_REFUND_NOT_AVAILABLE { reason: 'no_reference' }` (paso 4, sin cambio).
+  - **Componentes: todo `compensationCents = A`** (mercancía, IVA, envío y comisión en `0`), igual que «sin origen». ⛔
+    `caseRefundComponents` sobre una orden `IVA_EXCLUSIVE` partiría el IVA con la convención equivocada, y §M4-SHIP.15.5
+    ya excluye esa convención de los casos (`legacy_convention`). *Por qué no `409 legacy_convention` como los casos:*
+    aquí el dueño eligió SPEI para el retiro entregado (`HECHOS.md:44` (b)); bloquearlo dejaría la carta sin camino.
+    Lo que se pierde: M7 lo muestra como **compensación**, no como devolución de venta — correcto para una fila cuyo
+    desglose de venta no podemos reconstruir con un solo cuerpo.
+  - **`orderId` = la orden de origen igual** (trazabilidad: de qué venta salió la carta). ⛔ Ningún lector debe inferir
+    «tiene `orderId` ⇒ componentes de venta»: los componentes son la verdad fiscal de la fila.
+  - **La previsualización** aplica **las mismas guardas** que el verbo (pasos 1 y 3: `404`; `409
+    ITEM_REFUND_NOT_AVAILABLE {reason}`), sin candados, y con `paidReferenceCents: null` en este caso. *Por qué:* una
+    previsualización que pinta referencias de una línea que el verbo rechazaría invita a capturar un monto que no se
+    puede pagar. Los topes **no** son `422` en la previsualización: van en `confirmation` (`'reinforced'`/`'blocked'`),
+    como ya dice §PNL.3.
+  - **Prueba que falta — WDR-11** (no está en §58.6; si backend ya la tiene con otro nombre, lo dice y basta): retiro
+    `entregado` con origen `IVA_EXCLUSIVE` y mercado `M` ⇒ preview `paidReferenceCents: null`, `referenceCents = M`; verbo
+    `201` con `compensationCents = A` y los demás componentes en `0`, `orderId` = origen. **Mutación:** usar
+    `caseRefundComponents` también para `IVA_EXCLUSIVE` ⇒ mercancía `> 0` ⇒ rojo.
+- **E-8 — `NO_ENUM_POR_RUTA` 44 ⇒ 46.** Ratificado. Entradas `'GET /admin/manual-refunds/withdrawal-delivered/preview::shipmentItemId'`
+  (identificador opaco) y `'…::amountCents'` (importe entero acotado), con su medición escrita al lado, como las dos de
+  v1.75 (`ivaTransferPct`, `samplePriceCents`): misma clase que `page`/`minCents` (§0-Q punto 7). ⛔ `NO_ENUM_TRANSVERSAL`
+  no se toca (la exención es de esta ruta).
+
+###### PNL.10.6 — Pruebas (las que deben fallar hoy, y su mutación)
+
+Backend, integración contra Postgres real, fixture de §PNL.8 (solicitud del ciclo de oferta recibida y en
+`verificacion`, salvo donde se dice legado).
+
+| Prueba | Caso | Espera | Mutación que la pone en rojo |
+|---|---|---|---|
+| **BRJ-10** *(falla hoy — medida por backend 1/1)* | `PATCH …/decision {reject, reason}` sobre carta `convertida_inventario` (`approvedPriceCents 8000`) | `409 CONFLICT {itemId, itemStatus:'convertida_inventario', reason:'ITEM_FINAL'}`; la fila idéntica antes/después (`itemStatus`, `approvedPriceCents`, `rejectedAt`, `rejectionReason`); `approvedTotalCents` idéntico; 0 correos; 0 bitácora; pieza intacta | quitar el peldaño **y** el término del `where` ⇒ `200` (la conducta de hoy) |
+| **BRJ-11** *(falla hoy — NO MEDIDO, leído en código)* | Misma carta: `approve`; y, en una solicitud **legado** (sin `offerSentAt`), `adjust {approvedPriceCents: 1}` | `409 … ITEM_FINAL` en los dos; `approvedPriceCents` sigue `8000`; `itemStatus` sigue `convertida_inventario` | aplicar el peldaño solo a `reject` ⇒ `200` y la carta deja de decir que es inventario |
+| **BRJ-12** | El `where` sin el `if`: unitario de `rejectItemWrite` (o integración con el pre-check apagado por inyección) | el `where` lleva `itemStatus NOT IN ITEM_FINAL_STATUSES` siempre; `count = 0` sobre una convertida ⇒ `409 … ITEM_FINAL` (no `NO_LIVE_ADJUSTMENT`) | quitar el término del `where` ⇒ rojo; mapear `count = 0` siempre a terminal ⇒ rojo |
+| **BRJ-13** 🔁 *(falla hoy si E-3 es real — NO MEDIDO)* | Carta `aprobada`; `convert-to-inventory` y `PATCH …{reject}` simultáneos (N ≥ 10 rondas); y lo mismo con `reject-items` | en **cada** ronda: o (conversión `200` ∧ rechazo `409 ITEM_FINAL`/`409 CONFLICT {itemIds}`) o (rechazo `200` ∧ conversión `422 ITEM_NOT_APPROVED`/`409 … CONCURRENT_UPDATE` ∧ **cero** `InventoryItem` con ese `sourceSellRequestItemId`). **Nunca** `convertida_inventario` con `rejectedAt`, ni `rechazada` con `inventoryItemId`. Proporción reportada (O-3) | quitar el CAS de la conversión ⇒ estado mixto en alguna ronda. ⚠️ Antes de arreglar, backend mide la proporción **con el defecto** (¿cuántas rondas de N lo muestran?) — si es 0/N, la prueba no es sensible y se fuerza el orden con candado de fila, como hizo BRJ-8 |
+| **BRJ-14** (ya verde, candado) | `reject-items` con una carta ya `rechazada` | `409 CONFLICT {itemIds:[esa]}`; su `rejectedAt` idéntico; 0 correos | quitar `'rechazada'` de la lista compuesta ⇒ `rejectedAt` movido |
+| **WDR-11** | §PNL.10.5 E-7 | §PNL.10.5 | §PNL.10.5 |
+
+**Unitario de composición:** `REJECT_ITEMS_BLOCKED_STATUSES ⊇ ITEM_FINAL_STATUSES` y `= [...ITEM_FINAL_STATUSES,
+'rechazada']`. Mutación: escribir la lista a mano sin `pagada` ⇒ rojo.
+
+**Frontend (mocks):** **FE-BRJ-4** M5: `PATCH` responde `409 CONFLICT {reason:'ITEM_FINAL'}` ⇒ mensaje de ux-ui (no el
+genérico) y recarga del detalle; la carta `convertida_inventario`/`pagada` no ofrece Aprobar/Ajustar/Rechazar ni casilla
+(hoy `M5View.tsx:194` `ITEM_TERMINAL` y `:1439` ya ocultan botones: se verifica, no se reconstruye). Mutación: tratar
+`ITEM_FINAL` como `CONCURRENT_UPDATE` ⇒ texto equivocado.
+
+###### PNL.10.7 — E-9: M8 «Disputas» se retira de la interfaz (`HECHOS.md:50` (3); `DESIGN_SYSTEM §60.8`)
+
+**Lo que sabemos y de dónde.** El dueño leyó **cero** disputas `abierta`/`en_revision` en su panel → Disputas
+(`HECHOS.md:50` (3), 2026-10-05) — una lectura de pantalla, no una consulta. Desde PNL-1 **nadie escribe** filas `Dispute`
+(`POST /disputes` ⇒ `410`; `DisputesService.create` retirado, `BACKEND_NOTES §59.1`; `Grep "dispute\.(create|upsert)"` en
+`backend/src`, 2026-10-05: 0). Los contracargos de Stripe **no** son filas `Dispute`: van por `Order.status = chargeback`
+(`payments.service.ts:173-180`) y sus textos «en disputa» **se quedan** (§60.8).
+
+**Decisión.**
+1. **Frontend — se retira M8 tal como lo diseñó ux-ui en §60.8:** sin entrada «Disputas» en el menú; `/admin/m8` redirige
+   a `/admin`; la cola del tablero deja de sumar `workQueue.disputes` y pierde su enlace; la pestaña «Disputas» de M6 y
+   «Mis disputas» del cliente **solo** existen si hay alguna (historia, lectura); salen los textos `admin.m8.*`,
+   `admin.modules.m8` y `admin.dashboard.disputes`; la fila de M8 sale del candado de títulos en el mismo commit que el menú.
+2. **Backend — ⛔ sin cambio en esta errata.** Se quedan: `GET /admin/disputes` (lo usa la pestaña de M6 con `?userId=`,
+   `lib/api.ts:6239-6249`), `GET /admin/disputes/:id`, `POST /admin/disputes/:id/resolve` (con su `MoneyOut` para
+   `repurchase`), `GET /disputes`, `GET /disputes/:id`, los correos 20/21 y `workQueue.disputes` en el DTO del tablero (el
+   front deja de leerlo; quitar el campo rompería a un front viejo en caché). *Por qué la resolución se queda:* entre la
+   medición previa y el despliegue, la producción de hoy **todavía crea disputas**; si nace una en esa ventana, la
+   resolución por API es la salida. Se cierran (`410`) en una errata posterior, **solo** cuando la medición posterior
+   (paso 3) dé 0. ⚠️ Esto **corrige** dos filas de §60.8 (los correos 20/21 **no** se retiran con M8; la ruta de M8 se
+   retira pero la API no) — se avisa a ux-ui.
+3. **Medición — solo lectura, por una vía admitida** (usuario de solo lectura o la corre el dueño), **dos veces**:
+   ```sql
+   SELECT status, count(*) FROM "Dispute" WHERE status IN ('abierta','en_revision') GROUP BY status;
+   ```
+   - **(a) Antes de fusionar a `production`.** Cero filas ⇒ se despliega. **Alguna** ⇒ el dueño la resuelve en el M8 de
+     hoy **antes** de fusionar (o se fusiona sin el commit de M8 del front).
+   - **(b) Después del despliegue.** Desde ese momento no hay escritor, así que el número **solo puede bajar**: el
+     resultado es final. Cero ⇒ se puede abrir la errata que cierra la API. **Alguna** (nació entre (a) y el despliegue)
+     ⇒ **revertir el commit de M8 del front** (es aditivo de quitar; revertirlo devuelve menú, ruta y enlace) para
+     resolverla, y volver a medir.
+   - El resultado y la hora de cada medición se escriben en la solicitud de fusión (CLAUDE.md «Cómo se publica»).
+4. ⚠️ `admin.dashboard.withdrawals` «Retiros sin disputa» (§60.12 N-3, PROJECT, métrica de lanzamiento
+   `withdrawalsNoDispute`): ⛔ fuera de esta errata. Qué cuenta, NO MEDIDO; si se renombra, lo decide product-owner.
+
+**Pruebas (frontend, mocks):** **FE-M8-1** menú sin «Disputas» (mutación: devolver la entrada); **FE-M8-2** `/admin/m8` ⇒
+`/admin` conservando idioma; **FE-M8-3** el mock del tablero con `workQueue.disputes: 3` ⇒ la suma de la cola **no** lo
+incluye y no hay enlace a M8 (mutación: volver a sumarlo); **FE-M8-4** M6 sin la pestaña con `detail.disputes = []` y con
+ella si hay una. **Backend:** ninguna nueva (DSC-4 sigue: lecturas y `resolve` `200`).
+
+###### PNL.10.8 — E-10: dos rojos intermitentes, fuera de este stream (solo se nombran; ⛔ sin diseño)
+
+| Pendiente | Lo visto (de quién, con qué N) | Dueño | Qué medición lo cierra |
+|---|---|---|---|
+| **P-INT-GRADED** | `graded-estimate` (integración): **8 rojos** en la corrida completa de backend (`BACKEND_NOTES §59.4`, N = 1 corrida); **verde aislada 2/2** (backend) y verde en la dirigida ×3 (205/205). Parece depender del orden; NO diagnosticado | backend, stream «Catálogo y precios» (`catalog`/`pricing`) | corrida completa N ≥ 5 con el orden registrado, y la suite sola tras la que la precede en la corrida roja |
+| **P-INT-CEQ1-VAULTS** | `C-EQ-1` fila 2 `GET /admin/vaults?sort=`: **2/3 rojo** sobre la BD ya usada por la corrida completa, **3/3 verde** sobre BD recién creada; la base `7ce3bff4` **3/3 verde** sobre BD nueva; base sobre BD usada: NO MEDIDO (`BACKEND_NOTES §58.6`, backend) | backend, stream «Inventario y vault» (`vault`) | la base `7ce3bff4` sobre BD usada, N ≥ 3: si también es roja, no es de este stream (dependencia de datos de la propia prueba) |
 
 ---
 
@@ -29870,6 +30126,12 @@ SellItemDTO      = { id, card: CardDTO, productType, rawCondition?, finish: Fini
 // fijó su precio, y §N.7 ya gobierna qué ve en la ficha. Money-safe: es lectura de instrumentación, no de dinero.
 AdminOrderItemDTO += { marketMxnCents?: number | null, priceBasis?: PriceBasis,
                        marketBracket?: MarketBracket | null, finish?: Finish }
+// 💰 v1.82 / v1.82.1 (§PNL.2, §PNL.10.5 E-6) — la línea de M3 gana la llave del verbo `refund-delivered` y su vista.
+AdminOrderItemDTO += { orderItemId: string,
+                       deliveredRefund: { kind: 'refundable'; amountCents: number }
+                                      | { kind: 'not_refundable'; reason: 'not_direct_ship' | 'order_not_settled'
+                                                                      | 'legacy_convention' | 'not_delivered' }
+                                      | null }
 // v2.0 (P-48) — la entrada de la cola de precio pendiente gana la RAZÓN (M-41). `null` en filas históricas.
 PendingPriceEntryDTO += { reason?: PendingPriceReason | null }
 // ⚠️ v1.51 (M-46) — `SellItemDTO` gana el bloque de OFERTA. Todos nullables/ausentes en líneas previas al ciclo.

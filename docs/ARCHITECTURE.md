@@ -27301,6 +27301,35 @@ Norma: `API_CONTRACT §PNL` (rev v1.82). ⚠️ **§4.60 la usa la rama `claude/
 PNL-6, PNL-1 backend, F-4 y F-11. Lo que conviene **después** de que D2g fusione: F-7 (`createUser`), F-8/F-9 (M10), y
 `M-70` en `schema.prisma` (o se escribe ya y se rebasa: el SQL no choca, el fichero sí).
 
+#### 4.61.7 Errata v1.82.1 — por qué (2026-10-05; norma en `API_CONTRACT §PNL.10`)
+
+- **Una carta que ya es inventario no se decide otra vez (E-2, 💰).** La decisión por carta nació antes que la
+  conversión y nunca aprendió que hay estados después de `aprobada`. El efecto medido (backend, 1/1): rechazar una carta
+  convertida la saca de lo que se le paga al vendedor mientras la pieza sigue a la venta. La regla es de **estado de la
+  carta**, no del verbo: por eso cubre `approve`/`adjust` (que la sacarían de `convertida_inventario` y, fuera del ciclo,
+  reescribirían el precio pagado con otro distinto del costo congelado de la pieza: dos fuentes para un hecho) y vive en
+  **un** predicado (`ITEM_FINAL_STATUSES`) del que se compone la lista de `reject-items`.
+- **La conversión escribía a ciegas (E-3, 💰, NO MEDIDO).** Revisar E-2 obligó a mirar la otra puerta: la conversión
+  comprueba `aprobada` en una lectura y escribe sin estado en el `where`. Es la misma clase que BL-14/BL-27/BRJ-8 — un `if`
+  sobre una lectura previa no es una guarda — y la misma corrección: CAS en el `where`, `count === 1`, dentro de la tx.
+  El índice único SEC-A3 cubre conversión contra conversión, no conversión contra rechazo.
+- **Por qué el `PATCH {reject}` no gana CAS por estado leído y `approve` sí.** Rechazar es la dirección segura (saca dinero
+  del total, no mete mercancía); su único estado prohibido es el final, que ya va en el `where`. `approve` decide la
+  limpieza de los campos de rechazo con la lectura, así que **necesita** la lectura vigente.
+- **M8 se retira de la pantalla pero no de la API (E-9).** La producción de hoy todavía crea disputas hasta el despliegue;
+  una medición previa no es final y la posterior sí (sin escritor, el número solo baja). Retirar la API antes de la
+  medición final dejaría una disputa nacida en la ventana sin salida. *Lo que se mide en la ventana se prepara antes*
+  (CLAUDE.md «Cómo se publica»): las dos consultas van escritas en §PNL.10.
+- **IVA_EXCLUSIVE en el SPEI del retiro (E-7):** un cuerpo de fórmulas para una sola convención; lo que no se puede
+  desglosar como venta se registra como compensación, sin bloquear el remedio que eligió el dueño.
+
+| Pieza v1.82.1 | Rol | Ficheros (este árbol, leídos 2026-10-05) | 💰 |
+|---|---|---|---|
+| E-2 | backend **fuerte** | `backend/src/modules/buylist/buylist-reject-items.ts:60-82` (predicado), `buylist/buylist.service.ts:6673-6896` (`itemDecision`), `:7035-7056` (`rejectItemWrite`) | **Sí** |
+| E-3 | backend **fuerte** | `buylist/buylist.service.ts:7418-7508` (`convertToInventory`) | **Sí** |
+| E-6/E-7/E-8 | backend (prueba WDR-11) + frontend (tipo) | `backend/test/integration/pnl-delivered-refunds.e2e-spec.ts`; `frontend/src/types/contract.ts` | E-7 sí |
+| E-2 front, E-9 | frontend + ux-ui | `(admin)/admin/m5/M5View.tsx`, `lib/error-audience.ts`; `components/layout/AdminSidebar.tsx:66`, `admin/AdminDashboard.tsx:128-136`, `admin/m8/*`, `admin/m6/M6View.tsx:907-908, 986-988`, `AdminPageTitles.test.tsx`, `messages/{es,en}.json` | No |
+
 ---
 
 ## 5. Decisiones transversales
@@ -29787,6 +29816,13 @@ Riesgos técnicos:
   definición afinada (gate `number ~ '^[0-9]+$'` + `printedTotal` no nulo); registrar en `docs/TECH_DEBT.md` si se
   difiere (no bloqueante — es cosmético). Decisión de producto (default propuesto): subset por prefijo alfabético no
   cuenta como secret rare.
+
+- **v1.82.1 (backend, 💰, 2026-10-05) — la decisión por carta y la conversión de buylist no guardan el estado final de la
+  carta.** (1) `PATCH /admin/buylist/items/:itemId/decision` acepta los tres verbos sobre una carta
+  `convertida_inventario` (`reject` medido por backend 1/1, `BACKEND_NOTES §59.5`; `approve`/`adjust` leído en
+  `buylist.service.ts:6859-6872`, NO MEDIDO). (2) `convertToInventory` escribe la carta sin CAS
+  (`buylist.service.ts:7503-7506`; NO MEDIDO). **Acción (backend):** `API_CONTRACT §PNL.10.2`/`.3`, pruebas BRJ-10…13.
+  **Acción (dueño, vía orquestador):** las dos consultas de solo lectura de §PNL.10.2 paso 5 en la ventana de despliegue.
 
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
