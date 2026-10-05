@@ -114,6 +114,15 @@ regexes = [
   #       backend/test/integration/stf-errata-v1-80-9-1.e2e-spec.ts (1d946722).
   '''^Otra-STF-98765$''',
   '''^Rescate-STF34-$''',
+  # claude/listo-real (2026-10-05): secretos JWT de FICCIÓN en una prueba
+  # unitaria de backend; CI (rango de la rama) los marcaba como generic-api-key.
+  # Medido: solo aparecen en backend/test/auth.session-max-age.spec.ts (6a227527),
+  # en ningún .env ni workflow; su sufijo es el alfabeto hex en orden. Por VALOR
+  # EXACTO (anclado), no por ruta:
+  #   · `ref-secret-ses-0123…`  → REFRESH_SECRET (línea 33 en 241d4dca).
+  #   · `acc-secret-ses-0123…`  → JWT_ACCESS_SECRET (línea 39 en 241d4dca).
+  '''^ref-secret-ses-0123456789abcdef0123456789$''',
+  '''^acc-secret-ses-0123456789abcdef0123456789$''',
 ]
 paths = [
   '''\.env\.example$''',
