@@ -29392,3 +29392,16 @@ este diff que con él** (N=1 cada uno); sola, `graded-estimate` da **17/17**. Es
 **Choques previstos al fusionar** (medido con `git merge-tree` contra `origin/claude/skydropx-d` y `origin/claude/arreglos-panel`): **ninguno textual en `backend/`** (`mail-shell.ts` y el spec de rutas se auto-fusionan). **Sí semánticos:** PRIV-0 se pondrá rojo con las plantillas nuevas de esas ramas (`shipmentDeliveredTemplate`, `shipmentAtBranchTemplate`, `shipmentDeliveryAttemptTemplate`; `sellItemsRejectedTemplate`) hasta que quien fusione les añada su render en `RENDERS` — es el candado haciendo su trabajo (igual que SRF-13). Todas usan `mailShell`, así que ya llevan el enlace.
 
 **Medido (copia `git archive ec9d3aae` del árbol ENTERO, 2026-10-05):** unitaria **396/396 suites, 6764/6764** (antes de este cambio, §76.8: 395/6699; además del spec nuevo entraron commits de otras ramas, así que no comparo la diferencia prueba a prueba); `tsc --noEmit` limpio. **Mutaciones** (sobre otra copia, N=1 cada una porque son deterministas): quitar la fila del aviso de `mailShell` ⇒ **47 rojas**; quitarla del `layout` de `mail/` ⇒ **11**; del `layout` de invitado ⇒ **8**; de la reposición ⇒ **2** (PRIV-1 + barrido PRIV-4); quitar el respaldo a `APP_BASE_URL` ⇒ **2** (PRIV-2). Con todo en su sitio, 64/64. **Fusión simulada** (`git merge-tree`): con `arreglos-panel`, PRIV-0 rojo solo por `sellItemsRejectedTemplate`, como se predijo; con `skydropx-d` el spec nuevo no compila en mi copia porque el cliente Prisma generado es el de esta rama (`SpendAlertKind` falta) — **NO MEDIDO** ahí; las otras dos specs de correo dan 291/291.
+
+### 76.10 Choque A de la fusión — PRIV-0 conoce las 4 plantillas que trajo la fusión (2026-10-05, sobre `1eb6bdcd`)
+
+**Medido (`grep`/lectura, 2026-10-05):** `sellItemsRejectedTemplate` (`buylist/buylist-mail.templates.ts`, correo 29, al
+vendedor) arma su HTML con `mailShell`; `shipmentDeliveredTemplate`, `shipmentAtBranchTemplate` y
+`shipmentDeliveryAttemptTemplate` (`shipments/mail/shipment-notice.templates.ts`, AV-17/18/19, al cliente) pasan por
+`carrierNotice`, que llama a `mailShell`. Las cuatro **ya llevaban el pie**; ninguna es interna. No se tocó código de
+producción: solo se añadió su render a `RENDERS` en `test/mail.privacy-footer.spec.ts` (27 → 31 plantillas; 64 → 72 pruebas).
+
+**Medido (copia `git archive 1eb6bdcd` del árbol ENTERO + este diff):** `tsc --noEmit` limpio; unitaria **427 suites, 7548
+pruebas, 1 roja**: SDX-I-8 en `sdx-d2g.units.spec.ts` (choque B, fuera de este cambio). **Mutaciones** (deterministas, N=1
+cada una): quitar el enlace al aviso del HTML de `sellItemsRejectedTemplate` ⇒ **3 rojas** (PRIV-1 ES y EN + CONTROL de
+aparición única); quitar el render de `shipmentAtBranchTemplate` del censo ⇒ **1 roja** (PRIV-0). Restaurado: 72/72.

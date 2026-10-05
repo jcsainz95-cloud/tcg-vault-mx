@@ -18,7 +18,7 @@ import { stripComments } from './helpers/strip-comments';
  * # v1.84.4 — el enlace «Aviso de privacidad» en el pie de TODOS los correos
  * (`API_CONTRACT §14.17` E4-5, criterio 507, `PROJECT §LEG.3`)
  *
- * PRIV-1 — render: cada plantilla exportada (`*Template`, las 27 del censo SRF-13) más el correo de
+ * PRIV-1 — render: cada plantilla exportada (`*Template`, las 31 del censo SRF-13 tras la fusión de `listo-real`) más el correo de
  *          reposición, en ES y EN, lleva `<a href="<origen>/es/privacidad">` con su etiqueta.
  *          **Exhaustivo por construcción:** si alguien exporta una plantilla nueva sin añadirla a
  *          `RENDERS`, PRIV-0 se pone rojo.
@@ -97,6 +97,21 @@ const RENDERS: Record<string, Render> = {
       'Ana',
       l,
     ),
+  // v1.82 · PNL-4 — correo 29, rechazo por lote (rama `arreglos-panel`; registrado al fusionar).
+  sellItemsRejectedTemplate: (l) =>
+    buylistTpl.sellItemsRejectedTemplate(
+      {
+        folio: 'BL-1',
+        cards: [{ cardName: 'Snorlax V', setName: 'SS', cardNumber: '141/202', finish: 'reverse_holo' }],
+        reason: 'No llegó en Near Mint',
+        rejectedAt: AT,
+        returnDeadlineAt: AT,
+        abandonDeadlineAt: AT,
+        requestClosed: false,
+      },
+      'Ana',
+      l,
+    ),
   sellRequestExpiredTemplate: (l) =>
     buylistTpl.sellRequestExpiredTemplate({ kind: 'no_response', folio: 'BL-1', closedAt: AT, portalUrl: PORTAL }, 'Ana', l),
   sellRequestNotPursuedTemplate: (l) =>
@@ -138,6 +153,13 @@ const RENDERS: Record<string, Render> = {
     shipmentTpl.shipmentGuideTemplate({ shipmentId: 's1', orderNumber: 'TH-1', carrier: 'Estafeta', trackingNumber: '123' }, l),
   shipmentShippedTemplate: (l) => shipmentTpl.shipmentShippedTemplate({ shipmentId: 's1', orderNumber: 'TH-1' }, l),
   shipmentCancelledTemplate: (l) => shipmentTpl.shipmentCancelledTemplate({ shipmentId: 's1', orderNumber: 'TH-1' }, l),
+  // Skydropx D2 — AV-17/18/19, la palabra del transportista (rama `skydropx-d`; registrados al fusionar).
+  shipmentDeliveredTemplate: (l) =>
+    shipmentTpl.shipmentDeliveredTemplate({ shipmentId: 's1', orderNumber: 'TH-1', carrierStatusAt: AT }, l),
+  shipmentAtBranchTemplate: (l) =>
+    shipmentTpl.shipmentAtBranchTemplate({ shipmentId: 's1', orderNumber: 'TH-1', carrier: 'Estafeta', branchName: 'Centro' }, l),
+  shipmentDeliveryAttemptTemplate: (l) =>
+    shipmentTpl.shipmentDeliveryAttemptTemplate({ shipmentId: 's1', orderNumber: 'TH-1', carrier: 'Estafeta', attemptAt: AT }, l),
   disputeRepurchaseTemplate: (l) => disputeTpl.disputeRepurchaseTemplate({ folio: 'D-1', resolution: 'ok' }, l),
   disputeRejectedTemplate: (l) => disputeTpl.disputeRejectedTemplate({ folio: 'D-1', resolution: 'no' }, l),
   kycRejectedTemplate: (l) => kycTpl.kycRejectedTemplate({ reason: 'Ilegible' }, 'Ana', l),
