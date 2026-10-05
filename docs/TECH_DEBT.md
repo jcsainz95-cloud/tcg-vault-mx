@@ -9450,3 +9450,24 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 - **Disparador:** la próxima rama que abra una sección nueva en alguna `*_NOTES`.
 - **Comprobación:** tras adoptarla, una fusión de dos ramas que abren sección cada una no produce renumeración
   (`git diff` de la fusión sin cambios de encabezado `## §N` en secciones ajenas).
+
+## Devops · 2026-10-05 · gate del techlead sobre `7bca24ce` (rama `claude/listo-real`)
+
+### TD-GITLEAKS-FICCIÓN · P3 · La allowlist de `security/gitleaks.toml` crece un literal de ficción por rama
+- **Dueños:** devops (`security/gitleaks.toml`) y backend (las pruebas que plantan los literales).
+- **Qué es:** cada rama que añade una prueba con un secreto de ficción (contraseña, token, secreto JWT) hace saltar
+  `generic-api-key` en el SAST del rango de la PR, y se cierra añadiendo 1 o 2 literales anclados por valor exacto a
+  `[allowlist].regexes`. Medido sobre `7c1cd012` (2026-10-05): **8** valores anclados en `[allowlist]`
+  (`A-Strong-Secret-123`, `asB64.length`, `tok-de-prueba-123`, `Otra-STF-98765`, `Rescate-STF34-`,
+  `operator_label_cap_24h_cents`, `ref-secret-ses-…`, `acc-secret-ses-…`) más `SUPER-SECRETO-123` en el
+  `[rules.allowlist]` de su regla; dos de ellos (`asB64.length`, `operator_label_cap_24h_cents`) son falsos positivos
+  por nombre, no ficción. Cada uno es seguro (anclado), pero la lista solo crece y cada rama paga un rojo de SAST y
+  un pase de devops.
+- **Riesgo:** bajo; no abre hueco (anclado `^…$`), es fricción y ruido de revisión en un fichero de seguridad.
+- **Dirección:** que las pruebas construyan esos secretos en tiempo de ejecución (`randomUUID()`, concatenación,
+  `'x'.repeat(n)`) para que no exista un literal que escanear, o un marcador exento acordado (p. ej. un prefijo
+  auto-delator como el de `sk_test_…dummy`, anclado y con su caso en `security/scripts/sast-gitleaks-canary.sh`).
+  Los literales que ya están en el historial se quedan (los ve `gitleaks git .`); solo deja de crecer.
+- **Disparador:** la próxima rama que necesite añadir un literal a la allowlist.
+- **Comprobación:** esa rama no añade líneas a `[allowlist].regexes` (`git diff <base> -- security/gitleaks.toml`
+  vacío en esa sección) y su SAST de rango queda verde.
