@@ -19135,8 +19135,10 @@ entrega (sale `legal.disputeWindowNote`) y **sin mencionar el contracargo** en l
    `SellRequestDetailView.tsx:289,560`. Medido con `grep SUPPORT_CONTACT_FALLBACK`.
 3. **`OrderItemStatusLine`** ramifica por `refund.kind`; el motivo de `after_delivery` sale de
    `orders.item.refundReasonAfterDelivery.*` (mapa propio por tipo, para no mezclar `MissingReason` y `ShippedRefundReason`).
-4. **M3:** `items[].orderItemId` lo emite backend pero **el contrato no lo lista** en el ítem admin
-   (`admin-orders.controller.ts:223`, comentario de backend). Tipado opcional; sin él no hay botón. **Solicitud al arquitecto.**
+4. **M3:** `items[].orderItemId` — ratificado en el contrato v1.82.1 §PNL.10 (E-6) mientras se construía; tipado
+   opcional por tolerancia, sin él no hay botón. (`784ab697` alinea además `reject-items` a `{ items, requestClosed }`.)
+   ⚠️ **Pendiente de copy (ux-ui):** FE-BRJ-4 de §PNL.10 — `409 CONFLICT { reason: 'ITEM_FINAL' }` en la decisión por
+   carta; hoy cae al copy base de `error.CONFLICT`. No se improvisa texto.
    El reintento de una fila `item_delivered` se ofrece solo al súper-admin (conservador: es dinero saliente del súper-admin).
 5. **SPEI de retiro:** el diálogo vive en `admin/refunds/` y reusa textos de `admin.m4.replace.refund.*` (referencias,
    re-escribir, bloqueo) y `pesosToCents` de M4 sin tocar M4. El mock del retiro entregado (`shp-7201`) solo aparece en
