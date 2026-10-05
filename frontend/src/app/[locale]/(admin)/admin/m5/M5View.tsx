@@ -357,7 +357,7 @@ export function M5View() {
   const bulkMutation = useMutation({
     mutationFn: (vars: { requestId: string; itemIds: string[]; reason: string }) =>
       rejectBuylistItems(vars.requestId, { itemIds: vars.itemIds, reason: vars.reason }),
-    onSuccess: async (_d, vars) => {
+    onSuccess: async (res, vars) => {
       const k = vars.itemIds.length;
       closeBulk();
       setSelectedFor(vars.requestId, []);
@@ -366,7 +366,8 @@ export function M5View() {
       // ⛔ La pantalla NO predice «se cerrará»: lo dice la solicitud RECARGADA (regla de auto-transición del servidor).
       await qc.invalidateQueries({ queryKey: ['admin-buylist'] });
       const fresh = qc.getQueryData<{ data: AdminBuylistDTO[] }>(['admin-buylist'])?.data.find((r) => r.id === vars.requestId);
-      if (fresh?.status === 'rechazada') {
+      // `requestClosed` (§PNL.10.1) lo dice el servidor; la lista recargada lo confirma.
+      if (res?.requestClosed === true || fresh?.status === 'rechazada') {
         setFeedback(null);
         setGoVerifying(false);
         setPageNotice(`${t('bulkReject.done', { k })} ${t('bulkReject.closed')}`);

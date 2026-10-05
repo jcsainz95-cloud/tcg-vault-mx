@@ -2267,8 +2267,8 @@ export interface AdminOrderDetailDTO {
   items?: (Omit<OrderItemDTO, 'refund'> & {
     refund?: PaymentRefundDTO | null;
     /**
-     * ⚠️ v1.82 — la llave de `refund-delivered`. El backend la emite (`admin-orders.controller.ts`, «pendiente de
-     * arquitecto: el contrato no lo listaba en AdminOrderItemDTO»); solicitado al arquitecto. Sin ella no hay botón.
+     * v1.82.1 (§PNL.10, E-6, ratificado): la llave de `refund-delivered` (`AdminOrderItemDTO.orderItemId: string`).
+     * Opcional aquí solo por tolerancia a un backend anterior; sin ella no hay botón.
      */
     orderItemId?: string | null;
     /** v1.82 (§PNL.2): ver `DeliveredRefundDTO`. Ausente ⇒ servidor anterior ⇒ nada que ofrecer. */
@@ -4066,6 +4066,15 @@ export interface PendingPublishRowDTO {
 export interface RejectBuylistItemsRequest {
   itemIds: string[];
   reason: string;
+}
+/**
+ * v1.82.1 (§PNL.10.1, E-1) — `200` de `reject-items`: una carta por id, EN SU ORDEN (la proyección de la decisión por
+ * carta) y `requestClosed` ⇔ ESTA llamada cerró la solicitud. El total aprobado y el estado de la solicitud no viajan:
+ * el front recarga el detalle.
+ */
+export interface RejectBuylistItemsResponse {
+  items: SellItemDTO[];
+  requestClosed: boolean;
 }
 
 export interface AdminBuylistDTO {

@@ -78,6 +78,7 @@ import type {
   RefundOrderResponse,
   RefundDeliveredItemRequest,
   RejectBuylistItemsRequest,
+  RejectBuylistItemsResponse,
   WithdrawalDeliveredPreviewDTO,
   CreateWithdrawalDeliveredRefundRequest,
   CreateWithdrawalDeliveredRefundResponse,
@@ -4947,9 +4948,12 @@ export async function decideBuylistItem(
  * (la proyección de la decisión por carta), `422 ITEM_NOT_OFFERED { itemIds }`, `409 CONFLICT { itemIds }` (o
  * sin `itemIds` si la solicitud cerró), `409 INVALID_TRANSITION { from, allowedFrom }`, `404`, `400`.
  */
-export async function rejectBuylistItems(requestId: string, body: RejectBuylistItemsRequest): Promise<unknown> {
+export async function rejectBuylistItems(
+  requestId: string,
+  body: RejectBuylistItemsRequest,
+): Promise<RejectBuylistItemsResponse> {
   if (!config.useMocks) {
-    return apiRequest<unknown>(`/admin/buylist/${requestId}/reject-items`, { method: 'POST', body });
+    return apiRequest<RejectBuylistItemsResponse>(`/admin/buylist/${requestId}/reject-items`, { method: 'POST', body });
   }
   // MOCK: espeja las guardas de §PNL.4 (en ese orden) sobre la solicitud en memoria.
   const req = fx.mockAdminBuylist.find((r) => r.id === requestId);
@@ -4988,7 +4992,7 @@ export async function rejectBuylistItems(requestId: string, body: RejectBuylistI
   // Auto-transición (§M5 «(1)»): si no queda ninguna carta de la compra sin rechazar, la solicitud se cierra sola.
   const live = req.items.filter((it) => it.offerDecision !== 'skip' && it.itemStatus !== 'rechazada');
   if (live.length === 0) req.status = 'rechazada';
-  return delay({ itemIds: body.itemIds, requestClosed: live.length === 0 });
+  return delay({ items: items.map((it) => ({ ...it! })), requestClosed: live.length === 0 });
 }
 
 /**

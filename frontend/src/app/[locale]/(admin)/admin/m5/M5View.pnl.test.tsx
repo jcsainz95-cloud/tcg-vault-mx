@@ -70,7 +70,7 @@ beforeEach(() => vi.restoreAllMocks());
 
 describe('BRJ-UI-1 · «Rechazar seleccionadas» manda los `itemIds` exactos, sin la `skip`', () => {
   it('la `skip` no tiene casilla ni cuenta en «todas»; 2 de 3 `buy` ⇒ `itemIds` exactos y el motivo recortado', async () => {
-    const spy = vi.spyOn(api, 'rejectBuylistItems').mockResolvedValue({});
+    const spy = vi.spyOn(api, 'rejectBuylistItems').mockResolvedValue({ items: [], requestClosed: false });
     await render('verificacion', THREE_BUY_ONE_SKIP());
     expect(screen.getByLabelText('Todas las que se pueden rechazar (3)')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /Squirtle/ })).not.toBeInTheDocument();
@@ -95,7 +95,7 @@ describe('BRJ-UI-1 · «Rechazar seleccionadas» manda los `itemIds` exactos, si
   });
 
   it('«Rechazar todas (3)» marca las tres rechazables y abre el MISMO diálogo', async () => {
-    const spy = vi.spyOn(api, 'rejectBuylistItems').mockResolvedValue({});
+    const spy = vi.spyOn(api, 'rejectBuylistItems').mockResolvedValue({ items: [], requestClosed: false });
     await render('verificacion', THREE_BUY_ONE_SKIP());
     fireEvent.click(screen.getByRole('button', { name: 'Rechazar todas (3)' }));
     const dialog = await screen.findByRole('dialog', { name: 'Rechazar 3 cartas' });
@@ -108,6 +108,20 @@ describe('BRJ-UI-1 · «Rechazar seleccionadas» manda los `itemIds` exactos, si
     await render('aceptada', THREE_BUY_ONE_SKIP());
     expect(screen.queryByTestId('m5-bulk-bar-sr-pnl')).not.toBeInTheDocument();
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+  });
+});
+
+describe('§60.5 c · tras el 200, la solicitud cerrada lo dice la PÁGINA', () => {
+  it('`requestClosed: true` (§PNL.10.1) ⇒ aviso de página con las dos frases', async () => {
+    vi.spyOn(api, 'rejectBuylistItems').mockResolvedValue({ items: [], requestClosed: true });
+    await render('verificacion', THREE_BUY_ONE_SKIP());
+    fireEvent.click(screen.getByRole('button', { name: 'Rechazar todas (3)' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar 3 cartas' });
+    fireEvent.change(within(dialog).getByTestId('m5-bulk-reason'), { target: { value: 'mala condición' } });
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-confirm'));
+    expect(await screen.findByTestId('m5-page-notice')).toHaveTextContent(
+      '3 cartas rechazadas. Se le avisa al vendedor en un solo correo. La solicitud quedó cerrada: no queda ninguna carta por aprobar.',
+    );
   });
 });
 
