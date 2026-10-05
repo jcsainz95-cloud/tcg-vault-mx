@@ -207,14 +207,23 @@ test.describe('seguimiento público · /pedido', () => {
     page,
   }) => {
     const neutralTitle = t('es', 'track.neutral.title');
+    // La línea de soporte la pinta `useSupportContact`, que resuelve DESPUÉS del título (consulta
+    // asíncrona; si falla cae al contacto por defecto, así que siempre acaba apareciendo). Leer
+    // `innerText` sin esperarla comparaba una pantalla a medio pintar con otra completa (QA, mocks,
+    // 7bca24ce: 5/20 rojas). Se espera a que esté en AMBAS antes de leer; la conducta del componente
+    // no cambia. Solo el prefijo: el contacto es dato del servidor (o el valor por defecto).
+    const supportPrefix = t('es', 'track.neutral.support').split('{contact}')[0];
+    const neutral = page.getByTestId('tracking-neutral-state');
 
     await page.goto('/es/pedido?token=token-inventado');
     await expect(page.getByRole('heading', { level: 1, name: neutralTitle })).toBeVisible();
-    const bodyInvalid = await page.getByTestId('tracking-neutral-state').innerText();
+    await expect(neutral.getByText(supportPrefix)).toBeVisible();
+    const bodyInvalid = await neutral.innerText();
 
     await page.goto('/es/pedido?token=mock-expired-token');
     await expect(page.getByRole('heading', { level: 1, name: neutralTitle })).toBeVisible();
-    const bodyExpired = await page.getByTestId('tracking-neutral-state').innerText();
+    await expect(neutral.getByText(supportPrefix)).toBeVisible();
+    const bodyExpired = await neutral.innerText();
 
     // Mismo texto EXACTO en ambos casos: la pantalla no es un oráculo.
     expect(bodyExpired).toBe(bodyInvalid);
