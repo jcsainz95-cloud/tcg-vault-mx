@@ -28149,3 +28149,104 @@ con exactamente 5 individuales + 5 al lote (también 10/10 en `55b82ecb` y en la
 6. **Las pruebas de claves exactas** de otros streams (`account-profile`, `pricing-visibility`, `users.me-and-addresses`,
    `admin.users-kyc-filter`) se tocaron por §19.30.3 (`isOwner`); `test/helpers/query-axis-cross.ts` (las listas de C-EQ-1)
    también. Fuera de la columna literal de §19.32.9, pero forzadas por el contrato — el orquestador lo comprueba.
+
+## 66 · Costuras C1 y C2 construidas (`API_CONTRACT §M4-SHIP.19.33.9`, errata v1.80.12.14 con G2 y G4 de §19.33.7) (2026-10-05, rama `claude/skydropx-d`, desde `d5ceaf26`; código en `a4758aa6` (C1) y `604f7edb` (C2) + el commit de esta sección)
+
+### 66.1 Qué se construyó y dónde
+
+- **C1 — `jobs/`:** `jobs.module.ts` importa `SpendAlertsModule` (sin ciclo: `SpendAlertsModule` no importa `JobsModule`).
+  `scheduler.service.ts` inyecta `SpendWatchService` y `SpendDigestService` con `@Optional()` (el patrón de D2d, §64.2 (14):
+  sin ellos no se programan y se loguea `error`) y programa en `tcg-daily`: `spend-watch` (`SPEND_WATCH_CRON`, defecto
+  `*/5 * * * *`, `jobId` `spend-watch-cron`) y `spend-digest` (`SPEND_DIGEST_CRON`, defecto `0 8 * * *` **con
+  `tz: 'America/Mexico_City'`**, `jobId` `spend-digest-daily`). El worker llama `SpendWatchService.run()` y
+  `SpendDigestService.run({})`. Single-flight: el candado consultivo de cada servicio (nada nuevo).
+  - ⭐ **El enrutado del worker pasa a un método `SchedulerService.process(job)`** (antes un cierre dentro de `setup`; el
+    cuerpo del `switch` no cambió). Razón: que la integración recorra el MISMO camino que el cron con el AppModule real y sin
+    Redis — así «quitar el `case` de `spend-watch`» pone roja también la (c) de PS-172, como pide el contrato.
+- **C1 — `admin-jobs.controller.ts`:** `POST /admin/jobs/spend-watch` (sin cuerpo) y `POST /admin/jobs/spend-digest {day?}`;
+  súper-admin (de la clase), `200` con el resultado de `run`, auditados `jobs.spend_watch.run` / `jobs.spend_digest.run`
+  (`entityType 'Job'`; el de resumen guarda `after.requestedDay`). `day` fuera de `YYYY-MM-DD` (o día imposible, `isYmd` de
+  `mx-day.ts`) ⇒ `400 VALIDATION_ERROR {field:'day'}` sin correr ni auditar. Servicio ausente ⇒ `404` (como D2d).
+- **G2 — `spend-alerts/`:** `SpendFactValue = string | number | boolean | string[] | null | { userId: string; name: string |
+  null }` en `spend-alerts.service.ts`; `SpendFacts = Record<string, SpendFactValue>`; `FactValue` (el de `SpendAlertDTO.facts`
+  y de las plantillas) es ese mismo tipo. Fuera los dos `as unknown as SpendFacts` (AG-21 en `spend-watch.service.ts`, AG-22 en
+  `staff-control.service.ts`).
+- **G4:** llave de AG-21 = `ag21:<anterior|none>:<actual|none>:<now ISO de la corrida>`.
+- **C2:** `'GET /admin/shipments/departure::date'` en `NO_ENUM_POR_RUTA` (`test/helpers/query-axis-cross.ts`) y techo
+  **50 → 51** en `enum-query-axes.e2e-spec.ts`, con la razón al lado (fecha `YYYY-MM-DD`; `parseDepartureDate` de
+  `departure.service.ts` responde `400 {field:'date'}` fuera de forma).
+
+### 66.2 Medido (no supuesto)
+
+- **BullMQ admite `tz`:** `package-lock.json:4011-4012` fija `bullmq` **5.81.3**; su `RepeatOptions` extiende `ParserOptions`
+  de `cron-parser` (**4.9.0**, que declara `tz?: string`), y `getNextMillis` pasa las opciones a `parseExpression`. Medición
+  directa con la librería instalada: `getNextMillis(2026-10-05T10:00Z, {pattern:'0 8 * * *', tz:'America/Mexico_City'})` ⇒
+  **`2026-10-05T14:00:00.000Z`** (08:00 MX); sin `tz` ⇒ `2026-10-06T08:00Z`. Por eso NO se usa el `0 14 * * *` UTC de reserva.
+- **AG-22 `target` lleva `role`** (§19.30.2 (3): `target: {userId, name, role} | null`) y el correo lo usa (`targetOf` en
+  `spend-alert-text.ts`). Ver 66.5 (1).
+
+### 66.3 Decisiones que el contrato no fijaba
+
+1. `{day: null}` y `{day: ''}` ⇒ `400 {field:'day'}` (solo la AUSENCIA del campo es «sin día»). El DTO usa `@Allow()` para que
+   el `ValidationPipe` global (whitelist) no se coma el campo; la forma la valida el controlador (medido por HTTP en PS-172 (c)).
+2. Con `day` válido, `spend-digest` responde lo que dé `run` (p. ej. `skipped` para un día que nunca corrió: el re-envío manual
+   solo re-manda un `failed`, §65).
+3. `spend-watch` usa `repeatEvery` (sufijo `-cron`, alta frecuencia como los de D2d); `spend-digest` un `repeatTz` nuevo (sufijo
+   `-daily`, con `tz`).
+
+### 66.4 Pruebas
+
+| Prueba | Fichero | Qué |
+|---|---|---|
+| PS-172 (a) | `test/sdx-c1.scheduler.spec.ts` (nuevo) | crons por defecto (con `tz`) y por env; enrutado de los dos nombres; sin servicios ⇒ no se programan, `error` en el log, worker devuelve `null` |
+| PS-172 (b) | `src/jobs/admin-jobs.controller.spec.ts` (bloque nuevo) | los dos disparos auditan, `200`, `day` mal formado `400 {field:'day'}` (7 formas), sin servicio `404` |
+| PS-172 (c) | `test/integration/sdx-c1-jobs.e2e-spec.ts` (nuevo) | AppModule real: el planificador recibe los dos servicios; 🔴 `pending` sembrado ⇒ `POST …/spend-watch` ⇒ `sent` + correo a la dueña + auditoría (operador `403`); lo mismo por `process({name:'spend-watch'})` (el camino del cron); `spend-digest` por HTTP: `400 {field:'day'}` ×4, `200` auditado; cero `purchase` en el doble |
+| G2 | `test/sdx-c1.facts-type.spec.ts` (nuevo) | igualdad de tipos `SpendFacts` ≡ `Record<string, SpendFactValue>` ≡ `SpendAlertDTO['facts']` (la juzga el compilador) + censo «ningún `as unknown as SpendFacts` en `src/`» |
+| PS-160 (G4) | `test/integration/sdx-d2g-watch.e2e-spec.ts` (ampliada) | A→B→A→B ⇒ **3** AG-21 distintos, `occurrenceCount` 1, cada uno con correo individual a A y a B (6 correos); llave con el instante; corrida sin cambio ⇒ nada |
+
+Fichero tocado fuera de lo nombrado: `test/sdx-d2g.units.spec.ts` (una línea: el `target` de AG-22 con `role` pasa a variable,
+porque con G2 el literal con `role` ya no compila en una posición tipada — ver 66.5 (1)).
+
+**Rojo primero (medido):** con las pruebas nuevas y el `src` de `d5ceaf26`, las tres suites unitarias no compilan
+(`SpendFactValue` no existe; `runSpendWatch`/`runSpendDigest` no existen; el constructor no admite los dos servicios). La
+integración, roja por mutación (abajo).
+
+**Suites completas** sobre una copia `git archive 604f7edb` del árbol ENTERO (scratchpad `be-c1c2/tree`, BD propia `tcg_be_c1c2`
+recreada, `stack-native.sh test:integration` con pool 5):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **409/409 suites · 7106/7106** |
+| Integración | **95/95 suites · 1927/1927** — sin la roja de `C-EQ-1` (§64.3, §65.4) |
+| `tsc --noEmit`, `eslint` de los ficheros tocados | 0 errores, 0 avisos |
+
+Carga: hasta 17 durante la unitaria (otros agentes vivos), 5–9 durante la integración; ninguna roja.
+
+**Mutaciones** (copia `be-c1c2/mut` = `d5ceaf26` + el diff de C1/C2; `mut.py` aplica UNA, corre su prueba y restaura;
+logs `logs/mut-*.log`). Deterministas; todas **rojas**:
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | quitar el `case 'spend-watch'` | PS-172 (a) y (c) | (a) rojo 1; (c) rojo 1 («camino del cron»: el aviso se queda `pending`) |
+| M2 | quitar el `case 'spend-digest'` | PS-172 (a) | rojo 1 |
+| M3 | `spend-digest` sin `tz` | PS-172 (a) | rojo 2 |
+| M4 | no programar `spend-watch` | PS-172 (a) | rojo 2 |
+| M5 | llave AG-21 sin instante | PS-160 (G4) | rojo **3/3** (N = 3), «Expected: 3 · Received: 2» |
+| M6 | acción de auditoría equivocada | PS-172 (b) | rojo 1 |
+| M7 | `day` sin validar la forma (solo `typeof string`) | PS-172 (b) | rojo 1 |
+| M8 | `jobs.module` sin importar `SpendAlertsModule` | PS-172 (c) | rojo 4/4 (cableado, `404` en los disparos) |
+| M9 | `SpendFactValue` con `{[k:string]: unknown}` | G2 | rojo (no compila: `Equal<…>` falso) |
+| M10 | el cron corre `run({day})` en vez de `run({})` | PS-172 (a) | rojo 1 |
+| C2-a | sin la línea `departure::date` | `C-EQ-1` «ningún `@Query` fuera de las CINCO listas» | rojo 1 |
+| C2-b | techo de vuelta a 50 | `C-EQ-1` TRINQUETE | rojo 1 |
+
+PS-99: ninguna prueba ni job nuevo compra; `sdx-c1-jobs` asevera `callsOf('purchase') = 0` en el doble.
+
+### 66.5 Preguntas al arquitecto
+
+1. **G2 «⛔ sin más formas» frente a AG-22 `target: {userId, name, role}` (§19.30.2 (3)).** El tipo de G2 es `{userId; name}`
+   y el `target` construido (y el que el contrato describe) lleva además `role`, que el correo usa. Construido: `role` se
+   conserva y viaja como **subtipo** del objeto persona (sin cast; TypeScript lo admite por estructura fuera de un literal
+   fresco). El DTO del front no lo nombra. ¿Se añade `role?: Role` al objeto de `SpendFactValue`, o se quita `role` de
+   `facts.target` (y el correo lo lee de otro sitio)? Mientras tanto no se pierde nada de lo que el correo dice hoy.
+2. `{day: null}` / `{day: ''}` ⇒ `400` (66.3 (1)). ¿Se confirma, o `null` cuenta como ausente?
