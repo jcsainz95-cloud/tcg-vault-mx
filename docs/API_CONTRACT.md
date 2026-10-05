@@ -2,8 +2,22 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.3**, tercera
-> errata de v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes v1.84.2, v1.84.1, v1.80.10 y v1.80.9.1).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.4**, cuarta
+> errata de v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes v1.84.3, v1.84.2, v1.84.1, v1.80.10 y v1.80.9.1).
+>
+> **Errata v1.84.4 — AVISO DE PRIVACIDAD EN «MODO PROVISIONAL» (2026-10-05, arquitecto, árbol `/home/user/tcg-real`,
+> rama `claude/listo-real`, HEAD dado por el orquestador `aa71664a`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
+> Origen: decisión del dueño `HECHOS.md` fila 2026-10-05 «**Salir en vivo SIN datos fiscales del aviso de privacidad; se
+> regulariza después**» (sesión 6; riesgo legal **aceptado por el dueño**). Norma entera: [§14.17](#LIVE-E4). Porqué:
+> `ARCHITECTURE §4.63.14`. ⛔ **Sin schema, sin migración, sin enum, sin código de error, sin endpoint, sin forma nueva.**
+>
+> | # | Decisión | ¿Cambia conducta? | Construye · cuándo |
+> |---|---|---|---|
+> | E4-1 | **Se publica el aviso** (no 404) con todo lo que es cierto; razón social, RFC y domicilio se sustituyen por **una frase fija y honesta** (sin corchetes, sin «en trámite»). Contacto: `soporte@tcghunt.mx` | Sí (`/privacidad` sirve; los 7 sitios enlazan solos) | frontend · antes del cambio a `sk_live_` |
+> | E4-2 | Los **demás** marcadores del borrador (notas al abogado, `SUPUESTO`, fecha, plazos, Skydropx, autoridad, cookies) **no** son datos fiscales: se resuelven por la tabla de E4-2, sin inventar nada. ⛔ Ningún corchete pasa a «permitido» | Sí (texto) | frontend (transcribe) · product-owner (nota en `PROJECT §LEG`) |
+> | E4-3 | Gate: `pendingOwnerData ⊆ {razonSocial, rfc, domicilio}` declarado en el documento + frase fija ⇒ `published`. `check:legal` se parte en **`check:legal:provisional`** (casilla de hoy) y **`check:legal`** (final, intacto: rojo mientras haya `pendingOwnerData` o `legalEntity` entre corchetes). Pruebas **LEG-P1…P7** | Sí (candado) | frontend |
+> | E4-4 | §14.10 «Antes»: la casilla legal pasa a `check:legal:provisional` + QA 500–508 **con las excepciones aceptadas** escritas; casilla nueva **«Regularización legal»** que cierra cuando lleguen P-LEG-1…3 | No (procedimiento) | devops transcribe a `DEVOPS_NOTES §83.7` |
+> | E4-5 | ⚠️ **Hallazgo del arquitecto:** el enlace «Aviso de privacidad» en el **pie de los correos** (criterio 507, `PROJECT §LEG.3`) **no está construido** y E-9 no lo listaba. **No** lo cubre la excepción del dueño | Sí (correos) | backend · antes del cambio a `sk_live_` |
 >
 > **Errata v1.84.3 — RESPUESTA A `FRONTEND_NOTES §94.6` (CSP-5 y LIVE-2) (2026-10-05, arquitecto, árbol
 > `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `a047c3cb`; ⛔ sha NO MEDIDO por el
@@ -31600,14 +31614,40 @@ Devops la transcribe a `DEVOPS_NOTES.md` como sección propia (con casillas) y l
 C3 = 0; respaldo del día existente (§14.11); cuenta de Stripe **activada** para cobrar y depositar en MX (verificación
 del negocio y cuenta bancaria — solo el dueño lo ve, §14.13 P-2).
 **v1.84.2 (E2-1), casilla propia — lo legal (criterios 500–508, que bloquean el paso a modo real, `PROJECT.md:11702`):**
-- ☐ **`npm run check:legal` verde (criterios 500–508)** sobre el sha que está en producción. Mientras falte un lote de
+- ~~☐ **`npm run check:legal` verde (criterios 500–508)** sobre el sha que está en producción. Mientras falte un lote de
   enlaces (§14.14 E-9) o el texto tenga marcadores, sale rojo y **nombra** lo que falta: no se empieza. Lo corre devops
-  (o el CI) y la guía cita el run; el dueño solo mira la casilla.
+  (o el CI) y la guía cita el run; el dueño solo mira la casilla.~~ **v1.84.4 ([§14.17 E4-4](#LIVE-E4)):** sustituida por
+  la casilla «modo provisional» de abajo.
 - ⚠️ `check:legal` mide **501** (marcadores, `frontend/src/content/legal/publish-ready.test.ts`) y **503–505** (los siete
   sitios, `privacy-sites.ts`); **no** mide 500, 502, 506, 507 ni 508 (página sin sesión, contenido frente a lo que se
   recaba, razón social en pie y correos, buzón de privacidad que recibe — leído por el arquitecto el 2026-10-05). Por
-  eso la casilla lleva una segunda línea: ☐ **QA aprobó 500–508 contra la tienda publicada** (veredicto citado con su
-  sha). Las dos o no se empieza.
+  eso la casilla lleva una segunda línea: ~~☐ **QA aprobó 500–508 contra la tienda publicada** (veredicto citado con su
+  sha). Las dos o no se empieza.~~ (v1.84.4: ver abajo; sigue valiendo «las dos o no se empieza».)
+
+**v1.84.4 (E4-4) — casilla legal en MODO PROVISIONAL.** ⚠️ **Excepción aceptada por el dueño, no por el equipo:**
+`HECHOS.md` fila 2026-10-05 (sesión 6) «**Salir en vivo SIN datos fiscales del aviso de privacidad; se regulariza
+después**» — «Por el momento salimos sin datos fiscales nos regularizamos rápido». La excepción cubre **solo** razón
+social, RFC y domicilio (P-LEG-1…3). Nada más.
+- ☐ **`npm run check:legal:provisional` verde** sobre el sha que está en producción (lo corre devops o el CI; la guía cita
+  el run). Exige: **cero** marcadores en el aviso; `pendingOwnerData` ⊆ {razón social, RFC, domicilio} y coherente con
+  la frase fija de E4-1; `updatedAt` con fecha real; **los siete sitios** de E-9. ⛔ Los sitios 3 (`GuestCheckoutForm`,
+  tras F-SKY) y 7 (`pedido/layout.tsx`, tras F-PNL) **siguen bloqueando**: no los cubre la excepción. Rojo ⇒ no se empieza.
+- ☐ **QA aprobó 500–508 contra la tienda publicada, con las excepciones de [§14.17 E4-5](#LIVE-E4) y solo esas**
+  (veredicto citado con su sha). QA marca cada criterio `cumple` / `excepción aceptada (HECHOS 2026-10-05)`; una tercera
+  categoría (p. ej. «no construido») ⇒ no se empieza.
+- ☐ **El dueño leyó el aviso tal como queda en producción** (`https://tcghunt.mx/es/privacidad`): el texto es el
+  borrador del product-owner **sin** validar por su abogado (P-LEG-4). El orquestador lo pone en la solicitud de fusión
+  `main → production`, junto a la excepción, para que lo lea donde está el botón.
+
+**v1.84.4 (E4-4) — casilla nueva, DESPUÉS del cambio: «Regularización legal» (pendiente prioritario, `HECHOS.md`
+2026-10-05 (c)).** Se abre cuando el dueño entrega P-LEG-1…3 y se cierra con:
+- ☐ Frontend sustituye la frase fija de E4-1 por los datos, vacía `pendingOwnerData`, y carga `common.footer.legalEntity`
+  en `es.json` y `en.json` (mismo valor, criterio 506); backend pone la razón social en el pie de los correos (507).
+- ☐ **`npm run check:legal` (final) verde** — el de siempre: rojo mientras quede un `pendingOwnerData` o `legalEntity`
+  entre corchetes.
+- ☐ **QA aprobó 500–508 completos, sin excepciones**, contra la tienda publicada (sha citado).
+- ☐ Solo entonces se borra la excepción de esta guía. Si llega a la vez el texto del abogado (P-LEG-4), sustituye al
+  borrador entero, verbatim (como dice `privacidad.es.ts`).
 
 1. **Stripe (modo live) → Developers → Webhooks → Add endpoint.** URL: `https://<dominio-del-backend>/api/v1/webhooks/stripe`
    (la misma ruta que el endpoint de prueba). **Versión de API: `2024-06-20`** (la fijada en `stripe.service.ts:136`).
@@ -31949,3 +31989,132 @@ dispara».
   cambia ningún contrato.
 - Deuda: ninguna. Cuando F-SKY y F-PNL estén en `main` **no** hay que mover el mecanismo a los guards: centralizarlo en
   el login es más simple que repetirlo en dos guards.
+
+### <a id="LIVE-E4"></a>14.17 Errata v1.84.4 — aviso de privacidad en «modo provisional» (2026-10-05, NORMATIVA)
+
+Origen: `HECHOS.md` fila 2026-10-05 (sesión 6) «**Salir en vivo SIN datos fiscales del aviso de privacidad; se
+regulariza después**»: (a) riesgo legal **aceptado por el dueño**; (b) el arquitecto define qué se publica y cómo queda la
+casilla; ⛔ no se inventan datos; (c) P-LEG-1…3 siguen abiertos como prioritarios. Árbol leído: `/home/user/tcg-real`
+(HEAD dado por el orquestador `aa71664a`, ⛔ NO MEDIDO por el arquitecto). Porqué: `ARCHITECTURE §4.63.14`.
+⛔ Sin schema, migración, enum, código de error, endpoint ni forma nueva.
+
+**Estado de hoy (leído por el arquitecto, 2026-10-05):** `privacidad.es.ts` tiene marcadores en §1 (razón social, RFC,
+domicilio, correo — `:39`, `:53-56`) **y en otros nueve sitios que no son fiscales** (`:43`, `:82-84`, `:115`, `:122-123`,
+`:141`, `:151-154`, `:166-167`, `:194`, `:207`, `:224`, `:235-236`, `:247-249`) ⇒ `privacyVisibility` = `hidden` en
+producción (`legal-gate.ts:65-72`) ⇒ `/privacidad` 404, el pie no enlaza (`footer.ts:28-30`) y los sitios del lote 1
+pintan la frase sin enlace. `common.footer.legalEntity` = `[Razón social pendiente]` / `[Legal entity pending]`
+(`messages/es.json:11`, `en.json:11`), oculto por `resolveLegalEntity` (`footer.ts:16-21`). Ningún otro corchete en
+`es.json` (Grep). Correos: `grep -ri "privacidad" backend/src` = solo `guest-checkout.dto.ts` ⇒ **ningún correo enlaza el
+aviso** (E4-5).
+
+#### E4-1 · Decisión: se publica el aviso; los datos fiscales, con una frase fija y honesta (frontend)
+- **Se publica** `/privacidad` (ES y EN, como hoy) en vez del `404`. Porqué en `ARCHITECTURE §4.63.14`; en una línea:
+  sin aviso se incumple **todo** el deber de informar (y los siete sitios dicen «aceptas el Aviso de privacidad» sin que
+  exista); con el aviso provisional se incumple **una** parte (identidad y domicilio), y el resto —qué datos, para qué,
+  con quién, derechos ARCO y a dónde escribir— queda dicho y es cierto.
+- **Apartado 1 «Quién es el responsable de tus datos.» — texto normativo provisional** (sustituye los dos párrafos de
+  `privacidad.es.ts:49-58`; ⛔ frontend lo copia literal, sin «mejorarlo»):
+  1. «El responsable del tratamiento de tus datos personales cuando usas **tcghunt.mx** es quien opera la tienda
+     **TCG HUNT** (en adelante, «TCG HUNT»).»
+  2. `PROVISIONAL_FISCAL_TEXT` (constante exportada; frase **fija**): «**Nombre o razón social, RFC y domicilio del
+     responsable:** todavía no están publicados en este aviso. Los añadiremos aquí en cuanto estén disponibles, con su
+     fecha de actualización. Mientras tanto, puedes dirigir cualquier solicitud sobre tus datos personales al correo
+     de abajo.»
+  3. «Contacto para todo lo relacionado con tus datos: **soporte@tcghunt.mx**.»
+- **Correo:** `OWNER_EMAIL` = **`soporte@tcghunt.mx`** (se usa en §1 y §7). Es el buzón que **recibe** hoy
+  (`DEVOPS_NOTES.md:6226-6227`, «Buzón recibe — cumplido»). `privacidad@tcghunt.mx`: **NO MEDIDO** que exista ⇒ ⛔ no se
+  publica. Si el dueño lo crea, se cambia en la regularización (y 508 se re-mide).
+- ⛔ **No** «en trámite de registro» ni equivalentes: afirma un trámite en curso que nadie ha medido (`HECHOS` dice «nos
+  regularizamos rápido», no que haya un trámite). ⛔ No «TCG HUNT» como razón social: es la marca, no la persona.
+- **`common.footer.legalEntity` no cambia** (sigue `[Razón social pendiente]` / `[Legal entity pending]`): es el
+  centinela que el `check:legal` **final** caza, y `resolveLegalEntity` ya lo oculta ⇒ el pie dice «TCG HUNT ·
+  tcghunt.mx · © 2026» (honesto). ⛔ No ponerlo vacío ni «TCG HUNT» (lo segundo pondría verde el final sin dato).
+- **Sitios inline y pie:** **cero trabajo**. `PrivacyNoticeLink`/`PrivacySiteNote` usan la misma decisión del gate
+  (E-9): en cuanto el documento sale `published`, enlazan solos.
+
+#### E4-2 · Los demás marcadores NO son fiscales: cómo se resuelve cada uno (frontend transcribe; PO anota)
+Regla: ⛔ **`MARKER_PATTERNS` (`legal-gate.ts:10-19`) no se toca** — ningún patrón se quita ni se relaja; ningún
+corchete pasa a «permitido». Cada marcador se resuelve **quitándolo** o con una frase que es cierta sin el dato.
+
+| `privacidad.es.ts` | Hoy | Provisional | Por qué no inventa |
+|---|---|---|---|
+| `:43` `updatedAt` | `[FECHA DE PUBLICACIÓN]` | Fecha real del commit que deja el documento sin marcadores (formato que ya pinta la vista); si F2 cae otro día, se ajusta en el mismo PR | es la fecha del hecho |
+| `:42` `version` | `0.1-borrador-po-…` | `0.2-provisional-2026-10-05` (no se pinta) | — |
+| `:82-84` | dos `[nota para el abogado: …]` | se borran (con su corchete); las frases de fuera quedan | son notas internas; la pregunta sigue en P-LEG-10 |
+| `:115` | `[SUPUESTO / default de P-LEG-8:]` | se borra el prefijo; la frase queda | describe lo que la tienda hace: no manda publicidad |
+| `:122-123` | párrafo entero de nota al abogado | se borra | nota interna |
+| `:141` | `**Paqueterías** [y **Skydropx**, cuando opere]` | «**Paqueterías**». **Skydropx** se añade como fila propia **en el mismo cambio que construye el lote 2** de E-9 (tras F-SKY), con `updatedAt` nuevo | criterio 502: «más Skydropx si ya opera al publicar» |
+| `:151-154` | dos notas al abogado | se borran; «pueden guardar datos fuera de México», «autoridades», «No vendemos tus datos» quedan | notas internas |
+| `:166` | `**[DATO DEL DUEÑO / CONTADOR: plazo]**` | «**por el plazo que exigen las disposiciones fiscales aplicables**» | sin cifra: la cifra es del contador |
+| `:167` | `**[DATO DEL DUEÑO: plazo — P-LEG-11]**` | «los conservamos mientras sean necesarios para atender aclaraciones y cumplir obligaciones legales; publicaremos aquí el plazo concreto.» | sin cifra. ⚠️ P-LEG-11 **no** es fiscal ⇒ no lo cubre la excepción; no rompe ningún 500–508 (500 pide el apartado, que existe). Va a la casilla de regularización |
+| `:194` | nota al abogado sobre plazos ARCO | se borra; «20 días hábiles» / «15 días hábiles» quedan (borrador PO) | nota interna |
+| `:207` | `**[nota para el abogado: nombrar la autoridad vigente]**` | «la **autoridad competente en materia de protección de datos personales**» | cuál es la autoridad vigente: NO MEDIDO por el arquitecto ⇒ no se nombra |
+| `:224` | `[Lista exacta: … criterio 509.]` | se borra el párrafo | 509 no está en 500–508; sigue abierto |
+| `:235-236` | `[SUPUESTO: … aviso por correo … P-LEG-13.]` | se borra | no se promete un correo que no está construido |
+| `:247-249` | nota al abogado (aceptación) | se borra | nota interna; P-LEG-10 sigue abierto |
+
+Cabecera del fichero (`:1-17`): frontend la reescribe diciendo «provisional — HECHOS 2026-10-05 (sesión 6)», qué falta
+(P-LEG-1…3, P-LEG-11, P-LEG-4) y que la regularización es la casilla de §14.10. **Product-owner:** nota fechada en
+`PROJECT.md §LEG.2/§LEG.3` y junto a los criterios 500, 501, 506 y 507 citando la fila de HECHOS (ver §4.63.14: hoy
+`PROJECT §LEG.3` dice «pasar a modo real queda condicionado a … datos reales», y `PROJECT` manda sobre este contrato).
+
+#### E4-3 · Gate y candados (frontend)
+**Modelo** (firmas; nombres de fichero a elección de frontend dentro de `src/content/legal/`):
+```
+type PendingOwnerDatum = 'razonSocial' | 'rfc' | 'domicilio'          // unión CERRADA: nada más compila
+interface LegalDocument { …; pendingOwnerData: readonly PendingOwnerDatum[] }   // [] = documento final
+export const PROVISIONAL_FISCAL_TEXT: string                          // frase de E4-1 punto 2
+provisionalProblems(doc): string[]
+  // (a) pendingOwnerData ≠ [] y la sección 'responsable' NO contiene PROVISIONAL_FISCAL_TEXT literal ⇒ problema
+  // (b) pendingOwnerData = [] y el documento SÍ la contiene ⇒ problema
+  // (c) valor fuera de {razonSocial, rfc, domicilio} o repetido (guarda en tiempo de ejecución) ⇒ problema
+privacyVisibility(doc, env): 'published' si findLegalMarkers(doc) = [] Y provisionalProblems(doc) = []; si no, como hoy
+legalPublishProblems(mode: 'provisional' | 'final', { doc, messages: {es, en}, siteSources }): string[]
+  // ambos modos: marcadores, provisionalProblems, los SIETE sitios (LEG-5), updatedAt sin marcador
+  // solo 'final': pendingOwnerData ≠ [] ⇒ «faltan P-LEG-1…3: …»; legalEntity vacío o entre corchetes (es o en) ⇒ problema
+```
+- `package.json`: `check:legal` = modo **final** (sin cambio de significado; `LEGAL_PUBLISH_CHECK=1` sigue siendo final);
+  `check:legal:provisional` = modo **provisional**. `publish-ready.test.ts` llama a `legalPublishProblems` y espera `[]`.
+- **Pruebas en la suite normal** (funciones puras con fixtures; no detrás de la variable):
+
+| # | Caso | Mutación que debe ponerla roja |
+|---|---|---|
+| LEG-P1 | El `privacyNoticeEs` real (provisional, coherente) ⇒ `privacyVisibility({vercelEnv:'production'})` = `published`; la página responde con el h1 y la frase fija; el pie enlaza | exigir `pendingOwnerData = []` para `published` |
+| LEG-P2 | El mismo documento + un `[DATO DEL DUEÑO: RFC]` en cualquier sección ⇒ `hidden` en producción y `legalPublishProblems('provisional')` lo nombra | saltarse `findLegalMarkers` cuando hay `pendingOwnerData` |
+| LEG-P3 | Incoherencia en los dos sentidos ((a) y (b)) ⇒ `hidden` en producción y problema nombrado | quitar (a); quitar (b) — una mutación cada una |
+| LEG-P4 | `legalPublishProblems('final', reales)` con `pendingOwnerData ≠ []` ⇒ nombra razón social, RFC y domicilio; `legalEntity` entre corchetes ⇒ final rojo y provisional verde | que el modo final use las reglas del provisional |
+| LEG-P5 | `pendingOwnerData` con `'correoPrivacidad'` (forzado con cast) ⇒ problema en los dos modos | quitar la guarda (c) |
+| LEG-P6 | Modo provisional con un sitio de los siete sin el componente ⇒ rojo nombrando el sitio | que el modo provisional se salte LEG-5 |
+| LEG-P7 | El documento real lleva `soporte@tcghunt.mx` en §1 y §7 (misma constante) y no contiene «trámite» | cambiar el correo de §7 por otro |
+- LEG-4 de hoy (`page.test.tsx`, 404 con marcadores en producción) **se queda**, con fixtures con marcadores.
+- Frontend reporta cada mutación (determinista: N=1 por mutación basta, dicho como tal) y el resultado de
+  `npm run check:legal:provisional` y de `npm run check:legal` (este último **debe salir rojo** nombrando P-LEG-1…3
+  y, si aún faltan, los sitios 3 y 7).
+
+#### E4-4 · §14.10 y la guía de devops
+§14.10 «Antes» lleva la casilla legal en modo provisional (tres líneas) y la casilla nueva «Regularización legal»
+(texto en §14.10). **Devops** la copia a `DEVOPS_NOTES §83.7` sustituyendo las dos casillas de v1.84.2, con la cita de
+`HECHOS` y la fecha, y añade «Después — Regularización legal» como sección con casillas. El orquestador abre en
+`PENDIENTES.md` el pendiente prioritario de regularización (dueño del dato: el dueño; disparador: llegan P-LEG-1…3).
+
+#### E4-5 · Criterios 500–508 en modo provisional — qué se cumple y qué no (sin ocultar nada)
+
+| Criterio | En provisional | Estado |
+|---|---|---|
+| 500 aviso sin sesión, fecha, diez apartados | Se cumple **salvo** «responsable con razón social, RFC y domicilio» | **Excepción aceptada por el dueño** (`HECHOS` 2026-10-05 sesión 6) en esa parte; el resto, QA |
+| 501 sin marcadores | Se cumple (cero corchetes en aviso, términos, pie; correos: QA) | La frase «mientras falte un dato del dueño, el criterio está rojo y no se pasa a modo real» queda **sustituida por la excepción del dueño** |
+| 502 el aviso dice lo que se recaba | Se cumple (QA); Skydropx según E4-2 | QA |
+| 503–505 enlaces en los siete sitios | Se cumple **solo si** los lotes 2 y 3 están construidos | ⛔ **Bloquea**: no lo cubre la excepción. Si F-SKY/F-PNL aún no llegaron (NO MEDIDO por el arquitecto), el cambio a modo real espera o el orquestador le pregunta al dueño **otra** excepción |
+| 506 razón social en pie, términos y aviso | **No se cumple** (no hay dato) | **Excepción aceptada por el dueño** |
+| 507 razón social y enlace al aviso en correos | Razón social: **no** (no hay dato). Enlace «Aviso de privacidad» en el pie de **todos** los correos: **construible hoy y no construido** | Razón social: **excepción aceptada**. Enlace: ⛔ **bloquea** — lo construye backend (abajo) |
+| 508 el buzón publicado recibe | Se cumple con `soporte@tcghunt.mx` (`DEVOPS_NOTES.md:6226`); QA re-mide con un correo enviado desde fuera y el dueño confirma que lo leyó | QA + dueño |
+
+**Backend — enlace al aviso en los correos (507, hallazgo E4-5):** en el pie común de **todas** las familias de correo
+(verificación, restablecer contraseña, confirmación con cuenta, confirmación de invitado, buylist, centro de avisos) un
+enlace «Aviso de privacidad» a `<URL pública de la tienda>/es/privacidad` (la misma base que ya usan los enlaces de los
+correos; nombre de la variable NO MEDIDO por el arquitecto). Dónde está el pie común: **NO MEDIDO**; backend lo mide y,
+como en E-9, antes de tocar cada plantilla mide su diff contra `claude/skydropx-d` y `claude/arreglos-panel`. Prueba:
+renderizar una de cada familia ⇒ contiene el enlace; mutación: quitarlo del pie ⇒ roja. ⚠️ El enlace solo debe
+publicarse con el aviso ya `published` (mismo despliegue F2): si `check:legal:provisional` estuviera rojo en producción,
+el correo enlazaría a un `404` — por eso la casilla de §14.10 va antes del cambio de claves.
+**Error del arquitecto, dicho:** §14.14 E-9 contó siete sitios y dejó fuera los correos, que `PROJECT §LEG.3` sí listaba.

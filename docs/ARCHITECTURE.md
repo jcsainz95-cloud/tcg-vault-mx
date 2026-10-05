@@ -29,6 +29,7 @@
 > | **v1.84** | 🔒💰 Plan (2026-10-05, rama `claude/listo-real` desde `production` = `3e09685a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **Listo para dinero real:** cierra las condiciones «antes de `sk_live_`» de `SECURITY_NOTES.md:14048-14050` — C1 `qs`, S5-1 (claim `sat`, tope 30 d cliente / 7 d staff), SEC-HDR-2 (CSP con nonce, Report-Only primero), TD-4 ⟨orders⟩ (CAS `pending → failed`), C2 (lectura fresca del cargo en Stripe en la cubeta SPEI en vez de la lista de códigos; también detecta pedidos pagados **en modo prueba**), DAST `full` previo, C6 (medición) — más MSH-1, salud con `stripeMode`, telemetría CSP/errores sin cuenta nueva, `/privacidad`, respaldos con simulacro, censo y limpieza de datos de prueba, guion de cobro de punta a punta y guía del cambio de claves. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.84, §14 | §4.63 | **Sí** (backend `auth`, `orders` 💰, `payments` 💰, `shipments` 💰, `health`; frontend; devops) · 🔒 seguridad |
 > | **v1.84.1** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `bed71dc8`, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES §57`, `FRONTEND_NOTES §94`, `DEVOPS_NOTES §83`). Ratifica refresh con `ignoreExpiration` y caducidad a mano **después** del tope, con el borde a `>=` (SES-7/8); `ttlSeconds()` propio; `413` sin cuerpo; `upgrade-insecure-requests` solo en `enforce`. CSP: `style-src` + `https://accounts.google.com/gsi/style`; mutación de CSP-5 y «sustituye, no interseca» corregidas, con invariante `frame-ancestors`. TTFB se mide **en producción** con sonda de devops (antes = F1, después = F2). Enlaces al aviso en tres lotes con candado en `check:legal`. Texto de C6 corregido; **P-10** al dueño (N de C6). ⛔ Sin schema, migración, enum ni código nuevo. Norma: `API_CONTRACT §14.14` | §4.63.3, §4.63.5, §4.63.7, §4.63.9, §4.63.10, §4.63.11 | **Sí** (backend un carácter + 2 pruebas; frontend CSP + enlaces; devops sonda TTFB; ux-ui textos) |
 > | **v1.84.2** | Errata (2026-10-05, rama `claude/listo-real`, gates sobre `241d4dca` dado por el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **E2-1:** guía del dueño gana la casilla «`check:legal` verde (criterios 500–508)» + «QA aprobó 500–508» (el candado solo mide 501 y 503–505). **E2-2:** CSP-5 pasa a contar eventos `securitypolicyviolation` (`script-src*` + `blockedURI='inline'`) antes/después de inyectar; la mutación de E-5 solo mordía en `enforce`. **E2-3:** `message` de `/telemetry/client-error` se limpia **en el servidor** (query/fragmento pegados, `nombre=valor` de secretos, JWT), TLM-6/7/8. **E2-4:** texto de LIVE-2 sigue en este stream. **E2-5:** `report-uri` solo; comprobación de entrega antes de `enforce`; `report-to` = decisión pendiente **D-CSP-RT**. ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.15` | §4.63.7, §4.63.12 | **Sí** (backend limpieza + 3 pruebas; frontend CSP-5 + texto LIVE-2; devops casilla en la guía; ux-ui texto) |
+> | **v1.84.4** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `aa71664a`, ⛔ sha NO MEDIDO por el arquitecto; origen `HECHOS.md` 2026-10-05 sesión 6 «Salir en vivo SIN datos fiscales…»). **Aviso de privacidad en modo provisional:** se publica (no 404) con una frase fija en lugar de razón social/RFC/domicilio y contacto `soporte@tcghunt.mx`; ningún corchete pasa a permitido; `check:legal` se parte en `check:legal:provisional` (casilla de hoy) y `check:legal` final (casilla de regularización). Criterios 500 (parte), 501 (cláusula de bloqueo), 506 y 507 (razón social) quedan como **excepción aceptada por el dueño**; sitios 3/7 y el enlace del aviso en correos (hallazgo: no construido) **siguen bloqueando**. Norma: `API_CONTRACT §14.17`; porqué: §4.63.14. |
 > | **v1.84.3** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `a047c3cb`, ⛔ sha NO MEDIDO por el arquitecto; origen `FRONTEND_NOTES §94.6`). **E3-1:** CSP-5 inyecta el script **en el HTML servido** (bajo `'strict-dynamic'` un script creado por código hereda la confianza: sin evento, se ejecuta incluso en `enforce`). **E3-2:** la comprobación de entrega de E2-5 usa esa técnica, no la consola. **E3-3:** perímetro de la CSP escrito (no cubre DOM-XSS que cree scripts) como dato para la fase de seguridad; candado pendiente **XSS-SINK-1** (lint `error` de sumideros, frontend, antes de `enforce`); el de semgrep es `WARNING` y no bloquea. **E3-4:** LIVE-2 por marca de un solo uso en el login ratificado, y aviso de inactividad que se oculta al primer intento. ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.16` | §4.63.3, §4.63.13 | **Sí** (frontend: lint XSS-SINK-1; resto ya construido o procedimiento) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
@@ -27358,6 +27359,9 @@ El dueño lo ve en Railway (réplicas del servicio).
   casilla (§4.63.12 E2-1).
 - **Abierto para el abogado, no para el código:** si la INE pide **consentimiento expreso** con constancia (casilla +
   fecha guardada). Si dice que sí, es un cambio de schema y vuelve al arquitecto.
+- **v1.84.4 — modo provisional:** el dueño decidió salir sin datos fiscales (`HECHOS.md` 2026-10-05, sesión 6). El aviso
+  se publica con una frase fija en lugar de razón social/RFC/domicilio; el candado distingue «provisional declarado» de
+  «marcador olvidado». Porqué en §4.63.14; norma en `API_CONTRACT §14.17`.
 
 #### 4.63.8 Datos de prueba — limpiar antes, detectar después
 Dos capas, porque cada una sola falla. La **limpieza** (censo + reembolso en modo prueba, `API_CONTRACT §14.8`) deja
@@ -27482,6 +27486,45 @@ existente (`security/semgrep.yml:94-103`) es `WARNING` y el gate SAST solo rompe
 (`security-sast.yml:96-104`): **no vigila nada** en la práctica. Superficie residual que el pentester debe mirar: los
 scripts de terceros confiables (Stripe.js, Google Identity), cuyo comportamiento ante datos nuestros no controlamos, y
 cualquier `src` dinámico de `createElement('script')` (hoy solo uno, literal, `GoogleSignInButton.tsx:112-113`).
+
+#### 4.63.14 Errata v1.84.4 — aviso de privacidad en modo provisional (norma: `API_CONTRACT §14.17`)
+Origen: `HECHOS.md` 2026-10-05 (sesión 6) «Salir en vivo SIN datos fiscales del aviso de privacidad; se regulariza
+después». El riesgo legal es **del dueño** y está escrito por él; lo que decide el arquitecto es **cómo** se sale sin
+inventar datos y sin que el candado deje de servir.
+
+- **Publicar el aviso provisional es mejor que el 404 (decisión).** Con el 404 de hoy la tienda recaba correo,
+  dirección, teléfono, CLABE e INE **sin ningún aviso**, y siete pantallas dicen «aceptas el Aviso de privacidad» de algo
+  que no existe: se incumple el deber de informar entero. El aviso provisional cumple todo lo que el equipo puede afirmar
+  como cierto (qué datos, para qué, con quién se comparten, cuánto se guardan, cómo ejercer ARCO, a dónde escribir) y
+  deja **un** hueco declarado: la identidad y el domicilio del responsable. Los dos estados incumplen la ley (de memoria
+  del arquitecto, **NO MEDIDO** con un abogado); el provisional incumple menos y le da al cliente un buzón que sí
+  responde. Lo que **no** se hace es tapar el hueco: ni corchetes visibles (criterio 501), ni «en trámite» (afirma un
+  trámite que nadie midió), ni la marca «TCG HUNT» como si fuera la razón social.
+- **Por qué una frase fija y un campo declarado, y no relajar el detector.** La salida rápida sería permitir los tres
+  corchetes fiscales en `MARKER_PATTERNS`. Se descarta: el detector dejaría de distinguir «hueco aceptado por el dueño»
+  de «hueco olvidado», y un `[DATO DEL DUEÑO: …]` nuevo en otro apartado pasaría. Con `pendingOwnerData` (unión cerrada
+  de tres valores) + `PROVISIONAL_FISCAL_TEXT` (literal) + comprobación de coherencia, la excepción tiene **forma
+  exacta**: solo esos tres datos, solo con esa frase, y el detector de corchetes queda igual de estricto que ayer.
+- **Por qué dos comandos y no uno con bandera dentro.** `check:legal` conserva su significado (final) para que la casilla
+  de regularización sea el mismo candado de siempre; `check:legal:provisional` es lo que se pide hoy. Si fuera un solo
+  comando que «sabe» que estamos en provisional, la regularización no tendría un rojo que la recuerde: hoy `check:legal`
+  sale **rojo a propósito** nombrando P-LEG-1…3, y ese rojo es el pendiente.
+- **`legalEntity` se queda como centinela entre corchetes.** Ya está oculto por `resolveLegalEntity`, así que no se ve;
+  cambiarlo a vacío o a la marca borraría la señal que el `check:legal` final usa para el criterio 506.
+- **Lo que la excepción NO cubre (y por qué no lo extiendo):** la decisión del dueño nombra los datos fiscales. Los
+  sitios 3 y 7 (lotes tras F-SKY/F-PNL), el enlace del aviso en los correos (507) y la lectura del texto por el dueño
+  no son datos fiscales: extenderle la excepción sería decidir por él. Si alguno no llega hoy, es **otra** pregunta al
+  dueño, no una interpretación del equipo. P-LEG-11 (plazo de pedidos sin cuenta) tampoco es fiscal, pero se resuelve
+  con una frase verdadera sin cifra y no rompe ningún criterio 500–508; queda en la regularización.
+- **Hallazgo (error del arquitecto):** §14.14 E-9 enumeró siete sitios de enlace y dejó fuera el pie de los correos, que
+  `PROJECT.md §LEG.3` lista y el criterio 507 mide. `grep -ri privacidad backend/src` (2026-10-05) = solo
+  `guest-checkout.dto.ts`. Se enruta a backend (`API_CONTRACT §14.17 E4-5`).
+- **Contradicción documental a cerrar (product-owner):** `PROJECT.md §LEG.3` («pasar a modo real queda condicionado a que
+  el aviso esté publicado con datos reales») y el criterio 501 («mientras falte un dato del dueño … no se pasa a modo
+  real») dicen lo contrario de la decisión del dueño. La palabra del dueño en `HECHOS` manda; `PROJECT` necesita la nota
+  fechada para que nadie, leyendo `PROJECT` sobre el contrato (regla de conflicto), revierta esta errata.
+- **Riesgo residual escrito:** el texto publicado es el borrador del product-owner sin validar por abogado (P-LEG-4). Por
+  eso §14.10 pide que el dueño lo lea donde está el botón.
 
 ---
 
