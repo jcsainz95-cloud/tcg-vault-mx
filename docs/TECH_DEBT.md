@@ -9451,6 +9451,24 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 - **Comprobación:** tras adoptarla, una fusión de dos ramas que abren sección cada una no produce renumeración
   (`git diff` de la fusión sin cambios de encabezado `## §N` en secciones ajenas).
 
+## Backend · 2026-10-05 · gate de QA sobre `7bca24ce` (rama `claude/listo-real`, MENOR-1 de PRIV-5)
+
+### TD-PRIV-WALK · P3 · `mail.privacy-footer.spec.ts` recorre `src/` tres veces a pelo
+- **Dueño:** backend (`backend/test/`).
+- **Qué es:** el fichero repite tres veces el recorrido recursivo de `backend/src/` (`readdirSync` + `statSync`) con
+  `stripComments(readFileSync(...))` sin anclas: PRIV-0 (`:215-224`), PRIV-4 (`:302-318`) y PRIV-6 (`:387-396` en
+  `c128d0c9`; `:406-416` tras añadir la aserción del espaciador a PRIV-5). La doctrina de
+  `backend/test/helpers/codigo-de-fichero.ts` pide leer código con anclas (`codigoDeTexto` + `anclasEstructurales`)
+  para que un fichero vaciado o mal recortado no deje el barrido midiendo nada en silencio.
+- **Riesgo:** bajo, solo pruebas; triplicación y un barrido que podría quedar vacuo sin avisar (PRIV-4 lleva su
+  CONTROL, PRIV-0 y PRIV-6 dependen de su `expect` final).
+- **Dirección:** un helper `srcTsFiles()` (en `test/helpers/`) que devuelva `{ rel, code }` de cada `.ts` no-spec de
+  `src/`, con el código pasado por `codigoDeTexto(fuente, rel, anclasEstructurales(fuente, rel))`; los tres
+  barridos lo usan.
+- **Disparador:** la próxima prueba que necesite barrer `src/`.
+- **Comprobación:** `rg -n "readdirSync" backend/test/mail.privacy-footer.spec.ts` sin resultados y los tres
+  `describe` verdes sobre el helper.
+
 ## Devops · 2026-10-05 · gate del techlead sobre `7bca24ce` (rama `claude/listo-real`)
 
 ### TD-GITLEAKS-FICCIÓN · P3 · La allowlist de `security/gitleaks.toml` crece un literal de ficción por rama
