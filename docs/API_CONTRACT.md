@@ -2,9 +2,27 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.12**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.13**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.13 — ERRATA TRAS D2c-CIERRE Y PARTICIÓN D2d ∥ D2g (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado
+> por el orquestador `f5b5515b` o posterior; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.32](#M4-SHIP-19-32)**.
+> Porqué: `ARCHITECTURE §4.60 (y)`. Origen: `BACKEND_NOTES.md §63.6` (6 preguntas) y `DEVOPS_NOTES.md §82.3`.
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | §0-Q sin filas de `?labelSource=`/`?alert=` | Filas añadidas (E / L), y de paso las **cuatro** de `GET /admin/spend-alerts` (`kind` E, `severity` E, `unseen` L, `muted` L) que tenían el mismo hueco | No | backend: mover los ejes en `C-EQ-1` |
+> | **2** | `requestedAt` al REUTILIZAR sin `force` | **Sí se escribe** (`requestedAt`, `requestedByUserId`), con CAS `expiresAt > now`; `expiresAt` no cambia | Sí, pequeño: `label-quote.service.ts:204-216` | backend 💰 |
+> | **3** | `?folio=` | ⛔ **No es §0-Q** (formato, no tokens): `NO_ENUM_POR_RUTA`, tope 44 → 45, **RATIFICADO**; S-GAS-2 corregida | No | — |
+> | **4** | `label.pdf` sobre envío `cancelado` | `404 LABEL_NOT_AVAILABLE` **sin** `details` — RATIFICADO | No | — |
+> | **5** | «Envío vivo» de `carrierAlert` | `status ∉ {entregado, cancelado}` — RATIFICADO y declarado | No | — |
+> | **6** | Cabecera de `M-66` («11 CHECK») | Son **12**; la cabecera de una migración aplicada ⛔ no se edita; errata aquí | No | — |
+> | **7** | §19.31.5 (5) «así M-68 lo marca» | Falso en base nueva (la migración corre antes de la semilla): la pila marca al dueño con `set-owner.ts` | No | — |
+> | **8** | Intermitente `L-6` (`rfc`) | Pendiente `T-FLAKY-RFC-1`, dueño backend; ⛔ no es de la fase D | No | backend (cuando el orquestador lo enrute) |
+> | **9** | D2d ∥ D2g | **Sí, en paralelo**, con ficheros disjuntos y **dos** costuras serializadas al final (`jobs/` y `C-EQ-1`); `prisma/` **nadie** | — | orquestador |
+>
+> **Pruebas:** PS-168 gana (e). **Migración:** ninguna. **Códigos de error nuevos:** ninguno.
 >
 > **Rev v1.80.12.12 — 💰 ERRATA TRAS D2b/D2c/M-67/M-68 Y PLAN PARA CERRAR LA FASE D (2026-10-05, arquitecto, rama
 > `claude/skydropx-d`, HEAD dado por el orquestador `69707cfa` o posterior; ⛔ sha NO MEDIDO: sin Bash).** Norma entera:
@@ -294,7 +312,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -6907,6 +6925,12 @@
   | `GET /admin/shipments/picking-list` (§M4-PREP) | `destination` **(v1.78.1)** | `vault \| ship` — canónico en **la línea del propio endpoint** (§M4-PREP, «DOMINIO CANÓNICO»). Unión pura: ⛔ **sin enum en `schema.prisma`** — `ship` **no existe** en `FulfillmentMode` (`vault \| direct_ship`), del que se DERIVA por mapeo explícito | **L** |
   | `GET /admin/users/:id/audit` (§M6) | `scope` **(v1.77)** | `target \| actor \| both` — subconjunto semántico, cláusula en **§M6**; default `target` | **R** |
   | `GET /admin/inventory/sealed-price-status` (§10) | `state` **(M11)** | `SealedPriceState` (`priced \| mapped_unpriced \| unmapped`) — canónico en **§Enums** (unión pura, ⛔ sin columna en `schema.prisma`) | **L** |
+  | `GET /admin/shipments` (§M4) | `labelSource` **(v1.80.12.13; §M4-SHIP.19.7 «filtros nuevos»)** | `ShipmentLabelSource` (`manual \| skydropx`). ⚠️ El dominio es el enum; la **partición** es derivada (`labelSourceOf`): `manual` incluye la guía heredada con `trackingNumber` y `labelSource` nulo (§M4-SHIP.19.32.1) | **E** |
+  | `GET /admin/shipments` (§M4) | `alert` **(v1.80.12.13; §M4-SHIP.19.3)** | `true` (un solo token; `false` ⇒ `400`, como `refundReview`). Partición **computada** (`carrierAlertActive ∨ labelAlertOf ≠ null`, un cuerpo con el DTO): ⛔ ningún enum la espeja | **L** |
+  | `GET /admin/spend-alerts` (§M4-SHIP.19.29.9) | `kind` **(v1.80.12.13)** | `SpendAlertKind` | **E** |
+  | `GET /admin/spend-alerts` (§M4-SHIP.19.29.9) | `severity` **(v1.80.12.13)** | `SpendAlertSeverity` | **E** |
+  | `GET /admin/spend-alerts` (§M4-SHIP.19.29.9) | `unseen` **(v1.80.12.13)** | `true` (un solo token) — partición computada (`seenAt IS NULL`; se combina con `?muted=`, ⛔ esta fila no cambia su semántica) | **L** |
+  | `GET /admin/spend-alerts` (§M4-SHIP.19.29.9) | `muted` **(v1.80.12.13; §19.30.2 (5))** | `true \| false` — canónico en §M4-SHIP.19.30.2 (5); ausente ⇒ los dos | **L** |
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
   >
@@ -23764,6 +23788,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.29** | 🔒💰 **v1.80.12.9** — control del gasto (§Z, D2): TG-1/TG-2 en la tx del candado, el dueño como única excepción, libros `ShipmentLabelAttempt`/`ShipmentPaidLabel`, avisos AG-1…AG-13 con correo al dueño y resumen diario (`M-68`); C-14 (sustituye §19.28.6), C-15…C-18, SDX-I-5/6; PS-137…PS-159 |
 | **.30** | 🔒💰 **v1.80.12.10** — errata de la revisión de §Z: el dueño como marca explícita `User.isOwner` (C-20), la vigilancia no la apaga el vigilado (C-21: diales y cuenta del dueño, AG-21/AG-22, `seen`, silenciado), TG-1 falla cerrado con reembolso desconocido (C-22), neutralización por llaves con NFKC (C-23), residuo de C-14 (C-19), 2 correos por persona y hora (C-24), enlaces de correo (SDX-I-8); PS-160…PS-165 |
 | **.31** | 💰 **v1.80.12.12** — errata tras D2b/D2c/`M-67`/`M-68`: seis enums en §0, generación de la cotización reutilizada, PS-73/PS-122 reescritas, dos `reason` de `409`, `cancel` sin respuesta, la compra de punta a punta en la E2E con el doble (`SHIPPING_FAKE_PURCHASE`), S-GAS-7…9, `isOwner` en la ficha, y el plan para cerrar la fase D; PS-166…PS-170 |
+| **.32** | **v1.80.12.13** — errata tras D2c-cierre: filas de §0-Q (`labelSource`, `alert`, los cuatro de `spend-alerts`), `requestedAt` al reutilizar, `?folio=` fuera de §0-Q, `label.pdf` cancelado, «envío vivo», 12 CHECK de `M-66`, el dueño en la pila E2E, `T-FLAKY-RFC-1`, y la **partición D2d ∥ D2g** por fichero; PS-168 (e) |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -24012,7 +24037,7 @@ commit ─► post-commit, best-effort (§R.4): los avisos marcados, cada uno re
   segundo (una transición ya hecha cuenta 0 y no avisa: `REL-B`). Un sondeo repetido con la misma respuesta ⇒ **cero
   escrituras y cero correos** (PS-72).
 - **Alertas al admin** (T.6): ⛔ sin tabla nueva ni correo; **se derivan** (misma doctrina que la campana, §R.2): un
-  envío vivo con guía Skydropx cuyo `carrierStatus ∈ {delivery_attempt, exception, retained, in_return, destroyed}`, o
+  envío vivo (⚠️ v1.80.12.13, §19.32.5: **`status ∉ {entregado, cancelado}`**) con guía Skydropx cuyo `carrierStatus ∈ {delivery_attempt, exception, retained, in_return, destroyed}`, o
   con `carrierStatus='canceled' ∧ providerCanceledAt IS NULL`, es «con alerta». `GET /admin/shipments` gana `?alert=true`
   (clase **L** de §0-Q, dominio `true`), `workQueue.shipments` gana `withCarrierAlert` y la tarjeta muestra `carrierStatus`
   + `detail` del último evento. La alerta **se apaga sola** cuando llega un estado posterior que no está en la lista, y
@@ -24391,6 +24416,7 @@ filename="guia-<orderNumber|shipmentId>.pdf"`, `Cache-Control: private, no-store
 Skydropx** (podría ser firmada y caducar, o no exigir autenticación: exponerla sería exponer nombre, teléfono y
 dirección del cliente a quien tenga el enlace; criterio 239 «falla si la etiqueta se puede descargar sin permiso de
 operador»). Sin `labelUrl` ⇒ `404 LABEL_NOT_AVAILABLE`; guía manual ⇒ `404 LABEL_NOT_AVAILABLE {labelSource:'manual'}`.
+⚠️ **v1.80.12.13 ([§19.32.4](#M4-SHIP-19-32)):** envío `cancelado` ⇒ `404 LABEL_NOT_AVAILABLE` **sin** `details`.
 Reimprimible mientras el envío esté vivo (`status ∉ {cancelado}`; en `entregado` también, por si la reclaman). Bitácora
 `shipment.label_printed` (actor, fecha; para la auditoría de PII). Si Skydropx responde `4xx/5xx` al descargar ⇒
 `502 SHIPPING_PROVIDER_ERROR`; el sondeo (§19.10) refresca `labelUrl` si cambia (tras `assertProviderUrl`). 🔒
@@ -24608,7 +24634,8 @@ Skydropx; por qué el borrador partió de 15: NO MEDIDO, y no cambia el resultad
   5 min** del saldo (una llamada, no una por carga del tablero); el **operador** recibe `lowBalance` (alcanza/no
   alcanza) pero **no** la cifra (T.11). `null` ⇔ proveedor `off` o sin respuesta.
 - **`GET /admin/shipments`**: filtros nuevos `?labelSource=manual|skydropx` (clase **E**, derivado de
-  `ShipmentLabelSource`) y `?alert=true` (clase **L**); §0-Q punto 4 los registra.
+  `ShipmentLabelSource`) y `?alert=true` (clase **L**); §0-Q punto 4 los registra (⚠️ v1.80.12.13: las filas faltaban
+  hasta esta rev, §19.32.1). `?folio=` (S-GAS-2) ⛔ **no** es §0-Q: `NO_ENUM_POR_RUTA` (§19.32.3).
 - **Bitácora (`AuditLog.action` nuevos):** `shipment.quoted`, `shipment.label_requested`, `shipment.label_failed`,
   `shipment.label_cancelled`, `shipment.label_printed`, `shipment.departed`, `shipment.carrier_event`,
   `shipment.cost_adjusted`, `shipment.address_neighborhood_set`, `shipping.packages_updated`, `job.trigger` (existente);
@@ -27913,7 +27940,7 @@ Resultado: 5 AG-1 🔴 de una persona en 10 min ⇒ 2 correos + 3 al lote; un AG
 | Id | Decisión |
 |---|---|
 | **S-GAS-1** | `DepartureBoardDTO.groups[].shipments[]` (§19.9, `GET /admin/shipments/departure`) gana **`folio: string`** (el `ShipmentRequest.folio` de `M-67`; siempre presente: toda guía de Skydropx nace tras `M-67`). Es admin: SDX-I-6 lo permite |
-| **S-GAS-2** | El aviso de un **retiro** enlaza a la lista de envíos filtrada: **`GET /admin/shipments?folio=ENV-000045`** queda **declarado** (igualdad exacta; formato `^ENV-\d{6,}$`, fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}`; clase **L** en §0-Q punto 4). El front enlaza a la pantalla de envíos de M4 con `?folio=` en la URL de la **página** (un GET de página que no actúa; SDX-I-8). `SpendAlertDTO.shipment` gana **`kind: 'vault_withdrawal' \| 'guest_direct_ship' \| 'order_ship'`** para elegir el enlace sin otra llamada (frontend decide: con `order` ⇒ pedido; sin `order` ⇒ envíos por folio). ⚠️ Los valores de `kind` deben ser los del tipo existente de envío; backend los toma de ahí y, si difieren, manda el tipo existente (NO MEDIDO por el arquitecto) |
+| **S-GAS-2** | El aviso de un **retiro** enlaza a la lista de envíos filtrada: **`GET /admin/shipments?folio=ENV-000045`** queda **declarado** (igualdad exacta; formato `^ENV-\d{6,}$`, fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}`; ~~clase **L** en §0-Q punto 4~~ ⚠️ **v1.80.12.13 (§19.32.3): no es §0-Q** — su dominio es un formato, no tokens enumerables; va a `NO_ENUM_POR_RUTA`). El front enlaza a la pantalla de envíos de M4 con `?folio=` en la URL de la **página** (un GET de página que no actúa; SDX-I-8). `SpendAlertDTO.shipment` gana **`kind: 'vault_withdrawal' \| 'guest_direct_ship' \| 'order_ship'`** para elegir el enlace sin otra llamada (frontend decide: con `order` ⇒ pedido; sin `order` ⇒ envíos por folio). ⚠️ Los valores de `kind` deben ser los del tipo existente de envío; backend los toma de ahí y, si difieren, manda el tipo existente (NO MEDIDO por el arquitecto) |
 | **S-GAS-3** | `GET /admin/shipments/picking-list/summary` (§M4-SHIP.11, el que lee `AdminSidebar.tsx:55`) gana **`spendAlertsUnseenImmediate: number \| null`** — `null` para `vault_operator` (como `manualRefundsPending`); el **mismo** predicado que `workQueue.spendControl.unseenImmediate` (un cuerpo: 🔴, `seenAt IS NULL`, sin AG-7/11/12, sin `muted`). Índice `[severity, seenAt]` ya existe |
 | **S-GAS-4** | AG-6 `facts.kind` ∈ **`ShipmentCostAdjustmentKind`** = `overweight \| extended_zone \| return \| other` (medido: `schema.prisma:459-464`). Es la lista cerrada; un valor nuevo del enum entra por `C-ENUM` y ux-ui le pone rótulo |
 | **S-GAS-5** | AG-4 `facts` gana **`triggers: ('reissue_denied' \| 'shipment_cancels' \| 'person_cancels')[]`** = (i), (ii), (iii) de §19.29.6. Como (i) y (ii) comparten `ag4:s:<shipmentId>`, `raise` en conflicto hace **unión** de `facts.triggers` (regla general: si `facts` trae `triggers`, se une sin repetidos; el resto de `facts` queda como lo dejó el primero, salvo `cancelledCount`/`unrecoveredCents`/`unknownRefunds`, que se reescriben con lo vigente). El texto puede decir «se le negó la 3.ª guía» cuando `triggers` contiene `reissue_denied` |
@@ -28040,6 +28067,8 @@ paso 3: **un ciclo sin salida** y el envío sin guía. No era lo querido.
    `label-quote.service.ts:292`) es **la última que el operador pidió**, también si entre medias cotizó con otro empaque.
    `expiresAt` ya no se deriva de `requestedAt` en ningún sitio (se deriva de las filas vigentes), así que mover `requestedAt` no
    alarga nada. ⛔ **Sin columna nueva** (`updatedAt` sería una segunda fuente de «cuándo la pidió»).
+   ⚠️ **v1.80.12.13 ([§19.32.2](#M4-SHIP-19-32)):** también al **REUTILIZAR** sin `force` (paso 6) se escriben `requestedAt` y
+   `requestedByUserId`.
 - `excluded` de una reutilizada (pregunta 13): ver §19.31.7 (g).
 
 **M4-SHIP.19.31.3 — 💰 PS-73 frente a §19.28.8 (pregunta 3): se RATIFICA la relectura, y PS-73 se reescribe.**
@@ -28099,8 +28128,12 @@ export function fakePurchaseKeyMisplaced(adapter: string, env: NodeJS.ProcessEnv
    workflow de `.github/` como env propia (los workflows levantan la pila por esos dos ficheros) y ⛔ nunca en Railway.
 5. **El dial y el dueño en la E2E:** la compra sigue exigiendo el dial `shipping_label_purchase ≠ 'disabled'` y
    `shipping_provider = 'skydropx'`, que el arnés gira por `PUT /admin/settings` **como el dueño** (§19.30.2 (1)). Exige que la
-   semilla de la pila tenga **exactamente un** súper-admin con correo activo (así `M-68` lo marca) o que el arnés corra
+   semilla de la pila tenga **exactamente un** súper-admin con correo activo ~~(así `M-68` lo marca)~~ o que el arnés corra
    `prisma/set-owner.ts` con el correo semilla. ⛔ NO MEDIDO qué siembra hoy la pila: lo comprueba devops.
+   ⚠️ **v1.80.12.13 ([§19.32.7](#M4-SHIP-19-32)) — CORREGIDO:** en una base **nueva** `M-68` **no** marca a nadie: la migración
+   corre **antes** que la semilla y encuentra 0 candidatos (medido por devops, `DEVOPS_NOTES.md §82.3`). La vía de la pila
+   es **siempre** la segunda: el arnés corre `prisma/set-owner.ts` con el correo del fixture tras sembrar. «Exactamente un
+   súper-admin» sigue siendo condición (si hubiera dos, `set-owner.ts` marca el pedido y el otro queda vigilado).
 6. **Qué compra el doble:** el resultado por defecto del Fake en la pila debe ser «éxito con número» (determinista); los demás
    resultados siguen siendo guionizables solo en pruebas. ⛔ NO MEDIDO el defecto actual de `fake-shipping-provider.ts`: lo
    confirma backend.
@@ -28201,7 +28234,7 @@ con `Grep` sobre `backend/src` (⛔ sha no medido): `applyCarrierStatus`, `shipm
 
 | # | Pieza | Qué | Quién | Depende de |
 |---|---|---|---|---|
-| **1** | **D2c-cierre** (`shipments/` + `shipping-provider/`, un agente) | Lo de backend de §19.31.2–.8; **`GET …/label.pdf`** (§19.8, sobre `downloadLabelPdf`; con el doble, §19.31.5 (3)); filtros **`?labelSource=`**, **`?alert=`**, **`?folio=`** de `GET /admin/shipments` (§19.7 «filtros nuevos», §19.30.8 S-GAS-2; clase E / L / L en §0-Q punto 4); PS-73, PS-122 (a), PS-166 (a)–(d), PS-167…PS-169. **En paralelo:** devops PS-166 (e); frontend PS-170, tipos y los flujos F de compra (PS-166 (f)) | backend 💰 · devops · frontend | nada |
+| **1** | **D2c-cierre** (`shipments/` + `shipping-provider/`, un agente) | Lo de backend de §19.31.2–.8; **`GET …/label.pdf`** (§19.8, sobre `downloadLabelPdf`; con el doble, §19.31.5 (3)); filtros **`?labelSource=`**, **`?alert=`**, **`?folio=`** de `GET /admin/shipments` (§19.7 «filtros nuevos», §19.30.8 S-GAS-2; clase E / L en §0-Q punto 4, y `?folio=` en `NO_ENUM_POR_RUTA` — ⚠️ v1.80.12.13, §19.32.3); PS-73, PS-122 (a), PS-166 (a)–(d), PS-167…PS-169. **En paralelo:** devops PS-166 (e); frontend PS-170, tipos y los flujos F de compra (PS-166 (f)) | backend 💰 · devops · frontend | nada |
 | **2a** | **D2d · Rastreo y verificación** (`shipments/` + `shipping-provider/`) | `applyCarrierStatus`; los tres jobs: `shipment-tracking-poll`, **`shipment-label-processing`** (segundo llamador de `recoverInFlightLabel`; `not_sent` y `not_charged` automáticos; filas `label_verify_*`; **evidencia negativa construida** con `INFLIGHT_NEGATIVE_VERIFIED = false` y cable trampa; calibración pasiva; **conciliación de huérfanas** con las dos filas `origin:'duplicate'`, C-14/C-19 y fusible `ORPHAN_FUSE_LOCK_KEY`), `shipment-extra-charges` (AG-6); `refresh-tracking`; relleno de `labelUrl`; estado desconocido; AG-9 (b)(c)(d), AG-11 (correo por la base de D2g), AG-12; **«Salida de hoy» (§19.9, `departure`/`departed`)**, que ninguna pieza tenía asignada. PS-72, PS-75, PS-77…PS-80, PS-124…PS-127, PS-130, PS-133, PS-134 (a)(c), PS-150 | backend 💰 | 1 |
 | **2b** | **D2g · Despacho de avisos** (`spend-alerts/`; y `settings/`, `admin/`, `users/` — ⚠️ módulos de otros streams: el orquestador los serializa, §19.30.13) | Correo con freno (outbox, `SPEND_MAIL_LOCK_KEY`, 5/h, 2 por persona y hora C-24, lote, AVG-1/2/3, SDX-I-8); `spend-watch` con el paso (0) (AG-21), AG-7, **AG-8 (b) y AG-10** (son pasos de `spend-watch`, §19.29.7: ⭐ pasan de D2d a D2g); `spend-digest`; endpoints con `muted`, `mutedCount`, `seen` con `skipped`; §19.30.2 (diales del dueño, cuenta protegida, AG-22); `isOwner` en `me`, listado y fichas; bandas 1–2 de `?kind=`/`?severity=`. PS-147 (b), PS-149, PS-152…PS-155, PS-160…PS-165 | backend 💰 | 1 (para `isOwner` y el DTO); **en paralelo con 2a**: módulos disjuntos y `M-68` ya construida |
 | **3a** | **D2e · Correos al cliente** | `AV-17` (sin plazo de disputa), `AV-18`, `AV-19`, `customerUrl`, `timeline`, `C-AV-3a/3b`, `C-AV-1 = 19`; PS-87…PS-89 | backend | 2a (`applyCarrierStatus` es su disparador) |
@@ -28230,6 +28263,135 @@ con `Grep` sobre `backend/src` (⛔ sha no medido): `applyCarrierStatus`, `shipm
 **M4-SHIP.19.31.12 — Lo que esta errata NO decide.** Si Skydropx honra la tarifa de un id de cotización reutilizado tras 24 h
 (se mide con el log de §19.31.2); si acepta `email: ''`; cómo responde a un segundo `cancel` (PS-167 (b) cubre los dos casos);
 P-SDX-REL (sigue (a)); `INFLIGHT_NEGATIVE_VERIFIED` sigue `false` (regla de §19.28.9).
+
+###### <a id="M4-SHIP-19-32"></a>M4-SHIP.19.32 — v1.80.12.13: errata tras D2c-cierre y la partición D2d ∥ D2g (**NORMATIVA**; 💰 en .2)
+
+> **Fuentes:** `BACKEND_NOTES.md §63.6` (6 preguntas; decisiones propias en §63.3) y `DEVOPS_NOTES.md §82.3`. Código leído por el
+> arquitecto el 2026-10-05 en `/home/user/tcg-skyd` (Read/Grep, ⛔ sin ejecutar nada; ⛔ sha NO MEDIDO: sin Bash; el orquestador
+> dio `f5b5515b` o posterior): `label-quote.service.ts:202-216`, `label-view.ts:179-191`,
+> `migrations/20261007120000_m66_sdx_d_skydropx/migration.sql:9,230-277`, `spend-alerts.service.ts:71-176`,
+> `spend-alerts.module.ts`, `settings.module.ts:5-9`, `jobs/jobs.module.ts:26-49`, `jobs/scheduler.service.ts:159-288`,
+> `jobs/admin-jobs.controller.ts`, `admin-shipments.controller.ts:36-224`, `shipment-prep.service.ts:889-909`,
+> `admin.controller.ts:118-427`, `admin.service.ts:870,1462,1479,1547`, `users.service.ts:208`, `settings.controller.ts:27-46`,
+> `label-verify.constants.ts:48-52`, `test/integration/staff-without-email.e2e-spec.ts:220-221`,
+> `test/integration/admin-users-kyc-queue.e2e-spec.ts:225-238`. **Migración:** ninguna. **Códigos de error nuevos:** ninguno.
+
+**M4-SHIP.19.32.1 — Filas de §0-Q (pregunta 1).** §19.7 decía «§0-Q punto 4 los registra» y la tabla no las tenía: error del
+documento. Entran `GET /admin/shipments` `labelSource` (**E**, `ShipmentLabelSource`) y `alert` (**L**, dominio `true`). *Por qué
+`labelSource` es E aunque la partición sea derivada:* el punto 3 pregunta si el **dominio** nombra valores que la base guarda, y sí
+(`manual`, `skydropx`); que `manual` incluya la guía heredada con `labelSource` nulo es la **semántica del filtro** (un solo cuerpo,
+`labelSourceOf`), no otro dominio — paridad a tres bandas como cualquier E. Con el mismo hueco estaban los ejes de
+`GET /admin/spend-alerts` (§19.29.9 decía «§0-Q punto 4 registra los tres ejes» y faltaban, más `?muted=` de §19.30.2 (5)): entran
+`kind` (E), `severity` (E), `unseen` (L, `true`) y `muted` (L, `true | false`; ausente ⇒ los dos). `?subjectUserId=` (uuid) y
+`?from=&to=` ⛔ no son §0-Q (lista de no-enums de `C-EQ-1`). **Backend:** mover `labelSource`/`alert` de `PENDIENTE-ARQUITECTO` a
+declarados en `C-EQ-1`; los cuatro de `spend-alerts` entran cuando D2g los valide (§19.32.9).
+
+**M4-SHIP.19.32.2 — 💰 `requestedAt` al REUTILIZAR (pregunta 2): SÍ se escribe.** §19.31.2 (5) quiso que «la vigente» de
+`GET …/quote` fuera **la última que el operador pidió**; el caso de backend (X en T, Y en T+1 h, X otra vez en T+2 h sin `force` ⇒
+la respuesta dice X y `GET` dice Y) muestra que solo lo cumplía a medias. Regla, en el paso 6 sin `force`:
+```
+reusable encontrado ⇒ updateMany({ where:{ id: reusable.id, expiresAt:{ gt: now } },
+                                   data:{ requestedAt: now, requestedByUserId: actor } })
+  count 1 ⇒ responde la fila con su requestedAt nuevo, reused:true, expiresAt SIN CAMBIO
+  count 0 ⇒ venció entre la lectura y la escritura ⇒ se trata como «sin reutilizable» y sigue al paso de red (⛔ ni 500 ni 409)
+```
+- *Por qué es seguro:* `expiresAt` no se deriva de `requestedAt` (§19.31.2 (5)), así que no alarga nada; el CAS `expiresAt > now`
+  mantiene el CHECK `shipment_quote_expires_after_requested` (`migration.sql:282`) por construcción (`now < expiresAt`).
+- ⛔ Sin bitácora nueva y sin columna nueva. El paso 6 sigue sin red.
+- **PS-168 (e)** 💰: X en T, Y (otro empaque) en T+1 h, X otra vez en T+2 h **sin** `force` ⇒ respuesta X `reused:true`, la fila X con
+  `requestedAt = T+2 h` y `requestedByUserId = actor`, `expiresAt = T+24 h` intacto, `GET …/quote` ⇒ X; con X vencida entre la lectura
+  y la escritura (reloj inyectado) ⇒ re-cotiza sin error. *Mutación:* no escribir al reutilizar ⇒ `GET` devuelve Y; escribir sin
+  el CAS ⇒ la variante vencida rompe el CHECK.
+
+**M4-SHIP.19.32.3 — `?folio=` (pregunta 3): ⛔ NO es §0-Q; `NO_ENUM_POR_RUTA` RATIFICADO (tope 44 → 45).** El criterio de §0-Q
+punto 7 es «¿`details.allowed` se puede enumerar?»: el dominio de `folio` es un **formato** (`^ENV-\d{6,}$`), no un conjunto de
+tokens, igual que `?date=` de «Pedidos a preparar». La «clase L» de S-GAS-2 (§19.30.8) era un error y queda tachada. Conducta
+(RATIFICADA la de §63.3 (5)): ausente o en blanco ⇒ sin filtro; fuera de formato, también con espacios alrededor ⇒ `400
+VALIDATION_ERROR {field:'folio'}` sin `allowed`; igualdad exacta.
+
+**M4-SHIP.19.32.4 — `label.pdf` sobre envío `cancelado` (pregunta 4): `404 LABEL_NOT_AVAILABLE` SIN `details` — RATIFICADO.**
+`details` de este código es `{labelSource?}` (§19.8 y la tabla de códigos) y solo existe para distinguir la guía manual, que **sí** cambia lo que el operador
+hace. El `status` ya está en el `AdminShipmentDTO` que la pantalla tiene delante: añadirlo sería una segunda fuente del mismo
+hecho. Frontend ramifica por `errorCode` y `details.labelSource`, ⛔ nunca por `status` del error.
+
+**M4-SHIP.19.32.5 — «Envío vivo» de `carrierAlert` (pregunta 5): `status ∉ {entregado, cancelado}` — RATIFICADO y declarado.** Es el
+complemento exacto del dominio que el sondeo deja de consultar (§19.10: «envíos `entregado`/`cancelado` no se consultan»): fuera de
+ahí `carrierStatus` ya no cambia, así que una alerta no se apagaría nunca sola. La guía viva de un envío `cancelado` la vigila
+`labelAlertOf` (`label_live_on_cancelled`), no `carrierAlert`. **Un cuerpo:** `carrierAlertActive` (`label-view.ts:187`) lo leen el
+filtro `?alert=`, el DTO `carrierAlert` (D2d) y `workQueue.shipping.withCarrierAlert` (D2f); ⛔ ninguna segunda definición.
+
+**M4-SHIP.19.32.6 — `M-66` crea 12 CHECK en `ShipmentRequest`, no 11 (pregunta 6).** Contados en
+`migration.sql:230-277` (de `shipment_label_source_iff_provider_id` a `shipment_provider_cancel_confirmed_requires_canceled`); el
+duodécimo es el de `providerCancelConfirmedAt` (delta v1.80.12, §19.20.2). La cabecera (`:9`) dice 11. ⛔ **No se edita** la
+migración: ya está aplicada, y tocar su fichero cambia la suma que Prisma guarda en `_prisma_migrations` (⛔ NO MEDIDO el efecto
+exacto en este árbol). La errata vive aquí: donde la cabecera de `M-66` dice «11 CHECK» léase **12**.
+
+**M4-SHIP.19.32.7 — El dueño en la pila E2E (devops, `DEVOPS_NOTES.md §82.3`).** «Así `M-68` lo marca» (§19.31.5 (5)) es **falso en
+una base nueva**: `prisma migrate deploy` corre antes que la semilla y la marca condicionada de `M-68` encuentra **0** candidatos ⇒
+nadie marcado (medido por devops con Postgres 16 desechable, relayado; ⛔ no medido por el arquitecto). La vía normativa de la pila
+es el arnés: `prisma/set-owner.ts` con el correo del fixture, **después** de sembrar (`stack-native.sh` → `mark_owner`;
+`e2e-real.yml`, paso «Seed sintético»). `M-68` marca solo sobre una base que **ya** tiene usuarios (producción, §19.30.10 (1)). Las
+suites de integración de jest siembran lo suyo y marcan por SQL en la prueba (PS-160), sin cambio.
+
+**M4-SHIP.19.32.8 — Pendiente enrutado `T-FLAKY-RFC-1` (⛔ no es de la fase D; dueño: backend).** `admin-users-kyc-queue.e2e-spec.ts`
+`L-6` (`:225-238`) aserta que el JSON del listado de usuarios no case `/rfc/i`; `staff-without-email.e2e-spec.ts:220-221` crea
+`m-r${sfx}` con `sfx = randomBytes(3).toString('hex')`. Como `r` no es hexadecimal, solo casa si `sfx` empieza por `fc`: **1/256
+por corrida** en la que las dos suites comparten base y el listado ve ese usuario (cálculo del arquitecto, ⛔ NO MEDIDO; backend
+lo vio una vez en una corrida, `BACKEND_NOTES §63.4`). Es un defecto **de la prueba**, no del listado. *Qué querría decir `L-6`:*
+que el listado no trae el **campo** ni el **valor** del documento. Cura que se recomienda (la decide backend): `L-6` aserta
+**ninguna llave** que case `/rfc/i` y **ningún valor** del RFC sembrado por su propio fixture, en vez de una subcadena sobre todo el
+texto. ⛔ No se arregla cambiando el prefijo `m-r` (deja la prueba frágil ante el siguiente nombre). Ficheros del stream «Cuentas y
+acceso» / «Admin y auditoría»: en esta fase **solo D2g** puede tocarlos sin solaparse (§19.32.9); fuera de ella, cuando el
+orquestador lo enrute. Comprobación: la integración completa N ≥ 10 corridas sin ese rojo **y** una mutación que meta una llave
+`rfc` en el `select` del listado ⇒ rojo.
+
+**M4-SHIP.19.32.9 — La partición D2d ∥ D2g: SÍ en paralelo, con dos agentes backend en el mismo árbol.** Condiciones: (i) ficheros
+**disjuntos** por la tabla de abajo; (ii) **dos costuras** que ninguno de los dos toca y que se cosen al final en serie (C1, C2);
+(iii) **`prisma/` no lo toca nadie**: todo lo que D2d y D2g necesitan ya existe (`M-66`, `M-67`, `M-68`: `carrierPolledAt`,
+`ShipmentCarrierEvent`, `ShipmentCostAdjustment`, `ShipmentPaidLabel.autoCancelIntentAt`, `SpendAlert.muted`/`mailAttempts`,
+`SpendDigestRun`, `SpendOwnerWatch`, `User.isOwner`, `prisma/set-owner.ts`; medido con `Grep` sobre `schema.prisma`). Si uno de los
+dos cree necesitar una columna, **se para** y vuelve al arquitecto (regla 9) — ⛔ ni siquiera una migración «pequeña».
+
+| Zona | **D2d** (rastreo y verificación) 💰 | **D2g** (despacho y cuenta del dueño) 💰 |
+|---|---|---|
+| `backend/src/modules/shipments/**` | ✅ **dueño** (todo el directorio: `admin-shipments.controller.ts` gana `GET departure`, `POST departed`, `POST :id/refresh-tracking`; `shipments.service.ts` — `carrierAlert`/`costAdjustments` en el DTO, `transitionFromProvider` junto a `updateStatus` `:1456`; `label-recovery.service.ts:157` segundo llamador; `label-view.ts`; `label-verify.constants.ts`; `shipments.module.ts`; ficheros nuevos de `applyCarrierStatus` y de los tres jobs, conciliación de huérfanas con C-14/C-19 y `ORPHAN_FUSE_LOCK_KEY`, «Salida de hoy» con `folio` S-GAS-1) | ⛔ ni una línea (solo `import`) |
+| `backend/src/modules/shipping-provider/**` | ✅ dueño (si `getShipment`/`extraCharges` del doble o del adaptador necesitan algo) | ⛔ (solo `import` del puerto/selección para la lectura de saldo) |
+| `backend/src/modules/spend-alerts/**` | ⛔ (solo `import`: `SpendAlertsService.raise`, `dayMx`) | ✅ **dueño**: despacho (outbox, `SPEND_MAIL_LOCK_KEY = 65_310_702`, 5/h, C-24, lote), `spend-watch` (paso (0) AG-21, AG-7, **AG-8 (b)**, **AG-10**), `spend-digest`, `summarizeSpendAlerts`, controlador del panel (`muted`, `mutedCount`, `seen` con `skipped`, `?kind/?severity/?unseen/?muted`), plantillas `AVG-1/2/3` (con `MAIL_PORT`, ⛔ sin tocar `mail/`), lectura de saldo cacheada 5 min (la reusará D2f), `spend-alerts.module.ts` |
+| `backend/src/modules/admin/**` | ⛔ | ✅ dueño: `admin.service.ts:870` (`listUsers` + `isOwner`), `:1462`, `:1479`, `:1547` (cuenta protegida); `admin.controller.ts:385-427` (AG-22 post-commit); `audited-super-admin.guard.ts`; `admin.module.ts` |
+| `backend/src/modules/users/**` | ⛔ | ✅ dueño: `users.service.ts:208` (`me` + `isOwner`) |
+| `backend/src/modules/settings/**` | ⛔ (solo leer `SettingKey`) | ✅ dueño: `settings.constants.ts` (`OWNER_ONLY_SETTING_KEYS`, validador de `spend_alerts_disabled`), `settings.controller.ts:32-46`, `settings.module.ts` (importa `SpendAlertsModule`; `SettingsModule` es `@Global` y `SpendAlertsModule` no lo importa ⇒ sin ciclo de imports; ⛔ NO MEDIDO que Nest no lo marque al arrancar: si lo marca, `forwardRef` y se anota) |
+| `backend/src/common/error-codes.ts`, `common/enum-values.ts` | ⛔ (D2d **no** acuña códigos: si cree necesitar uno, se para) | ✅ dueño (`OWNER_ONLY_SETTING`, `OWNER_ACCOUNT_PROTECTED`; bandas 1–2 de `SpendAlertKind`/`SpendAlertSeverity`) |
+| Resto de `common/`, `config/`, `app.module.ts`, `prisma/`, `mail/`, `auth/` | ⛔ | ⛔ |
+| `backend/src/jobs/**` | ✅ dueño: `scheduler.service.ts` (`queue.add` + `case` de `shipment-tracking-poll`, `shipment-label-processing`, `shipment-extra-charges`), `jobs.module.ts` (importa `ShipmentsModule`), `admin-jobs.controller.ts` (+ su `.spec.ts`; `shipment-tracking-poll` con `{shipmentId?}`) | ⛔ — sus dos jobs se prueban llamando a `run()`; se cosen en **C1** |
+| Constantes de candado consultivo | rango **65_310_704…709** (en `label-verify.constants.ts`) | `65_310_702` + rango **65_310_710…719** (en `spend-alerts/`) |
+| Pruebas | ficheros nuevos `test/sdx-d2d*.spec.ts`, `test/integration/sdx-d2d-*.e2e-spec.ts`; `test/integration/helpers/label-db.ts`; `test/skydropx.no-real-purchase.spec.ts`; `test/sdx-d2c*.spec.ts` y `test/integration/sdx-d2c-*.e2e-spec.ts` si su conducta cambia | ficheros nuevos `test/sdx-d2g*.spec.ts`, `test/integration/sdx-d2g-*.e2e-spec.ts` (+ un helper propio nuevo); `test/admin.user-detail-shape.spec.ts`; `test/enum-values-parity.spec.ts`; `test/integration/enum-query-axes.e2e-spec.ts` (`C-EQ-1`); las de ajustes; y, si el orquestador lo enruta, las dos de `T-FLAKY-RFC-1` |
+| Pruebas que **ninguno** toca | `test/integration/helpers/e2e-app.ts` y cualquier helper compartido que no sea el propio: si hace falta, se para y lo dice | ídem |
+| `docs/BACKEND_NOTES.md` | sección **§64**, escrita al final (releer el fichero justo antes de editar) | sección **§65**, ídem |
+
+- **Contratos de interfaz entre los dos (no cambian en esta fase):** D2g ⛔ cambia la firma de `raise`, `resolve`, `observeBalance`,
+  `RaiseInput`, `dayMx` ni `SPEND_ALERT_CODE_OF` (`spend-alerts.service.ts:28-176`): D2d los llama. Lo que D2g añada es aditivo.
+  D2d levanta AG-6, AG-9 (b)(c)(d), AG-11 y AG-12 **solo** por `raise` (el correo lo despacha D2g por el outbox: `mailStatus =
+  'pending'` espera a su despachador, sin dependencia de código). AG-8 (b) y AG-10 son de D2g (`spend-watch`, §19.31.10).
+- **S-GAS-3** (`picking-list/summary` + `spendAlertsUnseenImmediate`, `shipment-prep.service.ts:889-909`) ⛔ **no es de D2g**: es de
+  **D2f** (§19.31.10 fila 3b), con el **mismo** predicado que `workQueue.spendControl.unseenImmediate`. Así D2g no toca `shipments/`.
+- **Costuras serializadas (después de que los dos entreguen y commiteen; un solo agente backend, modelo fuerte porque toca pruebas):**
+  - **C1 — `jobs/`:** `spend-watch` y `spend-digest` en `scheduler.service.ts` (crons `SPEND_WATCH_CRON` `*/5 * * * *`,
+    `SPEND_DIGEST_CRON` de §19.29.7), `jobs.module.ts` (importa `SpendAlertsModule`), `admin-jobs.controller.ts` (`POST
+    /admin/jobs/spend-watch`, `…/spend-digest`) y su `.spec.ts`.
+  - **C2 — `C-EQ-1`:** `'GET /admin/shipments/departure::date'` a `NO_ENUM_POR_RUTA` (es de D2d; el fichero es de D2g en esta
+    fase). Hasta C2, el descubrimiento de `C-EQ-1` sale **rojo nombrando ese eje** en las corridas de D2d: rojo **esperado**, y
+    el informe de D2d lo dice así.
+  - Ninguna de las dos es «terminado» de D2g/D2d hasta coserse (O-4: un job sin programar no corre).
+- **Copias de prueba en árbol compartido:** cada agente corre sus suites sobre `git archive HEAD` del árbol **entero** + **sus**
+  rutas sin commitear superpuestas — ⛔ nunca una copia del árbol de trabajo (metería el trabajo a medias del otro). Commits solo con
+  `git commit -- <rutas explícitas>` de su columna.
+- **Comprobación de la partición** (la hace el orquestador al recibir cada informe): `git log --name-only` de los commits del
+  agente ⊆ su columna; cualquier ruta fuera ⇒ se devuelve sin fusionar.
+- *Por qué cabe en paralelo y no antes:* D2d vive en `shipments/` + `shipping-provider/` + `jobs/`; D2g en `spend-alerts/` +
+  `admin/` + `users/` + `settings/` + dos ficheros de `common/`. La única interfaz entre los dos (`raise`) ya está construida y
+  congelada; lo único realmente compartido son dos registros (el planificador y `C-EQ-1`), y se cosen en serie.
+- ⚠️ **Otros streams:** `admin/`, `users/`, `settings/` y `common/` son de «Admin y auditoría» y «Cuentas y acceso». ⛔ NO MEDIDO
+  por el arquitecto si alguna rama `claude/*` viva los toca: lo mide el orquestador antes de lanzar D2g (O-18).
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 

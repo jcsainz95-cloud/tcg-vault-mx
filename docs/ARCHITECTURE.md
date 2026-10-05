@@ -4,6 +4,12 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.13 — ERRATA TRAS D2c-CIERRE Y PARTICIÓN D2d ∥ D2g** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD
+> dado por el orquestador `f5b5515b` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.13**; norma en
+> `API_CONTRACT §M4-SHIP.19.32`; porqué en **§4.60 (y)**. Seis filas nuevas en §0-Q; `requestedAt` también al reutilizar;
+> `?folio=` fuera de §0-Q; cuatro ratificaciones; D2d y D2g en paralelo por ficheros disjuntos con dos costuras en serie y
+> `prisma/` sin dueño. Sin migración.
+>
 > **Rev v1.80.12.12 — 💰 ERRATA TRAS D2b/D2c Y PLAN DE CIERRE DE LA FASE D** (2026-10-05, arquitecto, rama
 > `claude/skydropx-d`, HEAD dado por el orquestador `69707cfa` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
 > **v1.80.12.12**; norma en `API_CONTRACT §M4-SHIP.19.31`; porqué en **§4.60 (x)**. La tercera llave de la compra depende del
@@ -27786,6 +27792,26 @@ gastar, y que ningún estado deje al operador sin salida.**
 producción (devops lo comprueba a mano en cada despliegue). NO MEDIDO: si Skydropx honra una cotización reutilizada pasadas
 24 h; si acepta `email: ''`; cómo responde a un segundo `cancel`; qué siembra hoy la pila E2E (un dueño); el resultado por
 defecto del doble en la pila.
+
+**(y) v1.80.12.13 — errata tras D2c-cierre y partición D2d ∥ D2g** (norma en `API_CONTRACT §M4-SHIP.19.32`; origen
+`BACKEND_NOTES.md §63.6` y `DEVOPS_NOTES.md §82.3`). Dos ideas: **un documento que promete un registro tiene que tenerlo**, y **dos
+agentes en el mismo árbol no comparten ningún fichero mientras corren**.
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **Reutilizar una cotización escribe `requestedAt`** (CAS `expiresAt > now`) | Dejarla sin escribir; ordenar `GET …/quote` por otra columna | Sin escribir, «la vigente» no es la última pedida; otra columna sería segunda fuente de «cuándo la pidió» |
+| **`?folio=` no es §0-Q** | Clase L | Su dominio es un formato: `allowed` no se puede enumerar (criterio del punto 7) |
+| **`label.pdf` cancelado sin `details`** | `{status}` | El estado ya está en el DTO de la pantalla: segunda fuente |
+| **«Envío vivo» = `status ∉ {entregado, cancelado}`** | Incluir `entregado` | El sondeo deja de consultar esos estados: una alerta ahí no se apagaría nunca |
+| **La cabecera de `M-66` no se corrige en el fichero** | Editar la migración | Ya aplicada; su suma está registrada |
+| **D2d ∥ D2g por directorios**, con `jobs/` para D2d, `C-EQ-1` para D2g y dos costuras en serie | Un agente cose a medias en los registros compartidos | Dos escritores del mismo fichero a la vez, en un árbol sin ramas, es O-8 en el recurso fichero |
+| **`prisma/` sin dueño en esta fase** | Dejar una migración «si hace falta» | Todo lo que piden ya existe (`M-66`…`M-68`); una columna nueva es una decisión de contrato |
+| **S-GAS-3 pasa de D2g a D2f** | D2g toca `shipment-prep.service.ts` | Es el mismo predicado que `workQueue.spendControl` (D2f) y sacarlo deja a D2g fuera de `shipments/` |
+
+**Deuda que deja (y):** dos costuras que no son de nadie hasta que el orquestador las lance; `C-EQ-1` rojo esperado en las
+corridas de D2d hasta C2. NO MEDIDO: que Nest acepte `SettingsModule` (global) importando `SpendAlertsModule` sin marcar ciclo;
+la tasa real del intermitente `T-FLAKY-RFC-1` (calculada 1/256 por corrida); si alguna rama viva toca `admin/`, `users/`,
+`settings/`.
 
 ---
 
