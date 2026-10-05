@@ -76,6 +76,9 @@ import type {
   CustomerPhysicalInventoryDTO,
   PreparationDestination,
   RefundOrderResponse,
+  RefundDeliveredItemRequest,
+  RefundDeliveredItemResponse,
+  DeliveredRefundDTO,
   RevealClabeResponse,
   BuylistItemDecisionInput,
   ConvertToInventoryResponse,
@@ -5135,7 +5138,13 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDT
   const additions = m4ship.mockAdminOrderDetailAdditions(orderId);
   const items: AdminOrderDetailDTO['items'] = fx.mockOrderDetail.items.map(({ refund: _r, ...it }) => {
     void _r;
-    return { ...it, refund: null };
+    const done = mockDeliveredRefunds.get(`${orderId}:${it.inventoryItemId}`) ?? null;
+    return {
+      ...it,
+      refund: done,
+      orderItemId: `oi-${orderId}-${it.inventoryItemId}`,
+      deliveredRefund: done ? null : mockDeliveredRefundOf(orderId, it.unitPriceCents),
+    };
   });
   // v1.80.8.7 (A-1): `settledAt` SIEMPRE presente en el detalle (`null` ⇔ nunca liquidada).
   const settledAt = order.settledAt ?? (order.status === 'pending' || order.status === 'failed' ? null : order.createdAt);
@@ -5162,6 +5171,77 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDT
     settledAt,
   };
   return delay(detail);
+}
+
+/**
+ * MOCK (§PNL.2): `deliveredRefund` por línea. El importe real lo calcula el SERVIDOR (`A = P + floor(F×P/G)`); el mock
+ * usa el precio de la línea para no reimplementar dinero en el cliente. Reembolsable ⇔ directo `settled` con algún
+ * envío de la orden `entregado` (las filas de envío del propio mock, `m4ship`).
+ */
+const mockDeliveredRefunds = new Map<string, NonNullable<AdminOrderDetailDTO['items']>[number]['refund']>();
+function mockDeliveredRefundOf(orderId: string, unitPriceCents: number): DeliveredRefundDTO {
+  const row = fx.mockAdminOrders.find((o) => o.id === orderId);
+  const add = m4ship.mockAdminOrderDetailAdditions(orderId);
+  const mode = add.fulfillmentMode ?? row?.fulfillmentMode;
+  const status = add.status ?? row?.status;
+  if (mode !== 'direct_ship') return { kind: 'not_refundable', reason: 'not_direct_ship' };
+  if (status !== 'settled') return { kind: 'not_refundable', reason: 'order_not_settled' };
+  if (!(add.shipments ?? []).some((sh) => sh.status === 'entregado')) return { kind: 'not_refundable', reason: 'not_delivered' };
+  return { kind: 'refundable', amountCents: unitPriceCents };
+}
+
+/**
+ * 💰 `POST /admin/orders/:id/items/:orderItemId/refund-delivered` (contrato v1.82 §PNL.2, `@MoneyOut`). Reembolsa UNA
+ * carta de un pedido directo ENTREGADO. El cuerpo lleva `expectedRefundCents` (la cifra que el súper-admin VIO) y
+ * ⛔ nunca `amountCents`. Respuestas: `201 { refund }`, `409 REFUND_PREVIEW_STALE { refundCents }`,
+ * `409 ITEM_REFUND_NOT_AVAILABLE { reason }`, `403 MONEY_OUT_FORBIDDEN`, `400 VALIDATION_ERROR { field }`, `409 CONFLICT`.
+ */
+export async function refundDeliveredItem(
+  orderId: string,
+  orderItemId: string,
+  body: RefundDeliveredItemRequest,
+): Promise<RefundDeliveredItemResponse> {
+  if (!config.useMocks) {
+    return apiRequest<RefundDeliveredItemResponse>(
+      `/admin/orders/${orderId}/items/${orderItemId}/refund-delivered`,
+      { method: 'POST', body, headers: { 'Idempotency-Key': `item-delivered:${orderItemId}` } },
+    );
+  }
+  if (m4ship.mockCallerRole() !== 'super_admin') {
+    throw new ApiClientError(403, { code: 'MONEY_OUT_FORBIDDEN', message: 'Super admin only' });
+  }
+  const order = fx.mockAdminOrders.find((o) => o.id === orderId);
+  const prefix = `oi-${orderId}-`;
+  const item = fx.mockOrderDetail.items.find((it) => `${prefix}${it.inventoryItemId}` === orderItemId);
+  if (!order || !item) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Order item not found' });
+  const key = `${orderId}:${item.inventoryItemId}`;
+  if (mockDeliveredRefunds.has(key)) {
+    throw new ApiClientError(409, { code: 'ITEM_REFUND_NOT_AVAILABLE', message: 'already refunded', details: { reason: 'already_refunded' } });
+  }
+  const view = mockDeliveredRefundOf(orderId, item.unitPriceCents);
+  if (view.kind === 'not_refundable') {
+    throw new ApiClientError(409, { code: 'ITEM_REFUND_NOT_AVAILABLE', message: 'not available', details: { reason: view.reason } });
+  }
+  if (body.expectedRefundCents !== view.amountCents) {
+    throw new ApiClientError(409, { code: 'REFUND_PREVIEW_STALE', message: 'stale', details: { refundCents: view.amountCents } });
+  }
+  const now = new Date().toISOString();
+  const refund = {
+    id: `pr-del-${Math.floor(Math.random() * 9000 + 1000)}`,
+    kind: 'item_delivered' as const,
+    status: 'requested' as const,
+    amountCents: view.amountCents,
+    missingReason: null,
+    deliveredReason: body.reason,
+    requestedAt: now,
+    requestedBy: { userId: 'u-admin', name: 'Admin', role: 'super_admin' as const },
+    submittedAt: null,
+    succeededAt: null,
+    failedAt: null,
+    failureCode: null,
+  };
+  mockDeliveredRefunds.set(key, refund);
+  return delay({ refund });
 }
 
 /** MOCK: quita las claves `undefined` de un parcial antes de esparcirlo (no pisa lo que la fila sí sabe). */

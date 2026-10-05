@@ -1638,7 +1638,8 @@
           "order_remaining": "Rest of the order",
           "shipment_fee": "Withdrawal cost",
           "order_full": "Full order",
-          "case_refund": "“To replace” case"
+          "case_refund": "“To replace” case",
+          "item_delivered": "Card after delivery"
         },
         "retry": "Retry",
         "viewTransfer": "View transfer"
@@ -1767,6 +1768,37 @@
       "unsettledRefund": {
         "title": "Refunded before it was paid",
         "body": "Stripe refunded this order before the store marked it as paid, so it was never prepared. The cards it was holding went back on sale by themselves; each one shows “Released by refund” in its history."
+      },
+      "deliveredRefund": {
+        "cta": "Refund this card · {amount}",
+        "notRefundable": {
+          "not_delivered": "It can be refunded once its shipment is delivered.",
+          "order_not_settled": "The order is no longer settled: it isn't refunded per card.",
+          "legacy_convention": "Order from before VAT-inclusive prices: it isn't refunded per card from here."
+        },
+        "title": "Refund a delivered card",
+        "amount": "{amount} will be refunded",
+        "amountHint": "The card plus its share of the processing fee, no shipping. The system calculates it and it can't be edited.",
+        "legend": "What happened to this card? (required)",
+        "noteLabel": "What happened",
+        "noteHint": "Required, 3 to 500 characters. Saved in the audit log; the customer doesn't see it.",
+        "effects": "The order stays settled. The card doesn't go back into inventory: the customer has it. The customer gets an email with what was refunded.",
+        "confirm": "Refund {amount}",
+        "done": "{amount} refund {state, select, requested {sent to Stripe} other {accepted by Stripe}} for {card}. Reason: “{reason}”.",
+        "error": {
+          "stale": "The amount changed while you were confirming: it's now {amount}. Nothing was refunded. Check it and confirm again.",
+          "notAvailable": {
+            "already_refunded": "This card had already been refunded. It wasn't refunded again.",
+            "not_delivered": "Its shipment no longer shows as delivered. Nothing was refunded.",
+            "order_not_settled": "The order is no longer settled: it was fully refunded or is disputed with the bank. Nothing was refunded.",
+            "legacy_convention": "Order from before VAT-inclusive prices: it isn't refunded per card from here. Nothing was refunded.",
+            "not_direct_ship": "This is a vault order: its cards aren't refunded this way. Nothing was refunded."
+          },
+          "forbidden": "Only the super-admin can refund. The attempt was logged.",
+          "invalidReason": "Pick “Didn't arrive” or “Arrived in bad condition”.",
+          "invalidNote": "Say what happened (3 to 500 characters).",
+          "conflict": "The refund couldn't be calculated without exceeding what was charged. Nothing was done. Tell the tech team."
+        }
       }
     },
     "m4": {

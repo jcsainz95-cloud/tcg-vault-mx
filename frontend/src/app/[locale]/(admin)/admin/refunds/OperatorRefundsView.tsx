@@ -18,7 +18,7 @@ import type { AppLocale } from '@/i18n/routing';
 import type { AdminRefundRowDTO, OperatorRefundSummaryDTO, PaymentRefundKind, PaymentRefundStatus, Role } from '@/types/contract';
 
 const DASH = '—';
-const KINDS: PaymentRefundKind[] = ['item_missing', 'order_remaining', 'shipment_fee', 'order_full', 'case_refund'];
+const KINDS: PaymentRefundKind[] = ['item_missing', 'order_remaining', 'shipment_fee', 'order_full', 'case_refund', 'item_delivered'];
 const STATUSES: PaymentRefundStatus[] = ['requested', 'submitted', 'succeeded', 'failed'];
 
 /**

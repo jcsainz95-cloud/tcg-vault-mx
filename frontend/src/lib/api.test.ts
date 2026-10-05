@@ -25,6 +25,7 @@ import {
   updateAdminShipmentStatus,
   respondSellRequest,
   getSupportContact,
+  refundDeliveredItem,
   getDisputes,
   getSellRequests,
   getSellRequest,
@@ -584,6 +585,15 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toMatch(/\/support\/contact$/);
     expect(init.method ?? 'GET').toBe('GET');
+  });
+
+  it('§PNL.2 · refundDeliveredItem → POST /admin/orders/:id/items/:orderItemId/refund-delivered, cuerpo sin amountCents', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(201, { refund: { id: 'pr-1' } }));
+    await refundDeliveredItem('ord-1', 'oi-1', { reason: 'not_arrived', note: 'abc', expectedRefundCents: 31458 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toMatch(/\/admin\/orders\/ord-1\/items\/oi-1\/refund-delivered$/);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ reason: 'not_arrived', note: 'abc', expectedRefundCents: 31458 });
   });
 
   it('F6 · getDisputes → GET /disputes (unwrap data)', async () => {

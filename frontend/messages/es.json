@@ -1638,7 +1638,8 @@
           "order_remaining": "Resto del pedido",
           "shipment_fee": "Costo del retiro",
           "order_full": "Pedido completo",
-          "case_refund": "Caso «Por reponer»"
+          "case_refund": "Caso «Por reponer»",
+          "item_delivered": "Carta tras la entrega"
         },
         "retry": "Reintentar",
         "viewTransfer": "Ver transferencia"
@@ -1767,6 +1768,37 @@
       "unsettledRefund": {
         "title": "Reembolsado antes de quedar pagado",
         "body": "Stripe reembolsó este pedido antes de que la tienda lo diera por pagado, así que nunca se preparó. Las cartas que tenía apartadas volvieron solas a la venta; cada una lleva «Liberada por reembolso» en su historial."
+      },
+      "deliveredRefund": {
+        "cta": "Reembolsar esta carta · {amount}",
+        "notRefundable": {
+          "not_delivered": "Se podrá reembolsar cuando su envío esté entregado.",
+          "order_not_settled": "El pedido ya no está liquidado: no se reembolsa por carta.",
+          "legacy_convention": "Pedido de antes de los precios con IVA incluido: no se reembolsa por carta desde aquí."
+        },
+        "title": "Reembolsar una carta entregada",
+        "amount": "Se devuelven {amount}",
+        "amountHint": "La carta más su parte de la comisión de cobro, sin envío. La calcula el sistema y no se edita.",
+        "legend": "¿Qué pasó con esta carta? (obligatorio)",
+        "noteLabel": "Qué pasó",
+        "noteHint": "Obligatoria, de 3 a 500 caracteres. Queda en bitácora; el cliente no la ve.",
+        "effects": "El pedido sigue liquidado. La carta no vuelve a inventario: la tiene el cliente. El cliente recibe un correo con lo que se le devolvió.",
+        "confirm": "Reembolsar {amount}",
+        "done": "Reembolso de {amount} {state, select, requested {pedido a Stripe} other {aceptado por Stripe}} por {card}. Motivo: «{reason}».",
+        "error": {
+          "stale": "El importe cambió mientras confirmabas: ahora son {amount}. No se reembolsó nada. Revísalo y confirma otra vez.",
+          "notAvailable": {
+            "already_refunded": "Esta carta ya se había reembolsado. No se reembolsó otra vez.",
+            "not_delivered": "Su envío ya no figura como entregado. No se reembolsó nada.",
+            "order_not_settled": "El pedido ya no está liquidado: se reembolsó completo o está en disputa con el banco. No se reembolsó nada.",
+            "legacy_convention": "Pedido de antes de los precios con IVA incluido: no se reembolsa por carta desde aquí. No se reembolsó nada.",
+            "not_direct_ship": "Este pedido es a bóveda: sus cartas no se reembolsan por esta vía. No se reembolsó nada."
+          },
+          "forbidden": "Solo el súper-admin puede reembolsar. El intento quedó registrado.",
+          "invalidReason": "Elige «No llegó» o «Llegó en mala condición».",
+          "invalidNote": "Escribe qué pasó (de 3 a 500 caracteres).",
+          "conflict": "No se pudo calcular el reembolso sin pasarse de lo cobrado. No se hizo nada. Avísale al equipo técnico."
+        }
       }
     },
     "m4": {

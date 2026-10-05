@@ -1639,7 +1639,8 @@ export interface ShipmentTrackingRequest {
 // Enums de Prisma (clase E, `M-61`).
 /** Por qué una carta de un ENVÍO (o de una colocación) no sale. `damaged` ⇒ la pieza queda `damaged`. */
 export type MissingReason = 'not_found' | 'damaged';
-export type PaymentRefundKind = 'item_missing' | 'order_remaining' | 'shipment_fee' | 'order_full' | 'case_refund';
+/** v1.82 (§PNL.2, M-70): + `item_delivered` = UNA carta de un envío directo YA ENTREGADO, reembolsada con motivo. */
+export type PaymentRefundKind = 'item_missing' | 'order_remaining' | 'shipment_fee' | 'order_full' | 'case_refund' | 'item_delivered';
 export type PaymentRefundStatus = 'requested' | 'submitted' | 'succeeded' | 'failed';
 export type ReplacementCaseSource = 'withdrawal' | 'vault_purchase';
 export type ReplacementCaseStatus = 'open' | 'replaced' | 'found' | 'refunded' | 'voided';
@@ -1666,7 +1667,40 @@ export interface PaymentRefundDTO {
   succeededAt: string | null;
   failedAt: string | null;
   failureCode: string | null;
+  /** v1.82 (§PNL.2, aditivo): el motivo de una fila `item_delivered` (si no, `null`/ausente). */
+  deliveredReason?: ShippedRefundReason | null;
 }
+
+/**
+ * v1.82 (§PNL.2) — `GET /admin/orders/:id` · `items[].deliveredRefund`: si ESTA carta entregada se puede
+ * reembolsar sola, con el importe que calcula el servidor (⛔ la pantalla no lo calcula ni lo edita). `null` ⇔
+ * la línea ya tiene `refund`.
+ */
+export type DeliveredRefundDTO =
+  | { kind: 'refundable'; amountCents: number }
+  | { kind: 'not_refundable'; reason: 'not_direct_ship' | 'order_not_settled' | 'legacy_convention' | 'not_delivered' };
+
+/** v1.82 (§PNL.2) — `POST /admin/orders/:id/items/:orderItemId/refund-delivered`. ⛔ Sin `amountCents`. */
+export interface RefundDeliveredItemRequest {
+  reason: ShippedRefundReason;
+  /** 3–500 tras `trim()`. Queda en bitácora; el cliente no la ve. */
+  note: string;
+  /** El importe que el súper-admin VIO (`deliveredRefund.amountCents`). */
+  expectedRefundCents: number;
+}
+export interface RefundDeliveredItemResponse {
+  refund: PaymentRefundDTO;
+}
+/** `409 ITEM_REFUND_NOT_AVAILABLE { reason }` (§PNL.2 paso 3 y §PNL.3 paso 3). */
+export type ItemRefundNotAvailableReason =
+  | 'not_direct_ship'
+  | 'order_not_settled'
+  | 'legacy_convention'
+  | 'already_refunded'
+  | 'not_delivered'
+  | 'not_withdrawal'
+  | 'not_shipped'
+  | 'no_reference';
 
 /** §M4-SHIP.3 — referencia corta al caso que abrió una línea de retiro. */
 export interface ReplacementCaseRefDTO {
@@ -2191,7 +2225,16 @@ export interface AdminOrderDetailDTO {
   manualRefundedCents?: number; // Σ SPEI `paid` (solo super_admin)
   refunds?: PaymentRefundDTO[];
   manualRefunds?: ManualRefundDTO[]; // solo super_admin
-  items?: (Omit<OrderItemDTO, 'refund'> & { refund?: PaymentRefundDTO | null })[];
+  items?: (Omit<OrderItemDTO, 'refund'> & {
+    refund?: PaymentRefundDTO | null;
+    /**
+     * ⚠️ v1.82 — la llave de `refund-delivered`. El backend la emite (`admin-orders.controller.ts`, «pendiente de
+     * arquitecto: el contrato no lo listaba en AdminOrderItemDTO»); solicitado al arquitecto. Sin ella no hay botón.
+     */
+    orderItemId?: string | null;
+    /** v1.82 (§PNL.2): ver `DeliveredRefundDTO`. Ausente ⇒ servidor anterior ⇒ nada que ofrecer. */
+    deliveredRefund?: DeliveredRefundDTO | null;
+  })[];
   shipments?: {
     id: string;
     status: ShipmentStatus;
