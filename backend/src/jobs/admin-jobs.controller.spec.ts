@@ -67,3 +67,51 @@ describe('AdminJobsController · decks-meta-refresh (§7)', () => {
     expect(Reflect.getMetadata(ROLES_KEY, AdminJobsController)).toEqual([Role.super_admin]);
   });
 });
+
+/**
+ * ⭐ D2d (API_CONTRACT §M4-SHIP.19.10) — los tres disparos de Skydropx: súper-admin (de la clase), `200`, pasan `shipmentId`
+ * tal cual al sondeo, AUDITAN `jobs.<name>.run` y, sin el servicio (construcción a mano), responden `404` en vez de `500`.
+ */
+describe('AdminJobsController · jobs de Skydropx (D2d)', () => {
+  const user = { id: 'sa-1', role: Role.super_admin };
+  const stub = {} as never;
+  function make() {
+    const poll = { run: jest.fn(async () => ({ polled: 1, events: 0, applied: 0, errors: 0 })) };
+    const proc = { run: jest.fn(async () => ({ processing: { checked: 0, errors: 0 } })) };
+    const charges = { run: jest.fn(async () => ({ seen: 2, inserted: 1, duplicates: 1, unmatched: 0, unreadable: 0, chargedAtFallback: 0 })) };
+    const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
+    const controller = new AdminJobsController(
+      stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, audit, poll as never, proc as never, charges as never,
+    );
+    return { controller, poll, proc, charges, audit };
+  }
+
+  it('`shipment-tracking-poll {shipmentId}` pasa el id; audita con el resultado', async () => {
+    const { controller, poll, audit } = make();
+    const res = await controller.runShipmentTrackingPoll({ shipmentId: 'abc' }, user);
+    expect(poll.run).toHaveBeenCalledWith({ shipmentId: 'abc' });
+    expect(res.polled).toBe(1);
+    const entry = (audit.log as jest.Mock).mock.calls[0][0];
+    expect(entry).toEqual(expect.objectContaining({ action: 'jobs.shipment_tracking_poll.run', entityType: 'Job', entityId: 'shipment-tracking-poll', actorUserId: 'sa-1' }));
+    expect(entry.after).toEqual(expect.objectContaining({ shipmentId: 'abc', polled: 1 }));
+  });
+
+  it('`shipment-label-processing` y `shipment-extra-charges` corren y auditan', async () => {
+    const { controller, proc, charges, audit } = make();
+    await controller.runShipmentLabelProcessing(user);
+    await controller.runShipmentExtraCharges(user);
+    expect(proc.run).toHaveBeenCalledTimes(1);
+    expect(charges.run).toHaveBeenCalledTimes(1);
+    expect((audit.log as jest.Mock).mock.calls.map((c) => c[0].action)).toEqual(['jobs.shipment_label_processing.run', 'jobs.shipment_extra_charges.run']);
+  });
+
+  it('responden 200 (como los barridos) y, sin el servicio, 404 (⛔ nunca un 500)', async () => {
+    for (const m of ['runShipmentTrackingPoll', 'runShipmentLabelProcessing', 'runShipmentExtraCharges'] as const) {
+      expect(Reflect.getMetadata(HTTP_CODE_METADATA, AdminJobsController.prototype[m])).toBe(200);
+    }
+    const audit = { log: jest.fn() } as unknown as AuditService;
+    const bare = new AdminJobsController(stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, audit);
+    await expect(bare.runShipmentLabelProcessing(user)).rejects.toMatchObject({ status: 404 });
+  });
+});
+

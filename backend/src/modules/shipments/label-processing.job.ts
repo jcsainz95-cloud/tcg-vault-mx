@@ -237,6 +237,8 @@ export class ShipmentLabelProcessingJob {
       try {
         const oldest = Math.min(...targets.map((t) => t.since.getTime()));
         listing = await this.selection.port.recentShipments(new Date(oldest - this.cfg.tVerifySkewMs));
+        // La conciliación de huérfanas reusa TODO listado que la corrida ya leyó (§19.28.6: sin peticiones nuevas).
+        listings.push(listing);
       } catch {
         listing = null;
       }

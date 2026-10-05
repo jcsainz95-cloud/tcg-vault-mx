@@ -20,6 +20,21 @@ import {
   LABEL_VERIFY_CONFIG,
   LabelVerifyConfig,
 } from '../../../src/modules/shipments/label-verify.constants';
+import { CARRIER_NOTICES, CarrierNotice, CarrierNoticeEvent } from '../../../src/modules/shipments/carrier-notices';
+
+/**
+ * ⭐ D2d — el puerto de los avisos AV-17/18/19 (§19.3 paso 5) SUSTITUIDO por un registro: D2d decide QUÉ hecho ocurrió y lo
+ * entrega post-commit; los correos son de D2e. Las pruebas cuentan entregas (PS-72 «1 correo», PS-75, PS-78).
+ */
+export class NoticeRecorder {
+  readonly calls: { shipmentId: string; notice: CarrierNotice; event: CarrierNoticeEvent }[] = [];
+  async notify(shipmentId: string, notice: CarrierNotice, event: CarrierNoticeEvent): Promise<void> {
+    this.calls.push({ shipmentId, notice, event });
+  }
+  of(shipmentId: string, notice?: CarrierNotice) {
+    return this.calls.filter((c) => c.shipmentId === shipmentId && (!notice || c.notice === notice));
+  }
+}
 
 /** Dirección completa del arnés (CP 01000 · San Ángel, `E2E_POSTAL_CODES`). */
 export const READY_ADDRESS = {
@@ -47,6 +62,8 @@ export interface LabelWorld {
   spend: { on: boolean };
   /** La configuración de verificación inyectada (§19.27.8): ⛔ las pruebas no cambian `label-verify.constants.ts`. */
   cfg: LabelVerifyConfig;
+  /** ⭐ D2d: lo que `applyCarrierStatus` entregó al puerto de avisos (AV-17/18/19). */
+  notices: NoticeRecorder;
 }
 
 export async function createLabelWorld(
@@ -63,6 +80,7 @@ export async function createLabelWorld(
   // Las pruebas desactivan la adopción por folio por defecto (§19.28.4: «las pruebas lo inyectan en `false`»).
   const cfg: LabelVerifyConfig = { ...DEFAULT_LABEL_VERIFY_CONFIG, adoptionEnabled: false, ...cfgOver };
   fake.now = () => clock.now();
+  const notices = new NoticeRecorder();
   const h = await E2EHarness.create((b) =>
     b
       .overrideProvider(SHIPPING_PROVIDER_SELECTION)
@@ -72,11 +90,13 @@ export async function createLabelWorld(
       .overrideProvider(LABEL_SPEND_KEY)
       .useValue({ turned: () => spend.on })
       .overrideProvider(LABEL_VERIFY_CONFIG)
-      .useValue(cfg),
+      .useValue(cfg)
+      .overrideProvider(CARRIER_NOTICES)
+      .useValue(notices),
   );
   const db = new ShipPrepDb(h, run);
   await db.init();
-  return { h, db, fake, clock, spend, cfg };
+  return { h, db, fake, clock, spend, cfg, notices };
 }
 
 const touchedDials = new Map<string, Prisma.JsonValue | undefined>();

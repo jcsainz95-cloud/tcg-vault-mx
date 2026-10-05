@@ -10,7 +10,8 @@
  *  - Filtros `?labelSource=` (E), `?alert=` (L), `?folio=` (S-GAS-2) de `GET /admin/shipments` — que FILTRAN (resultado, no
  *    solo `200`) y que lo de fuera de dominio es `400`.
  *  - PS-167 (a)(b)(c) — `label/cancel` cuando `cancel` LANZA o rechaza (§19.31.6).
- *  - PS-168 (a)(b)(c)(d) — vigencia de la cotización reutilizada y «la vigente» (§19.31.2).
+ *  - PS-168 (a)(b)(c)(d) — vigencia de la cotización reutilizada y «la vigente» (§19.31.2); (e) REUTILIZAR escribe
+ *    `requestedAt` con CAS (§19.32.2, D2d).
  *  - PS-169 — los dos `reason` nuevos de `label` (§19.31.7 (a)).
  */
 import { ApiResponse, E2EHarness } from './helpers/e2e-app';
@@ -368,6 +369,52 @@ describe('💰🔒 D2c-cierre — label.pdf, filtros, cancelación sin respuesta
       expect(rowX.requestedByUserId).toBe(db.adminId);
       expect(rowX.expiresAt.toISOString()).toBe(new Date(T.getTime() + 24 * H).toISOString());
       expect((await current(a)).body.quoteId).toBe(x.body.quoteId);
+    });
+
+    // ⭐ v1.80.12.13 (§19.32.2, D2d): REUTILIZAR sin `force` también escribe `requestedAt`/`requestedByUserId`, con CAS.
+    it('(e) X en T, Y (otro empaque) en T+1 h, X otra vez en T+2 h SIN force ⇒ X `reused:true`, requestedAt = T+2 h, requestedByUserId = actor, expiresAt intacto, GET ⇒ X', async () => {
+      fake.reuseQuotations = true;
+      const T = clock.now();
+      const a = await mkReady();
+      const x = await quote(a, { packageCode: 'envelope' });
+      clock.set(new Date(T.getTime() + 1 * H));
+      const y = await quote(a, { packageCode: 'box' });
+      expect((await current(a)).body.quoteId).toBe(y.body.quoteId);
+      clock.set(new Date(T.getTime() + 2 * H));
+      fake.calls.length = 0;
+      const x2 = await quote(a, { packageCode: 'envelope' }, db.adminToken);
+      expect(x2.body).toEqual(expect.objectContaining({ quoteId: x.body.quoteId, reused: true, requestedAt: new Date(T.getTime() + 2 * H).toISOString(), expiresAt: x.body.expiresAt }));
+      expect(fake.callsOf('quote')).toHaveLength(0); // el paso 6 sigue sin red
+      const rowX = await quoteRow(a, x.body.providerQuotationId);
+      expect(rowX.requestedAt.toISOString()).toBe(new Date(T.getTime() + 2 * H).toISOString());
+      expect(rowX.requestedByUserId).toBe(db.adminId);
+      expect(rowX.expiresAt.toISOString()).toBe(new Date(T.getTime() + 24 * H).toISOString());
+      expect((await current(a)).body.quoteId).toBe(x.body.quoteId);
+    });
+
+    it('(e) X VENCIDA entre la lectura y la escritura ⇒ «sin reutilizable»: re-cotiza sin error (⛔ ni 500 ni 409)', async () => {
+      fake.reuseQuotations = false;
+      const T = clock.now();
+      const a = await mkReady();
+      const x = await quote(a, { packageCode: 'envelope' });
+      clock.set(new Date(T.getTime() + 2 * H));
+      // La lectura del paso 6 ve X viva; justo después «vence» (se mueve su expiresAt al pasado, como si el reloj corriera).
+      const delegate = h.prisma.shipmentQuote;
+      const orig = delegate.findFirst.bind(delegate);
+      const spy = jest.spyOn(delegate, 'findFirst').mockImplementationOnce((async (args: any) => {
+        const found = await orig(args);
+        if (found) await h.prisma.$executeRaw`UPDATE "ShipmentQuote" SET "expiresAt" = ${new Date(T.getTime() + 1)} WHERE id = ${found.id}`;
+        return found;
+      }) as any);
+      fake.calls.length = 0;
+      const x2 = await quote(a, { packageCode: 'envelope' });
+      spy.mockRestore();
+      expect(errCode(x2)).toBe('200');
+      expect(x2.body.reused).toBe(false);
+      expect(x2.body.quoteId).not.toBe(x.body.quoteId);
+      expect(fake.callsOf('quote')).toHaveLength(1);
+      const rowX = await h.prisma.shipmentQuote.findUniqueOrThrow({ where: { id: x.body.quoteId } });
+      expect(rowX.requestedAt.toISOString()).toBe(T.toISOString()); // la vencida no se tocó
     });
 
     it('(d) `excluded` de la fresca == el de la reutilizada (fixture medido de PS-94)', async () => {

@@ -155,7 +155,9 @@ export class ShipmentOrphanService {
     }
     // (d) El fusible: cuenta INTENCIONES (escritas antes de `cancel`), no éxitos ni la bitácora posterior.
     const intent = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(${ORPHAN_FUSE_LOCK_KEY}::bigint)`;
+      // `$executeRaw`: la función devuelve `void` y `$queryRaw` no sabe deserializarlo (medido: «Failed to deserialize column
+      // of type 'void'»). El candado ESPERA (su tx no tiene red: milisegundos).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ORPHAN_FUSE_LOCK_KEY}::bigint)`;
       const recent = await tx.shipmentPaidLabel.count({ where: { autoCancelIntentAt: { gt: new Date(now.getTime() - DAY) } } });
       if (recent >= ORPHAN_AUTO_CANCEL_MAX_24H) return 'fused' as const;
       const w = await tx.shipmentPaidLabel.updateMany({
