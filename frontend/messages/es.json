@@ -829,19 +829,8 @@
     "selectItem": "Seleccionar",
     "payTitle": "Pagar envío",
     "dispute": {
-      "open": "Abrir disputa",
-      "alreadyOpen": "Disputa abierta",
       "myDisputes": "Mis disputas",
-      "noDisputes": "No tienes disputas.",
-      "deadline": "Plazo:",
-      "title": "Abrir disputa de condición",
-      "done": "Entendido",
-      "cancel": "Cancelar",
-      "submit": "Abrir disputa",
-      "descLabel": "Describe el problema",
-      "descPlaceholder": "Ej.: la carta llegó con desgaste en una esquina.",
-      "descHint": "Mínimo 10 caracteres. La evidencia (fotos) se envía por correo a soporte tras abrir la disputa.",
-      "errorTitle": "No se pudo abrir la disputa"
+      "deadline": "Plazo:"
     }
   },
   "shipmentStage": {
@@ -1123,7 +1112,12 @@
         "cancelled": "cancelada"
       },
       "transferCancelledHelp": "Si no sabes por qué, contáctanos.",
-      "originRefunded": "Ya no está en tu bóveda: este pedido se reembolsó."
+      "originRefunded": "Ya no está en tu bóveda: este pedido se reembolsó.",
+      "refundAfterDelivery": "Reembolsada · te devolvimos {amount}",
+      "refundReasonAfterDelivery": {
+        "not_arrived": "no llegó",
+        "arrived_damaged": "llegó en mala condición"
+      }
     },
     "resume": {
       "cta": "Reanudar pago",
@@ -1164,13 +1158,12 @@
     "refundTitle": "Reembolsos y ventas finales",
     "refundBody": "Todas las ventas son finales. Una vez que compras una carta, la venta no admite reembolso ni cancelación.",
     "platformErrorTitle": "Excepción: error de la plataforma",
-    "platformErrorBody": "Si el problema es un error nuestro —por ejemplo, un cobro duplicado o una compra sin inventario real que la respalde— siempre te reembolsamos, sin necesidad de abrir una disputa.",
-    "disputeTitle": "Excepción: carta dañada o equivocada",
-    "disputeBody": "Otra excepción es recibir una carta dañada o equivocada. En ese caso puedes abrir una disputa de condición dentro de los 7 días naturales, contados a partir de la entrega del envío. La evidencia se envía por correo a nuestro buzón de soporte (no se sube foto en la app).",
-    "disputeWindowNote": "El plazo de 7 días empieza a correr el día en que se entrega el envío, no en la fecha de compra ni de pago.",
-    "disputeOutcome": "Si la disputa procede, te compensamos por el daño o el error y conservas la carta: no hay devolución del producto.",
+    "platformErrorBody": "Si el problema es un error nuestro —por ejemplo, un cobro duplicado o una compra sin inventario real que la respalde— siempre te reembolsamos.",
     "questionsTitle": "Dudas",
-    "questionsBody": "Para cualquier aclaración sobre estos términos, escríbenos a soporte@tcghunt.mx."
+    "questionsBody": "Para cualquier aclaración sobre estos términos, escríbenos a {contact}.",
+    "deliveryIssueTitle": "Excepción: una carta llegó mal o el paquete no llegó",
+    "deliveryIssueBody": "Si una carta te llegó dañada o equivocada, o el paquete no llegó, escríbenos a {contact} con tu número de pedido o de retiro y, si puedes, fotos. Revisamos el caso y, si procede, te devolvemos el dinero de esa carta. No tienes que abrir nada en la tienda.",
+    "deliveryIssueOutcome": "Si procede, conservas la carta: no hay devolución del producto."
   },
   "dispute": {
     "evidenceTitle": "Envía tu evidencia por correo",
@@ -4989,7 +4982,9 @@
     "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo.",
     "ITEM_ORIGIN_REFUNDED": "Una carta de tu retiro viene de una compra que se está reembolsando y no se puede enviar. Quítala y vuelve a intentarlo.",
     "DECLINE_NOT_ALLOWED": "Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada.",
-    "OFFER_NOT_CANCELLABLE": "Esta oferta ya no se puede cancelar: no hay una oferta viva o la solicitud ya avanzó (una aceptada no se cancela por aquí). Vuelve a cargarla para ver su estado. No se guardó nada."
+    "OFFER_NOT_CANCELLABLE": "Esta oferta ya no se puede cancelar: no hay una oferta viva o la solicitud ya avanzó (una aceptada no se cancela por aquí). Vuelve a cargarla para ver su estado. No se guardó nada.",
+    "DISPUTES_DISCONTINUED": "Ya no se abren aclaraciones desde la tienda. Si tienes un problema con tu pedido, escríbenos con tu número de pedido.",
+    "DISPUTES_DISCONTINUED_WITH_DETAILS": "Ya no se abren aclaraciones desde la tienda. Si tienes un problema con tu pedido, escríbenos a {contact} con tu número de pedido."
   },
   "payment": {
     "title": "Pago",
@@ -5051,7 +5046,6 @@
     "copyOrderNumber": "Copiar",
     "copied": "Copiado",
     "copyTracking": "Copiar guía",
-    "troubleWithOrder": "¿Un problema con tu pedido?",
     "supportNote": "Consulta con soporte citando tu número de pedido.",
     "resendCta": "Reenviar el enlace a mi correo",
     "createAccountCta": "Crear cuenta y guardar este pedido",
@@ -5235,5 +5229,15 @@
       "emptyTitle": "Pega una lista para empezar",
       "emptyBody": "Aún no has pegado nada. Copia tu lista y pégala arriba."
     }
+  },
+  "support": {
+    "orderTitle": "¿PROBLEMA CON TU PEDIDO?",
+    "withdrawalTitle": "¿PROBLEMA CON TU RETIRO?",
+    "orderBody": "Si una carta llegó en mala condición o el paquete no llegó, escríbenos con tu número de pedido y, si puedes, fotos. Lo revisamos y te respondemos por correo.",
+    "withdrawalBody": "Si una carta llegó en mala condición o el paquete no llegó, escríbenos con tu número de retiro y, si puedes, fotos. Lo revisamos y te respondemos por correo.",
+    "copyEmail": "Copiar correo",
+    "copied": "Copiado",
+    "mailSubjectOrder": "Problema con mi pedido {reference}",
+    "mailSubjectWithdrawal": "Problema con mi retiro {reference}"
   }
 }

@@ -147,8 +147,19 @@ describe('PublicOrderTracking · vista pública (criterios 50, 51)', () => {
     expect(screen.getByRole('button', { name: 'Reenviar el enlace a mi correo' })).toBeInTheDocument();
   });
 
-  it('la disputa se atiende por correo a soporte citando el pedido (criterio 56b)', () => {
-    renderTracking();
-    expect(screen.getByTestId('evidence-email')).toHaveTextContent('evidencias@ejemplo.test');
+  // SC-3 = FE-DSC-4 (§60.1 b · §PNL.1). Canario: quitar la condición `status === 'entregado'` ⇒ rojo.
+  it('SC-3 · seguimiento ENTREGADO ⇒ «Escríbenos» con `support.evidenceContact` y el pedido en el asunto', () => {
+    renderTracking({ ...DTO, status: 'entregado' });
+    const email = screen.getByTestId('support-email');
+    expect(email).toHaveTextContent('evidencias@ejemplo.test');
+    expect(screen.getByRole('heading', { name: '¿PROBLEMA CON TU PEDIDO?' })).toBeInTheDocument();
+    const href = email.closest('a')!.getAttribute('href')!;
+    expect(decodeURIComponent(href.split('subject=')[1])).toBe('Problema con mi pedido TCG-000123');
+  });
+
+  it.each(['preparando', 'guia', 'enviado'] as const)('SC-3 · seguimiento «%s» ⇒ sin sección «Escríbenos»', (status) => {
+    renderTracking({ ...DTO, status });
+    expect(screen.queryByTestId('support-contact')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/disputa/i);
   });
 });

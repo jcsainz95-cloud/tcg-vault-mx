@@ -2,7 +2,7 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
-import { SUPPORT_CONTACT_FALLBACK } from '../(storefront)/checkout/support-contact';
+import { SupportEmailLink } from '@/components/domain/SupportContact';
 
 /**
  * Chrome REDUCIDO de la vista pública de seguimiento (DESIGN_SYSTEM §15.6).
@@ -65,9 +65,7 @@ function TrackingFooter() {
   return (
     <footer className="border-t border-border">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-8 font-mono text-[11px] uppercase tracking-label text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-        <a href={`mailto:${SUPPORT_CONTACT_FALLBACK}`} className="text-text hover:text-accent">
-          {SUPPORT_CONTACT_FALLBACK}
-        </a>
+        <SupportEmailLink className="text-text hover:text-accent" />
         <Link href="/terminos" className="text-text hover:text-accent">
           {t('footerTerms')}
         </Link>

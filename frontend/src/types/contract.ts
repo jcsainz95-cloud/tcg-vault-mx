@@ -2215,7 +2215,14 @@ export interface CustomerReplacementInfo {
 /** `items[].refund` del cliente: solo filas `submitted|succeeded`. */
 export interface CustomerItemRefundInfo {
   amountCents: number;
-  reason: MissingReason;
+  /**
+   * v1.82 (§PNL.2 «Lecturas que cambian»): de dónde salió el reembolso de ESTA carta. Ausente ⇒
+   * backend anterior ⇒ se lee como `missing_at_prep`. La línea del cliente se elige por `kind`,
+   * ⛔ nunca por el valor de `reason` (DESIGN_SYSTEM §60.2 a).
+   */
+  kind?: 'missing_at_prep' | 'after_delivery';
+  /** `MissingReason` con `missing_at_prep`; `ShippedRefundReason` con `after_delivery`. */
+  reason: MissingReason | ShippedRefundReason;
   refundedAt: string;
 }
 export interface CustomerOrderShipmentDTO {
@@ -4169,24 +4176,18 @@ export interface DisputeDTO {
   };
 }
 
-// ---- Disputas del CLIENTE (contrato §7) ----
-// WS-F F6. Forma CLIENTE (distinta del DisputeDTO admin): incluye `deadlineAt` (ventana de 7 días)
-// y `evidenceContact` (correo de soporte donde el cliente envía la evidencia, v1.2). El `type` lo
-// deriva server-side del productType del ítem (el cliente NO lo envía).
-export interface CreateDisputeInput {
-  inventoryItemId: string;
-  description: string;
+// ---- Soporte «Escríbenos» (contrato v1.82 §PNL.1) ----
+/** `GET /support/contact` — público, `Cache-Control: public, max-age=300`. `contact` no vacío. */
+export interface SupportContactResponse {
+  contact: string;
+}
+/** `410 DISPUTES_DISCONTINUED` de `POST /disputes` (v1.82 PNL-1): `details.supportContact`. */
+export interface DisputesDiscontinuedDetails {
+  supportContact: string;
 }
 
-// Respuesta 201 de POST /disputes. `evidenceContact` alimenta el componente DisputeEvidenceContact.
-export interface CreateDisputeResponse {
-  disputeId: string;
-  status: DisputeStatus;
-  type: DisputeType;
-  deadlineAt: string;
-  evidenceContact: string;
-}
-
+// ---- Disputas del CLIENTE (contrato §7 — EN TRANSICIÓN, PNL-1) ----
+// `POST /disputes` ya no crea (410); `GET /disputes` sigue para leer las que existan.
 // Fila de GET /disputes / GET /disputes/:id (cliente). El listado crudo del backend NO trae
 // `evidenceContact` (solo la creación lo devuelve), por eso es opcional aquí.
 export interface ClientDisputeDTO {

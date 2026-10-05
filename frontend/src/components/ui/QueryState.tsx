@@ -114,6 +114,16 @@ const DETAILED_ERRORS: Record<
    *   ese número es de **otro instante** y puede estar rancio respecto del `422` recién recibido
    *   (§27.1.2). **El error trae su propia cuenta; el DTO alimenta el aviso preventivo.**
    */
+  /**
+   * `410 DISPUTES_DISCONTINUED` (contrato v1.82 §PNL.1 · `details: { supportContact }`): un frontend
+   * viejo en caché que aún llame `POST /disputes`. DESIGN_SYSTEM §60.1 c: el copy nombra el buzón
+   * que manda el servidor; sin él, la base (sin correo) — ⛔ nunca el valor fijo.
+   */
+  DISPUTES_DISCONTINUED: (d) => {
+    const contact = typeof d.supportContact === 'string' ? d.supportContact.trim() : '';
+    return contact ? { contact } : null;
+  },
+
   ITEMS_NOT_DECIDED: (d) => {
     const ids = d.pendingDecisionItemIds;
     if (!Array.isArray(ids) || ids.length === 0) return null;

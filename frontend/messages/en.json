@@ -829,19 +829,8 @@
     "selectItem": "Select",
     "payTitle": "Pay shipping",
     "dispute": {
-      "open": "Open dispute",
-      "alreadyOpen": "Dispute open",
       "myDisputes": "My disputes",
-      "noDisputes": "You have no disputes.",
-      "deadline": "Deadline:",
-      "title": "Open a condition dispute",
-      "done": "Got it",
-      "cancel": "Cancel",
-      "submit": "Open dispute",
-      "descLabel": "Describe the issue",
-      "descPlaceholder": "E.g.: the card arrived with corner wear.",
-      "descHint": "At least 10 characters. Evidence (photos) is sent by email to support after opening the dispute.",
-      "errorTitle": "Could not open the dispute"
+      "deadline": "Deadline:"
     }
   },
   "shipmentStage": {
@@ -1123,7 +1112,12 @@
         "cancelled": "cancelled"
       },
       "transferCancelledHelp": "If you don't know why, contact us.",
-      "originRefunded": "No longer in your vault: this order was refunded."
+      "originRefunded": "No longer in your vault: this order was refunded.",
+      "refundAfterDelivery": "Refunded · we refunded you {amount}",
+      "refundReasonAfterDelivery": {
+        "not_arrived": "didn't arrive",
+        "arrived_damaged": "arrived in bad condition"
+      }
     },
     "resume": {
       "cta": "Resume payment",
@@ -1164,13 +1158,12 @@
     "refundTitle": "Refunds and final sales",
     "refundBody": "All sales are final. Once you buy a card, the sale is not eligible for a refund or cancellation.",
     "platformErrorTitle": "Exception: platform error",
-    "platformErrorBody": "If the problem is an error on our side —for example, a duplicate charge or a purchase with no real inventory backing it— we always refund you, with no need to open a dispute.",
-    "disputeTitle": "Exception: damaged or wrong card",
-    "disputeBody": "Another exception is receiving a damaged or wrong card. In that case you may open a condition dispute within 7 calendar days, counted from shipment delivery. Evidence is sent by email to our support inbox (no photo upload in the app).",
-    "disputeWindowNote": "The 7-day window starts on the day the shipment is delivered, not on the purchase or payment date.",
-    "disputeOutcome": "If the dispute is upheld, we compensate you for the damage or error and you keep the card: there is no product return.",
+    "platformErrorBody": "If the problem is our mistake —for example, a duplicate charge or a purchase with no real inventory behind it— we always refund you.",
     "questionsTitle": "Questions",
-    "questionsBody": "For any clarification about these terms, email us at soporte@tcghunt.mx."
+    "questionsBody": "For any question about these terms, write to {contact}.",
+    "deliveryIssueTitle": "Exception: a card arrived in bad shape or the package didn't arrive",
+    "deliveryIssueBody": "If a card reached you damaged or wrong, or the package didn't arrive, write to {contact} with your order or withdrawal number and, if you can, photos. We review the case and, if it applies, refund that card. You don't need to open anything in the store.",
+    "deliveryIssueOutcome": "If it applies, you keep the card: there's no product return."
   },
   "dispute": {
     "evidenceTitle": "Send your evidence by email",
@@ -4989,7 +4982,9 @@
     "DECK_LIST_UNPARSEABLE": "We couldn't read any cards from your list. Check the format (quantity, set and number) and try again.",
     "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again.",
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
-    "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved."
+    "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved.",
+    "DISPUTES_DISCONTINUED": "Claims are no longer opened from the store. If you have a problem with your order, write to us with your order number.",
+    "DISPUTES_DISCONTINUED_WITH_DETAILS": "Claims are no longer opened from the store. If you have a problem with your order, write to {contact} with your order number."
   },
   "payment": {
     "title": "Payment",
@@ -5051,7 +5046,6 @@
     "copyOrderNumber": "Copy",
     "copied": "Copied",
     "copyTracking": "Copy tracking number",
-    "troubleWithOrder": "A problem with your order?",
     "supportNote": "Check with support quoting your order number.",
     "resendCta": "Email the link to me again",
     "createAccountCta": "Create an account and save this order",
@@ -5235,5 +5229,15 @@
       "emptyTitle": "Paste a list to get started",
       "emptyBody": "You haven't pasted anything yet. Copy your list and paste it above."
     }
+  },
+  "support": {
+    "orderTitle": "PROBLEM WITH YOUR ORDER?",
+    "withdrawalTitle": "PROBLEM WITH YOUR WITHDRAWAL?",
+    "orderBody": "If a card arrived in bad condition or the package didn't arrive, write to us with your order number and, if you can, photos. We'll look into it and reply by email.",
+    "withdrawalBody": "If a card arrived in bad condition or the package didn't arrive, write to us with your withdrawal number and, if you can, photos. We'll look into it and reply by email.",
+    "copyEmail": "Copy email",
+    "copied": "Copied",
+    "mailSubjectOrder": "Problem with my order {reference}",
+    "mailSubjectWithdrawal": "Problem with my withdrawal {reference}"
   }
 }

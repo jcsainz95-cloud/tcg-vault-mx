@@ -84,8 +84,7 @@ import type {
   SellItemStatus,
   SellRequestStatus,
   DisputeDTO,
-  CreateDisputeInput,
-  CreateDisputeResponse,
+  SupportContactResponse,
   ClientDisputeDTO,
   ProductType,
   PricingOverrideIntent,
@@ -2591,63 +2590,22 @@ export async function respondSellRequest(
   return delay({ id: req.sellRequestId, status: req.status });
 }
 
-// ---------- Disputas del cliente (contrato §7) ----------
+// ---------- Soporte: «Escríbenos» (contrato v1.82 §PNL.1) ----------
 /**
- * Abre una disputa de CONDICIÓN sobre un ítem entregado (contrato §7 · POST /disputes, `customer`).
- * El `type` (condition_raw | condition_sealed) lo deriva el backend del `productType` del ítem (el
- * cliente NO lo envía); graded → `422 NOT_RAW`. Ventana de 7 días desde la entrega → fuera de plazo
- * `422 DISPUTE_WINDOW_CLOSED`; ítem ajeno → `403`. La evidencia va por CORREO a soporte
- * (`evidenceContact`, v1.2 — no hay subida de archivos). Res 201 `CreateDisputeResponse`.
+ * El buzón de soporte (contrato v1.82 §PNL.1 · `GET /support/contact`, público,
+ * `Cache-Control: max-age=300`) → `200 { contact }`. Es la ÚNICA fuente del correo en pantalla;
+ * `SUPPORT_CONTACT_FALLBACK` solo se usa si esta llamada falla (lo decide `useSupportContact`).
+ *
+ * ⛔ `createDispute` ya no existe (PNL-1: `POST /disputes` ⇒ `410 DISPUTES_DISCONTINUED`).
  */
-export async function createDispute(input: CreateDisputeInput): Promise<CreateDisputeResponse> {
+export async function getSupportContact(): Promise<SupportContactResponse> {
   if (!config.useMocks) {
-    return apiRequest<CreateDisputeResponse>('/disputes', { method: 'POST', body: input });
+    return apiRequest<SupportContactResponse>('/support/contact');
   }
-  // MOCK: espeja las guardas del backend (§7). Localiza el ítem en los envíos del usuario para
-  // derivar productType/type y anclar la ventana a la entrega.
-  const shipItem = fx.mockShipments
-    .flatMap((s) => (s.items ?? []).map((it) => ({ item: it, shipment: s })))
-    .find((x) => x.item.inventoryItemId === input.inventoryItemId);
-  const productType = shipItem?.item.productType;
-  if (productType === 'graded') {
-    throw new ApiClientError(422, {
-      code: 'NOT_RAW',
-      message: 'Disputes apply only to raw/sealed items',
-    });
-  }
-  const deliveredAt = shipItem?.shipment.deliveredAt;
-  const now = Date.now();
-  const WINDOW_MS = 7 * 24 * 3600 * 1000;
-  if (deliveredAt && now > new Date(deliveredAt).getTime() + WINDOW_MS) {
-    throw new ApiClientError(422, {
-      code: 'DISPUTE_WINDOW_CLOSED',
-      message: 'Dispute window (7d) closed',
-    });
-  }
-  const type = productType === 'sealed' ? 'condition_sealed' : 'condition_raw';
-  const deadlineAt = new Date(
-    (deliveredAt ? new Date(deliveredAt).getTime() : now) + WINDOW_MS,
-  ).toISOString();
-  const dispute: ClientDisputeDTO = {
-    id: `dsp-new-${Math.floor(Math.random() * 9000 + 1000)}`,
-    inventoryItemId: input.inventoryItemId,
-    type,
-    status: 'abierta',
-    description: input.description,
-    deadlineAt,
-    createdAt: new Date().toISOString(),
-  };
-  // Refleja la nueva disputa en "Mis disputas" (para que el refetch la muestre).
-  fx.mockClientDisputes.unshift(dispute);
-  return delay({
-    disputeId: dispute.id,
-    status: 'abierta',
-    type,
-    deadlineAt,
-    evidenceContact: fx.DISPUTE_EVIDENCE_CONTACT,
-  });
+  return delay({ contact: fx.DISPUTE_EVIDENCE_CONTACT });
 }
 
+// ---------- Disputas del cliente (contrato §7 — en transición, PNL-1: solo lectura) ----------
 /** Lista de disputas propias del cliente (contrato §7 · GET /disputes → { data }). */
 export async function getDisputes(): Promise<ClientDisputeDTO[]> {
   if (!config.useMocks) {

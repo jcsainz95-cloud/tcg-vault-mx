@@ -16,6 +16,10 @@ export interface DisputeEvidenceContactProps {
 }
 
 /**
+ * ⚠️ v1.82 (§PNL.1): **solo M8**, mientras M8 siga «en transición». La tienda ya no usa este
+ * componente: el cliente ve `SupportContact` («Escríbenos», DESIGN_SYSTEM §60.1). Se retira con M8
+ * (§60.8 / F-26, tras la errata del arquitecto), junto con las claves `dispute.*`.
+ *
  * Disputa por correo (DESIGN_SYSTEM §7.11, v1.2) — reemplaza al comparador de fotos.
  * El cliente envía su evidencia por correo al buzón de soporte; aquí se muestra el
  * correo como enlace `mailto:` + botón "Copiar correo". Sin uploader.
