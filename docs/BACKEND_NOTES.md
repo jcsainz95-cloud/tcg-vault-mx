@@ -27098,3 +27098,81 @@ compartida tiene que limpiar ese residuo**, o STF-28 se pondrá roja en la sigui
   `a@b.c`.
 - §M6-U.6 2-bis (v1.80.10, F-7, `customer_phone_required`) **no está construido** en esta rama (medido:
   `rg customer_phone_required backend/src` ⇒ 0). No es parte de este encargo.
+
+## 58 · v1.82 PNL-2 + PNL-3 construidas (💰) — reembolso de UNA carta tras la entrega, SPEI de un retiro entregado, `M-70` (2026-10-05, rama `claude/arreglos-panel`; código en `24097323` + `5a3bd05c`)
+
+**Fuente:** `API_CONTRACT §PNL.2, §PNL.3, §PNL.7, §PNL.8` (v1.82); `ARCHITECTURE §4.61.2/.3`; `DESIGN_SYSTEM §60.2 (b)` (correos);
+`HECHOS.md:30` (D-1), `:31` (b), `:32` (D-12), `:44` (a)(b).
+
+### 58.1 `M-70` (`20261020120000_m70_panel_refunds`)
+- **Cabe en una migración: ⛔ no hizo falta `M-70b`.** Medido aplicándola con `psql -1` (UNA transacción, el caso más
+  estricto) sobre una copia con datos de `tcg_marketplace`: los `ADD VALUE` y los CHECK que comparan `::text` conviven en
+  la misma tx (el literal es texto; el valor nuevo del enum no se usa).
+- **Huella antes/después** (copia de `tcg_marketplace`, 2026-10-05): `PaymentRefund 0 filas`, `ManualRefund 2 filas md5
+  a2f54d1a…`, `Order 39 md5 5258a4ae…`, `ShipmentItem 0` — **idénticas** tras la 1.ª y la 2.ª aplicación; `pg_dump
+  --schema-only` tras la 2.ª = tras la 1.ª (solo difiere el token `\restrict` de `pg_dump`). Idempotente: `ADD VALUE /
+  ADD COLUMN / CREATE INDEX IF NOT EXISTS` y `DROP CONSTRAINT IF EXISTS` + `ADD`.
+- **Reversa** (la del encabezado del SQL) **probada** en esa copia (sin filas de los `kind`/`source` nuevos): OK, y re-subir
+  M-70 después: OK con la misma huella.
+- Las dos `ManualRefund` existentes (`case_excess`, con caso) cumplen `ManualRefund_case_sources_chk` sin backfill.
+
+### 58.2 PNL-2 — `POST /admin/orders/:id/items/:orderItemId/refund-delivered`
+- Verbo en `OrderRefundService.refundDelivered` (⛔ no hay servicio nuevo registrado: `orders.module.ts` lo tocaba PNL-1 a la
+  vez). Piezas puras en `orders/item-delivered-refund.ts`: `deliveredRefundDecision` (pasos 3–4, **un cuerpo** para el verbo
+  y para `items[].deliveredRefund` de M3), `deliveredLinesOf` (la línea `si`, por lote), `parseItemDeliveredBody` (cuerpo
+  crudo: las llaves extra se ignoran ⇒ un `amountCents` nunca se lee).
+- Importe: `itemRefundComponents(order, orderItem)` en `common/money.ts` = **el mismo cuerpo** que `item_missing`.
+- **Aditivo no listado en el contrato:** `GET /admin/orders/:id` → `items[].orderItemId`. Sin él la pantalla no tiene la llave
+  del verbo (el DTO de M3 no la traía). Pregunta abierta al arquitecto (abajo).
+- Cliente / invitado: `clientRefundOf` gana `kind` (`item_delivered` ⇒ `after_delivery`; el resto ⇒ `missing_at_prep`) y
+  `reason = deliveredReason ?? missingReason`. ⚠️ `GET /shipments/:id` (`shipments.service.ts:544`, zona de otro stream)
+  sigue con su proyección propia sin `kind`; **no es alcanzable** para un directo (production escribe `userId: null` en el
+  envío de un directo ⇒ el cliente no lo ve en «Retiros»), así que no se tocó.
+
+### 58.3 PNL-3 — `POST /admin/manual-refunds/withdrawal-delivered` + `GET …/preview`
+- `payments/refunds/withdrawal-delivered-refund.service.ts`. `PaymentsModule` importa `VaultModule` (por `marketRefOf`: `M`
+  es LA valuación de «Mi bóveda»); sin ciclo de proveedores (medido: la app arranca en las 27 de integración).
+- **Topes en un cuerpo:** `payments/refunds/refund-reference.ts` (`refundReferenceOf`, `refundConfirmationOf`,
+  `assertCapturedAmountWithinLimits`); `ReplacementCaseService` dejó de tener su propia copia.
+- Decisiones donde el contrato calla (pregunta al arquitecto abajo): origen `IVA_EXCLUSIVE` ⇒ `Q = null` y componentes «todo
+  compensación», pero `orderId` = el origen igual. La preview aplica las mismas guardas `409` que el verbo.
+- `ManualRefundDTO.case` anulable + `withdrawal`; `reissue` de una `withdrawal_delivered` copia línea/motivo/nota y busca la
+  «viva» **por línea** (⛔ `replacementCaseId: null` en el `where` habría encontrado la viva de OTRO retiro); la búsqueda `q`
+  de la cubeta también mira el folio de la carta del retiro.
+- Bitácora del acto: `createRow` acepta la acción (`manual_refund.withdrawal_delivered_created`, una fila, en la tx).
+
+### 58.4 Lectores de `PaymentRefundKind` (§PNL.2, `rg` 2026-10-05) y qué hacen con `item_delivered`
+| Lector | Qué hace con `item_delivered` |
+|---|---|
+| `refund-ledger.service.ts` `operatorUsedCents` (`kind ≠ order_full`) | entra en la suma, pero solo cuenta filas del operador y este `kind` solo lo crea el súper-admin ⇒ nunca suma |
+| `refund-ledger.service.ts` `retry` | `SUPER_ADMIN_ONLY_RETRY_KINDS`: el operador NO lo reintenta (como `order_full`/`case_refund`) |
+| `refund-ledger.service.ts` `notifyCustomer` (AV-12) | `AV12_CARD_KINDS`: nombra la carta; variante `item_delivered` (correo 23, §60.2) |
+| `refund-ledger.service.ts` `applyStripeOutcome` / `av3Allowed` | solo miran `order_full` ⇒ sin cambio (no cierra la orden, no manda AV-3) |
+| `orderFullRefundComponents` / `refundedNonFailedCents` | genéricos: el total posterior reembolsa el remanente (IDR-9 `68159`) |
+| `shipment-prep.service.ts:376-380` (cierre `order_remaining`) | solo cuenta `item_missing`; una carta `item_delivered` existe solo tras `entregado` ⇒ el preparado ya pasó |
+| `origin.ts:237`, `shipment-prep.service.ts:732` | solo `order_full` ⇒ sin cambio |
+| M7 `refundsInPeriod` (`admin.service.ts`) | suma componentes sin mirar `kind` ⇒ devolución de venta (mercancía + IVA + comisión), como `item_missing` |
+| `admin-refunds.controller.ts` `?kind=` | derivado del enum (clase E) ⇒ `item_delivered` válido |
+| `manual-refund.service.ts:toManual` | solo `case_refund` ⇒ `409 REFUND_NOT_CONVERTIBLE` para `item_delivered` (sin cambio) |
+
+### 58.5 Correos (DESIGN_SYSTEM §60.2 (b))
+- AV-12 `item_delivered` y AV-14 `withdrawal_delivered`: funciones propias en `refund-notice.templates.ts`; ⛔ ni «no salió» ni
+  «reponer». Candado **ML-25** en `test/pnl-delivered-refunds.spec.ts` (el encargo decía ML-24, que en §60.13 es el correo de
+  buylist de PNL-4). Sin correo nuevo (SRF-13 sigue verde).
+
+### 58.6 Pruebas y mutaciones (medido por backend sobre copias `git archive`, BD propia `tcg_be_pnlm`)
+- Integración `test/integration/pnl-delivered-refunds.e2e-spec.ts`: IDR-1…15 + `?kind=` + WDR-1…10 (+ WDR-9b), 27/27.
+  Carreras: **IDR-5 10/10** y **WDR-6 10/10** (N=10, backend).
+- Mutaciones (todas rojas, sobre la copia): fórmula con otro `G` ⇒ IDR-1; sin comparar `expectedRefundCents` ⇒ IDR-8; aceptar
+  `enviado` ⇒ IDR-3; sin `@MoneyOut` ⇒ IDR-2; ignorar `item_delivered` en el remanente ⇒ IDR-9; quitar candados + mapeo
+  `P2002` ⇒ IDR-5 **0/10** (500 en 10/10) y WDR-6 **0/10**; quitar SOLO los candados ⇒ sigue 10/10 (el índice + el mapeo
+  bastan: defensa en profundidad); índice sin `WHERE status <> 'cancelled'` ⇒ WDR-5; leer `case.id` sin nulo ⇒ WDR-1/WDR-7
+  (y el compilador ya lo impide: `TS18047`); quitar cada variante de correo ⇒ ML-25 (2+2).
+- **Suites completas** (copia `git archive` de `5a3bd05c`, BD `tcg_be_pnlm`): unitarias **394/394 suites, 6641/6641**
+  (la paridad de enums, roja a propósito hasta M-70, queda verde); integración **78/80 suites, 1605/1608** con tres rojos:
+  (1) `C-EQ-1` descubrimiento — los dos `@Query` de la preview sin clase ⇒ **arreglado en el commit de esta sección**
+  (`NO_ENUM_POR_RUTA` + tope 44 → 46, ⚠️ ratificación del arquitecto pendiente); (2) `C-EQ-1` fila 2 `GET /admin/vaults?sort=`
+  — **2/3 rojo sobre la BD ya usada por la corrida completa, 3/3 verde sobre BD recién creada** (carga 1.6–3), y la base
+  `7ce3bff4` (sin estos cambios) **3/3 verde** sobre BD nueva; base sobre BD usada: NO MEDIDO. Huele a dependencia de datos
+  del propio test, no a estos cambios (no tocan `admin/vaults`); (3) `shipped-refund-reason` SRF-7 manda un `reason` de 600 y
+  espera `201`: lo rompe **PNL-6** (`171c36bf`, `@MaxLength(500)`, de otro agente), no PNL-2/3.

@@ -200,6 +200,12 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/refunds::to',
   'GET /admin/replacement-cases::overdue',
   'GET /admin/replacement-cases/:id/refund-preview::amountCents',
+
+  // 💰 v1.82 (§PNL.3, `API_CONTRACT` «Previsualización — GET …/withdrawal-delivered/preview?shipmentItemId=…&amountCents=A»):
+  // un id de línea (`shipmentItemId`, abierto) y el MISMO entero que la vista previa del caso — sin enum detrás. ⚠️ El tope
+  // sube 44 → 46: pendiente de que el arquitecto lo ratifique (BACKEND_NOTES §58.6).
+  'GET /admin/manual-refunds/withdrawal-delivered/preview::shipmentItemId',
+  'GET /admin/manual-refunds/withdrawal-delivered/preview::amountCents',
 ];
 
 /**

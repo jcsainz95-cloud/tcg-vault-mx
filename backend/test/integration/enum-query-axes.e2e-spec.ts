@@ -1432,7 +1432,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // §M4-SHIP.15.5). Los SIETE de dominio cerrado del mismo stream NO vienen aquí: van al `REGISTRO` (E/L).
     // ⛔ `NO_ENUM_TRANSVERSAL` **NO se toca**: su `toEqual` de 14 nombres queda igual (la exención
     // es de ESTA ruta, no del nombre).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(44);
+    // ⭐ **44 → 46 (v1.82 §PNL.3):** los dos ejes de `GET /admin/manual-refunds/withdrawal-delivered/preview` (id de línea y
+    // entero), declarados por el contrato en §PNL.3; ⚠️ ratificación del arquitecto pendiente (BACKEND_NOTES §58.6).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(46);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`
