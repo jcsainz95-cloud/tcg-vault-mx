@@ -27829,3 +27829,163 @@ limpias sobre la misma BD, verde. Proporción medida: 1 roja de 4 corridas (N = 
 4. **`label.pdf` con el envío `cancelado`**: ¿`404 LABEL_NOT_AVAILABLE` sin `details` (lo construido) o con `{status}`?
 5. **«Envío vivo» de `carrierAlert`** (§19.3): construido como `status ∉ {entregado, cancelado}`.
 6. **Cabecera de `M-66`**: dice «11 CHECK» y el SQL crea 12 (§61.1). No toqué la migración (ya aplicada); solo lo anoto.
+
+## 64 · D2d construida — rastreo y verificación de Skydropx (`API_CONTRACT §M4-SHIP.19.19.15` fila D2d con §19.27–§19.32): `applyCarrierStatus`, los tres jobs, `refresh-tracking`, «Salida de hoy», la evidencia negativa (construida y APAGADA), la conciliación de huérfanas con C-14/C-19 y fusible, AG-6/AG-9 (b)(c)(d)/AG-11/AG-12, y §19.32.2 (2026-10-05, rama `claude/skydropx-d`, desde `13942d3b`; código en `07ea87a6`, `473e8eb7`, `be2de724` + el commit de esta sección)
+
+Fuente: §19.19.15 fila D2d, §19.31.10 fila 2a y §19.32.9 (la partición con D2g), con §19.3, §19.9, §19.10, §19.18.1–.4,
+§19.19.9–.10, §19.27.4–.7, §19.28.2–.9, §19.29.1.3–.5, §19.29.4 (tabla del libro), §19.29.6 (AG-6/9/11/12), §19.30.6 (C-19),
+§19.32.2 y §19.32.5; `SECURITY_NOTES` C-14 y C-19. Columna respetada al pie de la letra (§19.32.9): `shipments/**`,
+`shipping-provider/**`, `jobs/{scheduler.service,jobs.module,admin-jobs.controller}.ts` (+ su `.spec`), pruebas `sdx-d2d*`,
+`helpers/label-db.ts`, dos `sdx-d2c*` cuya conducta cambió. ⛔ `prisma/` intacto (ninguna columna hizo falta). ⛔ Ningún código de
+error nuevo. ⛔ **Ninguna prueba ni CI compra (PS-99)**: el job no llama `purchase` (censo en `sdx-d2d.units.spec.ts` + el de
+PS-117), solo el doble.
+
+### 64.1 Qué se construyó y dónde
+
+| Pieza | Fichero(s) |
+|---|---|
+| **`applyCarrierStatus(shipmentId, event)`** — §19.3 pasos 1–7 en UNA tx con el candado de fila: 2 (manual ⇒ `not_provider`), 2b (sintético sin cambio ⇒ solo `carrierPolledAt`), 3 (evento único por guía y llave; `createMany … skipDuplicates`: un P2002 abortaría la tx interactiva), 4 (CAS SEC-SDX-9), 5 (efectos con su precondición en el `WHERE`), 6, 7 (`shipment.carrier_event`, actor `system:carrier-poll`). Post-commit: AV-4 (guía en proceso que recibe número), AV-5 (al ganador de `enviado`) y el puerto de avisos AV-17/18/19 | `shipments/carrier-status.service.ts`, `carrier-notices.ts` |
+| **`transitionFromProvider(tx, id, to)`** — el cuerpo de `updateStatus` para el sondeo y el lote: guardas de §M4-SHIP.6, CAS `WHERE status='guia'`/`'enviado'`, `delivered` desde `guia` pasa por `enviado` en la MISMA tx (PS-79); `deliveredAt = max(occurredAt, observedAt)` (SEC-SDX-1). El movimiento de piezas se extrajo a `movePiecesOnTransition` (un cuerpo: lo usa también `updateStatus`, sin cambio de conducta) | `shipments/shipments.service.ts` |
+| **`setTrackingFromProvider`** (§19.3 `created`): la guía en proceso recibe su número con el reclamo EXACTO en el `WHERE` | `carrier-status.service.ts` |
+| **Job `shipment-tracking-poll`** (50 por corrida, `carrierPolledAt asc` nulos primero, no-op con `off`/`noop`, single-flight) y **`refresh-tracking`** (6/min POR ENVÍO con `ShipmentThrottlerGuard`; `404 FEATURE_DISABLED` con `off`) | `tracking-poll.job.ts`, `shipment-throttler.guard.ts`, `admin-shipments.controller.ts` |
+| **Job `shipment-label-processing`**: guía en proceso; compra en vuelo (cadencia: primera mirada a `since + PURCHASE_MAX_LIFE`, cada minuto hasta `T_UNKNOWN`, cada 10 min hasta 24 h); `found` ⇒ adopta (`recent_list`, cable trampa), `not_sent`/`not_charged` ⇒ libera (`auto_not_sent`/`auto_verified`), `duplicate` ⇒ dos filas `origin:'duplicate'`, `label_verify_uncertain` UNA vez (AG-9 (a)); calibración pasiva (log `inflight_calibration`); purga diaria de cotizaciones (SEC-SDX-6) | `label-processing.job.ts`, `label-recovery.service.ts` (`adoptFound`, `autoRelease`, `markUncertain`, `recordDuplicates`) |
+| **Evidencia negativa** (§19.27.4 paso 4 con §19.28.9): dos testigos (listado `readable ∧ coversFrom ∧ folio leído en todos ∧ ninguno con nuestro folio` + saldo al centavo), contaminación ampliada (`T_DEBIT_LAG`/`T_REFUND_LAG`), filas `label_verify_clean/dirty`, dos limpias separadas ≥ `T_VERIFY_GAP`, **cable trampa** (`shipment.inflight_negative_violated` ⇒ sin `not_charged` 30 días). Sigue **APAGADA** (`INFLIGHT_NEGATIVE_VERIFIED = false`) | `label-recovery.service.ts` |
+| **Conciliación de huérfanas**: tardías en los listados YA leídos (`label_orphan {cause:'late'}` + `ShipmentPaidLabel {origin:'orphan'}`), y la cancelación sola SOLO con (a) legible con rastreo, (e) sin movimiento, (b) envío `cancelado` o guía vigente `skydropx` con otro id, (c) rastreo normalizado ajeno a todo envío nuestro, (d) fusible por INTENCIONES bajo `ORPHAN_FUSE_LOCK_KEY` (65 310 703); AG-9 (b) 🔴 / (c) 🟡 / (d) `orphan_fuse` / `orphan_cancel_unknown` | `orphan-reconcile.service.ts` |
+| **Job `shipment-extra-charges`** (45 d, idempotente por `providerChargeId`, guía del envío o del libro, `kind`, IVA 16/116, `chargedAt` del cargo o `observedAt`) y **AG-6** | `extra-charges.job.ts` |
+| **«Salida de hoy»**: `GET /admin/shipments/departure?date=` (lista blanca + `folio`, S-GAS-1) y `POST /admin/shipments/departed` | `departure.service.ts`, `admin-shipments.controller.ts` |
+| **DTO**: `carrierAlert {status, detail, at}` con `carrierAlertActive` (§19.32.5, un cuerpo) | `shipments.service.ts`, `label-view.ts` |
+| **AG-11 / AG-12** desde `applyCarrierStatus`, en la tx del hecho (outbox: el correo de AG-11 lo despacha D2g) | `carrier-status.service.ts` |
+| **§19.32.2**: REUTILIZAR sin `force` escribe `requestedAt`/`requestedByUserId` con CAS `expiresAt > now`; `count 0` ⇒ red | `label-quote.service.ts` |
+| Puerto: `ProviderEvent.detail/branchName/providerEventId` (aditivo, tolerante; la llave solo se pone si viene) | `shipping-provider.port.ts`, `skydropx.adapter.ts`, `fake-shipping-provider.ts` (`pushEvent` con extras) |
+| Planificador: `shipment-tracking-poll` (`SHIPMENT_TRACKING_POLL_CRON`, `*/10`), `shipment-label-processing` (`…_LABEL_PROCESSING_CRON`, cada minuto), `shipment-extra-charges` (`…_EXTRA_CHARGES_CRON`, `30 8 * * *`); `POST /admin/jobs/<name>` (súper-admin, auditados; `{shipmentId?}` en el sondeo) | `jobs/scheduler.service.ts`, `jobs.module.ts`, `admin-jobs.controller.ts` |
+
+### 64.2 Decisiones que el contrato no fijaba (para QA, techlead y seguridad)
+
+1. **AV-17/18/19 por un PUERTO** (`CARRIER_NOTICES`): D2d decide QUÉ hecho ocurrió (evento nuevo ⇒ aviso) y lo entrega post-commit; la
+   plantilla, el destinatario y el SELLO (`deliveredNoticeSentAt`, `branchNoticeSentAt`, `lastDeliveryAttemptAt`) son de **D2e**, que
+   sustituye el proveedor por defecto (hoy: log `info carrier_notice_pending`, ⛔ ningún correo al cliente; `C-AV-1` sigue 19).
+   AV-17 se entrega con `delivered` aunque el CAS de estado cuente 0 (PS-75); AV-19 uno por evento (la llave lo garantiza).
+2. **La llave del evento**: id del evento si Skydropx lo da (`id:<id>`) > `estado:<occurredAt crudo>` > `estado`. Sin historial, el
+   sintético de §19.18.2. Un evento de historial sin fecha toma `updated_at` o `now` como `occurredAt` (su llave no lleva `now`).
+3. **Excepción al paso 2b**: un `created` sintético con NÚMERO sobre una guía en proceso sin número NO es «sin cambio» (si no, el
+   número no se escribiría nunca: el estado ya podía ser `created`). En modo «en proceso» el `created` va primero.
+4. **AG-11/AG-12 dentro de la tx del hecho** (no post-commit): el evento se inserta una vez ⇒ el aviso se crea una vez y no se pierde si
+   el proceso muere tras el commit. AG-11 🔴 queda `mailStatus='pending'` para el despachador de D2g. `facts` por lista blanca.
+5. **Estado desconocido** (§19.19.10): log `warn unknown_carrier_status` + bitácora `shipment.carrier_status_unknown {value}` UNA vez por
+   envío y valor; ⛔ nunca un `500`. ⛔ NO entra a `carrierAlert` (su `status` es `CarrierStatus`): pregunta 2.
+6. **Un sondeo que falla** cuenta como sondeo (`carrierPolledAt = now`): un envío que siempre falla no tapa a los demás del lote.
+7. **`refresh-tracking`** de una guía EN PROCESO lee su número (mismo cuerpo); guía manual, cancelada o envío cerrado ⇒ `200` con el DTO
+   y cero llamadas; error del proveedor ⇒ se propaga (`502/503`).
+8. **`departed`**: ids repetidos una vez; uuid; id inexistente ⇒ `rejected {code:'NOT_FOUND'}`; `picking` sin guía ⇒ `rejected
+   {code:'CONFLICT'}`; las guardas con SU código (`ORDER_NOT_SETTLED`, …). El grupo de «Salida de hoy» es el `carrierName` de la tarifa
+   comprada (`provider_name`, el de `shipping_preferred_carriers`), `carrierLabel` el visible.
+9. **`not_sent` pasadas 24 h** se libera igual (es un hecho LOCAL: la compra no salió); lo demás deja de mirarse a `T_VERIFY_TAIL`.
+10. **`duplicate`** escribe su `label_verify_uncertain {reason:'duplicate'}` EN EL ACTO (no espera a `T_UNKNOWN`): después los dos ids
+    son conocidos y la lectura siguiente ya no los vería.
+11. **Una huérfana se evalúa UNA vez** (la marca es su AG-9 `ag9:o:<Y>`): una persona la atiende; ⛔ no se lee cada minuto. La fusionada
+    lleva además su `ag9:o:<Y>` (`cause:'orphan'`) junto al `ag9:fuse:<díaMX>`. `cancel` con `ok:false` ⇒ AG-9 🔴 `orphan` (la intención
+    cuenta). La comparación (c) en SQL usa `regexp_replace(upper(normalize(x, NFKC)), '[^A-Z0-9]', '', 'g')` (el mismo cuerpo que
+    `normalizeTracking`).
+12. **Contaminación ⇒ `unreadable`** como motivo a `T_UNKNOWN` (el saldo «no vota»; el enum no tiene `contaminated`).
+13. **Cadencia de cola y calibración en MEMORIA** del proceso (se purgan una vez al día). Tras un reinicio, la primera mirada de cola sale
+    de inmediato (solo LECTURA). Single-flight en el proceso; la idempotencia la dan las llaves y los CAS.
+14. **`@Optional()`** en los tres jobs del planificador y de `AdminJobsController`: SOLO por las pruebas unitarias ajenas que construyen
+    con la lista posicional (`test/scheduler.spec.ts`, `test/admin-jobs.controller.spec.ts`, fuera de mi columna). Sin ellos el
+    planificador NO los programa y loguea `error`; el disparo responde `404`. Que la app real los inyecta lo asevera la integración.
+15. **Purga diaria** (SEC-SDX-6) por SQL: cotizaciones vencidas hace > 30 d cuya `providerQuotationId` no es la de su envío.
+16. **Medido de paso** (lo dice la prueba): la compra escribe `carrierStatus:'created'` con `carrierStatusAt` = NUESTRO reloj; un evento
+    del transportista fechado ANTES (desfase de reloj) no mueve `carrierStatus` (el CAS de SEC-SDX-9), aunque sus efectos sí corren.
+    Pregunta 4.
+
+### 64.3 Pruebas
+
+- **Unitarias nuevas**: `test/sdx-d2d.units.spec.ts` (32: `carrierEventsOf` — la llave sintética NUNCA lleva `now`, historial
+  en orden, id del evento —; `normalizeTracking` con canario de «solo espacios»; `adjustmentKindOf`; «Salida de hoy» — día MX por
+  defecto, ida y vuelta, fin del día MX, el lote —; la llave del cubo de `refresh-tracking`; censos `C-SDX-5` (llamadores de
+  `applyCarrierStatus`, `pollShipment`, `recoverInFlightLabel`), PS-99/PS-117 (cero `.purchase(`/`.protect(` en los ficheros de D2d;
+  la única `port.cancel(` nueva vive en la conciliación) y el fusible bajo `ORPHAN_FUSE_LOCK_KEY` con la intención ANTES de `cancel`);
+  `test/sdx-d2d.scheduler.spec.ts` (3: crons por defecto y por env, enrutado, sin los servicios no se programan);
+  `src/jobs/admin-jobs.controller.spec.ts` (+3: los tres disparos auditan, `200`, sin servicio `404`).
+- **Unitarias que cambiaron** (su conducta cambió, §19.32.9): `sdx-d2c-cierre.units.spec.ts` PS-169 (cinco deshacer: el quinto es
+  `autoRelease`), `sdx-d2c.label-units.spec.ts` PS-132 (b) (el fusible es el segundo candado de `shipments/`).
+- **Integración nuevas** (Postgres real, app completa por HTTP, doble del proveedor, llave de compra sustituida):
+  `sdx-d2d-tracking` (PS-72, PS-75, PS-78, PS-79, PS-150, `refresh-tracking`, relleno de `labelUrl`, estado desconocido, `off`),
+  `sdx-d2d-departure` (PS-77), `sdx-d2d-verify` (cadencia, PS-124…PS-127, PS-133, PS-134 (a)(c), duplicado),
+  `sdx-d2d-orphans` (PS-130 con C-14 y C-19: control positivo por el flujo REAL, (a)…(e)), `sdx-d2d-charges` (PS-80, PS-144 y el
+  CABLEADO: el planificador recibe los tres jobs del AppModule real). `sdx-d2c-cierre.e2e-spec.ts` gana **PS-168 (e)** (§19.32.2).
+  `helpers/label-db.ts` sustituye el puerto `CARRIER_NOTICES` por un registro (`NoticeRecorder`).
+- **Proporciones** (autor: backend, este pase; N = 10 rondas por corrida): PS-72 concurrente (10 lecturas simultáneas por ronda ⇒ 1
+  fila, 1 transición, 1 AV-5) **10/10** en cada una de 5 corridas (50/50 rondas; la última en `be2de724`); PS-77 concurrente (10 lotes `departed`
+  simultáneos sobre el mismo envío ⇒ 1 `shipped`, 1 AV-5) **10/10** en cada una de 4 corridas (40/40 rondas).
+- **Suites completas** sobre una copia `git archive` del árbol ENTERO (scratchpad `be-d2d/tree`, BD propia `tcg_be_d2d`):
+
+  | Suite | sha | Resultado |
+  |---|---|---|
+  | Unitaria (`npx jest`) | `473e8eb7` | **406/406 suites · 7047/7047** |
+  | Integración (`stack-native.sh test:integration`, pool 5) | `473e8eb7` | **89/90 suites · 1844/1845**. La roja es la **esperada**: `C-EQ-1` (`enum-query-axes.e2e-spec.ts`, «DESCUBRIMIENTO») nombra `GET /admin/shipments/departure::date` — hasta la costura **C2** (§19.32.9: el fichero es de D2g en esta fase). Carga 4–16 (4 CPU, otro agente vivo); ninguna roja por timeout |
+  | Unitarias de D2d/D2c/Skydropx/jobs + integración `sdx-d2*` y `C-EQ-1` | `be2de724` | 23/23 · 588/588; 15/16 · 727/728 (la misma roja esperada de `C-EQ-1`) |
+  | `tsc --noEmit`, `eslint` de los ficheros tocados | `be2de724` | 0 errores, 0 avisos |
+
+### 64.4 Mutaciones
+
+Sobre una copia `git archive` de **`473e8eb7`** (scratchpad `be-d2d/mut`, misma BD); `mut.sh` aplica UNA mutación, corre la prueba y
+restaura; logs `be-d2d/logs/mut-*.log`. En las carreras, la proporción es de rondas MAL dentro de la prueba (N = 10).
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| U1 | la llave del evento sintético con `now` | `carrierEventsOf` | rojo |
+| U2 | normalizar solo espacios (C-19 (c)) | `normalizeTracking` + canario | rojo (5) |
+| U3 | un `.purchase(` en el job | censo PS-99/PS-117 | rojo |
+| I01 | CAS del paso 4 sin `carrierStatusAt` (SEC-SDX-9) | PS-72 fuera de orden | rojo |
+| I02 | `transitionFromProvider` con `status IN (guia, enviado)` | PS-77 | **sobrevivió**: el candado de fila (`FOR UPDATE`, primera sentencia del llamador) serializa y la relectura bajo él ve `enviado`; el CAS es el SEGUNDO muro |
+| I02b | los dos muros a la vez (sin `FOR UPDATE` en `departed` **y** sin el CAS) | PS-77 concurrente | rojo: **0/10** rondas bien (10/10 MAL) |
+| I03 | `deliveredAt = occurredAt` (SEC-SDX-1) | PS-78 | rojo |
+| I04 | `delivered_to_branch ⇒ entregado` | PS-78 | rojo |
+| I05 | AV-17 solo si ganó la transición | PS-75 | rojo |
+| I06 | quitar (e) «sin movimiento» (C-19) | PS-130 (d) y estado desconocido | rojo (2) |
+| I07 | el fusible cuenta ÉXITOS (`cancelledAt`) en vez de intenciones | PS-130 (e) | rojo |
+| I08 | aceptar una guía vigente manual en (b) (C-14) | PS-130 (b) | rojo |
+| I09 | liberar con UNA lectura limpia | PS-126 | rojo (4) |
+| I10 | contaminación limitada a `[since, now]` (`T_DEBIT_LAG` fuera) | PS-133 | rojo |
+| I11 | ignorar el cable trampa | PS-133 | rojo |
+| I12 | mirar antes de `since + PURCHASE_MAX_LIFE` | cadencia | rojo |
+| I13 | AG-6 también para `cancel:` | PS-144 | rojo |
+| I14 | `knownIds` como candidatos | PS-124 | rojo (X cuenta como segundo folio ⇒ duplicado) |
+| I15 | ignorar el `count` del CAS al reutilizar | PS-168 (e) vencida | rojo |
+| I15b | reutilizar SIN escribir `requestedAt` | PS-168 (e) | rojo (2) |
+| I16 | escribir sin el CAS `expiresAt > now` | PS-168 (e) vencida | rojo |
+| I17 | AG-11 como 🟡 | PS-150 | rojo (2) |
+| I18 | la comparación (c) sin normalizar en SQL | PS-130 (d) | rojo |
+
+⛔ **No medida**: «`autoRelease` sin el `since` exacto en el `WHERE`» (PS-126, «reclamo renovado») — mi prueba renueva el reclamo
+ANTES de la lectura que daría `not_charged`, así que el CAS nunca llega a decidir; morder exige una barrera entre el veredicto y la
+escritura. El muro existe (CAS `labelProcessingSince: since` + CAS inverso del intento) y es el mismo patrón que «Liberar» (PS-137).
+
+### 64.5 Lo que NO está aquí (medido con `grep` sobre `backend/src` en `be2de724`)
+
+| Falta | Por qué / de quién |
+|---|---|
+| **C1** (`spend-watch`/`spend-digest` en el planificador y en `admin-jobs`) y **C2** (`'GET /admin/shipments/departure::date'` a `NO_ENUM_POR_RUTA` de `C-EQ-1`) | costuras serializadas (§19.32.9): un agente después |
+| Los correos AV-17/AV-18/AV-19, `timeline`, `customerUrl` | D2e (§19.31.10 fila 3a): sustituye `CARRIER_NOTICES` |
+| AG-8 (b) y AG-10 | D2g (`spend-watch`, §19.32.9) |
+| P&L de los ajustes, `workQueue.shipping.withCarrierAlert` | D2f (usa `carrierAlertActive`) |
+
+### 64.6 Preguntas al arquitecto
+
+1. **PS-75 contra §19.10.** PS-75 pide «`entregado` a mano en un envío Skydropx ⇒ cero AV-17; después `delivered` del doble ⇒
+   AV-17 una vez», pero §19.10 dice «envíos `entregado`/`cancelado` **no se consultan**» (criterio 241): tras un `entregado` a mano el
+   sondeo (y `refresh-tracking`) ya no leen ese envío, así que AV-17 **nunca** sale por el sondeo. Lo construido respeta §19.10; la
+   conducta de `applyCarrierStatus` (AV-17 aunque el CAS cuente 0) está probada llamando al cuerpo directamente. ¿Se amplía el dominio
+   del sondeo (p. ej. `entregado` de Skydropx sin `carrierStatus='delivered'` durante N días) o se reescribe PS-75?
+2. **Estado desconocido en la tarjeta** (§19.19.10: «alerta del transportista con `detail = value`»): `carrierAlert.status` es
+   `CarrierStatus` y no puede llevar un valor desconocido. Construido: log + bitácora `shipment.carrier_status_unknown {value}` (una vez
+   por envío y valor), ⛔ sin alerta en el DTO. ¿Cómo se pinta (otro campo, `status:'exception'` con `detail=value`, …)?
+3. **El dinero de una huérfana o un duplicado** no entra al P&L: su `ShipmentPaidLabel` lleva `chargedCents` (lo cuenta TG-1/TG-2), pero
+   ningún `ShipmentCostAdjustment` ni `shippingCostCents` lo recoge; si se cancela con reembolso parcial, tampoco el no devuelto. ¿Un
+   ajuste `kind:'other'` (como `cancel:` de SEC-SDX-11) al detectarla, o lo decide D2f?
+4. **`carrierStatusAt` de la compra** (§19.7 paso 9, D2c) es NUESTRO reloj: un evento del transportista fechado unos segundos ANTES
+   (desfase) no mueve `carrierStatus` (CAS de SEC-SDX-9), aunque sus efectos sí corren. ¿Se escribe `carrierStatusAt = null` al comprar
+   (el `created` de la compra no es un evento del transportista), o se acepta?
+5. **AG-8 (b) y AG-10** quedaron en D2g por §19.32.9 (pasos de `spend-watch`); §19.29.6 los pone en D2d. No están aquí.
+6. **`?alert=true` y `carrierAlert`** siguen sin incluir el estado desconocido (pregunta 2); `workQueue.shipping.withCarrierAlert` (D2f)
+   debe usar `carrierAlertActive` (§19.32.5).
