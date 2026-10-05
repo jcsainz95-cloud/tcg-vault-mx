@@ -14085,7 +14085,16 @@ diagnóstico sale del log del servidor y del código.
 ⛔ **Ningún valor de clave sale del panel donde se crea:** se copia de Stripe y se pega directo en Railway/Vercel.
 
 **Antes (todo verde o no se empieza):**
-- [ ] Condiciones de §14.0 cerradas (C1, S5-1, SEC-HDR-2, TD-4, C2, C3, DAST full previo, C6, MSH-1).
+- [ ] Condiciones de §14.0 cerradas (C1, S5-1, TD-4, C2, C3, DAST full previo, C6, MSH-1).
+- [ ] **SEC-HDR-2 / S5-1 (b) — CSP en `enforce` en producción**, tras **≥ 72 h en report-only publicadas** (§14.3), no
+  «CSP publicada». Evidencia (seguridad CL-1, `SECURITY_NOTES` veredicto listo-real §5): `git show
+  <sha-en-production>:frontend/src/security/csp.ts | grep "CSP_MODE: CspMode = 'enforce'"`; `curl -sI
+  https://tcghunt.mx/es | grep -i '^content-security-policy:'` con `nonce-` (la cabecera sin `-Report-Only`); y
+  `scripts/check-csp-zap-parity.sh` rc 0.
+- [ ] **P-GL-2 — gitleaks ve una clave live en todo el repo, `docs/*.md` incluidos** (seguridad CL-2; «disparador duro:
+  antes de cualquier `sk_live_`»). Evidencia: en el run de `security-sast.yml` sobre el sha en producción, el paso
+  «Canario de gitleaks» muestra `P-GL-2 (dir) … 5/5 sitios` y `P-GL-2 (git) … 5/5 sitios`. Cerrado en devops el
+  2026-10-05 (§87); esta casilla es la comprobación de que sigue cerrado en el sha que se publica.
 - [ ] Fase A del cobro de punta a punta pasada (§14.9).
 - [ ] Censo y limpieza de datos de prueba hechos (§14.8), C3 = 0.
 - [ ] Respaldo del día existente y simulacro hecho (§85.5).
@@ -14108,6 +14117,11 @@ diagnóstico sale del log del servidor y del código.
    `STRIPE_WEBHOOK_SECRET`** (si Railway despliega al guardar, seguir al paso 3 de inmediato).
 3. [ ] **Stripe (live) → Developers → API keys:** Secret key `sk_live_…` ⇒ Railway `STRIPE_SECRET_KEY`.
    (`STRIPE_PUBLISHABLE_KEY` de Railway no la lee el backend; opcional.) Railway vuelve a desplegar.
+   *Opcional, defensa en profundidad (seguridad, veredicto listo-real §2.3):* en lugar de la `sk_live_` completa, una
+   **clave restringida `rk_live_…`** con solo lo que usa el backend (Checkout Sessions, PaymentIntents, Refunds); el
+   código ya la acepta (`health.service.ts:28`, `secrets-preflight.sh:177`). Si se filtran las variables de Railway,
+   esa clave hace mucho menos. ⚠️ **NO MEDIDO** qué llamadas exactas hace el backend: antes de usarla hay que medirlo
+   (si falta un permiso, el cobro falla en producción). Sin esa medición, `sk_live_`.
 4. [ ] Publishable key `pk_live_…` ⇒ **Vercel → Settings → Environment Variables →
    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`**, solo **Production** ⇒ **Redeploy** de producción (se hornea al construir).
 5. [ ] Abrir `https://<dominio-del-backend>/api/v1/health` ⇒ `"stripeMode":"live"`. En el pago, ya no sale el aviso de
@@ -14286,4 +14300,110 @@ carga, el planificador intercala más y el falso rojo aparece.
 - El mismo patrón aparece en otros 10 scripts (TECH_DEBT TD-DO-PIPE-1), **sin medir** si alguno es vulnerable: depende
   de que lo escrito ocupe más de un `write`.
 - **Rollback:** revertir el commit. Solo toca scripts de CI; no afecta a datos ni a producción.
+
+## §87 · Encargos del veredicto de release `listo-real` sobre `c62621e6`: CL-2 (`P-GL-2`), `RL-SEC-2`, guía §85.7, cuarto flujo de dinero y ruido de gitleaks (2026-10-05, rama `claude/listo-real`)
+
+Origen: `SECURITY_NOTES.md` (veredicto de release listo-real, §3.1, §3.2, §5 CL-2 y §8) y la condición IMPORTANTE-2
+de QA. Todo lo que sigue lo medí yo (devops) el 2026-10-05, sobre una copia del árbol entero (`git archive HEAD` de
+`2e41f36c` más los ficheros modificados), con el **mismo binario** que fija CI (gitleaks **8.30.1**,
+`security-sast.yml`).
+
+### 87.1 · CL-2 / `P-GL-2` — gitleaks ve una clave live en todos los sitios
+- **Causa:** `[allowlist].paths` global de `security/gitleaks.toml` eximía `(^|/)docs/.*\.md$`,
+  `security/.*\.(md|toml|yml|yaml)$` y `docker-compose.*\.yml$`. Esas exenciones venían del commit de arranque
+  (`ec8b9595`, 2026-08-13), no de ruido medido.
+- **Coste medido de quitarlas:** `gitleaks git .` sobre el historial completo (2255 commits) sin esas tres rutas da
+  **5 hallazgos nuevos**, los cinco ficción o no-secretos en `docs/` (`sk_live_51ClaveRealDelDueno`,
+  `ppt_live_ABC123`, `re_AbCd123456`, `E2E_ENABLE_THROTTLER=true` y la cabecera JWT pública `eyJhbGciOiJIUzI1NiIs…`).
+  Se eximen **por valor exacto anclado**, igual que el resto de la allowlist.
+- **Arreglo:** se retiran las tres rutas y se añaden esas 5 exenciones por valor. Las únicas rutas que quedan son
+  `.env.example` y los dos canarios que plantan ficción.
+- **Segunda red, independiente del binario:** bloque **(H)** nuevo en `scripts/check-secret-defaults.sh`. Busca la
+  **forma de valor** `(sk|rk)_live_[0-9A-Za-z]{24,}|whsec_[0-9A-Za-z]{24,}` en **todos** los ficheros versionados
+  o nuevos, **`*.md` incluidos** (no usa `es_autoreferente`, que es la exclusión de `*.md` de la línea 145). Solo excluye
+  los dos canarios. Nunca imprime el valor, solo fichero:línea y prefijo. Medido: 1977 ficheros, 0 coincidencias.
+  Coste: menos de 1 s.
+- **Re-medición de la plantación de seguridad** (§3.1: la misma `sk_live_`, `rk_live_` y `whsec_` aleatorias en
+  `backend/src/plant.ts`, `NOTA_RAIZ.md`, `docs/NOTA_PLANT.md`, `security/plant.toml` y `docker-compose.plant.yml`):
+  con la config nueva, **5/5 sitios con las tres formas** y 0 hallazgos fuera de la plantación. Con la config de
+  `2e41f36c`, **2/5** (reproduce la medición de seguridad).
+- **Candado con canario.** `security/scripts/sast-gitleaks-canary.sh` (paso de `security-sast.yml`) gana un bloque
+  P-GL-2. Planta las tres formas en los 5 sitios y exige 5/5, en modo `dir` y en modo `git`, que es el de CI. Además
+  exige verde para la ficción eximida en `docs/` y rojo para esa ficción con dos caracteres de más (el ancla).
+  Resultado: **15/15**. Mutaciones, N=3 cada una, todas rojas **3/3**:
+
+  | Mutación de la config | Canario | Qué nombra |
+  |---|---|---|
+  | config de `2e41f36c` (las tres rutas) | 12/15 | `P-GL-2 (dir)` y `(git)` 2/5: se escapan `docs/NOTA_PLANT.md`, `security/plant.toml` y `docker-compose.plant.yml` |
+  | solo `(^\|/)docs/.*\.md$` de vuelta | 12/15 | 4/5, se escapa `docs/NOTA_PLANT.md`; y el ancla en verde |
+  | solo `security/.*` de vuelta | 13/15 | 4/5, se escapa `security/plant.toml` |
+  | solo `docker-compose.*` de vuelta | 13/15 | 4/5, se escapa `docker-compose.plant.yml` |
+  | `^sk_live_51ClaveRealDelDueno$` desanclado | 14/15 | el caso del ancla en verde |
+- `scripts/check-secret-defaults-canary.sh` gana el bloque H: `sk_live_` en `docs/*.md`, `rk_live_` en un `.md` de
+  la raíz, `whsec_` en `security/*.toml` y `sk_live_` en un **comentario** de `docker-compose.yml` dan ROJO (cada uno
+  nombra fichero:línea). La ficción corta que `docs/` ya cita da VERDE. Total **75/75**. Mutación: devolver `*.md` a
+  la exclusión del bloque (H) ⇒ canario rojo (proporción en 87.5).
+- **`HEAD` ya estaba rojo, antes de esta edición.** Sobre `2e41f36c` (el commit del veredicto de seguridad),
+  `gen-published-secrets-manifest.sh --check` da **2 literales sin cubrir**: `sk_live_51ClaveRealDelDueno` y
+  `whsec_9f2b7c1d`, que `docs/SECURITY_NOTES.md:67-68` cita. El generador lee todo lo versionado, `docs/` incluido.
+  Por eso `check-secret-defaults.sh` (bloque E) está rojo en `HEAD`. El arreglo prescrito es regenerar.
+- **Un canario existente tuvo que cambiar, y por qué.** Regenerar publica `sk_live_51ClaveRealDelDueno`, que era la
+  clave «real» de los casos G.1–G.3 de `check-secret-defaults-canary.sh`. El preflight toma una clave publicada por
+  **no real** (`webhook-secret-preflight.sh`, `hay_stripe_real` → `es_publico`). Así, G.1 y G.2 («`sk_live_` + `whsec_`
+  publicado ⇒ ABORTA») pasaban a dar PASA por el motivo equivocado: sin clave real no hay nada que exigir. Medido: con
+  el manifiesto regenerado, el canario da 73/75 y caen exactamente G.1 y G.2. Arreglo: la clave de G.1–G.3 se genera
+  **al vuelo** en cada corrida (`sk_live_51` + 32 hex de `/dev/urandom`). Así no está en ningún fichero y no puede
+  llegar al manifiesto, la cite quien la cite. Además el canario comprueba que su huella no esté en el manifiesto.
+  Los asertos de G.1–G.3 no cambian.
+- **Manifiesto:** `security/secretos-publicados.sha256` gana **3 huellas** `PREFIJO` y no pierde ninguna. Dos son
+  el desfase previo de arriba. La tercera es `re_AbCd123456`, que ahora cita `gitleaks.toml`. Solo añade: hay más
+  valores publicados que el preflight rechaza. La variante «ficción + 2 caracteres» del canario de gitleaks se
+  construye por concatenación, para no publicar una huella más.
+- **Si un doc futuro da un falso positivo en CI:** se exime **ese valor**, anclado, en `[allowlist].regexes`, con su
+  fichero y su commit en el comentario. **Nunca la ruta.**
+
+### 87.2 · Ruido de `gitleaks dir` (Info, §3.1 y §8)
+Los 3 falsos positivos de specs (`auth.refresh-typ.spec.ts:27`, `auth.c7-policy.spec.ts:466`,
+`inventory.sealed-product-alta.spec.ts:521`) se eximen por valor exacto anclado en la misma edición. Medido con la
+config nueva: `gitleaks dir .` sobre el árbol completo ⇒ **rc 0, 0 hallazgos**; `gitleaks git .` sobre el historial
+completo ⇒ **rc 0, 0 hallazgos**. No queda deuda que anotar en `TECH_DEBT.md`.
+
+### 87.3 · `RL-SEC-2` — CLIs de despliegue fijadas
+- `deploy.yml`: `npm i -g @railway/cli@latest` ⇒ **`@railway/cli@5.63.1`** y `vercel@latest` ⇒ **`vercel@62.4.0`**,
+  en los cuatro jobs (staging y producción, backend y frontend). Son las versiones vigentes en `registry.npmjs.org`
+  el 2026-10-05 (`dist-tags.latest`; 5.63.1 se publicó el 2026-09-28 y 62.4.0 el **mismo** 2026-10-05).
+- **Candado:** `scripts/check-compose-images.sh` (el de dependencias externas fijadas, en `ci.yml`) ahora también
+  inventaría los `npm i|install|add -g|--global <pkg>` de los `run:` de **todos** los workflows y exige versión
+  **exacta** (`N.N.N[-pre]`). Son MÓVIL: `@latest`, cualquier etiqueta, un rango (`^`, `~`) o no poner versión
+  (incluido `@scope/pkg` a secas). `--resolve` comprueba que esa versión existe en npm: las 4 dieron HTTP 200.
+- **Canario** `check-compose-images-canary.sh`: m10 (`@railway/cli@latest`), m11 (`@railway/cli` sin versión), m12
+  (`npm install --global vercel` en bloque `|`) y m13 (`vercel@^62.4.0`) ⇒ ROJO **3/3** cada una (N=3). La base, que
+  incluye `npm ci` y un comentario tras el paquete, da VERDE. Total **14/14**.
+- Sigue latente: los tokens de CD no están cargados (`PENDIENTES.md:247`, según seguridad).
+
+### 87.4 · IMPORTANTE-2 (QA) — cuarto flujo de dinero: `address-colonia.spec.ts`
+`frontend/e2e/address-colonia.spec.ts:31` (invitado con un CP fuera del catálogo, que paga) entra en `MONEY_SPECS` y
+en los tres `SMOKE_SPECS` por defecto de `e2e-real.yml` (`workflow_dispatch`, `workflow_call` y `env`). También en el
+respaldo local de `stripe-test-key-preflight.sh`, en el rótulo «COBRO» de `e2e-capability-gate.sh`, en la cabecera y
+en el marcador del hueco de dinero. Los avisos del preflight ya no dicen «3 smokes»: listan `$MONEY_SPECS` o
+`$SALTADOS`. Medido con el preflight y las listas leídas del workflow, sin credencial: `skipped_specs` = los cuatro y
+`specs=buylist.spec.ts`. El spec trae un segundo caso `@real` (libreta, sin pago) que se salta junto al de pago cuando
+no hay clave, porque el filtro es por fichero. **NO MEDIDO** contra el stack corriendo (no levanté nada): lo mide la
+próxima corrida de `e2e-real` con las claves de prueba.
+
+### 87.5 · Verificación (copia del árbol entero, 2026-10-05)
+`sast-gitleaks-canary.sh` 15/15, y sus 5 mutaciones rojas 3/3 cada una (repetidas sobre el canario final) ·
+`check-secret-defaults-canary.sh` 75/75 en **3/3** corridas · mutación de (H) con `*.md` de vuelta: canario rojo en
+**3/3** corridas, 73/75, y caen exactamente los dos casos `.md` · canario con la clave literal antigua y el manifiesto
+nuevo: 73/75, caen exactamente G.1 y G.2 (N=1, determinista) · `check-secret-defaults.sh` rc 0 (en `2e41f36c` era
+rc 1 por el manifiesto) · `gitleaks dir .` del árbol completo rc 0 ·
+`gen-published-secrets-manifest.sh --check` rc 0 · `check-compose-images.sh` rc 0 y su canario 14/14 ·
+`check-ci-ok.sh --static` rc 0 y su canario 10/10 · `check-e2e-skip-census.sh` rc 0 (= baseline) ·
+`check-e2e-harness-gaps.sh`, `check-secret-absence-wording.sh`, `check-gate-parity-canary.sh` y
+`check-e2e-must-run-canary.sh` rc 0 · los 13 YAML (workflows y compose) parsean, y `gitleaks.toml` parsea con `tomllib`.
+
+### 87.6 · Rollback
+Revertir los commits. Solo tocan config de CI, scripts y esta nota: no afectan a datos ni a producción. Si se
+revierte 87.1, `P-GL-2` vuelve a estar abierta y bloquea `sk_live_` (CL-2). Si se revierte 87.3, el candado de
+imágenes deja de mirar los `npm -g` y `deploy.yml` vuelve a `@latest`.
 
