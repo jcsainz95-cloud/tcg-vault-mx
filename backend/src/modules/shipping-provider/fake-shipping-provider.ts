@@ -58,7 +58,11 @@ export type FakePurchaseOutcome =
   | { kind: 'processing'; labelUrl?: string | null; providerShipmentId?: string }
   /** `2xx` con `error_detail`: con id (por defecto) ⇒ «rechazo con id» (§19.26.1); `withoutId` ⇒ rechazo sin id. */
   | { kind: 'error_detail'; code: string; message: string; withoutId?: boolean }
-  | { kind: 'in_flight' }
+  /**
+   * La petición salió y no hubo respuesta legible. `created` ⇒ Skydropx SÍ creó el envío (con número si `tracking`):
+   * aparece en el listado y en el detalle con nuestro folio (PS-74 (b), PS-124: «crea y luego falla al responder»).
+   */
+  | { kind: 'in_flight'; created?: boolean; trackingNumber?: string | null; providerShipmentId?: string }
   /** `400/422`; con `providerShipmentId` ⇒ el cuerpo trae id (⇒ «rechazo con id», §19.26.1). */
   | { kind: 'rejected'; providerCode?: string; providerMessage?: string; providerShipmentId?: string }
   /** Errores ANTES de que salga la compra (§19.20.5 fila 3): plazo, candado, borde, `429` agotado. */
@@ -189,6 +193,29 @@ export class FakeShippingProvider implements ShippingProviderPort {
     const outcome: FakePurchaseOutcome = this.purchaseOutcomes.shift() ?? { kind: 'labeled' };
     switch (outcome.kind) {
       case 'in_flight':
+        if (outcome.created) {
+          this.seq += 1;
+          const id = outcome.providerShipmentId ?? `fake-shipment-${this.tag}-${this.seq}`;
+          const rate = this.ratesById.get(input.rateId) ?? null;
+          const tn = outcome.trackingNumber === undefined ? `FAKE${this.tag.toUpperCase()}${String(this.seq).padStart(6, '0')}` : outcome.trackingNumber;
+          this.shipments.set(id, {
+            providerShipmentId: id,
+            carrierName: rate?.carrierName ?? null,
+            trackingNumber: tn,
+            rawLabelUrl: this.defaultLabelUrl,
+            rawTrackingUrl: this.defaultTrackingUrl,
+            totalCents: rate?.totalCents ?? null,
+            insuranceCents: fakeInsuranceCostCents(input.package.coverageCents),
+            error: null,
+            carrierStatus: tn ? 'created' : null,
+            unknownCarrierStatus: null,
+            statusUpdatedAt: null,
+            events: [],
+            providerReference: folioTokenOf(input.to.reference),
+            raw: { id },
+          });
+          this.remember(id, input, rate, false);
+        }
         throw new ShippingProviderPurchaseInFlightError(ShippingProviderError.busy('purchase'));
       case 'deadline':
         throw new PurchaseDeadlineError('purchase');
@@ -247,6 +274,7 @@ export class FakeShippingProvider implements ShippingProviderPort {
       unknownCarrierStatus: null,
       statusUpdatedAt: null,
       events: [],
+      providerReference: folioTokenOf(input.to.reference),
       raw: { id: ownId },
     };
     if (!this.shipments.has(ownId)) this.shipments.set(ownId, state);
@@ -281,6 +309,7 @@ export class FakeShippingProvider implements ShippingProviderPort {
         unknownCarrierStatus: null,
         statusUpdatedAt: null,
         events: [],
+        providerReference: folioTokenOf(input.to.reference),
         raw: { id },
       });
     }
@@ -317,6 +346,7 @@ export class FakeShippingProvider implements ShippingProviderPort {
       unknownCarrierStatus: null,
       statusUpdatedAt: null,
       events: [],
+      providerReference: entry.providerReference,
       raw: { id: entry.providerShipmentId },
       ...state,
     });

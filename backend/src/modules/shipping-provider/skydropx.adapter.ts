@@ -356,6 +356,7 @@ export class SkydropxAdapter implements ShippingProviderPort {
       unknownCarrierStatus,
       statusUpdatedAt: firstStr(pkg.updated_at, attrs.updated_at),
       events: eventsFrom(pkg.tracking_events, pkg.events, attrs.tracking_events, attrs.events),
+      providerReference: parsed.addressTo ? folioTokenOf(firstStr(parsed.addressTo.reference)) : null,
       raw: redactProviderPayload(res.json),
     };
   }

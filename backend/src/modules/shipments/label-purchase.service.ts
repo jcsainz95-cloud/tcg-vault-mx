@@ -106,12 +106,27 @@ export function parseLabelBody(raw: unknown): LabelBody {
 interface Claim {
   since: Date;
   attemptId: string;
+  /** Quien RECLAMÓ (el intento es suyo: TG-1 y AG-1 se le atribuyen aunque adopte o libere otro, §19.29.4). */
+  claimerId: string;
   rate: ShipmentRateDTO;
   recommended: ShipmentRateDTO | null;
   quote: ShipmentQuote;
   pkg: ShippingPackage;
   row: ShipmentRequest;
   folio: string;
+}
+
+/**
+ * Lo que necesitan las escrituras de la respuesta (paso 9) y de la adopción (§19.27.5): el reclamo con su `since` exacto,
+ * su intento y la tarifa elegida. La adopción lo reconstruye de la fila y del intento (no tiene cotización ni empaque).
+ */
+export type PersistClaim = Pick<Claim, 'since' | 'attemptId' | 'claimerId' | 'rate' | 'recommended' | 'row' | 'folio'>;
+
+/** La adopción (§19.18.4 paso 4, §19.27.5): bitácora `shipment.label_adopted` en la MISMA tx que la escritura. */
+export interface AdoptionMark {
+  via: 'reference' | 'recent_list';
+  note?: string;
+  actorTag?: string;
 }
 
 /** Datos de dinero que se escriben con la guía (§19.11, §19.19.8). */
@@ -469,7 +484,7 @@ export class ShipmentLabelService {
         }
       }
       const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id: shipmentId } });
-      return { kind: 'claimed' as const, claim: { since, attemptId: attempt.id, rate, recommended, quote, pkg, row, folio: row.folio } };
+      return { kind: 'claimed' as const, claim: { since, attemptId: attempt.id, claimerId: actor.id, rate, recommended, quote, pkg, row, folio: row.folio } };
     }, TX);
   }
 
@@ -494,10 +509,10 @@ export class ShipmentLabelService {
   }
 
   /** AG-4 `facts`: cuántas guías `reissue` canceladas, lo no recuperado conocido y los reembolsos sin cifra, y quién. */
-  async reissueFacts(shipmentId: string): Promise<{ cancelledCount: number; unrecoveredCents: number; unknownRefunds: number; actors: string[] }> {
-    const cancelled = await this.prisma.shipmentPaidLabel.findMany({ where: { shipmentRequestId: shipmentId, cancelKind: 'reissue' }, select: { unrefundedCents: true, cancelledByUserId: true } });
+  async reissueFacts(shipmentId: string, db: Tx | PrismaService = this.prisma): Promise<{ cancelledCount: number; unrecoveredCents: number; unknownRefunds: number; actors: string[] }> {
+    const cancelled = await db.shipmentPaidLabel.findMany({ where: { shipmentRequestId: shipmentId, cancelKind: 'reissue' }, select: { unrefundedCents: true, cancelledByUserId: true } });
     const ids = [...new Set(cancelled.map((c) => c.cancelledByUserId).filter((x): x is string => !!x))];
-    const users = ids.length ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { name: true } }) : [];
+    const users = ids.length ? await db.user.findMany({ where: { id: { in: ids } }, select: { name: true } }) : [];
     return {
       cancelledCount: cancelled.length,
       unrecoveredCents: cancelled.reduce((s, c) => s + (c.unrefundedCents ?? 0), 0),
@@ -705,7 +720,7 @@ export class ShipmentLabelService {
   }
 
   /** §19.19.8 + §19.11: el costo. `total` de la compra manda; si derivó del cotizado, IVA 16/116 (`computed`) y log. */
-  private costOf(claim: Claim, result: PurchaseResult): LabelCost {
+  private costOf(claim: PersistClaim, result: PurchaseResult): LabelCost {
     const rate = claim.rate;
     const totalCents = result.totalCents ?? rate.breakdown.totalCents;
     const insuranceCostCents = result.insuranceCents ?? rate.breakdown.insuranceCents;
@@ -723,7 +738,14 @@ export class ShipmentLabelService {
   }
 
   /** Éxito CON número ⇒ `setTrackingFromProvider`: el mismo hecho que `setTracking` + lo de Skydropx, `since` exacto. */
-  private async persistLabeled(claim: Claim, actor: LabelActor, result: PurchaseResult, providerReference: string): Promise<LabelResponse> {
+  async persistLabeled(
+    claim: PersistClaim,
+    actor: LabelActor | null,
+    result: PurchaseResult,
+    providerReference: string | null,
+    origin: 'response' | 'adopted' = 'response',
+    adoption?: AdoptionMark,
+  ): Promise<LabelResponse> {
     const id = result.providerShipmentId as string;
     const cost = this.costOf(claim, result);
     const urls = providerUrlsFrom(result, this.selection.urlHosts);
@@ -768,7 +790,8 @@ export class ShipmentLabelService {
           },
         });
         if (r.count !== 1) return 'cas0' as const;
-        await this.recordPaidLabel(tx, claim, id, 'response', cost.shippingCostCents, now);
+        await this.recordPaidLabel(tx, claim, id, origin, cost.shippingCostCents, now);
+        if (adoption) await this.auditAdoption(tx, actor, claim, id, adoption, now);
         await this.audit(tx, actor, claim.row.id, 'shipment.tracking', {
           carrier: result.carrierName ?? claim.rate.carrierName,
           trackingNumber: result.trackingNumber,
@@ -781,7 +804,7 @@ export class ShipmentLabelService {
           insuranceCents: cost.insuranceCostCents,
         });
         await this.urlRejections(tx, claim.row.id, urls.rejected);
-        await this.afterPaidLabelAlerts(tx, claim, actor, cost.shippingCostCents, now);
+        await this.afterPaidLabelAlerts(tx, claim, cost.shippingCostCents, now);
         return 'ok' as const;
       }, TX);
     } catch (e) {
@@ -790,14 +813,20 @@ export class ShipmentLabelService {
       wrote = 'taken';
     }
     if (wrote === 'taken') return this.providerIdTaken(claim, actor, id, takenBy as string);
-    if (wrote === 'cas0') return this.casZero(claim, actor, result, providerReference);
+    if (wrote === 'cas0') return this.casZero(claim, actor, result, providerReference, origin);
     // Post-commit, best-effort: AV-4 (una vez; T.4.4). ⛔ No puede tumbar la respuesta.
     await this.shipments.notifyLabelCaptured(claim.row.id);
     return this.respond(claim.row.id, actor, 'labeled');
   }
 
   /** Éxito SIN número (R5) y «rechazo con id» (§19.26.1): el id se persiste, el envío sigue `picking` con el reclamo vivo. */
-  private async persistProcessing(claim: Claim, actor: LabelActor, result: PurchaseResult): Promise<LabelResponse> {
+  async persistProcessing(
+    claim: PersistClaim,
+    actor: LabelActor | null,
+    result: PurchaseResult,
+    origin: 'response' | 'adopted' = 'response',
+    adoption?: AdoptionMark,
+  ): Promise<LabelResponse> {
     const id = result.providerShipmentId as string;
     const cost = this.costOf(claim, result);
     const urls = providerUrlsFrom(result, this.selection.urlHosts);
@@ -822,7 +851,8 @@ export class ShipmentLabelService {
           },
         });
         if (r.count !== 1) return 'cas0' as const;
-        await this.recordPaidLabel(tx, claim, id, 'response', cost.shippingCostCents, now);
+        await this.recordPaidLabel(tx, claim, id, origin, cost.shippingCostCents, now);
+        if (adoption) await this.auditAdoption(tx, actor, claim, id, adoption, now);
         await this.urlRejections(tx, claim.row.id, urls.rejected);
         if (result.error) {
           await this.audit(tx, actor, claim.row.id, 'shipment.label_failed', {
@@ -833,7 +863,7 @@ export class ShipmentLabelService {
             kept: true,
           });
         }
-        await this.afterPaidLabelAlerts(tx, claim, actor, cost.shippingCostCents, now);
+        await this.afterPaidLabelAlerts(tx, claim, cost.shippingCostCents, now);
         return 'ok' as const;
       }, TX);
     } catch (e) {
@@ -842,7 +872,7 @@ export class ShipmentLabelService {
       wrote = 'taken';
     }
     if (wrote === 'taken') return this.providerIdTaken(claim, actor, id, takenBy as string);
-    if (wrote === 'cas0') return this.casZero(claim, actor, result, null);
+    if (wrote === 'cas0') return this.casZero(claim, actor, result, null, origin);
     if (result.error) {
       this.logger.error(`skydropx purchase_error_with_id providerShipmentId=${id} providerCode=${result.error.code}`);
       const res = await this.respond(claim.row.id, actor, 'processing');
@@ -862,7 +892,7 @@ export class ShipmentLabelService {
   }
 
   /** §19.26.3 (b): cero `500`; el reclamo de B se CONSERVA; bitácora `label_conflict`; ⛔ A no se toca. */
-  private async providerIdTaken(claim: Claim, actor: LabelActor, providerShipmentId: string, otherShipmentId: string): Promise<never> {
+  private async providerIdTaken(claim: PersistClaim, actor: LabelActor | null, providerShipmentId: string, otherShipmentId: string): Promise<never> {
     this.logger.error(`skydropx provider_id_taken shipmentId=${claim.row.id} providerShipmentId=${providerShipmentId} other=${otherShipmentId}`);
     await this.audit(this.prisma, actor, claim.row.id, 'shipment.label_conflict', { rateId: claim.rate.rateId, providerShipmentId, otherShipmentId }, this.clock.now());
     throw BusinessException.conflict('CONFLICT', 'The provider returned a shipment that belongs to another order', { reason: 'provider_id_taken', otherShipmentId });
@@ -874,7 +904,13 @@ export class ShipmentLabelService {
    * (3) mismo `since` y `cancelado` ⇒ §19.18.3 punto 2 (persistir con `auto_close` y cancelar); (4) mismo `since` en
    * `picking` por otra causa ⇒ deshacer el reclamo y cancelar la guía (es el MISMO reclamo).
    */
-  private async casZero(claim: Claim, actor: LabelActor, result: PurchaseResult, providerReference: string | null): Promise<LabelResponse> {
+  private async casZero(
+    claim: PersistClaim,
+    actor: LabelActor | null,
+    result: PurchaseResult,
+    providerReference: string | null,
+    origin: 'response' | 'adopted' = 'response',
+  ): Promise<LabelResponse> {
     const id = result.providerShipmentId as string;
     const now = this.clock.now();
     const cost = this.costOf(claim, result);
@@ -916,7 +952,7 @@ export class ShipmentLabelService {
           },
         });
         if (w.count !== 1) return { kind: 'stale' as const };
-        await this.recordPaidLabel(tx, claim, id, 'response', cost.shippingCostCents, now);
+        await this.recordPaidLabel(tx, claim, id, origin, cost.shippingCostCents, now);
         await this.audit(tx, actor, row.id, 'shipment.label_cancelled', { reason: 'auto_close', during: 'purchase' }, now, { providerShipmentId: id, priceCents: claim.rate.priceCents });
         return { kind: 'auto_close' as const };
       }
@@ -937,7 +973,7 @@ export class ShipmentLabelService {
           insuredValueCents: null,
         },
       });
-      await tx.shipmentPaidLabel.createMany({ data: [{ providerShipmentId: id, shipmentRequestId: row.id, attemptId: claim.attemptId, origin: 'response', chargedCents: cost.shippingCostCents }], skipDuplicates: true });
+      await tx.shipmentPaidLabel.createMany({ data: [{ providerShipmentId: id, shipmentRequestId: row.id, attemptId: claim.attemptId, origin, chargedCents: cost.shippingCostCents }], skipDuplicates: true });
       await tx.shipmentLabelAttempt.updateMany({ where: { id: claim.attemptId, outcome: 'pending' }, data: { outcome: 'labeled', outcomeAt: now } });
       await this.audit(tx, actor, row.id, 'shipment.label_failed', { rateId: claim.rate.rateId, providerCode: 'LOCAL_CAS', providerShipmentId: id }, now);
       return { kind: 'local_cas' as const };
@@ -1039,9 +1075,10 @@ export class ShipmentLabelService {
   }
 
   /** AG-1, AG-5, AG-13 (§19.29.6) cuando un intento obtiene guía (en la tx del hecho). */
-  private async afterPaidLabelAlerts(tx: Tx, claim: Claim, actor: LabelActor, chargedCents: number, now: Date): Promise<void> {
-    // AG-1: la MISMA persona corrigió la dirección de este envío y compró.
-    const fixes = await tx.auditLog.findMany({ where: { entityId: claim.row.id, action: 'shipment.address_corrected', actorUserId: actor.id }, select: { after: true, createdAt: true } });
+  private async afterPaidLabelAlerts(tx: Tx, claim: PersistClaim, chargedCents: number, now: Date): Promise<void> {
+    // AG-1: la MISMA persona que RECLAMÓ corrigió la dirección de este envío (⛔ no quien adopta o libera).
+    const claimer = claim.claimerId;
+    const fixes = await tx.auditLog.findMany({ where: { entityId: claim.row.id, action: 'shipment.address_corrected', actorUserId: claimer }, select: { after: true, createdAt: true } });
     if (fixes.length > 0) {
       const keys = [...new Set(fixes.flatMap((f) => (Array.isArray(obj(f.after).changedKeys) ? (obj(f.after).changedKeys as string[]) : [])))];
       const severe = keys.some((k) => ['recipientName', 'line1', 'postalCode', 'city', 'state', 'country'].includes(k));
@@ -1049,7 +1086,7 @@ export class ShipmentLabelService {
         kind: 'label_after_address_fix',
         severity: severe ? 'immediate' : 'digest',
         dedupKey: `ag1:${claim.row.id}`,
-        subjectUserId: actor.id,
+        subjectUserId: claimer,
         shipmentRequestId: claim.row.id,
         amountCents: chargedCents,
         facts: { changedKeys: keys, carrierName: claim.rate.carrierName, chargedCents, correctionAt: fixes[fixes.length - 1].createdAt.toISOString(), revisionCount: fixes.length },
@@ -1075,7 +1112,7 @@ export class ShipmentLabelService {
         kind: 'label_costly_choice',
         severity: 'digest',
         dedupKey: `ag13:${claim.attemptId}`,
-        subjectUserId: actor.id,
+        subjectUserId: claimer,
         shipmentRequestId: claim.row.id,
         amountCents: claim.rate.priceCents,
         facts: { marginCents: claim.rate.marginCents, priceCents: claim.rate.priceCents, recommendedPriceCents: rec, overRecommendedCents: rec !== null ? Math.max(0, claim.rate.priceCents - rec) : 0 },
@@ -1090,7 +1127,18 @@ export class ShipmentLabelService {
     }
   }
 
-  private async referenceOf(tx: Tx, claim: Claim): Promise<string | null> {
+  /** §19.18.4 paso 4 / §19.27.5: la bitácora de la adopción (actor de sistema si no hay persona). */
+  private async auditAdoption(tx: Tx, actor: LabelActor | null, claim: PersistClaim, providerShipmentId: string, a: AdoptionMark, now: Date): Promise<void> {
+    await this.audit(tx, actor, claim.row.id, 'shipment.label_adopted', {
+      providerShipmentId,
+      since: claim.since.toISOString(),
+      via: a.via,
+      ...(a.note ? { note: a.note } : {}),
+      ...(actor ? {} : { actor: a.actorTag ?? 'system:label-verify' }),
+    }, now);
+  }
+
+  private async referenceOf(tx: Tx, claim: PersistClaim): Promise<string | null> {
     const a = await tx.shipmentLabelAttempt.findUnique({ where: { id: claim.attemptId }, select: { providerReference: true } });
     return a?.providerReference ?? null;
   }
@@ -1131,8 +1179,10 @@ export class ShipmentLabelService {
     });
   }
 
-  async respond(shipmentId: string, actor: LabelActor, outcome: LabelOutcome): Promise<LabelResponse> {
-    const shipment = (await this.shipments.adminGet(shipmentId, actor, this.labelOptionsFor.bind(this))) as { label?: unknown };
+  async respond(shipmentId: string, actor: LabelActor | null, outcome: LabelOutcome): Promise<LabelResponse> {
+    const shipment = (actor
+      ? await this.shipments.adminGet(shipmentId, actor, this.labelOptionsFor.bind(this))
+      : await this.shipments.adminGet(shipmentId)) as { label?: unknown };
     return outcome === 'labeled' ? { outcome, shipment, label: shipment.label ?? null } : { outcome, shipment };
   }
 }

@@ -9,6 +9,9 @@ import { ShipmentPrepService } from './shipment-prep.service';
 import { ShipmentAddressService } from './shipment-address.service';
 import { ShipmentQuoteService } from './label-quote.service';
 import { ShipmentLabelService } from './label-purchase.service';
+import { ShipmentLabelCancelService } from './label-cancel.service';
+import { ShipmentLabelRecoveryService } from './label-recovery.service';
+import { MoneyOut } from '../../common/decorators/money-out.decorator';
 
 /**
  * M4 — Retiros / envíos (vault_operator+). API_CONTRACT §M4.
@@ -23,6 +26,8 @@ export class AdminShipmentsController {
     private readonly address: ShipmentAddressService,
     private readonly quotes: ShipmentQuoteService,
     private readonly labels: ShipmentLabelService,
+    private readonly labelCancel: ShipmentLabelCancelService,
+    private readonly labelRecovery: ShipmentLabelRecoveryService,
   ) {}
 
   @Get()
@@ -152,6 +157,28 @@ export class AdminShipmentsController {
   @HttpCode(200)
   label(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
     return this.labels.purchase(id, body, user);
+  }
+
+  /**
+   * 💰 ⭐ v1.81 D2c (§M4-SHIP.19.8) — cancelar la guía para re-emitirla (operador+, antes de que la recojan). ⛔ No mira el
+   * dial de compra ni `shipping_provider` (es de seguridad sobre una guía ya comprada, SEC-SDX-12). ⛔ Sin `AV-6`.
+   */
+  @Post(':id/label/cancel')
+  @HttpCode(200)
+  cancelLabel(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.labelCancel.cancel(id, body, user);
+  }
+
+  /**
+   * 💰🔒 ⭐ v1.81 D2c (§M4-SHIP.19.18.4 con §19.26.3 y §19.27.6) — liberar un reclamo sin id: SOLO `super_admin`
+   * (`@MoneyOut()`: el operador recibe `403 MONEY_OUT_FORBIDDEN` auditado; P-SDX-REL sigue en (a)). Busca antes de liberar.
+   */
+  @Post(':id/label/release')
+  @HttpCode(200)
+  @MoneyOut()
+  @Roles(Role.super_admin)
+  releaseLabel(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.labelRecovery.release(id, body, user);
   }
 
   @Patch(':id/status')

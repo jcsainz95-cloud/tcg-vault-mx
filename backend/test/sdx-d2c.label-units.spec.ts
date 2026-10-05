@@ -287,3 +287,46 @@ describe('PS-117 / C-2 — `.purchase(` tiene UN llamador en shipments/ y `.prot
     expect(files.filter((f) => /\.protect\(/.test(f.text)).map((f) => f.path)).toEqual([]);
   });
 });
+
+// ================================================================ C-SDX-5 / C-SDX-4 / PS-117 (ampliada) — censos de la cancelación y la verificación
+
+describe('C-SDX-5 — `cancelProviderLabelIfAny` tiene EXACTAMENTE dos llamadores (los escritores automáticos de `cancelado`)', () => {
+  const files = walk(SRC).map((p) => ({ path: rel(p), text: code(readFileSync(p, 'utf8')) }));
+  it('full-refund.service.ts (cierre por reembolso total) y payments.service.ts (contracargo)', () => {
+    const callers = files.filter((f) => /cancelProviderLabelIfAny\(tx,/.test(f.text)).map((f) => f.path).sort();
+    expect(callers).toEqual(['src/modules/payments/payments.service.ts', 'src/modules/payments/refunds/full-refund.service.ts']);
+  });
+  it('cada uno con su post-commit (`afterAutoCloseVia`) en el mismo fichero', () => {
+    for (const p of ['src/modules/payments/payments.service.ts', 'src/modules/payments/refunds/full-refund.service.ts']) {
+      const f = files.find((x) => x.path === p)!;
+      expect({ p, ok: /afterAutoCloseVia\(|closedShipmentIds/.test(f.text) }).toEqual({ p, ok: true });
+    }
+  });
+});
+
+describe('C-SDX-4 — `guia → picking` lo escribe SOLO `label/cancel`', () => {
+  it('ningún otro `updateMany` con `status: \'picking\'` lleva `guia` en su `where`', () => {
+    const offenders: string[] = [];
+    for (const p of walk(SRC)) {
+      const t = code(readFileSync(p, 'utf8'));
+      for (const m of t.matchAll(/updateMany\(\{\s*where:\s*\{([\s\S]{0,300}?)\},\s*data:\s*\{\s*status:\s*'picking'/g)) {
+        if (/'guia'/.test(m[1]) && !/updateMany\(/.test(m[1])) offenders.push(rel(p));
+      }
+    }
+    expect(offenders).toEqual(['src/modules/shipments/label-cancel.service.ts']);
+  });
+});
+
+describe('PS-117 (ampliada) — `recoverInFlightLabel` solo LEE del proveedor', () => {
+  it('el cuerpo llama al puerto solo con recentShipments | balance | getShipment (⛔ purchase, cancel, protect)', () => {
+    const t = code(readFileSync(join(SRC, 'modules/shipments/label-recovery.service.ts'), 'utf8'));
+    const start = t.indexOf('async recoverInFlightLabel(');
+    const end = t.indexOf('async release(', start);
+    const body = t.slice(start, end);
+    const ops = [...body.matchAll(/port\.([a-zA-Z]+)\(/g)].map((m) => m[1]);
+    expect(ops.length).toBeGreaterThan(0);
+    expect([...new Set(ops)].sort()).toEqual(['balance', 'getShipment', 'recentShipments']);
+    // y el fichero entero no compra ni cancela
+    expect(t).not.toMatch(/\.purchase\(|\.cancel\(|\.protect\(/);
+  });
+});

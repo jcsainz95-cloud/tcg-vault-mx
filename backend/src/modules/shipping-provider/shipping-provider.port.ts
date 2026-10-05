@@ -170,6 +170,11 @@ export interface ProviderShipmentState extends Omit<PurchaseResult, 'raw' | 'pro
   unknownCarrierStatus: string | null;
   /** `updated_at` del estado, si viene (llave del evento sintético sin `now`, SEC-SDX-2). */
   statusUpdatedAt: string | null;
+  /**
+   * 🔒💰 v1.80.12.8 (§19.28.4): `folioTokenOf(address_to.reference)` del DETALLE — el token (`ENV-000045-01`), nunca el
+   * texto crudo; `null` si no se lee. Lo usa la adopción cuando el listado no trajo el folio (PS-129, control positivo).
+   */
+  providerReference?: string | null;
   events: ProviderEvent[];
   raw: unknown;
 }

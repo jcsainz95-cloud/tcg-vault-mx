@@ -12,7 +12,9 @@
  *
  * `POST /admin/orders/:id/reclaim-vault` (`super_admin`, custodia, ⛔ no dinero, auditado) — §M4-SHIP.18.10.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { afterAutoCloseVia } from '../shipments/label-auto-close';
 import { Prisma, Role, ShippedRefundReason } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -71,6 +73,8 @@ export class OrderRefundService {
     private readonly prisma: PrismaService,
     private readonly ledger: RefundLedgerService,
     private readonly fullRefund: FullRefundService,
+    // 💰 v1.81 (§M4-SHIP.19.8): post-commit de la cancelación automática de la guía (por token; ⛔ ciclo de módulos).
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   /** `vaultPieces` del detalle M3 (§M4-SHIP.18.6), derivado en la lectura. */
@@ -101,6 +105,7 @@ export class OrderRefundService {
     if (order.status !== 'settled') {
       throw BusinessException.validation('VALIDATION_ERROR', 'Only a settled order can be refunded', { status: order.status });
     }
+    const closedShipmentIds: string[] = [];
     const row = await this.prisma.$transaction(
       async (tx) => {
         // Candados: envíos de la orden (directo) / retiros vivos + piezas (bóveda) → Order → libro.
@@ -178,7 +183,7 @@ export class OrderRefundService {
           throw e;
         }
         if (order.fulfillmentMode === 'direct_ship') {
-          await this.fullRefund.onFullRefund(
+          const pass = await this.fullRefund.onFullRefund(
             tx,
             { orderId },
             'm3',
@@ -187,6 +192,7 @@ export class OrderRefundService {
               ? { shippedReason: { reason: shippedReason, note: dto.reason.trim().slice(0, SHIPPED_REFUND_NOTE_MAX) || null, byUserId: actor.id } }
               : {},
           );
+          closedShipmentIds.push(...(pass?.closedShipmentIds ?? []));
         }
         await tx.auditLog.create({
           data: {
@@ -202,6 +208,8 @@ export class OrderRefundService {
       },
       { maxWait: 10_000, timeout: 30_000 },
     );
+    // 💰 §19.8: la guía de los envíos cerrados se cancela en Skydropx DESPUÉS del commit (best-effort).
+    await afterAutoCloseVia(this.moduleRef, closedShipmentIds);
     const outcome = await this.ledger.executeRefund(row.id, actor);
     const finalRow = outcome.kind === 'done' || outcome.kind === 'not_requested' ? outcome.row : row;
     const after = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true } });
