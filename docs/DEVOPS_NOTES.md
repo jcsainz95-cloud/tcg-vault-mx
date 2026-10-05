@@ -13729,7 +13729,7 @@ pero igualmente **no** es producción: es un error de configuración que se corr
 - `check-secret-defaults-canary.sh` ⇒ **70/70**; `check-secret-masking.sh` ⇒ 6/6; su canario ⇒ 5/5.
 - `check-ci-ok.sh --static` ⇒ estática OK (25 jobs, 24 en `needs`, 4 opcionales; el job del candado ya estaba).
 - `gitleaks` 8.30.1 (la versión que fija `security-sast.yml`), descargado al scratchpad, sobre el commit de esta
-  sección con `security/gitleaks.toml`: ver el informe de entrega (se mide sobre el commit, no antes).
+  sección (`e0a7ddfc`, `gitleaks git --log-opts=HEAD~1..HEAD` con `security/gitleaks.toml`) ⇒ **no leaks found**.
 
 ### 82.6 Rollback
 
