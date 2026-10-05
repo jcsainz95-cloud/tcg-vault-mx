@@ -28,6 +28,7 @@
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
 > | **v1.84** | 🔒💰 Plan (2026-10-05, rama `claude/listo-real` desde `production` = `3e09685a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **Listo para dinero real:** cierra las condiciones «antes de `sk_live_`» de `SECURITY_NOTES.md:14048-14050` — C1 `qs`, S5-1 (claim `sat`, tope 30 d cliente / 7 d staff), SEC-HDR-2 (CSP con nonce, Report-Only primero), TD-4 ⟨orders⟩ (CAS `pending → failed`), C2 (lectura fresca del cargo en Stripe en la cubeta SPEI en vez de la lista de códigos; también detecta pedidos pagados **en modo prueba**), DAST `full` previo, C6 (medición) — más MSH-1, salud con `stripeMode`, telemetría CSP/errores sin cuenta nueva, `/privacidad`, respaldos con simulacro, censo y limpieza de datos de prueba, guion de cobro de punta a punta y guía del cambio de claves. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.84, §14 | §4.63 | **Sí** (backend `auth`, `orders` 💰, `payments` 💰, `shipments` 💰, `health`; frontend; devops) · 🔒 seguridad |
 > | **v1.84.1** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `bed71dc8`, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES §57`, `FRONTEND_NOTES §94`, `DEVOPS_NOTES §83`). Ratifica refresh con `ignoreExpiration` y caducidad a mano **después** del tope, con el borde a `>=` (SES-7/8); `ttlSeconds()` propio; `413` sin cuerpo; `upgrade-insecure-requests` solo en `enforce`. CSP: `style-src` + `https://accounts.google.com/gsi/style`; mutación de CSP-5 y «sustituye, no interseca» corregidas, con invariante `frame-ancestors`. TTFB se mide **en producción** con sonda de devops (antes = F1, después = F2). Enlaces al aviso en tres lotes con candado en `check:legal`. Texto de C6 corregido; **P-10** al dueño (N de C6). ⛔ Sin schema, migración, enum ni código nuevo. Norma: `API_CONTRACT §14.14` | §4.63.3, §4.63.5, §4.63.7, §4.63.9, §4.63.10, §4.63.11 | **Sí** (backend un carácter + 2 pruebas; frontend CSP + enlaces; devops sonda TTFB; ux-ui textos) |
+> | **v1.84.2** | Errata (2026-10-05, rama `claude/listo-real`, gates sobre `241d4dca` dado por el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **E2-1:** guía del dueño gana la casilla «`check:legal` verde (criterios 500–508)» + «QA aprobó 500–508» (el candado solo mide 501 y 503–505). **E2-2:** CSP-5 pasa a contar eventos `securitypolicyviolation` (`script-src*` + `blockedURI='inline'`) antes/después de inyectar; la mutación de E-5 solo mordía en `enforce`. **E2-3:** `message` de `/telemetry/client-error` se limpia **en el servidor** (query/fragmento pegados, `nombre=valor` de secretos, JWT), TLM-6/7/8. **E2-4:** texto de LIVE-2 sigue en este stream. **E2-5:** `report-uri` solo; comprobación de entrega antes de `enforce`; `report-to` = decisión pendiente **D-CSP-RT**. ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.15` | §4.63.7, §4.63.12 | **Sí** (backend limpieza + 3 pruebas; frontend CSP-5 + texto LIVE-2; devops casilla en la guía; ux-ui texto) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27351,6 +27352,8 @@ El dueño lo ve en Railway (réplicas del servicio).
   skydropx; lote 3 (`pedido/layout.tsx`) tras la del panel. El olvido lo impide `check:legal`, que exige los siete
   sitios (`API_CONTRACT §14.14 E-9`). Por qué un candado y no una nota: los criterios 500–508 bloquean `sk_live_`
   (`PROJECT.md:11702`), y un lote que depende de otra rama es exactamente lo que se pierde en un traspaso (O-18).
+  **v1.84.2:** un candado que nadie corre en el momento del cambio no bloquea nada: la guía del dueño lo lleva como
+  casilla (§4.63.12 E2-1).
 - **Abierto para el abogado, no para el código:** si la INE pide **consentimiento expreso** con constancia (casilla +
   fecha guardada). Si dice que sí, es un cambio de schema y vuelve al arquitecto.
 
@@ -27412,6 +27415,30 @@ pedido de prueba falla en Stripe y no mueve dinero. Las dos no cuestan schema.
   clientes de `tcghunt.mx`, no a una URL de vista previa. Coste: una sonda de solo lectura de 11 GET por corrida. El
   resultado va a un issue porque es lo que esta sesión puede leer.
 - **E-11:** no lo decide el arquitecto porque son intentos contra la tienda publicada, y el dueño autorizó un número.
+
+#### 4.63.12 Errata v1.84.2 — por qué cada respuesta (norma: `API_CONTRACT §14.15`)
+- **E2-1 (C-2 techlead):** E-9 decía «los criterios 500–508 bloquean `sk_live_`, luego ningún lote se olvida». La
+  premisa es cierta en `PROJECT.md` pero no tenía mecanismo: la guía del cambio no pedía correr el candado. La casilla
+  pone el bloqueo **donde se toma la decisión** (misma lección que «el aviso tiene que estar donde está el botón»).
+  Lleva dos líneas porque `check:legal` solo mide 501 (marcadores) y 503–505 (sitios); 500, 502 y 506–508 los mide QA.
+  Escribir solo «`check:legal` (500–508)» habría sido afirmar una cobertura que el candado no tiene.
+- **E2-2 (M-1 QA):** `report-only` no bloquea, así que «el script no se ejecuta» no puede ser el oráculo en la fase que
+  se publica; y la consola mezcla avisos de otros recursos. El evento `securitypolicyviolation` sale en las dos fases,
+  trae directiva, `blockedURI` y `disposition`, y contarlo antes/después de la inyección lo ata a **ese** script. Se
+  exige inyección en línea porque bajo `'strict-dynamic'` un script externo creado por código es legítimo.
+- **E2-3 (M-2 QA):** se norma y no se difiere porque el coste es una función pura y el daño (un token de
+  restablecimiento en un log que leen varias personas) es una cuenta tomada justo cuando empieza el dinero real. Va en
+  el **servidor** porque el endpoint es público: la limpieza del cliente solo protege al cliente honrado de hoy. Se
+  descartó «solo borrar URL absolutas» (es lo del cliente y lo que QA vio pasar) y «borrar todo lo que parezca ruta»
+  (perdería el sitio del error, que es para lo que existe el log). El `#` con espacio delante se respeta para no
+  perder `Minified React error #418`.
+- **E2-4:** se queda en el stream porque la conducta (el `401` con `reason`) ya entra en F1; publicar la conducta sin el
+  texto deja al cliente fuera sin explicación justo el día 30.
+- **E2-5 (D-CSP-RT, pendiente):** `report-to` no se añade hoy porque en Chromium **sustituye** a `report-uri` y trae
+  lotes, retraso y CORS sin medir; no hay un informe que hoy se pierda y con él se gane (de memoria, NO MEDIDO). Lo que
+  sí se exige antes de `enforce` es medir que los informes **llegan** desde producción: sin eso, «cero informes en 72 h»
+  no distingue «sin violaciones» de «sin entrega», y ese es exactamente el dato con el que se decide pasar a `enforce`.
+  Disparadores para reabrir: la comprobación no llega, o Chromium estable deja de enviar `report-uri`.
 
 ---
 

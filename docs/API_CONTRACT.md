@@ -2,8 +2,21 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.1**, errata de
-> v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes rev v1.80.10 y errata v1.80.9.1).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.2**, segunda
+> errata de v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes v1.84.1, v1.80.10 y v1.80.9.1).
+>
+> **Errata v1.84.2 — HALLAZGOS DE LOS GATES (QA + TECHLEAD) SOBRE `241d4dca` (2026-10-05, arquitecto, árbol
+> `/home/user/tcg-real`, rama `claude/listo-real`; ⛔ sha dado por el orquestador, NO MEDIDO por el arquitecto: sin
+> Bash).** Norma entera: [§14.15](#LIVE-E2). Porqué: `ARCHITECTURE §4.63.12`. ⛔ **Sin schema, sin migración, sin enum,
+> sin código de error nuevo, sin forma nueva de petición ni de respuesta.**
+>
+> | # | Origen | Decisión | ¿Cambia conducta? | Construye · cuándo |
+> |---|---|---|---|---|
+> | E2-1 | C-2 techlead | La guía del dueño (§14.10 «Antes») gana la casilla **«`npm run check:legal` verde (criterios 500–508)»** más una segunda línea «QA aprobó 500–508 en la tienda publicada» (`check:legal` solo mide 501 y 503–505); E-9 deja de darlo por hecho y cita la casilla | No (procedimiento) | devops la transcribe a su guía · antes de F2 |
+> | E2-2 | M-1 QA | E-5 corregido: la mutación `script-src-elem 'unsafe-inline'` **solo** pone CSP-5 roja en `enforce`; en `report-only` (lo que se publica) salió verde 0/3 (N=3, autor QA). **CSP-5 se reescribe** sobre el evento `securitypolicyviolation` del DOM, contado antes/después de inyectar | No (prueba) | frontend · antes de F1 |
+> | E2-3 | M-2 QA | **Se norma ahora:** el servidor limpia `message` de `/telemetry/client-error` antes del log (query/fragmento pegados a cualquier ruta, `nombre=valor` de secretos, JWT). La limpieza del cliente se queda como está (defensa extra, no requisito). Pruebas **TLM-6/TLM-7/TLM-8** | Sí (solo el texto del log) | backend · antes de F1 |
+> | E2-4 | B-2/C-1 | Texto «Tu sesión caducó por seguridad…» de LIVE-2: **sigue en este stream** (ux-ui ahora; frontend después, antes de F1) | Sí (pantalla) | ux-ui → frontend |
+> | E2-5 | techlead | `report-uri` sin `report-to`: **se queda así en `report-only`**; antes de `enforce` hay una **comprobación de entrega** obligatoria; `report-to` queda como decisión pendiente **D-CSP-RT** con disparador | No | — (frontend/devops solo si se dispara) |
 >
 > **Errata v1.84.1 — RESPUESTA A LAS SOLICITUDES DE LOS TRES AGENTES DE CONSTRUCCIÓN DE §14 (2026-10-05, arquitecto,
 > árbol `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `bed71dc8`; ⛔ sha NO MEDIDO por el
@@ -31282,7 +31295,7 @@ Google, registro o cambio de contraseña que creó el `sid`). `sat` es interno c
 
 **Frontend:** ante `401` del refresh con `reason:'session_max_age'`, el mismo flujo de hoy hacia el login con el texto
 «Tu sesión caducó por seguridad. Vuelve a entrar.» (ux-ui fija el texto; clave nueva en `auth`). Sin `reason` ⇒ igual
-que hoy.
+que hoy. **v1.84.2 (§14.15 E2-4):** esta parte **sigue en `claude/listo-real`** y entra antes de F1.
 
 **Pruebas (deben fallar hoy):**
 
@@ -31314,7 +31327,7 @@ frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com
 worker-src 'self' blob:;
 object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';
 upgrade-insecure-requests;      (v1.84.1, E-7: SOLO con CSP_MODE='enforce' Y <API_ORIGIN> en https:)
-report-uri <API_ORIGIN>/api/v1/telemetry/csp
+report-uri <API_ORIGIN>/api/v1/telemetry/csp      (v1.84.2, E2-5: sin report-to; decisión pendiente D-CSP-RT, §14.15)
 ```
 
 - `<API_ORIGIN>` = el origen de `NEXT_PUBLIC_API_BASE_URL` (`frontend/src/lib/config.ts:3`). `<UPLOAD_ORIGIN>` = el
@@ -31357,9 +31370,11 @@ después supera **800 ms** o sube más de **300 ms**, ⛔ no se pasa a `enforce`
 los `<script>` de Next llevan ese nonce; `CSP-3` (Playwright) el pago con `PaymentElement` y 3DS (`4000 0025 0000 3155`)
 termina sin violaciones en consola; `CSP-4` el botón de Google carga; `CSP-5` un `<script>` inyectado sin nonce en la
 página no se ejecuta (mutación: quitar el nonce de `script-src` ⇒ `CSP-2` roja; ~~poner `'unsafe-inline'` ⇒ `CSP-5`
-roja~~ **v1.84.1 (E-5):** añadir la directiva `script-src-elem 'unsafe-inline'` (o `script-src-attr 'unsafe-inline'`) ⇒
-`CSP-5` roja; `'unsafe-inline'` **dentro** de `script-src` no la pone roja en Chromium —CSP3 lo ignora si hay nonce— y la
-caza el unitario `csp.test.ts`, que fija la lista **exacta** de directivas); `CSP-6` en `enforce`, la cabecera no es la
+roja~~ ~~**v1.84.1 (E-5):** añadir la directiva `script-src-elem 'unsafe-inline'` (o `script-src-attr 'unsafe-inline'`) ⇒
+`CSP-5` roja~~ **v1.84.2 (E2-2):** esa mutación solo muerde en `enforce`; en `report-only` CSP-5 sale verde (0/3, N=3,
+autor QA) — la forma de CSP-5 se fija en [§14.15 E2-2](#LIVE-E2); `'unsafe-inline'` **dentro** de `script-src` no la pone
+roja en Chromium —CSP3 lo ignora si hay nonce— y la caza el unitario `csp.test.ts`, que fija la lista **exacta** de
+directivas); `CSP-6` en `enforce`, la cabecera no es la
 `-Report-Only` (mutación: dejar `report-only` ⇒ roja). **v1.84.1 (E-6):** `CSP-1` afirma además el invariante de
 `frame-ancestors 'none'` aplicada en **las dos** fases (mutación: quitar `frame-ancestors` de `next.config.mjs` con la
 fase en `report-only` ⇒ roja).
@@ -31481,6 +31496,8 @@ Prueba `HLT-1` (las tres formas + que ningún carácter de la clave aparezca; mu
 - Req `application/json`: `{ message: string ≤ 300, digest?: string ≤ 64, path: string ≤ 200, release?: string ≤ 40 }`.
   `path` se recorta en el servidor a la ruta sin query. Res **`204`**; forma inválida ⇒ `400 VALIDATION_ERROR`.
 - Una línea `level=error`, prefijo `CLIENT_ERROR`, sin IP, sin UA, sin usuario. ⛔ Nada en BD.
+- **v1.84.2 (§14.15 E2-3):** `message` se **limpia en el servidor** antes de escribirse (regla exacta en E2-3); el
+  `path` además pierde el fragmento (`#…`), no solo la query. La respuesta no cambia (`204`).
 - Lo llaman `frontend/src/app/[locale]/error.tsx` y `app/global-error.tsx` (si no existen, se crean) una vez por error
   mostrado, con `digest` de Next y `release` = sha público del build si Vercel lo expone (`VERCEL_GIT_COMMIT_SHA`).
 
@@ -31491,6 +31508,9 @@ Prueba `HLT-1` (las tres formas + que ningún carácter de la clave aparezca; mu
 | TLM-3 | 61.º informe en un minuto desde la misma IP ⇒ `429` | quitar el `@Throttle` |
 | TLM-4 | `client-error` con `message` de 301 ⇒ `400` | quitar el `MaxLength` |
 | TLM-5 | Ninguna tabla cambia de tamaño tras 100 informes (conteo antes/después) | persistir |
+| TLM-6 (v1.84.2) | `client-error` con `message` = `Fallo en /es/reset-password?token=abc123 al cargar` ⇒ el log no contiene `abc123` y sí `/es/reset-password` | quitar la limpieza del servidor |
+| TLM-7 (v1.84.2) | `message` con `https://x.test/a?b=1#access_token=s3cr3t`, `token=t0k3n` suelto y un JWT `eyJ…` ⇒ el log no contiene `s3cr3t`, `t0k3n` ni el JWT; `Minified React error #418` llega **intacto** | limpiar solo URL absolutas (la regla del cliente) |
+| TLM-8 (v1.84.2) | `message` con `\n` ⇒ exactamente una línea de log (candado de lo construido: `JSON.stringify`, `telemetry.controller.ts:35-40`) | escribir `message` sin escapar |
 
 ### 14.8 Consultas de solo lectura para la ventana (C3 y censo de datos de prueba)
 
@@ -31565,6 +31585,15 @@ Devops la transcribe a `DEVOPS_NOTES.md` como sección propia (con casillas) y l
 **Antes (todo verde o no se empieza):** condiciones de §14.0 cerradas; fase A pasada; censo y limpieza hechos (§14.8);
 C3 = 0; respaldo del día existente (§14.11); cuenta de Stripe **activada** para cobrar y depositar en MX (verificación
 del negocio y cuenta bancaria — solo el dueño lo ve, §14.13 P-2).
+**v1.84.2 (E2-1), casilla propia — lo legal (criterios 500–508, que bloquean el paso a modo real, `PROJECT.md:11702`):**
+- ☐ **`npm run check:legal` verde (criterios 500–508)** sobre el sha que está en producción. Mientras falte un lote de
+  enlaces (§14.14 E-9) o el texto tenga marcadores, sale rojo y **nombra** lo que falta: no se empieza. Lo corre devops
+  (o el CI) y la guía cita el run; el dueño solo mira la casilla.
+- ⚠️ `check:legal` mide **501** (marcadores, `frontend/src/content/legal/publish-ready.test.ts`) y **503–505** (los siete
+  sitios, `privacy-sites.ts`); **no** mide 500, 502, 506, 507 ni 508 (página sin sesión, contenido frente a lo que se
+  recaba, razón social en pie y correos, buzón de privacidad que recibe — leído por el arquitecto el 2026-10-05). Por
+  eso la casilla lleva una segunda línea: ☐ **QA aprobó 500–508 contra la tienda publicada** (veredicto citado con su
+  sha). Las dos o no se empieza.
 
 1. **Stripe (modo live) → Developers → Webhooks → Add endpoint.** URL: `https://<dominio-del-backend>/api/v1/webhooks/stripe`
    (la misma ruta que el endpoint de prueba). **Versión de API: `2024-06-20`** (la fijada en `stripe.service.ts:136`).
@@ -31717,8 +31746,11 @@ solo en `enforce` con API `https:`). Trabajo de frontend antes de F1: **solo** l
   `main`). Lo anota el orquestador en `PENDIENTES.md`.
 - **Lote 3 — sitio 7 · tras F-PNL:** igual que el lote 2, con `claude/arreglos-panel`.
 - **Candado:** `npm run check:legal` (criterio 501, puerta de publicación) pasa a exigir además que **los siete sitios**
-  usen el componente; mientras falte alguno, sigue rojo con el sitio nombrado. Como el aviso no se publica sin
-  `check:legal` verde y los criterios 500–508 bloquean `sk_live_`, ningún lote puede quedarse olvidado. La lista de
+  usen el componente; mientras falte alguno, sigue rojo con el sitio nombrado. ~~Como el aviso no se publica sin
+  `check:legal` verde y los criterios 500–508 bloquean `sk_live_`, ningún lote puede quedarse olvidado.~~ **v1.84.2
+  (E2-1, C-2 techlead):** que los criterios 500–508 bloqueen `sk_live_` (`PROJECT.md:11702`) solo vale si alguien lo
+  comprueba en el paso a modo real: por eso §14.10 «Antes» lleva la casilla **«`npm run check:legal` verde (criterios
+  500–508)»**. Con esa casilla, ningún lote puede quedarse olvidado. La lista de
   sitios la escribe frontend en el candado con rutas de fichero; prueba **LEG-5**: quitar el enlace de un sitio ⇒
   `check:legal` nombra ese sitio.
 
@@ -31731,3 +31763,80 @@ Valoración técnica del arquitecto: el tope por IP es determinista; un `429 RAT
 inventadas en `X-Forwarded-For` y seis correos distintos solo se explica si el borde **ignoró** la IP inventada. Lo que
 N = 1 no descarta es un borde **heterogéneo** (varios nodos con configuración distinta): NO MEDIDO y poco probable, pero
 no imposible. Por defecto, sin respuesta: se cierra C6 con **1/1** y se anota como tal en `DEVOPS_NOTES §83.4`.
+
+### <a id="LIVE-E2"></a>14.15 Errata v1.84.2 — hallazgos de los gates sobre `241d4dca` (2026-10-05, NORMATIVA)
+
+Origen: veredictos de QA (M-1, M-2) y techlead (C-2, B-2/C-1, `report-uri`) sobre `241d4dca` (sha dado por el
+orquestador; ⛔ NO MEDIDO por el arquitecto). Porqué: `ARCHITECTURE §4.63.12`. ⛔ Sin schema, migración, enum, código de
+error ni forma nueva.
+
+#### E2-1 · `check:legal` en la guía del dueño (devops · antes de F2)
+§14.10 «Antes» gana la casilla de lo legal (dos líneas: `check:legal` verde **y** QA aprobó 500–508 en la tienda
+publicada) y §14.14 E-9 deja de afirmar que el bloqueo ocurre solo. Devops la copia a su guía en `DEVOPS_NOTES` con el
+comando y dónde se lee el run. Sin código.
+
+#### E2-2 · CSP-5 mira el evento del DOM, no la consola (frontend · antes de F1)
+**Lo medido (QA, N=3, 0/3 rojas en `report-only` con la mutación `script-src-elem 'unsafe-inline'`):** en `report-only`
+el navegador **no bloquea nada**, así que el script inyectado se ejecuta siempre; con la mutación tampoco genera informe;
+y el filtro de consola `/script-src/ && /inline/` casaba con avisos de **otros** recursos (chunks). La prueba no
+distinguía «la política caza el inline» de «hay ruido en la consola». E-5 solo era cierto en `enforce`.
+
+**Forma normativa de CSP-5 (Playwright, las dos fases):**
+1. Antes de navegar, `addInitScript` registra `document.addEventListener('securitypolicyviolation', …)` y guarda en
+   `window` cada evento como `{effectiveDirective, blockedURI, disposition}`.
+2. Cargada la página, se lee el número de eventos que cumplen **`effectiveDirective` empieza por `script-src`** (en
+   Chromium sale `script-src-elem`) **y `blockedURI === 'inline'`** ⇒ `antes`.
+3. Se inyecta un `<script>` **en línea** (con texto, ⛔ sin `src`: un script externo creado por código de confianza es
+   **legítimo** bajo `'strict-dynamic'`) y sin nonce, cuyo cuerpo pone `window.__csp5 = true`.
+4. Se espera (con tope) a que ese número sea `antes + 1` como mínimo, y que el evento nuevo traiga `disposition` =
+   `'report'` en `report-only` o `'enforce'` en `enforce`.
+5. Solo en `enforce`: además `window.__csp5` sigue `undefined`. En `report-only` **se ejecuta** y la prueba no lo trata
+   como fallo (es lo que esa fase hace).
+- ⛔ La consola deja de ser oráculo de CSP-5 (CSP-3 puede seguir mirándola para «sin violaciones»).
+- **Mutación que debe morder en las dos fases:** añadir `script-src-elem 'unsafe-inline'` ⇒ el paso 4 no llega ⇒ roja.
+  Frontend reporta la proporción con su N (O-3), una por fase.
+
+#### E2-3 · Limpieza de `message` en el servidor (backend · antes de F1)
+**Decisión: se norma ahora, no se deja como deuda.** Motivo: el log de Railway es el único sitio donde la tienda
+guarda este texto, y un `token` de `reset-password` en un log es una cuenta tomada. La limpieza del cliente
+(`frontend/src/app/report-client-error.ts:27-29`, solo URL absolutas) no basta y además no es barrera: el endpoint es
+público. Coste: una función pura y tres pruebas.
+
+`scrubClientText(s)` (firma interna de `health`; se aplica a `message` antes de construir la línea de log; el `path` ya
+pierde query y ahora también fragmento):
+1. **Query y fragmento pegados a algo:** toda `?` o `#` **precedida de un carácter que no es espacio** se borra junto con
+   todo lo que sigue hasta el siguiente espacio (patrón `(\S)[?#]\S*` ⇒ `$1`). Cubre URL absolutas y **rutas relativas**
+   (`/es/reset-password?token=…`). Un `#` precedido de espacio (`error #418`) **se respeta**.
+2. **`nombre=valor` de secreto, sin URL:** `token`, `access_token`, `refresh_token`, `id_token`, `code`, `secret`,
+   `password`, `key`, `signature`, `sig` (sin distinguir mayúsculas; también como sufijo de otro nombre, p. ej.
+   `X-Amz-Signature`) seguidos de `=` ⇒ el valor hasta el siguiente espacio se sustituye por `[redacted]`.
+3. **JWT:** `eyJ` + segmento + `.` + segmento + `.` + segmento (alfabeto base64url) ⇒ `[jwt]`.
+4. Orden 1 → 2 → 3; el resultado solo puede ser más corto o igual de largo (los 300 del DTO siguen valiendo). Un
+   `message` que queda vacío se registra como `Error`.
+- Pruebas: **TLM-6, TLM-7, TLM-8** (§14.7). El frontend **no** tiene trabajo: su limpieza se queda como defensa
+  extra; si algún día diverge de esta, manda la del servidor.
+- ⛔ No se añaden reglas a `digest`/`release`: los genera nuestro propio build (Next y Vercel), no llevan URL ni datos
+  del usuario. Un atacante puede escribir lo que quiera en este endpoint de todas formas; el riesgo que se cierra es
+  que **nuestro** cliente filtre el secreto de **un usuario**.
+
+#### E2-4 · Texto de LIVE-2 (ux-ui → frontend · antes de F1)
+Confirmado: la parte de pantalla de LIVE-2 (§14.2 «Frontend») **sigue en este stream**. ux-ui fija ahora la clave y el
+texto en `DESIGN_SYSTEM`; frontend lo cablea después, en el manejo del `401` de `/auth/refresh`
+(`frontend/src/lib/api-client.ts:156-…`, zona compartida `lib/`: la toca solo este stream mientras dure). Prueba
+frontend: `401` con `details.reason:'session_max_age'` ⇒ login con el texto nuevo; `401` sin `reason` ⇒ el de hoy
+(mutación: ignorar el `reason`). No bloquea a seguridad (el corte de la sesión ya lo hace el backend), pero LIVE-2 no
+se da por cerrado en F1 sin ella.
+
+#### E2-5 · `report-uri` sin `report-to` (decisión pendiente **D-CSP-RT**)
+- **Hoy (`report-only`):** se queda solo `report-uri` (`frontend/src/security/csp.ts:144`). Motivo: es lo que entienden los
+  tres motores; `report-to` exige además la cabecera `Reporting-Endpoints`, en Chromium **sustituye** a `report-uri`
+  (no se suman), llega en lotes y con retraso, y su envío entre orígenes pasaría por CORS hacia el backend — nada de eso
+  está medido aquí (comportamiento de navegadores **de memoria, NO MEDIDO** por el arquitecto). Añadirlo hoy duplica lo
+  que hay que probar sin ganar un informe.
+- **Antes de `enforce` (obligatorio, lo hace frontend o tester-e2e con permiso del dueño):** comprobación de **entrega**
+  en producción: forzar una violación de `script-src` en `https://tcghunt.mx` desde un Chromium (p. ej. la inyección de
+  CSP-5 por la consola) y ver la línea `CSP_VIOLATION` con `disposition=report` en el log del backend. Se anota con hora
+  en `FRONTEND_NOTES`. Que en 72 h no haya informes **no** prueba que no haya violaciones.
+- **Disparador de D-CSP-RT (vuelve al arquitecto):** (a) esa comprobación no llega; o (b) una versión estable de Chromium
+  deja de enviar `report-uri`. Entonces se diseña `report-to` + `Reporting-Endpoints` manteniendo `report-uri` para los
+  demás motores (el endpoint ya acepta `application/reports+json`, §14.7).
