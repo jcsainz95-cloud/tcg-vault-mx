@@ -377,6 +377,19 @@ jobs:
       - uses: actions/checkout@v5
       - name: El arnés E2E no puede saltarse el cobro ni la subida del INE
         run: ./scripts/check-e2e-harness-gaps.sh
+      # M-4 (QA, 2026-10-05): una copia `git archive` (sin .git) pasa su sha con
+      # STACK_EXPECTED_SHA o `up --gate` para con un mensaje que lo nombra. Canario:
+      # 4 mutaciones, todas rojas. Sin red ni stack (la infra son señuelos).
+      - name: El stack nativo sabe qué commit sirve, también en una copia sin .git
+        run: |
+          ./scripts/check-stack-expected-sha.sh
+          ./scripts/check-stack-expected-sha.sh --canary
+      # M-3 (QA, 2026-10-05): el stack nativo exporta NEXT_PUBLIC_UPLOAD_ORIGIN (el
+      # s3-local entra en connect-src de la CSP). Canario: 3 mutaciones, todas rojas.
+      - name: El stack nativo da a la CSP el origen de subida del s3-local
+        run: |
+          ./scripts/check-stack-upload-origin.sh
+          ./scripts/check-stack-upload-origin.sh --canary
 
   # ---------------------------------------------------------------------------
   # ⏳ DISPARADOR DE RETIRO de la medida interina `D-PP-2` (DEVOPS_NOTES §43.2).

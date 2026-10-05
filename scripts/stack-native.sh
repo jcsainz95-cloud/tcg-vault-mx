@@ -257,6 +257,13 @@ export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-minioadmin}"
 export S3_SECRET_ACCESS_KEY  # generado arriba en .native-stack/secrets.env (S-88-1)
 export S3_FORCE_PATH_STYLE="${S3_FORCE_PATH_STYLE:-true}"
 export S3_PUBLIC_BASE_URL="${S3_PUBLIC_BASE_URL:-$S3_ENDPOINT/$S3_BUCKET}"
+# M-3 (QA, 2026-10-05): la CSP del frontend (`frontend/src/security/csp.ts`) pone en
+# `connect-src` el origen de `NEXT_PUBLIC_UPLOAD_ORIGIN`; sin ella cae al comodín de R2
+# y en local el PUT prefirmado al s3-local sale como violación. El backend firma contra
+# `S3_ENDPOINT` (`uploads.service.ts`, path-style), así que el origen es el de ese
+# endpoint — y SIGUE a `S3_LOCAL_PORT` como el endpoint. Se exporta: `next build`,
+# `next start` y `next dev` lo heredan. Candado: check-stack-upload-origin.sh.
+export NEXT_PUBLIC_UPLOAD_ORIGIN="${NEXT_PUBLIC_UPLOAD_ORIGIN:-$(printf '%s' "$S3_ENDPOINT" | sed -E 's|^(https?://[^/?#]+).*|\1|')}"
 S3_DIR="$SCRIPT_DIR/s3-local"
 
 # --- Stripe: PASO A TRAVÉS, nunca un valor en el repo (§39.1) ----------------
@@ -346,7 +353,47 @@ ASSERT_HEAD="$SCRIPT_DIR/assert-serving-head.sh"
 # `node_modules`, `dist`, `coverage` y `*.log` los excluye el propio assert.
 BACKEND_SOURCE_ARGS=(--source "$BACKEND_DIR/src" --source "$BACKEND_DIR/prisma" --source "$BACKEND_DIR/package.json")
 
-head_sha() { git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo ""; }
+# M-4 (QA, 2026-10-05): QA mide sobre una copia `git archive` (O-9), que NO trae `.git`.
+# Ahí `git rev-parse HEAD` no da nada, el sha esperado salía vacío y `up --gate` moría
+# con un críptico «--sha necesita valor» de assert-serving-head.sh. Ahora:
+#   · con `.git` en ESTE árbol ⇒ HEAD, como siempre (y si además se pasa
+#     STACK_EXPECTED_SHA y NO coincide con HEAD, se aborta: dos verdades, ninguna);
+#   · sin `.git` ⇒ STACK_EXPECTED_SHA (el sha del que salió la copia: quien la hace
+#     lo sabe, p. ej. `STACK_EXPECTED_SHA=$(git rev-parse HEAD)` antes del archive);
+#   · sin `.git` y sin variable ⇒ vacío, y quien necesita el sha (up --gate,
+#     verify:head) para con un mensaje que dice exactamente esto.
+# `[ -e "$ROOT_DIR/.git" ]` y no solo `git rev-parse`: una copia extraída DENTRO de otro
+# repo devolvería el HEAD del repo de fuera — un sha que no es el de la copia.
+# Candado y canario: scripts/check-stack-expected-sha.sh.
+STACK_EXPECTED_SHA="${STACK_EXPECTED_SHA:-}"
+head_sha() {
+  if [ -e "$ROOT_DIR/.git" ]; then
+    git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo ""
+  else
+    printf '%s\n' "$STACK_EXPECTED_SHA"
+  fi
+}
+# Valida la fuente del sha UNA vez, al arrancar `up --gate` / `verify:head`.
+require_expected_sha() {
+  if [ -n "$STACK_EXPECTED_SHA" ]; then
+    case "$STACK_EXPECTED_SHA" in
+      *[!0-9a-f]*) die "STACK_EXPECTED_SHA='$STACK_EXPECTED_SHA' no es un sha (hex en minúsculas)." ;;
+    esac
+    [ "${#STACK_EXPECTED_SHA}" -ge 7 ] || die "STACK_EXPECTED_SHA='$STACK_EXPECTED_SHA' es demasiado corto (mínimo 7)."
+    if [ -e "$ROOT_DIR/.git" ]; then
+      local h; h="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+      case "$h" in
+        "$STACK_EXPECTED_SHA"*) STACK_EXPECTED_SHA="$h" ;;
+        *) die "STACK_EXPECTED_SHA=$STACK_EXPECTED_SHA pero este árbol tiene .git con HEAD=${h:-?}.
+     Con .git manda HEAD; quita la variable o haz checkout de ese sha." ;;
+      esac
+    fi
+  elif [ -z "$(head_sha)" ]; then
+    die "No sé qué commit es este árbol: no hay .git en $ROOT_DIR (¿copia de \`git archive\`?)
+     y STACK_EXPECTED_SHA está vacía. Sin sha esperado no hay aserto de procedencia (SEC-OPS-1).
+     Remedio:  STACK_EXPECTED_SHA=<sha de la copia> ./scripts/stack-native.sh up --gate"
+  fi
+}
 short_sha() { printf '%s' "${1:0:12}"; }
 
 # Hash de ÁRBOL de un directorio en HEAD. Es la identidad del CONTENIDO, no la del
@@ -359,7 +406,13 @@ head_tree() { git -C "$ROOT_DIR" rev-parse --verify --quiet "HEAD:$1" 2>/dev/nul
 # Ficheros de `backend/` con cambios sin commitear. NO es un fallo (aquí se trabaja
 # con el árbol sucio todo el rato); se REGISTRA en el sello para que el siguiente
 # auditor sepa que «HEAD» no cuenta la historia completa.
-dirty_count() { git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '; }
+# Sin `.git` (copia `git archive`) no se puede saber: «?», no «0» (M-4). Mismo criterio
+# que `assert-serving-head.sh`; «?» nunca casa con "0", así que la equivalencia de árbol
+# (que exige árbol limpio) no se concede a ciegas.
+dirty_count() {
+  [ -e "$ROOT_DIR/.git" ] || { echo "?"; return 0; }
+  git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '
+}
 
 # Instante REAL de arranque del proceso que responde en el puerto, derivado de
 # `process.uptime()` que expone `/health` (health.service.ts). Misma derivación que
@@ -926,6 +979,14 @@ verify_head() {
   # `degraded` = respondió y coincide, pero la EVIDENCIA no es de calidad de gate
   # (hoy: frontend en `next dev`, que no se puede fechar). Ver el veredicto abajo.
   local rc=0 degraded=0 expected; expected="${1:-$(head_sha)}"
+  # M-4: sin sha esperado, assert-serving-head.sh moría con «--sha necesita valor».
+  # Aquí se dice qué falta y cómo darlo (require_expected_sha ya lo para antes en
+  # `up --gate` y `verify:head`; esto cubre cualquier otro llamador).
+  if [ -z "$expected" ]; then
+    printf '\n\033[1;31m✖ PROCEDENCIA NO VERIFICABLE: no hay sha esperado (sin .git y sin STACK_EXPECTED_SHA).\033[0m\n' >&2
+    printf '  Remedio: STACK_EXPECTED_SHA=<sha de la copia> o verify:head <sha>.\n' >&2
+    return 1
+  fi
 
   "$ASSERT_HEAD" --url "$BACKEND_HEALTH_URL" --label "backend :$BACKEND_PORT" \
       --stamp "$BACKEND_STAMP" --sha "$expected" "${BACKEND_SOURCE_ARGS[@]}" || rc=1
@@ -1248,6 +1309,9 @@ case "${1:-up}" in
     # `FRONTEND_MODE`). Se conserva esa equivalencia y se hace explícita: quien pide
     # frontend HORNEADO está pidiendo un artefacto de gate, con el mismo listón.
     if [ "$FRONTEND_MODE" = "build" ]; then GATE_MODE=1; fi
+    # M-4: un gate sin sha esperado no puede afirmar procedencia. Se para AQUÍ, antes de
+    # minutos de infra y `next build`, con el remedio exacto (copia sin .git).
+    if [ "${GATE_MODE:-0}" = 1 ]; then require_expected_sha; fi
     [ -d "$BACKEND_DIR" ] || die "No existe $BACKEND_DIR."
     start_infra
     # D-g (techlead): `[ cond ] && cmd` bajo `set -e` sólo es seguro por su POSICIÓN
@@ -1542,6 +1606,7 @@ case "${1:-up}" in
       esac
     done
     log "Verificación de procedencia del stack vivo (SEC-OPS-1)"
+    [ -n "$VH_SHA" ] || require_expected_sha
     verify_head "$VH_SHA"
     ;;
   status)
