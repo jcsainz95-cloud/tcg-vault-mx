@@ -66,6 +66,12 @@ export interface Av12Params {
   orderNumber: string | null;
   /** v1.80 (hueco 5 / N-8): el DETALLE del pedido (`/orders/{id}`), ⛔ nunca la lista. */
   orderId?: string | null;
+  /**
+   * 🔒 v1.80.12.16 (§M4-SHIP.19.35.1): el enlace del CTA de un PEDIDO, resuelto por el SERVICIO (`orderMailLinkOf`): `orders/<id>`
+   * para registrado/reclamado, `pedido?token=…` para el invitado, `null` ⇒ SIN CTA (pedido fuera del tope de edad o emisión fallida).
+   * Ausente (`undefined`) ⇒ el enlace de siempre (retiro o llamador legacy).
+   */
+  customerUrl?: string | null;
   cards: RefundedCardLine[];
   /** Cierre: no sale nada y se devolvió todo (incluye el envío). */
   nothingShips: boolean;
@@ -115,7 +121,12 @@ export function refundNoticeTemplate(params: Av12Params, locale?: string | null)
   const totalLabel = en ? 'REFUNDED' : 'TE DEVOLVIMOS';
   const total = money(params.totalCents, l);
   // N-8 (DESIGN_SYSTEM §37.7): `/orders/{id}` para un pedido; `/vault?tab=withdrawals` para un retiro. ⛔ Ningún enlace a lista.
-  const url = params.orderNumber ? appUrl(params.orderId ? `orders/${params.orderId}` : 'orders', l) : appUrl('vault?tab=withdrawals', l);
+  const url =
+    params.customerUrl !== undefined
+      ? (params.customerUrl ?? undefined)
+      : params.orderNumber
+        ? appUrl(params.orderId ? `orders/${params.orderId}` : 'orders', l)
+        : appUrl('vault?tab=withdrawals', l);
   const ctaLabel = params.orderNumber ? (en ? 'SEE MY ORDER' : 'VER MI PEDIDO') : en ? 'SEE MY SHIPMENT' : 'VER MI ENVÍO';
   const blocks = [
     eyebrowRow(params.orderNumber ? (en ? 'YOUR ORDER' : 'TU PEDIDO') : en ? 'YOUR SHIPMENT' : 'TU ENVÍO', params.reference),

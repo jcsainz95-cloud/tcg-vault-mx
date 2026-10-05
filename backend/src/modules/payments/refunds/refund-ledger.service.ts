@@ -32,6 +32,8 @@ import { readFrozenCardFacts } from '../../orders/order-item-card';
 import { orderRefundedTemplate } from '../../orders/mail/order-notice.templates';
 import { FullRefundService } from './full-refund.service';
 import { Av12Params, refundNoticeTemplate } from './mail/refund-notice.templates';
+import { OrderAccessTokenService } from '../../orders/order-access-token.service';
+import { orderMailLinkOf } from '../../shipments/guest-mail-link';
 
 /** Espacio del advisory lock de la PUERTA POR OPERADOR (§M4-SHIP.5 paso 6). Namespace propio. */
 export const OPERATOR_REFUND_GATE_NAMESPACE = 80_125_061;
@@ -96,6 +98,9 @@ export class RefundLedgerService {
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
     // 💰 v1.81 (§M4-SHIP.19.8): post-commit de la cancelación automática de la guía (por token; ⛔ ciclo de módulos).
     @Optional() private readonly moduleRef?: ModuleRef,
+    // 🔒 v1.80.12.16 (§M4-SHIP.19.35.1): la liga del invitado en `AV-12` (token nuevo SIN rotar, el MISMO cuerpo que los avisos de
+    // envío). `@Optional()` por los tests unitarios legacy; sin él el invitado va sin CTA.
+    @Optional() private readonly orderTokens?: OrderAccessTokenService,
   ) {}
 
   // ================================================================ el libro
@@ -485,7 +490,7 @@ export class RefundLedgerService {
         include: {
           orderItem: { select: { cardSnapshot: true } },
           replacementCase: { select: { customerUserId: true, originalInventoryItem: { select: { card: { select: { name: true, set: { select: { name: true } } } } } } } },
-          order: { select: { id: true, orderNumber: true, guestEmail: true, locale: true, userId: true } },
+          order: { select: { id: true, orderNumber: true, guestEmail: true, locale: true, userId: true, createdAt: true } },
           shipmentRequest: { select: { id: true, userId: true } },
         },
       });
@@ -528,6 +533,12 @@ export class RefundLedgerService {
           nothingShips,
           variant: isCase ? 'case_refund' : 'item_missing',
           totalCents: group.reduce((a, r) => a + r.amountCents, 0),
+          // 🔒 v1.80.12.16 (§19.35.1): el CTA de un PEDIDO lo resuelve el MISMO cuerpo que los avisos de envío — sello ganado
+          // (`customerNotifiedAt`) y destinatario presentes ⇒ registrado/reclamado `orders/<id>`, invitado token SIN rotar,
+          // > 365 días sin CTA. Un retiro (sin pedido) conserva su enlace de siempre (N-8).
+          ...(first.order
+            ? { customerUrl: await orderMailLinkOf({ prisma: this.prisma, tokens: this.orderTokens, logger: this.logger }, first.order, recipient.locale, 'AV-12') }
+            : {}),
         };
         await this.mail.send({ ...refundNoticeTemplate(params, recipient.locale), to: recipient.email });
       }

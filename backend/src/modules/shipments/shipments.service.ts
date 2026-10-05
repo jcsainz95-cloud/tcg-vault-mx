@@ -63,6 +63,8 @@ import {
 } from './mail/shipment-notice.templates';
 import { appUrl } from '../buylist/mail-shell';
 import { CarrierNotice, CarrierNoticeEvent } from './carrier-notices';
+import { OrderMailLinkTarget, OrderMailNotice, orderMailLinkOf } from './guest-mail-link';
+import { OrderAccessTokenService } from '../orders/order-access-token.service';
 import { CUSTOMER_TIMELINE_EVENTS_SELECT, providerTrackingUrlOf, toCustomerTimeline } from './customer-timeline';
 import { CustomerRefDTO, ShipPreparationItemDTO, ShipPreparationStateDTO, ShipmentPrepService } from './shipment-prep.service';
 import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
@@ -240,17 +242,12 @@ type NoticeSeal = {
 };
 
 /**
- * ⭐ D2e (§19.12 «`shipmentUrl` (S6)», PS-87) — el enlace del CTA de los avisos de envío, resuelto por el SERVICIO:
- * retiro ⇒ `shipments/<id>`; pedido con cuenta ⇒ `orders/<orderId>`; pedido de invitado ⇒ ⛔ **`null` (sin CTA, como antes)**:
- * el contrato pide `pedido?token=<el último token vigente>`, y el claro de ese token NO existe en el servidor (solo su SHA-256,
- * `OrderAccessToken.tokenHash`, T5). Emitir uno nuevo por correo ROTA (revoca) el enlace de los correos anteriores y gasta el
- * cupo del reenvío (`resendQuotaExceeded`, 5/24 h): decisión del arquitecto (BACKEND_NOTES §67, P-D2E-1).
+ * 🔒 v1.80.12.16 (§M4-SHIP.19.35.1, PS-87 reescrita) — de QUÉ cuelga el enlace del CTA de un aviso de envío. `resolveRecipient`
+ * solo lo DESCRIBE (⛔ no emite nada: también lo usa `recipientEmailOf`, la compra de la guía); el enlace se resuelve en
+ * `claimAndNotify` DESPUÉS de ganar el sello ({@link ShipmentsService.customerUrlFor}): retiro ⇒ `shipments/<id>`; pedido ⇒
+ * `orderMailLinkOf` (registrado/reclamado ⇒ `orders/<id>`; invitado ⇒ token nuevo SIN rotar; > 365 días ⇒ sin CTA).
  */
-function customerUrlOf(target: { shipmentId: string; orderId?: string | null; guest?: boolean }, locale: string | null): string | null {
-  if (!target.orderId) return appUrl(`shipments/${encodeURIComponent(target.shipmentId)}`, locale) ?? null;
-  if (target.guest) return null;
-  return appUrl(`orders/${encodeURIComponent(target.orderId)}`, locale) ?? null;
-}
+type CustomerLinkTarget = { kind: 'shipment'; shipmentId: string } | { kind: 'order'; order: OrderMailLinkTarget };
 
 type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode; userId?: string | null; guestEmail?: string | null; user?: { name: string; nameSource?: NameSource | null; email?: string | null } | null } | null;
 
@@ -357,6 +354,9 @@ export class ShipmentsService {
     // ⭐💰 v1.81 D2c (§19.20.2): umbrales de `labelPending`/`labelAlert` y el reloj de la guía (C-17: un reloj).
     @Optional() @Inject(LABEL_VERIFY_CONFIG) private readonly labelCfg: LabelVerifyConfig = DEFAULT_LABEL_VERIFY_CONFIG,
     @Optional() @Inject(SHIPMENTS_LABEL_CLOCK) private readonly labelClock: LabelClock = systemLabelClock,
+    // 🔒 v1.80.12.16 (§19.35.1): la liga del invitado en los avisos (token nuevo SIN rotar). `@Optional()` por los tests
+    // unitarios legacy; sin él el invitado va sin CTA (y se avisa en el log).
+    @Optional() private readonly orderTokens?: OrderAccessTokenService,
   ) {}
 
   private requirePostalCodes(): PostalCodeService {
@@ -997,7 +997,7 @@ export class ShipmentsService {
   async notifyLabelCaptured(id: string): Promise<void> {
     const row = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!row || !row.carrier || !row.trackingNumber) return;
-    await this.claimAndNotify(id, 'trackingNoticeSentAt', row, (l, p) =>
+    await this.claimAndNotify(id, 'trackingNoticeSentAt', 'AV-4', row, (l, p) =>
       shipmentGuideTemplate(
         { ...p, carrier: row.carrier as string, trackingNumber: row.trackingNumber as string, trackingUrl: providerTrackingUrlOf(row) },
         l,
@@ -1023,13 +1023,14 @@ export class ShipmentsService {
       await this.claimAndNotify(
         id,
         { where: { deliveredNoticeSentAt: null, labelSource: 'skydropx' }, column: 'deliveredNoticeSentAt', value: new Date() },
+        notice,
         row,
         (l, p) => shipmentDeliveredTemplate({ ...p, ...base, carrierStatusAt }, l),
       );
       return;
     }
     if (notice === 'AV-18') {
-      await this.claimAndNotify(id, { where: { branchNoticeSentAt: null }, column: 'branchNoticeSentAt', value: new Date() }, row, (l, p) =>
+      await this.claimAndNotify(id, { where: { branchNoticeSentAt: null }, column: 'branchNoticeSentAt', value: new Date() }, notice, row, (l, p) =>
         shipmentAtBranchTemplate({ ...p, ...base, branchName: event.branchName }, l),
       );
       return;
@@ -1041,6 +1042,7 @@ export class ShipmentsService {
         column: 'lastDeliveryAttemptAt',
         value: event.occurredAt,
       },
+      notice,
       row,
       (l, p) => shipmentDeliveryAttemptTemplate({ ...p, ...base, attemptAt: event.occurredAt }, l),
     );
@@ -1942,7 +1944,7 @@ export class ShipmentsService {
     );
     // ⛔ POST-COMMIT y best-effort; ⚠️ solo avisa quien escribió la etiqueta (`relabelled === 1`).
     if (relabelled === 1) {
-      await this.claimAndNotify(id, 'trackingNoticeSentAt', shipment, (l, p) =>
+      await this.claimAndNotify(id, 'trackingNoticeSentAt', 'AV-4', shipment, (l, p) =>
         shipmentGuideTemplate({ ...p, carrier, trackingNumber }, l),
       );
     }
@@ -1992,8 +1994,11 @@ export class ShipmentsService {
     orderNumber: string | null;
     /** `Order.id` solo para el titular registrado (CTA al detalle); `null` para invitado/bóveda. */
     orderId: string | null;
-    /** ⭐ D2e (§19.12) — el enlace del CTA, resuelto aquí (ver {@link customerUrlOf}). */
-    customerUrl: string | null;
+    /**
+     * 🔒 v1.80.12.16 (§19.35.1) — de qué cuelga el CTA. ⛔ Aquí NO se emite ningún token: este cuerpo también lo usa
+     * `recipientEmailOf` (la compra de la guía). El enlace se resuelve tras ganar el sello ({@link customerUrlFor}).
+     */
+    link: CustomerLinkTarget;
   } | null> {
     if (shipment.userId) {
       const user = await this.prisma.user.findUnique({
@@ -2002,12 +2007,15 @@ export class ShipmentsService {
       });
       // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): sin correo ⇒ sin destinatario (el llamador omite con aviso).
       if (!user || user.anonymizedAt || !user.email) return null;
-      return { email: user.email, locale: user.locale, orderNumber: null, orderId: null, customerUrl: customerUrlOf({ shipmentId: shipment.id }, user.locale) };
+      return { email: user.email, locale: user.locale, orderNumber: null, orderId: null, link: { kind: 'shipment', shipmentId: shipment.id } };
     }
     if (shipment.orderId) {
       const order = await this.prisma.order.findUnique({
         where: { id: shipment.orderId },
         select: {
+          id: true,
+          userId: true,
+          createdAt: true,
           orderNumber: true,
           guestEmail: true,
           locale: true,
@@ -2015,6 +2023,10 @@ export class ShipmentsService {
         },
       });
       if (!order) return null;
+      const link: CustomerLinkTarget = {
+        kind: 'order',
+        order: { id: order.id, userId: order.userId, guestEmail: order.guestEmail, createdAt: order.createdAt },
+      };
       if (order.guestEmail) {
         const locale = order.locale ?? order.user?.locale ?? null;
         return {
@@ -2022,7 +2034,7 @@ export class ShipmentsService {
           locale,
           orderNumber: order.orderNumber,
           orderId: null,
-          customerUrl: customerUrlOf({ shipmentId: shipment.id, orderId: shipment.orderId, guest: true }, locale),
+          link,
         };
       }
       // v1.80.9 (D-STF-2): sin correo ⇒ sin destinatario.
@@ -2032,10 +2044,19 @@ export class ShipmentsService {
         locale: order.locale ?? order.user.locale,
         orderNumber: order.orderNumber,
         orderId: shipment.orderId,
-        customerUrl: customerUrlOf({ shipmentId: shipment.id, orderId: shipment.orderId }, order.locale ?? order.user.locale),
+        link,
       };
     }
     return null;
+  }
+
+  /**
+   * 🔒 v1.80.12.16 (§M4-SHIP.19.35.1) — el enlace del CTA, resuelto en el CAMINO DE ENVÍO (lo llama SOLO `claimAndNotify`, tras
+   * ganar el sello): retiro de bóveda ⇒ `shipments/<id>`; pedido ⇒ {@link orderMailLinkOf} (el MISMO cuerpo que `AV-12`).
+   */
+  private async customerUrlFor(to: { locale: string | null; link: CustomerLinkTarget }, notice: OrderMailNotice): Promise<string | null> {
+    if (to.link.kind === 'shipment') return appUrl(`shipments/${encodeURIComponent(to.link.shipmentId)}`, to.locale) ?? null;
+    return orderMailLinkOf({ prisma: this.prisma, tokens: this.orderTokens, logger: this.logger }, to.link.order, to.locale, notice);
   }
 
   /**
@@ -2091,6 +2112,7 @@ export class ShipmentsService {
   private async claimAndNotify(
     id: string,
     sealField: 'trackingNoticeSentAt' | NoticeSeal | null,
+    notice: OrderMailNotice,
     shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId'>,
     build: (locale: string | null, params: ShipmentNoticeParams) => Omit<MailMessage, 'to'>,
   ): Promise<void> {
@@ -2115,12 +2137,15 @@ export class ShipmentsService {
         });
         if (sealed.count !== 1) return; // ya se avisó de este hecho: ⛔ no se manda un segundo correo.
       }
+      // 🔒 v1.80.12.16 (§19.35.1): el enlace se resuelve AQUÍ — sello ganado, destinatario y puerto presentes, justo antes de
+      // renderizar. Sello perdido / sin destinatario / sin MAIL_PORT ⇒ ya se salió arriba ⇒ cero tokens.
+      const customerUrl = await this.customerUrlFor(to, notice);
       const msg = build(to.locale, {
         shipmentId: id,
         orderNumber: to.orderNumber,
         orderId: to.orderId,
         // ⭐ D2e (§19.12, PS-87): el enlace lo resuelve el SERVICIO (⛔ no la plantilla).
-        customerUrl: to.customerUrl,
+        customerUrl,
       });
       await this.mail.send({ ...msg, to: to.email });
     } catch (e) {
@@ -2148,7 +2173,7 @@ export class ShipmentsService {
     to: ShipmentStatus,
   ): Promise<void> {
     if (to === 'enviado') {
-      await this.claimAndNotify(shipment.id, null, shipment, (l, p) =>
+      await this.claimAndNotify(shipment.id, null, 'AV-5', shipment, (l, p) =>
         shipmentShippedTemplate(
           // ⭐ D2e (PS-88): la liga de rastreo solo si Skydropx la dio.
           { ...p, carrier: shipment.carrier, trackingNumber: shipment.trackingNumber, trackingUrl: providerTrackingUrlOf(shipment) },
@@ -2158,7 +2183,7 @@ export class ShipmentsService {
       return;
     }
     if (to === 'cancelado') {
-      await this.claimAndNotify(shipment.id, null, shipment, (l, p) =>
+      await this.claimAndNotify(shipment.id, null, 'AV-6', shipment, (l, p) =>
         shipmentCancelledTemplate(p, l),
       );
     }
