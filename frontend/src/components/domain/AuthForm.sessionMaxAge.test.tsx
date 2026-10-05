@@ -12,7 +12,7 @@ import en from '../../../messages/en.json';
  * LIVE-2 pantalla — DESIGN_SYSTEM v4.16 §81 (F-1, F-2, F-3 lado login, F-4) y candados UX-SMA-1…6.
  * Contrato v1.84 §14.2 «Frontend» + v1.84.2 §14.15 E2-4.
  *
- * El mecanismo (FRONTEND_NOTES §94): el interceptor deja una marca de un solo uso al ver el `401`
+ * El mecanismo (FRONTEND_NOTES §103): el interceptor deja una marca de un solo uso al ver el `401`
  * del refresh con `reason:'session_max_age'`; los guards de hoy (`PrivateRouteGuard`, `AdminShell`)
  * redirigen como siempre a `/login?next=<ruta>`, y es el LOGIN quien consume la marca y reescribe su
  * URL a `?next=<ruta>&reason=session_max_age` (estado en el URL, como inactividad, §81.2.5).

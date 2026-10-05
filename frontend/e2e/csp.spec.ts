@@ -116,7 +116,7 @@ test.describe('LIVE-3 · CSP con nonce', () => {
    *     `report-only` o `enforce` en `enforce`.
    *  5. Solo en `enforce`: `window.__csp5` sigue sin definir.
    *
-   * ⚠ Desviación MEDIDA de la letra de E2-2 paso 3 (FRONTEND_NOTES §94.6, solicitud al arquitecto): la
+   * ⚠ Desviación MEDIDA de la letra de E2-2 paso 3 (FRONTEND_NOTES §103.6, solicitud al arquitecto): la
    * inyección es en el HTML (script del parser), no con `createElement` tras la carga. Medido en este
    * Chromium contra `next start`: un `<script>` en línea creado por código (`createElement` +
    * `textContent`, desde `evaluate` o desde un `setTimeout` de la página) **no dispara ningún evento y se

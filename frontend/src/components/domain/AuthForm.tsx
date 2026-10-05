@@ -63,7 +63,7 @@ export function AuthForm({
   const safeNext = safeNextOf(next);
 
   /**
-   * LIVE-2 (DESIGN_SYSTEM §81.2, FRONTEND_NOTES §94). `sessionMaxAgeFromMark`: el interceptor de
+   * LIVE-2 (DESIGN_SYSTEM §81.2, FRONTEND_NOTES §103). `sessionMaxAgeFromMark`: el interceptor de
    * refresh dejó la marca de un solo uso (`401` con `reason:'session_max_age'`) y el guard de hoy nos
    * trajo con `?next=` a secas ⇒ se pinta el aviso y el URL se reescribe a
    * `?next=…&reason=session_max_age` (el estado vive en el URL, como inactividad: recargar lo repinta).

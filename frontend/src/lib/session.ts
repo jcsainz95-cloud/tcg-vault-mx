@@ -73,7 +73,7 @@ export function resetIntentionalLogoutForTests() {
 
 /**
  * LIVE-2 pantalla (API_CONTRACT v1.84 §14.2 «Frontend», v1.84.2 §14.15 E2-4; DESIGN_SYSTEM §81.2 F-3;
- * FRONTEND_NOTES §94): el `401` de `POST /auth/refresh` con `details.reason === 'session_max_age'`
+ * FRONTEND_NOTES §103): el `401` de `POST /auth/refresh` con `details.reason === 'session_max_age'`
  * (tope absoluto de vida de la sesión) deja esta marca. Los guards (`PrivateRouteGuard`, `AdminShell`)
  * siguen redirigiendo como hoy a `/login?next=<ruta>` —no se tocan—, y es el LOGIN (`AuthForm`) quien
  * la consume y añade `reason=session_max_age` a su URL para pintar «Tu sesión caducó por seguridad».

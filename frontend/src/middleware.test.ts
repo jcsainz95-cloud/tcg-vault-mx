@@ -91,7 +91,7 @@ describe('CSP-6 · en enforce la cabecera es la que bloquea', () => {
  * v1.84.1 (§14.3, §14.14 E-6) — INVARIANTE de las dos fases: toda respuesta HTML lleva una
  * `Content-Security-Policy` APLICADA (no `-Report-Only`) con `frame-ancestors 'none'`.
  *
- * Medido con `next start` (FRONTEND_NOTES §94.1): en las rutas del `matcher` la cabecera del
+ * Medido con `next start` (FRONTEND_NOTES §103.1): en las rutas del `matcher` la cabecera del
  * middleware SUSTITUYE a la estática de `next.config.mjs`; fuera, queda solo la estática. Aquí se
  * compone igual: la aplicada efectiva = la del middleware si la pone, si no la estática. En
  * `report-only` el middleware no pone ninguna aplicada ⇒ la ÚNICA que garantiza el invariante es

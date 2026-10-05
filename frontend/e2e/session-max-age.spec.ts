@@ -4,7 +4,7 @@ import { realOnly } from './utils/auth';
 
 /**
  * LIVE-2 pantalla, de punta a punta en el navegador (API_CONTRACT v1.84 §14.2 «Frontend», v1.84.2 §14.15
- * E2-4; DESIGN_SYSTEM §81; FRONTEND_NOTES §94). @real
+ * E2-4; DESIGN_SYSTEM §81; FRONTEND_NOTES §103). @real
  *
  * Recorre lo que vive el usuario: tiene sesión guardada, abre una ruta privada (tienda `/account`, panel
  * `/admin`), la API responde `401`, el interceptor pide `POST /auth/refresh` y el backend contesta
