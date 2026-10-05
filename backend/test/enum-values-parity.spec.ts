@@ -108,7 +108,8 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   // ⭐ v1.80.7.1 (§4.37 «una sola declaración», QA IMP-2): los cinco que `src/` VALIDA y derivaba por su cuenta.
   MissingReason: ['damaged', 'not_found'],
   PreparationItemStatus: ['missing', 'pending', 'picked'],
-  PaymentRefundKind: ['case_refund', 'item_missing', 'order_full', 'order_remaining', 'shipment_fee'],
+  // v1.82 (M-70, §PNL.2): + `item_delivered` — decisión del contrato (UNA carta de un directo YA ENTREGADO).
+  PaymentRefundKind: ['case_refund', 'item_delivered', 'item_missing', 'order_full', 'order_remaining', 'shipment_fee'],
   PaymentRefundStatus: ['failed', 'requested', 'submitted', 'succeeded'],
   ManualRefundStatus: ['cancelled', 'paid', 'pending'],
 };

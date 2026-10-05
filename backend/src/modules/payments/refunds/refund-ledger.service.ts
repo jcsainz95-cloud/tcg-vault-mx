@@ -3,10 +3,10 @@
  *
  *  - `createRows(tx, …)`: las filas nacen `requested` DENTRO de la tx del acto que las origina, con su llave de
  *    negocio única (`item:<shipmentItemId>` · `order-rest:<orderId>` · `ship-fee:<shipmentRequestId>` ·
- *    `order-full:<orderId>` · `case:<caseId>`), componentes CONGELADOS y bitácora `payment_refund.requested`.
- *    ⛔ Sin `skipDuplicates`: bajo candado un duplicado es un defecto ⇒ `P2002` ⇒ `409 CONFLICT`.
- *    Candado `C-REF-1`: los ÚNICOS llamadores son el preparado, M3, el reembolso del apartado y
- *    `closeWithdrawalIfEmpty` (solo desde `refund`/`void` del apartado).
+ *    `order-full:<orderId>` · `case:<caseId>` · `item-delivered:<orderItemId>`), componentes CONGELADOS y bitácora
+ *    `payment_refund.requested`. ⛔ Sin `skipDuplicates`: bajo candado un duplicado es un defecto ⇒ `P2002` ⇒ `409`.
+ *    Candado `C-REF-1`: los ÚNICOS llamadores son el preparado, M3 (total y, v1.82, UNA carta tras la entrega),
+ *    el reembolso del apartado y `closeWithdrawalIfEmpty` (solo desde `refund`/`void` del apartado).
  *  - `executeRefund(fila)` (un cuerpo; lo llaman el post-commit del preparado/caso/M3 y `retry`):
  *    0. RECLAMO (lease, SEC-SHIP-M2) fuera de toda tx larga; 1. `attemptCount > 1` ⇒ búsqueda PAGINADA en
  *    Stripe por `metadata.paymentRefundId`; 2. si no ⇒ `refunds.create` con `amount` y la llave del libro;
@@ -18,7 +18,7 @@
  *  - El TOPE del operador (§M4-SHIP.8): `lockOperatorRefundGate` + `usedCents` en 24 h rodantes.
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { MissingReason, PaymentRefund, PaymentRefundKind, Prisma, Role } from '@prisma/client';
+import { MissingReason, PaymentRefund, PaymentRefundKind, Prisma, Role, ShippedRefundReason } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessException } from '../../../common/business.exception';
 import { RefundComponents } from '../../../common/money';
@@ -50,6 +50,8 @@ export interface NewRefundRow {
   orderItemId?: string | null;
   shipmentItemId?: string | null;
   missingReason?: MissingReason | null;
+  /** v1.82 (§PNL.2): solo `item_delivered` (CHECK `PaymentRefund_item_delivered_chk`). */
+  deliveredReason?: ShippedRefundReason | null;
   components: RefundComponents;
   replacementCaseId?: string | null;
   reason?: string | null;
@@ -66,6 +68,8 @@ export interface PaymentRefundDTO {
   status: PaymentRefund['status'];
   amountCents: number;
   missingReason: MissingReason | null;
+  /** v1.82 (§PNL.2, aditivo): por qué se reembolsó una carta YA ENTREGADA (`item_delivered`); `null` en los demás. */
+  deliveredReason: ShippedRefundReason | null;
   requestedAt: string;
   requestedBy: { userId: string; name: string | null; role: Role };
   submittedAt: string | null;
@@ -78,6 +82,15 @@ export type ExecuteOutcome =
   | { kind: 'done'; row: PaymentRefund }
   | { kind: 'in_progress'; attemptStartedAt: Date }
   | { kind: 'not_requested'; row: PaymentRefund };
+
+/**
+ * v1.82 (§PNL.2) — lectores de `PaymentRefundKind` (inventario en BACKEND_NOTES §PNL-money):
+ *  - `AV12_CARD_KINDS`: las filas que el aviso AV-12 nombra carta por carta (la carta que no salió, la del caso y la que
+ *    llegó mal tras la entrega). `order_remaining`/`shipment_fee`/`order_full` no nombran carta.
+ *  - `SUPER_ADMIN_ONLY_RETRY_KINDS`: las que el operador no reintenta (`retry`): son actos del súper-admin.
+ */
+export const AV12_CARD_KINDS: readonly PaymentRefundKind[] = ['item_missing', 'case_refund', 'item_delivered'];
+export const SUPER_ADMIN_ONLY_RETRY_KINDS: readonly PaymentRefundKind[] = ['order_full', 'case_refund', 'item_delivered'];
 
 /** Lo que el `WHERE` de todo lector de «no fallidas» comparte. */
 export const NON_FAILED: Prisma.PaymentRefundWhereInput = { status: { not: 'failed' } };
@@ -118,6 +131,7 @@ export class RefundLedgerService {
         orderItemId: r.orderItemId ?? null,
         shipmentItemId: r.shipmentItemId ?? null,
         missingReason: r.missingReason ?? null,
+        deliveredReason: r.deliveredReason ?? null,
         amountCents: r.components.amountCents,
         merchandiseCents: r.components.merchandiseCents,
         merchandiseIvaCents: r.components.merchandiseIvaCents,
@@ -406,11 +420,14 @@ export class RefundLedgerService {
 
   // ================================================================ retry (§M4-SHIP.5)
 
-  /** `POST /admin/refunds/:id/retry` — solo `requested`; el operador no reintenta `order_full` ni `case_refund`. */
+  /**
+   * `POST /admin/refunds/:id/retry` — solo `requested`; el operador no reintenta `order_full`, `case_refund` ni (v1.82,
+   * §PNL.2) `item_delivered`: los tres son actos del súper-admin.
+   */
   async retry(refundId: string, actor: RefundActor): Promise<PaymentRefundDTO> {
     const row = await this.prisma.paymentRefund.findUnique({ where: { id: refundId } });
     if (!row) throw BusinessException.notFound();
-    if (actor.role !== 'super_admin' && (row.kind === 'order_full' || row.kind === 'case_refund')) {
+    if (actor.role !== 'super_admin' && SUPER_ADMIN_ONLY_RETRY_KINDS.includes(row.kind)) {
       throw BusinessException.forbidden('MONEY_OUT_FORBIDDEN', 'Only super_admin may retry this refund');
     }
     if (row.status !== 'requested') {
@@ -500,15 +517,17 @@ export class RefundLedgerService {
         const key = first.orderId ?? (first.shipmentRequestId as string);
         const nothingShips = group.some((r) => r.kind === 'order_remaining' || r.kind === 'shipment_fee');
         const isCase = group.some((r) => r.kind === 'case_refund');
+        // v1.82 (§PNL.2): una carta YA ENTREGADA se cuenta con su propio texto («llegó dañada» / «no llegó»).
+        const isDelivered = group.every((r) => r.kind === 'item_delivered');
         const cards = group
-          .filter((r) => r.kind === 'item_missing' || r.kind === 'case_refund')
+          .filter((r) => AV12_CARD_KINDS.includes(r.kind))
           .map((r) => {
             const facts = r.orderItem ? readFrozenCardFacts(r.orderItem.cardSnapshot) : null;
             const fromCase = r.replacementCase?.originalInventoryItem.card;
             return {
               name: facts?.name ?? fromCase?.name ?? '',
               setName: facts?.setName ?? fromCase?.set?.name ?? null,
-              reason: r.missingReason ?? null,
+              reason: r.missingReason ?? r.deliveredReason ?? null,
               amountCents: r.amountCents,
             };
           });
@@ -518,7 +537,7 @@ export class RefundLedgerService {
           orderNumber: first.order?.orderNumber ?? null,
           cards,
           nothingShips,
-          variant: isCase ? 'case_refund' : 'item_missing',
+          variant: isCase ? 'case_refund' : isDelivered ? 'item_delivered' : 'item_missing',
           totalCents: group.reduce((a, r) => a + r.amountCents, 0),
         };
         await this.mail.send({ ...refundNoticeTemplate(params, recipient.locale), to: recipient.email });
@@ -603,6 +622,7 @@ export class RefundLedgerService {
       status: r.status,
       amountCents: r.amountCents,
       missingReason: r.missingReason,
+      deliveredReason: r.deliveredReason ?? null,
       requestedAt: r.createdAt.toISOString(),
       requestedBy: { userId: r.requestedByUserId, name: requesterName, role: r.requestedByRole },
       submittedAt: r.submittedAt ? r.submittedAt.toISOString() : null,

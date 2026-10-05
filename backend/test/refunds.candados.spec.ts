@@ -111,10 +111,11 @@ describe('C-MREF-1 — la cubeta SPEI: tres creadores, dos escritores de estado,
     expect(census(/manualRefund\.create(Many)?\(/g)).toEqual({ 'modules/payments/refunds/manual-refund.service.ts': 1 });
   });
 
-  it('`createRow` tiene EXACTAMENTE tres llamadores: el reembolso del caso, `to-manual` y `reissue`', () => {
+  it('`createRow` tiene EXACTAMENTE cuatro llamadores: el reembolso del caso, `to-manual`, `reissue` y (v1.82 §PNL.3) el retiro entregado', () => {
     expect(census(/manual\.createRow\(|this\.createRow\(/g)).toEqual({
       'modules/vault/replacement-case.service.ts': 1,
       'modules/payments/refunds/manual-refund.service.ts': 2,
+      'modules/payments/refunds/withdrawal-delivered-refund.service.ts': 1,
     });
     const svc = text('modules/payments/refunds/manual-refund.service.ts');
     const reissue = svc.slice(svc.indexOf('async reissue('), svc.indexOf('async toManual('));

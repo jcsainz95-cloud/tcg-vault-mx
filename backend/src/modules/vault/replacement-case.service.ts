@@ -42,13 +42,13 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { NON_FAILED, PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { ManualRefundDTO, ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { assertCapturedAmountWithinLimits, refundConfirmationOf, refundReferenceOf } from '../payments/refunds/refund-reference';
 import { ShipPreparationStateDTO, ShipmentPrepService, CustomerRefDTO } from '../shipments/shipment-prep.service';
 import { LocationView, PreparationCardDTO, locationViewOf, nullIfBlank, preparationCardOf } from '../shipments/preparation-view';
 import { customerDisplayName } from './customer-display-name';
 import { VaultService } from './vault.service';
 import { CustomerDrawerRef, VAULT_VERB_TX_OPTIONS, customerDrawersOf, lockCustomerVaultGate } from './vault-placement.rules';
 import {
-  CASE_REFUND_CONFIRM_MULTIPLIER,
   PieceIdentity,
   REPLACEMENT_CASE_DUE_MS,
   dueAtOf,
@@ -305,8 +305,9 @@ export class ReplacementCaseService {
     const origin = c.originOrderItem!;
     const ctx = caseRefundContextOf(origin.order, origin.unitPriceCents);
     const market = await this.vault.marketRefOf(c.originalInventoryItem);
-    const referenceCents = Math.max(ctx.paidCents, market?.cents ?? 0);
     const k = await this.settings.getNumber(SettingKey.CASE_REFUND_HARD_MULTIPLIER, db);
+    // v1.82 (§PNL.3): R, 2R y kR salen de UN cuerpo compartido con la devolución de un retiro entregado.
+    const ref = refundReferenceOf(ctx.paidCents, market, k);
     const refunded = await this.ledger.refundedNonFailedCents(db, origin.order.id);
     const stripeAvailableCents = Math.max(0, origin.order.totalCents - refunded);
     const closes = await this.wouldCloseWithdrawal(db, c);
@@ -315,9 +316,9 @@ export class ReplacementCaseService {
       ctx,
       paidReferenceCents: ctx.paidCents,
       market,
-      referenceCents,
-      confirmAboveCents: CASE_REFUND_CONFIRM_MULTIPLIER * referenceCents,
-      limitCents: k * referenceCents,
+      referenceCents: ref.referenceCents,
+      confirmAboveCents: ref.confirmAboveCents,
+      limitCents: ref.limitCents,
       stripeAvailableCents,
       closesShipment: closes.closes,
       shipmentFeeCents: closes.feeCents,
@@ -702,9 +703,7 @@ export class ReplacementCaseService {
   }
 
   private confirmationOf(a: number, plan: RefundPlan): 'none' | 'reinforced' | 'blocked' {
-    if (a <= plan.confirmAboveCents) return 'none';
-    if (a <= plan.limitCents) return 'reinforced';
-    return 'blocked';
+    return refundConfirmationOf(a, plan);
   }
 
   private splitOf(a: number, plan: RefundPlan): { stripe: number; manual: number } {
@@ -784,17 +783,7 @@ export class ReplacementCaseService {
       // 7. Q, M, R, k ⇒ topes.
       const plan = await this.planOf(tx, c);
       const A = body.amountCents;
-      const confirmation = this.confirmationOf(A, plan);
-      if (confirmation === 'blocked') {
-        throw BusinessException.validation('CASE_REFUND_ABOVE_LIMIT', 'Amount exceeds the hard limit', { referenceCents: plan.referenceCents, limitCents: plan.limitCents });
-      }
-      if (confirmation === 'reinforced' && body.confirmAboveReference !== true) {
-        throw BusinessException.validation('CASE_REFUND_CONFIRMATION_REQUIRED', 'Amount above 2× the reference requires confirmation', {
-          referenceCents: plan.referenceCents,
-          confirmAboveCents: plan.confirmAboveCents,
-          limitCents: plan.limitCents,
-        });
-      }
+      const confirmation = assertCapturedAmountWithinLimits(A, plan, body.confirmAboveReference);
       // 8. reparto y cierre.
       const split = this.splitOf(A, plan);
       const stripeTotal = split.stripe + plan.shipmentFeeCents;
