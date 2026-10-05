@@ -281,6 +281,9 @@ export class ShipmentLabelProcessingJob {
     const day = dayMx(now);
     if (this.lastPurgeDay === day) return 0;
     this.lastPurgeDay = day;
+    // La memoria del proceso tampoco crece sin fin: lo que ya no puede volver a mirarse se olvida una vez al día.
+    this.calibrated.clear();
+    for (const [k, t] of this.lastTailCheck) if (now.getTime() - t > this.cfg.tVerifyTailMs) this.lastTailCheck.delete(k);
     const before = new Date(now.getTime() - QUOTE_PURGE_AFTER_MS);
     return this.prisma.$executeRaw`
       DELETE FROM "ShipmentQuote" q

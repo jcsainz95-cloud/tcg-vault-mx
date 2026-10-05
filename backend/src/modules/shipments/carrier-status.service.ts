@@ -57,8 +57,6 @@ export interface ApplyResult {
   notices: CarrierNotice[];
 }
 
-/** §19.3: estados que mueven el envío a `enviado` (si aún está en `guia`). */
-const IN_MOTION: ReadonlySet<CarrierStatus> = new Set<CarrierStatus>(['picked_up', 'in_transit', 'last_mile']);
 /** §19.29.6 AG-11 (🔴, con correo al dueño, `HECHOS.md:62`) y AG-12 (🟡). */
 const AG11: ReadonlySet<CarrierStatus> = new Set<CarrierStatus>(['in_return', 'destroyed']);
 const AG12: ReadonlySet<CarrierStatus> = new Set<CarrierStatus>(['exception', 'retained', 'delivery_attempt']);

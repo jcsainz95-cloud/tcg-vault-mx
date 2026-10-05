@@ -187,7 +187,7 @@ describe('💰🔒 D2d — conciliación de huérfanas con C-14 + C-19 y fusible
     ['getShipment(Y) ilegible', (s) => orphanOf(s, {}, { readable: false })],
     ['Y sin número de rastreo', (s) => orphanOf(s, { trackingNumber: null })],
     ['Y con un estado DESCONOCIDO (cuenta como movimiento)', (s) => orphanOf(s, { carrierStatus: null, unknownCarrierStatus: 'teleported' })],
-    ['la guía vigente de S es MANUAL', async (s) => {
+    ['la guía vigente de S es MANUAL', async (_s) => {
       const m = await db.mkDirect({ prices: [50000, 30000] });
       await ready(db, m.shipment.id);
       expect((await db.tracking(m.shipment.id)).status).toBe(201);
