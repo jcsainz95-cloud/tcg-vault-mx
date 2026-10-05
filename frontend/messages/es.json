@@ -5035,6 +5035,8 @@
     "NOT_FOUND": "No encontramos lo que buscabas.",
     "CONFLICT": "Hubo un conflicto con el estado actual.",
     "CONFLICT_WITH_DETAILS": "{closed, select, yes {Esta solicitud ya está cerrada (quedó en «{status}»), así que esta acción ya no aplica.} other {Esta acción no aplica al estado actual de la solicitud («{status}»).}} No es un fallo de la aplicación y reintentar no lo cambia: actualiza la vista para ver el estado real.",
+    "CONFLICT_ITEM_FINAL": "Esta carta ya no admite decisiones: ya entró al inventario o ya se le pagó al vendedor, así que no se aprueba, ajusta ni rechaza. No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real.",
+    "CONFLICT_ITEM_FINAL_WITH_DETAILS": "{itemStatus, select, convertida_inventario {Esta carta ya entró al inventario, así que aquí ya no se aprueba, ajusta ni rechaza; si hay algo que corregir en la pieza, se hace desde «Inventario».} pagada {Esta carta ya se le pagó al vendedor, así que ya no se aprueba, ajusta ni rechaza.} other {Esta carta ya no admite decisiones: no se aprueba, ajusta ni rechaza.}} No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real.",
     "RATE_LIMITED": "Demasiadas solicitudes, intenta más tarde.",
     "TOO_MANY_PASSWORD_ATTEMPTS": "Demasiados intentos. Vuelve a intentarlo más tarde.",
     "TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS": "Demasiados intentos. Vuelve a intentarlo en {minutes} min.",

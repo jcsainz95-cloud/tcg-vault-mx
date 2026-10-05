@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import type { ReactNode } from 'react';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M5View } from './M5View';
 import es from '../../../../../../messages/es.json';
+import en from '../../../../../../messages/en.json';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { BuyDecision, CardDTO, SellItemDTO, SellRequestStatus } from '@/types/contract';
@@ -191,5 +194,139 @@ describe('§60.5 b · la fila `aceptada` dice dónde está la acción', () => {
       'Aceptada: ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo.',
     );
     expect(screen.queryByRole('button', { name: /Cancelar/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * F-33 · **BRJ-UI-5 = FE-BRJ-4** (`DESIGN_SYSTEM §60.14` · contrato §PNL.10.2 / §PNL.10.6): la decisión por carta sobre una
+ * carta que ya es inventario o ya se pagó responde `409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`. La
+ * pantalla lo distingue por `details.reason` ANTES que cualquier otra rama del 409: cierra el diálogo, recarga la
+ * solicitud, y pinta en la fila el texto de ux-ui con `role="status"` y el foco en el aviso. ⛔ Ni el genérico
+ * «Hubo un conflicto con el estado actual», ni `CONFLICT_WITH_DETAILS` (habla de la SOLICITUD), ni el `message` del servidor.
+ */
+describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', () => {
+  // Los textos se leen de la TABLA de §60.14 (el candado de literalidad de §26/§27 no parsea §60).
+  const DS = readFileSync(resolvePath(__dirname, '../../../../../../../docs/DESIGN_SYSTEM.md'), 'utf8');
+  function dsRow(key: string): { es: string; en: string } {
+    const line = DS.split('\n').find((l) => l.startsWith(`| \`error.${key}\` |`));
+    if (!line) throw new Error(`§60.14 no tiene la fila error.${key}`);
+    const [, esText, enText] = line.split(' | ').map((c) => c.replace(/^\| |\s*\|$/g, '').trim());
+    return { es: esText, en: enText };
+  }
+  const TAIL = 'No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real.';
+  const CONVERTED = `Esta carta ya entró al inventario, así que aquí ya no se aprueba, ajusta ni rechaza; si hay algo que corregir en la pieza, se hace desde «Inventario». ${TAIL}`;
+  const PAID = `Esta carta ya se le pagó al vendedor, así que ya no se aprueba, ajusta ni rechaza. ${TAIL}`;
+  const SERVER_MSG = 'Item is final (convertida_inventario)';
+
+  function itemFinal(itemStatus?: string) {
+    return new ApiClientError(409, {
+      code: 'CONFLICT',
+      message: SERVER_MSG,
+      details: itemStatus === undefined ? { itemId: 'it-a', reason: 'ITEM_FINAL' } : { itemId: 'it-a', itemStatus, reason: 'ITEM_FINAL' },
+    });
+  }
+  /** Vista vieja: la carta sale `recibida` (con botones); tras recargar, el servidor la devuelve en `finalStatus`. */
+  async function renderStale(finalStatus: SellItemDTO['itemStatus']) {
+    const stale = row('verificacion', [item('it-a', 'Alakazam', null), item('it-b', 'Blastoise', null)]);
+    const fresh = row('verificacion', [{ ...item('it-a', 'Alakazam', null), itemStatus: finalStatus, approvedPriceCents: 8_000 }, item('it-b', 'Blastoise', null)]);
+    const list = vi
+      .spyOn(api, 'getAdminBuylist')
+      .mockResolvedValueOnce({ data: [stale], page: 1, pageSize: 25, total: 1 })
+      .mockResolvedValue({ data: [fresh], page: 1, pageSize: 25, total: 1 });
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('tab', { name: new RegExp(`^${TAB_LABELS.verificando}`) }));
+    await screen.findByText('sr-pnl');
+    return list;
+  }
+  function expectNoDecisionControls() {
+    const r = screen.getByTestId('m5-item-it-a');
+    for (const name of [es.admin.m5.approve, es.admin.m5.adjust, es.admin.m5.reject]) {
+      expect(within(r).queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(within(r).queryByRole('checkbox')).not.toBeInTheDocument();
+  }
+  function expectNoWrongText() {
+    expect(document.body.textContent).not.toContain(es.error.CONFLICT);
+    expect(document.body.textContent).not.toContain(SERVER_MSG);
+    expect(document.body.textContent).not.toContain('Esta solicitud ya está cerrada');
+  }
+
+  it('los dos catálogos dicen lo que dice la tabla de §60.14, carácter por carácter', () => {
+    const e = es.error as unknown as Record<string, string>;
+    const n = en.error as unknown as Record<string, string>;
+    for (const key of ['CONFLICT_ITEM_FINAL', 'CONFLICT_ITEM_FINAL_WITH_DETAILS']) {
+      expect(e[key], `es error.${key}`).toBe(dsRow(key).es);
+      expect(n[key], `en error.${key}`).toBe(dsRow(key).en);
+    }
+  });
+
+  it('Rechazar (diálogo) sobre una carta ya convertida ⇒ diálogo cerrado, recarga, texto de `convertida_inventario` en la fila con el foco', async () => {
+    const decide = vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(itemFinal('convertida_inventario'));
+    const list = await renderStale('convertida_inventario');
+    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: es.admin.m5.reject }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(es.admin.m5.rejectReasonLabel), { target: { value: 'Borde dañado' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: es.admin.m5.rejectConfirm }));
+
+    const notice = await screen.findByText(CONVERTED);
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(notice.closest('[role="status"]')).not.toBeNull();
+    expect(notice.closest('[role="alert"]')).toBeNull();
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    await waitFor(() => expectNoDecisionControls());
+    await waitFor(() => expect(document.activeElement?.contains(screen.getByText(CONVERTED))).toBe(true));
+    expectNoWrongText();
+  });
+
+  it('Aprobar (fila) sobre una carta ya pagada ⇒ texto de `pagada`, recarga, sin botones ni casilla', async () => {
+    vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(itemFinal('pagada'));
+    const list = await renderStale('pagada');
+    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: es.admin.m5.approve }));
+    const notice = await screen.findByText(PAID);
+    expect(notice.closest('[role="status"]')).not.toBeNull();
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    await waitFor(() => expectNoDecisionControls());
+    expectNoWrongText();
+  });
+
+  it.each([['sin `itemStatus`', undefined], ['con un `itemStatus` que la pantalla no conoce', 'archivada']] as const)(
+    'Ajustar (diálogo) %s ⇒ la base `error.CONFLICT_ITEM_FINAL`',
+    async (_c, itemStatus) => {
+      vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(itemFinal(itemStatus));
+      await renderStale('convertida_inventario');
+      fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: es.admin.m5.adjust }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: es.admin.m5.adjustConfirm }));
+      expect(await screen.findByText(es.error.CONFLICT_ITEM_FINAL)).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expectNoWrongText();
+    },
+  );
+});
+
+describe('F-33 · el mock de `PATCH …/decision` espeja el peldaño ITEM_FINAL (§PNL.10.2)', () => {
+  it.each(['convertida_inventario', 'pagada'] as const)('%s ⇒ 409 CONFLICT {itemId, itemStatus, reason} y la carta intacta, en los tres verbos', async (status) => {
+    const fx = await import('@/lib/mock/fixtures');
+    const target = fx.mockAdminBuylist.flatMap((r) => r.items)[0];
+    const before = { ...target };
+    target.itemStatus = status;
+    try {
+      for (const input of [
+        { decision: 'approve' as const },
+        { decision: 'adjust' as const, approvedPriceCents: 1 },
+        { decision: 'reject' as const, reason: 'Borde dañado' },
+      ]) {
+        const err = await api.decideBuylistItem(target.id, input).then(() => null, (e: unknown) => e);
+        expect(err).toBeInstanceOf(ApiClientError);
+        expect((err as ApiClientError).status).toBe(409);
+        expect((err as ApiClientError).code).toBe('CONFLICT');
+        expect((err as ApiClientError).details).toEqual({ itemId: target.id, itemStatus: status, reason: 'ITEM_FINAL' });
+        expect(target.itemStatus).toBe(status);
+        expect(target.approvedPriceCents).toBe(before.approvedPriceCents);
+      }
+    } finally {
+      Object.assign(target, before);
+    }
   });
 });

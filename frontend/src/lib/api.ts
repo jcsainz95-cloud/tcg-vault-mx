@@ -4913,6 +4913,15 @@ export async function decideBuylistItem(
     });
   }
   const { item } = mockFindBuylistItem(itemId);
+  // Espeja el peldaño de §PNL.10.2 (E-2, v1.82.1): carta ya inventario o ya pagada ⇒ `409 CONFLICT {reason:'ITEM_FINAL'}`,
+  // cero escrituras, para los TRES verbos.
+  if (item.itemStatus === 'convertida_inventario' || item.itemStatus === 'pagada') {
+    throw new ApiClientError(409, {
+      code: 'CONFLICT',
+      message: 'Sell request item is final',
+      details: { itemId, itemStatus: item.itemStatus, reason: 'ITEM_FINAL' },
+    });
+  }
   const next: Record<BuylistItemDecisionInput['decision'], SellItemStatus> = {
     approve: 'aprobada',
     adjust: 'ajustada',

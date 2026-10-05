@@ -5035,6 +5035,8 @@
     "NOT_FOUND": "We couldn't find what you were looking for.",
     "CONFLICT": "There was a conflict with the current state.",
     "CONFLICT_WITH_DETAILS": "{closed, select, yes {This request is already closed (it ended in “{status}”), so this action no longer applies.} other {This action doesn’t apply to the request’s current status (“{status}”).}} This isn’t an app failure and retrying won’t change it: refresh the view to see the real status.",
+    "CONFLICT_ITEM_FINAL": "This card no longer takes decisions: it is already in inventory or has already been paid to the seller, so it can't be approved, adjusted or rejected. Nothing was saved and retrying won't change it: we've refreshed the request so you see its real status.",
+    "CONFLICT_ITEM_FINAL_WITH_DETAILS": "{itemStatus, select, convertida_inventario {This card is already in inventory, so it can no longer be approved, adjusted or rejected here; if the piece needs a fix, do it from “Inventory”.} pagada {This card has already been paid to the seller, so it can no longer be approved, adjusted or rejected.} other {This card no longer takes decisions: it can't be approved, adjusted or rejected.}} Nothing was saved and retrying won't change it: we've refreshed the request so you see its real status.",
     "RATE_LIMITED": "Too many requests, try again later.",
     "TOO_MANY_PASSWORD_ATTEMPTS": "Too many attempts. Try again later.",
     "TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS": "Too many attempts. Try again in {minutes} min.",

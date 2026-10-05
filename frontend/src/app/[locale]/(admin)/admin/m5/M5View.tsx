@@ -236,9 +236,16 @@ export function M5View() {
   const query = useQuery({ queryKey: ['admin-buylist'], queryFn: () => getAdminBuylist() });
 
   // Feedback de la última acción, anclado a SU solicitud (éxito o mensaje real del backend).
+  // `final` (§60.14, F-33): la carta ya no admite decisiones (`409 CONFLICT {reason:'ITEM_FINAL'}`). No es un fallo de
+  // la aplicación ⇒ `role="status"` y variante `warning`, con el foco en el aviso (el botón que abrió el diálogo
+  // desaparece al recargar).
   const [feedback, setFeedback] = useState<
-    { requestId: string; kind: 'success' | 'error'; message: string } | null
+    { requestId: string; kind: 'success' | 'error' | 'final'; message: string } | null
   >(null);
+  const finalNoticeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (feedback?.kind === 'final') finalNoticeRef.current?.focus();
+  }, [feedback]);
 
   // CLABE revelada: SOLO estado local efímero de esta vista (nunca query-cache/estado
   // global) y solo bajo demanda — cada reveal queda auditado server-side (contrato §M5).
@@ -436,6 +443,26 @@ export function M5View() {
       );
     },
     onError: (e, vars) => {
+      // §60.14 (F-33 · FE-BRJ-4, contrato §PNL.10.2): la carta ya es inventario o ya se pagó. Se distingue por
+      // `details.reason` ANTES que cualquier otra rama del 409: ⛔ no es `CONFLICT_WITH_DETAILS` (su sujeto es la
+      // solicitud) ni `CONCURRENT_UPDATE`. Cierra el diálogo (el motivo tecleado ya no tiene uso), recarga como
+      // `refresh()` y pinta el aviso en la fila. `itemStatus` solo elige la rama del `select`; desconocido ⇒ la base.
+      const err = asApiError(e);
+      if (err?.status === 409 && err.code === 'CONFLICT' && err.details?.reason === 'ITEM_FINAL') {
+        if (vars.decision === 'adjust') closeAdjust();
+        if (vars.decision === 'reject') closeReject();
+        refresh();
+        const itemStatus = err.details.itemStatus;
+        setFeedback({
+          requestId: vars.requestId,
+          kind: 'final',
+          message:
+            typeof itemStatus === 'string' && ITEM_TERMINAL.has(itemStatus)
+              ? te('CONFLICT_ITEM_FINAL_WITH_DETAILS', { itemStatus })
+              : te('CONFLICT_ITEM_FINAL'),
+        });
+        return;
+      }
       // El ajuste/rechazo muestran el error DENTRO de su modal (p. ej. 422
       // APPROVED_PRICE_CAP_EXCEEDED o el 400 VALIDATION_ERROR del motivo).
       if (vars.decision === 'adjust') setAdjustError(getError(e));
@@ -1539,7 +1566,14 @@ export function M5View() {
                 <p className="text-xs text-success">{t('paidNote')}</p>
               )}
 
-              {feedback?.requestId === req.id && (
+              {feedback?.requestId === req.id && feedback.kind === 'final' && (
+                <div ref={finalNoticeRef} tabIndex={-1} className="focus-visible:shadow-focus focus-visible:outline-none">
+                  <Banner variant="warning" role="status">
+                    {feedback.message}
+                  </Banner>
+                </div>
+              )}
+              {feedback?.requestId === req.id && feedback.kind !== 'final' && (
                 <Banner
                   variant={feedback.kind === 'success' ? 'success' : 'danger'}
                   role={feedback.kind === 'success' ? 'status' : 'alert'}

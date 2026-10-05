@@ -19199,3 +19199,45 @@ Rojas antes del cambio (9 rojas por el motivo esperado; FE-M8-3 `expected '11' t
 `DESIGN_SYSTEM` v5.1 y se cierra con F-34 (no es de F-26). Mutaciones, N=3 cada una, deterministas: devolver la entrada
 del menú ⇒ FE-M8-1 3/3 rojo · volver a sumar disputas ⇒ FE-M8-3 3/3 · pestaña sin condición ⇒ FE-M8-4 3/3 · redirigir sin
 idioma ⇒ FE-M8-2 3/3 (rojo el caso `en`). Playwright del nuevo E2E: NO MEDIDO (carga de la máquina > 2× CPUs).
+
+## §90 · **F-33 (FE-BRJ-4 · `409 CONFLICT {reason:'ITEM_FINAL'}`) y F-34 («Recibida: empezar revisión»)** (2026-10-05, rama `claude/arreglos-panel`; `DESIGN_SYSTEM` v5.1 §60.14, §60.15, §26.3; contrato §PNL.10.2 / §PNL.10.6)
+
+**F-34** (commit propio, antes que F-33): `error.REQUEST_NOT_RECEIVED` e `error.INVALID_TRANSITION_VERB.receive` (es/en)
+nombran el botón por su nombre de hoy. Cierra el rojo de literalidad de `error-audience.test.ts` que dejó el cambio de §26.
+Candado **BRJ-UI-6** (`m5/M5ReceiveCopy.test.ts`): ningún valor de los catálogos contiene «Marcar recibida» / “Mark
+received”, y los dos textos carácter por carácter. `M5View.transitions.test.tsx:158` esperaba el texto viejo y se
+actualizó (prueba propia). Mutación (N=3): devolver la cadena vieja a `es` ⇒ 3/3 rojo (3 pruebas cada vez).
+
+**F-33** — `decisionMutation.onError` (`M5View.tsx`):
+1. **Primera rama** del error: `409` + `code === 'CONFLICT'` + `details.reason === 'ITEM_FINAL'`. Claves planas
+   `error.CONFLICT_ITEM_FINAL` / `error.CONFLICT_ITEM_FINAL_WITH_DETAILS` (no se usó la alternativa anidada: medido, ningún
+   candado exige que toda clave `error.*` sea un código del contrato). Los textos se copiaron de la tabla de §60.14 con un
+   script, no a mano.
+2. `itemStatus` ∈ `ITEM_TERMINAL` (`pagada`/`convertida_inventario`) ⇒ `_WITH_DETAILS` (el `select` elige la frase);
+   ausente o desconocido ⇒ la base.
+3. Cierra el diálogo de Ajustar/Rechazar, llama a `refresh()` (misma invalidación de `['admin-buylist']`) y pinta el aviso
+   **en la fila** con `Banner variant="warning" role="status"` (la variante existe: no se creó ninguna). El aviso va
+   envuelto en un `div tabIndex={-1}` que recibe el foco (`Banner` no reenvía `ref`; no se tocó el componente compartido).
+4. El rechazo múltiple no cambia (§60.14 punto 6).
+5. **Mock** (`lib/api.ts`, `decideBuylistItem`): espeja el peldaño — carta `convertida_inventario`/`pagada` ⇒
+   `409 CONFLICT {itemId, itemStatus, reason:'ITEM_FINAL'}` sin escribir, en los tres verbos.
+
+**Pruebas (BRJ-UI-5 = FE-BRJ-4, `m5/M5View.pnl.test.tsx`):** textos de los catálogos = tabla de §60.14 (la prueba lee
+`docs/DESIGN_SYSTEM.md`); Rechazar desde el diálogo sobre una convertida ⇒ diálogo cerrado, recarga (2.ª llamada a
+`getAdminBuylist`), texto de la rama `convertida_inventario` en `role="status"`, foco en el aviso, carta sin
+Aprobar/Ajustar/Rechazar ni casilla; Aprobar sobre una pagada ⇒ texto de `pagada`; Ajustar sin `itemStatus` y con uno
+desconocido ⇒ base; ⛔ en todas, ni «Hubo un conflicto con el estado actual.», ni «Esta solicitud ya está cerrada», ni el
+`message` del servidor. Mock: los tres verbos ⇒ 409 con los `details` exactos y la carta intacta.
+Mutaciones (copia del árbol, N=3 cada una, deterministas): comprobar `CONCURRENT_UPDATE` en vez de `ITEM_FINAL` ⇒ 3/3 rojo
+(4 pruebas) · quitar la rama ⇒ 3/3 (4) · ignorar `itemStatus` (siempre la base) ⇒ 3/3 (2) · quitar el espejo del mock
+⇒ 3/3 (2).
+
+**Verificación de solo lectura pedida (M5 oculta los botones de cartas finales), medida en `M5View.tsx` de este commit:**
+`ITEM_TERMINAL` (`:194`) gobierna `decidable` (`:1375`) ⇒ sin Aprobar/Ajustar/Rechazar para `pagada` y
+`convertida_inventario`; `isBulkRejectable` (`:211`) excluye `ITEM_TERMINAL` ⇒ sin casilla. Lo comprueban ahora BRJ-UI-5
+(las dos ramas, tras la recarga). ⚠️ **Observación, no cambiada:** «Convertir a inventario» (`:1467`) se oculta solo para
+`convertida_inventario`; con `pagada` se pinta **deshabilitado** con el título `convertNeedsApproval`. No es un botón de
+decisión y no lo pide §60.14; si una carta pagada debe poder convertirse (o el título es engañoso), lo decide ux-ui.
+
+**Mediciones (copia del árbol entero, idéntica al vivo por `diff -r`):** `tsc` 0 · lint 0 · vitest **221/221 ficheros,
+2629/2629** · i18n es = en (4289 claves).
