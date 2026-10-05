@@ -2,9 +2,21 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.16**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.17**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.17 — 💰 ERRATA TRAS EL GATE DE QA SOBRE `31af0883` (M-1, M-2, M-4) (2026-10-05, arquitecto, rama
+> `claude/skydropx-d`, HEAD dado por el orquestador `31af0883`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera:
+> **[§M4-SHIP.19.36](#M4-SHIP-19-36)**. Porqué: `ARCHITECTURE §4.60 (ac)`.
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **M-1** 💰 | `shippingAdjustmentsCents`/`shippingInsuranceCents` sin tipo ni pantalla | **Se construye YA, en esta rama.** `PROJECT` criterio 238 lo exige («M7 los muestra **aparte** (*ajustes de paquetería*)»): diferirlo deja un criterio incumplido. **No depende de P-SDX-PNL-1** (con (A) la cifra crece en el mismo renglón; con (B) sería un campo nuevo y otra errata; con (C) nada). Se suman al tipo, de paso, las tres cifras de v1.80.7 que faltan (`refundsCents`, `refundedFeesCents`, `compensationsCents`): hoy el desglose de M7 **no suma** a la ganancia que pinta | No (aditivo en frontend) | ux-ui (U-3) · frontend (F-3) |
+> | **M-4** | Línea de tiempo: «Salió» arriba de «En sucursal» | La pantalla **sí** va del más reciente al más viejo (`DESIGN_SYSTEM §43.11`); §19.35.2 fija el orden **de la API** (`at asc`). Dos correcciones: (1) frontend **invierte el arreglo**, ⛔ no lo re-ordena por `at` (el `sort` estable deja los empates al revés); (2) backend: `shipped.at` = **mín(`shippedAt`, primer evento visible de la guía vigente distinto de `created`)** — si el transportista ya movió el paquete, salió a más tardar entonces | Sí: `ShipmentTrackingExtras.tsx:41` y `customer-timeline.ts:77` | backend (B-6) · frontend (F-5) |
+> | **M-2** | Sin `@real` de tarjeta, `?alert=true`, avisos de gasto y línea de tiempo del invitado | **No bloquea la fusión a `main`; SÍ bloquea la release** (suite E2E completa antes de staging→prod). Encargo F-6 con disparador | No | frontend (F-6) · backend si el stack no puede producir eventos (NO MEDIDO) |
+>
+> **Migración:** ninguna. **Códigos de error nuevos:** ninguno. **Enums:** ninguno. **Endpoints:** ninguno cambia de forma.
 >
 > **Rev v1.80.12.16 — 🔒 ERRATA TRAS D2e Y D2f, Y EL REPARTO PARA CERRAR SKYDROPX (2026-10-05, arquitecto, rama `claude/skydropx-d`,
 > HEAD dado por el orquestador `12ea3261`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.35](#M4-SHIP-19-35)**. Porqué:
@@ -367,7 +379,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.16 → v1.80.12.15 → v1.80.12.14 → v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.17 → v1.80.12.16 → v1.80.12.15 → v1.80.12.14 → v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -736,7 +748,7 @@
 > | **4** | 💰 **Comprar:** `POST /admin/shipments/:id/label` (saldo, vigencia 24 h ⇒ `409 QUOTE_EXPIRED` con cotización nueva, cifras vistas `409 LABEL_PREVIEW_STALE`, confirmaciones `422 LABEL_CONFIRMATION_REQUIRED`, reclamo CAS **antes** de la red ⇒ una guía por N clics, bitácora elegida/recomendada/quién/cuándo, «guía en proceso» sin `AV-4` hasta el número, rechazo ⇒ `422 SHIPPING_PROVIDER_REJECTED` sin rastro); `GET …/label.pdf` (proxy, operador+, `labelUrl` **nunca** viaja); `POST …/label/cancel` (re-emitir antes de `picked_up`; `guia → picking` conservando `preparedAt`, único retroceso, `C-SDX-4`); cancelación automática desde los dos escritores de `cancelado` (`C-SDX-5`) | §M4-SHIP.19.7, .19.8 | **Sí, backend y frontend** · 🔒 seguridad |
 > | **5** | **«Salida de hoy»:** `GET /admin/shipments/departure?date=` (agrupado por paquetería y sucursal configurada, sin precios ni teléfonos) y `POST /admin/shipments/departed {shipmentIds}` (⇒ `enviado` + `AV-5` una vez, idempotente con el sondeo) | §M4-SHIP.19.9 | **Sí, backend y frontend** |
 > | **6** | **Rastreo por CONSULTA PERIÓDICA** (⛔ sin ruta de webhook hasta doc de firma): jobs `shipment-tracking-poll` (≤ `shipping_tracking_poll_minutes`, seed 60), `shipment-label-processing`, `shipment-extra-charges`; **un cuerpo `applyCarrierStatus`** con el mapeo §8.3 completo, `ShipmentCarrierEvent` `@@unique` ⇒ evento repetido = cero escrituras; alertas del transportista **derivadas** (`?alert=true`, `workQueue.shipping`), sin correo al dueño; `POST /admin/shipments/:id/refresh-tracking` | §M4-SHIP.19.3, .19.10 | **Sí, backend y frontend** · devops (crons) |
-> | **7** | 💰 **Dinero:** `shippingCostCents` (bruto = guía + seguro), `shippingCostIvaCents` (línea del proveedor o **16/116 sin gestión**, `shippingIvaSource`), `insuranceCostCents` aparte, **`ShipmentCostAdjustment`** con `chargedAt` propia (cargos extra, mes del cargo — pregunta 89), margen en la tarjeta, P&L gana `shippingAdjustmentsCents`/`shippingInsuranceCents` y excluye Skydropx de `shippingCostMissingCount`; cargo extra y tarifa vencida **se absorben** (88, 90) | §M4-SHIP.19.11, §M10-IVA.8 | **Sí, backend y frontend** |
+> | **7** | 💰 **Dinero:** `shippingCostCents` (bruto = guía + seguro), `shippingCostIvaCents` (línea del proveedor o **16/116 sin gestión**, `shippingIvaSource`), `insuranceCostCents` aparte, **`ShipmentCostAdjustment`** con `chargedAt` propia (cargos extra, mes del cargo — pregunta 89), margen en la tarjeta, P&L gana `shippingAdjustmentsCents`/`shippingInsuranceCents` y excluye Skydropx de `shippingCostMissingCount`; cargo extra y tarifa vencida **se absorben** (88, 90) | §M4-SHIP.19.11, §M10-IVA.8 | **Sí, backend y frontend** (⚠️ v1.80.12.17, [§19.36.1](#M4-SHIP-19-36): el frontend de las dos cifras del P&L no estaba hecho al gate de `31af0883`; se construye en U-3/F-3) |
 > | **8** | **Correos:** `AV-17` Entregado (solo `delivered` vía Skydropx; ventana de 7 días), `AV-18` en sucursal (`delivered_to_branch`; ⛔ no pasa a `entregado`), `AV-19` intentaron entregarte (uno por intento) — sellos propios; **criterio 210 reescrito**: §R.7 deja de declarar mudo `entregado` **solo** con guía Skydropx; **`C-AV-3` se parte en `3a` (manual, intacto) y `3b` (Skydropx)**; `C-AV-1` = 19; `AV-4/5` ganan `trackingUrl?` (solo si Skydropx la dio, `C-SDX-6`); **el invitado recibe `/pedido?token=…`** en todos sus correos de envío (`customerUrl` del servicio, token reemitido si venció) | §M4-SHIP.19.12, §R.3, §R.7, §R.9 | **Sí, backend** · ux-ui |
 > | **9** | **Cliente:** `trackingUrl?` y `timeline[]` (kinds fijos, sin códigos ni detalle) en `guest/track`, `GET /orders/:id.shipment` y `GET /shipments/:id`; título sigue `publicStatus` (§4-G.5 sin cambio) | §M4-SHIP.19.12, §4-G.3, §5, §M4-SHIP.16 | **Sí, backend y frontend** |
 > | **10** | **Ajustes (`super_admin`, auditados):** diales `shipping_provider` (seed `off`, kill switch), origen, preferentes, sucursales de entrega, Carta Porte, regla de empaque, saldo bajo, refresco, tope de valor declarado; `GET/PUT /admin/shipping/packages`, `GET /admin/shipping/catalogs`, `GET /admin/shipping/balance` (leído en vivo); credenciales **solo** en env (`C-SDX-1`) | §M4-SHIP.19.2, .19.13, §M10 | **Sí, backend y frontend** · devops (secretos) |
@@ -23847,6 +23859,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.33** | 💰 **v1.80.12.14** — errata tras D2d y D2g: PS-75 reescrita (manda el criterio 241), estado desconocido como `exception`, P-SDX-PNL-1 al dueño, término `created` en el CAS, AG-8 (b)/AG-10 en D2g, `withCarrierAlert`, G1…G6 de D2g, costuras C1/C2 al detalle; PS-171, PS-172 |
 | **.34** | **v1.80.12.15** — las dos preguntas de C1: `role?: Role` en el objeto persona de `SpendFactValue`; `{day: null}`/`{day: ''}` ⇒ `400` confirmado; encargos pendientes de frontend (G5) y ux-ui (G3) re-medidos |
 | **.35** | 🔒 **v1.80.12.16** — errata tras D2e/D2f: liga del invitado por token nuevo **sin rotar** (nunca a pedido reclamado; PS-87 y SDX-R14 reescritas), `timeline` de 7 y `delivered` por `deliveredAt`, liga de rastreo en `AV-4/5`, `workQueue.shipping.withLabelAlert`, techo 52, catálogos/saldo con `off`, `labelProcessing`; reparto para cerrar Skydropx; PS-173 |
+| **.36** | 💰 **v1.80.12.17** — errata tras el gate de QA sobre `31af0883`: «ajustes de paquetería» y seguro en M7 (criterio 238) + las tres cifras de v1.80.7 en el tipo; orden de la línea de tiempo (la pantalla invierte, no re-ordena; `shipped.at` acotado por el primer movimiento); `@real` de Skydropx como requisito de release; PS-89 (c) |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -28751,6 +28764,8 @@ toda guía. El «6» de PS-89 era un error de cuenta.
 - **Orden normativo:** `at asc`; empate de instante ⇒ `shipped` antes que los eventos del transportista, y estos entre sí por
   `occurredAt, observedAt` (lo construido, `customer-timeline.ts:73,88`, `CUSTOMER_TIMELINE_EVENTS_SELECT`). `shipped` puede quedar
   después de `in_transit` si la salida se observó después: se pinta en el orden real, ⛔ no se reordena por «lógica».
+  ⚠️ **v1.80.12.17 ([§19.36.2](#M4-SHIP-19-36)):** `shipped.at` se acota por el primer movimiento del transportista (ya no queda
+  después de `in_transit`), y la pantalla **invierte** este orden (el más reciente arriba, §43.11), ⛔ sin re-ordenar. Manda §19.36.2.
 - **PS-89 (corrige la cuenta):** … `created → picked_up → last_mile → delivery_attempt → delivered_to_branch → delivered` con
   `shippedAt` puesto ⇒ `timeline` de **7** (`label_created, shipped, in_transit, out_for_delivery, delivery_attempt, at_branch,
   delivered`, en orden de `at`); el resto de la fila sin cambio. Lo construido ya asevera esto (`BACKEND_NOTES §67.4 (2)`): solo cambia
@@ -28814,6 +28829,118 @@ columna verde en una copia del árbol entero, la mutación roja, y commiteado co
 
 B-1…B-5 son ficheros disjuntos salvo `shipments.service.ts` (solo B-1): pueden ir en paralelo dos agentes (B-1 ∥ B-2…B-5) o uno en
 serie. ⛔ Ninguno toca `prisma/`. U-1 → F-2 en serie; U-2 y F-1 en paralelo con todo.
+
+###### <a id="M4-SHIP-19-36"></a>M4-SHIP.19.36 — v1.80.12.17: errata tras el gate de QA sobre `31af0883` (M-1, M-2, M-4) (**NORMATIVA**; 💰 en .1)
+
+> **Fuentes:** el informe del gate de QA sobre `31af0883` (relayado por el orquestador: M-1, M-2, M-4). Leído por el arquitecto el
+> 2026-10-05 en `/home/user/tcg-skyd` (Read/Grep, ⛔ sin ejecutar nada; ⛔ sha NO MEDIDO: sin Bash): `PROJECT.md:8354-8357` (T.7),
+> `:8384-8387` (T.8), `:12327-12340` (criterio 238), `:16714-16717` (pregunta 89); `frontend/src/types/contract.ts:6204-6230`
+> (`PnlDTO`: sin `shippingAdjustmentsCents`, `shippingInsuranceCents`, `refundsCents`, `refundedFeesCents`, `compensationsCents`);
+> `frontend/src/app/[locale]/(admin)/admin/m7/M7View.tsx:104-136` (cinco renglones y la ganancia); `backend/src/modules/admin/
+> admin.service.ts:1768-1818,2020-2023` (las dos cifras en el objeto y el CSV); `frontend/src/components/domain/
+> ShipmentTrackingExtras.tsx:41` (`sort` descendente por `at`); `backend/src/modules/shipments/customer-timeline.ts:74-100`;
+> `DESIGN_SYSTEM.md:23888-23889` (§43.11: «el más reciente arriba»); Grep `ajustes de paqueter` en `DESIGN_SYSTEM.md` (0) y Grep
+> `@real` en `API_CONTRACT.md` (0). **Migración:** ninguna. **Códigos de error nuevos:** ninguno. **Enums:** ninguno. ⛔ Ningún
+> criterio nuevo de `PROJECT`.
+
+**M4-SHIP.19.36.1 — 💰 M-1: «ajustes de paquetería» y el seguro en M7 se construyen YA.**
+- **Por qué no se difiere:** el criterio **238** dice, literal, que M7 muestra los cargos extra «**aparte** (*ajustes de paquetería*)
+  sumados al costo del mes en que llegó el cargo». Diferirlo es cerrar Skydropx con un criterio de aceptación incumplido, y
+  `PROJECT` manda sobre el contrato. La fila 7 de v1.81 decía «backend y frontend» con razón; lo que faltó fue el encargo.
+- **No depende de P-SDX-PNL-1 (§19.33.3).** Con la respuesta (A) el dinero de huérfanas/duplicados entra en el **mismo** renglón
+  «ajustes de paquetería» (la pantalla no cambia, la cifra crece); con (B) sería un **campo nuevo** y una errata nueva (otra línea);
+  con (C) nada. Ninguna de las tres invalida lo que se construye hoy.
+- **Tipo (`PnlDTO`, `types/contract.ts`)** — el de §M10-IVA.8 completo, en el orden del objeto del servidor:
+```
+shippingCostMissingCount: number
+shippingAdjustmentsCents: number      // ⭐ obligatorio: el servidor de esta rama siempre lo manda (admin.service.ts:1817)
+shippingInsuranceCents: number        // ⭐ obligatorio (admin.service.ts:1818)
+refundsCents: number                  // ⭐ v1.80.7, faltaba en el tipo
+refundedFeesCents: number             // ⭐ v1.80.7, faltaba
+compensationsCents: number            // ⭐ v1.80.7, faltaba
+profitCents: number
+```
+  `mockPnl` (`lib/mock/fixtures.ts`) gana los cinco con valores **distintos de cero** y coherentes:
+  `profit = income + shippingRevenue − cogs − stripeFees − shippingCost − refunds − refundedFees − compensations`.
+- **Pantalla (M7, regla de dinero; el aspecto es de ux-ui, U-3):**
+```
+renglones con signo (suman a la ganancia, en este orden):
+  + incomeCents · + shippingRevenueCents · − cogsCents · − stripeFeesCents · − shippingCostCents
+  − refundsCents · − refundedFeesCents · − compensationsCents
+sub-renglones SIN signo, bajo «Costo de envío», rotulados «incluye»:
+  ajustes de paquetería  = shippingAdjustmentsCents     ⛔ no se suma a nada (ya está dentro de shippingCostCents)
+  seguro                 = shippingInsuranceCents       ⛔ no se suma a nada (ídem; HECHOS fila 34: el seguro es costo del envío)
+  cada sub-renglón se pinta solo si su valor > 0 (la clase del criterio 202(c): sin indicadores vacíos)
+la ganancia es profitCents del servidor ⛔ nunca recalculada en el cliente
+```
+  ⚠️ **Lo que corrige de paso (medido por lectura, `M7View.tsx:104-108` frente a §M10-IVA.8 v1.80.7):** hoy M7 pinta cinco renglones
+  y una ganancia que además resta `refunds + refundedFees + compensations`; con un reembolso en el periodo, **los renglones no suman a
+  la ganancia** que está debajo. v1.80.7 dejó esas tres «puede pintarlas»; desde aquí **se pintan**. ⛔ Ningún cambio de servidor.
+  `pnl.formula` (el texto que explica la fórmula) se actualiza con las tres restas (ux-ui da el texto).
+- **Pruebas que lo cierran (frontend):** (a) con `mockPnl`, la suma con signo de los renglones pintados = `profitCents` pintado;
+  (b) los dos sub-renglones aparecen con su valor y **sin** signo; con valor `0` no aparecen; (c) la ganancia pintada es
+  `profitCents` del fixture aun si se altera un renglón en el fixture sin tocar `profitCents` (prueba de «no recalcula»). *Mutaciones:*
+  dar signo `−` a un sub-renglón (o sumarlo) ⇒ (a)/(b) rojo; quitar `refundsCents` ⇒ (a) rojo; calcular la ganancia en el cliente ⇒
+  (c) rojo. Paridad i18n ES/EN.
+
+**M4-SHIP.19.36.2 — M-4: el orden de la línea de tiempo.** §19.35.2 fija el orden **de la API** (`at asc`, empates: `shipped` antes
+que los eventos del transportista, y estos por `occurredAt, observedAt`); la **dirección en pantalla** es de ux-ui y ya está fijada:
+**el más reciente arriba** (`DESIGN_SYSTEM §43.11`, :23889). Que la pantalla pinte al revés que la API es **correcto**. Lo que no lo
+es, y se corrige en los dos lados:
+- **(1) Frontend — la pantalla INVIERTE el arreglo, ⛔ no lo re-ordena.** El orden es del servidor (un cuerpo:
+  `toCustomerTimeline`); el cliente solo lo da vuelta. Hoy (`ShipmentTrackingExtras.tsx:41`) re-ordena por `Date.parse(at)`
+  descendente: con dos entradas del mismo instante el `sort` estable las deja **en orden ascendente dentro de una lista
+  descendente** («Salió» encima de lo que pasó a la vez o después). Regla: `ordered = [...known].reverse()`.
+- **(2) Backend — `shipped` no puede quedar después de un movimiento del transportista.** «Salió» lo marca la tienda (`shippedAt`,
+  «Salida de hoy», §19.9) y puede marcarse tarde; si el transportista ya reportó el paquete en movimiento, el paquete salió **a más
+  tardar** entonces. §19.35.2 decía «se pinta en el orden real, ⛔ no se reordena por lógica»: se **precisa** — no se reordena, se
+  **fecha** con la cota que el propio dato da:
+```
+toCustomerTimeline — la entrada 'shipped' (solo si shippedAt ≠ null):
+  movimientos = eventos de la guía VIGENTE cuyo KIND_OF ∈ {in_transit, out_for_delivery, delivery_attempt, at_branch, delivered}
+               (⛔ ni 'created' ni los no mapeados — exception, retained, …)
+  shipped.at = min(shippedAt, min(movimientos.occurredAt))          -- sin movimientos ⇒ shippedAt, como hoy
+  empate con ese movimiento ⇒ 'shipped' primero (el desempate de siempre)
+⛔ shippedAt en BD NO cambia (lo leen AV-5, «Salida de hoy» y el P&L); solo cambia el `at` de la entrada de la línea de tiempo
+guía manual ⇒ sin cambio (no hay eventos)
+```
+  Con (1) y (2), con cualquier dato real, la pantalla lee de arriba abajo: … En sucursal · En camino · Salió · Guía creada.
+- **PS-89 (amplía, (c)):** guía Skydropx con `created` a T, `picked_up` a T+1h, `delivered_to_branch` a T+3h y `shippedAt = T+5h` ⇒
+  `timeline` = `label_created T, shipped T+1h, in_transit T+1h, at_branch T+3h` (en ese orden); `shippedAt` en BD sigue T+5h. Con
+  `shippedAt = T+30min` ⇒ `shipped` a T+30min (sin cambio). Guía manual con `shippedAt` y `deliveredAt` ⇒ sin cambio. *Mutaciones:*
+  quitar la cota ⇒ `shipped` último ⇒ rojo; incluir `created` en `movimientos` ⇒ `shipped` a T ⇒ rojo.
+- **Prueba de frontend (F-5):** fixture con el orden de la API `[label_created T, shipped T+1h, in_transit T+1h, at_branch T+3h]` ⇒
+  `listitem` en orden `at_branch, in_transit, shipped, label_created`. *Mutación:* volver al `sort` por `at` ⇒ el empate sale
+  `shipped` encima de `in_transit` ⇒ rojo.
+
+**M4-SHIP.19.36.3 — M-2: los `@real` de Skydropx son requisito de RELEASE, no de fusión.** El contrato no los exigía (Grep `@real` ⇒
+0). Por la cadencia de `CLAUDE.md`, la fusión del stream lleva unitarios + contrato + smoke E2E de lo tocado (si un smoke **mock** basta
+para ese escalón lo juzga QA, no este contrato); la **suite E2E completa contra el stack** es del cierre de release, y ahí estos
+flujos entran porque son de `PROJECT` (T.8 / criterio 243 la línea de tiempo y la liga del invitado; el tablero y los avisos de gasto,
+§T). Encargo **F-6** con disparador «cierre de release, antes de staging→prod»; ⛔ no se despliega a producción sin él verde.
+- **Qué cubre (un spec por flujo, tagueados `@real`):** (a) tablero — tarjeta «Envíos» de `workQueue.shipping` con los dos roles, sin
+  cifra de saldo en el DOM, enlace a `admin/shipments?alert=true`; (b) `?alert=true` lista la unión de alertas; (c) avisos de gasto
+  (la página `admin/spend-alerts` sin `?` y lo que pinta con un aviso sembrado); (d) invitado: abrir `/pedido?token=…` **con el
+  token de un aviso** (§19.35.1) y leer la línea de tiempo en el orden de §19.36.2 (el más reciente arriba, «Salió» bajo «En camino»).
+- **NO MEDIDO:** si el stack E2E puede producir eventos del transportista (un doble de Skydropx alcanzable o una semilla de
+  `ShipmentCarrierEvent`) y un aviso de gasto. Si no puede, la semilla es de **backend** (`backend/prisma/seed` o el harness E2E de
+  backend) y el arranque del doble de **devops**; frontend lo declara en `FRONTEND_NOTES` y el orquestador lo enruta. ⛔ Un `@real`
+  que degrada a mock sin backend no cuenta (TECH_DEBT ya registró esa clase).
+- **Mientras tanto:** el orquestador lo anota en `PENDIENTES.md` con fecha y comprobación (`npx playwright test --grep @real` con
+  `E2E_REAL=1` verde con los cuatro, N ≥ 3).
+
+**M4-SHIP.19.36.4 — Quién construye qué.**
+
+| # | Rol | Qué | Dónde (lectura; ⛔ no medido) | Pruebas que lo cierran | Depende de |
+|---|---|---|---|---|---|
+| **B-6** | backend | Cota de `shipped.at` (.2 (2)) | `shipments/customer-timeline.ts` + sus pruebas | PS-89 (c) + 2 mutaciones | — |
+| **U-3** | ux-ui | M7: los tres renglones nuevos con signo, los dos sub-renglones «incluye» (ajustes de paquetería, seguro), texto de `pnl.formula`, ES/EN | `DESIGN_SYSTEM` (M7) | — (lo juzga frontend) | — |
+| **F-3** 💰 | frontend | Tipo `PnlDTO` completo, `mockPnl`, M7 según .1 y U-3 | `types/contract.ts`, `lib/mock/fixtures.ts`, `(admin)/admin/m7/` | .1 (a)(b)(c) + 3 mutaciones; paridad i18n | U-3 |
+| **F-5** | frontend | Invertir en vez de re-ordenar (.2 (1)) | `components/domain/ShipmentTrackingExtras.tsx` + su prueba | .2 prueba de frontend + mutación | — (independiente de B-6) |
+| **F-6** | frontend | Los cuatro `@real` de .3 | `frontend/e2e/` | `E2E_REAL=1`, N ≥ 3 | release; semilla/doble si hace falta (NO MEDIDO) |
+
+B-6 ∥ U-3 ∥ F-5; U-3 → F-3. ⛔ Ninguno toca `prisma/` (salvo la semilla de F-6 si resultara necesaria, y entonces con encargo propio).
+`types/contract.ts` y `lib/mock/` son **zona compartida**: F-3 los toca en serie con cualquier otro encargo de frontend que los toque.
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
@@ -34516,6 +34643,8 @@ como si no hubiera margen»*. **Razón entera y la corrección de mi recomendaci
   stripeFeesCents: number,
   shippingCostCents: number,           // ⚠️ NETO: Σ (shippingCostCents − shippingCostIvaCents)
   shippingCostMissingCount: number,    // ⭐ NUEVO: nº de envíos LIQUIDADOS del periodo con costo en 0
+  shippingAdjustmentsCents: number,    // ⭐ v1.81 (§19.11): «ajustes de paquetería», netos, por chargedAt — YA DENTRO de shippingCostCents
+  shippingInsuranceCents: number,      // ⭐ v1.81 (§19.11): Σ insuranceCostCents del periodo — YA DENTRO de shippingCostCents (informativo)
   refundsCents: number,                // ⭐ v1.80.7 (M-61): mercancía + envío devueltos, NETOS de IVA (libro + SPEI paid)
   refundedFeesCents: number,           // ⭐ v1.80.7: comisión de procesamiento devuelta
   compensationsCents: number,          // ⭐ v1.80.7: pagado por encima de lo cobrado (case_refund); renglón propio, sin IVA

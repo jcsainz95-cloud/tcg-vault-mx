@@ -4,6 +4,12 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.17 — 💰 ERRATA TRAS EL GATE DE QA SOBRE `31af0883`** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado
+> por el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.17**; norma en `API_CONTRACT §M4-SHIP.19.36`;
+> porqué en **§4.60 (ac)**. M7 pinta «ajustes de paquetería» y seguro (criterio 238) y las tres restas de v1.80.7; la línea de
+> tiempo se invierte en pantalla sin re-ordenar y `shipped.at` se acota por el primer movimiento; los `@real` de Skydropx son de
+> release. Sin migración.
+>
 > **Rev v1.80.12.16 — 🔒 ERRATA TRAS D2e Y D2f** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
 > `12ea3261`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.16**; norma en `API_CONTRACT §M4-SHIP.19.35`; porqué en
 > **§4.60 (ab)**. La liga del invitado en los avisos: token nuevo sin rotar, nunca a un pedido reclamado; `timeline` de 7 y
@@ -27868,6 +27874,23 @@ conteo del mismo predicado que pinta la lista** (un cuerpo, dos lectores).
 NO MEDIDO: el sha `12ea3261`; que los ficheros de la columna «Dónde» de §19.35.8 sean los únicos que cada encargo toca; que F-D5 (la
 línea de tiempo en las tres páginas del cliente) esté completo — los ficheros existen (Grep `timeline` en `frontend/src`), su conducta no
 la medí.
+
+**(ac) 💰 v1.80.12.17 — errata tras el gate de QA sobre `31af0883`** (norma en `API_CONTRACT §M4-SHIP.19.36`; origen: M-1, M-2, M-4
+del informe de QA, relayado por el orquestador). Dos ideas: **un desglose que se pinta tiene que sumar a la cifra que pinta debajo**, y
+**el orden de una lista es del servidor; la pantalla solo elige la dirección**.
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **«Ajustes de paquetería» y seguro en M7, ya** | Diferir con fecha y corregir la fila 7 de v1.81 | El criterio 238 lo pide literal («M7 los muestra aparte»); diferir cierra Skydropx con un criterio incumplido. No depende de P-SDX-PNL-1: (A) crece el mismo renglón, (B) sería otro campo, (C) nada |
+| **Sub-renglones «incluye», sin signo** | Renglones con signo propio | Ya están dentro de `shippingCostCents`; con signo se restarían dos veces a ojos del dueño, aunque `profitCents` venga bien del servidor |
+| **Pintar también `refunds`/`refundedFees`/`compensations`** | Dejarlos «puede pintarlas» (v1.80.7) | Medido por lectura: `M7View.tsx:104-108` pinta cinco renglones y `profitCents` resta ocho; con un reembolso el desglose no suma a la ganancia. Se hace en el mismo pase porque toca el mismo tipo y la misma pantalla (evita un segundo pase) |
+| **La pantalla invierte, no re-ordena** | `sort` por `at` descendente (lo construido) | Re-ordenar es una segunda fuente del orden; con empates el `sort` estable deja ascendente lo que debería ir descendente |
+| **`shipped.at = mín(shippedAt, primer movimiento)`** | Pintar «en el orden real» (§19.35.2) | `shippedAt` es el clic del operador; un movimiento del transportista es prueba de que el paquete ya había salido. «Salió» encima de «En sucursal» le dice al cliente algo falso. ⛔ `shippedAt` en BD no cambia (AV-5, salida, P&L) |
+| **`@real` de Skydropx: requisito de release** | Bloquear la fusión | La cadencia de `CLAUDE.md` pone la E2E completa en release; los flujos son de `PROJECT` (T.8, 243) y entran ahí. Si un smoke mock basta para la fusión lo juzga QA |
+
+**Deuda que deja (ac):** F-6 (los cuatro `@real`) con disparador «cierre de release». NO MEDIDO: el sha `31af0883`; cuál de las dos
+causas (empate o `shippedAt` tardío) produjo lo que QA vio — las dos correcciones cubren ambas; si el stack E2E puede producir eventos
+del transportista y avisos de gasto.
 
 ---
 
