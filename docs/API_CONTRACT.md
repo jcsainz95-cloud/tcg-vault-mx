@@ -2,8 +2,19 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.82.2** sobre rev
-> **v1.82**, stream «Arreglos del panel», rama `claude/arreglos-panel`; antes errata v1.82.1, rev v1.80.10 y errata v1.80.9.1).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.82.3** sobre rev
+> **v1.82**, stream «Arreglos del panel», rama `claude/arreglos-panel`; antes errata v1.82.2, v1.82.1, rev v1.80.10 y errata
+> v1.80.9.1).
+>
+> **Errata v1.82.3 — LA SOLICITUD QUE QUEDABA ATORADA POR SUS CARTAS «NO COMPRADA» (2026-10-05, arquitecto, árbol
+> `/home/user/tcg-panel`, HEAD dado por el orquestador `8fcdfa7c`; ⛔ sha NO MEDIDO: sin Bash).** Origen: QA, IMPORTANTE-1
+> sobre `8fcdfa7c` (medido en vivo por QA, no por el arquitecto): rechazar todas las cartas `buy` deja la solicitud en
+> `verificacion` porque la carta `skip` cuenta como «no rechazada», y el panel no ofrece salida. Norma entera:
+> **[§PNL.12](#PNL-12)**. Resumen: **las líneas `skip` no cuentan para cerrar la solicitud** (la misma regla que ya usa
+> §M5-V.0 para pagar). Cambia **una** regla en **cuatro** sitios del servidor (auto-cierre, `POST /admin/buylist/:id/reject`,
+> `rejectedReason`, campo derivado nuevo **`isRejectable`** en `AdminBuylistDTO`) y **un** predicado de M5. ⛔ Sin schema, sin
+> migración, sin enum, sin endpoint, sin código de error, sin correo nuevo. La línea `skip` **no se toca** (`D-BL-SKIP-1`
+> sigue abierta).
 >
 > **Errata v1.82.2 — RESPUESTAS A UX-UI (A-1, A-2, A-3 de `DESIGN_SYSTEM §60.12`) Y DESBLOQUEO DE F-26 (2026-10-05,
 > arquitecto, árbol `/home/user/tcg-panel`, HEAD dado por el orquestador `ba6a2ac3`; ⛔ sha NO MEDIDO: sin Bash).**
@@ -5704,7 +5715,8 @@
 > - **(2) Cierre explícito — botón «Rechazar solicitud» (M5):** endpoint NUEVO `POST /admin/buylist/:id/reject`
 >   (`vault_operator`/`super_admin`, mismo guard que el resto de §M5, auditado `action: buylist.reject`). Semántica SEGURA
 >   y mínima: cierra la solicitud a `rechazada` + `closedAt`. **Guard:** sólo cierra si **TODOS** los ítems ya están
->   `rechazada`; si queda algún ítem no-rechazado → **`422 REQUEST_HAS_NON_REJECTED_ITEMS`**. **NO** mueve dinero, **NO**
+>   `rechazada`; si queda algún ítem no-rechazado → **`422 REQUEST_HAS_NON_REJECTED_ITEMS`** (⚠️ **v1.82.3,
+>   [§PNL.12](#PNL-12):** «ítem» = línea que cuenta; las `skip` no cuentan). **NO** mueve dinero, **NO**
 >   reevalúa montos por ítem, **NO** manda correos. Sirve para cerrar solicitudes ya atoradas (ítem rechazado pre-fix).
 >   **Idempotente:** si ya está `rechazada` → `200` con el estado actual. Errores `404`/`422`/`403`.
 > - **Invariantes preservados:** idempotencia de `reject` (v1.18/§M5), invariante de dinero **BL-1** (un ítem `rechazada`
@@ -12504,6 +12516,8 @@ se añade a la pantalla de M4 en este stream (es zona de Skydropx, `ARCHITECTURE
   existentes encadenados en el cliente; si `verify` falla, la fila queda en `recibida` con el «Verificar» de hoy como
   respaldo. ⇒ La fila `en_transito` de la tabla §M5-S pasa a «`receive` → `verify`»; el candado S-3 se actualiza.
 - `D-BL-SKIP-1` (la carta `skip` que llegó en el paquete) **sigue abierta**: este verbo no la rechaza.
+- ⚠️ **v1.82.3 ([§PNL.12](#PNL-12)):** el paso 6 («si quedan todas rechazadas») se lee **«si todas las líneas que
+  cuentan quedan rechazadas»**: las `skip` no cuentan. Sin esto, rechazar todas las `buy` dejaba la solicitud atorada.
 
 ##### PNL.5 — Lo que sigue vivo de v1.80.10 (medido el 2026-10-05 en este árbol)
 
@@ -12861,6 +12875,100 @@ NO MEDIDO: sin Bash).
 ⛔ **FE-BRJ-4 no se responde aquí:** la norma (`409 CONFLICT {reason:'ITEM_FINAL'}` distinto de `CONCURRENT_UPDATE`) ya
 está en §PNL.10.6; lo que falta es **el texto**, que es de ux-ui (`DESIGN_SYSTEM`; `Grep "ITEM_FINAL"` en
 `docs/DESIGN_SYSTEM.md` = 0 y en `frontend/` = 0, 2026-10-05).
+
+##### <a id="PNL-12"></a>PNL.12 — Errata v1.82.3 (2026-10-05, **NORMATIVA**): las líneas `skip` no cuentan para cerrar la solicitud
+
+**Defecto (medido por QA en vivo sobre `8fcdfa7c`; el arquitecto lo leyó en código, no lo corrió):** tras `reject-items`
+de todas las `buy`, la solicitud sigue en `verificacion` porque el auto-cierre cuenta «cualquier ítem no `rechazada`»
+(`buylist.service.ts:7064-7067`) y la `skip` nunca es `rechazada` (§M5-V.0: nada la rechaza, a propósito). El panel no
+ofrece salida: la `skip` no tiene botones (§E2E-ADM.2), «Rechazar solicitud» exige todas `rechazada` (`M5View.tsx:1169-1182`)
+y `POST /admin/buylist/:id/reject` también (`buylist.service.ts:7320-7333` ⇒ `422 REQUEST_HAS_NON_REJECTED_ITEMS`). La
+única vía del servidor (`PATCH …/decision {reject}` sobre la `skip`) manda un correo de rechazo falso (§M5-V) ⇒ ⛔ no es salida.
+
+**Por qué no es decisión del dueño:** `HECHOS.md:45` pide justamente «rechazar TODAS las cartas (cerrar la solicitud) con el
+motivo». Una solicitud cuyas cartas compradas fueron todas rechazadas no tiene nada que pagar; cerrarla `rechazada` es la
+regla de v1.24 aplicada a las líneas que compramos, la misma exclusión que §M5-V.0 ya hace para pagar («las `skip` NO
+cuentan»). Lo que **sí** queda del dueño (qué se hace con la carta `skip` que llegó físicamente) sigue en `D-BL-SKIP-1`, y
+esta errata **no** la decide ni la empeora: la `skip` sigue sin `rejectedAt`, sin correo y sin plazos, como hoy.
+
+**12.1 — La regla (UNA, en cuatro sitios del servidor).**
+
+```
+Línea que CUENTA para el cierre  :=  offerDecision IS NULL  OR  offerDecision <> 'skip'
+                                     ⛔ escrito con OR EXPLÍCITO, nunca { offerDecision: { not: 'skip' } } (columna
+                                     NULLABLE: el `<>` descarta los NULL ⇒ borraría TODA línea pre-ciclo; mismo
+                                     candado que admin.service.ts:2066-2071)
+Regla C (cerrar como rechazada)  :=  ∃ ≥1 línea que cuenta  ∧  toda línea que cuenta tiene itemStatus = 'rechazada'
+```
+
+| # | Sitio (leído 2026-10-05) | Cambio |
+|---|---|---|
+| a | `autoRejectIfAllRejectedTx` (`buylist.service.ts:7062-7079`) — lo usan la decisión por carta y `reject-items` | El `count` de «no rechazadas» se hace **solo sobre líneas que cuentan**; además, si hay **0** líneas que cuentan ⇒ no cierra. Resto igual (tx, `liveRequestWhere`, `closedAt`) |
+| b | `rejectRequest` (`buylist.service.ts:7320-7333`) — `POST /admin/buylist/:id/reject` | La precondición es la Regla C. `422 REQUEST_HAS_NON_REJECTED_ITEMS` sigue igual; `details.nonRejectedItemStatuses` lista **solo** estados de líneas que cuentan (si hay 0 líneas que cuentan: `422` con los estados de todas, fail-closed). Sirve para cerrar las solicitudes **ya** atoradas: un `reject` repetido sobre una `buy` ya `rechazada` es no-op y no re-dispara el auto-cierre |
+| c | `deriveRejectedReason` (`buylist-reject.constants.ts:124`) | `'all_items_rejected'` ⇔ Regla C (la proyección debe traer `offerDecision` por línea). Sin esto, una solicitud cerrada con `skip` vivas sale con `rejectedReason: null` (`acceptedAt != null`, `:130`) |
+| d | **NUEVO campo derivado `isRejectable: boolean`** en `AdminBuylistDTO` (proyección admin **compartida**: listado, detalle, mesa y respuestas de mutación, como `isTerminal`) | `isRejectable = (isTerminal === false) ∧ Regla C`. Solo admin (⛔ no va a la proyección del vendedor) |
+
+- ⛔ **Las líneas `skip` no se escriben**: ni `itemStatus`, ni `rejectedAt`, ni `rejectionReason`, ni correo. El cierre
+  **no toca montos** (BL-1 intacto) ni manda correo propio; con `reject-items`, el correo 29 sale con «la solicitud quedó
+  cerrada» = `requestClosed: true`, que ya existe.
+- **Sin cambio:** `PATCH …/decision` sobre una `skip` (el servidor sigue aceptando `reject`, §E2E-ADM.2; la UI no lo ofrece),
+  `pay-spei`, el recálculo de `approvedTotalCents` (`:6989-6997`, no es la regla de cierre), el filtro de bounties (`:8082`).
+- Pre-ciclo (`offerSentAt IS NULL`): toda línea tiene `offerDecision = null` ⇒ toda línea cuenta ⇒ **conducta idéntica a hoy**.
+- La Regla C se escribe **una vez** como `where` de Prisma y **una vez** como función pura (para c y d); una prueba fija que
+  dicen lo mismo (SKP-6). ⛔ No hay tercera copia: el frontend deja la suya (12.3).
+
+**12.2 — Pruebas backend (integración, BD real; backend **fuerte**: módulo `buylist`).** Cada una con su mutación, que debe
+morder (si una no muerde, se reporta y no se da por buena).
+
+| # | Caso | Esperado | Mutación ⇒ rojo |
+|---|---|---|---|
+| **SKP-1** | Ciclo, `verificacion`, 2 `buy` + 1 `skip`; `reject-items` de las 2 `buy` | `200`, `requestClosed: true`, solicitud `rechazada` + `closedAt`; la `skip` con el mismo `itemStatus` que antes, `rejectedAt`/`rejectionReason` null; **un** correo (29) | contar todas las líneas en (a) |
+| **SKP-2** | Igual, pero la última `buy` se rechaza con `PATCH …/decision {reject}` | Se cierra; la `skip` intacta; solo el correo por carta | ídem |
+| **SKP-3** | Fila ya atorada (fixture: `buy` todas `rechazada` escritas antes, `skip` viva, `verificacion`); `POST /admin/buylist/:id/reject` | `200` `rechazada` + `closedAt`; `skip` intacta; **cero** correos; auditado `buylist.reject` | dejar el guard de (b) como hoy (`422`) |
+| **SKP-4** 💰 | 1 `buy` `aprobada` + 1 `buy` `rechazada` + 1 `skip`; rechazar / `POST …/reject` | **No** cierra; `422 REQUEST_HAS_NON_REJECTED_ITEMS {nonRejectedItemStatuses:['aprobada']}` (sin el estado de la `skip`); `isRejectable: false` | Regla C sin la condición «toda línea que cuenta» (p. ej. contar solo `buy` sin veredicto) |
+| **SKP-5** | **Pre-ciclo** (`offerDecision` null en todas), 2 líneas, se rechaza 1 | **No** cierra (como hoy) | escribir `{ offerDecision: { not: 'skip' } }` en vez del `OR` ⇒ las null desaparecen del `count` ⇒ cierra. *(Si con el Prisma del árbol esa mutación no muerde, se reporta con su medición y se usa `{ offerDecision: 'buy' }` como mutación)* |
+| **SKP-6** | Proyección de los fixtures de SKP-3 (antes y después) y SKP-4 | SKP-3 antes: `isRejectable: true`; después: `isTerminal: true`, `isRejectable: false`, `rejectedReason: 'all_items_rejected'`. SKP-4: `false`. Las mismas filas por el `where` y por la función pura dan lo mismo | quitar el filtro `skip` de (c) ⇒ `rejectedReason: null` |
+
+**12.3 — Frontend (`(admin)/admin/m5/M5View.tsx`, `src/types/contract.ts`).**
+- `AdminBuylistDTO` gana `isRejectable?: boolean` en el tipo (aditivo; frontend puede ir en paralelo con mock).
+- `canRejectRequest = req.isRejectable === true` (`=== true` a propósito: campo ausente ⇒ sin botón, fail-closed como
+  `isTerminal === false`, `:1178-1182`). ⛔ **Se borra** `allItemsRejected` (`:1169-1170`): sería la copia de la Regla C sin el
+  filtro `skip`, que es exactamente el defecto. El botón, el diálogo y el verbo (`openRejectRequest`, `POST …/reject`) **no cambian**.
+- **FE-SKP-1:** mock `verificacion`, `isRejectable: true`, líneas `buy` `rechazada` + `skip` viva ⇒ «Rechazar solicitud»
+  visible y llama `POST …/reject`. Mutación: volver al `every(itemStatus === 'rechazada')` local ⇒ oculto ⇒ rojo.
+- **FE-SKP-2:** todas `rechazada` pero `isRejectable: false` ⇒ oculto; `isRejectable` ausente ⇒ oculto. Mutación:
+  `req.isRejectable !== false` ⇒ rojo.
+- M5-NC-1…4 (la `skip` sin botones) **no cambian**.
+
+**12.4 — Texto.** Se **reutiliza** el botón y el diálogo existentes (`m5.rejectRequest*`, `messages/{es,en}.json:2370-2375`).
+Una frase queda inexacta: `rejectRequestConsequence` dice «Solo procede cuando todos sus ítems ya están rechazados». Propuesta
+del arquitecto para que **ux-ui la ratifique** (o la reescriba) en `DESIGN_SYSTEM §60`; **no bloquea** salir con la actual:
+- es: «Se cerrará la solicitud como rechazada. Solo procede cuando todas las cartas que íbamos a comprar ya están rechazadas
+  (las «No comprada» no cuentan y no se tocan); no mueve dinero ni envía correos (el vendedor ya recibió el aviso de las
+  cartas rechazadas).»
+- en: «The request will be closed as rejected. It only applies when every card we were buying is already rejected ("Not
+  purchased" cards don't count and aren't touched); it doesn't move money or send emails (the seller already got the notice
+  about the rejected cards).»
+
+**12.5 — Filas ya atoradas (producción: NO MEDIDO).** No hay backfill: el operador las cierra con el botón (auditado). Consulta
+de solo lectura para contarlas (la corre quien tenga la credencial, sin pegarla en el chat):
+
+```sql
+SELECT sr.id FROM "SellRequest" sr
+WHERE sr."closedAt" IS NULL AND sr.status NOT IN ('pagada','rechazada','abandonada','expirada')
+  AND EXISTS (SELECT 1 FROM "SellRequestItem" i WHERE i."sellRequestId" = sr.id
+              AND (i."offerDecision" IS NULL OR i."offerDecision" <> 'skip'))
+  AND NOT EXISTS (SELECT 1 FROM "SellRequestItem" i WHERE i."sellRequestId" = sr.id
+              AND (i."offerDecision" IS NULL OR i."offerDecision" <> 'skip') AND i."itemStatus" <> 'rechazada');
+```
+
+**12.6 — Lo que sigue abierto (`D-BL-SKIP-1`), en lenguaje llano para el product-owner** (no bloquea este arreglo):
+«Cuando un vendedor manda en el paquete una carta que no le compramos, ¿qué quieres que pase con ella? Hoy el sistema no la
+registra ni le avisa al vendedor; con este arreglo la solicitud se puede cerrar igual. Recomendación del arquitecto: que el
+operador la marque como "llegó sin comprarse", que corran los mismos plazos de devolución (7 días a costo del vendedor,
+abandono a 30) y que el correo de cierre la mencione aparte, sin llamarla "rechazada".» Ojo para quien la diseñe: tras esta
+errata la solicitud puede estar ya **cerrada** cuando se registre esa carta, así que el verbo futuro no puede exigir
+solicitud viva.
 
 ---
 
@@ -26346,7 +26454,9 @@ lleva `@HttpCode` explícito en cada ruta.
   >   NO cuenta como rechazado:** un ítem convertido a inventario es un desenlace no-rechazado, así que si conviven ítems
   >   `convertida_inventario` y `rechazada` la solicitud **NO** se auto-rechaza. **Regla exacta:** se auto-rechaza **sólo
   >   si TODO ítem** de la solicitud tiene `itemStatus="rechazada"` (∅ ítems no-rechazados). Antes de este fix el
-  >   back-office rechazaba el único ítem y la solicitud se quedaba atorada en `verificacion` (P-4). El cierre a nivel
+  >   back-office rechazaba el único ítem y la solicitud se quedaba atorada en `verificacion` (P-4). ⚠️ **v1.82.3
+  >   ([§PNL.12](#PNL-12)): «todo ítem» = toda línea que **cuenta** (`offerDecision IS NULL OR offerDecision <> 'skip'`);
+  >   las `skip` no cuentan, y hace falta ≥1 línea que cuente.** El cierre a nivel
   >   solicitud **NO toca montos** (BL-1 ya lo garantiza vía el recompute) **ni envía correos** (el correo por-ítem ya
   >   salió). Idempotente por construcción (un `reject` no-op no re-dispara; una solicitud ya `rechazada` no se re-sella).
   > - **Correo al vendedor (best-effort, POST-commit):** al transicionar a `rechazada` se envía correo al dueño de la
@@ -30500,7 +30610,8 @@ AdminBuylistDTO  += { isTerminal: boolean, isPayable: boolean, offerState: SellO
                       declinedBy: string | null,                  // v1.51.3 (D39) — null ⇒ lo cerró el barrido
                       offerReissueCount: number,                  // v1.51.4 — persistido, default 0
                       offerReissueAlert: boolean,                 // v1.51.4 — DERIVADO contra el dial 10
-                      payoutNetCents: number | null }
+                      payoutNetCents: number | null,
+                      isRejectable: boolean }                     // v1.82.3 (§PNL.12) — DERIVADO: ¿ofrece M5 «Rechazar solicitud»?
 // v1.18-buylist-rejects: identidad del vendedor en M5 (GET /admin/buylist, /admin/buylist/:id, rejected-items).
 // PII: correo = dato de contacto operativo de back-office (roles vault_operator/super_admin); NO es la CLABE →
 // sin enmascarado ni reveal auditado. seller.id === SellRequest.userId (que se conserva por compat).

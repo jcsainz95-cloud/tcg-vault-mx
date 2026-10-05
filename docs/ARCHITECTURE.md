@@ -27342,6 +27342,29 @@ PNL-6, PNL-1 backend, F-4 y F-11. Lo que conviene **después** de que D2g fusion
 - **F-26 en commit propio:** la medición (b) de §PNL.10.7 puede obligar a revertir solo la retirada de M8; si va mezclada
   con FE-BRJ-4 u otro texto, el revert arrastra lo que no debe.
 
+#### 4.61.9 Errata v1.82.3 — por qué (2026-10-05; norma en `API_CONTRACT §PNL.12`)
+
+- **El defecto es de agregación, no de pantalla.** QA (IMPORTANTE-1 sobre `8fcdfa7c`, medido por QA) vio el síntoma en M5,
+  pero la causa es que la regla de cierre de v1.24 («todo ítem `rechazada`») nació antes del ciclo de oferta y nunca aprendió
+  que existen líneas que no compramos. §M5-V.0 ya resolvió lo mismo para pagar («las `skip` NO cuentan»); el cierre no.
+  Arreglarlo solo en el frontend era imposible (el servidor contesta `422`) o dañino (rechazar la `skip` manda un correo falso).
+- **Salida elegida: las `skip` no cuentan para cerrar.** Es la mínima: una regla, cuatro sitios del servidor que ya existen,
+  sin schema ni migración, y la línea `skip` no se escribe. Alternativas descartadas: (i) un «cerrar sin comprar» nuevo en
+  `verificacion` ⇒ endpoint y estado de UI nuevos para lo que la regla de hoy ya hace si cuenta bien; (ii) que «Rechazar
+  solicitud» rechace en cascada las `skip` ⇒ les ancla los plazos de §H y decide `D-BL-SKIP-1` por la puerta de atrás.
+- **El frontend pierde su copia de la regla.** `allItemsRejected` (`M5View.tsx:1169-1170`) era una copia sin el filtro `skip`:
+  la regla vuelve al servidor como `isRejectable`, igual que `isTerminal`/`isPayable` borraron sus copias (§4.39c).
+- **Trampa del `NULL`:** el filtro se escribe con `OR` explícito (`admin.service.ts:2066-2071` ya lo documenta); el `not` de
+  Prisma sobre la columna nullable borraría toda línea pre-ciclo del conteo y cerraría solicitudes con cartas vivas (SKP-5).
+- **Efecto en `D-BL-SKIP-1`:** ninguno sobre la carta (sigue sin registro, como hoy). Sí uno de diseño: la solicitud puede
+  estar cerrada cuando el dueño decida qué se hace con esa carta; el verbo futuro no puede exigir solicitud viva.
+
+| Pieza v1.82.3 | Rol | Ficheros (este árbol, leídos 2026-10-05) | 💰 |
+|---|---|---|---|
+| Regla C (a, b, c, d) + SKP-1…6 | backend **fuerte** (`buylist`) | `backend/src/modules/buylist/buylist.service.ts:7062-7079`, `:7293-7340`, `buylist-reject.constants.ts:109-135`, proyección admin compartida (donde vive `isTerminal`) | No mueve dinero; toca el cierre de una solicitud de compra |
+| `isRejectable` en el tipo + predicado + FE-SKP-1/2 | frontend | `frontend/src/app/[locale]/(admin)/admin/m5/M5View.tsx:1165-1182`, `frontend/src/types/contract.ts` | No |
+| Texto de `rejectRequestConsequence` (propuesta en §PNL.12.4) | ux-ui (ratifica) → frontend | `docs/DESIGN_SYSTEM.md §60`, `frontend/messages/{es,en}.json:2372` | No; no bloquea |
+
 ---
 
 ## 5. Decisiones transversales
@@ -28151,6 +28174,9 @@ Riesgos técnicos:
 > paquete**: §H dice que se registra y corren sus plazos, que se anclan en `rejectedAt`; pero rechazarla manda un correo
 > de rechazo por carta que diría algo falso (§M5-V). La UI ya no ofrece decisión sobre una `skip` (`API_CONTRACT
 > §E2E-ADM.2`); ¿qué hace el operador con la que llegó?
+> ⚠️ **v1.82.3 (`API_CONTRACT §PNL.12`):** el síntoma «la solicitud queda atorada» se cierra sin decidir esto (las `skip` no
+> cuentan para cerrar). La pregunta sigue abierta, redactada para el dueño en §PNL.12.6; el verbo futuro debe admitir
+> solicitud ya cerrada.
 >
 > **v1.80.10 — `D-PHONE-1` (abierta, backend, stream «Cuentas y acceso»; medida 2026-10-04):** `POST /auth/register` exige
 > `phone` en el contrato (§1; criterio 128(a)) y `RegisterDto` lo tiene `@IsOptional` (`auth.dto.ts:17-19`). Manda el
