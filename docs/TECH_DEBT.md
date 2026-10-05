@@ -9404,3 +9404,49 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
   trabaja el contrato en paralelo en este pase — **NO MEDIDO** si lo resuelve). Detalle en `BACKEND_NOTES §57.7`.
 - **Cómo se cierra:** el arquitecto elige (a) normar el recorte final a 300 (el código ya lo hace), (b) un marcador
   más corto, o (c) aceptar que crezca; backend alinea código y prueba si no es (a).
+
+## Arquitecto · 2026-10-05 · gate del techlead sobre `7bca24ce` (rama `claude/listo-real`, fusión)
+
+### TD-LR-CITES-DOCS · P3 · 26 citas en `docs/` apuntan a secciones de listo-real ya renumeradas
+- **Dueños:** arquitecto (`API_CONTRACT`, `ARCHITECTURE`), devops (`DEVOPS_NOTES`) y el dueño de cada entrada de
+  `TECH_DEBT` citada.
+- **Qué es:** al fusionar se renumeraron las secciones de listo-real: `BACKEND_NOTES §57.x → §76.x`;
+  `DEVOPS_NOTES §83.x → §85.x` y `§84 → §86`; `FRONTEND_NOTES §94.x → §103.x`; y las líneas citadas de `HECHOS.md` se
+  movieron. Quedan **26 citas** al sitio viejo (medido por el techlead sobre `7bca24ce`, 2026-10-05; lista en
+  `scratchpad/merge-real/logs/cites-lr.txt`, copiada aquí porque el scratchpad se borra — O-20):
+  - `API_CONTRACT.md` (15): `:19`, `:22`, `:49`, `:31373`, `:31722`, `:31727`, `:31779`, `:31783`, `:31819`,
+    `:31851`, `:31859`, `:31910`, `:31912`, `:31977`, `:32096`.
+  - `ARCHITECTURE.md` (6): `:30`, `:33`, `:27266`, `:27300`, `:27400`, `:27463`.
+  - `DEVOPS_NOTES.md` (1): `:13475`.
+  - `TECH_DEBT.md` (4): `:9141`, `:9152`, `:9190`, `:9215`.
+  - Más el subconjunto de `cites-sell.txt` (misma carpeta) que cita `BACKEND_NOTES §57` queriendo decir **sellado
+    (§75)**. Se **clasifica a mano**: algunas citas a §57 son **correctas**, porque §57 de verdad es Skydropx D1. No
+    se reemplaza en bloque.
+  - Los números de línea son los de `7bca24ce`; si el fichero cambió, se re-localizan por contenido, no por línea.
+  - Fuera de `docs/`, el mismo `cites-lr.txt` lista **25** citas más en código, `scripts/` y `.github/workflows/`
+    (comentarios, cabeceras y un `echo` de `uptime-watch.yml:152`); son de backend, frontend y devops y entran en el
+    mismo pase de cada dueño.
+- **Mitigación vigente:** notas de renumeración al principio de `BACKEND_NOTES §76`, `DEVOPS_NOTES §85` y `§86`, y
+  `FRONTEND_NOTES §103`.
+- **Riesgo:** bajo, sin efecto en conducta ni en dinero; es de **decisión**: un agente que sigue una cita vieja lee
+  otra sección (BACKEND §57 hoy significa tres cosas).
+- **Disparador:** el próximo pase de cada dueño por su documento, o un agente que actúe guiado por una de esas citas.
+- **Comprobación:** `rg` por fichero:línea de la lista anterior (re-medida sobre el sha del pase); cerrada cuando
+  ninguna cita a §57.x/§83.x/§84/§94.x de listo-real queda sin su número nuevo, y las de `cites-sell.txt` quedan
+  clasificadas (corregida o «correcta: Skydropx D1»).
+
+### TD-NOTES-NUMERACIÓN · P2 · Los números de sección de las `*_NOTES` chocan entre ramas en cada fusión
+- **Dueños:** propuesta para el orquestador y el arquitecto (la convención la fija el arquitecto; cada dueño de
+  `*_NOTES` la aplica en su documento).
+- **Qué es:** cada rama abre «la siguiente sección» con el número libre **en su base**; dos ramas vivas toman el mismo
+  número y la fusión obliga a renumerar una. En dos fusiones del mismo día (2026-10-05) pasó **cuatro veces**:
+  `BACKEND_NOTES §57` hoy significa tres cosas y `DEVOPS_NOTES §84` lleva dos renumeraciones. Cada renumeración deja
+  citas viejas (ver `TD-LR-CITES-DOCS`). `RS5-UX-TD9` (`TECH_DEBT.md:9203` sobre `7bca24ce`) ya avisaba de que es una
+  **clase** de fallo: «cualquier renumeración futura repite la clase».
+- **Dirección:** ids de sección que no colisionen entre ramas —p. ej. prefijo de stream + fecha
+  (`§LR-2026-10-05-a`)— o anclas estables por nombre, citadas por id y con el número solo como ayuda; de modo que
+  fusionar no obligue a renumerar. La convención concreta (formato, si se migra lo existente o solo lo nuevo) la
+  decide el arquitecto con el orquestador. **NO decidida aún.**
+- **Disparador:** la próxima rama que abra una sección nueva en alguna `*_NOTES`.
+- **Comprobación:** tras adoptarla, una fusión de dos ramas que abren sección cada una no produce renumeración
+  (`git diff` de la fusión sin cambios de encabezado `## §N` en secciones ajenas).
