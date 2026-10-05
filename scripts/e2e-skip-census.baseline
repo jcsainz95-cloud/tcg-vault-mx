@@ -1,8 +1,8 @@
 # Baseline del censo de salvaguardas E2E (scripts/check-e2e-skip-census.sh).
 # Formato: clave ocurrencias ficheros. Se regenera SOLO con --update --motivo, en el mismo diff que el cambio.
-# 2026-10-04 · frontend/e2e/precios-s5.spec.ts (0f3dda00, FRONTEND_NOTES §85) +8 mockOnly/+3 realOnly, +1 fichero cada uno: los casos de dinero de §39/§40 son mockOnly porque el seed E2E no tiene pedidos directos liquidados en enviado/guia ni un reembolso tras envío sin motivo; los realOnly son 400/403/404 que el mock no sirve. Salida: backend siembra un directo liquidado enviado, otro guia y uno reembolsado con fullRefundAfterShipment=true sin motivo; entonces los mockOnly pasan a @real y el techo baja (pendiente en DEVOPS_NOTES, dueños backend: seed; frontend: convertir los casos)
+# 2026-10-05 · frontend/e2e/session-max-age.spec.ts (fab9bb13, LIVE-2 pantalla del aviso de sesión caducada, FRONTEND_NOTES §94) +3 realOnly, +1 fichero: 1 llamada real (beforeEach, cubre UX-SMA-2 tienda y panel) + import + mención en el docblock. Legítimo: finge los dos 401 con page.route y necesita el bundle sin mocks (con NEXT_PUBLIC_USE_MOCKS api.ts no llama a fetch y no hay 401 que interceptar); el tope real (30/7 días) lo miden los unitarios/integración de backend. Resto de claves sin cambio (medido vs a86ee970). Re-pase QA B-3 sobre 44943d30
 mockOnly 135 27
 needsSeed 34 9
 harnessLimit 5 3
 skipIfSeedMissing 15 7
-realOnly 19 6
+realOnly 22 7
