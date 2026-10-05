@@ -20,7 +20,7 @@ export interface OwnerCandidate {
 
 export function isOwnerAccount(u: OwnerCandidate | null | undefined): boolean {
   if (!u) return false;
-  return u.isOwner === true && u.role === Role.super_admin && u.email !== null && u.status === UserStatus.active && u.deletedAt === null;
+  return u.isOwner === true && u.role === Role.super_admin && u.email !== null && u.email.trim() !== '' && u.status === UserStatus.active && u.deletedAt === null;
 }
 
 /** El `select` mínimo para `isOwnerAccount` (una lectura, en la tx del llamador). */
