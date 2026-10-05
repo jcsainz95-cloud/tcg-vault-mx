@@ -7,12 +7,11 @@ import { expect, test, type Page } from '@playwright/test';
  * (CSP-1/CSP-6 en el middleware). Aquí se pregunta al servidor y al navegador:
  *  - CSP-1: cada documento HTML trae la CSP con un nonce distinto por petición.
  *  - CSP-2: TODOS los `<script>` que emite Next llevan ese nonce (si el render fuera estático, no).
- *  - CSP-5: un `<script>` inyectado en el HTML SIN nonce viola la política (en `enforce`, además, no
- *    se ejecuta). Simula el XSS almacenado: se reescribe la respuesta HTML, no se usa `evaluate`
- *    (con `'strict-dynamic'` un script creado por código no es lo que la CSP mira).
- *    Mutación que la pone roja (§14.3 v1.84.1, E-5): añadir `script-src-elem 'unsafe-inline'` (o
- *    `script-src-attr`). `'unsafe-inline'` DENTRO de `script-src` NO la pone roja: con nonce, CSP3
- *    lo ignora; esa la caza `csp.test.ts` (lista exacta de directivas y de `script-src`).
+ *  - CSP-5 (v1.84.2 §14.15 E2-2): un `<script>` EN LÍNEA inyectado sin nonce en el HTML dispara el evento
+ *    `securitypolicyviolation` (`script-src*`, `blockedURI === 'inline'`) con la `disposition` de la
+ *    fase; en `enforce`, además, no se ejecuta. Mutación que la pone roja en las dos fases: añadir
+ *    `script-src-elem 'unsafe-inline'`. `'unsafe-inline'` DENTRO de `script-src` NO la pone roja: con
+ *    nonce, CSP3 lo ignora; esa la caza `csp.test.ts` (lista exacta de directivas y de `script-src`).
  *  - Recorrido sin violaciones: portada, catálogo, login, registro, checkout, vender.
  *
  * CSP-3 (pago con 3DS) y CSP-4 (botón de Google) necesitan Stripe y Google reales: son el
@@ -103,20 +102,72 @@ test.describe('LIVE-3 · CSP con nonce', () => {
     });
   }
 
-  test('CSP-5 · un <script> inyectado en el HTML sin nonce viola la política', async ({ page }) => {
-    const violations = await watchViolations(page);
-    const seen: { mode: Csp['mode'] } = { mode: 'report-only' };
+  /**
+   * CSP-5 · v1.84.2 (§14.15 E2-2; QA M-1). El oráculo es el evento `securitypolicyviolation` del DOM,
+   * NO la consola: en `report-only` el navegador no bloquea nada (el script se ejecuta siempre) y el
+   * filtro de consola casaba con avisos de otros recursos (chunks).
+   *  1. `addInitScript` registra el oyente antes de navegar y guarda `{effectiveDirective, blockedURI,
+   *     disposition}` de cada evento.
+   *  2. `antes` = eventos con `effectiveDirective` que empieza por `script-src` y `blockedURI ===
+   *     'inline'` en `/es/login` TAL CUAL la sirve el servidor.
+   *  3. Se carga `/es/login` con un `<script>` EN LÍNEA (con texto, ⛔ sin `src`) y sin nonce inyectado en
+   *     el HTML de la respuesta, que pone `window.__csp5 = true` (el XSS almacenado).
+   *  4. Se espera (con tope) `≥ antes + 1`, y algún evento nuevo trae `disposition` `report` en
+   *     `report-only` o `enforce` en `enforce`.
+   *  5. Solo en `enforce`: `window.__csp5` sigue sin definir.
+   *
+   * ⚠ Desviación MEDIDA de la letra de E2-2 paso 3 (FRONTEND_NOTES §94.6, solicitud al arquitecto): la
+   * inyección es en el HTML (script del parser), no con `createElement` tras la carga. Medido en este
+   * Chromium contra `next start`: un `<script>` en línea creado por código (`createElement` +
+   * `textContent`, desde `evaluate` o desde un `setTimeout` de la página) **no dispara ningún evento y se
+   * ejecuta en las dos fases** — `'strict-dynamic'` le pasa la confianza —, así que la prueba no podría
+   * distinguir nada. El del parser sí dispara `script-src-elem inline` (report / enforce).
+   * Mutación que la pone roja en LAS DOS fases: añadir `script-src-elem 'unsafe-inline'` (paso 4 no llega).
+   */
+  test('CSP-5 · un <script> en línea inyectado sin nonce dispara la violación (evento del DOM)', async ({ page }) => {
+    type Ev = { effectiveDirective: string; blockedURI: string; disposition: string };
+    await page.addInitScript(() => {
+      const w = window as unknown as { __cspEvents: Ev[] };
+      w.__cspEvents = [];
+      document.addEventListener('securitypolicyviolation', (e) => {
+        w.__cspEvents.push({ effectiveDirective: e.effectiveDirective, blockedURI: e.blockedURI, disposition: e.disposition });
+      });
+    });
+    const inlineScriptEvents = () =>
+      page.evaluate(() =>
+        (window as unknown as { __cspEvents: Ev[] }).__cspEvents.filter(
+          (e) => e.effectiveDirective.startsWith('script-src') && e.blockedURI === 'inline',
+        ),
+      );
+
+    // 2 · antes: la página tal cual.
+    await page.goto('/es/login');
+    await page.waitForLoadState('networkidle');
+    const antes = (await inlineScriptEvents()).length;
+
+    // 3 · la misma página con el inline sin nonce en su HTML.
+    const seen: { mode?: Csp['mode']; injected: boolean } = { injected: false };
     await page.route('**/es/login', async (route) => {
       const res = await route.fetch();
       seen.mode = cspOf(res.headers()).mode;
-      const body = (await res.text()).replace('</head>', '<script>window.__pwned = 1</script></head>');
-      await route.fulfill({ response: res, body });
+      const html = await res.text();
+      seen.injected = html.includes('</head>');
+      await route.fulfill({ response: res, body: html.replace('</head>', '<script>window.__csp5 = true;</script></head>') });
     });
     await page.goto('/es/login');
-    await expect.poll(() => violations.filter((v) => /script-src/.test(v) && /inline/.test(v)).length).toBeGreaterThan(0);
-    const pwned = await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned);
-    if (seen.mode === 'enforce') expect(pwned).toBeUndefined();
-    else expect(violations.some((v) => v.startsWith('report script-src'))).toBe(true);
+    expect(seen.injected, 'el HTML no trae </head>: no se inyectó nada').toBe(true);
+    const mode = seen.mode!;
+
+    // 4 · al menos un evento nuevo, con la disposición de la fase.
+    await expect
+      .poll(async () => (await inlineScriptEvents()).length, { message: `fase ${mode}: el inline sin nonce no produjo violación`, timeout: 5_000 })
+      .toBeGreaterThanOrEqual(antes + 1);
+    const eventos = await inlineScriptEvents();
+    expect(eventos.map((e) => e.disposition)).toContain(mode === 'enforce' ? 'enforce' : 'report');
+
+    // 5 · en enforce, además, no se ejecutó.
+    const ran = await page.evaluate(() => (window as unknown as { __csp5?: boolean }).__csp5);
+    if (mode === 'enforce') expect(ran).toBeUndefined();
   });
 
   test('recorrido sin violaciones: portada, catálogo, login, registro, checkout, vender', async ({ page }) => {
