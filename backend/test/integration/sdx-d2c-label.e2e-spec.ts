@@ -316,6 +316,10 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
         furtherInformation: 'Portón negro',
       });
       expect(p.input.notAfter).toBeGreaterThan(Date.now() - MIN);
+      // PS-97: la carta porte del dial (seed `49101600`) y el `package_type` del empaque usado.
+      expect(p.input.package.consignmentNote).toBe('49101600');
+      expect(['5H4', '4G']).toContain(p.input.package.packageType);
+      expect((await row(s.id)).packageCode).toBe(p.input.package.packageType);
       // Sin datos del pago ni de cartas en el cuerpo entero.
       expect(JSON.stringify(p.body)).not.toMatch(/stripe|pi_sp_|Charizard|orderNumber/i);
     });
@@ -593,6 +597,53 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
       expect((await row(s.id)).labelProcessingSince).toBeNull();
     });
   });
+
+  // ================================================================ PS-113 — corrección de dirección y compra a la vez
+
+  it(`PS-113 — \`PUT …/address\` y \`POST …/label\` entrelazados por barrera, orden alternado (N = ${N}; vale solo ${N}/${N})`, async () => {
+    const CORR = { recipientName: 'Ana Gómez Ruiz', line1: 'Av. Revolución 1777', line2: 'Int. 4', postalCode: '01000', neighborhood: 'San Ángel', city: 'Álvaro Obregón', state: 'Ciudad de México', references: 'Portón negro' };
+    let good = 0;
+    const bad: string[] = [];
+    const orders: string[] = [];
+    for (let i = 0; i < N; i += 1) {
+      const s = await readyQuoted();
+      fake.calls.length = 0;
+      // Barrera: la corrección entra en la lectura del saldo — la 1.ª (paso 6: entre el paso 2 y el 7, la corrección
+      // gana) en las rondas pares; la 2.ª (7b.1: con el reclamo ya puesto, la compra gana) en las impares.
+      const at = i % 2 === 0 ? 1 : 2;
+      let n = 0;
+      let rPut: R | null = null;
+      fake.onBalance = async () => {
+        n += 1;
+        if (n === at) rPut = await h.api('PUT', `/admin/shipments/${s.id}/address`, { token: db.opToken, json: { expectedAddressVersion: 0, ...CORR } });
+      };
+      const rLbl = await buy(s.id, buyBody(s.q, s.rate));
+      fake.onBalance = null;
+      const put = rPut as unknown as R;
+      const final = await row(s.id);
+      const ps = purchases(s.id);
+      const q = await h.prisma.shipmentQuote.findUniqueOrThrow({ where: { id: s.q.quoteId } });
+      const corrected = put.status === 200 && put.body.outcome === 'corrected';
+      const snap = final.addressSnapshot as Record<string, unknown>;
+      const checks = {
+        // (1) a lo sumo una compra
+        one: ps.length <= 1,
+        // (2) si hubo compra, lleva el snapshot FINAL y la cotización es de la versión final
+        final: ps.length === 0 || (ps[0].input.to.street1 === `${String(snap.line1)} Int. 4` && q.addressVersion === final.addressVersion),
+        // (3) corrección aceptada ⇒ cero compras con la cotización de v0 (QUOTE_EXPIRED o CONFLICT)
+        afterFix: !corrected || (ps.length === 0 && ['409:QUOTE_EXPIRED', '409:CONFLICT'].includes(errCode(rLbl))),
+        // (4) la compra reclamó primero ⇒ la corrección 409 y el snapshot sigue en v0
+        claimFirst: corrected || (['409:LABEL_IN_PROGRESS', '409:SHIPMENT_ALREADY_LABELED'].includes(errCode(put)) && snap.line1 === 'Av. Revolución 1500'),
+      };
+      orders.push(corrected ? 'put' : 'label');
+      if (Object.values(checks).every(Boolean)) good += 1;
+      else bad.push(JSON.stringify({ i, checks, put: errCode(put), label: errCode(rLbl), purchases: ps.length }));
+    }
+    // eslint-disable-next-line no-console
+    console.log(`PS-113: ganó la corrección en ${orders.filter((o) => o === 'put').length}/${N} rondas, la compra en ${orders.filter((o) => o === 'label').length}/${N}`);
+    expect(orders.filter((o) => o === 'put').length).toBe(N / 2);
+    expect({ proportion: `${good}/${N}`, bad }).toEqual({ proportion: `${N}/${N}`, bad: [] });
+  }, 300_000);
 
   // ================================================================ PS-83 (SEC-SDX-3) — cancelado mientras se compraba
 
@@ -874,7 +925,10 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
       await h.prisma.shipmentLabelAttempt.deleteMany({ where: { shipmentRequestId: a.id, rateId: 'seed-a' } });
     });
 
-    it(`PS-140 — mismo operador, dos compras simultáneas que juntas pasan el tope ⇒ exactamente UNA \`purchase\` (N = ${N})`, async () => {
+    it(`PS-140 — mismo operador, dos compras que juntas pasan el tope ⇒ exactamente UNA \`purchase\` (N = ${N})`, async () => {
+      // Barrera: B pasa la comprobación PREVIA (paso 2, solo lectura) y se detiene en su lectura del saldo (paso 6) hasta que
+      // A termina entera (guía comprada ⇒ ya no está «en vuelo»). Así el ÚNICO muro que queda para B es el tope DENTRO del
+      // candado del paso 7 (la mutación «sacar checkLabelLimits de la tx del candado» compra dos veces).
       let good = 0;
       const bad: string[] = [];
       for (let i = 0; i < N; i += 1) {
@@ -882,12 +936,27 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
         const b = await readyQuoted();
         await dial(h, 'operator_label_cap_24h_cents', a.rate.priceCents + b.rate.priceCents - 1);
         fake.calls.length = 0;
-        const rs = await Promise.all([buy(a.id, buyBody(a.q, a.rate)), buy(b.id, buyBody(b.q, b.rate))]);
+        let releaseB!: () => void;
+        const bHeld = new Promise<void>((res) => (releaseB = res));
+        let bAtBalance!: () => void;
+        const bReached = new Promise<void>((res) => (bAtBalance = res));
+        let first = true;
+        fake.onBalance = async () => {
+          if (!first) return;
+          first = false; // la PRIMERA lectura del saldo es la de B (B sale antes)
+          bAtBalance();
+          await bHeld;
+        };
+        const pb = buy(b.id, buyBody(b.q, b.rate));
+        await bReached;
+        const ra = await buy(a.id, buyBody(a.q, a.rate));
+        releaseB();
+        const rb = await pb;
+        fake.onBalance = null;
         const n = purchases().length;
-        if (n === 1) good += 1;
-        else bad.push(JSON.stringify({ n, codes: rs.map(errCode) }));
-        // la guía comprada deja de contar para la ronda siguiente (otro día): se mueve su intento fuera de la ventana
-        await h.prisma.shipmentLabelAttempt.updateMany({ where: { shipmentRequestId: { in: [a.id, b.id] } }, data: { since: new Date(clock.now().getTime() - 25 * 60 * MIN) } });
+        if (n === 1 && ra.status === 200 && errCode(rb) === '403:LABEL_PURCHASE_LIMIT') good += 1;
+        else bad.push(JSON.stringify({ n, a: errCode(ra), b: errCode(rb) }));
+        await h.prisma.shipmentLabelAttempt.updateMany({ where: { shipmentRequestId: { in: [a.id, b.id] } }, data: { since: new Date(clock.now().getTime() - 25 * 60 * MIN - i) } });
       }
       expect({ proportion: `${good}/${N}`, bad }).toEqual({ proportion: `${N}/${N}`, bad: [] });
     }, 300_000);
