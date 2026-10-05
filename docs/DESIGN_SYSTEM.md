@@ -4,7 +4,12 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.22 (2026-10-05) — ERRATA v1.80.12.12: CUATRO TEXTOS Y EL SUBTÍTULO DE «ENVÍOS» (§43.21 NUEVA;
+> Estado: **v4.23 (2026-10-05) — ERRATA v1.80.12.15, G3 (`API_CONTRACT §M4-SHIP.19.33.10` y `§19.34.3`; ux-ui sin
+> Bash, sha NO MEDIDO por mí):** los CTA de los correos `AVG-2` y `AVG-3` (§43.19.12) apuntan a `admin/spend-alerts`
+> **sin `?`** (PS-153); nota en §43.19.12 con cómo queda la experiencia. **Nada cambia en el panel**, cero claves i18n,
+> cero tokens, cero pares de contraste. Lo que sigue es la v4.22 sin cambio fuera de §43.19.12.
+>
+> Estado anterior: **v4.22 (2026-10-05) — ERRATA v1.80.12.12: CUATRO TEXTOS Y EL SUBTÍTULO DE «ENVÍOS» (§43.21 NUEVA;
 > `API_CONTRACT §M4-SHIP.19.31`, fila ux-ui de §19.31.11; ux-ui sin Bash, sha NO MEDIDO por mí):** `409 {reason:
 > 'shipment_changed_during_purchase', labelAutoCancelled}` (dice que **sí** se creó una guía y que se pidió cancelarla;
 > ⛔ nunca «No se compró nada») y `409 {reason:'claim_released'}` en «Capturar guía»; «Cancelar guía» sin respuesta de
@@ -25409,7 +25414,7 @@ manda este correo con el titular del aviso, sin «actualización».
 | Titular | Y {n} avisos más | And {n} more alerts |
 | Intro | En esa hora hubo más avisos inmediatos de los que te mandamos uno por uno. Aquí van juntos: | That hour there were more immediate alerts than we send one by one. Here they are together: |
 | Una línea por aviso | {hora} · {título} · {ref corta} · {monto} (cada línea enlazada a su detalle) | {time} · {title} · {short ref} · {amount} |
-| CTA | **`VER LOS AVISOS`** → `admin/spend-alerts?severity=immediate&from=<día>&to=<día>` — bermellón | **`SEE THE ALERTS`** |
+| CTA | **`VER LOS AVISOS`** → `admin/spend-alerts` (sin `?`; v4.23, G3) — bermellón | **`SEE THE ALERTS`** |
 
 **`AVG-3` — resumen diario (08:00 MX, lo del día anterior; sin avisos ⇒ no sale).**
 
@@ -25422,8 +25427,25 @@ manda este correo con el titular del aviso, sin «actualización».
 | 3 · Guías por persona | «Gasto en guías por persona»: {nombre} · {n} guías · {monto} (`labelSpendByPerson`) | “Label spend by person” |
 | 4 · Elecciones caras (si `count > 0`) | {count} guías por encima de la recomendada o con margen negativo, {de más} de más: {Ana 2, Luis 1}. | {count} labels above the recommended option or with a negative margin, {over} over: {Ana 2, Luis 1}. |
 | Nota | Las cifras son las mismas que verás en el panel para ese día. | These figures match what you'll see in the panel for that day. |
-| CTA | **`VER EL DÍA EN EL PANEL`** → `admin/spend-alerts?from=<día>&to=<día>` — **tinta** (informa; los 🔴 ya salieron en su momento) | **`SEE THE DAY IN THE PANEL`** |
+| CTA | **`VER EL DÍA EN EL PANEL`** → `admin/spend-alerts` (sin `?`; v4.23, G3) — **tinta** (informa; los 🔴 ya salieron en su momento) | **`SEE THE DAY IN THE PANEL`** |
 
+- **Enlaces de los correos, sin `?` (v4.23 — `API_CONTRACT §M4-SHIP.19.33.10` G3 y `§19.34.3`; lo exige PS-153: todo
+  URL de las tres plantillas empieza por `appUrl('admin/')`, sin `/api/`, sin `?` ni `token`).** La versión anterior de
+  esta sección ponía filtros en los CTA de `AVG-2` (`?severity=immediate&from=…&to=…`) y `AVG-3` (`?from=…&to=…`) para
+  que el dueño aterrizara ya filtrado. Se retiran; los filtros los pone la página. Cómo queda la experiencia, sin
+  cambio en la pantalla:
+  - **`AVG-2`** → la lista sin filtros, en orden `firstOccurredAt desc` (§43.19.8): los avisos del lote son de la última
+    hora, así que salen **arriba**. Y cada línea del lote ya enlaza a su detalle `admin/spend-alerts/<id>` (sin `?`), que es
+    el camino principal; el CTA es la vista de conjunto. Si quiere acotar: «Gravedad › Inmediatos» y las fechas.
+  - **`AVG-3`** → la misma lista, con «Resumen de un día» **por defecto en ayer** (§43.19.8), que es justo el día del
+    correo de las 08:00, y su nota «Es lo mismo que dice el correo del resumen de ese día». El dueño abre el `<details>` y
+    ve las mismas cifras. Si abre el correo otro día, cambia la fecha del campo (el asunto y el titular del correo dicen
+    qué día es).
+  - **Nada nuevo en el panel.** ⛔ No se sustituye el `?` por un fragmento (`#…`) ni por una ruta tipo
+    `spend-alerts/day/<día>` para «abrir el resumen ya en ese día»: sería una ruta o un estado que el contrato no tiene, y
+    la ganancia (un clic y una fecha) no lo justifica. ⛔ Esta regla es **solo de los correos**: los enlaces internos del
+    panel con filtros (`?unseen=true` de la tarjeta del tablero, §43.19.9; `?folio=` de S-GAS-2; los filtros que escribe el
+    propio `form` de §43.19.8) no cambian.
 - El cuerpo de 2–4 es `summarizeSpendAlerts` (el mismo que `GET …/summary`, §19.29.7): ⛔ la plantilla no suma (GAS-4).
 - Plantillas en `modules/spend-alerts/` (patrón §R.1); `mail.service.ts` no cambia (§19.29.5). Son internos: no entran
   en el inventario de los 30 de §41.1 ni en `C-AV-1`.
