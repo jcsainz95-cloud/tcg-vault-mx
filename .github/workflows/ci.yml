@@ -206,8 +206,15 @@ jobs:
           esac
           export SEPOMEX_TEST_DATABASE_URL
           DATABASE_URL="$SEPOMEX_TEST_DATABASE_URL" npx prisma migrate deploy
-          out="$(../scripts/geo/import-sepomex.sh test)" || { printf '%s\n' "$out"; exit 1; }
+          # Reporter TAP FORZADO: desde Node 23 el reporter por defecto es `spec` también
+          # sin TTY, y su resumen sale «ℹ skipped N», no «# skipped N». MEDIDO 2026-10-05
+          # (devops, I-1): Node 22.22.2 ⇒ «# skipped 6»; Node 24.21.0 ⇒ «ℹ skipped 6», misma
+          # prueba sin base. Con Node 24 aquí, el grep de abajo era rojo SIEMPRE, con o sin
+          # saltos — el «se saltó» mentía desde que el paso existe.
+          out="$(NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--test-reporter=tap" ../scripts/geo/import-sepomex.sh test)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"
+          # Formato desconocido ≠ prueba saltada: si no hay resumen TAP, se dice eso.
+          printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N» (¿cambió el reporter?): no puedo saber si la parte con base corrió"; exit 1; }
           # La parte con base NO puede saltarse en verde.
           printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base se saltó"; exit 1; }
       - name: Build

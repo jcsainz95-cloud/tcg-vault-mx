@@ -13737,3 +13737,31 @@ pero igualmente **no** es producción: es un error de configuración que se corr
 en `label`), el bloque (G) y sus 14 casos de canario, y el `set-owner` del arnés. Datos: ninguno en producción; en la
 base de la pila E2E queda la marca `isOwner` del admin del fixture, que es inocua.
 
+
+## §83 · Gate de QA sobre `31af0883`: censo E2E (B-1) y el paso M-64 rojo siempre en CI (I-1) (2026-10-05, rama `claude/skydropx-d`)
+
+**B-1 · censo E2E.** `frontend/e2e/shipping-alerts.spec.ts` (`3d0238f0`) sumó `mockOnly` **135/27 → 138/28**
+(2 llamadas + el import; el método `grep -rwo` cuenta los tres, como en el resto de ficheros). Los dos son
+legítimos: el selector «Ver como» solo se renderiza con `canSwitchRole` (`AdminTopbar.tsx:41-43`, modo demo) y la
+lista con `alert=true` sale del servidor falso. Baseline regenerada con `--update --motivo` (motivo en la línea 3;
+el de `precios-s5` del 2026-10-04 sigue en `git log -p scripts/e2e-skip-census.baseline`). **Salida pendiente,
+dueño frontend:** un spec `@real` aparte con súper-admin y operador reales sobre `/admin/m4?tab=envios&alert=true`.
+Medido: gate rc=0; canario **14/14 en 3/3**.
+
+**I-1 · «la prueba con base se saltó» (job `backend`, paso M-64).** Causa **medida**: no faltaba base ni variable.
+El job usa **Node 24**; desde Node 23 el reporter por defecto de `node:test` es `spec` también sin TTY y el
+resumen sale `ℹ skipped N`, no `# skipped N`. El `grep '^# skipped 0$'` no podía casar nunca ⇒ rojo en **cada**
+corrida desde que el paso existe (en `origin/main` no hay paso M-64: «verde en main» no medía nada de esto). En
+local QA vio `# skipped 0` porque el entorno tiene Node 22.
+
+| Medición (2026-10-05, misma prueba sin base) | Resumen |
+|---|---|
+| Node 22.22.2 (`/opt/node22`) | `# skipped 6` |
+| Node 24.21.0 (tarball oficial, sha256 verificado contra `SHASUMS256.txt`) | `ℹ skipped 6` |
+| Node 24.21.0 + `NODE_OPTIONS=--test-reporter=tap` | `# skipped 6` |
+
+**Arreglo** (`ci.yml`, solo el paso): reporter TAP forzado por `NODE_OPTIONS` y un control previo que exige
+`# tests N≥1` — así «formato desconocido» y «se saltó» son errores distintos. Canario de la lógica del paso:
+Node 24+TAP sin base ⇒ «se saltó» **3/3**; Node 24 sin TAP (la configuración anterior) ⇒ «formato»; salida
+sintética `# skipped 0` ⇒ verde; `# tests 0` ⇒ «formato». **NO MEDIDO en local:** la parte con base bajo Node 24
+(no tengo base dedicada propia); la medición que lo cierra es el job `backend` en CI tras el push de este cambio.
