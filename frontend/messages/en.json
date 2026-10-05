@@ -1551,10 +1551,10 @@
         "pendingPriceLink": "See in the pending price queue",
         "sealedMark": "SEALED",
         "sealedUnidentified": "Unidentified sealed product",
-        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set final price here.",
+        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set price here, before VAT.",
         "openPiece": "Open item {folio}",
         "basis": {
-          "manual": "hand-set final price",
+          "manual": "set by hand, before VAT",
           "market": "automatic",
           "floor": "floor",
           "override": "variant price",
@@ -1562,7 +1562,7 @@
         },
         "reason": {
           "location": "No location: it goes on sale by itself once you set one.",
-          "sealedNoPrice": "This sealed item has no automatic price: set a final price.",
+          "sealedNoPrice": "This sealed item has no automatic price: set a price.",
           "no_market": "The provider has no market price for this card.",
           "premium_at_floor": "Premium rarity with market below the floor: held for review.",
           "seeRule": "See the rule",

@@ -122,7 +122,7 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
 
     // Sin precio: «—», ⛔ nunca MX$0.00.
     expect(await screen.findByTestId('sealed-final-price-inv-s1')).toHaveTextContent('— · sin precio');
-    expect(screen.getByTestId('publish-reason-inv-s1')).toHaveTextContent('El sellado no tiene precio automático: ponle precio final.');
+    expect(screen.getByTestId('publish-reason-inv-s1')).toHaveTextContent('El sellado no tiene precio automático: ponle precio.');
     await openEditorAndType('INV-001950', '1250');
     const editor = screen.getByTestId('sealed-final-price-editor-inv-s1');
     expect(within(editor).getByRole('button', { name: 'Guardar y publicar' })).toBeEnabled();
@@ -221,10 +221,10 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
     expect(screen.queryByTestId('sealed-final-price-editor-inv-s1')).toBeNull();
   });
 
-  it('precio final ya puesto ⇒ «Cambiar precio», prellenado con él, base «precio final a mano»', async () => {
+  it('precio final ya puesto ⇒ «Cambiar precio», prellenado con él, base «a mano, antes de IVA»', async () => {
     stub([sealedRow({ listPriceCents: 118_000, resolvedSalePriceCents: 118_000, priceBasis: 'override', missing: ['location'], locationId: null })]);
     renderWithProviders(<PendingPublishQueue />, 'es');
-    expect(await screen.findByTestId('sealed-final-price-inv-s1')).toHaveTextContent('MX$1,180.00 · precio final a mano');
+    expect(await screen.findByTestId('sealed-final-price-inv-s1')).toHaveTextContent('MX$1,180.00 · a mano, antes de IVA');
     fireEvent.click(screen.getByRole('button', { name: 'Cambiar precio de INV-001950' }));
     expect((screen.getByLabelText('Precio antes de IVA (MXN)') as HTMLInputElement).value).toBe('1180.00');
     // Igual al actual ⇒ nada que guardar.

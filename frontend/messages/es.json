@@ -1551,10 +1551,10 @@
         "pendingPriceLink": "Ver en la cola de precio pendiente",
         "sealedMark": "SELLADO",
         "sealedUnidentified": "Sellado sin identificar",
-        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio final a mano.",
+        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio a mano, antes de IVA.",
         "openPiece": "Abrir la pieza {folio}",
         "basis": {
-          "manual": "precio final a mano",
+          "manual": "a mano, antes de IVA",
           "market": "automático",
           "floor": "piso",
           "override": "precio de variante",
@@ -1562,7 +1562,7 @@
         },
         "reason": {
           "location": "Sin ubicación: se publica sola en cuanto se la pongas.",
-          "sealedNoPrice": "El sellado no tiene precio automático: ponle precio final.",
+          "sealedNoPrice": "El sellado no tiene precio automático: ponle precio.",
           "no_market": "El proveedor no trae precio de mercado para esta carta.",
           "premium_at_floor": "Rareza premium con mercado bajo el piso: retenida para revisión.",
           "seeRule": "Ver la regla",

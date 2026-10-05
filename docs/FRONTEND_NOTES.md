@@ -19122,11 +19122,13 @@ tienda a {price}». Se aplican los 16 textos corregidos de la tabla D-SP-5 (`DES
 - **Fuera a propósito:** `storePrice` («En la tienda: {price}») — necesita `resolvedDisplayPriceCents` del servidor,
   que en `production` no existe; y el sufijo «antes de IVA» en la lectura de la cola / solo lectura
   (`SealedFinalPrice.tsx:208-212`, `:234-240`), que es JSX, no texto. Ambos van con el stream de sellado.
-- **Fuera de alcance (otras claves):** `admin.m1.pendingPublish.*` aún dice «precio final» en `note`, `basis.manual`
-  («precio final a mano») y `reason.sealedNoPrice` (`es.json:1554/1557/1565` y pares `en`). No son de
-  `admin.sealedFinalPrice.*`; pendiente de que ux-ui los incluya.
+- **Cola «Listas para publicar» (`admin.m1.publishQueue.*`, `es.json:1554/1557/1565` y pares `en`)**, cerrada en
+  el mismo hotfix a petición del orquestador: `note` «…un precio a mano, antes de IVA» / «…a hand-set price here,
+  before VAT»; `basis.manual` (va junto a la cifra) «a mano, antes de IVA» / «set by hand, before VAT»;
+  `reason.sealedNoPrice` «…ponle precio.» / «…set a price.». Redacción de frontend con el léxico de D-SP-5;
+  pendiente de que ux-ui la ratifique. Ya no queda «precio final»/«final price» en ninguno de los dos catálogos.
 - **Candado UX-SP-18** (`src/lib/i18n-sealed-final-price-iva.test.ts`): ningún valor de `admin.sealedFinalPrice.*`
-  (es/en) contiene «precio final»/«final price»; `confirm.effectPublish` menciona IVA/VAT; `label` dice
+  ni de `admin.m1.publishQueue.*` (es/en) contiene «precio final»/«final price»; `confirm.effectPublish` menciona IVA/VAT; `label` dice
   «antes de IVA»/«before VAT». `SealedFinalPrice.test.tsx` actualizada solo en los textos que fijaba; las comprobaciones
   de ausencia (`/precio final/i`) pasan a los rótulos nuevos (`/^(Poner|Cambiar) precio de /i`, `/Antes de IVA/`)
   para no quedar vacías.
@@ -19134,3 +19136,6 @@ tienda a {price}». Se aplican los 16 textos corregidos de la tabla D-SP-5 (`DES
   ficheros, 2551/2551 pruebas** (incluye `i18n-parity`). Mutaciones deterministas N=1 sobre `git archive` del árbol
   entero (tree `3b0e01ab`): `label` es ⇒ «Precio final (MXN)» deja UX-SP-18 rojo (2/4: «ningún texto» es + `label`);
   `rowLabel` en ⇒ «Final price» + `effectPublish` en viejo ⇒ rojo (2/4: «ningún texto» en + `effectPublish`). Copia borrada.
+- **Segunda pasada (`publishQueue`, 2026-10-05):** tsc 0 · lint sin avisos · Vitest **212/212, 2554/2554** (load ~15-20
+  con 4 CPU; sin rojos). Mutaciones N=1 sobre `git archive` del tree `795f4d90`: `basis.manual` es ⇒ «precio final a
+  mano» ⇒ rojo (2/7); `note` en ⇒ «…hand-set final price here.» ⇒ rojo (1/7). Copia borrada.
