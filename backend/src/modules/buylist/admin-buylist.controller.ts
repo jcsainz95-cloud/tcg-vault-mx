@@ -576,6 +576,32 @@ export class AdminBuylistController {
     return request;
   }
 
+  /**
+   * v1.82 · **PNL-4** — `POST /admin/buylist/:id/reject-items` (`API_CONTRACT §PNL.4`): varias cartas de una
+   * solicitud en `verificacion`, un motivo, **todo o nada**, **un** correo; si quedan todas rechazadas la
+   * solicitud se cierra sola. Roles de la clase (operador+), ⛔ sin `@MoneyOut` (no es dinero saliente).
+   * Cuerpo CRUDO: el servicio lo valida entero para dar `400 {field, rule}` (`parseRejectItemsBody`).
+   * La bitácora `buylist.items_rejected` se escribe SOLO si el servicio no lanzó (registra hechos).
+   */
+  @Post(':id/reject-items')
+  @HttpCode(HttpStatus.OK)
+  async rejectItems(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const { items, requestClosed, itemIds, reason } = await this.buylist.rejectItems(id, body);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.items_rejected',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: { itemIds, reason, requestClosed },
+    });
+    return { items, requestClosed };
+  }
+
   @Patch('items/:itemId/decision')
   async decision(
     @Param('itemId') itemId: string,

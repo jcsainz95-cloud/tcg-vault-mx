@@ -101,6 +101,9 @@ describe('SRF-13 — por ausencia (criterio 253)', () => {
       'replacementPendingTemplate',
       'sellGuideTemplate',
       'sellItemRejectedTemplate',
+      // v1.82 · PNL-4 (DESIGN_SYSTEM §60.6, correo 29): correo nuevo — el aviso de VARIAS cartas
+      // rechazadas de una solicitud de venta. No es aviso de reembolso: no toca lo que este censo protege (AV-3).
+      'sellItemsRejectedTemplate',
       'sellOfferCancelledTemplate',
       'sellOfferReminderTemplate',
       'sellOfferTemplate',

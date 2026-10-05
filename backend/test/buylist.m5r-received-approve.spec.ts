@@ -185,6 +185,8 @@ function fakeDb(opts: Opts = {}) {
     },
     inventoryMovement: { create: jest.fn(async () => ({})) },
     nextFolio: jest.fn(async () => 'F-0001'),
+    // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+    $queryRaw: jest.fn(async () => [{ id: "locked" }]),
     $transaction: jest.fn(async (cb: any) => (typeof cb === 'function' ? cb(prisma) : cb)),
   };
   const settings = { getNumber: jest.fn(async () => 300000) };

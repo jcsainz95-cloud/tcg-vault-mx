@@ -49,6 +49,7 @@ import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   offerTermsCopy,
   sellItemRejectedTemplate,
+  sellItemsRejectedTemplate,
   sellOfferCancelledTemplate,
   sellOfferTemplate,
   sellRequestNotPursuedTemplate,
@@ -66,6 +67,7 @@ import {
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
 import { runSerializable } from '../../common/serializable-retry';
+import { parseRejectItemsBody, rejectItemsBlock } from './buylist-reject-items';
 import {
   deriveRejectedReason,
   rejectDeadlines,
@@ -6535,7 +6537,7 @@ export class BuylistService implements OnModuleInit {
     // `common/buylist-aml.ts`): la relectura de la LÍNEA solo la necesita este cuerpo, y ensanchar el
     // tipo común obligaría a proveer `sellRequestItem` a los tres acumulados AML que no lo usan.
     db: SellRequestReader & Pick<Prisma.TransactionClient, 'sellRequestItem'>,
-    item: { id: string; sellRequestId: string; offeredPriceCents: number | null },
+    item: { id: string; sellRequestId: string; offeredPriceCents: number | null; itemStatus: SellItemStatus },
     decision: 'approve' | 'adjust',
     approvedPriceCents?: number,
   ): Promise<never> {
@@ -6565,6 +6567,21 @@ export class BuylistService implements OnModuleInit {
         // ⚠️ v1.58 · §M5-R (BL-39) — **FUERA del ciclo la escalera del ciclo no corre, pero R sí**:
         // no es una regla del ciclo de oferta, es una afirmación sobre mercancía física. Mismo cuerpo.
         this.assertRequestReceived(decision, parent, current.status);
+      }
+      // ⚠️ v1.82 · PNL-4 (BRJ-8) — **la CARTA cambió bajo la decisión.** El `where` de abajo lleva
+      // `itemStatus` = el observado (CAS); si otra escritura la movió entre la lectura y la escritura
+      // (un `reject-items`, un rechazo por carta, una conversión), la solicitud sigue VIVA y decir
+      // «cerrada» (`NO_LIVE_ADJUSTMENT`) mentiría. Mismo código y forma que la carrera de §M5-S (I5).
+      const freshItem = await db.sellRequestItem.findUnique({
+        where: { id: item.id },
+        select: { itemStatus: true },
+      });
+      if (freshItem && freshItem.itemStatus !== item.itemStatus) {
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'This card was modified by another operation; nothing was changed. Please retry.',
+          { itemId: item.id, itemStatus: freshItem.itemStatus, reason: 'CONCURRENT_UPDATE' },
+        );
       }
     }
     // Terminal (o cualquier otra desaparición de la fila): el `409` de siempre, con su relectura.
@@ -6757,21 +6774,10 @@ export class BuylistService implements OnModuleInit {
       // antes hubiera sido aprobado/ajustado → approvedPriceCents=null ANTES del recompute.
       // v1.51.5 · BL-14: `updateMany` + `count === 1` con la guarda de terminal EN EL `where` — la
       // exclusión la da el motor, no un `if` sobre la lectura de arriba (que una carrera invalida).
-      const guard = await this.prisma.sellRequestItem.updateMany({
-        // ⚠️ v1.51.20 · BL-27 — el eje del ciclo **NO** entra a este `where`, y es deliberado:
-        // `reject` es legal a los DOS lados del discriminador (D30: es el mecanismo del rechazo
-        // PARCIAL, «se rechaza carta por carta con el correo que YA EXISTE») y su escritura **no
-        // depende de ningún monto**. Meterlo aquí fabricaría un `409` por una carrera que no cambia
-        // nada de lo que se escribe. *Se guarda lo que el estado condiciona, no todo lo que se leyó.*
-        where: { id: itemId, sellRequest: this.notTerminalWhere() },
-        data: {
-          itemStatus: 'rechazada',
-          approvedPriceCents: null,
-          rejectedAt,
-          rejectionReason: trimmedReason,
-        },
-      });
-      if (guard.count !== 1) await this.throwTerminalConflict(this.prisma, item.sellRequestId);
+      // v1.82 · PNL-4: la escritura vive en `rejectItemWrite`, UN cuerpo con `reject-items`. Aquí sin
+      // `expectedItemStatus` (el `where` es el de siempre: `PATCH …/decision {reject}` sin cambio, §PNL.4).
+      const written = await this.rejectItemWrite(this.prisma, itemId, trimmedReason, rejectedAt);
+      if (!written) await this.throwTerminalConflict(this.prisma, item.sellRequestId);
       // `updateMany` no devuelve filas: la relectura es la única forma de responder el estado ya
       // escrito (mismo motivo que en `respond`).
       const updated = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
@@ -6854,6 +6860,12 @@ export class BuylistService implements OnModuleInit {
       const guard = await tx.sellRequestItem.updateMany({
         where: {
           id: itemId,
+          // ⚠️ v1.82 · PNL-4 (BRJ-8) — **CAS por estado de la carta.** Sin él, una aprobación que LEYÓ la
+          // carta en `verificacion` y ESCRIBE después de que `reject-items` la rechazara dejaba la fila
+          // `aprobada` con `rejectedAt`/`rejectionReason` puestos (el `if (item.itemStatus === 'rechazada')`
+          // de arriba decide la limpieza con la lectura vieja): **aprobada y rechazada a la vez**. Con el CAS,
+          // la decisión tomada sobre una vista vieja no escribe (`409 CONFLICT · CONCURRENT_UPDATE`).
+          itemStatus: item.itemStatus,
           sellRequest: { ...this.notTerminalWhere(), ...offerCycleWhere, ...receivedWhere },
         },
         data: data as Prisma.SellRequestItemUpdateManyMutationInput,
@@ -6894,8 +6906,26 @@ export class BuylistService implements OnModuleInit {
    * approvedTotalCents" (el reject ya anula approvedPriceCents; esto lo blinda ante escrituras
    * futuras que olviden anular el monto). `quotedTotalCents` nunca se recalcula (snapshot).
    */
-  private async recomputeApprovedTotal(sellRequestId: string): Promise<void> {
-    const agg = await this.prisma.sellRequestItem.aggregate({
+  private async recomputeApprovedTotal(
+    sellRequestId: string,
+    // v1.82 · PNL-4: `reject-items` lo corre DENTRO de su tx, con la fila `SellRequest` ya tomada `FOR UPDATE`.
+    db?: Pick<Prisma.TransactionClient, 'sellRequestItem' | 'sellRequest'>,
+  ): Promise<void> {
+    if (!db) {
+      // ⚠️ v1.82 · PNL-4 (BRJ-8, MEDIDO) — **el recálculo suelto escribía un total VIEJO.** Leía el agregado y
+      // escribía después, sin candado: si entre las dos un `reject-items` rechazaba una carta y confirmaba,
+      // este `update` pisaba su total con el de ANTES — la carta quedaba `rechazada` y su precio seguía en
+      // `approvedTotalCents` (medido: 1 de 4 corridas de BRJ-8 (c), N = 12 rondas cada una: total 12000 con
+      // la carta rechazada). Ahora toma la fila `SellRequest` `FOR UPDATE` ANTES de agregar: serializa con
+      // `reject-items` (que la sostiene durante su tx) y con otro recálculo, y el agregado se lee DESPUÉS
+      // del candado ⇒ ve lo que el último confirmó.
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${sellRequestId} FOR UPDATE`;
+        await this.recomputeApprovedTotal(sellRequestId, tx);
+      });
+      return;
+    }
+    const agg = await db.sellRequestItem.aggregate({
       where: {
         sellRequestId,
         approvedPriceCents: { not: null },
@@ -6926,7 +6956,7 @@ export class BuylistService implements OnModuleInit {
     // ítem. El no-op ES el resultado correcto: sobre una fila cerrada el total ya no se recalcula
     // porque **el total congelado es exactamente el que se pagó**. Se registra para que la carrera
     // sea VISIBLE (§4.39k.1: se degrada lo que se muestra, nunca lo que se compromete).
-    const guard = await this.prisma.sellRequest.updateMany({
+    const guard = await db.sellRequest.updateMany({
       where: { id: sellRequestId, ...this.liveRequestWhere() },
       data: { approvedTotalCents },
     });
@@ -6956,27 +6986,225 @@ export class BuylistService implements OnModuleInit {
     // solicitud a rechazada" (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón
     // que `createRequest`/SEC-A2), haciendo verdadera la afirmación del doc «mismo transaction
     // boundary». Sin esto, count y update eran awaits secuenciales no atómicos. Dentro se usa `tx`.
-    await runSerializable(
+    await runSerializable(this.prisma, (tx) => this.autoRejectIfAllRejectedTx(tx, sellRequestId), {
+      label: 'rejectAllItems',
+      logger: this.logger,
+    });
+  }
+
+  /**
+   * El cuerpo ÚNICO de la auto-transición (§4.18f): «¿queda alguna carta no-rechazada?» + «sella
+   * `rechazada`+`closedAt`», en la tx del llamador. Lo usan `maybeAutoRejectRequest` (rechazo por carta)
+   * y `rejectItems` (v1.82 · PNL-4, dentro de su tx con la solicitud `FOR UPDATE`).
+   * @returns `true` si ESTA llamada cerró la solicitud.
+   */
+  private async autoRejectIfAllRejectedTx(tx: Prisma.TransactionClient, sellRequestId: string): Promise<boolean> {
+    // ¿Queda algún ítem NO-rechazado en la solicitud? (convertida_inventario cuenta como vivo).
+    const nonRejectedCount = await tx.sellRequestItem.count({
+      where: { sellRequestId, itemStatus: { not: 'rechazada' } },
+    });
+    if (nonRejectedCount > 0) return false; // aún hay ítems no-rechazados → no se auto-rechaza.
+    // Transición con guardia «no pisar terminal» (patrón updateMany de paySpei). Si la solicitud
+    // ya es terminal (pagada/rechazada/abandonada) el updateMany no matchea → no-op.
+    // ⚠️ v1.56 · **§M5-T** — el guard pasa a los **DOS** términos (`liveRequestWhere`). Escribe
+    // `status`, luego obedece T; y llevaba **solo el de estado**, así que sobre la fila que P1
+    // fabrica (`closedAt` sellado ∧ `status` no terminal) **auto-rechazaba una solicitud ya
+    // pagada** — reescribiendo a `rechazada` una fila cuyo dinero ya salió.
+    const res = await tx.sellRequest.updateMany({
+      where: { id: sellRequestId, ...this.liveRequestWhere() },
+      data: { status: 'rechazada', closedAt: new Date() },
+    });
+    return res.count === 1;
+  }
+
+  /**
+   * v1.82 · PNL-4 — **la escritura de UN rechazo de carta**, un cuerpo para `PATCH …/decision {reject}` y
+   * `POST …/reject-items` (§PNL.4 paso 5, «el mismo efecto»): `rechazada`, `approvedPriceCents = null`
+   * (BL-1: el rechazo SACA la carta del total), `rejectedAt` (ancla de los plazos +7 d / +30 d, que se
+   * derivan con `rejectDeadlines`) y el motivo. Guarda de terminal EN EL `where` (BL-14).
+   *
+   * ⚠️ v1.51.20 · BL-27 — el eje del ciclo **NO** entra a este `where`, y es deliberado: `reject` es legal a
+   * los DOS lados del discriminador (D30: es el mecanismo del rechazo PARCIAL) y su escritura **no depende
+   * de ningún monto**. *Se guarda lo que el estado condiciona, no todo lo que se leyó.*
+   *
+   * `expectedItemStatus` (solo `reject-items`): **CAS por estado de la carta** — el lote decidió con la
+   * carta en ese estado (no convertida, no pagada, no rechazada); si otra escritura la movió entre la
+   * lectura y aquí (una aprobación, una conversión), `count = 0` y el lote entero se deshace (BRJ-8).
+   * @returns `true` si escribió la fila.
+   */
+  private async rejectItemWrite(
+    db: Pick<Prisma.TransactionClient, 'sellRequestItem'>,
+    itemId: string,
+    trimmedReason: string,
+    rejectedAt: Date,
+    expectedItemStatus?: SellItemStatus,
+  ): Promise<boolean> {
+    const guard = await db.sellRequestItem.updateMany({
+      where: {
+        id: itemId,
+        sellRequest: this.notTerminalWhere(),
+        ...(expectedItemStatus ? { itemStatus: expectedItemStatus } : {}),
+      },
+      data: {
+        itemStatus: 'rechazada',
+        approvedPriceCents: null,
+        rejectedAt,
+        rejectionReason: trimmedReason,
+      },
+    });
+    return guard.count === 1;
+  }
+
+  /**
+   * v1.82 · **PNL-4 — `POST /admin/buylist/:id/reject-items`** (`API_CONTRACT §PNL.4`, `ARCHITECTURE §4.61.4`).
+   * Rechaza VARIAS cartas de una solicitud en `verificacion` con UN motivo, **todo o nada**, y manda **un**
+   * correo (correo 29). ⛔ No es dinero saliente (operador+), pero cambia lo que se le paga al vendedor:
+   * cada carta sale del total aprobado (BL-1) dentro de la misma tx.
+   *
+   * Orden normativo (§PNL.4): `400` de forma → tx con `SellRequest FOR UPDATE` → terminal o `closedAt` ⇒
+   * `409 CONFLICT {status, closedAt}` → `status ≠ verificacion` ⇒ `409 INVALID_TRANSITION {from, allowedFrom}`
+   * → algún id ajeno ⇒ `404` → alguna `skip` ⇒ `422 ITEM_NOT_OFFERED {itemIds}` → alguna no rechazable ⇒
+   * `409 CONFLICT {itemIds}` → por carta `rejectItemWrite` con CAS por estado → recálculo del total →
+   * auto-cierre si no queda ninguna viva. El correo va DESPUÉS del commit (best-effort, no deshace).
+   *
+   * **Serializable + `FOR UPDATE`**: el candado serializa con otro `reject-items`/`reject` sobre la misma
+   * solicitud; el CAS por carta cubre a quien no toma el candado (la decisión por carta, la conversión).
+   * Si el CAS falla, se lanza dentro de la tx ⇒ rollback de TODO lo escrito (todo o nada, BRJ-4/BRJ-8).
+   */
+  async rejectItems(
+    id: string,
+    body: unknown,
+  ): Promise<{ items: ReturnType<typeof toAdminSellItemRow>[]; requestClosed: boolean; itemIds: string[]; reason: string }> {
+    const { itemIds, reason } = parseRejectItemsBody(body);
+    const rejectedAt = new Date();
+    const outcome = await runSerializable(
       this.prisma,
       async (tx) => {
-        // ¿Queda algún ítem NO-rechazado en la solicitud? (convertida_inventario cuenta como vivo).
-        const nonRejectedCount = await tx.sellRequestItem.count({
-          where: { sellRequestId, itemStatus: { not: 'rechazada' } },
+        const locked = await tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+        if (locked.length === 0) throw BusinessException.notFound();
+        const req = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true, closedAt: true },
         });
-        if (nonRejectedCount > 0) return; // aún hay ítems no-rechazados → no se auto-rechaza.
-        // Transición con guardia «no pisar terminal» (patrón updateMany de paySpei). Si la solicitud
-        // ya es terminal (pagada/rechazada/abandonada) el updateMany no matchea → no-op.
-        // ⚠️ v1.56 · **§M5-T** — el guard pasa a los **DOS** términos (`liveRequestWhere`). Escribe
-        // `status`, luego obedece T; y llevaba **solo el de estado**, así que sobre la fila que P1
-        // fabrica (`closedAt` sellado ∧ `status` no terminal) **auto-rechazaba una solicitud ya
-        // pagada** — reescribiendo a `rechazada` una fila cuyo dinero ya salió.
-        await tx.sellRequest.updateMany({
-          where: { id: sellRequestId, ...this.liveRequestWhere() },
-          data: { status: 'rechazada', closedAt: new Date() },
+        if (!req) throw BusinessException.notFound();
+        if (isTerminalSellRequestStatus(req.status) || req.closedAt !== null) {
+          throw this.requestClosedConflict(req);
+        }
+        if (req.status !== 'verificacion') {
+          throw BusinessException.conflict(
+            'INVALID_TRANSITION',
+            `This sell request is in '${req.status}'; rejecting several cards only applies from verificacion`,
+            { from: req.status, allowedFrom: ['verificacion'] },
+          );
+        }
+        const rows = await tx.sellRequestItem.findMany({
+          where: { id: { in: itemIds }, sellRequestId: id },
+          select: { id: true, itemStatus: true, offerDecision: true },
         });
+        // `404` ⇒ algún id no es de ESTA solicitud (o no existe): no se distingue cuál a propósito.
+        if (rows.length !== itemIds.length) throw BusinessException.notFound();
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        const ordered = itemIds.map((i) => byId.get(i)!);
+        const notOffered = ordered.filter((r) => rejectItemsBlock(r) === 'not_offered').map((r) => r.id);
+        if (notOffered.length > 0) {
+          throw BusinessException.validation(
+            'ITEM_NOT_OFFERED',
+            'Some of these lines were not purchased (skip): they are not rejected',
+            { itemIds: notOffered },
+          );
+        }
+        const blocked = ordered.filter((r) => rejectItemsBlock(r) === 'not_rejectable').map((r) => r.id);
+        if (blocked.length > 0) {
+          throw BusinessException.conflict('CONFLICT', 'Some of these cards can no longer be rejected', {
+            itemIds: blocked,
+          });
+        }
+        for (const r of ordered) {
+          const written = await this.rejectItemWrite(tx, r.id, reason, rejectedAt, r.itemStatus);
+          if (!written) {
+            // El CAS no casó: otra escritura movió la carta entre la lectura y aquí. ⛔ Nada queda escrito
+            // (el throw deshace la tx entera). Mismo `409 CONFLICT {itemIds}` que el pre-check.
+            this.logger.warn(
+              `PNL-4 · reject-items ${id}: la carta ${r.id} cambió de '${r.itemStatus}' bajo el lote; se deshace todo.`,
+            );
+            throw BusinessException.conflict('CONFLICT', 'Some of these cards can no longer be rejected', {
+              itemIds: [r.id],
+            });
+          }
+        }
+        await this.recomputeApprovedTotal(id, tx);
+        const requestClosed = await this.autoRejectIfAllRejectedTx(tx, id);
+        const updated = await tx.sellRequestItem.findMany({ where: { id: { in: itemIds } } });
+        const updatedById = new Map(updated.map((u) => [u.id, u]));
+        return { items: itemIds.map((i) => toAdminSellItemRow(updatedById.get(i)!)), requestClosed };
       },
-      { label: 'rejectAllItems', logger: this.logger },
+      { label: 'rejectItems', logger: this.logger },
     );
+    await this.sendItemsRejectedMail(id, itemIds, reason, rejectedAt, outcome.requestClosed);
+    return { ...outcome, itemIds, reason };
+  }
+
+  /**
+   * v1.82 · PNL-4 — el correo 29 (`sellItemsRejectedTemplate`), **UNO** por lote. BEST-EFFORT POST-COMMIT
+   * (patrón `sendItemRejectedMail`): todo —incluida la lectura de datos— dentro del `try`; un fallo se
+   * registra y ⛔ no deshace el rechazo. Minimización §4.18c: cartas (nombre/set/número/acabado), motivo y
+   * plazos — sin CLABE, sin montos, sin el estado de las demás cartas.
+   */
+  private async sendItemsRejectedMail(
+    sellRequestId: string,
+    itemIds: string[],
+    reason: string,
+    rejectedAt: Date,
+    requestClosed: boolean,
+  ): Promise<void> {
+    try {
+      if (!this.mail) {
+        this.logger.warn(`buylist reject-items mail skipped for ${sellRequestId}: MAIL_PORT unavailable`);
+        return;
+      }
+      const req = await this.prisma.sellRequest.findUnique({
+        where: { id: sellRequestId },
+        select: { user: { select: { email: true, name: true, locale: true } } },
+      });
+      const user = req?.user;
+      if (!user?.email) {
+        this.logger.warn(`buylist reject-items mail skipped for ${sellRequestId}: no recipient email`);
+        return;
+      }
+      const items = await this.prisma.sellRequestItem.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true, finish: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } },
+      });
+      const byId = new Map(items.map((i) => [i.id, i]));
+      const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
+      const msg = sellItemsRejectedTemplate(
+        {
+          folio: sellRequestId,
+          cards: itemIds.map((i) => {
+            const it = byId.get(i);
+            return {
+              cardName: it?.card?.name ?? '',
+              setName: it?.card?.set?.name ?? '',
+              cardNumber: it?.card?.number ?? '',
+              finish: it?.finish ?? 'normal',
+            };
+          }),
+          reason,
+          rejectedAt,
+          returnDeadlineAt: returnDeadlineAt!,
+          abandonDeadlineAt: abandonDeadlineAt!,
+          requestClosed,
+        },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist reject-items mail failed for ${sellRequestId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /**

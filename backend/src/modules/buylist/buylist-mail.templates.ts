@@ -243,6 +243,162 @@ export function sellItemRejectedTemplate(
   };
 }
 
+/** Una carta del correo 29 (minimización §4.18c: nombre, set, número y acabado — nada más). */
+export interface SellItemsRejectedCard {
+  cardName: string;
+  setName: string;
+  cardNumber: string;
+  finish: Finish;
+}
+
+export interface SellItemsRejectedParams {
+  folio: string;
+  cards: SellItemsRejectedCard[];
+  reason: string;
+  /** El ancla de los plazos (`SellRequestItem.rejectedAt`, la MISMA en todas las cartas del lote). */
+  rejectedAt: Date;
+  /** `rejectDeadlines(rejectedAt)` — la plantilla ⛔ no suma días: los recibe. */
+  returnDeadlineAt: Date;
+  abandonDeadlineAt: Date;
+  /** `true` ⇒ con este lote ya no quedó ninguna carta viva y la solicitud se cerró sola (§PNL.4 paso 6). */
+  requestClosed: boolean;
+}
+
+const MAIL_DAY_MS = 24 * 3600 * 1000;
+
+/**
+ * Días ENTEROS entre el rechazo y un plazo. ⚠️ ML-24 (DESIGN_SYSTEM §60.13): el «7» y el «30» que lee el
+ * vendedor **salen de las fechas que calcula el servidor**, no de un literal — si el plazo cambia, el número
+ * escrito cambia con él (un literal mentiría al lado de la fecha correcta).
+ */
+function daysBetween(from: Date, to: Date): number {
+  return Math.round((to.getTime() - from.getTime()) / MAIL_DAY_MS);
+}
+
+/**
+ * **CORREO 29 — CARTAS NO ACEPTADAS** (v1.82 · PNL-4; DESIGN_SYSTEM §60.6; `API_CONTRACT §PNL.4` paso 8). El
+ * **único** correo que sale de `POST /admin/buylist/:id/reject-items`: dice **cuáles** cartas, **el motivo**,
+ * los dos plazos con sus días («7» y «30» junto a las fechas), que el envío de regreso lo paga el vendedor, y
+ * un cierre distinto si la solicitud quedó cerrada.
+ *
+ * Familia VENTA, mismo esqueleto que el 4 (en plural): saludo, eyebrow con folio, titular serif 22px, lista
+ * de cartas con la celda de importe **vacía**, caja `TUS OPCIONES`, letra chica. **Sin CTA** (la acción es
+ * escribir a soporte, que va en el cuerpo: `supportContact()`), ⛔ sin dinero, ⛔ sin nombre del operador.
+ * El correo 4 (`sellItemRejectedTemplate`) **sigue** para `PATCH …/decision {reject}` (§PNL.4).
+ */
+export function sellItemsRejectedTemplate(
+  params: SellItemsRejectedParams,
+  name: string,
+  locale?: string | null,
+): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const n = params.cards.length;
+  const one = n === 1;
+  const returnDays = daysBetween(params.rejectedAt, params.returnDeadlineAt);
+  const abandonDays = daysBetween(params.rejectedAt, params.abandonDeadlineAt);
+  const returnDate = formatDate(params.returnDeadlineAt, l);
+  const abandonDate = formatDate(params.abandonDeadlineAt, l);
+  const support = supportContact();
+
+  const subject = en
+    ? one
+      ? 'A card in your sell request was not accepted'
+      : `${n} cards in your sell request were not accepted`
+    : one
+      ? 'Una carta de tu solicitud de venta no fue aceptada'
+      : `${n} cartas de tu solicitud de venta no fueron aceptadas`;
+  const eyebrow = en
+    ? one
+      ? 'CARD NOT ACCEPTED'
+      : 'CARDS NOT ACCEPTED'
+    : one
+      ? 'CARTA NO ACEPTADA'
+      : 'CARTAS NO ACEPTADAS';
+  const eyebrowText = `${eyebrow} · ${params.folio}`;
+  const title = en
+    ? one
+      ? "We didn't accept a card"
+      : `We didn't accept ${n} cards`
+    : one
+      ? 'No aceptamos una carta'
+      : `No aceptamos ${n} cartas`;
+  const intro = en
+    ? `When we checked your package we didn't accept ${one ? 'this card' : 'these cards'} from your sell request:`
+    : `Al revisar tu paquete no aceptamos ${one ? 'esta carta' : 'estas cartas'} de tu solicitud de venta:`;
+  const reasonProse = en ? `Reason: ${params.reason}` : `Motivo: ${params.reason}`;
+  const optionsLabel = en ? 'YOUR OPTIONS' : 'TUS OPCIONES';
+  const returnOption = en
+    ? `Return: you have ${returnDays} days, until ${returnDate}, to ask us to send ${one ? 'it' : 'them'} back. Return shipping is at your cost; write to ${support} to arrange it.`
+    : `Devolución: tienes ${returnDays} días, hasta el ${returnDate}, para pedir que te ${one ? 'la' : 'las'} regresemos. El envío de regreso corre por tu cuenta; escribe a ${support} para coordinarlo.`;
+  const abandonOption = en
+    ? `Abandonment: if you don't write to us, after ${abandonDays} days, on ${abandonDate}, ${one ? 'the card' : 'the cards'} will be considered abandoned.`
+    : `Abandono: si no nos escribes, a los ${abandonDays} días, el ${abandonDate}, ${one ? 'la carta se considerará abandonada' : 'las cartas se considerarán abandonadas'}.`;
+  const closing = params.requestClosed
+    ? en
+      ? "As we didn't accept any card, your request is closed and there is no payment."
+      : 'Como no aceptamos ninguna carta, tu solicitud queda cerrada y no hay pago.'
+    : en
+      ? 'The other cards in your request are still under review; this email doesn\'t change them.'
+      : 'Las demás cartas de tu solicitud siguen en revisión; este correo no las cambia.';
+  const finishOf = (c: SellItemsRejectedCard) => FINISH_LABELS[c.finish] ?? c.finish;
+
+  const cardBlocks = params.cards.flatMap((c, i) => [
+    ...(i > 0 ? [spacerRow(16)] : []),
+    // §31.6c — la línea de carta de siempre con la celda de importe VACÍA: ⛔ jamás `MX$ 0.00`.
+    cardLineRows({ title: c.cardName, meta: `${c.setName} · #${c.cardNumber} · ${finishOf(c)}` }),
+  ]);
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}${en ? ',' : ':'}`),
+    spacerRow(16),
+    proseRow(intro),
+    spacerRow(24),
+    ruleRow(),
+    spacerRow(16),
+    ...cardBlocks,
+    spacerRow(16),
+    ruleRow(),
+    spacerRow(24),
+    proseRow(reasonProse),
+    spacerRow(32),
+    termsBoxRows(optionsLabel, [returnOption, abandonOption]),
+    spacerRow(32),
+    smallPrintRow(closing),
+  ];
+  const cardLinesText = params.cards
+    .map((c) => `- ${c.cardName} · ${c.setName} · #${c.cardNumber} (${en ? 'Finish' : 'Acabado'}: ${finishOf(c)})`)
+    .join('\n');
+  // §31.12 — el texto plano dice LO MISMO: eyebrow con folio, lista, motivo, las dos opciones, cierre.
+  const text =
+    `${en ? `Hi ${name},` : `Hola ${name}:`}\n\n` +
+    `${eyebrowText}\n\n` +
+    `${title}\n\n` +
+    `${intro}\n` +
+    `${cardLinesText}\n\n` +
+    `${reasonProse}\n\n` +
+    `${optionsLabel}\n` +
+    `- ${returnOption}\n` +
+    `- ${abandonOption}\n\n` +
+    `${closing}\n\n` +
+    `${BRAND}`;
+
+  return {
+    to: '', // lo fija el llamador
+    subject,
+    html: mailShell({
+      locale: l,
+      title,
+      preheader: intro,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
+    text,
+  };
+}
+
 /**
  * v1.51 (§4.39n, DESIGN_SYSTEM §23.4.2/§23.4.4-bis) — los **DOS correos del ciclo de oferta** que este
  * pase produce: el **1 (LA OFERTA)** y el **5 (CANCELAMOS LA OFERTA)**.

@@ -152,6 +152,8 @@ function fakeDb(opts: {
         return { count: 1 };
       }),
     },
+    // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+    $queryRaw: jest.fn(async () => [{ id: "locked" }]),
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
   const svc = new BuylistService(

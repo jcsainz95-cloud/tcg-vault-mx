@@ -212,7 +212,9 @@ const CICLO: Record<string, Renderizador> = {
  * —eso es un hecho de producto— pero **lo prohibido se le busca igual**, en `(2-bis)`: la lista de
  * los cinco es de *«todo correo que salga de este fichero»*, no de los cinco correos del ciclo.
  */
-const FUERA_DEL_CICLO = ['sellItemRejectedTemplate'];
+// v1.82 · PNL-4: el correo 29 (`sellItemsRejectedTemplate`) es el hermano en plural del 4 — misma clase
+// (aviso de verificación, sin montos), mismo lado. Su contenido lo fija ML-24 (`buylist.items-rejected-mail.spec.ts`).
+const FUERA_DEL_CICLO = ['sellItemRejectedTemplate', 'sellItemsRejectedTemplate'];
 
 // =============================================================================================
 describe('⚠️ (1) el conteo es CINCO, y la lista se cierra sola', () => {

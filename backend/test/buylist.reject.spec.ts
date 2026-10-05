@@ -108,6 +108,8 @@ function build(itemOverrides: Record<string, unknown> = {}, mail: MailPort | und
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
     // v1.24 (endurecimiento §4.18f): la auto-transición corre count+updateMany en un $transaction
     // Serializable; el mock ejecuta el callback con `prisma` como `tx` (`$transaction:(fn)=>fn(tx)`).
+    // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+    $queryRaw: jest.fn(async () => [{ id: "locked" }]),
     $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
   };
   if (mail) {

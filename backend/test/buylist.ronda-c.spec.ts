@@ -100,6 +100,8 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
       },
       // v1.24 (endurecimiento §4.18f): la auto-transición del reject corre count+updateMany en un
       // $transaction Serializable; el mock ejecuta el callback con `prisma` como `tx`.
+      // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+      $queryRaw: jest.fn(async () => [{ id: "locked" }]),
       $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
     };
     const svc = new BuylistService(
@@ -202,6 +204,8 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
         }),
       },
       sellRequestItem: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+      $queryRaw: jest.fn(async () => [{ id: "locked" }]),
       $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
     };
     const svc = new BuylistService(
@@ -232,6 +236,8 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
       // v1.28 (P-22): el pago corre en $transaction (conteo de bounty en la misma tx); sin ítems
       // bounty el conteo es no-op.
       sellRequestItem: { findMany: jest.fn().mockResolvedValue([]) },
+      // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+      $queryRaw: jest.fn(async () => [{ id: "locked" }]),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const svc = new BuylistService(
