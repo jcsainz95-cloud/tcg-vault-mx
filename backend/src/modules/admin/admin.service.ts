@@ -1,3 +1,4 @@
+import { isOwnerAccount } from '../spend-alerts/owner';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { REFUND_REVIEW_PENDING_WHERE } from '../payments/refunds/refund-review';
 import { randomBytes, randomUUID } from 'crypto';
@@ -189,6 +190,8 @@ interface AdminUserRow {
   anonymizedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  // ⭐ v1.80.12.12 (§M4-SHIP.19.31.8): para `isOwner` (misma derivación que el resto: `isOwnerAccount` de la fila).
+  isOwner: boolean;
 }
 
 function toAdminUserHeader(u: AdminUserRow) {
@@ -213,6 +216,8 @@ function toAdminUserHeader(u: AdminUserRow) {
     deletedAt: u.deletedAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
+    // ⭐ v1.80.12.12 (§M4-SHIP.19.31.8): en los DOS DTOs de la ficha. ⛔ Nunca autoriza en el front (la base decide).
+    isOwner: isOwnerAccount(u),
     // FUERA por construcción: `passwordHash`, `tokenVersion` (revocación de sesiones) y `googleId`
     // — ninguno tiene por qué viajar en una ficha de back-office, y **ya no se leen de la BD**
     // (`ADMIN_USER_DETAIL_SELECT`).
@@ -526,6 +531,7 @@ const ADMIN_USER_DETAIL_SELECT = {
   anonymizedAt: true,
   createdAt: true,
   updatedAt: true,
+  isOwner: true,
   kycProfile: {
     select: {
       ...ADMIN_KYC_SELECT,
