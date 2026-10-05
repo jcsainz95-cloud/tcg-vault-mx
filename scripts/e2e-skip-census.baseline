@@ -1,7 +1,7 @@
 # Baseline del censo de salvaguardas E2E (scripts/check-e2e-skip-census.sh).
 # Formato: clave ocurrencias ficheros. Se regenera SOLO con --update --motivo, en el mismo diff que el cambio.
-# 2026-10-05 · merge panel+skydropx
-mockOnly 138 28
+# 2026-10-05 · frontend/e2e/sealed-price-sheet.spec.ts (SP-F, rama claude/precio-sellado): mockOnly sobre el servidor falso de la hoja «Precios del sellado»; hueco declarado en la cabecera del spec (el seed real no siembra un SealedProduct con piezas ligadas y costo). Fusión con claude/arreglos-panel: 138 (panel) + 3 = 141, 28 + 1 = 29 ficheros.
+mockOnly 141 29
 needsSeed 35 10
 harnessLimit 5 3
 skipIfSeedMissing 15 7
