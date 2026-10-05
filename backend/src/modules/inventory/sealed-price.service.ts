@@ -372,7 +372,10 @@ export class SealedPriceService {
       where: { id: sealedProductId },
       select: PRODUCT_SELECT,
     });
-    const [data] = await this.rowsOf(product ? [product] : [], await this.settings.getIvaDials());
+    // D-8 (gate de techlead): si el producto desapareció entre el commit y la relectura, `404` explícito — nunca un
+    // `200` con `data: undefined`. El precio YA quedó confirmado (y su bitácora); lo que no hay es fila que devolver.
+    if (!product) throw BusinessException.notFound('NOT_FOUND', 'Sealed product not found');
+    const [data] = await this.rowsOf([product], await this.settings.getIvaDials());
     return { data, autoPublish };
   }
 

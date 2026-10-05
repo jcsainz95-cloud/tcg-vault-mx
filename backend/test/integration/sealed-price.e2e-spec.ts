@@ -21,7 +21,8 @@
  *  - SP-16 💰 A-2: el `PUT` publica lo publicable DESPUÉS del commit; si el intento lanza, `autoPublish: null`.
  *  - SP-16b 💰 v1.83.2 (§M11-SP.13.2): el doble clic no escribe en la tx, pero el disparo corre (es el reintento).
  *  - SP-17 A-1: `sealedProductId` / `sealedProductPieces` en el listado.
- *  - SP-18 💰 el dial de traslación 100 → 50 por su verbo: el `P` del dueño no se mueve; el automático baja.
+ *  - SP-18 💰 el dial de traslación 100 → 50 por su verbo: el `P` del dueño no se mueve; el automático baja. Con
+ *          redundancia `P = 7000` (sin ida y vuelta `P → L → P` exacta en 100/16 ni en 50/16): muerde «P desde L».
  *
  * ⚠️ Fila compartida: `iva_transfer_pct` (SP-10, SP-18) y `sealed_price_source` (SP-10): se restauran y se releen.
  */
@@ -965,12 +966,21 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
     it('producto con precio del dueño: mismo P en ficha y checkout; producto automático: P baja', async () => {
       await setSource('tcgcsv');
       const O = await product({ owner: 129_900 });
+      // 💰 Redundancia (QA menor 2 del gate de techlead): 129 900 da ida y vuelta EXACTA `P → L → P` con 100/16 y con
+      // 50/16, así que la mutación «P derivado desde el L equivalente» (`orders.service.ts` `derivedSaleDecision`)
+      // pasaría con él. MX$70.00 NO la da con ninguno de los dos diales (7000 ⇒ L 6034 ⇒ 6999 con 100/16;
+      // ⇒ L 6481 ⇒ 6999 con 50/16): con la mutación el checkout cobra 6999 y esta prueba sale roja.
+      const X = await product({ owner: 7_000 });
       const A = await product({ owner: null, market: 'tcgcsv' });
       const po = await piece(O);
+      const px = await piece(X);
       const pa = await piece(A);
       const price = async (id: string) => (await h.api('GET', `/catalog/listings/${id}`)).body.displayPriceCents as number;
       const quote = async (id: string) => (await h.api('POST', '/checkout/quote', { token: buyer, json: { inventoryItemIds: [id] } })).body.items[0].unitPriceCents as number;
       const [o100, a100, qo100] = [await price(po.id), await price(pa.id), await quote(po.id)];
+      // Con el dial en 100: ficha y checkout cobran EXACTAMENTE el P del dueño (no su L re-derivado).
+      expect([await price(px.id), await quote(px.id)]).toEqual([7_000, 7_000]);
+      expect(qo100).toBe(o100);
       const prev = await h.api('GET', '/admin/settings/iva-transfer/preview?ivaTransferPct=50', { token: admin });
       const mv = await h.api('PUT', '/admin/settings/iva-transfer', {
         token: admin,
@@ -980,6 +990,8 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
         expect(mv.status).toBe(200);
         expect([await price(po.id), await quote(po.id)]).toEqual([o100, qo100]);
         expect(o100).toBe(129_900);
+        // Y con el dial en 50 (otro L equivalente): sigue siendo 7000 en ficha y checkout.
+        expect([await price(px.id), await quote(px.id)]).toEqual([7_000, 7_000]);
         expect(await price(pa.id)).toBeLessThan(a100);
       } finally {
         await setTransfer(100);

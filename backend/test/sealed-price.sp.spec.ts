@@ -33,6 +33,7 @@ import { ivaDialsStub } from './helpers/iva-dials';
  * - SP-15: ida y vuelta `L → P → L` exhaustiva + aleatoria + extremos; `P = 700/1200` sin `L` (e3).
  * - SP-17 (consultas): el conteo de A-1 es UN `groupBy` por página, con 1 y con 50 filas.
  * - SP-19: censo de `displayPriceCentsOf(` en `src/modules` (ventas solo por `saleDisplayCentsOf`).
+ * - D-8 (techlead): la relectura del `PUT` sin producto ⇒ `404 NOT_FOUND`, nunca `data: undefined`.
  */
 
 const D_100_16 = { ivaTransferPct: 100, ivaRatePct: 16 };
@@ -416,5 +417,28 @@ describe('💰 SP-4 (unitaria) — «solo el dueño» en las DOS puntas: `@Roles
     }
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(settings.getIvaDials).not.toHaveBeenCalled();
+  });
+});
+
+// ================================================================================================ D-8
+describe('D-8 (gate de techlead) — el producto desaparece entre el commit y la relectura ⇒ 404 explícito', () => {
+  it('relectura `null` ⇒ `404 NOT_FOUND`, ⛔ nunca `200` con `data: undefined`', async () => {
+    const tx: any = {
+      // Doble clic idempotente: la tx lee el producto y no escribe nada (el camino más corto hasta la relectura).
+      sealedProduct: { findUnique: jest.fn(async () => ({ id: 'sp-1', ownerDisplayPriceCents: 700 })) },
+    };
+    const prisma: any = {
+      $transaction: jest.fn(async (fn: (t: any) => Promise<unknown>) => fn(tx)),
+      // La relectura DESPUÉS del commit: el producto ya no está.
+      sealedProduct: { findUnique: jest.fn(async () => null) },
+      inventoryItem: { findMany: jest.fn(async () => []) },
+    };
+    const settings: any = { getIvaDials: jest.fn(async () => D_100_16) };
+    const inventory = { reevaluateForPublication: jest.fn(async () => []) } as unknown as InventoryService;
+    const svc = new SealedPriceService(prisma, {} as PricingService, settings, inventory);
+    await expect(
+      svc.setSalePrice('sp-1', { displayPriceCents: 700, expectedDisplayPriceCents: 700 }, { id: 'u', role: 'super_admin' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(prisma.sealedProduct.findUnique).toHaveBeenCalledTimes(1);
   });
 });
