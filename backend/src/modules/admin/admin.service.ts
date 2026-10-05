@@ -932,6 +932,9 @@ export class AdminService {
           role: true,
           status: true,
           createdAt: true,
+          // 🔒 D2g (§M4-SHIP.19.30.3): `isOwner` = `isOwnerAccount` de la fila (la marca + forma); `deletedAt` solo para eso.
+          isOwner: true,
+          deletedAt: true,
           kycProfile: { select: { kycStatus: true } },
         },
         skip: (page - 1) * pageSize,
@@ -957,6 +960,9 @@ export class AdminService {
       // «no tiene perfil» y «tiene perfil en none» son el mismo hecho para quien lee la cola.
       kycStatus: u.kycProfile?.kycStatus ?? KycStatus.none,
       lockedUntil: locks.values[i],
+      // 🔒 D2g (§M4-SHIP.19.30.3): la MISMA derivación que las fichas y `GET /users/me`. El front la usa SOLO para mostrar u
+      // ocultar; ⛔ nunca autoriza (autoriza el servidor, `OWNER_ACCOUNT_PROTECTED`).
+      isOwner: isOwnerAccount(u),
     }));
 
     return { data, page, pageSize, total, lockState: locks.state };
@@ -1460,12 +1466,35 @@ export class AdminService {
    * consumidor recibe la forma que ya conoce.
    */
   async updateUserStatus(id: string, status: 'active' | 'blocked') {
-    return this.prisma.user.update({
-      where: { id },
-      data: { status },
-      // v1.80.9 (§M6-U.6): + `username`; `email` anulable.
-      select: { id: true, email: true, username: true, name: true, role: true, status: true, createdAt: true },
-    });
+    // 🔒 D2g (§19.30.2 (2), C-21 (b)): la cuenta MARCADA como del dueño no se bloquea ni se reactiva por aquí — ⛔ ni por él
+    // mismo (un dueño bloqueado deja el sistema sin destinatario). La guarda va en el `where` de la escritura (`isOwner: false`,
+    // `where` único extendido): no hay lectura previa que una carrera pueda saltar. Sin fila que cumpla ⇒ se distingue «no
+    // existe» (`404`) de «es la del dueño» (`403 OWNER_ACCOUNT_PROTECTED`).
+    let u;
+    try {
+      u = await this.prisma.user.update({
+        where: { id, isOwner: false },
+        data: { status },
+        // v1.80.9 (§M6-U.6): + `username`; `email` anulable.
+        select: { id: true, email: true, username: true, name: true, role: true, status: true, createdAt: true },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2025') throw e;
+      const exists = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      if (!exists) throw BusinessException.notFound();
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
+    // §19.30.3: `AdminUserSummaryDTO` + `isOwner`. Por construcción es `false`: la escritura exigió `isOwner = false`.
+    return { ...u, isOwner: false };
+  }
+
+  /**
+   * 🔒 D2g (§19.30.2 (3)) — quién es el destino de un acto sobre una cuenta (para AG-22 y la bitácora del rechazo). Solo `id`,
+   * `name`, `role` e `isOwner` (la marca CRUDA: la protección de la cuenta del dueño se decide por la marca, falla cerrado).
+   */
+  async staffTargetOf(id: string): Promise<{ userId: string; name: string; role: Role; isOwner: boolean } | null> {
+    const u = await this.prisma.user.findUnique({ where: { id }, select: { id: true, name: true, role: true, isOwner: true } });
+    return u ? { userId: u.id, name: u.name, role: u.role, isOwner: u.isOwner } : null;
   }
 
   /**
@@ -1476,16 +1505,24 @@ export class AdminService {
    * SEGURIDAD: la contraseña temporal se devuelve UNA vez y NUNCA se persiste en claro ni se
    * loguea/audita (el AuditLog solo guarda action + actor + target).
    */
-  async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
+  async resetPassword(
+    id: string,
+    actorUserId?: string,
+  ): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
     // SEC-C7-OPT: se comprueba ANTES de escribir nada. Sin servicio no hay reset «a medias» (hash
     // nuevo persistido, candado puesto, contraseña temporal nunca devuelta): se falla en seco.
     const attempts = this.requirePasswordAttempts('resetPassword');
     const user = await this.prisma.user.findUnique({
       where: { id },
       // v1.80.9 (§M6-U.6): + `username`, para que `clearForUser` limpie el cubo de SU identificador.
-      select: { id: true, status: true, email: true, username: true },
+      // 🔒 D2g (§19.30.2 (2)): + `isOwner` — la cuenta del dueño no se restablece desde OTRA cuenta.
+      select: { id: true, status: true, email: true, username: true, isOwner: true },
     });
     if (!user) throw BusinessException.notFound();
+    if (user.isOwner === true && actorUserId !== id) {
+      // El dueño se restablece por «olvidé mi contraseña» o con `prisma/reset-admin-password.ts`.
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
     if (user.status === 'deleted') {
       throw BusinessException.validation('USER_DELETED', 'Cannot reset a deleted account');
     }
@@ -1493,13 +1530,19 @@ export class AdminService {
     const tempPassword = randomBytes(18).toString('base64url');
     const passwordHash = await argon2.hash(tempPassword);
     await this.prisma.user.update({
-      where: { id },
+      // 🔒 D2g: la protección también en el `where` de la escritura (`where` único extendido; un P2025 aquí ⇒ `403`).
+      where: { id, ...(actorUserId === id ? {} : { isOwner: false }) },
       data: {
         passwordHash,
         mustChangePassword: true,
         // Revoca refresh/access vigentes (el guard y /auth/refresh rechazan la versión previa).
         tokenVersion: { increment: 1 },
       },
+    }).catch((e: unknown) => {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+      }
+      throw e;
     });
     // v1.80 (C7): es la vía para que el dueño desbloquee a un operador (contrato §M6).
     await attempts.clearForUser(user);
@@ -1553,6 +1596,10 @@ export class AdminService {
       include: { kycProfile: true },
     });
     if (!user) throw BusinessException.notFound();
+    // 🔒 D2g (§19.30.2 (2), C-21 (b)): primero `CANNOT_DELETE_SELF` (arriba, sin cambio); luego la cuenta del dueño ⇒ `403`.
+    if (user.isOwner === true) {
+      throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
+    }
 
     // Idempotente: re-DELETE sobre una cuenta ya soft-deleted es no-op.
     if (user.status === 'deleted') {

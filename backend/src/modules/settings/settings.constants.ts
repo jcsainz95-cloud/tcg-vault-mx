@@ -1273,3 +1273,35 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   spendAlertCancelRefundDays: SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS,
   spendAlertLabelNotShippedDays: SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS,
 };
+
+/**
+ * 🔒💰 D2g (API_CONTRACT §M4-SHIP.19.30.2 (1), C-21 (a), SDX-Z-2) — **los diales del DUEÑO.** Las 11 claves de §19.29.8
+ * (incluido `skydropx_low_balance_cents`) + `shipping_label_purchase` (`HECHOS.md:58`: «lo enciende el dueño»).
+ *
+ * Un no dueño (`!isOwnerAccount(actor)`, leído de la BASE) que manda una de estas claves con un valor DISTINTO del vigente
+ * recibe `403 OWNER_ONLY_SETTING {keys}` y NADA se escribe; si la manda IGUAL, se quita del cuerpo (⛔ un no dueño nunca
+ * escribe una de estas claves: un formulario viejo no pisa un cambio reciente del dueño). Regla: **todo dial de §Z es del
+ * dueño** — el censo PS-165 (`test/sdx-d2g.units.spec.ts`) pone rojo un dial de §Z que no esté aquí.
+ * ⚠️ `operator_refund_cap_24h_cents` (v1.80.7) NO entra: lo decide su stream con AG-14 (§19.30.11).
+ */
+export const OWNER_ONLY_SETTING_KEYS: readonly SettingKeyType[] = [
+  SettingKey.SHIPPING_LABEL_PURCHASE,
+  SettingKey.SKYDROPX_LOW_BALANCE_CENTS,
+  SettingKey.OPERATOR_LABEL_CAP_24H_CENTS,
+  SettingKey.SHIPPING_LABEL_REISSUE_MAX_PER_SHIPMENT,
+  SettingKey.SPEND_ALERTS_DISABLED,
+  SettingKey.SPEND_ALERT_LABEL_CAP_WARN_PCT,
+  SettingKey.SPEND_ALERT_SHIPMENT_CANCEL_COUNT,
+  SettingKey.SPEND_ALERT_PERSON_CANCEL_COUNT_24H,
+  SettingKey.SPEND_ALERT_CHARGE_DRIFT_IMMEDIATE_CENTS,
+  SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS,
+  SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS,
+  SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS,
+];
+
+/** Los nombres del DTO (camelCase) de `OWNER_ONLY_SETTING_KEYS`, ordenados: la MISMA lista de `403 {keys}` y de AG-22 `facts.keys` (S-GAS-9). */
+export function ownerOnlyDtoKey(dtoKey: string): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(SETTING_DTO_MAP, dtoKey) && OWNER_ONLY_SETTING_KEYS.includes(SETTING_DTO_MAP[dtoKey])
+  );
+}

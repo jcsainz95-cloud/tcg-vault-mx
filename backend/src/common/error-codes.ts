@@ -791,6 +791,11 @@ export const ErrorCode = {
   LABEL_NOT_RELEASABLE: 'LABEL_NOT_RELEASABLE',
   // 403 💰 — TG-1/TG-2 (§19.29.4): `details: { limit: 'daily_spend'|'reissue' }` (⛔ sin cifras).
   LABEL_PURCHASE_LIMIT: 'LABEL_PURCHASE_LIMIT',
+  // 🔒💰 D2g (§M4-SHIP.19.30.2 (1), C-21 (a)): un no dueño intentó MOVER un dial del dueño (`OWNER_ONLY_SETTING_KEYS`).
+  // 403 — `details: { keys: string[] }` (nombres del DTO, camelCase, ordenados). Nada se escribe.
+  OWNER_ONLY_SETTING: 'OWNER_ONLY_SETTING',
+  // 🔒 D2g (§M4-SHIP.19.30.2 (2), C-21 (b)): restablecer/bloquear/borrar la cuenta del dueño desde otra cuenta. 403 sin `details`.
+  OWNER_ACCOUNT_PROTECTED: 'OWNER_ACCOUNT_PROTECTED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

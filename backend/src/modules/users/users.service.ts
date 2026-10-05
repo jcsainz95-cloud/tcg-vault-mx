@@ -7,6 +7,7 @@ import { SettingKey } from '../settings/settings.constants';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { isOwnerAccount } from '../spend-alerts/owner';
 import { clabeChangedTemplate } from '../payments/refunds/mail/refund-notice.templates';
 import { monthCommittedGrossCents } from '../../common/buylist-aml';
 import { UploadsService } from '../uploads/uploads.service';
@@ -175,6 +176,9 @@ export class UsersService {
     passwordHash: string | null;
     mustChangePassword: boolean;
     kycProfile: { kycStatus: KycStatus } | null;
+    // 🔒 D2g (§M4-SHIP.19.30.3): para `isOwner` (= `isOwnerAccount` de la fila; `false` para todo cliente).
+    isOwner: boolean;
+    deletedAt: Date | null;
   }) {
     return {
       id: user.id,
@@ -194,6 +198,9 @@ export class UsersService {
       hasPassword: user.passwordHash != null,
       mustChangePassword: user.mustChangePassword,
       lockNotice: user.lockNoticeAt ? { since: user.lockNoticeAt.toISOString() } : null,
+      // 🔒 D2g (§M4-SHIP.19.30.3): el front lo usa SOLO para mostrar u ocultar (diales del dueño, acciones sobre su cuenta);
+      // ⛔ nunca autoriza: autoriza el servidor (`OWNER_ONLY_SETTING`, `OWNER_ACCOUNT_PROTECTED`).
+      isOwner: isOwnerAccount(user),
     };
   }
 

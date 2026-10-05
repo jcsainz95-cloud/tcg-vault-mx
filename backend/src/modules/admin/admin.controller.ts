@@ -7,6 +7,7 @@ import {
   HttpCode,
   Ip,
   Logger,
+  Optional,
   Param,
   Patch,
   Post,
@@ -14,7 +15,8 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { AuditedSuperAdmin, AuditedSuperAdminGuard } from './audited-super-admin.guard';
+import { AdminDeniedAttempt, AuditedSuperAdmin, AuditedSuperAdminGuard } from './audited-super-admin.guard';
+import { StaffControlAlertsService } from '../spend-alerts/staff-control.service';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
@@ -125,7 +127,43 @@ export class AdminUsersController {
   constructor(
     private readonly admin: AdminService,
     private readonly audit: AuditService,
+    // 🔒 D2g (§19.30.2 (3)): AG-22. `@Optional()` solo porque los unitarios construyen el controlador a mano; en DI siempre está
+    // (`AdminModule` importa `SpendAlertsModule`).
+    @Optional() private readonly staffControl?: StaffControlAlertsService,
   ) {}
+
+  /**
+   * 🔒 D2g (§19.30.2 (2)) — corre el acto; si el servicio lo niega con `OWNER_ACCOUNT_PROTECTED`, deja la bitácora
+   * `user.admin_action_denied {attempted, reason:'owner_protected'}` (⛔ el rechazo no depende de ella) y AG-22 🔴
+   * `owner_account_denied`, y relanza el `403`.
+   */
+  private async ownerGuarded<T>(
+    attempted: AdminDeniedAttempt,
+    targetId: string,
+    actor: { id: string; role: Role },
+    target: { userId: string; name: string; role: Role } | null,
+    act: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await act();
+    } catch (e) {
+      if (!(e instanceof BusinessException) || e.code !== 'OWNER_ACCOUNT_PROTECTED') throw e;
+      try {
+        await this.audit.log({
+          actorUserId: actor.id,
+          actorRole: actor.role,
+          action: 'user.admin_action_denied',
+          entityType: 'User',
+          entityId: targetId,
+          after: { attempted, reason: 'owner_protected' },
+        });
+      } catch (err) {
+        this.logger.error(`user.admin_action_denied: bitácora falló (${err instanceof Error ? err.message : String(err)})`);
+      }
+      await this.staffControl?.report(actor.id, 'owner_account_denied', target);
+      throw e;
+    }
+  }
 
   /**
    * `GET /admin/users` — **API_CONTRACT §M6-L** (`A5`, v1.71) · ARCHITECTURE §4.53.
@@ -208,6 +246,8 @@ export class AdminUsersController {
         mustChangePassword: res.mustChangePassword,
       },
     });
+    // 🔒 D2g (§19.30.2 (3)): AG-22 `staff_created` post-commit (🔴 si creó un súper-admin; el dueño ⇒ no-op; cliente ⇒ nada).
+    await this.staffControl?.report(user.id, 'staff_created', { userId: res.user.id, name: res.user.name, role: res.user.role });
     return res;
   }
 
@@ -382,7 +422,9 @@ export class AdminUsersController {
     @Body() dto: UpdateStatusDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.admin.updateUserStatus(id, dto.status);
+    const target = await this.admin.staffTargetOf(id);
+    // 🔒 D2g (§19.30.2 (2)): la cuenta del dueño ⇒ `403 OWNER_ACCOUNT_PROTECTED` SIEMPRE (también si es él mismo).
+    const res = await this.ownerGuarded('status', id, user, target, () => this.admin.updateUserStatus(id, dto.status));
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -391,6 +433,7 @@ export class AdminUsersController {
       entityId: id,
       after: { status: dto.status },
     });
+    await this.staffControl?.report(user.id, 'staff_status_changed', target);
     return res;
   }
 
@@ -405,7 +448,9 @@ export class AdminUsersController {
   @AuditedSuperAdmin('reset_password')
   @UseGuards(AuditedSuperAdminGuard)
   async resetPassword(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.admin.resetPassword(id);
+    const target = await this.admin.staffTargetOf(id);
+    // 🔒 D2g (§19.30.2 (2)): destino dueño ∧ actor ≠ destino ⇒ `403 OWNER_ACCOUNT_PROTECTED`.
+    const res = await this.ownerGuarded('reset_password', id, user, target, () => this.admin.resetPassword(id, user.id));
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -414,6 +459,7 @@ export class AdminUsersController {
       entityId: id,
       // SEGURIDAD: NUNCA se guarda la contraseña temporal en el before/after.
     });
+    await this.staffControl?.report(user.id, 'staff_password_reset', target);
     return res;
   }
 
@@ -424,7 +470,9 @@ export class AdminUsersController {
   @Delete(':id')
   @Roles(Role.super_admin)
   async deleteUser(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.admin.deleteUser(id, user.id);
+    const target = await this.admin.staffTargetOf(id);
+    // 🔒 D2g (§19.30.2 (2)): `409 CANNOT_DELETE_SELF` primero (sin cambio); luego la cuenta del dueño ⇒ `403`.
+    const res = await this.ownerGuarded('delete', id, user, target, () => this.admin.deleteUser(id, user.id));
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -433,6 +481,7 @@ export class AdminUsersController {
       entityId: id,
       after: { mode: res.mode },
     });
+    await this.staffControl?.report(user.id, 'staff_deleted', target);
     return res;
   }
 }

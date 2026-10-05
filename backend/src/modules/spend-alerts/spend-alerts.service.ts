@@ -2,10 +2,10 @@
  * spend-alerts.service.ts — 💰 la base de avisos al dueño (API_CONTRACT §M4-SHIP.19.29.5 con §19.30.2 (5), §19.30.8
  * S-GAS-5). ⭐ ÚNICO escritor de `SpendAlert` (candado `C-GAS-1`: censo de `spendAlert.create|upsert|update`).
  *
- * Esta entrega (D2c) construye `raise`/`resolve` — lo que D2c necesita para AG-1…AG-5, AG-7, AG-8 (a), AG-9 (a) y AG-13.
- * ⚠️ El DESPACHO del correo (outbox con freno 5/h global y 2/h por persona, lote «y N más», resumen 08:00 MX, `spend-watch`,
- * `spend-digest`, plantillas `AVG-1/2/3`, el panel y AG-21/AG-22) es la pieza **D2g** y NO está aquí: los avisos 🔴 quedan
- * con `mailStatus = 'pending'` hasta que D2g los despache (el outbox es exactamente eso: la fila espera a su despachador).
+ * D2c construyó `raise`/`resolve`/`observeBalance` (⛔ firmas CONGELADAS: D2d las llama, §19.32.9). D2g añade aquí, sin
+ * tocarlas, los ÚNICOS otros escritores de la tabla (para que el censo `C-GAS-1` siga siendo «un fichero»): las transiciones del
+ * correo del despacho (`mailTransition`, `mailTransitionMany`) y «visto» (`markSeen`). El despacho en sí (candado, cupos, lote),
+ * el panel, `spend-watch` y `spend-digest` viven en sus ficheros y escriben SOLO por estos métodos.
  *
  * `raise` (§19.29.5):
  *  1. `kind ∈ spend_alerts_disabled` ⇒ la fila SE CREA silenciada (`muted = true`, `mailStatus = 'not_applicable'`) —
@@ -18,7 +18,7 @@
  * Dentro de la tx del hecho cuando la hay (outbox); después del rollback en las negativas (como la bitácora).
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, SpendAlertKind, SpendAlertSeverity } from '@prisma/client';
+import { Prisma, SpendAlertKind, SpendAlertMailStatus, SpendAlertSeverity } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -173,5 +173,64 @@ export class SpendAlertsService {
     } catch (e) {
       this.logger.error(`observeBalance falló: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  // ============================================================ D2g — los otros escritores (censo C-GAS-1: solo este fichero)
+
+  /**
+   * Transición del correo de UN aviso con CAS sobre su estado (`mailStatus ∈ from`). Devuelve cuántas filas cambió (0 ⇔ otro
+   * despacho ya la movió). La usan el despacho (`pending|failed → sending|batched|no_recipient`, `sending → sent|failed`) y
+   * `spend-watch` (`sending` vencido ⇒ `failed_unknown`).
+   */
+  async mailTransition(
+    db: Db,
+    id: string,
+    from: readonly SpendAlertMailStatus[],
+    data: { mailStatus: SpendAlertMailStatus; mailedAt?: Date | null; batchHour?: Date | null; incrementAttempts?: boolean },
+  ): Promise<number> {
+    const r = await db.spendAlert.updateMany({
+      where: { id, mailStatus: { in: [...from] } },
+      data: {
+        mailStatus: data.mailStatus,
+        ...(data.mailedAt !== undefined ? { mailedAt: data.mailedAt } : {}),
+        ...(data.batchHour !== undefined ? { batchHour: data.batchHour } : {}),
+        ...(data.incrementAttempts ? { mailAttempts: { increment: 1 } } : {}),
+      },
+    });
+    return r.count;
+  }
+
+  /** Lo mismo sobre un conjunto (el lote de una hora: `batched → batch_sent` / vuelta a `batched`; `sending` vencidos). */
+  async mailTransitionMany(
+    db: Db,
+    where: { ids?: readonly string[]; from: readonly SpendAlertMailStatus[]; mailedBefore?: Date },
+    data: { mailStatus: SpendAlertMailStatus; mailedAt?: Date | null },
+  ): Promise<number> {
+    const r = await db.spendAlert.updateMany({
+      where: {
+        ...(where.ids ? { id: { in: [...where.ids] } } : {}),
+        mailStatus: { in: [...where.from] },
+        ...(where.mailedBefore ? { mailedAt: { lt: where.mailedBefore } } : {}),
+      },
+      data: { mailStatus: data.mailStatus, ...(data.mailedAt !== undefined ? { mailedAt: data.mailedAt } : {}) },
+    });
+    return r.count;
+  }
+
+  /**
+   * `POST /admin/spend-alerts/seen` (§19.29.9 con §19.30.2 (4), C-21 (d)). Idempotente (`seenAt: null` en el `where`).
+   * Un NO dueño no marca avisos sobre sí mismo ni AG-21: `OR [{subjectUserId: null}, {subjectUserId: {not: actor}}]` —
+   * ⛔ un `NOT {subjectUserId: actor}` a secas deja fuera los `null` en SQL — **y** `kind ≠ owner_account_changed`.
+   * `skipped` = ids pedidos que EXISTÍAN, seguían sin ver y no se marcaron por esta regla.
+   */
+  async markSeen(db: Db, ids: readonly string[], actorUserId: string, actorIsOwner: boolean, now: Date): Promise<{ updated: number; skipped: number }> {
+    const unique = [...new Set(ids)];
+    const base: Prisma.SpendAlertWhereInput = { id: { in: unique }, seenAt: null };
+    const allowed: Prisma.SpendAlertWhereInput = actorIsOwner
+      ? base
+      : { AND: [base, { OR: [{ subjectUserId: null }, { subjectUserId: { not: actorUserId } }] }, { kind: { not: 'owner_account_changed' } }] };
+    const candidates = actorIsOwner ? 0 : await db.spendAlert.count({ where: base });
+    const r = await db.spendAlert.updateMany({ where: allowed, data: { seenAt: now, seenByUserId: actorUserId } });
+    return { updated: r.count, skipped: actorIsOwner ? 0 : candidates - r.count };
   }
 }
