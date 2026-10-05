@@ -4,6 +4,11 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.16 — 🔒 ERRATA TRAS D2e Y D2f** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
+> `12ea3261`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.16**; norma en `API_CONTRACT §M4-SHIP.19.35`; porqué en
+> **§4.60 (ab)**. La liga del invitado en los avisos: token nuevo sin rotar, nunca a un pedido reclamado; `timeline` de 7 y
+> `delivered` por `deliveredAt`; `workQueue.shipping.withLabelAlert`; tres ratificaciones de D2f; reparto final. Sin migración.
+>
 > **Rev v1.80.12.13 — ERRATA TRAS D2c-CIERRE Y PARTICIÓN D2d ∥ D2g** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD
 > dado por el orquestador `f5b5515b` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.13**; norma en
 > `API_CONTRACT §M4-SHIP.19.32`; porqué en **§4.60 (y)**. Seis filas nuevas en §0-Q; `requestedAt` también al reutilizar;
@@ -27842,6 +27847,27 @@ formas nuevas, no a las que ya estaban escritas.
 | **`spend-digest {day: null \| ''}` ⇒ `400`** | `null` como ausente | En un re-envío manual, `null` es un cliente roto; correr «ayer» en silencio actúa sobre otro día del pedido |
 
 **Deuda que deja (aa):** ninguna nueva. NO MEDIDO: el sha `3f40b70c` y si D2e/D2f tocan `spend-alerts/` en el árbol vivo.
+
+**(ab) 🔒 v1.80.12.16 — errata tras D2e y D2f** (norma en `API_CONTRACT §M4-SHIP.19.35`; origen `BACKEND_NOTES.md §67.2, §67.4,
+§68.2, §68.6`). Dos ideas: **un enlace que el producto promete que sigue sirviendo no se puede rotar**, y **una cifra del tablero es el
+conteo del mismo predicado que pinta la lista** (un cuerpo, dos lectores).
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **Token nuevo por aviso, sin rotar** | (A) rotar en cada correo | Rotar mata la liga de la confirmación y de cada aviso previo, contra `PROJECT` T.8 («el mismo token del correo de confirmación» ⇒ la de la confirmación sigue sirviendo). Sin rotar no cambia **quién** puede entrar (todos los tokens van al mismo buzón y solo leen un pedido); cambia cuántas URLs vivas hay, acotado por los sellos. El interruptor (reenvío, soporte, reclamo ⇒ revocan todo) queda igual |
+| — | Guardar el claro cifrado para reusarlo | Rompe T5: un volcado de BD + la llave produciría enlaces válidos. La irrecuperabilidad del claro es la propiedad, no el obstáculo |
+| — | Sin token: `/pedido` pidiendo correo + folio | Contradice T.8 (el invitado recibe **su** enlace) y lo manda a un formulario en cada aviso |
+| **Discriminante `order.userId`, no `guestEmail`** | «con `guestEmail` ⇒ token» (§19.12) | Un pedido reclamado conserva `guestEmail`; emitirle token reabriría lo que el reclamo revocó |
+| **Emitir solo en el camino de envío, tras el sello** | Resolverlo en `resolveRecipient` | `recipientEmailOf` (la compra de guía) también lo llama: cada compra acuñaría un token que nadie recibe |
+| **La emisión por correo no consulta el cupo del reenvío** | Contar o filtrar por origen | El cupo frena el endpoint público; los avisos ya están acotados por sellos. Distinguir origen pide columna (§4-G.7a la rechazó). Efecto aceptado: un día con ≥ 5 emisiones deja el reenvío en no-op hasta que corra la ventana, ese día con enlaces vivos en el buzón |
+| **`delivered` de `deliveredAt` si no hubo evento** | Sin `delivered` (lo construido) | El título ya dice «entregado»; la página no puede contradecirlo. El mutismo del criterio 242 es del **correo** |
+| **`withLabelAlert` en `workQueue.shipping`** | En `workQueue.shipments` (§19.20.2 literal) | `shipments` es un número; cambiarlo rompe la forma. La cifra es `labelAlertOf ≠ null`, el cuerpo del DTO |
+| **Catálogos y saldo con `off` funcionan** | `404 FEATURE_DISABLED` | Son lecturas para configurar antes de encender; `FEATURE_DISABLED` es para verbos que operan |
+
+**Deuda que deja (ab):** `PROJECT` T.8 dice «el mismo token» (irrealizable al pie de la letra) — nota para product-owner, no bloquea.
+NO MEDIDO: el sha `12ea3261`; que los ficheros de la columna «Dónde» de §19.35.8 sean los únicos que cada encargo toca; que F-D5 (la
+línea de tiempo en las tres páginas del cliente) esté completo — los ficheros existen (Grep `timeline` en `frontend/src`), su conducta no
+la medí.
 
 ---
 

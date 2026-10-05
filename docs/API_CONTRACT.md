@@ -2,9 +2,27 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.15**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.16**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.16 — 🔒 ERRATA TRAS D2e Y D2f, Y EL REPARTO PARA CERRAR SKYDROPX (2026-10-05, arquitecto, rama `claude/skydropx-d`,
+> HEAD dado por el orquestador `12ea3261`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.35](#M4-SHIP-19-35)**. Porqué:
+> `ARCHITECTURE §4.60 (ab)`. Origen: `BACKEND_NOTES.md §67.2, §67.4, §68.2, §68.6`.
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** 🔒 | P-D2E-1: el claro del «último token» no existe | Token **nuevo de 90 días por correo, SIN rotar**, solo si `order.userId = null` (⛔ nunca a un pedido reclamado), emitido tras ganar el sello; ⛔ no consulta el cupo del reenvío; auditado `reissue` `system:mail` | Sí: hoy el invitado va sin CTA (`shipments.service.ts:251`) | backend (B-1) |
+> | **2** | PS-89 «de 6» | **7**: `shipped` va también con Skydropx (T.8 lista «salió») | No (lo construido ya da 7) | — |
+> | **3** | §67.2 (1) guía vigente / (2) `entregado` a mano | (1) **ratificada**; (2) **no**: `delivered` con `at = deliveredAt` si no hubo evento | Sí, (2): `customer-timeline.ts:85` | backend (B-2) |
+> | **4** | Liga de rastreo en `AV-4/5` | Patrón **ratificado** (letra chica, un CTA); ux-ui lo registra en §43 | No | ux-ui (U-2) |
+> | **5** | `withLabelAlert` | `workQueue.shipping.withLabelAlert` = `labelAlertOf ≠ null`; PS-173 | Falta | backend (B-3) · ux-ui (U-1) · frontend (F-1/F-2) |
+> | **6** | Techo `NO_ENUM_POR_RUTA` 52 | **Ratificado** | No | — |
+> | **7** | Catálogos/saldo con `off` | **Funcionan**; sin credenciales `409 {missing:['env']}` | No | backend (B-5, solo prueba) |
+> | **8** | `labelProcessing` | **Confirmado** = predicado de `labelPending ≠ null` | No | — |
+>
+> **Migración:** ninguna. **Códigos de error nuevos:** ninguno. **Enums:** ninguno cambia. **Pendiente re-medido:** `role?` de
+> §19.34.1 sigue sin estar (`spend-alerts.service.ts:74`) ⇒ B-4.
 >
 > **Rev v1.80.12.15 — LAS DOS PREGUNTAS DE C1 (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por el orquestador
 > `3f40b70c`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.34](#M4-SHIP-19-34)**. Porqué: `ARCHITECTURE §4.60
@@ -349,7 +367,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.15 → v1.80.12.14 → v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.16 → v1.80.12.15 → v1.80.12.14 → v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -10967,7 +10985,7 @@ El desenlace de una pieza congelada lo confirma **un humano** con
 | Persistencia | Solo `SHA-256` hex en `OrderAccessToken.tokenHash @unique`. El claro **jamás** se guarda | Idéntico a `AuthToken`. SHA-256 basta (256 bits de entropía: no hay fuerza bruta posible, a diferencia de una contraseña). |
 | Usos | **MULTI-USO** (a diferencia de `AuthToken`): **no** hay `usedAt` | El invitado reabre el mismo enlace cada vez que quiere ver su pedido (criterio 50). |
 | Revocación | `revokedAt DateTime?`. Se revoca al **reclamar** el pedido, al **rotar** (reenvío self-service o de soporte) | "Revocable sí, consumible no". |
-| Rotación | **Solo el reenvío** (§4-G.4) y el **reenvío de soporte** (§4-G.9b) rotan: revocan **todos** los tokens vivos del pedido y emiten uno nuevo ⇒ **solo el último enlace funciona**. La emisión del token de correo en el settle **NO rota** (§4-G.7a) | Limita las puertas abiertas simultáneas; mismo criterio que `AuthToken.issue`, con la excepción acotada del settle. |
+| Rotación | **Solo el reenvío** (§4-G.4) y el **reenvío de soporte** (§4-G.9b) rotan: revocan **todos** los tokens vivos del pedido y emiten uno nuevo ⇒ **solo el último enlace funciona**. La emisión del token de correo en el settle **NO rota** (§4-G.7a) — ⭐ v1.80.12.16: **ni la de los avisos de envío** (§M4-SHIP.19.35.1) | Limita las puertas abiertas simultáneas; mismo criterio que `AuthToken.issue`, con la excepción acotada del settle. |
 | TTL | **Dos vidas, según origen** (§4-G.7a): token de **checkout** = `GUEST_CHECKOUT_TOKEN_TTL_MIN` (**120 min**); token de **correo/reenvío/soporte** = `GUEST_TRACKING_TTL_DAYS` (**90 días**, supuesto del PO — cubre entrega + ventana de disputa con margen). Se distinguen **solo** por `expiresAt`; **no hay columna de tipo** | PROJECT §J. Los 90 días son **revisables por el humano** (pregunta abierta v1.5-2). |
 | Tope de edad | No se emiten tokens nuevos para pedidos con `createdAt` anterior a `GUEST_TRACKING_MAX_AGE_DAYS` (**365 días**) | Evita que el reenvío mantenga la puerta abierta para siempre. Pasado ese punto, la vía es el **reclamo** (que no necesita enlace) o soporte. |
 | Transporte | El correo lleva `${APP_BASE_URL}/${locale}/pedido?token=<claro>`; el front mueve el token al **body** de `POST /orders/guest/track` y lo **borra de la URL** (`history.replaceState`) | Minimiza exposición en historial/`Referer`. La página debe ser `noindex` y `Referrer-Policy: no-referrer`. |
@@ -23828,6 +23846,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.32** | **v1.80.12.13** — errata tras D2c-cierre: filas de §0-Q (`labelSource`, `alert`, los cuatro de `spend-alerts`), `requestedAt` al reutilizar, `?folio=` fuera de §0-Q, `label.pdf` cancelado, «envío vivo», 12 CHECK de `M-66`, el dueño en la pila E2E, `T-FLAKY-RFC-1`, y la **partición D2d ∥ D2g** por fichero; PS-168 (e) |
 | **.33** | 💰 **v1.80.12.14** — errata tras D2d y D2g: PS-75 reescrita (manda el criterio 241), estado desconocido como `exception`, P-SDX-PNL-1 al dueño, término `created` en el CAS, AG-8 (b)/AG-10 en D2g, `withCarrierAlert`, G1…G6 de D2g, costuras C1/C2 al detalle; PS-171, PS-172 |
 | **.34** | **v1.80.12.15** — las dos preguntas de C1: `role?: Role` en el objeto persona de `SpendFactValue`; `{day: null}`/`{day: ''}` ⇒ `400` confirmado; encargos pendientes de frontend (G5) y ux-ui (G3) re-medidos |
+| **.35** | 🔒 **v1.80.12.16** — errata tras D2e/D2f: liga del invitado por token nuevo **sin rotar** (nunca a pedido reclamado; PS-87 y SDX-R14 reescritas), `timeline` de 7 y `delivered` por `deliveredAt`, liga de rastreo en `AV-4/5`, `workQueue.shipping.withLabelAlert`, techo 52, catálogos/saldo con `off`, `labelProcessing`; reparto para cerrar Skydropx; PS-173 |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -24078,7 +24097,7 @@ commit ─► post-commit, best-effort (§R.4): los avisos marcados, cada uno re
 - **Alertas al admin** (T.6): ⛔ sin tabla nueva ni correo; **se derivan** (misma doctrina que la campana, §R.2): un
   envío vivo (⚠️ v1.80.12.13, §19.32.5: **`status ∉ {entregado, cancelado}`**) con guía Skydropx cuyo `carrierStatus ∈ {delivery_attempt, exception, retained, in_return, destroyed}`, o
   con `carrierStatus='canceled' ∧ providerCanceledAt IS NULL`, es «con alerta». `GET /admin/shipments` gana `?alert=true`
-  (clase **L** de §0-Q, dominio `true`), `workQueue.shipments` gana `withCarrierAlert` y la tarjeta muestra `carrierStatus`
+  (clase **L** de §0-Q, dominio `true`), `workQueue.shipments` gana `withCarrierAlert` (⚠️ v1.80.12.16, §19.35.5: se lee `workQueue.shipping`) y la tarjeta muestra `carrierStatus`
   + `detail` del último evento. La alerta **se apaga sola** cuando llega un estado posterior que no está en la lista, y
   **no cambia estado** (lo resuelve una persona: re-emitir §19.8, reembolso M3, o marcar a mano `entregado` con guía
   manual… ⛔ no, ver siguiente punto).
@@ -24625,6 +24644,8 @@ Skydropx; por qué el borrador partió de 15: NO MEDIDO, y no cambia el resultad
 - **`AV-4`** no cambia de disparador (sigue `setTracking`/`setTrackingFromProvider` = un cuerpo) y **gana**
   `trackingUrl` opcional (botón «Rastrear mi paquete» solo si `≠ null`; si `null`, clave copiable + paquetería, como
   hoy — decisión 4). **`AV-5`** ídem. ⛔ Ninguna plantilla construye una URL con la guía (`C-SDX-6`).
+- ⚠️ **v1.80.12.16 ([§19.35.1](#M4-SHIP-19-35)): el «último token no revocado» es irrealizable; se emite uno nuevo por
+  correo SIN rotar, solo para pedidos con `userId = null`, en el camino de envío. Manda §19.35.1 donde choque con este punto.**
 - **`shipmentUrl` (S6): el invitado recibe `/pedido?token=…`** — decisión del PO (T.8). `ShipmentNoticeParams` gana
   `customerUrl: string | null`, resuelto **por el servicio** (⛔ no la plantilla): retiro ⇒ `appUrl('shipments/<id>')`;
   pedido con cuenta y sin `guestEmail` ⇒ `appUrl('orders/<orderId>')`; pedido con `guestEmail` ⇒ `appUrl('pedido?token=
@@ -24654,6 +24675,8 @@ Skydropx; por qué el borrador partió de 15: NO MEDIDO, y no cambia el resultad
     `providerShipmentId`, `labelUrl`, `rawResponseJson`, `carrierStatus` crudo. El **título** sigue con `publicStatus`
     (§4-G.5 **no cambia**: «en sucursal» no es estado).
   - Guía manual ⇒ `timeline` con solo lo derivado de las fechas (`shipped`, `delivered`), como hoy.
+  - ⚠️ **v1.80.12.16 ([§19.35.2/.3](#M4-SHIP-19-35)):** `shipped` también con guía de Skydropx (son 7 pasos); solo eventos de la
+    guía vigente; guía Skydropx marcada `entregado` a mano ⇒ `delivered` con `at = deliveredAt` (nunca dos `delivered`).
 
 ###### M4-SHIP.19.13 — Ajustes, saldo y lo que cambia en el resto del contrato
 
@@ -24673,7 +24696,9 @@ Skydropx; por qué el borrador partió de 15: NO MEDIDO, y no cambia el resultad
   `Cache-Control: no-store`; ⛔ no se persiste). **`workQueue`** (tablero) gana `shipping: { lowBalance: boolean | null;
   withCarrierAlert: number; labelProcessing: number }` — `lowBalance` lo calcula el servidor con una lectura **cacheada
   5 min** del saldo (una llamada, no una por carga del tablero); el **operador** recibe `lowBalance` (alcanza/no
-  alcanza) pero **no** la cifra (T.11). `null` ⇔ proveedor `off` o sin respuesta.
+  alcanza) pero **no** la cifra (T.11). `null` ⇔ proveedor `off` o sin respuesta. ⭐ **v1.80.12.16 ([§19.35.5](#M4-SHIP-19-35)):**
+  `shipping` gana `withLabelAlert: number` (`labelAlertOf ≠ null`); `labelProcessing` = condición de `labelPending ≠ null`;
+  catálogos y saldo **funcionan con `off`** (sin credenciales ⇒ `409 {missing:['env']}`).
 - **`GET /admin/shipments`**: filtros nuevos `?labelSource=manual|skydropx` (clase **E**, derivado de
   `ShipmentLabelSource`) y `?alert=true` (clase **L**); §0-Q punto 4 los registra (⚠️ v1.80.12.13: las filas faltaban
   hasta esta rev, §19.32.1). `?folio=` (S-GAS-2) ⛔ **no** es §0-Q: `NO_ENUM_POR_RUTA` (§19.32.3).
@@ -24721,7 +24746,7 @@ Skydropx; por qué el borrador partió de 15: NO MEDIDO, y no cambia el resultad
 | SDX-R11 | **Cancelación de guía tras recogida** (saldo no regresa; paquete en tránsito «sin guía» en nuestro sistema) | `LABEL_NOT_CANCELLABLE` por `carrierStatus`; el automático no intenta y alerta | Forzar `carrierStatus='picked_up'` por SQL y cancelar ⇒ 409 |
 | SDX-R12 | **Costos alterados desde el cliente** | Ningún campo de costo en ningún cuerpo de §19.6–.9 (`whitelist`); PS-81 | Mandar `shippingCostCents` en `label` ⇒ **ignorado sin efecto** (🔒 v1.81.1: `forbidNonWhitelisted:false` medido en `main.ts:56` ⇒ el campo se descarta, ⛔ no da `400`; la prueba aserta la columna intacta) |
 | SDX-R13 | **PII en `ShipmentCarrierEvent.detail`/`branchName`** | Se guardan; al cliente solo `kind`/`at`/`branchName`; al operador con el acceso del envío | Buscar `detail` en superficies de cliente |
-| SDX-R14 | **Token del invitado en correos** (nuevo emisor `system:mail`) | Mismo `OrderAccessToken` con rotación y `expiresAt`; nunca en log; el correo ya llevaba el enlace de confirmación | Verificar que `reissue` por correo revoca los anteriores igual que `resend-link` |
+| SDX-R14 | **Token del invitado en correos** (nuevo emisor `system:mail`) — ⚠️ **v1.80.12.16: REESCRITA en [§19.35.6](#M4-SHIP-19-35) (sin rotar; nunca para pedido reclamado)**; lo de esta fila es historia | Mismo `OrderAccessToken` con rotación y `expiresAt`; nunca en log; el correo ya llevaba el enlace de confirmación | Verificar que `reissue` por correo revoca los anteriores igual que `resend-link` |
 
 **Fase de seguridad:** por release (CLAUDE.md): pentester sobre staging/sandbox con este mapa; `seguridad` revisa el
 diseño **antes** de la fase D (traspaso §7.3 fila A). Sin hallazgos altos abiertos ⇒ construir.
@@ -24794,10 +24819,10 @@ rechaza. ⛔ Ninguna prueba unitaria/E2E habla con Skydropx; el guion PS-SBX es 
 | **PS-84** 🔒 | **`labelUrl` nunca viaja:** los JSON serializados de `GET /admin/shipments`, `/:id`, `label`, `departure`, `/orders/:id`, `guest/track`, `/shipments/:id`, `workQueue` **no contienen** `labelUrl`, `rawResponseJson`, `providerRateId`, `client_secret`, ni el token (escaneo por regex); `GET …/label.pdf` como `customer` ⇒ `403`, anónimo ⇒ `401`, operador ⇒ `application/pdf` + `no-store` + bitácora `label_printed`; guía manual ⇒ `404 LABEL_NOT_AVAILABLE`. 🔒 **v1.81.1 (SEC-SDX-5, `C-SDX-7`):** doble con `labelUrl='http://169.254.169.254/latest/'` ⇒ `labelUrl NULL`, `labelAvailable:false`, bitácora `provider_url_rejected {host}`, **cero** `fetch` a esa URL; `https://user:pw@pro.skydropx.com/x` ⇒ rechazada; `https://evil.example/x.pdf` (fuera de `SKYDROPX_URL_HOSTS`) ⇒ rechazada; `https://labels.skydropx.com/x.pdf` con `*.skydropx.com` en la lista ⇒ aceptada; proxy: el doble HTTP responde `302 Location: http://10.0.0.1/` ⇒ `502 {op:'label_download'}` sin seguirla; `Content-Type: text/html` ⇒ `502`; 6 MB ⇒ `502` abortado; **estático**: `rg "fetch\("` en `shipping-provider/` ⇒ solo el cliente (a `SKYDROPX_BASE_URL`) y `label-proxy` (con `assertProviderUrl` en la misma función); `labelUrl`/`trackingUrl` solo se escriben vía `providerUrlsFrom()` (`rg "labelUrl:"` en `backend/src` ⇒ un sitio) | spread de la fila; redirigir a `labelUrl`; escribir `labelUrl` sin `assertProviderUrl`; `redirect:'follow'` |
 | **PS-85** 🔒 | 🔒 **v1.80.12.8: reescrita por PS-135 (b)** — `to` gana `reference` (nuestro folio). **PII al tercero (`C-SDX-2`):** el cuerpo que recibe el doble en `purchase` tiene **exactamente** `to.{street1,name,company,phone,email,furtherInformation?}` (🔒 v1.81.1, SEC-SDX-7: `furtherInformation = Address.references`; **sin** `reference`) y el log capturado del adaptador solo trae las claves de la lista blanca de §19.4 (5)/(7) (`company`, `further_information` tampoco aparecen); con `guestEmail` ⇒ `email = guestEmail` aunque la orden esté reclamada; sin `Order.*` de pago, sin cartas; `quote` manda solo CP/estado/municipio/colonia; el log del adaptador (capturado) no contiene el teléfono ni la calle | mandar el `addressSnapshot` entero; `User.email` |
 | **PS-86** 🔒 | **Secretos (`C-SDX-1`):** prueba estática: ninguna cadena `skydropx.com` fuera de `env.validation.ts`/comentarios; `client_secret` solo en `config` (⭐ v1.80.12.1, §19.21.5: `SKYDROPX_CLIENT_SECRET` en el código de `backend/src` ⇒ solo `shipping-provider.factory.ts` —el único lector— y, cuando D2a la declare, `config/env.validation.ts`); canario: introducir `const BASE='https://sb-pro…'` en el adaptador ⇒ rojo. `GET /admin/settings` no contiene `SKYDROPX_*` | (la mutación **es** la prueba) |
-| **PS-87** | **Liga del invitado en correos:** `AV-4/5/17/18/19/12` de un pedido con `guestEmail` llevan `/pedido?token=<token vigente>`; con el token vencido ⇒ se emite uno nuevo (los viejos `revoked`, bitácora `reissue` actor `system:mail`) y el correo lleva el nuevo; registrado ⇒ `/orders/<id>`; retiro ⇒ `/shipments/<id>`; `mail-links.frontend-routes` verde con `pedido`; ⛔ el token no aparece en el log | volver a `cuenta/pedidos`; loguear el token |
+| **PS-87** | ⚠️ **v1.80.12.16: REESCRITA en [§19.35.1](#M4-SHIP-19-35)** (token nuevo sin rotar; reclamado ⇒ `/orders`; (a)…(h)); el texto de esta fila queda como historia. **Liga del invitado en correos:** `AV-4/5/17/18/19/12` de un pedido con `guestEmail` llevan `/pedido?token=<token vigente>`; con el token vencido ⇒ se emite uno nuevo (los viejos `revoked`, bitácora `reissue` actor `system:mail`) y el correo lleva el nuevo; registrado ⇒ `/orders/<id>`; retiro ⇒ `/shipments/<id>`; `mail-links.frontend-routes` verde con `pedido`; ⛔ el token no aparece en el log | volver a `cuenta/pedidos`; loguear el token |
 | **PS-88** | **`trackingUrl` solo si vino:** doble con `trackingUrl:null` ⇒ ningún correo ni DTO tiene `<a href` con la guía dentro ni `trackingUrl`; con URL ⇒ `AV-4/5/17/18` llevan **esa** URL exacta y los tres DTOs del cliente la traen; `C-SDX-6` (grep de `rastreo.`/`tracking?` construido en `frontend/src` y plantillas ⇒ 0). 🔒 **v1.81.1 (SEC-SDX-5):** doble con `trackingUrl='http://evil.example/t'` o `'javascript:alert(1)'` ⇒ `trackingUrl NULL`, ningún correo ni DTO lleva `href` con ella, bitácora `provider_url_rejected` | construir `https://…/${trackingNumber}`; persistir `trackingUrl` sin `assertProviderUrl` |
-| **PS-89** | **Línea de tiempo pública:** `guest/track`, `/orders/:id`, `/shipments/:id` con la secuencia `created → picked_up → last_mile → delivery_attempt → delivered_to_branch → delivered` ⇒ `timeline` de 6 con los `kind` fijos y `at_branch.branchName`; `exception` no aparece; sin `detail`, sin `carrierStatus`, sin `providerShipmentId` (conjunto de claves exacto); `publicStatus` sigue `enviado` durante `at_branch`; token de otro pedido ⇒ sus eventos, no éstos | filtrar el `detail` solo en una de las tres superficies; título «en sucursal» |
-| **PS-90** | **Ajustes y saldo:** operador ⇒ `403` en `PUT /admin/settings` con claves de envío, `PUT /admin/shipping/packages`, `GET /admin/shipping/balance`; `super_admin` ⇒ `200` + bitácora `before/after`; `workQueue.shipping.lowBalance` `true` con saldo 40000 y umbral 50000, y **una** llamada al doble por 5 min (caché); el operador recibe `lowBalance` pero el JSON de su `workQueue` no trae `balanceCents`; `shipping_provider='off'` ⇒ los tres jobs son no-op (cero llamadas) y `quote` ⇒ `404`; 🔒 v1.81.1 (SEC-SDX-12) con `off` **y** una guía Skydropx ya comprada: `label.pdf` ⇒ `application/pdf`, `label/cancel` ⇒ `200 cancelled` (doble llamado), `departed` ⇒ `shipped`, `refresh-tracking` ⇒ `404 FEATURE_DISABLED` | exponer el saldo al operador; una llamada por carga; `off` bloqueando `label.pdf` (etiqueta pagada inaccesible) |
+| **PS-89** | ⚠️ **v1.80.12.16 ([§19.35.2/.3](#M4-SHIP-19-35)): «de 6» se lee «de 7» (con `shipped`); amplía con `entregado` a mano ⇒ `delivered` en `deliveredAt`.** **Línea de tiempo pública:** `guest/track`, `/orders/:id`, `/shipments/:id` con la secuencia `created → picked_up → last_mile → delivery_attempt → delivered_to_branch → delivered` ⇒ `timeline` de 6 con los `kind` fijos y `at_branch.branchName`; `exception` no aparece; sin `detail`, sin `carrierStatus`, sin `providerShipmentId` (conjunto de claves exacto); `publicStatus` sigue `enviado` durante `at_branch`; token de otro pedido ⇒ sus eventos, no éstos | filtrar el `detail` solo en una de las tres superficies; título «en sucursal» |
+| **PS-90** | ⚠️ **v1.80.12.16 ([§19.35.5](#M4-SHIP-19-35) fila 3): amplía — con `off`, catálogos, Carta Porte y saldo ⇒ `200`; sin credenciales ⇒ `409 {missing:['env']}`.** **Ajustes y saldo:** operador ⇒ `403` en `PUT /admin/settings` con claves de envío, `PUT /admin/shipping/packages`, `GET /admin/shipping/balance`; `super_admin` ⇒ `200` + bitácora `before/after`; `workQueue.shipping.lowBalance` `true` con saldo 40000 y umbral 50000, y **una** llamada al doble por 5 min (caché); el operador recibe `lowBalance` pero el JSON de su `workQueue` no trae `balanceCents`; `shipping_provider='off'` ⇒ los tres jobs son no-op (cero llamadas) y `quote` ⇒ `404`; 🔒 v1.81.1 (SEC-SDX-12) con `off` **y** una guía Skydropx ya comprada: `label.pdf` ⇒ `application/pdf`, `label/cancel` ⇒ `200 cancelled` (doble llamado), `departed` ⇒ `shipped`, `refresh-tracking` ⇒ `404 FEATURE_DISABLED` | exponer el saldo al operador; una llamada por carga; `off` bloqueando `label.pdf` (etiqueta pagada inaccesible) |
 
 **Candados nuevos** (los escriben backend/frontend, QA los ejecuta): **`C-SDX-1`** secretos/URL base fuera del código
 (PS-86); **`C-SDX-2`** PII saliente por lista blanca (PS-85); **`C-SDX-3`** una sola función `resolvePostalCode` para
@@ -25640,7 +25665,8 @@ pueden coexistir y gana la primera). `T_UNKNOWN` es el mismo umbral de `label/re
   (PS-83, conteo 0); la excepción **declarada** es `label_live_on_cancelled` (la paquetería ya la recogió, §19.8): la
   invariante pasa a ser «… **sin alerta**».
 - **Filtro y tablero:** `GET /admin/shipments?alert=true` ⇔ `carrierAlert ≠ null ∨ labelAlert ≠ null`;
-  `workQueue.shipments` gana `withLabelAlert: number` (aditivo).
+  `workQueue.shipments` gana `withLabelAlert: number` (aditivo). ⚠️ **v1.80.12.16 ([§19.35.5](#M4-SHIP-19-35)):** se lee
+  **`workQueue.shipping.withLabelAlert`** — `workQueue.shipments` es un número y no cambia.
 - Ningún dato nuevo para el cliente: `labelPending`/`labelAlert` son **solo** de los DTO de admin (lista blanca
   `toAdminShipmentRow`; la de §4-G.3 gana ambos nombres como prohibidos).
 
@@ -28657,6 +28683,137 @@ body sin la clave 'day'            ⇒ run({})            (el día por defecto: 
 | **ux-ui** | **G3** `DESIGN_SYSTEM §43.19.12`: CTA de `AVG-2/3` sin `?` | **Pendiente**: `:25412` (`?severity=immediate&from=…&to=…`) y `:25425` (`?from=…&to=…`) | Nada. Los dos CTA apuntan a `admin/spend-alerts` a secas; los filtros los pone la página (PS-153) |
 
 ⛔ Ningún otro encargo nace de esta errata.
+
+###### <a id="M4-SHIP-19-35"></a>M4-SHIP.19.35 — v1.80.12.16: errata tras D2e y D2f, y el reparto para cerrar Skydropx (**NORMATIVA**; 🔒 en .1)
+
+> **Fuentes:** `BACKEND_NOTES.md §67.2`, `§67.4` (D2e) y `§68.2`, `§68.6` (D2f). Leído por el arquitecto el 2026-10-05 en
+> `/home/user/tcg-skyd` (Read/Grep, ⛔ sin ejecutar nada; ⛔ sha NO MEDIDO: sin Bash; el orquestador dio `12ea3261`):
+> `PROJECT.md:8376-8398` (T.8) y `:12387-12394` (criterio 243), `order-access-token.service.ts:68-83,158-163`,
+> `guest-checkout.service.ts:420-438`, `shipments.service.ts:243-253,991-994,1987-2039`, `customer-timeline.ts:70-90`,
+> `spend-alerts.service.ts:74`, `frontend/src/types/contract.ts:1259-1260,2720-2721,5905,6456-6457`, `DESIGN_SYSTEM.md:23950-23956,
+> 25417,25430`; Grep `withCarrierAlert|labelProcessing|withLabelAlert` en `DESIGN_SYSTEM.md` (0) y en `frontend/src` (0); Grep
+> `PNL|huérfan|token|invitad` en `HECHOS.md` (0). **Migración:** ninguna. **Códigos de error nuevos:** ninguno. **Enums:** ningún
+> dominio cambia. **`AuditLog.action` nuevos:** ninguno (se reusa `order.tracking_link.reissue`). ⛔ Ningún criterio nuevo de `PROJECT`.
+
+**M4-SHIP.19.35.1 — 🔒 P-D2E-1: la liga del invitado en los avisos de envío. Se EMITE un token nuevo por correo, SIN ROTAR.**
+§19.12 pedía el «último token no revocado»: irrealizable (en BD solo vive el SHA-256, §4-G.0 (5), §4-G.7a — el mismo defecto que
+v1.21.1 ya corrigió para el settle). Toda opción emite un token por correo; lo que se decide es si rota.
+- **Se descarta (A) rotar en cada correo.** Mata el enlace del correo de confirmación y el de cada aviso anterior en cuanto llega el
+  siguiente — `PROJECT` T.8 promete lo contrario («el mismo token del correo de confirmación»: el enlace de la confirmación **sigue
+  sirviendo**) — y el invitado que abre un correo viejo cae en «enlace sustituido».
+- **Se adopta (B) emitir sin rotar**, con estas reglas (sustituyen al punto «`shipmentUrl` (S6)» de §19.12 en lo que choque):
+```
+customerUrlOf(envío) — lo resuelve el SERVICIO, en el CAMINO DE ENVÍO del correo (⛔ nunca en resolveRecipient, que también usa recipientEmailOf):
+  envío de bóveda (shipment.userId)                  ⇒ appUrl('shipments/<id>')                         ⛔ sin token
+  pedido con order.userId ≠ null (registrado o RECLAMADO) ⇒ appUrl('orders/<orderId>')                    ⛔ sin token
+  pedido con order.userId = null ∧ guestEmail ≠ null:
+     order.createdAt < now − GUEST_TRACKING_MAX_AGE_DAYS ⇒ null (sin CTA)                                  -- §4-G.7 «tope de edad»
+     si no ⇒ { clear } = OrderAccessTokenService.issue(orderId, { rotate: false })                        -- 90 días, §4-G.7a
+             ⇒ appUrl('pedido?token=' + clear)
+             + AuditLog order.tracking_link.reissue, actor system:mail, details { notice: 'AV-n', rotated: false }  -- ⛔ ni el claro ni el hash
+     la emisión falla ⇒ el correo sale SIN CTA + log warn (sin token); ⛔ el aviso nunca se pierde por esto
+cuándo se emite: SOLO tras ganar el sello del aviso y tener destinatario, justo antes de renderizar
+                 (sello perdido, sin destinatario o MAIL_PORT ausente ⇒ cero tokens)
+cupo: la emisión por correo ⛔ NO consulta resendQuotaExceeded y resendQuotaExceeded NO cambia (sigue contando todas las filas)
+```
+- **Aplica a** los avisos con CTA al cliente de un pedido: `AV-4`, `AV-5`, `AV-6`, `AV-17`, `AV-18`, `AV-19` y **`AV-12`** (este por su
+  propio camino de envío, con la misma regla; un cuerpo compartido, ⛔ no una copia).
+- **Corrección de §19.12 (discriminante):** decía «con `guestEmail` ⇒ token». Un pedido **reclamado** conserva `guestEmail` (y el correo
+  le sigue llegando ahí, §R.5) pero el reclamo **revocó todos sus tokens** (§4-G claim): emitirle uno reabriría la puerta que el reclamo
+  cerró. El discriminante es **`order.userId`**: reclamado ⇒ `orders/<id>` (el que reclamó verificó ese mismo correo). ⛔ Nunca se
+  emite un token para un pedido con `userId ≠ null`.
+- **Por qué es seguro (y lo que cuesta, dicho):** cada token vale para **leer un pedido** (§4-G.0 (3): no es sesión ni otorga rol) y
+  todos llegan al **mismo buzón** (`Order.guestEmail`): quien tiene uno tiene el buzón y por tanto todos — la superficie no crece en
+  quién puede entrar, crece en **cuántas URLs vivas** hay (≈ 1 por aviso, acotado por los sellos: AV-4/5/17/18 una vez, AV-19 una por
+  intento, AV-6/AV-12 por su disparador). El interruptor que lo cierra todo **no cambia**: el reenvío (§4-G.4), el reenvío de soporte
+  (§4-G.9b) y el reclamo **revocan todos** los vivos, incluidos estos. La vida de 90 días desde el último aviso cubre entrega y
+  postventa (§4-G.7 TTL).
+- **Efecto aceptado del cupo:** un día con ≥ 5 emisiones (settle + avisos) deja el reenvío self-service en no-op silencioso hasta que
+  la ventana de 24 h corra; ese mismo día el invitado recibió enlaces vivos. ⛔ No se acuña columna para distinguir orígenes (§4-G.7a).
+- **§4-G.7 «Rotación» se precisa:** «Solo el reenvío y el reenvío de soporte rotan; el settle **y los avisos de envío (§19.35.1)** NO».
+  **SDX-R14** se reescribe abajo.
+- **PS-87 (reescrita, sustituye a la de §19.16):** (a) invitado sin reclamar: `AV-4` y luego `AV-5` y `AV-18` ⇒ cada correo lleva
+  `/pedido?token=Xᵢ` **distinto**; el token del settle y **todos** los `Xᵢ` abren `POST /orders/guest/track` `200`; filas de
+  `OrderAccessToken` = settle + 3; tres `reissue` con actor `system:mail`, sin claro ni hash en `details`; el log capturado no contiene
+  ningún `Xᵢ`. (b) **reclamado** ⇒ `/orders/<id>` y **cero** filas nuevas. (c) registrado ⇒ `/orders/<id>`; retiro ⇒ `/shipments/<id>`;
+  cero filas. (d) la compra de la guía (`recipientEmailOf`) ⇒ cero filas. (e) evento repetido (sello perdido) ⇒ cero filas. (f) tras
+  (a), `POST /orders/guest/resend-link` ⇒ todos los `Xᵢ` `410 TOKEN_REVOKED` (el interruptor sigue). (g) con 5 filas en 24 h, `AV-19`
+  sale **con** liga. (h) pedido de más de 365 días ⇒ sin CTA, cero filas. `mail-links.frontend-routes` verde con `pedido`.
+  *Mutaciones:* `rotate: true` ⇒ (a) rojo; emitir con `userId ≠ null` ⇒ (b) rojo; emitir en `resolveRecipient` ⇒ (d) rojo; consultar el
+  cupo ⇒ (g) rojo.
+- **Construye:** backend (`shipments.service.ts` y el camino de `AV-12`; usa `OrderAccessTokenService.issue` tal cual, ⛔ sin cambiarlo).
+  Frontend: nada (`/pedido` ya existe). `PROJECT` T.8 dice «el mismo token»: es irrealizable al pie de la letra; lo que promete (el
+  enlace de la confirmación sigue sirviendo y el del aviso abre su pedido) es lo que (B) da — nota para product-owner, no bloquea.
+
+**M4-SHIP.19.35.2 — PS-89: son 7, y `shipped` SÍ va con guía de Skydropx.** `PROJECT` T.8 enumera siete pasos («guía generada · **salió**
+· en camino · en reparto · intentaron entregarte · en sucursal · entregado») y el mapeo de §19.12 deriva `shipped` de `shippedAt` para
+toda guía. El «6» de PS-89 era un error de cuenta.
+- **Orden normativo:** `at asc`; empate de instante ⇒ `shipped` antes que los eventos del transportista, y estos entre sí por
+  `occurredAt, observedAt` (lo construido, `customer-timeline.ts:73,88`, `CUSTOMER_TIMELINE_EVENTS_SELECT`). `shipped` puede quedar
+  después de `in_transit` si la salida se observó después: se pinta en el orden real, ⛔ no se reordena por «lógica».
+- **PS-89 (corrige la cuenta):** … `created → picked_up → last_mile → delivery_attempt → delivered_to_branch → delivered` con
+  `shippedAt` puesto ⇒ `timeline` de **7** (`label_created, shipped, in_transit, out_for_delivery, delivery_attempt, at_branch,
+  delivered`, en orden de `at`); el resto de la fila sin cambio. Lo construido ya asevera esto (`BACKEND_NOTES §67.4 (2)`): solo cambia
+  el texto de la prueba si dice «6».
+
+**M4-SHIP.19.35.3 — Las dos decisiones de D2e (§67.2 (1) y (2)).**
+- **(1) Solo los eventos de la guía vigente — RATIFICADO.** Una guía solo se re-emite si su `carrierStatus ∈ {null, created}` (§19.8):
+  la cancelada no tiene más historia que «guía generada», y mezclarla daría dos «guía generada» con guías distintas. `shipped`/`delivered`
+  de fechas del envío no dependen de la guía y se conservan.
+- **(2) Skydropx marcada `entregado` a mano ⇒ sin `delivered` — NO SE RATIFICA.** El título ya dice «entregado» (`publicStatus`) y la
+  línea de tiempo no puede contradecirlo; la guía manual ya lo resuelve con las fechas. El criterio 242 (y §19.33.1) hace **mudo** ese
+  caso para el **correo** `AV-17`, no para la página. Regla de un cuerpo en `toCustomerTimeline`:
+```
+delivered: si hay evento 'delivered' de la guía vigente ⇒ { kind:'delivered', at: event.occurredAt }   (la fecha del transportista)
+           si no, y shipment.deliveredAt ≠ null           ⇒ { kind:'delivered', at: deliveredAt }        (la fecha de la tienda)
+           ⛔ nunca dos 'delivered'
+```
+  **PS-89 (amplía):** guía Skydropx con `created`, `in_transit` y `PATCH …/status {to:'entregado'}` ⇒ última entrada `delivered` con
+  `at = deliveredAt`; cero `AV-17` (sin cambio). Con PS-75 (b) (carrera) ⇒ **una** `delivered`, la del evento. *Mutación:* quitar la
+  rama de `deliveredAt` ⇒ rojo; quitar el «nunca dos» ⇒ PS-75 (b) con dos ⇒ rojo.
+- **Construye:** backend (`customer-timeline.ts`). Frontend: nada (pinta lo que llega).
+
+**M4-SHIP.19.35.4 — La liga de rastreo en `AV-4`/`AV-5` (§67.2 (4)): RATIFICADO el patrón.** Es la regla que ux-ui ya fijó para
+`AV-17`/`AV-18` (`DESIGN_SYSTEM.md:23950-23956`: un CTA por correo, §41.4, y el CTA es nuestra página; la paquetería va en letra chica,
+«Rastrear mi paquete en la paquetería: {url}»). §19.12 decía «botón» para `AV-4`: se lee como esa línea (no hay dos CTA). El texto es de
+ux-ui: lo **registra** en §43 para `AV-4`/`AV-5` (o da otro; si lo cambia, backend ajusta la plantilla y su registro de `copy-guard`).
+
+**M4-SHIP.19.35.5 — Las preguntas de D2f (§68.6).**
+
+| # | Pregunta | Decisión | Construye |
+|---|---|---|---|
+| **1** | `withLabelAlert` no cabe en `workQueue.shipments` (es un número) | **Va a `workQueue.shipping.withLabelAlert: number`** (aditivo; los dos roles). Cuenta los envíos con **`labelAlertOf(fila, now) ≠ null`** — el MISMO cuerpo que llena `labelAlert` en `AdminShipmentDTO` (§19.20.2), ⛔ ninguna segunda condición. §19.3 «`workQueue.shipments` gana `withCarrierAlert`» y §19.20.2 «`workQueue.shipments` gana `withLabelAlert`» se leen `workQueue.shipping` (error del documento; ⛔ `workQueue.shipments` sigue siendo un número). Un envío con las dos alertas cuenta en las dos cifras; el enlace del tablero a `?alert=true` lista la **unión** (§19.20.2), así que la lista puede tener menos filas que la suma: lo dice la tarjeta (ux-ui). **PS-173 (nueva):** un juego con cada `kind` de `LabelAlertKind`, uno justo por debajo de cada umbral (`T_UNKNOWN`, `T_STUCK`, `T_CANCEL`) y uno con las dos alertas ⇒ `withLabelAlert` = filas de `GET /admin/shipments` con `labelAlert ≠ null` (con el mismo reloj inyectado). *Mutación:* umbral propio en el tablero ⇒ rojo | backend (`shipping-work-queue.ts`) · frontend (tipo + tarjeta) · ux-ui (tarjeta) |
+| **2** | Techo de `NO_ENUM_POR_RUTA` 51 → 52 por `?description=` | **RATIFICADO.** Texto libre de 3..60 (§19.22.3), no tokens: es justo lo que esa lista existe para nombrar. Declarado por D2f como pide G6 | — |
+| **3** | Catálogos y saldo con `shipping_provider='off'` | **CONFIRMADO: funcionan.** Son lecturas de súper-admin que hacen falta **para configurar antes de encender** (plantilla de origen, Carta Porte, ver saldo); `404 FEATURE_DISABLED` queda para los verbos que operan (`quote`/`label`/`refresh-tracking`, §19.13, PS-90). Sin credenciales ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['env']}`; fallas ⇒ `502/503`. Que `GET …/balance` con `off` pase por `observeBalance` (AG-7 puede avisar) es correcto: «toda lectura de saldo» (§19.29.6). El tablero con `off` ⇒ `lowBalance: null` sin llamar (sin cambio). **PS-90 (amplía):** con `off` y credenciales, `GET …/catalogs`, `…/consignment-notes?description=cart` y `…/balance` ⇒ `200` (doble llamado); sin credenciales ⇒ `409 {missing:['env']}` | — (construido) |
+| **4** | `labelProcessing` = `labelProcessingSince ≠ null` | **CONFIRMADO**, con una precisión de cuerpo: es la condición de **`labelPending ≠ null`** del DTO (§19.20.2) — un predicado, dos lectores. Un envío en proceso **y** con `label_unknown`/`label_processing_stuck` cuenta en las dos cifras (en proceso y con alerta): son dos preguntas distintas | — (construido) |
+
+**M4-SHIP.19.35.6 — SDX-R14 (mapa de §19.14, reescrita).** *Token del invitado en correos (emisor `system:mail`)* — Mitigación: token
+nuevo de 90 días **sin rotar**, solo para pedidos sin `userId`, solo tras ganar el sello; nunca en log ni en `details`; el reenvío, soporte
+y el reclamo siguen revocando todos. Prueba del pentester: (1) reclamar el pedido y forzar un aviso ⇒ el correo no trae token y los viejos
+siguen `410`; (2) tras un reenvío, todo token de aviso anterior ⇒ `410`; (3) buscar el claro en logs y bitácora ⇒ 0.
+
+**M4-SHIP.19.35.7 — Pendiente de §19.34.1, re-medido el 2026-10-05.** `spend-alerts.service.ts:74` sigue `{ userId: string; name: string
+| null }` **sin** `role?` ⇒ **pendiente** (backend). Frontend G5 **hecho** (`contract.ts:5905` = `kind: AdminShipmentKind | null`).
+ux-ui G3 **hecho** (`DESIGN_SYSTEM.md:25417,25430`, v4.23). Tipo `workQueue.shipping` en frontend: **ausente** (Grep 0) ⇒ pendiente.
+
+**M4-SHIP.19.35.8 — Quién construye qué para cerrar Skydropx antes de los gates.** Una fila = un encargo; «terminado» = la prueba de la
+columna verde en una copia del árbol entero, la mutación roja, y commiteado con `git commit -- <rutas>`.
+
+| # | Rol | Qué | Dónde (lectura del contrato; ⛔ no medido) | Pruebas que lo cierran | Depende de |
+|---|---|---|---|---|---|
+| **B-1** 🔒 | backend (fuerte) | Liga del invitado por token sin rotar (.1), incluido `AV-12` | `shipments/shipments.service.ts`, el camino de `AV-12`, `orders/` solo como lector de `OrderAccessTokenService` | PS-87 (a)…(h) + sus 4 mutaciones | — |
+| **B-2** | backend | `delivered` por `deliveredAt` en la línea de tiempo (.3) y el texto de PS-89 a 7 (.2) | `shipments/customer-timeline.ts` + sus pruebas | PS-89 ampliada + 2 mutaciones | — |
+| **B-3** | backend | `workQueue.shipping.withLabelAlert` (.5 fila 1) | `shipments/shipping-work-queue.ts`, `admin/dashboard-shipping.service.ts` | PS-173 + mutación | — |
+| **B-4** | backend | `role?: Role` en `SpendFactValue` (§19.34.1) | `spend-alerts/spend-alerts.service.ts:74`, `staff-control.service.ts:79-84`, `test/sdx-c1.facts-type.spec.ts` | el compilador (mutación: quitar `role?` ⇒ no compila) | — |
+| **B-5** | backend | PS-90 ampliada (catálogos/saldo con `off`, .5 fila 3) — solo prueba de lo construido | `test/integration/sdx-d2f-money.e2e-spec.ts` | PS-90 ampliada | — |
+| **U-1** | ux-ui | Tarjeta «Envíos» del tablero para `workQueue.shipping` (`lowBalance` — `null` ⇒ sin línea —, `withCarrierAlert`, `withLabelAlert`, `labelProcessing`; los dos roles; ⛔ cifra de saldo nunca; enlace a `admin/shipments?alert=true`; la nota «un envío puede tener las dos alertas») | `DESIGN_SYSTEM §43` | — (lo juzga frontend) | — |
+| **U-2** | ux-ui | Registrar en §43 la línea de rastreo de `AV-4`/`AV-5` (.4) | `DESIGN_SYSTEM §43` | — | — |
+| **F-1** | frontend | Tipo `DashboardDTO.workQueue.shipping?: { lowBalance: boolean \| null; withCarrierAlert: number; withLabelAlert: number; labelProcessing: number } \| null` (opcional: servidor anterior) | `types/contract.ts` | `tsc` | — |
+| **F-2** | frontend | La tarjeta de U-1 en `AdminDashboard.tsx` + i18n ES/EN con su paridad | `(admin)/admin/` | unitaria: los dos roles, `lowBalance:null` ⇒ sin línea, sin `balanceCents` en el DOM, enlace `?alert=true`; E2E smoke del tablero | U-1, F-1 |
+| **—** | dueño | P-SDX-PNL-1 (§19.33.3), sin cambio | — | — | — |
+
+B-1…B-5 son ficheros disjuntos salvo `shipments.service.ts` (solo B-1): pueden ir en paralelo dos agentes (B-1 ∥ B-2…B-5) o uno en
+serie. ⛔ Ninguno toca `prisma/`. U-1 → F-2 en serie; U-2 y F-1 en paralelo con todo.
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
