@@ -5,7 +5,8 @@
  * P-6 «Cada 7 días»: «tope de sesión 7 días para el panel (personal y dueño) y 30 días para clientes».
  *
  * El refresh token lleva `sat` (segundos epoch del nacimiento de la sesión). `refresh()`:
- *  - `now − sat > tope(rol LEÍDO DE BD)` ⇒ `401 UNAUTHENTICATED {reason:'session_max_age'}`;
+ *  - `now − sat >= tope(rol LEÍDO DE BD)` ⇒ `401 UNAUTHENTICATED {reason:'session_max_age'}` (v1.84.1, §14.14 E-1:
+ *    misma frontera que `now >= exp`; antes `>`, y en el segundo exacto el 401 salía sin `reason`);
  *  - el refresh nuevo conserva `sid` y `sat` y lleva `exp = min(now + JWT_REFRESH_TTL, sat + tope)`;
  *  - token legado sin `sat` ⇒ `sat = iat`.
  *
@@ -14,7 +15,8 @@
  *
  * Mutaciones que la ponen roja (tabla SES del contrato): quitar la comparación del paso 3 (SES-1/2/5);
  * usar el tope de cliente para todos (SES-2/5); `exp` fijo de `JWT_REFRESH_TTL` (SES-3); `sat = now` para el
- * legado (SES-4); leer el rol del token (SES-5); devolver el claim en el cuerpo (SES-6).
+ * legado (SES-4); leer el rol del token (SES-5); devolver el claim en el cuerpo (SES-6); volver a `>` (SES-7);
+ * quitar la comprobación manual de `exp` (SES-8).
  */
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -224,13 +226,73 @@ describe('LIVE-2 · SES-6 — `sat` y `sid` jamás en un cuerpo', () => {
   });
 });
 
-describe('LIVE-2 — un refresh caducado por TTL (no por tope) sigue siendo 401 SIN reason', () => {
-  it('TTL 1 d, presentado al día 2 (sesión de 2 d, muy dentro del tope) ⇒ 401 sin reason', async () => {
+describe('LIVE-2 · SES-7 (v1.84.1) — en EXACTAMENTE `sat + tope` el 401 lleva reason', () => {
+  // §14.14 E-1: `exp = sat + tope`, así que en el segundo exacto las dos fronteras coinciden. Con `>` el paso del
+  // tope no dispara y el de `exp` sí ⇒ 401 SIN reason. Con `>=` sale `session_max_age`.
+  it.each([
+    [Role.customer, 30],
+    [Role.super_admin, 7],
+    [Role.vault_operator, 7],
+  ])('%s (tope %i d): un segundo antes ⇒ 200; en el segundo exacto sat + tope ⇒ 401 {reason:"session_max_age"}', async (role, days) => {
+    const { svc, user, jwt } = makeWorld(role as Role);
+    const { refreshToken } = await svc.issueTokens(user);
+    const birth = jwt.decode(refreshToken) as { sat: number; exp: number };
+    expect(birth.exp).toBe(birth.sat + (days as number) * DAY); // precondición: exp cae justo en el tope
+    nowMs = (birth.sat + (days as number) * DAY - 1) * 1000;
+    expect((await refresh(svc, refreshToken)).ok).toBe(true);
+    nowMs = (birth.sat + (days as number) * DAY) * 1000;
+    expect(await refresh(svc, refreshToken)).toEqual({ ok: false, status: 401, reason: 'session_max_age' });
+  });
+});
+
+describe('LIVE-2 · SES-8 (v1.84.1) — caducado por `exp` (no por tope) ⇒ 401 SIN reason y sin par; sin `exp` ⇒ 401', () => {
+  function spyPair(svc: AuthService) {
+    const issue = jest.spyOn(svc, 'issueTokens');
+    const devices = (svc as unknown as { devices: { issue: (...a: unknown[]) => unknown } }).devices;
+    const dev = jest.spyOn(devices, 'issue');
+    return { issue, dev };
+  }
+
+  it('TTL 1 d, presentado al día 2 (sesión de 2 d, muy dentro del tope) ⇒ 401 sin reason y ningún par', async () => {
     const { svc, user } = makeWorld(Role.customer);
     (svc as unknown as { config: ConfigService }).config.set('JWT_REFRESH_TTL', '1d');
     const { refreshToken } = await svc.issueTokens(user);
+    const { issue, dev } = spyPair(svc);
     at(2);
     expect(await refresh(svc, refreshToken)).toEqual({ ok: false, status: 401, reason: undefined });
+    expect(issue).not.toHaveBeenCalled();
+    expect(dev).not.toHaveBeenCalled();
+  });
+
+  it('TTL 1 d, presentado en EXACTAMENTE exp (now >= exp) ⇒ 401 sin reason', async () => {
+    const { svc, user, jwt } = makeWorld(Role.customer);
+    (svc as unknown as { config: ConfigService }).config.set('JWT_REFRESH_TTL', '1d');
+    const { refreshToken } = await svc.issueTokens(user);
+    const { exp } = jwt.decode(refreshToken) as { exp: number };
+    nowMs = exp * 1000;
+    expect(await refresh(svc, refreshToken)).toEqual({ ok: false, status: 401, reason: undefined });
+  });
+
+  it('refresh bien firmado SIN `exp` (con sat reciente) ⇒ 401 sin reason y ningún par', async () => {
+    const { svc, user, jwt } = makeWorld(Role.customer);
+    const noExp = await jwt.signAsync(
+      {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        tv: user.tokenVersion,
+        typ: 'refresh',
+        sid: randomUUID(),
+        sat: Math.floor(T0 / 1000),
+      },
+      { secret: REFRESH_SECRET, algorithm: 'HS256' },
+    );
+    expect(jwt.decode(noExp)).not.toHaveProperty('exp');
+    const { issue, dev } = spyPair(svc);
+    at(1);
+    expect(await refresh(svc, noExp)).toEqual({ ok: false, status: 401, reason: undefined });
+    expect(issue).not.toHaveBeenCalled();
+    expect(dev).not.toHaveBeenCalled();
   });
 });
 

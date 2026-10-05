@@ -27122,7 +27122,7 @@ Decisión del dueño: `HECHOS.md` fila «Listo para dinero real — respuestas d
 - `issueTokens(user, sid?, sat?)`: el refresh gana el claim **`sat`** (sin él ⇒ `now`: login, Google, registro,
   cambio de contraseña) y `exp = min(now + JWT_REFRESH_TTL, sat + tope(user.role))`. El access token **no** cambia.
 - `refresh()`: tras typ/tv/usuario/sid, `sat = claim` (o **`iat`** si falta — legado; presente pero no numérico ⇒ 401),
-  `now − sat > tope(rol de BD)` ⇒ **`401 UNAUTHENTICATED {details:{reason:'session_max_age'}}`**; luego la caducidad
+  `now − sat >= tope(rol de BD)` (**v1.84.1**; era `>`, ver §57.6) ⇒ **`401 UNAUTHENTICATED {details:{reason:'session_max_age'}}`**; luego la caducidad
   normal (`now >= exp` ⇒ 401 sin `reason`); emite el par con el mismo `sid` y el mismo `sat`.
 - ⭐ **Decisión de implementación que el contrato no escribe (y que SES-1/SES-2 exigen):** como el `exp` del refresh se
   acota a `sat + tope`, el token **siempre caduca justo en el tope**; si `jsonwebtoken` rechazara la caducidad en
@@ -27168,3 +27168,23 @@ Corriendo `enum-query-axes → buylist-cycle → replacement-cases → full-refu
 salen **8 rojas** en `graded-estimate` (p. ej. `3) … teja.gradingHighlight` `undefined`) **igual en `HEAD 2fe1cea1` sin
 este diff que con él** (N=1 cada uno); sola, `graded-estimate` da **17/17**. Es contaminación de estado entre suites
 (clase H-2), sin relación con LIVE-*. Queda para quien lleve catálogo/precios.
+
+### 57.6 Errata v1.84.1 · §14.14 E-1 — el tope de sesión con `>=` (SES-7, SES-8) (2026-10-05, sobre `6480d86b`)
+- **Borde:** `refresh()` comparaba `now − sat > tope` (`auth.service.ts`, paso 4 de E-1) y luego `now >= exp`. Como el
+  último refresh lleva `exp = sat + tope`, en el segundo exacto `now = sat + tope` el tope no disparaba y la caducidad sí
+  ⇒ `401` **sin** `reason`. Ahora `now − sat >= tope(rol de BD)`: las dos fronteras coinciden. Un token caducado sigue
+  sin emitir par; solo cambia el `reason`. El orden del código ya era el de E-1 (verificar con `ignoreExpiration:true`
+  → typ/tv/usuario/sid → `sat` → tope → `exp` ausente/no number o `now >= exp` → par); no se movió nada más.
+- **SES-7** (`test/auth.session-max-age.spec.ts`): `customer` (30 d), `super_admin` y `vault_operator` (7 d): un segundo
+  antes del tope ⇒ `200`; en `sat + tope` exacto ⇒ `401 {reason:'session_max_age'}`. Precondición aseverada: el `exp` del
+  token cae justo en el tope. Se vio **roja antes del cambio: 3/3 casos** (`reason: undefined`).
+- **SES-8:** el caso que ya existía («caducado por TTL ⇒ 401 sin reason», sin número) **pasa a llamarse SES-8** y no se
+  duplica (lo pide E-1); gana: ningún par (`issueTokens` y `devices.issue` no se llaman), el segundo exacto `now = exp`
+  ⇒ `401` sin `reason`, y un refresh bien firmado **sin** `exp` ⇒ `401` sin `reason` y sin par. Ya era verde antes del
+  cambio (protege conducta existente, no un defecto); su mordida la da la mutación.
+- **Mutaciones** (copia `git archive HEAD` entera + este diff; deterministas, la N es de repetición): volver a `>` ⇒
+  SES-7 roja **5/5** corridas (3 casos rojos, y solo esos); quitar la comprobación manual de `exp` ⇒ SES-8 roja **3/3**
+  (sus 3 casos). Fuente restaurada y comparada byte a byte con el árbol vivo.
+- **Suites** (misma copia): unitaria **394/394 suites, 6671/6671** (+5 netos: +6 casos, −1 absorbido en SES-8); `tsc` y
+  `eslint` limpios. Integración de auth + telemetría sobre BD propia `tcg_be_live2` (`E2E_STRICT_INFRA=false`, solo
+  esas suites; no es corrida de gate): **7/7 suites, 85/85**.

@@ -605,7 +605,9 @@ export class AuthService {
       const sat = AuthService.sessionStartOf(payload);
       if (sat === null) throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
       const nowSec = Math.floor(Date.now() / 1000);
-      if (nowSec - sat > sessionMaxAgeSeconds(user.role)) {
+      // v1.84.1 (§14.14 E-1): `>=`, la MISMA frontera que `now >= exp` de abajo. Como el último refresh lleva
+      // `exp = sat + tope`, con `>` el segundo exacto `now = sat + tope` caía en la caducidad ⇒ 401 SIN reason (SES-7).
+      if (nowSec - sat >= sessionMaxAgeSeconds(user.role)) {
         throw new BusinessException('UNAUTHENTICATED', 401, 'Session max age exceeded', {
           reason: SESSION_MAX_AGE_REASON,
         });
