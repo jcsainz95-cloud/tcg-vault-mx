@@ -27176,3 +27176,89 @@ compartida tiene que limpiar ese residuo**, o STF-28 se pondrá roja en la sigui
   `7ce3bff4` (sin estos cambios) **3/3 verde** sobre BD nueva; base sobre BD usada: NO MEDIDO. Huele a dependencia de datos
   del propio test, no a estos cambios (no tocan `admin/vaults`); (3) `shipped-refund-reason` SRF-7 manda un `reason` de 600 y
   espera `201`: lo rompe **PNL-6** (`171c36bf`, `@MaxLength(500)`, de otro agente), no PNL-2/3.
+
+## 59 · v1.82 PNL-1 + PNL-4 + PNL-6 construidas — disputas fuera (`410`) y un solo buzón, rechazo de varias cartas con un correo, tope del motivo del reembolso (2026-10-05, rama `claude/arreglos-panel`; código en `1a61cdbd`, `171c36bf`, `5cbbe29b`, `8818ff09`)
+
+**Fuente:** `API_CONTRACT §PNL.1, §PNL.4, §PNL.6, §PNL.8` (v1.82); `ARCHITECTURE §4.61.1/.4`; `DESIGN_SYSTEM §60.6` (correo 29)
+y `§60.13` (ML-24). Medido sobre copia `git archive` del árbol entero + mis parches, base propia `tcg_be_pnlb`.
+
+### 59.1 PNL-1 — `POST /disputes` ⇒ `410` y `GET /support/contact`
+- `POST /api/v1/disputes` lanza **siempre** `410 DISPUTES_DISCONTINUED { supportContact }`. El handler **no tiene
+  parámetros** (ni `@Body`): el `ValidationPipe` no tiene nada que validar, así que ningún `400`/`403`/`422` se adelanta
+  (DSC-2 lo mide con seis cuerpos distintos: respuesta idéntica). Sin sesión ⇒ `401` (guard global, como siempre).
+- `DisputesService.create` **se retiró** (no solo se desenrutó). Lecturas del cliente, `GET /admin/disputes` y `resolve`
+  siguen (transición; DSC-4).
+- **Resolutor único:** `backend/src/modules/mail/support-contact.ts` → `supportContact()` =
+  `SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → 'soporte@tcghunt.mx'` (con `envOr`), **leído en cada llamada** (las
+  constantes de antes se fijaban al importar). `disputes.constants.ts` se borró; `SUPPORT_EVIDENCE_CONTACT` salió de
+  `orders/guest-checkout.constants.ts`; `buylist-mail.templates.ts`, `buylist/mail-shell.ts` (pie), los correos de
+  disputa y `GuestOrderTrackingDTO.support.evidenceContact` lo importan. **Cambio de conducta posible:** si en
+  producción `SUPPORT_EMAIL` existe y difiere de `DISPUTE_EVIDENCE_CONTACT`, el seguimiento del invitado y `evidenceContact`
+  de disputas pasan a decir `SUPPORT_EMAIL` (NO MEDIDO qué valen en Railway — lo mide devops, §PNL.1).
+- `GET /api/v1/support/contact`: `@Public`, limitador global, `Cache-Control: public, max-age=300`, `200 { contact }`.
+  Controlador `orders/support-contact.controller.ts`, registrado en `OrdersModule`.
+- Candado DSC-8 (`test/support-contact.single-resolver.spec.ts`): barre `src/` **en crudo** (el limpiador de comentarios
+  es ciego a trozos en `mail-shell.ts`) buscando lecturas de las dos variables fuera del resolutor; con canario.
+
+### 59.2 PNL-6 — `RefundDto.reason` ≤ 500
+`@IsString() @MaxLengthWithField('reason', REFUND_REASON_MAX)` en `orders/dto/orders.dto.ts`. El `ValidationPipe` global
+no emite `details.field` (BE-82), así que el decorador es `@Transform` (lanza `BusinessException 400 VALIDATION_ERROR
+{field, max}` dentro de `plainToInstance`, antes del servicio) + `@MaxLength` con la misma cifra. Sin `MinLength`.
+⚠️ SRF-7 (`shipped-refund-reason.e2e-spec.ts`) mandaba 604 caracteres esperando `201` y recorte a 500: con v1.82 es
+`400`; la prueba se puso al día en `8818ff09` (lo encontró la corrida completa, no la dirigida — mi error de orden).
+
+### 59.3 PNL-4 — `POST /admin/buylist/:id/reject-items`
+- Cuerpo **crudo** validado en `buylist/buylist-reject-items.ts` (`parseRejectItemsBody`): `400 VALIDATION_ERROR
+  {field, rule}` con `rule ∈ required|type|size|duplicates|length`. Claves de más se ignoran.
+- `runSerializable` + `SELECT … FROM "SellRequest" … FOR UPDATE`; precedencia del contrato: cerrada (terminal o
+  `closedAt`) ⇒ `409 CONFLICT {status, closedAt}`; `status ≠ verificacion` ⇒ `409 INVALID_TRANSITION {from,
+  allowedFrom:['verificacion']}`; id ajeno/inexistente ⇒ `404`; alguna `skip` ⇒ `422 ITEM_NOT_OFFERED {itemIds}`; alguna
+  no rechazable ⇒ `409 CONFLICT {itemIds}`.
+- **No rechazable** (`REJECT_ITEMS_BLOCKED_STATUSES`): `convertida_inventario`, `pagada` **y `rechazada`** — esta última
+  es decisión mía (ver 59.5 Q-2): re-rechazar movería `rejectedAt`, el ancla de los plazos de devolución/abandono.
+- Por carta, `rejectItemWrite` — **el mismo cuerpo** que usa ahora `PATCH …/decision {reject}` (sin CAS allí: sin cambio
+  de conducta) — con **CAS por estado** de la carta; el total aprobado se recalcula y la auto-transición
+  (`autoRejectIfAllRejectedTx`, el mismo cuerpo que `maybeAutoRejectRequest`) corre **en la misma tx**.
+- `200 { items: AdminSellItemRow[] (orden de itemIds), requestClosed: boolean }` (ver 59.5 Q-1). Bitácora
+  `buylist.items_rejected { itemIds, reason, requestClosed }` solo si no lanzó. Correo 29 post-commit, best-effort.
+- **Correo 29** `sellItemsRejectedTemplate` (junto al 4): textos de §60.6; los días («7», «30») se **derivan** de
+  `deadline − rejectedAt` (ML-24: con plazos de +10/+45 el texto dice 10 y 45). Saludo como el correo 4
+  (`Hola {name}:`) — `greetingLine` de §41.13 E-2 aún no existe en el código.
+- **Dos defectos medidos por BRJ-8, cerrados en el mismo commit:**
+  1. `PATCH …/decision approve` no hacía CAS por estado: si `reject-items` confirmaba entre su lectura y su escritura,
+     la carta quedaba **`aprobada` con `rejectedAt`/`rejectionReason`** (la limpieza se decidía con la lectura vieja).
+     Medido forzando el orden con candado de fila. Ahora `itemStatus` observado en el `where` y, si cambió,
+     `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }` (antes caía en `NO_LIVE_ADJUSTMENT`, que mentiría).
+  2. `recomputeApprovedTotal` suelto (post-commit de la decisión por carta) leía el agregado y escribía sin candado:
+     **total viejo** sobre una carta ya rechazada (medido 1 de 4 corridas de BRJ-8 (c) con N=12 rondas: `approvedTotalCents
+     = 12000` con la carta `rechazada`). Ahora toma `SellRequest FOR UPDATE` antes de agregar.
+- `runSerializable` pasa de 6 a 7 llamadores (`serializable-retry.guard.spec.ts`); el cuerpo de `rejectItems` solo toca BD.
+
+### 59.4 Mediciones (copia `git archive` + parches; base `tcg_be_pnlb`)
+| Qué | Resultado |
+|---|---|
+| unitarios completos (antes de ajustar censos/mocks) | 6658/6695; los 37 rojos = 7 specs de mocks sin `$queryRaw` + 3 censos (runSerializable, plantillas ×2) + `enum-values-parity` (M-70, del otro agente: ya en `24097323`) |
+| unitarios tras el ajuste, dirigidos (`test/buylist*`, `serializable-retry`, `refund-review`) | 1332/1332 + 22/22 |
+| integración completa | 78/80 suites, 1585/1594: SRF-7 (corregido en `8818ff09`) y `graded-estimate` (8 rojos en la corrida completa, **verde aislada 2/2** — no toco `catalog`; orden-dependiente, NO diagnosticado) |
+| integración dirigida tras el commit (buylist ×9, disputes ×2, refund-reason-max, graded-estimate ×3) | 205/205 |
+| BRJ-8 (c) N=20 rondas | 6/6 corridas verdes (120 rondas coherentes; 0–4 rondas por corrida con los dos `200`) |
+
+**Mutaciones** (sobre la copia): restaurar `@Body` en `POST /disputes` ⇒ DSC-1/2/6 rojas (1/1, determinista);
+cascada local en `guest-checkout` ⇒ DSC-6 y DSC-8 rojas (1/1); quitar el tope de `reason` ⇒ RFD-1 roja; tope 499 ⇒ RFD-1/2
+rojas; quitar el CAS de la aprobación ⇒ BRJ-8 (a) roja **3/3** y (c) roja **3/3** (estado mixto visto); «7»/«30» literales
+⇒ ML-24 canario rojo; recálculo sin `FOR UPDATE` ⇒ unitario de orden rojo, ⚠️ pero **BRJ-8 (c) no lo ve: 0/6 corridas
+rojas a N=20** — el único rojo por HTTP de ese defecto fue 1/4 corridas a N=12 antes del arreglo. La prueba HTTP de ese
+defecto **no es sensible**; lo sostiene el unitario de orden de llamadas.
+⚠️ Una ventana de ~20 s de mutación unitaria se solapó con la corrida completa de integración en la misma copia; por eso
+las suites de buylist/disputas se re-corrieron después (fila «dirigida tras el commit»).
+
+### 59.5 Para el arquitecto
+- **Q-1:** la forma del `200` de `reject-items` («la misma proyección que la decisión por carta») era ambigua para varias
+  cartas: elegí `{ items: [...], requestClosed }`. Pido que §PNL.4 lo fije.
+- **Q-2 (💰, defecto existente):** §PNL.4 paso 4 dice «alguna que la decisión por carta **no** dejaría rechazar (mismo
+  predicado)». **La decisión por carta no tiene ese predicado.** MEDIDO por HTTP (sonda en la copia, 1/1, determinista):
+  `PATCH …/decision {reject}` sobre una carta `convertida_inventario` con `approvedPriceCents = 8000` ⇒ **`200`**, la carta
+  queda `rechazada` y `approvedPriceCents = null` — **la pieza sigue en nuestro inventario y su precio sale del total que
+  se le paga al vendedor**. Implementé el `409` de BRJ-5 en `reject-items` y **no** toqué `PATCH` (el contrato dice «sin
+  cambio»). Pido decisión: ¿`PATCH reject` gana el mismo predicado (`409` sobre `convertida_inventario`/`pagada`)?
+- **Q-3:** `ML-25` (AV-12 / AV-14) son plantillas de `payments/` (PNL-2/3, el otro agente), no de este encargo.
