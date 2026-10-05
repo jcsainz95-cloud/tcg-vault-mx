@@ -1,8 +1,8 @@
 # Baseline del censo de salvaguardas E2E (scripts/check-e2e-skip-census.sh).
 # Formato: clave ocurrencias ficheros. Se regenera SOLO con --update --motivo, en el mismo diff que el cambio.
-# 2026-10-04 · frontend/e2e/precios-s5.spec.ts (0f3dda00, FRONTEND_NOTES §85) +8 mockOnly/+3 realOnly, +1 fichero cada uno: los casos de dinero de §39/§40 son mockOnly porque el seed E2E no tiene pedidos directos liquidados en enviado/guia ni un reembolso tras envío sin motivo; los realOnly son 400/403/404 que el mock no sirve. Salida: backend siembra un directo liquidado enviado, otro guia y uno reembolsado con fullRefundAfterShipment=true sin motivo; entonces los mockOnly pasan a @real y el techo baja (pendiente en DEVOPS_NOTES, dueños backend: seed; frontend: convertir los casos)
+# 2026-10-05 · m4-mobile.spec: MOB-1…5 necesitan un envío en picking (needsSeed 34→36)
 mockOnly 135 27
-needsSeed 34 9
+needsSeed 36 10
 harnessLimit 5 3
 skipIfSeedMissing 15 7
 realOnly 19 6
