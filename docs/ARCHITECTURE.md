@@ -26,6 +26,7 @@
 > | **v1.80.9** | Feature (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md` «Usuarios de back-office SIN correo…» (a)(b)(c) + default del orquestador; `PROJECT §U`, criterios 256–270, P-STF-1…8 con su default). `User.email` opcional; `User.username` (`@unique`, canónico en minúsculas) y `User.lockNoticeAt`; **5 CHECK** (email XOR usuario; cliente ⇒ correo; forma del usuario; sin correo ⇒ no verificado; aviso solo sin correo). **Mismo `POST /auth/login`, misma llave `email`** = identificador (`@` ⇒ correo, si no ⇒ usuario); misma clave C7 para correos; cero enumeración. Alta de staff **sin** correo (staff con correo ⇒ `422`), `409 USERNAME_TAKEN`, `mustChangePassword` siempre; aviso de candado en el panel; `lockedUntil` en Usuarios leído del almacén; `403 ACCOUNT_WITHOUT_EMAIL`; denegación auditada a `vault_operator`. **Migración `M-STF` (número NO asignado).** Stream posterior a `precios-s5`. Norma: `API_CONTRACT` rev v1.80.9, §M6-U | §4.58, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2` | **Sí** (backend + frontend + textos ux-ui) · 🔒 seguridad |
 > | **v1.80.9.1** | Errata (2026-10-04, rama `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`, ⛔ sha NO MEDIDO por el arquitecto; cierra C-1 del techlead; origen `BACKEND_NOTES §55` (errata de 55.2.1 en §56.3), `DESIGN_SYSTEM §42.10 A-1`, decisión del dueño sobre TD-4). Aceptados tal cual: **D-1** (rama `@` = `isEmail` de hoy), **D-2** (anonimización anula también `lockNoticeAt`), **D-3** (`M-63`, `20261005120000_m63_staff_username`), **D-5** (`rule:'customer_without_username'`, `field` en todo `422` del alta). **Cambian:** **D-4** el resiliente degradado/Redis sin contestar ⇒ `peekLockMs` lanza `LoginAttemptStoreUnavailableError` sin `markDown` ⇒ `lockState:'unavailable'`; **A-1** `lockState` en la ficha; **TD-9** sin servicio ⇒ lanza, y solo la clase del almacén ⇒ `'unavailable'`; **TD-4** reset desde Usuarios a cualquier rol (normado + STF-36), script con `ADMIN_USERNAME` y `emailVerified` solo con correo; ⛔ no se prohíbe el súper-admin sin correo. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` §M6-U.11 | §4.58.5, §4.58.9, §11 `M-63` | **Sí** (backend; frontend: `lockState` de la ficha) · 🔒 seguridad |
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
+> | **v1.83** | 💰 Feature (2026-10-05, rama `claude/precio-sellado`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:50` (1)–(4) y `:38` (b)). El precio del sellado es **del producto** (`SealedProduct.ownerSalePriceCents`, `L`; **`M-71`** con relleno que no mueve ningún precio efectivo); precedencia **producto > pieza (legado) > mercado×spread > pendiente**, por **un** resolvedor cuyo tipo exige el producto; verbo `PUT …/sealed-products/:id/sale-price` con CAS sobre el precio leído y bitácora en la tx, ⛔ sin escribir piezas ⇒ sin candado con el checkout; **solo el dueño** (hoy `super_admin`, converge a `isOwner` al fusionar Skydropx, `D-SP-1`); el personal da de alta sin precio (`422 SEALED_PRICE_IS_PER_PRODUCT`); hoja `GET …/sealed-price-sheet` con costo, automático, `P`, mercado y margen sobre `L`; el modal de pago muestra el total de la **sesión** (`D-SP-2`). Norma: `API_CONTRACT` rev v1.83, §M11-SP | §4.62, §9 `D-SP-1`…`D-SP-3`, §11 `M-71` | **Sí** (backend 💰 + frontend M11/M1/checkout 💰 + textos ux-ui) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27219,6 +27220,72 @@ anclada a orden y línea, `userId` opcional) ⇒ no entra en una errata. `D-DSP-
 - **Un endpoint nuevo `POST /orders/:id/disputes`:** dos puertas para la misma fila; la regla de ventana, tipo y `NOT_RAW`
   se duplicaría. La vía B entra por la misma puerta.
 
+### 4.62 EL PRECIO DEL SELLADO ES DEL PRODUCTO — un hecho por producto, leído en vivo, que solo pone el dueño (v1.83, 2026-10-05, NORMATIVO, 💰 **DINERO**)
+
+Norma: `API_CONTRACT §M11-SP` (rev v1.83). Fuente: `HECHOS.md:50`. Aquí, el porqué y lo descartado.
+
+#### 4.62.1 Dónde vive el precio: una columna en `SealedProduct`
+- **El producto ya existe.** `SealedProduct` (v1.39, M-39) es la identidad «set + presentación» y la pieza ya la
+  referencia (`InventoryItem.sealedProductId`). Inventar otra identidad (p. ej. el grupo `(cardId, subtype, productId,
+  condición)` de la pestaña Sellado) metería la condición en el precio, que la regla vigente excluye (§4.23b) y el
+  dueño también («todas las piezas al mismo precio»).
+- **Columna, no tabla.** El precio del dueño es **un** valor por producto, sin vigencias ni canales. Una tabla
+  `SealedProductPrice` 1:1 sería un `JOIN` más en cada lectura de dinero sin ganar nada; su historia ya tiene sitio: la
+  bitácora (`sealed_product.sale_price_set`, con antes/después y el número de piezas afectadas).
+- **Escala `L`.** Igual que `listPriceCents`, para que la derivación única a `P` (§4.44, `displayPriceCentsOf`) no tenga
+  una rama nueva. La hoja muestra `P` al lado para que el dueño vea lo que ve el cliente (P-SP-3).
+
+#### 4.62.2 Por qué las piezas leen el precio del producto en vez de recibir una copia
+- **Copiar a cada pieza (fan-out) fue lo primero que se descarta:** (a) la pieza `reserved` no admite `listPriceCents`
+  (allowlist de §M1 v1.80.2.3) ⇒ al liberarse volvería con el precio **viejo**; (b) cada pieza que entre después tendría
+  que copiarlo en el alta, y una que no lo copie vende a otro precio; (c) el verbo del dueño tocaría N filas que el
+  checkout también toca ⇒ `409` del dueño contra compradores y bloqueos entre los dos. Con la lectura en vivo, el
+  verbo escribe **una** fila que el checkout solo lee.
+- **Producto por encima de la pieza (y no al revés).** El dueño dijo «todas las piezas al mismo precio»: si la pieza
+  ganara, un `listPriceCents` viejo dejaría a esa pieza fuera de su decisión sin que lo vea. Con el producto arriba, el
+  legado solo manda mientras el dueño no haya decidido, y la hoja lo enseña (`legacyPiecePrices`).
+- **El legado no se borra.** Rollback barato: quitar la columna devuelve **exactamente** los precios de hoy. El relleno
+  de `M-71` solo copia al producto donde **todas** sus piezas en existencia ya tienen el mismo precio: ahí el peldaño 1 da
+  el mismo número que el 2 y ningún cliente ve un cambio. Donde hay mezcla, decide el dueño (⛔ «el mayor» venderá
+  caro algo que él marcó barato; ⛔ «el más reciente» depende del orden de captura).
+
+#### 4.62.3 Por qué hace falta tocar sitios que «no son del sellado»
+La precedencia del sellado vive en un solo cuerpo (`resolveSealedSalePrice`), pero **nueve** sitios cortan antes con el
+override por pieza genérico (`hasManualPrice`, `firstPresentAmount`; lista en `API_CONTRACT §M11-SP` (m2)). Mientras el
+override por pieza fue el peldaño 1 de todos, el corte era inocuo. Con el producto encima, un sitio que siga cortando
+cobra (o muestra, o reconcilia) el precio de la pieza: la ficha dice 2000 y el checkout cobra 1000. La defensa es de
+**tipo**, no de disciplina: `manualSaleOf` exige la propiedad `sealedProduct` (no opcional), así que una consulta que
+olvide traerla **no compila**; y SP-2 compara todos los sitios contra la misma pieza.
+
+#### 4.62.4 Por qué el verbo no compite con la compra
+El checkout precia **fuera** de su transacción y reserva dentro (v1.68.1, por el pool); el cobro usa los congelados
+de la orden. Un precio del producto que cambia entre «preciar» y «reservar» deja la orden con el precio **leído**, que es
+el que la sesión devuelve. Añadir un candado (p. ej. `SELECT … FOR SHARE` del producto en la reserva) no protege a nadie
+—la orden ya tiene un total coherente— y mete en la ruta de dinero más caliente una espera sobre la fila que el dueño
+edita. Lo que **sí** falta está en la pantalla: el modal enseña el total de la cotización (`D-SP-2`).
+
+#### 4.62.5 Por qué el modal y no «el precio que vio»
+`HECHOS.md:49` pide cobrar el precio que el cliente vio. Hacerlo bien exige que el carrito lleve un precio **firmado y con
+vigencia** (si no, el cliente lo inventa) que la sesión respete, en las dos rutas (cuenta e invitado) — diseño de §X,
+del stream «Órdenes y dinero», con una pregunta abierta de vigencia (P-POR-3). Esta rev no lo improvisa dentro de un
+stream de inventario. Lo mínimo que no puede esperar —porque el dueño ahora abre la ventana a voluntad— es que **nadie
+pague una cifra que la pantalla no le mostró**: el modal enseña el total de la sesión y, si cambió, pide otro clic.
+
+#### 4.62.6 Solo el dueño, sin esperar a Skydropx
+El dueño se identifica hoy por `super_admin` (no hay otra marca en `production`). Depender de `User.isOwner` (rama sin
+fusionar) bloquearía este stream. Se construye contra **un** predicado con cuerpo de una línea; la fusión cambia esa
+línea. Mientras tanto, un súper-admin del personal también puede fijar precio (`D-SP-1`): es el mismo riesgo que hoy
+tienen todos los diales de dinero y se cierra igual que ellos.
+
+#### 4.62.7 Alternativas descartadas
+- **Mantener el precio por pieza y añadir «aplicar a todas»:** una acción masiva que copia ⇒ los tres problemas de 4.62.2,
+  y el precio deja de ser «del producto» en cuanto entra una pieza nueva.
+- **Precio por `(producto, condición)`:** contradice la regla vigente y a `HECHOS.md:50` (2). Si el dueño quiere una caja
+  dañada más barata, es una decisión nueva.
+- **Fijar el precio de venta a través del mercado a mano** (lo que hoy puede hacer el personal en el alta): mezcla dos
+  hechos (referencia de mercado y decisión de venta) y deja la decisión en quien da de alta. Queda solo para el dueño
+  (P-SP-1, default).
+
 ---
 
 ## 5. Decisiones transversales
@@ -27988,6 +28055,22 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **v1.83 — `D-SP-1` (abierta, temporal; se cierra al fusionar con Skydropx):** «solo el dueño fija el precio del
+> sellado» (`HECHOS.md:50` (4)) se construye como `role === 'super_admin'`; un súper-admin del personal también puede.
+> Cierre: el cuerpo de `canSetSealedSalePrice` (backend) y `canSetSealedPrice` (frontend) pasa a `isOwnerAccount` /
+> `me.isOwner` (`M-68`), con SP-14. `API_CONTRACT §M11-SP.3`.
+>
+> **v1.83 — `D-SP-2` (abierta, 💰, frontend; medida 2026-10-05 por lectura):** el modal de pago pinta el total de la
+> **cotización** (`CheckoutView.tsx:406-408`; `GuestCheckoutView.tsx:494-496`) y el `PaymentIntent` se crea por el de la
+> **sesión** (`orders.service.ts:1515-1518`). Si el precio cambió entre las dos, Stripe cobra una cifra que la pantalla no
+> mostró. Cierre: §M11-SP.6 (F-SP-5). Queda abierta después la parte de `HECHOS.md:49` («se cobra el precio que vio»),
+> que es diseño de §X.
+>
+> **v1.83 — `D-SP-3` (cerrada al medir; premisa del encargo):** «hoy un sellado publicado solo cambia de precio
+> retirándolo» es cierto en `ItemDetailModal.tsx:61-73`/`:134-136`, **no** en M11: `SealedFinalPrice` en modo `'reprice'`
+> (`SealedFinalPrice.tsx:42-47`, montado en `VariantDrawer.tsx:546`) ya re-precia por pieza una `listed` desde #69.
+> Lo que faltaba es que el precio sea **del producto** y **solo del dueño**.
+>
 > **v1.80.10 — `D-DSP-1` (de `PROJECT`, abierta, para product-owner; medida 2026-10-04 por lectura):** un invitado no
 > tiene vía de **compensación por carta** tras la entrega: no puede crear `Dispute` (`schema.prisma:1937`, decisión v1.21)
 > y M3 solo reembolsa la orden **entera** (`API_CONTRACT §M3`, v1.80.8.6). `PROJECT` 56b pide «las mismas reglas». ¿Basta
@@ -30547,6 +30630,16 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.83-precio-sellado (**M-71**: precio del dueño por producto sellado — **DDL ADITIVO + 1 CHECK + relleno que no mueve precios efectivos**, §4.62)
+
+- **Carpeta:** `prisma/migrations/20261021120000_m71_sealed_product_owner_price/` (posterior a `M-70` del panel,
+  `20261020120000`, y a `M-64`…`M-68` de Skydropx, `20261006…`–`20261009…`; medido con `Glob` en los tres árboles el
+  2026-10-05). Si al fusionar otro stream ya tomó `M-71`, se renumera **esta**.
+- **Schema:** `model SealedProduct { … ownerSalePriceCents Int? }` — comentario en el modelo: «`L` del dueño; `null` =
+  automático; escritor único: `PUT /admin/inventory/sealed-products/:id/sale-price` (y el relleno de M-71)».
+- **SQL, relleno, bitácora, despliegue y rollback:** texto exacto en `API_CONTRACT §M11-SP.7`. ⛔ No toca
+  `InventoryItem`. Hay datos (preámbulo de §11): la columna es anulable y el relleno es un `UPDATE … WHERE` acotado.
 
 ### v1.80.9-staff-sin-correo (**M-63**: usuarios de back-office sin correo — **DDL ADITIVO + `DROP NOT NULL` + 5 CHECK, SIN backfill**, §4.58)
 
