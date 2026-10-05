@@ -27238,3 +27238,29 @@ este diff que con él** (N=1 cada uno); sola, `graded-estimate` da **17/17**. Es
   (la discrepancia del recorte a 300 de §57.7, para el arquitecto).
 - **Suites** (misma copia entera + este diff): unitaria **395/395 suites, 6699/6699** (antes 394/6692: +1 suite, +7
   pruebas); `tsc --noEmit` limpio; `eslint` del fichero nuevo limpio. Sin cambios de código de producción.
+
+### 57.9 Errata v1.84.4 · §14.17 E4-5 — enlace «Aviso de privacidad» en el pie de todos los correos (criterio 507) (2026-10-05, sobre `77188b5f`; código en `ec9d3aae`)
+
+**Dónde estaba el pie (medido, `grep` 2026-10-05):** no hay uno, hay **tres** más un correo sin pie:
+- `buylist/mail-shell.ts` → `mailShell()` (lo usan las 7 familias de `*-notice.templates.ts` y `buylist-mail.templates.ts`: buylist, pedido con cuenta, envíos, reembolsos, CLABE, KYC, disputas — 20 de las 27 plantillas);
+- `mail/mail.templates.ts` → `layout()` (verificación, restablecer contraseña, bloqueo de staff);
+- `orders/mail/guest-order.templates.ts` → `layout()` duplicado (confirmación de invitado y reenvío de enlace; BE-43);
+- `catalog/sealed-restock-notify.service.ts` → HTML en línea, sin pie (reposición de sellado).
+
+**Qué se construyó.** Una sola decisión en `mail-shell.ts`: `privacyNoticeUrl()`, `privacyNoticeLabel(locale)`,
+`privacyNoticeHtml(locale, style)`. Los cuatro sitios la llaman; ninguno arma el enlace por su cuenta.
+- **URL:** `<origen>/es/privacidad` en los dos idiomas (literal del contrato; el aviso es un documento en español). Etiqueta: «Aviso de privacidad» / «Privacy notice».
+- **Origen:** `APP_PUBLIC_URL` (vía `appUrl`, la base de los avisos) y, si falta o está en blanco, el **primer** origen de `APP_BASE_URL` (la base de los enlaces de verificación/contraseña/invitado). Es el respaldo que `DEVOPS_NOTES §35.2` pedía; se aplica **solo** a este enlace (los CTA de los avisos no cambian). Esquema no http(s) ⇒ sin `href`.
+- **Sin ningún origen:** el pie dice «Aviso de privacidad: tcghunt.mx/es/privacidad» como **texto**; ⛔ nunca un `href` a medias.
+- **Posición en `mailShell`:** fila de letra chica sobre **papel**, justo encima de la banda de tinta, **no dentro**. §31.6h prohíbe en la banda todo lo que el lector necesite (degrada en modo oscuro), y el candado N2 (`buylist.mail-shell.spec.ts`: «el pie en tinta no lleva `<a `») sigue en verde sin tocarlo. Si ux-ui lo quiere en otro sitio, es un cambio de una línea en `mailShell`.
+
+**Decisiones que el contrato no fijaba (para el arquitecto):**
+1. **El aviso de bloqueo de staff (`passwordLockAlertTemplate`) también lleva el enlace.** Comparte `layout()` con verificación/contraseña y el contrato dice «pie común de todas las familias». Su comentario dice «⛔ sin enlaces» (anti-phishing): el enlace al aviso no es una acción, pero si se prefiere quitarlo ahí, es un parámetro de `layout`.
+2. **El texto plano no lleva el enlace.** El texto de cada plantilla es propio (no hay pie de texto común) y el contrato habla del pie visible. Añadirlo serían 27 + 1 ediciones; no lo hice sin decisión.
+3. **Reposición de sellado:** correo bilingüe ⇒ etiqueta en español.
+
+**Pruebas.** `test/mail.privacy-footer.spec.ts` (64): PRIV-0 censo (las 27 `*Template` de `src/` tienen render; una nueva sin render ⇒ rojo), PRIV-1 cada plantilla ES+EN y la reposición llevan `<a href="<origen>/es/privacidad">` con su etiqueta, una sola vez; PRIV-2 origen y respaldo; PRIV-3 sin origen; PRIV-4 barrido de `src/` (todo fichero con `subject` y marcado HTML llama a `mailShell(` o `privacyNoticeHtml(`). `test/mail-links.frontend-routes.spec.ts`: `linkedPaths` aparta `/privacidad` (no es el CTA) y una prueba nueva mide que la ruta existe en el front.
+
+**Choques previstos al fusionar** (medido con `git merge-tree` contra `origin/claude/skydropx-d` y `origin/claude/arreglos-panel`): **ninguno textual en `backend/`** (`mail-shell.ts` y el spec de rutas se auto-fusionan). **Sí semánticos:** PRIV-0 se pondrá rojo con las plantillas nuevas de esas ramas (`shipmentDeliveredTemplate`, `shipmentAtBranchTemplate`, `shipmentDeliveryAttemptTemplate`; `sellItemsRejectedTemplate`) hasta que quien fusione les añada su render en `RENDERS` — es el candado haciendo su trabajo (igual que SRF-13). Todas usan `mailShell`, así que ya llevan el enlace.
+
+**Medido (copia `git archive ec9d3aae` del árbol ENTERO, 2026-10-05):** unitaria **396/396 suites, 6764/6764** (antes de este cambio, §57.8: 395/6699; además del spec nuevo entraron commits de otras ramas, así que no comparo la diferencia prueba a prueba); `tsc --noEmit` limpio. **Mutaciones** (sobre otra copia, N=1 cada una porque son deterministas): quitar la fila del aviso de `mailShell` ⇒ **47 rojas**; quitarla del `layout` de `mail/` ⇒ **11**; del `layout` de invitado ⇒ **8**; de la reposición ⇒ **2** (PRIV-1 + barrido PRIV-4); quitar el respaldo a `APP_BASE_URL` ⇒ **2** (PRIV-2). Con todo en su sitio, 64/64. **Fusión simulada** (`git merge-tree`): con `arreglos-panel`, PRIV-0 rojo solo por `sellItemsRejectedTemplate`, como se predijo; con `skydropx-d` el spec nuevo no compila en mi copia porque el cliente Prisma generado es el de esta rama (`SpendAlertKind` falta) — **NO MEDIDO** ahí; las otras dos specs de correo dan 291/291.
