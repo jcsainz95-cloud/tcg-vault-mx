@@ -27229,9 +27229,18 @@ costo) + filas `sealed_product.*` de bitácora. **Igual** tras `prisma migrate d
 `psql` (`NOTICE … already exists, skipping`), tras la **reversa** de la cabecera y tras volver a aplicar. 3/3 filas
 `NULL`; CHECK rechaza `0` y `100000001`. SP-12 lo repite en cada corrida sobre un esquema temporal.
 
-### 57.7 Suites completas
+### 57.7 Suites completas (medido por backend, 2026-10-05, copia `git archive HEAD` del árbol ENTERO)
 
-Ver la tabla al final de esta sección (se rellena con la corrida sobre el sha final).
+| Suite | Sha | Resultado |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | `adc426b5` | 0 errores |
+| Unitaria (`npx jest`) | `adc426b5` | **392/392 suites, 6659/6659 pruebas** |
+| Integración (BD `tcg_be_sell`) | `adc426b5` | **77/78 suites, 1606/1607** — la roja es `stf-errata-v1-80-9-1` STF-32 (`store.degraded` con plazos reales de 100/400 ms, módulo `auth`, ⛔ no tocado aquí); load de 15 min **8.26** al terminar. Repetida aislada con carga baja: **10/10 verde** (load 2.9–6.6) |
+| Integración | `dd51dad7` | 77/78, 1593/1607 — las 14 rojas eran `vault-sealed-enum-filters`, contaminada por **residuo de una corrida de mutación matada a mitad** (2 piezas de cliente del fixture compartido). Verde 27/27 tras barrer; corregido en `adc426b5` (57.3, limpieza por prefijo y comprador propio) |
+| Integración | `88aa1083` | 76/78, 1584/1599 — las 2 rojas eran el registro de C-EQ-1 (`?scope=`) y `inventory-price-audit` con el operador; las dos corregidas después (`97c92eee`, `176f6c25`) |
+| Unitaria / integración del sha de partida `435da147` (referencia) | `435da147` | 390/391 (la roja: `pii-crypto`, artefacto de exportar `PII_ENCRYPTION_KEY` al correr la unitaria; sin ella, verde) / **77/77, 1571/1571** |
+
+En la corrida de `adc426b5`, SP-5: forzada 10/10, suelta 200+409 10/10; SP-6: forzada 10/10, suelta A 9/10 · B 1/10.
 
 ### 57.8 Preguntas para el arquitecto (⛔ no las resolví yo)
 
