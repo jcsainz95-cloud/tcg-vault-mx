@@ -13115,3 +13115,130 @@ mock no sirve (legítimos: miden en el pase real).
 **gitleaks PR #70 (devops, 2026-10-04):** el job `gitleaks` (run 37192755201) marcaba 3 `generic-api-key` en dos specs de integración de backend (`staff-without-email.e2e-spec.ts:405,:412` @0a42d85a; `stf-errata-v1-80-9-1.e2e-spec.ts:167` @1d946722): contraseñas de ficción, medido que no aparecen en ningún `.env`, workflow ni `scripts/`. Añadidas a `[allowlist]` de `security/gitleaks.toml` **por valor exacto anclado** (no por ruta). Medido con gitleaks 8.30.1: rango `origin/production..HEAD` 3 → 0 hallazgos (21 commits); `sast-gitleaks-canary.sh` 11/11; una variante del valor con sufijo sigue roja. **Rollback:** revertir el commit (la PR vuelve a rojo).
 
 **Manifiesto de secretos publicados, PR #70 (devops, 2026-10-04):** el job `stripe-webhook-failclosed` (run 37193001346) fallaba en `check-secret-defaults.sh` (E): el manifiesto no cubría 3 literales nuevos de esta rama. Medido de dónde salen: `backend/prisma/reset-admin-password.ts:26` (placeholder `'…'` del ejemplo de uso en un docstring), `backend/test/integration/stf-errata-v1-80-9-1.e2e-spec.ts:167` (prefijo de ficción + `randomUUID()`) y `:170` (el identificador `HMAC_KEY`, que es `randomBytes(32)` en tiempo de ejecución). Ninguno es un valor real. Regenerado con `gen-published-secrets-manifest.sh`: +3 hashes, 0 jubilados, catálogos sin cambios. El job entero sale verde: failclosed rc=0 (3/3), su canario 31/31, `check-secret-defaults` rc=0 y su canario 70/70. **Rollback:** revertir el commit (el job vuelve a rojo).
+
+## §78 · Cupo diario de Vercel agotado (`api-deployments-free-per-day`) — `git.deploymentEnabled` para que `claude/*` NO cree despliegues (2026-10-05, rama `claude/hotfix-texto-sellado`, PR #71)
+
+### 78.1 El síntoma y la causa (MEDIDO, 2026-10-05)
+
+- Estado `Vercel` = `failure` «Deployment rate limited — retry in 24 hours» en las cabezas de
+  `claude/precio-sellado` (03:11 UTC), `claude/arreglos-panel`, `claude/skydropx-d` y
+  `claude/hotfix-texto-sellado` (03:19). Comentario de Vercel en la PR #71 (03:26): «Resource is limited -
+  try again in 24 hours (more than 100, code: "api-deployments-free-per-day")».
+  *Comando:* `gh api repos/jcsainz95-cloud/tcg-vault-mx/commits/<sha>/statuses` y `…/issues/71/comments`.
+- **104 pushes en las 24 h previas** al primer corte (2026-10-04T03:20 → 2026-10-05T03:20), de la API de
+  eventos de GitHub (`…/events`, `PushEvent`): **101 a `claude/*`** (42 `skydropx-d`, 20 `precios-s5`,
+  15 `arreglos-panel`, 14 `staff-sin-correo`, …), **3 a `production`**, 0 a `main`.
+- **El *Ignored Build Step* cancela, pero el despliegue se CREA:** cada cabeza `claude/*` desde el
+  2026-09-10 tiene dos estados `Vercel`: «Vercel is deploying your app» y, segundos después, «Canceled by
+  Ignored Build Step». Es un despliegue creado ⇒ cuenta para el cupo (la cuenta exacta que hace Vercel:
+  **NO MEDIDO**, pero 104 > 100 coincide con el corte).
+- **Consecuencia:** con el cupo agotado, un push a `production` tampoco se publica hasta que pase la ventana.
+
+### 78.2 La palanca: `git.deploymentEnabled` (MEDIDO en el paquete oficial, no en vercel.com)
+
+`vercel.com/docs` y `openapi.vercel.sh` dan **403 al CONNECT** desde este entorno (medido hoy). Fuente usada:
+el paquete npm **`@vercel/config@0.9.0`** (publicado por Vercel, repo `vercel/vercel`, `packages/config`),
+`dist/types.d.ts`:
+
+```ts
+export interface GitDeploymentConfig { [branch: string]: boolean; }
+export interface GitConfig {
+    /** Specifies the branches that will not trigger an auto-deployment when committing to them.
+     *  Any non specified branch is `true` by default. */
+    deploymentEnabled?: boolean | GitDeploymentConfig;
+```
+
+y `dist/utils/validation.js` lo valida como campo estático «boolean or object with branch booleans».
+Es decir: la rama a `false` **no dispara** el auto-despliegue (no se crea, no solo se cancela), y toda rama
+no listada es `true` ⇒ `main` y `production` despliegan aunque no se nombren. Igualmente las nombramos
+`true` de forma explícita y el candado lo exige.
+
+Configuración puesta (idéntica en `vercel.json` y `scripts/vercel.frontend-root.json`):
+
+```json
+{
+  "git": { "deploymentEnabled": { "main": true, "production": true, "claude/*": false } },
+  "ignoreCommand": "case \"${VERCEL_GIT_COMMIT_REF:-main}\" in main|production) exit 1 ;; *) exit 0 ;; esac"
+}
+```
+
+El `ignoreCommand` se queda como **segunda capa** (§40): si una rama no casa el patrón, se sigue cancelando.
+
+### 78.3 ⚠️ DÓNDE lo lee Vercel: la raíz es INERTE — hace falta `frontend/vercel.json` (rol frontend)
+
+- **No hay `package.json` en la raíz** (`ls package.json` → no existe; sí `frontend/package.json`) y los
+  despliegues de `production` terminan bien ⇒ el *Root Directory* del proyecto es `frontend` (coincide con
+  §6.1/§11.A/HANDOFF.md:44).
+- **MEDIDO en `vercel@62.2.0` (CLI oficial):** con *Root Directory* puesto, la configuración se lee de
+  `join(cwd, rootDirectory)` y, si solo hay `vercel.json` en la raíz, la CLI avisa literalmente
+  «The vercel.json file should be inside of the provided root directory».
+- **Conclusión:** el `vercel.json` de la raíz **no lo lee Vercel hoy** (igual que ya decía §40.4). Las
+  cancelaciones «Canceled by Ignored Build Step» que se ven vienen, casi seguro, del **campo del panel**
+  (HANDOFF.md:120 pidió ponerlo) — **NO MEDIDO** cuál de las dos fuentes es: lo cierra el dueño mirando el
+  panel (§78.6, paso 1).
+- **Por tanto, el freno de cupo solo se activa cuando exista `frontend/vercel.json`** con este contenido.
+  Esa ruta es del **rol frontend** (CLAUDE.md); devops no la escribe. Contenido exacto, sin transcribir:
+
+  ```sh
+  cp scripts/vercel.frontend-root.json frontend/vercel.json
+  ```
+
+  Si `frontend/vercel.json` ya existiera con otras claves (p. ej. las redirecciones de §25.7), se **añaden**
+  `git` e `ignoreCommand`; no se sustituye. El candado admite claves extra.
+- **Por rama:** Vercel lee la configuración **del commit que despliega** (no hay otra copia de la que leer;
+  la forma exacta en que la integración de Git la consulta antes de crear el despliegue: **NO MEDIDO**).
+  Así que el ajuste tiene que estar **en el árbol de cada rama `claude/*` que reciba pushes**. Las ramas
+  nuevas que salgan de `main`/`production` después de la fusión lo heredan; las vivas hay que tocarlas.
+
+### 78.4 Lo MEDIDO frente a lo NO MEDIDO
+
+| Afirmación | Estado |
+|---|---|
+| 104 pushes/24 h, 101 a `claude/*`; corte a partir de 03:11 UTC | **MEDIDO** (API de eventos y estados de GitHub) |
+| El *Ignored Build Step* crea y luego cancela (2 estados por sha) | **MEDIDO** (estados `Vercel` en las cabezas) |
+| `git.deploymentEnabled` existe, admite objeto rama→booleano y no listadas = `true` | **MEDIDO** (`@vercel/config@0.9.0`) |
+| Vercel lee `vercel.json` del *Root Directory* (`frontend/`), no de la raíz | **MEDIDO en la CLI** `vercel@62.2.0`; en la integración de Git, **NO MEDIDO** |
+| Los patrones glob (`claude/*`) funcionan en las claves | **NO MEDIDO** (de memoria: la doc dice que sí, con minimatch). Si no funcionaran, `claude/*` no casaría nada ⇒ todo sigue como hoy (falla hacia «se despliega»), nunca hacia «producción congelada» |
+| Una rama a `false` no consume cupo `api-deployments-free-per-day` | **NO MEDIDO** (se deduce: no se crea despliegue) |
+| Qué fuente cancela hoy (panel vs. fichero) | **NO MEDIDO** — §78.6 paso 1 |
+
+**Comprobación que cierra los NO MEDIDO** (tras fusionar con `frontend/vercel.json`, y en una rama que lo
+tenga): push trivial a esa rama `claude/*` y, a los 2 min,
+`gh api repos/jcsainz95-cloud/tcg-vault-mx/commits/<sha>/statuses --jq '[.[]|select(.context=="Vercel")]|length'`
+debe dar **0** (hoy da 2). Después, push a `main` y comprobar que **sí** aparece «Deployment has completed».
+**Las dos, en ese orden**: la segunda es la que protege producción.
+
+### 78.5 El candado: `scripts/check-vercel-deploy-branches.sh` (+ canario), cableado en `ci.yml`
+
+Job `vercel-deploy-branches` (en el `needs` de `ci-ok`). Comprueba en `vercel.json`,
+`scripts/vercel.frontend-root.json` y `frontend/vercel.json` (si existe): `deploymentEnabled` no es `false`;
+`main` y `production` explícitas y `true`; todo patrón `false` empieza por segmento literal + `/` distinto de
+`main`/`production` **y** no casa ninguna de las dos con la semántica de glob más permisiva; `ignoreCommand`
+presente y, ejecutado con `sh`, da los cinco casos del §40.3; y las copias no divergen.
+
+Medido 2026-10-05 sobre este árbol: candado **rc=0**; canario **14/14 casos correctos, cada uno 3/3**
+(`production`/`main` a `false`, `deploymentEnabled=false`, `"*"`, `"**"`, `"prod*"`, `production` omitida,
+sin `ignoreCommand`, signo del `ignoreCommand` al revés, `frontend/vercel.json` con `production=false`,
+copias divergentes, JSON inválido ⇒ ROJO; config tal cual y `frontend/vercel.json`+`redirects` ⇒ VERDE).
+También verdes: `vercel-ignore-build.sh --self-test`, `check-ci-ok.sh --static`, `check-ci-ok-canary.sh`,
+`check-workflow-cwd.sh`.
+
+### 78.6 Lo que hace el dueño en el panel de Vercel (sin credenciales para nadie)
+
+1. **Mirar (solo lectura), para cerrar el NO MEDIDO de §78.3:** proyecto `tcg-vault-mx` →
+   **Settings → Build and Deployment** (en paneles viejos: *General*) → **Root Directory**: ¿dice `frontend`?
+   Y **Settings → Git → Ignored Build Step**: ¿tiene el one-liner del §40.8-B? **No borrarlo**: hoy es,
+   probablemente, lo único que cancela las ramas.
+2. **Nada que cambiar para el cupo:** no hay en el panel un equivalente por rama de `git.deploymentEnabled`
+   que yo haya podido medir (**NO MEDIDO**). El freno vive en `frontend/vercel.json`.
+3. **El cupo se libera solo:** Vercel dice «try again in 24 hours». Si `production` recibe un push mientras
+   dura el corte, ese push **no se publica**: cuando pase la ventana, **Deployments → Create Deployment**
+   (o *Redeploy* sobre el último de `production`) eligiendo la rama `production`, y comprobar que el
+   despliegue *Production* termina en *Ready*. Más simple: **fusionar la PR después** de que pase la ventana.
+
+### 78.7 Rollback
+
+- Fichero: quitar la clave `git` de `frontend/vercel.json` (o `git revert` del commit) y desplegar. Vuelve
+  el comportamiento de §40 (crear y cancelar). `vercel.json` de la raíz: inerte, revertir no cambia nada.
+- **Comprobación tras revertir:** push trivial a `main` ⇒ aparece despliegue nuevo. El modo de fallo es
+  silencioso; no se da por hecho.
