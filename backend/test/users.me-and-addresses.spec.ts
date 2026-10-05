@@ -21,6 +21,8 @@ import { ADDRESS_DTO_KEYS } from '../src/modules/users/address-dto';
 const ME_KEYS = [
   'id', 'email', 'username', 'lockNotice', 'name', 'nameSource', 'phone', 'role', 'locale', 'kycStatus', 'status',
   'authProvider', 'emailVerified', 'avatarUrl', 'hasPassword', 'mustChangePassword',
+  // 🔒 D2g (API_CONTRACT §M4-SHIP.19.30.3): + `isOwner` (= `isOwnerAccount` de la fila; `false` para todo cliente).
+  'isOwner',
 ].sort();
 
 function baseUser(over: Record<string, unknown> = {}) {

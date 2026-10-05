@@ -90,6 +90,8 @@ import {
   SellRequestStatus,
   ShipmentLabelSource,
   ShipmentStatus,
+  SpendAlertKind,
+  SpendAlertSeverity,
   UserStatus,
   VaultZone,
 } from '@prisma/client';
@@ -127,6 +129,8 @@ import { CATALOG_CARDS_SORT_VALUES } from '../../src/modules/catalog/catalog.ser
 import { MASTER_SET_SORT_VALUES } from '../../src/modules/inventory/master-set.service';
 import { ADMIN_VAULTS_SORT_VALUES } from '../../src/modules/vault/admin-vaults.service';
 import { PORTFOLIO_HISTORY_RANGE_VALUES } from '../../src/modules/vault/vault.service';
+// 💰 D2g (§19.32.1) — los ejes L de `GET /admin/spend-alerts`.
+import { SPEND_ALERT_MUTED_FILTER_VALUES, SPEND_ALERT_UNSEEN_FILTER_VALUES } from '../../src/modules/spend-alerts/spend-alerts-panel.service';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -571,8 +575,15 @@ const REGISTRO: readonly AxisRow[] = [
   // punto 4** (medido con `grep` en `API_CONTRACT.md:6876-6915` el 2026-10-05: ni `labelSource` ni `alert`) ⇒
   // `PENDIENTE-ARQUITECTO`. Fixture propio: (e) gana una guía manual y (e-bis) una de Skydropx con alerta del transportista.
   // `?folio=` NO entra aquí: su dominio es un FORMATO (`^ENV-\d{6,}$`, S-GAS-2), no un conjunto de tokens ⇒ `NO_ENUM_POR_RUTA`.
-  { route: 'GET /admin/shipments', param: 'labelSource', clazz: 'E', allowed: Object.values(ShipmentLabelSource), valid: 'skydropx', alterno: 'manual', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
-  { route: 'GET /admin/shipments', param: 'alert', clazz: 'L', allowed: SHIPMENT_ALERT_FILTER_VALUES, valid: 'true', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  // ⭐ v1.80.12.13 (§19.32.1): el arquitecto ESCRIBIÓ las dos filas en la tabla de §0-Q punto 4 ⇒ `transcrita` (el default).
+  { route: 'GET /admin/shipments', param: 'labelSource', clazz: 'E', allowed: Object.values(ShipmentLabelSource), valid: 'skydropx', alterno: 'manual', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/shipments', param: 'alert', clazz: 'L', allowed: SHIPMENT_ALERT_FILTER_VALUES, valid: 'true', auth: 'admin', echoValue: false },
+  // 💰 D2g (v1.80.12.13, §19.32.1; filas de §0-Q punto 4 escritas por el arquitecto ⇒ `transcrita`): los cuatro ejes del panel
+  // de avisos. `kind`/`severity` E (enum entero, `enum-values.ts`); `unseen` L (`true`), `muted` L (`true|false`). Fixture (l).
+  { route: 'GET /admin/spend-alerts', param: 'kind', clazz: 'E', allowed: Object.values(SpendAlertKind), valid: 'label_cap_blocked', alterno: 'label_charged_unexplained', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/spend-alerts', param: 'severity', clazz: 'E', allowed: Object.values(SpendAlertSeverity), valid: 'digest', alterno: 'immediate', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/spend-alerts', param: 'unseen', clazz: 'L', allowed: SPEND_ALERT_UNSEEN_FILTER_VALUES, valid: 'true', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/spend-alerts', param: 'muted', clazz: 'L', allowed: SPEND_ALERT_MUTED_FILTER_VALUES, valid: 'true', alterno: 'false', auth: 'admin', echoValue: false },
   // ⭐ **§M4-PREP (v1.78) — `?destination=` de «Pedidos a preparar»** (`GET …/picking-list`).
   //
   // Clase **L** y ⛔ no **R**: `PreparationDestination` es un **TIPO DE DTO**, no un subconjunto de
@@ -745,6 +756,8 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
     prep = null;
   }
   await h.prisma.dispute.deleteMany({ where: { description: { startsWith: 'CEQ1-' } } });
+  // (l) 💰 D2g — los avisos del panel (fila de PRUEBA: el censo `C-GAS-1` mide `src/`, no las suites).
+  await h.prisma.spendAlert.deleteMany({ where: { dedupKey: { startsWith: 'ceq1:' } } });
   // ⚠️ El envío `guest_direct_ship` (`EQ-D1` · `?kind=`) cuelga de un Order con `onDelete: Restrict`,
   //    así que el envío se borra ANTES que su orden.
   await h.prisma.shipmentRequest.deleteMany({ where: { carrier: { startsWith: 'CEQ1-' } } });
@@ -1069,6 +1082,20 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
     ],
   });
 
+  // (l) 💰 D2g · `GET /admin/spend-alerts?kind=|severity=|unseen=|muted=` — CUATRO avisos propios con `firstOccurredAt` en el
+  //     futuro lejano (dominan la página 1, orden `firstOccurredAt desc`) y combinaciones que separan cada eje:
+  //     A cap_blocked·🔴·sin ver·encendido · B charged_unexplained·🟡·visto·encendido · C cap_blocked·🟡·sin ver·APAGADO ·
+  //     D charged_unexplained·🔴·visto·APAGADO. `dedupKey` con prefijo `ceq1:` para barrerlos sin adivinar.
+  const futuro = (s: number) => new Date(Date.UTC(2099, 0, 1, 0, 0, s));
+  await h.prisma.spendAlert.createMany({
+    data: [
+      { kind: 'label_cap_blocked', severity: 'immediate', dedupKey: 'ceq1:sa-a', facts: {}, mailStatus: 'not_applicable', muted: false, firstOccurredAt: futuro(4), lastOccurredAt: futuro(4) },
+      { kind: 'label_charged_unexplained', severity: 'digest', dedupKey: 'ceq1:sa-b', facts: {}, mailStatus: 'not_applicable', muted: false, firstOccurredAt: futuro(3), lastOccurredAt: futuro(3), seenAt: futuro(5), seenByUserId: cliente.id },
+      { kind: 'label_cap_blocked', severity: 'digest', dedupKey: 'ceq1:sa-c', facts: {}, mailStatus: 'not_applicable', muted: true, firstOccurredAt: futuro(2), lastOccurredAt: futuro(2) },
+      { kind: 'label_charged_unexplained', severity: 'immediate', dedupKey: 'ceq1:sa-d', facts: {}, mailStatus: 'not_applicable', muted: true, firstOccurredAt: futuro(1), lastOccurredAt: futuro(1), seenAt: futuro(5), seenByUserId: cliente.id },
+    ],
+  });
+
   return { setId: set.id, userId: cliente.id };
 }
 
@@ -1282,9 +1309,8 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       'GET /admin/refunds?status=',
       'GET /admin/replacement-cases?source=',
       'GET /admin/replacement-cases?state=',
-      // 💰 v1.80.12.12 (§19.31.10 pieza 1): clase decidida en §19.7 (`API_CONTRACT.md:24610`), fila de §0-Q pendiente.
-      'GET /admin/shipments?alert=',
-      'GET /admin/shipments?labelSource=',
+      // ⛔ `GET /admin/shipments?alert=` y `?labelSource=` estuvieron aquí en v1.80.12.12 y **SALIERON en v1.80.12.13**
+      // (§19.32.1): el arquitecto escribió sus filas en §0-Q punto 4.
       // ⛔ `GET /admin/shipments/picking-list?destination=` estuvo aquí en v1.78 y **SALIÓ en
       // v1.78.1**: el arquitecto escribió su fila en §0-Q punto 4 (`API_CONTRACT.md:5231`). Es el
       // movimiento que esta lista existe para hacer visible — una pendiente se cierra **por el
@@ -1434,8 +1460,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // Se pagó una deuda; no salió ningún eje.
     // 💰 52 → **54** y 18 → **20** (v1.80.12.12, §M4-SHIP.19.31.10 pieza 1): `?labelSource=` (E) y `?alert=` (L) de
     // `GET /admin/shipments`, con clase decidida en §19.7 y SIN fila en la tabla de §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO.
-    expect(REGISTRO.length).toBe(54);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(20);
+    // ⭐ v1.80.12.13 (§19.32.1): 54 fijo y 20 → 18 (se pagó la deuda de `?labelSource=`/`?alert=`), y 💰 D2g 54 → **58**:
+    // los cuatro ejes de `GET /admin/spend-alerts` (`kind`/`severity` E, `unseen`/`muted` L) entran YA `transcrita`.
+    expect(REGISTRO.length).toBe(58);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
@@ -1475,7 +1503,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // 💰 **44 → 45 (v1.80.12.12, S-GAS-2 `API_CONTRACT.md:27916`):** `GET /admin/shipments?folio=` — igualdad exacta con un
     // FORMATO (`^ENV-\d{6,}$`, fuera ⇒ `400 {field:'folio'}` SIN `allowed`): no es un conjunto cerrado de tokens. El
     // contrato lo rotula «clase L»; la forma de su error (sin `allowed`) no cabe en la conformidad L ⇒ pregunta al arquitecto.
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(45);
+    // 💰 **45 → 50 (D2g, v1.80.12.13 §19.32.1: «`?subjectUserId=` (uuid) y `?from=&to=` ⛔ no son §0-Q (lista de no-enums de
+    // `C-EQ-1`)»):** `GET /admin/spend-alerts::subjectUserId|from|to` y `GET /admin/spend-alerts/summary::from|to` — un uuid y
+    // días MX (`YYYY-MM-DD`; fuera de forma ⇒ `400 {field}` sin `allowed`), medidos en `sdx-d2g-panel.e2e-spec.ts`.
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(50);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

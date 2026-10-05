@@ -19,6 +19,8 @@ import {
   SealedSubtype,
   ReplacementCaseSource,
   ShippedRefundReason,
+  SpendAlertKind,
+  SpendAlertSeverity,
 } from '@prisma/client';
 import {
   ACQUISITION_TYPE_VALUES,
@@ -37,6 +39,8 @@ import {
   PAYMENT_REFUND_KIND_VALUES,
   PAYMENT_REFUND_STATUS_VALUES,
   MANUAL_REFUND_STATUS_VALUES,
+  SPEND_ALERT_KIND_VALUES,
+  SPEND_ALERT_SEVERITY_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS, ACCEPTED_SHIPPED_REFUND_REASONS } from '../src/common/business-rules';
@@ -111,6 +115,32 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   PaymentRefundKind: ['case_refund', 'item_missing', 'order_full', 'order_remaining', 'shipment_fee'],
   PaymentRefundStatus: ['failed', 'requested', 'submitted', 'succeeded'],
   ManualRefundStatus: ['cancelled', 'paid', 'pending'],
+  // 💰 D2g (§M4-SHIP.19.31.1 bandas 1–2): `?kind=` / `?severity=` de `GET /admin/spend-alerts` — los 22 tipos (AG-1…AG-22).
+  SpendAlertKind: [
+    'buylist_manual_price',
+    'cancel_refund_missing',
+    'carrier_extra_charge',
+    'chargeback',
+    'label_after_address_fix',
+    'label_cap_blocked',
+    'label_cap_warning',
+    'label_charge_drift',
+    'label_charged_unexplained',
+    'label_costly_choice',
+    'label_not_shipped',
+    'label_reissue_loop',
+    'operator_refund_cap',
+    'owner_account_changed',
+    'parcel_problem',
+    'parcel_returned',
+    'provider_balance_low',
+    'psa_credits',
+    'shrinkage',
+    'staff_control_by_non_owner',
+    'stuck_refund',
+    'super_admin_money_out',
+  ],
+  SpendAlertSeverity: ['digest', 'immediate'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -131,6 +161,8 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   PaymentRefundKind,
   PaymentRefundStatus,
   ManualRefundStatus,
+  SpendAlertKind,
+  SpendAlertSeverity,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -151,6 +183,8 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   PaymentRefundKind: PAYMENT_REFUND_KIND_VALUES,
   PaymentRefundStatus: PAYMENT_REFUND_STATUS_VALUES,
   ManualRefundStatus: MANUAL_REFUND_STATUS_VALUES,
+  SpendAlertKind: SPEND_ALERT_KIND_VALUES,
+  SpendAlertSeverity: SPEND_ALERT_SEVERITY_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {

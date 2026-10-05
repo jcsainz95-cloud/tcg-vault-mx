@@ -204,6 +204,14 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}` (sin `allowed`). Medido en `parseFolioFilter`
   // (`shipments.service.ts`) y por HTTP en `sdx-d2c-cierre.e2e-spec.ts`.
   'GET /admin/shipments::folio',
+  // 💰 D2g (v1.80.12.13, §19.32.1: «`?subjectUserId=` (uuid) y `?from=&to=` ⛔ no son §0-Q»): la persona vigilada (uuid; fuera de
+  // forma ⇒ `400 {field:'subjectUserId'}`) y los días MX sobre `firstOccurredAt` (`YYYY-MM-DD`; fuera ⇒ `400 {field}`), en la
+  // lista y en el resumen (`spend-alerts-panel.service.ts`, `mx-day.ts`; medidos en `sdx-d2g-panel.e2e-spec.ts`).
+  'GET /admin/spend-alerts::subjectUserId',
+  'GET /admin/spend-alerts::from',
+  'GET /admin/spend-alerts::to',
+  'GET /admin/spend-alerts/summary::from',
+  'GET /admin/spend-alerts/summary::to',
 ];
 
 /**
