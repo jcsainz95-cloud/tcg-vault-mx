@@ -39,6 +39,9 @@ export const NONCE_HEADER = 'x-nonce';
 
 const VERCEL_LIVE = 'https://vercel.live';
 
+/** Hoja de estilos del botón de Google (§14.3 v1.84.1, E-4). Ruta exacta: CSP casa ruta si la hay. */
+export const GOOGLE_GSI_STYLE = 'https://accounts.google.com/gsi/style';
+
 export function cspHeaderName(mode: CspMode): string {
   return mode === 'enforce' ? 'Content-Security-Policy' : 'Content-Security-Policy-Report-Only';
 }
@@ -117,7 +120,10 @@ export function buildCsp(nonce: string, env: CspEnv, mode: CspMode = CSP_MODE): 
   const directives: string[] = [
     "default-src 'self'",
     `script-src ${script.join(' ')}`,
-    "style-src 'self' 'unsafe-inline'",
+    // v1.84.1 (§14.14 E-4): la hoja del botón de Google Identity, RUTA EXACTA (no el host entero).
+    // Fuente: guía de CSP de GIS, NO MEDIDA; la cierra CSP-4 en la fase Report-Only (sin informe
+    // `CSP_VIOLATION` de style-src). Otro origen de Google que aparezca ⇒ se añade el exacto.
+    `style-src 'self' 'unsafe-inline' ${GOOGLE_GSI_STYLE}`,
     // Deliberado (§14.3): el arte viene de hosts de terceros abiertos por dato; una imagen no ejecuta.
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",

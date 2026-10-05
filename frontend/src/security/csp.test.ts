@@ -71,7 +71,7 @@ describe('LIVE-3 · política objetivo (§14.3), producción', () => {
   it('directivas fijas del contrato', () => {
     const d = directives();
     expect(d['default-src']).toEqual(["'self'"]);
-    expect(d['style-src']).toEqual(["'self'", "'unsafe-inline'"]);
+    expect(d['style-src']).toEqual(["'self'", "'unsafe-inline'", 'https://accounts.google.com/gsi/style']);
     expect(d['img-src']).toEqual(["'self'", 'data:', 'blob:', 'https:']);
     expect(d['font-src']).toEqual(["'self'", 'data:']);
     expect(d['worker-src']).toEqual(["'self'", 'blob:']);
@@ -90,6 +90,17 @@ describe('LIVE-3 · política objetivo (§14.3), producción', () => {
       'https://accounts.google.com',
       'https://abc123.r2.cloudflarestorage.com',
     ]);
+  });
+
+  it('style-src: la hoja de Google Identity con su RUTA EXACTA (v1.84.1, E-4), no el host entero', () => {
+    const s = directives()['style-src'];
+    expect(s).toContain('https://accounts.google.com/gsi/style');
+    expect(s).not.toContain('https://accounts.google.com');
+    expect(s).not.toContain('https://accounts.google.com/');
+    expect(s.filter((v) => v.startsWith('https://'))).toEqual(['https://accounts.google.com/gsi/style']);
+    // Igual en las dos fases y en la vista previa (no depende del entorno).
+    expect(directives(PROD, 'n', 'report-only')['style-src']).toEqual(s);
+    expect(directives({ ...PROD, vercelEnv: 'preview' })['style-src']).toEqual(s);
   });
 
   it('frame-src: Stripe (3DS incluido) y Google', () => {

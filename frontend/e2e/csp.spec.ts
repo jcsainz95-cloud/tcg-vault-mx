@@ -10,6 +10,9 @@ import { expect, test, type Page } from '@playwright/test';
  *  - CSP-5: un `<script>` inyectado en el HTML SIN nonce viola la política (en `enforce`, además, no
  *    se ejecuta). Simula el XSS almacenado: se reescribe la respuesta HTML, no se usa `evaluate`
  *    (con `'strict-dynamic'` un script creado por código no es lo que la CSP mira).
+ *    Mutación que la pone roja (§14.3 v1.84.1, E-5): añadir `script-src-elem 'unsafe-inline'` (o
+ *    `script-src-attr`). `'unsafe-inline'` DENTRO de `script-src` NO la pone roja: con nonce, CSP3
+ *    lo ignora; esa la caza `csp.test.ts` (lista exacta de directivas y de `script-src`).
  *  - Recorrido sin violaciones: portada, catálogo, login, registro, checkout, vender.
  *
  * CSP-3 (pago con 3DS) y CSP-4 (botón de Google) necesitan Stripe y Google reales: son el
@@ -61,6 +64,30 @@ test.describe('LIVE-3 · CSP con nonce', () => {
     // La cabecera estática de next.config.mjs (frame-ancestors) no desaparece.
     expect(a.headers()['content-security-policy'] ?? '').toContain("frame-ancestors 'none'");
   });
+
+  /**
+   * v1.84.1 (§14.3, §14.14 E-6) — invariante en las dos fases: toda respuesta HTML lleva una
+   * `Content-Security-Policy` APLICADA (no `-Report-Only`) con `frame-ancestors 'none'`. En
+   * `report-only` la garantiza SOLO la cabecera estática de `next.config.mjs` (el middleware pone la
+   * `-Report-Only`); en `enforce` la del middleware sustituye a la estática y la lleva también.
+   * Rutas: dentro del `matcher` (páginas, 404 de la app) y FUERA (`.html` excluido por el punto ⇒ el
+   * 404 HTML de Next sin middleware). Mutación: quitar `frame-ancestors` de `next.config.mjs` con la
+   * fase en `report-only` ⇒ roja.
+   */
+  for (const path of ['/es', '/es/catalog', '/es/login', '/en/checkout', '/es/no-existe-csp', '/no-existe-csp.html']) {
+    test(`CSP-1 · invariante: ${path} lleva frame-ancestors 'none' en una CSP aplicada`, async ({ request }) => {
+      const res = await request.get(path);
+      expect(res.headers()['content-type'] ?? '', path).toContain('text/html');
+      const applied = res
+        .headersArray()
+        .filter((h) => h.name.toLowerCase() === 'content-security-policy')
+        .map((h) => h.value);
+      expect(applied.length, `${path}: sin CSP aplicada`).toBeGreaterThan(0);
+      // Varias CSP aplicadas se intersecan: basta con que UNA lo prohíba.
+      const fa = applied.map((v) => v.match(/(?:^|;)\s*frame-ancestors\s+([^;]*)/i)?.[1]?.trim() ?? null);
+      expect(fa, `${path}: ${applied.join(' || ')}`).toContain("'none'");
+    });
+  }
 
   for (const path of ['/es', '/es/catalog', '/es/login', '/en/checkout']) {
     test(`CSP-2 · todos los <script> de ${path} llevan el nonce de su respuesta`, async ({ request }) => {

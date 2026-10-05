@@ -8,6 +8,8 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import nextConfig from '../next.config.mjs';
+import { parseCsp } from './security/csp';
 
 async function load(mode?: 'report-only' | 'enforce') {
   vi.resetModules();
@@ -82,5 +84,47 @@ describe('CSP-6 · en enforce la cabecera es la que bloquea', () => {
     expect(res.headers.get('content-security-policy-report-only')).toBeNull();
     expect(forwarded(res, 'x-nonce')).toBe(nonceOf(p));
     expect(nonceOf(forwarded(res, 'content-security-policy'))).toBe(nonceOf(p));
+  });
+});
+
+/**
+ * v1.84.1 (§14.3, §14.14 E-6) — INVARIANTE de las dos fases: toda respuesta HTML lleva una
+ * `Content-Security-Policy` APLICADA (no `-Report-Only`) con `frame-ancestors 'none'`.
+ *
+ * Medido con `next start` (FRONTEND_NOTES §94.1): en las rutas del `matcher` la cabecera del
+ * middleware SUSTITUYE a la estática de `next.config.mjs`; fuera, queda solo la estática. Aquí se
+ * compone igual: la aplicada efectiva = la del middleware si la pone, si no la estática. En
+ * `report-only` el middleware no pone ninguna aplicada ⇒ la ÚNICA que garantiza el invariante es
+ * la de `next.config.mjs`. La comprobación contra el servidor de verdad está en `e2e/csp.spec.ts`
+ * (CSP-1 · invariante). Mutación: quitar `frame-ancestors` de `next.config.mjs` ⇒ roja.
+ */
+type Rule = { source: string; headers: { key: string; value: string }[] };
+
+async function staticApplied(): Promise<string | null> {
+  const rules = await (nextConfig as { headers: () => Promise<Rule[]> }).headers();
+  const h = rules
+    .filter((r) => r.source === '/:path*')
+    .flatMap((r) => r.headers)
+    .find((x) => x.key.toLowerCase() === 'content-security-policy');
+  return h?.value ?? null;
+}
+
+describe("CSP-1 · invariante frame-ancestors 'none' aplicada en las dos fases (v1.84.1, E-6)", () => {
+  for (const mode of ['report-only', 'enforce'] as const) {
+    it(`${mode}: la CSP aplicada efectiva (middleware si la pone; si no, next.config) lleva frame-ancestors 'none'`, async () => {
+      const mw = await load(mode);
+      for (const path of ['/es', '/es/catalog', '/en/checkout', '/']) {
+        const res = mw(req(path));
+        const applied = res.headers.get('content-security-policy') ?? (await staticApplied());
+        expect(applied, `${mode} ${path}`).not.toBeNull();
+        expect(parseCsp(applied!)['frame-ancestors'], `${mode} ${path}`).toEqual(["'none'"]);
+      }
+    });
+  }
+
+  it('report-only: la del middleware NO es aplicada ⇒ la estática de next.config.mjs es la única red', async () => {
+    const mw = await load('report-only');
+    expect(mw(req('/es')).headers.get('content-security-policy')).toBeNull();
+    expect(parseCsp((await staticApplied()) ?? '')['frame-ancestors']).toEqual(["'none'"]);
   });
 });

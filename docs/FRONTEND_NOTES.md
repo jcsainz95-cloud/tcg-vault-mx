@@ -19195,3 +19195,38 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
   (`GuestCheckoutForm`, zona de choque con skydropx), checkout con cuenta, subida de INE y
   `pedido/layout.tsx` (zona de choque con panel). Llevarían al mismo 404 mientras haya marcadores, y
   sus textos (p. ej. la leyenda del registro, default P-LEG-9) no tienen copy de ux-ui todavía.
+
+### 94.4 Errata v1.84.1 (API_CONTRACT §14.3, §14.14 E-4/E-5/E-6) — medido 2026-10-05 sobre `6480d86b` + este cambio
+
+- **E-4 · `style-src`** gana `https://accounts.google.com/gsi/style` con **ruta exacta** (constante
+  `GOOGLE_GSI_STYLE` en `src/security/csp.ts`); no el host entero. `csp.test.ts` fija la lista exacta de
+  `style-src` y un caso nuevo prohíbe el host sin ruta y cualquier otro `https://` en esa directiva (igual
+  en las dos fases y en la vista previa). La lista de **directivas** no cambia. Que GIS pida exactamente
+  esa ruta: NO MEDIDO (fuente del arquitecto, de memoria); lo cierra CSP-4 en la tienda durante
+  Report-Only, sin informe `CSP_VIOLATION` de `style-src`.
+- **E-6 · invariante `frame-ancestors 'none'` APLICADA en las dos fases**, en dos niveles:
+  - Unitario (`src/middleware.test.ts`): compone la CSP aplicada efectiva como la sirve `next start`
+    (la del middleware si pone `content-security-policy`; si no, la estática de `next.config.mjs`) y
+    afirma `frame-ancestors 'none'` en `report-only` y `enforce` para `/es`, `/es/catalog`,
+    `/en/checkout` y `/`. Un caso aparte fija que en `report-only` el middleware **no** pone una
+    aplicada ⇒ la estática es la única red.
+  - E2E (`e2e/csp.spec.ts`, «CSP-1 · invariante»): seis respuestas HTML — cuatro páginas, el 404 de la
+    app dentro del `matcher` (`/es/no-existe-csp`) y un 404 HTML **fuera** del `matcher`
+    (`/no-existe-csp.html`, excluido por el punto: medido, solo lleva la estática). Lee
+    `headersArray()` (no `headers()`, que funde duplicadas) y exige que alguna `content-security-policy`
+    tenga `frame-ancestors 'none'`.
+  - Re-medido con `next start`: en `enforce`, `/es` sirve **una** `content-security-policy` (la
+    completa, sustituye a la estática); `/no-existe-csp.html`, solo la estática.
+- **E-5 · texto de CSP-5**: el comentario del spec dice ahora la mutación que la pone roja
+  (`script-src-elem 'unsafe-inline'`) y que `'unsafe-inline'` dentro de `script-src` la caza el
+  unitario. Sin cambio de conducta; la mutación ya estaba medida en §94.1 (no re-medida en este pase).
+- **Mutaciones (autor: frontend; sobre copia del árbol entero):**
+  | Mutación | Suite | Resultado |
+  |---|---|---|
+  | quitar `frame-ancestors` de `next.config.mjs` (fase `report-only`) | `middleware.test.ts` | rojo 3/3 (2 casos) |
+  | idem, build `next start` | `e2e/csp.spec.ts` | rojo 3/3 en los 7 casos de CSP-1 (21/21 rojos; resto 21/21 verdes) |
+  | quitar `GOOGLE_GSI_STYLE` de `style-src` | `csp.test.ts` | rojo 3/3 (2 casos) |
+  | `GOOGLE_GSI_STYLE` = host sin ruta | `csp.test.ts` | rojo 3/3 (2 casos) |
+- **Suites**: tsc 0; lint sin avisos; vitest 218 ficheros / 2620 pruebas verdes (1 fichero / 3 saltadas:
+  `check:legal`, rojo a propósito, §94.3). `e2e/csp.spec.ts` contra `next start` propio: `report-only`
+  42/42 y `enforce` 42/42 (14 casos × N=3 cada uno).
