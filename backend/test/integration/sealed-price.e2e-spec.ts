@@ -160,8 +160,17 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
     return h.stripe.createdIntents[h.stripe.createdIntents.length - 1];
   }
 
+  /**
+   * Limpieza por PREFIJO (⛔ no solo por la corrida): una corrida muerta a mitad (`kill`, timeout del runner) no llega a
+   * su `afterAll` y deja piezas — medido: dos piezas de cliente sembradas aquí pusieron roja
+   * `vault-sealed-enum-filters` (cuenta los grupos de un cliente). Por eso: (1) las piezas «de cliente» de esta suite
+   * son del comprador PROPIO, nunca del cliente del fixture compartido; (2) `beforeAll` barre también lo de corridas
+   * anteriores (`e2e-sp-*`, `sp.buyer.*`).
+   */
   async function cleanup() {
-    const items = await h.prisma.inventoryItem.findMany({ where: { cardId: { in: [ANCHOR, RAW_CARD] } }, select: { id: true } });
+    const cards = await h.prisma.card.findMany({ where: { id: { startsWith: 'e2e-sp-' } }, select: { id: true } });
+    const cardIds = cards.map((c) => c.id);
+    const items = await h.prisma.inventoryItem.findMany({ where: { cardId: { in: cardIds } }, select: { id: true } });
     const itemIds = items.map((i) => i.id);
     const ois = await h.prisma.orderItem.findMany({ where: { inventoryItemId: { in: itemIds } }, select: { orderId: true } });
     const orderIds = [...new Set(ois.map((o) => o.orderId))];
@@ -169,16 +178,24 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       await h.prisma.shipmentRequest.deleteMany({ where: { orderId: { in: orderIds } } });
       await h.prisma.order.deleteMany({ where: { id: { in: orderIds } } });
     }
-    const sps = await h.prisma.sealedProduct.findMany({ where: { setId: SET_ID }, select: { id: true } });
+    const setWhere = { setId: { startsWith: 'e2e-sp-set-' } };
+    const sps = await h.prisma.sealedProduct.findMany({ where: setWhere, select: { id: true } });
     await h.prisma.auditLog.deleteMany({ where: { entityId: { in: [...itemIds, ...sps.map((s) => s.id)] } } });
     await h.prisma.inventoryAdjustment.deleteMany({ where: { inventoryItemId: { in: itemIds } } });
     await h.prisma.inventoryMovement.deleteMany({ where: { itemId: { in: itemIds } } });
     await h.prisma.inventoryItem.deleteMany({ where: { id: { in: itemIds } } });
-    await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: [ANCHOR, RAW_CARD] } } });
-    await h.prisma.priceReference.deleteMany({ where: { cardId: { in: [ANCHOR, RAW_CARD] } } });
-    await h.prisma.sealedProduct.deleteMany({ where: { setId: SET_ID } });
-    await h.prisma.card.deleteMany({ where: { setId: SET_ID } });
-    await h.prisma.cardSet.deleteMany({ where: { id: SET_ID } });
+    await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: cardIds } } });
+    await h.prisma.priceReference.deleteMany({ where: { cardId: { in: cardIds } } });
+    await h.prisma.sealedProduct.deleteMany({ where: setWhere });
+    await h.prisma.card.deleteMany({ where: { id: { in: cardIds } } });
+    await h.prisma.cardSet.deleteMany({ where: { id: { startsWith: 'e2e-sp-set-' } } });
+    const buyers = await h.prisma.user.findMany({ where: { email: { startsWith: 'sp.buyer.' } }, select: { id: true } });
+    const buyerIds = buyers.map((b) => b.id);
+    if (buyerIds.length) {
+      await h.prisma.shipmentRequest.deleteMany({ where: { userId: { in: buyerIds } } });
+      await h.prisma.order.deleteMany({ where: { userId: { in: buyerIds } } });
+      await h.prisma.user.deleteMany({ where: { id: { in: buyerIds } } });
+    }
   }
 
   beforeAll(async () => {
@@ -186,7 +203,8 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
     admin = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
     op = await h.login(E2E_USERS.operator.email, E2E_USERS.operator.password);
     cust = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
-    customerId = (await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.customer.email } })).id;
+    // Barre lo que una corrida anterior muerta a mitad haya dejado (ver `cleanup`).
+    await cleanup();
     // Comprador PROPIO (verificado): sus pedidos no se cruzan con los del fixture compartido.
     const buyerEmail = `sp.buyer.${RUN}@e2e.local`;
     buyerId = (
@@ -203,6 +221,7 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       })
     ).id;
     buyer = await h.login(buyerEmail, E2E_USERS.customer.password);
+    customerId = buyerId; // las piezas «de cliente» de esta suite son del comprador PROPIO
     shelf = (await h.prisma.vaultLocation.findFirstOrThrow({ where: { zone: 'platform_stock', isActive: true } })).id;
     sourceBefore = (await h.prisma.configSetting.findUnique({ where: { key: 'sealed_price_source' } }))?.valueJson;
     // Los diales de IVA tienen que estar en el NEUTRO al empezar (las cifras de SP-2 lo suponen; si no, se dice).
@@ -224,9 +243,6 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
     if (sourceBefore === undefined) await h.prisma.configSetting.deleteMany({ where: { key: 'sealed_price_source' } });
     else await h.prisma.configSetting.update({ where: { key: 'sealed_price_source' }, data: { valueJson: sourceBefore as never } });
     await cleanup();
-    await h.prisma.shipmentRequest.deleteMany({ where: { userId: buyerId } });
-    await h.prisma.order.deleteMany({ where: { userId: buyerId } });
-    await h.prisma.user.deleteMany({ where: { id: buyerId } });
     const t = await ivaDials();
     await h.close();
     if (t.t !== 100) throw new Error(`iva_transfer_pct quedó en ${t.t}; esta suite debe dejarlo en 100`);
