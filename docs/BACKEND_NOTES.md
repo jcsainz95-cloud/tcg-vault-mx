@@ -27990,3 +27990,162 @@ escritura. El muro existe (CAS `labelProcessingSince: since` + CAS inverso del i
 5. **AG-8 (b) y AG-10** quedaron en D2g por §19.32.9 (pasos de `spend-watch`); §19.29.6 los pone en D2d. No están aquí.
 6. **`?alert=true` y `carrierAlert`** siguen sin incluir el estado desconocido (pregunta 2); `workQueue.shipping.withCarrierAlert` (D2f)
    debe usar `carrierAlertActive` (§19.32.5).
+
+## 65 · D2g construida — el despacho de avisos al dueño y la cuenta del dueño (`API_CONTRACT §19.29.5–.9`, `§19.30.1–.3, .7, .9`, `§19.31.8`, `§19.32.1, .8, .9`) (2026-10-05, rama `claude/skydropx-d`, en paralelo con D2d; código en `e367ca20`, pruebas en `55b82ecb` y `07fecc57` + el commit de esta sección)
+
+Fuente: la columna D2g de `§19.32.9` al pie de la letra, `§19.31.10` fila 2b, y las condiciones C-20, C-21 y C-24 de
+`SECURITY_NOTES.md:1-158`. ⛔ Sin `prisma/` (todo lo que D2g necesita ya existía: `M-68`), sin `shipments/**`,
+`shipping-provider/**`, `jobs/**`, `mail/`, `auth/` ni `app.module.ts`. La interfaz con D2d (`raise`, `resolve`,
+`observeBalance`, `RaiseInput`, `dayMx`, `SPEND_ALERT_CODE_OF`) **no cambió de firma**; lo nuevo del servicio es aditivo.
+**No incluye las costuras C1/C2** (van después, un solo agente).
+
+### 65.1 Qué se construyó y dónde
+
+| Pieza | Fichero(s) |
+|---|---|
+| **Despacho del correo (outbox)**: bajo `pg_advisory_xact_lock(SPEND_MAIL_LOCK_KEY = 65_310_702)` cuenta los `sent|sending` con `mailedAt` en la hora de reloj y decide en la MISMA tx `pending|failed → sending` (con `mailedAt`) o `→ batched` (`batchHour`); envío después del commit; `sent` / `failed` (+1 intento, ≤ 3); `sending` > 10 min ⇒ `failed_unknown` sin reintento. Cupo global 5/h; **C-24**: con `subjectUserId`, 2 por persona y hora (lo demás de esa persona al lote). **AG-21** nunca al lote y también a la cuenta ANTERIOR (con correo, activa). Sin dueño ⇒ `no_recipient` + `warn`. El **lote** de cada hora cerrada: `batched → batch_sent` en la tx del candado, luego UN correo; fallo conocido ⇒ vuelven a `batched` | `spend-alerts/spend-mail.service.ts` |
+| **Plantillas `AVG-1/2/3`** (patrón §R.1, `MAIL_PORT` inyectado, ⛔ `mail/` intacto), con el título y la frase de cada tipo de `DESIGN_SYSTEM §43.19.11` / `§43.20.2–.4, .7, .10`; pie GASTO (y la variante de la cuenta anterior en AG-21); «Frenar» en prosa a `admin/m10` en los 🔴 de guías | `spend-alerts/spend-alert.mail.ts`, `spend-alert-text.ts` |
+| **Panel**: `GET /admin/spend-alerts` (ejes `kind`/`severity` E, `unseen`/`muted` L, `subjectUserId`, `from`/`to` días MX, `page`/`pageSize` ≤ 100 def. 25, orden `firstOccurredAt desc`), `GET …/summary` (= `summarizeSpendAlerts`), `GET …/:id`, `POST …/seen` (`{updated, skipped}`, bitácora `spend_alert.seen {count, skipped}`). `@Roles(vault_operator, super_admin)` + `@MoneyOut()` de clase, `no-store` | `spend-alerts/spend-alerts.controller.ts`, `spend-alerts-panel.service.ts`, `spend-alert.view.ts`, `mx-day.ts`, `spend-summary.ts` |
+| **`spend-watch`** (`run()`): (0) la marca del dueño contra `SpendOwnerWatch` ⇒ AG-21 (y `error NO_OWNER_ACCOUNT`); (1) correos; (2) lotes; (3) con `shipping_provider='skydropx'`: saldo por la lectura cacheada (⇒ `observeBalance`, AG-7), **AG-8 (b)** (avisa y sella `refundAlertedAt`, CAS) y **AG-10** (crea 🟡 y resuelve). Single-flight por `pg_try_advisory_xact_lock(SPEND_WATCH_LOCK_KEY = 65_310_710)` | `spend-alerts/spend-watch.service.ts`, `provider-balance.service.ts` |
+| **`spend-digest`** (`run({day?, now?})`): ayer MX; `INSERT SpendDigestRun … ON CONFLICT DO NOTHING` (una vez por día; un `failed` lo re-manda el cron o `{day}`), cero ⇒ `empty` sin correo; si no ⇒ un `AVG-3` por dueño. Candado `SPEND_DIGEST_LOCK_KEY = 65_310_711` | `spend-alerts/spend-digest.service.ts` |
+| **Arranque**: `NO_OWNER_ACCOUNT` (`error`, ⛔ no tumba) | `spend-watch.service.ts` (`onApplicationBootstrap`) |
+| **Diales del dueño** (C-21 (a)): `OWNER_ONLY_SETTING_KEYS` (las 11 de §19.29.8 + `shipping_label_purchase`); `PUT /admin/settings` ⇒ validación por clave (`422`, para cualquiera) → no dueño con alguna de esas claves DISTINTA ⇒ `403 OWNER_ONLY_SETTING {keys}` (DTO, ordenadas), nada escrito, `settings.owner_only_denied {keys}` fuera de tx, AG-22 🔴; IGUAL ⇒ se quita del cuerpo. `SettingsController` pasa a `@Roles(op, sa)` + `@MoneyOut()` de clase (§19.29.8). `validatePayload` = la validación de `update` extraída (un cuerpo) | `settings/settings.constants.ts`, `settings.controller.ts`, `settings.service.ts`, `settings.module.ts` |
+| **Cuenta del dueño protegida** (C-21 (b)): `reset-password` (destino marcado ∧ actor ≠ destino), `status` (siempre), `DELETE` (tras `CANNOT_DELETE_SELF`) ⇒ `403 OWNER_ACCOUNT_PROTECTED`; la guarda va en el `where` de la escritura (`where` único extendido, `isOwner: false`) además de la lectura; bitácora `user.admin_action_denied {attempted, reason:'owner_protected'}` (⛔ el rechazo no depende de ella) + AG-22 🔴. `AdminDeniedAttempt` gana `'status' \| 'delete'` | `admin/admin.service.ts`, `admin.controller.ts`, `audited-super-admin.guard.ts`, `admin.module.ts` |
+| **AG-22** (C-21 (c)): `staff_created` (🔴 si super_admin), `staff_password_reset` (🔴 si super_admin), `staff_status_changed`, `staff_deleted` (🟡), `owner_account_denied`, `owner_setting_denied` (🔴); post-commit, ⛔ nunca hace fallar al acto; actos sobre clientes ⇒ nada; el dueño ⇒ no-op (`raise`) | `spend-alerts/staff-control.service.ts` |
+| **`isOwner`** en `GET/PATCH /users/me`, en `GET /admin/users` y en la respuesta de `PATCH …/status` (`isOwnerAccount` de la fila) | `users/users.service.ts`, `admin/admin.service.ts` |
+| **Códigos** `OWNER_ONLY_SETTING`, `OWNER_ACCOUNT_PROTECTED`; **bandas 1–2** de `SpendAlertKind`/`SpendAlertSeverity` | `common/error-codes.ts`, `common/enum-values.ts` |
+
+### 65.2 Medido (no supuesto)
+
+- **Ciclo `SettingsModule` (global) → `SpendAlertsModule`**: NO lo marca Nest. La app completa arranca en cada suite de
+  integración (`E2EHarness.create` compila `AppModule`) sin `forwardRef` (94 suites en `int-full-1`).
+- **`SpendAlertDTO.shipment.kind`** (S-GAS-2 pedía medir): el tipo existente es `ShipmentKind = 'guest_direct_ship' |
+  'vault_withdrawal'` (`shipments.service.ts:140`); **`'order_ship'` no existe** y, como manda la errata, se usa el tipo
+  existente (con orden `direct_ship` ⇒ `guest_direct_ship`; sin orden ⇒ `vault_withdrawal`; otro ⇒ `null`).
+- **T-FLAKY-RFC-1**: ver 65.4.
+
+### 65.3 Decisiones que el contrato no fijaba (para QA, techlead y seguridad)
+
+1. **`422` antes que `403 OWNER_ONLY_SETTING`**: la validación por clave corre primero (un cuerpo inválido es `422` para
+   cualquiera; no revela nada). Así `sdx-d-schema` («tope en 0 ⇒ 422» con el súper-admin del seed, que no es dueño) sigue
+   siendo verdad. Solo se lee el actor si el cuerpo trae alguna clave del dueño.
+2. **`spendAlertsDisabled` se compara como CONJUNTO** (un formulario que lo reordena no «mueve» el dial); los demás, JSON
+   canónico.
+3. **Protección por la MARCA cruda** (`User.isOwner`), no por `isOwnerAccount`: una cuenta marcada pero bloqueada sigue
+   protegida (falla cerrado; se rescata con el script). El resto de decisiones (exención, destinatario, diales) usa
+   `isOwnerAccount`.
+4. **`facts` con objetos** (`target` de AG-22, `previousOwner`/`currentOwner` de AG-21): el contrato los define así, pero el
+   tipo CONGELADO `SpendFacts` y el `facts` del DTO (§19.29.9) solo nombran escalares. Se escriben con un cast en el llamador
+   (⛔ sin tocar `RaiseInput`). Pregunta 2.
+5. **`summary` sin `from`/`to`** ⇒ hoy (día MX); con uno solo ⇒ ese día.
+6. **`?unseen=true`** = `seenAt IS NULL` (incluye silenciados; se combina con `?muted=`). Coincide con la fila de §0-Q.
+7. **Enlaces sin cadena de consulta**: PS-153 exige «sin `?`»; los CTA de `AVG-2/3` van a `admin/spend-alerts` sin los
+   filtros que sugería `DESIGN_SYSTEM §43.19.12`. Pregunta 3.
+8. **El correo a varios destinatarios** (solo AG-21 con la cuenta anterior): si falla uno, el aviso queda `failed` y el
+   reintento manda a los dos otra vez (a lo sumo 3).
+9. **AG-21 por par de cuentas**: `ag21:<anterior>:<actual>`; un A→B→A→B repite la llave de la primera vez y el segundo A→B
+   solo sube `occurrenceCount` (sin correo). Pregunta 4.
+10. **AG-10 no se repite cada 5 min**: si ya existe `ag10:<paidLabelId>` (abierto o resuelto) no se vuelve a levantar.
+11. **El `skipped` de `seen`** se cuenta en la misma tx que la escritura (`count` de candidatos − `updated`).
+
+### 65.4 Pruebas
+
+- **Unitarias nuevas** `test/sdx-d2g.units.spec.ts` (42): **PS-165** (`OWNER_ONLY_SETTING_KEYS` ⊇ las 11 claves de §19.29.8
+  LEÍDAS DEL CONTRATO + `shipping_label_purchase`, y todo `spend_alert*` del código dentro; canarios), `ownerOnlyDtoKey`
+  en camelCase (S-GAS-9), seeds de PS-155 y el validador sin AG-21/22; claves de candado (702/703 y 710…719; todo
+  `pg_advisory_xact_lock` de `spend-alerts/` con constante); **PS-157 / C-GAS-1** (escritores de `SpendAlert` SOLO
+  `spend-alerts.service.ts`, ningún borrado, `SpendOwnerWatch` solo `spend-watch.service.ts`, canario); la frontera de día
+  MX (PS-154); plantillas: cada tipo con disparador en ES/EN y SDX-I-8 sobre `AVG-1/2/3`; gravedad de AG-22.
+- **Integración nuevas** (helper propio `test/integration/helpers/spend-db.ts`: reloj del módulo manual con hora PROPIA por
+  corrida, puerto de correo que captura, el doble del proveedor, personas propias; la marca por SQL como PS-160):
+  `sdx-d2g-mail` (12: destinatarios, 5/h + lote, mismo `dedupKey`, fallo y reintento ≤ 3, `failed_unknown`, **C-24**,
+  AG-21 fuera del lote y a la anterior, **canarios del cliente en los 14 tipos con disparador + SDX-I-8**, **carrera**,
+  `spend-watch` (1)(2)); `sdx-d2g-panel` (12: PS-152, C-21 (d), `muted`/`?muted=`/`mutedCount`/`byKind`, ejes, `isOwner`);
+  `sdx-d2g-owner` (15: PS-155, **PS-161** con su **carrera**, falla cerrado sin dueño, PS-162, PS-163); `sdx-d2g-watch` (7:
+  PS-160 (d), PS-147 (b), PS-149, AG-7 cacheado, PS-154).
+- **Cambiadas por el contrato** (`isOwner` en DTOs de claves exactas, §19.30.3): `users.me-and-addresses.spec.ts`,
+  `admin.users-kyc-filter.spec.ts`, `integration/account-profile`, `integration/admin-users-kyc-queue` (L-1),
+  `integration/pricing-visibility` (`PATCH …/status`). `enum-values-parity` (+`SpendAlertKind`/`Severity`, bandas 1–3).
+  **C-EQ-1**: los 4 ejes de `spend-alerts` al REGISTRO como `transcrita` con fixture propio (l); `?labelSource=`/`?alert=`
+  salen de `PENDIENTE-ARQUITECTO` (§19.32.1); trinquete 54→**58** y 20→**18**; `NO_ENUM_POR_RUTA` +5
+  (`spend-alerts::subjectUserId|from|to`, `summary::from|to`), techo 45→**50** con la razón (§19.32.1).
+- **T-FLAKY-RFC-1** (§19.32.8): `L-6` aserta **ninguna llave** que case `/rfc/i` (recorrido del JSON) y **ningún valor** del RFC
+  que su fixture SIEMBRA (un usuario `verified` con `rfcEnc` cifrado por `PiiCryptoService`; ni en claro ni cifrado); la
+  primera consulta comprueba que ese usuario ESTÁ en la página. Medido: (a) **determinista**: con un usuario `m-rfcd2g0` en
+  la base, la `L-6` nueva **verde** y la aserción vieja (subcadena) **roja 2/2** (super_admin y operador); (b) **N = 10**
+  corridas del par `staff-without-email` + `admin-users-kyc-queue` sobre la misma base: **10/10 verdes** (⚠️ en esas 10 no se
+  dio el `m-rfc…` natural — 11 `m-r…` creados, 0 con `fc`: el N=10 no distingue por sí solo; lo distingue (a)); (c) mutación
+  «llave `rfcOnFile` en el listado» ⇒ **rojo 2/2**.
+
+**Suites completas** sobre una copia `git archive` del árbol ENTERO en `f7b4eebd` (HEAD de la rama con D2d y D2g; scratchpad
+`be-d2g/tree`, BD `tcg_be_d2g` recreada):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **407/407 suites · 7095/7095** |
+| Integración (`stack-native.sh test:integration`, pool 5) | **93/94 suites · 1922/1923**. La roja es la **esperada**: `C-EQ-1` «DESCUBRIMIENTO» nombra `GET /admin/shipments/departure::date` (eje de D2d) hasta la costura **C2** |
+| `tsc --noEmit`, `eslint` de los ficheros tocados | 0 errores, 0 avisos |
+
+Carga durante la integración: 2–8 al final (4 CPU, otro agente vivo antes); ninguna roja por timeout.
+
+**Proporciones** (autor: backend D2g; sha `f7b4eebd`; dentro de cada prueba, N = 10 rondas): **PS-153 carrera** 10/10 rondas
+con exactamente 5 individuales + 5 al lote (también 10/10 en `55b82ecb` y en las corridas de desarrollo); **PS-161 carrera**
+10/10 rondas con el tope de la dueña intacto.
+
+**Mutaciones** (copia `be-d2g/mut` de `07ea87a6` + D2g, misma BD; `mut.py` aplica UNA, corre su prueba con `-t` y restaura
+`src`; logs `logs/mut-*.log`). Todas **rojas**:
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M01 | `@MoneyOut()` a secas (sin mirar `isOwnerAccount`) | PS-161 | rojo 5; la carrera da **3/10** |
+| M02 | no quitar del cuerpo las claves del dueño iguales | PS-161 «formulario entero» | rojo |
+| M03 | `resetPassword` sin leer `isOwner` (lectura y `where`) | PS-162 | rojo 3 |
+| M04 | `updateUserStatus` sin `isOwner: false` en el `where` | PS-162 | rojo 3 |
+| M05 | `seen` con `NOT {subjectUserId: V}` a secas | PS-152 / C-21 (d) | rojo |
+| M06 | `seen` sin excluir al sujeto | PS-152 / C-21 (d) | rojo |
+| M07 | cupo solo global (sin C-24) | C-24 | rojo |
+| M08 | sin `SPEND_MAIL_LOCK_KEY` en el despacho | PS-153 carrera | **4/10** rondas correctas (6/10 con > 5 individuales: 9+1, 7+3, 6+4…) |
+| M09 | `sending` vencido ⇒ `pending` (reintentar) | PS-153 | rojo |
+| M10 | tipo apagado ⇒ no-op sin fila | PS-155 | rojo |
+| M11 | quitar el paso (0) de `spend-watch` | PS-160 (d) | rojo 2 |
+| M12 | AG-8 (b) sin sellar `refundAlertedAt` | PS-147 (b) | rojo |
+| M13 | AG-10 sin resolver | PS-149 | rojo |
+| M14 | frontera de día en UTC | PS-154 | rojo |
+| M15 | sin `SpendDigestRun` (re-mandar siempre) | PS-154 | rojo 2 |
+| M16 | AG-22 fuera de «persona» (avisa también del dueño) | PS-163 | rojo |
+| M17 | no avisar los actos sobre personal | PS-163 | rojo |
+| M18 | `skydropx_low_balance_cents` fuera de la constante | PS-165 | rojo 3 |
+| M19 | `isOwner` constante `false` en `me` | `isOwner` | rojo |
+| M20 | enlace con `?token=` | PS-153 / SDX-I-8 | rojo |
+| M21 | llave `rfcOnFile` en el listado | T-FLAKY-RFC-1 / L-6 | rojo 2 |
+| M22 | destinatarios = súper-admin con correo (sin la marca) | PS-153 destinatarios | rojo 2 |
+| M23 | AG-21 sin la cuenta anterior | AG-21 | rojo |
+| M24 | un escritor de `SpendAlert` fuera de `spend-alerts.service.ts` | C-GAS-1 | rojo |
+
+### 65.5 Lo que NO está aquí (medido con `grep` sobre `backend/src` en `f7b4eebd`)
+
+| Falta | Por qué | Comprobación |
+|---|---|---|
+| **C1**: `spend-watch` (`*/5`) y `spend-digest` (08:00 MX) en el planificador y `POST /admin/jobs/spend-watch|spend-digest` | costura serializada (§19.32.9); D2g ⛔ toca `jobs/`. Hasta coserse, **los dos jobs no corren solos** (O-4): un 🔴 queda `pending` | `grep -rn "SpendWatchService\|SpendDigestService" backend/src/jobs` ⇒ 0 |
+| **C2**: `GET /admin/shipments/departure::date` a `NO_ENUM_POR_RUTA` | costura; C-EQ-1 sale rojo nombrándolo hasta entonces (rojo esperado) | la roja de la integración completa |
+| `dispatchImmediate` desde los disparadores de `shipments/` (D2c/D2d) | `shipments/` no es de D2g; sus 🔴 salen por `spend-watch` (≤ 5 min con C1). Los de D2g (AG-21, AG-22) sí se despachan post-commit | `grep -rn "dispatchImmediate" backend/src/modules/shipments` ⇒ 0 |
+| `workQueue.spendControl` y `picking-list/summary.spendAlertsUnseenImmediate` (S-GAS-3) | D2f (§19.32.9) | — |
+| AG-14…AG-20 | otro stream | — |
+
+### 65.6 Preguntas al arquitecto
+
+1. **`422` o `403` primero** cuando un no dueño manda un dial del dueño INVÁLIDO (p. ej. tope en 0): construido `422`
+   (65.3 (1)). ¿Se confirma?
+2. **`facts` con objetos** (AG-21 `previousOwner`/`currentOwner`, AG-22 `target`) frente al tipo congelado `SpendFacts` y al
+   `facts` del DTO de §19.29.9 (`string | number | boolean | string[] | null`): ¿se amplía el tipo del DTO a objetos, o se
+   aplanan (`targetUserId`, `targetName`, …)? Hoy viajan como objetos (lo que §19.30.1 (6) y §19.30.2 (3) describen).
+3. **Enlaces de `AVG-2/3` sin filtros**: PS-153 pide «sin `?`» y `DESIGN_SYSTEM §43.19.12` sugería
+   `admin/spend-alerts?severity=immediate&from=…&to=…`. Construido sin cadena de consulta (manda la prueba). ¿Se confirma, o
+   se admite un `?` de una PÁGINA que no actúa?
+4. **AG-21 en un A→B→A→B**: la llave `ag21:<A>:<B>` se repite y el segundo cambio a B no manda correo. ¿Se acepta, o se
+   añade el día MX a la llave?
+5. **`order_ship`** (S-GAS-2) no existe en el sistema: `SpendAlertDTO.shipment.kind ∈ {vault_withdrawal, guest_direct_ship}
+   | null` (65.2). ¿Se corrige la errata?
+6. **Las pruebas de claves exactas** de otros streams (`account-profile`, `pricing-visibility`, `users.me-and-addresses`,
+   `admin.users-kyc-filter`) se tocaron por §19.30.3 (`isOwner`); `test/helpers/query-axis-cross.ts` (las listas de C-EQ-1)
+   también. Fuera de la columna literal de §19.32.9, pero forzadas por el contrato — el orquestador lo comprueba.
