@@ -4,7 +4,15 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.24 (2026-10-05) — ERRATA v1.80.12.16, U-1 y U-2 (§43.22 NUEVA; `API_CONTRACT §M4-SHIP.19.35`, filas
+> Estado: **v4.25 (2026-10-05) — ERRATA v1.80.12.17, U-3 (§43.23 NUEVA; `API_CONTRACT §M4-SHIP.19.36.1` y fila U-3 de
+> §19.36.4; forma del P&L en §M10-IVA.8; criterio 238; ux-ui sin Bash, sha NO MEDIDO por mí):** el estado de resultados de
+> «Finanzas» pinta **ocho renglones con signo** (gana «Reembolsos», «Comisión de plataforma devuelta» y «Compensaciones por
+> carta perdida», siempre visibles aunque valgan cero), dos **sub-renglones «Incluye…»** bajo «Costo de envío» («ajustes de
+> paquetería» y seguro: sin signo, sin sumarse, solo si `> 0`), la ganancia **siempre** `profitCents` del servidor y la
+> fórmula nueva (sigue nombrando a Stripe, §29.4b). Signo leído por lector de pantalla. **FS-68…FS-70**; candados
+> **UX-PNL-1…6**. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.24 sin cambio fuera de §43.23.
+>
+> Estado anterior: **v4.24 (2026-10-05) — ERRATA v1.80.12.16, U-1 y U-2 (§43.22 NUEVA; `API_CONTRACT §M4-SHIP.19.35`, filas
 > U-1/U-2 de §19.35.8; ux-ui sin Bash, sha NO MEDIDO por mí):** tarjeta **«Alertas de envíos»** del tablero para
 > `workQueue.shipping` (los dos roles; cifra grande = `withLabelAlert`; enlace a `/admin/m4?tab=envios&alert=true` con
 > su filtro visible en «Envíos»; `lowBalance` solo pinta con `true`; ⛔ jamás la cifra del saldo; nota «un envío puede
@@ -26276,3 +26284,200 @@ vencidos de «Pedidos por preparar» (`:217`), verificados en §10. ⛔ Sin colo
 | **N-SDX-4** | orquestador → backend | **Rótulo del CTA de `AV-4`/`AV-5`.** `shipment-notice.templates.ts:230` y `:280` fijan `VER MI ENVÍO` / `SEE MY SHIPMENT` para todo destino; §41.4 (filas 17/18 = `AV-4`/`AV-5`, `:22419` y la lista `:22620`) pide **según destino** (`orders/<id>` y `pedido?token=…` ⇒ `VER MI PEDIDO`). Con B-1 (§19.35.1) el invitado **gana** CTA a `/pedido`, así que el rótulo falso llega a más correos. `ctaLabelOf` (`:155-157`) ya existe. No es de U-2; lo digo porque está en las mismas líneas. Medido por lectura, sin ejecutar |
 | **N-SDX-5** | orquestador → backend | **`AV-5` con número y sin paquetería** (`:271-276`) escribe «Paquetería:  · Guía: X» (hueco vacío); la regla ✏ del 18 (§41.7) dice `Guía: <n>` y `carrierDato` (`:141-147`) ya lo hace. Mismo caso: los asuntos de `AV-4`/`AV-5` llevan prefijo de marca (`:247`, `:292`), que §41.2 quita. Medido por lectura; si ya está en un encargo de §41, ignorar |
 | **N-SDX-6** | orquestador | §43.19.9 decía que AG-7/11/12 «ya están en la tarjeta de envíos» cuando esa tarjeta no existía (medido: `AdminDashboard.tsx`). Desde esta versión existe (§43.22); la frase de §43.19.9 queda verdadera sin tocarla |
+
+### 43.23 Errata v1.80.12.17: el estado de resultados de «Finanzas» — ocho renglones, dos «Incluye…» y la fórmula *(v4.25, nueva)*
+
+#### 43.23.0 Fuente, lo leído y lo que cambia el diseño
+
+**Fuentes:** `API_CONTRACT §M4-SHIP.19.36.1` (la regla de dinero de la pantalla: orden, signos, sub-renglones, «la ganancia
+es `profitCents`») y la fila **U-3** de §19.36.4; §M10-IVA.8 v1.80.7 (`refundsCents` = mercancía + envío devueltos **netos
+de IVA**; `refundedFeesCents` = comisión devuelta; `compensationsCents` = lo pagado **por encima** de lo cobrado en un caso de
+carta perdida); `PROJECT.md:12327-12340` (criterio **238**: M7 muestra los cargos extra «**aparte** (*ajustes de
+paquetería*)», sumados al costo del **mes en que llegó el cargo**). Donde esta subsección choca con otra de §43, **manda ésta**.
+El dinero lo fija el contrato; aquí solo el aspecto, los textos y la accesibilidad.
+
+**Lo que leí** (2026-10-05, árbol `/home/user/tcg-skyd`, rama `claude/skydropx-d`; ⛔ sin Bash, sha **NO MEDIDO** por mí):
+`(admin)/admin/m7/M7View.tsx` entero (226 líneas; `PnlLine` `:30-41`, renglones `:104-108`, aviso de costo sin capturar
+`:122-128`, ganancia `:129-137`); `messages/es.json:4715-4725` y `en.json:4715-4725` (`admin.m7.pnl.*`: `title`, `formula`,
+`income`, `shippingRevenue`, `cogs`, `stripeFees`, `shippingCost`, `shippingCostMissing`, `profit`); `es.json:5212-5217` y
+`en.json:5215-5217` (`…components.compensation` «Compensación por carta perdida» / “Compensation for lost card”);
+`lib/i18n-parity.test.ts:241-257` (candado §29.4b: `admin.m7.pnl.formula` y `admin.m7.pnl.stripeFees` **deben** nombrar a
+Stripe); §29.3 de este documento (de cara al cliente el `processingFee` se llama «Comisión de plataforma»). `Grep` en este
+documento de `shippingCostMissing|refundsCents|PnlLine|Ganancia del periodo` ⇒ 0: **no había diseño previo de M7 a nivel de
+renglón**; esta subsección es la primera.
+
+**Medido, que cambia el diseño:**
+1. Hoy se pintan **cinco** renglones y la ganancia resta **ocho** cifras (`M7View.tsx:104-108` frente a §M10-IVA.8): con un
+   reembolso en el periodo, lo que se ve **no suma** a la ganancia que está debajo. Se pintan los tres que faltan.
+2. El signo de cada renglón está en un `span` con `aria-hidden` (`:35`) y no hay otro texto que lo diga: un lector de
+   pantalla lee «Comisiones Stripe, MX$…» sin saber si suma o resta. Se corrige aquí (§43.23.4) porque con ocho renglones
+   y dos «Incluye…» sin signo la diferencia entre «resta» y «ya está dentro» es justo lo que hay que oír.
+3. El texto de `pnl.formula` nombra a Stripe y un candado lo exige (`i18n-parity.test.ts:244-256`): la fórmula nueva **sigue**
+   diciendo «comisiones Stripe».
+
+**Cero tokens nuevos, cero pares de contraste nuevos** (§43.23.7). Reglas que aplican sin cambio: GAS-4 («una cifra, una
+fuente»: la pantalla no suma ni recalcula), P66-3 (⛔ ningún código «M-n» en los textos), criterio 202(c) (sin indicadores
+vacíos — aplica a los sub-renglones, no a los renglones de la fórmula, ver §43.23.1).
+
+---
+
+#### 43.23.1 La tarjeta del estado de resultados — estructura
+
+Sin cambio fuera del bloque de renglones: título, fórmula, `QueryState`, el aviso de costo sin capturar (§M10-IVA.8,
+`:122-128`), la ganancia y el botón de exportar quedan donde están.
+
+```
+ESTADO DE RESULTADOS (P&L)
+Ingresos + ingreso por envío − costo de lo vendido − comisiones Stripe − costo de envío − reembolsos − …   ← pnl.formula
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ +  Ingresos (ventas)                                             MX$12,000.00 │
+│ +  Ingreso por envío (cobrado)                                      MX$900.00 │
+│ −  Costo de lo vendido                                            MX$7,000.00 │  ← rojo (text-danger)
+│ −  Comisiones Stripe                                                MX$420.00 │
+│ −  Costo de envío (paquetería, neto)                                MX$780.00 │
+│      Incluye ajustes de paquetería                                  MX$120.00 │  ← solo si > 0; sin signo; text-muted
+│      Incluye seguro del envío                                        MX$45.00 │  ← solo si > 0; sin signo; text-muted
+│ −  Reembolsos (mercancía y envío, sin IVA)                          MX$500.00 │  ⭐ nuevo
+│ −  Comisión de plataforma devuelta                                   MX$30.00 │  ⭐ nuevo
+│ −  Compensaciones por carta perdida                                 MX$250.00 │  ⭐ nuevo
+│ [aviso: N envíos liquidados no tienen costo de paquetería capturado…]         │  ← sin cambio
+│ ════════════════════════════════════════════════════════════════════════════ │
+│ ↗ Ganancia del periodo                                            MX$3,920.00 │  ← profitCents, tal cual
+│ [Exportar P&L (CSV)]                                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Renglón | Campo | Signo | Cuándo se pinta |
+|---|---|---|---|
+| Ingresos (ventas) | `incomeCents` | `+` | siempre (sin cambio) |
+| Ingreso por envío (cobrado) | `shippingRevenueCents` | `+` | siempre (sin cambio) |
+| Costo de lo vendido | `cogsCents` | `−` | siempre (sin cambio) |
+| Comisiones Stripe | `stripeFeesCents` | `−` | siempre (sin cambio) |
+| Costo de envío (paquetería, neto) | `shippingCostCents` | `−` | siempre (sin cambio) |
+| ↳ Incluye ajustes de paquetería | `shippingAdjustmentsCents` | **ninguno** | **solo si `> 0`** |
+| ↳ Incluye seguro del envío | `shippingInsuranceCents` | **ninguno** | **solo si `> 0`** |
+| Reembolsos (mercancía y envío, sin IVA) | `refundsCents` | `−` | **siempre**, también con `0` |
+| Comisión de plataforma devuelta | `refundedFeesCents` | `−` | **siempre**, también con `0` |
+| Compensaciones por carta perdida | `compensationsCents` | `−` | **siempre**, también con `0` |
+| Ganancia del periodo | `profitCents` | (total) | siempre (sin cambio) |
+
+- **Orden:** exactamente el de §19.36.1 (el del objeto del servidor). Los dos «Incluye…» van **inmediatamente** debajo de
+  «Costo de envío», en ese orden (ajustes, seguro), y **antes** de «Reembolsos».
+- *Por qué los tres renglones nuevos se pintan con `0` y los «Incluye…» no:* los ocho renglones con signo **son la
+  fórmula** que está escrita encima; si uno desaparece cuando vale cero, la fórmula de arriba y la lista de abajo dejan de
+  coincidir y el dueño no sabe si «no hubo reembolsos» o «la pantalla no los cuenta» (que es el defecto que esta errata
+  cierra). Un «MX$0.00» con signo es un dato. Los «Incluye…» no son parte de la fórmula: son un desglose de un renglón, y
+  un desglose en cero es un indicador vacío (criterio 202(c)).
+- **Montos:** `formatMoneyCents(valor, locale)` tal cual llega, **sin** el signo dentro del número (el signo vive en su
+  columna). Las tres cifras nuevas llegan como positivos que restan, igual que `cogsCents`. ⛔ La pantalla no las niega,
+  no las suma entre sí ni las compara con nada.
+- **Ganancia:** `profitCents` **del servidor**, siempre. ⛔ Nunca la suma de lo pintado, ni siquiera «para comprobar»:
+  si algún día no cuadra, lo que se ve es el número del servidor (GAS-4) y la diferencia la caza la prueba (UX-PNL-1), no
+  el usuario. Color de la ganancia sin cambio (`text-success` si `≥ 0`, `text-danger` si `< 0`).
+- **El aviso de costo sin capturar** (`shippingCostMissingCount > 0`) queda debajo del último renglón (ahora
+  «Compensaciones…»), como hoy queda debajo del último.
+
+#### 43.23.2 Los sub-renglones «Incluye…» — aspecto
+
+| Propiedad | Renglón con signo (hoy, `PnlLine`) | Sub-renglón «Incluye…» |
+|---|---|---|
+| Columna de signo | `w-4`, `+` en `text-muted` / `−` en `text-danger` | **vacía** (⛔ ni `+`, ni `−`, ni `=`, ni `·`) |
+| Sangría del rótulo | — | el rótulo arranca **alineado con el rótulo del renglón padre** (la columna de signo + `gap-2`: `pl-6`) |
+| Tamaño | `text-sm` | `text-xs` |
+| Color del rótulo | `text-muted` | `text-muted` |
+| Color del monto | `text-danger` si resta, `text-text` si suma | **`text-muted`** (⛔ nunca `text-danger`: no resta nada por sí mismo) |
+| Peso del monto | `font-medium` | `font-normal` |
+| Separador | `divide-y divide-border` entre renglones | **ninguno** entre el padre y sus «Incluye…»: el padre y sus sub-renglones forman **un** bloque dentro del `divide-y` (la línea divisoria va encima del padre y debajo del último «Incluye…», nunca entre ellos) |
+| Relleno vertical | `py-1.5` | `pb-1` (el bloque se lee como uno) |
+
+- *Por qué «Incluye» en cada sub-renglón y no un rótulo «incluye:» común:* cada línea se tiene que entender sola —
+  también en el lector de pantalla y cuando solo una de las dos aparece—; «Incluye ajustes de paquetería MX$120.00»
+  no se puede leer como un gasto más.
+- La expresión **«ajustes de paquetería»** es la del criterio 238, literal: ⛔ no se cambia por «cargos extra», «ajustes» a
+  secas ni «sobrecargos».
+- Con un **solo** sub-renglón (p. ej. seguro `> 0` y ajustes `0`), se pinta solo ése, en su sitio; con los dos en `0`, el
+  bloque es solo el renglón padre, idéntico a hoy.
+
+#### 43.23.3 Textos y claves (`admin.m7.pnl.*`)
+
+Las claves nuevas no chocan con las existentes (`title`, `formula`, `income`, `shippingRevenue`, `cogs`, `stripeFees`,
+`shippingCost`, `shippingCostMissing`, `profit`). Las que ya existen y no se listan **no cambian**.
+
+| Clave | ES | EN | Estado |
+|---|---|---|---|
+| `formula` | **Ingresos + ingreso por envío − costo de lo vendido − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.** | **Income + shipping revenue − cost of goods sold − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.** | **cambia el valor** |
+| `refunds` | Reembolsos (mercancía y envío, sin IVA) | Refunds (goods and shipping, excl. VAT) | nueva |
+| `refundedFees` | Comisión de plataforma devuelta | Platform fees refunded | nueva |
+| `compensations` | Compensaciones por carta perdida | Lost-card compensation | nueva |
+| `shippingAdjustments` | Incluye ajustes de paquetería | Includes carrier adjustments | nueva |
+| `shippingInsurance` | Incluye seguro del envío | Includes shipping insurance | nueva |
+| `signAdds` | suma | adds | nueva (solo lector de pantalla, §43.23.4) |
+| `signSubtracts` | resta | subtracts | nueva (solo lector de pantalla, §43.23.4) |
+
+- **Signos de la fórmula:** el carácter `−` (U+2212), como el valor actual, ⛔ no el guion `-`.
+- *Por qué «Comisión de plataforma devuelta»:* es el `processingFee` que el cliente pagó y que se le devuelve; de cara al
+  cliente se llama «Comisión de plataforma» (§29.3). Usar el mismo nombre permite cuadrar con lo que el cliente vio en su
+  pedido. ⛔ No «comisión Stripe devuelta»: Stripe no nos devuelve su comisión, la que se devuelve es la nuestra; mezclar
+  los dos nombres en dos renglones contiguos haría creer que es el mismo dinero.
+- *Por qué «(mercancía y envío, sin IVA)» en Reembolsos:* `refundsCents` es neto de IVA (§M10-IVA.8) y cubre las dos cosas;
+  sin la aclaración, el dueño compararía contra el total con IVA que vio en Stripe y no le cuadraría.
+- «Compensaciones por carta perdida» es el plural del rótulo que ya existe en «Transferencias SPEI»
+  (`…components.compensation`, `es.json:5217`): mismo nombre para el mismo dinero.
+- **Candado de Stripe (§29.4b):** `formula` sigue conteniendo «Stripe» en los dos idiomas ⇒ `i18n-parity.test.ts:244-256`
+  sigue verde. `stripeFees` no se toca.
+- **P66-3:** ninguna clave nueva ni la fórmula contienen un código «M-n», «AG-n» ni «AV-n».
+
+#### 43.23.4 Accesibilidad
+
+- **El signo se oye.** Se mantiene el `span` visible con `aria-hidden` y se añade, dentro del mismo renglón y **antes**
+  del rótulo, un `span` `sr-only` con `signAdds` («suma») o `signSubtracts` («resta»). El lector lee «resta, Costo de
+  envío (paquetería, neto), MX$780.00». El color rojo nunca es la única señal: el `−` visible y el «resta» oído.
+- **Los «Incluye…» no llevan texto de signo** (ni visible ni `sr-only`): su rótulo ya dice que están dentro del renglón
+  anterior. Se oyen como «Incluye ajustes de paquetería, MX$120.00».
+- **Estructura:** el bloque de renglones puede seguir siendo `div`s (no es una tabla de datos con columnas comparables);
+  si frontend prefiere semántica, una `ul`/`li` con cada «Incluye…» como `ul` anidada dentro del `li` de «Costo de envío»
+  es lo correcto. Decisión de frontend; ⛔ lo que no vale es poner los «Incluye…» como hermanos de igual nivel **con**
+  signo.
+- Sin elementos interactivos nuevos: el orden de tabulación no cambia (rango de fechas → reintentar si hay error →
+  «Exportar P&L»).
+- **Móvil (≤ 390 px):** los rótulos largos («Reembolsos (mercancía y envío, sin IVA)») pueden partirse en dos líneas; el
+  monto queda a la derecha y arriba (`items-start` si frontend lo prefiere a `items-center`); ⛔ nunca truncar con «…» un
+  rótulo de dinero.
+
+#### 43.23.5 Lista de cambios para frontend (fichero:línea leídos el 2026-10-05 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FS-68 | `messages/es.json:4715-4725` y `en.json:4715-4725` (`admin.m7.pnl`) | Nuevo valor de `formula`; + `refunds`, `refundedFees`, `compensations`, `shippingAdjustments`, `shippingInsurance`, `signAdds`, `signSubtracts`. Paridad `i18n-parity`; `grep -nE '\b(M1?[0-9]\|AG-[0-9]+\|AV-[0-9]+)\b'` sobre las claves nuevas y `formula` ⇒ 0 (P66-3) | 43.23.3 |
+| FS-69 | `(admin)/admin/m7/M7View.tsx:30-41` (`PnlLine`) | Texto `sr-only` del signo (`signAdds`/`signSubtracts`); variante o componente hermano para el sub-renglón «Incluye…» (sin signo, `pl-6`, `text-xs`, monto `text-muted font-normal`) | 43.23.2, .4 |
+| FS-70 | `(admin)/admin/m7/M7View.tsx:103-109` | Tres renglones `−` nuevos tras «Costo de envío»; los dos «Incluye…» bajo «Costo de envío», cada uno con `> 0` como condición (⛔ no `??`, ⛔ no truthy de algo que pueda ser `undefined` y pintar «MX$NaN»); padre + sub-renglones en un solo hijo del `divide-y`. La ganancia sigue leyendo `profitCents`. Depende de F-3 (tipo `PnlDTO` y `mockPnl`) | 43.23.1 |
+
+#### 43.23.6 Candados (Testing Library contra MSW / `mockPnl`; los que coinciden con el contrato llevan su letra de §19.36.1)
+
+Sugerencia de enganche (decisión de frontend): cada renglón con signo lleva `data-testid="pnl-line"` y `data-sign="+"|"−"`
+y su monto en un elemento propio; los «Incluye…», `data-testid="pnl-included"` **sin** `data-sign`. Así la prueba suma por
+atributo y no por adivinar el texto.
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-PNL-1** (§19.36.1 a) | Con `mockPnl` (los cinco campos nuevos ≠ 0): hay **ocho** `pnl-line`, en el orden de §43.23.1; Σ (signo × monto) de los `pnl-line` = el monto pintado de la ganancia = `profitCents` del fixture | Quitar el renglón de `refundsCents`; sumar un «Incluye…» como `pnl-line` |
+| **UX-PNL-2** (§19.36.1 b) | Con ajustes y seguro `> 0`: «Incluye ajustes de paquetería» y «Incluye seguro del envío» con su monto, **sin** `+`/`−` en su renglón y **sin** `text-danger`; están entre «Costo de envío» y «Reembolsos». Con los dos en `0`: ninguno de los dos textos en el DOM. Con uno en `0` y el otro `> 0`: solo el segundo | Darle `sign="−"` a un sub-renglón; pintarlos con `0`; pintarlos con `!= null` en vez de `> 0` |
+| **UX-PNL-3** (§19.36.1 c) | Fixture con `refundsCents` alterado y `profitCents` sin tocar ⇒ la ganancia pintada sigue siendo `profitCents` (ya no cuadra con la suma, a propósito) | Calcular la ganancia en el cliente |
+| **UX-PNL-4** | Con `refundsCents = refundedFeesCents = compensationsCents = 0`: los tres renglones **siguen** en el DOM con «MX$0.00» (o el formato del locale) | Esconder un renglón con signo cuando vale `0` |
+| **UX-PNL-5** | Accesibilidad: cada `pnl-line` tiene nombre accesible que empieza por «suma»/«resta» según su signo (`getByText('resta', {selector: '.sr-only'})` dentro del renglón o equivalente); los `pnl-included` **no** contienen «suma» ni «resta» | Quitar el `sr-only`; ponerle «resta» a un «Incluye…» |
+| **UX-PNL-6** | Paridad y P66-3: las 7 claves nuevas existen en `es` y `en`; `formula` contiene «Stripe» en los dos (candado §29.4b, ya existente) y «ajustes de paquetería» en ES; el `grep` de códigos sobre `admin.m7.pnl.*` ⇒ 0 | Borrar una en `en.json`; quitar «Stripe» de la fórmula; meter «M-1» en un rótulo |
+
+#### 43.23.7 Contraste — cero pares nuevos
+
+`text-muted` sobre `bg-surface` (rótulos y montos de los «Incluye…», ahora en `text-xs`) y `text-danger` sobre `bg-surface`
+(signo y monto de los tres renglones nuevos) son los pares que esta misma tarjeta ya usa (`M7View.tsx:35-38`), verificados en
+§10 en claro y oscuro. `text-muted` a `text-xs` ya se usa en el tablero (§43.22.9). ⛔ Sin color nuevo; el texto `sr-only` no
+tiene contraste que medir.
+
+#### 43.23.8 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **N-PNL-1** | orquestador → frontend (F-3) | `mockPnl` necesita valores con los que la pantalla de §43.23.1 se pueda leer: ajustes y seguro **menores** que `shippingCostCents` (están dentro de él) y los tres nuevos `> 0`; la coherencia de `profitCents` la fija §19.36.1. Lo digo porque un fixture con ajustes > costo de envío pasaría las pruebas y enseñaría una pantalla imposible |
+| **N-PNL-2** | orquestador | El CSV de `pnl` ya lleva las cifras (contrato §M10-IVA.8, `admin.service.ts:2020-2023` según §19.36.0; NO MEDIDO por mí). Sus **encabezados** no son de esta errata; si el dueño quiere que digan «ajustes de paquetería» con la misma palabra, es un encargo de backend aparte |
+| **N-PNL-3** | orquestador | Con la respuesta (B) a P-SDX-PNL-1 (§19.33.3) aparecería un campo nuevo y, por tanto, un renglón o un «Incluye…» nuevo: necesitará su propia errata de diseño. Con (A) o (C) esta subsección no cambia |
