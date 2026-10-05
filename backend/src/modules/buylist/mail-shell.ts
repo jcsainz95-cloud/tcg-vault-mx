@@ -613,6 +613,6 @@ export function mailShell(opts: MailShellOptions): string {
 }
 
 /** El buzón vivo de soporte (misma cascada que las plantillas: env → contacto de disputas → default). */
-function supportEmail(): string {
+export function supportEmail(): string {
   return envOr(process.env.SUPPORT_EMAIL, envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcghunt.mx'));
 }

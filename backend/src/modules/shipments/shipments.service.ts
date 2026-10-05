@@ -4,6 +4,7 @@ import {
   Address,
   Card,
   CardSet,
+  CarrierStatus,
   Finish,
   FulfillmentMode,
   InventoryItem,
@@ -53,10 +54,16 @@ import {
 } from '../vault/vault-preparation.view';
 import {
   ShipmentNoticeParams,
+  shipmentAtBranchTemplate,
   shipmentCancelledTemplate,
+  shipmentDeliveredTemplate,
+  shipmentDeliveryAttemptTemplate,
   shipmentGuideTemplate,
   shipmentShippedTemplate,
 } from './mail/shipment-notice.templates';
+import { appUrl } from '../buylist/mail-shell';
+import { CarrierNotice, CarrierNoticeEvent } from './carrier-notices';
+import { CUSTOMER_TIMELINE_EVENTS_SELECT, providerTrackingUrlOf, toCustomerTimeline } from './customer-timeline';
 import { CustomerRefDTO, ShipPreparationItemDTO, ShipPreparationStateDTO, ShipmentPrepService } from './shipment-prep.service';
 import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
@@ -225,6 +232,26 @@ export interface ShipPreparationOrderDTO {
 export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
 
 /** El join a `Order` que §M4-PREP necesita: el folio legible y el discriminador de destino. */
+/** ⭐ D2e — el reclamo de un sello de aviso: la condición extra del `WHERE` y lo que escribe (`claimAndNotify`). */
+type NoticeSeal = {
+  where: Prisma.ShipmentRequestWhereInput;
+  column: 'trackingNoticeSentAt' | 'deliveredNoticeSentAt' | 'branchNoticeSentAt' | 'lastDeliveryAttemptAt';
+  value: Date;
+};
+
+/**
+ * ⭐ D2e (§19.12 «`shipmentUrl` (S6)», PS-87) — el enlace del CTA de los avisos de envío, resuelto por el SERVICIO:
+ * retiro ⇒ `shipments/<id>`; pedido con cuenta ⇒ `orders/<orderId>`; pedido de invitado ⇒ ⛔ **`null` (sin CTA, como antes)**:
+ * el contrato pide `pedido?token=<el último token vigente>`, y el claro de ese token NO existe en el servidor (solo su SHA-256,
+ * `OrderAccessToken.tokenHash`, T5). Emitir uno nuevo por correo ROTA (revoca) el enlace de los correos anteriores y gasta el
+ * cupo del reenvío (`resendQuotaExceeded`, 5/24 h): decisión del arquitecto (BACKEND_NOTES §67, P-D2E-1).
+ */
+function customerUrlOf(target: { shipmentId: string; orderId?: string | null; guest?: boolean }, locale: string | null): string | null {
+  if (!target.orderId) return appUrl(`shipments/${encodeURIComponent(target.shipmentId)}`, locale) ?? null;
+  if (target.guest) return null;
+  return appUrl(`orders/${encodeURIComponent(target.orderId)}`, locale) ?? null;
+}
+
 type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode; userId?: string | null; guestEmail?: string | null; user?: { name: string; nameSource?: NameSource | null; email?: string | null } | null } | null;
 
 /** `ShipmentItem` con la pieza, su carta (+set) y su ubicación resueltas (§M4-PREP). */
@@ -261,6 +288,8 @@ const CLIENT_SHIPMENT_INCLUDE = {
     },
   },
   refunds: true,
+  // ⭐ D2e (§19.12, PS-89): los eventos del transportista para la línea de tiempo pública (`toCustomerTimeline`).
+  carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT,
 } satisfies Prisma.ShipmentRequestInclude;
 
 /**
@@ -597,8 +626,13 @@ export class ShipmentsService {
    * ADMIN (`adminGet`/`adminList`) siguen devolviendo la fila cruda con el costo.
    */
   private toClientShipment<
-    T extends ShipmentRequest & { items: EnrichedShipmentItem[]; refunds?: PaymentRefund[] },
+    T extends ShipmentRequest & {
+      items: EnrichedShipmentItem[];
+      refunds?: PaymentRefund[];
+      carrierEvents?: { status: CarrierStatus; occurredAt: Date; branchName: string | null; providerShipmentId: string }[];
+    },
   >(s: T, transfers: Map<string, CustomerTransferView> = new Map()) {
+    const trackingUrl = providerTrackingUrlOf(s);
     return {
       id: s.id,
       status: s.status,
@@ -617,6 +651,9 @@ export class ShipmentsService {
       pickingAt: s.pickingAt,
       shippedAt: s.shippedAt,
       deliveredAt: s.deliveredAt,
+      // ⭐ D2e (§19.12, PS-88/PS-89): la liga de rastreo SOLO si Skydropx la dio (ausente si no) y la línea de tiempo pública.
+      ...(trackingUrl ? { trackingUrl } : {}),
+      timeline: toCustomerTimeline(s.carrierEvents ?? [], s),
       // v1.17: items enriquecidos (folio + acabado + carta) para la vista de rastreo.
       items: s.items.map((si) => this.toClientShipmentItem(si, transfers)),
     };
@@ -961,7 +998,51 @@ export class ShipmentsService {
     const row = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!row || !row.carrier || !row.trackingNumber) return;
     await this.claimAndNotify(id, 'trackingNoticeSentAt', row, (l, p) =>
-      shipmentGuideTemplate({ ...p, carrier: row.carrier as string, trackingNumber: row.trackingNumber as string }, l),
+      shipmentGuideTemplate(
+        { ...p, carrier: row.carrier as string, trackingNumber: row.trackingNumber as string, trackingUrl: providerTrackingUrlOf(row) },
+        l,
+      ),
+    );
+  }
+
+  /**
+   * ⭐ D2e (§19.12, §19.3 paso 5) — `AV-17`/`AV-18`/`AV-19`: el proveedor REAL del puerto `CARRIER_NOTICES`. `applyCarrierStatus`
+   * decide QUÉ hecho ocurrió (evento nuevo, post-commit); aquí se SELLA y se manda (el mismo `claimAndNotify` de §R: sin
+   * destinatario no se quema el sello; un fallo de correo no se propaga):
+   *  - `AV-17` (`delivered`): sello `deliveredNoticeSentAt` con `labelSource='skydropx'` en el `WHERE` (y el CHECK) — una vez.
+   *  - `AV-18` (`delivered_to_branch`): sello `branchNoticeSentAt` — una vez por envío.
+   *  - `AV-19` (`delivery_attempt`): `lastDeliveryAttemptAt` reclamado con `IS NULL OR < occurredAt` y escrito con el
+   *    `occurredAt` del intento ⇒ uno por intento, nunca dos por el mismo evento.
+   */
+  async notifyCarrierNotice(id: string, notice: CarrierNotice, event: CarrierNoticeEvent): Promise<void> {
+    const row = await this.prisma.shipmentRequest.findUnique({ where: { id } });
+    if (!row || row.labelSource !== 'skydropx') return;
+    const base = { carrier: row.carrier, trackingNumber: row.trackingNumber, trackingUrl: providerTrackingUrlOf(row) };
+    if (notice === 'AV-17') {
+      const carrierStatusAt = row.carrierStatus === 'delivered' && row.carrierStatusAt ? row.carrierStatusAt : event.occurredAt;
+      await this.claimAndNotify(
+        id,
+        { where: { deliveredNoticeSentAt: null, labelSource: 'skydropx' }, column: 'deliveredNoticeSentAt', value: new Date() },
+        row,
+        (l, p) => shipmentDeliveredTemplate({ ...p, ...base, carrierStatusAt }, l),
+      );
+      return;
+    }
+    if (notice === 'AV-18') {
+      await this.claimAndNotify(id, { where: { branchNoticeSentAt: null }, column: 'branchNoticeSentAt', value: new Date() }, row, (l, p) =>
+        shipmentAtBranchTemplate({ ...p, ...base, branchName: event.branchName }, l),
+      );
+      return;
+    }
+    await this.claimAndNotify(
+      id,
+      {
+        where: { OR: [{ lastDeliveryAttemptAt: null }, { lastDeliveryAttemptAt: { lt: event.occurredAt } }] },
+        column: 'lastDeliveryAttemptAt',
+        value: event.occurredAt,
+      },
+      row,
+      (l, p) => shipmentDeliveryAttemptTemplate({ ...p, ...base, attemptAt: event.occurredAt }, l),
     );
   }
 
@@ -1911,6 +1992,8 @@ export class ShipmentsService {
     orderNumber: string | null;
     /** `Order.id` solo para el titular registrado (CTA al detalle); `null` para invitado/bóveda. */
     orderId: string | null;
+    /** ⭐ D2e (§19.12) — el enlace del CTA, resuelto aquí (ver {@link customerUrlOf}). */
+    customerUrl: string | null;
   } | null> {
     if (shipment.userId) {
       const user = await this.prisma.user.findUnique({
@@ -1919,7 +2002,7 @@ export class ShipmentsService {
       });
       // v1.80.9 (D-STF-2, §M6-U.8 (a) E-4): sin correo ⇒ sin destinatario (el llamador omite con aviso).
       if (!user || user.anonymizedAt || !user.email) return null;
-      return { email: user.email, locale: user.locale, orderNumber: null, orderId: null };
+      return { email: user.email, locale: user.locale, orderNumber: null, orderId: null, customerUrl: customerUrlOf({ shipmentId: shipment.id }, user.locale) };
     }
     if (shipment.orderId) {
       const order = await this.prisma.order.findUnique({
@@ -1933,11 +2016,13 @@ export class ShipmentsService {
       });
       if (!order) return null;
       if (order.guestEmail) {
+        const locale = order.locale ?? order.user?.locale ?? null;
         return {
           email: order.guestEmail,
-          locale: order.locale ?? order.user?.locale ?? null,
+          locale,
           orderNumber: order.orderNumber,
           orderId: null,
+          customerUrl: customerUrlOf({ shipmentId: shipment.id, orderId: shipment.orderId, guest: true }, locale),
         };
       }
       // v1.80.9 (D-STF-2): sin correo ⇒ sin destinatario.
@@ -1947,6 +2032,7 @@ export class ShipmentsService {
         locale: order.locale ?? order.user.locale,
         orderNumber: order.orderNumber,
         orderId: shipment.orderId,
+        customerUrl: customerUrlOf({ shipmentId: shipment.id, orderId: shipment.orderId }, order.locale ?? order.user.locale),
       };
     }
     return null;
@@ -2004,7 +2090,7 @@ export class ShipmentsService {
    */
   private async claimAndNotify(
     id: string,
-    sealField: 'trackingNoticeSentAt' | null,
+    sealField: 'trackingNoticeSentAt' | NoticeSeal | null,
     shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId'>,
     build: (locale: string | null, params: ShipmentNoticeParams) => Omit<MailMessage, 'to'>,
   ): Promise<void> {
@@ -2020,9 +2106,12 @@ export class ShipmentsService {
         return;
       }
       if (sealField) {
+        // ⭐ D2e: el sello puede ser una columna «IS NULL» (AV-4, AV-17, AV-18) o un reclamo con su propia condición (AV-19).
+        const seal: NoticeSeal =
+          typeof sealField === 'string' ? { where: { [sealField]: null }, column: sealField, value: new Date() } : sealField;
         const sealed = await this.prisma.shipmentRequest.updateMany({
-          where: { id, [sealField]: null },
-          data: { [sealField]: new Date() },
+          where: { id, ...seal.where },
+          data: { [seal.column]: seal.value },
         });
         if (sealed.count !== 1) return; // ya se avisó de este hecho: ⛔ no se manda un segundo correo.
       }
@@ -2030,6 +2119,8 @@ export class ShipmentsService {
         shipmentId: id,
         orderNumber: to.orderNumber,
         orderId: to.orderId,
+        // ⭐ D2e (§19.12, PS-87): el enlace lo resuelve el SERVICIO (⛔ no la plantilla).
+        customerUrl: to.customerUrl,
       });
       await this.mail.send({ ...msg, to: to.email });
     } catch (e) {
@@ -2052,13 +2143,15 @@ export class ShipmentsService {
    * lo que costaría la alternativa, está en el docstring de `claimAndNotify`.
    */
   private async notifyStatus(
-    shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId' | 'carrier' | 'trackingNumber'>,
+    shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId' | 'carrier' | 'trackingNumber'> &
+      Partial<Pick<ShipmentRequest, 'labelSource' | 'trackingUrl'>>,
     to: ShipmentStatus,
   ): Promise<void> {
     if (to === 'enviado') {
       await this.claimAndNotify(shipment.id, null, shipment, (l, p) =>
         shipmentShippedTemplate(
-          { ...p, carrier: shipment.carrier, trackingNumber: shipment.trackingNumber },
+          // ⭐ D2e (PS-88): la liga de rastreo solo si Skydropx la dio.
+          { ...p, carrier: shipment.carrier, trackingNumber: shipment.trackingNumber, trackingUrl: providerTrackingUrlOf(shipment) },
           l,
         ),
       );

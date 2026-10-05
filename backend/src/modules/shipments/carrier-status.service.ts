@@ -68,31 +68,51 @@ function parseDate(v: string | null | undefined): Date | null {
 }
 
 /**
+ * ⭐ D2e (§19.33.2) — el valor crudo de un estado que NO es uno de los 12: recortado a 64 y sin caracteres de control (la
+ * MISMA forma para la bitácora `carrier_status_unknown`, el `detail` y la llave).
+ */
+export function unknownStatusValue(raw: string): string {
+  // eslint-disable-next-line no-control-regex
+  return raw.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64);
+}
+
+/**
  * §19.10 + §19.18.2 — los eventos de UNA lectura, en orden `occurredAt asc`. Con historial: uno por evento legible (llave:
  * el id del evento si viene; si no, `estado:fecha`). Sin historial: UN evento sintético `{status, occurredAt: updated_at ??
  * now, synthetic:true, providerEventKey: updated_at ? status+':'+updated_at : status}` — 🔒 la llave NUNCA lleva `now`.
+ * ⭐ D2e (§19.33.2): un valor fuera de los 12 se aplica COMO `exception` con `detail = 'Estado no reconocido: ' + v` (+ ' · ' +
+ * el detalle crudo) y el «estado» de la llave = `'unknown:' + v` (⛔ nunca `exception`: un `exception` real del mismo instante
+ * es OTRO evento).
  * Función PURA (la prueba la usa directamente).
  */
 export function carrierEventsOf(
-  state: Pick<ProviderShipmentState, 'events' | 'carrierStatus' | 'statusUpdatedAt' | 'trackingNumber'>,
+  state: Pick<ProviderShipmentState, 'events' | 'carrierStatus' | 'statusUpdatedAt' | 'trackingNumber'> &
+    Partial<Pick<ProviderShipmentState, 'unknownCarrierStatus'>>,
   observedAt: Date,
   urls: { trackingUrl: string | null; labelUrl: string | null },
 ): CarrierEventInput[] {
   const updatedAt = state.statusUpdatedAt?.trim() || null;
   const common = { observedAt, trackingNumber: state.trackingNumber ?? null, trackingUrl: urls.trackingUrl, labelUrl: urls.labelUrl };
-  const history = (state.events ?? []).filter((e) => e.status !== null);
+  const unknownDetail = (v: string, raw?: string | null) => `Estado no reconocido: ${v}${raw?.trim() ? ` · ${raw.trim()}` : ''}`;
+  const history = (state.events ?? [])
+    .map((e) => {
+      if (e.status !== null) return { e, status: e.status as CarrierStatus, keyState: e.status as string, detail: e.detail ?? null };
+      const v = e.rawStatus ? unknownStatusValue(e.rawStatus) : '';
+      if (!v) return null;
+      return { e, status: 'exception' as CarrierStatus, keyState: `unknown:${v}`, detail: unknownDetail(v, e.detail) };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
   if (history.length > 0) {
-    const out = history.map((e, i) => {
+    const out = history.map(({ e, status, keyState, detail }, i) => {
       const at = parseDate(e.occurredAt);
-      const status = e.status as CarrierStatus;
-      const providerEventKey = e.providerEventId ? `id:${e.providerEventId}` : at ? `${status}:${e.occurredAt?.trim()}` : status;
+      const providerEventKey = e.providerEventId ? `id:${e.providerEventId}` : at ? `${keyState}:${e.occurredAt?.trim()}` : keyState;
       return {
         i,
         ev: {
           ...common,
           status,
           occurredAt: at ?? parseDate(updatedAt) ?? observedAt,
-          detail: e.detail ?? null,
+          detail,
           branchName: e.branchName ?? null,
           providerEventKey,
           synthetic: false,
@@ -102,7 +122,20 @@ export function carrierEventsOf(
     out.sort((a, b) => a.ev.occurredAt.getTime() - b.ev.occurredAt.getTime() || a.i - b.i);
     return out.map((x) => x.ev);
   }
-  if (!state.carrierStatus) return [];
+  if (!state.carrierStatus) {
+    const v = state.unknownCarrierStatus ? unknownStatusValue(state.unknownCarrierStatus) : '';
+    if (!v) return [];
+    return [
+      {
+        ...common,
+        status: 'exception',
+        occurredAt: parseDate(updatedAt) ?? observedAt,
+        detail: unknownDetail(v),
+        providerEventKey: updatedAt ? `unknown:${v}:${updatedAt}` : `unknown:${v}`,
+        synthetic: true,
+      },
+    ];
+  }
   return [
     {
       ...common,
@@ -169,13 +202,15 @@ export class ShipmentCarrierService {
       });
       if (ins.count !== 1) return { applied: false, reason: 'duplicate', notices: [] } as ApplyResult;
       // 4. 🔒 SEC-SDX-9: un evento más viejo que el último cambio NO retrocede `carrierStatus` (los efectos de 5 siguen).
+      //    ⭐ D2e (§19.33.4): `created` es el MÍNIMO del orden — desde `created` (lo escribió la compra con NUESTRO reloj) avanza
+      //    cualquier estado aunque venga fechado unos segundos antes (desfase de relojes). Para todo lo demás, SEC-SDX-9 intacta.
       //    (`next` con nombre propio: el censo de escritores de `status` lee `x.status` suelto como un `status` abreviado.)
       const next: CarrierStatus = event.status;
       await tx.shipmentRequest.updateMany({
         where: {
           id: shipmentId,
           OR: [{ carrierStatus: null }, { carrierStatus: { not: next } }],
-          AND: [{ OR: [{ carrierStatusAt: null }, { carrierStatusAt: { lte: event.occurredAt } }] }],
+          AND: [{ OR: [{ carrierStatusAt: null }, { carrierStatusAt: { lte: event.occurredAt } }, { carrierStatus: 'created' }] }],
         },
         data: { carrierStatus: next, carrierStatusAt: event.occurredAt },
       });
@@ -438,7 +473,8 @@ export class ShipmentCarrierService {
    * bitácora `shipment.carrier_status_unknown {value}` (UNA vez por envío y valor). ⛔ Nunca un `500`.
    */
   private async recordUnknownStatus(shipmentId: string, value: string, now: Date): Promise<void> {
-    const v = value.slice(0, 64);
+    const v = unknownStatusValue(value);
+    if (!v) return;
     this.logger.warn(`unknown_carrier_status shipmentId=${shipmentId} value=${v}`);
     const seen = await this.prisma.auditLog.findFirst({
       where: { entityId: shipmentId, action: 'shipment.carrier_status_unknown', after: { path: ['value'], equals: v } },

@@ -18,6 +18,7 @@ import { OrdersService, OwnReservation } from './orders.service';
 import { RESERVATION_TX_OPTIONS, lockReservationGate, reservedUntilFrom } from './reservation';
 import { OrderAccessTokenService } from './order-access-token.service';
 import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
+import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 import { blankToNull } from '../users/address-rules';
@@ -372,7 +373,8 @@ export class GuestCheckoutService {
       where: { id: token.orderId },
       include: {
         items: { include: { inventoryItem: { include: { card: { include: { set: true } } } }, refund: true } },
-        shipmentRequests: { orderBy: { requestedAt: 'desc' } },
+        // ⭐ D2e (§19.12, PS-89): + los eventos del transportista para la línea de tiempo pública.
+        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT } },
         refunds: true,
       },
     });
@@ -627,7 +629,7 @@ export class GuestCheckoutService {
     return publicStatus(orderStatus, shipmentStatus, money);
   }
 
-  private activeShipment(shipments: ShipmentRequest[]): ShipmentRequest | undefined {
+  private activeShipment<T extends ShipmentRequest>(shipments: T[]): T | undefined {
     return activeShipment(shipments);
   }
 
@@ -651,7 +653,7 @@ export class GuestCheckoutService {
           card: { name: string; number: string; imageSmallUrl: string | null; set: { name: string } | null };
         };
       }[];
-      shipmentRequests: ShipmentRequest[];
+      shipmentRequests: (ShipmentRequest & { carrierEvents?: TimelineEventRow[] })[];
       refunds?: { status: string; amountCents: number }[];
     },
     tokenExpiresAt: Date,
@@ -662,6 +664,7 @@ export class GuestCheckoutService {
     // leía `Order.shippingAddressSnapshot` habiendo envío (`/orders/:id` y `/shipments/:id` ya leían el del envío).
     const address = ((shipment?.addressSnapshot as Prisma.JsonValue | undefined) ?? order.shippingAddressSnapshot ?? {}) as Partial<GuestAddressSnapshot>;
     const deliveredAt = shipment?.deliveredAt ?? null;
+    const trackingUrl = shipment ? providerTrackingUrlOf(shipment) : null;
     // v1.80 (§M4-SHIP.10): lo devuelto POR STRIPE (`submitted|succeeded`) y la regla «todo devuelto ⇒ reembolsado».
     const refundedCents = refundedCentsOf(order.refunds ?? []);
 
@@ -709,6 +712,9 @@ export class GuestCheckoutService {
         trackingNumber: shipment?.trackingNumber ?? undefined,
         shippedAt: shipment?.shippedAt ?? undefined,
         deliveredAt: deliveredAt ?? undefined,
+        // ⭐ D2e (§19.12, PS-88/PS-89): liga de rastreo SOLO si Skydropx la dio; línea de tiempo pública (sin detalle ni códigos).
+        ...(trackingUrl ? { trackingUrl } : {}),
+        timeline: shipment ? toCustomerTimeline(shipment.carrierEvents ?? [], shipment) : [],
       },
       // Solo tras liquidar, y SOLO marca + 4 últimos (nunca PAN/BIN/titular/clientSecret).
       payment:

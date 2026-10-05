@@ -18,7 +18,7 @@ import { ShipmentLabelRecoveryService } from './label-recovery.service';
 import { ShipmentLabelPdfService } from './label-pdf.service';
 import { LABEL_AUTO_CLOSE } from './label-auto-close';
 import { ShipmentCarrierService } from './carrier-status.service';
-import { CARRIER_NOTICES, pendingCarrierNotices } from './carrier-notices';
+import { CARRIER_NOTICES, mailCarrierNotices } from './carrier-notices';
 import { ShipmentOrphanService } from './orphan-reconcile.service';
 import { ShipmentTrackingPollJob } from './tracking-poll.job';
 import { ShipmentLabelProcessingJob } from './label-processing.job';
@@ -45,8 +45,8 @@ import { ShipmentDepartureService } from './departure.service';
     ShipmentLabelProcessingJob,
     ShipmentExtraChargesJob,
     ShipmentDepartureService,
-    // Los correos AV-17/18/19 son de D2e: hasta entonces el puerto registra el hecho y no manda nada.
-    { provide: CARRIER_NOTICES, useValue: pendingCarrierNotices },
+    // ⭐ D2e (§19.12): los correos AV-17/18/19 al cliente — sello y envío en `ShipmentsService.notifyCarrierNotice`.
+    { provide: CARRIER_NOTICES, inject: [ShipmentsService], useFactory: mailCarrierNotices },
     // 💰 §19.8: el post-commit de la cancelación automática, por token (los escritores viven en `payments/`).
     { provide: LABEL_AUTO_CLOSE, useExisting: ShipmentLabelCancelService },
     // 🔒 UN reloj para la guía (§19.29.1.4, C-17); las pruebas lo sustituyen.

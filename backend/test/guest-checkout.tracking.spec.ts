@@ -232,6 +232,9 @@ describe('POST /orders/guest/track — MINIMIZACIÓN DE DATOS (§4-G.3, criterio
       trackingNumber: 'EST123456789',
       shippedAt: new Date('2026-08-02T10:00:00.000Z'),
       deliveredAt: undefined,
+      // ⭐ D2e (§19.12, PS-89): la línea de tiempo pública; guía sin Skydropx ⇒ solo lo derivado de las fechas.
+      // `trackingUrl` AUSENTE (no vino de Skydropx).
+      timeline: [{ kind: 'shipped', at: '2026-08-02T10:00:00.000Z' }],
     });
   });
 

@@ -60,7 +60,8 @@ describe('carrierEventsOf (§19.10, §19.18.2 SEC-SDX-2) — los eventos de una 
     expect(e.synthetic).toBe(true);
   });
 
-  it('con historial ⇒ uno por evento LEGIBLE, en orden occurredAt asc; los desconocidos NO se aplican; id del evento manda en la llave', () => {
+  // ⭐ D2e (§19.33.2): el desconocido YA NO se descarta — entra como `exception` con su `detail` y la llave `unknown:<v>:…`.
+  it('con historial ⇒ uno por evento, en orden occurredAt asc; el desconocido como `exception` (§19.33.2); id del evento manda en la llave', () => {
     const ev = carrierEventsOf(
       {
         carrierStatus: 'delivered',
@@ -77,6 +78,7 @@ describe('carrierEventsOf (§19.10, §19.18.2 SEC-SDX-2) — los eventos de una 
     );
     expect(ev.map((e) => [e.status, e.providerEventKey, e.synthetic, e.detail ?? null])).toEqual([
       ['in_transit', 'id:ev-7', false, 'CEDIS'],
+      ['exception', 'unknown:teleported:2026-10-05T08:00:00Z', false, 'Estado no reconocido: teleported'],
       ['delivered', 'delivered:2026-10-05T09:00:00Z', false, null],
     ]);
   });

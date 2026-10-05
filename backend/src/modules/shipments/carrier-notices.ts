@@ -1,14 +1,12 @@
 /**
- * carrier-notices.ts — ⭐ D2d: la COSTURA hacia los correos al cliente que dispara el transportista (API_CONTRACT
- * §M4-SHIP.19.3 paso 5 «marcar AV-17/AV-18/AV-19 pendiente» y §19.12). `applyCarrierStatus` (D2d) decide QUÉ hecho
- * ocurrió (el evento es nuevo: el `@@unique` lo garantiza) y, POST-COMMIT, se lo entrega a este puerto; los correos, su
- * plantilla y su SELLO (`deliveredNoticeSentAt`, `branchNoticeSentAt`, `lastDeliveryAttemptAt`) son de **D2e**
- * (§19.31.10 fila 3a), que sustituye el proveedor por defecto. Hasta entonces: no-op con log `info` (⛔ ningún correo al
- * cliente sale de D2d; `C-AV-1` sigue en 19 hasta que D2e cuente las tres filas nuevas).
+ * carrier-notices.ts — la COSTURA hacia los correos al cliente que dispara el transportista (API_CONTRACT §M4-SHIP.19.3 paso 5
+ * y §19.12). `applyCarrierStatus` (D2d) decide QUÉ hecho ocurrió (el evento es nuevo: el `@@unique` lo garantiza) y,
+ * POST-COMMIT, se lo entrega a este puerto. ⭐ D2e: el proveedor real ({@link mailCarrierNotices}) sella y manda `AV-17`
+ * (Entregado), `AV-18` (En sucursal) y `AV-19` (Intentaron entregarte) por `ShipmentsService.notifyCarrierNotice` — plantilla,
+ * destinatario (§R.5) y sello (`deliveredNoticeSentAt`, `branchNoticeSentAt`, `lastDeliveryAttemptAt`). `C-AV-1` = 19.
  *
  * ⛔ El puerto NUNCA hace fallar al sondeo (best-effort, §R.4): el llamador traga y loguea cualquier excepción.
  */
-import { Logger } from '@nestjs/common';
 import { CarrierStatus } from '@prisma/client';
 
 export const CARRIER_NOTICES = 'CARRIER_NOTICES';
@@ -28,11 +26,9 @@ export interface CarrierNoticePort {
   notify(shipmentId: string, notice: CarrierNotice, event: CarrierNoticeEvent): Promise<void>;
 }
 
-const logger = new Logger('CarrierNotices');
-
-/** El proveedor por defecto hasta D2e: registra el hecho y no manda nada. */
-export const pendingCarrierNotices: CarrierNoticePort = {
-  async notify(shipmentId, notice, event) {
-    logger.log(`carrier_notice_pending shipmentId=${shipmentId} notice=${notice} status=${event.status} (correo: D2e)`);
-  },
-};
+/** ⭐ D2e — el proveedor real: delega en el cuerpo de los avisos de envío (un solo `claimAndNotify`, un solo §R.5). */
+export function mailCarrierNotices(shipments: {
+  notifyCarrierNotice(shipmentId: string, notice: CarrierNotice, event: CarrierNoticeEvent): Promise<void>;
+}): CarrierNoticePort {
+  return { notify: (shipmentId, notice, event) => shipments.notifyCarrierNotice(shipmentId, notice, event) };
+}

@@ -470,12 +470,14 @@ describe('⭐💰 D2d — rastreo: applyCarrierStatus, sondeo y refresh-tracking
       }
     });
 
-    it('§19.19.10: estado DESCONOCIDO ⇒ evento NO aplicado, bitácora `carrier_status_unknown` una vez, ⛔ nunca un 500', async () => {
+    // ⭐ D2e (§19.33.2): el desconocido se aplica COMO `exception` (antes: «evento no aplicado»). PS-78 ampliada entera en
+    // `sdx-d2e-notices.e2e-spec.ts`; aquí queda la mitad de D2d (bitácora una vez, ⛔ nunca un 500, sin cambio de estado).
+    it('§19.19.10 + §19.33.2: estado DESCONOCIDO ⇒ UNA fila `exception`, bitácora `carrier_status_unknown` una vez, ⛔ nunca un 500', async () => {
       const s = await labeled();
       fake.setShipment(s.psid, { carrierStatus: null, unknownCarrierStatus: 'teleported', events: [{ status: null, rawStatus: 'teleported', occurredAt: iso(clock.now().getTime()) }] });
       expect(errCode(await refresh(s.id))).toBe('200');
       expect(errCode(await refresh(s.id))).toBe('200');
-      expect(await events(s.id)).toHaveLength(0);
+      expect((await events(s.id)).map((e) => [e.status, e.detail])).toEqual([['exception', 'Estado no reconocido: teleported']]);
       expect((await audits(s.id, 'shipment.carrier_status_unknown')).map((a) => (a.after as any).value)).toEqual(['teleported']);
       expect((await row(s.id)).status).toBe('guia');
     });

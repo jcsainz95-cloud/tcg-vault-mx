@@ -145,12 +145,31 @@ const LOS_ONCE: Record<string, (locale: string) => Omit<MailMessage, 'to'>[]> = 
   'AV-11 · disputa rechazada': (l) => [
     disputeTpl.disputeRejectedTemplate({ folio: 'dsp-1', resolution: 'La carta llegó como se describió' }, l),
   ],
+  // ⭐ D2e (§19.12, v1.81): los tres del transportista entran al MISMO barrido (con todos los huecos llenos).
+  'AV-17 · entregado (Skydropx)': (l) => [
+    shipmentTpl.shipmentDeliveredTemplate(
+      { shipmentId: 'shp-1', orderNumber: 'TCG-1001', orderId: 'ord-1', carrier: 'Estafeta', trackingNumber: 'EST-1', trackingUrl: 'https://pro.skydropx.com/t/1', carrierStatusAt: new Date('2026-10-05T18:00:00Z') },
+      l,
+    ),
+  ],
+  'AV-18 · en sucursal': (l) => [
+    shipmentTpl.shipmentAtBranchTemplate(
+      { shipmentId: 'shp-1', orderNumber: null, carrier: 'Estafeta', trackingNumber: 'EST-1', trackingUrl: 'https://pro.skydropx.com/t/1', branchName: 'Centro' },
+      l,
+    ),
+  ],
+  'AV-19 · intento de entrega': (l) => [
+    shipmentTpl.shipmentDeliveryAttemptTemplate(
+      { shipmentId: 'shp-1', orderNumber: 'TCG-1001', orderId: 'ord-1', carrier: 'Estafeta', trackingNumber: 'EST-1', attemptAt: new Date('2026-10-05T18:00:00Z') },
+      l,
+    ),
+  ],
 };
 
 // =================================================================================================
 describe('⭐ (1) el conteo es ONCE, y la lista se cierra sola', () => {
-  it('el registro tiene exactamente los ONCE avisos del catálogo (§R.3)', () => {
-    expect(Object.keys(LOS_ONCE)).toHaveLength(11);
+  it('el registro tiene los ONCE avisos de v1.74 + los TRES del transportista de v1.81 (§R.3, §19.12)', () => {
+    expect(Object.keys(LOS_ONCE)).toHaveLength(14);
   });
 
   it('⚠️ EXHAUSTIVIDAD: toda plantilla de los cinco ficheros de avisos está clasificada', () => {
@@ -166,6 +185,10 @@ describe('⭐ (1) el conteo es ONCE, y la lista se cierra sola', () => {
       'shipmentGuideTemplate',
       'shipmentShippedTemplate',
       'shipmentCancelledTemplate',
+      // ⭐ D2e (§19.12): AV-17/18/19.
+      'shipmentDeliveredTemplate',
+      'shipmentAtBranchTemplate',
+      'shipmentDeliveryAttemptTemplate',
       'sellGuideTemplate',
       'sellReceivedTemplate',
       'sellPaidTemplate',
@@ -175,12 +198,11 @@ describe('⭐ (1) el conteo es ONCE, y la lista se cierra sola', () => {
     expect(exportadas).toEqual(clasificadas);
   });
 
-  it('⛔ y NO existe plantilla de «entregado» ni de «pago fallido» ni de «contracargo»', () => {
-    // Criterio 206, **por exceso**: los tres mudos no tienen dónde nacer. Si alguien escribe
-    // `shipmentDeliveredTemplate`, la exhaustividad de arriba se pone roja **antes** de que exista
-    // un llamador. *Lo que se deja fuera vale tanto como lo que se mete.*
+  it('⛔ «entregado» existe UNA vez (AV-17, solo Skydropx, §19.12) y NO existe «pago fallido» ni «contracargo»', () => {
+    // Criterio 206, **por exceso**: los mudos no tienen dónde nacer. ⭐ v1.81 (criterio 210 reescrito): `AV-17` es la
+    // ÚNICA plantilla de entregado, y la dispara el transportista (⛔ nunca `updateStatus`: `C-AV-3a` lo vigila).
     const nombres = Object.keys({ ...shipmentTpl, ...orderTpl });
-    expect(nombres.some((n) => /delivered|entregad/i.test(n))).toBe(false);
+    expect(nombres.filter((n) => /delivered|entregad/i.test(n))).toEqual(['shipmentDeliveredTemplate']);
     expect(nombres.some((n) => /failed|chargeback|contracargo/i.test(n))).toBe(false);
   });
 });
