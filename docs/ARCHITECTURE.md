@@ -27813,6 +27813,24 @@ corridas de D2d hasta C2. NO MEDIDO: que Nest acepte `SettingsModule` (global) i
 la tasa real del intermitente `T-FLAKY-RFC-1` (calculada 1/256 por corrida); si alguna rama viva toca `admin/`, `users/`,
 `settings/`.
 
+**(z) v1.80.12.14 — errata tras D2d y D2g, y las costuras al detalle** (norma en `API_CONTRACT §M4-SHIP.19.33`; origen
+`BACKEND_NOTES.md §64.6` y `§65.6`). Dos ideas: **cuando el contrato choca con `PROJECT`, se corrige el contrato, no el producto**,
+y **un hecho nuevo del transportista entra por la puerta que ya existe antes que por una nueva**.
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **PS-75 se reescribe; el sondeo no consulta envíos `entregado`** | Seguir consultando `entregado` sin `delivered` N días | El criterio 241 lo prohíbe y `PROJECT` manda; el único camino real (la carrera del lote) sigue cubierto |
+| **Estado desconocido ⇒ se aplica como `exception`** | Valor `unknown` en `CarrierStatus`; campo aparte en el DTO; solo bitácora | El valor nuevo es migración y obliga a todos los lectores; el campo aparte es segunda fuente de la alerta; solo bitácora deja al operador ciego |
+| **`created` es el mínimo del orden en el CAS** | `carrierStatusAt = null` al comprar | El CHECK de pareja lo impide, y `carrierStatus` nulo cambiaría lo que leen la cancelación y AG-10 |
+| **Dinero de huérfanas/duplicados en el P&L: al dueño** | Decidirlo el equipo | Es cómo el dueño quiere ver sus ganancias, y no está en `HECHOS.md` |
+| **`facts` admite `{userId, name}`** | Aplanar en escalares | Lo construido y la norma ya eran objeto; aplanar cambia código sin ganar nada |
+| **AG-21 lleva el instante en la llave** | Llave por par de cuentas | A→B→A→B silenciaba un segundo cambio de dueño: es justo lo que el aviso existe para contar |
+| **Enlaces de los correos sin `?`** | Una `?` «que no actúa» | Un candado de «ninguna `?`» se audita con un `grep`; el otro, no |
+
+**Deuda que deja (z):** sin respuesta de P-SDX-PNL-1, el reporte de ganancias no cuenta las guías cobradas de más; el `CHECK
+amountCents > 0` obliga a escribir ese ajuste cuando se sepa lo no devuelto. NO MEDIDO: si BullMQ instalado admite `tz` (lo
+mide C1); los commits que el orquestador cita (`e367ca20`, `636b6d19`, `8be66ef1`).
+
 ---
 
 ## 5. Decisiones transversales

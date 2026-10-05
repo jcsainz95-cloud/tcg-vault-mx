@@ -2,9 +2,34 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.13**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.14**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.14 — ERRATA TRAS D2d (RASTREO) Y D2g (AVISOS AL DUEÑO), Y LAS COSTURAS C1/C2 (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado por
+> el orquestador `8be66ef1`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.33](#M4-SHIP-19-33)**. Porqué:
+> `ARCHITECTURE §4.60 (z)`. Origen: `BACKEND_NOTES.md §64.6` (D2d, 6 preguntas; decisiones propias en §64.2) y `§65.6` (D2g,
+> 6 preguntas; decisiones propias en §65.3), más el encargo del orquestador de fijar las costuras C1 y C2.
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | PS-75 contra §19.10 | **Manda `PROJECT.md` criterio 241** («un envío cerrado deja de consultarse»): el sondeo **no** se amplía. PS-75 se **reescribe**: el `AV-17` tras un `entregado` a mano solo sale en la **carrera** (el lote lo tomó vivo); después, cero llamadas y cero `AV-17` | No (lo construido ya respeta §19.10) | backend (D2e) |
+> | **2** | Estado del transportista desconocido | Se aplica **como `exception`** con `detail = «Estado no reconocido: <valor>»` y llave propia; así entra solo a `carrierAlert`, `?alert=true` y `withCarrierAlert` por el cuerpo de siempre. ⛔ Sin valor nuevo en ningún enum | Sí, pequeño: `carrier-status.service.ts:437-459` y quien arma los eventos | backend (D2e) |
+> | **3** | 💰 Huérfanas y duplicados fuera del P&L | ⛔ **No se decide aquí: pregunta al dueño P-SDX-PNL-1.** Mientras tanto, nada cambia (el tope por persona y AG-9 ya los cuentan; el reporte de ganancias no) | — | dueño → arquitecto |
+> | **4** | `carrierStatusAt` de la compra con nuestro reloj | Se queda (CHECK `shipment_carrier_status_paired`). El CAS del paso 4 gana un término: **desde `created` cualquier estado avanza** aunque venga fechado antes | Sí, una línea: `carrier-status.service.ts:174-181` | backend (D2e) |
+> | **5** | AG-8 (b) y AG-10 | Son de **D2g** (ya construidos, según el orquestador en `e367ca20`; ⛔ no medido por el arquitecto); §19.29.0/.6/.11 corregidas | No | — |
+> | **6** | `withCarrierAlert` | RATIFICADO: cuenta con `carrierAlertActive`; con (2), el desconocido entra solo. Prueba **PS-171** | No (D2f sin construir) | backend (D2f) |
+> | **G1** | Dial del dueño inválido mandado por un no dueño | **`422` primero** — RATIFICADO | No | — |
+> | **G2** | `facts` con objetos (AG-21, AG-22) | El tipo del DTO **se amplía** a `{userId, name}` (lo construido se queda; ⛔ no se aplana) | Aditivo (tipos) | backend (C1) + frontend (tipo) |
+> | **G3** | Enlaces de `AVG-2/3` sin filtros | **Sin `?`** — RATIFICADO (manda PS-153); ux-ui ajusta su sugerencia | No | ux-ui |
+> | **G4** | AG-21 en A→B→A→B | La llave gana **el instante del cambio**: cada cambio, un aviso y un correo | Sí, una línea: `spend-watch.service.ts` | backend (C1) |
+> | **G5** | `order_ship` | **Errata de S-GAS-2**: `shipment.kind: ShipmentKind \| null` (el tipo existente) — RATIFICADO lo construido | No | frontend (tipo) |
+> | **G6** | Ficheros de prueba fuera de la columna literal | **RATIFICADOS** (los forzó el contrato); techo de `NO_ENUM_POR_RUTA` 45 → 50 ratificado | No | — |
+> | **C1/C2** | Costuras | Fijadas al detalle (§19.33.9) | — | backend (un agente, serie) |
+>
+> **Pruebas:** PS-75 reescrita, PS-72, PS-78 y PS-160 ampliadas, **PS-171**, **PS-172** (C1). **Migración:** ninguna. **Códigos de
+> error nuevos:** ninguno. **Enums:** ninguno cambia de dominio (solo el comentario de `CarrierStatus` en §0). **Pregunta al
+> dueño:** P-SDX-PNL-1.
 >
 > **Rev v1.80.12.13 — ERRATA TRAS D2c-CIERRE Y PARTICIÓN D2d ∥ D2g (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado
 > por el orquestador `f5b5515b` o posterior; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§M4-SHIP.19.32](#M4-SHIP-19-32)**.
@@ -312,7 +337,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.14 → v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -7689,7 +7714,7 @@ MovementReason      = alta | move | sale | settle | chargeback_return | withdraw
 ShippedRefundReason = not_arrived | arrived_damaged  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12): por qué se reembolsó entero un pedido YA ENVIADO. ⚠️ CLASE R — NO SE DERIVA: «solo sería porque no llegó o estaban en mala condición» (`PROJECT §S.11.4`, `HECHOS.md` 2026-10-02 SSL-R1). Literal `['not_arrived','arrived_damaged']` con esta cita al lado + test de lista exacta y de subconjunto del enum de Prisma. Dominio del cuerpo de M3 `refund` (`shippedReason`) y de `POST /admin/orders/:id/shipped-refund-reason` (`reason`); fuera ⇒ `400 VALIDATION_ERROR {field, allowed}`. Hoy coincide con el enum entero — por la regla, no por derivación.
 ShipmentActiveStage = solicitado | picking | guia | enviado  // v1.17: subconjunto "activo" de ShipmentStatus expuesto en HoldingDTO.shipmentState. `entregado` NUNCA aparece (el item ya es InventoryStatus.withdrawn y sale de holdings); `cancelado` libera el item ⇒ shipmentState=null.
 ShipmentLabelSource = manual | skydropx  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2): quién emitió la guía; `manual` = capturada a mano (T.10), `skydropx` = comprada por §19.7. Clase E (espeja `schema.prisma:429-432`). Filtro `?labelSource=` de `GET /admin/shipments` (§19, «filtros nuevos») ⇒ tres bandas. ⚠️ v1.80.12.11: la declaración vivía solo en el bloque prisma de §19.2 y faltaba esta línea (banda 3 roja tras D2a) — añadida sin cambio de dominio.
-CarrierStatus       = created | picked_up | in_transit | last_mile | delivery_attempt | delivered_to_branch | delivered | exception | in_return | canceled | destroyed | retained  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2/.19.3): estado CRUDO que reporta Skydropx (referencia §5, NO MEDIDO contra la API, §19.19.10). Clase E (espeja `schema.prisma:436-449` y `CARRIER_STATUSES` del puerto, `shipping-provider.port.ts:11-24`). ⛔ Ningún valor nuevo en `ShipmentStatus`; el mapeo vive solo en `applyCarrierStatus`. Valor desconocido ⇒ evento no aplicado (§19.19.10). Solo DTO (`carrierStatus`, `carrierAlert.status`); `?alert=true` es clase L ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
+CarrierStatus       = created | picked_up | in_transit | last_mile | delivery_attempt | delivered_to_branch | delivered | exception | in_return | canceled | destroyed | retained  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2/.19.3): estado CRUDO que reporta Skydropx (referencia §5, NO MEDIDO contra la API, §19.19.10). Clase E (espeja `schema.prisma:436-449` y `CARRIER_STATUSES` del puerto, `shipping-provider.port.ts:11-24`). ⛔ Ningún valor nuevo en `ShipmentStatus`; el mapeo vive solo en `applyCarrierStatus`. Valor desconocido ⇒ ~~evento no aplicado (§19.19.10)~~ ⭐ v1.80.12.14 (§19.33.2): se aplica como `exception` con `detail` «Estado no reconocido: …» (dominio SIN cambio). Solo DTO (`carrierStatus`, `carrierAlert.status`); `?alert=true` es clase L ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
 ShippingIvaSource   = provider | computed | manual  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2, T.7 / criterio 238): de dónde salió la línea de IVA del costo de envío; `provider` es lo normal, `computed` = 16/116 (§19.11), `manual` = captura de hoy. Clase E (espeja `schema.prisma:452-456`). Lo usan `ShipmentRequest.shippingIvaSource` y `ShipmentCostAdjustment.ivaSource`. Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
 ShipmentCostAdjustmentKind = overweight | extended_zone | return | other  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2, §9 D3, T.7): tipo de cargo extra de Skydropx con fecha propia. Clase E (espeja `schema.prisma:459-464`). Dominio cerrado de `facts.kind` de AG-6 (S-GAS-4). Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
 LabelAttemptOutcome = pending | labeled | not_charged | released_unverified  // v1.80.12.9 (M-68, §M4-SHIP.19.29.2): resultado de un reclamo de compra (`ShipmentLabelAttempt.outcome`). Clase E (espeja `schema.prisma:1752-1757`). Interno: ningún DTO ni filtro lo expone ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida tras D2c (§19.29.2 decía «los cinco» y son seis), sin cambio de dominio.
@@ -23789,6 +23814,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.30** | 🔒💰 **v1.80.12.10** — errata de la revisión de §Z: el dueño como marca explícita `User.isOwner` (C-20), la vigilancia no la apaga el vigilado (C-21: diales y cuenta del dueño, AG-21/AG-22, `seen`, silenciado), TG-1 falla cerrado con reembolso desconocido (C-22), neutralización por llaves con NFKC (C-23), residuo de C-14 (C-19), 2 correos por persona y hora (C-24), enlaces de correo (SDX-I-8); PS-160…PS-165 |
 | **.31** | 💰 **v1.80.12.12** — errata tras D2b/D2c/`M-67`/`M-68`: seis enums en §0, generación de la cotización reutilizada, PS-73/PS-122 reescritas, dos `reason` de `409`, `cancel` sin respuesta, la compra de punta a punta en la E2E con el doble (`SHIPPING_FAKE_PURCHASE`), S-GAS-7…9, `isOwner` en la ficha, y el plan para cerrar la fase D; PS-166…PS-170 |
 | **.32** | **v1.80.12.13** — errata tras D2c-cierre: filas de §0-Q (`labelSource`, `alert`, los cuatro de `spend-alerts`), `requestedAt` al reutilizar, `?folio=` fuera de §0-Q, `label.pdf` cancelado, «envío vivo», 12 CHECK de `M-66`, el dueño en la pila E2E, `T-FLAKY-RFC-1`, y la **partición D2d ∥ D2g** por fichero; PS-168 (e) |
+| **.33** | 💰 **v1.80.12.14** — errata tras D2d y D2g: PS-75 reescrita (manda el criterio 241), estado desconocido como `exception`, P-SDX-PNL-1 al dueño, término `created` en el CAS, AG-8 (b)/AG-10 en D2g, `withCarrierAlert`, G1…G6 de D2g, costuras C1/C2 al detalle; PS-171, PS-172 |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -24006,7 +24032,7 @@ tx (READ COMMITTED):
  2. si labelSource ≠ 'skydropx' ⇒ log.error + return {applied:false, reason:'not_provider'}   -- criterio 241: un manual NUNCA se sondea
  2b. 🔒 v1.81.1 (SEC-SDX-2, §19.18.2): si event.synthetic ∧ event.status = carrierStatus ⇒ carrierPolledAt = now; return {applied:false, reason:'unchanged'}  -- el estado no cambió: ni fila ni correo
  3. INSERT ShipmentCarrierEvent (unique [shipmentRequestId, providerShipmentId, providerEventKey]); P2002 ⇒ return {applied:false, reason:'duplicate'}  -- ⛔ nada más se escribe
- 4. si event.status ≠ carrierStatus ⇒ UPDATE carrierStatus, carrierStatusAt = event.occurredAt (CAS: WHERE carrierStatus IS DISTINCT FROM event.status AND (carrierStatusAt IS NULL OR carrierStatusAt <= event.occurredAt))  -- 🔒 v1.81.1 (SEC-SDX-9): un evento más viejo que el último cambio NO retrocede carrierStatus; los efectos del paso 5 siguen (cada uno tiene su propio WHERE)
+ 4. si event.status ≠ carrierStatus ⇒ UPDATE carrierStatus, carrierStatusAt = event.occurredAt (CAS: WHERE carrierStatus IS DISTINCT FROM event.status AND (carrierStatusAt IS NULL OR carrierStatusAt <= event.occurredAt))  -- 🔒 v1.81.1 (SEC-SDX-9): un evento más viejo que el último cambio NO retrocede carrierStatus; los efectos del paso 5 siguen (cada uno tiene su propio WHERE). ⭐ v1.80.12.14 (§19.33.4): el CAS gana `OR carrierStatus = 'created'` (desde `created` cualquier estado avanza aunque venga fechado antes que nuestro reloj de compra)
  5. switch(event.status) — efectos, TODOS con precondición en el WHERE:
     created:
       si labelProcessingSince ≠ null ∧ event.trackingNumber:
@@ -24048,6 +24074,8 @@ commit ─► post-commit, best-effort (§R.4): los avisos marcados, cada uno re
   (el sello `deliveredNoticeSentAt` solo lo reclama `applyCarrierStatus` con `delivered`) — criterio 242: «solo con
   `delivered` vía Skydropx». Si después llega `delivered` del sondeo, el CAS de estado cuenta 0 pero **`AV-17` sí sale**
   (el hecho «la paquetería confirmó» ocurrió; la precondición del correo es el evento, no la transición — PS-75).
+  ⚠️ **v1.80.12.14 ([§19.33.1](#M4-SHIP-19-33)):** «después llega `delivered` del sondeo» solo ocurre en la **carrera** (el lote
+  tomó el envío vivo); un envío ya `entregado` **no se consulta** (criterio 241) y no recibe `AV-17`. PS-75 reescrita.
 
 ###### M4-SHIP.19.4 — El puerto `ShippingProviderPort` y el adaptador Skydropx (solo servidor)
 
@@ -24741,10 +24769,10 @@ rechaza. ⛔ Ninguna prueba unitaria/E2E habla con Skydropx; el guion PS-SBX es 
 | **PS-72** 🔒 | **Un evento, una vez:** el mismo `getShipment` aplicado 10 veces (N=10, secuencial y concurrente con barrera) ⇒ 1 fila de evento, 1 transición, 1 correo; conteo de filas y `updatedAt` idénticos después de la 1ª. 🔒 **v1.81.1 (SEC-SDX-2):** doble en modo **«solo estado actual»** (sin historial, sin `updated_at`) con `delivery_attempt` sondeado ×10 con reloj avanzando ⇒ **1** fila, **1** `AV-19`, `carrierPolledAt` avanza; el doble cambia a `delivered` ⇒ 1 fila nueva y `AV-17`; con `updated_at` ⇒ llave `status:<updated_at>`. **(SEC-SDX-9):** historial fuera de orden (`delivered` y luego `in_transit` más viejo) ⇒ `carrierStatus` sigue `delivered`, ambas filas existen; guía re-emitida con el mismo `providerEventKey` que la cancelada ⇒ fila nueva (no P2002) | quitar el `@@unique` del evento; avisar fuera del `count===1`; llave con `now` ⇒ 10 filas / 10 correos; CAS sin `carrierStatusAt` ⇒ retrocede |
 | **PS-73** 💰 | **Una guía:** 10 `POST …/label` simultáneos (barrera en la fila) ⇒ **una** llamada `purchase` en el doble, un `providerShipmentId`, un `AV-4`; 9 respuestas `200 in_progress|labeled` (⛔ ningún `409`); repetir tras `labeled` ⇒ `409 SHIPMENT_ALREADY_LABELED`. ⚠️ **v1.80.12.12 ([§19.31.3](#M4-SHIP-19-31)): «ningún `409`» se REESCRIBE** — las 9 ∈ {`200 in_progress`, `409 CONFLICT {reason:'purchase_in_flight', otherShipmentId:null}`, `409 SHIPMENT_ALREADY_LABELED`}; lo invariante es **una** `purchase`; la proporción de `409 purchase_in_flight` se reporta con su N | quitar el CAS de `labelProcessingSince` ⇒ ≥ 2 `purchase` en ≥ 1 tirada |
 | **PS-74** 💰 | **Compra rechazada no deja rastro:** doble con `error_detail` ⇒ `422 SHIPPING_PROVIDER_REJECTED`, el envío sigue `picking` preparado, `labelProcessingSince`/`providerRateId`/`chosenRateJson` **NULL**, bitácora `label_failed`; después `label` con otra tarifa de la misma cotización ⇒ `200 labeled`. 🔒 **v1.81.1 (SEC-SDX-4):** doble que **crea y luego falla al responder** (timeout tras el POST) ⇒ reclamo **puesto**, `providerShipmentId NULL`; `label/release` a los 10 min ⇒ `409 LABEL_NOT_RELEASABLE {reason:'too_early', retryAfterSeconds}`; a los 16 min con el doble devolviendo el envío por `findByReference` (o por replay con la misma `idempotencyKey`) ⇒ `200 outcome:'adopted'`, `providerShipmentId` puesto, **cero** `purchase` nuevas, bitácora `label_adopted`; con el doble sin nada ⇒ `200 outcome:'released'`, reclamo NULL, bitácora `label_released` con `note`; operador ⇒ `403`; sin `note` ⇒ `400`; sobre un envío con `providerShipmentId` ⇒ `409 {reason:'has_provider_id'}`; **liberar y comprar a la vez** (N≥10) ⇒ a lo sumo una guía viva | no deshacer el reclamo ⇒ `409 LABEL_IN_PROGRESS` para siempre; liberar **sin buscar** ⇒ dos `purchase` en el doble (doble costo) |
-| **PS-75** | **Guía en proceso:** doble devuelve `trackingNumber:null` ⇒ `200 processing`, `status='picking'`, `providerShipmentId` puesto, **cero** `AV-4`; el job `shipment-label-processing` con el doble ahora dando número ⇒ `status='guia'`, par escrito, **un** `AV-4`; correr el job otra vez ⇒ nada. **Y** `entregado` a mano en un envío Skydropx ⇒ cero `AV-17`; después `delivered` del doble ⇒ `AV-17` **una** vez aunque el CAS de estado cuente 0 | mandar `AV-4` al recibir `processing`; colgar `AV-17` de la transición |
+| **PS-75** | **Guía en proceso:** doble devuelve `trackingNumber:null` ⇒ `200 processing`, `status='picking'`, `providerShipmentId` puesto, **cero** `AV-4`; el job `shipment-label-processing` con el doble ahora dando número ⇒ `status='guia'`, par escrito, **un** `AV-4`; correr el job otra vez ⇒ nada. **Y** `entregado` a mano en un envío Skydropx ⇒ cero `AV-17`; después `delivered` del doble ⇒ `AV-17` **una** vez aunque el CAS de estado cuente 0. ⚠️ **v1.80.12.14 ([§19.33.1](#M4-SHIP-19-33)): la segunda mitad se REESCRIBE** — (b) carrera (lote tomado vivo, `entregado` a mano antes de aplicar) ⇒ `AV-17` una vez, N = 10; (c) `entregado` a mano y luego sondeo/`refresh-tracking` ⇒ cero llamadas, cero `AV-17` | mandar `AV-4` al recibir `processing`; colgar `AV-17` de la transición; ampliar el sondeo a `entregado` |
 | **PS-76** 💰 | **Cifras vistas y confirmaciones:** `expectedPriceCents` distinto ⇒ `409 LABEL_PREVIEW_STALE`; margen negativo sin `confirmNegativeMargin` ⇒ `422 LABEL_CONFIRMATION_REQUIRED {required:['negative_margin']}`; tarifa `branch` sin `confirmBranchDelivery` ⇒ `['branch_delivery']`; ambos ⇒ los dos; con confirmaciones ⇒ `200` y la bitácora las lleva; saldo del doble < precio ⇒ `409 SHIPPING_INSUFFICIENT_BALANCE` **sin** `balanceCents` | ignorar `expected*`; devolver el saldo al operador |
 | **PS-77** | **«Salida de hoy»:** 3 envíos `guia` Skydropx (2 × 99minutos, 1 × Paquetexpress) + 1 manual ⇒ 2 grupos (preferida primero, `isPreferred`), `manualPending:1`, sin `phone`/precios en el JSON; `departed {ids}` ⇒ 3 × `shipped`, piezas `shipped`, 3 `AV-5`; repetir ⇒ 3 × `already_shipped`, cero correos (N=10 concurrente sobre el mismo lote ⇒ 3 `AV-5` en total); sondeo posterior con `picked_up` ⇒ cero `AV-5`; sondeo **antes** que `departed` ⇒ `enviado` + 1 `AV-5` y `departed` ⇒ `already_shipped` | `departed` sin CAS (⇒ N correos); incluir teléfonos |
-| **PS-78** | **Mapeo completo (una fila por estado de `CarrierStatus`):** `picked_up|in_transit|last_mile` ⇒ `enviado` (una vez); `delivered_to_branch` ⇒ `enviado` si `guia`, ⛔ nunca `entregado`, `AV-18` una vez, `timeline` con `at_branch` + `branchName`; luego `delivered` ⇒ `entregado`, piezas `delivered` (directo) / `withdrawn` solo `in_custody` del cliente (retiro; la `lost` no), `deliveredAt = max(occurredAt, observedAt)` y `carrierStatusAt = occurredAt`, `AV-17` con `deliveredAt+7d`; 🔒 **v1.81.1 (SEC-SDX-1):** `delivered` con `occurredAt = now − 8 d` ⇒ `deliveredAt ≈ now`, `POST /disputes` sobre la pieza ⇒ `201` (**no** `DISPUTE_WINDOW_CLOSED`), `AV-17` anuncia `now + 7 d`, `carrierStatusAt = now − 8 d`; `delivery_attempt` ×2 con `occurredAt` distintos ⇒ 2 `AV-19`, mismo `occurredAt` ⇒ 1; `exception|retained|in_return|destroyed` ⇒ sin cambio, cero correos, `carrierAlert` presente y `?alert=true` lo lista; `canceled` con `providerCanceledAt` ⇒ nada; sin él ⇒ alerta; guía **manual** ⇒ `applied:false`, cero escrituras, y el job **no la selecciona** (conteo de llamadas al doble = 0) | `delivered_to_branch ⇒ entregado`; `AV-17` con guía manual; sondear manuales; `deliveredAt = occurredAt` a secas ⇒ la disputa nace cerrada |
+| **PS-78** | **Mapeo completo (una fila por estado de `CarrierStatus`):** `picked_up|in_transit|last_mile` ⇒ `enviado` (una vez); `delivered_to_branch` ⇒ `enviado` si `guia`, ⛔ nunca `entregado`, `AV-18` una vez, `timeline` con `at_branch` + `branchName`; luego `delivered` ⇒ `entregado`, piezas `delivered` (directo) / `withdrawn` solo `in_custody` del cliente (retiro; la `lost` no), `deliveredAt = max(occurredAt, observedAt)` y `carrierStatusAt = occurredAt`, `AV-17` con `deliveredAt+7d`; 🔒 **v1.81.1 (SEC-SDX-1):** `delivered` con `occurredAt = now − 8 d` ⇒ `deliveredAt ≈ now`, `POST /disputes` sobre la pieza ⇒ `201` (**no** `DISPUTE_WINDOW_CLOSED`), `AV-17` anuncia `now + 7 d`, `carrierStatusAt = now − 8 d`; `delivery_attempt` ×2 con `occurredAt` distintos ⇒ 2 `AV-19`, mismo `occurredAt` ⇒ 1; `exception|retained|in_return|destroyed` ⇒ sin cambio, cero correos, `carrierAlert` presente y `?alert=true` lo lista; `canceled` con `providerCanceledAt` ⇒ nada; sin él ⇒ alerta; guía **manual** ⇒ `applied:false`, cero escrituras, y el job **no la selecciona** (conteo de llamadas al doble = 0). ⭐ **v1.80.12.14 (§19.33.2):** estado desconocido ⇒ fila `exception` con `detail` «Estado no reconocido: …», `carrierAlert` y `?alert=true`, cero correos, repetir ⇒ cero filas, `in_transit` después ⇒ alerta apagada | llave `exception:<instante>` para el desconocido; `delivered_to_branch ⇒ entregado`; `AV-17` con guía manual; sondear manuales; `deliveredAt = occurredAt` a secas ⇒ la disputa nace cerrada |
 | **PS-79** | **`delivered` sin `enviado` previo** (sondeo que perdió eventos): desde `guia` ⇒ `enviado` y `entregado` en la misma tx, `AV-5` y `AV-17` una vez cada uno, piezas terminales correctas | saltar `enviado` ⇒ piezas `picking` con envío `entregado` |
 | **PS-80** 💰 | **Cargos extra:** doble con 3 cargos (2 nuestros, 1 ajeno) ⇒ 2 `ShipmentCostAdjustment` con `kind`, `ivaCents = round(amount×16/116)`, `chargedAt` del cargo; correr 10 veces ⇒ 2 filas; `shippingCostCents` del envío **intacto**; P&L del mes de `chargedAt` (≠ mes del envío) suma el neto en `shippingCostCents` y lo muestra en `shippingAdjustmentsCents`; el mes del envío **no** cambia | escribir sobre `shippingCostCents`; sumar por `observedAt`; sin `@unique` ⇒ 20 filas |
 | **PS-81** 💰 | **Costo desde la respuesta:** tras `labeled`, `shippingCostCents = total + seguro`, `shippingCostIvaCents` = línea del proveedor (`'provider'`) o 16/116 (`'computed'`), `insuranceCostCents`; **ningún** campo de costo en el cuerpo de `label` surte efecto (🔒 v1.81.1, SEC-SDX-12: `shippingCostCents:1` en el cuerpo ⇒ `200` y la columna vale lo del doble — `forbidNonWhitelisted:false`, `main.ts:56`: se **ignora**, ⛔ la prueba no espera `400`); P&L: con guía de 7625 (IVA 690 + seguro 2500) el costo neto = 6935 y `shippingCostMissingCount` no lo cuenta; guía manual sin IVA ⇒ sigue contando | tomar el costo del cuerpo; usar `iva_pct` del dial; dividir entre 1.16 en vez de 16/116 |
@@ -25255,7 +25283,8 @@ válida (regla nueva del sondeo, mismo `providerUrlsFrom`). Valor inicial de `SK
 estado actual) sigue NO MEDIDA hasta `PG-1`; el parser es tolerante y la rama sintética de SEC-SDX-2 cubre «solo estado
 actual». Los 12 valores de `CarrierStatus` son los de la referencia §5 (NO MEDIDOS contra la API); un valor desconocido ⇒
 evento **no aplicado**, log `warn unknown_carrier_status {value}` y alerta del transportista con `detail = value` (⛔ nunca
-un `500` del job).
+un `500` del job). ⚠️ **v1.80.12.14 ([§19.33.2](#M4-SHIP-19-33)):** «no aplicado» y «alerta» no caben juntos ⇒ el valor
+desconocido se aplica **como `exception`** con `detail` «Estado no reconocido: <valor>» y llave `unknown:<valor>…`.
 
 **M4-SHIP.19.19.11 — Dinero.** `shippingIvaSource = 'provider'` es lo normal (M-7); `'computed'` solo con `vat_fee` nulo o
 deriva del `total`. `service_fee` (tarifa de gestión) está dentro del bruto y **fuera** de la base del IVA (M-7). El seguro
@@ -27243,7 +27272,7 @@ el orquestador `13957d99`, ⛔ no medido por el arquitecto: sin Bash).
 | Base de avisos (§Z.5): tabla, lista, tarjeta, correo inmediato con freno 5/h, resumen diario 08:00 MX | **sí** — pieza nueva **D2g** | — |
 | TG-1, TG-2 | **sí** — D2c | — |
 | AG-1…AG-5, AG-7, AG-8 (a), AG-9 (`charged_not_found`), AG-13 | **sí** — D2c | — |
-| AG-6, AG-8 (b), AG-9 (huérfanas/duplicados), AG-10, AG-11, AG-12 | **sí** — D2d | — |
+| AG-6, ~~AG-8 (b)~~, AG-9 (huérfanas/duplicados), ~~AG-10~~, AG-11, AG-12 | **sí** — D2d. ⚠️ v1.80.12.14 (§19.33.5): AG-8 (b) y AG-10 son de **D2g** (`spend-watch`) | — |
 | **AG-11 con correo inmediato** («paquete devuelto o destruido», P-GAS-5 = sí, `HECHOS.md:62`) | **sí, entra con D2d.** Decisión del arquitecto: cuelga de `applyCarrierStatus` (D2d la construye) y usa la base de D2g sin pieza nueva; dejarlo fuera obligaría a reabrir `applyCarrierStatus` después | — |
 | **AG-14** («reembolsos del personal», P-GAS-4 = sí) | el **tipo** queda reservado en el enum (sin disparador) | **sí**: cuelga de `POST …/prepared` (módulo `payments/refunds`, otro stream); solo añade el disparador sobre la base de D2g |
 | AG-15…AG-20 | tipos reservados en el enum (sin disparador) | **sí** (§Z.7) |
@@ -27586,9 +27615,9 @@ resolve(db, dedupKey): Promise<void>     // AG-7 y AG-10: resolvedAt = now (y AG
 | **5** · Sistema | `recordPaidLabel` con `origin ∈ {response, adopted}`: `diff = chargedCents − expectedChargeCents ≠ 0` (D2c) | 🟡; 🔴 si `diff >` dial `spend_alert_charge_drift_immediate_cents` | `ag5:<attemptId>` | `quotedCents`, `chargedCents`, `diffCents` (el monto **es** el de `shippingCostCents`, el del P&L) |
 | **6** · Sistema | `INSERT ShipmentCostAdjustment` del job de cargos (§19.10) con `providerChargeId` que **no** empieza por `cancel:` (D2d); ⛔ la `P2002` no avisa | 🟡; 🔴 si `amountCents >` dial `spend_alert_extra_charge_immediate_cents` | `ag6:<adjustmentId>` | `kind`, `carrierName`, `amountCents` |
 | **7** · Sistema | (i) `observeBalance(cents)` con `cents < dial skydropx_low_balance_cents` y sin aviso abierto ⇒ crea `ag7:open`; `cents ≥ umbral` ⇒ lo resuelve (histéresis por la llave única). Llamado por **toda** lectura de saldo: pasos 6 y 7b.1, `GET /admin/shipping/balance`, la lectura cacheada del tablero y `spend-watch` (D2c/D2f). (ii) Negativa por saldo insuficiente (pasos 6/7b) (D2c) | 🔴 | (i) `ag7:open`; (ii) `ag7:insufficient:<shipmentId>:<díaMX>` | `balanceCents`, `thresholdCents` / `requiredCents` |
-| **8** · Sistema | (a) `label/cancel` o cancelación automática con `refundedCents < shippingCostCents` (D2c); (b) `spend-watch`: `ShipmentPaidLabel` cancelada con `unrefundedCents IS NULL`, `cancelledAt ≤ now − dial spend_alert_cancel_refund_days` y `refundAlertedAt IS NULL` ⇒ avisa y sella (D2d). *Cómo se comprueba el reembolso:* hoy **no** se puede (saldo contaminado, §19.27.1; `transaction_stats` NO MEDIDO, `M-PRD-7`) ⇒ constante `CANCEL_REFUND_VERIFIABLE = false`: **toda** cancelación sin cifra avisa al día 3 (criterio 326). Se enciende por errata con la medición | 🔴 | `ag8:<paidLabelId>` | `chargedCents`, `refundedCents | null`, `unrefundedCents | null`, `cancelKind` |
+| **8** · Sistema | (a) `label/cancel` o cancelación automática con `refundedCents < shippingCostCents` (D2c); (b) `spend-watch`: `ShipmentPaidLabel` cancelada con `unrefundedCents IS NULL`, `cancelledAt ≤ now − dial spend_alert_cancel_refund_days` y `refundAlertedAt IS NULL` ⇒ avisa y sella (~~D2d~~ **D2g**, §19.33.5). *Cómo se comprueba el reembolso:* hoy **no** se puede (saldo contaminado, §19.27.1; `transaction_stats` NO MEDIDO, `M-PRD-7`) ⇒ constante `CANCEL_REFUND_VERIFIABLE = false`: **toda** cancelación sin cifra avisa al día 3 (criterio 326). Se enciende por errata con la medición | 🔴 | `ag8:<paidLabelId>` | `chargedCents`, `refundedCents | null`, `unrefundedCents | null`, `cancelKind` |
 | **9** · Sistema | (a) `label_verify_uncertain` con `charged_not_found` (D2c); (b) huérfana o duplicado que §19.29.1.5 **no** canceló; (c) huérfana cancelada sola (D2d); (d) fusible (D2d) | (a)(b)(d) 🔴; (c) 🟡 | `ag9:nf:<attemptId>` · `ag9:o:<providerShipmentId>` · `ag9:fuse:<díaMX>` | `cause: 'charged_not_found'|'orphan'|'duplicate'|'orphan_auto_cancelled'|'orphan_fuse'`, `expectedChargeCents`, `providerReference` |
-| **10** · Sistema | `spend-watch`: `ShipmentRequest` `labelSource='skydropx' ∧ status='guia' ∧ providerCanceledAt IS NULL ∧ carrierStatus ∈ {null,'created'} ∧ labelPurchasedAt ≤ now − dial spend_alert_label_not_shipped_days días` ⇒ crea; en la misma corrida resuelve los abiertos cuyo envío salió (`status ∈ {enviado, entregado}` o `carrierStatus ∉ {null, created}`) o cuya guía se canceló (D2d) | 🟡 | `ag10:<paidLabelId>` | `daysSincePurchase`, `chargedCents`, `carrierName` |
+| **10** · Sistema | `spend-watch`: `ShipmentRequest` `labelSource='skydropx' ∧ status='guia' ∧ providerCanceledAt IS NULL ∧ carrierStatus ∈ {null,'created'} ∧ labelPurchasedAt ≤ now − dial spend_alert_label_not_shipped_days días` ⇒ crea; en la misma corrida resuelve los abiertos cuyo envío salió (`status ∈ {enviado, entregado}` o `carrierStatus ∉ {null, created}`) o cuya guía se canceló (~~D2d~~ **D2g**, §19.33.5) | 🟡 | `ag10:<paidLabelId>` | `daysSincePurchase`, `chargedCents`, `carrierName` |
 | **11** · Sistema | `applyCarrierStatus` con `in_return` o `destroyed`, post-commit (D2d). **Correo: sí** (`HECHOS.md:62`, P-GAS-5) | 🔴 | `ag11:<shipmentId>:<status>` | `status`, `carrierName`, `chargedCents` |
 | **12** · Sistema | `applyCarrierStatus` con `exception`, `retained` o `delivery_attempt` (D2d) | 🟡 | `ag12:<shipmentId>:<status>` (`delivery_attempt`: `…:<providerEventKey>`) | `status`, `carrierName` |
 | **13** · Persona | `recordPaidLabel` (response/adopted) con `marginCents < 0` **o** `expectedChargeCents > recommendedPriceCents` (D2c) | 🟡 (⛔ nunca correo inmediato) | `ag13:<attemptId>` | `marginCents`, `priceCents`, `recommendedPriceCents`, `overRecommendedCents` |
@@ -27660,7 +27689,7 @@ export interface SpendAlertDTO {
   shipment: { id: string; folio: string } | null;
   order: { id: string; orderNumber: string | null } | null;
   amountCents: number | null;
-  facts: Record<string, string | number | boolean | string[] | null>; // lista blanca por kind (§19.29.6)
+  facts: Record<string, string | number | boolean | string[] | null>; // lista blanca por kind (§19.29.6). ⭐ v1.80.12.14 (§19.33.7 G2): el valor gana `{ userId: string; name: string | null }` (AG-21, AG-22) = `SpendFactValue`
   occurrenceCount: number; firstOccurredAt: string; lastOccurredAt: string; resolvedAt: string | null;
   seen: { at: string; by: { userId: string; name: string } } | null;
   mail: { status: SpendAlertMailStatus; at: string | null };
@@ -27723,7 +27752,7 @@ PS-99). Las de seguridad primero.
 |---|---|---|---|
 | **D2g · Base de avisos** | `M-68` (zona compartida `prisma/`, un agente, **después de `M-67`**); `spend-alerts/` (módulo nuevo: `raise`, `resolve`, `isOwnerAccount`, correo con freno y lote, plantillas `AVG-1/2/3`, endpoints, `summarize`); jobs `spend-watch` y `spend-digest`; diales; `SettingsController` con `@MoneyOut()` | backend 💰 | `M-67` |
 | **D2c** (amplía) | C-15…C-18; libro de intentos y guías pagadas en cada rama; TG-1/TG-2; AG-1…AG-5, AG-7, AG-8 (a), AG-9 (a), AG-13; `labelOptions.limit` | backend 💰 | D2g (interfaz `raise`; puede ir en paralelo con un doble de `raise`) |
-| **D2d** (amplía) | **C-14 (bloquea D2d)**; AG-6, AG-8 (b), AG-9 (b)(c)(d), AG-10, AG-11 (con correo), AG-12 | backend 💰 | D2c, D2g |
+| **D2d** (amplía) | **C-14 (bloquea D2d)**; AG-6, ~~AG-8 (b)~~, AG-9 (b)(c)(d), ~~AG-10~~, AG-11 (con correo), AG-12 (⚠️ v1.80.12.14, §19.33.5: AG-8 (b) y AG-10 ⇒ D2g) | backend 💰 | D2c, D2g |
 | **D2f** (amplía) | `workQueue.spendControl` | backend | D2g |
 | **F-D6 · Avisos** | página `(admin)/admin/spend-alerts`, tarjeta, sección M10 «Control del gasto», negativa en la ventana | frontend | contrato |
 | **Revisión** | seguridad revisa el **diseño** de esta errata (§Z) antes de D2c-§Z (pidió verla, `SECURITY_NOTES.md:169-171`) | seguridad | — |
@@ -27810,7 +27839,8 @@ no de construcción: `M-63` conservó el correo de toda cuenta anterior a v1.80.
    `actual` = id del único `User` con `isOwner` si cumple `isOwnerAccount`, si no `null`. Sin fila ⇒ la inserta; si `actual =
    null`, crea el aviso. Con fila y `actual ≠ ownerUserId` ⇒ aviso **AG-21** 🔴 y actualiza la fila en la **misma** tx. Igual
    ⇒ solo `observedAt`.
-6. **AG-21 `owner_account_changed` · Sistema · 🔴** — `dedupKey` `ag21:<anterior|none>:<actual|none>`; `facts`: `cause:
+6. **AG-21 `owner_account_changed` · Sistema · 🔴** — `dedupKey` `ag21:<anterior|none>:<actual|none>` (⚠️ v1.80.12.14, §19.33.7
+   G4: `…:<instante>` — cada cambio avisa); `facts`: `cause:
    'changed' | 'no_owner'`, `previousOwner: {userId, name} | null`, `currentOwner: {userId, name} | null` (nombres del
    personal; ⛔ ni correos). **Destinatarios:** el dueño actual **y** la cuenta anterior si sigue con correo y activa — es la
    **única** excepción a «solo el dueño recibe» (el aviso existe para que el anterior se entere). ⛔ Nunca va al lote: sale
@@ -27940,7 +27970,7 @@ Resultado: 5 AG-1 🔴 de una persona en 10 min ⇒ 2 correos + 3 al lote; un AG
 | Id | Decisión |
 |---|---|
 | **S-GAS-1** | `DepartureBoardDTO.groups[].shipments[]` (§19.9, `GET /admin/shipments/departure`) gana **`folio: string`** (el `ShipmentRequest.folio` de `M-67`; siempre presente: toda guía de Skydropx nace tras `M-67`). Es admin: SDX-I-6 lo permite |
-| **S-GAS-2** | El aviso de un **retiro** enlaza a la lista de envíos filtrada: **`GET /admin/shipments?folio=ENV-000045`** queda **declarado** (igualdad exacta; formato `^ENV-\d{6,}$`, fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}`; ~~clase **L** en §0-Q punto 4~~ ⚠️ **v1.80.12.13 (§19.32.3): no es §0-Q** — su dominio es un formato, no tokens enumerables; va a `NO_ENUM_POR_RUTA`). El front enlaza a la pantalla de envíos de M4 con `?folio=` en la URL de la **página** (un GET de página que no actúa; SDX-I-8). `SpendAlertDTO.shipment` gana **`kind: 'vault_withdrawal' \| 'guest_direct_ship' \| 'order_ship'`** para elegir el enlace sin otra llamada (frontend decide: con `order` ⇒ pedido; sin `order` ⇒ envíos por folio). ⚠️ Los valores de `kind` deben ser los del tipo existente de envío; backend los toma de ahí y, si difieren, manda el tipo existente (NO MEDIDO por el arquitecto) |
+| **S-GAS-2** | El aviso de un **retiro** enlaza a la lista de envíos filtrada: **`GET /admin/shipments?folio=ENV-000045`** queda **declarado** (igualdad exacta; formato `^ENV-\d{6,}$`, fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}`; ~~clase **L** en §0-Q punto 4~~ ⚠️ **v1.80.12.13 (§19.32.3): no es §0-Q** — su dominio es un formato, no tokens enumerables; va a `NO_ENUM_POR_RUTA`). El front enlaza a la pantalla de envíos de M4 con `?folio=` en la URL de la **página** (un GET de página que no actúa; SDX-I-8). `SpendAlertDTO.shipment` gana **`kind: 'vault_withdrawal' \| 'guest_direct_ship' \| 'order_ship'`** para elegir el enlace sin otra llamada (frontend decide: con `order` ⇒ pedido; sin `order` ⇒ envíos por folio). ⚠️ Los valores de `kind` deben ser los del tipo existente de envío; backend los toma de ahí y, si difieren, manda el tipo existente (NO MEDIDO por el arquitecto). ⚠️ **v1.80.12.14 ([§19.33.7](#M4-SHIP-19-33) G5): difieren — `order_ship` no existe; `kind: ShipmentKind \| null` (`'guest_direct_ship' \| 'vault_withdrawal'`)** |
 | **S-GAS-3** | `GET /admin/shipments/picking-list/summary` (§M4-SHIP.11, el que lee `AdminSidebar.tsx:55`) gana **`spendAlertsUnseenImmediate: number \| null`** — `null` para `vault_operator` (como `manualRefundsPending`); el **mismo** predicado que `workQueue.spendControl.unseenImmediate` (un cuerpo: 🔴, `seenAt IS NULL`, sin AG-7/11/12, sin `muted`). Índice `[severity, seenAt]` ya existe |
 | **S-GAS-4** | AG-6 `facts.kind` ∈ **`ShipmentCostAdjustmentKind`** = `overweight \| extended_zone \| return \| other` (medido: `schema.prisma:459-464`). Es la lista cerrada; un valor nuevo del enum entra por `C-ENUM` y ux-ui le pone rótulo |
 | **S-GAS-5** | AG-4 `facts` gana **`triggers: ('reissue_denied' \| 'shipment_cancels' \| 'person_cancels')[]`** = (i), (ii), (iii) de §19.29.6. Como (i) y (ii) comparten `ag4:s:<shipmentId>`, `raise` en conflicto hace **unión** de `facts.triggers` (regla general: si `facts` trae `triggers`, se une sin repetidos; el resto de `facts` queda como lo dejó el primero, salvo `cancelledCount`/`unrecoveredCents`/`unknownRefunds`, que se reescriben con lo vigente). El texto puede decir «se le negó la 3.ª guía» cuando `triggers` contiene `reissue_denied` |
@@ -28392,6 +28422,167 @@ dos cree necesitar una columna, **se para** y vuelve al arquitecto (regla 9) —
   congelada; lo único realmente compartido son dos registros (el planificador y `C-EQ-1`), y se cosen en serie.
 - ⚠️ **Otros streams:** `admin/`, `users/`, `settings/` y `common/` son de «Admin y auditoría» y «Cuentas y acceso». ⛔ NO MEDIDO
   por el arquitecto si alguna rama `claude/*` viva los toca: lo mide el orquestador antes de lanzar D2g (O-18).
+
+###### <a id="M4-SHIP-19-33"></a>M4-SHIP.19.33 — v1.80.12.14: errata tras D2d y D2g, y las costuras C1/C2 al detalle (**NORMATIVA**; 💰 en .3)
+
+> **Fuentes:** `BACKEND_NOTES.md §64.6` (D2d) y `§65.6` (D2g), con sus decisiones propias (§64.2, §65.3). Leído por el arquitecto
+> el 2026-10-05 en `/home/user/tcg-skyd` (Read/Grep, ⛔ sin ejecutar nada; ⛔ sha NO MEDIDO: sin Bash; el orquestador dio
+> `8be66ef1`): `PROJECT.md:12356-12369` (criterio 241), `HECHOS.md:38,41,62`, `carrier-status.service.ts:140-199,437-459`,
+> `label-purchase.service.ts:804-805`, `label-cancel.service.ts:91`, `label-auto-close.ts:49`, `shipments.service.ts:142,890-901`,
+> `m66 …/migration.sql:252-254,293-294`, `spend-watch.service.ts:146-160`, `spend-alerts.module.ts:21-39`. **Migración:** ninguna.
+> **Códigos de error nuevos:** ninguno. **Enums:** ningún dominio cambia. ⛔ Ningún criterio nuevo de `PROJECT`.
+
+**M4-SHIP.19.33.1 — PS-75 contra §19.10 (D2d pregunta 1): manda `PROJECT.md`; el sondeo NO se amplía y PS-75 se reescribe.**
+El criterio 241 dice literal «un envío **cerrado** (entregado/cancelado) **deja de consultarse**» (`PROJECT.md:12366`), y `PROJECT`
+manda sobre el contrato. La segunda mitad de PS-75 («`entregado` a mano y después `delivered` del doble ⇒ `AV-17`») suponía un
+sondeo que el producto prohíbe. Lo que **sí** sigue vivo de §19.3 (último punto): la regla «la precondición de `AV-17` es el
+evento, no la transición» — porque hay un camino real en el que el evento llega con el envío ya cerrado: **la carrera**. El lote
+del sondeo selecciona el envío vivo (`enviado`), el operador marca `entregado` a mano antes de que `applyCarrierStatus` tome el
+candado de fila, y el `delivered` llega: el CAS de estado cuenta 0 y `AV-17` **sale una vez** (la paquetería sí lo confirmó,
+criterio 242). Fuera de esa carrera, un envío marcado `entregado` a mano **no vuelve a consultarse** y su cliente **no recibe**
+«Entregado» (criterio 242: solo con `delivered` vía Skydropx; el manual es mudo, §R.7).
+- **PS-75 (reescrita):** (a) la «guía en proceso» de siempre, sin cambio; (b) **carrera**: lote tomado con el envío `enviado`,
+  `PATCH …/status {to:'entregado'}` confirmado antes de aplicar (barrera en la prueba), luego `delivered` ⇒ `AV-17` **una** vez,
+  `deliveredAt` el del `PATCH` (el CAS cuenta 0), N = 10 con la proporción; (c) `entregado` a mano y luego corrida del sondeo y
+  `refresh-tracking` ⇒ **cero** llamadas al doble y **cero** `AV-17`. *Mutaciones:* colgar `AV-17` de la transición ⇒ (b) rojo;
+  ampliar el `WHERE` del sondeo a `entregado` ⇒ (c) rojo. Lo que D2d ya probó «llamando al cuerpo» cuenta como la parte unitaria
+  de (b); (b) con el lote real y (c) son nuevas.
+- **Construye:** backend en **D2e** (es la pieza dueña de `AV-17`; el correo real sustituye a `CARRIER_NOTICES`). ⛔ Ningún
+  cambio en el sondeo ni en `refresh-tracking`.
+- **Nota para el orquestador (no bloquea):** si el dueño quisiera que «Entregado» salga también cuando el personal marca
+  entregado a mano un envío de Skydropx, es un cambio de `PROJECT` (criterios 241/242) y pasa por product-owner; ⛔ el contrato no
+  lo asume.
+
+**M4-SHIP.19.33.2 — Estado del transportista desconocido (D2d pregunta 2): se aplica COMO `exception`.** §19.19.10 pedía a la vez
+«evento no aplicado» y «alerta con `detail = value`», que no caben juntos (`carrierAlert` se deriva de `carrierStatus`, y
+`ShipmentCarrierEvent.status` es `CarrierStatus`). Sustituye a §19.19.10 en ese punto:
+```
+carrierEventsOf (el cuerpo que arma los eventos de la lectura): valor crudo ∉ CARRIER_STATUSES ⇒
+  status            = 'exception'
+  detail            = 'Estado no reconocido: ' + v  (+ ' · ' + detail crudo, si viene)     -- v = valor recortado a 64, sin caracteres de control
+  providerEventKey  = la regla de §64.2 (2) con el «estado» = 'unknown:' + v               -- ⛔ nunca 'exception': un exception real del mismo instante es OTRO evento
+  + la bitácora shipment.carrier_status_unknown {value} y el log warn de hoy (una vez por envío y valor), sin cambio
+  y sigue a applyCarrierStatus como cualquier exception
+```
+- **Efectos (los de `exception`, ninguno nuevo):** sin cambio de estado del envío, ⛔ sin correo al cliente, fuera de la línea de
+  tiempo pública (§19.12), `carrierAlert {status:'exception', detail:'Estado no reconocido: …'}`, `?alert=true` y
+  `withCarrierAlert` lo cuentan por `carrierAlertActive` (un cuerpo), AG-12 🟡 al resumen del dueño (su fila de §19.29.6 ya dice
+  `exception`; `facts.status = 'exception'`). La alerta se apaga sola con el siguiente estado conocido (§19.3).
+- *Efectos laterales aceptados (dichos para que nadie los «descubra»):* como un `exception` real, mueve `carrierStatus` fuera de
+  `{null, created}`, así que AG-10 lo da por salido y la cancelación (`label-cancel.service.ts:91`, `label-auto-close.ts:49`) ya no
+  cancela sola esa guía — falla del lado conservador (no cancela algo que la paquetería ya tocó).
+- *Por qué no otro campo o un valor `unknown`:* un valor en `CarrierStatus` es una migración (⛔ `prisma/` en esta fase) y obliga a
+  todos los lectores del enum; un campo aparte sería **segunda fuente** de «la alerta del transportista».
+- §0 `CarrierStatus`: **mismo dominio**, solo cambia el comentario.
+- **PS-78 (amplía):** el doble devuelve `"estado_raro"` ⇒ una fila `exception` con ese `detail`, `carrierAlert` presente,
+  `?alert=true` lo lista, cero correos al cliente, bitácora `carrier_status_unknown` una vez; repetir la lectura ⇒ cero filas
+  nuevas; después `in_transit` ⇒ alerta apagada. *Mutación:* llave `exception:<instante>` ⇒ un `exception` real del mismo
+  instante se pierde (P2002) ⇒ rojo.
+- **Construye:** backend en **D2e** (`carrier-status.service.ts`; D2f no toca ese fichero). Frontend: nada (pinta `exception` +
+  `detail` como hoy).
+
+**M4-SHIP.19.33.3 — 💰 El dinero de una huérfana o un duplicado en el reporte de ganancias (D2d pregunta 3): ⛔ NO se decide
+aquí.** Hoy (lectura del contrato; ⛔ no medido en datos): una guía huérfana o duplicada que Skydropx cobró **sí** cuenta para el
+tope por persona (TG-1/TG-2, §19.29.4) y **sí** avisa al dueño (AG-9 🔴/🟡), pero **no** entra al P&L: ni `shippingCostCents` (es
+de la guía vigente) ni un `ShipmentCostAdjustment`. La cancelación de una re-emisión **sí** mete en el P&L lo no devuelto
+(SEC-SDX-11, `cancel:<id>`). Meter o no ese dinero en el reporte es una decisión del dueño sobre **cómo quiere ver sus
+ganancias**, y no está en `HECHOS.md` (Grep «huérfan|duplicad|P&L», 2026-10-05: solo la fila 34, el seguro como costo).
+**Pregunta al dueño P-SDX-PNL-1** (lenguaje llano):
+> «A veces Skydropx puede cobrarnos una guía de más (una compra que se repitió o que llegó tarde). El sistema ya te avisa y la
+> cuenta en el tope diario del personal. ¿Quieres que ese dinero aparezca también en tu reporte de ganancias?»
+> - **(A) Sí, como costo de envío** — sale en el renglón «ajustes de paquetería» del mes en que se detectó; si después Skydropx
+>   devuelve parte, se cuenta solo lo que no devolvió. *Recomendado: el reporte dice lo que de verdad salió de la cuenta.*
+> - **(B) Sí, pero en un renglón aparte** («guías cobradas de más»), para verlo separado del costo normal de envío.
+> - **(C) No** — se queda solo en los avisos y el tope; el reporte de ganancias puede verse un poco mejor de lo real.
+
+- **Mientras no responda:** se queda (C) de hecho (lo construido); ⛔ D2f **no** construye nada de esto.
+- **Con (A) o (B):** errata del arquitecto con el detalle antes de construir. Dato para ella, medido: `ShipmentCostAdjustment`
+  tiene `CHECK ("amountCents" > 0)` (`m66 …/migration.sql:293-294`), así que un ajuste no puede restar después: el importe
+  tendrá que escribirse **cuando se sepa lo no devuelto** (o el total si no se cancela en un plazo), no al detectarla. Pieza: D2f
+  (P&L) y quien escriba el libro de guías pagadas.
+
+**M4-SHIP.19.33.4 — `carrierStatusAt` de la compra (D2d pregunta 4): se queda; el CAS del paso 4 de §19.3 gana un término.**
+`carrierStatusAt = null` al comprar **no se puede**: `CHECK shipment_carrier_status_paired` (`("carrierStatus" IS NULL) =
+("carrierStatusAt" IS NULL)`, `m66 …/migration.sql:252-254`), y dejar también `carrierStatus` nulo cambiaría lo que leen la
+cancelación y AG-10 (`{null, created}`). La regla: **`created` es el mínimo del orden** — cualquier estado del transportista va
+después de que la guía existe, así que desde `created` avanza aunque venga fechado unos segundos antes que nuestro reloj:
+```
+4. si event.status ≠ carrierStatus ⇒ UPDATE carrierStatus, carrierStatusAt = event.occurredAt
+   CAS: WHERE carrierStatus IS DISTINCT FROM event.status
+          AND (carrierStatusAt IS NULL OR carrierStatusAt <= event.occurredAt OR carrierStatus = 'created')   -- ⭐ v1.80.12.14
+```
+- SEC-SDX-9 queda intacta para todo lo demás (un `in_transit` viejo no retrocede un `delivered`). `carrierStatusAt` puede quedar
+  segundos antes de `labelPurchasedAt`: es la fecha **del transportista**, que es lo que la columna promete.
+- **PS-72 (amplía):** compra a las T (reloj inyectado), `in_transit` fechado T − 5 s ⇒ `carrierStatus='in_transit'`,
+  `carrierStatusAt = T − 5 s`, `enviado` + un `AV-5`. *Mutaciones:* sin el término nuevo ⇒ esta fila roja; el término sin
+  `carrierStatus = 'created'` (siempre verdadero) ⇒ la fila «fuera de orden» de SEC-SDX-9 roja.
+- **Construye:** backend en **D2e** (`carrier-status.service.ts:174-181`; mismo fichero que .2). §19.7 paso 9 no cambia.
+
+**M4-SHIP.19.33.5 — AG-8 (b) y AG-10 (D2d pregunta 5): son de D2g.** §19.31.10 fila 2b y §19.32.9 los movieron a `spend-watch`
+(D2g); §19.29.0, la fila 8 y la 10 de §19.29.6 y la fila D2d de §19.29.11 seguían diciendo D2d: error del documento, corregido
+en su sitio. Según `BACKEND_NOTES §65.1` y el orquestador, D2g los construyó (`e367ca20`, PS-147 (b), PS-149, mutaciones M12/M13)
+— ⛔ no medido por el arquitecto. Nada que construir.
+
+**M4-SHIP.19.33.6 — `workQueue.shipping.withCarrierAlert` (D2d pregunta 6): RATIFICADO §19.32.5.** Cuenta los envíos con
+`carrierAlertActive` (el cuerpo de `label-view.ts`), ⛔ ninguna segunda lista de estados. Con .2, el estado desconocido entra solo.
+- **PS-171 (nueva, D2f):** un juego de envíos con cada estado de `CarrierStatus`, uno `entregado` con `exception`, uno
+  `cancelado` con `delivery_attempt`, uno con `canceled` y `providerCanceledAt` puesto, uno con estado desconocido (.2) ⇒
+  `withCarrierAlert` = número de filas de `GET /admin/shipments` con `carrierAlert ≠ null`. **Censo:** la lista
+  `{delivery_attempt, exception, retained, in_return, destroyed}` aparece en **un** fichero de `src/` (`label-view.ts`).
+  *Mutación:* `withCarrierAlert` con su propia lista sin «envío vivo» ⇒ rojo.
+- **Construye:** backend en **D2f**.
+
+**M4-SHIP.19.33.7 — Las preguntas de D2g (`§65.6`).**
+
+| # | Pregunta | Decisión | Construye |
+|---|---|---|---|
+| **G1** | Un no dueño manda un dial del dueño con valor **inválido**: ¿`422` o `403`? | **`422` primero — RATIFICADO.** La validación por clave no revela nada que el formulario no diga y un cuerpo inválido no escribe nada; el `403` sigue protegiendo toda escritura válida. Que `sdx-d-schema` siga siendo verdad con el súper-admin del seed es consecuencia, no razón | — |
+| **G2** | `facts` con objetos (AG-21 `previousOwner`/`currentOwner`, AG-22 `target`) | **Se amplía el tipo** (aditivo), ⛔ no se aplana — lo construido y §19.30.1 (6)/§19.30.2 (3) ya dicen objeto: `type SpendFactValue = string \| number \| boolean \| string[] \| null \| { userId: string; name: string \| null }` y `facts: Record<string, SpendFactValue>` en `SpendAlertDTO` (§19.29.9) y en `SpendFacts` del servicio. ⛔ Sin más formas: un objeto nuevo en `facts` es errata. Quita el cast del llamador | backend en **C1** (`spend-alerts/`, ya sin D2g vivo) + frontend (`types/contract.ts`) |
+| **G3** | Enlaces de `AVG-2/3` sin filtros | **Sin `?` — RATIFICADO** (manda PS-153; un candado «ninguna `?`» se audita con un `grep`, «una `?` que no actúe» no). Los filtros de la lista los pone la página. ux-ui corrige la sugerencia de `DESIGN_SYSTEM §43.19.12`. ⛔ No afecta al `?folio=` de S-GAS-2: ese enlace es del panel, no del correo | ux-ui |
+| **G4** | AG-21 en A→B→A→B: el segundo A→B no avisa | **No se acepta**: cada cambio de la marca del dueño es un hecho de seguridad nuevo. `dedupKey` = `ag21:<anterior\|none>:<actual\|none>:<instante>` con el `now` ISO de la corrida que lo detecta (`spend-watch.service.ts:160`). Sigue «a lo sumo una vez por cambio»: la fila de `SpendOwnerWatch` se actualiza en la **misma** tx. **PS-160 (amplía):** A→B→A→B ⇒ **3** AG-21 y 3 correos individuales; la misma corrida dos veces sin cambio ⇒ 0. *Mutación:* llave sin instante ⇒ 2 | backend en **C1** |
+| **G5** | `order_ship` no existe | **Errata de S-GAS-2 (§19.30.8):** `SpendAlertDTO.shipment.kind: ShipmentKind \| null` — el tipo existente (`shipments.service.ts:141-142`, `'guest_direct_ship' \| 'vault_withdrawal'`), con la regla construida (orden `direct_ship` ⇒ `guest_direct_ship`; sin orden ⇒ `vault_withdrawal`; otro ⇒ `null`). RATIFICADO lo construido | frontend (tipo) |
+| **G6** | Ficheros de prueba fuera de la columna literal de §19.32.9 | **RATIFICADOS**: las cuatro pruebas de claves exactas (`users.me-and-addresses`, `admin.users-kyc-filter`, `integration/account-profile`, `integration/pricing-visibility`) las forzó §19.30.3 (`isOwner`), y `test/helpers/query-axis-cross.ts` es donde viven las listas de `C-EQ-1`, que era de D2g. Techo de `NO_ENUM_POR_RUTA` **45 → 50** ratificado (los cinco ejes no-enum de `spend-alerts`, §19.32.1). Regla para lo que viene: un fichero forzado por el contrato fuera de la columna se **declara** en el informe, como hizo D2g | — (el orquestador comprueba que no hay más) |
+
+**M4-SHIP.19.33.8 — Errata en su sitio.** §19.29.0, §19.29.6 (filas 8 y 10), §19.29.11 (fila D2d): AG-8 (b) y AG-10 ⇒ D2g. §19.3
+paso 4 y último punto, §19.19.10, PS-75, PS-78, §19.30.8 S-GAS-2 y §0 `CarrierStatus`: remiten aquí.
+
+**M4-SHIP.19.33.9 — Las costuras, al detalle (un solo agente backend, modelo fuerte, en serie, ANTES de D2e ∥ D2f).** Precondición:
+D2d y D2g entregados y commiteados (lo están, según el orquestador). Copia de prueba del árbol **entero** (`git archive HEAD`).
+- **C1 — `jobs/` + lo de `spend-alerts/` de G2/G4.**
+  - `jobs.module.ts`: importa `SpendAlertsModule` (ya exporta `SpendWatchService` y `SpendDigestService`,
+    `spend-alerts.module.ts:39`).
+  - `scheduler.service.ts`: inyecta los dos servicios con **`@Optional()`** (el patrón de D2d, §64.2 (14): sin ellos no se
+    programan y loguea `error`); dos repeticiones en `tcg-daily` — `spend-watch` con `SPEND_WATCH_CRON` (defecto `*/5 * * * *`) y
+    `spend-digest` con `SPEND_DIGEST_CRON` (defecto `0 8 * * *` y **`tz: 'America/Mexico_City'`**; si la versión instalada de
+    BullMQ no admite `tz` — **se mide** en el `package-lock` y se anota —, `0 14 * * *` UTC, §19.29.7); dos `case` que llaman
+    `SpendWatchService.run()` y `SpendDigestService.run({})`. Single-flight: el de cada servicio (su candado consultivo), ⛔ nada
+    nuevo.
+  - `admin-jobs.controller.ts`: `POST /admin/jobs/spend-watch` (sin cuerpo) y `POST /admin/jobs/spend-digest {day?:
+    'YYYY-MM-DD'}` (fuera de formato ⇒ `400 VALIDATION_ERROR {field:'day'}`), súper-admin y auditados como los demás disparos;
+    `200` con el resultado de `run`; servicio ausente ⇒ `404` (como D2d).
+  - G2 (tipo de `facts`) y G4 (llave de AG-21) en `spend-alerts/`.
+  - **PS-172 (nueva):** (a) unitaria del planificador: crons por defecto y por env, enrutado de los dos nombres, sin servicios no
+    se programan; (b) `admin-jobs.controller.spec.ts`: los dos disparos auditan, `200`, `day` mal formado `400`, sin servicio
+    `404`; (c) integración con el `AppModule` real: el planificador **recibe** los dos servicios (el mismo control de cableado
+    que `sdx-d2d-charges`) y `POST /admin/jobs/spend-watch` deja `sent` un 🔴 `pending` sembrado (O-4: el ciclo entero, no solo
+    el registro). *Mutación:* quitar el `case` de `spend-watch` ⇒ (a) y (c) rojo.
+- **C2 — `C-EQ-1`.** `'GET /admin/shipments/departure::date'` entra a `NO_ENUM_POR_RUTA` en `test/helpers/query-axis-cross.ts`
+  (razón: fecha `YYYY-MM-DD`, formato y no tokens, como `?date=` de «Pedidos a preparar»), techo **50 → 51** con esa razón al lado.
+  **Comprobación:** la integración completa sin la roja esperada de `C-EQ-1` (BACKEND_NOTES §64.3 y §65.4 la nombran).
+- **Terminado** (O-4, O-10): commiteado con `git commit -- <rutas>`, unitaria e integración completas sobre la copia del árbol
+  entero sin rojas, y la sección en `BACKEND_NOTES` con el sha. Luego D2e ∥ D2f.
+
+**M4-SHIP.19.33.10 — Quién construye qué (resumen).**
+
+| Pieza | Qué de esta errata |
+|---|---|
+| **C1** (backend) | jobs `spend-watch`/`spend-digest` cableados; G2; G4 + PS-160 ampliada; PS-172 |
+| **C2** (backend, mismo agente) | `departure::date` en `NO_ENUM_POR_RUTA`, techo 51 |
+| **D2e** (backend) | PS-75 reescrita (.1); estado desconocido como `exception` + PS-78 (.2); término `created` del CAS + PS-72 (.4) |
+| **D2f** (backend 💰) | `withCarrierAlert` por `carrierAlertActive` + PS-171 (.6); ⛔ nada de P-SDX-PNL-1 hasta la respuesta |
+| **frontend** | `types/contract.ts`: `SpendFactValue` (G2), `shipment.kind: ShipmentKind \| null` (G5) |
+| **ux-ui** | `DESIGN_SYSTEM §43.19.12`: enlaces de `AVG-2/3` sin filtros (G3) |
+| **dueño** | P-SDX-PNL-1 |
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
