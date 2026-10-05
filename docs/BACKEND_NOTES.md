@@ -28250,3 +28250,95 @@ PS-99: ninguna prueba ni job nuevo compra; `sdx-c1-jobs` asevera `callsOf('purch
    fresco). El DTO del front no lo nombra. ¿Se añade `role?: Role` al objeto de `SpendFactValue`, o se quita `role` de
    `facts.target` (y el correo lo lee de otro sitio)? Mientras tanto no se pierde nada de lo que el correo dice hoy.
 2. `{day: null}` / `{day: ''}` ⇒ `400` (66.3 (1)). ¿Se confirma, o `null` cuenta como ausente?
+
+## 67 · D2e construida — correos del transportista al cliente (`AV-17/18/19`), `customerUrl`, `trackingUrl` y `timeline` en las tres superficies del cliente, y la errata §19.33 .1/.2/.4 (`API_CONTRACT §M4-SHIP.19.19.15` fila D2e, §19.12, §19.20.6, §19.33; `DESIGN_SYSTEM §43.11–§43.12c`) (2026-10-05, rama `claude/skydropx-d`, desde `3f40b70c`, en paralelo con D2f; código y pruebas en `e7fa5b0e`, `0cc99796` + el commit de esta sección)
+
+⛔ `prisma/` intacto: las tres columnas de sello ya venían de `M-SDX-D` (m66). ⛔ Ningún código de error ni enum nuevos. ⛔ Ninguna
+prueba ni job compra (PS-99): solo el doble.
+
+### 67.1 Qué se construyó y dónde
+
+| Pieza | Fichero(s) |
+|---|---|
+| Plantillas **`AV-17`** (`shipmentDeliveredTemplate`), **`AV-18`** (`shipmentAtBranchTemplate`), **`AV-19`** (`shipmentDeliveryAttemptTemplate`), ES/EN, textos de §43.12–§43.12c; la frase de soporte escrita UNA vez (`supportLine`, con `supportEmail()`); `AV-4`/`AV-5` ganan la liga de rastreo (letra chica) solo si vino; la cabecera «NO HAY PLANTILLA DE ENTREGADO» reescrita | `shipments/mail/shipment-notice.templates.ts`; `buylist/mail-shell.ts` (solo `export` de `supportEmail`, §43.12 «exportada») |
+| El puerto `CARRIER_NOTICES` deja de ser el registro de D2d: `mailCarrierNotices` ⇒ `ShipmentsService.notifyCarrierNotice` sella y manda por el MISMO `claimAndNotify` de §R (sin destinatario no se quema el sello; un fallo de correo no se propaga). Sellos: `AV-17` `deliveredNoticeSentAt` (+ `labelSource='skydropx'` en el `WHERE`), `AV-18` `branchNoticeSentAt`, `AV-19` `lastDeliveryAttemptAt` reclamado con `IS NULL OR < occurredAt` y escrito con el `occurredAt` del intento | `shipments/carrier-notices.ts`, `shipments.module.ts`, `shipments.service.ts` |
+| `customerUrl` resuelto por el SERVICIO (`resolveRecipient` ⇒ `customerUrlOf`): retiro ⇒ `shipments/<id>`, registrado ⇒ `orders/<id>`, invitado ⇒ `null` (ver 67.4 P-D2E-1) | `shipments.service.ts` |
+| `toCustomerTimeline` (un cuerpo) + `providerTrackingUrlOf`; `trackingUrl?` y `timeline` en `GuestTrackingShippingDTO`, `CustomerOrderShipmentDTO` y `ClientShipmentDTO` (el `include` lleva `carrierEvents` con la selección mínima) | `shipments/customer-timeline.ts`, `orders/guest-checkout.service.ts`, `orders/orders.service.ts`, `shipments.service.ts` |
+| §19.33.2: estado desconocido ⇒ evento `exception`, `detail = 'Estado no reconocido: ' + v (+ ' · ' + detalle)`, llave con el estado `unknown:<v>` (nunca `exception`); `v` recortado a 64 y sin control (`unknownStatusValue`, la MISMA forma en la bitácora) | `carrier-status.service.ts` (`carrierEventsOf`) |
+| §19.33.4: el CAS del paso 4 gana `OR carrierStatus = 'created'` | `carrier-status.service.ts` |
+
+### 67.2 Decisiones que el contrato no fijaba
+
+1. **La línea de tiempo usa solo los eventos de la guía VIGENTE** (`providerShipmentId` del envío): una re-emitida no hereda la historia de
+   la cancelada. Envío con guía manual (o sin guía de Skydropx) ⇒ solo `shipped`/`delivered` de las fechas, como dice §19.12.
+2. **Guía de Skydropx marcada `entregado` a mano** (sin evento `delivered`): la línea de tiempo NO lleva `delivered` (§19.12 la deriva de
+   los eventos para Skydropx); el título sigue `publicStatus`. Si se quiere la fecha, es una línea más en `toCustomerTimeline`.
+3. **`AV-17` usa `carrierStatusAt`** si `carrierStatus='delivered'` (el caso normal); si no (no debería pasar), el `occurredAt` del evento.
+4. **`AV-4`/`AV-5` con `trackingUrl`**: §43 no tiene el texto; se reutiliza el de `AV-18/19` («Rastrear mi paquete en la paquetería:
+   {url}» / “Track my package with the carrier: {url}”), letra chica, un solo CTA (§41.4). Pregunta 67.4 (3) para ux-ui.
+5. **`trackingUrl` al cliente solo con `labelSource='skydropx'`** (`providerTrackingUrlOf`): una URL que quedara de una guía cancelada no
+   viaja con una manual.
+6. **`claimAndNotify` generalizado** a un sello `{where, column, value}`: el `data` sigue siendo un literal sin `status` (el censo
+   `shipments.state-monotonic` lo clasifica `sin-status`).
+
+### 67.3 Pruebas
+
+- **Unitarias nuevas** `test/sdx-d2e.units.spec.ts` (29): ML-24/25/26 por idioma, sin fecha/sucursal/paquetería, escape de `branchName`,
+  invitado con `customerUrl`; **barrido de 72 variantes** (fecha, sucursal, paquetería, rastreo, pedido/retiro/invitado, es/en) sin plazo,
+  disputa, importe ni «segundo», con la frase de soporte fuera del pie; PS-88 de plantilla y censo `C-SDX-6`; la cabecera reescrita;
+  PS-89 del cuerpo (mapeo, mudos fuera, claves exactas, guía vigente, manual); §19.33.2 del cuerpo (llave distinta de un `exception` real
+  del mismo instante, recorte, sintético).
+- **Integración nueva** `test/integration/sdx-d2e-notices.e2e-spec.ts` (11, puerto `CARRIER_NOTICES` REAL, bandeja contada): `C-AV-3b`
+  (bandeja exacta 6: AV-4·AV-5·AV-18·AV-19×2·AV-17), mudos, sin destinatario ⇒ sello intacto; `C-AV-3a`; PS-75 (b) carrera con el lote
+  real y barrera en `getShipment` (**10/10** rondas, autor backend, N=10, dos corridas: `e7fa5b0e` y la de 67.5) y (c); PS-78 (8 días,
+  sin plazo, «Escríbenos»; `estado_raro`); PS-72 ampliada; PS-87 (registrado/retiro); PS-88 (URL exacta en AV-4/5/17/18 y en las tres
+  superficies; null y hostiles ⇒ nada + bitácora); PS-89 en las tres superficies.
+- **Cambiadas por conducta nueva** (fuera de la columna literal, forzadas por el contrato): `avisos.copy-guard` (registro 11 ⇒ 14,
+  exhaustividad, «entregado existe una vez»), `refund-review` y `mail-links.frontend-routes` (exhaustividad; casos AV-17/18/19 y la ruta
+  `pedido?token=`), `guest-checkout.tracking` y `integration/orders-public-status` (claves exactas ganan `timeline`), `sdx-d2d.units` y
+  `integration/sdx-d2d-tracking` (el desconocido ya no se descarta, §19.33.2).
+
+### 67.4 Preguntas al arquitecto (y una a ux-ui)
+
+1. **P-D2E-1 — `customerUrl` del invitado no es construible tal como está escrito (§19.12, PS-87).** Pide `pedido?token=<el último
+   OrderAccessToken no revocado>`; el servidor guarda SOLO el SHA-256 (`OrderAccessToken.tokenHash`, T5: el claro es irrecuperable por
+   diseño). La única forma de poner un token en el correo es EMITIR uno: (A) `issue` con rotación en cada correo ⇒ revoca el enlace de
+   todos los correos anteriores (incluido el de la confirmación) y gasta el cupo del reenvío `resendQuotaExceeded` (5 emisiones/24 h: un
+   día con AV-4, AV-5, AV-18, AV-19 y AV-17 lo agota); (B) `issue` sin rotar ⇒ un token vivo de 90 días más por correo; (C) otra.
+   **Construido mientras tanto:** invitado ⇒ `customerUrl = null` ⇒ sin CTA (la conducta de antes de D2e); registrado y retiro sí. `AV-12`
+   no se tocó (su única diferencia es este mismo caso). PS-87 queda **parcial** (sin la fila del invitado).
+2. **PS-89 dice «`timeline` de 6»** para `created → picked_up → last_mile → delivery_attempt → delivered_to_branch → delivered`, pero el
+   mapeo normativo de §19.12 añade `shipped = shippedAt` ⇒ salen **7** (los 6 del transportista + `shipped`). Construido el mapeo; la
+   prueba asevera los 6 en orden y `shipped` en su lugar por `at`. ¿Se corrige PS-89 a 7, o `shipped` no va con guía de Skydropx?
+3. **(ux-ui)** El texto de la liga de rastreo en `AV-4`/`AV-5` (67.2 (4)) no está en §43: se reutilizó el de `AV-18/19`. Ratificar o dar otro.
+
+### 67.5 Suites y mutaciones
+
+**Suites** sobre copia `git archive` del árbol ENTERO (scratchpad `be-d2e/tree`, BD propia `tcg_be_d2e`):
+
+| Suite | sha | Resultado |
+|---|---|---|
+| Unitaria (`npx jest`) | `e7fa5b0e` | **410/410 suites · 7149/7149** |
+| Integración (`stack-native.sh test:integration`) | `e7fa5b0e` | 95/96 · 1937/1938 — la roja: `orders-public-status` (lista cerrada sin `timeline`), corregida en `0cc99796` y re-corrida sola 4/4 |
+| Integración completa | `0cc99796` | **96/96 suites · 1938/1938**; PS-75 (b) 10/10, PS-72 concurrente 10/10, PS-77 concurrente 10/10 (N=10 cada una, autor backend) |
+| `tsc --noEmit`, `eslint` de los ficheros tocados | árbol vivo | 0 errores, 0 avisos |
+
+**Mutaciones** (copia `be-d2e/tree`, `mut.py` aplica UNA y restaura; base `f1187f46` + el diff de D2e):
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | AV-17 solo si ganó la transición | PS-75 (b) | rojo |
+| M2 | ampliar el `WHERE` del lote a `entregado` (solo) | PS-75 (c) | **sobrevivió**: `pollable()` es el segundo muro (filtra el lote y `refresh-tracking`) |
+| M2c | `WHERE` del lote **y** `pollable()` con `entregado` | PS-75 (c) | rojo |
+| M3 | llave del desconocido `exception:<instante>` | PS-78 ampliada (integración) | rojo |
+| M4 | quitar el término `created` del CAS | PS-72 ampliada | rojo |
+| M5 | el término siempre verdadero (`{ id }`) | SEC-SDX-9 fuera de orden (`sdx-d2d-tracking`) | rojo (con `{}` sobrevivió: Prisma descarta el objeto vacío en un `OR`, así que no era la mutación) |
+| M6 | sello de AV-19 solo `IS NULL` | C-AV-3b (AV-19 ×2) | rojo |
+| M8 | AV-5 sin `trackingUrl` | PS-88 (integración) | rojo |
+| M9 | `exception ⇒ in_transit` en el mapeo | PS-89 cuerpo | rojo |
+| M10 | registrado ⇒ `customerUrl` null | PS-87 | rojo |
+| M11 | «Tienes 7 días para abrir una disputa» en la variante SIN fecha de AV-17 | ML-24 barrido | **sobrevivió** a la primera versión (las pruebas solo miraban la variante con fecha) ⇒ se añadió el barrido de 72 variantes ⇒ rojo |
+| M12 | `guest/track` con `timeline: []` | PS-89 (integración) | rojo |
+
+⛔ **No medido:** que el SELLO de `AV-17`/`AV-18` muerda por sí solo — con una guía, el `@@unique` del evento ya impide el segundo aviso, así
+que quitar el sello no se ve; morder exige una re-emisión con su propio `delivered_to_branch` (el contrato dice «una vez por envío»).
