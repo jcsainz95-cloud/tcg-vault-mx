@@ -22986,10 +22986,12 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 
 ---
 
-## 70. El precio del sellado es del producto — la hoja «Precios del sellado», el rótulo «precio del producto · N piezas» y el aviso «el total cambió» del checkout (v6.1, 2026-10-05 · `API_CONTRACT §M11-SP` v1.83 + errata v1.83.1 §M11-SP.12)
+## 70. El precio del sellado es del producto — la hoja «Precios del sellado», el rótulo «precio del producto · N piezas» y el aviso «el total cambió» del checkout (v6.2, 2026-10-05 · `API_CONTRACT §M11-SP` v1.83 + errata v1.83.1 §M11-SP.12 + errata v1.83.2 §M11-SP.13)
 
 > **Versión v6.0 y sección §70 a propósito:** la rama de Skydropx usa v4.2x y §43; la del panel, v5.0 y §60. Al
-> fusionar, ninguna de las tres pisa la numeración de otra. **v6.1** es la errata de esta misma sección.
+> fusionar, ninguna de las tres pisa la numeración de otra. **v6.1** es la errata de esta misma sección. **v6.2**
+> (2026-10-05) aplica lo que pide `API_CONTRACT §M11-SP.13.10` a ux-ui (§70.3 (a)/(c), §70.8) y ratifica las
+> desviaciones de frontend de `FRONTEND_NOTES §88` (§70.10).
 
 ### 70.0-bis Errata v6.1 — el dueño escribe con IVA (qué cambió respecto de v6.0)
 
@@ -23105,9 +23107,11 @@ Las cifras del ejemplo son coherentes con `(t, r) = (100, 16)` y con el primer v
 
 - **Tabla propia** con el aspecto de `DataTable` (§7.7: reglas, cabeceras `eyebrow`, cifras `tabular` alineadas a la
   derecha), porque las celdas llevan dos o tres líneas y un editor. ⛔ No se fuerza `DataTable` (una línea por celda).
-- **`md`–`lg`:** la tabla vive en `overflow-x-auto` con la columna «Producto» `sticky left-0` (fondo `bg`). **`< md`:**
-  cada producto es un bloque (patrón de `DataTable.tsx:63-76`): cabecera con imagen y nombre, luego pares «rótulo:
-  valor» en el orden de las columnas, y el editor a todo el ancho al final del bloque.
+- **Por debajo de `lg` (v6.2, todos los anchos, también `< md`):** la tabla vive en `overflow-x-auto` con la columna
+  «Producto» `sticky left-0` (fondo `bg`). ⛔ Sin bloques `< md`: el patrón de `DataTable.tsx:62-76` pinta tabla **y**
+  bloques a la vez y oculta uno por CSS, lo que duplicaría el editor (dos `input` y dos estados por fila). El panel se
+  usa en computadora salvo «Pedidos por preparar» (dueño, 2026-10-05; ver §70.10, desviación 2), así que el teléfono
+  aquí es caso de rescate, no de uso: el scroll con «Producto» fijo basta.
 - **Orden de columnas fijo** (lo que se decide, de izquierda a derecha: qué es → cuánto hay → cuánto costó → lo que yo
   digo → lo que diría el sistema → lo que manda (= lo que paga el cliente) → lo que queda sin IVA → contra qué se compara
   → cuánto queda). **v6.1:** nueve columnas — Producto, Piezas, Costo, Tu precio, Automático, Se vende a, **Sin IVA**,
@@ -23146,7 +23150,8 @@ se puede hacer no se pinta (§8).
 #### (c) Filtros, página y estados
 
 - **Set:** `Select` con los sets (misma fuente que el selector de `SealedTab`), «Todos» por defecto ⇒ sin `setId`.
-- **Buscar:** `Input` con lupa, `q` con espera de 300 ms; vacía la página a 1.
+- **Buscar:** `Input` con etiqueta visible «Buscar producto» (v6.2: **sin** icono de lupa, §70.10 desviación 4), `q`
+  con espera de 300 ms; vacía la página a 1.
 - **Existencias:** `RadioGroup` de dos opciones, «Solo con existencias» (`on_hand`, por defecto) / «Incluir sin
   existencias» (`all`). ⛔ No es un checkbox «mostrar todo»: el valor es una unión del contrato.
 - **Página:** 50 por página; «Mostrando {from}–{to} de {total}» + «Anterior»/«Siguiente» (`Button` `secondary` `sm`).
@@ -23193,7 +23198,8 @@ Se aplica a sus 7 piezas. Sin IVA: MX$1,250.00 · margen MX$350.00 · 28.0 %
   hint lo dice.
 - **Una fila editando a la vez** en cada lista.
 
-**Confirmación** (`Modal`, §7.6, `role="alertdialog"`, foco inicial en «Cancelar»):
+**Confirmación** (`Modal` compartido, §7.6, `role="dialog"` + `aria-modal` — v6.2, §70.10 desviación 3 —, foco
+inicial en «Cancelar»):
 - Título: «¿Cambiar el precio de {name}?»
 - «Ahora: {owner} con IVA (tuyo)» · o, sin precio del dueño, «Ahora: sin precio tuyo; se vende a {display} con IVA
   ({origen})» · o «Ahora: sin precio». (`{owner}` = `ownerDisplayPriceCents`, `{display}` = `displayPriceCents`.)
@@ -23210,8 +23216,11 @@ Se aplica a sus 7 piezas. Sin IVA: MX$1,250.00 · margen MX$350.00 · 28.0 %
 **de la fila que se pintó** al abrir el editor (`null` si no tenía; ⛔ releído al enviar: F-SP-2).
 
 **Después de `200` (v6.1, A-2 aceptada, SP.12.6):** la respuesta es `{ data: SealedPriceSheetRowDTO, autoPublish:
-SealedAutoPublishDTO | null }`. La fila se sustituye por `data` y se invalidan las claves de (c). Toast success, una
-línea por dato, **leídas de `autoPublish`** (⛔ nunca deducidas comparando `pieces`: F-SP-8):
+SealedAutoPublishDTO | null }`. La fila se sustituye por `data` y se invalidan las claves de (c). **Aviso tras guardar
+(v6.2: `Banner`, no `Toast`; §70.10 desviación 1)** — `Banner` `success` (`warning` si `autoPublish = null`),
+`role="status"`, descartable a mano, pintado **en el sitio del editor**: encima de la tabla en la hoja, dentro del
+bloque en el panel, en la **cabecera** de la cola (la fila puede salir de la cola al publicarse; el aviso no puede irse
+con ella). Una línea por dato, **leídas de `autoPublish`** (⛔ nunca deducidas comparando `pieces`: F-SP-8):
 - siempre: «{name}: {price} con IVA para sus {n} piezas.» (`{price}` = `data.ownerDisplayPriceCents`);
 - `autoPublish.published = k > 0` ⇒ «Se pusieron a la venta solas: {k}.»;
 - `autoPublish.missingLocation = m > 0` ⇒ «{m} siguen en caja: les falta ubicación.» + enlace «Ver «Listas para
@@ -23219,10 +23228,10 @@ línea por dato, **leídas de `autoPublish`** (⛔ nunca deducidas comparando `p
 - `autoPublish.notPublished = x > 0` ⇒ «{x} no se pudieron publicar solas: revísalas en «Listas para publicar».» + el
   mismo enlace;
 - **`autoPublish = null`** ⇒ en lugar de las tres anteriores: «El precio se guardó, pero no se pudo intentar publicar las
-  piezas en caja. Siguen en «Listas para publicar».» + enlace. Variante `warning` del toast (el precio **sí** se guardó:
-  ⛔ no es un error ni reabre el editor).
-- Toast con enlace (`m`, `x` > 0 o `null`) ⇒ no se autodescarta: se cierra a mano (un enlace que desaparece a los
-  pocos segundos no se puede usar con teclado).
+  piezas en caja. Siguen en «Listas para publicar».» + enlace. Variante `warning` del aviso (el precio **sí** se
+  guardó: ⛔ no es un error, ni `role="alert"`, ni reabre el editor).
+- El aviso **nunca** se autodescarta (con o sin enlace): se cierra a mano (un enlace que desaparece a los pocos
+  segundos no se puede usar con teclado).
 
 ⛔ **v6.0 → v6.1:** se retiran el «se pusieron a la venta solas» deducido de `pieces` y la frase «No afirma por qué
 siguen en caja»: ahora el servidor lo dice.
@@ -23251,8 +23260,14 @@ MX$1,450.00 · tuyo · con IVA
 Lo pone el dueño en «Precios del sellado».            ← personal, en lugar del botón (enlace a #precios-sellado)
 ```
 
-- **Ligada o no (A-1, SP.12.7):** se decide por `sealedProductId` de la fila: `string` ⇒ ligada; `null` ⇒ sin producto;
-  **ausente** (servidor anterior) ⇒ el panel de hoy sin cambio (⛔ no se adivina por `sealedPriceOrigin`).
+- **Ligada o no (A-1, SP.12.7; v6.2, SP.13.5):** se decide por `productType` **primero**: solo en `sealed` se lee
+  `sealedProductId`, que en sellado **siempre** viaja: `string` ⇒ ligada; `null` ⇒ sin producto (⛔ no se adivina por
+  `sealedPriceOrigin`). Raw/graded no leen la clave. ⛔ v6.2 retira la fila «ausente ⇒ servidor anterior»: con este
+  servidor no ocurre en sellado (SP.13.5) y el diseño no le asigna pantalla.
+- **Editor en el panel (v6.2, SP.13.7):** su `expectedDisplayPriceCents` es el `sealedProductDisplayPriceCents` de una
+  fila S-2 del producto. Si ninguna fila del panel lo trae (p. ej. todas apartadas), ⛔ no se ofrece el botón: se pinta
+  el enlace a la hoja (`errors.perProductLink` «Ir a «Precios del sellado»» para el dueño; `staffNote` para el
+  personal). ⛔ Nunca un `expected` de otra fuente.
 - **Cifra (v6.1, todas con IVA):** `sealedProductDisplayPriceCents` + «tuyo»; si es `null`, el
   `resolvedDisplayPriceCents` de una pieza con `sealedPriceOrigin = 'automatic'` + «automático»; si ninguna tiene
   precio, «Sin precio: no se vende». Sufijo «· con IVA». ⛔ Nunca `resolvedSalePriceCents` (es `L`).
@@ -23270,7 +23285,7 @@ Cada **fila de pieza** ligada muestra solo lectura, en el sitio del precio de ho
 | `piece` | «{price} · precio propio antiguo» + `title`/`sr-only`: «Esta pieza cobra un precio que se le puso antes. En cuanto pongas el precio del producto, cobra ese.» |
 | `automatic` | «{price} · automático» |
 | `pending` | «— · sin precio» (`text-accent`) |
-| ausente, o `resolvedDisplayPriceCents` ausente (servidor anterior) | el rótulo de hoy de `SealedFinalPrice` en lectura, con los textos corregidos de D-SP-5 |
+| ausente, o `resolvedDisplayPriceCents` ausente (v6.2: fila fuera de S-2, p. ej. apartada — los cuatro campos solo viajan en S-2 y en la cola, SP.13.5) | el rótulo de hoy de `SealedFinalPrice` en lectura, con los textos corregidos de D-SP-5 |
 
 **Pieza sin producto** (`sealedProductId = null`, D-SP-4, SP.12.11): su precio **sigue siendo por pieza y antes de IVA**
 (`listPriceCents`, `L`, la columna de raw/graded). Conserva el `SealedFinalPrice` de §39.2, **solo para el dueño**, con
@@ -23300,7 +23315,7 @@ también es `L` y no lo dice: fuera de este stream, nota **N-5**.
 - Frase de motivo `reason.sealedNoPrice` (§39.3 (b)) cambia a: «Sin mercado ni precio del dueño: se pone en «Precios
   del sellado».»
 - **Tras guardar desde la cola (v6.1, A-2 aceptada):** el servidor publica solo lo publicable; la fila con ubicación
-  sale de la cola **publicada** al invalidarse `pending-publish`, y el toast lo dice con las cuentas de `autoPublish`
+  sale de la cola **publicada** al invalidarse `pending-publish`, y el aviso (`Banner` en la cabecera de la cola, v6.2) lo dice con las cuentas de `autoPublish`
   (§70.2 (d)). La que no tiene ubicación se queda en la cola, ahora solo por «sin ubicación».
 - ⛔ **Retirado en v6.1:** la casilla «Publicar también las {k} piezas…» (fallback de A-2), su `bulkPublishItems` tras el
   `200`, la clave `confirm.publishToo` y la prop `queueIdsWithLocation` del editor. El arquitecto la descartó por
@@ -23319,13 +23334,12 @@ también es `L` y no lo dice: fuera de este stream, nota **N-5**.
   se publicó: el producto no tiene precio. Lo pone el dueño en «Precios del sellado».» Sellado **sin producto**: input
   solo con `canSetSealedPrice`, rotulado con la clave nueva `admin.m1.publish.priceLabelSealed` «Precio antes de IVA
   (MXN)» (v6.1, D-SP-4; ⛔ no se cambia `priceLabel`, que comparten raw/graded); el personal lee «Sin producto: su
-  precio lo pone el dueño.» `ManualPriceBadge` (`:197`) en sellado ligado solo si `sealedPriceOrigin === 'piece'`.
-  ⚠️ **Medido:** el modal solo recibe `itemId` y lee `GET …/items/:id` (`ItemDetailModal.tsx:28`, `:52-56`), y SP.12.7
-  dice que ese detalle **no** gana `sealedProductId`. Hasta que se responda **A-5** (§70.8): el modal gana la prop
-  opcional `sealedProductId?: string | null`, que le pasa quien lo abre desde una fila del listado
-  (`InventoryItemDTO.sealedProductId`). `string` ⇒ ligada (sin input); `null` ⇒ sin producto (input solo dueño);
-  **ausente** ⇒ se trata como sin producto **solo para el dueño** y, si el servidor responde `422
-  SEALED_PRICE_IS_PER_PRODUCT`, se pinta el error de abajo con su enlace a la hoja (⛔ nunca se adivina por el nombre).
+  precio lo pone el dueño.» Sellado ligado ⇒ ⛔ **sin** `ManualPriceBadge` (`:197`) y ⛔ sin deducir «a mano» de
+  `listPriceCents`: el detalle no trae `sealedPriceOrigin` (SP.13.6).
+  **v6.2 (A-5 respondida, SP.13.6):** el modal lee `sealedProductId` **del propio detalle** (`GET …/items/:id`, que lo
+  trae en toda fila: `string | null`). Con `productType = 'sealed'`: `string` ⇒ ligada (sin input); `null` ⇒ sin
+  producto (input solo dueño). ⛔ Se retira la prop provisional `sealedProductId?` y su caso «ausente»: nadie le pasa
+  el id al modal desde fuera (⛔ nunca se adivina por el nombre).
 - **Si llega el `422 SEALED_PRICE_IS_PER_PRODUCT`** (no debería: la pantalla no ofrece el campo), en cualquier escritor:
   «El precio del sellado es del producto, no de la pieza. No se guardó nada.» + enlace «Ir a «Precios del sellado»».
   El `403` del sellado sin producto: «Solo el dueño pone precio al sellado.» Ambos `role="alert"`, junto al botón que
@@ -23509,7 +23523,7 @@ ahora MX$1,350.00».
 | `admin.m1.publish.priceRequiredSealed` (`es.json:1475`) | Sin producto: el precio de esta pieza lo pone el dueño. *(solo sellado sin producto)* | No product: the owner sets this item's price. |
 | `admin.sealedAdd.manualMarket.staffNoMarket` *(nueva)* | Este producto no trae precio de mercado. Se da de alta igual y queda sin precio hasta que el dueño se lo ponga en «Precios del sellado». | This product has no market price. It's added anyway and stays unpriced until the owner sets it in “Sealed prices”. |
 | `admin.sealedAdd.manualMarket.pendingIfEmpty` (`es.json:4502`) | *(sin cambio para el dueño)* | *(unchanged)* |
-| `admin.sealedAdd.manualMarket.pendingIfEmptyStaff` *(nueva; v6.1, N-1 / SP.12.9)* | Sin precio de mercado, la compra se da de alta sin precio, pero la aportación en especie no se puede registrar: su costo sale del mercado. Pide al dueño que le ponga mercado al producto en M2 y vuelve a intentarlo. | Without a market price, a purchase is added unpriced, but an in-kind contribution can't be recorded: its cost comes from the market price. Ask the owner to set the product's market price in M2 and try again. |
+| `admin.sealedAdd.manualMarket.pendingIfEmptyStaff` *(nueva; v6.1, N-1 / SP.12.9; v6.2: sin «M2», §37.2 / P66-3)* | Sin precio de mercado, la compra se da de alta sin precio, pero la aportación en especie no se puede registrar: su costo sale del mercado. Pide al dueño que le ponga mercado al producto en «Catálogo y precios» y vuelve a intentarlo. | Without a market price, a purchase is added unpriced, but an in-kind contribution can't be recorded: its cost comes from the market price. Ask the owner to set the product's market price in “Catalog & pricing” and try again. |
 | `admin.m1.publish.priceLabelSealed` *(v6.1, nueva; solo sellado sin producto)* | Precio antes de IVA (MXN) | Price before VAT (MXN) |
 | `admin.m10.ivaTransfer.delta.sealedOwnerPrice` *(v6.1, nueva; §70.9)* | No aplica al sellado con precio tuyo: lo que paga el cliente es el que escribiste y no cambia con esta fracción. | Doesn't apply to sealed products with your own price: the customer pays what you wrote, and it doesn't change with this share. |
 
@@ -23566,16 +23580,16 @@ en `:4682`, `:4690`, `:4714`):
 | SP-F-1 *(v6.1)* | `src/types/contract.ts` | + `SealedPriceOrigin`, `SealedPriceSheetRowDTO` **con los campos de SP.12.4** (`ownerDisplayPriceCents`, `automaticListPriceCents`, `automaticDisplayPriceCents`, `automaticSource`, `appliedSpreadPct`, `effectiveOrigin`, `displayPriceCents`, `netPriceCents`, `legacyPiecePrices {count, minDisplayCents, maxDisplayCents, shadowed}`, `margin`; ⛔ sin `ownerPriceCents`/`automaticPriceCents`/`effectivePriceCents`), `SealedPriceSheetResponse` + `iva: { ratePct, transferPct }`, `SealedAutoPublishDTO`, código `SEALED_PRICE_IS_PER_PRODUCT`; `InventoryItemDTO` (`:2606-2643`) y `PendingPublishRowDTO` (`:3936-3970`) + `sealedPriceOrigin?`, **`sealedProductDisplayPriceCents?`**, **`resolvedDisplayPriceCents?`**, **`sealedProductId?`**, **`sealedProductPieces?`** (SP.12.4, SP.12.7) | 70.0-bis |
 | SP-F-2 *(v6.1)* | `src/lib/api.ts` (junto a `:3737-3800`, sellado) | + `getSealedPriceSheet(query)` y `setSealedProductSalePrice(id, { displayPriceCents, expectedDisplayPriceCents })` ⇒ `{ data, autoPublish }` | 70.2 |
 | SP-F-3 | `src/lib/role.tsx` (junto a `:61`) | + `canSetSealedPrice(role)` pura: hoy `role === 'super_admin'` (SP.3; cambia a `isOwner` al fusionar Skydropx) — ⚠️ zona compartida | 70.1 |
-| SP-F-4 | `…/admin/m11/sections/SealedPriceSheet.tsx` **nuevo** | La hoja de §70.2 (filtros, tabla, bloques `< md`, estados, `unlinkedCount`, pie) | 70.2 |
+| SP-F-4 | `…/admin/m11/sections/SealedPriceSheet.tsx` **nuevo** | La hoja de §70.2 (filtros, tabla con scroll horizontal y «Producto» fijo en todos los anchos — v6.2, sin bloques `< md` —, estados, `unlinkedCount`, pie) | 70.2 |
 | SP-F-5 | `…/admin/m11/M11View.tsx:95` | Montar `<SealedPriceSheet />` como `<section id="precios-sellado" className="scroll-mt-…">` entre inventario y cola; `invalidateAggregates` (`:56-62`) + `'sealed-price-sheet'` | 70.1 |
-| SP-F-6 *(v6.1)* | `…/admin/m1/SealedProductPriceEditor.tsx` **nuevo** | Editor + confirmación + `PUT` + errores + toast por `autoPublish` de §70.2 (d); props: `product { id, name, ownerDisplayPriceCents, displayPriceCents?, effectiveOrigin?, pieces?, legacy?, avgCostCents? }`, `ivaRatePct?`, `onDone`. ⛔ **Sin** `queueIdsWithLocation` (retirada) y sin `bulkPublishItems` | 70.2 (d) |
+| SP-F-6 *(v6.1)* | `…/admin/m1/SealedProductPriceEditor.tsx` **nuevo** | Editor + confirmación + `PUT` + errores + aviso (`Banner`, v6.2) por `autoPublish` de §70.2 (d); props: `product { id, name, ownerDisplayPriceCents, displayPriceCents?, effectiveOrigin?, pieces?, legacy?, avgCostCents? }`, `ivaRatePct?`, `onDone`. ⛔ **Sin** `queueIdsWithLocation` (retirada) y sin `bulkPublishItems` | 70.2 (d) |
 | SP-F-7 *(v6.1)* | `…/admin/m1/sealed-final-price.ts:20` | + `'sealed-price-sheet'` en `SEALED_FINAL_PRICE_INVALIDATES`; + `marginPreview(displayCents, avgCostCents, ivaRatePct)` pura ⇒ `{ netCents, cents, bps } \| null` (SP.12.5) | 70.2 (d) |
 | SP-F-8 *(v6.1)* | `…/admin/m1/SealedFinalPrice.tsx:23-37` (tipo), `:131-144`, `:152-156`, `:204-240` | Pieza **ligada** (`sealedProductId` string) ⇒ lectura de §70.3 (a) con `resolvedDisplayPriceCents` y el editor de SP-F-6; ⛔ nunca `updateInventoryItem` con `listPriceCents` (F-SP-3). Pieza sin producto ⇒ el modo de hoy **solo con `canSetSealedPrice`**, rotulado «antes de IVA» con «En la tienda: {P}» (`resolvedDisplayPriceCents?` en `SealedFinalPricePiece`); personal en lectura | 70.3 (a) |
 | SP-F-8b *(v6.1, D-SP-5)* | `frontend/messages/es.json:4682-4715` y `en.json:4682-4715` (`admin.sealedFinalPrice.*`) | Los textos corregidos de §70.5 «D-SP-5»; + `storePrice`. **Puede salir antes que el resto** (solo textos + la línea «En la tienda» condicionada a que llegue el campo) | 70.5 |
 | SP-F-9 *(v6.1)* | `…/admin/m1/VariantDrawer.tsx:456-457` (cabecera de «Piezas») y `:544-567` | Bloque «Precio del producto · N piezas» una vez encima de la lista (`sealedProductDisplayPriceCents` / `resolvedDisplayPriceCents`, «con IVA», `N` de `sealedProductPieces`); filas ligadas en lectura con `resolvedDisplayPriceCents` | 70.3 (a) |
 | SP-F-10 *(v6.1)* | `…/admin/m1/PendingPublishQueue.tsx:41-50` (`ReasonLines`), `:308-337` | Rótulo + editor de producto (sin casilla «publicar también»); enlace a `#precios-sellado` en lugar de M2 para ligadas; texto nuevo de `reason.sealedNoPrice` | 70.3 (b) |
 | SP-F-11 | `…/admin/m1/SealedAddFlow.tsx:76`, `:182`, `:388-396`, `:428-430` | `canManualMarket` ⇒ `canSetSealedPrice`; nota del personal; `pendingIfEmptyStaff` | 70.3 (c) |
-| SP-F-12 *(v6.1)* | `…/admin/m1/ItemDetailModal.tsx:28` (props), `:64-66`, `:72`, `:197`, `:225-228`, `:259-272`, `:275-279` | Sellado ligado: sin input, sin `sealedNeedsPrice`, «Lo fija el producto», `PRICE_PENDING` con texto propio; badge por `sealedPriceOrigin`; sin producto: input solo dueño con `priceLabelSealed`; prop `sealedProductId?` hasta A-5 (§70.3 (c)) | 70.3 (c) |
+| SP-F-12 *(v6.2)* | `…/admin/m1/ItemDetailModal.tsx:64-66`, `:72`, `:197`, `:225-228`, `:259-272`, `:275-279` | Sellado ligado: sin input, sin `sealedNeedsPrice`, «Lo fija el producto», `PRICE_PENDING` con texto propio, ⛔ sin `ManualPriceBadge`; sin producto: input solo dueño con `priceLabelSealed`; `sealedProductId` leído **del detalle** (A-5 respondida, SP.13.6; ⛔ sin prop provisional) (§70.3 (c)) | 70.3 (c) |
 | SP-F-19 *(v6.1)* | `…/admin/m10/sections/IvaTransferSection.tsx:202-209` + `es.json`/`en.json` `admin.m10.ivaTransfer.delta` (`es.json:3939-3943`) | La línea fija `delta.sealedOwnerPrice` de §70.9 | 70.9 |
 | SP-F-13 | `…/(storefront)/checkout/price-change.ts` **nuevo** | Puras: `diffTotal(shown, session)`, `changedLines(shownLines, requote, sessionTotal)` (devuelve `[]` si el total re-cotizado ≠ el de la sesión) | 70.4 |
 | SP-F-14 | `…/checkout/PriceChangedNotice.tsx` **nuevo** | El aviso (`role="alert"`, variante reuso) | 70.4 |
@@ -23606,7 +23620,7 @@ en `:4682`, `:4690`, `:4714`):
 | **UX-SP-16** *(v6.1)* | Paridad: cada clave de §70.5 en `es` y `en`; las retiradas (`col.display`, `col.displayHelp`, `beforeVat`, `confirm.publishToo`, `done.stillBoxed`) **en ninguno** | Borrar una en `en.json`; dejar una retirada |
 | 💰 **UX-SP-17** = F-SP-7 *(v6.1)* | Editor: teclear «7.00» y confirmar ⇒ el cuerpo del `PUT` es `{ displayPriceCents: 700, … }` exacto; «1,299» ⇒ `129900`. Ningún import de `displayPriceCentsOf`/`listEquivalentCentsOf` (ni equivalente) en `frontend/src` | Mandar `round(700/1.16)` = `603` |
 | **UX-SP-18** *(v6.1, D-SP-5)* | Ningún valor de `admin.sealedFinalPrice.*` (`es` y `en`) contiene «Precio final»/«precio final»/«Final price»/«final price»; `confirm.effectPublish` contiene «IVA» (`VAT` en `en`); `label` contiene «antes de IVA» | Restaurar «Precio final (MXN)» |
-| **UX-SP-19** = F-SP-8 *(v6.1)* | Tras `200` con `autoPublish {published:1, missingLocation:1, notPublished:0}` ⇒ el toast dice 1 puesta a la venta y 1 en caja por ubicación, y **no** dice `notPublished`; con `autoPublish:null` ⇒ `done.autoPublishFailed` + enlace a la cola, el editor **cerrado** (no es error); el texto es el mismo aunque `data.pieces` cambie entre antes y después | Deducir publicadas comparando `pieces`; tratar `null` como error |
+| **UX-SP-19** = F-SP-8 *(v6.1)* | Tras `200` con `autoPublish {published:1, missingLocation:1, notPublished:0}` ⇒ el aviso (`Banner`, v6.2) dice 1 puesta a la venta y 1 en caja por ubicación, y **no** dice `notPublished`; con `autoPublish:null` ⇒ `done.autoPublishFailed` + enlace a la cola, el editor **cerrado** (no es error); el texto es el mismo aunque `data.pieces` cambie entre antes y después | Deducir publicadas comparando `pieces`; tratar `null` como error |
 | **UX-SP-20** *(v6.1, A-2)* | La confirmación del editor (hoja, panel y cola) tiene **cero** `checkbox`; el componente no acepta `queueIdsWithLocation` (tipo); **cero** llamadas a `bulkPublishItems` desde `SealedProductPriceEditor` | Reintroducir la casilla |
 | **UX-SP-21** *(v6.1, D-SP-4)* | `SealedFinalPrice` de pieza **sin producto** con `listPriceCents:100000, resolvedDisplayPriceCents:116000` ⇒ lectura con «Antes de IVA» y «MX$1,000.00», y «En la tienda: MX$1,160.00»; sin `resolvedDisplayPriceCents` ⇒ **no** hay «En la tienda»; el `Input` del editor tiene la etiqueta «Precio antes de IVA (MXN)» | Calcular «En la tienda» con `×1.16` en el cliente (el canario: fixture con `resolvedDisplayPriceCents:115000` ⇒ debe pintar MX$1,150.00) |
 | **UX-SP-22** *(v6.1, panel/cola)* | Fila ligada con `sealedProductDisplayPriceCents:145000`, `resolvedSalePriceCents:125000`, `resolvedDisplayPriceCents:145000`, `sealedProductPieces {3,1,1}` ⇒ bloque «Precio del producto · 5 piezas» con «MX$1,450.00 · tuyo · con IVA»; el DOM del bloque **no** contiene «MX$1,250.00» | Pintar `resolvedSalePriceCents` (es `L`); contar las filas del panel |
@@ -23614,13 +23628,14 @@ en `:4682`, `:4690`, `:4714`):
 
 ### 70.8 Solicitudes y notas
 
-**Estado v6.1 (2026-10-05, de lectura de `API_CONTRACT §M11-SP.12`):**
+**Estado v6.2 (2026-10-05, de lectura de `API_CONTRACT §M11-SP.12` y `§M11-SP.13`):**
 
 | # | Respuesta | Dónde | Qué cambió aquí |
 |---|---|---|---|
-| **A-1** | ✅ aceptada: `sealedProductId?` y `sealedProductPieces?` en `InventoryItemDTO` y `PendingPublishRowDTO`; ⛔ no en `GET …/items/:id` | SP.12.7 | §70.3 (a)(b) usan el id y el conteo; el modal de detalle, ver **A-5** |
-| **A-2** | ✅ aceptada: el `PUT` dispara la auto-publicación después de confirmar y responde `autoPublish` | SP.12.6 | toast por `autoPublish`; casilla de respaldo, `confirm.publishToo` y `queueIdsWithLocation` **retirados** |
-| **A-3** | sin respuesta (no bloquea) | — | sin cambio |
+| **A-1** | ✅ aceptada: `sealedProductId?` y `sealedProductPieces?` en `InventoryItemDTO` y `PendingPublishRowDTO` (v6.2, SP.13.5: en sellado la clave viaja siempre) | SP.12.7, SP.13.5 | §70.3 (a)(b) usan el id y el conteo; el modal de detalle, ver **A-5** |
+| **A-5** | ✅ **respondida** (v6.2): `sealedProductId: string \| null` **ya viaja** en `GET …/items/:id` (toda fila); se declara, sin cambio de backend. El detalle **no** trae `sealedPriceOrigin` ni `resolvedDisplayPriceCents` | SP.13.6 | §70.3 (c): el modal lee el id del detalle; prop provisional y caso «ausente» **retirados**; sellado ligado sin `ManualPriceBadge` |
+| **A-2** | ✅ aceptada: el `PUT` dispara la auto-publicación después de confirmar y responde `autoPublish` | SP.12.6 | aviso por `autoPublish` (`Banner` desde v6.2); casilla de respaldo, `confirm.publishToo` y `queueIdsWithLocation` **retirados** |
+| **A-3** | ⏸ **aplazada** (v6.2): `?attention=true` no entra en este stream | SP.13.7 | sin cambio: la hoja **marca** las filas que el sistema no resuelve solo (§70.2 (b)) pero no las agrupa |
 | **A-4** | ✅ puntos de markup sobre mercado, aplicados a `L` (antes de IVA) | SP.12.8 | `automatic.*` dicen «sobre mercado, antes de IVA» |
 | **N-1** | ✅ confirmada: compra sí, aportación sin mercado `422 PRICE_PENDING`; salida = el dueño fija el mercado en M2 | SP.12.9 | `pendingIfEmptyStaff` dice la salida. Se avisa al dueño en la solicitud de fusión (orquestador) |
 | **N-2** | ✅ SP.6 es **provisional** hasta §X; `amountLabel` = sesión se queda | SP.12.10 | nota en §70.4; aviso aislado en hook para retirarlo |
@@ -23630,7 +23645,7 @@ en `:4682`, `:4690`, `:4714`):
 
 | # | Para | Qué |
 |---|---|---|
-| **A-5** | arquitecto | **`sealedProductId` en `GET /admin/inventory/items/:id`.** Medido: `ItemDetailModal` solo recibe `itemId` y lee ese detalle (`ItemDetailModal.tsx:28`, `:52-56`); SP.12.7 dice «⛔ `GET …/items/:id` sin cambio». Sin el campo, el modal no sabe si la pieza es ligada (sin input) o sin producto (input del dueño) y depende de que quien lo abra le pase el id. Aditivo, identidad, no dinero. Mientras no esté: la prop de §70.3 (c). No bloquea |
+| **A-5** *(respondida en v6.2, SP.13.6: ver la tabla de estado)* | arquitecto | **`sealedProductId` en `GET /admin/inventory/items/:id`.** Medido: `ItemDetailModal` solo recibe `itemId` y lee ese detalle (`ItemDetailModal.tsx:28`, `:52-56`); SP.12.7 dice «⛔ `GET …/items/:id` sin cambio». Sin el campo, el modal no sabe si la pieza es ligada (sin input) o sin producto (input del dueño) y depende de que quien lo abra le pase el id. Aditivo, identidad, no dinero. Mientras no esté: la prop de §70.3 (c). No bloquea |
 | **N-5** | arquitecto / product-owner | **Raw y graded tienen la misma ambigüedad que D-SP-5:** `admin.m1.publish.priceLabel` «Precio de venta (MXN)» (`es.json:1473`) es `L` y la tienda cobra `P`. Fuera de este stream (P-PRE-1). Si se quiere, es un cambio de texto («Precio de venta antes de IVA (MXN)») sin contrato |
 | **N-6** | orquestador | **D-SP-5 está en producción hoy:** el dueño puede estar poniendo precios a sellado creyendo que son el precio final, y la tienda cobra un 16 % más con los defaults (diales en producción **NO MEDIDOS**, SP.12 (e1)). SP-F-8b son solo textos y puede salir antes que el resto. Conviene decírselo al dueño en la solicitud de fusión |
 
@@ -23640,7 +23655,7 @@ en `:4682`, `:4690`, `:4714`):
 |---|---|---|
 | **A-1** | arquitecto | **`sealedProductId` y el conteo de piezas del producto en las filas de sellado** de `InventoryItemDTO` (S-2) y `PendingPublishRowDTO`. Medido: no los traen (`types/contract.ts:2606-2643`, `:3936-3970`). Sin el id, el panel y la cola **no pueden** llamar a SP.2 ni distinguir ligada de sin producto; sin el conteo, el rótulo dice «todas sus piezas» sin número. Aditivo. **Bloquea** el editor en panel y cola (no la hoja); mientras no esté, panel y cola pintan el rótulo y el enlace a la hoja |
 | **A-2** | arquitecto (→ backend) | 💰 **Que `PUT …/sale-price` sea un disparo (c) de la auto-publicación** para las piezas `in_stock` **con ubicación** del producto (pipeline completo, como «Actualizar precios»). Hoy, por el contrato, una pieza con ubicación y sin precio que recibe precio del dueño **sale de la cola sin publicarse** (`API_CONTRACT.md:12492-12497` vs SP.2 «⛔ No publica»): la contradicción de criterio 125 / fase 8 («ninguna pieza adquirida se queda invisible»), y la REGLA GENERAL pide que sea automático. *De lectura; en código NO MEDIDO.* Si se rechaza, el fallback de §70.3 (b) (casilla marcada por defecto + `bulk-publish`) cubre la cola y el panel, **no** la hoja |
-| **A-3** | arquitecto | Filtro opcional `?attention=true` en la hoja (productos `pending` o con `legacyPiecePrices` no sombreado): las filas que el sistema no resuelve solo. Sin él, la hoja las marca pero no las agrupa. No bloquea |
+| **A-3** *(aplazada en v6.2, SP.13.7)* | arquitecto | Filtro opcional `?attention=true` en la hoja (productos `pending` o con `legacyPiecePrices` no sombreado): las filas que el sistema no resuelve solo. Sin él, la hoja las marca pero no las agrupa. No bloquea |
 | **A-4** | arquitecto | **Unidad de `appliedSpreadPct`** no escrita (`API_CONTRACT.md:29659`). Este diseño asume **% sobre mercado** como `SealedSpreadsDTO` (`types/contract.ts:4663-4665`). Si es otra, cambia solo el formateo |
 | **N-1** | product-owner | **Consecuencia de P-SP-1 (default «solo el dueño»):** el personal **no podrá registrar una aportación en especie** de un sellado sin mercado (`SealedAddFlow.tsx:425-430`: sin mercado la aportación se bloquea). La compra sí. El texto `pendingIfEmptyStaff` lo dice; si el dueño no lo quiere así, es la alternativa de P-SP-1 |
 | **N-2** | product-owner / orquestador | **`PROJECT §X.2` (default P-POR-3: avisar) contradice `HECHOS.md:49`** («se respeta el precio visto», respondida como «NO avisar ni re-cobrar»). §70.4 sigue a SP.6 del contrato: cobra el **actual** y avisa, como mínimo hasta §X. Que el dueño sepa que hoy verá el aviso |
@@ -23676,3 +23691,28 @@ No aplica al sellado con precio tuyo: lo que paga el cliente es el que escribist
 - Solo cubre el dial de **traslación**, que es lo que pide SP.12.2. Si la **tasa** (`iva_pct`) tiene una pantalla con
   costo en pesos, la misma frase aplicaría con otro sentido (con la tasa, el `P` del dueño se queda y su neto **sí**
   cambia, SP.12.2): **NO MEDIDO** si existe esa pantalla; no se diseña aquí.
+
+### 70.10 Desviaciones de frontend en SP-F — ratificación (v6.2, 2026-10-05)
+
+Fuente: `FRONTEND_NOTES §88`, «Desviaciones conscientes». Lo que cito lo leí en `/home/user/tcg-sellado` el 2026-10-05
+(sin Bash: sha **NO MEDIDO** por mí; el orquestador dio `HEAD 19aff600`).
+
+| # | Desviación | Veredicto | Por qué (medido) |
+|---|---|---|---|
+| 1 | Aviso tras guardar = `Banner` (`SealedPriceSavedNotice`), no `Toast` | ✅ **ratificada** | `Toast.tsx:17-33`: variantes `success \| danger \| info` (sin `warning`) y `message: string` (sin enlace). §70.2 (d) pide las dos cosas y que no se autodescarte. El `Banner` (`Banner.tsx:7`, `:30`) tiene `warning`, admite nodos y `role="status"`. Además es **mejor** sitio: el aviso queda junto a lo que se editó y, en la cola, en la cabecera (la fila puede irse al publicarse). Leído `SealedPriceSavedNotice.tsx:34`: `warning` solo con `autoPublish = null`, `role="status"`, `dismissible`. §70.2 (d) ya dice `Banner` |
+| 2 | `< md` sin bloques: tabla con `overflow-x-auto` y «Producto» `sticky left-0` en todos los anchos | ✅ **ratificada** | El dueño (2026-10-05, «Arreglos del panel — respuestas … Q-0/Q-1/Q-2», punto (1)): «Panel en celular: **solo «Pedidos por preparar»** funciona en celular … el resto, computadora». ⚠️ Esa fila está en `HECHOS.md:50` de `/home/user/tcg-panel` y de `/home/user/tcg-real`, **no** en el `HECHOS.md` de este árbol (aquí `:50` es otra fila; `Grep` de «celular/móvil» = 0): llega con la fusión. «Precios del sellado» es M11, no «Pedidos por preparar» ⇒ el teléfono es rescate, no uso. Y el patrón de bloques (`DataTable.tsx:62-76`) pinta tabla y bloques a la vez y oculta por CSS: duplicaría el editor. El scroll con la columna fija mantiene legible qué producto se edita. §70.2 (a) actualizado |
+| 3 | Confirmación con `role="dialog"`, no `alertdialog` | ✅ **ratificada** | `Modal.tsx:47-49`: `role="dialog"`, `aria-modal="true"`, `aria-label={title}`; es el modal compartido y **ningún** sitio del front usa `alertdialog` (`Grep` en `frontend/src` = 0), aunque §39 (`DESIGN_SYSTEM.md:21383`, `:21534`) también lo pedía. Cambiar el rol es tocar `components/ui/` (zona compartida) para todos sus usos. El efecto queda: modal, título leído, foco inicial en «Cancelar» (`SealedProductPriceEditor.tsx:138`), `Esc` cierra; y el cambio no es irreversible (se vuelve a cambiar, queda en bitácora). Nota **N-7** (abajo) |
+| 4 | Buscar sin icono de lupa | ✅ **ratificada** | `Input.tsx:10`: `prefix?: string`. El campo tiene etiqueta visible «Buscar producto» (`SealedPriceSheet.tsx:103-107`, `label` del `Input`), que es lo que lleva el significado; la lupa sería decorativa. No se toca la zona compartida por un adorno. §70.2 (c) actualizado |
+| 5 | Texto `pendingIfEmptyStaff`: «en M2» ⇒ «en «Catálogo y precios»» | ✅ **ratificada — el error era mío** | `AdminPageTitles.test.tsx:16`, `:132-135` (P66-3, §37.2): ninguna cadena de `messages/*` cita un código M-n, porque el menú ya no los muestra. El rótulo del menú es `admin.modules.m2` = «Catálogo y precios» / «Catalog & pricing» (`es.json:1302`, `en.json:1302`) y ya se cita así en otros textos (`es.json:4057`, `:4333`). §70.5 corregido con el texto que frontend escribió (`es.json:4588`, `en.json:4588`) |
+| (5 de §88) | Excepción acotada del censo `frontend-never-multiplies` para `marginPreview` | ✅ coherente con el diseño | Es la única cuenta del cliente que §70 manda (D-UX-2, N-4) con la fórmula de SP.12.5. Que la excepción esté bien **acotada** como candado es de techlead, no de diseño |
+
+**Cambios pedidos a frontend por esta ratificación: ninguno.** Las cinco quedan como norma en §70.2 y §70.5.
+
+**Lo que v6.2 deja anotado para otros roles (no es de diseño decidirlo):**
+- **N-7 (frontend / techlead, no bloquea):** si algún día se quiere `alertdialog` en las confirmaciones de dinero, es
+  una prop opcional `role` en `components/ui/Modal.tsx` para todos sus usos, en un cambio propio de zona compartida.
+- **Q-5 y «clave ausente» (arquitecto):** `FRONTEND_NOTES §88`, «Regla Q-5», dice que el front sigue tratando
+  `sealedProductId` **ausente** en sellado como «servidor anterior» por la ventana de despliegue Vercel/Railway;
+  `API_CONTRACT §M11-SP.13.5` dice «⛔ «Clave ausente» no significa … «servidor anterior» con este servidor». v6.2
+  retira esa fila del diseño (§70.3 (a)) como pidió SP.13.10; si el respaldo defensivo del código se queda o se quita
+  lo decide el arquitecto (manda el contrato), no ux-ui.
