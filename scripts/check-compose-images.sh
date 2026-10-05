@@ -27,6 +27,11 @@
 # una lista a mano: un fichero nuevo entra solo — y exige que cada una esté
 # **CLAVADA**: por `@sha256:` (lo más fuerte) o por una etiqueta de VERSIÓN.
 #
+# ⭐ RL-SEC-2 (seguridad, 2026-10-05): también los paquetes que un workflow
+# instala en GLOBAL (`npm i -g …`), con prefijo `npm:` en el inventario. Exige
+# versión EXACTA (`@5.63.1`): `@latest`, `@next`, rangos o sin versión son MÓVIL.
+# Vivían en el job que recibe RAILWAY_TOKEN/VERCEL_TOKEN (deploy.yml).
+#
 # ⭐ POR QUÉ TAMBIÉN LOS WORKFLOWS (ARCHITECTURE §4.52.4, 2026-09-11): la imagen
 # que BLOQUEA EL DESPLIEGUE (`bitnamilegacy/minio:latest`, service de
 # `backend-e2e`) vivía FUERA del alcance de este candado. Un candado que no cubre
@@ -70,7 +75,7 @@ command -v python3 >/dev/null 2>&1 || { echo "::error::sin python3 no puedo leer
 
 # --- Enumeración: TODOS los compose, TODOS los servicios con `image:` --------
 INVENTARIO="$(python3 - <<'PY'
-import glob, sys
+import glob, re, sys
 try:
     import yaml
 except ImportError:
@@ -109,6 +114,23 @@ for f in sorted(glob.glob(".github/workflows/*.yml")) + sorted(glob.glob(".githu
                 filas.append(f"{f}\t{job}/{nombre}\t{svc}")
             elif isinstance(svc, dict) and svc.get("image"):
                 filas.append(f"{f}\t{job}/{nombre}\t{svc['image']}")
+        # RL-SEC-2 (seguridad, 2026-10-05): CLIs de npm instaladas en GLOBAL en
+        # un paso (`npm i -g @railway/cli@latest`), en el MISMO job que recibe
+        # RAILWAY_TOKEN/VERCEL_TOKEN. Es la misma clase que una imagen `:latest`:
+        # lo que se ejecuta con el token lo decide quien publique mañana. Se
+        # inventarían con prefijo `npm:` y se exige versión EXACTA.
+        for i, step in enumerate(spec.get("steps") or []):
+            if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+                continue
+            for linea in step["run"].splitlines():
+                linea = linea.split(" #", 1)[0]
+                for m in re.finditer(r"\bnpm\s+(?:i|install|add)\b([^;&|]*)", linea):
+                    toks = m.group(1).split()
+                    if not ({"-g", "--global"} & set(toks)):
+                        continue
+                    for t in toks:
+                        if not t.startswith("-"):
+                            filas.append(f"{f}\t{job}/npm-g#{i}\tnpm:{t}")
 if not filas:
     print("ERRVACIO")
 else:
@@ -127,6 +149,20 @@ esac
 # MÓVIL    = etiqueta de la lista negra, etiqueta IMPLÍCITA, o `${VAR}`.
 clasificar() { # $1 = referencia de imagen -> imprime "CLAVADA|MOVIL<TAB>motivo"
   ref="$1"
+  # Paquete npm instalado en global en un workflow (RL-SEC-2): versión EXACTA
+  # `N.N.N[-pre]`. `@latest`, `@next`, rangos (`^`, `~`, `x`) o sin versión ⇒ MÓVIL.
+  case "$ref" in
+    npm:*)
+      spec="${ref#npm:}"; nombre="${spec%@*}"; ver="${spec##*@}"
+      # Sin versión: `pkg` (no hay `@`) o `@scope/pkg` (el único `@` es el del scope ⇒ nombre vacío).
+      if [ -z "$nombre" ] || [ "$spec" = "$ver" ]; then
+        printf 'MOVIL\tpaquete npm SIN versión ⇒ `latest` ⇒ lo que se ejecuta con el token lo decide quien publique mañana'; return
+      fi
+      if [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+        printf 'CLAVADA\tversión npm exacta `%s`' "$ver"; return
+      fi
+      printf 'MOVIL\tversión npm `%s` no es exacta (etiqueta o rango)' "$ver"; return ;;
+  esac
   case "$ref" in
     *'${'*) printf 'MOVIL\tinterpolación sin resolver (`%s`): lo que se descargue depende del entorno' "$ref"; return ;;
     *@sha256:*) printf 'CLAVADA\tdigest inmutable'; return ;;
@@ -152,6 +188,12 @@ clasificar() { # $1 = referencia de imagen -> imprime "CLAVADA|MOVIL<TAB>motivo"
 
 # --- `--resolve`: ¿existe y se descarga ANÓNIMAMENTE? ------------------------
 resolver() { # $1 = referencia -> 0 si se puede descargar anónimamente
+  case "$1" in
+    npm:*)  # ¿existe ESA versión en el registro público de npm?
+      spec="${1#npm:}"; nombre="${spec%@*}"; ver="${spec##*@}"
+      curl -sS -m 25 -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/${nombre/\//%2F}/$ver" 2>/dev/null
+      return ;;
+  esac
   ref="$1"; ref="${ref%%@*}"
   resto="${ref##*/}"; sinTag="${ref%:*}"
   case "$resto" in *:*) tag="${resto##*:}" ;; *) tag="latest" ;; esac
@@ -175,7 +217,7 @@ resolver() { # $1 = referencia -> 0 si se puede descargar anónimamente
 }
 
 MAL=0; BIEN=0; TOTAL=0
-printf '\n\033[1m== Imágenes externas (compose + workflows): ¿clavadas? ==\033[0m\n\n'
+printf '\n\033[1m== Imágenes externas (compose + workflows) y CLIs npm globales de los workflows: ¿clavadas? ==\033[0m\n\n'
 while IFS=$'\t' read -r fichero servicio imagen; do
   [ -n "${imagen:-}" ] || continue
   TOTAL=$((TOTAL+1))

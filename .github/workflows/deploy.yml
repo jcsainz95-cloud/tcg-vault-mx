@@ -267,7 +267,7 @@ jobs:
         name: Marcar el instante ANTES del deploy (procedencia)
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - name: Instalar Railway CLI
-        run: npm i -g @railway/cli@latest
+        run: npm i -g @railway/cli@5.63.1  # RL-SEC-2: fijada (vigente en npm el 2026-10-05); la vigila scripts/check-compose-images.sh
       - name: Deploy backend a Railway (staging)
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -296,7 +296,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Instalar Vercel CLI
-        run: npm i -g vercel@latest
+        run: npm i -g vercel@62.4.0  # RL-SEC-2: fijada (vigente en npm el 2026-10-05); la vigila scripts/check-compose-images.sh
       - name: Deploy frontend a Vercel (preview/staging)
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -518,7 +518,7 @@ jobs:
           echo "::notice::Antes de promover: toma snapshot / point-in-time de la DB de PROD."
           echo "::notice::Railway Postgres: Backups > Create backup (o point-in-time). Ver DEVOPS_NOTES §7."
       - name: Instalar Railway CLI
-        run: npm i -g @railway/cli@latest
+        run: npm i -g @railway/cli@5.63.1  # RL-SEC-2: fijada (vigente en npm el 2026-10-05); la vigila scripts/check-compose-images.sh
       - name: Deploy backend a Railway (production)
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -566,7 +566,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Instalar Vercel CLI
-        run: npm i -g vercel@latest
+        run: npm i -g vercel@62.4.0  # RL-SEC-2: fijada (vigente en npm el 2026-10-05); la vigila scripts/check-compose-images.sh
       - name: Deploy frontend a Vercel (production)
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
