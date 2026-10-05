@@ -2,8 +2,17 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.82.1** sobre rev
-> **v1.82**, stream «Arreglos del panel», rama `claude/arreglos-panel`; antes rev v1.80.10 y errata v1.80.9.1).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.82.2** sobre rev
+> **v1.82**, stream «Arreglos del panel», rama `claude/arreglos-panel`; antes errata v1.82.1, rev v1.80.10 y errata v1.80.9.1).
+>
+> **Errata v1.82.2 — RESPUESTAS A UX-UI (A-1, A-2, A-3 de `DESIGN_SYSTEM §60.12`) Y DESBLOQUEO DE F-26 (2026-10-05,
+> arquitecto, árbol `/home/user/tcg-panel`, HEAD dado por el orquestador `ba6a2ac3`; ⛔ sha NO MEDIDO: sin Bash).**
+> ⛔ **Sin conducta nueva:** sin schema, sin migración, sin enum, sin endpoint, sin campo, sin código de error. Norma
+> entera: **[§PNL.11](#PNL-11)**. Resumen: **A-1** (devolución SPEI visible en «Retiros») ⇒ **no** en este stream, deuda
+> `D-PNL-A1`; **A-2** (`GET /admin/shipments?q=` ¿dice si es directo?) ⇒ **ya lo dice**: `kind` y `orderId` por fila (§M4
+> v1.21.2), sin cambio; **A-3** (`imageLargeUrl` en preparación) ⇒ **no**, deuda `D-PNL-A3`. **F-26** (retiro de M8)
+> queda **desbloqueado**: la errata que esperaba `DESIGN_SYSTEM §60.8` es §PNL.10.7 (v1.82.1); va en **un commit propio**
+> (revertible, §PNL.10.7 paso 3 (b)).
 >
 > **Errata v1.82.1 — RESPUESTAS A BACKEND (§58, §59), 💰 LA DECISIÓN POR CARTA YA NO TOCA UNA CARTA QUE ES INVENTARIO,
 > 💰 LA CONVERSIÓN A INVENTARIO GANA SU CAS, Y M8 SE RETIRA (2026-10-05, arquitecto, árbol `/home/user/tcg-panel`, rama
@@ -12836,6 +12845,22 @@ ella si hay una. **Backend:** ninguna nueva (DSC-4 sigue: lecturas y `resolve` `
 |---|---|---|---|
 | **P-INT-GRADED** | `graded-estimate` (integración): **8 rojos** en la corrida completa de backend (`BACKEND_NOTES §59.4`, N = 1 corrida); **verde aislada 2/2** (backend) y verde en la dirigida ×3 (205/205). Parece depender del orden; NO diagnosticado | backend, stream «Catálogo y precios» (`catalog`/`pricing`) | corrida completa N ≥ 5 con el orden registrado, y la suite sola tras la que la precede en la corrida roja |
 | **P-INT-CEQ1-VAULTS** | `C-EQ-1` fila 2 `GET /admin/vaults?sort=`: **2/3 rojo** sobre la BD ya usada por la corrida completa, **3/3 verde** sobre BD recién creada; la base `7ce3bff4` **3/3 verde** sobre BD nueva; base sobre BD usada: NO MEDIDO (`BACKEND_NOTES §58.6`, backend) | backend, stream «Inventario y vault» (`vault`) | la base `7ce3bff4` sobre BD usada, N ≥ 3: si también es roja, no es de este stream (dependencia de datos de la propia prueba) |
+
+##### <a id="PNL-11"></a>PNL.11 — Errata v1.82.2 (2026-10-05): respuestas A-1…A-3 de `DESIGN_SYSTEM §60.12` y F-26
+
+⛔ **Ninguna cambia conducta.** Leído por el arquitecto en `/home/user/tcg-panel` el 2026-10-05 con `Read`/`Grep` (sha
+NO MEDIDO: sin Bash).
+
+| # | Pregunta (ux-ui) | Decisión | Por qué | Queda |
+|---|---|---|---|---|
+| **A-1** | El cliente no ve en «Retiros» la devolución por SPEI de una carta de un retiro entregado (`withdrawal_delivered`) | **No se añade campo en este stream.** El cliente se entera por el correo AV-14 variante `withdrawal_delivered` (correo 25, `DESIGN_SYSTEM §60.11` backend). ⛔ La pantalla **no** infiere la devolución de otro campo (p. ej. de `replacement`, que es de los casos «Por reponer») | Un campo nuevo en `ShipmentDTO.items[]` toca `shipments` (zona que `claude/skydropx-d` reescribe, `ARCHITECTURE §4.61.6`) y su DTO; el remedio (el SPEI) ya existe y se avisa. Es visibilidad, no dinero | Deuda **`D-PNL-A1`** (dueño: arquitecto diseña `items[].deliveredRefund: { amountCents, status } \| null` tras fusionar Skydropx; backend + frontend construyen). No bloquea |
+| **A-2** | ¿Trae `GET /admin/shipments?q=` si la fila es un directo, para avisar antes del `409 … not_withdrawal`? | **Ya lo trae, sin cambio:** cada fila lleva **`kind: 'vault_withdrawal' \| 'guest_direct_ship'`** (§M4 v1.21.2, derivación normativa por `Order.fulfillmentMode`) y `orderId`. **Regla de pantalla (paso 1 de §60.4):** solo una fila con `kind = 'vault_withdrawal'` **y** `status = 'entregado'` ofrece la acción de §60.4 (texto de ux-ui); cualquier otra fila se muestra sin acción. El `409 ITEM_REFUND_NOT_AVAILABLE {reason}` del verbo sigue siendo la guarda; la pantalla solo evita invitar a un clic que fallará | ⚠️ El nombre `guest_direct_ship` es histórico: en producción **todo** envío directo (también el de un comprador con cuenta) se escribe con `userId: null` y se deriva por `fulfillmentMode`, así que `kind ≠ 'vault_withdrawal'` ⇔ «no es retiro». ⛔ La pantalla **no** usa `orderId != null` como discriminador (§M4 v1.21.2) | Frontend: **deseable** (sin él, el verbo responde `409` con su texto). Prueba sugerida: mock con una fila `guest_direct_ship` `entregado` ⇒ sin acción; mutación: ofrecerla ⇒ rojo |
+| **A-3** | `PreparationItemDTO.card` solo trae `imageSmallUrl`; ¿`imageLargeUrl` para ampliar en el celular? | **No en este stream.** El visor de §60.9 (MOB-4) amplía `imageSmallUrl` | Añadir el campo toca el DTO de preparación (`shipments`, misma zona que A-1) por un beneficio de lectura que el dueño no pidió | Deuda **`D-PNL-A3`** (arquitecto + backend + frontend). No bloquea |
+| **F-26** | `DESIGN_SYSTEM §60.8` / `FRONTEND_NOTES §88`: «solo tras la errata del arquitecto» | **Desbloqueado:** la errata es §PNL.10.7 (v1.82.1). Se construye tal cual, con dos precisiones ya escritas allí y que ux-ui debe reflejar en §60.8: (1) los correos 20/21 **no** se retiran (backend sin cambio); (2) la API de disputas **no** se retira. **Un commit propio** que contenga solo F-26 (menú, ruta, tablero, pestaña de M6, textos, fila del candado de títulos), para poder revertirlo solo si la medición (b) da alguna disputa | §PNL.10.7 paso 3 | Frontend; ¿imprescindible para salir? **No**: con M8 visible nada se rompe (la API sigue). Lo decide el orquestador |
+
+⛔ **FE-BRJ-4 no se responde aquí:** la norma (`409 CONFLICT {reason:'ITEM_FINAL'}` distinto de `CONCURRENT_UPDATE`) ya
+está en §PNL.10.6; lo que falta es **el texto**, que es de ux-ui (`DESIGN_SYSTEM`; `Grep "ITEM_FINAL"` en
+`docs/DESIGN_SYSTEM.md` = 0 y en `frontend/` = 0, 2026-10-05).
 
 ---
 

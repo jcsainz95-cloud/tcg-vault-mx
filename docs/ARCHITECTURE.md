@@ -27330,6 +27330,18 @@ PNL-6, PNL-1 backend, F-4 y F-11. Lo que conviene **después** de que D2g fusion
 | E-6/E-7/E-8 | backend (prueba WDR-11) + frontend (tipo) | `backend/test/integration/pnl-delivered-refunds.e2e-spec.ts`; `frontend/src/types/contract.ts` | E-7 sí |
 | E-2 front, E-9 | frontend + ux-ui | `(admin)/admin/m5/M5View.tsx`, `lib/error-audience.ts`; `components/layout/AdminSidebar.tsx:66`, `admin/AdminDashboard.tsx:128-136`, `admin/m8/*`, `admin/m6/M6View.tsx:907-908, 986-988`, `AdminPageTitles.test.tsx`, `messages/{es,en}.json` | No |
 
+#### 4.61.8 Errata v1.82.2 — por qué (2026-10-05; norma en `API_CONTRACT §PNL.11`)
+
+- **A-1 y A-3 se difieren, no se rechazan.** Los dos piden un campo en DTOs de `shipments`, la zona que `claude/skydropx-d`
+  reescribe (§4.61.6). Abrir esa zona para visibilidad (no dinero) el día que se quiere salir en vivo obliga a serializar
+  con Skydropx por un beneficio que el correo AV-14 (A-1) y el visor de la imagen pequeña (A-3) ya cubren. Quedan como
+  deuda `D-PNL-A1`/`D-PNL-A3` con diseño posterior a la fusión de Skydropx.
+- **A-2 ya estaba resuelto por el contrato:** `kind` es el discriminador de la fila de M4 desde v1.21.2. Que ux-ui lo
+  preguntara indica que el nombre `guest_direct_ship` engaña (también cubre al comprador con cuenta); se deja escrito en
+  §PNL.11, ⛔ sin renombrar (rompería el eje `?kind=` de clase R, §0-Q).
+- **F-26 en commit propio:** la medición (b) de §PNL.10.7 puede obligar a revertir solo la retirada de M8; si va mezclada
+  con FE-BRJ-4 u otro texto, el revert arrastra lo que no debe.
+
 ---
 
 ## 5. Decisiones transversales
