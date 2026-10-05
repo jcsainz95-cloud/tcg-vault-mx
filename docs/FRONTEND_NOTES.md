@@ -19672,3 +19672,24 @@ stripeFees − shippingCost − refunds − refundedFees − compensations` (`:1
 `(admin)/admin/m7/M7View.pnl.test.tsx` (fixture N-PNL-1 + UX-PNL-1…5, UX-PNL-5 en ES y EN) y `lib/i18n-pnl.test.ts`
 (UX-PNL-6). Rojo previo medido: 18 de 20 rojas antes del código (las 2 verdes, paridad y P66-3, lo son en vacío).
 `M7View.test.tsx` actualiza la ganancia esperada a MX$5,340.00 por el cambio del fixture.
+
+### 95.5 Suites y mutaciones (medido por mí, copia del árbol entero `git archive HEAD` d1184262 + mis ficheros)
+- `tsc --noEmit` 0 · `next lint` sin avisos · `vitest run` **236/236 ficheros, 2927/2927 pruebas** (carga al arrancar 7.97).
+- Mutaciones sobre otra copia, cada una **N=3**, sobre `M7View.pnl.test.tsx` + `i18n-pnl.test.ts` + `i18n-parity.test.ts`
+  (línea base 65/65 verde): quitar el renglón de reembolsos (UX-PNL-1/4) **3/3 rojo**; «Incluye» ajustes como `pnl-line`
+  con signo (UX-PNL-1/2/4) **3/3**; `−` visible en el sub-renglón (UX-PNL-2) **3/3**; «Incluye» sin `> 0` (UX-PNL-2) **3/3**;
+  `!= null` en vez de `> 0` (UX-PNL-2) **3/3**; ganancia calculada en el cliente (UX-PNL-3) **3/3**; esconder un renglón con
+  signo en 0 (UX-PNL-4) **3/3**; quitar el `sr-only` (UX-PNL-5) **3/3**; «resta» `sr-only` en un «Incluye» (UX-PNL-5) **3/3**;
+  `text-danger` en el monto de un «Incluye» (UX-PNL-2) **3/3**; `data-sign` en un «Incluye» (UX-PNL-2) **3/3**; borrar
+  `signAdds` de `en.json` (UX-PNL-5/6) **3/3**; quitar «Stripe» de la fórmula (UX-PNL-6 y §29.4b) **3/3**; «(M-1)» en un rótulo
+  (UX-PNL-6) **3/3**.
+- ⚠️ **Hallazgo:** el grep P66-3 tal como lo escribe §43.23.5 (`\b(M1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b`) **no caza «M-1»** (el guion):
+  en la primera tirada de esa mutación solo se puso roja la prueba de texto exacto. `i18n-pnl.test.ts` usa `M-?1?[0-9]`;
+  medido: «(M-1)», «(M7)», «(AG-7)» ⇒ prueba P66-3 roja 3/3 cada uno; textos reales verdes. Los demás candados P66-3 del
+  proyecto (`i18n-shipping-alerts`, `i18n-skydropx`, `AdminPageTitles`) usan el patrón sin guion: NO MEDIDO si alguno
+  debería ampliarse (para ux-ui / orquestador).
+
+### 95.6 Notas para otros roles
+- **NO MEDIDO / para arquitecto-backend:** `admin.service.ts:1784` suma `insuranceCostCents` tal cual, mientras
+  `shippingCostCents` es NETO de IVA (`:1781`). Si `insuranceCostCents` llega con IVA, el «Incluye seguro del envío» estaría
+  en una base distinta del renglón que lo contiene (y en teoría podría excederlo). No lo medí; solo lo leí.
