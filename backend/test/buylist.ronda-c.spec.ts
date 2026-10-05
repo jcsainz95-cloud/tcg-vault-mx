@@ -72,7 +72,9 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
         }),
         // v1.24-buylist-request-reject: la auto-transición cuenta ítems no-rechazados restantes;
         // default 1 (≥1 vivo) ⇒ NO auto-rechaza en estos tests item-céntricos.
-        count: jest.fn(async () => 1),
+        // v1.82.3 · §PNL.12 — la auto-transición lee las líneas que CUENTAN (`readClosureRule`, un
+        // `findMany`). ≥1 viva ⇒ NO auto-rechaza (mismo efecto que el `count: 1` de antes).
+        findMany: jest.fn(async () => [{ itemStatus: 'aprobada' }]),
       },
       sellRequest: {
         update: jest.fn(async (args: any) => {
@@ -100,6 +102,8 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
       },
       // v1.24 (endurecimiento §4.18f): la auto-transición del reject corre count+updateMany en un
       // $transaction Serializable; el mock ejecuta el callback con `prisma` como `tx`.
+      // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+      $queryRaw: jest.fn(async () => [{ id: "locked" }]),
       $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
     };
     const svc = new BuylistService(
@@ -202,6 +206,8 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
         }),
       },
       sellRequestItem: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+      $queryRaw: jest.fn(async () => [{ id: "locked" }]),
       $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
     };
     const svc = new BuylistService(
@@ -232,6 +238,8 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
       // v1.28 (P-22): el pago corre en $transaction (conteo de bounty en la misma tx); sin ítems
       // bounty el conteo es no-op.
       sellRequestItem: { findMany: jest.fn().mockResolvedValue([]) },
+      // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.
+      $queryRaw: jest.fn(async () => [{ id: "locked" }]),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const svc = new BuylistService(

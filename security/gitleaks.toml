@@ -103,6 +103,13 @@ regexes = [
   # ponían rojo un run: esto deja limpio el modo `git` manual/local.
   '''^A-Strong-Secret-123$''',
   '''^asB64\.length$''',
+  # Skydropx C-TL-1 (2026-10-05): `tok-de-prueba-123` es el token FICTICIO de
+  # la URL de seguimiento en backend/test/sdx-tl31af.units.spec.ts:193
+  # (commit 0b630899; `...pedido?token=tok-de-prueba-123`). generic-api-key lo
+  # ve como secreto por el nombre `token=`. Se permite por VALOR EXACTO anclado
+  # (como `A-Strong-Secret-123`), sin patron amplio: cualquier otro `token=...`
+  # sigue siendo rojo.
+  '''^tok-de-prueba-123$''',
   # PR #70 (claude/staff-sin-correo, 2026-10-04): contraseñas de FICCIÓN en
   # pruebas de integración de backend; CI (rango de la PR) las marcaba como
   # generic-api-key. Medido: solo aparecen en esas specs, en ningún .env ni
@@ -114,6 +121,12 @@ regexes = [
   #       backend/test/integration/stf-errata-v1-80-9-1.e2e-spec.ts (1d946722).
   '''^Otra-STF-98765$''',
   '''^Rescate-STF34-$''',
+  # Skydropx (2026-10-05): `operator_label_cap_24h_cents` es el NOMBRE de un
+  # dial de settings (no un secreto) usado como `key: '...'` en
+  # backend/test/integration/sdx-d2g-owner.e2e-spec.ts:97 (55b82ecb) y
+  # backend/test/sdx-d.dials.spec.ts:78 (62f89781); generic-api-key lo marcaba
+  # por el nombre `key:`. Por VALOR EXACTO (anclado), sin patron amplio.
+  '''^operator_label_cap_24h_cents$''',
   # claude/listo-real (2026-10-05): secretos JWT de FICCIÓN en una prueba
   # unitaria de backend; CI (rango de la rama) los marcaba como generic-api-key.
   # Medido: solo aparecen en backend/test/auth.session-max-age.spec.ts (6a227527),

@@ -171,7 +171,7 @@ function harness(rarity: string | null) {
     priceReference: { findMany: jest.fn(async () => []) },
   } as unknown as PrismaService;
 
-  const settings = { getNumber: jest.fn(async () => 70), getRaw: jest.fn(async () => null) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70), getRaw: jest.fn(async () => null) } as unknown as SettingsService;
   const pricing = new PricingService(prisma, settings, {} as FxService, {} as never, {} as never, {} as never);
   jest.spyOn(pricing, 'loadPricingCurve').mockResolvedValue(DEFAULT_PRICING_CURVE);
   // v1.80.8.5 (`M2-PF`): el dial de VENTA en su seed (sin fila). Las chases de este ciclo son SIR ⇒

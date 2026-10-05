@@ -1,7 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { CardImage } from '@/components/ui/CardImage';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { formatAge, formatDate } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
@@ -76,10 +79,52 @@ export function CardInfo({
   nameId?: string;
   t: Translator;
 }) {
+  const tp = useTranslations('admin.m4.prep.photo');
+  const [viewerOpen, setViewerOpen] = useState(false);
   return (
     <>
-      {/* `imageSmallUrl` es nullable: sin foto queda el pozo de papel, nunca un roto. */}
-      <CardImage src={card.imageSmallUrl} alt={card.name} className="w-16 shrink-0" />
+      {/* `imageSmallUrl` es nullable: sin foto queda el pozo de papel, nunca un roto — y SIN disparador.
+          §60.9 c: 72 px en `< sm` (64 en escritorio) y un toque la amplía para cotejarla en el estante. */}
+      {card.imageSmallUrl ? (
+        <button
+          type="button"
+          onClick={() => setViewerOpen(true)}
+          aria-label={tp('view', { card: card.name })}
+          className="w-[72px] shrink-0 self-start focus-visible:shadow-focus focus-visible:outline-none sm:w-16 print:pointer-events-none"
+          data-testid="prep-photo-trigger"
+        >
+          <CardImage src={card.imageSmallUrl} alt={card.name} />
+        </button>
+      ) : (
+        <CardImage src={card.imageSmallUrl} alt={card.name} className="w-[72px] shrink-0 sm:w-16" />
+      )}
+      {card.imageSmallUrl && (
+        <Modal
+          open={viewerOpen}
+          onClose={() => setViewerOpen(false)}
+          title={card.name}
+          footer={
+            <Button variant="secondary" className="min-h-[44px] w-full sm:w-auto" onClick={() => setViewerOpen(false)}>
+              {tp('close')}
+            </Button>
+          }
+        >
+          <div className="flex flex-col items-center gap-3" data-testid="prep-photo-viewer">
+            {/* El DTO de preparación solo trae `imageSmallUrl` (§60.12 A-3): se amplía a lo ancho, máx. 320 px. */}
+            <CardImage src={card.imageSmallUrl} alt={card.name} className="w-full max-w-[320px]" />
+            <p className="self-stretch text-sm text-text" lang="en">
+              {card.name} · <span className="font-semibold">{card.setName ?? DASH}</span>
+            </p>
+            <p className="flex flex-wrap items-center gap-2 self-stretch text-sm">
+              <FinishMark finish={card.finish} band={false} />
+              <span className="text-text">{card.conditionLabel}</span>
+            </p>
+            <p className={`self-stretch ${LABEL}`}>
+              {t('folio')} <span className="tabular">{folio}</span>
+            </p>
+          </div>
+        </Modal>
+      )}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p id={nameId} className="font-serif text-lg leading-tight text-text" lang="en">
           {card.name}

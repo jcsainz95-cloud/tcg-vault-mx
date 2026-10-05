@@ -18,8 +18,9 @@ describe('M7View · Finanzas (P&L)', () => {
     expect(screen.getByText('Costo de envío (paquetería, neto)')).toBeInTheDocument();
     expect(screen.getByText('Ganancia del periodo')).toBeInTheDocument();
 
-    // Ganancia mock = 1250000 + 52500 − 640000 − 48300 − 31800 = 582400 cts = MX$5,824.00.
-    expect(await screen.findByText('MX$5,824.00')).toBeInTheDocument();
+    // Ganancia mock (§M4-SHIP.19.36.1) = 1250000 + 52500 − 640000 − 48300 − 31800 − 35000 − 1400 − 12000
+    // = 534000 cts = MX$5,340.00 (`profitCents` del fixture, pintado tal cual).
+    expect(await screen.findByText('MX$5,340.00')).toBeInTheDocument();
   });
 
   it('muestra valor de inventario, custodia e IVA acumulado', async () => {

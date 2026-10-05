@@ -5,7 +5,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { UploadsService } from '../src/modules/uploads/uploads.service';
-import { ADDRESS_DTO_KEYS } from '../src/modules/users/address-dto';
+import { ADDRESS_DTO_KEYS, ADDRESS_ROW_KEYS } from '../src/modules/users/address-dto';
 import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
@@ -40,6 +40,8 @@ const SUPER_KEYS = [
   'authProvider', 'avatarUrl', 'mustChangePassword', 'deletedAt', 'anonymizedAt', 'createdAt',
   'updatedAt', 'recentShipmentRecipients', 'kycProfile', 'billingProfile', 'addresses', 'orders',
   'sellRequests', 'disputes', 'ownedItems',
+  // ⭐ v1.80.12.12 (§M4-SHIP.19.31.8): `isOwner` en la raíz de las DOS fichas.
+  'isOwner',
 ].sort();
 
 /**
@@ -53,6 +55,7 @@ const OPERATOR_KEYS = [
   'id', 'email', 'username', 'lockedUntil', 'lockState', 'name', 'nameSource', 'phone', 'locale', 'role', 'status', 'emailVerified',
   'deletedAt', 'createdAt', 'updatedAt', 'kycProfile', 'billingProfile', 'addresses', 'orders',
   'sellRequests', 'disputes', 'ownedItems',
+  'isOwner',
 ].sort();
 
 /** `AdminKycProfileDTO` (§11). `rejectionReason` solo aparece en `rejected` (§M6-K.7): aquí no. */
@@ -100,6 +103,7 @@ function buildService() {
         anonymizedAt: null,
         createdAt: new Date('2026-01-01T00:00:00Z'),
         updatedAt: new Date('2026-01-02T00:00:00Z'),
+        isOwner: false,
         // ⛔ Columnas que JAMÁS pueden viajar (la BD las devuelve aquí a propósito).
         passwordHash: 'HASH',
         tokenVersion: 7,
@@ -197,8 +201,8 @@ describe('R-1 · la lista blanca vive en el `select` de la CONSULTA', () => {
     expect(Object.keys(args.select.sellRequests.select).sort()).toEqual(
       ['id', 'status', 'quotedTotalCents', 'createdAt'].sort(),
     );
-    // Las direcciones se piden con EXACTAMENTE las 11 columnas del `AddressDTO`.
-    expect(Object.keys(args.select.addresses.select).sort()).toEqual([...ADDRESS_DTO_KEYS].sort());
+    // Las direcciones se piden con EXACTAMENTE las columnas del `AddressDTO` (v1.81: 12; `complete` se deriva).
+    expect(Object.keys(args.select.addresses.select).sort()).toEqual([...ADDRESS_ROW_KEYS].sort());
   });
 });
 

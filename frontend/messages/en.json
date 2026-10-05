@@ -511,7 +511,6 @@
       "contactGroup": "CONTACT",
       "shippingGroup": "SHIPPING",
       "recipientName": "Recipient name",
-      "phoneHelp": "Only the courier uses it to deliver.",
       "errorSummary": "Check {count, plural, one {# field} other {# fields}}.",
       "formIncomplete": "Check the highlighted fields above (for example your phone) to continue to payment.",
       "acceptTerms": "I accept the terms and the privacy notice, and I understand that all sales are final.",
@@ -829,19 +828,15 @@
     "selectItem": "Select",
     "payTitle": "Pay shipping",
     "dispute": {
-      "open": "Open dispute",
-      "alreadyOpen": "Dispute open",
       "myDisputes": "My disputes",
-      "noDisputes": "You have no disputes.",
-      "deadline": "Deadline:",
-      "title": "Open a condition dispute",
-      "done": "Got it",
-      "cancel": "Cancel",
-      "submit": "Open dispute",
-      "descLabel": "Describe the issue",
-      "descPlaceholder": "E.g.: the card arrived with corner wear.",
-      "descHint": "At least 10 characters. Evidence (photos) is sent by email to support after opening the dispute.",
-      "errorTitle": "Could not open the dispute"
+      "deadline": "Deadline:"
+    },
+    "addressIncomplete": {
+      "required": "The selected address is missing {missing}. Complete it to pay for shipping and request the withdrawal.",
+      "generic": "The selected address is missing details for the label. Complete it to pay for shipping and request the withdrawal.",
+      "cta": "Complete address",
+      "notCharged": "The withdrawal wasn’t requested and nothing was charged: complete the address.",
+      "saved": "Address complete. Check the shipping cost and pay to request the withdrawal."
     }
   },
   "shipmentStage": {
@@ -1123,7 +1118,12 @@
         "cancelled": "cancelled"
       },
       "transferCancelledHelp": "If you don't know why, contact us.",
-      "originRefunded": "No longer in your vault: this order was refunded."
+      "originRefunded": "No longer in your vault: this order was refunded.",
+      "refundAfterDelivery": "Refunded · we refunded you {amount}",
+      "refundReasonAfterDelivery": {
+        "not_arrived": "didn't arrive",
+        "arrived_damaged": "arrived in bad condition"
+      }
     },
     "resume": {
       "cta": "Resume payment",
@@ -1154,7 +1154,8 @@
         "guia": "Tracking number",
         "enviado": "Shipped",
         "entregado": "Delivered"
-      }
+      },
+      "trackingLink": "Track with the carrier"
     }
   },
   "legal": {
@@ -1164,21 +1165,12 @@
     "refundTitle": "Refunds and final sales",
     "refundBody": "All sales are final. Once you buy a card, the sale is not eligible for a refund or cancellation.",
     "platformErrorTitle": "Exception: platform error",
-    "platformErrorBody": "If the problem is an error on our side —for example, a duplicate charge or a purchase with no real inventory backing it— we always refund you, with no need to open a dispute.",
-    "disputeTitle": "Exception: damaged or wrong card",
-    "disputeBody": "Another exception is receiving a damaged or wrong card. In that case you may open a condition dispute within 7 calendar days, counted from shipment delivery. Evidence is sent by email to our support inbox (no photo upload in the app).",
-    "disputeWindowNote": "The 7-day window starts on the day the shipment is delivered, not on the purchase or payment date.",
-    "disputeOutcome": "If the dispute is upheld, we compensate you for the damage or error and you keep the card: there is no product return.",
+    "platformErrorBody": "If the problem is our mistake —for example, a duplicate charge or a purchase with no real inventory behind it— we always refund you.",
     "questionsTitle": "Questions",
-    "questionsBody": "For any clarification about these terms, email us at soporte@tcghunt.mx."
-  },
-  "dispute": {
-    "evidenceTitle": "Send your evidence by email",
-    "evidenceBody": "Email your photos and evidence to our support inbox, citing your order or dispute number. No photo upload in the app.",
-    "copyEmail": "Copy email",
-    "copied": "Copied",
-    "mailSubject": "Condition dispute evidence {reference}",
-    "mailSubjectGeneric": "Condition dispute evidence"
+    "questionsBody": "For any question about these terms, write to {contact}.",
+    "deliveryIssueTitle": "Exception: a card arrived in bad shape or the package didn't arrive",
+    "deliveryIssueBody": "If a card reached you damaged or wrong, or the package didn't arrive, write to {contact} with your order or withdrawal number and, if you can, photos. We review the case and, if it applies, refund that card. You don't need to open anything in the store.",
+    "deliveryIssueOutcome": "If it applies, you keep the card: there's no product return."
   },
   "auth": {
     "loginTitle": "Log in",
@@ -1306,7 +1298,6 @@
       "m5": "Sell requests",
       "m6": "Users",
       "m7": "Finance",
-      "m8": "Disputes",
       "m9": "Reports",
       "m10": "Settings",
       "m11": "Sealed",
@@ -1316,7 +1307,9 @@
       "m4Badge": "{count, plural, one {# order to prepare} other {# orders to prepare}}",
       "m4BadgeOverdue": "with overdue cases",
       "manualRefundsBadge": "{count, plural, one {# pending transfer} other {# pending transfers}}",
-      "refunds": "Refunds"
+      "refunds": "Refunds",
+      "spendAlerts": "Spending alerts",
+      "spendAlertsBadge": "{count, plural, one {# unseen immediate alert} other {# unseen immediate alerts}}"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
@@ -1336,7 +1329,6 @@
       "dataHealth": "Data health",
       "launch": "Launch progress",
       "shipments": "Shipments",
-      "disputes": "Disputes",
       "pendingPrices": "Pending prices",
       "lastSync": "Last price sync",
       "lastFx": "Last FX rate",
@@ -1363,6 +1355,25 @@
         "title": "Refunds to review",
         "detail": "Reason missing · oldest {days, plural, one {# day} other {# days}} ago",
         "detailNone": "Nothing to review."
+      },
+      "spendControl": {
+        "title": "Spending control",
+        "unseen": "{immediate, plural, =0 {No immediate} one {# immediate} other {# immediate}} and {digest, plural, =0 {no summary alerts} one {# summary alert} other {# summary alerts}} unseen",
+        "labels24h": "Labels, last 24 h",
+        "personCap": "{name}: {cents} of {cap}",
+        "personNoCap": "{name}: {cents} · no limit",
+        "noLabels": "Nobody bought labels in the last 24 h.",
+        "more": "and {n} more"
+      },
+      "shippingAlerts": {
+        "title": "Shipping alerts",
+        "alerts": "{label} with a label alert · {carrier} with a carrier alert",
+        "alertsCarrierOnly": "{carrier} with a carrier alert",
+        "none": "No shipments with alerts.",
+        "overlap": "A shipment can have both alerts: it shows up once in the list.",
+        "processing": "{n, plural, one {# label in progress} other {# labels in progress}}",
+        "lowBalance": "Skydropx balance is low: buying labels may fail until it's topped up.",
+        "seeBalance": "See the balance"
       }
     },
     "m1": {
@@ -1467,19 +1478,23 @@
         "title": "Item detail",
         "certNumber": "Certificate",
         "movements": "Movement history",
-        "noMovements": "No movements recorded."
+        "noMovements": "No movements recorded.",
+        "sealedPriceByProduct": "Set by the product",
+        "seeSheet": "See in “Sealed prices”"
       },
       "publish": {
         "title": "Publish to Shop",
         "priceLabel": "Sale price (MXN)",
         "priceInvalid": "Enter a valid price (number ≥ 0).",
-        "priceRequiredSealed": "Sealed items require a manual price (MXN) to be published.",
+        "priceRequiredSealed": "No product: the owner sets this item's price.",
         "priceHint": "Optional: without a manual price, the sale price is derived from the reference on the server.",
         "action": "Publish",
         "unlist": "Unlist",
         "success": "Item published to Shop · {folio}.",
         "unlistSuccess": "Item unlisted · {folio}.",
-        "error": "We couldn't update the item."
+        "error": "We couldn't update the item.",
+        "sealedPricePending": "Not listed: the product has no price. The owner sets it in “Sealed prices”.",
+        "priceLabelSealed": "Price before VAT (MXN)"
       },
       "move": {
         "title": "Move to another location",
@@ -1552,10 +1567,10 @@
         "pendingPriceLink": "See in the pending price queue",
         "sealedMark": "SEALED",
         "sealedUnidentified": "Unidentified sealed product",
-        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set final price here.",
+        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set price here, before VAT.",
         "openPiece": "Open item {folio}",
         "basis": {
-          "manual": "hand-set final price",
+          "manual": "set by hand, before VAT",
           "market": "automatic",
           "floor": "floor",
           "override": "variant price",
@@ -1563,7 +1578,7 @@
         },
         "reason": {
           "location": "No location: it goes on sale by itself once you set one.",
-          "sealedNoPrice": "This sealed item has no automatic price: set a final price.",
+          "sealedNoPrice": "No market and no owner price: it's set in “Sealed prices”.",
           "no_market": "The provider has no market price for this card.",
           "premium_at_floor": "Premium rarity with market below the floor: held for review.",
           "seeRule": "See the rule",
@@ -1576,7 +1591,8 @@
           "buylist": "Bought from a seller",
           "compra": "Direct purchase",
           "unknown": "Unknown origin"
-        }
+        },
+        "sealedPriceLink": "Price it in “Sealed prices”"
       }
     },
     "m3": {
@@ -1646,7 +1662,8 @@
           "order_remaining": "Rest of the order",
           "shipment_fee": "Withdrawal cost",
           "order_full": "Full order",
-          "case_refund": "“To replace” case"
+          "case_refund": "“To replace” case",
+          "item_delivered": "Card after delivery"
         },
         "retry": "Retry",
         "viewTransfer": "View transfer"
@@ -1775,6 +1792,37 @@
       "unsettledRefund": {
         "title": "Refunded before it was paid",
         "body": "Stripe refunded this order before the store marked it as paid, so it was never prepared. The cards it was holding went back on sale by themselves; each one shows “Released by refund” in its history."
+      },
+      "deliveredRefund": {
+        "cta": "Refund this card · {amount}",
+        "notRefundable": {
+          "not_delivered": "It can be refunded once its shipment is delivered.",
+          "order_not_settled": "The order is no longer settled: it isn't refunded per card.",
+          "legacy_convention": "Order from before VAT-inclusive prices: it isn't refunded per card from here."
+        },
+        "title": "Refund a delivered card",
+        "amount": "{amount} will be refunded",
+        "amountHint": "The card plus its share of the processing fee, no shipping. The system calculates it and it can't be edited.",
+        "legend": "What happened to this card? (required)",
+        "noteLabel": "What happened",
+        "noteHint": "Required, 3 to 500 characters. Saved in the audit log; the customer doesn't see it.",
+        "effects": "The order stays settled. The card doesn't go back into inventory: the customer has it. The customer gets an email with what was refunded.",
+        "confirm": "Refund {amount}",
+        "done": "{amount} refund {state, select, requested {sent to Stripe} other {accepted by Stripe}} for {card}. Reason: “{reason}”.",
+        "error": {
+          "stale": "The amount changed while you were confirming: it's now {amount}. Nothing was refunded. Check it and confirm again.",
+          "notAvailable": {
+            "already_refunded": "This card had already been refunded. It wasn't refunded again.",
+            "not_delivered": "Its shipment no longer shows as delivered. Nothing was refunded.",
+            "order_not_settled": "The order is no longer settled: it was fully refunded or is disputed with the bank. Nothing was refunded.",
+            "legacy_convention": "Order from before VAT-inclusive prices: it isn't refunded per card from here. Nothing was refunded.",
+            "not_direct_ship": "This is a vault order: its cards aren't refunded this way. Nothing was refunded."
+          },
+          "forbidden": "Only the super-admin can refund. The attempt was logged.",
+          "invalidReason": "Pick “Didn't arrive” or “Arrived in bad condition”.",
+          "invalidNote": "Say what happened (3 to 500 characters).",
+          "conflict": "The refund couldn't be calculated without exceeding what was charged. Nothing was done. Tell the tech team."
+        }
       }
     },
     "m4": {
@@ -1793,7 +1841,296 @@
         "originRefunded": "{count, plural, one {One card in this withdrawal comes} other {# cards in this withdrawal come}} from a purchase being refunded: {items}. The tracking number wasn't saved. Undo the prepared mark so the card returns to the platform, or ask the super-admin to reclaim it.",
         "orderNotSettled": "This shipment's order is no longer settled ({status}): it was refunded or is disputed. The tracking number wasn't saved. The super-admin resolves it in Sales.",
         "goToPrepare": "Go to “Prepare”",
-        "goToReplace": "See under “To replace”"
+        "goToReplace": "See under “To replace”",
+        "sdx": {
+          "step": "Step {n} of 4 · {name}",
+          "stepName": {
+            "address": "Address",
+            "options": "Options",
+            "buy": "Buy",
+            "label": "Label"
+          },
+          "loading": "Loading the shipment…",
+          "loadError": "The shipment couldn't be loaded. You can enter the label by hand.",
+          "manual": "Enter by hand",
+          "manualIntro": "For a label you already bought in the Skydropx panel or with another carrier.",
+          "backToSkydropx": "Back to Skydropx",
+          "back": "Back",
+          "close": "Close",
+          "address": {
+            "recipient": "Recipient",
+            "line1": "Street and number",
+            "line2": "Interior",
+            "neighborhood": "Neighborhood",
+            "postalCode": "Postcode",
+            "city": "Municipality or borough",
+            "state": "State",
+            "phone": "Phone",
+            "references": "References",
+            "recipientMissing": "No recipient",
+            "neighborhoodNone": "Neighborhood missing",
+            "postalCodeNone": "No postcode",
+            "phoneNone": "No phone",
+            "noData": "No data",
+            "referencesNone": "No references",
+            "neighborhoodMissing": "The neighborhood is missing and Skydropx won't quote without it. Choose the one for postcode {cp}.",
+            "neighborhoodLabel": "Neighborhood (from the list for postcode {cp})",
+            "neighborhoodPlaceholder": "Choose a neighborhood",
+            "loadingNeighborhoods": "Looking up neighborhoods for postcode {cp}…",
+            "cta": "See shipping options",
+            "corrected": "Corrected by {name} · {datetime}.",
+            "unnamed": "an unnamed account",
+            "edit": "Correct address",
+            "scopeNote": "This only corrects where this package goes. The address saved in the customer's account and the one they entered at checkout don't change.",
+            "auditNote": "It's recorded in your name, along with what was there before.",
+            "field": {
+              "recipient": "Recipient",
+              "line1": "Street and number",
+              "line2": "Interior or apartment number (optional)",
+              "postalCode": "Postcode",
+              "references": "Notes for the courier (optional)",
+              "city": "Municipality or borough",
+              "state": "State"
+            },
+            "hint": {
+              "recipient": "Who receives the package. It goes on the label.",
+              "postalCode": "5 digits. When you change it, the neighborhood goes back to the new postal code’s list.",
+              "references": "For example: black gate, between streets… Up to 70 characters; Skydropx doesn't accept more."
+            },
+            "cityState": "Municipality and state: {city}, {state} (from the postcode).",
+            "phoneReadOnly": "Phone: {phone}. It can't be corrected here.",
+            "cpFirst": "Type the 5-digit postcode to see its neighborhoods.",
+            "cpUnknown": "Postal code {cp} isn’t in the neighborhood catalog. Check it; if it’s right, type the neighborhood, municipality and state.",
+            "save": "Save address",
+            "discard": "Discard changes",
+            "saving": "Saving the address…",
+            "saved": "Address corrected. It's recorded in your name.",
+            "unchanged": "Nothing to change: the address was already that.",
+            "conflict": "Someone else corrected this address while you were editing it. Your change wasn't saved. The current one is below: check it and, if it's still wrong, correct it again.",
+            "notInPreparation": "This shipment is no longer being prepared ({status}). The address wasn't saved.",
+            "alreadyLabeled": "This shipment already has a label. The address wasn't saved: once a label is bought, the address is the one on the label.",
+            "labelInProgress": "A label purchase is in progress for this shipment. The address wasn't saved.",
+            "forbidden": "Your account can't correct shipping addresses.",
+            "serverDown": "The address couldn't be saved: the server didn't respond. Nothing changed; try again.",
+            "invalid": {
+              "recipient": "Enter who receives it.",
+              "line1": "Enter the street and number.",
+              "postalCode": "The postcode is 5 digits.",
+              "references": "The notes don't fit on the label: shorten them (up to 70 characters).",
+              "other": "Check this field: the server didn't accept it."
+            },
+            "manualMark": "Typed in by the customer · not on postal code {cp}’s list",
+            "manualCityStateMark": "Municipality and state typed in: postal code {cp} isn’t in the catalog",
+            "manualReview": {
+              "neighborhood": "The customer typed the neighborhood in. Check it before viewing shipping options; if it’s misspelled, correct it.",
+              "all": "The customer typed the neighborhood, municipality and state in (postal code {cp} isn’t in the catalog). Check them before viewing shipping options; if anything is misspelled, correct it."
+            },
+            "notListedCta": "The neighborhood isn’t on the list",
+            "backToList": "Choose from the list for postal code {cp}",
+            "neighborhoodManualLabel": "Neighborhood (typed in)"
+          },
+          "quoting": "Getting quotes from Skydropx…",
+          "quotingHint": "It usually takes 2 to 7 seconds.",
+          "quotingSlow": "It's taking longer than usual. You can wait (up to 20 seconds) or enter it by hand.",
+          "options": {
+            "package": "Packed in: {label} · {length}×{width}×{height} cm · {kg} kg",
+            "changePackage": "Change packaging",
+            "insurance": "Insured for {coverage}. Insurance costs {cost} and is already included in every price.",
+            "insuredValue": "What's in the box is worth {value}.",
+            "charged": "Charged to the customer for shipping: {gross} ({net} before VAT).",
+            "validUntil": "Prices valid until {datetime}.",
+            "incomplete": "Skydropx didn't finish quoting within 20 seconds: these are the options it managed to return.",
+            "requote": "Quote again",
+            "tierTableNote": "For some options the insurance cost comes from your table in “Settings”: Skydropx didn't confirm it in this quote.",
+            "legend": "Choose a carrier",
+            "pickOne": "Choose an option to continue.",
+            "recommended": "Recommended",
+            "days": "{days, plural, one {# day} other {# days}} (carrier's estimate)",
+            "daysNone": "Days: no data",
+            "pickup": "Offers pickup (not scheduled from here)",
+            "dropoffAt": "No pickup: take it to {name}",
+            "dropoffAny": "No pickup: it has to be taken to a {carrier} branch",
+            "pickupNone": "Pickup: no data",
+            "home": "Home delivery",
+            "branch": "No home delivery: the customer collects at a branch",
+            "deliveryNone": "Delivery: no data",
+            "margin": "Margin: {amount}",
+            "marginNegative": "Margin: −{amount} — this shipment costs you more than you charged",
+            "plan": "Skydropx plan: {plan}",
+            "promo": "Promotion",
+            "promoNote": "“Promotion” marks Skydropx promotional rates: they may disappear without notice. “Plan” is the rate code exactly as Skydropx gives it.",
+            "packageLabel": "Packaging",
+            "packageOption": "{label} · {length}×{width}×{height} cm · {kg} kg",
+            "quotingPackage": "Getting quotes with the {label} packaging…",
+            "packagesError": "The packaging list couldn't be loaded.",
+            "showBranch": "Also show {count, plural, one {# option} other {# options}} without home delivery",
+            "hideBranch": "Hide options without home delivery",
+            "excluded": "{total, plural, one {# option isn't shown} other {# options aren't shown}}: {parts}.",
+            "excludedPart": {
+              "unavailable": "{n} not available via API",
+              "noCoverage": "{n} without coverage",
+              "notApplicable": "{n} not applicable",
+              "multipackage": "{n} multi-package",
+              "breakdownMismatch": "{n} with a breakdown that doesn't add up"
+            },
+            "emptyTitle": "Skydropx returned no options for this destination.",
+            "emptyBody": "Nothing was bought. Enter the label by hand with another carrier.",
+            "cta": "Continue with {carrier}",
+            "limitNote": "You can see the options, but you can't buy this label yourself: {reason}.",
+            "limitReason": {
+              "dailySpend": "you've reached your limit for the last 24 hours",
+              "reissue": "this shipment already had its rebuy"
+            }
+          },
+          "buy": {
+            "row": {
+              "amount": "Shipping",
+              "extra": "Fuel and surcharges",
+              "iva": "VAT",
+              "ivaComputed": "(calculated)",
+              "serviceFee": "Skydropx handling fee",
+              "insurance": "Insurance ({coverage} coverage)",
+              "total": "Total"
+            },
+            "charge": "{amount} will be charged to your Skydropx balance.",
+            "chargeStore": "{amount} will be charged to the store's Skydropx balance.",
+            "signature": "The purchase is logged in your name, with the option you chose and the one that was recommended.",
+            "cancelWindow": "A purchased label can only be cancelled until the carrier picks it up.",
+            "confirmNegative": "Negative margin: −{amount}. This shipment costs you more than you charged the customer. Buying confirms it.",
+            "confirmBranch": "This option doesn't deliver to the door: the customer will have to collect it at a branch. Buying confirms it.",
+            "cta": "Buy label for {amount}",
+            "buying": "Buying… don't close this window.",
+            "disabled": "Label buying is turned off. It's turned on in “Settings › Shipping”. Meanwhile, enter the label by hand.",
+            "notEnabled": "Label buying isn't enabled on this server. Nothing was charged. Enter the label by hand.",
+            "superAdminOnly": "Right now only super admins buy labels (that's the setting in “Settings › Shipping”). Let one know, or enter the label by hand if you already have it.",
+            "limit": {
+              "dailySpend": "You've reached your label limit for the last 24 hours. The owner can buy it; you can enter it by hand if you already have the label.",
+              "reissue": "This shipment already had its label rebuy. The owner buys the next one; you can enter it by hand if you already have the label."
+            }
+          },
+          "label": {
+            "title": "Label purchased",
+            "tracking": "Tracking: {number}",
+            "copy": "Copy tracking number",
+            "copied": "Copied",
+            "charged": "{amount} was charged to the Skydropx balance.",
+            "print": "Print label",
+            "download": "Download PDF",
+            "printError": "The label couldn't be opened. Try again in a moment.",
+            "notReady": "The label isn't ready in Skydropx yet. It will show up on the shipment card; check back in a few minutes.",
+            "trackingLink": "Tracking with the carrier",
+            "newTab": "(opens in a new tab)",
+            "emailSent": "We sent the customer the email with their tracking number.",
+            "done": "Done",
+            "saved": "Label purchased for {ref}: {carrier} · {number}."
+          },
+          "processing": {
+            "title": "Label in progress",
+            "body": "Skydropx accepted the purchase but hasn't given the tracking number yet. We'll wait for it here for a few minutes.",
+            "checking": "Checking…",
+            "timeout": "Still in progress. You can close: the number arrives on its own, the card will show it and the customer will get their email then.",
+            "inProgress": "This label is already being bought (someone requested it a moment ago). No other was bought.",
+            "providerError": "Skydropx reported a problem while creating the label; we kept it so it can be checked. Don't buy it again: if the tracking number doesn't arrive, the shipment card will let you know."
+          },
+          "inFlight": {
+            "title": "Purchase not confirmed",
+            "body": "Skydropx didn't answer in time and the system couldn't check on its own whether the label was created: {reason} Don't buy it again. This purchase no longer holds up other ones. A super admin can release it after searching the Skydropx panel for the reference below.",
+            "who": "Requested by {name} · {carrier} · {service} · since {time}.",
+            "notCreated": "Skydropx didn't create the label. Nothing was bought.",
+            "timeout": "Still unconfirmed. You can close this: if the label shows up, the card will show it.",
+            "checking": "Skydropx didn't answer. Checking whether the label was bought…",
+            "nothingBought": "Skydropx didn't respond and we checked: nothing was bought. You can try again.",
+            "whoBy": "Requested by {name}",
+            "whoSince": "since {time}"
+          },
+          "error": {
+            "labelPurchaseDisabled": "Label buying is turned off. Nothing was charged. It's turned on in “Settings › Shipping”; meanwhile, enter the label by hand.",
+            "providerOff": "Skydropx is turned off in “Settings”. Nothing was quoted or bought. Enter the label by hand.",
+            "insuranceTier": "What's in the box is worth {insuredValue} and the configured insurance covers up to {maxCoverage}. Without a tier that covers it, nothing is quoted or bought (every package is insured). Enter the label by hand and insure it in the Skydropx panel.",
+            "insuranceTierAdmin": "Add a tier in “Settings › Shipping”.",
+            "allowSpend": "Label buying isn't enabled on this server. Nothing was charged. Enter the label by hand.",
+            "origin": "The origin address is missing in “Settings › Shipping”. Nothing was quoted.",
+            "packages": "There's no active packaging with a Skydropx code in “Settings › Shipping”. Nothing was quoted.",
+            "consignmentNote": "The Carta Porte code is missing in “Settings › Shipping”. Nothing was bought.",
+            "env": "The Skydropx credentials are missing on the server. Nothing was quoted or bought. Let the super admin know.",
+            "addressIncomplete": "The address is missing {missing} and Skydropx won't quote without it. Nothing was quoted or bought. Correct it in step 1.",
+            "missing": {
+              "neighborhood": "the neighborhood",
+              "postalCode": "a 5-digit postcode",
+              "recipientName": "the recipient",
+              "line1": "the street",
+              "and": "and"
+            },
+            "phone": "The phone number doesn't have 10 digits. Skydropx requires it and it can't be corrected here: enter the label by hand.",
+            "rejectedQuote": "Skydropx rejected the quote for this address. Nothing was quoted.",
+            "rejectedLabel": "Skydropx rejected the purchase with this option. Nothing was charged and the shipment is unchanged.",
+            "chooseOther": "Choose another option",
+            "providerSays": "Skydropx says: “{message}”",
+            "balanceOwner": "Your Skydropx balance isn't enough for this label ({required}). Nothing was charged. Top up in the Skydropx panel and try again, or choose a cheaper option.",
+            "balanceOperator": "The store's Skydropx balance isn't enough for this label ({required}). Nothing was charged. Let the super admin know, or choose a cheaper option.",
+            "providerDownQuote": "Skydropx didn't respond. Nothing was quoted. Try again in a moment or enter the label by hand.",
+            "edgeBlocked": "The connection to Skydropx was blocked before it got there (it's a fault on our server, not Skydropx's). Nothing was quoted or charged. Retrying won't help: let the super admin know and enter the label by hand.",
+            "quoteExpired": "The prices expired and we quoted again. Nothing was bought. Check the new figure and choose again.",
+            "quoteExpiredAddress": "This shipment's address changed after the quote, so these prices are no longer valid. Nothing was bought. We quoted again with the new address: check it in step 1 and choose again.",
+            "previewStale": "The price changed while you were confirming: it's now {price} (margin {margin}). Nothing was bought. Check it and buy again.",
+            "confirmationRequired": "This option needs you to confirm {what}. Nothing was bought.",
+            "confirm": {
+              "negativeMargin": "that the margin is negative",
+              "branchDelivery": "that it doesn't deliver to the door"
+            },
+            "rateGone": "That option is no longer in the quote. Nothing was bought. Quote again.",
+            "alreadyLabeledSkydropx": "This shipment already has a Skydropx label. No other was bought or saved. To change it, cancel it from the card.",
+            "alreadyLabeledManual": "This shipment already has a label entered by hand. No other was bought.",
+            "labelInProgress": "A label purchase is already in progress for this shipment. Nothing was quoted.",
+            "autoCancelled": "The shipment was cancelled while Skydropx was responding ({status}). The label that got created was cancelled automatically so the balance comes back.",
+            "notInPreparation": "This shipment is no longer being prepared ({status}). Nothing was quoted or bought.",
+            "notPrepared": "This shipment isn't prepared yet: first tick its cards and mark it prepared in “Prepare”. Nothing was quoted or bought.",
+            "openReplacements": "This withdrawal has {count, plural, one {# card being replaced} other {# cards being replaced}}: it ships complete once each case is resolved. Nothing was quoted or bought.",
+            "orderNotSettled": "This shipment's order is no longer settled ({status}): it was refunded or is in dispute. Nothing was quoted or bought. The super admin resolves it in Sales.",
+            "originRefunded": "{count, plural, one {One card in this withdrawal comes} other {# cards in this withdrawal come}} from a purchase being refunded: {items}. Nothing was quoted or bought.",
+            "conflict": "The shipment changed while you were buying (for example, someone corrected the address). Nothing was bought. We've updated it: check it and try again.",
+            "forbiddenQuote": "Your account can't quote labels. Nothing was quoted.",
+            "superAdminOnly": "Right now only super admins buy labels. Nothing was charged and the attempt was logged.",
+            "limitNothing": "Nothing was charged and the attempt was logged.",
+            "rateAlreadyPurchased": "That carrier option was already used to buy another shipment's label, and Skydropx doesn't guarantee it works twice. Nothing was bought. Change the packaging to get a new quote, or enter the label by hand.",
+            "providerIdTaken": "Skydropx answered with a label that already belongs to another shipment. It wasn't saved on this one. Don't buy it again, here or in the Skydropx panel: the purchase stays on hold until a super admin reviews it.",
+            "purchaseInFlight": "Another label is being bought right now. Labels are bought one at a time so the system can check each purchase. Nothing was bought. You can try again in {wait}; meanwhile, don't buy this label in the Skydropx panel.",
+            "purchaseInFlightFolio": "Another label is being bought right now (shipment {folio}). Labels are bought one at a time so the system can check each purchase. Nothing was bought. You can try again in {wait}; meanwhile, don't buy this label in the Skydropx panel.",
+            "purchaseInFlightReady": "You can try again now. Nothing has been bought yet.",
+            "wait": {
+              "fewSeconds": "a few seconds",
+              "seconds": "{n} seconds",
+              "minutes": "{m}:{ss} minutes"
+            },
+            "attemptsExhausted": "This shipment can't take any more purchase attempts with Skydropx. Nothing was bought. Enter the label by hand.",
+            "stalePurchase": "Skydropx's answer arrived late, after this purchase had already been settled another way. It wasn't saved on this shipment; if it created an extra label, the system detects it and flags it."
+          },
+          "verify": {
+            "title": "Checking with Skydropx…",
+            "body": "Skydropx didn't answer in time. The system is checking on its own whether the label was created, by looking for its reference. Don't buy it again, here or in the Skydropx panel. It usually settles in a few minutes; at the latest by {time}.",
+            "bodyNoTime": "Skydropx didn't answer in time. The system is checking on its own whether the label was created, by looking for its reference. Don't buy it again, here or in the Skydropx panel.",
+            "folio": "Skydropx reference: {reference}",
+            "copy": "Copy reference",
+            "copied": "Reference copied",
+            "timeout": "You can close this: the result will show on the shipment card.",
+            "found": "Skydropx had created it after all: we found it by its reference. No other label was bought.",
+            "notCharged": "We checked with Skydropx: the label wasn't created and nothing was charged. You can buy it again.",
+            "notSent": "The purchase never reached Skydropx: no label was created and nothing was charged. You can buy it again.",
+            "manualVerified": "A super admin released it after we checked with Skydropx that it wasn't created. You can buy it again.",
+            "manual": "A super admin released it after checking the Skydropx panel. You can buy it again; if the earlier label shows up later, the system flags it as an extra label.",
+            "requote": "Get a new quote"
+          },
+          "reason": {
+            "conflict": "Skydropx answered with a label that already belongs to another shipment.",
+            "charged_not_found": "Skydropx took the money from the balance, but we couldn't find the label.",
+            "ambiguous": "We found a similar shipment in Skydropx, but couldn't confirm it's this one.",
+            "balance_moved": "The Skydropx balance moved for another reason, so it can't be used to check.",
+            "unreadable": "Skydropx didn't respond to the check.",
+            "not_calibrated": "We can't yet check on our own that a label wasn't created.",
+            "duplicate": "Skydropx created two labels for this same purchase.",
+            "none": "We're still finishing the check."
+          }
+        }
       },
       "queueTitle": "Customer shipments queue",
       "statusFilter": "Filter by status",
@@ -2075,7 +2412,13 @@
           "guide": {
             "cta": "Enter tracking number",
             "waiting": "This withdrawal is waiting for {count, plural, one {# card being replaced} other {# cards being replaced}}. Once every case is resolved, it ships complete. See “To replace”.",
-            "saved": "Tracking number saved for {ref}. It leaves the list."
+            "saved": "Tracking number saved for {ref}. It leaves the list.",
+            "processing": "Label in progress · {carrier} · since {time}",
+            "processingNoCarrier": "Label in progress · since {time}",
+            "viewProcessing": "See label in progress",
+            "inFlight": "Purchase not confirmed · {carrier} · since {time}",
+            "inFlightNoCarrier": "Purchase not confirmed · since {time}",
+            "viewInFlight": "See unconfirmed purchase"
           },
           "print": {
             "cta": "Print sheet",
@@ -2090,7 +2433,8 @@
             "back": "Back to Orders to prepare",
             "empty": "Nothing to print: the queue is empty.",
             "card": "Card"
-          }
+          },
+          "addressCorrected": "Address corrected"
         },
         "locate": {
           "action": "Locate",
@@ -2104,6 +2448,11 @@
           "noLocations": "There are no active platform stock locations. Create them in Inventory.",
           "confirm": "Save location",
           "error": "We couldn't save the location."
+        },
+        "addressToggle": "Shipping address",
+        "photo": {
+          "view": "View photo of {card}",
+          "close": "Close"
         }
       },
       "tabs": {
@@ -2112,7 +2461,8 @@
         "shipments": "Shipments",
         "overdueSuffix": "· {count, plural, one {# overdue} other {# overdue}}",
         "withCount": "{label}, {count, plural, one {# order} other {# orders}}",
-        "withCases": "{label}, {count, plural, one {# case} other {# cases}}"
+        "withCases": "{label}, {count, plural, one {# case} other {# cases}}",
+        "departure": "Today's drop-off"
       },
       "guest": "Guest",
       "preparedTag": "Prepared",
@@ -2311,11 +2661,154 @@
           "viewBucket": "View in the SPEI bucket"
         }
       },
-      "viewCustomerVault": "View vault"
+      "viewCustomerVault": "View vault",
+      "labelAlert": {
+        "unknown": {
+          "title": "Purchase without an answer",
+          "body": "Since {since}, Skydropx hasn't confirmed whether it created the label and the system couldn't check on its own: {reason} Don't buy it again.",
+          "superAdminOnly": "A super admin can release it after checking the Skydropx panel: let them know."
+        },
+        "stuck": {
+          "title": "Label stuck in progress",
+          "body": "Skydropx created the label more than {minutes, plural, one {# minute} other {# minutes}} ago (since {since}) and still hasn't given the number. It usually arrives on its own; if not, cancel it and buy another."
+        },
+        "cancelFailed": {
+          "title": "Cancellation not confirmed",
+          "body": "You asked to cancel this label on {since} and Skydropx didn't confirm it: the balance may not have come back. Try again.",
+          "retry": "Retry cancellation"
+        },
+        "liveOnCancelled": {
+          "title": "Live label on a cancelled shipment",
+          "body": "The shipment was cancelled, but label {number} had already gone out with the carrier (since {since}). Check it in the Skydropx panel and decide what to do.",
+          "noNumber": "without a number"
+        },
+        "retryDialog": {
+          "title": "Ask again to cancel label {number}?",
+          "body": "The cancellation was already requested and Skydropx didn't confirm it. We'll request it again; nothing is bought.",
+          "confirm": "Request cancellation again",
+          "done": "Skydropx confirmed the cancellation. The balance comes back.",
+          "already": "It was already confirmed. Nothing was done."
+        },
+        "orphan": {
+          "title": "Extra label in Skydropx",
+          "body": "Since {since}, Skydropx has a paid label from an earlier attempt on this shipment that isn't the one we use. It needs to be cancelled in the Skydropx panel to get the balance back: let a super admin know. Don't buy another one because of this."
+        }
+      },
+      "carrierStatus": {
+        "created": "Label created",
+        "picked_up": "Picked up",
+        "in_transit": "In transit",
+        "last_mile": "Out for delivery",
+        "delivery_attempt": "Delivery attempt failed",
+        "delivered_to_branch": "At the branch (customer must collect)",
+        "delivered": "Delivered",
+        "exception": "Exception",
+        "retained": "Held",
+        "in_return": "Being returned",
+        "destroyed": "Destroyed",
+        "canceled": "Cancelled by the carrier"
+      },
+      "label": {
+        "guide": "Skydropx label · {carrier} · {service} · {number}",
+        "noNumber": "no number yet",
+        "boughtBy": "Bought by {name} · {datetime}",
+        "notRecommended": "It wasn't the recommended one ({carrier}).",
+        "adjustments": "+ {n, plural, one {# adjustment} other {# adjustments}} from the carrier",
+        "adjustmentsLink": "See in the log",
+        "carrier": "Carrier: {status} · {date}",
+        "carrierNone": "Carrier: no data",
+        "alert": "Carrier notice: {status} · {date}.",
+        "alertNote": "It doesn't change the shipment's status: check it in the Skydropx panel and decide.",
+        "print": "Print label",
+        "notAvailable": "The label isn't available in Skydropx yet. Check back in a few minutes.",
+        "refresh": "Refresh tracking",
+        "refreshed": "Tracking refreshed.",
+        "refreshTooSoon": "You refreshed it a moment ago. Wait a minute.",
+        "refreshOff": "Skydropx is turned off: tracking isn't refreshed.",
+        "cancel": {
+          "cta": "Cancel label and buy another",
+          "title": "Cancel label {number}?",
+          "body": "It's cancelled in Skydropx and the balance comes back; if Skydropx doesn't return all of it, the difference is recorded as an adjustment in “Finance”. The shipment isn't cancelled: it goes back to “prepared” and you buy another label. The customer will get the email with the new label.",
+          "reason": "Why you're cancelling it (required)",
+          "reasonHint": "3 to 200 characters. It's logged.",
+          "confirm": "Cancel label",
+          "back": "Back",
+          "done": "Label cancelled. The shipment went back to “prepared”: you can enter another one now.",
+          "already": "That label was already cancelled. Nothing was done.",
+          "rejected": "Skydropx didn't accept the cancellation. The label is still live.",
+          "pickedUp": "The carrier already picked up the package ({status}): the label can no longer be cancelled.",
+          "status": "This shipment no longer allows changing the label ({status}).",
+          "notProvider": "This label was entered by hand: it is cancelled with the carrier, not here.",
+          "providerDown": "Skydropx didn't respond. The label is still marked for cancellation; try again."
+        },
+        "release": {
+          "cta": "Release",
+          "title": "Release this shipment?",
+          "body": "When you press it, we look again: if it exists, we adopt it and no other is bought; if not, the shipment goes back to “prepared”.",
+          "note": "What you checked (required)",
+          "noteHint": "10 to 300 characters.",
+          "confirm": "Search and release",
+          "adopted": "The label did exist and was adopted: {carrier} · {number}. No other was bought.",
+          "released": "There was no label in Skydropx. The shipment went back to “prepared”.",
+          "notInProgress": "This shipment no longer has a pending purchase. Nothing was done.",
+          "hasProviderId": "Skydropx did create this shipment; only its number is missing. It resolves on its own, or cancel the label.",
+          "tooEarly": "Not yet: wait {minutes, plural, one {# minute} other {# minutes}} before releasing.",
+          "intro": "The system couldn't check on its own whether Skydropx created this label: {reason} Before releasing it, look for it in the Skydropx panel with these details.",
+          "data": {
+            "reference": "Search the panel for",
+            "recipient": "Recipient",
+            "address": "Address",
+            "carrier": "Carrier",
+            "price": "Price",
+            "chosenBy": "Requested by",
+            "noReference": "This purchase never got a reference: look it up by recipient, time and price.",
+            "none": "no data",
+            "postalCode": "ZIP {cp}"
+          },
+          "conflict": {
+            "label": "I checked the Skydropx panel: the label Skydropx returned belongs to the other shipment and this one has no label of its own.",
+            "required": "Tick the box: this shipment had a conflict with another one and it has to be checked in the panel before releasing it."
+          },
+          "releasedVerified": "We checked with Skydropx that it wasn't created or charged. The shipment went back to “prepared”.",
+          "releasedNotSent": "The purchase had never gone out. The shipment went back to “prepared”.",
+          "releasedUnverified": "Released with your note: the system couldn't check it ({reason}). The shipment went back to “prepared”; if the label shows up later, it's flagged as an extra label.",
+          "providerConflict": "This shipment had a conflict with another shipment. Check it in the Skydropx panel and tick the box to release it."
+        },
+        "cost": "Cost {cost}",
+        "margin": "margin {margin}"
+      },
+      "departure": {
+        "title": "Today's drop-off",
+        "group": "{carrier} · {dropoff}",
+        "groupNoDropoff": "{carrier} · no branch configured",
+        "count": "{count, plural, one {# package} other {# packages}}",
+        "preferred": "Preferred",
+        "row": "{ref} · {recipient} · {city} · Label {number}",
+        "selectGroup": "Select the {carrier} ones",
+        "select": "Select {ref}",
+        "cta": "I dropped them off at the branch ({count})",
+        "confirmTitle": "Mark {count, plural, one {# package} other {# packages}} as shipped?",
+        "confirmBody": "Confirm it once they're at the branch. Each customer gets the email that their package has shipped. If the carrier had already reported it, no other is sent.",
+        "confirm": "Mark shipped",
+        "resultShipped": "{n} marked as shipped",
+        "resultAlready": "{n} had already shipped",
+        "resultRejected": "{n} weren't moved",
+        "rejectedRow": "It wasn't moved ({code}).",
+        "manualPending": "{count, plural, one {# shipment} other {# shipments}} with a hand-entered label to go out: they are marked in “Shipments”.",
+        "manualPendingLink": "Go to “Shipments”",
+        "empty": "Nothing to go out: no Skydropx labels waiting.",
+        "print": "Print list",
+        "printTitle": "Today's drop-off · {date}",
+        "withdrawal": "Vault withdrawal"
+      },
+      "folioFilter": "Only shipment {folio}",
+      "folioFilterRemove": "Remove the shipment {folio} filter",
+      "alertFilter": "Only shipments with a label alert or a carrier alert",
+      "alertFilterRemove": "Remove the alerts filter"
     },
     "m5": {
       "title": "Sell requests",
-      "receive": "Mark received",
+      "receive": "Received: start review",
       "verify": "Start verification",
       "approve": "Approve",
       "adjust": "Adjust",
@@ -2350,7 +2843,7 @@
       "rejectConfirm": "Reject and notify",
       "rejectRequest": "Reject request",
       "rejectRequestTitle": "Reject entire request",
-      "rejectRequestConsequence": "The request will be closed as rejected. This only applies once all of its items are already rejected; it moves no money and sends no emails (per-card notices already went out when each item was rejected).",
+      "rejectRequestConsequence": "The request will be closed as rejected. It only applies when all its items are already rejected; it doesn't move money or send emails (the seller already got the notice about the rejected cards).",
       "rejectRequestReasonLabel": "Internal reason (optional)",
       "rejectRequestReasonHint": "Optional, up to 500 characters. Kept in the audit log; not shown to the seller.",
       "rejectRequestConfirm": "Reject request",
@@ -2496,7 +2989,6 @@
         },
         "sent": "Offer issued: the email went out and the seller now has {netAmount} on the table.",
         "pendingAuthorization": "Prepared and waiting for super admin approval. The email has NOT been sent and nothing changed for the seller.",
-        "readOnly": "The offer is out: the desk is read-only.",
         "decline": {
           "action": "Decline",
           "title": "Decline this request",
@@ -2515,7 +3007,14 @@
           "confirm": "Cancel the offer and notify them",
           "done": "Offer on {id} cancelled: the request is back in “To offer”."
         },
-        "reasonTooLong": "The reason cannot be longer than 500 characters."
+        "reasonTooLong": "The reason cannot be longer than 500 characters.",
+        "readOnlyByStatus": {
+          "ofertada": "The offer is out and the seller has it. To change or close it, use “Cancel the offer” on the request.",
+          "aceptada": "The seller accepted: the request can no longer be cancelled. If a card arrives in bad condition, you reject it during review, with its reason.",
+          "en_transito": "The package is on its way. When it arrives, press “Received: start review” and reject there any cards that arrive in bad shape.",
+          "review": "It's under review: approve or reject each card on the request, or select several and “Reject selected”.",
+          "done": "There's nothing left to decide here for this request."
+        }
       },
       "shipment": {
         "title": "Label and shipping",
@@ -2602,21 +3101,39 @@
           "latestStatus": "Latest status",
           "note": "This is the list of people we owe an answer to. Oldest first."
         }
+      },
+      "receiveReview": {
+        "done": "Request {id} received and under review.",
+        "goVerifying": "Go to “Verifying”",
+        "verifyFailed": "We marked it as received, but the review couldn't be opened. Press “Start verification”."
+      },
+      "acceptedNote": "Accepted: it can no longer be cancelled. If a card arrives in bad condition, you reject it during review, stating the reason.",
+      "notBought": {
+        "tag": "NOT BOUGHT",
+        "note": "It was marked as not bought when the offer went out: it isn't approved or rejected."
+      },
+      "bulkReject": {
+        "all": "All that can be rejected ({n})",
+        "count": "{k, plural, one {# selected} other {# selected}}",
+        "selected": "Reject selected ({k})",
+        "allCta": "Reject all ({n})",
+        "hint": "Mark the cards that arrived in bad shape.",
+        "selectOne": "Select {card} · {folio}",
+        "title": "Reject {k, plural, one {# card} other {# cards}}",
+        "more": "and {r} more",
+        "reasonLabel": "Reason (the seller reads it in the email)",
+        "reasonHint": "One for all of them. E.g. “they arrived creased with worn edges”.",
+        "notice": "On confirming, the seller gets a single email with these cards, the reason and their options: they have 7 days to ask us to send them back (shipping at their cost); otherwise, after 30 days they're considered abandoned. If no card is left to approve after this, the request closes by itself.",
+        "confirm": "Reject {k} and notify them",
+        "done": "{k, plural, one {# card rejected} other {# cards rejected}}. The seller is notified in a single email.",
+        "closed": "The request is closed: no card is left to approve.",
+        "error": {
+          "notOffered": "{n, plural, one {One of the chosen cards wasn't} other {# of the chosen cards weren't}} part of the purchase: they were marked as not bought when the offer went out and aren't rejected. We removed them from the selection. Nothing was saved.",
+          "conflictItems": "{n, plural, one {One card can no longer be rejected} other {# cards can no longer be rejected}}: someone approved, converted or rejected them meanwhile. Nothing was saved. We've refreshed the list: check and try again.",
+          "closed": "This request is already closed: its cards can't be changed. Nothing was saved.",
+          "notFound": "A card no longer belongs to this request. We've refreshed the list. Nothing was saved."
+        }
       }
-    },
-    "m8": {
-      "title": "Disputes",
-      "empty": "No disputes right now.",
-      "emptyBody": "When a customer opens a dispute it will show up here to resolve.",
-      "resolveRepurchase": "Resolve with repurchase",
-      "resolveReject": "Reject dispute",
-      "resolveConfirm": "Confirm resolution",
-      "repurchaseQuestion": "Confirm the repurchase at the price paid? The customer keeps the card and money leaves the platform.",
-      "rejectQuestion": "Confirm rejecting this dispute?",
-      "noteLabel": "Resolution note",
-      "noteHint": "Required; recorded in the audit log.",
-      "resolvedRepurchase": "Dispute resolved with repurchase.",
-      "resolvedReject": "Dispute rejected."
     },
     "m2": {
       "title": "Catalog & pricing",
@@ -3609,14 +4126,18 @@
         "user_create": "Account created",
         "auth_password_changed": "Changed their password",
         "auth_logout": "Signed out"
-      }
+      },
+      "ownerProtected": "This is the owner's account: it can't be changed from another account.",
+      "ownerAccount": "This is the owner's account: it can't be reset, blocked or deleted from another account.",
+      "ownerAccountSelf": "This is your owner account: you can reset your password, but not block or delete it; the store would be left with nobody to receive spending alerts.",
+      "ownerTag": "Owner"
     },
     "m11": {
       "title": "Sealed",
-      "subtitle": "Add stock, price it and publish it. This is also where you refresh the whole collection's market prices.",
+      "subtitle": "Add product, review its prices and list it. You also refresh market prices for the whole collection here.",
       "inventory": {
         "title": "Sealed inventory",
-        "subtitle": "Add sealed product, edit price and format per piece, and publish or unpublish from each presentation's detail."
+        "subtitle": "Add sealed product, change its format, and list or unlist it from each product type's detail. Prices go in “Sealed prices”."
       },
       "queue": {
         "title": "Ready to publish (sealed)",
@@ -3718,6 +4239,83 @@
         "currentGroup": "Connected now to: {groupId}",
         "setMainCta": "Connect and refresh",
         "unlinkCta": "Disconnect"
+      },
+      "priceSheet": {
+        "title": "Sealed prices",
+        "subtitle": "One price per product, VAT included: what you write is what the customer pays for each item. If you don't set one, it sells at the automatic price (market + your margin + VAT). Write your own only where you want to decide.",
+        "filters": {
+          "set": "Set",
+          "allSets": "All",
+          "search": "Search product",
+          "scopeLegend": "Which products",
+          "onHand": "In stock only",
+          "all": "Include out of stock"
+        },
+        "col": {
+          "product": "Product",
+          "pieces": "Items",
+          "cost": "Average cost",
+          "owner": "Your price, VAT incl.",
+          "automatic": "Automatic, VAT incl.",
+          "effective": "Sells at, VAT incl.",
+          "net": "Before VAT",
+          "netHelp": "What's left of “Sells at” once VAT is taken out. The margin is calculated on this figure.",
+          "market": "Market",
+          "margin": "Margin",
+          "marginHelp": "Before-VAT price minus average cost. For information only."
+        },
+        "net": {
+          "rate": "VAT {rate}%"
+        },
+        "pieces": {
+          "inStock": "{n, plural, one {# in a box} other {# in boxes}}",
+          "listed": "{n, plural, one {# listed} other {# listed}}",
+          "reserved": "{n, plural, one {# held} other {# held}}",
+          "none": "out of stock"
+        },
+        "cost": {
+          "range": "{min}–{max}",
+          "without": "{n, plural, one {# without cost} other {# without cost}}",
+          "none": "no cost recorded"
+        },
+        "owner": {
+          "none": "not set"
+        },
+        "automatic": {
+          "subtype": "product-type margin +{pct} over market, before VAT",
+          "global": "general margin +{pct} over market, before VAT",
+          "none": "no market"
+        },
+        "origin": {
+          "product": "yours",
+          "automatic": "automatic",
+          "pending": "No price: not for sale"
+        },
+        "market": {
+          "asOf": "as of {date}"
+        },
+        "margin": {
+          "loss": "{pct} · loss",
+          "noPrice": "no price",
+          "noCost": "no cost"
+        },
+        "inactive": "Removed from catalog",
+        "legacy": {
+          "shadowed": "{count, plural, one {# item had its own price ({range}); it no longer counts: yours applies.} other {# items had their own price ({range}); it no longer counts: yours applies.}}",
+          "active": "{count, plural, one {# item charges its own price ({range}), not this row's.} other {# items charge their own price ({range}), not this row's.}}",
+          "shadowedNoRange": "{count, plural, one {# item had its own price; it no longer counts: yours applies.} other {# items had their own price; it no longer counts: yours applies.}}",
+          "activeNoRange": "{count, plural, one {# item charges its own price, not this row's.} other {# items charge their own price, not this row's.}}",
+          "fix": "Set your price so they all charge the same."
+        },
+        "unlinked": "{n, plural, one {# sealed item isn't linked to a product: it's not on this sheet and its price is set item by item, in its product-type detail.} other {# sealed items aren't linked to a product: they're not on this sheet and their price is set item by item, in their product-type detail.}}",
+        "empty": "No in-stock sealed items linked to a product.",
+        "emptyCta": "Include out of stock",
+        "emptyFiltered": "No product matches.",
+        "clearFilters": "Clear filters",
+        "pageInfo": "Showing {from}–{to} of {total}",
+        "prev": "Previous",
+        "next": "Next",
+        "footOwner": "Only the owner changes these prices. Logged under their name."
       }
     },
     "decksMetaRefresh": {
@@ -3871,7 +4469,7 @@
         "saved": "Settings saved.",
         "sealedMovedToM11": "Sealed pricing dials (provider, market source, trend, alerts and spreads) are now edited in “Sealed”.",
         "labels": {
-          "shippingFeeCents": "Shipping fee",
+          "shippingFeeCents": "Withdrawal shipping (charged to the customer)",
           "aportacionPct": "In-kind contribution %",
           "ivaPct": "VAT",
           "buylistCapPerRequestCents": "Buylist cap per request",
@@ -3940,7 +4538,8 @@
         "delta": {
           "eyebrow": "How our net changes, per piece",
           "body": "At this position we keep {amount} less on every {price} list piece. Multiply it by the pieces you expect to sell.",
-          "none": "This position does not move our net."
+          "none": "This position does not move our net.",
+          "sealedOwnerPrice": "Doesn't apply to sealed products with your own price: the customer pays what you wrote, and it doesn't change with this share."
         },
         "blocked": {
           "invalid": "Fix the fraction before saving.",
@@ -4037,6 +4636,250 @@
           "all": "publish all at the floor",
           "none": "hold all"
         }
+      },
+      "shipping": {
+        "title": "Shipping (Skydropx)",
+        "subtitle": "Super admin only. Every change is logged.",
+        "notAvailable": "This server doesn't have the shipping settings yet.",
+        "balance": "Skydropx balance: {balance} · read {time}",
+        "lowBalance": "Low balance",
+        "balanceError": "The balance couldn't be read: Skydropx didn't respond.",
+        "purchase": {
+          "legend": "Who can buy labels?",
+          "disabled": "Nobody (buying off)",
+          "disabledNote": "Quotes and prices still work, but nobody buys. This is the starting value.",
+          "superAdminOnly": "Super admins only",
+          "superAdminOnlyNote": "Each label is bought by a super admin with their own click and recorded in their name.",
+          "operators": "Staff too",
+          "operatorsNote": "Staff buy with their name in the log, up to their 24-hour limit and their rebuy per shipment (in “Spending control”). The owner has no limit.",
+          "serverKey": "On top of this, the server needs its own authorization to spend. If it's missing, nobody buys even if this says yes.",
+          "confirmTitle": "Let staff buy labels?",
+          "confirmBody": "They'll be able to spend the Skydropx balance without asking you, each label in their name and up to their 24-hour limit. You'll get alerts according to “Spending control”.",
+          "confirm": "Yes, let them buy"
+        },
+        "tiers": {
+          "title": "Insurance tiers",
+          "intro": "Every package is insured. The first tier that covers what's in the box is paid; if no tier covers it, that order is entered by hand.",
+          "coverage": "Covers up to",
+          "cost": "Costs",
+          "measuredAt": "Measured on",
+          "add": "Add tier",
+          "remove": "Remove",
+          "atLeastOne": "There must be at least one tier.",
+          "max": "Maximum 20 tiers.",
+          "coverageMin": "The minimum coverage is MX$1.00.",
+          "notIncreasing": "Each tier must cover more than the previous one.",
+          "costNegative": "The cost can't be negative.",
+          "dateMissing": "Enter the date you measured the cost.",
+          "reading": "Up to {coverage} → {coverage} insurance for {cost}",
+          "readingOver": "Over {coverage} → no insurance configured: label by hand"
+        },
+        "consignment": {
+          "label": "Carta Porte (SAT content code)",
+          "hint": "8 digits. Cards use 49101600 “Collectibles”.",
+          "found": "{code}: {description}",
+          "notFound": "Code not found in the Skydropx catalogue.",
+          "search": "Search another code by description",
+          "searchLabel": "Description",
+          "searchCta": "Search",
+          "invalid": "It must be 8 digits.",
+          "hasMore": "There are more results: refine the description.",
+          "searchInvalid": "Type 3 to 60 characters to search."
+        },
+        "packages": {
+          "title": "Packaging",
+          "code": "Code",
+          "name": "Name",
+          "dims": "Dimensions (cm)",
+          "weight": "Weight (kg, whole)",
+          "provider": "Skydropx packaging",
+          "active": "Active",
+          "note": "The starting dimensions are estimates: correct them with your real packaging.",
+          "weightInvalid": "Weight is in whole kilos, minimum 1.",
+          "needActive": "At least one active packaging with a Skydropx code must remain.",
+          "save": "Save packaging",
+          "saved": "Packaging saved.",
+          "boxMin": "Use a box from (cards)",
+          "providerOption": "{code} · {name}",
+          "length": "Length",
+          "width": "Width",
+          "height": "Height"
+        },
+        "carriers": {
+          "label": "Preferred carrier (in order)",
+          "hint": "Skydropx codes, e.g. ninetynineminutes (99minutos). The first one with home delivery is recommended even if it costs more.",
+          "up": "Move {code} up",
+          "down": "Move {code} down",
+          "remove": "Remove {code}",
+          "add": "Add code",
+          "newCode": "New code"
+        },
+        "dropoff": {
+          "title": "Branch where you drop off packages",
+          "note": "The 99minutos one comes from an unconfirmed directory: check it.",
+          "name": "Name ({code})",
+          "address": "Address ({code})"
+        },
+        "origin": "Origin address",
+        "originOption": "{alias} · Postcode {postalCode}",
+        "originNone": "Not chosen",
+        "labelFormat": "Label format",
+        "labelFormatStandard": "Regular sheet",
+        "labelFormatThermal": "Thermal",
+        "lowBalanceThreshold": "Warn if the balance drops below",
+        "pollMinutes": "Check tracking every (minutes)",
+        "provider": "Skydropx",
+        "providerOff": "Off: labels by hand only",
+        "providerOn": "On: quote and track",
+        "providerNote": "Turning it off freezes tracking of labels already bought.",
+        "save": "Save shipping",
+        "saved": "Shipping settings saved.",
+        "saveError": "Not saved: the server rejected a value. Check the marked field.",
+        "lowBalanceHint": "Below this amount the owner gets an email (alert AG-7), once each time it drops."
+      },
+      "spend": {
+        "title": "Spending control",
+        "subtitle": "Only the owner changes these settings; other super admins can see them. Every change is logged. All alerts start switched on.",
+        "notAvailable": "This server doesn't have the spending control settings yet.",
+        "staff": {
+          "title": "Staff limits"
+        },
+        "cap": {
+          "label": "Label spend limit per person over 24 hours",
+          "hint": "Counts what each person spent on labels in the last 24 hours, not since midnight. When they hit it, the purchase is refused without telling them the amount and the owner gets an alert; they can still enter labels by hand. The owner has no limit; other super admins do.",
+          "error": "The minimum limit is MX$1.00. To stop everyone from buying, use “Who can buy labels?” in Shipping."
+        },
+        "reissue": {
+          "label": "Label rebuys per shipment",
+          "hint": "How many times staff can cancel a shipment's label and buy another. After that, the owner buys the next one. 0 = none.",
+          "error": "0 to 10."
+        },
+        "when": {
+          "title": "When to alert"
+        },
+        "warnPct": {
+          "label": "Alert when someone reaches this percentage of their limit",
+          "hint": "Goes in the daily summary.",
+          "error": "1 to 99."
+        },
+        "shipmentCancels": {
+          "label": "Alert when a shipment has this many cancelled labels",
+          "hint": "Immediate email.",
+          "error": "1 to 10."
+        },
+        "personCancels": {
+          "label": "Alert when a person cancels this many labels in 24 hours",
+          "hint": "Immediate email. Labels the system cancels on its own don't count.",
+          "error": "1 to 50."
+        },
+        "drift": {
+          "label": "Immediate email if a label's charge exceeds the quote by more than",
+          "hint": "Any smaller difference goes in the summary.",
+          "error": "Can't be negative."
+        },
+        "extra": {
+          "label": "Immediate email if a carrier extra charge is over",
+          "hint": "Smaller ones go in the summary.",
+          "error": "Can't be negative."
+        },
+        "refundDays": {
+          "label": "Alert if Skydropx doesn't confirm the refund of a cancelled label within",
+          "hint": "Skydropx doesn't always say how much it refunds; that's why we alert even if it may have come back.",
+          "error": "1 to 30."
+        },
+        "notShippedDays": {
+          "label": "Alert if a bought label hasn't shipped within",
+          "hint": "The alert clears itself when the parcel ships or the label is cancelled.",
+          "error": "1 to 30."
+        },
+        "days": "days",
+        "lowBalanceNote": "The low-balance alert uses “Alert if the balance drops below”, in Shipping.",
+        "alerts": {
+          "legend": "Alerts switched on",
+          "option": "{code} · {title}",
+          "immediate": "Immediate email",
+          "digest": "Daily summary",
+          "byAmount": "Immediate or summary, depending on the amount",
+          "note": "A switched-off alert sends no email and doesn't count as unseen on the dashboard, but it's still recorded: it shows in “Spending alerts” marked “Switched off” and the daily summary says how many there were. Switching it on or off doesn't change alerts that already exist.",
+          "sevAG1": "Immediate email if the recipient, street, postal code, municipality, state or country changed; otherwise, daily summary",
+          "sevAG9": "Immediate email; an extra label we cancel automatically goes in the daily summary",
+          "sevAG22": "Immediate email if it involves a super admin or the owner's account or settings; otherwise, daily summary",
+          "alwaysOn": "Always on: it watches the owner's account and settings."
+        },
+        "save": "Save spending control",
+        "saved": "Spending control settings saved.",
+        "offTitle": "Switch off {n, plural, one {# alert} other {# alerts}}?",
+        "offBody": "While they're off you won't get emails for them and they won't count on the dashboard; they'll still show in “Spending alerts” marked “Switched off”: {list}.",
+        "offConfirm": "Yes, switch them off",
+        "back": "Back"
+      },
+      "ownerOnly": {
+        "note": "Only the owner can change this.",
+        "denied": "Nothing was saved: only the owner can change {fields}.",
+        "field": {
+          "operatorLabelCap24hCents": "the per-person label limit",
+          "shippingLabelReissueMaxPerShipment": "the label rebuys per shipment",
+          "spendAlertsDisabled": "which alerts are switched on",
+          "spendAlertLabelCapWarnPct": "the near-limit alert",
+          "spendAlertShipmentCancelCount": "the cancelled-labels-per-shipment alert",
+          "spendAlertPersonCancelCount24h": "the cancelled-labels-per-person alert",
+          "spendAlertChargeDriftImmediateCents": "the charged-versus-quoted alert",
+          "spendAlertExtraChargeImmediateCents": "the extra-charge alert",
+          "skydropxLowBalanceCents": "the low-balance alert",
+          "spendAlertCancelRefundDays": "the cancellation-refund alert",
+          "spendAlertLabelNotShippedDays": "the unshipped-label alert",
+          "shippingLabelPurchase": "who can buy labels",
+          "other": "an owner setting"
+        }
+      },
+      "buylistCycle": {
+        "title": "Sell cycle (sell requests)",
+        "subtitle": "They apply to new requests: the ones in progress keep the deadlines and label fee they were offered with.",
+        "groups": {
+          "deadlines": "Deadlines (business days)",
+          "amounts": "Amounts (MX$)",
+          "alerts": "Alerts and suggestions"
+        },
+        "labels": {
+          "buylistOfferIssueDeadlineBusinessDays": "Deadline to send the offer",
+          "buylistOfferAcceptDeadlineBusinessDays": "Seller's deadline to respond",
+          "buylistShipDeadlineBusinessDays": "Seller's deadline to ship",
+          "buylistMinimumRequestCents": "Minimum to quote",
+          "buylistShippingFeeCents": "Label fee deducted from the seller",
+          "buylistMinimumOfferNetCents": "Minimum the seller receives",
+          "buylistOperatorOfferCapCents": "Maximum offer without approval",
+          "buylistShipmentConfirmAlertBusinessDays": "Unconfirmed shipment alert",
+          "buylistOfferReissueAlertCount": "Cancelled offers alert",
+          "buylistVariantPositionCap": "Copies per variant cap (suggestion)"
+        },
+        "help": {
+          "buylistOfferIssueDeadlineBusinessDays": "Business days we have to make the offer. If they run out, the request closes and the seller gets the “we won't proceed” email.",
+          "buylistOfferAcceptDeadlineBusinessDays": "If they don't respond to the offer within these business days, it counts as rejected.",
+          "buylistShipDeadlineBusinessDays": "Business days from when we send the label. If they don't ship, the request expires.",
+          "buylistMinimumRequestCents": "Minimum quoted total to create a request. The exact amount does qualify.",
+          "buylistShippingFeeCents": "What's deducted from their payment for the label. It isn't withdrawal shipping.",
+          "buylistMinimumOfferNetCents": "Minimum net, after the label, to be able to send an offer. The exact amount does go out.",
+          "buylistOperatorOfferCapCents": "Above this gross, the super-admin approves the offer before it goes out. The exact amount goes out without approval.",
+          "buylistShipmentConfirmAlertBusinessDays": "Business days after “I sent it” to flag the request. Nothing expires.",
+          "buylistOfferReissueAlertCount": "From how many cancellations of an already-sent offer the request is flagged. It doesn't block or show in emails.",
+          "buylistVariantPositionCap": "At this quantity, the desk suggests “don't buy” for cards without a bounty. It never blocks."
+        },
+        "rule": {
+          "buylistOfferIssueDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistOfferAcceptDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistShipDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistMinimumRequestCents": "In pesos, 0 or more.",
+          "buylistShippingFeeCents": "In pesos, 0 or more.",
+          "buylistMinimumOfferNetCents": "In pesos, greater than 0.",
+          "buylistOperatorOfferCapCents": "In pesos, 0 or more.",
+          "buylistShipmentConfirmAlertBusinessDays": "Whole number, 1 or more.",
+          "buylistOfferReissueAlertCount": "Whole number, 1 or more.",
+          "buylistVariantPositionCap": "Whole number, 1 or more."
+        },
+        "checkFields": "Check the marked fields. Nothing was saved.",
+        "cross": "The label fee deducted ({fee}) plus the minimum the seller receives ({net}) can't exceed the minimum to quote ({min}). Nothing was saved.",
+        "save": "Save {count, plural, =0 {changes} one {# change} other {# changes}}",
+        "saved": "Sell cycle saved."
       }
     },
     "m7": {
@@ -4050,14 +4893,21 @@
       },
       "pnl": {
         "title": "Profit & loss (P&L)",
-        "formula": "Income + shipping revenue − cost of goods sold − Stripe fees − shipping cost = profit.",
+        "formula": "Income + shipping revenue − cost of goods sold − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.",
         "income": "Income (sales)",
         "shippingRevenue": "Shipping revenue (collected)",
         "cogs": "Cost of goods sold",
         "stripeFees": "Stripe fees",
         "shippingCost": "Shipping cost (carrier, net)",
         "shippingCostMissing": "{count, plural, one {# settled shipment has no carrier cost captured. Review it: its revenue counts in full as profit.} other {# settled shipments have no carrier cost captured. Review them: their revenue counts in full as profit.}}",
-        "profit": "Profit for the period"
+        "profit": "Profit for the period",
+        "shippingAdjustments": "Includes carrier adjustments",
+        "shippingInsurance": "Includes shipping insurance",
+        "refunds": "Refunds (goods and shipping, excl. VAT)",
+        "refundedFees": "Platform fees refunded",
+        "compensations": "Lost-card compensation",
+        "signAdds": "adds",
+        "signSubtracts": "subtracts"
       },
       "values": {
         "title": "Inventory and custody value",
@@ -4501,7 +5351,9 @@
         "mustBePositive": "Must be greater than 0.",
         "auditNotice": "This is an audited override: it is logged under your name and feeds this piece's valuation.",
         "pendingIfEmpty": "Without a manual market price, the contribution is disabled; enter it above to enable it.",
-        "suggestion": "Informative reference (last known): {amount}. Does not set the price."
+        "suggestion": "Informative reference (last known): {amount}. Does not set the price.",
+        "staffNoMarket": "This product has no market price. It's added anyway and stays unpriced until the owner sets it in “Sealed prices”.",
+        "pendingIfEmptyStaff": "Without a market price, a purchase is added unpriced, but an in-kind contribution can't be recorded: its cost comes from the market price. Ask the owner to set the product's market price in “Catalog & pricing” and try again."
       }
     },
     "manualRefunds": {
@@ -4526,7 +5378,10 @@
       },
       "source": {
         "case_excess": "Case excess {card} · {folio}",
-        "stripe_failed": "Card refund rejected by Stripe · case {card} · {folio}"
+        "stripe_failed": "Card refund rejected by Stripe · case {card} · {folio}",
+        "withdrawal_delivered": "Delivered withdrawal · {card} · {folio} · {reason}",
+        "withdrawal_delivered_unknown": "Delivered withdrawal",
+        "unknown": "—"
       },
       "originNotSettled": "disputed / refunded",
       "noClabe": "No CLABE on file",
@@ -4622,6 +5477,14 @@
         "notConvertibleStatus": "This refund can still go through Stripe ({status}): moving it to a transfer would pay twice. Retry the refund or wait.",
         "notConvertibleKind": "Only “To replace” case refunds can be moved to a bank transfer.",
         "originNotSettled": "The origin purchase is {status, select, chargeback {disputed} other {refunded}}{disputed, select, yes { (Stripe rejected due to a dispute)} other {}}: the bank is already resolving that money. Nothing is created."
+      },
+      "withdrawal": {
+        "title": "Delivered withdrawal",
+        "folio": "Withdrawal",
+        "card": "Card",
+        "reason": "Reason",
+        "note": "What happened",
+        "deliveredAt": "Delivered on"
       }
     },
     "refundsPage": {
@@ -4631,7 +5494,49 @@
         "operators": "Operator refunds",
         "speiCount": "{count, plural, one {# pending} other {# pending}}"
       },
-      "reviewLink": "Shipped orders refunded from Stripe that need a reason: see them in Sales →"
+      "reviewLink": "Shipped orders refunded from Stripe that need a reason: see them in Sales →",
+      "withdrawalDelivered": {
+        "cta": "Refund a card from a delivered withdrawal",
+        "title": "Refund a card from a delivered withdrawal",
+        "back": "Back",
+        "step1": {
+          "heading": "1 · Find the withdrawal",
+          "label": "Find the withdrawal",
+          "hint": "Withdrawal number, customer's name or email.",
+          "empty": "Nothing matches “{q}”.",
+          "notDelivered": "Not delivered yet ({status})."
+        },
+        "step2": {
+          "heading": "2 · Which card? · {folio}",
+          "legend": "Which card?",
+          "notShipped": "This card didn't ship in the withdrawal: it's handled under “To replace”.",
+          "next": "Continue"
+        },
+        "step3": {
+          "heading": "3 · Amount and reason",
+          "title": "Refund by bank transfer: {card}",
+          "noOrigin": "No known origin purchase",
+          "legend": "What happened to this card? (required)",
+          "noteLabel": "What happened and where the figure comes from",
+          "noteHint": "Saved in the audit log; the customer doesn't see it.",
+          "allTransfer": "It all goes by bank transfer (SPEI bucket): the card isn't touched.",
+          "confirm": "Create {amount} transfer"
+        },
+        "done": "{amount} transfer created for {customer}. They're notified by email{clabe, select, no { and asked to register their CLABE} other {}}.",
+        "viewTransfer": "View transfer",
+        "error": {
+          "not_withdrawal": "This is an order shipment, not a withdrawal: that card is refunded from Sales, in the order. Nothing was created.",
+          "not_delivered": "This withdrawal no longer shows as delivered. Nothing was created.",
+          "not_shipped": "This card didn't ship in the withdrawal (missing or damaged when prepared): it's handled under “To replace”. Nothing was created.",
+          "toReplaceLink": "Go to “To replace”",
+          "already_refunded": "This card already has a live transfer. Another one wasn't created.",
+          "viewTransfer": "View the transfer",
+          "no_reference": "This card has nothing to compare against: no origin purchase and no market price. Without a reference there's no typo guard, so it can't be entered here. Nothing was created. Tell the tech team.",
+          "forbidden": "Only the super-admin can refund. The attempt was logged.",
+          "note": "Say what happened and where the figure comes from (3 to 500 characters).",
+          "reason": "Pick “Didn't arrive” or “Arrived in bad condition”."
+        }
+      }
     },
     "refunds": {
       "hint": "What each operator has refunded while preparing shipments. No email: the panel is the notice.",
@@ -4680,16 +5585,16 @@
       "noName": "an account with no name"
     },
     "sealedFinalPrice": {
-      "rowLabel": "Final price",
+      "rowLabel": "Before VAT",
       "auto": "automatic",
       "manual": "{price} set by hand",
       "market": "Market: {price}",
-      "set": "Set final price",
-      "change": "Change final price",
-      "setAria": "Set final price for {folio}",
-      "changeAria": "Change final price for {folio}",
-      "label": "Final price (MXN)",
-      "hint": "Overrides the automatic price. Never $0.",
+      "set": "Set price",
+      "change": "Change price",
+      "setAria": "Set price for {folio}",
+      "changeAria": "Change price for {folio}",
+      "label": "Price before VAT (MXN)",
+      "hint": "Overrides the automatic price. The customer pays this price plus the VAT passed on. To write it VAT included, link the item to its product.",
       "noLocationHint": "It'll go on sale by itself once you set a location.",
       "listedHint": "It's already on sale: the new price shows in the store when you confirm.",
       "saveOnly": "Save price",
@@ -4698,22 +5603,22 @@
       "errDecimals": "Two decimals at most.",
       "errMax": "The maximum price is {max}.",
       "confirm": {
-        "title": "Set the final price for {name}?",
+        "title": "Set the price for {name}?",
         "thisSealed": "this sealed item",
         "now": "Now: {price} ({basis})",
         "nowNone": "Now: no price",
-        "new": "New: {price}, set by hand",
-        "effectPublish": "It goes on sale in the store at {price} when you confirm.",
-        "effectNoLocation": "Not published yet: it has no location. It'll go on sale at {price} by itself once you set one.",
+        "new": "New: {price} before VAT, set by hand",
+        "effectPublish": "It goes on sale in the store when you confirm. The customer will see {price} plus the VAT passed on.",
+        "effectNoLocation": "Not published yet: it has no location. It'll go on sale by itself once you set one; the customer will see {price} plus the VAT passed on.",
         "effectListed": "It's already on sale: the new price shows in the store when you confirm.",
         "note": "Overrides the automatic price until you change it. Logged under your name.",
-        "publish": "Publish at {price}",
-        "save": "Save {price}"
+        "publish": "Publish · {price} before VAT",
+        "save": "Save · {price} before VAT"
       },
       "done": {
-        "published": "{folio} listed at {price}.",
-        "savedNoLocation": "Final price saved on {folio}. It'll go on sale once it has a location.",
-        "repriced": "{folio} price changed to {price}."
+        "published": "{folio} listed: {price} before VAT.",
+        "savedNoLocation": "Price saved on {folio}. It'll go on sale once it has a location.",
+        "repriced": "{folio} price changed to {price} before VAT."
       },
       "errors": {
         "reserved": "It's held by an order in progress. If the order isn't paid, it frees up in a few minutes and you can change it. Nothing was saved.",
@@ -4723,7 +5628,334 @@
         "pricePending": "Couldn't publish: the server couldn't resolve the price. Nothing was saved.",
         "validation": "Invalid price: it must be above zero and at most {max}."
       },
-      "reload": "Reload"
+      "reload": "Reload",
+      "storePrice": "In the store: {price}",
+      "readOnly": "{price} before VAT"
+    },
+    "sealedProductPrice": {
+      "blockTitle": "Product price · {n, plural, one {# item} other {# items}}",
+      "blockTitleNoCount": "Product price · all its items",
+      "withVat": "VAT incl.",
+      "staffNote": "The owner sets it in “Sealed prices”.",
+      "set": "Set price",
+      "change": "Change",
+      "setProduct": "Set product price",
+      "changeProduct": "Change product price",
+      "setAria": "Set price for {name}",
+      "changeAria": "Change price for {name}",
+      "label": "Your price, VAT incl. (MXN)",
+      "hint": "It's exactly what the customer pays for each item.",
+      "appliesTo": "{n, plural, =0 {No items yet: it'll apply to those that come in.} one {Applies to its # item.} other {Applies to its # items.}}",
+      "appliesToAll": "Applies to all its items.",
+      "marginPreview": "Before VAT: {net} · margin {cents} · {pct}",
+      "save": "Save",
+      "confirm": {
+        "title": "Change the price of {name}?",
+        "nowOwner": "Now: {price} VAT incl. (yours)",
+        "nowAuto": "Now: no price of yours; sells at {price} VAT incl. ({origin})",
+        "nowNone": "Now: no price",
+        "new": "New: {price} VAT incl. for all its items. It's what the customer will pay.",
+        "effect": "{n, plural, =0 {It'll apply to items that come in.} one {Changes right away in the store for its # boxed or listed item.} other {Changes right away in the store for its # boxed and listed items.}}",
+        "reserved": "{n, plural, one {The # item held by an order in progress keeps the price it was held at.} other {The # items held by orders in progress keep the price they were held at.}}",
+        "legacy": "{count, plural, one {The # item with its own price stops using it and charges this one.} other {The # items with their own price stop using it and charge this one.}}",
+        "note": "Nothing is removed from the store. Logged under your name.",
+        "save": "Save {price}"
+      },
+      "done": {
+        "saved": "{name}: {price} VAT incl. for {n, plural, one {its # item} other {its # items}}.",
+        "published": "{k, plural, one {Went on sale by itself: #.} other {Went on sale by themselves: #.}}",
+        "missingLocation": "{m, plural, one {# is still boxed: it has no location.} other {# are still boxed: they have no location.}}",
+        "notPublished": "{x, plural, one {# couldn't go on sale by itself: check it in “Ready to publish”.} other {# couldn't go on sale by themselves: check them in “Ready to publish”.}}",
+        "autoPublishFailed": "The price was saved, but listing the boxed items couldn't be attempted. They're still in “Ready to publish”.",
+        "seeQueue": "See “Ready to publish”"
+      },
+      "errors": {
+        "conflict": "Someone changed this price while you were editing: it's now {current} VAT incl. Nothing was saved. The row is already reloaded: check it and save again if it's still your price.",
+        "conflictNone": "Someone changed this price while you were editing: it no longer has a price of yours. Nothing was saved. The row is already reloaded: check it and save again.",
+        "forbidden": "Only the owner can change sealed prices. Nothing was saved.",
+        "notFound": "This product no longer exists. Nothing was saved.",
+        "perProduct": "Sealed prices belong to the product, not the item. Nothing was saved.",
+        "perProductLink": "Go to “Sealed prices”",
+        "ownerOnly": "Only the owner sets sealed prices."
+      },
+      "reload": "Reload",
+      "piece": {
+        "product": "{price} · product price",
+        "legacy": "{price} · old item price",
+        "legacyHelp": "This item charges a price set on it earlier. Once you set the product price, it charges that.",
+        "automatic": "{price} · automatic",
+        "pending": "— · no price",
+        "unlinkedStaff": "No product: the owner sets its price."
+      }
+    },
+    "spendAlerts": {
+      "subtitle": "What the system caught on its own about money that costs us. Immediate ones also reach the owner by email; the rest go in the 08:00 daily summary.",
+      "filters": {
+        "kind": "Type",
+        "kindAll": "All",
+        "kindOption": "{code} · {title}",
+        "severity": "Severity",
+        "severityAll": "All",
+        "severityImmediate": "Immediate",
+        "severityDigest": "Daily summary",
+        "from": "From",
+        "to": "To",
+        "unseen": "Unseen only",
+        "subject": "Only {name}",
+        "subjectRemove": "Remove the “Only {name}” filter",
+        "subjectUnknown": "this person",
+        "clear": "Clear filters",
+        "muted": "Switched-off alerts",
+        "mutedAll": "Include them",
+        "mutedOnly": "Only switched-off",
+        "mutedNone": "Leave them out"
+      },
+      "col": {
+        "select": "Select alert {code}",
+        "selectPage": "Select all on this page",
+        "when": "When",
+        "severity": "Severity",
+        "alert": "Alert",
+        "who": "Who",
+        "amount": "Amount",
+        "ref": "Order / shipment",
+        "status": "Status"
+      },
+      "occurrences": "{n} times · last at {time}",
+      "severityTag": {
+        "immediate": "Immediate",
+        "digest": "Summary"
+      },
+      "noSubject": "System",
+      "filterBySubject": "Show only alerts about {name}",
+      "noAmount": "no amount",
+      "orderRef": "Order {orderNumber}",
+      "shipmentRef": "Shipment {folio}",
+      "noRef": "—",
+      "seenBy": "Seen by {name} · {date}",
+      "unseenTag": "Unseen",
+      "markSeen": "Mark seen",
+      "ownerMarks": "The owner marks it",
+      "markSelected": "Mark as seen ({n})",
+      "marked": "{updated, plural, one {# alert marked} other {# alerts marked}} as seen.",
+      "skipped": "{skipped, plural, one {# alert wasn't marked} other {# alerts weren't marked}}: alerts about you and about the owner account can only be marked by the owner.",
+      "resolved": "Cleared on its own · {date}",
+      "mutedTag": "Switched off: no email",
+      "mail": {
+        "not_applicable": "Goes in the 08:00 summary",
+        "pending": "Email on its way",
+        "sending": "Email on its way",
+        "sent": "Email sent · {time}",
+        "batched": "Goes in that hour's batch email",
+        "batch_sent": "Sent in the batch email · {time}",
+        "failed": "The email failed; we'll retry",
+        "failed_unknown": "We don't know if the email went out; we won't resend it to avoid a duplicate",
+        "no_recipient": "No email: no account is marked as the owner's"
+      },
+      "empty": "No spending alerts yet. When the system catches something it will show up here; if it's immediate, you'll also get an email.",
+      "emptyFiltered": "No alerts match these filters.",
+      "forbidden": "This page is for the super admin only.",
+      "summary": {
+        "title": "One day's summary",
+        "day": "Day",
+        "note": "It's the same as that day's summary email.",
+        "byKind": "By type",
+        "colAlert": "Alert",
+        "colImmediate": "Immediate",
+        "colDigest": "Summary",
+        "colAmount": "Amount",
+        "byKindEmpty": "No alerts that day.",
+        "labelSpend": "Label spend by person",
+        "labelSpendRow": "{name}: {cents} on {labels, plural, one {# label} other {# labels}}",
+        "labelSpendEmpty": "Nobody bought labels that day.",
+        "costly": "Expensive choices",
+        "costlyRow": "{count, plural, one {# label} other {# labels}} above the recommended option or with a negative margin: {over} over ({byPerson})",
+        "costlyNone": "None.",
+        "muted": "{n, plural, one {# switched-off alert} other {# switched-off alerts}} that day: they sent no email and they're in the list."
+      },
+      "detail": {
+        "back": "← Spending alerts",
+        "who": "Who",
+        "ref": "Order / shipment",
+        "first": "First time",
+        "last": "Last time",
+        "count": "Times",
+        "mail": "Email",
+        "seen": "Seen",
+        "markSeen": "Mark as seen",
+        "stopPurchases": "Stop label purchases",
+        "changeCap": "Change the limit",
+        "notFound": "That alert doesn't exist.",
+        "copy": "Copy",
+        "copied": "Copied"
+      },
+      "fact": {
+        "changedKeys": "What changed",
+        "carrierName": "Carrier",
+        "chargedCents": "Charged",
+        "quotedCents": "Quoted",
+        "diffCents": "Difference",
+        "amountCents": "Amount",
+        "priceCents": "Label price",
+        "usedCents": "Had spent",
+        "capCents": "Limit",
+        "unrecoveredCents": "Balance not recovered",
+        "balanceCents": "Balance",
+        "thresholdCents": "Threshold",
+        "requiredCents": "Needed",
+        "refundedCents": "Refunded",
+        "unrefundedCents": "Not refunded",
+        "expectedChargeCents": "Expected charge",
+        "marginCents": "Margin",
+        "recommendedPriceCents": "Recommended",
+        "overRecommendedCents": "Over the recommended",
+        "correctionAt": "Corrected at",
+        "revisionCount": "Corrections",
+        "cancelledCount": "Cancelled labels",
+        "unknownRefunds": "Cancellations without a refund amount",
+        "daysSincePurchase": "Days since purchase",
+        "pct": "Alert at",
+        "actors": "Who",
+        "kind": "Charge type",
+        "cancelKind": "How it was cancelled",
+        "cause": "Cause",
+        "status": "Carrier status",
+        "providerReference": "Skydropx reference"
+      },
+      "noData": "no data",
+      "ref": {
+        "order": "order {orderNumber}",
+        "shipment": "shipment {folio}",
+        "none": "a shipment"
+      },
+      "personNone": "an unnamed account",
+      "and": "and",
+      "field": {
+        "recipientName": "recipient",
+        "line1": "street and number",
+        "line2": "unit",
+        "postalCode": "postal code",
+        "neighborhood": "neighborhood",
+        "city": "municipality",
+        "state": "state",
+        "country": "country",
+        "references": "references"
+      },
+      "chargeKind": {
+        "overweight": "overweight",
+        "extended_zone": "extended zone",
+        "return": "return",
+        "other": "other charge"
+      },
+      "cancelKind": {
+        "reissue": "cancelled by a person to buy another",
+        "auto_close": "cancelled automatically when the shipment closed",
+        "orphan_auto": "extra label, cancelled automatically",
+        "orphan_manual": "extra label, cancelled by a person"
+      },
+      "kind": {
+        "AG-1": {
+          "title": "Corrected the address and bought the label",
+          "text": "{person} corrected the address of {ref} ({fields}) and bought its label: {carrier}, {charged}."
+        },
+        "AG-2": {
+          "title": "Close to the label limit",
+          "text": "{person} has spent {used} on labels in the last 24 hours: {pct}% of their {cap} limit."
+        },
+        "AG-3": {
+          "title": "Label refused by the limit",
+          "text": "{person} was refused the label for {ref} ({price}): it would have taken them over their {cap} 24-hour limit (they had spent {used}). You can buy it yourself or raise their limit."
+        },
+        "AG-4": {
+          "title": "Cancel and buy again",
+          "textShipment": "There are {k} cancelled labels on {ref} ({who}). Balance not recovered: {unrecovered}{unknown}.",
+          "textPerson": "{person} cancelled {k} labels in the last 24 hours. Balance not recovered: {unrecovered}{unknown}.",
+          "unknown": "; no refund amount for {u}",
+          "denied": "Another label for {ref} was refused: it had already used all its rebuys."
+        },
+        "AG-5": {
+          "title": "Charged differently from the quote",
+          "text": "The label for {ref} was charged {charged}; it was quoted at {quoted} ({diff})."
+        },
+        "AG-6": {
+          "title": "Carrier extra charge",
+          "text": "Extra charge from {carrier} on {ref}: {type}, {amount}."
+        },
+        "AG-7": {
+          "title": "Low Skydropx balance",
+          "textOpen": "Your Skydropx balance dropped to {balance} (we alert below {threshold}). Top it up in the Skydropx panel.",
+          "textInsufficient": "A label for {ref} couldn't be bought: the balance wasn't enough ({required} was needed)."
+        },
+        "AG-8": {
+          "title": "Cancellation refund that didn't arrive",
+          "textA": "The cancelled label for {ref} cost {charged} and Skydropx refunded {refunded}: {unrefunded} is missing.",
+          "textB": "The label for {ref} was cancelled and Skydropx didn't say how much it refunded; we can't confirm that {charged} came back. Check it in your Skydropx panel."
+        },
+        "AG-9": {
+          "title": "Charge without a label, or extra label",
+          "charged_not_found": "Skydropx charged {amount} for the label for {ref} and we couldn't find the label. Look it up in your Skydropx panel as “Pedido {reference}”.",
+          "orphan": "Skydropx has a paid label from an earlier attempt on {ref} (“Pedido {reference}”, {amount}) that wasn't cancelled automatically. Cancel it in your Skydropx panel to get the balance back.",
+          "duplicate": "Skydropx created two labels for the same purchase on {ref} (“Pedido {reference}”): it charged twice. Cancel the extra one in your Skydropx panel.",
+          "orphan_auto_cancelled": "We automatically cancelled an extra label for {ref} (“Pedido {reference}”, {amount}). You don't need to do anything; if the balance doesn't come back, we'll let you know.",
+          "orphan_fuse": "Several extra labels were already cancelled automatically today, so for safety we stopped cancelling them automatically until tomorrow. Check the extra labels in your Skydropx panel.",
+          "orphan_cancel_unknown": "We tried to cancel an extra label for {ref} automatically (“Pedido {reference}”, {amount}) and Skydropx didn't answer: we don't know if it was cancelled. We won't retry on our own; look it up in your Skydropx panel and cancel it there if it's still active.",
+          "other": "There's label money for {ref} that doesn't add up. Check it in your Skydropx panel."
+        },
+        "AG-10": {
+          "title": "Bought label that hasn't shipped",
+          "text": "The label for {ref} ({carrier}, {charged}) was bought {d} days ago and the parcel hasn't shipped. If it isn't going to, cancel it to get the balance back."
+        },
+        "AG-11": {
+          "title": "Parcel returned or destroyed",
+          "text": "The parcel for {ref} ({carrier}) {status, select, destroyed {was destroyed by the carrier} other {is on its way back to the store}}. The label cost {charged}."
+        },
+        "AG-12": {
+          "title": "Carrier issue",
+          "text": "{carrier} reports {status, select, retained {the parcel held} delivery_attempt {a failed delivery attempt} other {an issue}} on {ref}."
+        },
+        "AG-13": {
+          "title": "Expensive label or negative margin",
+          "text": "{person} bought the label for {ref} {parts}.",
+          "negative": "with a negative margin ({margin})",
+          "over": "{over} above the recommended one ({price} vs {recommended})"
+        },
+        "AG-21": {
+          "title": "The owner account changed",
+          "titleNoOwner": "There is no owner account",
+          "textChanged": "The owner account changed from {previous} to {current}. That mark can only be changed from the server: if you weren't expecting this, check it today with whoever runs it.",
+          "textFirst": "{current}'s account is now marked as the owner's; before, there was none. From now on it's the only one with no limit, the one that changes the spending settings and the one that gets these emails.",
+          "textNoOwner": "No account is marked as the owner's. While that lasts, nobody is exempt from the limits, nobody can change the spending settings and alerts send no email. It's fixed by marking the owner account from the server.",
+          "textNoOwnerFrom": "{previous}'s account stopped being the owner's and no other was marked. While that lasts, nobody is exempt from the limits, nobody can change the spending settings and alerts send no email. It's fixed by marking the owner account from the server."
+        },
+        "AG-22": {
+          "title": "Changes by another super admin",
+          "act": {
+            "staff_created": "{person} created an account for {target}.",
+            "staff_password_reset": "{person} reset the password of {target}.",
+            "staff_status_changed": "{person} blocked or reactivated the account of {target}; its current state is in “Users”.",
+            "staff_deleted": "{person} deleted the account of {target}.",
+            "owner_account_denied": "{person} tried to reset, block or delete the owner account ({owner}). The system refused: nothing changed.",
+            "owner_setting_denied": "{person} tried to change {settings}. Only the owner can change that: nothing was saved.",
+            "other": "{person} made a change to a staff account."
+          },
+          "target": "{name} ({role})",
+          "targetNone": "a staff account",
+          "role": {
+            "super_admin": "super admin",
+            "vault_operator": "operator"
+          }
+        },
+        "generic": {
+          "title": "Alert {code}",
+          "text": "Open the alert to see the details."
+        }
+      },
+      "prev": "Previous",
+      "next": "Next",
+      "pageInfo": "Page {page} of {totalPages} · {total, plural, one {# alert} other {# alerts}}"
+    },
+    "mobile": {
+      "desktopOnly": "This section is designed for a computer. On your phone, use <link>“Orders to prepare”</link>."
     }
   },
   "locale": {
@@ -4873,6 +6105,19 @@
       "pending": "Pending",
       "paid": "Paid",
       "cancelled": "Cancelled"
+    },
+    "timeline": {
+      "title": "Tracking updates",
+      "label_created": "Label created",
+      "shipped": "Shipped",
+      "in_transit": "In transit",
+      "out_for_delivery": "Out for delivery",
+      "delivery_attempt": "Delivery attempted",
+      "at_branch": "At the branch",
+      "atBranchNamed": "At the branch: {branch}. Please pick it up.",
+      "delivered": "Delivered",
+      "line": "{label} · {datetime}",
+      "newTab": "(opens in a new tab)"
     }
   },
   "error": {
@@ -4928,7 +6173,7 @@
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "This offer would put the seller over the most we can buy from them this month, so it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS": "This offer would put the seller at {wouldBeAmount} this month, and the most we can buy from them is {capAmount}: it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",
     "APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE": "This card's price was frozen when the offer went out and is now binding: it cannot be changed. What it hits is the most we can buy from this seller in a month, so this card cannot be approved or paid. Do not try to re-price it: escalate the request to a super-admin. Nothing was saved.",
-    "REQUEST_NOT_RECEIVED": "This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, use “Mark received” on the request and approve again. Nothing was saved.",
+    "REQUEST_NOT_RECEIVED": "This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, press “Received: start review” on the request and approve again. Nothing was saved.",
     "PICKUP_ADDRESS_MISSING": "This request has no pickup address (it is an old request), so no offer can be issued. Call the seller so they add it from their profile and issue the offer again, or decline the request. Do not fill it in for them.",
     "PICKUP_ADDRESS_LOCKED": "This address can no longer be changed: your shipping label is already printed with it, or the request is closed. If something is wrong, contact us before you send the parcel.",
     "PICKUP_ADDRESS_LOCKED_OPERATOR": "This address can no longer be edited: the label went out printed with it, or the request is closed. If the address is wrong, that label has to be cancelled and a new one issued; it cannot be done from here. Nothing was saved.",
@@ -4976,8 +6221,9 @@
     "INVALID_TRANSITION": "This action does not apply to the current step of the request. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
     "INVALID_TRANSITION_WITH_DETAILS": "This request is in “{from}”: {verb} only applies when it is in {allowedFrom}. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
     "INVALID_TRANSITION_VERB": {
-      "receive": "“Mark received”",
-      "verify": "“Start verification”"
+      "receive": "“Received: start review”",
+      "verify": "“Start verification”",
+      "rejectItems": "Reject cards"
     },
     "INVALID_TRANSITION_ALLOWED_FROM_JOIN": " or ",
     "PAYMENT_IN_PROGRESS": "Your previous attempt already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check that order before retrying.",
@@ -4990,7 +6236,13 @@
     "DECK_LIST_UNPARSEABLE": "We couldn't read any cards from your list. Check the format (quantity, set and number) and try again.",
     "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again.",
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
-    "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved."
+    "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved.",
+    "CONFLICT_ITEM_FINAL": "This card no longer takes decisions: it is already in inventory or has already been paid to the seller, so it can't be approved, adjusted or rejected. Nothing was saved and retrying won't change it: we've refreshed the request so you see its real status.",
+    "CONFLICT_ITEM_FINAL_WITH_DETAILS": "{itemStatus, select, convertida_inventario {This card is already in inventory, so it can no longer be approved, adjusted or rejected here; if the piece needs a fix, do it from “Inventory”.} pagada {This card has already been paid to the seller, so it can no longer be approved, adjusted or rejected.} other {This card no longer takes decisions: it can't be approved, adjusted or rejected.}} Nothing was saved and retrying won't change it: we've refreshed the request so you see its real status.",
+    "ADDRESS_INCOMPLETE": "The selected address is missing data for the label (neighborhood, postal code or phone). Complete it to continue; nothing was charged.",
+    "DISPUTES_DISCONTINUED": "Claims are no longer opened from the store. If you have a problem with your order, write to us with your order number.",
+    "DISPUTES_DISCONTINUED_WITH_DETAILS": "Claims are no longer opened from the store. If you have a problem with your order, write to {contact} with your order number.",
+    "ITEM_NOT_OFFERED": "This card was not part of the purchase: it was marked as not bought when the offer went out, so it cannot be approved. Leave it as it is —do not approve it at some other amount and do not reject it— and move on to the cards we did buy. Nothing was saved."
   },
   "payment": {
     "title": "Payment",
@@ -5016,12 +6268,12 @@
     "cancel": "Cancel",
     "save": "Save",
     "required": "Required field",
-    "postalCodeInvalid": "Invalid postal code",
-    "phoneInvalid": "Invalid phone number",
+    "postalCodeInvalid": "The postal code is 5 digits.",
+    "phoneInvalid": "The phone number is 10 digits.",
     "line1": "Street and number",
-    "line2": "Unit / reference",
+    "line2": "Unit or apt. number (optional)",
     "neighborhood": "Neighborhood",
-    "city": "City",
+    "city": "Municipality or borough",
     "state": "State",
     "postalCode": "Postal code",
     "phone": "Phone",
@@ -5034,7 +6286,46 @@
     "recipientMissing": "Recipient name missing",
     "complete": "Complete",
     "edit": "Edit",
-    "editTitle": "Edit address"
+    "editTitle": "Edit address",
+    "line2TooLong": "Up to {max} characters: shorten it.",
+    "phoneHint": "10 digits. Only the carrier uses it, if they need to call to deliver.",
+    "references": "Directions for the courier (optional)",
+    "referencesHint": "For example: black gate, between streets… Up to {max} characters; printed on the label.",
+    "referencesTooLong": "The directions don’t fit on the label: shorten them (up to {max} characters).",
+    "geo": {
+      "cpHint": "5 digits. We use it to show the neighborhoods in your area.",
+      "cpFirst": "Type the 5-digit postal code to see its neighborhoods.",
+      "loading": "Looking up the neighborhoods for postal code {cp}…",
+      "placeholder": "Choose a neighborhood",
+      "failed": "We couldn’t look up the neighborhoods for postal code {cp}.",
+      "neighborhoodRequired": "Choose your neighborhood from the list; if it isn’t there, use “My neighborhood isn’t listed”.",
+      "cityState": "Municipality and state: {city}, {state} (from the postal code).",
+      "noData": "no data",
+      "notListedCta": "My neighborhood isn’t listed",
+      "typeInstead": "Type my neighborhood instead",
+      "backToList": "Choose from the list for postal code {cp}",
+      "manualHint": "Type it as it appears on an electricity or water bill. We check it before shipping.",
+      "cpNotInCatalog": "We don’t have the neighborhood list for postal code {cp}. If it’s correct, type your neighborhood, municipality and state: we check them before shipping.",
+      "manualAllIntro": "Type your neighborhood, municipality and state: we check them before shipping.",
+      "statePlaceholder": "Choose a state",
+      "neighborhoodTypeRequired": "Type your neighborhood’s name.",
+      "cityRequired": "Type your municipality or borough.",
+      "stateRequired": "Choose your state.",
+      "tooLong": "Up to {max} characters: shorten it."
+    },
+    "incomplete": {
+      "row": "Incomplete address: it’s missing details for the label.",
+      "cta": "Complete address",
+      "rowMissing": "Incomplete address: missing {missing}.",
+      "missing": {
+        "neighborhood": "the neighborhood",
+        "postalCode": "a 5-digit postal code",
+        "phone": "a 10-digit phone number"
+      },
+      "and": "and",
+      "formIntro": "This address is missing {missing}. What you save stays in your address book.",
+      "formIntroGeneric": "This address is missing details for the label. What you save stays in your address book."
+    }
   },
   "track": {
     "title": "Track your order",
@@ -5052,7 +6343,6 @@
     "copyOrderNumber": "Copy",
     "copied": "Copied",
     "copyTracking": "Copy tracking number",
-    "troubleWithOrder": "A problem with your order?",
     "supportNote": "Check with support quoting your order number.",
     "resendCta": "Email the link to me again",
     "createAccountCta": "Create an account and save this order",
@@ -5074,7 +6364,8 @@
       "claimAlternative": "Want it always at hand? Create an account with that same email and your order will appear in your history.",
       "support": "Need help? Write to us at {contact}."
     },
-    "temporaryLinkNotice": "This link is temporary and expires in a few hours. Your order's tracking link arrives by email; if you don't see it, request a new one."
+    "temporaryLinkNotice": "This link is temporary and expires in a few hours. Your order's tracking link arrives by email; if you don't see it, request a new one.",
+    "trackingLink": "Track with the carrier"
   },
   "sealed": {
     "title": "Sealed",
@@ -5236,6 +6527,16 @@
       "emptyTitle": "Paste a list to get started",
       "emptyBody": "You haven't pasted anything yet. Copy your list and paste it above."
     }
+  },
+  "support": {
+    "orderTitle": "PROBLEM WITH YOUR ORDER?",
+    "withdrawalTitle": "PROBLEM WITH YOUR WITHDRAWAL?",
+    "orderBody": "If a card arrived in bad condition or the package didn't arrive, write to us with your order number and, if you can, photos. We'll look into it and reply by email.",
+    "withdrawalBody": "If a card arrived in bad condition or the package didn't arrive, write to us with your withdrawal number and, if you can, photos. We'll look into it and reply by email.",
+    "copyEmail": "Copy email",
+    "copied": "Copied",
+    "mailSubjectOrder": "Problem with my order {reference}",
+    "mailSubjectWithdrawal": "Problem with my withdrawal {reference}"
   },
   "privacy": {
     "link": "Privacy notice",

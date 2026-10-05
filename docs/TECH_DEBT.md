@@ -13,6 +13,73 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-10-05 · stream «Precio del sellado» — gate del techlead sobre `4f367aea` (rama `claude/precio-sellado`)
+
+> Deuda **no bloqueante** señalada por el techlead (APROBADO CON CONDICIONES; las condiciones están cerradas). Las
+> líneas citan el árbol `4f367aea` del gate. **D-8 se cerró en este pase** (era de pocas líneas). D-5 y D-6 no entran en
+> este encargo de backend (D-6 la trata el commit de frontend `6f473fe0`).
+
+### SPS-D1 · P3 · `computeSealedSalePrice` exportada se puede llamar sin el peldaño 1; `SealedSpreadResult` no es unión discriminada
+- **Dónde:** `backend/src/common/money.ts:428` (export de `computeSealedSalePrice`) y `:403-407` (`origin` +
+  `fixedDisplayCents: number | null` como campos sueltos).
+- **Qué es:** el resolvedor completo (producto > pieza > automático > pendiente) es `computeSealedSaleOf`; la función
+  interna del peldaño «pieza/automático» sigue exportada y un llamante nuevo puede usarla directamente y saltarse el
+  precio del dueño. Y el tipo permite combinaciones imposibles (`origin: 'automatic'` con `fixedDisplayCents ≠ null`),
+  que hoy solo sostiene un comentario (`≠ null ⇔ origin='product'`).
+- **Dirección:** dejar de exportar `computeSealedSalePrice` (o renombrarla a algo que diga «sin peldaño 1» y censarla) y
+  tipar `SealedSpreadResult` como unión discriminada por `origin` (`{ origin: 'product'; fixedDisplayCents: number }
+  | { origin: 'piece' | 'automatic' | 'pending'; fixedDisplayCents: null }`), para que el compilador haga la invariante.
+- **Disparador:** el próximo sitio de venta que necesite un precio de sellado, o el próximo cambio a la precedencia.
+
+### SPS-D2 · P3 · La hoja de precios re-expresa la precedencia fuera del resolvedor
+- **Dónde:** `backend/src/modules/inventory/sealed-price.service.ts:253` (`display = owner ?? automaticDisplay`) y
+  `:287` (`effectiveOrigin` por ternario).
+- **Qué es:** la hoja calcula «producto antes que automático» con su propio `??`/ternario en vez de leer `origin` y
+  `fixedDisplayCents` del resolvedor único. Hoy coinciden (la hoja solo muestra producto/automático/pendiente); si la
+  precedencia cambia, la hoja puede contar otra cosa que el checkout.
+- **Dirección:** derivar `displayPriceCents` y `effectiveOrigin` de la salida de `resolveSealedSalePrice` (o de un helper
+  único que la hoja y los sitios de venta compartan), conservando que la hoja ⛔ no lea el legado por pieza como efectivo.
+- **Disparador:** cualquier cambio a la precedencia de §M11-SP (o un peldaño nuevo).
+
+### SPS-D3 · P3 · El filtro «plataforma, ligada, en existencia» está escrito tres veces
+- **Dónde:** `backend/src/modules/inventory/sealed-product-pieces.ts:32-36`, `sealed-price.service.ts:96-98`
+  (`piecesWhere`) y `:133-135` (`onHand`).
+- **Qué es:** los tres comparten `SEALED_PIECE_STATUSES`, pero `ownerType: 'platform'` y la forma del `where` están
+  copiados; si uno cambia (p. ej. contar `consignment`), los conteos de la hoja, del listado y del filtro «en existencia»
+  divergen en silencio.
+- **Dirección:** un solo constructor `sealedPieceWhere(ids?)` en `sealed-product-pieces.ts`, usado por los tres (el
+  `onHand` lo envuelve en `some`).
+- **Disparador:** el próximo cambio a qué piezas «cuentan» para el producto.
+
+### SPS-D4 · P2 · La convergencia SP-14 con `isOwner` exige firma nueva y lectura de BD (va en el encargo de SP-14)
+- **Dónde:** `backend/src/modules/inventory/sealed-price.policy.ts:18` (`canSetSealedSalePrice` = `super_admin`, D-SP-1)
+  + sus **7** llamadas en `backend/src` (2 de `canSetSealedSalePrice` en `sealed-price.service.ts`, 5 de
+  `assertSealedPriceWriters` en `inventory.service.ts`); espejo en `frontend/src/lib/sealed-price-role.ts:12` + sus 4 usos (dueño de esa
+  mitad: frontend).
+- **Qué es:** el predicado es hoy **puro y síncrono** sobre el rol. Converger con `isOwner` (que distingue al dueño entre
+  los súper-admins) exige **otra firma** (async, con la lectura de BD o el dato ya resuelto en el actor) y tocar las 7
+  llamadas, más el espejo de frontend. No es un cambio de una línea y no debe colarse en otro encargo.
+- **Dirección:** decidirlo en el encargo de SP-14 (arquitecto): o el `Actor` trae `isOwner` resuelto por el guard (la
+  firma pura se conserva), o el predicado pasa a async con lectura. La tabla SP-14 de `test/sealed-price.sp.spec.ts`
+  cambia con él.
+- **Disparador:** la fusión con la rama que trae `isOwner` (SP-14 «al fusionar»).
+
+### SPS-D7 · P3 · `getIvaDials` se lee una vez por pieza en `sellableStatusFor`
+- **Dónde:** `backend/src/modules/orders/orders.service.ts:305-306` (`salePriceOf` llama a `getIvaDials`), invocado en
+  bucle desde `:1869`.
+- **Qué es:** N piezas ⇒ N lecturas de los diales (consultas extra y, en teoría, dos posiciones del dial en una misma
+  respuesta si el dueño lo mueve a mitad). En el checkout real los diales se leen una vez por carrito; este camino es
+  solo el de «¿resuelve?».
+- **Dirección:** leer los diales una vez fuera del bucle y pasarlos a `salePriceOf(item, dials)`.
+- **Disparador:** que ese bucle aparezca en un perfil de latencia, o el próximo cambio a `sellableStatusFor`.
+
+### SPS-D8 · ✅ CERRADA en este pase (2026-10-05) · Relectura del `PUT …/sale-price` sin producto ⇒ `data: undefined`
+- **Dónde estaba:** `backend/src/modules/inventory/sealed-price.service.ts:375-376` (árbol `4f367aea`).
+- **Qué era:** si el producto desaparecía entre el commit y la relectura, `const [data] = rowsOf([])` daba `200` con
+  `data: undefined`.
+- **Cierre:** `404 NOT_FOUND` explícito antes de `rowsOf`; prueba unitaria «D-8» en `test/sealed-price.sp.spec.ts` (roja
+  sin el arreglo; ver `BACKEND_NOTES §57.10`).
+
 ## Backend · 2026-09-28 · SEC-SETTLE-LATE (sobre `2fb61f1`)
 
 ### SSL-R1 · Piezas `reserved` de una orden `refunded` SIN liquidar nunca se sueltan: el barrido las salta en cada pasada (backend · API_CONTRACT §M4-VAULT.2-bis.2 «Residual», 2026-09-28)
@@ -8826,6 +8893,128 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Comprobación de cierre:** `rg -n "email \?\? .*username" frontend/src --glob '!*.test.*'` ⇒ solo
   `lib/account-identity.ts`; `rg -n "email != null" frontend/src --glob '!*.test.*'` ⇒ solo ese fichero (y
   `PasswordPage.tsx` si sigue siendo un candado local); UX-8, UX-12, UX-13 verdes.
+
+## Backend · 2026-10-05 · Skydropx · gate techlead sobre 31af0883 (rama `claude/skydropx-d`, D-2…D-10, D-12)
+
+> Deuda no bloqueante del veredicto del techlead sobre `31af0883` (APROBADO CON CONDICIONES). C-TL-1, C-TL-2, D-1 y D-8 se
+> pagaron en este pase (`BACKEND_NOTES §71`). Líneas medidas por backend el 2026-10-05 sobre el árbol de trabajo de la rama
+> (`HEAD` previo `bf9e73fc`, con los cambios de §71 aplicados). D-11 es de frontend (no se anota aquí).
+
+### SDX-TL-D2 · P3 · `@Optional()` en dependencias que en producción SIEMPRE están
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts:345-359` (`mail`, `prep`, `manual`, `postalCodes`, `labelCfg`,
+  `labelClock`, `orderTokens`); `backend/src/modules/payments/refunds/refund-ledger.service.ts:98-103` (`mail`, `moduleRef`,
+  `orderTokens`). El motivo escrito es «los tests unitarios legacy construyen el servicio a mano».
+- **Impacto:** si un módulo deja de proveer una de ellas, Nest no falla al arrancar: la conducta se degrada en silencio
+  (sin correo, sin CTA del invitado, reloj del sistema en vez del inyectado). D-1 fue un caso con guarda de dinero
+  (`transitionFromProvider` se saltaba `assertCanAdvance`); se cerró con `requirePrep()`, pero la clase sigue abierta.
+- **Corrección:** quitar `@Optional()` de lo que la app siempre provee y mover los unitarios legacy a una fábrica de prueba
+  que pase dobles explícitos; donde se quede, `requireX()` en todo camino nuevo.
+- **Disparador:** la próxima dependencia nueva de `ShipmentsService`/`RefundLedgerService`, o cualquier `if (this.x)` nuevo.
+- **Comprobación de cierre:** `rg -n "@Optional\(\)" backend/src/modules/shipments/shipments.service.ts` ⇒ solo `mail` (best-effort
+  documentado); `rg -n "if \(this\.(prep|postalCodes|orderTokens)\)" backend/src/modules/shipments` ⇒ 0.
+
+### SDX-TL-D3 · P3 · `orderMailLinkOf` (dominio de `orders/`) vive en `shipments/`
+- **Dónde:** `backend/src/modules/shipments/guest-mail-link.ts` (`orderMailLinkOf`, y desde §71 `safeErrorTag`), importado por
+  `backend/src/modules/payments/refunds/refund-ledger.service.ts:36` (`AV-12`).
+- **Impacto:** `payments/` depende de `shipments/` para resolver el enlace de un PEDIDO; quien busque «cómo se arma la liga
+  del pedido» en `orders/` no la encuentra, y el próximo aviso de `orders/` tenderá a copiarla.
+- **Corrección:** mover el fichero a `orders/` (junto a `OrderAccessTokenService`/`GuestOrderTokensModule`) y `safeErrorTag` a
+  un helper de log común (zona compartida `common/`: con encargo propio).
+- **Disparador:** el próximo aviso de `orders/` con CTA, o un cambio de `orderMailLinkOf`.
+- **Comprobación de cierre:** `rg -n "shipments/guest-mail-link" backend/src/modules/payments backend/src/modules/orders` ⇒ 0.
+
+### SDX-TL-D4 · P3 · Dos fuentes para el enlace del botón; `customerUrl` tri-estado
+- **Dónde:** `backend/src/modules/shipments/mail/shipment-notice.templates.ts:106-112` (`shipmentUrl`: si `customerUrl` es
+  `undefined` deriva `orders/<id>` o `shipments/<id>`; si es `null` ⇒ sin CTA; si es cadena ⇒ esa) y
+  `backend/src/modules/shipments/shipments.service.ts` `customerUrlFor` (la que resuelve el servicio).
+- **Impacto:** la ruta del botón se decide en dos sitios; un llamador que olvide pasar `customerUrl` cae en la derivación de
+  la plantilla y un invitado podría recibir `orders/<id>` (que no puede abrir). `undefined` ≠ `null` es una distinción que
+  el tipo no explica.
+- **Corrección:** el servicio resuelve SIEMPRE (`string | null`), la plantilla solo pinta; el campo pasa a obligatorio.
+- **Disparador:** el próximo aviso nuevo de envío/pedido o cambio de rutas del front.
+- **Comprobación de cierre:** `customerUrl?:` ⇒ `customerUrl: string | null` en `ShipmentNoticeParams`; `shipmentUrl` sin
+  `appUrl(...)`.
+
+### SDX-TL-D5 · P3 · `shipments.service.ts` tiene 2169 líneas
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts` (`wc -l` = 2169 tras §71; el techlead midió 2192 en `31af0883`).
+- **Impacto:** listado admin, DTOs de guía, transiciones, avisos y destinatarios en un solo servicio; cada pase lo toca y
+  serializa a quien trabaje en paralelo (B-1 y B-3 ya chocaron en él, `BACKEND_NOTES §70.4`).
+- **Corrección:** partir en `ShipmentAdminQueryService` (listado/DTO/alertas), `ShipmentNoticesService` (`claimAndNotify`,
+  `resolveRecipient`, `customerUrlFor`) y el núcleo de transiciones.
+- **Disparador:** el próximo encargo que necesite tocarlo en paralelo con otro.
+- **Comprobación de cierre:** `wc -l` < 1000 y `rg -n "claimAndNotify" backend/src/modules/shipments/shipments.service.ts` ⇒ 0.
+
+### SDX-TL-D6 · P3 · Tres relojes en el tablero
+- **Dónde:** `backend/src/modules/admin/admin.service.ts:1867` (`const now = new Date()` para `toPrepare`, reembolsos y
+  `spendControl`); `backend/src/modules/shipments/shipping-work-queue.service.ts` (`SHIPMENTS_LABEL_CLOCK` para
+  `withLabelAlert`); `backend/src/modules/spend-alerts/provider-balance.service.ts:30,55` (`SPEND_ALERTS_CLOCK` para el caché
+  del saldo).
+- **Impacto:** en producción los tres son el reloj del sistema y coinciden; en pruebas cada uno se sustituye por separado y
+  una prueba que adelante uno compara cifras de instantes distintos (PS-173 lo sabe y adelanta solo el de la guía).
+- **Corrección:** un reloj de tablero inyectado que se pase a las tres lecturas.
+- **Disparador:** la próxima tarjeta del tablero con umbral de tiempo.
+- **Comprobación de cierre:** `rg -n "new Date\(\)" backend/src/modules/admin/admin.service.ts` ⇒ 0 en `workQueueAdditions`.
+
+### SDX-TL-D7 · P3 · Huérfana evaluada contra `SpendAlert`; `regexp_replace` sin índice
+- **Dónde:** `backend/src/modules/shipments/orphan-reconcile.service.ts:136` (si la huérfana ya se resolvió se lee de la fila
+  `SpendAlert` con `dedupKey 'ag9:o:<id>'`: el estado de la huérfana vive en la tabla de AVISOS) y `:263-266`
+  (`regexp_replace(upper(normalize("trackingNumber", NFKC)), …)` sobre todo `ShipmentRequest`, sin índice de expresión).
+- **Impacto:** (1) borrar o deduplicar avisos cambia la conducta de la conciliación; (2) escaneo completo por cada huérfana:
+  hoy barato (pocos envíos), lineal con el histórico.
+- **Corrección:** (1) estado propio de la huérfana (columna o tabla de conciliación) — cambio de esquema, vía arquitecto;
+  (2) índice de expresión con la misma normalización (migración, vía arquitecto) o columna normalizada.
+- **Disparador:** > ~50 000 envíos, o cualquier cambio a la retención de `SpendAlert`.
+- **Comprobación de cierre:** `rg -n "spendAlert" orphan-reconcile.service.ts` ⇒ solo escritura del aviso; `EXPLAIN` de la
+  consulta usa índice.
+
+### SDX-TL-D9 · ✅ CERRADA en este pase (2026-10-05) · Referencias viejas en comentarios
+- `backend/src/jobs/scheduler.service.ts:119` citaba `sdx-d2d-jobs.e2e-spec.ts` (no existe) ⇒ ahora `sdx-d2d-charges.e2e-spec.ts:132-133`
+  (la que asevera `sched.shipmentTrackingPoll` con el AppModule real).
+- `backend/test/integration/sdx-d2e-notices.e2e-spec.ts:15` decía «el invitado: BACKEND_NOTES §67 P-D2E-1» (pendiente) ⇒ ahora
+  remite a `sdx-b1-guest-mail-link.e2e-spec.ts` / §69, donde se construyó.
+
+### SDX-TL-D10 · P3 · Muros sin prueba propia
+- **Dónde:** (a) **I02** (lo nombra el techlead; `rg -n "I02" backend/test` ⇒ 0 — ninguna prueba lo cita); (b) **M2 de D2e**
+  (mutación que solo se midió a mano, sin prueba que la fije); (c) `ShipmentLabelRecoveryService.autoRelease`
+  (`label-recovery.service.ts:564`) llamado sin `since` coincidente — el CAS `labelProcessingSince: since` (`:575`) es el muro y
+  no hay unitaria que lo ataque con un `since` viejo.
+- **Impacto:** quitar cualquiera de esos muros no pone rojo nada hoy.
+- **Corrección:** una prueba por muro con su mutación (quitar el muro ⇒ rojo).
+- **Disparador:** el próximo cambio en `label-recovery.service.ts` o en los avisos de D2e.
+- **Comprobación de cierre:** quitar `labelProcessingSince: since` del `where` de `autoRelease` ⇒ al menos una prueba roja.
+  (El detalle de I02 y M2 es del informe del techlead: **NO MEDIDO** por backend más allá del `rg`.)
+
+### SDX-TL-D12 · P3 · `process()` de los jobs `shipment-*` solo en unitaria
+- **Dónde:** `backend/src/jobs/scheduler.service.ts:376-381` (`case 'shipment-tracking-poll' | 'shipment-label-processing' |
+  'shipment-extra-charges'`). `sdx-c1-jobs.e2e-spec.ts` llama `process(job)` con el AppModule real solo para `spend-*`;
+  para `shipment-*` la integración asevera el CABLEADO (`sdx-d2d-charges.e2e-spec.ts:132-133`), no el despacho.
+- **Impacto:** un `case` mal escrito o un job que lance dentro de `process` solo lo ve la unitaria con dobles.
+- **Corrección:** una integración que llame `process({name:'shipment-…'})` con el AppModule real y el proveedor doble (PS-99).
+- **Disparador:** el próximo job `shipment-*` nuevo o cambio en `process`.
+- **Comprobación de cierre:** `rg -n "process\(\{ ?name: 'shipment-" backend/test/integration` ⇒ ≥ 3.
+
+## Frontend · Skydropx · 2026-10-05 · gate techlead sobre `7d930c4e` (rama `claude/skydropx-d`, D-11; NT2-a cerrada)
+
+> Escribe: frontend, a petición del techlead (re-pase sobre `7d930c4e`).
+
+### SDX-FE-D11 · P3 · `StatCard` recibe el color de acento por un selector arbitrario sobre su DOM
+
+**Qué:** tres llamadas pintan de bermellón la cifra de `StatCard` con `className="[&_span.tabular]:text-accent"`
+(`frontend/src/app/[locale]/(admin)/admin/AdminDashboard.tsx:47`, `:101`, `:366`, medido 2026-10-05 sobre `7d930c4e`).
+El selector depende de que `StatCard` pinte su valor en un `<span class="tabular">`: es la estructura interna del
+componente usada como API. Si `StatCard` cambia ese marcado, el acento se pierde en silencio (ninguna prueba lo
+afirma por color).
+
+**Dirección:** prop `tone?: 'default' | 'accent'` en `frontend/src/components/ui/StatCard.tsx` (zona compartida: un
+stream a la vez) que aplique `text-accent` al valor; sustituir las tres llamadas y retirar el selector.
+
+**Comprobación de cierre:** `grep -rn "\[&_span.tabular\]" frontend/src` = 0 y una prueba de `StatCard` que afirme
+la clase del valor con `tone="accent"`.
+
+### SDX-FE-NT2a · ✅ CERRADA en este pase (2026-10-05) · Cuatro definiciones divergentes del patrón P66-3
+
+Unificado en `frontend/src/lib/i18n-p66-3.testkit.ts` (`P66_3_CODE_RE`, con y sin guion) y usado por los cuatro
+barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 
 ## Frontend · 2026-10-04 · gate del techlead sobre `4d994c55` (rama `claude/precios-s5`, D-7; D-8 cerrada)
 

@@ -24,7 +24,10 @@ import {
   deleteAddress,
   updateAdminShipmentStatus,
   respondSellRequest,
-  createDispute,
+  getSupportContact,
+  refundDeliveredItem,
+  previewWithdrawalDeliveredRefund,
+  createWithdrawalDeliveredRefund,
   getDisputes,
   getSellRequests,
   getSellRequest,
@@ -331,21 +334,25 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
     const created = await createAddress({
       recipientName: 'Ana López',
       line1: 'Calle 5 de Mayo 10',
-      city: 'Puebla',
-      state: 'Puebla',
-      postalCode: '72000',
+      neighborhood: 'americana', // v1.81: de la lista del CP; se guarda la grafía canónica
+      city: 'tecleada',
+      state: 'tecleado',
+      postalCode: '44100',
       country: 'MX',
-      phone: '2221234567',
+      phone: '3312345678',
       isDefault: true,
     });
+    // v1.81 (§M4-SHIP.19.5): colonia, municipio y estado CANÓNICOS del CP; `complete` derivado.
+    expect(created).toMatchObject({ neighborhood: 'Americana', city: 'Guadalajara', state: 'Jalisco', references: null, complete: true });
     expect(created.id).toBeTruthy();
     const after = await listAddresses();
     expect(after.length).toBe(before.length + 1);
     // isDefault=true deja como no-default a las demás.
     expect(after.filter((a) => a.isDefault).length).toBe(1);
 
+    // v1.81: con colonia, tocar la ciudad vuelve a escribir el municipio canónico del CP.
     const updated = await updateAddress(created.id, { city: 'Cholula' });
-    expect(updated.city).toBe('Cholula');
+    expect(updated.city).toBe('Guadalajara');
 
     await deleteAddress(created.id);
     const final = await listAddresses();
@@ -357,6 +364,7 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
       createAddress({
         recipientName: 'Ana López',
         line1: '5th Ave 1',
+        neighborhood: 'Midtown',
         city: 'NYC',
         state: 'NY',
         postalCode: '10001',
@@ -391,23 +399,14 @@ describe('api (rama mock) · WS-F Pass 2 (F4/F5/F6)', () => {
     expect(req.items.some((it) => it.itemStatus === 'aprobada')).toBe(true);
   });
 
-  it('F6 · createDispute abre disputa sobre ítem raw entregado (type derivado server-side)', async () => {
-    // inv-1003 (Charizard raw) va en el envío entregado shp-7002 (dentro de ventana).
-    const res = await createDispute({ inventoryItemId: 'inv-1003', description: 'Corner wear on arrival' });
-    expect(res.disputeId).toMatch(/^dsp-/);
-    expect(res.status).toBe('abierta');
-    expect(res.type).toBe('condition_raw');
-    expect(res.evidenceContact).toContain('@');
-    // Aparece en "Mis disputas".
-    const disputes = await getDisputes();
-    expect(disputes.some((d) => d.inventoryItemId === 'inv-1003')).toBe(true);
+  it('§PNL.1 · createDispute ya no existe en el cliente (POST /disputes ⇒ 410): nadie puede llamarlo', async () => {
+    const mod = await import('./api');
+    expect('createDispute' in mod).toBe(false);
   });
 
-  it('F6 · createDispute rechaza un ítem GRADEADO con 422 NOT_RAW', async () => {
-    // inv-1006 (Latias graded) va en shp-7002 → no aplica disputa de condición.
-    await expect(
-      createDispute({ inventoryItemId: 'inv-1006', description: 'anything' }),
-    ).rejects.toMatchObject({ code: 'NOT_RAW', status: 422 });
+  it('§PNL.1 · getSupportContact (mock) devuelve un buzón no vacío', async () => {
+    const res = await getSupportContact();
+    expect(res.contact).toContain('@');
   });
 
   // ---- v1.18-buylist-rejects (§M5) ----
@@ -530,7 +529,7 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/users/me/addresses');
 
     fetchMock.mockResolvedValueOnce(makeRes(201, { id: 'a2', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' }));
-    await createAddress({ recipientName: 'Ana', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' });
+    await createAddress({ recipientName: 'Ana', line1: 'y', neighborhood: 'n', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' });
     expect(fetchMock.mock.calls[1][1].method).toBe('POST');
 
     fetchMock.mockResolvedValueOnce(makeRes(200, { id: 'a2', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111', isDefault: true }));
@@ -586,32 +585,37 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     });
   });
 
-  it('F6 · createDispute → POST /disputes { inventoryItemId, description }; propaga 422 DISPUTE_WINDOW_CLOSED', async () => {
-    fetchMock.mockResolvedValueOnce(
-      makeRes(201, {
-        disputeId: 'dsp-1',
-        status: 'abierta',
-        type: 'condition_raw',
-        deadlineAt: '2026-08-24T00:00:00Z',
-        // Dato de infraestructura: el cliente lo PROPAGA tal cual (por eso el aserto de abajo
-        // es sobre la forma, no sobre el buzón). API_CONTRACT §0, cláusula 4.
-        evidenceContact: 'evidencias@ejemplo.test',
-      }),
-    );
-    const res = await createDispute({ inventoryItemId: 'inv-1', description: 'edge wear' });
-    expect(res.evidenceContact).toContain('@');
+  it('§PNL.1 · getSupportContact → GET /support/contact (sin cuerpo) y devuelve `{ contact }` tal cual', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { contact: 'otro@x' }));
+    const res = await getSupportContact();
+    expect(res).toEqual({ contact: 'otro@x' });
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain('/disputes');
-    expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body as string)).toEqual({ inventoryItemId: 'inv-1', description: 'edge wear' });
+    expect(String(url)).toMatch(/\/support\/contact$/);
+    expect(init.method ?? 'GET').toBe('GET');
+  });
 
-    fetchMock.mockResolvedValueOnce(
-      makeRes(422, { error: { code: 'DISPUTE_WINDOW_CLOSED', message: 'window closed' } }),
-    );
-    await expect(createDispute({ inventoryItemId: 'inv-1', description: 'late' })).rejects.toMatchObject({
-      code: 'DISPUTE_WINDOW_CLOSED',
-      status: 422,
-    });
+  it('§PNL.2 · refundDeliveredItem → POST /admin/orders/:id/items/:orderItemId/refund-delivered, cuerpo sin amountCents', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(201, { refund: { id: 'pr-1' } }));
+    await refundDeliveredItem('ord-1', 'oi-1', { reason: 'not_arrived', note: 'abc', expectedRefundCents: 31458 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toMatch(/\/admin\/orders\/ord-1\/items\/oi-1\/refund-delivered$/);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ reason: 'not_arrived', note: 'abc', expectedRefundCents: 31458 });
+  });
+
+  it('§PNL.3 · preview → GET …/withdrawal-delivered/preview?shipmentItemId&amountCents; create → POST …/withdrawal-delivered', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { amountCents: 100 }));
+    await previewWithdrawalDeliveredRefund('sit-1', 100);
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/admin\/manual-refunds\/withdrawal-delivered\/preview\?shipmentItemId=sit-1&amountCents=100$/);
+    fetchMock.mockResolvedValueOnce(makeRes(200, { amountCents: null }));
+    await previewWithdrawalDeliveredRefund('sit-1', null);
+    expect(String(fetchMock.mock.calls[1][0])).toMatch(/preview\?shipmentItemId=sit-1$/);
+    fetchMock.mockResolvedValueOnce(makeRes(201, { manualRefund: { id: 'mr-1' } }));
+    await createWithdrawalDeliveredRefund({ shipmentItemId: 'sit-1', reason: 'not_arrived', note: 'abc', amountCents: 100 });
+    const [url, init] = fetchMock.mock.calls[2];
+    expect(String(url)).toMatch(/\/admin\/manual-refunds\/withdrawal-delivered$/);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ shipmentItemId: 'sit-1', reason: 'not_arrived', note: 'abc', amountCents: 100 });
   });
 
   it('F6 · getDisputes → GET /disputes (unwrap data)', async () => {

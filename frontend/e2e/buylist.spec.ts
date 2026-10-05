@@ -1,6 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { loginAs, mockOnly } from './utils/auth';
+import { chooseNeighborhood } from './utils/address';
 
 /**
  * Flujo: buylist (PROJECT §E / AC 12, 13, 33, 34; contrato §6).
@@ -131,9 +132,10 @@ async function choosePickupAddress(scope: Locator) {
     return;
   }
   await line1.fill('Av. Reforma 222');
-  await scope.getByLabel(t('es', 'addresses.city')).fill('Ciudad de México');
-  await scope.getByLabel(t('es', 'addresses.state')).fill('CDMX');
+  // v1.81 (API_CONTRACT §M4-SHIP.19.5): CP → colonia DE LA LISTA del CP; municipio y estado salen
+  // del CP (ya no son campos). '06600' está en el catálogo del arnés (`E2E_POSTAL_CODES`) y en el mock.
   await scope.getByLabel(t('es', 'addresses.postalCode')).fill('06600');
+  await chooseNeighborhood(scope, 'Juárez');
   await scope.getByLabel(t('es', 'addresses.phone')).fill('5555123456');
   await scope.getByRole('button', { name: t('es', 'addresses.save') }).click();
   await expect(scope.getByLabel(t('es', 'buylist.request.address.label'))).toHaveCount(1);

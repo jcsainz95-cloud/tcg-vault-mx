@@ -10,6 +10,7 @@ import {
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
 import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.26 (④, §M1) — PUBLICAR SIEMPRE CON PRECIO: la variante priceless ESCALA a la cola de
@@ -111,7 +112,7 @@ function buildHarness() {
     },
   };
 
-  const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
 
   const pricing = new PricingService(
     prisma as PrismaService,
@@ -273,7 +274,8 @@ describe('bulkPublish ④ — sealed priceless ESCALA (no dropea, no publica)', 
     const h = buildHarness();
     h.items.push(sealedItem());
     await h.svc.bulkPublish(publish('s1'), 'admin'); // escala
-    const res = await h.svc.bulkPublish(publish('s1', 15000), 'admin');
+    // v1.83 (§M11-SP.4): el precio de un sellado SIN producto en una línea solo lo pone el dueño.
+    const res = await h.svc.bulkPublish(publish('s1', 15000), 'admin', 'super_admin' as never);
     expect(res.results[0]).toMatchObject({ ok: true, status: 'listed', salePriceCents: 15000 });
     expect(h.items[0].status).toBe('listed');
   });

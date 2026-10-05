@@ -153,7 +153,6 @@ export const DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES = [
   'OVERRIDE_REASON_REQUIRED',
   'OFFER_NET_BELOW_MINIMUM',
   'OFFER_PROJECTION_INCOMPLETE',
-  'ITEM_NOT_OFFERED',
   'OFFERED_PRICE_MISSING',
   'NO_LIVE_ADJUSTMENT',
   'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
@@ -163,8 +162,10 @@ export const DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES = [
  * **§27, LOTE 2 — lo ya CABLEADO** (sale de la lista de pendientes de arriba). `409 DECLINE_NOT_ALLOWED` llegó a
  * pantalla con el botón «Declinar» de M5 (P-M5-DECLINE, §25.8, 2026-10-02): su copy es el de §27.2 tal cual, y el
  * candado de literalidad de `error-audience.test.ts` lo compara carácter por carácter. Solo admin ⇒ sin `_OPERATOR`.
+ * `422 ITEM_NOT_OFFERED` llegó con F-4 (§60.7 a / §E2E-ADM.2, M5-NC-4, 2026-10-05): la decisión por carta sobre una
+ * `skip` se pinta con su copy de §27.2 y ⛔ nunca con el `message` del servidor.
  */
-export const DESIGN_SYSTEM_27_LOT2_WIRED_ERROR_CODES = ['DECLINE_NOT_ALLOWED'] as const;
+export const DESIGN_SYSTEM_27_LOT2_WIRED_ERROR_CODES = ['DECLINE_NOT_ALLOWED', 'ITEM_NOT_OFFERED'] as const;
 
 /**
  * **STREAM B — los dos códigos del reintento de checkout y de las transiciones de M5** (contrato
@@ -202,6 +203,7 @@ export const STREAM_B_ERROR_VARIANTS: Readonly<Record<string, readonly string[]>
     // Piezas de esa variante: el verbo y el separador de la lista de estados permitidos.
     'INVALID_TRANSITION_VERB.receive',
     'INVALID_TRANSITION_VERB.verify',
+    'INVALID_TRANSITION_VERB.rejectItems',
     'INVALID_TRANSITION_ALLOWED_FROM_JOIN',
   ],
   PAYMENT_IN_PROGRESS: ['PAYMENT_IN_PROGRESS_GUEST'],

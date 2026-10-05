@@ -1,8 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslations } from 'next-intl';
-import { usePickingSummary } from '@/hooks/usePickingSummary';
+import { useQueryClient } from '@tanstack/react-query';
+import { useLocale, useTranslations } from 'next-intl';
+import { PICKING_SUMMARY_KEY, usePickingSummary } from '@/hooks/usePickingSummary';
+import { Button } from '@/components/ui/Button';
+import { Banner } from '@/components/ui/Banner';
+import { formatMoneyCents } from '@/lib/format';
+import type { AppLocale } from '@/i18n/routing';
+import type { ManualRefundDTO } from '@/types/contract';
+import { MANUAL_REFUNDS_KEY } from '../manual-refunds/ManualRefundsView';
+import { WithdrawalDeliveredRefundDialog } from './WithdrawalDeliveredRefundDialog';
 import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
 import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
@@ -36,6 +44,12 @@ function RefundsTabs({ initialTab }: { initialTab: RefundsTab }) {
   const summary = usePickingSummary();
   const [tab, setTab] = useState<RefundsTab>(initialTab);
   const tabRefs = useRef<Record<RefundsTab, HTMLButtonElement | null>>({ spei: null, operadores: null });
+  const tw = useTranslations('admin.refundsPage.withdrawalDelivered');
+  const locale = useLocale() as AppLocale;
+  const qc = useQueryClient();
+  // §60.4 — «Devolver una carta de un retiro entregado» (PNL-3).
+  const [wdOpen, setWdOpen] = useState(false);
+  const [wdDone, setWdDone] = useState<ManualRefundDTO | null>(null);
 
   const selectTab = useCallback((next: RefundsTab) => {
     setTab(next);
@@ -79,7 +93,27 @@ function RefundsTabs({ initialTab }: { initialTab: RefundsTab }) {
         <Link href="/admin/m3?refundReview=pending" className="text-sm text-text underline underline-offset-4 hover:text-accent" data-testid="refunds-review-link">
           {t('reviewLink')}
         </Link>
+        <div className="mt-2">
+          <Button variant="secondary" size="sm" onClick={() => setWdOpen(true)} data-testid="refunds-withdrawal-delivered-cta">
+            {tw('cta')}
+          </Button>
+        </div>
       </div>
+
+      {wdDone && (
+        <Banner key={wdDone.id} variant="info" role="status" dismissible>
+          <p className="text-sm text-text" data-testid="refunds-withdrawal-delivered-done">
+            {tw('done', {
+              amount: formatMoneyCents(wdDone.amountCents, locale),
+              customer: wdDone.beneficiaryName?.trim() || wdDone.customer.fullName?.trim() || wdDone.customer.email,
+              clabe: wdDone.clabeOnFile ? 'yes' : 'no',
+            })}
+          </p>
+          <Link href={`/admin/manual-refunds/${wdDone.id}`} className="text-sm text-text underline underline-offset-4 hover:text-accent">
+            {tw('viewTransfer')}
+          </Link>
+        </Banner>
+      )}
 
       <div className="flex gap-5 overflow-x-auto border-b border-border" role="tablist" aria-label={tModules('refunds')}>
         {REFUNDS_TABS.map((key) => {
@@ -119,6 +153,18 @@ function RefundsTabs({ initialTab }: { initialTab: RefundsTab }) {
         {tab === 'spei' && <ManualRefundsView />}
         {tab === 'operadores' && <OperatorRefundsView />}
       </div>
+
+      <WithdrawalDeliveredRefundDialog
+        open={wdOpen}
+        onClose={() => setWdOpen(false)}
+        onDone={(m) => {
+          setWdOpen(false);
+          setWdDone(m);
+          selectTab('spei');
+          void qc.invalidateQueries({ queryKey: MANUAL_REFUNDS_KEY });
+          void qc.invalidateQueries({ queryKey: PICKING_SUMMARY_KEY });
+        }}
+      />
     </div>
   );
 }

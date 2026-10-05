@@ -89,7 +89,17 @@ const envio = (e: Partial<EnvioFake> = {}): EnvioFake => ({
  */
 function seisCifras(p: Awaited<ReturnType<AdminService['pnl']>>) {
   // (v1.80: lo devuelto es ADITIVO y con 0 filas vale 0 — la neutralidad de las SEIS heredadas sigue midiéndose igual.)
-  const { shippingCostMissingCount: _nuevo, refundsCents: _r, refundedFeesCents: _f, compensationsCents: _c, ...heredadas } = p;
+  // 💰 D2f (§19.11): `shippingAdjustmentsCents` y `shippingInsuranceCents` son ADITIVAS (con 0 ajustes, el `shippingCostCents`
+  // heredado no cambia): fuera de la comparación, como las demás nuevas; se prueban en `sdx-d2f.units.spec.ts`.
+  const {
+    shippingCostMissingCount: _nuevo,
+    shippingAdjustmentsCents: _a,
+    shippingInsuranceCents: _i,
+    refundsCents: _r,
+    refundedFeesCents: _f,
+    compensationsCents: _c,
+    ...heredadas
+  } = p;
   return heredadas;
 }
 
@@ -219,14 +229,15 @@ describe('P&L — DEPLOY 1 (§4.44.j): neutralidad demostrada + `D-IVA-5`', () =
       const esperado = pnlLegacy(ordenes, envios);
       const [header, row] = (await service.exportCsv('pnl')).trim().split('\n');
       // ⭐ D56: el CSV gana `shippingCostMissingCount` **en el mismo orden que el objeto**.
+      // 💰 D2f (§19.11): + `shippingAdjustmentsCents`, `shippingInsuranceCents` tras `shippingCostMissingCount` (orden del objeto).
       expect(header).toBe(
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-          'shippingCostMissingCount,refundsCents,refundedFeesCents,compensationsCents,profitCents',
+          'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents',
       );
       const missing = envios.filter((e) => e.shippingCostCents === 0).length;
       expect(row).toBe(
         `pnl,${esperado.incomeCents},${esperado.shippingRevenueCents},${esperado.cogsCents},` +
-          `${esperado.stripeFeesCents},${esperado.shippingCostCents},${missing},0,0,0,${esperado.profitCents}`,
+          `${esperado.stripeFeesCents},${esperado.shippingCostCents},${missing},0,0,0,0,0,${esperado.profitCents}`,
       );
     });
   });

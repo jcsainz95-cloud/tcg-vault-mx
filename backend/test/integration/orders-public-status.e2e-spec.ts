@@ -30,7 +30,8 @@ describe('§M4-SHIP.16 — publicStatus y shipment del cliente registrado (Postg
     await h?.close();
   });
 
-  const SHIPMENT_KEYS = ['id', 'status', 'carrier', 'trackingNumber', 'requestedAt', 'pickingAt', 'shippedAt', 'deliveredAt', 'shipTo', 'missingCount'].sort();
+  // ⭐ D2e (§19.12, PS-89): + `timeline` (siempre); `trackingUrl` solo si Skydropx la dio (guía manual aquí ⇒ ausente).
+  const SHIPMENT_KEYS = ['id', 'status', 'carrier', 'trackingNumber', 'requestedAt', 'pickingAt', 'shippedAt', 'deliveredAt', 'shipTo', 'missingCount', 'timeline'].sort();
 
   it('PO-1 / PO-4 — directo con cuenta: tras tracking ⇒ `shipment.carrier/trackingNumber` y `publicStatus:guia`; enviado ⇒ +shippedAt; entregado ⇒ +deliveredAt; LISTA CERRADA del envío', async () => {
     const u = await db.mkUser('PO-1');

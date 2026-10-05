@@ -207,6 +207,33 @@ describe('render: cada aviso al cliente enlaza a una ruta que existe', () => {
       render: (l) => shipmentTpl.shipmentCancelledTemplate({ shipmentId: 'shp-1', orderNumber: 'TCG-1', orderId: 'ord-1' }, l),
       ruta: '/orders/ord-1',
     },
+    // ⭐ D2e (§19.12, PS-87): los tres avisos del transportista, y la liga del invitado `pedido?token=` (ruta `pedido`).
+    'AV-17 entregado (pedido)': {
+      tpl: 'shipmentDeliveredTemplate',
+      render: (l) =>
+        shipmentTpl.shipmentDeliveredTemplate({ shipmentId: 'shp-1', orderNumber: 'TCG-1', orderId: 'ord-1', carrier: 'E', trackingNumber: 'T' }, l),
+      ruta: '/orders/ord-1',
+    },
+    'AV-17 entregado (invitado, customerUrl del servicio)': {
+      tpl: 'shipmentDeliveredTemplate',
+      render: (l) =>
+        shipmentTpl.shipmentDeliveredTemplate(
+          { shipmentId: 'shp-1', orderNumber: 'TCG-1', orderId: null, carrier: 'E', trackingNumber: 'T', customerUrl: `${ORIGIN}/${l}/pedido?token=TKN` },
+          l,
+        ),
+      ruta: '/pedido?token=TKN',
+    },
+    'AV-18 en sucursal (bóveda)': {
+      tpl: 'shipmentAtBranchTemplate',
+      render: (l) => shipmentTpl.shipmentAtBranchTemplate({ shipmentId: 'shp-1', orderNumber: null, carrier: 'E', trackingNumber: 'T', branchName: 'Centro' }, l),
+      ruta: '/shipments/shp-1',
+    },
+    'AV-19 intento (pedido)': {
+      tpl: 'shipmentDeliveryAttemptTemplate',
+      render: (l) =>
+        shipmentTpl.shipmentDeliveryAttemptTemplate({ shipmentId: 'shp-1', orderNumber: 'TCG-1', orderId: 'ord-1', carrier: 'E', trackingNumber: 'T' }, l),
+      ruta: '/orders/ord-1',
+    },
     'AV-10 disputa recompra': {
       tpl: 'disputeRepurchaseTemplate',
       render: (l) => disputeTpl.disputeRepurchaseTemplate({ folio: 'd-1', resolution: null }, l),

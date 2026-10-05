@@ -15,7 +15,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Textarea } from '@/components/ui/Textarea';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
-import { historicalCardName } from '@/lib/historical-card';
+import { historicalCardMeta, historicalCardName } from '@/lib/historical-card';
 import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
@@ -23,6 +23,7 @@ import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO,
 import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail } from '../RefundOrderDialog';
 import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
+import { RefundDeliveredItemDialog, type DeliveredRefundTarget } from '../RefundDeliveredItemDialog';
 
 const DASH = '—';
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
@@ -68,6 +69,9 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
   const [invOutcome, setInvOutcome] = useState<ChargebackInventoryRequest['outcome'] | ''>('');
   const [invNote, setInvNote] = useState('');
   const [toManualTarget, setToManualTarget] = useState<PaymentRefundDTO | null>(null);
+  // §60.3 — «Reembolsar esta carta» (pedido directo ENTREGADO, súper-admin).
+  const [deliveredTarget, setDeliveredTarget] = useState<DeliveredRefundTarget | null>(null);
+  const tdr = useTranslations('admin.m3.deliveredRefund');
   // §40.3 (c) — registro ÚNICO del motivo de un reembolso tras el envío hecho desde Stripe.
   const [reviewReason, setReviewReason] = useState<ShippedRefundReason | null>(null);
   const [reviewNote, setReviewNote] = useState('');
@@ -302,12 +306,48 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                   <ul className="flex flex-col divide-y divide-border border-y border-border">
                     {(o.items ?? []).map((it) => {
                       const { text: name } = historicalCardName(it.card, tOrders('item.unknownCard'));
+                      const dr = it.deliveredRefund ?? null;
+                      // §60.3 a: botón SOLO con `refundable` ∧ súper-admin ∧ la llave del verbo. ⛔ Al operador, nada.
+                      const canRefund = isSuperAdmin && dr?.kind === 'refundable' && !!it.orderItemId;
+                      const notRefundableText =
+                        isSuperAdmin && dr?.kind === 'not_refundable' && dr.reason !== 'not_direct_ship'
+                          ? tdr(`notRefundable.${dr.reason}`)
+                          : null;
                       return (
                         <li key={it.inventoryItemId} className="flex flex-wrap items-baseline justify-between gap-2 py-3 text-sm text-text">
                           <span lang="en">{name}</span>
-                          <span className="tabular">{formatMoneyCents(it.unitPriceCents, locale)}</span>
+                          <span className="flex flex-wrap items-baseline gap-3">
+                            <span className="tabular">{formatMoneyCents(it.unitPriceCents, locale)}</span>
+                            {canRefund && dr?.kind === 'refundable' && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                data-testid={`m3-item-refund-${it.orderItemId}`}
+                                onClick={() => {
+                                  setError(null);
+                                  setDeliveredTarget({
+                                    orderId,
+                                    orderItemId: it.orderItemId!,
+                                    cardName: name,
+                                    cardMeta: historicalCardMeta(it.card) ?? '',
+                                    amountCents: dr.amountCents,
+                                  });
+                                }}
+                              >
+                                {tdr('cta', { amount: formatMoneyCents(dr.amountCents, locale) })}
+                              </Button>
+                            )}
+                          </span>
+                          {notRefundableText && (
+                            <span className="basis-full text-xs text-muted" data-testid={`m3-item-not-refundable-${it.inventoryItemId}`}>
+                              {notRefundableText}
+                            </span>
+                          )}
                           {it.refund && (
-                            <span className="basis-full tabular text-muted">{td('itemRefunded', { amount: formatMoneyCents(it.refund.amountCents, locale), status: tRefund(it.refund.status) })}</span>
+                            <span className="basis-full tabular text-muted">
+                              {td('itemRefunded', { amount: formatMoneyCents(it.refund.amountCents, locale), status: tRefund(it.refund.status) })}
+                              {it.refund.deliveredReason && <> · {tsr(it.refund.deliveredReason)}</>}
+                            </span>
                           )}
                         </li>
                       );
@@ -419,7 +459,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                               date: formatDateTimeMx(r.requestedAt, locale),
                             })}
                           </span>
-                          {r.status === 'requested' && (isSuperAdmin || (r.kind !== 'order_full' && r.kind !== 'case_refund')) && (
+                          {r.status === 'requested' && (isSuperAdmin || (r.kind !== 'order_full' && r.kind !== 'case_refund' && r.kind !== 'item_delivered')) && (
                             <Button size="sm" variant="ghost" loading={retry.isPending && retry.variables === r.id} onClick={() => retry.mutate(r.id)}>
                               {tr('retry')}
                             </Button>
@@ -473,6 +513,30 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
               ? t('shippedRefund.done', { ref: o?.orderNumber ?? res.orderId, reason: tsr(info.shippedReason) })
               : t('refundDone', { orderId: res.orderId }),
           });
+        }}
+      />
+
+      <RefundDeliveredItemDialog
+        target={deliveredTarget}
+        onClose={() => setDeliveredTarget(null)}
+        onStale={refresh}
+        onClosedWith={(msg) => {
+          setDeliveredTarget(null);
+          setError(msg);
+          refresh();
+        }}
+        onDone={(d) => {
+          setDeliveredTarget(null);
+          setNotice({
+            role: 'status',
+            text: tdr('done', {
+              amount: formatMoneyCents(d.refund.amountCents, locale),
+              state: d.refund.status === 'requested' ? 'requested' : 'accepted',
+              card: d.cardName,
+              reason: tsr(d.reason),
+            }),
+          });
+          refresh();
         }}
       />
 

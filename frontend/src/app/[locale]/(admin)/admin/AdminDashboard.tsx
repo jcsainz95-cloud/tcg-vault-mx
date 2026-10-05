@@ -10,10 +10,12 @@ import { formatMoneyCents, formatDate } from '@/lib/format';
 import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
+import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
- * (envíos→M4, buylist→M5, disputas→M8, precios pendientes→M2), no cifras muertas.
+ * (envíos→M4, buylist→M5, precios pendientes→M2), no cifras muertas. F-26 (§PNL.10.7, `DESIGN_SYSTEM §60.8`):
+ * M8 se retiró de la interfaz ⇒ `workQueue.disputes` ya no se suma ni enlaza (el DTO lo sigue trayendo).
  * Subrayado en hover + anillo bermellón en foco (DESIGN_SYSTEM §8.2); el número va
  * en `tabular` para que StatCard lo tiña cuando corresponde.
  */
@@ -25,6 +27,107 @@ function QueueLink({ href, label, count }: { href: string; label: string; count:
     >
       {label} <span className="tabular font-medium text-text">{count}</span>
     </Link>
+  );
+}
+
+/**
+ * «Control del gasto» (`DESIGN_SYSTEM §43.19.9`). ⛔ GAS-4: cada cifra tal cual del DTO — ni barra de progreso ni color
+ * por cercanía al tope (sería calcular un porcentaje en pantalla). «Últimas 24 h», ⛔ nunca «hoy»: es la ventana
+ * móvil del tope. Personas en el orden del servidor, máximo 5.
+ */
+function SpendControlCard({ data }: { data: SpendControlDTO }) {
+  const t = useTranslations('admin.dashboard.spendControl');
+  const locale = useLocale() as AppLocale;
+  const money = (c: number) => formatMoneyCents(c, locale);
+  const shown = data.labelSpend24h.slice(0, 5);
+  const rest = data.labelSpend24h.length - shown.length;
+  return (
+    <StatCard
+      label={t('title')}
+      // Bermellón SOLO si hay inmediatos sin ver (el patrón de `dataHealth`).
+      className={data.unseenImmediate > 0 ? '[&_span.tabular]:text-accent' : undefined}
+      value={<span data-testid="dashboard-spend-control-value">{data.unseenImmediate}</span>}
+      sub={
+        <div className="flex flex-col gap-1" data-testid="dashboard-spend-control">
+          <Link
+            href="/admin/spend-alerts?unseen=true"
+            className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            {t('unseen', { immediate: data.unseenImmediate, digest: data.unseenDigest })}
+          </Link>
+          <span>{t('labels24h')}</span>
+          {shown.length === 0 ? (
+            <span>{t('noLabels')}</span>
+          ) : (
+            <ul className="flex flex-col">
+              {shown.map((p) => (
+                <li key={p.userId}>
+                  {p.capCents === null
+                    ? t('personNoCap', { name: p.name?.trim() || '—', cents: money(p.cents) })
+                    : t('personCap', { name: p.name?.trim() || '—', cents: money(p.cents), cap: money(p.capCents) })}
+                </li>
+              ))}
+            </ul>
+          )}
+          {rest > 0 && <span>{t('more', { n: rest })}</span>}
+        </div>
+      }
+    />
+  );
+}
+
+type ShippingWorkQueue = NonNullable<DashboardDTO['workQueue']['shipping']>;
+
+const LINK_CLASS = 'underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none';
+
+/**
+ * «Alertas de envíos» (`DESIGN_SYSTEM §43.22`, contrato §19.13 + §19.35.5 fila 1). La MISMA tarjeta para los dos roles,
+ * salvo «Ver el saldo» (Configuración es solo de súper-admin).
+ * - ⛔ GAS-4: cada cifra tal cual del DTO; ⛔ la pantalla no las suma (un envío con las dos alertas cuenta en las dos,
+ *   y la lista de `?alert=true` es la UNIÓN: por eso la nota «sale una sola vez»).
+ * - `withLabelAlert` ausente (servidor sin B-3) ⇒ «—» y la línea solo de la paquetería; ⛔ nunca `NaN` ni un `0` inventado.
+ * - `lowBalance`: SOLO `true` pinta la línea (`null` = proveedor apagado o sin respuesta ⇒ nada). ⛔ Jamás la cifra del
+ *   saldo, para ningún rol: si un servidor la mandara de más, aquí no se lee.
+ */
+function ShippingAlertsCard({ data, isSuperAdmin }: { data: ShippingWorkQueue; isSuperAdmin: boolean }) {
+  const t = useTranslations('admin.dashboard.shippingAlerts');
+  const label = Number.isFinite(data.withLabelAlert) ? data.withLabelAlert : null;
+  const carrier = data.withCarrierAlert;
+  const anyAlert = (label ?? 0) > 0 || carrier > 0;
+  const href = '/admin/m4?tab=envios&alert=true';
+  return (
+    <StatCard
+      label={t('title')}
+      // Bermellón SOLO la cifra de guía > 0 (la que tiene saldo de por medio, §43.22.2).
+      className={label !== null && label > 0 ? '[&_span.tabular]:text-accent' : undefined}
+      value={<span data-testid="dashboard-shipping-alerts-value">{label ?? '—'}</span>}
+      sub={
+        <div className="flex flex-col gap-1" data-testid="dashboard-shipping-alerts">
+          {!anyAlert ? (
+            <span>{t('none')}</span>
+          ) : (
+            <Link href={href} className={LINK_CLASS}>
+              {label === null ? t('alertsCarrierOnly', { carrier }) : t('alerts', { label, carrier })}
+            </Link>
+          )}
+          {label !== null && label > 0 && carrier > 0 && <span>{t('overlap')}</span>}
+          {data.labelProcessing > 0 && <span>{t('processing', { n: data.labelProcessing })}</span>}
+          {data.lowBalance === true && (
+            <span className="text-accent" data-testid="dashboard-shipping-low-balance">
+              {t('lowBalance')}
+              {isSuperAdmin && (
+                <>
+                  {' · '}
+                  <Link href="/admin/m10#envios-skydropx" className={LINK_CLASS}>
+                    {t('seeBalance')}
+                  </Link>
+                </>
+              )}
+            </span>
+          )}
+        </div>
+      }
+    />
   );
 }
 
@@ -126,14 +229,12 @@ export function AdminDashboard() {
               label={t('workQueue')}
               value={
                 query.data.workQueue.shipments +
-                query.data.workQueue.buylist +
-                query.data.workQueue.disputes
+                query.data.workQueue.buylist
               }
               sub={
                 <span className="flex flex-wrap gap-x-3 gap-y-1">
                   <QueueLink href="/admin/m4" label={t('shipments')} count={query.data.workQueue.shipments} />
                   <QueueLink href="/admin/m5" label="Buylist" count={query.data.workQueue.buylist} />
-                  <QueueLink href="/admin/m8" label={t('disputes')} count={query.data.workQueue.disputes} />
                   <QueueLink href="/admin/m2" label={t('pendingPrices')} count={query.data.workQueue.pendingPrices} />
                 </span>
               }
@@ -176,6 +277,10 @@ export function AdminDashboard() {
                   </span>
                 }
               />
+            )}
+            {/* v1.80.12.16 (§43.22.1): los DOS roles; `shipping` ausente o `null` (servidor anterior) ⇒ la tarjeta NO existe. */}
+            {query.data.workQueue.shipping && (
+              <ShippingAlertsCard data={query.data.workQueue.shipping} isSuperAdmin={isSuperAdmin} />
             )}
             {/* v1.80.2 (§37.11b): solo súper-admin; `null` (operador) ⇒ la tarjeta NO existe (S6). */}
             {isSuperAdmin && query.data.workQueue.manualRefunds && (
@@ -235,6 +340,8 @@ export function AdminDashboard() {
                 }
               />
             )}
+            {/* 💰 v1.80.12.9 (§19.29.9, DESIGN_SYSTEM §43.19.9): solo súper-admin; `null` ⇒ la tarjeta NO existe (GAS-1). */}
+            {isSuperAdmin && query.data.workQueue.spendControl && <SpendControlCard data={query.data.workQueue.spendControl} />}
             <StatCard
               label={t('inventoryValue')}
               value={formatMoneyCents(query.data.inventoryValueCents ?? 0, locale)}

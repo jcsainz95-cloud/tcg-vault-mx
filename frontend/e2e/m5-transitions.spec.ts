@@ -83,26 +83,22 @@ test.describe('admin · M5 · §M5-S: el paso correcto, no solo «fila viva»', 
     await expect(card(page, sr.received).getByRole('button', { name: RECEIVE })).toHaveCount(0);
   });
 
-  test('@real ciclo: receive desde en_transito ⇒ recibida (aparece «Verificar») ⇒ verify ⇒ verificacion', async ({
+  test('@real ciclo (§60.5 a · PNL-4): UN clic en en_transito encadena receive → verify ⇒ verificacion', async ({
     page,
   }) => {
     const sr = await openM5(page);
 
     await openStage(page, 'con_vendedor');
     await card(page, sr.inTransit).getByRole('button', { name: RECEIVE }).click();
-    // El feedback de M5 va anclado a la TARJETA y la fila cambia de pestaña al recibirse, así que
-    // aquí se asevera por el estado: la pestaña «Con el vendedor» la pierde y «Verificando» la gana.
+    // Aviso de página (la fila cambia de pestaña): «recibida y en revisión», con el atajo a «Verificando».
+    await expect(page.getByTestId('m5-page-notice')).toContainText(sr.inTransit);
     await expect(card(page, sr.inTransit)).toHaveCount(0);
 
-    // Ahora vive en «Verificando» con el badge Recibida y el verbo siguiente.
+    // Ya vive en «Verificando» y en `verificacion`: ni «Recibida: empezar revisión» ni el respaldo «Iniciar verificación».
     await openStage(page, 'verificando');
     const moved = card(page, sr.inTransit);
-    // `.first()`: el PipelineStepper de la tarjeta también rotula el paso «Recibida»; basta con que el badge exista.
-    await expect(moved.getByText(t('es', 'status.sellRequest.recibida'), { exact: true }).first()).toBeVisible();
+    await expect(moved.getByText(t('es', 'status.sellRequest.verificacion'), { exact: true }).first()).toBeVisible();
     await expect(moved.getByRole('button', { name: RECEIVE })).toHaveCount(0);
-    await moved.getByRole('button', { name: VERIFY }).click();
-    await expect(page.getByText(t('es', 'admin.m5.feedback.verified'))).toBeVisible();
-    await expect(card(page, sr.inTransit).getByRole('button', { name: VERIFY })).toHaveCount(0);
-    await expect(card(page, sr.inTransit).getByRole('button', { name: RECEIVE })).toHaveCount(0);
+    await expect(moved.getByRole('button', { name: VERIFY })).toHaveCount(0);
   });
 });

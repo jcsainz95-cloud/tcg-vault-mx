@@ -4,6 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { CreateItemDto } from '../src/modules/inventory/dto/inventory.dto';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * Tier 0 — Escalado de pendientes POR ACABADO desde el alta de inventario (M1 → M-19).
@@ -32,7 +33,7 @@ function buildPricing(refStatus: 'pending' | 'priced' = 'pending') {
   } as unknown as PricingService;
 }
 
-const settings = { getNumber: jest.fn().mockResolvedValue(70) } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn().mockResolvedValue(70) } as unknown as SettingsService;
 
 function buildPrisma() {
   const created: any[] = [];

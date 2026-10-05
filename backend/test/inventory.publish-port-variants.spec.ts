@@ -6,6 +6,7 @@ import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src
 import { InventoryPublishPort } from '../src/modules/inventory/inventory-publish.port';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.51.19 — **§4.39m.8: la SEGUNDA ENTRADA del puerto, por VARIANTE.**
@@ -22,7 +23,7 @@ import * as path from 'path';
  *  5. **Solo `in_stock` de plataforma** entra al candidato.
  */
 
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 interface P {
   id: string;

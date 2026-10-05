@@ -530,14 +530,21 @@ describe('pickingList — cliente: `fullName` y el apellido DERIVADO (§6.A)', (
 describe('pickingList — `shipTo` (CA #6: la dirección COMPLETA, con la calle)', () => {
   it('destino `ship` ⇒ los 9 campos del snapshot', async () => {
     const o = await onlyOrder([shipment()]);
-    expect(o.shipTo).toEqual(SNAPSHOT_9);
+    // ⭐ v1.81/v1.80.12 (M-64): + `references` (décimo campo, `null` si falta) y `addressCorrected`.
+    expect(o.shipTo).toEqual({ ...SNAPSHOT_9, references: null, addressCorrected: false });
     // La CALLE es justo lo que la fila plana de ayer omitía.
     expect(o.shipTo?.line1).toBe('Av. Insurgentes Sur 1234');
   });
 
   it('snapshot LEGADO de 8 campos ⇒ `recipientName` null, el resto intacto', async () => {
     const o = await onlyOrder([shipment({ addressSnapshot: SNAPSHOT_8 })]);
-    expect(o.shipTo).toEqual({ recipientName: null, ...SNAPSHOT_8 });
+    expect(o.shipTo).toEqual({ recipientName: null, ...SNAPSHOT_8, references: null, addressCorrected: false });
+  });
+
+  it('⭐ v1.80.12 (§M4-SHIP.19.20.1): snapshot corregido ⇒ `addressCorrected: true` y las referencias viajan', async () => {
+    const row = { ...shipment({ addressSnapshot: { ...SNAPSHOT_9, references: 'Portón azul' } }), addressCorrectedAt: new Date(), addressCorrectedByUserId: 'op1', addressVersion: 1 };
+    const o = await onlyOrder([row as ReturnType<typeof shipment>]);
+    expect(o.shipTo).toEqual({ ...SNAPSHOT_9, references: 'Portón azul', addressCorrected: true });
   });
 
   it('snapshot ausente o no-objeto ⇒ nullables en null y el resto vacío, sin reventar', async () => {
@@ -552,6 +559,8 @@ describe('pickingList — `shipTo` (CA #6: la dirección COMPLETA, con la calle)
       postalCode: '',
       country: '',
       phone: '',
+      references: null,
+      addressCorrected: false,
     });
   });
 });

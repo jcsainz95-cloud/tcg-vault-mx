@@ -37,7 +37,12 @@ import {
   computeAportacionCostCents,
   firstPresentAmount,
   hasManualPrice,
+  IvaDials,
+  manualSaleOf,
   PriceBasis,
+  saleDisplayCentsOf,
+  SEALED_SALE_PRICE_INCLUDE,
+  SealedPriceOrigin,
   sealedPriceBasisOf,
 } from '../../common/money';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
@@ -59,6 +64,40 @@ import { toCardDTO } from '../catalog/catalog.service';
 // v1.51.18 (BL-25, §4.39m.5): `inventory` DECLARA y PROVEE el puerto de disparo de publicación.
 import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
+import { sealedProductPiecesOf } from './sealed-product-pieces';
+import { assertSealedPriceWriters, SealedPriceWriteLine } from './sealed-price.policy';
+
+/** 💰 v1.83 (§M11-SP.4): la línea de un alta (single / lote / «encontrada») tal como la ve la regla. */
+function sealedPriceLineOf(l: {
+  productType: string;
+  listPriceCents?: number | null;
+  sealedProductId?: string | null;
+  manualMarketMxnCents?: number | null;
+}): SealedPriceWriteLine {
+  return {
+    productType: l.productType,
+    listPriceCents: l.listPriceCents,
+    sealedProductId: l.sealedProductId,
+    manualMarketMxnCents: l.manualMarketMxnCents,
+  };
+}
+
+/**
+ * 💰 v1.83 / v1.83.1 (§M11-SP.1, §M11-SP.12.4) — el precio de venta de una fila S-2 del listado (sellado de plataforma
+ * `in_stock | listed`): `L` y `P` de la MISMA derivación que la cola, el peldaño y el `P` del dueño del producto.
+ */
+interface SealedRowSalePrice {
+  resolvedSalePriceCents: number | null;
+  resolvedDisplayPriceCents: number | null;
+  priceBasis: PriceBasis;
+  sealedPriceOrigin: SealedPriceOrigin;
+  sealedProductDisplayPriceCents: number | null;
+}
+
+/** `P` del dueño del producto de una pieza (`null` = no hay o no está ligada). Proyección admin, ⛔ no decide nada. */
+function sealedProductDisplayPriceOf(item: { sealedProduct: { ownerDisplayPriceCents: number | null } | null }): number | null {
+  return item.sealedProduct?.ownerDisplayPriceCents ?? null;
+}
 import { AuditService } from '../audit/audit.service';
 import { PriceSyncJobService } from '../../jobs/price-sync.service';
 import {
@@ -293,6 +332,13 @@ export interface PendingPublishState {
   /** Llave de la cola de M2 con la que se busca la entrada `open`. Solo con `'price'`. */
   pendingQueueKey?: string;
   resolvedSalePriceCents: number | null;
+  /**
+   * 💰 v1.83.1 (`API_CONTRACT §M11-SP.12.4`) — `P` de la pieza: `saleDisplayCentsOf` sobre la MISMA derivación que
+   * `resolvedSalePriceCents` (con precio del dueño, SU `P` tal cual). `null` ⇔ `resolvedSalePriceCents` `null`.
+   */
+  resolvedDisplayPriceCents: number | null;
+  /** 💰 v1.83 (§M11-SP.1): de qué peldaño salió el precio — SOLO sellado (`undefined` en raw/graded). */
+  sealedPriceOrigin?: SealedPriceOrigin;
   priceBasis: PriceBasis | null;
   /**
    * ⭐ v1.80.8.7 (S-1, API_CONTRACT §M1 `M1-SFP` punto 2) — **por qué HOY no se publica por precio**: el
@@ -314,12 +360,22 @@ interface PublishPricingCtx {
   /** v1.80.8.5 (`M2-PF`, MONEY): la política del guardarraíl de VENTA, izada junto a la curva. */
   premiumFloorPolicy: PremiumFloorPolicy;
   sealed: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
+  /**
+   * 💰 v1.83.1 (§M11-SP.12.3): los diales de IVA, izados UNA vez con el resto del contexto: el `L` equivalente del
+   * precio del dueño y el `P` de las proyecciones admin salen de ellos (⛔ jamás leídos por pieza).
+   */
+  ivaDials: IvaDials;
   refs: Map<string, PriceInfo>;
   variantOverrides: Map<string, VariantPriceOverride>;
 }
 
-/** Pieza publicable (fila InventoryItem + su carta), como la consumen los pipelines de publish. */
-type PublishableItem = Prisma.InventoryItemGetPayload<{ include: { card: true } }>;
+/**
+ * Pieza publicable (fila InventoryItem + su carta + 💰 v1.83 el precio del dueño de su producto), como la consumen
+ * los pipelines de publish. `sealedProduct` en el `include` es OBLIGATORIO (SP-3): una lectura que lo olvide no
+ * produce un `PublishableItem` y no compila al llegar a la derivación.
+ */
+const PUBLISHABLE_INCLUDE = { card: true, ...SEALED_SALE_PRICE_INCLUDE } as const;
+type PublishableItem = Prisma.InventoryItemGetPayload<{ include: typeof PUBLISHABLE_INCLUDE }>;
 
 /**
  * Resultado de la resolución de precio de publicación de UNA pieza:
@@ -367,6 +423,13 @@ type PublishPriceDerivation =
       ok: true;
       salePriceCents: number;
       priceSource: 'manual' | 'derived';
+      /**
+       * 💰 v1.83.1 (§M11-SP.12.3): `P` fijo del dueño (sellado con precio de producto) o `null`; `salePriceCents` es
+       * entonces su `L` equivalente. Las proyecciones de `P` lo pasan a `saleDisplayCentsOf`.
+       */
+      fixedDisplayCents: number | null;
+      /** 💰 v1.83 (§M11-SP.1): solo sellado — de qué peldaño salió. */
+      sealedOrigin?: SealedPriceOrigin;
       /**
        * §11 `PendingPublishRowDTO.priceBasis` — **QUÉ determinó el monto**, con el MISMO enum que
        * usan ficha, catálogo y compra. La cola lo enseña para que el operador vea de dónde salió el
@@ -557,7 +620,11 @@ export const INVENTORY_EXPORT_COLUMNS: ReadonlyArray<{ header: string; key: stri
   { header: 'Costo MXN', key: 'costMxn', width: 12 },
   { header: 'Precio mercado MXN', key: 'marketMxn', width: 18 },
   { header: 'Precio compra MXN', key: 'buyMxn', width: 18 },
-  { header: 'Precio venta MXN', key: 'sellMxn', width: 18 },
+  // 💰 v1.83.2 (API_CONTRACT §M11-SP.13.4, Q-4): la 17 se rotula por su ESCALA (`L`, antes de IVA) y la 18 lleva lo
+  // que TECLEÓ el dueño para el producto (`P`, con IVA), exacto. Las dos salen de `manualSaleOf` (un solo camino);
+  // ⛔ el export no lee diales ni deriva una escala desde la otra (§M1: STORED, sin derivar).
+  { header: 'Precio venta antes de IVA MXN', key: 'sellMxn', width: 18 },
+  { header: 'Precio del producto con IVA MXN', key: 'productDisplayMxn', width: 22 },
 ];
 
 /**
@@ -682,7 +749,9 @@ export class InventoryService {
    * especie: costo = referencia del día × pct (default 70). Si no hay referencia
    * → 422 PRICE_PENDING + cola de precio pendiente (nunca se descarta).
    */
-  async createItem(dto: CreateItemDto, actorUserId: string) {
+  async createItem(dto: CreateItemDto, actorUserId: string, actorRole?: Role) {
+    // 💰 v1.83 (§M11-SP.4): validación del DTO → ESTA regla → guardas de hoy. Antes de leer o escribir nada.
+    assertSealedPriceWriters([sealedPriceLineOf(dto)], { role: actorRole });
     const r = await this.resolveCreation(dto, actorUserId);
 
     // v1.1: sellado = precio SIEMPRE manual (MXN). Obligatorio para PUBLICAR: sin
@@ -748,6 +817,8 @@ export class InventoryService {
     sealedNeedsEscalate: boolean;
     sealedMapping: SealedItemMapping;
     sealedProductId: string | null;
+    // 💰 v1.83 (§M11-SP.4): `P` del dueño del producto al alta (`null` = no hay). Con él el sellado NO escala.
+    sealedProductOwnerDisplayPriceCents: number | null;
     // v1.39: subtipo RESUELTO (derivado del SealedProduct cuando se usa sealedProductId; si no, el del
     // DTO). buildItemData recibe la línea ORIGINAL, así que la identidad derivada viaja por aquí.
     sealedSubtype: SealedSubtype | null;
@@ -759,7 +830,7 @@ export class InventoryService {
     // el backend DERIVA server-side la identidad (cardId ancla del set + mapeo + imagen/nombre/subtipo)
     // DESDE el `SealedProduct` persistido — el cliente NO manda identidad ni montos. La pieza nace con
     // identidad CORRECTA («ETB …», no la Tropius). Inexistente/inactivo → 422 SEALED_PRODUCT_NOT_FOUND.
-    const { dto, sealedProductId } = await this.deriveFromSealedProduct(dtoIn);
+    const { dto, sealedProductId, sealedProductOwnerDisplayPriceCents } = await this.deriveFromSealedProduct(dtoIn);
 
     // v1.39: `cardId` es OPCIONAL en el DTO (se deriva con `sealedProductId`). Requerido para
     // raw/graded y sealed sin `sealedProductId`; ausente donde se requiere → 422 VALIDATION_ERROR.
@@ -880,6 +951,7 @@ export class InventoryService {
       sealedNeedsEscalate,
       sealedMapping,
       sealedProductId,
+      sealedProductOwnerDisplayPriceCents,
       sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
       sealedManualOverride,
     };
@@ -951,10 +1023,16 @@ export class InventoryService {
       sealedMapping: SealedItemMapping;
       sealedProductId: string | null;
       sealedManualOverride: SealedManualOverride | null;
+      sealedProductOwnerDisplayPriceCents?: number | null;
     },
     productType: ProductType,
   ): Promise<void> {
     if (r.sealedManualOverride != null) return;
+    // 💰 v1.83 (§M11-SP.4): «sin precio, el sellado entra con el precio del producto si existe» — el peldaño 1
+    // (`manualSaleOf`, H-1: `> 0`) resuelve ⇒ no hay aviso que abrir.
+    if (manualSaleOf({ productType, listPriceCents: null, sealedProduct: { ownerDisplayPriceCents: r.sealedProductOwnerDisplayPriceCents ?? null } }) != null) {
+      return;
+    }
     const productId = r.sealedMapping.tcgplayerProductId;
     if (productId != null) {
       const { sourceOn } = await this.pricing.loadSealedSpreads();
@@ -991,9 +1069,14 @@ export class InventoryService {
    */
   private async deriveFromSealedProduct(
     dto: CreateItemDto | BatchInventoryItemInput,
-  ): Promise<{ dto: CreateItemDto | BatchInventoryItemInput; sealedProductId: string | null }> {
+  ): Promise<{
+    dto: CreateItemDto | BatchInventoryItemInput;
+    sealedProductId: string | null;
+    /** 💰 v1.83: el `P` del dueño del producto (`null` = no hay) — la pieza nace con ese precio, sin escalar. */
+    sealedProductOwnerDisplayPriceCents: number | null;
+  }> {
     if (dto.productType !== 'sealed' || !dto.sealedProductId) {
-      return { dto, sealedProductId: null };
+      return { dto, sealedProductId: null, sealedProductOwnerDisplayPriceCents: null };
     }
     const sp = await this.prisma.sealedProduct.findUnique({ where: { id: dto.sealedProductId } });
     if (!sp || !sp.active) {
@@ -1016,7 +1099,7 @@ export class InventoryService {
       sealedImageUrl: sp.imageUrl ?? undefined,
       sealedProductName: sp.name,
     } as CreateItemDto | BatchInventoryItemInput;
-    return { dto: normalized, sealedProductId: sp.id };
+    return { dto: normalized, sealedProductId: sp.id, sealedProductOwnerDisplayPriceCents: sp.ownerDisplayPriceCents };
   }
 
   /** Ancla representativa del set = menor (numberPrefix, numberSort). El sellado se ancla a ella SOLO
@@ -1300,12 +1383,16 @@ export class InventoryService {
   async batchCreate(
     req: BatchCreateInventoryRequest,
     actorUserId: string,
+    actorRole?: Role,
   ): Promise<BatchCreateInventoryResponse> {
     // Fast-path replay: si el batchKey YA está persistido (committed) con su resultado, repetirlo
     // sin re-crear. Las filas no committeadas de una corrida concurrente en vuelo NO son visibles
     // aquí (READ COMMITTED), así que este check nunca ve un claim a medias.
     const existing = await this.prisma.inventoryBatch.findUnique({ where: { id: req.batchKey } });
     if (existing) return this.replayBatch(req.batchKey, existing);
+    // 💰 v1.83 (§M11-SP.4): el LOTE ENTERO se rechaza (nada creado, ni el claim del batchKey) si una sola línea
+    // trae precio de sellado ligado, o precio/mercado a mano de sellado sin ser el dueño. ⛔ No es un error por línea.
+    assertSealedPriceWriters(req.items.map(sealedPriceLineOf), { role: actorRole });
 
     // [SEC-N2 / BE-34] Atomicidad + idempotencia. TODO el lote (claim del InventoryBatch + N
     // InventoryItem + movimientos + resultado) corre en UNA transacción:
@@ -1457,7 +1544,11 @@ export class InventoryService {
    *  - Pago mínimo de BE-25: iza la curva (`PricingService.loadPricingCurve()`) UNA vez y usa
    *    `getReferencesBatch` (1 lote de referencias) — sin N+1 de settings ni de referencias.
    */
-  async bulkPublish(req: BulkPublishRequest, actorUserId: string): Promise<BulkPublishResponse> {
+  async bulkPublish(
+    req: BulkPublishRequest,
+    actorUserId: string,
+    actorRole?: Role,
+  ): Promise<BulkPublishResponse> {
     // Idempotencia opcional del lote (si trae batchKey) — replay devuelve lo guardado.
     if (req.batchKey) {
       const existing = await this.prisma.inventoryBatch.findUnique({ where: { id: req.batchKey } });
@@ -1470,9 +1561,20 @@ export class InventoryService {
     const ids = req.items.map((i) => i.inventoryItemId);
     const items = await this.prisma.inventoryItem.findMany({
       where: { id: { in: ids } },
-      include: { card: true },
+      include: PUBLISHABLE_INCLUDE,
     });
     const byId = new Map(items.map((i) => [i.id, i]));
+    // 💰 v1.83 (§M11-SP.4): una línea con precio sobre sellado LIGADO ⇒ `422` del LOTE ENTERO; sobre sellado sin
+    // producto, solo el dueño. Antes del reprecio, de la publicación y del registro del lote: nada escrito.
+    assertSealedPriceWriters(
+      req.items.flatMap((line) => {
+        const it = byId.get(line.inventoryItemId);
+        return it
+          ? [{ productType: it.productType, listPriceCents: line.listPriceCents, sealedProductId: it.sealedProductId, itemId: it.id }]
+          : [];
+      }),
+      { role: actorRole },
+    );
 
     // v1.26 (P-7 ⑤, §4.24e): REPRECIO FRESCO on-demand ANTES de resolver el precio. Solo para las
     // líneas RAW cuyo precio se DERIVARÍA (sin override de línea ni de item) — así el fetch fresco no
@@ -1490,7 +1592,8 @@ export class InventoryService {
             item != null &&
             item.productType === 'raw' &&
             !hasManualPrice(line) &&
-            !hasManualPrice(item),
+            // v1.83 (§M11-SP.1): de la PIEZA, el predicado único (raw ⇒ solo `listPriceCents`).
+            manualSaleOf(item!) == null,
         )
         .map(({ item }) => item!);
       const freshCardIds = [...new Set(freshPairs.map((i) => i.cardId))];
@@ -1583,14 +1686,17 @@ export class InventoryService {
    */
   private async loadPublishPricingCtx(
     items: PublishableItem[],
-    base?: Pick<PublishPricingCtx, 'curve' | 'sealed' | 'premiumFloorPolicy'>,
+    base?: Pick<PublishPricingCtx, 'curve' | 'sealed' | 'premiumFloorPolicy' | 'ivaDials'>,
   ): Promise<PublishPricingCtx> {
     const curve = base?.curve ?? (await this.pricing.loadPricingCurve());
     const premiumFloorPolicy = base?.premiumFloorPolicy ?? (await this.pricing.loadSalePremiumFloorPolicy());
     const sealed = base?.sealed ?? (await this.pricing.loadSealedSpreads());
+    // 💰 v1.83.1: los diales, una lectura por contexto (o los del llamador).
+    const ivaDials = base?.ivaDials ?? (await this.settings.getIvaDials());
     const derivable = items
       // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ la pieza deriva precio y necesita su referencia en el lote.
-      .filter((i) => !hasManualPrice(i))
+      // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(i) != null` (sellado: producto o pieza).
+      .filter((i) => manualSaleOf(i) == null)
       .flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
         if (i.productType === 'sealed') {
           const gk = this.pricing.sealedMarketGradeKeyForItem(i);
@@ -1605,7 +1711,7 @@ export class InventoryService {
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       derivable.filter((d) => d.productType !== 'sealed'),
     );
-    return { curve, premiumFloorPolicy, sealed, refs, variantOverrides };
+    return { curve, premiumFloorPolicy, sealed, ivaDials, refs, variantOverrides };
   }
 
   /**
@@ -1747,17 +1853,55 @@ export class InventoryService {
     // H-1 (E5-bis): precedencia línea → pieza con «presente ⇔ > 0». Con `??` un `0` en la LÍNEA
     // cortocircuitaba y enmascaraba el override de la pieza; con `firstPresentAmount` cae al
     // siguiente peldaño, que es lo que dice §4.36.6.
-    const manual = firstPresentAmount(lineListPriceCents, item.listPriceCents);
-    if (manual != null) {
-      // Un `listPriceCents` por pieza/línea es el override manual de M1 (§4.36.6).
-      return { ok: true, salePriceCents: manual, priceSource: 'manual', priceBasis: 'override', pendingKey: null };
+    // 💰 v1.83 (§M11-SP.4): una línea con precio sobre sellado LIGADO ya no llega aquí (`422
+    // SEALED_PRICE_IS_PER_PRODUCT` antes de todo); la de sellado sin producto solo la manda el dueño.
+    const line = firstPresentAmount(lineListPriceCents);
+    if (line != null) {
+      // Un `listPriceCents` por línea es el override manual de M1 (§4.36.6).
+      return {
+        ok: true,
+        salePriceCents: line,
+        priceSource: 'manual',
+        priceBasis: 'override',
+        fixedDisplayCents: null,
+        ...(item.productType === 'sealed' ? { sealedOrigin: 'piece' as const } : {}),
+        pendingKey: null,
+      };
+    }
+    // 💰 v1.83 (§M11-SP.1): EL predicado único de «precio a mano» (sellado: producto > pieza; raw/graded: pieza).
+    // Sellado: producto > pieza (si hay precio del producto, `manualSaleOf` NO devuelve la pieza).
+    const manual = manualSaleOf(item);
+    if (manual?.origin === 'piece') {
+      // Un `listPriceCents` por pieza es el override manual de M1 (§4.36.6); en sellado, el peldaño 2 (legado).
+      return {
+        ok: true,
+        salePriceCents: manual.listCents,
+        priceSource: 'manual',
+        priceBasis: 'override',
+        fixedDisplayCents: null,
+        ...(item.productType === 'sealed' ? { sealedOrigin: 'piece' as const } : {}),
+        pendingKey: null,
+      };
     }
     if (item.productType === 'sealed') {
-      // v1.23-sealed-sales (§4.23d): el sellado deriva por override/mercado×spread (resolver ÚNICO
-      // H-1, mismo cuerpo que catálogo/Compra/grid). Sin override>0 y sin mercado → PRICE_PENDING.
+      // v1.23-sealed-sales (§4.23d) + 💰 v1.83: el sellado decide TODO en el resolvedor ÚNICO (precio del
+      // producto > pieza > mercado×spread > PRICE_PENDING), mismo cuerpo que catálogo/Compra/grid.
       const gk = this.pricing.sealedMarketGradeKeyForItem(item);
       const ref = gk ? ctx.refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
-      const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed);
+      const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed, ctx.ivaDials);
+      if (sale.origin === 'product' || sale.origin === 'piece') {
+        // Precio a mano del dueño por producto (la pieza ya retornó arriba): manual, `override`, sin clave de cola
+        // (un precio manual no dice nada del mercado; la cola del producto la cierra el `PUT` del dueño).
+        return {
+          ok: true,
+          salePriceCents: sale.salePriceCents as number,
+          priceSource: 'manual',
+          priceBasis: 'override',
+          fixedDisplayCents: sale.fixedDisplayCents,
+          sealedOrigin: sale.origin,
+          pendingKey: null,
+        };
+      }
       // v1.80.8.4 (VQ-6): UNA sola clave para escalar y para cerrar — la salida simétrica del sellado
       // tiene que casar exactamente con la entrada que abrió esta misma derivación. Techlead D-1: la
       // clave sale de la derivación COMPARTIDA con el barrido VQ (`sale-queue-key.ts`), no se arma aquí.
@@ -1785,6 +1929,8 @@ export class InventoryService {
         salePriceCents: sale.salePriceCents,
         priceSource: 'derived',
         priceBasis: sealedPriceBasisOf(sale),
+        fixedDisplayCents: null,
+        sealedOrigin: sale.origin,
         pendingKey: sealedKey,
       };
     }
@@ -1846,6 +1992,7 @@ export class InventoryService {
       salePriceCents: sale.priceCents,
       priceSource: 'derived',
       priceBasis: sale.basis,
+      fixedDisplayCents: null,
       // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
       // resolver una variante apagaría el aviso de otra.
       pendingKey: queueKey,
@@ -1877,12 +2024,20 @@ export class InventoryService {
       return {
         missing,
         resolvedSalePriceCents: derived.salePriceCents,
+        // 💰 v1.83.1 (§M11-SP.12.4): `P` por EL camino único (con precio del dueño, el suyo tal cual).
+        resolvedDisplayPriceCents: saleDisplayCentsOf(
+          { listPriceCents: derived.salePriceCents, fixedDisplayCents: derived.fixedDisplayCents },
+          ctx.ivaDials,
+        ),
+        ...(derived.sealedOrigin ? { sealedPriceOrigin: derived.sealedOrigin } : {}),
         priceBasis: derived.priceBasis,
         pendingReason: null,
       };
     }
     missing.push('price');
     return {
+      resolvedDisplayPriceCents: null,
+      ...(item.productType === 'sealed' ? { sealedPriceOrigin: 'pending' as const } : {}),
       missing,
       // La llave viaja para que el deep-link se empareje con la entrada REAL de la cola de M2, sin
       // recalcular la derivación ni inventar una llave en el sitio.
@@ -1967,6 +2122,7 @@ export class InventoryService {
     // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
     const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const sealed = await this.pricing.loadSealedSpreads();
+    const ivaDials = await this.settings.getIvaDials(); // 💰 v1.83.1: una lectura por corrida
     // Del barrido solo sobreviven **id + estado**: es lo que mantiene la memoria acotada aunque el
     // superconjunto sea grande. Las filas completas se leen después, y SOLO las de la página.
     const pending: { id: string; state: PendingPublishState }[] = [];
@@ -1974,10 +2130,10 @@ export class InventoryService {
       const chunkIds = selectedIds.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
       const items = await this.prisma.inventoryItem.findMany({
         where: { id: { in: chunkIds } },
-        include: { card: true },
+        include: PUBLISHABLE_INCLUDE,
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
-      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
       for (const item of items) {
         const state = this.pendingPublishStateOf(item, ctx);
         // `missing: []` ⇒ NO entra: no le falta nada, así que la auto-publicación la sacará (o ya la
@@ -1995,13 +2151,18 @@ export class InventoryService {
       where: { id: { in: slice.map((r) => r.id) } },
       // `set` SOLO aquí: `toCardDTO` lo necesita y el barrido no. Traerlo en el barrido sería pagar
       // el join por todo el inventario para pintar una página.
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
     // El `pendingPriceEntryId` se resuelve SOLO para la página devuelta: es un deep-link de UI, y
     // consultarlo para toda la cola sería trabajo que nadie va a mirar.
     const openPendingByKey = await this.openPendingEntriesFor(rows);
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(rows.map((r) => r.cardId));
+    // 💰 v1.83.1 (A-1): la MISMA agregación que la hoja, una consulta por página.
+    const piecesByProduct = await sealedProductPiecesOf(
+      this.prisma,
+      rows.filter((r) => r.productType === 'sealed' && r.sealedProductId != null).map((r) => r.sealedProductId as string),
+    );
     const data = rows.map((item) => {
       const state = byId.get(item.id) as PendingPublishState;
       const entryId = state.pendingQueueKey
@@ -2027,9 +2188,23 @@ export class InventoryService {
         ...(item.productType === 'sealed' && item.sealedSubtype
           ? { sealedSubtype: item.sealedSubtype }
           : {}),
+        // 💰 v1.83.1 (§M11-SP.12.7, A-1): identidad del producto (toda fila sellada) y su conteo (si está ligada).
+        ...(item.productType === 'sealed'
+          ? {
+              sealedProductId: item.sealedProductId,
+              ...(item.sealedProductId != null
+                ? { sealedProductPieces: piecesByProduct.get(item.sealedProductId) }
+                : {}),
+              // 💰 v1.83 (§M11-SP.1/12.4): de qué peldaño sale el precio y el `P` del dueño del producto (`null` = no hay).
+              sealedPriceOrigin: state.sealedPriceOrigin ?? 'pending',
+              sealedProductDisplayPriceCents: sealedProductDisplayPriceOf(item),
+            }
+          : {}),
         locationId: item.locationId,
         listPriceCents: item.listPriceCents,
         resolvedSalePriceCents: state.resolvedSalePriceCents,
+        // 💰 v1.83.1 (§M11-SP.12.4): `P` de la pieza, mismas condiciones de presencia que `resolvedSalePriceCents`.
+        resolvedDisplayPriceCents: state.resolvedDisplayPriceCents,
         priceBasis: state.priceBasis,
         // ⭐ v1.80.8.7 (S-1): siempre presente (`null` incluido).
         pendingReason: state.pendingReason,
@@ -2271,6 +2446,7 @@ export class InventoryService {
     // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
     const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const sealed = await this.pricing.loadSealedSpreads();
+    const ivaDials = await this.settings.getIvaDials(); // 💰 v1.83.1: una lectura por corrida
 
     const summary = {
       selected: selectedIds.length,
@@ -2290,9 +2466,9 @@ export class InventoryService {
       const chunkIds = selectedIds.slice(i, i + PUBLISH_ALL_CHUNK_SIZE);
       const items = await this.prisma.inventoryItem.findMany({
         where: { id: { in: chunkIds } },
-        include: { card: true },
+        include: PUBLISHABLE_INCLUDE,
       });
-      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
       for (const item of items) {
         try {
           // v2.1.1 (§4.36.5b-bis) — la rama `listed` YA NO ES CORTO-CIRCUITO: se RE-RESUELVE.
@@ -2519,7 +2695,7 @@ export class InventoryService {
     const [rows, total] = await Promise.all([
       this.prisma.inventoryItem.findMany({
         where,
-        include: { card: true, location: true },
+        include: { ...PUBLISHABLE_INCLUDE, location: true },
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
         orderBy: { createdAt: 'desc' },
@@ -2527,9 +2703,22 @@ export class InventoryService {
       this.prisma.inventoryItem.count({ where }),
     ]);
     const salePrices = await this.sealedSalePricesOf(rows);
+    // 💰 v1.83.1 (§M11-SP.12.7, A-1): conteo del producto con la MISMA agregación que la hoja — un `groupBy` por
+    // página sobre los ids distintos de las filas S-2 ligadas (las que llevan `sealedProductPieces`).
+    const pieces = await sealedProductPiecesOf(
+      this.prisma,
+      rows.filter((r) => salePrices.has(r.id) && r.sealedProductId != null).map((r) => r.sealedProductId as string),
+    );
     const data = (await this.attachSealedMarketRefs(rows)).map((r) => {
+      // ⛔ La relación `sealedProduct` (el precio del dueño, para la derivación) NO viaja como objeto: se proyecta
+      // en `sealedProductDisplayPriceCents` solo en las filas S-2. Y `sealedProductId` es identidad del SELLADO:
+      // presente en toda fila sellada, ausente en raw/graded (§M11-SP.12.7).
+      const { sealedProduct: _sp, sealedProductId, ...row } = r;
+      const base = r.productType === 'sealed' ? { ...row, sealedProductId } : row;
       const price = salePrices.get(r.id);
-      return price ? { ...r, ...price } : r;
+      if (!price) return base;
+      const piecesOf = sealedProductId != null ? pieces.get(sealedProductId) : undefined;
+      return { ...base, ...price, ...(piecesOf ? { sealedProductPieces: piecesOf } : {}) };
     });
     return { data, page: q.page, pageSize: q.pageSize, total };
   }
@@ -2547,10 +2736,8 @@ export class InventoryService {
    *   `ok:false` ⇒ `{ null, 'pending' }`.
    * - ⛔ No escribe: la derivación es pura (sin escalada ni cierre de la cola de M2).
    */
-  private async sealedSalePricesOf(
-    rows: PublishableItem[],
-  ): Promise<Map<string, { resolvedSalePriceCents: number | null; priceBasis: PriceBasis }>> {
-    const out = new Map<string, { resolvedSalePriceCents: number | null; priceBasis: PriceBasis }>();
+  private async sealedSalePricesOf(rows: PublishableItem[]): Promise<Map<string, SealedRowSalePrice>> {
+    const out = new Map<string, SealedRowSalePrice>();
     const eligible = rows.filter(
       (r) =>
         r.productType === 'sealed' &&
@@ -2560,13 +2747,15 @@ export class InventoryService {
     if (eligible.length === 0) return out;
     const ctx = await this.loadPublishPricingCtx(eligible);
     for (const item of eligible) {
-      const d = this.derivePublishSalePrice(item, null, ctx);
-      out.set(
-        item.id,
-        d.ok
-          ? { resolvedSalePriceCents: d.salePriceCents, priceBasis: d.priceBasis }
-          : { resolvedSalePriceCents: null, priceBasis: 'pending' },
-      );
+      // 💰 v1.83.1: el MISMO cuerpo que la cola (`pendingPublishStateOf` ⇒ `derivePublishSalePrice`): `L`, `P`, origen.
+      const st = this.pendingPublishStateOf(item, ctx);
+      out.set(item.id, {
+        resolvedSalePriceCents: st.resolvedSalePriceCents,
+        resolvedDisplayPriceCents: st.resolvedDisplayPriceCents,
+        priceBasis: st.priceBasis ?? 'pending',
+        sealedPriceOrigin: st.sealedPriceOrigin ?? 'pending',
+        sealedProductDisplayPriceCents: sealedProductDisplayPriceOf(item),
+      });
     }
     return out;
   }
@@ -2639,6 +2828,13 @@ export class InventoryService {
 
   async updateItem(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
     const current = await this.getItem(id);
+    // 💰 v1.83 (§M11-SP.4): `listPriceCents` sobre sellado LIGADO ⇒ `422` (también el dueño: su precio es del
+    // producto); sobre sellado sin producto, solo el dueño (`403`). Raw/graded sin cambio (P-PRE-1). Antes de
+    // toda guarda y escritura del `PATCH`: ningún campo se escribe.
+    assertSealedPriceWriters(
+      [{ productType: current.productType, listPriceCents: dto.listPriceCents, sealedProductId: current.sealedProductId, itemId: id }],
+      actor,
+    );
     // v1.2 (M-12): la invariante "gradeada publicada exige certNumber" también rige en el
     // UPDATE, no solo en el alta. `createItem` valida vía validateProductShape; aquí revalidamos
     // el estado RESULTANTE del PATCH: si la carta resultante es graded y queda `listed`, el
@@ -2747,7 +2943,7 @@ export class InventoryService {
     // trabaja sobre columnas del modelo, y la proyección de M1 es una lista blanca de presentación.
     const raw = await this.prisma.inventoryItem.findUnique({
       where: { id },
-      include: { card: true },
+      include: PUBLISHABLE_INCLUDE,
     });
     if (!raw) throw BusinessException.notFound();
     const resulting: PublishableItem = { ...raw, ...fields };
@@ -2809,7 +3005,7 @@ export class InventoryService {
     // para llamar a su propia puerta (§4.39m.5)—: llama al cuerpo directamente.
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id: itemId },
-      include: { card: true },
+      include: PUBLISHABLE_INCLUDE,
     });
     if (!item) return;
     const ctx = await this.loadPublishPricingCtx([item]);
@@ -2844,17 +3040,18 @@ export class InventoryService {
     // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
     const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const sealed = await this.pricing.loadSealedSpreads();
+    const ivaDials = await this.settings.getIvaDials(); // 💰 v1.83.1: una lectura por corrida
     for (let i = 0; i < ids.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
       const chunkIds = ids.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
       const items = await this.prisma.inventoryItem.findMany({
         where: { id: { in: chunkIds } },
-        include: { card: true },
+        include: PUBLISHABLE_INCLUDE,
       });
       const found = new Set(items.map((it) => it.id));
       for (const missingId of chunkIds.filter((x) => !found.has(x))) {
         out.push({ inventoryItemId: missingId, outcome: 'not_found', missing: [] });
       }
-      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
       for (const item of items) {
         out.push(await this.reevaluateOne(item, ctx));
       }
@@ -3172,6 +3369,7 @@ export class InventoryService {
   async adjust(
     dto: InventoryAdjustmentRequestDto,
     actorUserId: string,
+    actorRole?: Role,
   ): Promise<InventoryAdjustmentResponse> {
     // v1.20.1 — `batchKey` SOLO es válido con `encontrada` (contrato §M1): los otros motivos
     // operan un id concreto y su replay cae en 422 ITEM_NOT_ADJUSTABLE (idempotencia natural).
@@ -3181,7 +3379,7 @@ export class InventoryService {
         "`batchKey` is only valid with reason 'encontrada'",
       );
     }
-    if (dto.reason === 'encontrada') return this.adjustFound(dto, actorUserId);
+    if (dto.reason === 'encontrada') return this.adjustFound(dto, actorUserId, actorRole);
     return this.adjustExisting(dto, actorUserId);
   }
 
@@ -3199,6 +3397,7 @@ export class InventoryService {
   private async adjustFound(
     dto: InventoryAdjustmentRequestDto,
     actorUserId: string,
+    actorRole?: Role,
   ): Promise<InventoryAdjustmentResponse> {
     if (!dto.item) {
       throw BusinessException.badRequest(
@@ -3206,6 +3405,12 @@ export class InventoryService {
         "reason 'encontrada' requires `item`",
       );
     }
+    // 💰 v1.83 (§M11-SP.4): la línea «encontrada» es un escritor de `listPriceCents` más. (Su DTO no declara
+    // `sealedProductId` ni `manualMarketMxnCents`, así que hoy solo puede darse «sellado sin producto»; la regla
+    // es la misma función que en el alta para que el día que los declare no haga falta acordarse.)
+    // v1.83.2 (§M11-SP.13.8, Q-6): NORMADO — «encontrada» no liga a producto (ligar es del alta); la fila «ligado ⇒
+    // 422» es n/a y esta llamada SE QUEDA (canario en SP-9 de la integración).
+    assertSealedPriceWriters([sealedPriceLineOf(dto.item)], { role: actorRole });
     if (dto.batchKey) {
       const existing = await this.prisma.inventoryBatch.findUnique({
         where: { id: dto.batchKey },
@@ -3605,8 +3810,13 @@ export class InventoryService {
    *  - «Precio mercado» = `PriceReference` de la variante del item (mercado del día, MXN al FX vivo).
    *  - «Precio compra»  = override de COMPRA manual (`VariantPriceOverride.buyOverrideCents`, M-30);
    *     NO recomputa la regla del cotizador por rareza (eso sería inventar). Vacío si no hay override.
-   *  - «Precio venta»   = precio manual POR PIEZA (`listPriceCents`) ó, en su defecto, el override de
-   *     VENTA de la variante (`sellOverrideCents`). NO deriva mercado×markup. Vacío si ninguno.
+   *  - «Precio venta antes de IVA» (col 17, escala `L`) = precio manual POR PIEZA (`listPriceCents`) ó, en su
+   *     defecto, el override de VENTA de la variante (`sellOverrideCents`, también escala `L`: el checkout lo
+   *     trata como `listPriceCents` y deriva `P` de él). NO deriva mercado×markup. Vacío si ninguno, y VACÍO
+   *     cuando manda el precio del producto (v1.83.2, §M11-SP.13.4), aunque la pieza tenga legado sombreado.
+   *  - «Precio del producto con IVA» (col 18, escala `P`) = `SealedProduct.ownerDisplayPriceCents` tal cual lo
+   *     tecleó el dueño, solo cuando `manualSaleOf(...).origin = 'product'`. Vacío en otro caso.
+   * ⛔ Cero lecturas de diales: ninguna columna se deriva.
    */
   async exportInventoryXlsx(filters: {
     setId?: string;
@@ -3632,7 +3842,7 @@ export class InventoryService {
 
     const items = await this.prisma.inventoryItem.findMany({
       where,
-      include: { card: { include: { set: true } }, location: true },
+      include: { card: { include: { set: true } }, location: true, ...SEALED_SALE_PRICE_INCLUDE },
       orderBy: [{ card: { setId: 'asc' } }, { folio: 'asc' }],
     });
 
@@ -3704,7 +3914,15 @@ export class InventoryService {
       // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
       // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con
       // «presente ⇔ > 0».
-      const sellCents = firstPresentAmount(it.listPriceCents, ov?.sellOverrideCents);
+      // 💰 v1.83.2 (§M11-SP.13.4): el predicado único decide la COLUMNA, no una conversión. Producto ⇒ su `P`
+      // en la 18 y la 17 vacía (el legado sombreado no se cobra, no se exporta); si no ⇒ pieza > override de
+      // variante en la 17 (escala `L`) y la 18 vacía.
+      const manual = manualSaleOf(it);
+      const sellCents =
+        manual?.origin === 'product'
+          ? null
+          : firstPresentAmount(manual?.origin === 'piece' ? manual.listCents : null, ov?.sellOverrideCents);
+      const productDisplayCents = manual?.origin === 'product' ? manual.displayCents : null;
       sheet.addRow({
         folio: it.folio,
         card: it.card?.name ?? '',
@@ -3723,6 +3941,7 @@ export class InventoryService {
         marketMxn: this.centsToMxn(marketCents),
         buyMxn: this.centsToMxn(buyCents),
         sellMxn: this.centsToMxn(sellCents),
+        productDisplayMxn: this.centsToMxn(productDisplayCents),
       });
     }
 

@@ -195,6 +195,21 @@ psql_as_postgres() {
 # en vez de heredar éste. Si tocas esta línea, no deshagas aquella.
 export NODE_ENV="${NODE_ENV:-development}"
 export PORT="$BACKEND_PORT"
+# --- Envíos: la pila E2E corre con el DOBLE de Skydropx (§19.19.15 D0') -------
+# FIJO, no `:-`: este arnés es el que QA usa para la E2E, y un entorno con las
+# credenciales de producción (como el contenedor de Claude, HECHOS.md:48) no puede
+# convertirlo en un cliente real. La llave de gasto y las credenciales se QUITAN del
+# entorno heredado: con `fake` + llave girada el backend ni arranca (PS-98).
+# Candado: scripts/check-skydropx-spend-lock.sh (DEVOPS_NOTES §78).
+export SHIPPING_PROVIDER_ADAPTER=fake
+unset SKYDROPX_ALLOW_SPEND SKYDROPX_CLIENT_ID SKYDROPX_CLIENT_SECRET
+# La llave DEL DOBLE (§M4-SHIP.19.31.5, v1.80.12.12): con `fake`, la tercera llave
+# de la compra es esta y no la de gasto, así que la E2E puede comprar de punta a
+# punta (cotizar → comprar → guía → imprimir) escribiendo filas en la base de la
+# pila: sin red y sin dinero. FIJA, como el adaptador: solo vale junto a `fake`, y
+# con cualquier otro adaptador el backend NO arranca (PS-166 (b)). Candado (G) de
+# scripts/check-skydropx-spend-lock.sh.
+export SHIPPING_FAKE_PURCHASE=true
 # --- Secretos del arnés nativo: generados, nunca escritos en el repo (S-88-1) --
 # Aquí había literales: `tcg_local_dev_password` dentro del DATABASE_URL, dos
 # secretos JWT y la clave de S3. Eran «de desarrollo local», y ese es justo el
@@ -1137,6 +1152,24 @@ seed_synthetic() {
   log "Seed sintético (datos E2E deterministas, NUNCA datos reales de clientes)"
   ( cd "$BACKEND_DIR" && npm run seed:synthetic )
   ok "Seed cargado."
+  mark_owner
+}
+
+# El DUEÑO de la pila (§M4-SHIP.19.31.5 (5), v1.80.12.12). Las pruebas que compran
+# giran el dial `shipping_label_purchase` con `PUT /admin/settings` COMO el dueño
+# (`User.isOwner`). M-68 marca al dueño solo si en la MIGRACIÓN hay exactamente un
+# súper-admin, y en una base nueva la migración corre ANTES del seed: medido
+# 2026-10-05 (base vacía → migrate deploy → seed-e2e) ⇒ `admin@e2e.local`
+# super_admin con isOwner=false, nadie marcado. Por eso el arnés corre
+# `prisma/set-owner.ts` (el único escritor admitido además de M-68, censo C-OWN-1)
+# con el correo del fixture — leído de `prisma/e2e-fixtures.ts`, no copiado aquí.
+# Idempotente («sin cambios» si ya lo es); si se niega, la siembra falla en ruido.
+mark_owner() {
+  log "Dueño de la pila: set-owner.ts con el súper-admin del fixture"
+  ( cd "$BACKEND_DIR" && export PATH="$BACKEND_DIR/node_modules/.bin:$PATH" \
+    && OWNER_EMAIL="$(ts-node -T -e "process.stdout.write(require('./prisma/e2e-fixtures').E2E_USERS.admin.email)")" \
+    && [ -n "$OWNER_EMAIL" ] && OWNER_EMAIL="$OWNER_EMAIL" ts-node -T prisma/set-owner.ts )
+  ok "Dueño marcado."
 }
 
 stop_apps() {

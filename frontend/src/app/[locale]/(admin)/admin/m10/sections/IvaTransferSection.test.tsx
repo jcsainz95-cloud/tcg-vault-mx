@@ -69,6 +69,23 @@ describe('IvaTransferSection · criterio 213 (la puerta) y 188 (el acuse)', () =
     expect(screen.getByText('MX$116.34')).toBeInTheDocument();
   });
 
+  it('UX-SP-23 · §70.9: la línea del sellado con precio del dueño se ve bajo el delta, también con delta 0', async () => {
+    servePreview();
+    renderWithProviders(<IvaTransferSection />, 'es');
+    const campo = (await screen.findByLabelText(/Fracción trasladada/)) as HTMLInputElement;
+    await waitFor(() => expect(campo.value).toBe('100'));
+    // Delta 0 (posición vigente = propuesta).
+    await screen.findByText('Esta posición no mueve nuestro neto.');
+    const line = screen.getByTestId('iva-transfer-sealed-owner-price');
+    expect(line.textContent).toBe(
+      'No aplica al sellado con precio tuyo: lo que paga el cliente es el que escribiste y no cambia con esta fracción.',
+    );
+    await userEvent.clear(campo);
+    await userEvent.type(campo, '50');
+    await screen.findByText('−MX$6.90');
+    expect(screen.getByTestId('iva-transfer-sealed-owner-price')).toBeInTheDocument();
+  });
+
   it('⭐⭐ el ACUSE que se manda es EL DEL PREVIEW, al centavo (⛔ no recompuesto)', async () => {
     servePreview();
     const put = vi

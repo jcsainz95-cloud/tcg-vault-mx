@@ -30,7 +30,10 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 import { IvaTransferSection } from './sections/IvaTransferSection';
+import { ShippingSection } from './sections/ShippingSection';
+import { SpendControlSection } from './sections/SpendControlSection';
 import { PremiumFloorSection } from './sections/PremiumFloorSection';
+import { BuylistCycleSection } from './sections/BuylistCycleSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
@@ -437,6 +440,9 @@ export function M10View() {
         </QueryState>
       </section>
 
+      {/* §60.7 b (F-9) — los DIEZ diales del ciclo de venta, en su propio grupo, guardado y errores por campo. */}
+      <BuylistCycleSection />
+
       {/* ⭐ Sección 1a: EL DIAL DE TRASLACIÓN DEL IVA (§M10-IVA, criterio 213). Va en su propia
           sección y NO en la retícula de diales de arriba, y no es estética: es **la única puerta**
           del dial y la única que exige el ACUSE del costo en pesos antes de guardar (criterio
@@ -447,6 +453,14 @@ export function M10View() {
 
       {/* §39.1 — premium en el piso (venta): sección propia, entre el IVA y la ingesta. */}
       <PremiumFloorSection />
+
+      {/* ⭐ §43.10 — «Envíos (Skydropx)»: sección propia porque gobierna dinero (la puerta de compra, los
+          escalones de seguro). Después del premium en el piso y antes de la ingesta (FS-8). */}
+      <ShippingSection />
+
+      {/* 💰 §43.19.10a — «Control del gasto»: justo después de «Envíos», sección propia (gobierna dinero); diales del
+          dueño (§19.30.2 (1)). `id="control-gasto"` es el destino del enlace «Cambiar el tope» de un aviso. */}
+      <SpendControlSection />
 
       {/* Sección 1b: proveedor de la INGESTA MASIVA (bulk). Separado a propósito de los
           per-carta de arriba para que el humano no los confunda (P-47). */}

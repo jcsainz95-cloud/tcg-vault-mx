@@ -11,6 +11,7 @@ import {
   Length,
   Max,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
@@ -386,4 +387,24 @@ export class SealedSetGroupLinkRequestDto {
 export class SetMainGroupRequestDto {
   @IsInt() @Min(1) tcgplayerGroupId!: number;
   @IsOptional() @trim() @IsString() @Length(3, 500) reason?: string;
+}
+
+/**
+ * 💰 v1.83.1 (`API_CONTRACT §M11-SP.12.4`, sustituye el cuerpo de §M11-SP.2) — `PUT
+ * /admin/inventory/sealed-products/:sealedProductId/sale-price`.
+ *
+ * - `displayPriceCents` = **`P`**: lo que paga el cliente por pieza, IVA dentro, el entero que tecleó el dueño
+ *   (`1…100_000_000`, la misma cota que `MAX_LIST_PRICE_CENTS` y que el CHECK de `M-71`). ⛔ `null` no existe (volver
+ *   al automático está fuera de alcance, §M11-SP.2 «Fuera»).
+ * - `expectedDisplayPriceCents` = el precio del dueño que la pantalla mostró (`null` = «no tenía»). **Obligatorio**
+ *   (`undefined` ⇒ `400`): es el CAS — *nadie cambia un precio que no vio*.
+ * Forma inválida ⇒ `400 VALIDATION_ERROR` por el `ValidationPipe` global (el mismo de los DTO de M1).
+ */
+export class SetSealedSalePriceDto {
+  @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) displayPriceCents!: number;
+  @ValidateIf((o: { expectedDisplayPriceCents?: unknown }) => o.expectedDisplayPriceCents !== null)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_LIST_PRICE_CENTS)
+  expectedDisplayPriceCents!: number | null;
 }

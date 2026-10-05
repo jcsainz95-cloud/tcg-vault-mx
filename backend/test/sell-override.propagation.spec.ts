@@ -168,7 +168,7 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
 
 describe('checkout — orders.salePriceOf (auth + guest comparten el cuerpo)', () => {
   const build = (pricing: PricingService) =>
-    new OrdersService({} as never, pricing, {} as never, {} as never, {} as never);
+    new OrdersService({} as never, pricing, ivaDialsStub() as never, {} as never, {} as never);
 
   it('sellOverride pisa la regla: la línea cobra el override (paridad exacta con storefront)', async () => {
     const svc = build(buildPricing({ referenceMxnCents: 10000, override: overrideRow(9900) }));
@@ -210,7 +210,7 @@ describe('publicación — inventory.bulkPublish (precio server-side SEC-A1)', (
       inventoryBatch: { findUnique: jest.fn(async () => null), create: jest.fn() },
     } as unknown as PrismaService;
     const pricing = buildPricing(opts);
-    const svc = new InventoryService(prisma, pricing, {} as SettingsService);
+    const svc = new InventoryService(prisma, pricing, ivaDialsStub() as unknown as SettingsService);
     return { svc, pricing };
   }
 

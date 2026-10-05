@@ -9,6 +9,7 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * Cola de precio pendiente (VENTA) — **todo escritor vigente pone el MOTIVO.**
@@ -167,7 +168,7 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
     ),
   };
 
-  const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,
@@ -289,7 +290,8 @@ describe('alta de SELLADO cuyo precio SÍ resuelve ⇒ NO abre entrada (no hay m
 
   it('alta con override manual de mercado (`manualMarketMxnCents`) ⇒ resuelve ⇒ 0 entradas', async () => {
     const h = buildHarness();
-    await h.svc.createItem(sealedLine({ manualMarketMxnCents: 90000 }) as any, 'op');
+    // v1.83 (§M11-SP.4): el mercado a mano del alta solo lo escribe el dueño.
+    await h.svc.createItem(sealedLine({ manualMarketMxnCents: 90000 }) as any, 'op', 'super_admin' as never);
     expect(h.items).toHaveLength(1);
     expect(h.pendingStore).toHaveLength(0);
   });

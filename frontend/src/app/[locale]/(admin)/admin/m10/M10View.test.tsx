@@ -32,13 +32,13 @@ describe('M10View · Config y bitácora', () => {
   it('carga los diales con el valor de la API (cents → pesos)', async () => {
     renderWithProviders(<M10View />, 'es');
     // shippingFeeCents 17500 → MX$175 mostrado en pesos.
-    const shipping = (await screen.findByLabelText(/Tarifa de envío/)) as HTMLInputElement;
+    const shipping = (await screen.findByLabelText(/Envío de un retiro \(cobro al cliente\)/)) as HTMLInputElement;
     expect(shipping.value).toBe('175');
   });
 
   it('habilita guardar solo tras editar un dial (PUT parcial)', async () => {
     renderWithProviders(<M10View />, 'es');
-    const shipping = (await screen.findByLabelText(/Tarifa de envío/)) as HTMLInputElement;
+    const shipping = (await screen.findByLabelText(/Envío de un retiro \(cobro al cliente\)/)) as HTMLInputElement;
     // Botón de guardar deshabilitado sin cambios.
     const saveBtn = screen.getByRole('button', { name: /Guardar 0/ });
     expect(saveBtn).toBeDisabled();
@@ -86,7 +86,7 @@ describe('M10View · Config y bitácora', () => {
   it('ya NO muestra el dial MUERTO de venta (salesMarkupPct)', async () => {
     renderWithProviders(<M10View />, 'es');
     // Espera a que carguen los diales.
-    await screen.findByLabelText(/Tarifa de envío/);
+    await screen.findByLabelText(/Envío de un retiro \(cobro al cliente\)/);
     // salesMarkupPct: el precio de venta lo deriva la curva, no un markup global.
     expect(screen.queryByLabelText(/Markup de venta/)).not.toBeInTheDocument();
   });
@@ -344,7 +344,7 @@ describe('M10View · Config y bitácora', () => {
 
   it('M11-single-editor: M10 YA NO dibuja el dial de proveedor del SELLADO (se editan en M11)', async () => {
     renderWithProviders(<M10View />, 'es');
-    await screen.findByLabelText(/Tarifa de envío/);
+    await screen.findByLabelText(/Envío de un retiro \(cobro al cliente\)/);
     // §diseño §4.1 (D-2): el editor del proveedor de referencia del sellado se mudó a M11. Que
     // desaparezca aquí es parte de la norma: un solo editor por dial de dinero, no dos.
     expect(screen.queryByLabelText(/Proveedor de referencia por-carta \(sellado\)/)).not.toBeInTheDocument();

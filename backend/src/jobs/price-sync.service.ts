@@ -3,7 +3,7 @@ import { ProductType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../modules/pricing/pricing.service';
 import { saleQueueKeyOf, serializeSaleQueueKey } from '../modules/pricing/sale-queue-key';
-import { hasManualPrice } from '../common/money';
+import { manualSaleOf, SEALED_SALE_PRICE_INCLUDE } from '../common/money';
 import { PremiumFloorPolicy, premiumFloorPublishes } from '../common/pricing-curve';
 
 /** Tope de ids que el log del barrido VQ enumera (techlead D-6): el resto se resume con un conteo. */
@@ -198,13 +198,17 @@ export class PriceSyncJobService {
         status: { in: ['in_stock', 'listed'] },
         cardId: { in: [...new Set(rows.map((r) => r.cardId))] },
       },
+      // 💰 v1.83 (§M11-SP.1): un sellado con precio del dueño por producto tiene precio a mano ⇒ su fila sin
+      // motivo no la necesita nadie (igual que la pieza con `listPriceCents`).
+      include: SEALED_SALE_PRICE_INCLUDE,
     });
     // Techlead D-1: la clave de una pieza sale de la derivación COMPARTIDA con la publicación
     // (`saleQueueKeyOf`, la misma que usa `derivePublishSalePrice`) y se serializa con LA serialización
     // (`serializeSaleQueueKey`) — fila y pieza se comparan con la misma función.
     const needed = new Set<string>();
     for (const item of items) {
-      if (hasManualPrice(item)) continue;
+      // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(item) != null` (sellado: producto o pieza).
+      if (manualSaleOf(item) != null) continue;
       const key = saleQueueKeyOf(item, this.pricing);
       if (key != null) needed.add(serializeSaleQueueKey(key));
     }

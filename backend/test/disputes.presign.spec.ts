@@ -1,7 +1,7 @@
 import { DisputesService } from '../src/modules/disputes/disputes.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
-import { DISPUTE_EVIDENCE_CONTACT } from '../src/modules/disputes/disputes.constants';
+import { supportContact } from '../src/modules/mail/support-contact';
 
 /**
  * v1.2 — La disputa de condición ya NO tiene comparador de fotos de ingreso/reclamo:
@@ -34,7 +34,7 @@ describe('DisputesService.adminGet — v1.2 evidencia por correo (sin fotos)', (
 
     const res: any = await svc.adminGet('d1');
 
-    expect(res.evidenceContact).toBe(DISPUTE_EVIDENCE_CONTACT);
+    expect(res.evidenceContact).toBe(supportContact());
     expect(res).not.toHaveProperty('ingressPhotoUrls');
     expect(res).not.toHaveProperty('claimPhotoUrls');
     expect(res.item.certNumber).toBe('PSA-12345678');

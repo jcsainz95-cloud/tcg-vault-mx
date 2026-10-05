@@ -477,6 +477,17 @@ export let mockSettings: SettingsDTO = {
   buylistCapPerMonthCents: 1000000,
   ineThresholdCents: 300000,
   repoCapPerCardCents: 5000000,
+  // §M10 «DIEZ diales» del ciclo de buylist (defaults del contrato).
+  buylistOfferIssueDeadlineBusinessDays: 7,
+  buylistOfferAcceptDeadlineBusinessDays: 2,
+  buylistShipDeadlineBusinessDays: 3,
+  buylistMinimumRequestCents: 50000,
+  buylistShippingFeeCents: 18000,
+  buylistMinimumOfferNetCents: 20000,
+  buylistOperatorOfferCapCents: 150000,
+  buylistShipmentConfirmAlertBusinessDays: 5,
+  buylistOfferReissueAlertCount: 2,
+  buylistVariantPositionCap: 10,
   fxBufferPct: 3,
   // Coherente con `mockFxWorld` a propósito: es **el mismo ajuste** (`fx_manual_override_rate`)
   // visto por la otra puerta (§M2-F.5). Dos superficies del simulador que discrepan sobre el mismo
@@ -496,6 +507,40 @@ export let mockSettings: SettingsDTO = {
   gradingHookEnabled: 'on',
   // 💰 v1.80.8.5 (§M2 `M2-PF`): MOCK con el seed del contrato (decisión del dueño 2026-10-04).
   premiumFloorSalePublish: { mode: 'only', rarities: ['Double Rare', 'Rare Holo EX'] },
+  // ⭐ MOCK §M4-SHIP.19.19.12 — los diales de envío con su SEED del contrato (fail-closed: Skydropx
+  // apagado y compra `disabled`). Para ver la ventana de cuatro pasos en la demo se enciende en
+  // «Configuración › Envíos», como lo haría el dueño.
+  shippingProvider: 'off',
+  shippingLabelPurchase: 'disabled',
+  skydropxOriginAddressTemplateId: null,
+  shippingPreferredCarriers: ['ninetynineminutes'],
+  shippingDropoffPoints: {
+    ninetynineminutes: {
+      name: 'Punto99 · Periférico Sur 4249',
+      address: 'Av. Periférico Sur 4249, Jardines de la Montaña, 14210 CDMX',
+    },
+  },
+  shippingConsignmentNote: '49101600',
+  shippingPackageRuleBoxMinCards: 60,
+  // v1.80.12.9 (§19.29.8): seed MX$1,000 (`HECHOS.md:62`).
+  skydropxLowBalanceCents: 100000,
+  // 💰 Control del gasto (§19.29.8): seeds = `HECHOS.md:62` / `PROJECT §Z.3`.
+  operatorLabelCap24hCents: 250000,
+  shippingLabelReissueMaxPerShipment: 1,
+  spendAlertsDisabled: [],
+  spendAlertLabelCapWarnPct: 80,
+  spendAlertShipmentCancelCount: 2,
+  spendAlertPersonCancelCount24h: 3,
+  spendAlertChargeDriftImmediateCents: 2000,
+  spendAlertExtraChargeImmediateCents: 15000,
+  spendAlertCancelRefundDays: 3,
+  spendAlertLabelNotShippedDays: 3,
+  shippingTrackingPollMinutes: 60,
+  shippingInsuranceTiers: [
+    { coverageCents: 250000, costCents: 2500, measuredAt: '2026-10-04' },
+    { coverageCents: 1000000, costCents: 17000, measuredAt: '2026-10-04' },
+  ],
+  shippingLabelFormat: 'standard',
 };
 /**
  * ⭐⭐ **EL DIAL DE TRASLACIÓN, EN SU PROPIA VARIABLE Y ⛔ FUERA DE `mockSettings`** (contrato v1.75,
@@ -1597,6 +1642,24 @@ function mockIsPayable(row: MockPayabilityRow): boolean {
 }
 
 /**
+ * v1.82.3 (contrato §PNL.12.1) — **las líneas que CUENTAN para cerrar la solicitud**: `offerDecision IS NULL OR
+ * offerDecision <> 'skip'`. En JS `!== 'skip'` conserva `null`/ausente (el `<>` de SQL no: por eso el backend lo escribe
+ * con `OR` explícito). Pre-ciclo toda línea es `null` ⇒ toda línea cuenta ⇒ conducta idéntica a la de antes.
+ */
+export function mockCountingItems<T extends Pick<SellItemDTO, 'offerDecision'>>(items: T[]): T[] {
+  return items.filter((it) => it.offerDecision !== 'skip');
+}
+
+/**
+ * v1.82.3 (§PNL.12.1) — **Regla C**: ∃ ≥1 línea que cuenta ∧ toda línea que cuenta está `rechazada`. Una sola copia en el
+ * servidor falso: la usan `isRejectable` (proyección) y la guarda de `POST …/reject` (`api.ts`).
+ */
+export function mockRuleC(row: Pick<AdminBuylistDTO, 'items'>): boolean {
+  const counting = mockCountingItems(row.items);
+  return counting.length > 0 && counting.every((it) => it.itemStatus === 'rechazada');
+}
+
+/**
  * Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`).
  *
  * ⚠️ Las columnas ocultas de pagabilidad **NO salen en el DTO**: son columnas de la «tabla» del
@@ -1614,6 +1677,8 @@ export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
     approvedTotalCents: row.approvedTotalCents ?? undefined,
     isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status),
     isPayable: mockIsPayable(row),
+    // v1.82.3 §PNL.12.1 d: `isTerminal === false ∧ Regla C`.
+    isRejectable: !MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) && mockRuleC(row),
     // v1.61 §M5-V.5: **el servidor manda el número**; el cliente no cuenta `itemStatus`.
     pendingDecisionItemCount: mockPendingDecisionItemIds(row).length,
   };
@@ -1823,7 +1888,10 @@ export const mockAddresses: AddressDTO[] = [
     postalCode: '06600',
     country: 'MX',
     phone: '5555123456',
+    references: null,
     isDefault: true,
+    // ⭐ v1.81: derivado por el servidor (colonia + CP de 5 + teléfono de 10).
+    complete: true,
   },
   {
     // v1.67: fila ANTERIOR a M-52 (sin destinatario). La libreta pinta «Falta el nombre de quien
@@ -1837,7 +1905,9 @@ export const mockAddresses: AddressDTO[] = [
     postalCode: '44100',
     country: 'MX',
     phone: '3331234567',
+    references: null,
     isDefault: false,
+    complete: true,
   },
 ];
 
@@ -3152,7 +3222,7 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
  */
 export type MockAdminBuylistRow = Omit<
   AdminBuylistDTO,
-  'isTerminal' | 'isPayable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
+  'isTerminal' | 'isPayable' | 'isRejectable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
 > &
   MockPayabilityColumns;
 
@@ -4181,12 +4251,12 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
         : null,
     addresses:
       id === 'u-777'
-        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
+        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', references: null, isDefault: true, complete: false }]
         : id === 'u-780'
           ? [
-              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', isDefault: true },
+              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', references: null, isDefault: true, complete: true },
               // Fila anterior a M-52: sin destinatario. Se pinta «Sin destinatario», nunca el nombre.
-              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', isDefault: false },
+              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', references: null, isDefault: false, complete: false },
             ]
           : [],
     orders: base.id === 'u-777' ? mockOrders : [],
@@ -4375,7 +4445,10 @@ export const mockAuditLog: AuditLogDTO[] = [
 ];
 
 // ---- M7: Finanzas ----
-// P&L (v1.4-finance): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents = profitCents.
+// P&L (§M10-IVA.8 / §M4-SHIP.19.36.1): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents −
+// shippingCostCents − refundsCents − refundedFeesCents − compensationsCents = profitCents.
+// N-PNL-1 (DESIGN_SYSTEM §43.23.8): los cinco campos nuevos ≠ 0; ajustes y seguro MENORES que `shippingCostCents`
+// (están dentro de él) para que la pantalla de dev sea una pantalla posible.
 export const mockPnl: PnlDTO = {
   incomeCents: 1_250_000,
   shippingRevenueCents: 52_500,
@@ -4389,7 +4462,14 @@ export const mockPnl: PnlDTO = {
   // importe y ⛔ no una afirmación fiscal. En el fixture va `> 0` **a propósito**: el aviso es una
   // rama de render que, con un `0` clavado, nadie vería nunca en `dev`.
   shippingCostMissingCount: 2,
-  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800,
+  // §19.36.1 — «Incluye…» de `shippingCostCents` (⛔ no entran en la resta: ya van dentro de los 31_800).
+  shippingAdjustmentsCents: 4_200,
+  shippingInsuranceCents: 2_500,
+  // §M10-IVA.8 (v1.80.7) — lo devuelto en el periodo; restan en la ganancia.
+  refundsCents: 35_000,
+  refundedFeesCents: 1_400,
+  compensationsCents: 12_000,
+  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800 - 35_000 - 1_400 - 12_000,
 };
 
 // v1.28 (P-24): breakdown por tipo — campos top-level = Σ del breakdown (invariante del contrato).
@@ -7160,4 +7240,144 @@ export function mockPhysicalInventory(userId: string): CustomerPhysicalInventory
     counts: { total: 0, inDrawer: 0, pendingPlacement: 0, missing: 0, inWithdrawal: 0, unlocated: 0 },
     items: [],
   };
+}
+
+// ===== §M11-SP — servidor falso de la hoja «Precios del sellado» y del `PUT …/sale-price` =====
+// MOCK: pendiente de backend real en la demo. Las cifras de la primera fila son las del primer vector de §M11-SP.12.5
+// (`P 145000`, `avg 90000` ⇒ `N 125000`, margen `35000`, `2800` bps) con `(t, r) = (100, 16)`. Este fichero es
+// simulador del servidor (excepción argumentada de `frontend-never-multiplies.test.ts`): aquí SÍ se deriva `N`.
+type SheetRow = import('@/types/contract').SealedPriceSheetRowDTO;
+const SHEET_IVA = { ratePct: 16, transferPct: 100 };
+
+function sheetNet(displayCents: number | null): number | null {
+  if (displayCents == null) return null;
+  return Math.round((displayCents * 100) / (100 + SHEET_IVA.ratePct));
+}
+function sheetMargin(net: number | null, avg: number | null): { cents: number; bps: number } | null {
+  if (net == null || avg == null || net === 0) return null;
+  const cents = net - avg;
+  return { cents, bps: Math.round((cents * 10000) / net) };
+}
+function sheetRecompute(r: SheetRow): SheetRow {
+  const displayPriceCents = r.ownerDisplayPriceCents ?? r.automaticDisplayPriceCents;
+  const netPriceCents = sheetNet(displayPriceCents);
+  return {
+    ...r,
+    effectiveOrigin: r.ownerDisplayPriceCents != null ? 'product' : r.automaticDisplayPriceCents != null ? 'automatic' : 'pending',
+    displayPriceCents,
+    netPriceCents,
+    legacyPiecePrices: { ...r.legacyPiecePrices, shadowed: r.ownerDisplayPriceCents != null },
+    margin: sheetMargin(netPriceCents, r.cost.avgCents),
+  };
+}
+
+const mockSheetRows: SheetRow[] = [
+  sheetRecompute({
+    sealedProductId: 'sp-ssp-etb',
+    name: 'Surging Sparks Elite Trainer Box',
+    subtype: 'etb',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv08', name: 'Surging Sparks' },
+    pieces: { inStock: 3, listed: 3, reserved: 1 },
+    cost: { avgCents: 90000, minCents: 85000, maxCents: 95000, withoutCost: 1 },
+    ownerDisplayPriceCents: 145000,
+    automaticListPriceCents: 118320,
+    automaticDisplayPriceCents: 137251,
+    automaticSource: 'subtype_spread',
+    appliedSpreadPct: 16,
+    effectiveOrigin: 'product',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: { status: 'priced', referenceMxnCents: 102000, source: 'tcgcsv', capturedDate: '2026-10-03' },
+    legacyPiecePrices: { count: 2, minDisplayCents: 127600, maxDisplayCents: 150800, shadowed: true },
+    margin: null,
+  }),
+  sheetRecompute({
+    sealedProductId: 'sp-pre-bundle',
+    name: 'Prismatic Evolutions Booster Bundle',
+    subtype: 'bundle',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv8pt5', name: 'Prismatic Evolutions' },
+    pieces: { inStock: 2, listed: 0, reserved: 0 },
+    cost: { avgCents: null, minCents: null, maxCents: null, withoutCost: 2 },
+    ownerDisplayPriceCents: null,
+    automaticListPriceCents: null,
+    automaticDisplayPriceCents: null,
+    automaticSource: null,
+    appliedSpreadPct: null,
+    effectiveOrigin: 'pending',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: null,
+    legacyPiecePrices: { count: 0, minDisplayCents: null, maxDisplayCents: null, shadowed: false },
+    margin: null,
+  }),
+  sheetRecompute({
+    sealedProductId: 'sp-scr-box',
+    name: 'Stellar Crown Booster Box',
+    subtype: 'box',
+    imageUrl: null,
+    active: true,
+    set: { id: 'sv07', name: 'Stellar Crown' },
+    pieces: { inStock: 1, listed: 2, reserved: 0 },
+    cost: { avgCents: 200000, minCents: 200000, maxCents: 200000, withoutCost: 0 },
+    ownerDisplayPriceCents: null,
+    automaticListPriceCents: 217000,
+    automaticDisplayPriceCents: 251720,
+    automaticSource: 'global_spread',
+    appliedSpreadPct: 22,
+    effectiveOrigin: 'automatic',
+    displayPriceCents: null,
+    netPriceCents: null,
+    market: { status: 'priced', referenceMxnCents: 177869, source: 'tcgcsv', capturedDate: '2026-10-04' },
+    legacyPiecePrices: { count: 2, minDisplayCents: 116000, maxDisplayCents: 139200, shadowed: false },
+    margin: null,
+  }),
+];
+
+export function mockSealedPriceSheet(
+  params: { setId?: string; q?: string; scope?: 'on_hand' | 'all'; page?: number; pageSize?: number },
+  canEdit: boolean,
+): import('@/types/contract').SealedPriceSheetResponse {
+  const q = params.q?.trim().toLowerCase();
+  let data = mockSheetRows.filter((r) => (params.setId ? r.set.id === params.setId : true));
+  if (q) data = data.filter((r) => r.name.toLowerCase().includes(q));
+  if ((params.scope ?? 'on_hand') === 'on_hand') {
+    data = data.filter((r) => r.pieces.inStock + r.pieces.listed + r.pieces.reserved > 0);
+  }
+  const pageSize = params.pageSize ?? 50;
+  const page = params.page ?? 1;
+  return {
+    data: data.slice((page - 1) * pageSize, page * pageSize),
+    page,
+    pageSize,
+    total: data.length,
+    unlinkedCount: 3,
+    canEdit,
+    iva: { ...SHEET_IVA },
+  };
+}
+
+export function mockSetSealedSalePrice(
+  id: string,
+  body: import('@/types/contract').SetSealedSalePriceRequest,
+): import('@/types/contract').SetSealedSalePriceResponse {
+  const idx = mockSheetRows.findIndex((r) => r.sealedProductId === id);
+  if (idx < 0) throw new ApiFixtureNotFound('SealedProduct not found');
+  const row = mockSheetRows[idx]!;
+  const current = row.ownerDisplayPriceCents;
+  const idempotent = body.displayPriceCents === current && body.expectedDisplayPriceCents === current;
+  if (!idempotent && body.expectedDisplayPriceCents !== current) {
+    throw new ApiFixtureError(409, 'CONFLICT', 'Sealed product price changed', { currentDisplayPriceCents: current });
+  }
+  const published = row.pieces.inStock;
+  const next = sheetRecompute({
+    ...row,
+    ownerDisplayPriceCents: body.displayPriceCents,
+    pieces: { ...row.pieces, inStock: 0, listed: row.pieces.listed + published },
+  });
+  mockSheetRows[idx] = next;
+  return { data: next, autoPublish: { published, missingLocation: 0, notPublished: 0 } };
 }

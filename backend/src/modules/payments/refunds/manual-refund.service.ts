@@ -6,7 +6,8 @@
  * `paidClabeHmac` (el índice ciego vigente) para poder probar después A QUÉ CLABE se pagó sin guardarla.
  *
  * Candado `C-MREF-1`: los ÚNICOS creadores de filas son `POST /admin/replacement-cases/:id/refund` (vía
- * `createRow`), `POST /admin/refunds/:id/to-manual` y `POST /admin/manual-refunds/:id/reissue`; los únicos escritores
+ * `createRow`), `POST /admin/refunds/:id/to-manual`, `POST /admin/manual-refunds/:id/reissue` y (v1.82, §PNL.3)
+ * `POST /admin/manual-refunds/withdrawal-delivered` (`WithdrawalDeliveredRefundService`); los únicos escritores
  * de `status:'paid'|'cancelled'` son `paid` y `cancel`. Todos `@MoneyOut()` (solo `super_admin`). El único lector de
  * `KycProfile.clabeEnc` que devuelve la CLABE en claro fuera de buylist es `reveal-clabe` (auditado, `no-store`).
  *
@@ -15,7 +16,7 @@
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../../common/customer-email';
-import { ManualRefund, ManualRefundSource, ManualRefundStatus, OrderStatus, Prisma, ReplacementCaseSource, Role } from '@prisma/client';
+import { ManualRefund, ManualRefundSource, ManualRefundStatus, OrderStatus, Prisma, ReplacementCaseSource, Role, ShippedRefundReason } from '@prisma/client';
 import { MANUAL_REFUND_STATUS_VALUES } from '../../../common/enum-values';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessException } from '../../../common/business.exception';
@@ -50,7 +51,18 @@ export interface ManualRefundDTO {
   clabeMasked: string | null;
   clabeUpdatedAt: string | null;
   clabeChangedRecently: boolean;
-  case: { id: string; source: ReplacementCaseSource; card: PreparationCardDTO; folio: string; reason: string };
+  /** ⚠️ v1.82: `null` ⇔ `source = withdrawal_delivered` (no nace de un caso «Por reponer»). */
+  case: { id: string; source: ReplacementCaseSource; card: PreparationCardDTO; folio: string; reason: string } | null;
+  /** 💰 v1.82 (§PNL.3): solo `withdrawal_delivered` (si no, `null`): de qué retiro entregado y qué carta sale este SPEI. */
+  withdrawal: {
+    shipmentId: string;
+    shipmentItemId: string;
+    card: PreparationCardDTO;
+    folio: string;
+    reason: ShippedRefundReason;
+    note: string;
+    deliveredAt: string | null;
+  } | null;
   origin: { orderId: string; orderNumber: string | null; orderStatus: OrderStatus } | null;
   paymentRefundId: string | null;
   createdAt: string;
@@ -68,10 +80,17 @@ export interface ManualRefundDTO {
 }
 
 export interface NewManualRefund {
+  /** v1.82 (§PNL.3): el id se fija ANTES cuando la llave lo incluye (`withdrawal-delivered:<id>`). */
+  id?: string;
   source: ManualRefundSource;
   idempotencyKey: string;
   customerUserId: string;
-  replacementCaseId: string;
+  /** ⇔ `source ∈ {case_excess, stripe_failed}` (CHECK `ManualRefund_case_sources_chk`, M-70). */
+  replacementCaseId: string | null;
+  /** v1.82 (§PNL.3): ⇔ `source = withdrawal_delivered` (CHECK `ManualRefund_withdrawal_delivered_chk`). */
+  shipmentItemId?: string | null;
+  deliveredReason?: ShippedRefundReason | null;
+  deliveredNote?: string | null;
   paymentRefundId?: string | null;
   orderId?: string | null;
   components: RefundComponents;
@@ -99,6 +118,15 @@ const MR_INCLUDE = {
       originalInventoryItem: { include: { card: { include: { set: true } } } },
     },
   },
+  // v1.82 (§PNL.3): la línea del retiro ENTREGADO (`withdrawal_delivered`).
+  shipmentItem: {
+    select: {
+      id: true,
+      shipmentRequestId: true,
+      inventoryItem: { include: { card: { include: { set: true } } } },
+      shipmentRequest: { select: { id: true, deliveredAt: true } },
+    },
+  },
   order: { select: { id: true, orderNumber: true, status: true } },
   customer: { select: { id: true, name: true, nameSource: true, email: true } },
   reissuedAs: { select: { id: true } },
@@ -119,18 +147,29 @@ export class ManualRefundService {
 
   /**
    * Nace una fila `pending` + bitácora `manual_refund.created` (`entityType='ManualRefund'`, ⛔ sin CLABE ni nombre).
-   * Llamadores exactos: el reembolso del caso (`case_excess`), `toManual` (`stripe_failed`) y `reissue`.
+   * Llamadores exactos: el reembolso del caso (`case_excess`), `toManual` (`stripe_failed`), `reissue` y (v1.82)
+   * la devolución de un retiro entregado (`withdrawal_delivered`, con su propia acción de bitácora, §PNL.3 paso 8).
    */
-  async createRow(tx: Tx, data: NewManualRefund, actor: ManualRefundActor, extraAudit: Record<string, unknown> = {}): Promise<ManualRefund> {
+  async createRow(
+    tx: Tx,
+    data: NewManualRefund,
+    actor: ManualRefundActor,
+    extraAudit: Record<string, unknown> = {},
+    auditAction = 'manual_refund.created',
+  ): Promise<ManualRefund> {
     if (!Number.isInteger(data.components.amountCents) || data.components.amountCents <= 0) {
       throw new Error(`createRow: amountCents must be a positive integer (${data.idempotencyKey})`);
     }
     const row = await tx.manualRefund.create({
       data: {
+        ...(data.id ? { id: data.id } : {}),
         idempotencyKey: data.idempotencyKey,
         source: data.source,
         customerUserId: data.customerUserId,
         replacementCaseId: data.replacementCaseId,
+        shipmentItemId: data.shipmentItemId ?? null,
+        deliveredReason: data.deliveredReason ?? null,
+        deliveredNote: data.deliveredNote ?? null,
         paymentRefundId: data.paymentRefundId ?? null,
         orderId: data.orderId ?? null,
         amountCents: data.components.amountCents,
@@ -147,7 +186,7 @@ export class ManualRefundService {
       data: {
         actorUserId: actor.id,
         actorRole: actor.role,
-        action: 'manual_refund.created',
+        action: auditAction,
         entityType: 'ManualRefund',
         entityId: row.id,
         after: { amountCents: row.amountCents, source: row.source, caseId: row.replacementCaseId, orderId: row.orderId, ...extraAudit },
@@ -186,7 +225,8 @@ export class ManualRefundService {
       const kyc = kycByUser.get(r.customerUserId);
       // Mismo camino que `GET /users/me/kyc` y la ficha 360°: `tryDecryptOptional` ⇒ degrada, ⛔ nunca un 500 ni un reveal.
       const clabe = this.pii.tryDecryptOptional(kyc?.clabeEnc).value;
-      const piece = r.replacementCase.originalInventoryItem;
+      const kase = r.replacementCase;
+      const line = r.shipmentItem;
       return {
         id: r.id,
         source: r.source,
@@ -204,13 +244,27 @@ export class ManualRefundService {
         clabeMasked: maskClabe(clabe) ?? null,
         clabeUpdatedAt: kyc?.clabeUpdatedAt ? kyc.clabeUpdatedAt.toISOString() : null,
         clabeChangedRecently: ManualRefundService.clabeChangedRecently(kyc?.clabeUpdatedAt ?? null, r.createdAt, now),
-        case: {
-          id: r.replacementCase.id,
-          source: r.replacementCase.source,
-          card: preparationCardOf(piece),
-          folio: piece.folio,
-          reason: r.replacementCase.refundReason ?? '',
-        },
+        case: kase
+          ? {
+              id: kase.id,
+              source: kase.source,
+              card: preparationCardOf(kase.originalInventoryItem),
+              folio: kase.originalInventoryItem.folio,
+              reason: kase.refundReason ?? '',
+            }
+          : null,
+        withdrawal:
+          r.source === 'withdrawal_delivered' && line
+            ? {
+                shipmentId: line.shipmentRequestId,
+                shipmentItemId: line.id,
+                card: preparationCardOf(line.inventoryItem),
+                folio: line.inventoryItem.folio,
+                reason: r.deliveredReason as ShippedRefundReason,
+                note: r.deliveredNote ?? '',
+                deliveredAt: line.shipmentRequest.deliveredAt ? line.shipmentRequest.deliveredAt.toISOString() : null,
+              }
+            : null,
         origin: r.order ? { orderId: r.order.id, orderNumber: nullIfBlank(r.order.orderNumber), orderStatus: r.order.status } : null,
         paymentRefundId: r.paymentRefundId,
         createdAt: r.createdAt.toISOString(),
@@ -240,7 +294,8 @@ export class ManualRefundService {
     if (caseIds.length === 0) return out;
     const rows = await this.prisma.manualRefund.findMany({ where: { replacementCaseId: { in: caseIds } }, include: MR_INCLUDE, orderBy: { createdAt: 'asc' } });
     const dtos = await this.toDtos(rows, now);
-    rows.forEach((r, i) => out.set(r.replacementCaseId, [...(out.get(r.replacementCaseId) ?? []), dtos[i]]));
+    // (`replacementCaseId ∈ caseIds` ⇒ no nulo en estas filas.)
+    rows.forEach((r, i) => out.set(r.replacementCaseId as string, [...(out.get(r.replacementCaseId as string) ?? []), dtos[i]]));
     return out;
   }
 
@@ -258,10 +313,11 @@ export class ManualRefundService {
       orderBy: { createdAt: 'asc' },
     });
     for (const r of rows) {
-      const cur = out.get(r.replacementCaseId);
+      const caseId = r.replacementCaseId as string; // `∈ caseIds` ⇒ no nulo
+      const cur = out.get(caseId);
       // La última por `createdAt` gana; una viva manda sobre las canceladas anteriores.
       if (!cur || cur.transferStatus === 'cancelled' || r.status !== 'cancelled') {
-        out.set(r.replacementCaseId, { byTransferCents: r.amountCents, transferStatus: r.status });
+        out.set(caseId, { byTransferCents: r.amountCents, transferStatus: r.status });
       }
     }
     return out;
@@ -282,6 +338,8 @@ export class ManualRefundService {
         { customerUserId: { in: users.map((u) => u.id) } },
         { order: { orderNumber: { contains: q, mode: 'insensitive' } } },
         { replacementCase: { originalInventoryItem: { folio: { contains: q, mode: 'insensitive' } } } },
+        // v1.82 (§PNL.3): el folio de la carta de un retiro entregado.
+        { shipmentItem: { inventoryItem: { folio: { contains: q, mode: 'insensitive' } } } },
         { speiReference: { contains: q, mode: 'insensitive' } },
         { id: q },
       ];
@@ -497,8 +555,13 @@ export class ManualRefundService {
         throw BusinessException.conflict('MANUAL_REFUND_NOT_CANCELLED', `Manual refund is ${row.status}`, { status: row.status });
       }
       if (row.reissuedAs) return row.reissuedAs.id;
+      // La «viva» que impide re-emitir: la del MISMO caso y canal; v1.82 (§PNL.3) — sin caso, la de la MISMA línea de
+      // retiro (⛔ un `replacementCaseId: null` en el `WHERE` encontraría la viva de OTRO retiro).
       const alive = await tx.manualRefund.findFirst({
-        where: { replacementCaseId: row.replacementCaseId, source: row.source, status: { not: 'cancelled' } },
+        where:
+          row.source === 'withdrawal_delivered'
+            ? { shipmentItemId: row.shipmentItemId as string, status: { not: 'cancelled' } }
+            : { replacementCaseId: row.replacementCaseId, source: row.source, status: { not: 'cancelled' } },
         select: { id: true },
       });
       if (alive) {
@@ -516,6 +579,9 @@ export class ManualRefundService {
             idempotencyKey: `reissue:${row.id}`,
             customerUserId: row.customerUserId,
             replacementCaseId: row.replacementCaseId,
+            shipmentItemId: row.shipmentItemId,
+            deliveredReason: row.deliveredReason,
+            deliveredNote: row.deliveredNote,
             paymentRefundId: row.paymentRefundId,
             orderId: row.orderId,
             components: {
@@ -629,7 +695,12 @@ export class ManualRefundService {
       if (claimed.count === 0) return;
       const rows = await this.prisma.manualRefund.findMany({
         where: { id: { in: ids }, announcedNotifiedAt: now },
-        include: { paymentRefund: { select: { amountCents: true, status: true } }, replacementCase: { select: { refund: { select: { amountCents: true, status: true } } } } },
+        include: {
+          paymentRefund: { select: { amountCents: true, status: true } },
+          replacementCase: { select: { refund: { select: { amountCents: true, status: true } } } },
+          // v1.82 (§PNL.3): la variante `withdrawal_delivered` nombra la carta y el retiro.
+          shipmentItem: { select: { shipmentRequestId: true, inventoryItem: { select: { card: { select: { name: true } } } } } },
+        },
       });
       for (const r of rows) {
         const user = await this.prisma.user.findUnique({ where: { id: r.customerUserId }, select: { email: true, locale: true, anonymizedAt: true } });
@@ -642,10 +713,20 @@ export class ManualRefundService {
         const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: r.customerUserId }, select: { clabeEnc: true } });
         const clabe = this.pii.tryDecryptOptional(kyc?.clabeEnc).value;
         // «y MX$A regresan a tu tarjeta»: la fila Stripe viva del mismo caso (⛔ no la fallida que esta sustituye).
-        const stripeRow = r.source === 'case_excess' ? r.replacementCase.refund : null;
+        const stripeRow = r.source === 'case_excess' ? (r.replacementCase?.refund ?? null) : null;
         const cardCents = stripeRow && stripeRow.status !== 'failed' ? stripeRow.amountCents : 0;
         await this.mail.send({
-          ...manualRefundAnnouncedTemplate({ transferCents: r.amountCents, cardCents, clabeMasked: maskClabe(clabe) ?? null }, user.locale),
+          ...manualRefundAnnouncedTemplate(
+            {
+              transferCents: r.amountCents,
+              cardCents,
+              clabeMasked: maskClabe(clabe) ?? null,
+              ...(r.source === 'withdrawal_delivered' && r.shipmentItem
+                ? { withdrawal: { reference: r.shipmentItem.shipmentRequestId, cardName: r.shipmentItem.inventoryItem.card.name, reason: r.deliveredReason } }
+                : {}),
+            },
+            user.locale,
+          ),
           to: user.email,
         });
       }

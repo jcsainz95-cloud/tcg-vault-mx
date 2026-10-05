@@ -18,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentPiece, currentPiecesOf } from '../payments/refunds/origin';
 import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
+import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
@@ -37,12 +38,13 @@ import {
   BreakdownDTO,
   PRICE_CONVENTION_OF_NEW_ROWS,
   PriceBasis,
-  displayPriceCentsOf,
+  SEALED_SALE_PRICE_INCLUDE,
   ivaIsIncluded,
+  manualSaleOf,
+  saleDisplayCentsOf,
   sealedPriceBasisOf,
-  hasManualPrice,
 } from '../../common/money';
-import type { IvaDials } from '../../common/money';
+import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
 import {
   CARD_IMAGE_SELECT,
@@ -100,6 +102,16 @@ export type QuoteOwner = { userId: string } | { orderId: string };
  * datos de instrumentación que se congelan con él. El quinto dato de §N.8 (el precio final) ES
  * `unitPriceCents`.
  */
+/**
+ * 💰 v1.83 (§M11-SP.1, SP-3) — una pieza tal como la precia el checkout: con su carta **y el precio del dueño de su
+ * producto** (`SEALED_SALE_PRICE_INCLUDE`). `sealedProduct` es obligatoria en el tipo: una lectura que la olvide no
+ * llega a `resolveSaleDecision`.
+ */
+type SaleItem = InventoryItem & {
+  card: Card & { set?: CardSet | null };
+  sealedProduct: SealedProductSaleRef | null;
+};
+
 interface SaleDecision {
   /**
    * ⭐⭐ **`P` — el precio EXHIBIDO, con el IVA DENTRO** (`ARCHITECTURE §4.44.b`, criterio **194**).
@@ -114,6 +126,12 @@ interface SaleDecision {
    * sobre el exhibido. *Mezclarlos es cómo un margen se compara contra un precio con impuesto dentro.*
    */
   listPriceCents: number;
+  /**
+   * 💰 v1.83.1 (`API_CONTRACT §M11-SP.12.3`) — **`P` fijo del dueño** (precio del producto sellado, IVA dentro),
+   * o `null`. Con él, `derivedSaleDecision` cobra ESE entero tal cual (`saleDisplayCentsOf`) y `listPriceCents` es
+   * su `L` equivalente (solo para la instrumentación y las reglas sobre `L`). ⛔ Jamás `P` desde ese `L`.
+   */
+  fixedDisplayCents: number | null;
   priceBasis: PriceBasis;
   /** Mercado CRUDO en centavos que entró al cálculo. `null` = no lo hubo (jamás un 0 inventado). */
   marketMxnCents: number | null;
@@ -131,7 +149,7 @@ interface SaleDecision {
  * sí misma** — el mismo defecto que la columna de convención existe para impedir, un nivel más abajo.
  */
 interface PricedCart {
-  items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+  items: SaleItem[];
   /** `Σ P` — **suma exacta de enteros** (regla R1 ⇒ criterio 194 por construcción). */
   subtotalCents: number;
   lines: OrderLineData[];
@@ -236,8 +254,9 @@ export class OrdersService {
    * ⭐ v1.80.2 (§M4-SHIP.16) — `CustomerOrderShipmentDTO`: LISTA BLANCA (⛔ nunca un spread de la fila). Fuera, por
    * contrato: costos, sellos de aviso, `stripePaymentIntentId`, `preparedBy*`, actores y el `addressSnapshot` crudo.
    */
-  private toCustomerOrderShipment(s: ShipmentRequest & { items: { prepStatus: PreparationItemStatus }[] }) {
+  private toCustomerOrderShipment(s: ShipmentRequest & { items: { prepStatus: PreparationItemStatus }[]; carrierEvents?: TimelineEventRow[] }) {
     const a = (s.addressSnapshot ?? {}) as Partial<Record<'recipientName' | 'city' | 'state' | 'postalCode', string>>;
+    const trackingUrl = providerTrackingUrlOf(s);
     return {
       id: s.id,
       status: s.status,
@@ -249,6 +268,9 @@ export class OrdersService {
       deliveredAt: s.deliveredAt ? s.deliveredAt.toISOString() : null,
       shipTo: { recipientName: a.recipientName ?? '', city: a.city ?? '', state: a.state ?? '', postalCode: a.postalCode ?? '' },
       missingCount: s.items.filter((i) => i.prepStatus === 'missing').length,
+      // ⭐ D2e (§19.12, PS-88/PS-89): la liga de rastreo SOLO si Skydropx la dio (ausente si no) y la línea de tiempo pública.
+      ...(trackingUrl ? { trackingUrl } : {}),
+      timeline: toCustomerTimeline(s.carrierEvents ?? [], s),
     };
   }
 
@@ -280,11 +302,13 @@ export class OrdersService {
     return out;
   }
 
-  /** Resuelve el precio de venta de un item; lanza PRICE_PENDING si no vendible. */
-  private async salePriceOf(
-    item: InventoryItem & { card: Card & { set?: CardSet | null } },
-  ): Promise<number> {
-    return (await this.resolveSaleDecision(item)).unitPriceCents;
+  /**
+   * Resuelve el precio de venta (`L`, escala de lista) de un item; lanza PRICE_PENDING si no vendible. Su único uso
+   * es «¿resuelve?» (`sellableStatusFor`). v1.83.1: con precio del dueño es su `L` equivalente — por eso lee los
+   * diales (una lectura, este camino es de una pieza).
+   */
+  private async salePriceOf(item: SaleItem): Promise<number> {
+    return (await this.resolveSaleDecision(item, await this.settings.getIvaDials())).listPriceCents;
   }
 
   /**
@@ -302,7 +326,9 @@ export class OrdersService {
   private derivedSaleDecision(d: SaleDecision, dials: IvaDials): SaleDecision {
     return {
       ...d,
-      unitPriceCents: displayPriceCentsOf(d.listPriceCents, dials.ivaTransferPct, dials.ivaRatePct),
+      // 💰 v1.83.1 (E-3, §M11-SP.12.1): EL camino a `P`. Con precio del dueño ⇒ su `P` tal cual; si no ⇒ la
+      // derivación de siempre desde `L`. ⛔ Nunca `displayPriceCentsOf` directo aquí (SP-19).
+      unitPriceCents: saleDisplayCentsOf(d, dials),
     };
   }
 
@@ -314,44 +340,53 @@ export class OrdersService {
    * del MISMO cálculo que fijó `unitPriceCents`: reconstruirlos después sería medir otra cosa.
    * `salePriceOf` queda como envoltorio para los callers que solo quieren el monto.
    */
-  private async resolveSaleDecision(
-    item: InventoryItem & { card: Card & { set?: CardSet | null } },
-  ): Promise<SaleDecision> {
+  private async resolveSaleDecision(item: SaleItem, dials: IvaDials): Promise<SaleDecision> {
     // Sin mercado (override/bounty sin referencia, o pendiente): `marketMxnCents`/`marketBracket` van
     // en `null`. Honesto; jamás un 0 inventado (§4.36.7c).
-    const instrument = (listPriceCents: number, basis: PriceBasis, marketMxnCents: number | null): SaleDecision => ({
+    const instrument = (
+      listPriceCents: number,
+      basis: PriceBasis,
+      marketMxnCents: number | null,
+      fixedDisplayCents: number | null = null,
+    ): SaleDecision => ({
       // ⚠️ `unitPriceCents` sale IGUAL a `L` aquí y lo DERIVA `derivedSaleDecision` (el único sitio).
       // Se deja así, y no derivando en las cuatro ramas, porque cuatro derivaciones son cuatro
       // sitios donde una puede faltar — y la que falte cobra el precio sin IVA sin que nada falle.
       unitPriceCents: listPriceCents,
       listPriceCents,
+      fixedDisplayCents,
       priceBasis: basis,
       marketMxnCents,
       marketBracket: marketBracketOf(marketMxnCents),
       finish: item.finish,
     });
-    // H-1 (E5-bis): el MISMO predicado que los otros cinco seams. Este sitio ya exigía `> 0` a mano y
-    // era el único correcto; ahora la corrección vive en un cuerpo y no en la memoria de quien lea.
-    if (hasManualPrice(item)) {
-      // Peldaño 1 de la precedencia de VENTA: override POR PIEZA (§4.36.6) ⇒ basis `override`.
-      return instrument(item.listPriceCents, 'override', null);
+    // 💰 v1.83 (§M11-SP.1, SP-2): «tiene precio a mano» ⇔ `manualSaleOf(item) != null` — EL predicado único. En
+    // sellado, el precio del dueño del PRODUCTO va antes que el de la pieza: si existe, `manualSaleOf` devuelve
+    // `product` y la pieza (legado) queda sombreada. Antes este método cortaba con el override por pieza genérico
+    // ANTES del sellado ⇒ con un precio de producto, la sesión habría cobrado la pieza y la ficha el producto.
+    const manual = manualSaleOf(item);
+    if (manual?.origin === 'piece') {
+      // Peldaño 1 de la precedencia de VENTA (raw/graded) / peldaño 2 del sellado (legado): override POR PIEZA
+      // (§4.36.6) ⇒ basis `override`.
+      return instrument(manual.listCents, 'override', null);
     }
-    // v1.23-sealed-sales (§4.23d): el SELLADO deriva por mercado×spread. H-1 (v1.24): resolver ÚNICO
-    // `resolveSealedSalePrice` (mismo cuerpo que catálogo/grid/bulk-publish, incluida la regla
-    // override=0). Sin override>0 y sin mercado → PRICE_PENDING (money-safe, no se vende a precio basura).
+    // v1.23-sealed-sales (§4.23d): el SELLADO deriva por el resolvedor ÚNICO `resolveSealedSalePrice` (mismo cuerpo
+    // que catálogo/grid/bulk-publish): precio del producto > mercado×spread > PRICE_PENDING (money-safe).
     // SEC-A1: todo server-side.
     if (item.productType === 'sealed') {
       const ctx = await this.pricing.loadSealedSpreads();
       const marketRef = await this.pricing.getSealedMarketRef(item);
-      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, ctx);
+      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, ctx, dials);
       // BE-26 (money-safety): un precio de venta <= 0 (p. ej. regla `fixed:0`) NO es vendible. El
       // catálogo ya exige `> 0` para publicar; se alinea aquí para que ninguna session cobre $0.
       if (sale.salePriceCents == null || sale.salePriceCents <= 0) {
         throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
       }
-      // §4.36.7a: el SELLADO no cambia de matemática; su basis se DERIVA de `priceSource`.
-      const sealedMarket = this.pricing.gateSealedMarketCents(marketRef, ctx.sourceOn);
-      return instrument(sale.salePriceCents, sealedPriceBasisOf(sale), sealedMarket);
+      // §4.36.7a: el SELLADO no cambia de matemática; su basis se DERIVA de `priceSource`. Con el precio del dueño
+      // el mercado no produjo el precio ⇒ `null` (como el override por pieza de siempre).
+      const sealedMarket =
+        sale.source === 'override' ? null : this.pricing.gateSealedMarketCents(marketRef, ctx.sourceOn);
+      return instrument(sale.salePriceCents, sealedPriceBasisOf(sale), sealedMarket, sale.fixedDisplayCents);
     }
     // v1.53 (§4.40.4, **MONEY**) — CHECKOUT. La clave se pide con la TOLERANTE y su `null` se
     // convierte AQUÍ, explícitamente, en el rechazo que este método ya sabe emitir: `PRICE_PENDING`.
@@ -410,7 +445,7 @@ export class OrdersService {
   private async loadItems(ids: string[], db: Prisma.TransactionClient = this.prisma) {
     const items = await db.inventoryItem.findMany({
       where: { id: { in: ids } },
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
     });
     if (items.length !== ids.length) {
       throw BusinessException.notFound('NOT_FOUND', 'One or more items not found');
@@ -434,7 +469,7 @@ export class OrdersService {
    * solo entran ítems ya validados).
    */
   private async buildLines(
-    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[],
+    items: SaleItem[],
     /**
      * ⭐ Los dos diales que derivan `P`, **izados una vez por petición**. Si se omite, se leen aquí
      * (uso single). ⛔ Nunca se leen **por ítem**: dos ítems del mismo carrito derivados con diales
@@ -446,7 +481,7 @@ export class OrdersService {
     const lines: OrderLineData[] = [];
     let subtotalCents = 0;
     for (const item of items) {
-      const d = this.derivedSaleDecision(await this.resolveSaleDecision(item), iva);
+      const d = this.derivedSaleDecision(await this.resolveSaleDecision(item, iva), iva);
       // R1: el subtotal es la SUMA EXACTA de los precios exhibidos (enteros ya redondeados por
       // unidad) ⇒ el criterio 194 (`Σ items[].unitPriceCents == subtotalCents`) se cumple **por
       // construcción**, no por cuidado del implementador.
@@ -585,7 +620,7 @@ export class OrdersService {
     const uniqueIds = [...new Set(inventoryItemIds)];
     const found = await this.prisma.inventoryItem.findMany({
       where: { id: { in: uniqueIds } },
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
     });
     const byId = new Map(found.map((i) => [i.id, i]));
 
@@ -638,7 +673,7 @@ export class OrdersService {
       frozenOrder ? ownOrders[0].items.map((oi) => [oi.inventoryItemId, oi]) : [],
     );
 
-    const valid: (InventoryItem & { card: Card & { set?: CardSet | null } })[] = [];
+    const valid: SaleItem[] = [];
     const unavailableItems: UnavailableCartItemDTO[] = [];
     for (const id of uniqueIds) {
       const item = byId.get(id);
@@ -1853,7 +1888,7 @@ export class OrdersService {
     try {
       const full = await this.prisma.inventoryItem.findUnique({
         where: { id: inventoryItemId },
-        include: { card: { include: { set: true } } },
+        include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
       });
       if (!full) return 'in_stock';
       await this.salePriceOf(full);
@@ -1956,7 +1991,8 @@ export class OrdersService {
       // ⭐ v1.80.2 (§M4-SHIP.16): envíos (con sus líneas para `missingCount`) y el libro en la MISMA consulta.
       include: {
         items: { include: { refund: true } },
-        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { items: { select: { prepStatus: true } } } },
+        // ⭐ D2e (§19.12, PS-89): + los eventos del transportista para la línea de tiempo pública.
+        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { items: { select: { prepStatus: true } }, carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT } },
         refunds: true,
       },
     });

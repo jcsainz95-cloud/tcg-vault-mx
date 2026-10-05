@@ -13,8 +13,9 @@ const CHIP = 'font-mono text-[11px] uppercase tracking-[0.06em]';
  * `§M4-SHIP.10/.15.8/.16`). Un solo componente para el pedido, el retiro y «Mi bóveda»: la misma carta
  * dice lo mismo en las tres puertas.
  *
- * - `refund` (solo filas `submitted|succeeded`) ⇒ **«No salió · te devolvimos {amount}»** + el motivo en
- *   una frase corta. ⛔ Sin actor ni componentes del importe (S7).
+ * - `refund` (solo filas `submitted|succeeded`) ⇒ por `refund.kind` (§60.2 a): `missing_at_prep` (o
+ *   ausente) **«No salió · te devolvimos {amount}»**; `after_delivery` **«Reembolsada · te devolvimos
+ *   {amount}»** — más el motivo en una frase corta. ⛔ Sin actor ni componentes del importe (S7).
  * - `replacement` abierto ⇒ chip **«La estamos reponiendo»** + la frase del motivo; `replaced` ⇒
  *   **«Repuesta con otra igual»**; `refunded` ⇒ **«Reembolsada · {amount}»** y, si hubo parte por
  *   transferencia, su estado (`cancelled` añade «Si no sabes por qué, contáctanos.»). ⛔ Sin CLABE, sin
@@ -79,6 +80,16 @@ export function OrderItemStatusLine({
   }
 
   if (refund) {
+    // §60.2 a: la línea se elige por `kind` (⛔ nunca por `reason`). `after_delivery` = la carta llegó
+    // y se reembolsó después (PNL-2): decir «No salió» sería falso. Ausente ⇒ `missing_at_prep`.
+    if (refund.kind === 'after_delivery') {
+      return (
+        <p className={cn('text-sm text-text', className)} data-testid="item-refund-after-delivery">
+          {t('refundAfterDelivery', { amount: formatMoneyCents(refund.amountCents, locale) })}
+          <span className="text-muted"> · {t(`refundReasonAfterDelivery.${refund.reason}`)}</span>
+        </p>
+      );
+    }
     return (
       <p className={cn('text-sm text-text', className)} data-testid="item-refund">
         {t('refund', { amount: formatMoneyCents(refund.amountCents, locale) })}

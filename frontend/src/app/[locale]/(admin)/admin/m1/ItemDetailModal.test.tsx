@@ -7,8 +7,25 @@ import { mockInventory, mockLocations } from '@/lib/mock/fixtures';
 import type { AdminInventoryItemDetailDTO, InventoryItemDTO, InventoryStatus } from '@/types/contract';
 import { ItemDetailModal } from './ItemDetailModal';
 
+vi.mock('@/i18n/navigation', () => ({
+  usePathname: () => '/admin/m1',
+  useRouter: () => ({ push: vi.fn() }),
+  Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+// El rol por defecto es el del contexto sin proveedor (`customer`), como antes de §M11-SP; las pruebas del dueño lo cambian.
+const roleState = vi.hoisted(() => ({ role: 'customer' }));
+vi.mock('@/lib/role', () => ({
+  useRole: () => ({ role: roleState.role, setRole: () => {}, isSuperAdmin: roleState.role === 'super_admin', canSwitchRole: false }),
+}));
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  roleState.role = 'customer';
 });
 
 function detail(status: InventoryStatus): AdminInventoryItemDetailDTO {
@@ -18,6 +35,8 @@ function detail(status: InventoryStatus): AdminInventoryItemDetailDTO {
     // En `loc-1` (stock de plataforma) ⇒ el destino posible en stock es `loc-2`.
     location: { id: 'loc-1', label: 'C03-F02-S15', zone: 'platform_stock' },
     movements: [],
+    // §M11-SP.13.6: el detalle trae la clave en toda fila (raw/graded `null`).
+    sealedProductId: null,
   };
 }
 
@@ -184,5 +203,81 @@ describe('ItemDetailModal · SR-UI-10: los 13 motivos del historial tienen texto
       // `Apartada → A la venta` (estados traducidos) bajo el movimiento nuevo.
       expect(text).toMatch(/→/);
     }
+  });
+});
+
+/**
+ * **UX-SP-10 = F-SP-4 (parte del detalle)** y §70.3 (c) con §M11-SP.13.6 (A-5 respondida: el modal lee `sealedProductId`
+ * del DETALLE, sin prop provisional). Se decide por `productType` primero.
+ */
+describe('ItemDetailModal · §70.3 (c) sellado ligado / sin producto', () => {
+  function sealed(over: Partial<AdminInventoryItemDetailDTO> = {}): AdminInventoryItemDetailDTO {
+    return {
+      ...detail('in_stock'),
+      productType: 'sealed',
+      sealedSubtype: 'etb',
+      listPriceCents: undefined,
+      ...over,
+    };
+  }
+
+  it('ligado ⇒ sin input de precio, «Lo fija el producto» + enlace a la hoja, y el PATCH de publicar SIN listPriceCents', async () => {
+    vi.spyOn(api, 'getAdminInventoryItem').mockResolvedValue(sealed({ sealedProductId: 'sp-1', listPriceCents: 120000 }));
+    const patch = vi.spyOn(api, 'updateInventoryItem').mockResolvedValue({ ...mockInventory[0], status: 'listed' });
+    renderWithProviders(<ItemDetailModal itemId="inv-1001" onClose={() => {}} locations={mockLocations} />);
+    const cell = await screen.findByTestId('detail-sealed-price-by-product');
+    expect(cell.textContent).toContain('Lo fija el producto');
+    expect(within(cell).getByRole('link', { name: 'Ver en «Precios del sellado»' })).toHaveAttribute('href', '/admin/m11#precios-sellado');
+    expect(screen.queryByLabelText(/Precio/)).toBeNull();
+    // ⛔ sin badge de precio manual aunque traiga `listPriceCents` (legado sombreado).
+    expect(screen.queryByText('Precio manual')).toBeNull();
+    const publish = screen.getByRole('button', { name: 'Publicar' });
+    expect(publish).not.toBeDisabled();
+    fireEvent.click(publish);
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0]![1]).toEqual({ status: 'listed' });
+  });
+
+  it('ligado + 422 PRICE_PENDING ⇒ texto propio junto al botón', async () => {
+    vi.spyOn(api, 'getAdminInventoryItem').mockResolvedValue(sealed({ sealedProductId: 'sp-1' }));
+    vi.spyOn(api, 'updateInventoryItem').mockRejectedValue(new ApiClientError(422, { code: 'PRICE_PENDING', message: 'x' }));
+    renderWithProviders(<ItemDetailModal itemId="inv-1001" onClose={() => {}} locations={mockLocations} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar' }));
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'No se publicó: el producto no tiene precio. Lo pone el dueño en «Precios del sellado».',
+    );
+  });
+
+  it('422 SEALED_PRICE_IS_PER_PRODUCT ⇒ «del producto, no de la pieza» + enlace', async () => {
+    vi.spyOn(api, 'getAdminInventoryItem').mockResolvedValue(sealed({ sealedProductId: 'sp-1' }));
+    vi.spyOn(api, 'updateInventoryItem').mockRejectedValue(
+      new ApiClientError(422, { code: 'SEALED_PRICE_IS_PER_PRODUCT', message: 'x' }),
+    );
+    renderWithProviders(<ItemDetailModal itemId="inv-1001" onClose={() => {}} locations={mockLocations} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Publicar' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('El precio del sellado es del producto, no de la pieza. No se guardó nada.');
+    expect(within(alert).getByRole('link', { name: 'Ir a «Precios del sellado»' })).toBeInTheDocument();
+  });
+
+  it('sin producto + personal ⇒ sin input; «Sin producto: el precio de esta pieza lo pone el dueño.»', async () => {
+    vi.spyOn(api, 'getAdminInventoryItem').mockResolvedValue(sealed({ sealedProductId: null }));
+    renderWithProviders(<ItemDetailModal itemId="inv-1001" onClose={() => {}} locations={mockLocations} />);
+    expect(await screen.findByText('Sin producto: el precio de esta pieza lo pone el dueño.')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Precio/)).toBeNull();
+  });
+
+  it('sin producto + dueño ⇒ input «Precio antes de IVA (MXN)» y el PATCH lleva listPriceCents', async () => {
+    roleState.role = 'super_admin';
+    vi.spyOn(api, 'getAdminInventoryItem').mockResolvedValue(sealed({ sealedProductId: null }));
+    const patch = vi.spyOn(api, 'updateInventoryItem').mockResolvedValue({ ...mockInventory[0], status: 'listed' });
+    renderWithProviders(<ItemDetailModal itemId="inv-1001" onClose={() => {}} locations={mockLocations} />);
+    const input = await screen.findByLabelText('Precio antes de IVA (MXN)');
+    const publish = screen.getByRole('button', { name: 'Publicar' });
+    expect(publish).toBeDisabled();
+    fireEvent.change(input, { target: { value: '1000' } });
+    fireEvent.click(publish);
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0]![1]).toEqual({ status: 'listed', listPriceCents: 100000 });
   });
 });

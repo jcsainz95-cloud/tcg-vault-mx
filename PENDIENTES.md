@@ -6,6 +6,26 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## Orden de fusión de las ramas vivas (2026-10-05, sesión 5) — para no pisarse
+
+> Pedido del dueño (2026-10-05): «sé muy cuidadoso de no pisarte». Cinco ramas vivas, cada una en su worktree, todas desde `production` = `3e09685a`.
+> Comparten ficheros (`frontend/src/lib/api.ts`, `frontend/src/types/contract.ts`, `frontend/messages/*.json`, `backend/prisma/schema.prisma`, cabeceras de `docs/*.md`), así que se fusionan **de una en una**: cada rama trae `production` al día (merge, nunca rebase), corre la suite entera de nuevo y solo entonces abre su PR → `production`.
+
+| Orden | Rama | Worktree | Migraciones / números reservados | Medido |
+|---|---|---|---|---|
+| 1 | `claude/hotfix-texto-sellado` (D-SP-5: «Precio final» engaña; solo textos) | `/home/user/tcg-hotfix` | ninguno | 2026-10-05 |
+| 2 | `claude/arreglos-panel` (§PNL v1.82/.1) | `/home/user/tcg-panel` | M-70 · contrato v1.82 · diseño v5.0/§60 · criterios 400–418 | 2026-10-05 |
+| 3 | `claude/skydropx-d` (Skydropx + control del gasto) | `/home/user/tcg-skyd` | M-64…M-68 (M-69 libre) · v1.80.11–v1.80.12.13 · diseño v4.15–v4.22/§43 · criterios 319–338 | 2026-10-05 |
+| 4 | `claude/precio-sellado` (§M11-SP v1.83/.1) | `/home/user/tcg-sellado` | M-71 · v1.83 · diseño v6.x/§70 | 2026-10-05 |
+| 5 | `claude/listo-real` (dinero real) | `/home/user/tcg-real` | v1.84 · criterios 500+ | 2026-10-05 |
+
+**Comprobación al fusionar cada una:** `git merge-base --is-ancestor origin/production HEAD` tras traer `production`; suite unitaria + integración + vitest sobre `git archive` del árbol entero; paridad de enums y C-EQ-1 en verde; y, en la rama 3 o la 4 (la que fusione segunda), SP-14 (`canSetSealedSalePrice` ⇒ `isOwner`).
+## Abiertos añadidos 2026-10-05 (sesión 5)
+
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| P-KYC-STAFF | **Los operadores y administradores del panel NO deben tener KYC.** Palabras del dueño (2026-10-05): «Los operadores de la página y admin no deberían de tener KYC, ponlo en pendientes». El KYC (INE) es del vendedor del buylist. Hoy el KYC es por usuario sin mirar el rol: `backend/src/modules/users/pendings.service.ts:92-106` lee `KycProfile` para cualquier cuenta (el filtro por rol **NO MEDIDO** en el resto: `users.service.ts`, `admin.service.ts`, `admin.controller.ts`, la UI de «pendientes» y el formulario de KYC). | arquitecto (qué superficies esconden/rechazan KYC para `vault_operator`/`super_admin`) → backend + frontend | 2026-10-05: solo `pendings.service.ts:92-106` leído; lo demás NO MEDIDO | Un staff (`vault_operator` y `super_admin`) no ve pendiente ni pantalla de KYC, no puede iniciar uno (4xx), y no se le exige en ningún flujo; prueba por rol con su mutación. Stream: «Cuentas y acceso» (serializar con D2g de Skydropx, que toca `users/` y `admin/`). |
+
 ## Recuento del backlog 2026-09-29 (cierre de la sesión 4, sobre production `a2da420`) — punto de partida de la sesión 5
 
 > Ramas vivas y sus veredictos: `TRASPASO.md §2`. Todo lo de esta tabla lleva **fecha de medición** y
@@ -113,6 +133,32 @@
 | **Razón social** | DEPENDE DEL DUEÑO | `es.json:11` `"legalEntity": "[Razón social pendiente]"`; `footer.ts:4` («publicar SIN razón social por ahora») | Que el dueño dé el dato | No |
 | **Deuda gates 2026-09-11** | NO RE-MEDIDO ficha por ficha | Fichas BE-82..87, GA-D1..D7, DO-D1..D10 en `docs/TECH_DEBT.md` | Revisión aparte | Varias |
 
+
+## Actualización 2026-09-29 · Skydropx (sesión del levantamiento de envíos)
+
+### P-SKYDROPX · Integración de envíos con Skydropx: levantamiento listo, falta pasar por el equipo
+
+**Estado (medido 2026-09-29 sobre production `a2da420`):**
+- Levantamiento cerrado con el dueño: `docs/specs/SKYDROPX_LEVANTAMIENTO.md`, donde §11 y §12 mandan.
+- Seis decisiones suyas en `HECHOS.md` (filas «Envíos con Skydropx»).
+- **Cero código**: `grep -ri skydropx backend/src frontend/src` = 0.
+
+**Siguiente paso:** product-owner → arquitecto → ux-ui / devops → backend + frontend (stream «Órdenes y
+dinero»). **Prompt de arranque:** `docs/specs/SKYDROPX_TRASPASO.md`.
+
+**Arreglos previos, independientes de Skydropx:**
+- **E1/H7:** enlaces de correo rotos (`shipment-notice.templates.ts:73`, `order-notice.templates.ts:107,192`);
+- **D1:** M4 sin IVA del costo (`M4View.tsx:134-139`);
+- **E2:** `/orders` sin la guía.
+
+**Mediciones pendientes del dueño:** T1–T7, la colección OpenAPI y los avisos propios de Skydropx
+(`SKYDROPX_TRASPASO.md` §5).
+
+**Aviso:** `origin/main` = `bb239c0` va **1277 commits por detrás** de `origin/production` = `a2da420`
+(medido 2026-09-29).
+
+**Dueño:** orquestador. **Fecha de medición:** 2026-09-29. **Comprobación:** `git log --oneline -1
+origin/production`; `grep -c "Envíos con Skydropx" HECHOS.md` (= 6); `grep -rli skydropx backend/src frontend/src`.
 
 ## Actualización 2026-09-25 (orquestador, sesión 4) — lección: ramificar desde el head de una PR abierta
 

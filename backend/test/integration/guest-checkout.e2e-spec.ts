@@ -289,7 +289,8 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       // ⭐ D56: la orden archiva la tarifa EXHIBIDA `E` (§M10-IVA.4), no la NETA `F`.
       expect(order!.shippingFeeCents).toBe(SHIPPING_DISPLAY);
       expect(order!.claimedAt).toBeNull();
-      expect(order!.shippingAddressSnapshot).toMatchObject({ city: 'Ciudad de México', country: 'MX' });
+      // ⭐ v1.81 (§M4-SHIP.19.5): city/state CANÓNICOS del CP 06600 (catálogo del arnés): la alcaldía, no «Ciudad de México».
+      expect(order!.shippingAddressSnapshot).toMatchObject({ city: 'Cuauhtémoc', state: 'Ciudad de México', neighborhood: 'Juárez', country: 'MX' });
     });
 
     it('INVARIANTE: la pieza queda `reserved` pero SIGUE siendo de la plataforma (no hay bóveda)', async () => {
@@ -417,8 +418,9 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.body.status).toBe('preparando');
       expect(res.body.emailMasked).toBe('i***@***.com');
       expect(res.body.shipping).toMatchObject({
-        city: 'Ciudad de México',
-        state: 'CDMX',
+        // ⭐ v1.81: los canónicos del CP (la dirección se guardó así al pagar)
+        city: 'Cuauhtémoc',
+        state: 'Ciudad de México',
         postalCodeMasked: '***00',
         recipientNameMasked: 'Juan P.',
       });

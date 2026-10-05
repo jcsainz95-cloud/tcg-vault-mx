@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { Response } from 'express';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -6,6 +8,16 @@ import { ShipmentsService } from './shipments.service';
 import { AuditService } from '../audit/audit.service';
 import { TrackingDto, UpdateStatusDto } from './dto/shipments.dto';
 import { ShipmentPrepService } from './shipment-prep.service';
+import { ShipmentAddressService } from './shipment-address.service';
+import { ShipmentQuoteService } from './label-quote.service';
+import { ShipmentLabelService } from './label-purchase.service';
+import { ShipmentLabelCancelService } from './label-cancel.service';
+import { ShipmentLabelRecoveryService } from './label-recovery.service';
+import { ShipmentLabelPdfService } from './label-pdf.service';
+import { MoneyOut } from '../../common/decorators/money-out.decorator';
+import { ShipmentDepartureService } from './departure.service';
+import { ShipmentTrackingPollJob } from './tracking-poll.job';
+import { ShipmentThrottlerGuard } from './shipment-throttler.guard';
 
 /**
  * M4 — Retiros / envíos (vault_operator+). API_CONTRACT §M4.
@@ -17,6 +29,14 @@ export class AdminShipmentsController {
     private readonly shipments: ShipmentsService,
     private readonly audit: AuditService,
     private readonly prep: ShipmentPrepService,
+    private readonly address: ShipmentAddressService,
+    private readonly quotes: ShipmentQuoteService,
+    private readonly labels: ShipmentLabelService,
+    private readonly labelCancel: ShipmentLabelCancelService,
+    private readonly labelRecovery: ShipmentLabelRecoveryService,
+    private readonly labelPdfs: ShipmentLabelPdfService,
+    private readonly departure: ShipmentDepartureService,
+    private readonly trackingPoll: ShipmentTrackingPollJob,
   ) {}
 
   @Get()
@@ -29,6 +49,11 @@ export class AdminShipmentsController {
     @Query('pageSize') pageSize = '20',
     // ⭐ v1.80 (§M4-SHIP.10): búsqueda `q` (gramática de §M3).
     @Query('q') q?: string,
+    // ⭐ v1.80.12.12 (§19.31.10 pieza 1): `?labelSource=` (E), `?alert=` (L, `true`), `?folio=` (S-GAS-2, `^ENV-\d{6,}$`).
+    @Query('labelSource') labelSource?: string,
+    @Query('alert') alert?: string,
+    @Query('folio') folio?: string,
+    @CurrentUser() user?: { id: string; role: Role },
   ) {
     return this.shipments.adminList(
       status,
@@ -37,6 +62,8 @@ export class AdminShipmentsController {
       userId,
       kind,
       q,
+      user?.role,
+      { labelSource, alert, folio },
     );
   }
 
@@ -77,9 +104,54 @@ export class AdminShipmentsController {
     return this.shipments.pickingList(date, destination);
   }
 
+  /**
+   * ⭐ D2d (§M4-SHIP.19.9, S-GAS-1) — «Salida de hoy»: lo que está por salir con guía de Skydropx, agrupado por paquetería.
+   * `?date=YYYY-MM-DD` (default: hoy MX). ⛔ Sin precios, sin teléfonos, sin dirección completa. Declarada ANTES de `:id`.
+   */
+  @Header('Cache-Control', 'no-store')
+  @Get('departure')
+  departureBoard(@Query('date') date?: string) {
+    return this.departure.board(date);
+  }
+
+  /** ⭐ D2d (§M4-SHIP.19.9) — «salieron»: el lote marca `enviado` (el mismo cuerpo que el sondeo; AV-5 al ganador). */
+  @Post('departed')
+  @HttpCode(200)
+  departed(@Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.departure.departed(body, user);
+  }
+
+  /**
+   * ⭐ D2d (§M4-SHIP.19.10) — «Actualizar rastreo» (operador+): el MISMO cuerpo que `shipment-tracking-poll {shipmentId}`;
+   * `6/min` POR ENVÍO; responde el `AdminShipmentDTO`. Con `shipping_provider='off'` ⇒ `404 FEATURE_DISABLED`.
+   */
+  @Post(':id/refresh-tracking')
+  @HttpCode(200)
+  @UseGuards(ShipmentThrottlerGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 6 } })
+  async refreshTracking(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    await this.trackingPoll.refreshOne(id);
+    return this.shipments.adminGet(id, user, (actor, shipmentId) => this.labels.labelOptionsFor(actor, shipmentId));
+  }
+
+  /**
+   * 🔒 ⭐ v1.80.12.12 (§M4-SHIP.19.8 + §19.18.5 + §19.31.5 (3)) — la etiqueta POR PROXY (operador+, `@Roles` de la clase).
+   * ⛔ Nunca redirige a `labelUrl`. `inline`, `private, no-store`; bitácora `shipment.label_printed` solo si se sirvió.
+   */
+  @Get(':id/label.pdf')
+  async labelPdf(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }, @Res() res: Response) {
+    const pdf = await this.labelPdfs.labelPdf(id, user);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${pdf.filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Length', String(pdf.body.length));
+    res.send(pdf.body);
+  }
+
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.shipments.adminGet(id);
+  get(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    // ⭐💰 v1.81 D2c: el detalle gana `labelOptions` calculado PARA el actor (§19.19.7) y las alertas de guía (§19.20.2).
+    return this.shipments.adminGet(id, user, (actor, shipmentId) => this.labels.labelOptionsFor(actor, shipmentId));
   }
 
   /** ⭐ v1.80 (§M4-SHIP.5) — palomear / marcar faltante (con motivo) / deshacer UNA carta de un envío. */
@@ -105,6 +177,66 @@ export class AdminShipmentsController {
   @HttpCode(200)
   unprepare(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     return this.prep.unprepare(id, user);
+  }
+
+  /**
+   * 💰 ⭐ v1.80.12 (§M4-SHIP.19.20.1) — corregir TODA la dirección del envío (operador+, con Skydropx encendido o
+   * apagado). Solo el snapshot del envío; CAS sobre `addressVersion`; bitácora `shipment.address_corrected`.
+   */
+  @Put(':id/address')
+  @HttpCode(200)
+  correctAddress(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.address.correct(id, body, user);
+  }
+
+  /**
+   * 💰 ⭐ v1.81 D2b (§M4-SHIP.19.6 + §19.19.4/.5) — cotizar desde la ventana «Capturar guía» (operador+). Solo inserta la
+   * cotización; ⛔ no escribe el envío; ⛔ no pasa por la puerta de compra (solo exige `shipping_provider='skydropx'`).
+   */
+  @Post(':id/quote')
+  @HttpCode(200)
+  quote(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.quotes.quote(id, body, user);
+  }
+
+  /** ⭐ v1.81 D2b — la cotización vigente (en plazo y de la dirección vigente, §19.20.1) o `404`. */
+  @Header('Cache-Control', 'no-store')
+  @Get(':id/quote')
+  currentQuote(@Param('id') id: string) {
+    return this.quotes.current(id);
+  }
+
+  /**
+   * 💰🔒 ⭐ v1.81 D2c (§M4-SHIP.19.7 con §19.18.3, §19.19.7/.8, §19.20, §19.26–§19.30) — comprar la guía con la tarifa
+   * elegida. Operador+ por la ruta; la PUERTA (dial `shipping_label_purchase` + rol con conjunto explícito + env) va en el
+   * servicio, antes del reclamo.
+   */
+  @Post(':id/label')
+  @HttpCode(200)
+  label(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.labels.purchase(id, body, user);
+  }
+
+  /**
+   * 💰 ⭐ v1.81 D2c (§M4-SHIP.19.8) — cancelar la guía para re-emitirla (operador+, antes de que la recojan). ⛔ No mira el
+   * dial de compra ni `shipping_provider` (es de seguridad sobre una guía ya comprada, SEC-SDX-12). ⛔ Sin `AV-6`.
+   */
+  @Post(':id/label/cancel')
+  @HttpCode(200)
+  cancelLabel(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.labelCancel.cancel(id, body, user);
+  }
+
+  /**
+   * 💰🔒 ⭐ v1.81 D2c (§M4-SHIP.19.18.4 con §19.26.3 y §19.27.6) — liberar un reclamo sin id: SOLO `super_admin`
+   * (`@MoneyOut()`: el operador recibe `403 MONEY_OUT_FORBIDDEN` auditado; P-SDX-REL sigue en (a)). Busca antes de liberar.
+   */
+  @Post(':id/label/release')
+  @HttpCode(200)
+  @MoneyOut()
+  @Roles(Role.super_admin)
+  releaseLabel(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.labelRecovery.release(id, body, user);
   }
 
   @Patch(':id/status')

@@ -39,8 +39,10 @@ import {
   SealedSyncRequestDto,
   SetMainGroupRequestDto,
   UpdateItemDto,
+  SetSealedSalePriceDto,
 } from './dto/inventory.dto';
 import { SEALED_PRICE_STATE_VALUES } from './sealed-product.service';
+import { SEALED_PRICE_SHEET_SCOPE_VALUES, SealedPriceService } from './sealed-price.service';
 import { AcquisitionType, Finish, ProductType } from '@prisma/client';
 
 /**
@@ -98,6 +100,8 @@ export class InventoryController {
     private readonly sealedCatalog?: SealedCatalogAdminService,
     // v1.39-sealed-product-module (M-39, P-38): catálogo persistido `SealedProduct` + sync + curación.
     private readonly sealedProduct?: SealedProductService,
+    // 💰 v1.83 (§M11-SP): hoja de precios del sellado + precio del dueño por producto.
+    private readonly sealedPrice?: SealedPriceService,
   ) {}
 
   // ===== v1.16-master-set (§4.17) — Master Set + inventario a escala (vault_operator+) =====
@@ -282,6 +286,51 @@ export class InventoryController {
    * con el gate H-1; NO llama a TCGCSV. NO se audita (es una LECTURA, misma doctrina que `pending-publish`).
    * Separa lo que `sealed-sets.unmappedCount` funde («no mapeado» vs «mapeado sin precio»).
    */
+  /**
+   * 💰 v1.83 / v1.83.1 (`API_CONTRACT §M11-SP.5` + `§M11-SP.12.4`) — `GET /admin/inventory/sealed-price-sheet`: la hoja
+   * de precios del sellado de M11 (`vault_operator+`, hereda el rol de la clase; el personal ve costo y margen,
+   * `HECHOS.md` 2026-10-05). `?scope=` clase **L** (`on_hand | all`, default `on_hand`). LECTURA: no se audita.
+   */
+  @Get('inventory/sealed-price-sheet')
+  sealedPriceSheet(
+    @CurrentUser() user: { id: string; role: Role },
+    @Query('setId') setId?: string,
+    @Query('q') q?: string,
+    @Query('scope') scope?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '50',
+  ) {
+    const scopeFilter = parseEnumFilter('scope', scope, SEALED_PRICE_SHEET_SCOPE_VALUES) ?? 'on_hand';
+    return this.sealedPrice!.priceSheet(
+      {
+        setId: setId && setId.trim() !== '' ? setId : undefined,
+        q,
+        scope: scopeFilter,
+        page: Math.max(1, parseInt(page, 10) || 1),
+        pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 50)),
+      },
+      user,
+    );
+  }
+
+  /**
+   * 💰 v1.83 / v1.83.1 (`API_CONTRACT §M11-SP.2` + `§M11-SP.12.4/12.6`) — `PUT
+   * /admin/inventory/sealed-products/:sealedProductId/sale-price`: el dueño escribe `P` (IVA dentro) del producto y se
+   * edita SIN retirar. `@Roles` de MÉTODO = `super_admin` (gana al de clase, `getAllAndOverride`) **y** el servicio
+   * llama a `canSetSealedSalePrice` (SP.3). CAS (`409 { currentDisplayPriceCents }`), bitácora y cierre de la cola en
+   * la misma tx; después, la auto-publicación (`autoPublish`).
+   */
+  @Put('inventory/sealed-products/:sealedProductId/sale-price')
+  @HttpCode(200)
+  @Roles(Role.super_admin)
+  setSealedSalePrice(
+    @Param('sealedProductId') sealedProductId: string,
+    @Body() dto: SetSealedSalePriceDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.sealedPrice!.setSalePrice(sealedProductId, dto, user);
+  }
+
   @Get('inventory/sealed-price-status')
   sealedPriceStatus(
     @Query('q') q?: string,
@@ -364,7 +413,7 @@ export class InventoryController {
     if (!batchKey || batchKey.trim() === '') {
       throw BusinessException.badRequest('VALIDATION_ERROR', 'batchKey is required');
     }
-    const res = await this.inventory.batchCreate({ ...dto, batchKey }, user.id);
+    const res = await this.inventory.batchCreate({ ...dto, batchKey }, user.id, user.role);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -382,7 +431,7 @@ export class InventoryController {
     @Body() dto: BulkPublishRequest,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.inventory.bulkPublish(dto, user.id);
+    const res = await this.inventory.bulkPublish(dto, user.id, user.role);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -439,7 +488,7 @@ export class InventoryController {
     @CurrentUser() user: { id: string; role: Role },
     @Res({ passthrough: true }) res: Response,
   ) {
-    const out = await this.inventory.adjust(dto, user.id);
+    const out = await this.inventory.adjust(dto, user.id, user.role);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -536,7 +585,7 @@ export class InventoryController {
 
   @Post('inventory/items')
   async create(@Body() dto: CreateItemDto, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.inventory.createItem(dto, user.id);
+    const res = await this.inventory.createItem(dto, user.id, user.role);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

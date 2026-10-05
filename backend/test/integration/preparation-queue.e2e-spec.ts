@@ -200,7 +200,8 @@ describe('E2E — «Pedidos a preparar» (§M4-PREP) contra Postgres real', () =
       expect(p.orderId).toBeNull();
       expect(p.orderNumber).toBeNull();
       expect(p.customer.fullName).toBe(E2E_USERS.customer.name);
-      expect(p.shipTo).toEqual(SNAPSHOT_9);
+      // ⭐ v1.81/v1.80.12 (M-64): + `references` (null en un snapshot de 9) y `addressCorrected`.
+      expect(p.shipTo).toEqual({ ...SNAPSHOT_9, references: null, addressCorrected: false });
     });
 
     it('la carta trae identidad, `quantity` 1 y `currentLocation` como `LocationView`', async () => {

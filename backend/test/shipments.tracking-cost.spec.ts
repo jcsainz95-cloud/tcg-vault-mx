@@ -118,6 +118,8 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
       // v1.74 (§R.4.b): la etiqueta CAMBIÓ (la fila venía sin ella) ⇒ el sello del aviso se
       // limpia **en la misma escritura**, que es lo que hace que corregir un número sí avise.
       trackingNoticeSentAt: null,
+      // ⭐ v1.81 (API_CONTRACT §M4-SHIP.19.7, «`POST …/tracking` (guía manual) con Skydropx»): escribe `labelSource:'manual'`.
+      labelSource: 'manual',
       shippingCostCents: 9000,
     });
     // ⛔ Y no se escribió el resto: con la condicional casando, esa tercera escritura no corre.

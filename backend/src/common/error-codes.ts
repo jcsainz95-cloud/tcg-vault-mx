@@ -225,6 +225,11 @@ export const ErrorCode = {
   // NO existe o está inactivo (soft-deleted). El backend deriva la identidad del sellado desde el
   // `SealedProduct` persistido; un id muerto no puede dar identidad. 422 (por-línea en el lote).
   SEALED_PRODUCT_NOT_FOUND: 'SEALED_PRODUCT_NOT_FOUND',
+  // 💰 v1.83 (§M11-SP.4): un escritor de `listPriceCents` (alta, lote, «encontrada», línea de `bulk-publish`, `PATCH`)
+  // recibió precio para una pieza SELLADA ligada a un `SealedProduct`: el precio del sellado es del producto y lo pone
+  // el dueño con `PUT /admin/inventory/sealed-products/:id/sale-price`. `details: { sealedProductId, itemId? }`. Todo o
+  // nada (un lote entero se rechaza). Lo recibe cualquier rol, también el dueño. 422.
+  SEALED_PRICE_IS_PER_PRODUCT: 'SEALED_PRICE_IS_PER_PRODUCT',
   // v1.39.1 (P-38, §4.34d): se envió `manualMarketMxnCents` en una línea de alta de sellado cuyo
   // mercado YA está resuelto (live/caché priced). El override manual SOLO llena el HUECO de precio
   // (mercado null): JAMÁS pisa un mercado vivo. Money-safe. NO se dispara por rol (vault_operator+ lo
@@ -609,6 +614,9 @@ export const ErrorCode = {
   // Disputes
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',
   NOT_RAW: 'NOT_RAW',
+  // 410 — v1.82 (§PNL.1, `HECHOS.md:44`): `POST /disputes` ya no crea disputas. `details: { supportContact }`.
+  // Sale ANTES de validar el cuerpo y de leer la pieza (un 403/422 según la pieza sería un oráculo).
+  DISPUTES_DISCONTINUED: 'DISPUTES_DISCONTINUED',
 
   // ── MODO del tipo de cambio (v1.63/v1.63.1 · API_CONTRACT §M2-F · ARCHITECTURE §4.43) ──
   // Las DOS mitades del invariante I-FX4 («no existe manual sin número»), disparadas por la MISMA
@@ -691,6 +699,9 @@ export const ErrorCode = {
   REFUND_PREVIEW_STALE: 'REFUND_PREVIEW_STALE',
   // 409 💰 — una carta faltante no se puede reembolsar por esta vía. `details: { lines: [{ shipmentItemId, reason }] }`.
   REFUND_NOT_AVAILABLE: 'REFUND_NOT_AVAILABLE',
+  // 409 💰 — v1.82 (§PNL.2/§PNL.3): una carta YA ENTREGADA no se puede reembolsar (directo) ni devolver por SPEI
+  // (retiro) por la vía pedida. `details: { reason, refundId?, manualRefundId? }`. Cero escrituras, cero Stripe.
+  ITEM_REFUND_NOT_AVAILABLE: 'ITEM_REFUND_NOT_AVAILABLE',
   // 403 💰 — el operador superaría su tope de 24 h. `details: { capCents, usedCents, requestedCents }`.
   MONEY_OUT_LIMIT_EXCEEDED: 'MONEY_OUT_LIMIT_EXCEEDED',
   // 409 — `PATCH …/status {to:'cancelado'}` sobre un envío pagado (o `solicitado` ya cobrado). `details: { status }`.
@@ -748,6 +759,54 @@ export const ErrorCode = {
   // 409 💰 v1.80.8.6 (§M4-SHIP.18.12 (6)) — `shipped-refund-reason` con un motivo DISTINTO del ya registrado (el
   // mismo ⇒ `200 already_recorded`). `details: { reason }` (A-2, v1.80.8.7: ⛔ sin `recordedBy`). No escribió nada.
   SHIPPED_REFUND_REASON_ALREADY_SET: 'SHIPPED_REFUND_REASON_ALREADY_SET',
+  // Envíos con Skydropx (§M4-SHIP.19.4 (5), §19.19.3 matriz). Los lanza `shipping-provider/`.
+  // 502 — respuesta no transitoria ni rechazo de negocio (`403`, `404`, segundo `401`, redirección, cuerpo
+  // ilegible). `details: { provider, op, status, reason? }` (`reason:'edge_blocked'` = borde, §19.19.3 (0)).
+  SHIPPING_PROVIDER_ERROR: 'SHIPPING_PROVIDER_ERROR',
+  // 503 — transitorio (red, timeout, `5xx` tras reintentos, `429` tras 3 esperas). `details: { provider, op }`.
+  SHIPPING_PROVIDER_BUSY: 'SHIPPING_PROVIDER_BUSY',
+  // 422 — el proveedor rechazó (`400`/`422`). `details: { provider, op, providerCode?, providerMessage? }`.
+  SHIPPING_PROVIDER_REJECTED: 'SHIPPING_PROVIDER_REJECTED',
+  // 409 — falta configuración: `details: { missing: ['env' | 'allow_spend' | 'insurance_tier' | …] }`.
+  SHIPPING_PROVIDER_NOT_CONFIGURED: 'SHIPPING_PROVIDER_NOT_CONFIGURED',
+  // ⭐ v1.81 fase C (M-64, §M4-SHIP.19.5 / .19.20.1) — la dirección.
+  // ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): `NEIGHBORHOOD_NOT_IN_POSTAL_CODE` RETIRADO (ningún emisor; la colonia escrita a
+  // mano se acepta). `POSTAL_CODE_UNKNOWN` queda SOLO como el `404` de `GET /geo/postal-codes/:cp` (ningún verbo de
+  // escritura lo emite). `details: { postalCode }`.
+  POSTAL_CODE_UNKNOWN: 'POSTAL_CODE_UNKNOWN',
+  // 422 — retiro con una dirección de la libreta `complete=false`. `details: { addressId, missing }`.
+  ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',
+  // 409 — corregir la dirección (u otro verbo de guía) de un envío que ya tiene guía. `details: { labelSource }`.
+  SHIPMENT_ALREADY_LABELED: 'SHIPMENT_ALREADY_LABELED',
+  // ⭐💰 409 — v1.80.12.3 (§M4-SHIP.19.23.3, D2a): hay un reclamo de compra vivo (`labelProcessingSince ≠ null`, sin
+  // `labelSource`: la compra salió o está saliendo a Skydropx). Sin `details`. Catálogo del contrato: `API_CONTRACT.md:7259`.
+  LABEL_IN_PROGRESS: 'LABEL_IN_PROGRESS',
+  // ⭐💰 Skydropx D2b/D2c (§M4-SHIP.19.6–.8, §19.18.4, §19.29.4; catálogo §0 del contrato). Los emite `shipments/`.
+  // 422 — la dirección del envío no se puede comprar: `details: { missing: ShipmentAddressMissingField[] }` (§19.22.2).
+  SHIPMENT_ADDRESS_INCOMPLETE: 'SHIPMENT_ADDRESS_INCOMPLETE',
+  // 422 — `rateId` no está en la cotización indicada.
+  RATE_NOT_IN_QUOTE: 'RATE_NOT_IN_QUOTE',
+  // 409 — cotización vencida o de otra dirección: `details: { quote: ShipmentQuoteDTO, reason: 'expired'|'address_changed' }`.
+  QUOTE_EXPIRED: 'QUOTE_EXPIRED',
+  // 409 — las cifras que vio el operador ya no son las de la tarifa: `details: { priceCents, marginCents }`.
+  LABEL_PREVIEW_STALE: 'LABEL_PREVIEW_STALE',
+  // 422 — falta confirmar margen negativo / entrega en sucursal: `details: { required, marginCents? }`.
+  LABEL_CONFIRMATION_REQUIRED: 'LABEL_CONFIRMATION_REQUIRED',
+  // 409 — saldo de Skydropx insuficiente: `details: { requiredCents }` (⛔ sin el saldo, T.11).
+  SHIPPING_INSUFFICIENT_BALANCE: 'SHIPPING_INSUFFICIENT_BALANCE',
+  // 404 — sin etiqueta que servir: `details: { labelSource? }`.
+  LABEL_NOT_AVAILABLE: 'LABEL_NOT_AVAILABLE',
+  // 409 — la guía no se puede cancelar: `details: { reason: 'not_provider'|'already_picked_up'|'status', carrierStatus? }`.
+  LABEL_NOT_CANCELLABLE: 'LABEL_NOT_CANCELLABLE',
+  // 409 — `label/release` no aplica: `details: { reason, retryAfterSeconds?, otherShipmentId? }` (§19.18.4, §19.26.3).
+  LABEL_NOT_RELEASABLE: 'LABEL_NOT_RELEASABLE',
+  // 403 💰 — TG-1/TG-2 (§19.29.4): `details: { limit: 'daily_spend'|'reissue' }` (⛔ sin cifras).
+  LABEL_PURCHASE_LIMIT: 'LABEL_PURCHASE_LIMIT',
+  // 🔒💰 D2g (§M4-SHIP.19.30.2 (1), C-21 (a)): un no dueño intentó MOVER un dial del dueño (`OWNER_ONLY_SETTING_KEYS`).
+  // 403 — `details: { keys: string[] }` (nombres del DTO, camelCase, ordenados). Nada se escribe.
+  OWNER_ONLY_SETTING: 'OWNER_ONLY_SETTING',
+  // 🔒 D2g (§M4-SHIP.19.30.2 (2), C-21 (b)): restablecer/bloquear/borrar la cuenta del dueño desde otra cuenta. 403 sin `details`.
+  OWNER_ACCOUNT_PROTECTED: 'OWNER_ACCOUNT_PROTECTED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

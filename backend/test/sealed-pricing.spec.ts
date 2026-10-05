@@ -11,7 +11,7 @@ describe('computeSealedSalePrice — precedencia override > subtype > global > p
 
   it('override manual GANA siempre (aunque haya mercado y spread)', () => {
     const r = computeSealedSalePrice(99900, 'box', 500000, SPREADS, FALLBACK);
-    expect(r).toEqual({ salePriceCents: 99900, status: 'priced', source: 'override', appliedSpreadPct: null });
+    expect(r).toEqual({ salePriceCents: 99900, status: 'priced', source: 'override', appliedSpreadPct: null, origin: 'piece', fixedDisplayCents: null });
   });
 
   it('override gana incluso SIN mercado (sellado no mapeado)', () => {
@@ -22,7 +22,7 @@ describe('computeSealedSalePrice — precedencia override > subtype > global > p
 
   it('sin override: mercado × spread de SU presentación (box 18%)', () => {
     const r = computeSealedSalePrice(null, 'box', 100000, SPREADS, FALLBACK);
-    expect(r).toEqual({ salePriceCents: 118000, status: 'priced', source: 'subtype_spread', appliedSpreadPct: 18 });
+    expect(r).toEqual({ salePriceCents: 118000, status: 'priced', source: 'subtype_spread', appliedSpreadPct: 18, origin: 'automatic', fixedDisplayCents: null });
   });
 
   it('sin override: cada presentación aplica SU spread (blister 35%)', () => {
@@ -33,7 +33,7 @@ describe('computeSealedSalePrice — precedencia override > subtype > global > p
 
   it('sin subtype → spread GLOBAL de respaldo (25%)', () => {
     const r = computeSealedSalePrice(null, null, 100000, SPREADS, FALLBACK);
-    expect(r).toEqual({ salePriceCents: 125000, status: 'priced', source: 'global_spread', appliedSpreadPct: 25 });
+    expect(r).toEqual({ salePriceCents: 125000, status: 'priced', source: 'global_spread', appliedSpreadPct: 25, origin: 'automatic', fixedDisplayCents: null });
   });
 
   it('subtype presente pero SIN regla en el mapa → spread global (25%)', () => {
@@ -44,7 +44,7 @@ describe('computeSealedSalePrice — precedencia override > subtype > global > p
 
   it('MONEY-SAFE: sin override y sin mercado → pending (no publicable, NUNCA se inventa precio)', () => {
     const r = computeSealedSalePrice(null, 'box', null, SPREADS, FALLBACK);
-    expect(r).toEqual({ salePriceCents: null, status: 'pending', source: 'subtype_spread', appliedSpreadPct: 18 });
+    expect(r).toEqual({ salePriceCents: null, status: 'pending', source: 'subtype_spread', appliedSpreadPct: 18, origin: 'pending', fixedDisplayCents: null });
   });
 
   it('MONEY-SAFE sin subtype ni mercado → pending con source global', () => {

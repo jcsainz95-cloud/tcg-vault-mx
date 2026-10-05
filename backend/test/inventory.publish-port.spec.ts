@@ -9,6 +9,7 @@ import {
 } from '../src/modules/inventory/inventory-publish.port';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.51.18 — **BL-25: `INVENTORY_PUBLISH_PORT`, el puerto de DISPARO.**
@@ -25,7 +26,7 @@ import * as path from 'path';
  *     corre exactamente el mismo pipeline.
  */
 
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 interface ItemOpts {
   id: string;

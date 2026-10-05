@@ -10,6 +10,7 @@ import {
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { BulkPublishRequest } from '../src/modules/inventory/dto/inventory.dto';
 import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.53-b (M-1, enrutado por el gate) — **publicar un slab exige saber QUÉ GRADO ES.**
@@ -74,7 +75,7 @@ function buildHarness() {
     },
   };
 
-  const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
 
   const pricing = new PricingService(
     prisma as PrismaService,

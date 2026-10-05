@@ -11,6 +11,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { GuestAddressInput, GuestCheckoutSessionResponse } from '@/types/contract';
+import type { NeighborhoodMode } from '@/hooks/useNeighborhoodMode';
 import { CardImage } from '@/components/ui/CardImage';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
@@ -74,6 +75,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   });
   const [touched, setTouched] = useState<Partial<Record<GuestField, boolean>>>({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  /** Sube en cada clic en pagar: dispara el foco al resumen de errores (§91). */
+  const [submitAttemptId, setSubmitAttemptId] = useState(0);
   const [destination, setDestination] = useState<Destination>('ship');
   const [upsellOpen, setUpsellOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -83,6 +86,14 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const [outcome, setOutcome] = useState<GuestCheckoutSessionResponse | null>(null);
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paid, setPaid] = useState<GuestCheckoutSessionResponse | null>(null);
+  /**
+   * v1.80.12.5 (§M4-SHIP.19.25): ⛔ sin `422` geográficos. Lo único que la sesión puede devolver sobre la
+   * colonia, el municipio o el estado es un `400 {field, max}` de longitud: va bajo su campo (§43.18m.7).
+   */
+  const [serverAddressError, setServerAddressError] = useState<{ field: 'neighborhood' | 'city' | 'state'; message: string } | null>(null);
+  /** El modo de la colonia (§43.18m.1): decide el texto del error y si municipio y estado se exigen. */
+  const [geoMode, setGeoMode] = useState<NeighborhoodMode>('pending');
+  const ta = useTranslations('addresses');
 
   /**
    * v1.68.1 (§4-R.5): el quote reconoce la reserva PROPIA solo con `retryOfCheckoutToken` + `email`.
@@ -134,7 +145,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       ? { orderId: own.orderId, orderNumber: own.orderNumber, reservedUntil: own.reservedUntil, own: { expired: own.expired } }
       : null);
 
-  const errors: GuestErrors = useMemo(() => validateGuestForm(form), [form]);
+  const errors: GuestErrors = useMemo(() => validateGuestForm(form, geoMode), [form, geoMode]);
   // `shippingFeeLabel` sale SIEMPRE del `breakdown` de envío directo (la tarifa REAL): alimenta
   // el hint del radio «envío {amount}» y el upsell «te ahorras {amount}» — es cuánto se ahorra
   // el invitado al NO enviar, NO un dato del desglose de bóveda (N-12).
@@ -170,6 +181,16 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   }
   function patchAddress(patch: Partial<GuestAddressInput>) {
     setForm((f) => ({ ...f, address: { ...f.address, ...patch } }));
+    // Tocar el CP retira el error del servidor sobre la dirección; tocar un campo, el suyo.
+    if (patch.postalCode !== undefined && patch.postalCode !== form.address.postalCode) {
+      setServerAddressError(null);
+    } else {
+      for (const f of ['neighborhood', 'city', 'state'] as const) {
+        if (patch[f] !== undefined && patch[f] !== form.address[f]) {
+          setServerAddressError((cur) => (cur?.field === f ? null : cur));
+        }
+      }
+    }
   }
 
   function chooseDestination(next: Destination) {
@@ -188,6 +209,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
   async function pay() {
     setSubmitAttempted(true);
+    setSubmitAttemptId((n) => n + 1);
     setPayError(null);
     if (destination === 'vault') {
       setUpsellOpen(true);
@@ -228,6 +250,15 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       if (e instanceof ApiClientError && e.code === 'VAULT_REQUIRES_ACCOUNT') {
         setDestination('vault');
         setUpsellOpen(true);
+      } else if (
+        e instanceof ApiClientError &&
+        e.code === 'VALIDATION_ERROR' &&
+        (e.details?.field === 'neighborhood' || e.details?.field === 'city' || e.details?.field === 'state') &&
+        (typeof e.details?.max === 'number' || typeof e.details?.max === 'string')
+      ) {
+        // §43.18m.7: la cota la da el servidor (⛔ la pantalla no la replica). Cero órdenes creadas.
+        setServerAddressError({ field: e.details.field, message: ta('geo.tooLong', { max: String(e.details.max) }) });
+        setPayError(getMessage(e));
       } else if (e instanceof ApiClientError && e.code === 'PAYMENT_IN_PROGRESS') {
         // §4-R.2/.3: el PI del intento anterior ya está en curso o cobrado ⇒ no se abre otro. El
         // invitado no tiene `/orders/:id`: el bloqueo explica y ofrece reintentar en un momento.
@@ -353,6 +384,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                     touched={touched}
                     onBlurField={(field) => setTouched((s) => ({ ...s, [field]: true }))}
                     submitAttempted={submitAttempted}
+                    submitAttemptId={submitAttemptId}
                     destination={destination}
                     onDestinationChange={chooseDestination}
                     upsellOpen={upsellOpen}
@@ -362,6 +394,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                       setDestination('ship');
                     }}
                     onAccountReady={() => onAccountReady({ fromVaultUpsell: true })}
+                    serverAddressError={serverAddressError}
+                    onGeoModeChange={setGeoMode}
                   />
                 </div>
               )}

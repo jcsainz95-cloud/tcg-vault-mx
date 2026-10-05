@@ -7,7 +7,6 @@
  * `SHIPPING_FEE_CENTS` (default 17500).
  */
 import { ORDER_RESERVATION_TTL_MIN } from './reservation';
-import { envOr } from '../mail/mail-env.util';
 
 /**
  * TTL del enlace de SEGUIMIENTO —el que viaja por correo (settle / reenvío / soporte)—: 90 días
@@ -51,17 +50,9 @@ export const GUEST_ORDER_RESERVATION_TTL_MIN = ORDER_RESERVATION_TTL_MIN;
 /** Ventana de disputa de condición (PROJECT §H): 7 días desde la ENTREGA. */
 export const GUEST_DISPUTE_WINDOW_DAYS = 7;
 
-/**
- * Canal de evidencia de disputa (criterio 56b). Mismo valor que expone §7 para clientes: lee la
- * MISMA env `DISPUTE_EVIDENCE_CONTACT` que `disputes.constants.ts` (P-21: overridable sin
- * redeploy). P-21 MIGRACIÓN CERRADA (ago-2026): el default es ya el buzón VIVO
- * `soporte@tcghunt.mx`; el histórico `@tcgvaultmx.com` está muerto y NO debe volver. P-21 cierre:
- * `envOr` (no `??`) — env definida pero vacía/blanca cae al default.
- */
-export const SUPPORT_EVIDENCE_CONTACT = envOr(
-  process.env.DISPUTE_EVIDENCE_CONTACT,
-  'soporte@tcghunt.mx',
-);
+// v1.82 · PNL-1 (`D-PNL-2`): `SUPPORT_EVIDENCE_CONTACT` SALIÓ de aquí. Su cascada local (solo
+// `DISPUTE_EVIDENCE_CONTACT`) divergía de la de buylist; el buzón lo da UN resolutor,
+// `supportContact()` (`../mail/support-contact.ts`), que lee `guest-checkout.service.ts` al proyectar.
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
