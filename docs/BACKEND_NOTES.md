@@ -28342,3 +28342,83 @@ prueba ni job compra (PS-99): solo el doble.
 
 ⛔ **No medido:** que el SELLO de `AV-17`/`AV-18` muerda por sí solo — con una guía, el `@@unique` del evento ya impide el segundo aviso, así
 que quitar el sello no se ve; morder exige una re-emisión con su propio `delivered_to_branch` (el contrato dice «una vez por envío»).
+
+## 68 · D2f construida — dinero y tablero de Skydropx (`API_CONTRACT §M4-SHIP.19.19.15` fila D2f, §19.31.10 fila 3b, §19.33.6/.10): P&L con ajustes y seguro, `workQueue.shipping` y `spendControl`, S-GAS-3, empaques, catálogos y saldo; PS-80/81 (P&L), PS-90 (tablero y saldo), PS-110, PS-171 (2026-10-05, rama `claude/skydropx-d`, desde `3f40b70c`, medida sobre `e7fa5b0e`; código en ``6256d309`` + el commit de esta sección)
+
+⛔ **Nada de P-SDX-PNL-1** (huérfanas y duplicados en el P&L, §19.33.3): sin respuesta del dueño, el P&L no los cuenta (se queda (C) de hecho).
+**Migración:** ninguna (todo lo que D2f lee ya existía: `ShipmentCostAdjustment`, `ShippingPackage`, `insuranceCostCents`, `SpendAlert`).
+
+### 68.1 Qué y dónde
+
+| Pieza | Norma | Dónde |
+|---|---|---|
+| **P&L**: `shippingCostCents` = Σ neto de envíos (por `pickingAt`) **+ Σ (`amountCents − ivaCents`) de `ShipmentCostAdjustment` por `chargedAt`** (sin filtrar por estado del envío); `shippingAdjustmentsCents` (ese sumando, aparte); `shippingInsuranceCents` (Σ `insuranceCostCents` de los envíos del periodo, informativo — ya va dentro del bruto); `shippingCostMissingCount` excluye `labelSource='skydropx'`; `profitCents` sin cambio de fórmula. CSV: las dos columnas nuevas **tras `shippingCostMissingCount`**, el mismo orden que el objeto | §19.11, §M10-IVA.8 | `admin/admin.service.ts` (`pnl`, `exportCsv`) |
+| **`workQueue.shipping`** `{lowBalance, withCarrierAlert, labelProcessing}` para los dos roles; ⛔ cifra de saldo para nadie | §19.13 | `shipments/shipping-work-queue.ts` (cuerpo), `admin/dashboard-shipping.service.ts` (diales + caché) |
+| `withCarrierAlert` = filas con **`carrierAlertActive`** (consulta ancha con `CARRIER_ALERT_STATUSES` importada + filtro por la función); el desconocido de D2e entra solo como `exception` | §19.32.5, §19.33.6 | `shipping-work-queue.ts` (`countCarrierAlerts`) |
+| `lowBalance` = saldo < `skydropx_low_balance_cents` con la lectura **cacheada 5 min** de `ProviderBalanceService.read` (la de `spend-watch`: una cifra, una fuente; pasa por `observeBalance`); `null` ⇔ `shipping_provider ≠ 'skydropx'` (⛔ ni una llamada) o sin respuesta | §19.13, PS-90 | ídem |
+| **`workQueue.spendControl`** (súper-admin; `null` al operador): `unseenImmediate`/`unseenDigest` = `severity`, `seenAt NULL`, `muted=false`, ⛔ AG-7/AG-11/AG-12; `labelSpend24h` por persona **con gasto > 0** usando `labelSpend24h` de TG-1 (la misma función, por actor), `capCents` = dial, `null` para el dueño (`isOwnerAccount` de la base); orden: más gasto primero | §19.29.9 | `spend-alerts/spend-control.ts` (`unseenSpendAlertsWhere`, `countUnseenImmediate`, `spendControlOf`) |
+| **S-GAS-3** `picking-list/summary.spendAlertsUnseenImmediate` (`null` al operador) = `countUnseenImmediate` (el mismo cuerpo) | §19.30.8 | `shipments/shipment-prep.service.ts` (`summary`) |
+| **Empaques** `GET /admin/shipping/packages` operador+ (`{packages}` por `sortOrder`, luego `code`; ⛔ `id`/fechas), `PUT` súper-admin: reemplazo entero (borra lo que no viene, `upsert` por `code`), bitácora `shipping.packages_updated {before:{packages}, after:{packages}}` en la MISMA tx; dos `PUT` a la vez se serializan con `LOCK TABLE "ShippingPackage" IN SHARE ROW EXCLUSIVE MODE` | §19.13, §19.20.3, §19.22.3, PS-110 | `admin/admin-shipping.controller.ts`, `admin/shipping-config.service.ts`, `admin/shipping-config.ts` (`parsePackagesBody`) |
+| **Catálogos** `GET /admin/shipping/catalogs` (súper-admin) ⇒ `{packagings, consignmentNote, addressTemplates}`; **`…/catalogs/consignment-notes?description=`** ⇒ `{consignmentNotes, hasMore}` (una página; `hasMore` ⇔ `meta.next_page ≠ null`) | §19.19.6, §19.22.3 | ídem + `shipping-provider/skydropx.adapter.ts`, `fake-shipping-provider.ts`, `shipping-provider.port.ts` (`searchConsignmentNotes` cambia de forma) |
+| **Saldo** `GET /admin/shipping/balance` (súper-admin, `no-store`) ⇒ `{balanceCents, currency, lowBalance, thresholdCents, fetchedAt}` **en vivo** por `ProviderBalanceService.readFresh` (nuevo: sin caché, refresca el caché del tablero, `observeBalance`, y el fallo SE PROPAGA ⇒ `502/503`) | §19.13, §19.29.6 AG-7 (i) | `spend-alerts/provider-balance.service.ts` (`readFresh`), `shipping-config.service.ts` (`liveBalance`) |
+
+### 68.2 Decisiones propias (el contrato no las fija; ⛔ ninguna cambia una forma del contrato)
+
+1. **`labelProcessing` = `labelProcessingSince ≠ null`** (la misma condición que `labelPending`: compra en vuelo **y** en proceso con id). §19.13 solo da el nombre.
+2. **Catálogos y saldo ⛔ miran el dial `shipping_provider`**: son lecturas, y el dueño las necesita para configurar **antes** de encender (elegir plantilla de origen y Carta Porte). Sin credenciales (`noop`) ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['env']}`; fallas ⇒ los `502/503` de siempre; un error que no es del proveedor ⇒ `502 {op, status:null}` sin detalle crudo. Efecto: `GET …/balance` con `off` **sí** pasa por `observeBalance` (AG-7 dice «toda lectura de saldo»). El tablero, en cambio, con `off` ⇒ `null` sin llamar (§19.13). Si el arquitecto quiere `404 FEATURE_DISABLED` con `off`, es una línea.
+3. **`addressTemplates`**: el DTO exige `addressType ∈ {from,to}` y strings; el puerto los da nulables ⇒ una plantilla sin tipo legible **se omite** (no se puede elegir como origen); `alias`/`postalCode` nulos ⇒ `''`.
+4. **`PUT …/packages`**: `400 VALIDATION_ERROR {field, index}` (el `index` es aditivo, para que la pantalla marque la fila); medidas enteras 1..1000 (las columnas son `Int`), `code` 1..40, `label` 1..80, `providerPackageType` 0..20 (`null` ⇒ `''`, el tipo del frontend lo admite), `sortOrder` entero, ≤ 50 empaques; `{packages: []}` ⇒ `no_active_package`.
+5. **Los tableros leen diales desde un servicio aparte** (`DashboardShippingService`): `AdminService` ⛔ tiene `SettingsService` (candado `IVA-11 (c-estructural)`, medido rojo al primer intento: el P&L no puede leer el dial). Los controladores nuevos viven en `admin/` (no en `shipments/`) para no tocar `shipments.module.ts` mientras D2e trabajaba en él; `AdminModule` importa `ShippingProviderModule` (solo el puerto).
+6. **Los ajustes del P&L no filtran por estado del envío**: un cargo de una guía de un envío luego cancelado (p. ej. lo no devuelto, `cancel:<id>`, SEC-SDX-11) es dinero que salió en el mes de su cargo.
+
+### 68.3 Pruebas
+
+- **Nuevas:** `test/sdx-d2f.units.spec.ts` (26: PS-171 censo + canario, P&L por `chargedAt` y CSV, predicado de «sin ver», cuerpo de empaques, `description`, `hasMore` del adaptador y del doble); `test/integration/sdx-d2f-money.e2e-spec.ts` (15: PS-80, PS-81, PS-90 ×3, `labelProcessing`, **PS-171**, `spendControl` + S-GAS-3, `labelSpend24h`, PS-110, `PUT` con bitácora, **dos `PUT` a la vez N = 10**, catálogos, Carta Porte, saldo).
+- **Rojo primero** (copia `git archive 3f40b70c` + las pruebas + stubs de tipo, `logs/red-*.log`): unitaria **23/26 rojas**; integración **14/14 rojas** por conducta (`NaN` en las cifras nuevas, `workQueue.shipping` ausente, `404` en las rutas).
+- **Tocadas por el contrato** (formas que crecen): `admin.pnl-shipping.spec.ts`, `admin.pnl-iva-neutral.spec.ts` (las dos nuevas fuera de la neutralidad, como las demás aditivas), `integration/iva-price-convention.e2e-spec.ts` (cabecera del CSV), y **`C-EQ-1`**: `GET /admin/shipping/catalogs/consignment-notes::description` a `NO_ENUM_POR_RUTA` (`test/helpers/query-axis-cross.ts`, texto libre) con el **techo 51 → 52** (`enum-query-axes.e2e-spec.ts`) — ⚠️ **pendiente de ratificar por el arquitecto** (como G6).
+
+**Suites completas** sobre una copia `git archive e7fa5b0e` del árbol ENTERO + las rutas de D2f superpuestas (= el árbol de
+`6256d309` salvo `0cc99796`, que solo toca una prueba de D2e), scratchpad `be-d2f/tree`, BD propia `tcg_be_d2f`,
+`stack-native.sh test:integration` (pool 5):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **411/411 suites · 7175/7175** |
+| Integración | **96/97 suites · 1952/1953** — la única roja, `orders-public-status.e2e-spec.ts` PO-1 (`timeline` en la lista cerrada del envío del cliente), es de **D2e**: medida **roja también sobre `e7fa5b0e` puro** (`logs/pure-e7fa5b0e-orders-public-status.log`) y ya arreglada por D2e en `0cc99796` |
+| `tsc --noEmit`; `eslint` de los ficheros tocados | 0 errores; 0 avisos |
+| Dos `PUT …/packages` a la vez | **10/10** rondas correctas (N = 10, en la corrida completa) |
+
+Carga durante las corridas: 3–10 (otro agente vivo); ninguna roja por tiempo.
+
+### 68.4 Mutaciones (copia `mut/` = `4692dddb` + D2f; `mut.py` aplica UNA, corre sus pruebas y restaura; logs `logs/mut-*.log`)
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | `withCarrierAlert` con su propia lista y sin «envío vivo» | PS-171 censo (2) + integración | rojo (unit 2, integración «7 ≠ 8») |
+| M2 | ajustes por `observedAt` | unit `chargedAt` + PS-80 | rojo 1 + 1 |
+| M3 | `shippingCostMissingCount` contando Skydropx | unit + PS-81 | rojo 1 + 1 |
+| M4 | «sin ver» contando AG-7/11/12 | unit + integración (2 ≠ 4) | rojo 1 + 1 |
+| M5 | tablero leyendo el saldo SIN caché | PS-90 «una llamada» | rojo (1 ≠ 2) |
+| M6 | `GET …/packages` solo súper-admin | PS-110 | rojo (`403`) |
+| M7 | `hasMore` siempre `false` | unit adaptador | rojo 1 |
+| M8 | sin `no_active_package` | unit (2) + integración | rojo |
+| M9 | `GET …/balance` desde el caché | saldo «en vivo» | rojo |
+| M10 | S-GAS-3 con predicado propio | unit (censo) + integración | rojo 1 + 1 |
+| M11 | tablero leyendo el saldo con `off` | PS-90 `off` | rojo |
+| M12 | ajustes fuera de `shippingCostCents` | unit + PS-80 | rojo 1 + 1 |
+| M13 | `PUT …/packages` sin `LOCK TABLE` | dos `PUT` a la vez | rojo: **1/10** rondas correctas (N = 10) |
+
+### 68.5 Lo que NO está aquí
+
+| Falta | Por qué |
+|---|---|
+| P-SDX-PNL-1 (huérfanas y duplicados en el P&L) | pregunta al dueño (§19.33.3); ⛔ D2f no construye nada hasta la respuesta |
+| `workQueue.shipments.withLabelAlert` (§19.20.2) | ver pregunta 1 |
+| Tipos del frontend (`workQueue.shipping`, `spendAlertsUnseenImmediate` ya estaba) | frontend |
+
+### 68.6 Preguntas al arquitecto
+
+1. **`workQueue.shipments`** es un **número** (`admin.service.ts`, `DashboardDTO.workQueue.shipments: number`), pero §19.3 dice «`workQueue.shipments` gana `withCarrierAlert`» y §19.20.2 «`workQueue.shipments` gana `withLabelAlert: number`». Construido: `withCarrierAlert` en `workQueue.shipping` (§19.13, §19.33.6). `withLabelAlert` **no** está (no es de D2f en §19.31.10 y no cabe en un número): ¿va a `workQueue.shipping.withLabelAlert` (con `labelAlertOf`) y quién lo construye?
+2. **Techo de `NO_ENUM_POR_RUTA` 51 → 52** por `?description=` de la búsqueda de Carta Porte (texto libre, §19.22.3). ¿Se ratifica?
+3. **Catálogos/saldo con `shipping_provider = 'off'`**: construido «funcionan» (68.2 (2)); ¿se confirma, o `404 FEATURE_DISABLED`?
+4. **`labelProcessing`** = `labelProcessingSince ≠ null` (68.2 (1)): ¿se confirma?
