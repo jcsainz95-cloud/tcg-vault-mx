@@ -27,7 +27,7 @@
 #     avisa en minutos, no en segundos.
 #   · GitHub DESACTIVA los `schedule` de un repo público tras 60 días sin
 #     actividad en el repo. Si el repo se queda quieto dos meses, hay que
-#     reactivarlo en Actions (DEVOPS_NOTES §83.2).
+#     reactivarlo en Actions (DEVOPS_NOTES §85.2).
 #
 # VARIABLES DE REPOSITORIO (Settings → Secrets and variables → Actions →
 # Variables; NO son secretos):
@@ -119,7 +119,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$EXPECTED_STRIPE_MODE" ]; then
-            echo "::notice title=stripeMode NO comparado::Falta la variable de repositorio EXPECTED_STRIPE_MODE (test|live|none). Sin ella el vigía comprueba que la tienda responde, pero no que cobre en el modo esperado. DEVOPS_NOTES §83.2."
+            echo "::notice title=stripeMode NO comparado::Falta la variable de repositorio EXPECTED_STRIPE_MODE (test|live|none). Sin ella el vigía comprueba que la tienda responde, pero no que cobre en el modo esperado. DEVOPS_NOTES §85.2."
           fi
 
       - name: Abrir issue si es ROJO (uno por incidente)
@@ -149,7 +149,7 @@ jobs:
             echo "**Qué mirar, por orden:**"
             echo "1. ¿Abre https://tcghunt.mx en tu navegador? Si no: panel de **Vercel** → Deployments."
             echo "2. ¿La salud dice \`status: degraded\`? Panel de **Railway** → servicio backend → Logs; y el servicio Postgres/Redis."
-            echo "3. ¿\`stripeMode\` distinto del esperado? Alguien cambió las claves de Stripe en Railway, o falta actualizar la variable \`EXPECTED_STRIPE_MODE\` (guía: DEVOPS_NOTES §83.7, paso 8)."
+            echo "3. ¿\`stripeMode\` distinto del esperado? Alguien cambió las claves de Stripe en Railway, o falta actualizar la variable \`EXPECTED_STRIPE_MODE\` (guía: DEVOPS_NOTES §85.7, paso 8)."
             echo ""
             echo "Este issue se **cierra solo** cuando el vigía vuelva a verde."
           } > issue-body.md

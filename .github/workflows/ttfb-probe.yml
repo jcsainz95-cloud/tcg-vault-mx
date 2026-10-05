@@ -3,7 +3,7 @@
 # Marketplace TCG con Bóveda (Pokémon, México)  ·  Propiedad: devops
 # =============================================================================
 # Norma: API_CONTRACT §14.14 E-8 y §14.3 (umbral); ARCHITECTURE §4.63.11.
-# Notas: DEVOPS_NOTES §83.10.
+# Notas: DEVOPS_NOTES §85.10.
 #
 # DOS trabajos:
 #   1) `autoprueba` — SIEMPRE corre el canario (scripts/check-ttfb-probe-canary.sh)
@@ -91,7 +91,7 @@ jobs:
               "- \`CSP_CABECERAS\`: cuántas \`content-security-policy*\` salieron (E-6 en Vercel)." \
               "- Umbral (§14.3): con \`despues\`, p90 > 800 ms o subida > 300 ms sobre el p90 de \`antes\` ⇒ ⛔ no se pasa a \`enforce\`." \
               "" \
-              "Norma: \`docs/API_CONTRACT.md\` §14.14 E-8 · Notas: \`docs/DEVOPS_NOTES.md\` §83.10. No cerrar: el workflow lo reutiliza." \
+              "Norma: \`docs/API_CONTRACT.md\` §14.14 E-8 · Notas: \`docs/DEVOPS_NOTES.md\` §85.10. No cerrar: el workflow lo reutiliza." \
               > issue-body.md
             URLI="$(gh issue create --title "${TITLE}" --body-file issue-body.md --label ttfb)"
             NUM="${URLI##*/}"

@@ -46,7 +46,7 @@
 # Se corre la serie N veces (por defecto 3) y se reporta la proporción (O-3):
 # «429 en el 6.º: 3/3» cierra; «0/3» confirma el bypass.
 #
-# ⚠️⚠️ CORRECCIÓN 2026-10-05 (LIVE-11, DEVOPS_NOTES §83.4) — LA VERSIÓN ANTERIOR
+# ⚠️⚠️ CORRECCIÓN 2026-10-05 (LIVE-11, DEVOPS_NOTES §85.4) — LA VERSIÓN ANTERIOR
 # DABA «C6 CIERRA» AUNQUE EL BYPASS EXISTIERA. Desde C7 (v1.80) el login tiene un
 # SEGUNDO tope, por CUENTA: `PASSWORD_FREE_ATTEMPTS = 5`
 # (backend/src/modules/auth/password-attempts.constants.ts:11) y el 5.º fallo pone

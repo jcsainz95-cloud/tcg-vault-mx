@@ -7,7 +7,7 @@
 # al s3-local no estaba en `connect-src`. Este candado comprueba, sobre el
 # `scripts/stack-native.sh` REAL (las líneas se extraen del fichero, no se copian):
 #   1. con S3_LOCAL_PORT=9000 y =9100, el origen exportado es http://127.0.0.1:<puerto>
-#      (SIGUE al puerto, como S3_ENDPOINT — la lección de S3-CLON, §83.6);
+#      (SIGUE al puerto, como S3_ENDPOINT — la lección de S3-CLON, §85.6);
 #   2. el valor casa con ORIGIN_RE de csp.ts (si no casara, la CSP lo tiraría y
 #      volvería al comodín de R2 en silencio);
 #   3. un NEXT_PUBLIC_UPLOAD_ORIGIN explícito se respeta;

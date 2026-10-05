@@ -262,7 +262,7 @@ export JWT_REFRESH_SECRET  # idem
 # S3-CLON (2026-10-05): el puerto se declara ANTES que el endpoint y el endpoint
 # lo SIGUE. Antes `S3_ENDPOINT` era un literal `:9000`, así que `S3_LOCAL_PORT=9100`
 # levantaba el almacén en :9100 y el backend seguía firmando contra :9000 — la
-# salida documentada para dos clones a la vez no funcionaba. DEVOPS_NOTES §83.6.
+# salida documentada para dos clones a la vez no funcionaba. DEVOPS_NOTES §85.6.
 S3_LOCAL_PORT="${S3_LOCAL_PORT:-9000}"
 S3_LOCAL_HOST="${S3_LOCAL_HOST:-127.0.0.1}"
 export S3_ENDPOINT="${S3_ENDPOINT:-http://$S3_LOCAL_HOST:$S3_LOCAL_PORT}"
@@ -501,7 +501,7 @@ s3_ajeno_die() {
      este clon ($ROOT_DIR): firma con OTRO secreto — es de otro clon.${quien:+
      Lo ocupa:$quien.}
      Cada clon genera su S3_SECRET_ACCESS_KEY (.native-stack/secrets.env), así que el
-     PUT presignado del INE daría 403 SignatureDoesNotMatch (DEVOPS_NOTES §83.6).
+     PUT presignado del INE daría 403 SignatureDoesNotMatch (DEVOPS_NOTES §85.6).
      NO lo apago: no es mío. Usa un puerto propio para este clon:
        S3_LOCAL_PORT=<libre, p. ej. 9100> ./scripts/stack-native.sh up --infra
      y el MISMO S3_LOCAL_PORT en test:integration / up (el endpoint lo sigue)."

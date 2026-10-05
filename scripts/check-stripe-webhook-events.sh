@@ -36,7 +36,7 @@ seccion="$(awk '/^### 11\.G/{f=1;next} /^### 11\.H/{f=0} f' "$NOTES")"
 rc=0
 # Sin `printf … | grep -q` bajo pipefail: grep -q sale al primer acierto, printf (búfer por línea)
 # muere por SIGPIPE (141) y pipefail lo convierte en «no encontrado» ⇒ falso rojo bajo carga
-# (medido 2/2000 con load≈6–8; QA: canario 1/4 rojo con load≈10–13). Here-strings. DEVOPS_NOTES §84.
+# (medido 2/2000 con load≈6–8; QA: canario 1/4 rojo con load≈10–13). Here-strings. DEVOPS_NOTES §86.
 [ -n "$backend" ] || { echo "::error::no encontre ningun evento en backend/src: el extractor no lee nada (un candado que no lee no protege)."; exit 1; }
 while IFS= read -r ev; do
   [ -n "$ev" ] || continue

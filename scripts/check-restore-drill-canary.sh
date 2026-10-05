@@ -14,11 +14,11 @@
 #     --snapshot sin --target no corre; --target local con host remoto aborta;
 #   · que la foto y el volcado COMPARTEN snapshot (pg_export_snapshot +
 #     `pg_dump --snapshot`) — medido el 2026-10-05 con escrituras concurrentes:
-#     compartido 5/5 cuadra, separado 0/5 (DEVOPS_NOTES §83.5);
+#     compartido 5/5 cuadra, separado 0/5 (DEVOPS_NOTES §85.5);
 #   · MUTACIÓN: la comparación que siempre cuadra ⇒ el caso «fila distinta» sale
 #     rc 0 ⇒ el canario lo caza.
 # La corrida CON base (restaurar de verdad y verificar, más 3 mutaciones sobre la
-# base restaurada) se hizo en local el 2026-10-05: DEVOPS_NOTES §83.5.
+# base restaurada) se hizo en local el 2026-10-05: DEVOPS_NOTES §85.5.
 #
 # Uso:  ./scripts/check-restore-drill-canary.sh
 # rc 0 todo como debe · 1 algún caso no · 2 no pudo medir.

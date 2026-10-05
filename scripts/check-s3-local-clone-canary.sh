@@ -3,7 +3,7 @@
 # check-s3-local-clone-canary.sh — «¿`start_s3` distingue un s3-local VIVO de
 #                                    uno que acepta MIS credenciales?»   · devops
 # =============================================================================
-# DE DÓNDE VIENE (S3-CLON, 2026-10-05, DEVOPS_NOTES §83.6)
+# DE DÓNDE VIENE (S3-CLON, 2026-10-05, DEVOPS_NOTES §85.6)
 # ---------------------------------------------------------------------------
 # `infra-smoke` y `kyc-ine-links` daban 403 en el PUT presignado del INE en la
 # rama `claude/arreglos-panel`. Medido en el log del s3-local de :9000: era de

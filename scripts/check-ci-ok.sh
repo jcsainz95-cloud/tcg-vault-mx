@@ -89,7 +89,7 @@ done
 for o in "${!OPCIONALES[@]}"; do
   # here-string, NO tubería: con pipefail, `printf … | grep -q` da falso rojo cuando grep sale al
   # primer acierto y printf (stdout de bash con búfer por línea) muere por SIGPIPE (141). Medido
-  # 3/2000 con load≈6–8 (QA: canario 1/6 rojo con load≈11). DEVOPS_NOTES §84.
+  # 3/2000 con load≈6–8 (QA: canario 1/6 rojo con load≈11). DEVOPS_NOTES §86.
   grep -qx "$o" <<<"$(printf '%s\n' "${JOBS[@]}")" || bad "OPCIONALES lleva \`$o\`, que ya no es un job de $CI_YML: lista desfasada."
 done
 if [ "$SOLO_ESTATICO" -eq 1 ]; then

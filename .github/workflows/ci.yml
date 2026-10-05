@@ -836,7 +836,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # 💰 LISTO PARA DINERO REAL (API_CONTRACT §14, 2026-10-05) — los candados de
   # devops de LIVE-3/9/10/11/13 y del arnés local, cada uno con su canario y su
-  # mutación (proporción N/N). Sin red externa, sin producción. DEVOPS_NOTES §83.
+  # mutación (proporción N/N). Sin red externa, sin producción. DEVOPS_NOTES §85.
   # ---------------------------------------------------------------------------
   live-candados:
     runs-on: ubuntu-latest

@@ -3,7 +3,7 @@
 # check-edge-xff-probe-canary.sh — «¿edge-xff-probe.sh distingue el tope por IP
 #                                    del candado por cuenta?»   · devops · LIVE-11
 # =============================================================================
-# DE DÓNDE VIENE (2026-10-05, DEVOPS_NOTES §83.4)
+# DE DÓNDE VIENE (2026-10-05, DEVOPS_NOTES §85.4)
 # ---------------------------------------------------------------------------
 # La sonda de C6 mandaba 6 logins con el MISMO correo. Desde C7 (v1.80) el 6.º
 # intento contra una misma cuenta es `429 TOO_MANY_PASSWORD_ATTEMPTS`

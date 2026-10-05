@@ -4,7 +4,7 @@
 #                                                                        · devops
 # =============================================================================
 # NORMA: API_CONTRACT §14.14 E-8 (v1.84.1) y §14.3 «Coste a medir antes de
-# `enforce`»; porqué en ARCHITECTURE §4.63.11. DEVOPS_NOTES §83.10.
+# `enforce`»; porqué en ARCHITECTURE §4.63.11. DEVOPS_NOTES §85.10.
 #
 # QUÉ HACE (solo GET, solo https, una ruta pública; 11 peticiones por corrida)
 #   1. 1 GET de CALENTAMIENTO a --url, descartado (no entra en la estadística).
@@ -72,7 +72,7 @@ invalida() { echo "  ✗ $*"; echo "VERDICT=MUESTRA_INVALIDA"; exit 1; }
 # una_peticion <i> — deja cabeceras en $TMPD/h<i>, imprime «código ttfb_s»
 una_peticion() {
   curl -sS -o /dev/null -D "$TMPD/h$1" --max-time "$TIMEOUT" --proto '=https,http' \
-    -H 'accept: text/html' -A 'tcghunt-ttfb-probe/1 (+DEVOPS_NOTES §83.10)' \
+    -H 'accept: text/html' -A 'tcghunt-ttfb-probe/1 (+DEVOPS_NOTES §85.10)' \
     -w '%{http_code} %{time_starttransfer}' "$URL" 2>"$TMPD/e$1"
 }
 

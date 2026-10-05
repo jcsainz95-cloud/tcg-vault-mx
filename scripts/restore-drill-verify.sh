@@ -41,7 +41,7 @@
 #   · --target obligatorio y cruzado con el host: prod|local para --snapshot;
 #     drill|local para --restore/--verify (⛔ --target prod no restaura ni verifica).
 #
-# Uso (procedimiento entero: DEVOPS_NOTES §83.5):
+# Uso (procedimiento entero: DEVOPS_NOTES §85.5):
 #   DATABASE_URL='<conexión pública de Railway, idealmente usuario de solo lectura>' \
 #     ./scripts/restore-drill-verify.sh --snapshot --target prod --out foto.tsv --dump respaldo.dump
 #   DATABASE_URL='<base TEMPORAL vacía>' ./scripts/restore-drill-verify.sh --restore respaldo.dump --target drill
