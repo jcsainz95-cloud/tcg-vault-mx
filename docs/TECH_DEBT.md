@@ -9489,3 +9489,22 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 - **Disparador:** la próxima rama que necesite añadir un literal a la allowlist.
 - **Comprobación:** esa rama no añade líneas a `[allowlist].regexes` (`git diff <base> -- security/gitleaks.toml`
   vacío en esa sección) y su SAST de rango queda verde.
+
+## Frontend · 2026-10-05 · gates sobre `7bca24ce` (rama `claude/listo-real`)
+
+### TD-LEG5-LOTES · P3 · El reparto por lotes de LEG-5 sobrevive a los lotes: código muerto con aspecto de candado
+- **Dueño:** frontend (`frontend/src/content/legal/privacy-sites.ts`, `privacy-sites.test.ts`).
+- **Qué es:** con los tres lotes de E-9 ya construidos (medido 2026-10-05 sobre `af7e9a16`:
+  `BUILT_LOTES = new Set([1, 2, 3])`), sobran `BUILT_LOTES` y la rama `it.skip(… pendiente del lote …)` de
+  `privacy-sites.test.ts:14-15,29-34`, y el campo `lote` (con su comentario) de `privacy-sites.ts:18-19`. Ninguno
+  puede ya saltar un sitio, pero se leen como si filtraran: es código muerto con aspecto de candado, y la próxima
+  persona que lo toque puede creer que la suite normal deja pasar sitios a propósito.
+- **Nota (MENOR-2 de QA, mismo gate):** el patrón LEG-5 (`uses` de cada sitio) comprueba que el fichero usa el
+  componente, pero **no** que la clave de texto lleve la etiqueta `<privacy>` que el componente convierte en enlace.
+  Hoy eso solo lo caza la unitaria UX-PRIV-5 (`components/legal/PrivacyNoticeLink.test.tsx`).
+- **Riesgo:** bajo; ningún sitio queda sin exigir hoy. Es ruido de lectura en un candado de publicación.
+- **Dirección:** quitar `BUILT_LOTES`, la rama `it.skip` y el campo `lote` (un `it` por sitio, sin condición); y
+  decidir si la presencia de `<privacy>` en la clave pasa a LEG-5 o se queda declarada como cubierta por UX-PRIV-5.
+- **Disparador:** el próximo cambio en `privacy-sites` (`.ts` o `.test.ts`).
+- **Comprobación:** `rg -n "BUILT_LOTES|lote" frontend/src/content/legal/privacy-sites*.ts` sin resultados, la suite
+  normal con 7 casos de sitio verdes y 0 saltados en ese fichero, y `npm run check:legal:provisional` verde.
