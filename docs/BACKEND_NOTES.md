@@ -27262,3 +27262,87 @@ las suites de buylist/disputas se re-corrieron después (fila «dirigida tras el
   se le paga al vendedor**. Implementé el `409` de BRJ-5 en `reject-items` y **no** toqué `PATCH` (el contrato dice «sin
   cambio»). Pido decisión: ¿`PATCH reject` gana el mismo predicado (`409` sobre `convertida_inventario`/`pagada`)?
 - **Q-3:** `ML-25` (AV-12 / AV-14) son plantillas de `payments/` (PNL-2/3, el otro agente), no de este encargo.
+
+## 60 · Errata v1.82.1 §PNL.10 construida (💰) — `ITEM_FINAL` en la decisión por carta (E-2), CAS en la conversión a inventario (E-3); BRJ-10…14, WDR-11 (2026-10-05, rama `claude/arreglos-panel`; código en `24edf8a7`)
+
+### 60.1 Qué cambió (y dónde)
+- **Un predicado:** `ITEM_FINAL_STATUSES = ['convertida_inventario','pagada']` e `isItemFinal()` en
+  `buylist-reject-items.ts`; `REJECT_ITEMS_BLOCKED_STATUSES = [...ITEM_FINAL_STATUSES, 'rechazada']` (compuesto, no a mano).
+- **`PATCH /admin/buylist/items/:itemId/decision`, los tres verbos:** `assertItemNotFinal(item)` justo después de
+  `NO_LIVE_ADJUSTMENT` ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`, antes de la idempotencia del
+  `reject` y de la escalera del ciclo (incluido `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`). Cero escrituras, correo, bitácora
+  (el controlador audita solo tras el `200`) y recálculo. Sin código de error nuevo: valor nuevo de `details.reason`.
+- **La guarda del motor del rechazo:** el `where` de `rejectItemWrite` lleva **siempre** `itemStatus NOT IN
+  ITEM_FINAL_STATUSES` (en un `AND`, junto al `expectedItemStatus` de `reject-items` cuando viene). En el `PATCH {reject}`,
+  `count ≠ 1` se relee (`throwRejectWriteConflict`): solicitud terminal ⇒ `NO_LIVE_ADJUSTMENT` (gana); carta final ⇒
+  `ITEM_FINAL`; otra cosa ⇒ el `409` terminal de siempre. `approve`/`adjust` no ganan guarda nueva: su CAS por estado leído
+  ya lo es (una conversión en medio ⇒ `409 … CONCURRENT_UPDATE`, §PNL.10.2.3).
+- **`convertToInventory`:** la escritura de la carta pasa a `updateMany({ where: { id, itemStatus: 'aprobada',
+  inventoryItemId: null } })` dentro de la misma tx que crea pieza y `InventoryMovement`. Si no casa, se relee dentro de la
+  tx y se lanza una señal interna (`ConvertCasMiss`) ⇒ rollback entero; fuera: `inventoryItemId` ya puesto ⇒ respuesta
+  idempotente de siempre; si no ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }`. El folio de
+  `nextFolio()` se pierde (como en `P2002`). El índice único `sourceSellRequestItemId` sigue cubriendo conversión contra
+  conversión.
+- Para frontend: la forma del `409 ITEM_FINAL` es la de `CONCURRENT_UPDATE` en el mismo endpoint; se distingue por
+  `details.reason` (FE-BRJ-4).
+
+### 60.2 El defecto, medido ANTES del arreglo (copia `git archive` + la prueba nueva, BD `tcg_be_pnlf`)
+BRJ-13 (b), rondas simultáneas `convert-to-inventory` ∥ rechazo sobre una carta `aprobada`, N = 12 por corrida. «Mixta» =
+`convertida_inventario` con `rejectedAt`/sin precio, o `rechazada` con pieza.
+
+| Código | Variante | Corridas (mixtas / N) |
+|---|---|---|
+| sin E-2 ni E-3 (el de `63961651`) | `PATCH {reject}` | **12/12, 12/12, 12/12** — 10, 10 y 12 de ellas E-3 (`convertida+rejectedAt`); el resto E-2 (`rechazada` con pieza) |
+| sin E-2 ni E-3 | `reject-items` | **7/12, 9/12** (todas E-3: el lote ya bloqueaba la convertida) |
+| con E-2, sin E-3 (aísla E-3) | `PATCH {reject}` / `reject-items` | **7/12** / **8/12** |
+| con E-2 y E-3 | las dos | **0/12** y **0/12**; después N = 20 ×2 corridas: **0/20, 0/20** en cada variante |
+
+El defecto **es** sensible sin forzar (no hizo falta el candado para verlo), pero BRJ-13 (a) lo fuerza igualmente: la
+prueba toma `"Card" FOR UPDATE`, la conversión se detiene en su `INSERT "InventoryItem"` (FK ⇒ `FOR KEY SHARE`) **después**
+de leer `aprobada`, el rechazo confirma entero, y se suelta. Determinista.
+Reparto de desenlaces con el arreglo (N = 20; corrida 1 · corrida 2): `PATCH` — conversión `409 CONCURRENT_UPDATE` 13 · 14,
+conversión gana y rechazo `409 ITEM_FINAL` 3 · 3, conversión `422 ITEM_NOT_APPROVED` 4 · 3; `reject-items` — `409
+CONCURRENT_UPDATE` 12 · 12, conversión gana y lote `409 {itemIds}` 7 · 5, `422` 1 · 3.
+
+### 60.3 Pruebas
+| Prueba | Dónde | Qué |
+|---|---|---|
+| BRJ-10 (+10b, 10c) | `test/integration/buylist-item-final.e2e-spec.ts` | `reject` sobre convertida (8000, fabricada por `approve`→`convert`) ⇒ `409 ITEM_FINAL`, fila/total/pieza/bitácora idénticos, 0 correos; 10b: carta `pagada` en los tres verbos (incluido `adjust` en ciclo: `ITEM_FINAL` gana a `ADJUST_NOT_ALLOWED…`); 10c: solicitud `pagada` ⇒ `NO_LIVE_ADJUSTMENT` gana |
+| BRJ-11 | ídem | `approve` (ciclo) y `adjust {1}` / `approve {1}` (legado) ⇒ `409 ITEM_FINAL`; `approvedPriceCents` sigue 8000; `adjustmentSentAt` sigue nulo |
+| BRJ-12 | ídem + `test/buylist.reject-items.spec.ts` | integración con `assertItemNotFinal` apagado por `jest.spyOn` ⇒ el `where` responde `409 ITEM_FINAL`; unitarios del `where` (con y sin `expectedItemStatus`) y de la relectura (viva+final ⇒ `ITEM_FINAL`; terminal ⇒ `NO_LIVE_ADJUSTMENT`) |
+| BRJ-13 🔁 | `buylist-item-final.e2e-spec.ts` | (a) forzado ×2 variantes; (b) N = `BRJ13_N` (12 por defecto) ×2 variantes, proporción al log; cuenta también `InventoryMovement` (rollback entero) |
+| BRJ-14 | ídem | `reject-items` sobre una ya `rechazada` ⇒ `409 {itemIds}`, `rejectedAt`/motivo idénticos, 0 correos |
+| composición | `test/buylist.reject-items.spec.ts` | `REJECT_ITEMS_BLOCKED_STATUSES ⊇ ITEM_FINAL_STATUSES` y `= [...ITEM_FINAL_STATUSES,'rechazada']` |
+| CAS de la conversión | `test/buylist.convert-guard.spec.ts` | `updateMany` con `{id, itemStatus:'aprobada', inventoryItemId:null}`; `count 0` ⇒ `409 CONCURRENT_UPDATE` lanzado dentro de la tx; `count 0` con pieza ⇒ idempotente |
+| WDR-11 | `test/integration/pnl-delivered-refunds.e2e-spec.ts` | origen `IVA_EXCLUSIVE`, M = 60000 ⇒ preview `paidReferenceCents null`, `referenceCents = M`; verbo `201`, todo `compensationCents = A`, `orderId` = origen. No existía con otro nombre (WDR-9b es «sin origen») |
+
+⚠️ BRJ-13 sube el tope MENSUAL de intake (`buylist_cap_per_month_cents`) durante la suite y lo restaura en `afterAll`:
+cada ronda aprueba 12000 del mismo vendedor y sin eso la ronda 22 choca con `BUYLIST_LIMIT_EXCEEDED` (medido).
+Mocks unitarios de la conversión (`buylist.security`, `bl25-bl26`, `inventory.card-product-id`, `convert-guard`) pasan de
+`update` a `updateMany`; `buylist.reject.spec` afirma el término nuevo del `where`.
+
+### 60.4 Mutaciones (copia `git archive`, BD `tcg_be_pnlf`; cada una revertida antes de la siguiente)
+| Mutación | Resultado |
+|---|---|
+| M1 quitar el peldaño **y** el término del `where` | BRJ-10 roja (`200`) |
+| M2 peldaño solo para `reject` | BRJ-11 y BRJ-10b rojas (`200`) |
+| M3 quitar solo el término del `where` | BRJ-12 integración roja (`200`), unitarios del `where` rojos ×2, `buylist.reject.spec` rojo; BRJ-10 sigue verde (lo sostiene el pre-check, como pide el contrato) |
+| M4 `count = 0` del `PATCH` siempre a terminal | BRJ-12 roja (`NO_LIVE_ADJUSTMENT` en vez de `CONFLICT`) |
+| M5 quitar el CAS de la conversión | BRJ-13 (a) roja en las dos variantes **4/4 corridas**; (b) **11/12** (`PATCH`) y **6/12** (`reject-items`) mixtas; `convert-guard` rojo |
+| M6 quitar `'rechazada'` de la lista compuesta | BRJ-14 roja (`200`, `rejectedAt` movido); unitarios de composición rojos |
+| M7 lista escrita a mano sin `pagada` | unitario de composición rojo (y el de `not_rejectable`) |
+| M8 `caseRefundComponents` también con `IVA_EXCLUSIVE` | WDR-11 roja en la preview (`paidReferenceCents 52885`); con esa aserción quitada en la copia, roja en componentes (`merchandiseCents 42546`, `compensationCents 0`) |
+
+### 60.5 Suites completas
+Medido por backend sobre `git archive` de **`24edf8a7`** (árbol entero), BD `tcg_be_pnlf` recién creada, load 6–18 (4 CPU;
+otros agentes vivos).
+
+| Qué | Resultado |
+|---|---|
+| unitarios completos (antes de ajustar los mocks de la conversión) | 6703/6718: los 15 rojos = 4 specs de mocks con `sellRequestItem.update` (conversión) + `buylist.reject.spec` (el `where` exacto) — esperados por el cambio, ajustados en el mismo commit |
+| unitarios completos (`24edf8a7`) | **396/396 suites · 6720/6720** |
+| integración completa (`24edf8a7`) | **79/82 suites · 1623/1632**. Los 9 rojos, ninguno de este cambio: |
+| · `infra-smoke` (1) + `kyc-ine-links` (7) | `PUT presignado devolvió 403` contra el almacén local. **Aislado: rojo 2/2 en `24edf8a7` y rojo 1/1 en la base `378055e8` (sin este cambio), mismo 8/26** ⇒ de ENTORNO (almacén S3 local), no del código. Dueño: devops. NO diagnosticado |
+| · `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` (1) | el conocido **P-INT-CEQ1-VAULTS**; aislado sobre la BD ya usada: **verde 3/3** |
+| · `graded-estimate` (P-INT-GRADED) | verde en esta corrida completa (1/1) |
+| BRJ-13 (b) dentro de la corrida completa | 0/12 y 0/12 mixtas; BRJ-8 (c) 20/20 coherentes |
