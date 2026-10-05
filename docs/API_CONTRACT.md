@@ -2,8 +2,32 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.83**, stream «precio
-> del sellado», rama `claude/precio-sellado`; antes: rev **v1.80.10**; errata **v1.80.9.1** al stream «staff sin correo»).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.83.1** sobre la rev
+> **v1.83**, stream «precio del sellado», rama `claude/precio-sellado`; antes: rev **v1.80.10**; errata **v1.80.9.1** al
+> stream «staff sin correo»).
+>
+> **Errata v1.83.1 — 💰 EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO **CON IVA** (2026-10-05, arquitecto, rama
+> `claude/precio-sellado` en `/home/user/tcg-sellado`, HEAD dado por el orquestador `8a64f27f`; ⛔ sha NO MEDIDO por el
+> arquitecto: sin Bash).** Origen: `HECHOS.md:51` («Precio del sellado — respuestas a P-SP-1/2/3 (2026-10-05)»: (1) el
+> mercado a mano del alta solo el dueño; (2) el personal sí ve costo y margen; (3) «yo lo voy a meter con iva») y las
+> solicitudes A-1, A-2, A-4, N-1, N-2 de `DESIGN_SYSTEM §70.8`. Norma entera: **[§M11-SP.12](#M11-SP-12)**. Porqué:
+> `ARCHITECTURE §4.62.8`.
+>
+> | # | Pieza | Decisión | ¿Rompe algo de v1.83? | Construye |
+> |---|---|---|---|---|
+> | **E-1** | 💰 Qué se guarda | **`P`** (lo que paga el cliente, IVA dentro): columna **`SealedProduct.ownerDisplayPriceCents Int?`**, exactamente lo tecleado, sin redondeo. ⛔ `ownerSalePriceCents` (`L`) se retira. Motivo medido: `P = L + round(L·t·r/10000)` **salta valores** (con 100/16: MX$7.00 y MX$12.00 no tienen `L`) ⇒ guardar `L` cambiaría por un centavo el precio que el dueño escribió | Sí, solo en papel (nada construido: `Grep ownerSalePriceCents` en `backend/` y `frontend/` = 0) | backend 💰 |
+> | **E-2** | 💰 Si se mueve un dial | Se conserva **lo que paga el cliente**; se mueven los derivados (`L` equivalente, neto, IVA). El automático y el legado por pieza siguen moviéndose con el dial como hoy | — | backend + ux-ui (aviso en M10) |
+> | **E-3** | 💰 Un camino a `P` | `saleDisplayCentsOf(decisión, diales)` en `common/money.ts`: precio del dueño ⇒ su `P`; si no ⇒ `displayPriceCentsOf(L)`. Los **tres** sitios de venta que hoy derivan `P` pasan por ella | — | backend 💰 |
+> | **E-4** | Margen | Sobre el **neto fiscal** `N = taxBaseCentsOf(P, r)`, no sobre `L` (con el dial de traslación < 100 `L` no es lo que queda tras el IVA). Con los defaults, `N ≡ L` exacto | Sí (fórmula de SP.5) | backend + frontend |
+> | **E-5** | 💰 A-2 | El `PUT` **sí dispara la auto-publicación** (trigger (c)), **después** de confirmar el precio, best-effort, con el pipeline completo; la respuesta trae `autoPublish` | Sí (SP.2 «⛔ No publica» queda sustituido) | backend 💰 + frontend |
+> | **E-6** | A-1 | `sealedProductId` y `sealedProductPieces` en las filas de sellado de `InventoryItemDTO` (listado) y `PendingPublishRowDTO` | No (aditivo) | backend + frontend |
+> | **E-7** | `M-71` | **Sin relleno**: el relleno en SQL exigiría una segunda fórmula de `P`. Ningún precio se mueve; la hoja marca el legado | Sí (SP.7) | backend |
+> | **E-8** | Sellado sin producto | Sigue con `listPriceCents` (`L`, antes de IVA), rotulado así, con `P` del servidor al lado. Desviación `D-SP-4` | — | frontend + ux-ui |
+>
+> - **Sin código de error nuevo, sin enum nuevo.** Campos renombrados (no construidos) y aditivos: lista en §M11-SP.12.4.
+> - **Pruebas:** SP-1, SP-2, SP-5, SP-7, SP-10, SP-12 cambian; nuevas **SP-15…SP-19** y **F-SP-7…F-SP-8** (§M11-SP.12.14).
+> - **Preguntas al dueño:** ninguna. P-SP-1/2/3 cerradas por `HECHOS.md:51`. N-1 y N-2 son **avisos** para el cuerpo de la
+>   solicitud de fusión, no preguntas.
 >
 > **Rev v1.83 — 💰 EL PRECIO DEL SELLADO ES DEL PRODUCTO Y LO PONE EL DUEÑO; SE EDITA SIN RETIRAR, EN LA HOJA DE M11
 > (2026-10-05, arquitecto, rama `claude/precio-sellado` en `/home/user/tcg-sellado`, creada desde `production` + la fila
@@ -12495,6 +12519,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **(b)** al fijar/mover ubicación, **(c)** cuando el precio se vuelve resoluble (barrido de precios u override de
   > M2). **Cada intento corre el pipeline COMPLETO** (`assertPublishableGuards` + `resolvePublishSalePrice` +
   > `claimListed`) — el mismo que ya corren los caminos de lote.
+  > ⭐ **v1.83.1 (E-5, [§M11-SP.12.6](#M11-SP-12)):** el momento (c) incluye el **precio del dueño de un producto
+  > sellado** (`PUT …/sealed-products/:id/sale-price`): tras confirmar el precio, se reevalúan las piezas `in_stock` de
+  > plataforma de ese producto con el **mismo** cuerpo (`reevaluateForPublication`).
   > **Se respeta la Regla de Compra (§A):** lo que está en **«precio pendiente» NO se publica** y el comprador
   > **NUNCA** ve ese estado.
   > **La cola es visible en el dashboard** como parte de la cola de trabajo del back-office (ver `workQueue` abajo).
@@ -29529,6 +29556,11 @@ alta **sin precio**. Antecedente: `HECHOS.md:38` (b) y lo construido en #69 (`Se
 >   El mercado a mano del alta (`manualMarketMxnCents`, `:126`) escribe un override de **mercado** para la clave del
 >   producto (`inventory.service.ts:796-825`, `:1037-1062`) — y el mercado decide el automático.
 
+> ⛔ **v1.83.1 — LEER [SP.12](#M11-SP-12) ANTES QUE SP.1, SP.2, SP.5, SP.7 y SP.11.** El dueño escribe el precio **con
+> IVA** (`HECHOS.md:51` (3)): la columna es `ownerDisplayPriceCents` (`P`), ⛔ no `ownerSalePriceCents` (`L`); el `PUT`
+> recibe `displayPriceCents`; el margen va sobre el neto fiscal; el `PUT` dispara la auto-publicación; `M-71` va sin
+> relleno. Donde SP.1–SP.11 digan otra cosa, **manda SP.12**.
+
 **SP.1 · Qué es «producto», dónde vive el precio y qué pasa con las piezas.**
 - **Producto = `SealedProduct`.** ⛔ No el grupo de la pestaña: la **condición no parte el precio** (regla vigente,
   `money.ts:403`; `HECHOS.md:50` (2): «todas las piezas al mismo precio») y el `cardId` ancla es identidad heredada.
@@ -29593,8 +29625,10 @@ alta **sin precio**. Antecedente: `HECHOS.md:38` (b) y lo construido en #69 (`Se
   5. **Cola de precio pendiente:** cierra las `PendingPriceEntry` `open` con `sealedProductId = :id` y `context =
      'inventory'`, por un método **nuevo de `pricing.service`** que recibe el handle `tx` (la regla «toda escritura de la
      cola vive en `pricing.service`», VQ-5, sigue verde). ⛔ No toca las de otro producto del mismo set.
-- ⛔ **No escribe `InventoryItem`** (ni `status`, ni `listPriceCents`, ni movimiento). ⛔ **No publica**: una pieza `in_stock`
-  sigue `in_stock` y la cola «Listas para publicar» la muestra lista. ⛔ Sin `Idempotency-Key` (el CAS + paso 2 bastan).
+- ⛔ **No escribe `InventoryItem`** (ni `status`, ni `listPriceCents`, ni movimiento) **dentro de su transacción**.
+  ~~⛔ **No publica**: una pieza `in_stock` sigue `in_stock` y la cola «Listas para publicar» la muestra lista.~~
+  **v1.83.1 (E-5): tras confirmar, dispara la auto-publicación del producto** — [SP.12.6](#M11-SP-12). ⛔ Sin
+  `Idempotency-Key` (el CAS + paso 2 bastan).
 - 💰 **El CAS contra la compra concurrente — decisión: NO hay candado compartido con el checkout, y es a propósito.**
   - Un pedido **ya creado** (pieza `reserved`) cobra su línea congelada (m4) y ve su total en la sesión: re-preciar el
     producto no lo toca. Como el verbo no escribe piezas, **nunca** recibe un `409` por un checkout ni lo provoca.
@@ -29634,13 +29668,15 @@ alta **sin precio**. Antecedente: `HECHOS.md:38` (b) y lo construido en #69 (`Se
 | `POST …/adjustments` (línea «encontrada») | `422` | ídem | sin cambio |
 | `POST …/bulk-publish` (línea con `listPriceCents`) | `422` | ídem | sin cambio |
 | `PATCH …/items/:id` (`listPriceCents`) | `422` (también el dueño) | dueño ⇒ §M1-SFP (allowlist, CAS, bitácora); otro ⇒ `403` | **sin cambio** (P-PRE-1: operador incluido) |
-| `CreateItemDto.manualMarketMxnCents` (sellado) | dueño ⇒ como hoy; otro ⇒ `403` (**default de P-SP-1**) | n/a (exige producto, `:806`) | n/a |
+| `CreateItemDto.manualMarketMxnCents` (sellado) | dueño ⇒ como hoy; otro ⇒ `403` (**`HECHOS.md:51` (1)**, antes default de P-SP-1) | n/a (exige producto, `:806`) | n/a |
 
 - **Orden:** validación del DTO → esta regla → guardas de hoy. Todo o nada. Sin precio, el sellado entra con el precio
   del producto si existe, si no con el automático, si no a la cola «precio pendiente» (conducta de hoy, `:873`).
 - La pantalla de alta (`SealedAddFlow`) y `ItemDetailModal` **no** muestran campo de precio para sellado ligado.
 
 **SP.5 · `GET /api/v1/admin/inventory/sealed-price-sheet` — la hoja de M11 (`vault_operator+`).**
+> ⛔ **v1.83.1:** los campos de precio de la fila y el margen los sustituye [SP.12.3–12.4](#M11-SP-12). El personal ve
+> costo y margen: **confirmado** por `HECHOS.md:51` (2).
 - **Query:** `?setId=&q=&page=&pageSize=` (patrón de `sealed-sets`; `pageSize` ≤ 100, default 50) `&scope=on_hand|all`
   (**clase L**, default `on_hand`: productos con ≥ 1 pieza de plataforma ligada en `in_stock|listed|reserved`; `all`
   añade los que solo tienen precio del dueño). Orden: nombre del set, luego nombre del producto.
@@ -29695,6 +29731,8 @@ alta **sin precio**. Antecedente: `HECHOS.md:38` (b) y lo construido en #69 (`Se
   sustituye esta regla (el aviso desaparece porque el precio visto se respeta). Registrado en `ARCHITECTURE §9` `D-SP-2`.
 
 **SP.7 · Migración `M-71` — `prisma/migrations/20261021120000_m71_sealed_product_owner_price/migration.sql`.**
+> ⛔ **v1.83.1 (E-7): este SQL queda SUSTITUIDO por [SP.12.12](#M11-SP-12)** (columna `ownerDisplayPriceCents`, **sin
+> relleno**). Se conserva abajo solo como registro de lo descartado.
 ```sql
 ALTER TABLE "SealedProduct" ADD COLUMN "ownerSalePriceCents" INTEGER;
 ALTER TABLE "SealedProduct" ADD CONSTRAINT "sealed_product_owner_price_range"
@@ -29804,6 +29842,8 @@ esperado es **textual** en los ficheros de lista (`schema.prisma`, `error-codes.
 | **orquestador** | SP-14 y el cambio de predicado al fusionar con Skydropx; encargar el diseño de §X «precio visto» | fusión |
 
 **SP.11 · Preguntas al dueño (HECHOS no las responde; cada una con default, ninguna bloquea).**
+> ✅ **v1.83.1 — RESPONDIDAS** (`HECHOS.md:51`, 2026-10-05): P-SP-1 = el default (solo el dueño); P-SP-2 = el default
+> (el personal ve costo y margen); **P-SP-3 = la alternativa** (escribe el precio **con IVA**) ⇒ [SP.12](#M11-SP-12).
 - **P-SP-1 · El «mercado a mano» del alta.** Cuando un sellado no trae precio de mercado, hoy el personal puede escribir
   uno al darlo de alta, y ese mercado **fija el precio automático** de todas las piezas del producto (m8). ¿Lo hace solo
   usted? **Default: sí, solo usted** (si no, el personal pone precio por la puerta de atrás). Alternativa: lo sigue
@@ -29814,6 +29854,261 @@ esperado es **textual** en los ficheros de lista (`schema.prisma`, `error-codes.
   IVA**, y el cliente ve ese precio más el IVA que traslade el dial (m6; posición del dial en producción NO MEDIDA).
   **Default: se queda así, y la hoja muestra al lado «lo que ve el cliente»**. Alternativa: escribir el precio final
   que ve el cliente (requiere errata: hoy la regla de dinero prohíbe derivar el neto desde el final).
+
+<a id="M11-SP-12"></a>**SP.12 · Errata v1.83.1 (2026-10-05, NORMATIVA, 💰) — el dueño escribe el precio CON IVA; A-1, A-2, A-4; N-1;
+N-2.** Fuente: `HECHOS.md:51` («Precio del sellado — respuestas a P-SP-1/2/3 (2026-10-05)»), palabras del dueño: «yo lo
+voy a meter con iva». Solicitudes: `DESIGN_SYSTEM §70.8`. Porqué: `ARCHITECTURE §4.62.8`.
+
+> **Lo medido por el arquitecto (lectura de ficheros en `/home/user/tcg-sellado`, 2026-10-05; HEAD dado por el orquestador
+> `8a64f27f`, ⛔ sha NO MEDIDO: sin Bash):**
+> - (e1) **Diales de IVA en el código:** `iva_pct` (la TASA `r`) default **16** (`settings.constants.ts:307`);
+>   `iva_transfer_pct` (la fracción trasladada `t`) default **100** (`:313`); validadores **enteros en `[0,100]`**
+>   (`validateIvaPct` `:746-752`, `validateIvaTransferPct` `:777-784`); `M-50` siembra `iva_transfer_pct = 100`
+>   (`migrations/20260909120000_m50_price_convention/migration.sql:139`); se leen juntos, una consulta, sin caché
+>   (`settings.service.ts:302-314`). Toda orden nueva se cobra `IVA_INCLUSIVE` (`money.ts:613`) ⇒ subtotal `S = Σ P`.
+>   **Valor en producción: NO MEDIDO.** Medición que lo cierra (usuario de solo lectura o el dueño):
+>   `SELECT key, "valueJson" FROM "ConfigSetting" WHERE key IN ('iva_pct','iva_transfer_pct');` — fila ausente ⇒ default.
+> - (e2) **Solo tres sitios de VENTA derivan `P` de `L`:** `orders.service.ts:305` (checkout, cuenta e invitado),
+>   `catalog.service.ts:946` (listado y ficha), `sealed-catalog.service.ts:222` (rejilla y ficha de sellado). Los demás
+>   `displayPriceCentsOf(` son envío (`shipments.service.ts:260`, `guest-checkout.service.ts:561`, `:578`, vía
+>   `shippingFeeDisplayCentsOf`) y el preview del dial (`settings/iva-transfer.ts:135`). (`Grep` fuera de `*.spec.ts`.)
+> - (e3) **`P = L + round(L·t·r/10000)` (`money.ts:508-514`) es estrictamente creciente pero NO alcanza todos los
+>   enteros.** Calculado a mano con `(t, r) = (100, 16)`: `L=603 ⇒ P=699`, `L=604 ⇒ P=701` ⇒ **MX$7.00 no tiene `L`**;
+>   `L=1034 ⇒ 1199`, `L=1035 ⇒ 1201` ⇒ **MX$12.00 tampoco**; MX$1,299.00 sí (`L=111983`). Por aritmética (⛔ no medido
+>   por prueba; SP-15 lo mide): con 100/16, **4 de cada 29** precios en pesos cerrados no tienen `L`.
+> - (e4) #69 llama «Precio final» a `L` y confirma «Se publica en la tienda a {L}» (`es.json:4682`, `:4690`, `:4705`;
+>   `SealedFinalPrice.tsx:154`, `:159`, `:340`), mientras la tienda enseña `P` (con los defaults, `1.16·L`) ⇒ `D-SP-5`.
+> - (e5) Aportación en especie de un sellado **sin mercado** ⇒ `422 PRICE_PENDING`, no se crea nada, y escala a la cola de
+>   M2 (`inventory.service.ts:832-868`). El mercado del producto lo fija el súper-admin con `POST /admin/pricing/override`
+>   bajo `sealed:tcg:<productId>` (`pricing.controller.ts:206`, `:332`; `'sealed'` a secas se rechaza, `:376-385`).
+> - (e6) Auto-publicación: (b) es best-effort **después** de confirmar (`tryAutoPublish`, `inventory.service.ts:2794-2820`);
+>   el cuerpo único es `reevaluateForPublication` (`:2837-2863`) → `reevaluateOne` (`:2960-3010`), que ⛔ no escribe
+>   `listPriceCents` (`claimListed` sin línea, `:2151-2155`).
+
+**12.1 · 💰 Se guarda `P`, tal cual.**
+- **Columna:** `SealedProduct.ownerDisplayPriceCents Int?` = **`P`**: lo que paga el cliente por pieza, IVA dentro,
+  **exactamente** lo que tecleó el dueño. `null` = no lo ha fijado. CHECK `1…100_000_000`. ⛔ `ownerSalePriceCents` (`L`)
+  queda retirada (no construida: `Grep ownerSalePriceCents|manualSaleOf|sealed-price-sheet` en `backend/` y `frontend/`
+  = 0, 2026-10-05).
+- **Por qué `P` y no `L`:** (i) **(e3)** — con `L` guardado, una parte de los precios que el dueño escriba **no se pueden
+  cobrar**: escribe MX$7.00 y el cliente ve MX$6.99 o MX$7.01. Rechazarlos con `422` sería pedirle un precio que no
+  eligió. (ii) `HECHOS.md:51` (3): el hecho que el dueño decide es `P`; guardar el derivado y reconstruir el hecho es la
+  flecha que `R3` prohíbe (`ARCHITECTURE §4.44.c`). (iii) Coste: tres sitios (e2), con un candado (SP-19).
+- **Redondeo:** **ninguno sobre `P`.** Pesos → centavos sin flotante (`parseFinalPrice`, `SealedFinalPrice.tsx:52-63`), se
+  guarda el entero, se cobra el entero: `OrderItem.unitPriceCents = P`. Solo redondean los **derivados** (12.3), en
+  aritmética entera, mitad hacia arriba (`Math.round` sobre positivos). Cota: `P·10000 ≤ 10¹² < 2⁵³`.
+- **Dos funciones puras nuevas en `common/money.ts`** (un cuerpo cada una):
+  ```ts
+  /** L equivalente de un P fijo con ESTOS diales (lo que el resto del sistema llama «antes de IVA»). */
+  export function listEquivalentCentsOf(displayCents: number, d: IvaDials): number
+  //   = Math.round(displayCents * 10_000 / (10_000 + d.ivaTransferPct * d.ivaRatePct))   // ≥ 1 si P ≥ 1 (t·r ≤ 10⁴)
+
+  /** EL camino a P de una decisión de venta. Precio del dueño ⇒ el suyo; si no ⇒ la derivación de siempre. */
+  export function saleDisplayCentsOf(
+    s: { listPriceCents: number; fixedDisplayCents: number | null }, d: IvaDials,
+  ): number
+  //   = s.fixedDisplayCents ?? displayPriceCentsOf(s.listPriceCents, d.ivaTransferPct, d.ivaRatePct)
+  ```
+- **Ida y vuelta (SP-15).** (a) **`L → P → L` es exacto** para todo `L ≥ 1` y todo `(t, r)` enteros en `[0,100]`:
+  `listEquivalentCentsOf(displayPriceCentsOf(L, t, r), {t, r}) === L`. *Demostración:* con `k = t·r/10⁴`,
+  `|P − L(1+k)| ≤ ½` ⇒ `|P/(1+k) − L| ≤ 1/(2(1+k))`, que es `< ½` si `k > 0`; con `k = 0`, `P = L`. (b) **`P → L → P` NO
+  es identidad** (e3), y **por eso no se recorre nunca**: con precio del dueño, `P` sale de la columna, ⛔ jamás de
+  `displayPriceCentsOf(listEquivalentCentsOf(P))`. Canario: `P = 700`, `(100,16)` ⇒ `L` equivalente `603` ⇒ re-derivado `699`.
+
+**12.2 · 💰 Si se mueve un dial: se conserva lo que paga el cliente.**
+- Es la lectura literal de `HECHOS.md:51` (3) («lo que paga el cliente»). `P` del dueño **no cambia**; cambian sus
+  derivados (`L` equivalente, neto, IVA).
+- **`iva_transfer_pct` (`t`)** — dial de margen (`ARCHITECTURE §4.44.g`): sigue moviendo el `P` de **todo lo que no tiene
+  precio del dueño** (automático y legado por pieza, como hoy) y **no** mueve el de un producto con precio del dueño. El
+  neto de ese producto tampoco cambia: el IVA sale de `G` con la tasa `r`, sin `t` (`R2`).
+- **`iva_pct` (`r`)** (p. ej. 16 → 8): `P` del dueño fijo; su IVA baja y su neto sube (residual de la orden, `R2`).
+- **Lo que tiene que ver el dueño** (ux-ui, sin backend): la pantalla del dial de traslación (M10) y su preview en pesos
+  (`previewIvaTransfer`, criterio 188) calculan el costo sobre un `L` de muestra; ese costo **no aplica** a los sellados con
+  precio del dueño. Una línea fija en esa pantalla lo dice.
+- Las órdenes ya creadas congelan `ivaTransferPct`/`ivaRatePct` por fila (como hoy): ningún dial las toca.
+
+**12.3 · 💰 Resolvedor, sitios y margen** (sustituye en SP.1 la escala y la firma, y en SP.5 la fórmula del margen).
+- `manualSaleOf(item)` ⇒ `{ origin: 'product', displayCents: number } | { origin: 'piece', listCents: number } | null`.
+  El tipo sigue **exigiendo** `sealedProduct: { ownerDisplayPriceCents: number | null } | null` (SP-3).
+- `resolveSealedSalePrice(item, marketRef, ctx, dials)` — **`dials` obligatorio**: los que la petición ya izó (⛔ leerlos
+  dentro). `SealedSpreadResult` gana `origin: SealedPriceOrigin` y **`fixedDisplayCents: number | null`** (≠ `null` ⇔
+  `origin = 'product'`). Peldaño 1: `fixedDisplayCents = P`, `salePriceCents = listEquivalentCentsOf(P, dials)`,
+  `source = 'override'`, `appliedSpreadPct = null`. Peldaños 2–4: `fixedDisplayCents = null`, el resto como hoy.
+- Los **tres** sitios de (e2) cambian `displayPriceCentsOf(L, …)` por **`saleDisplayCentsOf(…)`**. `SaleDecision`
+  (`orders.service.ts`) gana `fixedDisplayCents` y `derivedSaleDecision` (`:302-307`) usa `saleDisplayCentsOf`.
+  `sealed-catalog.service.ts:200` ordena el grupo por **`P`** (no por `L`) para elegir el representante.
+- Las reglas «`> 0` / vendible» siguen sobre `L` (doctrina de `catalog.service.ts:932-936`); el `L` equivalente es `≥ 1`.
+- **Margen (sustituye SP.5):** sobre el **neto fiscal por pieza** `N = taxBaseCentsOf(P, r)` (`money.ts:565-567`), ⛔ no
+  sobre `L`: `margin.cents = N − cost.avgCents`, `margin.bps = round(cents·10000 / N)`; `null` si no hay `P` o no hay
+  costo. *Por qué:* con `t < 100`, `L` no es lo que queda tras el IVA (el IVA se calcula con `r` sobre `G`); `N` sí, y no
+  depende de `t`. Con los defaults (`t = 100`) `N ≡ L` **exacto** para todo automático (12.1 (a) con `k = r/100`) ⇒ el
+  ejemplo de SP-10 no cambia con los defaults. `N` por pieza puede diferir ≤ 1 centavo de su parte del IVA agregado de
+  una orden (`R2`): es informativo, ⛔ nunca decide nada.
+
+**12.4 · Formas** (sustituyen SP.1 «DTO admin», SP.2 Req/Res/409/bitácora y la fila de SP.5).
+- **`PUT /api/v1/admin/inventory/sealed-products/:sealedProductId/sale-price`**
+  - Req: `{ displayPriceCents: number /* P, entero 1…100_000_000 */, expectedDisplayPriceCents: number | null }`.
+  - `409 CONFLICT` `details: { currentDisplayPriceCents: number | null }`.
+  - Bitácora `sealed_product.sale_price_set`: `before: { ownerDisplayPriceCents }`, `after: { ownerDisplayPriceCents,
+    pieces: { inStock, listed, reserved }, ivaDials: { ivaTransferPct, ivaRatePct } }` (diales leídos en la tx: con ellos
+    se reconstruye el `L` equivalente del momento).
+  - Res `200`: `{ data: SealedPriceSheetRowDTO, autoPublish: SealedAutoPublishDTO | null }` (12.6). Mecánica, CAS,
+    idempotencia (paso 2, ahora sobre `ownerDisplayPriceCents`), cierre de la cola (paso 5) y errores: los de SP.2.
+- **`SealedPriceSheetResponse`** gana `iva: { ratePct: number, transferPct: number }` (un `getIvaDials` por petición; para
+  los rótulos y para el margen en vivo del editor, 12.5).
+- **`SealedPriceSheetRowDTO`** — campos de precio:
+  ```ts
+  ownerDisplayPriceCents: number | null,      // P del dueño (peldaño 1), lo tecleado; null = no hay
+  automaticListPriceCents: number | null,     // L automático (peldaño 3), SIEMPRE calculado
+  automaticDisplayPriceCents: number | null,  // su P = displayPriceCentsOf(automaticList, t, r)
+  automaticSource: 'subtype_spread' | 'global_spread' | null,   // null ⇔ automaticListPriceCents null
+  appliedSpreadPct: number | null,            // 12.8; null ⇔ automaticSource null
+  effectiveOrigin: 'product' | 'automatic' | 'pending',
+  displayPriceCents: number | null,           // LO QUE PAGA EL CLIENTE por una pieza sin precio propio: owner ?? automaticDisplay
+  netPriceCents: number | null,               // N = taxBaseCentsOf(displayPriceCents, r): sin IVA, por pieza, informativo
+  legacyPiecePrices: { count: number, minDisplayCents: number | null, maxDisplayCents: number | null, shadowed: boolean },
+                                              // P de las piezas con listPriceCents > 0 (derivación exacta desde su L)
+  margin: { cents: number, bps: number } | null,   // sobre netPriceCents (12.3)
+  ```
+  ⛔ Retirados (no construidos): `ownerPriceCents`, `automaticPriceCents`, `effectivePriceCents`. El resto de la fila
+  (`sealedProductId`, `name`, `subtype`, `imageUrl`, `active`, `set`, `pieces`, `cost`, `market`) sin cambio.
+- **`InventoryItemDTO`** (listado, filas S-2) y **`PendingPublishRowDTO`** (filas `sealed`):
+  `sealedProductPriceCents` ⇒ **`sealedProductDisplayPriceCents?: number | null`** (`P` del dueño); **+
+  `resolvedDisplayPriceCents?: number | null`** — el `P` de la pieza por `saleDisplayCentsOf` sobre la **misma** derivación
+  que `resolvedSalePriceCents`, con las mismas condiciones de presencia. `resolvedSalePriceCents` conserva su escala `L`
+  (con precio del dueño, el `L` equivalente). `sealedPriceOrigin` sin cambio. + A-1 (12.7).
+
+**12.5 · El editor (frontend + ux-ui).**
+- El dueño teclea **`P`** y el cuerpo lleva **ese entero**: `displayPriceCents = parseFinalPrice(texto)`. ⛔ El cliente no
+  deriva `L` ni `P` (F-SP-7).
+- **Margen en vivo:** `marginPreview(displayCents, avgCostCents, ivaRatePct)` pura: `N = round(P·100/(100+r))` (la misma
+  aritmética entera que `taxBaseCentsOf`), `cents = N − avg`, `bps = round(cents·10000/N)`; `r = iva.ratePct` de la
+  respuesta. Es la **única** cuenta de dinero del cliente (ux-ui N-4). Vectores, **los mismos** en SP-10 (backend) y
+  UX-SP-8 (frontend):
+
+  | `P` | `r` | `avg` | `N` | `cents` | `bps` |
+  |---|---|---|---|---|---|
+  | 145000 | 16 | 90000 | 125000 | 35000 | 2800 |
+  | 129900 | 16 | 100000 | 111983 | 11983 | 1070 |
+  | 700 | 16 | 500 | 603 | 103 | 1708 |
+  | 150000 | 8 | 110000 | 138889 | 28889 | 2080 |
+
+**12.6 · 💰 A-2 — el `PUT` dispara la auto-publicación. Decisión: SÍ.** (Sustituye SP.2 «⛔ No publica».)
+- **Qué:** **después** de confirmar la transacción del `PUT`, el servicio lee los ids de las piezas `ownerType='platform'
+  ∧ status='in_stock' ∧ sealedProductId=:id` y llama a **`reevaluateForPublication(ids)`** (`inventory.service.ts:2837`):
+  el **mismo** cuerpo, pipeline completo (`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`),
+  idempotente. Mismo módulo ⇒ llamada directa, ⛔ sin pasar por el puerto (como el disparo (b), `:2808-2809`). Las piezas
+  sin ubicación salen `missing_location` y no se tocan.
+- **Por qué SÍ:** el contrato ya obliga a intentar publicar **cuando el precio se vuelve resoluble** (§M1, momento (c)) y
+  el `PUT` es exactamente ese momento para un producto sin mercado. Sin el disparo, una pieza en caja **con ubicación**
+  que recibe el precio deja de cumplir el predicado de la cola (`missing = []`) y se queda `in_stock`: fuera de la venta y
+  fuera de toda pantalla (criterio 125, «ninguna pieza adquirida se queda invisible»). La REGLA GENERAL
+  (`/home/user/tcg-skyd/HECHOS.md:59`, 2026-10-04, ⛔ fila aún no fusionada en esta rama) pide automático.
+- **Por qué DESPUÉS de confirmar y no dentro de la tx:** (1) el precio es la decisión del dueño; que una pieza no se
+  pueda publicar (guarda, carrera con un checkout) **no debe deshacerla** — misma doctrina que `tryAutoPublish`
+  (`:2794-2802`); (2) la tx del `PUT` sigue sin escribir piezas ⇒ `§4.62.4` intacto (sin espera contra el checkout).
+- **Respuesta:** `SealedAutoPublishDTO = { published: number, missingLocation: number, notPublished: number }`, cuentas de
+  `PublishReevaluationResult.outcome` (`published`; `missing_location`; el resto). **`null` ⇔ el intento lanzó** (se
+  registra en log): el precio **ya está** confirmado y las piezas siguen en «Listas para publicar», que es la red. La
+  fila `data` se relee **después** del intento.
+- ⛔ El «Guardar y publicar» de #69 desaparece para la pieza **ligada**: un solo «Guardar», y lo publicable se publica
+  solo. (Pieza sin producto: sin cambio, 12.11.)
+- **Prueba SP-16** (abajo). Carrera con el checkout: la de siempre de `claimListed` (CAS por conjunto de origen).
+
+**12.7 · A-1 — identidad y conteo del producto en las filas.**
+- **`sealedProductId?: string | null`** en `InventoryItemDTO` (listado `GET /admin/inventory/items`) y en
+  `PendingPublishRowDTO`: **presente en toda fila `productType='sealed'`** (cualquier estado y dueño); `null` = sin
+  producto; ⛔ ausente en raw/graded. Es la columna `InventoryItem.sealedProductId`: identidad, no dinero.
+- **`sealedProductPieces?: { inStock: number, listed: number, reserved: number }`** — presente si `sealedProductId != null`
+  y la fila es de las de S-2 (`platform ∧ in_stock|listed`) en el listado, o cualquier fila ligada de la cola. **Misma
+  definición y misma función de agregación** que `SealedPriceSheetRowDTO.pieces` (plataforma, ligadas a ese producto;
+  ⛔ contar las filas de la página): un `groupBy (sealedProductId, status)` por página sobre los ids distintos.
+- ⛔ `GET …/items/:id` sin cambio.
+
+**12.8 · A-4 — unidad de `appliedSpreadPct`.** La **misma** que `SealedSpreadsDTO` (`API_CONTRACT §DTOs`, `SealedSpreadsDTO`;
+`types/contract.ts:4663-4665`): **puntos porcentuales de markup sobre el mercado**, `22` ⇒ `L = round(mercado × 1.22)`
+(`money.ts:427`), copiados sin redondear. Se aplica a **`L`** (antes de IVA): el `P` automático es ese `L` más el IVA
+trasladado. ⛔ La pantalla no puede sugerir que `P` = mercado + `s` %.
+
+**12.9 · N-1 — el personal y la aportación de un sellado sin mercado.** Qué pasa (e5): **compra** ⇒ se da de alta sin precio
+(precio del producto, si no automático, si no cola; SP.4). **Aportación en especie** ⇒ `422 PRICE_PENDING`, nada creado,
+escalada a M2 — porque su **costo** es `mercado × aportacion_pct` (`inventory.service.ts:870`) y sin mercado no hay costo.
+Salida: el dueño fija el **mercado** del producto en M2 (`POST /admin/pricing/override`, clave `sealed:tcg:<productId>`) o da
+de alta él mismo con mercado a mano; el operador reintenta.
+- ⛔ **El precio de venta del dueño NO valúa la aportación** (lleva margen e IVA dentro: inflaría el costo y lo que se le
+  reconoce al aportante).
+- ⚠️ Cruce con SP.2 paso 5: el `PUT` cierra la entrada de la cola de **ese** producto, que puede ser la que abrió la
+  aportación fallida. Se mantiene el paso 5 (la entrada habla de venta) y cada reintento de aportación **re-escala**
+  (`escalatePending`, `:851-863`). Que `escalatePending` **reabra** una entrada cerrada: **NO MEDIDO** — backend lo
+  asevera en SP-11.
+- Es consecuencia de `HECHOS.md:51` (1): **se le avisa al dueño** en la solicitud de fusión; ⛔ no es pregunta (O-6). Si no
+  lo quiere así, las salidas son revertir (1) o «aportación con costo pendiente» (⛔ no diseñada: toca el costo congelado).
+
+**12.10 · N-2 — SP.6 es PROVISIONAL, y contradice a `HECHOS.md:49` en la letra.** `HECHOS.md:49` (2026-10-04): «se le cobra al
+cliente el precio que vio, no vale la pena actualizar» (respuesta a P-POR-3: ⛔ no avisar ni re-cobrar). SP.6 **avisa y cobra
+el actual**. Se mantiene **solo** porque el precio firmado del carrito (§X) no existe (SP.2, «Cuando exista…») y sin él la
+alternativa es peor: Stripe cobra una cifra que la pantalla no mostró (`D-SP-2`). **Vida:** hasta que §X entre en `main`; en
+ese PR se retira el aviso y el segundo clic de F-SP-5 (el `amountLabel` = total de la sesión **se queda**). La solicitud de
+fusión de este stream lo dice al dueño. `PROJECT §X.2` (aviso como default de P-POR-3) contradice `HECHOS.md:49`: lo
+reconcilia **product-owner**.
+
+**12.11 · Sellado SIN producto (`D-SP-4`).** Su precio sigue siendo `InventoryItem.listPriceCents`, en **`L`** — columna compartida
+con raw/graded (P-PRE-1). ⛔ No se mete `P` en esa columna para un tipo y `L` para otro (un importe cuya convención no viaja
+con él se lee mal en silencio, `money.ts:469-473`). El editor de #69 para estas piezas (solo el dueño, SP.3) se rotula
+**«antes de IVA»** y muestra al lado `resolvedDisplayPriceCents` (servidor). Salida para el dueño: ligar la pieza a su
+producto y poner el precio con IVA en la hoja. Dimensión: `unlinkedCount` de la hoja en producción, **NO MEDIDO**. Si es
+mayor que cero y el dueño quiere `P` también ahí: columna nueva por errata (⛔ no diseñada ahora).
+
+**12.12 · `M-71` sin relleno** (sustituye el SQL de SP.7). Carpeta
+`prisma/migrations/20261021120000_m71_sealed_product_owner_display_price/migration.sql`:
+```sql
+ALTER TABLE "SealedProduct" ADD COLUMN "ownerDisplayPriceCents" INTEGER;
+ALTER TABLE "SealedProduct" ADD CONSTRAINT "sealed_product_owner_display_price_range"
+  CHECK ("ownerDisplayPriceCents" IS NULL OR ("ownerDisplayPriceCents" BETWEEN 1 AND 100000000));
+```
+- ⛔ **Sin relleno:** rellenar `P` desde el `listPriceCents` común exigiría escribir `displayPriceCentsOf` **en SQL** con los
+  diales del momento — una segunda fórmula del dinero. Sin relleno **ningún precio se mueve** (el peldaño 2 sigue
+  cobrando lo de hoy) y la hoja marca esos productos (`legacyPiecePrices.shadowed = false`) para que el dueño escriba su
+  `P` una vez. El `SELECT` de `agg` de SP.7 sigue sirviendo **antes** del despliegue para contar cuántos productos tienen
+  precio por pieza (NO MEDIDO en producción). **Rollback:** código anterior + `DROP COLUMN "ownerDisplayPriceCents"`; los
+  precios puestos por el dueño se pierden (están en la bitácora).
+
+**12.13 · P-SP-1/2/3 cerradas** (`HECHOS.md:51`): (1) la fila `manualMarketMxnCents` de SP.4 queda firme; (2) SP.5 sin
+cambio (`vault_operator+` ve costo y margen); (3) esta errata.
+
+**12.14 · Pruebas** (deterministas ⇒ N=1 es medida; mutaciones sobre copia del árbol ENTERO, O-9).
+
+| # | Caso | Esperado | Mutación que la pone roja |
+|---|---|---|---|
+| 💰 **SP-1** (+) | Pura: producto `ownerDisplayPriceCents 700`, diales `(100,16)` y `(50,16)`; legado `listPriceCents 1000` con `(50,16)` | `fixedDisplayCents 700` con `salePriceCents 603` y `648`; legado `P = 1080` | `saleDisplayCentsOf` ignora `fixedDisplayCents` ⇒ `699` |
+| 💰 **SP-2** (cambia) | La paridad de SP-2 con producto `ownerDisplayPriceCents 700`, pieza `listPriceCents 1000`, `(100,16)` | `P = 700` en ficha, listado, rejilla, `quote`, `session` (`OrderItem.unitPriceCents`, PI), `resolvedDisplayPriceCents` de `pending-publish` y de `GET …/items` | un sitio deriva `P` desde el `L` equivalente ⇒ `699` |
+| **SP-5** (cambia) | El CAS de SP-5 con `expectedDisplayPriceCents` | igual que SP-5, `409 { currentDisplayPriceCents }` | la de SP-5 |
+| **SP-7** (cambia) | Con `reevaluateForPublication` sustituido por un doble: la tx del `PUT` no toca `updatedAt`, `status` ni `listPriceCents` de ninguna pieza | — | escribir `listPriceCents` en las piezas |
+| **SP-10** (cambia) | Margen sobre `N` con los vectores de 12.5; con `t = 50` el margen de un automático es `N − avg`, ≠ `L − avg` | tabla 12.5 | margen sobre `L` o sobre `P` |
+| **SP-12** (cambia) | `M-71`: columna y CHECK; **cero** filas de bitácora; `P` efectivo de cada pieza igual antes y después; CHECK rechaza `0` | — | añadir un relleno |
+| 💰 **SP-15** | Pura, ida y vuelta: `L ∈ [1, 200000]` × `t ∈ {0,37,50,100}` × `r ∈ {0,8,16}` exhaustivo + 10⁵ `L` al azar hasta 10⁸ + extremos (`1`, `10⁸`, `t·r = 10⁴`) ⇒ `listEquivalentCentsOf(displayPriceCentsOf(L)) === L`; y `P = 700`, `1200` con `(100,16)` ⇒ ningún `L` da ese `P` (documenta e3) | — | `Math.floor` en `listEquivalentCentsOf` |
+| 💰 **SP-16** | A-2: producto con A (`in_stock`, con ubicación), B (`in_stock`, sin ubicación), C (`listed`), D (de cliente). `PUT` | `200`; A `listed`, B `in_stock`, C y D intactas; `autoPublish {1,1,0}`; una fila de bitácora. Con `reevaluateForPublication` que lanza: `200`, `autoPublish: null`, precio confirmado, bitácora presente | quitar el disparo (A sigue `in_stock`); meterlo dentro de la tx (el fallo revierte el precio) |
+| **SP-17** | A-1: página con 2 piezas del producto X (X tiene 3 `in_stock`, 1 `listed`, 1 `reserved`), 1 sellada sin producto, 1 raw | las dos de X con el mismo `sealedProductId` y `{3,1,1}`; la sin producto `sealedProductId: null` y sin `sealedProductPieces`; la raw sin ninguna de las dos; mismas consultas con 1 y con 50 filas | contar con las filas de la página |
+| 💰 **SP-18** | Dial: `iva_transfer_pct` 100 → 50 por su verbo de M10 | producto con precio del dueño: mismo `P` en ficha y checkout; producto automático: `P` baja | guardar `L` |
+| **SP-19** | Censo: `displayPriceCentsOf(` en `backend/src/modules` solo en la lista de (e2) para envío y preview; las ventas, solo por `saleDisplayCentsOf` | — | canario: llamarla directo en `catalog.service.ts` |
+
+**Frontend:**
+| # | Caso | Mutación |
+|---|---|---|
+| **F-SP-2** (cambia) | El `PUT` lleva `expectedDisplayPriceCents` = el `ownerDisplayPriceCents` pintado al abrir | la de F-SP-2 |
+| 💰 **F-SP-7** | El editor envía `displayPriceCents` = los centavos tecleados exactos (`7.00` ⇒ `700`), ⛔ ninguna derivación de `L`/`P` en el cliente; el margen en vivo cumple los vectores de 12.5 | mandar `round(700/1.16)` |
+| **F-SP-8** | Tras `200` con `autoPublish {published: 1, missingLocation: 1}` el aviso dice 1 publicada y 1 en caja; con `autoPublish: null`, dice que el precio se guardó y remite a «Listas para publicar» | deducir publicadas comparando `pieces` |
+
+**12.15 · Cambios por rol.**
+
+| Rol | Qué | Dónde |
+|---|---|---|
+| **backend 💰** (modelo fuerte) | Columna `ownerDisplayPriceCents` y `M-71` sin relleno (12.12); `listEquivalentCentsOf` y `saleDisplayCentsOf` (12.1); `manualSaleOf`/`resolveSealedSalePrice` con `dials` y `fixedDisplayCents` (12.3); los tres sitios de (e2) y el orden por `P` de la rejilla; `PUT` con `displayPriceCents` y disparo post-commit (12.4, 12.6); hoja con los campos de 12.4 y margen sobre `N`; A-1 (12.7); pruebas de 12.14 | `common/money.ts`, `orders.service.ts:302-307`, `catalog.service.ts:943-946`, `sealed-catalog.service.ts:199-226`, `inventory/` |
+| **frontend** | Tipos y `api.ts` con los nombres de 12.4 y 12.7; editor que envía `P` y `marginPreview` con `r`; avisos por `autoPublish`; quitar la casilla de reserva de A-2; #69 en pieza sin producto rotulado «antes de IVA» con `resolvedDisplayPriceCents` (`D-SP-4`, `D-SP-5`); F-SP-7, F-SP-8 | `types/contract.ts:2606-2643`, `:3936-3970`; `SealedFinalPrice.tsx`; `es.json:4681-4711` |
+| **ux-ui** | Ajustar `DESIGN_SYSTEM §70` (lista en el informe del arquitecto al orquestador) y la línea del dial en M10 (12.2) | `DESIGN_SYSTEM §70`, M10 |
+| **product-owner** | Reconciliar `PROJECT §X.2` con `HECHOS.md:49` (12.10) | `PROJECT §X.2` |
+| **QA** | SP-1, -2, -5, -7, -10, -12, -15…-19; F-SP-2, -7, -8; recorrido O-4: el dueño escribe MX$7.00 en la hoja ⇒ la ficha pública dice MX$7.00 ⇒ un cliente paga MX$7.00 (`OrderItem` y PI) ⇒ una pieza en caja con ubicación del producto quedó publicada sola | build |
+| **orquestador** | En la solicitud de fusión: N-1 (12.9), N-2 (12.10), el valor de los diales en producción (e1, NO MEDIDO) y el conteo de legado de SP.7 antes de desplegar | fusión |
 
 ---
 
