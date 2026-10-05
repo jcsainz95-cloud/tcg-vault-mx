@@ -4,7 +4,19 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.20 (2026-10-04) — CAPTURAR GUÍA TRAS LAS ERRATAS v1.80.12.6–.9 Y EL CONTROL DEL GASTO (§43.19 NUEVA;
+> Estado: **v4.21 (2026-10-05) — LA CUENTA DEL DUEÑO Y LA REVISIÓN DE LOS COPYS PROVISIONALES (§43.20 NUEVA;
+> `API_CONTRACT §M4-SHIP.19.30` v1.80.12.10; `FRONTEND_NOTES §92`; ux-ui sin Bash, sha NO MEDIDO por mí):** cada copy
+> que frontend escribió sin diseño queda **ratificado o corregido** con su clave y ES/EN (§43.20.1); textos de **AG-21**
+> (cuatro variantes) y **AG-22** (uno por `act`); `orphan_cancel_unknown`; avisos **apagados** visibles (filtro
+> `?muted=`, «Apagado: sin correo» en lugar de la línea del correo, nota y diálogo de apagado corregidos: ya no «no se
+> registra»); AG-21/AG-22 **siempre encendidos** en Configuración; `seen` para el súper-admin no dueño («Lo marca el
+> dueño»); «Dueño» en Usuarios; textos que decían «tú» / «súper-admin sin correo» corregidos; **`{ref}` sin artículo**
+> («del pedido», nunca «de el pedido»). **Decisiones:** UX-SDX-28 (c) se corrige el **canario** (excepción anclada
+> `(?<!\d)24 (horas|hours)`), el copy se queda; el operador **no ve** «Avisos de gasto» en el menú (ratificado). Reglas
+> **OWN-1…OWN-4**; **FS-44…FS-55**; candados **UX-GAS-8…13**; solicitudes **S-GAS-7…9**. **Cero tokens nuevos, cero
+> pares de contraste nuevos.** Lo que sigue es la v4.20 con marcas «→ §43.20» donde un texto queda sustituido.
+>
+> Estado anterior: **v4.20 (2026-10-04) — CAPTURAR GUÍA TRAS LAS ERRATAS v1.80.12.6–.9 Y EL CONTROL DEL GASTO (§43.19 NUEVA;
 > `API_CONTRACT §M4-SHIP.19.26`–`§19.29`; `HECHOS.md:58` «TAMBIÉN EL PERSONAL», `:59` «REGLA GENERAL», `:61` folio,
 > `:62` «Control del gasto — límites aceptados»; `PROJECT §Z`; ux-ui sin Bash, sha NO MEDIDO por mí):** el paso 3 deja
 > de decir «Solo el dueño» (texto por modo del dial); negativa por tope `403 LABEL_PURCHASE_LIMIT` **sin cifras** con
@@ -23034,7 +23046,7 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 
 ---
 
-## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12; **v4.18** · §43.18 la dirección del cliente, `§M4-SHIP.19.5`; **v4.19** · §43.18m la colonia ayuda, no bloquea, `HECHOS.md:57`; **v4.20** · §43.19 erratas v1.80.12.6–.9 y control del gasto, `§M4-SHIP.19.26`–`.29`)
+## 43. Capturar guía con Skydropx — la ventana de cuatro pasos, la tarjeta, «Salida de hoy», «Configuración › Envíos», el cliente y `AV-17`/`AV-18`/`AV-19` (v4.15, 2026-10-04 · `API_CONTRACT §M4-SHIP.19.19` v1.80.11; **v4.16** · `§M4-SHIP.19.20` v1.80.12; **v4.18** · §43.18 la dirección del cliente, `§M4-SHIP.19.5`; **v4.19** · §43.18m la colonia ayuda, no bloquea, `HECHOS.md:57`; **v4.20** · §43.19 erratas v1.80.12.6–.9 y control del gasto, `§M4-SHIP.19.26`–`.29`; **v4.21** · §43.20 la cuenta del dueño y los copys provisionales, `§M4-SHIP.19.30`)
 
 > **v4.16 — qué cambió en esta sección y por qué.** Fuente: `HECHOS.md:50` (2026-10-04): *«En «Capturar guía» el dueño
 > (y quien prepare) puede corregir TODA la dirección del cliente antes de comprar la guía: calle, número, CP, colonia,
@@ -25097,7 +25109,8 @@ uuid** donde hoy se ve:
   cliente; el folio es del **envío** (un pedido puede tener retiro, reposición…). La etiqueta dice «Pedido» porque así
   lo pidió el dueño para la paquetería (`HECHOS.md:61`), y la pantalla la cita literal donde hay que buscarla.
 - El sufijo de intento (`-01`) **solo** donde se busca en Skydropx; en la cola y en la hoja, el folio sin intento.
-- ⛔ «Salida de hoy» no lo pinta: su DTO no lo trae (S-GAS-1).
+- ~~⛔ «Salida de hoy» no lo pinta: su DTO no lo trae (S-GAS-1).~~ **→ §43.20.1 (v4.21):** el DTO ya lo trae (§19.30.8);
+  la fila lo pinta como lo construyó frontend (ratificado).
 - ⛔ Ninguna superficie de cliente (SK15). UX-SDX-34 lo barre.
 
 ---
@@ -25108,7 +25121,8 @@ uuid** donde hoy se ve:
 **Menú** (`AdminSidebar.tsx`, grupo `daily`, justo después de «Reembolsos»): `{ href: '/admin/spend-alerts', key:
 'spendAlerts', superAdminOnly: true }`, rótulo **`admin.modules.spendAlerts`** «Avisos de gasto» / “Spending alerts”; el
 `h1` de la página es esa misma cadena (§37.2a-2). Sin badge en esta versión (S-GAS-3): el número sin ver vive en la
-tarjeta del tablero.
+tarjeta del tablero. **→ §43.20.9 (v4.21):** además `hiddenUnlessSuperAdmin` (el operador no la ve, ni bloqueada) y badge
+con `spendAlertsUnseenImmediate`. Filtros, apagados y `seen` del no dueño **→ §43.20.5–.6**.
 
 **Cabecera:** `h1` + `text-sm text-muted` **`spendAlerts.subtitle`** «Lo que el sistema detectó solo sobre dinero que
 nos cuesta. Los inmediatos te llegan también por correo; el resto, en el resumen diario de las 08:00.» / “What the system
@@ -25152,7 +25166,7 @@ re-pinta al volver atrás):
 | `batch_sent` | Enviado en el correo de lote · {hora} | Sent in the batch email · {time} |
 | `failed` | El correo falló; lo reintentamos | The email failed; we'll retry |
 | `failed_unknown` | No sabemos si el correo salió; no lo reenviamos para no duplicarlo | We don't know if the email went out; we won't resend it to avoid a duplicate |
-| `no_recipient` | Sin correo: no hay cuenta de dueño con correo | No email: there's no owner account with an email |
+| `no_recipient` | ~~Sin correo: no hay cuenta de dueño con correo~~ **→ §43.20.6** | ~~No email: there's no owner account with an email~~ |
 
 **Marcar como visto:** fila ⇒ `POST …/seen {ids:[id]}`; selección ⇒ botón secundario **«Marcar como vistos ({n})»** /
 “Mark as seen ({n})” sobre la tabla (aparece con ≥ 1 seleccionado). Resultado en `role="status"`: «{updated, plural,
@@ -25257,8 +25271,10 @@ is logged. All alerts start switched on.”
 **(3) Qué avisos están encendidos** (`spendAlertsDisabled`). `fieldset` con leyenda **«Avisos encendidos»**; una casilla
 por AG-1…AG-13, **marcada = encendido**, rótulo «AG-{n} · {título}» (§43.19.11) + `text-xs text-muted` con la gravedad
 («Correo inmediato» / «Resumen diario» / «Inmediato o resumen, según el monto»). Lo que se manda es la lista de **los
-desmarcados**. Nota: **«Un aviso apagado no se registra: ni en la lista ni en el correo. Lo que pase mientras está apagado
-no se puede ver después.»**
+desmarcados**. Nota: ~~«Un aviso apagado no se registra: ni en la lista ni en el correo. Lo que pase mientras está apagado
+no se puede ver después.»~~ **→ §43.20.5 (v4.21):** con §19.30.2 (5) apagar quita el correo, no la fila; nota, diálogo,
+gravedad por aviso y AG-21/AG-22 siempre encendidos ahí. Subtítulo y ayudas que decían «Solo el súper-admin» / «Tú no
+tienes tope» **→ §43.20.6**.
 
 **Guardar** — **«Guardar control del gasto»** ⇒ **«Ajustes de control del gasto guardados.»**; `422` ⇒ bajo su campo; nada
 se guarda a medias. **Si el guardado apaga algún aviso que estaba encendido**, `Dialog` antes del `PUT` (foco en «Volver»):
@@ -25304,7 +25320,9 @@ switched-off alert isn't recorded: not in the list and not by email. What happen
 #### 43.19.11 Los avisos AG-1…AG-13 — título, frase y nombres
 
 Clave `spendAlerts.kind.<code>.title` y `.text`. **`{ref}`** = con pedido «el pedido {orderNumber}» / “order
-{orderNumber}”; sin pedido «el envío {folio}» / “shipment {folio}”. **`{persona}`** = `subject.name` (sin nombre ⇒ «una
+{orderNumber}”; sin pedido «el envío {folio}» / “shipment {folio}”. **→ §43.20.7 (v4.21): en ES `{ref}` va sin artículo
+y la frase pone «del»/«el»** (lo de abajo daba «de el pedido»). AG-4 `denied`, AG-9 `orphan_cancel_unknown`, AG-21 y
+AG-22 **→ §43.20.1–.4**. **`{persona}`** = `subject.name` (sin nombre ⇒ «una
 cuenta sin nombre», §36.14). Montos con `formatMoneyCents` (MX$, como el correo, §41.5). Todo dato sale de `facts`,
 `amountCents` y las referencias del DTO (GAS-4); ⛔ ningún dato del cliente (GAS-2).
 
@@ -25480,6 +25498,9 @@ asunto dice «1 aviso de gasto más». **ML-29** — `AVG-3`: secciones 2–4 ig
 fixture); con `costlyChoices.count = 0` la sección 4 no está; CTA en tinta. (PS-153/154 miden envío, freno y frontera de
 día; éstos, el texto.)
 
+**→ §43.20.12 (v4.21):** UX-SDX-28 (c) sustituida (excepción anclada de «24 horas»); UX-GAS-1 ratificada tal como la
+construyó frontend; nuevos UX-GAS-8…13.
+
 #### 43.19.16 Contraste — cero pares nuevos
 
 «Inmediato», «Sin ver» con valor > 0, la cuenta de la tarjeta y los errores usan `text-accent` sobre papel; el resto
@@ -25500,3 +25521,355 @@ dice la palabra.
 | **N-GAS-1** | orquestador | **P-SDX-REL** sigue en (a): los textos dicen «un súper-admin». Si el dueño elige (b), cambian `labelAlert.unknown.superAdminOnly` y `inFlight.body` (una frase cada uno); el diálogo de «Liberar» no cambia |
 | **N-GAS-2** | orquestador | SK2 (§43.0) cita `HECHOS.md` fila «Skydropx — Carta Porte…» («guía por guía»); `HECHOS.md:58` la sustituye en quién compra. SK2 sigue en pie en lo que dice (un clic con la cifra), no en quién |
 | **N-GAS-3** | frontend | Las tres claves retiradas (`ownerOnly`) se borran en el **mismo commit** que sus tres lectores (§43.19.13) |
+
+---
+
+### 43.20 Errata v1.80.12.10: la cuenta del dueño, AG-21/AG-22, `seen` con `skipped`, los avisos apagados, y la revisión de los copys provisionales de frontend *(v4.21, nueva)*
+
+#### 43.20.0 Fuente, lo leído y lo que cambia el diseño
+
+**Fuentes, en este orden:** `API_CONTRACT §M4-SHIP.19.30` (v1.80.12.10; `:27673-27948`): §19.30.1 (6) AG-21, §19.30.2
+(1) `OWNER_ONLY_SETTING`, (2) `OWNER_ACCOUNT_PROTECTED`, (3) AG-22 por `act`, (4) `seen` con `skipped`, (5) `muted`;
+§19.30.3 `isOwner`; §19.30.6 (3) `orphan_cancel_unknown`; §19.30.8 S-GAS-1…5; la fila ux-ui de §19.30.14. Y
+`FRONTEND_NOTES.md §92` (`:19454-19535`), que lista los copys que frontend escribió sin diseño. Donde esta subsección
+choca con §43.19, **manda ésta**.
+
+**Lo que leí** (2026-10-05, árbol `/home/user/tcg-skyd`, rama `claude/skydropx-d`; ⛔ sin Bash, sha **NO MEDIDO** por mí):
+`API_CONTRACT.md:27505-27610`, `:27673-27948`, `:7650`, `:27249`; `FRONTEND_NOTES.md:19454-19535`;
+`frontend/messages/es.json` `:1950`, `:1976`, `:2744-2769`, `:4066-4067`, `:4503-4515`, `:4594-4687`, `:5375-5617`
+(y las mismas claves en `en.json` por `grep`: **mismas líneas** en todas las que cité); `spend-alerts/alert-text.ts:27-184`;
+`spend-alerts/SpendAlertsView.tsx:95-194`; `spend-alerts/[id]/SpendAlertDetailView.tsx:59-78` (`grep`);
+`m10/sections/SpendControlSection.tsx:63-72`, `:116-247` (`grep`); `m10/sections/ShippingSection.tsx:120-150`, `:198-242`,
+`:426-427` (`grep`); `m6/M6View.tsx:188-199`, `:560-619`; `m4/DepartureBoard.tsx:154-179`;
+`components/layout/AdminSidebar.tsx:28`, `:63-69`, `:185-193` (`grep`); `m4/CaptureLabelDialog.v420.test.tsx:59-63`,
+`:101-119` (`grep`).
+
+**Medido, que cambia el diseño:**
+1. **«El dueño» ya no es «súper-admin con correo»: es una cuenta marcada** (§19.30.1). La ayuda del tope dice «los
+   súper-admin sin correo sí» (`es.json:4605`): falso desde v1.80.12.10.
+2. **Apagar un aviso ya no lo borra** (§19.30.2 (5)): la fila se crea con `muted`. La nota de «Avisos encendidos»
+   (`:4660`) y el diálogo de apagado (`:4665`) dicen «no se registra… no se podrá ver después»: los dos son falsos ahora.
+   **Los escribí yo en v4.20**; frontend los copió fiel.
+3. **Los ajustes de gasto los cambia solo el dueño** (§19.30.2 (1)). El subtítulo de la sección dice «Solo el súper-admin»
+   (`:4598`); y tres textos hablan de «tú» como si quien lee fuera siempre el dueño («Tú no tienes tope», `:4510`, `:4605`;
+   «la compras tú», `:4610`). Un súper-admin que no es el dueño los ve (deshabilitados) y le mienten.
+4. **«de el pedido».** `{ref}` = «el pedido …» detrás de «de» da «la guía de el envío ENV-000047» — la prueba lo fija
+   literal (`SpendAlerts.test.tsx:76`). En español la contracción es obligatoria. **Error mío de v4.20** (§43.19.11).
+5. **AG-21 y AG-22 no se pueden filtrar:** el filtro «Tipo» lista solo los trece que se pueden apagar
+   (`SpendAlertsView.tsx:164`, `SPEND_ALERT_SWITCHABLE_CODES`).
+6. **Un aviso apagado dice dos cosas a la vez:** `mutedTag` «Apagado: sin correo» **y** debajo «Va en el resumen de las
+   08:00» (`SpendAlertsView.tsx:185-186`; `mailStatus = 'not_applicable'`). Lo segundo es falso para un apagado: en el
+   resumen solo cuenta como «N avisos apagados».
+7. `mail.no_recipient` dice «no hay cuenta de dueño **con correo**» (`:5432`): con la marca, lo que falta es la marca.
+
+**Cero tokens nuevos, cero pares de contraste nuevos** (§43.20.13).
+
+**Reglas nuevas (se revisan en el PR):**
+
+| # | Regla | De dónde sale |
+|---|---|---|
+| **OWN-1** | **«El dueño» es una cuenta marcada, no un rol.** Un texto dice «el dueño» **solo** donde la regla es del dueño (sin tope, diales de §Z, destinatario de correos, marcar avisos sobre otros); dice «súper-admin» donde vale cualquiera. En pantallas que un súper-admin no dueño **ve** (Configuración, «Avisos de gasto», Usuarios), ⛔ «tú» para referirse al dueño. *Excepción declarada:* las frases AG-1…AG-22 hablan con la voz del correo al dueño («Puedes comprarla tú», «tu panel de Skydropx»): son el mismo texto que `AVG-1` (GAS-4) | §19.30.1 (3), §19.30.2 (1) |
+| **OWN-2** | **La pantalla oculta por `isOwner` solo para mostrar.** Toda negativa del servidor se pinta igual: `403 OWNER_ONLY_SETTING` por `keys`, `403 OWNER_ACCOUNT_PROTECTED` por `code`, `seen` por `skipped`; ⛔ nunca por `message` | §19.30.3 «⛔ nunca autoriza» |
+| **OWN-3** | **La vigilancia de la vigilancia se ve, no se apaga.** AG-21 y AG-22 están en el filtro, en la lista y en «Avisos encendidos» como **siempre encendidos** (casilla marcada y deshabilitada); ⛔ nunca entran en `spendAlertsDisabled` | §19.30.2 (5) «el validador rechaza AG-21 y AG-22» |
+| **OWN-4** | **Apagado = sin correo, no sin rastro.** Un aviso apagado se ve en la lista con su marca; ⛔ ningún texto dice que «no se registra» | §19.30.2 (5) |
+
+---
+
+#### 43.20.1 Revisión de los copys provisionales de frontend (`FRONTEND_NOTES §92`)
+
+Una fila por clave que frontend escribió sin diseño. **Ratificado** = se queda tal cual; **Corregido** = cambia el texto;
+**Sustituido** = la clave cambia de forma (ver la subsección). Línea de `es.json`; en `en.json` es la **misma línea**
+(medido por `grep` en cada clave citada).
+
+| Clave (`es.json:línea`) | Veredicto | ES | EN |
+|---|---|---|---|
+| `admin.m10.ownerOnly.note` (`:4670`) | **Ratificado** | Solo el dueño puede cambiar esto. | Only the owner can change this. |
+| `admin.m10.ownerOnly.denied` (`:4671`) | **Ratificado** (texto y conducta: `Banner danger role="alert"` sobre «Guardar», nombres por `keys`, sin repetidos) | No se guardó nada: solo el dueño puede cambiar {fields}. | Nothing was saved: only the owner can change {fields}. |
+| `admin.m10.ownerOnly.field.operatorLabelCap24hCents` (`:4673`) | **Ratificado** | el tope de guías por persona | the per-person label limit |
+| `….field.shippingLabelReissueMaxPerShipment` (`:4674`) | **Corregido** | las recompras de guía por envío | the label rebuys per shipment |
+| `….field.spendAlertsDisabled` (`:4675`) | **Corregido** (EN) | qué avisos están encendidos | which alerts are switched on |
+| `….field.spendAlertLabelCapWarnPct` (`:4676`) | **Corregido** | el aviso de cercanía al tope | the near-limit alert |
+| `….field.spendAlertShipmentCancelCount` (`:4677`) | **Corregido** | el aviso de guías canceladas por envío | the cancelled-labels-per-shipment alert |
+| `….field.spendAlertPersonCancelCount24h` (`:4678`) | **Corregido** | el aviso de guías canceladas por persona | the cancelled-labels-per-person alert |
+| `….field.spendAlertChargeDriftImmediateCents` (`:4679`) | **Corregido** | el aviso de cobro distinto de lo cotizado | the charged-versus-quoted alert |
+| `….field.spendAlertExtraChargeImmediateCents` (`:4680`) | **Corregido** | el aviso de cargo extra | the extra-charge alert |
+| `….field.skydropxLowBalanceCents` (`:4681`) | **Corregido** | el aviso de saldo bajo | the low-balance alert |
+| `….field.spendAlertCancelRefundDays` (`:4682`) | **Corregido** | el aviso de reembolso de cancelación | the cancellation-refund alert |
+| `….field.spendAlertLabelNotShippedDays` (`:4683`) | **Corregido** | el aviso de guía que no sale | the unshipped-label alert |
+| `….field.shippingLabelPurchase` (`:4684`) | **Ratificado** | quién puede comprar guías | who can buy labels |
+| `….field.other` (`:4685`) | **Ratificado** | un ajuste del dueño | an owner setting |
+| `admin.m6.ownerProtected` (`:4066`) | **Ratificado** (es la frase del contrato) | Esta es la cuenta del dueño: no se puede cambiar desde otra cuenta. | This is the owner's account: it can't be changed from another account. |
+| `admin.m6.ownerAccount` (`:4067`) | **Ratificado** para quien **no** es el dueño; el propio dueño ve `ownerAccountSelf` (§43.20.6) | Esta es la cuenta del dueño: no se restablece, bloquea ni borra desde otra cuenta. | This is the owner's account: it can't be reset, blocked or deleted from another account. |
+| `admin.spendAlerts.skipped` (`:5420`) | **Corregido** — `skipped` cuenta también AG-21, que no es «sobre ti» | {skipped, plural, one {# aviso no se marcó} other {# avisos no se marcaron}}: los avisos sobre ti y los de la cuenta del dueño solo los marca el dueño. | {skipped, plural, one {# alert wasn't marked} other {# alerts weren't marked}}: alerts about you and about the owner account can only be marked by the owner. |
+| `admin.spendAlerts.mutedTag` (`:5422`) | **Ratificado el texto; corregida la conducta** (§43.20.5: sustituye la línea del correo, no se suma a ella) | Apagado: sin correo | Switched off: no email |
+| `admin.spendAlerts.kind.AG-4.denied` (`:5552`) | **Corregido** — «su recompra» en singular miente con un dial > 1; y va con «del» (§43.20.7) | Se negó una guía más para el {ref}: ya había usado todas sus recompras. | Another label for {ref} was refused: it had already used all its rebuys. |
+| `admin.spendAlerts.kind.AG-9.other` (`:5579`) | **Ratificado como respaldo** (causa sin texto propio), con «del»; `orphan_cancel_unknown` gana **su** frase (§43.20.4) | Hay dinero de guías del {ref} que no cuadra. Revísalo en tu panel de Skydropx. | There's label money for {ref} that doesn't add up. Check it in your Skydropx panel. |
+| `admin.spendAlerts.kind.AG-21.*` (`:5599-5603`) | **Corregido y ampliado** a cuatro variantes | §43.20.2 | §43.20.2 |
+| `admin.spendAlerts.kind.AG-22.*` (`:5605-5607`) | **Sustituido**: un `select` con «intentó cambiar … :» suelto no se lee; una frase por `act` | §43.20.3 | §43.20.3 |
+| `admin.spendAlerts.chargeKind.*` (`:5522-5527`) | **Ratificado** (dominio cerrado `ShipmentCostAdjustmentKind`, `API_CONTRACT.md:7650`) | sobrepeso · zona extendida · devolución · otro cargo | overweight · extended zone · return · other charge |
+| `admin.spendAlerts.cancelKind.*` (`:5528-5533`) | **Corregido** (dice **quién** canceló y **por qué**; dominio `LabelCancelKind`, `API_CONTRACT.md:27249`) | `reissue` cancelada por una persona para comprar otra · `auto_close` cancelada sola al cerrar el envío · `orphan_auto` guía de más, cancelada sola · `orphan_manual` guía de más, cancelada por una persona | cancelled by a person to buy another · cancelled automatically when the shipment closed · extra label, cancelled automatically · extra label, cancelled by a person |
+| (valor de `cancelKind` sin rótulo) | **Corregido** — hoy pinta el valor crudo (`SpendAlertDetailView.tsx:62`, `String(v)`) | `noData` «sin dato» (SK8) | “no data” |
+| `admin.m10.spend.alerts.byCase` (`:4659`) | **Sustituido** por una frase por aviso (§43.20.5): «según el caso» no le dice al dueño qué apaga | — | — |
+| `admin.spendAlerts.summary.byKindEmpty` (`:5446`) | **Ratificado** | Ningún aviso ese día. | No alerts that day. |
+| `admin.spendAlerts.summary.labelSpendEmpty` (`:5449`) | **Ratificado** | Nadie compró guías ese día. | Nobody bought labels that day. |
+| `admin.spendAlerts.pageInfo` (`:5616`) | **Ratificado** | Página {page} de {totalPages} · {total, plural, one {# aviso} other {# avisos}} | (su EN) |
+| «Salida de hoy» con folio (`DepartureBoard.tsx:157-177`, `departure-folio-*`) | **Ratificado** (S-GAS-1): con pedido, `departure.row` con el número y al lado, versalita mono `text-muted`, «Envío ENV-…» (`prep.ship.shipmentRef`); sin pedido, `{ref}` = «Envío ENV-…»; el uuid solo si no hay folio | (reutiliza `prep.ship.shipmentRef` «Envío») | “Shipment” |
+| `admin.m4.folioFilter` / `folioFilterRemove` (`:2768-2769`) | **Ratificado** (S-GAS-2) | Solo el envío {folio} · Quitar el filtro del envío {folio} | Only shipment {folio} · Remove the shipment {folio} filter |
+
+`{fields}` en `denied`: los rótulos de `field.*` en el orden de `keys`, sin repetidos, unidos con «, » y «y»
+(`joinAnd`); clave sin rótulo ⇒ `field.other`; ⛔ nunca el nombre crudo del DTO.
+
+#### 43.20.2 AG-21 · «Cambió la cuenta del dueño» — cuatro variantes
+
+Aviso de sistema (`subject = null` ⇒ «Del sistema»), sin pedido ni envío (`{ref}` no se usa). La variante la deciden
+`facts.cause` y si `facts.previousOwner` / `facts.currentOwner` son `null`; `{previous}` / `{current}` = su `name`
+(vacío ⇒ `personNone` «una cuenta sin nombre»). ⛔ Ningún correo en pantalla (el DTO no lo trae).
+
+| Caso | Clave (`admin.spendAlerts.kind.AG-21.*`) | ES | EN |
+|---|---|---|---|
+| Título (`cause='changed'`) | `title` | Cambió la cuenta del dueño | The owner account changed |
+| Título (`cause='no_owner'`) | `titleNoOwner` | No hay cuenta de dueño | There is no owner account |
+| `changed`, `previous ≠ null` | `textChanged` | La cuenta del dueño pasó de {previous} a {current}. Esa marca solo se cambia desde el servidor: si no lo esperabas, revísalo hoy con quien lo administra. | The owner account changed from {previous} to {current}. That mark can only be changed from the server: if you weren't expecting this, check it today with whoever runs it. |
+| `changed`, `previous = null` (primera marca) | `textFirst` (nueva) | La cuenta de {current} quedó marcada como la del dueño; antes no había ninguna. Desde ahora es la única sin tope, la que cambia los ajustes de gasto y la que recibe estos correos. | {current}'s account is now marked as the owner's; before, there was none. From now on it's the only one with no limit, the one that changes the spending settings and the one that gets these emails. |
+| `no_owner`, `previous = null` | `textNoOwner` | Ninguna cuenta está marcada como la del dueño. Mientras siga así, nadie queda sin tope, nadie puede cambiar los ajustes de gasto y los avisos no mandan correo. Se arregla marcando la cuenta del dueño desde el servidor. | No account is marked as the owner's. While that lasts, nobody is exempt from the limits, nobody can change the spending settings and alerts send no email. It's fixed by marking the owner account from the server. |
+| `no_owner`, `previous ≠ null` | `textNoOwnerFrom` (nueva) | La cuenta de {previous} dejó de ser la del dueño y ninguna otra quedó marcada. Mientras siga así, nadie queda sin tope, nadie puede cambiar los ajustes de gasto y los avisos no mandan correo. Se arregla marcando la cuenta del dueño desde el servidor. | {previous}'s account stopped being the owner's and no other was marked. While that lasts, nobody is exempt from the limits, nobody can change the spending settings and alerts send no email. It's fixed by marking the owner account from the server. |
+
+- *Por qué «desde el servidor» y no «`set-owner.ts`» ni «Railway»:* lo lee el dueño; el nombre del script vive en
+  `DEVOPS_NOTES`. Sí dice **que no hay botón**: la marca no se cambia desde el panel (§19.30.1 (2)), y eso es lo que el
+  lector necesita para saber que alguien con acceso al servidor la tocó.
+- Gravedad 🔴 siempre (versalita «Inmediato»). Sin «Frenar la compra de guías» ni «Cambiar el tope» en el detalle.
+
+#### 43.20.3 AG-22 · «Cambios de otro súper-admin» — una frase por `act`
+
+Aviso **sobre una persona** (`subject` = quien actuó; nunca el dueño). `facts`: `act`, `target {userId, name, role} |
+null`, `keys | null` (§19.30.2 (3)).
+
+| Pieza | Clave (`admin.spendAlerts.kind.AG-22.*`) | ES | EN |
+|---|---|---|---|
+| Título | `title` | Cambios de otro súper-admin | Changes by another super admin |
+| `staff_created` | `act.staff_created` | {person} creó una cuenta para {target}. | {person} created an account for {target}. |
+| `staff_password_reset` | `act.staff_password_reset` | {person} restableció la contraseña de {target}. | {person} reset the password of {target}. |
+| `staff_status_changed` | `act.staff_status_changed` | {person} bloqueó o reactivó la cuenta de {target}; cómo quedó se ve en «Usuarios». | {person} blocked or reactivated the account of {target}; its current state is in “Users”. |
+| `staff_deleted` | `act.staff_deleted` | {person} borró la cuenta de {target}. | {person} deleted the account of {target}. |
+| `owner_account_denied` | `act.owner_account_denied` | {person} intentó restablecer, bloquear o borrar la cuenta del dueño ({owner}). El sistema se lo negó: no cambió nada. | {person} tried to reset, block or delete the owner account ({owner}). The system refused: nothing changed. |
+| `owner_setting_denied` | `act.owner_setting_denied` | {person} intentó cambiar {settings}. Solo el dueño puede cambiarlo: no se guardó nada. | {person} tried to change {settings}. Only the owner can change that: nothing was saved. |
+| `act` desconocido o ausente | `act.other` | {person} hizo un cambio en una cuenta del personal. | {person} made a change to a staff account. |
+| `{target}` con rol | `target` | {name} ({role}) | {name} ({role}) |
+| rol | `role.super_admin` · `role.vault_operator` | súper-admin · operador | super admin · operator |
+| `target = null` | `targetNone` | una cuenta del personal | a staff account |
+
+- `{target}`: `target.name` (vacío ⇒ `personNone`) + ` ({role})` si el rol tiene rótulo; rol desconocido ⇒ solo el nombre.
+- `{owner}` (solo `owner_account_denied`): `target.name` **sin** rol (el paréntesis ya está en la frase).
+- `{settings}`: `keys` pasadas por **los mismos rótulos** de `admin.m10.ownerOnly.field.*` (§43.20.1; una fuente para el
+  nombre de cada ajuste), unidos con `joinAnd`; clave sin rótulo ⇒ `field.other`; `keys` vacío o `null` ⇒ `field.other`.
+  ⛔ Nunca la clave cruda (`operatorLabelCap24hCents`).
+- *Por qué «bloqueó o reactivó»:* `facts` no trae el estado nuevo (§19.30.2 (3)); la frase no inventa cuál fue y manda a
+  donde se ve.
+- ⛔ Ninguna contraseña ni correo (el DTO no los trae). Gravedad la del servidor.
+
+#### 43.20.4 AG-9 `orphan_cancel_unknown` y la gramática de `{ref}`
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.spendAlerts.kind.AG-9.orphan_cancel_unknown` (nueva) | Intentamos cancelar sola una guía de más del {ref} («Pedido {reference}», {amount}) y Skydropx no contestó: no sabemos si se canceló. No lo volvemos a intentar solos; búscala en tu panel de Skydropx y cancélala ahí si sigue activa. | We tried to cancel an extra label for {ref} automatically (“Pedido {reference}”, {amount}) and Skydropx didn't answer: we don't know if it was cancelled. We won't retry on our own; look it up in your Skydropx panel and cancel it there if it's still active. |
+
+En `alert-text.ts:108` la lista de causas con texto gana `'orphan_cancel_unknown'`; `other` queda para lo desconocido.
+
+#### 43.20.5 Avisos apagados (`muted`), el filtro y «Avisos encendidos»
+
+**En la lista y el detalle:**
+- `muted = true` ⇒ en la celda «Estado», `mutedTag` «Apagado: sin correo» **en lugar de** la línea del correo
+  (`MailStatus`); ⛔ las dos a la vez no. La versalita de gravedad conserva la palabra pero va en `text-muted` aunque sea
+  «Inmediato» (no mandó correo ni cuenta en la tarjeta: el bermellón mentiría). En el detalle, fila «Correo» = `mutedTag`.
+- Un apagado sigue pudiéndose marcar visto (GAS-3 sin cambio).
+
+**Filtro nuevo** (escribe `?muted=` en la URL, como los demás; clase **L** en el contrato):
+
+| Control | Rótulo ES / EN | Opciones ES / EN ⇒ parámetro |
+|---|---|---|
+| `Select` `filters.muted` | Avisos apagados / Switched-off alerts | `filters.mutedAll` Incluirlos / Include them ⇒ (sin parámetro) · `filters.mutedOnly` Solo los apagados / Only switched-off ⇒ `muted=true` · `filters.mutedNone` Sin los apagados / Leave them out ⇒ `muted=false` |
+
+**Filtro «Tipo»:** lista los trece de §43.19.11 **más AG-21 y AG-22** (OWN-3), en orden de código. AG-14…AG-20 siguen
+fuera (sin disparador).
+
+**«Configuración › Control del gasto › Avisos encendidos»** (sustituye la nota y el diálogo de §43.19.10a):
+
+| Clave (`admin.m10.spend.*`) | ES | EN |
+|---|---|---|
+| `alerts.note` (`:4660`, cambia) | Un aviso apagado no manda correo ni cuenta como «sin ver» en el tablero, pero se sigue registrando: aparece en «Avisos de gasto» marcado «Apagado» y el resumen diario dice cuántos hubo. Encenderlo o apagarlo no cambia los avisos que ya existen. | A switched-off alert sends no email and doesn't count as unseen on the dashboard, but it's still recorded: it shows in “Spending alerts” marked “Switched off” and the daily summary says how many there were. Switching it on or off doesn't change alerts that already exist. |
+| `offTitle` (`:4664`) | **Ratificado**: ¿Apagar {n, plural, one {# aviso} other {# avisos}}? | Switch off {n, plural, one {# alert} other {# alerts}}? |
+| `offBody` (`:4665`, cambia) | Mientras estén apagados no te llegará correo por ellos ni contarán en el tablero; seguirán apareciendo en «Avisos de gasto» marcados «Apagado»: {list}. | While they're off you won't get emails for them and they won't count on the dashboard; they'll still show in “Spending alerts” marked “Switched off”: {list}. |
+| `alerts.sevAG1` (nueva; sustituye `byCase` para AG-1) | Correo inmediato si cambió destinatario, calle, CP, municipio, estado o país; si no, resumen diario | Immediate email if the recipient, street, postal code, municipality, state or country changed; otherwise, daily summary |
+| `alerts.sevAG9` (nueva; sustituye `byCase` para AG-9) | Correo inmediato; la guía de más que cancelamos solos va en el resumen diario | Immediate email; an extra label we cancel automatically goes in the daily summary |
+| `alerts.sevAG22` (nueva) | Correo inmediato si toca a un súper-admin o la cuenta o los ajustes del dueño; si no, resumen diario | Immediate email if it involves a super admin or the owner's account or settings; otherwise, daily summary |
+| `alerts.alwaysOn` (nueva) | Siempre encendido: vigila la cuenta y los ajustes del dueño. | Always on: it watches the owner's account and settings. |
+| `alerts.byCase` (`:4659`) | **se retira** (sin lectores tras el cambio) | — |
+
+- Tras las trece casillas, **AG-21** y **AG-22** con la misma forma («AG-21 · Cambió la cuenta del dueño» + gravedad: AG-21
+  `alerts.immediate`, AG-22 `alerts.sevAG22`), casilla **marcada y deshabilitada** con `aria-describedby` a `alwaysOn`.
+  ⛔ No entran en `spendAlertsDisabled` (`SpendControlSection.tsx:144` ya filtra por `SPEND_ALERT_SWITCHABLE_CODES`; se
+  queda así).
+
+**Resumen de un día — «N avisos apagados»:** clave `admin.spendAlerts.summary.muted` «{n, plural, one {# aviso apagado}
+other {# avisos apagados}} ese día: no mandaron correo y están en la lista.» / “{n, plural, one {# switched-off alert}
+other {# switched-off alerts}} that day: they sent no email and they're in the list.”, `text-sm text-muted` bajo «Por
+tipo», solo con `n > 0`. ⚠ **Condicional al dato:** `SpendAlertSummaryDTO` (`API_CONTRACT.md:27596-27601`) no trae esa
+cuenta; sin el campo, la línea **no se pinta** (⛔ la pantalla no cuenta filas, GAS-4). Solicitud **S-GAS-7**.
+
+#### 43.20.6 La cuenta del dueño en pantalla: `seen`, Usuarios y los textos que decían «tú»
+
+**`seen` para un súper-admin que no es el dueño** (§19.30.2 (4)). En la lista y el detalle, si `!isOwner ∧ (subject.userId
+= yo ∨ code = 'AG-21')`: en lugar del botón «Marcar visto», `text-sm text-muted` **`spendAlerts.ownerMarks`** «Lo marca el
+dueño» / “The owner marks it” (el «Sin ver» en negrita se queda). Solo para mostrar (OWN-2): la selección múltiple no se
+recorta; si una fila así va en el lote, el servidor la cuenta en `skipped` y el resultado lo dice (§43.20.1). `isOwner`
+desconocido ⇒ se pinta el botón (el servidor decide; ⛔ aquí no se falla cerrado: no hay dinero en marcar visto).
+
+**Usuarios (M6):**
+
+| Pieza | Clave (`admin.m6.*`) | ES | EN |
+|---|---|---|---|
+| Etiqueta junto al nombre (lista y cabecera del detalle) con `isOwner` | `ownerTag` (nueva) | Dueño | Owner |
+| Nota en la propia cuenta del dueño (`isOwner ∧ isSelf`) | `ownerAccountSelf` (nueva) | Es tu cuenta de dueño: puedes restablecer tu contraseña, pero no bloquearla ni borrarla; la tienda se quedaría sin quien reciba los avisos de gasto. | This is your owner account: you can reset your password, but not block or delete it; the store would be left with nobody to receive spending alerts. |
+| Nota en la cuenta del dueño vista por otro | `ownerAccount` (ratificada) | §43.20.1 | §43.20.1 |
+
+`ownerTag`: versalita mono `text-[11px] tracking-[0.06em] text-muted` (la de «Envío ENV-…»), ⛔ sin color: es un dato,
+no un aviso.
+
+**Textos que cambian porque los lee también un súper-admin que no es el dueño (OWN-1):**
+
+| Clave (`es.json:línea`) | ES (nuevo) | EN (nuevo) |
+|---|---|---|
+| `admin.m10.spend.subtitle` (`:4598`) | Solo el dueño cambia estos ajustes; los demás súper-admin los ven. Cada cambio queda en la bitácora. Todos los avisos arrancan encendidos. | Only the owner changes these settings; other super admins can see them. Every change is logged. All alerts start switched on. |
+| `admin.m10.spend.cap.hint` (`:4605`) | Cuenta lo que cada persona gastó en guías en las últimas 24 horas, no desde la medianoche. Al llegar, se le niega la compra sin decirle la cifra y se avisa al dueño; puede seguir capturando guías a mano. El dueño no tiene tope; los demás súper-admin sí. | Counts what each person spent on labels in the last 24 hours, not since midnight. When they hit it, the purchase is refused without telling them the amount and the owner gets an alert; they can still enter labels by hand. The owner has no limit; other super admins do. |
+| `admin.m10.spend.reissue.hint` (`:4610`) | Cuántas veces el personal puede cancelar la guía de un envío y comprar otra. Después, la siguiente la compra el dueño. 0 = ninguna. | How many times staff can cancel a shipment's label and buy another. After that, the owner buys the next one. 0 = none. |
+| `admin.m10.shipping.purchase.operatorsNote` (`:4510`) | El personal compra con su nombre en la bitácora, hasta su tope de 24 horas y su recompra por envío (en «Control del gasto»). El dueño no tiene tope. | Staff buy with their name in the log, up to their 24-hour limit and their rebuy per shipment (in “Spending control”). The owner has no limit. |
+| `admin.m10.shipping.lowBalanceHint` (`:4594`) | Debajo de esta cifra le llega un correo al dueño (aviso AG-7), una vez por cada vez que baja. | Below this amount the owner gets an email (alert AG-7), once each time it drops. |
+| `admin.spendAlerts.subtitle` (`:5376`) | Lo que el sistema detectó solo sobre dinero que nos cuesta. Los inmediatos le llegan también por correo al dueño; el resto va en el resumen diario de las 08:00. | What the system caught on its own about money that costs us. Immediate ones also reach the owner by email; the rest go in the 08:00 daily summary. |
+| `admin.spendAlerts.mail.no_recipient` (`:5432`) | Sin correo: ninguna cuenta está marcada como la del dueño | No email: no account is marked as the owner's |
+
+`confirmTitle`/`confirmBody` del interruptor (`:4512-4513`, «sin pedirte permiso», «Te avisamos») **no cambian**: solo
+el dueño puede pulsarlo, así que quien lo lee es el dueño.
+
+#### 43.20.7 `{ref}` sin artículo — «del pedido», nunca «de el pedido»
+
+Sustituye la definición de `{ref}` de §43.19.11 **en ES** (EN sin cambio: “order {orderNumber}”, “shipment {folio}”):
+
+| Clave (`admin.spendAlerts.ref.*`, `:5504-5508`) | ES (nuevo) | EN |
+|---|---|---|
+| `order` | pedido {orderNumber} | order {orderNumber} (sin cambio) |
+| `shipment` | envío {folio} | shipment {folio} (sin cambio) |
+| `none` | envío sin folio | a shipment (sin cambio) |
+
+Y el artículo pasa a la frase (los dos sustantivos son masculinos: «del» / «el» sirven siempre). Frases ES que cambian
+(`admin.spendAlerts.kind.*`, `:5537-5598`; solo cambia el tramo citado):
+
+| AG | Tramo ES nuevo |
+|---|---|
+| 1 | …corrigió la dirección **del {ref}** ({fields})… |
+| 3 | …se le negó la guía **del {ref}** ({price})… |
+| 4 `textShipment` | **Van {k} guías canceladas en el {ref}** ({who}). Saldo no recuperado: {unrecovered}{unknown}. — EN: “**There are {k} cancelled labels on {ref}** ({who}). Balance not recovered: {unrecovered}{unknown}.” (hoy empieza por `{ref}` en minúscula en los dos idiomas) |
+| 4 `denied` | §43.20.1 |
+| 5 | La guía **del {ref}** se cobró… |
+| 6 | Cargo extra de {carrier} **en el {ref}**: … |
+| 7 `textInsufficient` | Una guía **del {ref}** no se pudo comprar… |
+| 8 `textA` / `textB` | La guía cancelada **del {ref}**… / Se canceló la guía **del {ref}**… |
+| 9 (las seis con `{ref}`) | …por la guía **del {ref}**… · …de un intento anterior **del {ref}**… · …la misma compra **del {ref}**… · …una guía de más **del {ref}**… · `other` …guías **del {ref}**… · `orphan_cancel_unknown` (§43.20.4) |
+| 10 | La guía **del {ref}** ({carrier}, {charged})… |
+| 11 | El paquete **del {ref}** ({carrier})… |
+| 12 | …**en el {ref}**. |
+| 13 | …compró la guía **del {ref}** {parts}. |
+
+El correo `AVG-1/2` (`{ref corta}` «pedido TCG-000123», §43.19.12) ya iba sin artículo: sin cambio.
+
+#### 43.20.8 Decisión · UX-SDX-28 (c) y «24 horas»: **se corrige el canario, el copy se queda**
+
+El copy sigue diciendo «últimas 24 horas» (`buy.limit.dailySpend` `:1976`, `options.limitReason.dailySpend` `:1950`).
+- *Por qué no «último día»:* §43.19.9 prohíbe «hoy» para esta ventana porque **no** empieza a medianoche; «último día» se
+  lee igual que «hoy». *Por qué no «veinticuatro» en letra:* el resto del producto escribe «24 horas» (la ayuda del tope,
+  la negativa de reembolsos `:2351`); la misma ventana con dos grafías parecería dos reglas.
+- *Por qué el canario puede tener la excepción sin perder filo:* SK11 prohíbe **cifras del tope** (monto, lo gastado,
+  porcentaje). «24 horas» es la **regla** (igual para todos y escrita en Configuración), no un dato de la persona.
+
+**Canario (c) reescrito:** sobre el texto en el sitio del botón y sobre el `Banner` de la negativa, se quita **solo** la
+ventana — `/(?<!\d)24 (horas|hours)\b/g` — y luego `/\d/ ⇒ 0`, `MX$ ⇒ 0`, `% ⇒ 0`. La mutación «pintar el tope» (p. ej.
+«…de tu tope de MX$2,500.00…», o «…tope de 2500…», o «MX$24.00») tiene que seguir poniéndola roja. Es lo que frontend ya
+hizo (`CaptureLabelDialog.v420.test.tsx:63`, `replace(/24 horas|24 hours/g, '')`), con el ancla `(?<!\d)…\b` para que
+«124 horas» no se cuele. UX-SDX-28 (c) de §43.19.15 queda sustituida por este párrafo.
+
+#### 43.20.9 Decisión · el menú: **ratificado — el operador no ve «Avisos de gasto»**
+
+Lo construido (`AdminSidebar.tsx:66-69`, `superAdminOnly` + `hiddenUnlessSuperAdmin`; filtrado en `:185`) es lo que quiero.
+Mi §43.19.8 decía solo `superAdminOnly` (que pinta la entrada bloqueada) mientras UX-GAS-1 pedía «el menú no tiene
+"Avisos de gasto"»: **me contradije, y gana el candado.**
+- *Por qué esta entrada sí se oculta y las demás `superAdminOnly` se muestran bloqueadas:* una entrada bloqueada sirve
+  para que el operador sepa que la tarea existe y **a quién pedírsela** (un reembolso, un pago). Aquí no hay nada que
+  pedir: es la página **donde se le vigila**. Bloqueada solo invita a preguntar qué dice de él, y la tarjeta del tablero
+  ya no se le pinta (GAS-1, «⛔ ni vacía»): menú y tablero dicen lo mismo.
+- El súper-admin **no dueño** sí la ve (y ve los avisos, también los suyos; no los marca, §43.20.6).
+- Badge (S-GAS-3, ahora con dato): `spendAlertsUnseenImmediate` del resumen del menú, `null` o `0` ⇒ sin badge
+  (`AdminSidebar.tsx:69`). Ratificado. Sustituye «Sin badge en esta versión» de §43.19.8.
+- `hiddenUnlessSuperAdmin` es **solo** para esta entrada; ⛔ no se extiende a otras sin pasar por diseño.
+
+#### 43.20.10 Correos (backend): AG-21, AG-22 y los apagados en `AVG-1`/`AVG-3`
+
+| Pieza | ES | EN |
+|---|---|---|
+| `AVG-1` AG-21, asunto | el título (sin ref): «Cambió la cuenta del dueño» / «No hay cuenta de dueño» | “The owner account changed” / “There is no owner account” |
+| `AVG-1` AG-21, cuerpo | la frase de §43.20.2; sin línea de «Frenar»; CTA **`VER EL AVISO`** bermellón | idem |
+| `AVG-1` AG-21, pie **para la cuenta anterior** (la única excepción de destinatario, §19.30.1 (6)) | Recibes este correo porque esta dirección era la de la cuenta del dueño de TCG HUNT hasta este cambio. Los datos del cliente no van en el correo: están en el panel. | You are receiving this email because this address belonged to the TCG HUNT owner's account until this change. Customer details aren't included in emails: they're in the panel. |
+| `AVG-1` AG-22, asunto | {título}: {persona} — p. ej. «Cambios de otro súper-admin: Luis» | {title}: {person} |
+| `AVG-1` AG-22, filas | Quién · Cuenta afectada ({target} de §43.20.3; en `owner_setting_denied`, «Ajustes» con {settings}) · Cuándo | Who · Affected account / Settings · When |
+| `AVG-3`, apagados (si hubo) | Tras «Por tipo»: «Además hubo {n, plural, one {# aviso apagado} other {# avisos apagados}}: no mandaron correo y están en el panel.» | “There {n, plural, one {was also # switched-off alert} other {were also # switched-off alerts}}: they sent no email and they're in the panel.” |
+
+AG-22 🟡 va al resumen como los demás 🟡. ML-27 amplía su barrido a AG-21 y AG-22 (ningún correo ni contraseña en
+asunto, HTML ni texto).
+
+#### 43.20.11 Lista de cambios para frontend (fichero:línea leídos el 2026-10-05 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FS-44 | `messages/es.json` y `en.json` (mismas líneas): `:4659` (retira `byCase`), `:4660`, `:4665`, `:4674-4683`, `:4598`, `:4605`, `:4610`, `:4510`, `:4594`; `:4066-4067` (+ `ownerTag`, `ownerAccountSelf`); `:5376`, `:5420`, `:5432`, `:5504-5508`, `:5528-5533`, `:5537-5598` (tramos de §43.20.7), `:5549`, `:5552`, `:5579`, `:5599-5607`; nuevas `filters.muted*`, `ownerMarks`, `summary.muted`, `kind.AG-9.orphan_cancel_unknown`, `kind.AG-21.textFirst`/`textNoOwnerFrom`, `kind.AG-22.act.*`/`target`/`targetNone`/`role.*`, `m10.spend.alerts.sevAG1`/`sevAG9`/`sevAG22`/`alwaysOn`; **se retira** `kind.AG-22.text` | 43.20.1–.7 |
+| FS-45 | `spend-alerts/alert-text.ts:108` | `orphan_cancel_unknown` en la lista de causas con texto | 43.20.4 |
+| FS-46 | `alert-text.ts:127-131` | AG-21: cuatro variantes por `cause` y `previousOwner` | 43.20.2 |
+| FS-47 | `alert-text.ts:133-140` | AG-22: `t('kind.AG-22.act.<act>')` (desconocido ⇒ `act.other`); `{target}` con rol; `{owner}` sin rol; `{settings}` por `admin.m10.ownerOnly.field.*` con `joinAnd` (⛔ `keys.join(', ')` crudo) | 43.20.3 |
+| FS-48 | `SpendAlertsView.tsx:161-168` | Filtro «Tipo»: los trece + AG-21 + AG-22 | 43.20.5 |
+| FS-49 | `SpendAlertsView.tsx` (filtros) + `spend-alerts/filters.ts` | `Select` «Avisos apagados» ⇒ `?muted=true\|false`, leído y escrito en la URL como los demás | 43.20.5 |
+| FS-50 | `SpendAlertsView.tsx:105-112`, `:170-187` | `muted` ⇒ `mutedTag` **en lugar de** `MailStatus`; versalita de gravedad en `text-muted`; «Marcar visto» ⇒ `ownerMarks` con `!isOwner ∧ (subject = yo ∨ AG-21)` | 43.20.5–.6 |
+| FS-51 | `spend-alerts/[id]/SpendAlertDetailView.tsx:62` | `cancelKind` sin rótulo ⇒ `noData` (⛔ `String(v)`); fila «Correo» = `mutedTag` si `muted`; «Marcar como visto» ⇒ `ownerMarks` con la misma regla | 43.20.1, .5, .6 |
+| FS-52 | `m10/sections/SpendControlSection.tsx:63-72`, `:222-240` | Gravedad por código (`sevAG1`, `sevAG9`); filas AG-21 (`immediate`) y AG-22 (`sevAG22`) marcadas, deshabilitadas, con `alwaysOn`; `:144` sin cambio | 43.20.5 |
+| FS-53 | `m6/M6View.tsx:575-579` (+ fila de la lista y cabecera del detalle) | `isSelf ∧ isOwner` ⇒ `ownerAccountSelf`; `ownerTag` junto al nombre con `isOwner` | 43.20.6 |
+| FS-54 | `spend-alerts/SpendAlertsView.tsx` (bloque «Resumen de un día») | `summary.muted` **solo** si el DTO trae la cuenta (S-GAS-7); sin el campo, nada | 43.20.5 |
+| FS-55 | `m4/CaptureLabelDialog.v420.test.tsx:63` (prueba; la escribe frontend) | Ancla de la excepción: `/(?<!\d)24 (horas\|hours)\b/g`; añadir el caso `MX$24.00` al canario | 43.20.8 |
+| — | `AdminSidebar.tsx:63-69`, `:185`; `DepartureBoard.tsx:157-177`; `useIsOwner.ts:31-32` | **Sin cambio** (ratificados) | 43.20.1, .9 |
+
+Las pruebas que fijan los textos viejos (`SpendAlerts.test.tsx:76` «de el envío», las de `skipped`, AG-21/22, `byCase`)
+cambian en el mismo commit que sus claves (paridad `i18n-parity`).
+
+#### 43.20.12 Candados (Testing Library contra el API espiado / MSW)
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-SDX-28 (c)** (sustituida) | §43.20.8 | Pintar el tope, lo gastado o el porcentaje; quitar el ancla y dejar pasar «MX$24.00» |
+| **UX-GAS-1** (ratificada) | Operador: el menú no tiene «Avisos de gasto» (⛔ ni bloqueada); súper-admin **no dueño**: sí la tiene | Entrada sin `hiddenUnlessSuperAdmin`; ocultarla también al súper-admin no dueño |
+| **UX-GAS-8** (AG-21) | Las cuatro variantes dan cuatro textos distintos; `previousOwner`/`currentOwner` con `name:''` ⇒ «una cuenta sin nombre»; ninguna contiene `@` | Texto único para las cuatro; pintar el `userId` |
+| **UX-GAS-9** (AG-22) | Los seis `act` + uno desconocido ⇒ siete textos distintos; `owner_setting_denied` con `keys:['operatorLabelCap24hCents','shippingLabelPurchase']` ⇒ «el tope de guías por persona y quién puede comprar guías», y el DOM **no** contiene `operatorLabelCap24hCents`; `target.role` ⇒ «(operador)» / «(súper-admin)» | `keys.join(', ')` crudo; `select` con «:» suelto |
+| **UX-GAS-10** (`seen`) | Sesión de súper-admin no dueño: fila con `subject.userId` = yo ⇒ **cero** botones «Marcar visto» en esa fila y «Lo marca el dueño»; fila AG-21 ⇒ ídem; fila de otro ⇒ botón; `200 {updated:1, skipped:1}` ⇒ el resultado contiene las dos frases; sesión del dueño ⇒ botón en todas | Ocultar por `message`; no pintar `skipped` |
+| **UX-GAS-11** (apagados) | `muted:true` ⇒ «Apagado: sin correo» y **cero** «Va en el resumen»; versalita sin `text-accent` aunque sea `immediate`; el `Select` escribe `muted=true` y `muted=false`; Configuración: AG-21 y AG-22 marcadas y deshabilitadas, y un `PUT` con todo desmarcado **no** las incluye en `spendAlertsDisabled`; el DOM de la sección no contiene «no se registra» | Pintar las dos líneas; mandar AG-21 en el `PUT`; dejar la nota vieja |
+| **UX-GAS-12** («de el») | Las frases ES de los códigos que usan `{ref}` (AG-1, 3–13), con pedido y con envío, ⇒ `/\bde el\b/i` **0** y `/\bdel (pedido\|envío)\b/` presente donde hay `{ref}` tras «de» | Volver a `ref.order` = «el pedido …» |
+| **UX-GAS-13** (OWN-1) | `me.isOwner=false`: Configuración en ES no contiene «Tú no tienes tope», «la compras tú» ni «sin correo sí»; `subtitle` contiene «Solo el dueño» | Dejar los textos de v4.20 |
+| **PS-164** | Ratificada tal como la implementó frontend (`FRONTEND_NOTES §92`), más FS-47 (AG-22 por `act`) y FS-46 | — |
+
+#### 43.20.13 Contraste — cero pares nuevos
+
+`ownerTag`, `ownerMarks`, `mutedTag` y la versalita de un apagado usan `text-muted` sobre papel/superficie; los `Select` y
+`Checkbox` (también deshabilitados) son los de §6–§7. Todos pares de §10. ⛔ Sin color nuevo para «Dueño» ni «Apagado».
+
+#### 43.20.14 Solicitudes y respuestas
+
+| # | Para | Qué |
+|---|---|---|
+| **S-GAS-1…5** | arquitecto | **Respondidas en §19.30.8 y ratificadas en pantalla:** folio en «Salida de hoy»; enlace del retiro a «Envíos» `?folio=`; badge del menú; rótulos de AG-6 por `kind`; AG-4 por `triggers` (`denied`, §43.20.1). Cerradas |
+| **S-GAS-7** | arquitecto | **`SpendAlertSummaryDTO` sin la cuenta de apagados.** §19.30.2 (5) pone «N avisos apagados» en el resumen diario y §19.29.9 dice que el panel y el correo son el mismo cuerpo, pero el DTO (`API_CONTRACT.md:27596-27601`) no trae el campo. Propuesta aditiva: `mutedCount: number`. Sin él, el panel no pinta la línea (GAS-4). No bloquea |
+| **S-GAS-8** | arquitecto | **`SpendAlertDTO.muted` no está en el bloque del DTO** (`:27585-27595`); §19.30.2 (5) declara la columna y el filtro, y frontend ya lee `a.muted` (`SpendAlertsView.tsx:185`). Confirmar el campo en el DTO. NO MEDIDO por mí si `types/contract.ts` lo declara. No bloquea |
+| **S-GAS-9** | arquitecto | **AG-22 `facts.keys`: ¿nombres del DTO (camelCase) como el `403`?** El texto los traduce por `admin.m10.ownerOnly.field.*`, que está en camelCase; si llegan en snake_case, todos caen a «un ajuste del dueño». No bloquea |
+| **N-GAS-4** | orquestador | OWN-1 deja las frases AG en la voz del correo al dueño («Puedes comprarla tú»), aunque un súper-admin no dueño también las lea en el panel. Si el dueño prefiere una voz neutra, son ~6 frases |
