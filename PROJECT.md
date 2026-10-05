@@ -7926,7 +7926,263 @@ El orden es interno, como hoy.
   (p. ej. MX$25 con PSA 10 de MX$1,800 y PSA 9 de MX$500: pasa la regla nueva, no la de §O.2).
 - Si **ninguna** carta pasa, la vitrina **no se pinta** (como hoy).
 
+### LEG. Lo legal mínimo para cobrar con dinero real — aviso de privacidad, razón social y términos (transversal — NUEVO 2026-10-05, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-LEG abiertas)
+
+> **Fuente:** encargo del orquestador (2026-10-05) y `HECHOS.md` fila **2026-09-10** «La tienda SIEMPRE ha estado en
+> modo prueba de Stripe… Se pasa a modo real cuando cierre todo». Esta sección es **parte de ese cierre**: antes de
+> cobrar con dinero real la tienda necesita (1) un **aviso de privacidad** publicado, (2) una **razón social** que
+> responda, y (3) unos **términos** que no se contradigan con lo que el dueño ya decidió.
+>
+> **Letra y números:** **§LEG** (no una letra) porque la rama de Skydropx ya usa `### Z. 💰 Control del gasto`
+> (medido por el orquestador el 2026-10-05: `/home/user/tcg-skyd/PROJECT.md:8510`) y §T–§Y ya están ocupadas.
+> Criterios **500–511**: ninguna otra rama los usa (medido por el orquestador el 2026-10-05: 0), y no chocan con
+> 319–338 (Skydropx) ni 400–418 (panel).
+>
+> **Medido el 2026-10-05 por lectura del árbol `/home/user/tcg-real` (rama `claude/listo-real`), sin ejecutar:**
+> - **No existe página de aviso de privacidad.** `Glob frontend/src/app/[locale]/**/privacidad*` ⇒ 0. El pie de la
+>   tienda solo enlaza a `/terminos` (`frontend/src/app/[locale]/(storefront)/layout.tsx:66-68`).
+> - **La razón social es un marcador:** `common.footer.legalEntity` = «[Razón social pendiente]»
+>   (`frontend/messages/es.json:11`); el pie la **omite** mientras esté entre corchetes
+>   (`frontend/src/app/[locale]/(storefront)/footer.ts:13-17`). Los correos **no la llevan**: su pie es marca,
+>   descriptor, `tcghunt.mx · soporte@…` y una línea de «por qué recibes esto» (`backend/src/modules/buylist/mail-shell.ts:530-536,587-593`).
+> - ⚠️ **Precisión al encargo:** la frase «Acepto los términos y el aviso de privacidad, y entiendo que todas las
+>   ventas son finales» (`es.json:517`) **no está en el registro**: es la casilla del **checkout de invitado**
+>   (`checkout.guest.acceptTerms`, usada en `checkout/GuestCheckoutForm.tsx:385`; el servidor la exige con
+>   `@Equals(true) acceptedTerms`, `backend/src/modules/orders/dto/guest-checkout.dto.ts:99`, y **no la guarda**:
+>   `grep acceptedTerms backend/prisma/schema.prisma` ⇒ 0). El **registro** (`components/domain/AuthForm.tsx:189-216`)
+>   pide nombre, teléfono opcional, correo y contraseña **sin casilla ni enlace** a términos o aviso; el alta con
+>   Google tampoco. El checkout con cuenta muestra «Todas las ventas son finales…» + «Ver términos»
+>   (`checkout/CheckoutView.tsx:324-326`), sin casilla. Conclusión igual de grave que la del encargo: **en dos
+>   lugares se habla de un aviso que no existe, y en el registro ni se menciona.**
+>
+> ⛔ **product-owner no da asesoría legal.** Lo que sigue es un **borrador de trabajo** para que el abogado del dueño
+> lo revise. El *cómo* se construye la página es de arquitecto/ux-ui/frontend y no se escribe aquí.
+
+#### LEG.1 Qué datos recaba la tienda DE VERDAD (inventario medido — base del aviso)
+
+| # | Quién | Dato | Para qué | Dónde se mide |
+|---|---|---|---|---|
+| 1 | Cliente con cuenta | Correo, nombre, teléfono (opcional al registrarse), contraseña (se guarda **solo su huella** con argon2, nunca en claro), idioma | Cuenta, acceso, avisos | `schema.prisma:496-531`; `AuthForm.tsx:189-216`; `admin.service.ts:779` (argon2) |
+| 2 | Cliente que entra con Google | Correo, nombre, identificador de Google, foto de perfil (URL) | Acceso sin contraseña | `schema.prisma:507,515-518` |
+| 3 | Cliente con cuenta | Direcciones: quien recibe, calle, colonia, ciudad, estado, CP, país, **teléfono (obligatorio)** | Entregar compras y retiros; recoger cartas que nos vende | `schema.prisma:660-682` |
+| 4 | Invitado (compra sin cuenta) | Correo, nombre de quien recibe, teléfono (10 dígitos), dirección de envío, idioma | Entregar el pedido y avisarle por correo; enlace de seguimiento sin contraseña | `schema.prisma:1283-1300`; `guest-checkout.dto.ts:43,45` |
+| 5 | Quien paga | **La tienda no recibe ni guarda la tarjeta**: se teclea en el formulario de Stripe (`StripePaymentModal.tsx:61-63,87`). Guardamos **marca y últimos 4 dígitos** | Comprobante y seguimiento del pedido | `schema.prisma:1301-1304` («JAMÁS PAN, BIN ni titular») |
+| 6 | Quien pide factura | RFC (**cifrado**), razón social, régimen fiscal, uso de CFDI, CP, correo de facturación; o los envía por correo a `facturacion@tcghunt.mx` | Emitir CFDI | `schema.prisma:645-658`; `users.dto.ts:85-86`; `es.json:479` |
+| 7 | Quien nos vende cartas (buylist) | **CLABE** (cifrada AES-256-GCM + huella para detectar CLABE repetida sin descifrarla), **nombre legal**, y una copia cifrada de la CLABE en cada solicitud | Pagar por SPEI a nombre del vendedor | `schema.prisma:561-567,1709`; `common/crypto/pii-crypto.service.ts:181` |
+| 8 | Quien nos vende por encima del umbral | **Imagen de la INE (anverso y reverso)** en almacenamiento privado; solo la ve el **súper-admin** (`HECHOS.md` 2026-09-11) | Verificar identidad y cotejarla con la dirección (prevención de fraude) | `schema.prisma:568-569`; `buylist.service.ts:1686,1699` (umbral `INE_THRESHOLD_CENTS`); `.env.example:618-636` |
+| 9 | Quien se suscribe a «avísame cuando vuelva» | Correo (y cuenta si la tiene) | Avisarle de un sellado que volvió | `schema.prisma:2106-2118` |
+| 10 | Personal y clientes en acciones auditadas | Quién hizo qué y cuándo; **dirección IP** | Bitácora de seguridad | `schema.prisma:1974-1984` |
+| 11 | Navegador | Sesión (tokens), «dispositivo conocido» para el tope de intentos, carrito y carrito de venta, en el **almacenamiento local del navegador** — no en cookies propias | Mantener la sesión y el carrito | `frontend/src/lib/api-client.ts:28-54,69-88`; `lib/local-store.ts:73` |
+
+**Retención y borrado — lo que hace el sistema hoy (medido):**
+- **INE:** se borra sola **180 días** después de cerrar la última solicitud de venta, si no hay otra abierta
+  (`backend/src/jobs/ine-retention.service.ts:8-15,47-48`; dial `settings.constants.ts:365`), con una regla de
+  caducidad del almacenamiento como respaldo (`.env.example:678-685`).
+- **Borrar una cuenta** lo hace **solo el súper-admin** (`admin.service.ts:1539-1629`); **no hay botón para que el
+  cliente borre su propia cuenta** (`users.controller.ts`: ninguna ruta `DELETE` de la cuenta). Si la cuenta **no
+  tiene operaciones**, se borra entera, INE incluida. Si **tiene operaciones**, se **anonimiza**: correo sustituido,
+  nombre «Usuario eliminado», sin teléfono, foto, Google ni contraseña; se borran direcciones, datos de factura,
+  CLABE, RFC, nombre legal e INE (`admin.service.ts:1585-1626`). **Se conservan** los pedidos y solicitudes con su
+  copia de dirección, de datos fiscales y de CLABE cifrada, por ser registros económicos (`admin.service.ts:1602-1603`).
+- **NO MEDIDO / no existe regla:** cuánto se conservan los pedidos de invitado, las direcciones de solicitudes que no
+  se cerraron (bandera ya registrada en «Riesgos», D36) y la bitácora.
+
+**Proveedores que reciben datos (medido):** Stripe (pagos, `stripe.service.ts:185-191`); Resend (envío de correos,
+`backend/src/modules/mail/resend-mail.adapter.ts:2`); Cloudflare R2 (almacena la INE, `docs/DEVOPS_NOTES.md:461`);
+Railway (servidor y base de datos) y Vercel (sitio web) (`docs/DEVOPS_NOTES.md:450`, `HECHOS.md`); Google (acceso con
+Google). **Paqueterías:** hoy la guía se compra **fuera del sistema** (D19) con nombre, dirección y teléfono del
+destinatario; la integración con **Skydropx** vive en otra rama (`grep -ri skydropx backend/src` ⇒ 0 en este árbol).
+**NO MEDIDO:** en qué país guarda los datos cada proveedor (casi seguro fuera de México — lo confirma el abogado
+contra los contratos).
+
+**Cookies (medido en parte):** la tienda **no carga analítica ni publicidad** (`grep` de gtag/googletagmanager/
+posthog/@vercel/analytics/@sentry/hotjar/facebook en `frontend/` ⇒ 0 usos reales). La detección de idioma por
+cookie está apagada (`frontend/src/i18n/routing.ts:15`). **NO MEDIDO:** qué cookies ponen **Stripe** (prevención de
+fraude) y **Google** (acceso) en el navegador del cliente en producción; lo cierra una revisión del navegador en
+la tienda en vivo (criterio 509).
+
+#### LEG.2 BORRADOR del aviso de privacidad integral
+
+> ## ⚠️⚠️ BORRADOR — NO PUBLICAR SIN REVISIÓN DE UN ABOGADO ⚠️⚠️
+> **Este texto lo redactó el product-owner del equipo de desarrollo como punto de partida. No es asesoría legal.**
+> Debe revisarlo y aprobarlo un abogado en materia de protección de datos antes de publicarse. Se tomó como guía la
+> lista de elementos que pide la Ley Federal de Protección de Datos Personales en Posesión de los Particulares
+> (LFPDPPP). ⚠️ **Dato para el abogado:** en **marzo de 2025** se publicó una **nueva** LFPDPPP y el INAI dejó de ser
+> la autoridad en la materia; el abogado confirma artículos, autoridad competente y requisitos vigentes. *(Dato de
+> contexto del product-owner, NO MEDIDO contra el Diario Oficial.)*
+> Los huecos marcados **[DATO DEL DUEÑO]** solo los puede llenar el dueño. Si el dueño ya tiene un aviso hecho por su
+> abogado, **ese sustituye a este borrador** (P-LEG-4).
+
+**AVISO DE PRIVACIDAD INTEGRAL — TCG HUNT**
+*Última actualización: [FECHA DE PUBLICACIÓN]*
+
+**1. Quién es el responsable de tus datos.**
+**[DATO DEL DUEÑO: razón social o nombre completo de la persona física]** (en adelante, «TCG HUNT»), con RFC
+**[DATO DEL DUEÑO: RFC]** y domicilio en **[DATO DEL DUEÑO: calle, número, colonia, CP, municipio/alcaldía, estado,
+México]**, es responsable del tratamiento de tus datos personales cuando usas **tcghunt.mx**. TCG HUNT es la marca
+comercial que opera **[DATO DEL DUEÑO: razón social]**.
+Contacto para todo lo relacionado con tus datos: **[DATO DEL DUEÑO: correo de privacidad]**.
+
+**2. Qué datos recabamos.**
+- **Si creas una cuenta:** correo, nombre, contraseña (la guardamos cifrada de forma irreversible; nadie puede
+  leerla) y, si lo das, teléfono. Si entras con Google: correo, nombre, identificador de Google y foto de perfil.
+- **Para entregarte:** nombre de quien recibe, dirección y teléfono.
+- **Si compras sin cuenta:** correo, nombre de quien recibe, teléfono y dirección de envío.
+- **Al pagar:** **no recibimos ni guardamos los datos de tu tarjeta**; los capturas directamente en el formulario de
+  nuestro procesador de pagos, Stripe. Solo conservamos la marca de la tarjeta y sus últimos 4 dígitos.
+- **Si pides factura:** RFC, nombre o razón social, régimen fiscal, uso de CFDI, código postal y correo de
+  facturación.
+- **Si nos vendes cartas:** tu **CLABE** interbancaria y tu **nombre legal** (para pagarte a tu nombre) y, cuando el
+  monto lo requiere, **imagen de tu INE por ambos lados**.
+- **Si pides que te avisemos cuando un producto vuelva:** tu correo.
+- **De forma automática:** dirección IP en algunas acciones registradas por seguridad, e información que tu
+  navegador guarda para mantener tu sesión y tu carrito (ver punto 8).
+
+**Datos financieros y patrimoniales.** La CLABE y los datos de facturación son datos **financieros o
+patrimoniales**; los tratamos con tu **consentimiento expreso** [*nota para el abogado: definir cómo se recaba —
+P-LEG-10*]. **No recabamos datos personales sensibles** [*nota para el abogado: confirmar si la imagen de la INE
+—que incluye fotografía— debe tratarse con algún requisito adicional*].
+
+**3. Para qué usamos tus datos — finalidades primarias** (necesarias para darte el servicio):
+a) Crear y administrar tu cuenta y tu acceso.
+b) Procesar tus compras, cobrarlas a través de Stripe y enviarte confirmaciones.
+c) Guardar tus cartas en tu bóveda y entregarte tus pedidos y retiros a domicilio.
+d) Cotizar, recibir, verificar y **pagarte por SPEI** las cartas que nos vendes.
+e) Verificar tu identidad cuando nos vendes por encima de cierto monto y cotejarla con la dirección de recolección
+   o entrega, para prevenir fraudes.
+f) Atender reembolsos, aclaraciones y lo que nos escribas a soporte.
+g) Emitir tus facturas (CFDI) cuando las pidas, y cumplir obligaciones fiscales y legales.
+h) Avisarte por correo y en tu cuenta de cambios en tus pedidos, solicitudes y tu verificación de identidad.
+i) Mantener la seguridad de la tienda (registro de acciones, límite de intentos de acceso).
+
+**4. Finalidades secundarias.**
+**(SUPUESTO / default de P-LEG-8:)** **Hoy no usamos tus datos para finalidades secundarias** (no enviamos
+publicidad ni compartimos datos con fines comerciales). Si algún día lo hacemos, actualizaremos este aviso y te
+daremos un medio para negarte **antes** de usarlos así; negarte nunca afectará tus compras ni tus ventas.
+[*Nota para el abogado: si el dueño decide mandar promociones o usar la navegación para estadística de demanda
+—`HECHOS.md` 2026-10-04 «Rotación nivel siguiente»—, este apartado cambia y necesita el mecanismo de negativa.*]
+
+**5. Con quién compartimos tus datos.**
+Para darte el servicio, compartimos datos con proveedores que los tratan **por cuenta nuestra** y solo para ese fin:
+| Proveedor | Qué recibe | Para qué |
+|---|---|---|
+| **Stripe** | Monto y datos del pago que tú capturas en su formulario | Procesar el cobro y los reembolsos |
+| **Paqueterías** [y **Skydropx**, cuando opere] | Nombre de quien recibe, dirección y teléfono | Entregar o recoger el paquete |
+| **Resend** | Tu correo y el contenido del aviso | Enviarte los correos de la tienda |
+| **Cloudflare (R2)** | Imagen de tu INE | Guardarla en almacenamiento privado |
+| **Railway y Vercel** | Los datos de la tienda | Alojar el servidor, la base de datos y el sitio |
+| **Google** | Lo necesario para el acceso con Google | Iniciar sesión, si eliges esa opción |
+Algunos de estos proveedores pueden guardar datos **fuera de México** [*nota para el abogado: confirmar país y
+contratos de cada uno*]. Además, entregamos datos a **autoridades** (por ejemplo, el SAT) cuando la ley lo exige.
+**No vendemos tus datos.** [*Nota para el abogado: decidir cuáles de estos son «remisiones» a encargados y cuáles
+«transferencias», y si alguna requiere consentimiento — P-LEG-12.*]
+
+**6. Cuánto tiempo los conservamos.**
+- **Imagen de la INE:** la borramos **180 días** después de que se cierre tu última venta con nosotros, si no tienes
+  otra abierta.
+- **Datos de tu cuenta:** mientras tengas cuenta. Si pides borrarla, la eliminamos; si ya hiciste operaciones,
+  **anonimizamos** tus datos de contacto y borramos tus direcciones, datos de factura, CLABE e INE, y **conservamos**
+  solo los registros de tus compras y ventas (incluida la dirección de entrega, datos fiscales y la CLABE cifrada de
+  esas operaciones) por el tiempo que exigen las leyes fiscales: **[DATO DEL DUEÑO / CONTADOR: plazo]**.
+- **Pedidos sin cuenta y solicitudes que no se cerraron:** **[DATO DEL DUEÑO: plazo — P-LEG-11]**.
+
+**7. Tus derechos ARCO y cómo ejercerlos.**
+Tienes derecho a **Acceder** a tus datos, **Rectificarlos** si son inexactos, **Cancelarlos** (pedir que los
+borremos) y **Oponerte** a su uso para fines específicos. También puedes **revocar tu consentimiento** y **limitar el
+uso o divulgación** de tus datos.
+Para hacerlo, escribe a **[DATO DEL DUEÑO: correo de privacidad]** con: (i) tu nombre y el correo de tu cuenta o tu
+número de pedido; (ii) una copia de tu identificación (o la de tu representante y el documento que lo acredite);
+(iii) qué derecho quieres ejercer y sobre qué datos; y (iv) cualquier documento que ayude a localizarlos.
+Te responderemos en un máximo de **20 días hábiles** y, si procede, lo haremos efectivo dentro de los **15 días
+hábiles** siguientes. [*Nota para el abogado: confirmar plazos contra la ley vigente.*]
+Muchos datos los puedes corregir tú mismo en «Mi cuenta» (nombre, teléfono, direcciones, datos de factura).
+Revocar el consentimiento para una finalidad primaria puede impedirnos seguir dándote ese servicio (por ejemplo,
+pagarte una venta sin CLABE).
+Si consideras que tu derecho no fue atendido, puedes acudir a la autoridad en materia de protección de datos
+**[nota para el abogado: nombrar la autoridad vigente]**.
+
+**8. Cookies y tecnologías similares.**
+Para mantener tu sesión abierta, recordar tu carrito y proteger tu cuenta de intentos de acceso, guardamos
+información en el **almacenamiento local de tu navegador**. **No usamos cookies de publicidad ni de analítica.**
+Nuestro procesador de pagos (**Stripe**) y, si eliges entrar con Google, **Google**, pueden usar sus propias cookies
+para prevenir fraudes y para el acceso; se rigen por sus avisos de privacidad. Puedes borrar esta información desde
+la configuración de tu navegador; si lo haces, se cerrará tu sesión y se vaciará tu carrito.
+[*Lista exacta: se completa con la revisión del criterio 509.*]
+
+**9. Cambios a este aviso.**
+Publicaremos cualquier cambio en **tcghunt.mx/privacidad**, con su fecha de actualización. Si el cambio afecta
+finalidades o transferencias que requieran tu consentimiento, te lo pediremos de nuevo. [*SUPUESTO: además, aviso
+por correo a clientes con cuenta cuando el cambio sea de fondo — P-LEG-13.*]
+
+**10. Aceptación.**
+Al crear tu cuenta, comprar o vendernos cartas, reconoces haber leído este aviso. [*Nota para el abogado: definir
+qué acto constituye aceptación y si se guarda constancia — hoy el sistema no guarda la aceptación del invitado
+(`guest-checkout.dto.ts:99`, sin columna).*]
+
+#### LEG.3 Dónde se publica y dónde se enlaza (qué se construye)
+
+- **Página pública** del aviso: **(SUPUESTO)** ruta `/privacidad` (ES) y su equivalente EN, sin sesión, en la
+  tienda (`(storefront)`), con fecha de última actualización.
+- **Enlace «Aviso de privacidad»** en: el **pie** de la tienda (junto a «Términos y política»), el pie de la página
+  de **seguimiento del invitado** (`pedido/layout.tsx:72` ya enlaza términos), el **registro** (y alta con Google),
+  la casilla del **checkout de invitado** (`es.json:517`), el aviso del **checkout con cuenta**
+  (`CheckoutView.tsx:324-326`), la línea de privacidad del **formulario de venta / INE** (`es.json:1052`) y el **pie
+  de todos los correos**.
+- **Registro:** **(SUPUESTO / default de P-LEG-9)** leyenda bajo el botón «Crear cuenta»: «Al crear tu cuenta
+  aceptas los Términos y el Aviso de privacidad», con los dos enlaces; **sin casilla nueva**. Lo mismo en «Continuar
+  con Google».
+- **Razón social** visible en el **pie** de la tienda (ya preparado: aparece en cuanto `common.footer.legalEntity`
+  tenga un valor sin corchetes), en el **aviso**, en los **términos** («TCG HUNT, marca operada por [Razón social]»,
+  patrón ya recomendado en §O.5 y decisión 57) y en el **pie de todos los correos**.
+- ⛔ **Nada de esto se publica con marcadores**: ni «[DATO DEL DUEÑO]» ni «[Razón social pendiente]» pueden verse en
+  producción. **Pasar a modo real de Stripe queda condicionado** a que el aviso esté publicado con datos reales
+  (P-LEG-1…3).
+
+#### LEG.4 Términos actuales vs. decisiones del dueño — contradicciones (medido 2026-10-05; NO se arreglan aquí)
+
+Los términos se pintan en `frontend/src/app/[locale]/(storefront)/terminos/page.tsx:22-60` con las claves
+`legal.*` de `frontend/messages/es.json:1160-1174` (y su par en `en.json`, NO MEDIDO línea a línea). Son de
+**frontend** (textos) y **ux-ui** (estructura). Contra `HECHOS.md`:
+
+| # | Dónde | Dice hoy | Choca con | Severidad |
+|---|---|---|---|---|
+| T-1 | `es.json:1165` (`legal.refundBody`), pintado en `terminos/page.tsx:33-35` como aviso destacado | «Todas las ventas son finales. Una vez que compras una carta, la venta **no admite reembolso ni cancelación**.» | El dueño **sí reembolsa**: la carta que falta o llega dañada al preparar (`HECHOS` 2026-09-29 «Preparar pedidos de ENVÍO»); el pedido entero tras el envío si «no llegó» o «llegó en mala condición» (`HECHOS` 2026-10-02 SSL-R1 y 2026-10-04 «4b»); **solo la carta** que llegó mal de un pedido entregado (`HECHOS` 2026-10-04 «Disputas…» (a)); y en el retiro de bóveda, el valor de mercado si no se repone (`HECHOS` 2026-09-29 D-2). Un «no admite reembolso» absoluto **promete menos** de lo que la tienda hace y **contradice** la propia excepción de la página | **Alta** — es el texto principal de la página |
+| T-2 | `es.json:517` (`checkout.guest.acceptTerms`, la casilla del invitado) | «…y entiendo que **todas las ventas son finales**.» | Lo mismo que T-1: el invitado acepta una regla absoluta que la tienda no aplica así (el invitado también recibe el reembolso con motivo, §V.3) | **Alta** — es lo que el invitado firma |
+| T-3 | `es.json:480` (`checkout.finalSaleNotice`) | «Sin reembolsos salvo carta **dañada o equivocada**.» | Le faltan dos causas que el dueño ya acepta: **«no llegó»** (`HECHOS` 2026-10-02/10-04) y **error de la plataforma** (`es.json:1167`). §V.1 lo daba por «sigue siendo cierto»; medido contra `HECHOS.md`, no lo es del todo | Media |
+| T-4 | `es.json:1168-1171` (`legal.dispute*`), pintado en `terminos/page.tsx:45-53` | «puedes **abrir una disputa** de condición **dentro de los 7 días naturales**… La evidencia se envía por correo… Si la disputa procede, te compensamos…» | `HECHOS` 2026-10-04 «Disputas: se quitan de la tienda… el cliente escribe a soporte»: **ya no hay disputas** en la tienda; debe decir **«Escríbenos»** a soporte | **Alta** |
+| T-5 | `es.json:1169-1170` (`disputeBody`, `disputeWindowNote`) | Plazo de **7 días** desde la entrega, en dos frases | ✅ **DECIDIDO por el dueño — frontend debe aplicarlo.** `HECHOS.md` fila **2026-10-05** «Términos tras quitar disputas: SIN plazo escrito para escribir tras la entrega, y SIN mencionar el contracargo del banco» (respuestas a P-1/P-2 de `DESIGN_SYSTEM §60.12`: «Sin plazo escrito» —solo «Escríbenos si hay un problema con tu pedido»; decide caso por caso—). Se quitan los 7 días de los términos (`terminos/page.tsx:48-52`) y de la ficha del pedido | **Alta** — decidido, falta aplicar |
+| T-6 | `es.json:1167` (`legal.platformErrorBody`) | «…siempre te reembolsamos, **sin necesidad de abrir una disputa**.» | Nombra una disputa que ya no existe (`HECHOS` 2026-10-04) | Baja |
+| T-7 | `es.json:1162` (`legal.intro`) | «Estos términos aplican a **todas las compras y a la bóveda**» | No cubren a **quien nos vende** (buylist: CLABE, INE, verificación, rechazo de cartas en mala condición — `HECHOS` 2026-10-04 «Solicitud de venta aceptada…»; y su devolución **como hoy**: 7 días para pedirla, envío de regreso a cargo del vendedor, abandonada a los 30 días — `HECHOS` 2026-10-05 «Arreglos del panel…» punto (2)) ni nombran a la **razón social** que responde (§O.5 / decisión 57) | Media |
+| T-8 | `terminos/page.tsx` completa | Sin enlace al aviso de privacidad | LEG.3 | Media |
+| T-9 | Contracargo | Los términos **no** lo mencionan (`grep -i contracargo` en `legal.*` ⇒ 0) | **Coincide** con la decisión del dueño: `HECHOS.md` fila **2026-10-05** «Términos tras quitar disputas… SIN mencionar el contracargo del banco» («No mencionarlo»). Se anota para que **nadie lo añada** al reescribir | — (conforme; decidido) |
+| T-10 | `es.json:1052` (`ine.privacy`, en el formulario de venta y en «Mi cuenta») | «Tu INE **se guarda cifrada**, solo la ve el responsable de la tienda y se borra al cumplirse el periodo de retención.» | La app **no cifra la imagen** (`grep` de cifrado en `backend/src/modules/uploads` ⇒ 0; solo guarda la llave, `schema.prisma:568`). «Cifrada» depende de que **R2 cifre en reposo** — **NO MEDIDO**. El aviso no debe prometer más de lo que hay | Media — verificar antes de publicar |
+| T-11 | `es.json:831-844` (`dispute.*`) y `es.json:1175-1181` | Textos de «Abrir disputa», «Mis disputas», «Evidencia de disputa» | Mismo choque que T-4; ya cubierto por §V y criterio 271 | (ya enrutado en §V) |
+
+**Lo que chocará con «todas las ventas son finales» si se deja tal cual (lo pide el encargo):** la frase vive en
+T-1, T-2 y (en versión con excepciones) T-3. El **reembolso de una carta tras la entrega** (`HECHOS` 2026-10-04,
+respuesta P-DSP-3 (a)) es justo el caso que esa frase niega. **Propuesta del PO (P-LEG-6):** cambiarla en los tres
+sitios por una sola regla con sus excepciones: *«Las ventas son finales: no aceptamos devoluciones por cambio de
+opinión. Te reembolsamos si fue un error nuestro, si una carta falta o llega dañada, o si tu pedido no llega.
+Escríbenos a soporte.»* — redacción final del abogado.
+
+**Hallazgo lateral (no del encargo):** §V.1 y §V.2 de este documento siguen describiendo como SUPUESTO los defaults
+de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`HECHOS.md` fila «Disputas…»: reembolso
+**por carta** y «Escríbenos» también en el retiro de bóveda). Queda para la siguiente pasada de §V.
+
+#### LEG.5 Fuera de alcance de §LEG
+- Asesoría legal, y decidir qué artículos aplican: es del abogado.
+- Guardar constancia de la aceptación (versión y fecha) — hoy no existe; solo si el abogado lo pide (P-LEG-10).
+- Botón para que el cliente borre su cuenta él mismo: los derechos ARCO se ejercen **por correo** y el súper-admin
+  usa el borrado que ya existe (SUPUESTO; P-LEG-11 si el dueño lo quiere distinto).
+- Banner de consentimiento de cookies: no hay cookies propias de analítica ni publicidad (LEG.1); se reabre si se añade
+  alguna.
+- Reescribir los términos aquí: va a frontend/ux-ui. T-4, T-5, T-6 y T-9 ya están decididos (`HECHOS.md` 2026-10-04
+  «Disputas…» y 2026-10-05 «Términos tras quitar disputas…») y se pueden aplicar ya; T-1/T-2/T-3 esperan P-LEG-6
+  (o su default) (criterio 510).
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §LEG** *(2026-10-05)*: la asesoría legal; guardar constancia de aceptación; autoborrado de cuenta por el
+  cliente; banner de cookies. Detalle y motivo en **§LEG.5**.
 - **De §W, §X y §Y** *(2026-10-04)*: contabilidad completa o emisión automática de CFDI (los exportes son insumo
   para el contador); conciliación bancaria automática y pago de SPEI desde la app (se sigue pagando en el banco y
   marcando en el panel); recalcular el precio exhibido por cada visita; consultar PSA de sellado o de gradeadas;
@@ -11442,6 +11698,64 @@ baratas…» — §Y.)*
    se comportan **igual que hoy** con §O.2/§O.7 para las mismas cartas (la de MX$25/MX$1,800 del 302, con un PSA 9
    de MX$500 —bajo los MX$943 de §O.2—, **no** lleva badge en la rejilla aunque esté en la vitrina).
 305. **Vitrina vacía no se pinta** *(§Y.4)*: si ninguna carta pasa la regla nueva, la vitrina no aparece, como hoy.
+*(Criterios 500–511 **nuevos el 2026-10-05** — §LEG, lo legal mínimo para cobrar con dinero real. Numerados desde
+500 por encargo, para no chocar con 319–338 (Skydropx) y 400–418 (panel). ⛔ **500–508 bloquean el paso a modo real
+de Stripe** (`HECHOS.md` 2026-09-10).)*
+500. **El aviso de privacidad existe y se abre sin sesión** *(§LEG.3)*: en un navegador sin sesión, `/es/privacidad`
+   y su equivalente en inglés responden con la página del aviso; su título es «Aviso de privacidad» y muestra **fecha
+   de última actualización**. Contiene, en este orden o equivalente, los diez apartados de §LEG.2: responsable con
+   razón social, RFC y domicilio; datos que se recaban; finalidades primarias; finalidades secundarias; con quién se
+   comparten; conservación; derechos ARCO y cómo ejercerlos (correo, requisitos y plazos); cookies y tecnologías
+   similares; cambios al aviso; aceptación.
+501. **Sin marcadores en producción** *(§LEG.3)*: el texto servido del aviso, de los términos, del pie y de los correos
+   **no contiene** «[DATO DEL DUEÑO]», «[FECHA», «[Razón social pendiente]», «[Legal entity pending]» ni ninguna
+   «nota para el abogado». Una prueba automatizada falla si alguno aparece. Mientras falte un dato del dueño, el
+   criterio está **rojo** y no se pasa a modo real.
+502. **El aviso describe lo que la tienda recaba de verdad** *(§LEG.1)*: QA recorre registro (correo y Google),
+   direcciones, checkout con cuenta, checkout de invitado, datos de factura, formulario de venta con CLABE e INE y
+   «avísame cuando vuelva», y comprueba que **cada dato que se pide** en esas pantallas aparece en el apartado de
+   datos del aviso, y que **ningún dato que el aviso dice no recabar** (tarjeta completa) se guarda: la orden pagada
+   solo tiene marca y últimos 4. Lista de proveedores del aviso = Stripe, paqueterías, Resend, Cloudflare R2,
+   Railway, Vercel, Google (más Skydropx si ya opera al publicar).
+503. **Enlace en el pie de toda la tienda** *(§LEG.3)*: en la portada, el catálogo, una ficha, el checkout, «Mi
+   cuenta» y la página de **seguimiento del invitado**, el pie muestra **«Aviso de privacidad»** junto a «Términos y
+   política», y lleva a la página del 500 en el idioma activo.
+504. **Enlace desde el registro** *(§LEG.3, default P-LEG-9)*: en «Crear cuenta», bajo el botón, se lee «Al crear tu
+   cuenta aceptas los Términos y el Aviso de privacidad» con **ambos enlaces** funcionando (abren sin perder lo
+   tecleado: nueva pestaña o equivalente). Lo mismo es visible antes de «Continuar con Google». Si el dueño elige
+   casilla (P-LEG-9), sin marcarla no se crea la cuenta y el servidor lo rechaza.
+505. **Enlaces en los demás puntos donde se dan datos** *(§LEG.3)*: (i) en la casilla del **checkout de invitado**,
+   «términos» y «aviso de privacidad» son enlaces a sus páginas; (ii) el aviso del **checkout con cuenta** enlaza
+   también al aviso de privacidad; (iii) la línea de privacidad del **formulario de venta** (CLABE/INE) y de la
+   sección INE de «Mi cuenta» enlaza al aviso.
+506. **Razón social en el pie** *(§LEG.3)*: con la razón social cargada, el pie de la tienda muestra «© {año} {razón
+   social}» en español y en inglés; los **términos** y el **aviso** la nombran como «TCG HUNT, marca operada por
+   {razón social}». Es **el mismo valor** en las tres superficies (se cambia en un solo sitio y cambia en las tres).
+507. **Razón social y aviso en los correos** *(§LEG.3)*: QA dispara al menos un correo de cada familia (verificación de
+   correo, restablecer contraseña, confirmación de pedido con cuenta, confirmación de invitado, correo de buylist,
+   aviso del centro de avisos) y en **todos** el pie muestra la **razón social** y un enlace **«Aviso de
+   privacidad»** a la página del 500, además de lo que ya lleva (marca, sitio, soporte). Es el mismo valor que en el
+   506.
+508. **El correo de privacidad recibe** *(§LEG.2 punto 7)*: un correo enviado desde fuera al buzón de privacidad que
+   publica el aviso **llega** a un buzón que el dueño lee (lo confirma el dueño). El buzón del aviso es el **mismo**
+   en ES y EN.
+509. **Cookies: el aviso dice la verdad** *(§LEG.1, §LEG.2 punto 8)*: en la tienda **en vivo**, con navegador limpio,
+   QA recorre portada → ficha → carrito → checkout hasta el formulario de Stripe, y por separado «Continuar con
+   Google»; lista **todas** las cookies y entradas de almacenamiento local creadas y su dominio. Cada una aparece
+   descrita (por categoría o nombre) en el apartado 8 del aviso. **⛔ Falla** si aparece una cookie de analítica o
+   publicidad no declarada.
+510. **Términos sin contradicciones** *(§LEG.4; la parte de ventas finales se activa con P-LEG-6 o su default)*: en
+   la página de términos (ES y EN), en la casilla del invitado, en el aviso del checkout y en la ficha del pedido: no
+   aparece «disputa», **ni ningún plazo escrito tras la entrega** (`HECHOS.md` 2026-10-05 «Términos tras quitar
+   disputas…»: solo «Escríbenos si hay un problema con tu pedido»), ni «no admite reembolso» absoluto; aparece la regla de ventas
+   finales **con sus excepciones** (error nuestro, carta faltante o dañada, pedido que no llegó) y «Escríbenos» con el
+   correo de soporte que sirve el servidor (criterio 271); el contracargo **no** se menciona (misma fila de `HECHOS.md`). Los términos cubren
+   también a **quien nos vende** cartas y enlazan al aviso de privacidad.
+511. **Lo que NO cambia con §LEG — por ausencia**: el borrado/anonimización de cuentas, la purga de la INE a 180 días,
+   el cifrado de CLABE y RFC, y lo que se manda a Stripe se comportan **igual que hoy** (mismas pruebas verdes); §LEG
+   solo añade páginas, enlaces y textos. Si el texto del aviso promete algo que el sistema no hace (p. ej. «INE
+   cifrada», T-10), se corrige **el texto** o se enruta el cambio de sistema al arquitecto — nunca se publica la
+   promesa sin la conducta.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -15408,3 +15722,56 @@ ese frente:**
 - **P-JOY-6 · ¿La regla nueva vale también para el badge de la rejilla y la burbuja de destacadas?** Default: **no,
   solo la vitrina**; la rejilla, destacadas y la ficha siguen como hoy. Consecuencia: una carta barata puede estar en
   la vitrina y salir sin badge en la rejilla. §Y.4, criterio 304.
+
+## Preguntas — lo legal mínimo para cobrar con dinero real (§LEG, 2026-10-05, sesión 5) — ABIERTAS
+
+> Lo que ya dijiste **no se pregunta**: sin disputas y «Escríbenos» (`HECHOS.md` 2026-10-04 «Disputas…»), los
+> reembolsos de `HECHOS.md`, y **sin plazo escrito tras la entrega ni mención del contracargo** (`HECHOS.md`
+> 2026-10-05 «Términos tras quitar disputas…» — por eso ya no hay P-LEG-7). **P-LEG-1, 2 y 3 NO tienen default**:
+> solo tú tienes esos datos, y sin ellos no se puede cobrar con dinero real. **Todas las demás tienen default**; si
+> no dices nada, se construye así. ⚠️ **Nosotros no somos abogados**: el aviso de §LEG.2 es un borrador.
+
+- **P-LEG-1 · ¿A nombre de quién opera la tienda?** Necesitamos la **razón social** (si es empresa) o tu **nombre
+  completo** (si operas como persona física), y el **RFC**. Va en el pie de la tienda, en los correos, en los
+  términos y en el aviso. *Sin default.* §LEG.3, criterios 501, 506, 507.
+- **P-LEG-2 · ¿Qué domicilio ponemos en el aviso?** La ley pide el domicilio del responsable. Puede ser el fiscal.
+  *Sin default.* §LEG.2 punto 1.
+- **P-LEG-3 · ¿A qué correo escriben los clientes para pedir sus datos o que los borremos?** *Sin default* (tiene
+  que ser un buzón que tú leas). Sugerencia: **`privacidad@tcghunt.mx`**, que llegue a donde ya te llega `soporte@`;
+  o usar `soporte@tcghunt.mx` directamente. Tienes que poder contestar en 20 días hábiles. Criterio 508.
+- **P-LEG-4 · ¿Ya tienes un aviso de privacidad hecho por tu abogado?** Si sí, **usamos el tuyo** y descartamos el
+  borrador; solo revisamos que mencione lo que la tienda recaba de verdad (§LEG.1). Si no, ¿se lo puedes pasar a un
+  abogado antes de cobrar con dinero real? Default: **el borrador va a tu abogado antes de pasar a modo real**
+  (recomendación del equipo).
+- **P-LEG-5 · ¿Tu abogado revisa también los términos?** Hoy tienen al menos cuatro contradicciones con lo que
+  decidiste (§LEG.4, T-1 a T-5). Default: los reescribimos con tus decisiones y se los pasas junto con el aviso.
+- **P-LEG-6 · «Todas las ventas son finales» choca con los reembolsos que sí haces.** Hoy los términos dicen que una
+  venta «no admite reembolso ni cancelación», pero tú reembolsas una carta que falta o llega dañada, un pedido que no
+  llegó, y una sola carta que llegó mal. Default: **cambiar la frase en los tres sitios** por *«Las ventas son
+  finales: no aceptamos devoluciones por cambio de opinión. Te reembolsamos si fue un error nuestro, si una carta
+  falta o llega dañada, o si tu pedido no llega. Escríbenos a soporte.»* (sin plazo, como decidiste). §LEG.4,
+  criterio 510.
+- ~~**P-LEG-7 · ¿Plazo para reclamar tras la entrega?**~~ ⇒ **RESPONDIDA antes de preguntarla**: «Sin plazo escrito»
+  y «No mencionarlo» (contracargo) — `HECHOS.md` fila **2026-10-05** «Términos tras quitar disputas…». Retirada
+  (2026-10-05); T-5 pasa a «decidido, frontend debe aplicarlo».
+- **P-LEG-8 · ¿Vas a mandar promociones o novedades por correo, o usar lo que la gente busca y ve para decidir qué
+  comprar?** Si sí, el aviso tiene que decirlo y dar una forma de negarse. Default: **no hay usos secundarios** por
+  ahora; si cambia, se actualiza el aviso antes. §LEG.2 punto 4.
+- **P-LEG-9 · Al registrarse, ¿basta una leyenda o quieres una casilla «Acepto»?** Default: **leyenda con enlaces**
+  bajo el botón «Crear cuenta» (y en «Continuar con Google»), sin casilla. Tu abogado puede pedir casilla. Criterio 504.
+- **P-LEG-10 · Para la CLABE y la INE de quien te vende, ¿pedimos un «Acepto» explícito?** Son datos financieros y
+  de identidad. Default: **lo decide tu abogado**; mientras, la línea de privacidad del formulario enlaza al aviso
+  (criterio 505). Si pide casilla y guardar la constancia, es trabajo nuevo.
+- **P-LEG-11 · ¿Cuánto guardamos los datos de pedidos de invitado y de solicitudes de venta que no se cerraron?**
+  Hoy no hay regla: se quedan para siempre. Lo de pedidos pagados lo marca la ley fiscal (tu contador te dice el
+  plazo). Default: **lo que diga tu contador para pedidos pagados**; para solicitudes que no se cerraron, **12 meses**
+  (SUPUESTO). Y para borrar una cuenta, el cliente **te escribe** y tú usas el borrado que ya existe en Usuarios —
+  no se añade botón de autoborrado. §LEG.2 punto 6, §LEG.5.
+- **P-LEG-12 · ¿Compartimos datos con alguien más que no esté en la lista?** La lista medida: Stripe, paqueterías
+  (y Skydropx cuando opere), Resend (correos), Cloudflare (guarda la INE), Railway y Vercel (alojan la tienda),
+  Google (acceso) y el SAT cuando lo pida. ¿Tu contador recibe datos de clientes (p. ej. para facturar)? Si sí, entra
+  en la lista. Default: **la lista medida + tu contador**. §LEG.2 punto 5.
+- **P-LEG-13 · Cuando cambie el aviso, ¿avisamos por correo a los clientes con cuenta?** Default: **sí, solo si el
+  cambio es de fondo** (nuevos usos o nuevos destinatarios); los cambios menores, solo con la fecha en la página.
+- **P-LEG-14 · ¿Publicamos también el aviso en inglés?** La tienda tiene versión en inglés. Default: **sí, traducido,
+  y la versión en español es la que vale** si difieren.
