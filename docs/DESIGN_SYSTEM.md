@@ -4,7 +4,25 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
+> Estado: **v5.0 (2026-10-05) — ARREGLOS DEL PANEL (§60 NUEVA; `API_CONTRACT` v1.82 §PNL, `ARCHITECTURE §4.61`;
+> `HECHOS.md:44`, `:45`, `:50` y `:30`–`:32`, `:36`, `:37`; REGLA GENERAL de automatizar, `HECHOS.md` de la rama Skydropx
+> `:59`). ⚠ **Salto de numeración deliberado:** esta rama (`claude/arreglos-panel`) venía de la v4.14; la rama de Skydropx
+> va por la **v4.22** y usa secciones a partir de la 43 (hasta dónde llega: NO MEDIDO). Para no chocar al fusionar, esta
+> entrega es la **v5.0** y su sección es la **§60**. Al fusionar, la cabecera de Skydropx (v4.15–v4.22) se intercala
+> **debajo** de esta como «Estado anterior», sin renumerar nada. Fichero:línea leídos en `/home/user/tcg-panel` el
+> 2026-10-05 (ux-ui sin Bash: sha NO MEDIDO).** **§60.1** «¿Problema con tu pedido? Escríbenos» sustituye a «Abrir
+> disputa» (pedido directo entregado, retiro entregado, seguimiento del invitado) con `GET /support/contact`, y se
+> reescriben los textos que prometían disputa. **§60.2** lo que ve y recibe el cliente tras un reembolso posterior a la
+> entrega (línea de la carta, AV-12 y AV-14 con variante). **§60.3** «Reembolsar esta carta» en Ventas (súper-admin,
+> importe del servidor confirmado). **§60.4** captura del SPEI de un retiro entregado en «Reembolsos». **§60.5** mesa y
+> verificación de M5: selección, «Rechazar seleccionadas», «Declinar» dentro de la mesa, un clic que recibe y abre la
+> revisión, y lo que la mesa dice fuera de «cotizada». **§60.6** el correo ÚNICO de cartas rechazadas (7 días / a cargo
+> del vendedor / 30 días, `HECHOS.md:50` (2)). **§60.7** F-4 «No comprada» y F-9 los diez diales. **§60.8** retiro de
+> M8 (`HECHOS.md:50` (3)). **§60.9** «Pedidos por preparar» en el celular (≤ 390 px, `HECHOS.md:50` (1)) — la única
+> pantalla del panel pensada para celular. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la
+> v4.14 sin cambio (salvo un puntero en §7.11).
+>
+> Estado anterior: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
 > 2026-10-04 «Usuarios de back-office SIN correo», puntos (a)(b)(c); `API_CONTRACT` v1.80.9 §M6-U; fichero:línea medidos
 > en el worktree `claude/precios-s5`, HEAD `43c42b3d` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
 > **§42.1** login: la etiqueta «Correo o usuario», `type="text"`, el candado por cuenta con usuario tecleado dice
@@ -1754,6 +1772,9 @@ un módulo— todo el card es clickable (foco visible).
 - Táctil: botones ≥ 48px; los dos slots deben verse sin scroll en móvil.
 
 ### 7.11 Disputa por correo (`DisputeEvidenceContact`) — reemplaza al comparador de fotos (v1.2)
+> ⛔ **v5.0: SUSTITUIDA por §60.1** (`HECHOS.md:44`: las disputas salen de la tienda). El componente pasa a ser
+> `SupportContact` («¿Problema con tu pedido? Escríbenos») y el flujo `POST /disputes` ya no existe en pantalla. Lo de
+> abajo queda como historia.
 > **Eliminado:** el componente **`PhotoCompare`/comparador de fotos** de disputas (ingreso vs. reclamo)
 > **ya no existe** — el producto no tiene fotos propias de ingreso y el cliente no sube foto de reclamo.
 - **Flujo de disputa del cliente (`POST /disputes`):** el cliente elige el ítem entregado y escribe una
@@ -22960,3 +22981,711 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 | **N-3** | product-owner | **El alta de cliente de hoy no pide celular** (`M6View.tsx:540-565`: correo, nombre, rol, contraseña), aunque `PROJECT §U.2` dice «sigue exigiendo correo (y celular, D11)». Este diseño **no lo cambia** (criterio 270: «como hoy»). Si el celular debe pedirse ahí, es otro encargo |
 | **N-4** | orquestador | **Zonas compartidas tocadas:** `frontend/src/lib/format.ts` (F-10), `frontend/src/components/layout/AdminShell.tsx` (F-12), `frontend/src/components/domain/*` (F-1…F-3, F-13…F-15) y `types/contract.ts` (§M6-U.10). Un solo stream a la vez |
 | **N-5** | orquestador | **F-3 (credenciales con usuario) va más allá de los tres puntos de §M6-U.10.** Lo sostiene `PROJECT §U.3` («texto final de ux-ui»; puede variar por la forma de lo tecleado) y no toca la rama `@`. Si se prefiere el cambio mínimo estricto, se omite F-3 y UX-4, y el equipo leerá «Correo o contraseña incorrectos» |
+
+---
+
+## 60. Arreglos del panel — «Escríbenos», reembolsos tras la entrega, la mesa de M5, el correo único de rechazo, M8 fuera y «Pedidos por preparar» en el celular (v5.0, 2026-10-05 · `API_CONTRACT` v1.82 §PNL)
+
+> **Por qué §60 y no §43:** la rama de Skydropx ya usa números desde el 43 (hasta dónde: NO MEDIDO). Un número alto
+> evita dos «§43» al fusionar. La numeración no implica orden de lectura.
+
+### 60.0 Fuente, alcance, lo medido y las reglas duras
+
+**Fuentes (citadas, no de memoria):**
+
+- `HECHOS.md:44` (2026-10-04, «Disputas: se quitan de la tienda…»): *«sí, quita el botón y pon escríbenos»*; (a)
+  reembolsar **solo la carta** que llegó mal de un pedido entregado, desde Ventas, con motivo; (b) el **retiro
+  entregado también muestra «Escríbenos»** y, si hay que devolver dinero, **por SPEI**.
+- `HECHOS.md:45` (2026-10-04, «Solicitud de venta aceptada: no se cancela…»): *«solo no las acepto si están en mala
+  condición entonces es solo decirle ese motivo y cuáles de las que mando»*.
+- `HECHOS.md:50` (2026-10-05, «Arreglos del panel — respuestas del dueño»): (1) **solo «Pedidos por preparar»** en
+  celular; (2) las rechazadas se devuelven **como hoy** (7 días, envío a cargo del vendedor, abandonada a los 30); (3)
+  disputas abiertas: **ninguna** ⇒ M8 se puede retirar (la consulta SQL de §PNL.9 queda como comprobación en la ventana
+  de despliegue).
+- `HECHOS.md:30` (D-1: la carta más su parte de la comisión), `:31` (b) (monto de bóveda lo captura el dueño), `:32`
+  (D-12: topes 2× / 5×), `:36` (una pestaña «Reembolsos», dos cubetas), `:37`/`:39` (motivo «no llegó» / «llegó en mala
+  condición»).
+- **REGLA GENERAL** (`/home/user/tcg-skyd/HECHOS.md:59`): *lo más automático posible; lo manual es respaldo*.
+- Contrato v1.82 §PNL.1–§PNL.5 y §PNL.8 (pruebas de frontend FE-DSC-1…4, FE-IDR-1/2, FE-WDR-1, FE-BRJ-1…3); §E2E-ADM.2/.3/.4
+  (F-4, F-9, forma del `422` de M10); `ARCHITECTURE §4.61`.
+- Estilo de correos: §41 (asunto sin prefijo, saludo por helper, dinero `MX$`, CTA, pie por familia) y §31.10e (el
+  correo de carta rechazada **no lleva CTA**).
+
+**Cómo aplico la REGLA GENERAL aquí (y dónde NO se puede):**
+
+| Paso | Automático | Manual que queda (y por qué) |
+|---|---|---|
+| Correo de soporte en pantalla | sale de `GET /support/contact`; el `mailto:` llega con asunto y número de pedido ya escritos | ninguno |
+| Importe del reembolso de una carta entregada | lo calcula el servidor; la pantalla lo muestra y lo manda de vuelta | confirmar la cifra (el súper-admin no reembolsa lo que no vio: `expectedRefundCents`) |
+| Monto del SPEI de un retiro | referencias y topes calculados mientras escribe (sin botón «calcular») | **teclear el monto** — `HECHOS.md:31` (b): *«yo busco lo que vale y capturo»* |
+| Paquete de venta que llega | **un** clic: «Recibida: empezar revisión» encadena `receive → verify` | «Iniciar verificación» solo como respaldo si el segundo paso falla |
+| Rechazar las que llegaron mal | una selección, un motivo, **un** correo; si quedan todas rechazadas, la solicitud se cierra sola | escribir el motivo (lo lee el vendedor) |
+
+**Lo medido antes de redactar (lectura de ficheros en `/home/user/tcg-panel`, 2026-10-05; sin Bash, sha NO MEDIDO):**
+
+| Medición | Resultado |
+|---|---|
+| «Abrir disputa» | `vault/WithdrawalsList.tsx:215-223` (botón por carta), `:81-122` (estado, mutación, ventana de 7 días), `:236-270` («Mis disputas» siempre visible), `:272-338` (modal) |
+| Buzón de soporte en el front | `checkout/support-contact.ts:14` (valor fijo); lo leen `GuestOrderConfirmation.tsx:107`, `pedido/layout.tsx:68-69`, `pedido/TrackingLinkNeutralState.tsx:228`. Los términos lo traen **escrito en el texto**: `es.json:1173` (`legal.questionsBody`) |
+| Seguimiento del invitado | `pedido/PublicOrderTracking.tsx:247-259`: el bloque de contacto sale **siempre**, en cualquier estado |
+| Textos que prometen disputa | `es.json:831-845` (`shipments.dispute.*`), `:1167-1171` (`legal.*`), `:1175-1182` (`dispute.*`) y sus pares en `en.json` |
+| Línea de la carta del cliente | `components/domain/OrderItemStatusLine.tsx:81-88`: pinta **siempre** «No salió · te devolvimos» — con `kind:'after_delivery'` mentiría |
+| Artículos en M3 | `m3/[orderId]/M3OrderDetailView.tsx:300-316`; tipos de reembolso `:413-414` con `kind.*` en `es.json:1643-1649` (sin `item_delivered`) |
+| Cubeta SPEI | `manual-refunds/ManualRefundsView.tsx:155` y `[id]/ManualRefundDetailView.tsx:230` leen `m.case.card.name` **sin nulo**: con `case: null` (v1.82) la pantalla se cae |
+| M5 | botones de cierre `M5View.tsx:1046-1067`; «Marcar recibida» `:1074-1083`; «Iniciar verificación» `:1085-1094`; decisión por carta `:1153-1174` (sin condición por `offerDecision`) |
+| Mesa de decisión | `m5/BuylistDecisionDesk.tsx:277` (`readOnly` fuera de `cotizada`), `:593-611` (sin «Declinar»; fuera de `cotizada` un solo texto, `es.json:2498`) |
+| Correo de carta rechazada | `backend/src/modules/buylist/buylist-mail.templates.ts:157-249`: el **motivo lo lee el vendedor** (`:173`, `:208`) |
+| M10 | `m10/M10View.tsx:84-108`: ninguno de los diez diales; `es.json:3873` rotula `shippingFeeCents` «Tarifa de envío» (es la del **retiro**, no la guía del buylist) |
+| M8 | menú `AdminSidebar.tsx:66`; tablero `AdminDashboard.tsx:128-136`; historial de usuario `m6/M6View.tsx:907-908`, `:986-988` |
+| Preparar en celular | `m4/ShipPreparationCard.tsx:679,701,710,764,1115,1120,1188,1191`: botones con `sm:min-h-[44px]` ⇒ **por debajo de 640 px no garantizan 44 px**, justo en el celular; `m4/prep-shared.tsx:82` foto de 64 px sin ampliar; `m4/PreparationQueue.tsx:177` botón de imprimir visible en celular |
+
+**Reglas duras (de contrato y `HECHOS`; la pantalla no las relaja):**
+
+1. ⛔ Ningún «Abrir disputa» en ninguna pantalla de la tienda (`HECHOS.md:44`).
+2. ⛔ El correo de soporte **nunca escrito en la pantalla ni en un texto**: sale de `GET /support/contact` (o de
+   `support.evidenceContact` en el seguimiento). El valor fijo queda **solo** para cuando la llamada falla (§PNL.1).
+3. «Escríbenos» aparece **solo tras la entrega**; antes, no (§PNL.1). Orden a bóveda: nunca (su entrega es el retiro).
+4. Los dos motivos de §40.1, sin «otro», sin preselección.
+5. El importe de la carta entregada **no se teclea**; el del SPEI de retiro **sí** (y nadie lo prellena).
+6. ⛔ `aceptada` no gana «cancelar» (`HECHOS.md:45`).
+7. El rechazo de varias cartas manda **un** correo (§PNL.4); el de una carta sigue con el suyo.
+8. Cero tokens nuevos, cero pares de contraste nuevos.
+
+---
+
+### 60.1 «¿Problema con tu pedido? Escríbenos» — sustituye a «Abrir disputa» (PNL-1)
+
+#### (a) El componente `SupportContact` (renombra `DisputeEvidenceContact`)
+
+No es un aviso ni un error: es una **puerta**. ⛔ No va en `Banner` (§7.11 lo pintaba como `Banner info`; un banner azul en
+un pedido entregado se lee como «algo pasó»). Va como **sección editorial** de la ficha (patrón de §20: regla superior,
+eyebrow, prosa):
+
+```
+──────────────────────────────────────────────
+¿PROBLEMA CON TU PEDIDO?                       ← eyebrow (mono 11px, versalita en la cadena)
+Si una carta llegó en mala condición o el paquete no llegó, escríbenos
+con tu número de pedido y, si puedes, fotos. Lo revisamos y te
+respondemos por correo.
+✉ soporte@tcghunt.mx                [ Copiar correo ]
+──────────────────────────────────────────────
+```
+
+| Pieza | Pedido directo | Retiro | EN |
+|---|---|---|---|
+| Eyebrow (`h2` con clase `eyebrow`) | **¿PROBLEMA CON TU PEDIDO?** | **¿PROBLEMA CON TU RETIRO?** | PROBLEM WITH YOUR ORDER? / PROBLEM WITH YOUR WITHDRAWAL? |
+| Prosa (`text-sm text-text`) | **Si una carta llegó en mala condición o el paquete no llegó, escríbenos con tu número de pedido y, si puedes, fotos. Lo revisamos y te respondemos por correo.** | idem con «número de retiro» | If a card arrived in bad condition or the package didn't arrive, write to us with your order number and, if you can, photos. We'll look into it and reply by email. / idem “withdrawal number” |
+| Correo | enlace `mailto:` con el correo visible (`font-mono text-[13px] underline underline-offset-4`, icono `Mail` 16px `aria-hidden`), `data-testid="support-email"` | idem | |
+| Asunto del `mailto:` (automatizado) | **Problema con mi pedido {ref}** | **Problema con mi retiro {ref}** | Problem with my order {ref} / Problem with my withdrawal {ref} |
+| Botón | `Button variant="ghost" size="sm"` **«Copiar correo»** → **«Copiado»** (2 s, anunciado en `aria-live="polite"`) | idem | Copy email / Copied |
+
+- **Rótulo principal = las palabras del dueño** («¿Problema con tu pedido? Escríbenos»): el eyebrow lleva la pregunta y la
+  prosa empieza por la acción. ⛔ La prosa **no promete** reembolso, plazo ni respuesta en N horas: el desenlace lo decide
+  el dueño desde Ventas.
+- ⛔ Sin la palabra «disputa», «aclaración» ni «reclamo» (la disputa ya no existe para el cliente; la de su banco no se
+  anuncia desde la tienda — §60.12 P-2).
+- **Carga:** mientras `GET /support/contact` no contesta, la línea del correo es un `Skeleton` de una línea (ancho de
+  ~18 caracteres) y el botón está deshabilitado. ⛔ **No** se pinta el valor fijo mientras carga (un parpadeo de un correo
+  a otro es peor que esperar 300 ms). **Error de red** ⇒ el valor fijo `SUPPORT_CONTACT_FALLBACK`, sin aviso.
+- **Una consulta para toda la tienda:** `useSupportContact()` con `queryKey: ['support-contact']`, `staleTime` de 5 min (el
+  `Cache-Control: max-age=300` del contrato). Cualquier pantalla que la use comparte el resultado.
+
+#### (b) Dónde aparece — y dónde NO
+
+| Pantalla | Condición | Ubicación | `ref` | Fuente del correo |
+|---|---|---|---|---|
+| Detalle del pedido `/orders/[orderId]` | `fulfillmentMode === 'direct_ship'` ∧ el envío del pedido en `entregado` | `aside`, **tras** `OrderShipmentBlock` (`OrderDetailView.tsx:155-162`) y antes del desglose | `orderNumber` | `useSupportContact()` |
+| «Retiros» (lista) | `s.status === 'entregado'` | **una** sección por retiro, bajo su lista de cartas (sustituye los botones por carta de `WithdrawalsList.tsx:215-223`) | `s.id` | `useSupportContact()` |
+| Detalle del retiro `/shipments/[id]` | `status === 'entregado'` | `aside`, tras la dirección | id del retiro | `useSupportContact()` |
+| Seguimiento del invitado `/pedido` | `data.status === 'entregado'` | el sitio de hoy (`PublicOrderTracking.tsx:247-259`), **ahora condicionado** | `orderNumber` | `data.support.evidenceContact` |
+
+- **Antes de la entrega no aparece** (regla 3). Sigue habiendo un contacto **neutro** donde ya lo había (pie de
+  `/pedido`, confirmación de compra, enlace caducado): esos dicen «¿Necesitas ayuda? Escríbenos a {contact}» y no
+  invitan a reclamar nada; su correo pasa a salir del endpoint (§60.12 tabla).
+- **Pedido con varios envíos:** el DTO del cliente trae **un** `shipment` (`types/contract.ts:2221-2232`); si un pedido
+  pudiera tener varios, la regla del contrato es «algún envío entregado» — **NO MEDIDO** si el DTO del cliente lo permite.
+  Con el DTO de hoy: el `shipment` presente en `entregado`.
+- **Una carta reembolsada tras la entrega** sigue mostrando «Escríbenos» en su pedido: el cliente puede tener otra
+  carta con problema.
+
+#### (c) Lo que desaparece del cliente
+
+- ⛔ «Abrir disputa», «Disputa abierta», el modal y la ventana de 7 días (`WithdrawalsList.tsx:22-23`, `:81-122`,
+  `:215-223`, `:272-338`). `createDispute` sale de `lib/api.ts:2596-2604` (contrato §PNL.1).
+- **«Mis disputas»** (`WithdrawalsList.tsx:236-270`) **solo se pinta si `getDisputes()` devuelve al menos una** (lectura de
+  las que existan; `HECHOS.md:50` dice que hoy no hay ninguna). Con cero: ni título ni vacío. ⛔ El `EmptyState` «No
+  tienes disputas.» desaparece: anunciar que no tienes algo que ya no puedes tener es ruido.
+- Si un frontend viejo en caché llama `POST /disputes` y recibe `410 DISPUTES_DISCONTINUED { supportContact }`:
+  `error.DISPUTES_DISCONTINUED` = **«Ya no se abren aclaraciones desde la tienda. Si tienes un problema con tu pedido,
+  escríbenos a {contact} con tu número de pedido.»** / “Claims are no longer opened from the store. If you have a problem
+  with your order, write to {contact} with your order number.” (`{contact}` = `details.supportContact`).
+
+#### (d) Los textos que prometían disputa — reescritos
+
+| Clave | Hoy (resumen) | ES nuevo | EN nuevo |
+|---|---|---|---|
+| `legal.platformErrorBody` (`es.json:1167`) | «…sin necesidad de abrir una disputa.» | Si el problema es un error nuestro —por ejemplo, un cobro duplicado o una compra sin inventario real que la respalde— siempre te reembolsamos. | If the problem is our mistake —for example, a duplicate charge or a purchase with no real inventory behind it— we always refund you. |
+| `legal.disputeTitle` (`:1168`) → **renombrar** `legal.deliveryIssueTitle` | «Excepción: carta dañada o equivocada» | Excepción: una carta llegó mal o el paquete no llegó | Exception: a card arrived in bad shape or the package didn't arrive |
+| `legal.disputeBody` (`:1169`) → `legal.deliveryIssueBody` | «…puedes abrir una disputa de condición dentro de los 7 días…» | Si una carta te llegó dañada o equivocada, o el paquete no llegó, escríbenos a {contact} con tu número de pedido o de retiro y, si puedes, fotos. Revisamos el caso y, si procede, te devolvemos el dinero de esa carta. No tienes que abrir nada en la tienda. | If a card reached you damaged or wrong, or the package didn't arrive, write to {contact} with your order or withdrawal number and, if you can, photos. We review the case and, if it applies, refund that card. You don't need to open anything in the store. |
+| `legal.disputeWindowNote` (`:1170`) | plazo de 7 días desde la entrega | **se retira** (§60.12 P-1: si el dueño quiere un plazo, se escribe; hoy ninguna regla lo aplica) | — |
+| `legal.disputeOutcome` (`:1171`) → `legal.deliveryIssueOutcome` | «Si la disputa procede…» | Si procede, conservas la carta: no hay devolución del producto. | If it applies, you keep the card: there's no product return. |
+| `legal.questionsBody` (`:1173`) | correo escrito en el texto | Para cualquier aclaración sobre estos términos, escríbenos a {contact}. | For any question about these terms, write to {contact}. |
+| `dispute.*` (`:1175-1182`) → **renombrar** a `support.*` | «Envía tu evidencia por correo…» | `support.orderTitle` ¿PROBLEMA CON TU PEDIDO? · `support.withdrawalTitle` ¿PROBLEMA CON TU RETIRO? · `support.orderBody` / `support.withdrawalBody` (tabla a) · `support.copyEmail` Copiar correo · `support.copied` Copiado · `support.mailSubjectOrder` Problema con mi pedido {reference} · `support.mailSubjectWithdrawal` Problema con mi retiro {reference} | (tabla a) |
+| `shipments.dispute.*` (`:831-845`) | modal de disputa | **se retiran todas** salvo `myDisputes` y `deadline` (lectura de «Mis disputas» mientras exista alguna) | — |
+| `track.troubleWithOrder` (`:5054`) | «¿Un problema con tu pedido?» | **se retira**: el eyebrow lo pone `support.orderTitle` | — |
+| `track.supportNote` (`:5055`) | sin cambio | — | — |
+
+- Los términos (`terminos/page.tsx:48-52`) leen `{contact}` del mismo endpoint (página de servidor: `fetch` con
+  `revalidate: 300`; fallo ⇒ el valor fijo).
+- **M8 hacia el cliente** (correos 20 y 21 de §41.1): **sin cambio** mientras M8 siga en transición; se retiran con M8
+  (§60.8). El checkout **no** tiene textos de disputa (medido: 0 coincidencias en las claves de `checkout.*`).
+
+---
+
+### 60.2 Lo que ve y recibe el cliente tras un reembolso posterior a la entrega
+
+#### (a) La línea de la carta (`OrderItemStatusLine`)
+
+`items[].refund` gana `kind` (§PNL.2 «Lecturas que cambian»). La línea se elige por `kind`, ⛔ nunca por el valor de `reason`:
+
+| `refund.kind` | ES | EN |
+|---|---|---|
+| `missing_at_prep` (o ausente: backend anterior) | **«No salió · te devolvimos {amount}»** · «no la encontramos» / «llegó dañada» (§37.7, sin cambio) | sin cambio |
+| `after_delivery` | **«Reembolsada · te devolvimos {amount}»** · **«no llegó»** / **«llegó en mala condición»** | “Refunded · we refunded you {amount}” · “didn't arrive” / “arrived in bad condition” |
+
+`text-sm text-text`, motivo en `text-muted` tras « · », como hoy. ⛔ Sin nota interna, sin actor. Vale en pedido,
+retiro y seguimiento (si el DTO del invitado trae `items[].refund`: **NO MEDIDO** en `types/contract.ts:5792-5806`; si lo
+trae, `PublicOrderTracking` pinta la misma línea bajo cada artículo).
+
+**Retiro con SPEI (`withdrawal_delivered`):** el contrato **no** declara qué ve el cliente en «Retiros» (§60.12 A-1). Hasta
+que lo declare, lo único que recibe es el correo AV-14 (b) y, al pagarse, AV-15.
+
+#### (b) Correos — dos variantes, sin correo nuevo (estilo §41)
+
+**AV-12 · variante `after_delivery`** (correo **23** de §41.1, `refundNoticeTemplate`). Asunto **sin cambio** («Reembolso
+de `<referencia>`», §41.2). Sin saludo (familia REEMBOLSO, §41.3). Dinero por `mailMoney` (§41.5).
+
+| Pieza | ES | EN |
+|---|---|---|
+| Eyebrow | `TU PEDIDO · <n>` | `YOUR ORDER · <n>` |
+| Titular (serif 22px) | Te devolvimos el dinero de una carta | We refunded a card |
+| Prosa | Te devolvimos {amount} por {esta carta \| estas cartas} de tu pedido, que {no llegó \| llegó en mala condición}. Va a tu forma de pago original; según tu banco tarda unos días en verse. No tienes que regresarnos la carta. | We refunded {amount} for {this card \| these cards} from your order, which {didn't arrive \| arrived in bad condition}. It goes back to your original payment method; depending on your bank it can take a few days to show. You don't need to send the card back. |
+| Líneas | `cardLineRows` por carta (nombre · set · #, importe a la derecha) | |
+| CTA (tinta) | `VER MI PEDIDO` → `/orders/<id>` o el seguimiento tokenizado del invitado (§41.4) | `SEE MY ORDER` |
+| Pie | REEMBOLSO (§41.6) | |
+
+⛔ La variante `missing_at_prep` no cambia (§37.7). *Por qué «No tienes que regresarnos la carta»:* es verdad (la carta
+no vuelve, §PNL.2 paso 9) y es la duda que tiene quien recibe dinero por algo que tiene en la mano.
+
+**AV-14 · variante `withdrawal_delivered`** (correo **25**, `manualRefundAnnouncedTemplate`). Asunto sin cambio («Te
+vamos a depositar tu reembolso»). Hoy su prosa dice *«No conseguimos reponer {carta} que te debíamos»* (§37.9d) — **falso**
+para este origen.
+
+| Pieza | ES | EN |
+|---|---|---|
+| Eyebrow | `TU RETIRO · <ref>` | `YOUR WITHDRAWAL · <ref>` |
+| Titular | Te vamos a depositar tu reembolso | We will deposit your refund |
+| Prosa | Por {carta} de tu retiro, que {no llegó \| llegó en mala condición}, te devolvemos {amount} por transferencia{ a tu CLABE terminación {clabeMasked} \| . Para hacerlo necesitamos tu CLABE: regístrala en tu cuenta}. Te avisamos cuando esté hecho. No tienes que regresarnos la carta. | For {card} from your withdrawal, which {didn't arrive \| arrived in bad condition}, we're refunding {amount} by bank transfer{ to your CLABE ending in {masked} \| . To do it we need your CLABE: register it in your account}. We'll let you know once it's done. You don't need to send the card back. |
+| Monto | `totalsRows([], { POR TRANSFERENCIA, transfer })` (§41.13 fila 25) — ⛔ sin parte de tarjeta: aquí no hay Stripe | |
+| CTA | §41.4 fila 25: bermellón `REGISTRAR MI CLABE` sin CLABE; tinta `VER MI CUENTA` con CLABE | |
+
+AV-15 («ya te depositamos») **no cambia**: es cierto para cualquier origen.
+
+---
+
+### 60.3 Ventas (M3) — «Reembolsar esta carta» en un pedido directo ENTREGADO (PNL-2, súper-admin)
+
+#### (a) En la lista «Artículos» del detalle (`M3OrderDetailView.tsx:300-316`)
+
+Por línea, a la derecha del precio, según `it.deliveredRefund`:
+
+| `deliveredRefund` | Súper-admin | Operador |
+|---|---|---|
+| `{kind:'refundable', amountCents}` | `Button variant="secondary" size="sm"` **«Reembolsar esta carta · {amount}»** (`data-testid="m3-item-refund-{orderItemId}"`). La cifra en el botón es la del servidor | nada (⛔ ni botón apagado: no hay nada que él complete) |
+| `not_refundable` · `not_delivered` | `text-xs text-muted` **«Se podrá reembolsar cuando su envío esté entregado.»** | nada |
+| `not_refundable` · `order_not_settled` | **«El pedido ya no está liquidado: no se reembolsa por carta.»** | nada |
+| `not_refundable` · `legacy_convention` | **«Pedido de antes de los precios con IVA incluido: no se reembolsa por carta desde aquí.»** | nada |
+| `not_refundable` · `not_direct_ship` | **nada** (compra a bóveda: no es su vía y decirlo en cada línea es ruido) | nada |
+| `null` | la línea `itemRefunded` de hoy (`:309-311`) + si `deliveredReason` · « · {motivo §40.1}» | igual |
+
+EN: “Refund this card · {amount}” · “It can be refunded once its shipment is delivered.” · “The order is no longer
+settled: it isn't refunded per card.” · “Order from before VAT-inclusive prices: it isn't refunded per card from here.”
+
+**El botón de reembolso total no cambia** (§40.2).
+
+#### (b) El diálogo — `Modal` §7.6, ancho `md`, foco inicial en el primer radio
+
+Orden del DOM = orden de lectura: carta → cifra → motivo → nota → efectos → botones.
+
+| Pieza | ES | EN |
+|---|---|---|
+| Título | **Reembolsar una carta entregada** | Refund a delivered card |
+| Carta | nombre (`lang="en"`, serif) · `set · #número · acabado` (mono 11px) | |
+| Cifra (`font-serif text-2xl tabular`) | **Se devuelven {amount}** | {amount} will be refunded |
+| Bajo la cifra (`text-sm text-muted`) | La carta más su parte de la comisión de cobro, sin envío. La calcula el sistema y no se edita. | The card plus its share of the processing fee, no shipping. The system calculates it and it can't be edited. |
+| Motivo | `fieldset` de §40.1 (mismo componente `ShippedReasonFieldset`), `legend` **«¿Qué pasó con esta carta? (obligatorio)»**; ninguna marcada | “What happened to this card? (required)” |
+| Nota | `Textarea` **«Qué pasó»**, `maxLength={500}`, contador; ayuda **«Obligatoria, de 3 a 500 caracteres. Queda en bitácora; el cliente no la ve.»** | “What happened” · “Required, 3 to 500 characters. Saved in the audit log; the customer doesn't see it.” |
+| Efectos (`text-sm text-text`) | El pedido sigue liquidado. La carta no vuelve a inventario: la tiene el cliente. El cliente recibe un correo con lo que se le devolvió. | The order stays settled. The card doesn't go back into inventory: the customer has it. The customer gets an email with what was refunded. |
+| `moneyOutNote` | (clave existente) | |
+| Confirmar | `destructive` **«Reembolsar {amount}»** — misma familia visual que el reembolso total de la misma pantalla | “Refund {amount}” |
+
+Habilitado con **motivo marcado ∧ nota ≥ 3 caracteres tras `trim()`**. Cuerpo: `{ reason, note: nota.trim(),
+expectedRefundCents: deliveredRefund.amountCents }`. ⛔ La pantalla **no** manda `amountCents` (el servidor lo ignoraría).
+
+**Respuestas** (errores en `Banner danger role="alert"` dentro del diálogo; éxito en el aviso de la página, `role="status"`):
+
+| Respuesta | Qué hace la pantalla | ES | EN |
+|---|---|---|---|
+| `201` | cierra; invalida el detalle | **Reembolso de {amount} {pedido a Stripe \| aceptado por Stripe} por {carta}. Motivo: «{motivo}».** (`requested` ⇒ «pedido a Stripe»; `submitted`/`succeeded` ⇒ «aceptado por Stripe») | “{amount} refund {sent to Stripe \| accepted by Stripe} for {card}. Reason: “{reason}”.” |
+| `409 REFUND_PREVIEW_STALE {refundCents}` | **se queda abierto** con la cifra nueva (botón y bloque), conserva motivo y nota; invalida el detalle | El importe cambió mientras confirmabas: ahora son {amount}. No se reembolsó nada. Revísalo y confirma otra vez. | The amount changed while you were confirming: it's now {amount}. Nothing was refunded. Check it and confirm again. |
+| `409 ITEM_REFUND_NOT_AVAILABLE` `already_refunded` | cierra; invalida | Esta carta ya se había reembolsado. No se reembolsó otra vez. | This card had already been refunded. It wasn't refunded again. |
+| `…` `not_delivered` | idem | Su envío ya no figura como entregado. No se reembolsó nada. | Its shipment no longer shows as delivered. Nothing was refunded. |
+| `…` `order_not_settled` | idem | El pedido ya no está liquidado: se reembolsó completo o está en disputa con el banco. No se reembolsó nada. | The order is no longer settled: it was fully refunded or is disputed with the bank. Nothing was refunded. |
+| `…` `legacy_convention` | idem | El texto de la tabla (a). No se reembolsó nada. | |
+| `…` `not_direct_ship` | idem | Este pedido es a bóveda: sus cartas no se reembolsan por esta vía. No se reembolsó nada. | This is a vault order: its cards aren't refunded this way. Nothing was refunded. |
+| `403 MONEY_OUT_FORBIDDEN` | | Solo el súper-admin puede reembolsar. El intento quedó registrado. | Only the super-admin can refund. The attempt was logged. |
+| `400 VALIDATION_ERROR` | inline en el campo de `details.field` | Elige «No llegó» o «Llegó en mala condición». · Escribe qué pasó (de 3 a 500 caracteres). | Pick “Didn't arrive” or “Arrived in bad condition”. · Say what happened (3 to 500 characters). |
+| `409 CONFLICT` (defensa del paso 4) | | No se pudo calcular el reembolso sin pasarse de lo cobrado. No se hizo nada. Avísale al equipo técnico. | The refund couldn't be calculated without exceeding what was charged. Nothing was done. Tell the tech team. |
+
+**Libro de reembolsos del detalle** (`:410-420`): `kind.item_delivered` **«Carta tras la entrega»** / “Card after
+delivery”. Cualquier otro mapa `kind.*` del front (p. ej. la cubeta de operadores) gana la misma clave (§60.11 F-9).
+
+---
+
+### 60.4 «Reembolsos» — devolver UNA carta de un retiro ENTREGADO por SPEI (PNL-3, súper-admin)
+
+#### (a) Entrada
+
+En la cabecera de `/admin/refunds` (`RefundsView.tsx:76-80`), bajo el `hint` y el enlace de §40.6, `Button
+variant="secondary"` **«Devolver una carta de un retiro entregado»** / “Refund a card from a delivered withdrawal”. La página
+ya es solo súper-admin (§37.20). ⛔ No va en M4 (zona de Skydropx, §PNL.3).
+
+#### (b) El diálogo — tres pasos en un solo `Modal` ancho `lg` (cada paso reemplaza al anterior; «← Atrás» fantasma)
+
+**Paso 1 · Buscar el retiro** (`GET /admin/shipments?q=`):
+- `Input type="search"` **«Buscar el retiro»**, ayuda **«Folio del retiro, nombre o correo del cliente.»**; busca solo
+  (≈400 ms tras escribir, ⛔ sin botón «Buscar»).
+- Resultado = filas-botón (`min-h-[44px]`): folio mono · cliente · `StatusBadge` · «Entregado el {fecha}».
+- Fila **no** `entregado`: deshabilitada con **«Aún no está entregado ({estado}).»** ⛔ No se esconde: el dueño buscó ese
+  folio y tiene que ver por qué no sirve.
+- Vacío: **«Nada coincide con «{q}».»**
+
+**Paso 2 · Elegir la carta**: `fieldset` de radios, `legend` **«¿Qué carta?»**; cada opción = foto `w-10` · nombre · set ·
+condición · folio. Una carta con `replacement` o `refund` conocido en el DTO va deshabilitada con su razón (abajo, misma que
+el `409`). ⛔ No se preselecciona aunque haya una sola.
+
+**Paso 3 · Monto y motivo** — **el mismo cuerpo visual que §37.8d** (referencias → monto → motivo → nota → previsualización →
+botón), con estas diferencias:
+
+| Pieza | ES | EN |
+|---|---|---|
+| Título | **Devolver por transferencia: {carta}** | Refund by bank transfer: {card} |
+| Referencia 1 (`paidReferenceCents`) | §37.8d (o **«Sin compra de origen conocida»** en `text-accent` si es `null`) | |
+| Referencia 2 (`market`) | §37.8d | |
+| Monto | §37.8d: **«Monto a devolver (MX$)»**, ayuda **«Tú decides la cifra. Las referencias son solo para compararla.»** — ⛔ vacío al abrir (`HECHOS.md:31` (b)) | |
+| Motivo | `fieldset` §40.1, `legend` **«¿Qué pasó con esta carta? (obligatorio)»** | |
+| Nota | `Textarea` **«Qué pasó y de dónde sale la cifra»**, obligatoria 3–500, contador; ayuda **«Queda en bitácora; el cliente no la ve.»** | “What happened and where the figure comes from” · “Saved in the audit log; the customer doesn't see it.” |
+| Previsualización (`GET …/withdrawal-delivered/preview`, ≈400 ms tras escribir, región `role="status"`) | **«Todo va por transferencia (cubeta SPEI): no se toca la tarjeta.»** + los avisos `reinforced` / `blocked` de §37.8d **tal cual** | “It all goes by bank transfer (SPEI bucket): the card isn't touched.” |
+| Confirmar | **«Crear transferencia de {amount}»** (primario) | “Create {amount} transfer” |
+
+**Confirmación reforzada** (`confirmation === 'reinforced'` o `422 CASE_REFUND_CONFIRMATION_REQUIRED`): el **segundo diálogo
+de §37.8d sin cambio** (re-escribir al centavo, sin pegar) y reenvío con `confirmAboveReference: true` (FE-WDR-1).
+
+**Respuestas:**
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `201` | cierra; pestaña SPEI; invalida lista y `summary`; aviso **«Transferencia de {amount} creada para {cliente}. Se le avisa por correo{ y se le pide registrar su CLABE}.»** + enlace **«Ver transferencia»** → `/admin/manual-refunds/{id}` (`{ y se le pide…}` si `clabeOnFile === false`) | “{amount} transfer created for {customer}. They're notified by email{ and asked to register their CLABE}.” · “View transfer” |
+| `409 ITEM_REFUND_NOT_AVAILABLE` `not_withdrawal` | Esto es un envío de un pedido, no un retiro: esa carta se reembolsa desde Ventas, en el pedido. No se creó nada. (+ enlace a M3 si el envío trae `orderId`; NO MEDIDO si lo trae) | This is an order shipment, not a withdrawal: that card is refunded from Sales, in the order. Nothing was created. |
+| `…` `not_delivered` | Este retiro ya no figura como entregado. No se creó nada. | This withdrawal no longer shows as delivered. Nothing was created. |
+| `…` `not_shipped` | Esta carta no salió en el retiro (faltó o llegó dañada al preparar): se resuelve en «Por reponer». No se creó nada. (+ enlace `/admin/m4?tab=reponer`) | This card didn't ship in the withdrawal (missing or damaged when prepared): it's handled under “To replace”. Nothing was created. |
+| `…` `already_refunded` | Esta carta ya tiene una transferencia viva. No se creó otra. (+ enlace a `manualRefundId`) | This card already has a live transfer. Another one wasn't created. |
+| `…` `no_reference` | Esta carta no tiene con qué compararse: ni compra de origen ni precio de mercado. Sin referencia no hay tope contra errores de dedo, así que no se puede capturar aquí. No se creó nada. Avísale al equipo técnico. | This card has nothing to compare against: no origin purchase and no market price. Without a reference there's no typo guard, so it can't be entered here. Nothing was created. Tell the tech team. |
+| `422 CASE_REFUND_ABOVE_LIMIT` | el texto de bloqueo de §37.8d | |
+| `400` / `403` | los de §37.8d / §60.3 | |
+
+#### (c) La fila en la cubeta SPEI (§37.9a/b)
+
+- Columna **«Por qué»**: **«Retiro entregado · {carta · folio} · {No llegó \| Llegó en mala condición}»** / “Delivered
+  withdrawal · {card · folio} · {Didn't arrive \| Arrived in bad condition}” (`m.withdrawal`).
+- Detalle: en lugar de «caso», un bloque `<dl>` **«Retiro entregado»**: folio del retiro (enlace a la cola de envíos),
+  carta, **«Motivo»**, **«Qué pasó»** (la nota tal cual), **«Entregado el»**. EN “Delivered withdrawal” · “Reason” ·
+  “What happened” · “Delivered on”.
+- ⛔ `m.case` puede ser `null`: hoy `ManualRefundsView.tsx:155` y `ManualRefundDetailView.tsx:230` lo leen sin guarda
+  (medido) ⇒ se ramifica por `source`.
+- Pagar, cancelar y re-emitir: §37.9b **sin cambio**.
+
+---
+
+### 60.5 Solicitudes de venta (M5) — rechazar varias, «Declinar» en la mesa y un clic al recibir (PNL-4)
+
+#### (a) `en_transito`: **un** clic recibe y abre la revisión (REGLA GENERAL)
+
+El «Marcar recibida» de `M5View.tsx:1074-1083` pasa a **«Recibida: empezar revisión»** / “Received: start review”
+(`primary`). Al pulsar: `receive` y, con `200`, `verify` — un solo `loading` en el botón durante los dos.
+
+| Resultado | Qué se ve | ES | EN |
+|---|---|---|---|
+| los dos `200` | aviso de página (la solicitud cambia de pestaña: sale de «Con el vendedor» y entra a «Verificando»), con enlace a la pestaña | **Solicitud {id} recibida y en revisión.** + **«Ir a «Verificando»»** | “Request {id} received and under review.” · “Go to “Verifying”” |
+| `receive` falla | como hoy (`getError`) en la fila | (sin cambio) | |
+| `receive` `200`, `verify` falla | la fila queda en `recibida` con el botón de hoy **«Iniciar verificación»** (`:1085-1094`) y, en la fila, `Banner warning role="status"` | **La marcamos como recibida, pero no se pudo abrir la revisión. Pulsa «Iniciar verificación».** | “We marked it as received, but the review couldn't be opened. Press “Start verification”.” |
+
+⛔ `recibida` sin pasar por este botón (otra pestaña, un fallo) conserva «Iniciar verificación» como hoy: es el respaldo.
+
+#### (b) `aceptada`: no se cancela, y la fila lo dice
+
+Bajo las acciones de la fila `aceptada`, `text-xs text-muted`: **«Aceptada: ya no se cancela. Si al llegar alguna carta
+viene en mala condición, la rechazas al revisar, diciendo el motivo.»** / “Accepted: it can no longer be cancelled. If a
+card arrives in bad condition, you reject it during review, stating the reason.” *Es la respuesta a lo que el dueño
+buscó (`HECHOS.md:45`): no un botón, sino dónde está la acción.*
+
+#### (c) `verificacion`: selección y «Rechazar seleccionadas»
+
+**Rechazable** = `req.status === 'verificacion'` ∧ `it.offerDecision !== 'skip'` ∧ la carta no está en estado terminal
+(`decidable`, `:1124`). Solo esas tienen casilla.
+
+- **Casilla por carta** a la izquierda de la foto (`h-5 w-5 accent-text`, la `label` envuelve foto y nombre ⇒ blanco ≥ 44 px),
+  nombre accesible **«Seleccionar {carta} · {folio}»**.
+- **Barra sobre la lista** (solo si hay ≥ 1 rechazable):
+  - casilla maestra **«Todas las que se pueden rechazar ({n})»** (tri-estado: `indeterminate` con selección parcial);
+  - `text-sm` **«{k, plural, one {# seleccionada} other {# seleccionadas}}»** en `aria-live="polite"`;
+  - `Button variant="destructive" size="sm"` **«Rechazar seleccionadas ({k})»**, deshabilitado con `k = 0` y razón
+    `aria-describedby` **«Marca las cartas que llegaron mal.»**;
+  - `Button variant="secondary" size="sm"` **«Rechazar todas ({n})»** — marca todas las rechazables y abre el mismo diálogo
+    (atajo, no otro flujo).
+- ⛔ Las cartas `skip` no tienen casilla ni cuentan en `n` (F-4, §60.7 a).
+- Aprobar/Rechazar por carta (`:1153-1174`) **siguen**: la carta suelta con su correo propio (§PNL.4).
+
+**El diálogo** (`Modal` §7.6, ancho `md`, foco inicial en el motivo):
+
+| Pieza | ES | EN |
+|---|---|---|
+| Título | **Rechazar {k, plural, one {# carta} other {# cartas}}** | Reject {k, plural, one {# card} other {# cards}} |
+| Lista | una fila por carta: nombre (`lang="en"`) · `set · #número · acabado` · folio. Más de 6 ⇒ las 6 primeras + **«y {r} más»** en un `<details>` que las despliega | “and {r} more” |
+| Motivo | `Textarea` **«Motivo (el vendedor lo lee en el correo)»**, 3–500, contador; ayuda **«Uno solo para todas. Ej.: «llegaron con dobleces y desgaste en las orillas».»** | “Reason (the seller reads it in the email)” · “One for all of them. E.g. “they arrived creased with worn edges”.” |
+| Aviso (`text-sm text-text`) | **Al confirmar, el vendedor recibe un solo correo con estas cartas, el motivo y sus opciones: tiene 7 días para pedir que se las regresemos (el envío corre por su cuenta); si no, a los 30 días se dan por abandonadas. Si con esto ya no queda ninguna carta por aprobar, la solicitud se cierra sola.** | On confirming, the seller gets a single email with these cards, the reason and their options: they have 7 days to ask us to send them back (shipping at their cost); otherwise, after 30 days they're considered abandoned. If no card is left to approve after this, the request closes by itself. |
+| Confirmar | `destructive` **«Rechazar {k} y avisarle»** | “Reject {k} and notify them” |
+
+Cuerpo: `{ itemIds: [ids en el orden de la lista], reason: motivo.trim() }`, sin repetidos (FE-BRJ-1).
+
+**Respuestas:**
+
+| Respuesta | Qué hace | ES | EN |
+|---|---|---|---|
+| `200` | cierra, vacía la selección, invalida la cola; aviso en la fila. Si al recargar la solicitud está `rechazada`, añade la segunda frase y el aviso pasa a la página (la fila se fue a «Cerradas») | **{k, plural, one {# carta rechazada} other {# cartas rechazadas}}. Se le avisa al vendedor en un solo correo.** · **La solicitud quedó cerrada: no queda ninguna carta por aprobar.** | “{k} card(s) rejected. The seller is notified in a single email.” · “The request is closed: no card is left to approve.” |
+| `422 ITEM_NOT_OFFERED {itemIds}` | marca esas filas (`text-accent`, versalita **NO COMPRADA**) y las quita de la selección | **{n, plural, one {Una de las cartas elegidas no entró} other {# de las cartas elegidas no entraron}} en la compra: se marcaron como no compradas al ofertar y no se rechazan. Las quitamos de la selección. No se guardó nada.** | “{n} of the chosen cards weren't part of the purchase: they were marked as not bought when the offer went out and aren't rejected. We removed them from the selection. Nothing was saved.” |
+| `409 CONFLICT {itemIds}` | invalida; quita esas de la selección | **{n, plural, one {Una carta} other {# cartas}} ya no se {puede \| pueden} rechazar: alguien la aprobó, la convirtió o la rechazó mientras tanto. No se guardó nada. Actualizamos la lista: revisa y vuelve a intentarlo.** | “{n} card(s) can no longer be rejected: someone approved, converted or rejected them meanwhile. Nothing was saved. We've refreshed the list: check and try again.” |
+| `409 CONFLICT` sin `itemIds` (solicitud cerrada) | invalida | **Esta solicitud ya está cerrada: sus cartas ya no se tocan. No se guardó nada.** | “This request is already closed: its cards can't be changed. Nothing was saved.” |
+| `409 INVALID_TRANSITION {from, allowedFrom}` | `error.INVALID_TRANSITION_WITH_DETAILS` existente con el verbo nuevo `INVALID_TRANSITION_VERB.rejectItems` = **«Rechazar cartas»** / “Reject cards” | | |
+| `404` | invalida | **Alguna carta ya no es de esta solicitud. Actualizamos la lista. No se guardó nada.** | “A card no longer belongs to this request. We've refreshed the list. Nothing was saved.” |
+| `400` | inline en el motivo | El motivo debe tener entre 3 y 500 caracteres. (clave existente `admin.m5.rejectReasonInvalid`) | |
+
+⛔ La pantalla **no predice** «se cerrará»: lo dice el aviso en condicional y la confirmación sale de la solicitud
+recargada (que la cubre el servidor, regla de auto-transición).
+
+**«Rechazar solicitud»** (`:1099-1107`) **sin cambio**; su texto `rejectRequestConsequence` deja de ser cierto en un punto
+(«los avisos por carta ya salieron al rechazar cada ítem» — ahora pudo ser uno solo) ⇒ **«…no mueve dinero ni envía
+correos (el vendedor ya recibió el aviso de las cartas rechazadas).»** / “…it doesn't move money or send emails (the seller
+already got the notice about the rejected cards).”
+
+#### (d) La mesa de decisión — «Declinar» dentro, y qué dice fuera de `cotizada`
+
+- **En `cotizada`:** en la fila de acciones de la mesa (`BuylistDecisionDesk.tsx:593-610`), a la derecha de «Emitir oferta»,
+  `Button variant="secondary" size="sm"` **«Declinar»** (clave existente `admin.m5.desk.decline.action`) que abre **el mismo
+  diálogo y verbo** de la fila (`M5View.tsx:1057-1061`, §25.8) — la mesa recibe un `onDecline` del padre. ⛔ No se duplica el
+  diálogo. El botón de la fila **se queda** (dos puertas, una acción). «Declinar» **no** se apaga con los bloqueos de
+  emisión (§25.6 h): declinar es justo la salida cuando no se puede ofertar (`error.OFFER_NET_BELOW_MINIMUM` ya lo
+  recomienda).
+- **Fuera de `cotizada`** (la mesa es de solo lectura, `:277`), el texto único de hoy (`es.json:2498`) se sustituye por uno
+  **por estado**, en `text-sm text-text` (⛔ no `muted`: dice dónde está la acción):
+
+| Estado | ES | EN |
+|---|---|---|
+| `ofertada` | La oferta ya salió y el vendedor la tiene. Para cambiarla o cerrarla, usa «Cancelar la oferta» en la solicitud. | The offer is out and the seller has it. To change or close it, use “Cancel the offer” on the request. |
+| `aceptada` | El vendedor aceptó: la solicitud ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, con su motivo. | The seller accepted: the request can no longer be cancelled. If a card arrives in bad condition, you reject it during review, with its reason. |
+| `en_transito` | El paquete viene en camino. Cuando llegue, pulsa «Recibida: empezar revisión» y rechaza ahí las cartas que vengan mal. | The package is on its way. When it arrives, press “Received: start review” and reject there any cards that arrive in bad shape. |
+| `recibida` · `verificacion` | Está en revisión: aprueba o rechaza cada carta en la solicitud, o marca varias y «Rechazar seleccionadas». | It's under review: approve or reject each card on the request, or select several and “Reject selected”. |
+| `aprobada` · terminal | Esta solicitud ya no tiene nada que decidir aquí. | There's nothing left to decide here for this request. |
+
+---
+
+### 60.6 El correo ÚNICO de cartas rechazadas (`sellItemsRejectedTemplate`, correo **29** del inventario de §41.1)
+
+Familia **VENTA** (§41.6): saluda (§41.3, `greetingLine`), pie VENTA, asunto sin prefijo (§41.2). **Sin CTA**, por la misma
+razón que el 4 (§31.10e: la acción es escribir a soporte, que va en el cuerpo). Sin dinero (⛔ jamás `MX$0.00`, §31.0).
+Mismo esqueleto que el 4 (`buylist-mail.templates.ts:188-214`), en plural.
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto | **{n, plural, one {Una carta de tu solicitud de venta no fue aceptada} other {# cartas de tu solicitud de venta no fueron aceptadas}}** | {n, plural, one {A card in your sell request was not accepted} other {# cards in your sell request were not accepted}} |
+| Eyebrow | `CARTAS NO ACEPTADAS · <folio>` (con `n = 1`: `CARTA NO ACEPTADA · <folio>`) | `CARDS NOT ACCEPTED · <folio>` |
+| Titular (serif 22px) | {n, plural, one {No aceptamos una carta} other {No aceptamos # cartas}} | {n, plural, one {We didn't accept a card} other {We didn't accept # cards}} |
+| Intro | Al revisar tu paquete no aceptamos {n, plural, one {esta carta} other {estas cartas}} de tu solicitud de venta: | When we checked your package we didn't accept {this card \| these cards} from your sell request: |
+| Lista | `cardLineRows` por carta: `title` = nombre, `meta` = `set · #número · acabado`, celda de importe **vacía** | |
+| Motivo | Motivo: {reason} | Reason: {reason} |
+| Caja `TUS OPCIONES` (`termsBoxRows`) | **Devolución: tienes 7 días, hasta el {returnDate}, para pedir que te {la \| las} regresemos. El envío de regreso corre por tu cuenta; escribe a {soporte} para coordinarlo.** · **Abandono: si no nos escribes, a los 30 días, el {abandonDate}, {la carta se considerará abandonada \| las cartas se considerarán abandonadas}.** | Return: you have 7 days, until {returnDate}, to ask us to send {it \| them} back. Return shipping is at your cost; write to {support} to arrange it. · Abandonment: if you don't write to us, after 30 days, on {abandonDate}, {the card \| the cards} will be considered abandoned. |
+| Cierre (letra chica) — quedan otras | Las demás cartas de tu solicitud siguen en revisión; este correo no las cambia. | The other cards in your request are still under review; this email doesn't change them. |
+| Cierre — la solicitud se cerró | Como no aceptamos ninguna carta, tu solicitud queda cerrada y no hay pago. | As we didn't accept any card, your request is closed and there is no payment. |
+
+- **Las cifras «7» y «30» van escritas junto a las fechas** (`HECHOS.md:50` (2): «7 días para pedirla, envío de regreso a
+  cargo del vendedor, abandonada a los 30 días»). Las fechas son las que el servidor ya calcula (`returnDeadlineAt`,
+  `abandonDeadlineAt`, +7 d / +30 d, §PNL.4 paso 5), formateadas con el `formatDate` del módulo; ⛔ la plantilla no suma días.
+  ⚠ Si un día el servidor cambiara esos plazos, el número escrito mentiría: el candado ML-24 (§60.13) ata el texto al
+  plazo real.
+- `{soporte}` = `supportContact()` (§PNL.1; E-3 de §41.13), **en el cuerpo**, nunca solo en el pie.
+- Texto plano a paridad (§31.12): eyebrow con folio, lista, motivo, las dos opciones, cierre.
+- ⛔ Sin nombre del operador, sin «lo sentimos», sin el folio de cada pieza en el inventario (minimización §4.18c).
+
+---
+
+### 60.7 Lo vivo de v1.80.10 — F-4 «No comprada» y F-9 los diez diales
+
+#### (a) F-4 — la carta «no comprada» en verificación (§E2E-ADM.2)
+
+En la fila de una carta con `offerDecision === 'skip'`: versalita mono 11px **«NO COMPRADA»** / “NOT BOUGHT” en `text-muted`
+(junto al `StatusBadge`), y debajo `text-xs text-muted` **«Se marcó como no comprada al ofertar: no se aprueba ni se
+rechaza.»** / “It was marked as not bought when the offer went out: it isn't approved or rejected.” ⛔ Ningún botón de
+decisión ni casilla de selección (M5-NC-1). `buy` ⇒ Aprobar y Rechazar, **sin** Ajustar (M5-NC-2). `null` ⇒ los tres.
+El `422 ITEM_NOT_OFFERED` / `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` se pintan con `error.*` de §27.2 (ya escritos).
+`D-BL-SKIP-1` (la `skip` que llegó físicamente) **sigue abierta** y este diseño no la resuelve.
+
+#### (b) F-9 — los diez diales del ciclo de venta en «Configuración» (§E2E-ADM.3, M10-BL-1…4)
+
+Un grupo nuevo en M10, **«Ciclo de venta (solicitudes de venta)»** / “Sell cycle (sell requests)”, `h2`, con subtítulo
+**«Aplican a solicitudes nuevas: las que están en curso conservan los plazos y la guía con que se ofertaron.»** / “They apply
+to new requests: the ones in progress keep the deadlines and label fee they were offered with.” Tres subgrupos (`h3`), en
+este orden (el del ciclo):
+
+| Subgrupo | Dial | Rótulo ES / EN | Ayuda ES (EN: traducción directa, misma longitud) | Regla (copy del error por campo) |
+|---|---|---|---|---|
+| **Plazos (días hábiles)** | `buylistOfferIssueDeadlineBusinessDays` | Plazo para mandar la oferta / Deadline to send the offer | Días hábiles que tenemos para ofertar. Si se vencen, la solicitud se cierra y el vendedor recibe el correo de «no procederemos». | Número entero, 1 o más. |
+| | `buylistOfferAcceptDeadlineBusinessDays` | Plazo del vendedor para responder / Seller's deadline to respond | Si no responde la oferta en estos días hábiles, se da por rechazada. | Número entero, 1 o más. |
+| | `buylistShipDeadlineBusinessDays` | Plazo del vendedor para enviar / Seller's deadline to ship | Días hábiles desde que le mandamos la guía. Si no envía, la solicitud vence. | Número entero, 1 o más. |
+| **Montos (MX$)** | `buylistMinimumRequestCents` | Mínimo para cotizar / Minimum to quote | Total cotizado mínimo para crear una solicitud. El monto exacto sí entra. | En pesos, 0 o más. |
+| | `buylistShippingFeeCents` | Guía que se descuenta al vendedor / Label fee deducted from the seller | Lo que se le resta del pago por la guía. No es el envío de los retiros. | En pesos, 0 o más. |
+| | `buylistMinimumOfferNetCents` | Mínimo que recibe el vendedor / Minimum the seller receives | Neto mínimo, ya descontada la guía, para poder mandar una oferta. El monto exacto sí sale. | En pesos, mayor que 0. |
+| | `buylistOperatorOfferCapCents` | Oferta máxima sin autorización / Maximum offer without approval | Arriba de este bruto, la oferta la autoriza el súper-admin antes de salir. El monto exacto sale sin autorización. | En pesos, 0 o más. |
+| **Alertas y sugerencias** | `buylistShipmentConfirmAlertBusinessDays` | Alerta de envío sin confirmar / Unconfirmed shipment alert | Días hábiles tras «ya lo mandé» para marcar la solicitud en alerta. No vence nada. | Número entero, 1 o más. |
+| | `buylistOfferReissueAlertCount` | Alerta por ofertas canceladas / Cancelled offers alert | A partir de cuántas cancelaciones de una oferta ya enviada se marca la solicitud en alerta. No bloquea ni sale en correos. | Número entero, 1 o más. |
+| | `buylistVariantPositionCap` | Tope de copias por variante (sugerencia) / Copies per variant cap (suggestion) | Con esta cantidad, la mesa sugiere «no comprar» en cartas sin bounty. Nunca bloquea. | Número entero, 1 o más. |
+
+- Montos en pesos con prefijo `MX$` (`kind: 'cents'`); días y conteos `kind: 'int'`. El `PUT` manda solo las claves
+  tocadas (M10-BL-2).
+- **`422` por clave** (`details.errors`): ⛔ no se pinta el texto del servidor; cada campo marcado (`aria-invalid`) pinta su
+  **regla** de la tabla, y arriba `Banner danger` **«Revisa los campos marcados. No se guardó nada.»** / “Check the marked
+  fields. Nothing was saved.”
+- **`422` cruzado** (`details.rule === 'buylist_fee_plus_min_net_le_min_request'`): marca los tres campos de monto y
+  `Banner danger` **«La guía que se descuenta ({fee}) más el mínimo que recibe el vendedor ({net}) no puede pasar del mínimo
+  para cotizar ({min}). No se guardó nada.»** / “The label fee deducted ({fee}) plus the minimum the seller receives ({net})
+  can't exceed the minimum to quote ({min}). Nothing was saved.” — las tres cifras de `details` (M10-BL-4). La pantalla
+  **puede** avisar antes con el mismo texto en `warning`, ⛔ sin bloquear el botón (§E2E-ADM.3).
+- ⛔ Ni «umbral de guía» ni «recorte material» (M10-BL-3).
+- **Desambiguación en la misma pantalla:** el rótulo de hoy `admin.m10.dials.labels.shippingFeeCents` «Tarifa de envío»
+  (`es.json:3873`) pasa a **«Envío de un retiro (cobro al cliente)»** / “Withdrawal shipping (charged to the customer)”:
+  con la guía del buylist al lado, «Tarifa de envío» sería ambiguo — son dos diales distintos (§M10).
+
+---
+
+### 60.8 M8 «Disputas» — se retira (`HECHOS.md:50` (3))
+
+**Cuándo:** cuando el arquitecto publique la errata que retira M8 (hoy §PNL.1 la deja «en transición») **y** la consulta
+de §PNL.9 dé 0 en la ventana de despliegue (`HECHOS.md:50`, columna de consecuencias). Antes, **nada de esto se construye**.
+
+| Superficie | Qué pasa |
+|---|---|
+| Entrada de menú «Disputas» (`AdminSidebar.tsx:66`) | **Se quita.** «Día a día» queda: Solicitudes de venta · Ventas · Reembolsos · Pedidos por preparar |
+| Ruta `/admin/m8` | **redirige** a `/admin` (servidor, conserva idioma), como `/admin/manual-refunds` (§37.20 c). ⛔ Sin página «esta sección ya no existe»: es de un solo usuario |
+| Tablero «Cola de trabajo» (`AdminDashboard.tsx:128-136`) | sale `disputes` de la **suma** y su `QueueLink`; la tarjeta queda Envíos · Buylist · Precios pendientes |
+| Ficha de usuario (M6), pestaña «Disputas» (`M6View.tsx:907-908`, `:986-988`) | **solo se pinta si el usuario tiene alguna** (`detail.disputes?.length > 0`, `types/contract.ts:5148`); con cero, la pestaña no existe |
+| «Mis disputas» del cliente | §60.1 c (solo si tiene alguna) |
+| Textos | se retiran `admin.modules.m8`, `admin.m8.*` (`es.json:1308`, `:2607-2618`) y `admin.dashboard.disputes` (`:1338`). ⚠ **Se quedan** todos los «en disputa» que hablan del **contracargo del banco** (`:1793`, `:1992`, `:2047`, `:2227`, `:4530`, `:4554`, `:4582`, `:4623`): esa disputa existe y no es M8 |
+| `admin.dashboard.withdrawals` «Retiros sin disputa» (`:1346`, `:4100`) | qué cuenta: NO MEDIDO. Si cuenta retiros sin disputa de M8, pasa a **«Retiros entregados»**; si es otra cosa, no se toca (§60.12 N-3) |
+| Correos 20 y 21 (§41.1) | los retira backend con M8; ML-* de §41.14 dejan de contarlos |
+| Candado de títulos (`AdminPageTitles.test.tsx`) | sale la fila de M8 en el **mismo** commit que el menú (N-10 de §37.20 h) |
+
+---
+
+### 60.9 «Pedidos por preparar» en el celular (`HECHOS.md:50` (1)) — la única pantalla del panel pensada para ≤ 390 px
+
+**El trabajo:** quien prepara está **de pie en el estante**, con las cartas en una mano y el teléfono en la otra. Necesita
+**encontrar** la carta (ubicación), **comprobar** que es la misma (foto, set, acabado, condición, folio), **marcarla** y
+**avanzar** el pedido. ⛔ No transcribe direcciones en el teléfono ni imprime. §35–§37 ya pensaron la tarjeta para estar
+de pie; esto la cierra para 360–390 px.
+
+**Anchos de diseño:** 360×740 y 390×844 (los dos más comunes en Android/iPhone); nada se corta ni desborda en horizontal.
+
+#### (a) Página y pestañas
+
+- Pestañas «Preparar · Por reponer · Envíos» (`M4View.tsx:190`): una fila con desplazamiento horizontal si no caben,
+  ⛔ sin envolver a dos líneas (la activa siempre visible: `scrollIntoView` al cargar).
+- **Solo «Preparar» se garantiza en celular.** «Por reponer» y «Envíos» se abren y funcionan, pero no se diseñan para
+  ≤ 390 px (resto del panel, `HECHOS.md:50` (1)).
+- Filtro de cubetas (§35.7): envuelve; cada botón ≥ 44 px.
+- **Imprimir** (`PreparationQueue.tsx:177`): **oculto** por debajo de `sm` (`hidden sm:inline-flex`) — nadie imprime desde
+  el teléfono y ocupa la primera fila.
+
+#### (b) La tarjeta del pedido — orden en ≤ 390 px
+
+1. **Cabecera:** folio / «Retiro de bóveda», nombre del cliente (titular), línea de paso (§37.3a).
+2. **Dirección:** en el paso 1 va **plegada** en un `<details>` **«Dirección de envío»** / “Shipping address” (se
+   transcribe en el paso 2, no en el estante); en el paso 2, **abierta**. Su contenido es el de §35.5 (tinta, sin `muted`).
+3. **Conteo** (región `role="status"`, §37.3c).
+4. **Cartas, en el orden del recorrido** (§35.4).
+5. **Pie de acción** («Pedido preparado» / «Capturar guía» / «Deshacer preparado»).
+
+#### (c) La fila de la carta — retícula de dos columnas
+
+```
+┌──────────────────────────────────────┐
+│ UBICACIÓN · VITRINA                  │  ← rótulo 11px muted
+│ A-03-2                               │  ← mono 17px TINTA, peso 600: la clave del recorrido
+│ ┌──────┐ Charizard ex                │
+│ │ foto │ Obsidian Flames             │  ← set en semibold
+│ │ 72px │ ◆ Holo · NM   ×2            │
+│ └──────┘ FOLIO 00123                 │
+│ [          La tengo          ]       │  ← fila 1, ancho completo
+│ [ No la encontré ][ Llegó dañada ]   │  ← fila 2, 50/50
+└──────────────────────────────────────┘
+```
+
+- **Ubicación arriba y grande** (mono 17px tinta) en `< sm`: es lo que se busca con la vista mientras se camina. En `≥ sm`
+  sigue la columna de §35.4.
+- **Foto de 72 px** (`w-[72px]`), con **toque para ampliar**: abre un `Modal` a pantalla completa con la imagen a lo ancho
+  (máx. 320 px), nombre, set, acabado, condición y folio debajo, y «Cerrar» (≥ 44 px). Nombre accesible del disparador:
+  **«Ver foto de {carta}»** / “View photo of {card}”. Usa la misma `imageSmallUrl` (el DTO de preparación no trae otra:
+  NO MEDIDO que exista una mayor para esta ruta; §60.12 A-3). Sin foto ⇒ el pozo de papel, **sin** disparador.
+- **Botones:** §37.3b sin cambio (fila 1 «La tengo» entera; fila 2 «No la encontré» | «Llegó dañada»), **todos
+  `min-h-[44px]` a cualquier ancho**. ⚠ Hoy varios llevan `sm:min-h-[44px]` (medido en §60.0), que **solo** garantiza 44 px
+  **por encima** de 640 px: al revés de lo que se necesita. Se corrige a `min-h-[44px]` sin prefijo.
+- **Separación entre botones:** `gap-3` (12 px) — con guantes o prisa, un toque fallido en «No la encontré» cuando se quería
+  «La tengo» cuesta un deshacer.
+- Tras marcar, la fila **no se mueve** de sitio (⛔ reordenar bajo el dedo, §37.2); la versalita de estado aparece donde
+  estaban los botones y «Deshacer» ocupa la fila entera.
+
+#### (d) El pie de acción se queda a la vista
+
+En `< sm`, el pie de la tarjeta es **pegajoso dentro de su tarjeta** (`sticky bottom-0`, fondo papel, regla superior de
+1px, `padding-bottom: max(12px, env(safe-area-inset-bottom))`): mientras la tarjeta esté en pantalla, «Pedido preparado»
+y el conteo («3 tomadas · 1 por palomear») se ven sin bajar hasta el final. Al salir la tarjeta de la vista, el pie se va
+con ella (no flota sobre otra tarjeta). Sombra: ninguna (§4: el sistema no usa sombras para elevar).
+
+#### (e) Diálogos en el teléfono
+
+- Los de §37.4/§37.5 (`Modal`): a ancho completo menos 16 px por lado, botones **apilados**, confirmar **arriba**, cada uno
+  ≥ 44 px; foco inicial donde ya está normado (en «Cancelar»).
+- **Capturar guía** (paso 2): el campo de guía con `inputMode="text"`, `autoCapitalize="characters"`,
+  `autoCorrect="off"`, `spellCheck={false}` y tamaño de letra **16 px** (iOS no hace zoom al enfocar).
+- ⛔ Ningún dato importante solo en `title` o tooltip (no existen en táctil): toda razón de botón apagado ya es texto
+  visible (§37.3a, §37.3c).
+
+#### (f) El resto del panel en el teléfono
+
+No se diseña para celular. Para que nadie lo confunda con un error: en `< lg`, toda página del panel **salvo `/admin/m4`**
+muestra arriba (una sola vez por página, sin cerrar) `Banner variant="info"` sin relleno: **«Esta sección está pensada para
+computadora. En el celular, usa «Pedidos por preparar».»** con enlace a `/admin/m4` / “This section is designed for a
+computer. On your phone, use “Orders to prepare”.” Se pinta con CSS (`lg:hidden`), ⛔ sin detectar el dispositivo en JS
+(el servidor no sabe el ancho). El menú lateral (cajón, `AdminShell.tsx:99-110`) sigue funcionando igual.
+
+---
+
+### 60.10 Accesibilidad y contraste
+
+- Los `fieldset` de motivo (§60.3, §60.4) con `legend` visible y «(obligatorio)» dentro (§40.7).
+- Casillas de M5 con `label` que envuelve foto y nombre; la maestra con `aria-checked="mixed"` en selección parcial; el
+  conteo en `aria-live="polite"`.
+- Los tres pasos del diálogo SPEI: al cambiar de paso, el foco va al encabezado del paso (`tabIndex={-1}`).
+- `SupportContact`: el eyebrow es un `h2`; el enlace `mailto:` tiene el correo como texto (lector de pantalla lo lee); el
+  «Copiado» se anuncia una vez.
+- Celular: objetivos ≥ 44×44 px, 12 px entre botones vecinos, letra de campos ≥ 16 px.
+- **Contraste — cero pares nuevos:** tinta, muted y bermellón sobre papel; `Banner` `info`/`warning`/`danger` — todos en §10,
+  §35.12, §37.15.
+
+---
+
+### 60.11 Lista de cambios para frontend (fichero:línea leídos el 2026-10-05 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| F-1 | `components/domain/DisputeEvidenceContact.tsx:1-69` | Renombrar a `SupportContact.tsx`; sección editorial (no `Banner`); props `{ email, reference, kind: 'order' \| 'withdrawal' }`; `Skeleton` mientras carga; claves `support.*` | 60.1 a |
+| F-2 | `lib/hooks/` (nuevo `useSupportContact`) y `lib/api.ts` (nuevo `getSupportContact`) | `GET /support/contact`, `staleTime` 5 min, fallo ⇒ `SUPPORT_CONTACT_FALLBACK` — ⚠ zona compartida | 60.1 a |
+| F-3 | `lib/api.ts:2596-2604` | Quitar `createDispute` (y su mock) | 60.1 c |
+| F-4 | `(storefront)/vault/WithdrawalsList.tsx:22-23`, `:81-122`, `:215-223`, `:272-338` | Fuera ventana, modal, mutación y botones; `SupportContact` por retiro `entregado` bajo sus cartas | 60.1 b-c |
+| F-5 | idem `:236-270` | «Mis disputas» solo con `data.length > 0` (sin `EmptyState`) | 60.1 c |
+| F-6 | `(storefront)/orders/[orderId]/OrderDetailView.tsx:155-162` | `SupportContact` tras `OrderShipmentBlock` si `direct_ship` ∧ envío `entregado` | 60.1 b |
+| F-7 | `(storefront)/shipments/[id]/ShipmentDetailView.tsx:161` (`aside`) | `SupportContact` si `entregado` | 60.1 b |
+| F-8 | `pedido/PublicOrderTracking.tsx:247-259` | Condicionar a `data.status === 'entregado'`; `SupportContact` con `data.support.evidenceContact` | 60.1 b |
+| F-9 | `checkout/GuestOrderConfirmation.tsx:107`, `pedido/layout.tsx:68-69`, `pedido/TrackingLinkNeutralState.tsx:228` | Correo de `useSupportContact()`; `support-contact.ts` queda como fallback (reescribir su comentario: ya no es MOCK) | 60.1 b |
+| F-10 | `(storefront)/terminos/page.tsx:48-52` y `legal.*` | Claves renombradas/retiradas de §60.1 d; `{contact}` del endpoint (servidor, `revalidate: 300`) | 60.1 d |
+| F-11 | `components/domain/OrderItemStatusLine.tsx:81-88` | Ramificar por `refund.kind`; `after_delivery` ⇒ `orders.item.refundAfterDelivery` + `refundReason.not_arrived/arrived_damaged` | 60.2 a |
+| F-12 | `types/contract.ts:2216-2220` | `CustomerItemRefundInfo` + `kind?: 'missing_at_prep' \| 'after_delivery'`; `reason: MissingReason \| ShippedRefundReason` | 60.2 a |
+| F-13 | `types/contract.ts` (DTO admin de la orden; `ManualRefundDTO`; `PaymentRefundDTO`) | `items[].deliveredRefund`; `ManualRefundSource` + `withdrawal_delivered`; `case \| null`; `withdrawal`; `deliveredReason` | 60.3, 60.4 |
+| F-14 | `admin/m3/[orderId]/M3OrderDetailView.tsx:303-314` | Botón / textos por `deliveredRefund` (§60.3 a) + diálogo nuevo `RefundDeliveredItemDialog` (reusa `ShippedReasonFieldset`) | 60.3 |
+| F-15 | idem `:413-414` y `es.json:1643-1649` | `kind.item_delivered`; motivo tras la fila si `deliveredReason`. `grep "kind.item_missing"` en `src/` y `messages/` para los demás mapas | 60.3 b |
+| F-16 | `lib/api.ts` | `refundDeliveredItem(orderId, orderItemId, body)`, `previewWithdrawalDeliveredRefund(…)`, `createWithdrawalDeliveredRefund(…)`, `rejectBuylistItems(id, body)` (+ mocks con las respuestas de §60.3–60.5) — ⚠ zona compartida | 60.3–60.5 |
+| F-17 | `admin/refunds/RefundsView.tsx:76-80` | Botón de entrada + diálogo de tres pasos (§60.4 b); el paso 3 reusa el cuerpo de §37.8d | 60.4 |
+| F-18 | `admin/manual-refunds/ManualRefundsView.tsx:155`, `[id]/ManualRefundDetailView.tsx:230` | Ramificar por `source`; `case` nulo; bloque «Retiro entregado» | 60.4 c |
+| F-19 | `admin/m5/M5View.tsx:1074-1083` | «Recibida: empezar revisión»: `receive` → `verify`; aviso de página; respaldo de §60.5 a | 60.5 a |
+| F-20 | idem, fila `aceptada` (tras `:1118`) | Texto de §60.5 b | 60.5 b |
+| F-21 | idem `:1120-1193` | Casillas, barra, diálogo y respuestas de §60.5 c; regla F-4 por `offerDecision` en `:1154` | 60.5 c, 60.7 a |
+| F-22 | idem `:1110-1112` y `BuylistDecisionDesk.tsx:593-611` | Prop `onDecline` → `openCloseAction('decline', id)`; «Declinar» junto a «Emitir»; texto por estado en lugar de `:611` | 60.5 d |
+| F-23 | `es.json:2352` (`rejectRequestConsequence`) | Valor nuevo de §60.5 c | 60.5 c |
+| F-24 | `es.json:4977-4980` (`INVALID_TRANSITION_VERB`) | + `rejectItems` | 60.5 c |
+| F-25 | `admin/m10/M10View.tsx:84-108` | Grupo de los diez (orden y textos §60.7 b); errores por campo y cruzado; rótulo nuevo de `shippingFeeCents` (`es.json:3873`) | 60.7 b |
+| F-26 | `components/layout/AdminSidebar.tsx:66`, `admin/AdminDashboard.tsx:128-136`, `admin/m8/*`, `admin/m6/M6View.tsx:907-908, 986-988`, `AdminPageTitles.test.tsx` | Retiro de M8 (§60.8) — **solo tras la errata del arquitecto** | 60.8 |
+| F-27 | `admin/m4/ShipPreparationCard.tsx:679,701,710,764,1115,1120,1188,1191` (y el mismo patrón en `VaultPlacementCard.tsx`: NO MEDIDO) | `sm:min-h-[44px]` ⇒ `min-h-[44px]` | 60.9 c |
+| F-28 | `admin/m4/prep-shared.tsx:82` | Foto `w-[72px]` en `< sm` + disparador «Ver foto» y `Modal` | 60.9 c |
+| F-29 | `admin/m4/ShipPreparationCard.tsx` (fila de carta `:828-898`, cabecera `:495`, pie `:698-720`) | Ubicación arriba en `< sm`; dirección plegada en paso 1; pie `sticky bottom-0` en `< sm` | 60.9 b-d |
+| F-30 | `admin/m4/PreparationQueue.tsx:177` | `hidden sm:inline-flex` en imprimir | 60.9 a |
+| F-31 | `components/layout/AdminShell.tsx:117` (inicio de `main`) | Banner `lg:hidden` salvo en `/admin/m4` — ⚠ zona compartida | 60.9 f |
+| F-32 | `frontend/messages/{es,en}.json` | Todas las claves de §60 (paridad en el mismo commit) | todas |
+
+**Backend (correos; estilo §41, re-medir líneas):** AV-12 variante `after_delivery` en `payments/refunds/mail/refund-notice.templates.ts`
+(correo 23); AV-14 variante `withdrawal_delivered` (correo 25, `:190`); `sellItemsRejectedTemplate` nuevo junto a
+`buylist-mail.templates.ts:157` (correo 29), entra en el registro `TODOS_LOS_CORREOS` de §41.14.
+
+### 60.12 Solicitudes y preguntas
+
+| # | Para | Qué |
+|---|---|---|
+| **P-1** 🟠 | dueño / product-owner | **¿Hay plazo para escribir tras la entrega?** Los términos decían 7 días (de la disputa). Ninguna regla del sistema lo aplica ya. Default de este diseño: **sin plazo escrito**. Si el dueño quiere uno, es una frase en `legal.deliveryIssueBody` |
+| **P-2** 🟠 | dueño / product-owner | **¿Los términos dicen que el cliente puede reclamar con su banco?** `HECHOS.md:44` lo dice como hecho («la disputa se abre en Stripe»), no como texto para el cliente. Default: **no se anuncia** en la tienda |
+| **A-1** | arquitecto | **El cliente no ve en «Retiros» la devolución por SPEI de una carta entregada:** el contrato no declara campo en `ShipmentDTO.items[]` para `withdrawal_delivered` (sí lo hace para casos «Por reponer», `items[].replacement`). Si se quiere la línea «Reembolsada · {amount} por transferencia · {estado}», hace falta ese campo. No bloquea: el correo AV-14 avisa |
+| **A-2** | arquitecto | **`GET /admin/shipments?q=`** para el paso 1 de §60.4: ¿trae `orderId`/«es directo» por fila? Sin él, la pantalla no puede avisar antes del `409 not_withdrawal` (NO MEDIDO) |
+| **A-3** | arquitecto | **Foto más grande en preparación:** `PreparationItemDTO.card` solo trae `imageSmallUrl`. Para ampliar en el celular basta, pero si se quiere la grande, `imageLargeUrl` (ya existe en `Card`, `types/contract.ts:189`). No bloquea |
+| **N-1** | product-owner | El correo único (§60.6) escribe «7» y «30» además de las fechas, por `HECHOS.md:50` (2). El correo 4 (una carta) **no** los escribe hoy; por coherencia, el 4 debería ganarlos igual (cambio de copy de un correo congelado de §31: ratificación de PO) |
+| **N-2** | orquestador | **Zonas compartidas tocadas:** `lib/api.ts` (F-2, F-3, F-16), `lib/hooks/` (F-2), `types/contract.ts` (F-12, F-13), `components/domain/*` (F-1, F-11), `components/layout/*` (F-26, F-31). Un stream a la vez |
+| **N-3** | frontend | `admin.dashboard.withdrawals` «Retiros sin disputa»: qué cuenta, NO MEDIDO. Medir antes de tocarlo (§60.8) |
+| **N-4** | orquestador | El retiro de M8 (§60.8) **no** entra en el pase de PNL: depende de la errata del arquitecto y de la medición de la ventana de despliegue (`HECHOS.md:50`) |
+
+### 60.13 Candados sugeridos (frontend/backend los escriben con la pantalla; QA mide en 360×740, 390×844 y 1280×800)
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **SC-1** = FE-DSC-1 | «Retiros» en los seis `ShipmentStatus`: ningún botón ni texto «disputa» | devolver el botón |
+| **SC-2** = FE-DSC-2 | Pedido directo `entregado` ⇒ `support-email` = el valor del mock de `/support/contact` (`otro@x`), ⛔ no el fallback; `enviado` y `vault` ⇒ sin sección | pintar `SUPPORT_CONTACT_FALLBACK` siempre |
+| **SC-3** = FE-DSC-3/4 | Retiro `entregado` ⇒ sección; seguimiento `entregado` ⇒ `support.evidenceContact`; seguimiento `enviado` ⇒ sin sección | quitar la condición de `PublicOrderTracking` |
+| **SC-4** | El `mailto:` lleva `subject` con el número de pedido/retiro | asunto genérico |
+| **SC-5** | Con `getDisputes() = []` no existe el `h2` «Mis disputas»; con una, sí | pintar el vacío |
+| **SC-6** | `OrderItemStatusLine` con `kind:'after_delivery', reason:'arrived_damaged'` ⇒ «Reembolsada · …» y «llegó en mala condición»; ⛔ el DOM no contiene «No salió» | ramificar por `reason` en vez de `kind` |
+| **IDR-UI-1** = FE-IDR-1 | Botón solo con `refundable` ∧ súper-admin; el `POST` lleva `expectedRefundCents === amountCents` y **no** lleva `amountCents` | mandar la cifra tecleada / mostrar al operador |
+| **IDR-UI-2** = FE-IDR-2 | `409 REFUND_PREVIEW_STALE {refundCents}` ⇒ el diálogo sigue abierto, el botón dice la cifra nueva, motivo y nota conservados | cerrar el diálogo |
+| **IDR-UI-3** | Ningún radio marcado al abrir; botón deshabilitado sin motivo o con nota < 3 | preseleccionar `not_arrived` |
+| **WDR-UI-1** = FE-WDR-1 | Monto > 2R ⇒ segundo diálogo; pegar bloqueado; el reenvío lleva `confirmAboveReference: true` | omitir el segundo diálogo |
+| **WDR-UI-2** | El campo de monto nace vacío en los tres caminos (con y sin referencias) | prellenar con `Q` o `M` |
+| **WDR-UI-3** | Cubeta SPEI con una fila `case: null, source: 'withdrawal_delivered'` ⇒ la lista y el detalle pintan sin error | leer `m.case.card` |
+| **BRJ-UI-1** = FE-BRJ-1 | Seleccionar 2 de 3 `buy` (con una `skip` presente) ⇒ `itemIds` exactos, sin la `skip`; la `skip` no tiene casilla | dar casilla a la `skip` |
+| **BRJ-UI-2** = FE-BRJ-2 | Mesa en `cotizada` ⇒ «Declinar» abre el diálogo de declinar; en `aceptada` ⇒ sin «Declinar» y con el texto de §60.5 d | ofrecer «Declinar» en `aceptada` |
+| **BRJ-UI-3** = FE-BRJ-3 | `en_transito`: un clic llama `receive` y luego `verify`; `verify` falla ⇒ «Iniciar verificación» visible + aviso | no encadenar |
+| **BRJ-UI-4** | `422 ITEM_NOT_OFFERED {itemIds}` ⇒ esas filas salen de la selección y el texto nombra cuántas; ⛔ no aparece `message` del servidor | pintar `message` |
+| **NC-UI** = M5-NC-1…4 | §E2E-ADM.2 | |
+| **M10-UI** = M10-BL-1…4 | §E2E-ADM.3; además: el `422` por clave no pinta el texto del servidor | pintar `errors[clave]` |
+| **ML-24** (backend) | `sellItemsRejectedTemplate` en ES/EN, `n = 1` y `n = 3`, abierta y cerrada: un solo correo; nombra cada carta; contiene el motivo; contiene «7 días» y «30 días» **y** las dos fechas; ⛔ ningún importe ni CTA; y los días escritos = `returnDeadlineAt − rejectedAt` / `abandonDeadlineAt − rejectedAt` del fixture | cambiar el plazo del servidor a +10 d sin tocar la plantilla |
+| **ML-25** (backend) | AV-12 `after_delivery` no contiene «no salió» / «didn't ship»; AV-14 `withdrawal_delivered` no contiene «reponer» / «replacement» | reusar la prosa de hoy |
+| **MOB-1** | A 360 y 390 px, en la cola «Preparar»: ningún desborde horizontal (`scrollWidth ≤ clientWidth` del documento) | fila de botones sin envolver |
+| **MOB-2** | A 360 px, todo `button` y `a` de la tarjeta mide ≥ 44 px de alto | dejar `sm:min-h-[44px]` |
+| **MOB-3** | A 390 px, con la tarjeta en pantalla, «Pedido preparado» es visible sin desplazar (pie pegajoso) | quitar `sticky` |
+| **MOB-4** | A 390 px, la foto abre el visor y lo cierra con «Cerrar» y con `Esc`; sin `imageSmallUrl` no hay disparador | disparador sin foto |
+| **MOB-5** | En `< lg`, `/admin/m3` muestra el aviso de computadora y `/admin/m4` no | pintarlo también en M4 |
+| **M8-1** (tras la errata) | Ningún enlace del panel a `/admin/m8`; `/es/admin/m8` termina en `/es/admin` | dejar la entrada |
+
+---
