@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ivaLabelRe, t } from './utils/i18n';
 import { IS_REAL, mockOnly, MONEY_RE } from './utils/auth';
+import { chooseNeighborhood } from './utils/address';
 
 /**
  * Guest checkout — PROJECT §J / §J.1, criterios 45–56b; contrato §4-G.
@@ -141,9 +142,10 @@ test.describe('guest checkout · identidad y desglose', () => {
     await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
     await page.getByLabel(t('es', 'addresses.line1')).fill('Av. Vallarta 1234');
-    await page.getByLabel(t('es', 'addresses.city')).fill('Guadalajara');
-    await page.getByLabel(t('es', 'addresses.state')).fill('Jalisco');
+    // v1.81 (API_CONTRACT §M4-SHIP.19.5): CP → colonia DE LA LISTA del CP; municipio y estado salen
+    // del CP (ya no son campos). '44100' está en el catálogo del arnés (`E2E_POSTAL_CODES`) y en el mock.
     await page.getByLabel(t('es', 'addresses.postalCode')).fill('44100');
+    await chooseNeighborhood(page, 'Guadalajara Centro');
     await page.getByLabel(t('es', 'addresses.phone')).fill('3312345678');
     await page.getByRole('checkbox', { name: /Confirmo que/ }).check();
     await page.getByRole('checkbox', { name: t('es', 'checkout.guest.acceptTerms') }).check();

@@ -1,3 +1,4 @@
+import { fakePostalCodes } from './helpers/fake-postal-codes';
 import { GuestCheckoutService } from '../src/modules/orders/guest-checkout.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -165,6 +166,7 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     stripe as StripeService,
     tokens as OrderAccessTokenService,
     mail as GuestOrderMailService,
+    fakePostalCodes(),
   );
   return { svc, prisma, orders, stripe, tokens, mail, created, itemUpdates };
 }
@@ -222,7 +224,8 @@ describe('GuestCheckoutService.createSession', () => {
     expect(order.guestEmail).toBe('guest@example.com'); // trim + lowercase
     expect(order.fulfillmentMode).toBe('direct_ship');
     expect(order.orderNumber).toBe('TCG-000123');
-    expect(order.shippingAddressSnapshot).toMatchObject({ city: 'Ciudad de México', country: 'MX' });
+    // ⭐ v1.81 (§M4-SHIP.19.5): `city`/`state` son los CANÓNICOS del CP (la alcaldía, no «Ciudad de México»/«CDMX»).
+    expect(order.shippingAddressSnapshot).toMatchObject({ city: 'Cuauhtémoc', state: 'Ciudad de México', neighborhood: 'Juárez', country: 'MX', references: null });
     // ⭐ La orden archiva la tarifa EXHIBIDA (§M10-IVA.4: `shippingFeeCents = E`, con IVA dentro).
     expect(order.shippingFeeCents).toBe(SHIPPING_DISPLAY);
     expect(order.status).toBe('pending');

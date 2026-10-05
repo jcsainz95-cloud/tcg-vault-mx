@@ -47,6 +47,7 @@ import { replacementPendingTemplate } from '../payments/refunds/mail/refund-noti
 import { customerDisplayName } from '../vault/customer-display-name';
 import { LocationView, lastNameOf, locationViewOf, nullIfBlank, preparationCardOf, PreparationCardDTO } from './preparation-view';
 import { REPLACEMENT_CASE_DUE_MS } from '../vault/replacement-case.rules';
+import { countUnseenImmediate } from '../spend-alerts/spend-control';
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | PrismaService;
@@ -886,9 +887,13 @@ export class ShipmentPrepService {
     }
   }
 
-  /** §M4-SHIP.11 — el contador DERIVADO. `manualRefundsPending` solo lo ve el súper-admin. */
+  /**
+   * §M4-SHIP.11 — el contador DERIVADO. `manualRefundsPending` solo lo ve el súper-admin.
+   * 💰 D2f (S-GAS-3, §19.30.8): `spendAlertsUnseenImmediate` — `null` para `vault_operator` (como `manualRefundsPending`); el
+   * MISMO cuerpo que `workQueue.spendControl.unseenImmediate` (`countUnseenImmediate`, ⛔ ninguna segunda definición).
+   */
   async summary(role: Role, now = new Date()) {
-    const [ship, vault, oldest, stuck, toReplace, oldestCase, overdue, manual] = await Promise.all([
+    const [ship, vault, oldest, stuck, toReplace, oldestCase, overdue, manual, unseenImmediate] = await Promise.all([
       this.prisma.shipmentRequest.count({ where: { status: 'picking', preparedAt: null } }),
       this.prisma.vaultPlacement.count({ where: { status: 'pending' } }),
       this.prisma.shipmentRequest.findFirst({ where: { status: 'picking', preparedAt: null }, orderBy: { requestedAt: 'asc' }, select: { requestedAt: true } }),
@@ -897,6 +902,7 @@ export class ShipmentPrepService {
       this.prisma.replacementCase.findFirst({ where: { status: 'open' }, orderBy: { openedAt: 'asc' }, select: { openedAt: true } }),
       this.prisma.replacementCase.count({ where: { status: 'open', openedAt: { lte: new Date(now.getTime() - REPLACEMENT_CASE_DUE_MS) } } }),
       role === 'super_admin' ? this.prisma.manualRefund.count({ where: { status: 'pending' } }) : Promise.resolve(null),
+      role === 'super_admin' ? countUnseenImmediate(this.prisma) : Promise.resolve(null),
     ]);
     return {
       ship,
@@ -907,6 +913,7 @@ export class ShipmentPrepService {
       oldestOpenCaseAt: oldestCase ? oldestCase.openedAt.toISOString() : null,
       toReplaceOverdue: overdue,
       manualRefundsPending: manual,
+      spendAlertsUnseenImmediate: unseenImmediate,
     };
   }
 }

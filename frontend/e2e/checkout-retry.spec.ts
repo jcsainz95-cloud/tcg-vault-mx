@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { loginAs, mockOnly } from './utils/auth';
+import { chooseNeighborhood } from './utils/address';
 
 /**
  * §4-R (contrato v1.68, P-59) · el REINTENTO del mismo cliente tras un intento caído, contra el
@@ -121,9 +122,10 @@ test.describe('checkout de invitado · el token es la llave del reintento (§4-R
     await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
     await page.getByLabel(t('es', 'addresses.line1')).fill('Av. Vallarta 1234');
-    await page.getByLabel(t('es', 'addresses.city')).fill('Guadalajara');
-    await page.getByLabel(t('es', 'addresses.state')).fill('Jalisco');
+    // v1.81 (API_CONTRACT §M4-SHIP.19.5): CP → colonia DE LA LISTA del CP; municipio y estado salen
+    // del CP (ya no son campos). '44100' está en el catálogo del arnés (`E2E_POSTAL_CODES`) y en el mock.
     await page.getByLabel(t('es', 'addresses.postalCode')).fill('44100');
+    await chooseNeighborhood(page, 'Guadalajara Centro');
     await page.getByLabel(t('es', 'addresses.phone')).fill('3312345678');
     await page.getByRole('checkbox', { name: /Confirmo que/ }).check();
     await page.getByRole('checkbox', { name: t('es', 'checkout.guest.acceptTerms') }).check();

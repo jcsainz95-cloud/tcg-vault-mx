@@ -11,6 +11,7 @@ import { VAULT_WITHDRAWALS_HREF } from '../../vault/vaultTabs';
 import { CardImage } from '@/components/ui/CardImage';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
+import { ShipmentTimeline, TrackingLink } from '@/components/domain/ShipmentTrackingExtras';
 import { AmountBreakdown, type BreakdownView } from '@/components/ui/AmountBreakdown';
 import { QueryState } from '@/components/ui/QueryState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
@@ -129,6 +130,9 @@ export function ShipmentDetailView({ shipmentId }: { shipmentId: string }) {
                   {query.data.carrier} · {t('tracking')} {query.data.trackingNumber}
                 </p>
               )}
+              {/* ⭐ §43.11 (FS-11): liga solo si Skydropx la dio; movimientos del servidor. */}
+              <TrackingLink url={query.data.trackingUrl} className="mt-2 inline-block" />
+              <ShipmentTimeline events={query.data.timeline} className="mt-4" />
             </div>
 
             <div className="grid border-t border-border lg:grid-cols-[1fr_360px]">

@@ -507,6 +507,40 @@ export let mockSettings: SettingsDTO = {
   gradingHookEnabled: 'on',
   // 💰 v1.80.8.5 (§M2 `M2-PF`): MOCK con el seed del contrato (decisión del dueño 2026-10-04).
   premiumFloorSalePublish: { mode: 'only', rarities: ['Double Rare', 'Rare Holo EX'] },
+  // ⭐ MOCK §M4-SHIP.19.19.12 — los diales de envío con su SEED del contrato (fail-closed: Skydropx
+  // apagado y compra `disabled`). Para ver la ventana de cuatro pasos en la demo se enciende en
+  // «Configuración › Envíos», como lo haría el dueño.
+  shippingProvider: 'off',
+  shippingLabelPurchase: 'disabled',
+  skydropxOriginAddressTemplateId: null,
+  shippingPreferredCarriers: ['ninetynineminutes'],
+  shippingDropoffPoints: {
+    ninetynineminutes: {
+      name: 'Punto99 · Periférico Sur 4249',
+      address: 'Av. Periférico Sur 4249, Jardines de la Montaña, 14210 CDMX',
+    },
+  },
+  shippingConsignmentNote: '49101600',
+  shippingPackageRuleBoxMinCards: 60,
+  // v1.80.12.9 (§19.29.8): seed MX$1,000 (`HECHOS.md:62`).
+  skydropxLowBalanceCents: 100000,
+  // 💰 Control del gasto (§19.29.8): seeds = `HECHOS.md:62` / `PROJECT §Z.3`.
+  operatorLabelCap24hCents: 250000,
+  shippingLabelReissueMaxPerShipment: 1,
+  spendAlertsDisabled: [],
+  spendAlertLabelCapWarnPct: 80,
+  spendAlertShipmentCancelCount: 2,
+  spendAlertPersonCancelCount24h: 3,
+  spendAlertChargeDriftImmediateCents: 2000,
+  spendAlertExtraChargeImmediateCents: 15000,
+  spendAlertCancelRefundDays: 3,
+  spendAlertLabelNotShippedDays: 3,
+  shippingTrackingPollMinutes: 60,
+  shippingInsuranceTiers: [
+    { coverageCents: 250000, costCents: 2500, measuredAt: '2026-10-04' },
+    { coverageCents: 1000000, costCents: 17000, measuredAt: '2026-10-04' },
+  ],
+  shippingLabelFormat: 'standard',
 };
 /**
  * ⭐⭐ **EL DIAL DE TRASLACIÓN, EN SU PROPIA VARIABLE Y ⛔ FUERA DE `mockSettings`** (contrato v1.75,
@@ -1854,7 +1888,10 @@ export const mockAddresses: AddressDTO[] = [
     postalCode: '06600',
     country: 'MX',
     phone: '5555123456',
+    references: null,
     isDefault: true,
+    // ⭐ v1.81: derivado por el servidor (colonia + CP de 5 + teléfono de 10).
+    complete: true,
   },
   {
     // v1.67: fila ANTERIOR a M-52 (sin destinatario). La libreta pinta «Falta el nombre de quien
@@ -1868,7 +1905,9 @@ export const mockAddresses: AddressDTO[] = [
     postalCode: '44100',
     country: 'MX',
     phone: '3331234567',
+    references: null,
     isDefault: false,
+    complete: true,
   },
 ];
 
@@ -4212,12 +4251,12 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
         : null,
     addresses:
       id === 'u-777'
-        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
+        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', references: null, isDefault: true, complete: false }]
         : id === 'u-780'
           ? [
-              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', isDefault: true },
+              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', references: null, isDefault: true, complete: true },
               // Fila anterior a M-52: sin destinatario. Se pinta «Sin destinatario», nunca el nombre.
-              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', isDefault: false },
+              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', references: null, isDefault: false, complete: false },
             ]
           : [],
     orders: base.id === 'u-777' ? mockOrders : [],
@@ -4406,7 +4445,10 @@ export const mockAuditLog: AuditLogDTO[] = [
 ];
 
 // ---- M7: Finanzas ----
-// P&L (v1.4-finance): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents = profitCents.
+// P&L (§M10-IVA.8 / §M4-SHIP.19.36.1): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents −
+// shippingCostCents − refundsCents − refundedFeesCents − compensationsCents = profitCents.
+// N-PNL-1 (DESIGN_SYSTEM §43.23.8): los cinco campos nuevos ≠ 0; ajustes y seguro MENORES que `shippingCostCents`
+// (están dentro de él) para que la pantalla de dev sea una pantalla posible.
 export const mockPnl: PnlDTO = {
   incomeCents: 1_250_000,
   shippingRevenueCents: 52_500,
@@ -4420,7 +4462,14 @@ export const mockPnl: PnlDTO = {
   // importe y ⛔ no una afirmación fiscal. En el fixture va `> 0` **a propósito**: el aviso es una
   // rama de render que, con un `0` clavado, nadie vería nunca en `dev`.
   shippingCostMissingCount: 2,
-  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800,
+  // §19.36.1 — «Incluye…» de `shippingCostCents` (⛔ no entran en la resta: ya van dentro de los 31_800).
+  shippingAdjustmentsCents: 4_200,
+  shippingInsuranceCents: 2_500,
+  // §M10-IVA.8 (v1.80.7) — lo devuelto en el periodo; restan en la ganancia.
+  refundsCents: 35_000,
+  refundedFeesCents: 1_400,
+  compensationsCents: 12_000,
+  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800 - 35_000 - 1_400 - 12_000,
 };
 
 // v1.28 (P-24): breakdown por tipo — campos top-level = Σ del breakdown (invariante del contrato).

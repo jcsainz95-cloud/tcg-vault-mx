@@ -1,6 +1,7 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Optional, Post } from '@nestjs/common';
+import { BusinessException } from '../common/business.exception';
 import { Role } from '@prisma/client';
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { Allow, IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../modules/audit/audit.service';
@@ -16,12 +17,35 @@ import { PriceIngestJobService } from './price-ingest.service';
 import { SealedPriceIngestJobService } from './sealed-price-ingest.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
 import { DecksMetaRefreshService } from '../modules/decks-meta/decks-meta-refresh.service';
+import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job';
+import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processing.job';
+import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
+import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
+import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
+import { isYmd } from '../modules/spend-alerts/mx-day';
+
+/**
+ * Body opcional del disparo de `spend-digest` (💰 C1, API_CONTRACT §M4-SHIP.19.33.9): `day?: 'YYYY-MM-DD'` re-manda el resumen de
+ * ese día (solo si quedó `failed`); omitirlo = ayer en México. `@Allow()` para que el `ValidationPipe` global (whitelist) NO se
+ * coma el campo: la forma la valida el controlador ⇒ `400 VALIDATION_ERROR {field:'day'}` (la forma del resto de días MX).
+ */
+class SpendDigestDto {
+  @Allow() day?: unknown;
+}
 
 /** Body opcional del disparo de `decks-meta-refresh` (DECKS-META Fase 2, §7): `dryRun?`. */
 class DecksMetaRefreshDto {
   // `dryRun:true` corre el pipeline REAL sin escribir nada publicado (verificación en prod, §8);
   // omitirlo respeta el dial `decks_meta_autofetch` (off ⇒ no-op).
   @IsOptional() @IsBoolean() dryRun?: boolean;
+}
+
+/**
+ * Body opcional del disparo de `shipment-tracking-poll` (⭐ D2d, API_CONTRACT §M4-SHIP.19.10: excepción a la familia, como
+ * `price-ingest {setId}`): `shipmentId?` refresca UN envío; omitirlo corre el lote.
+ */
+class ShipmentTrackingPollDto {
+  @IsOptional() @IsUUID() shipmentId?: string;
 }
 
 /** Body opcional del disparo de `price-ingest` (excepción a la familia body-vacío, §M10-ops). */
@@ -63,7 +87,119 @@ export class AdminJobsController {
     private readonly sealedRestockNotify: SealedRestockNotifyService,
     private readonly decksMetaRefresh: DecksMetaRefreshService,
     private readonly audit: AuditService,
+    // ⭐💰 D2d (§M4-SHIP.19.10): los tres jobs de Skydropx (no-op con `shipping_provider='off'`). `@Optional()` SOLO por las
+    // pruebas unitarias que construyen el controlador con la lista posicional de antes; en la app los da `ShipmentsModule`
+    // (sin ellos, el disparo responde `404`, ⛔ nunca un `500`).
+    @Optional() private readonly trackingPoll?: ShipmentTrackingPollJob,
+    @Optional() private readonly labelProcessing?: ShipmentLabelProcessingJob,
+    @Optional() private readonly extraCharges?: ShipmentExtraChargesJob,
+    // 💰 C1 (§M4-SHIP.19.33.9): los dos jobs de avisos al dueño (D2g). `@Optional()` como los de D2d; sin ellos ⇒ `404`.
+    @Optional() private readonly spendWatch?: SpendWatchService,
+    @Optional() private readonly spendDigest?: SpendDigestService,
   ) {}
+
+  private need<T>(svc: T | undefined): T {
+    if (!svc) throw BusinessException.notFound();
+    return svc;
+  }
+
+  /**
+   * ⭐ D2d (§M4-SHIP.19.10) — el sondeo de rastreo de Skydropx; `{shipmentId?}` refresca uno (el mismo cuerpo que
+   * `POST /admin/shipments/:id/refresh-tracking`). Lee al proveedor; ⛔ no compra ni cancela.
+   */
+  @Post('shipment-tracking-poll')
+  @HttpCode(200)
+  async runShipmentTrackingPoll(@Body() dto: ShipmentTrackingPollDto, @CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.trackingPoll).run({ shipmentId: dto.shipmentId });
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.shipment_tracking_poll.run',
+      entityType: 'Job',
+      entityId: 'shipment-tracking-poll',
+      after: { shipmentId: dto.shipmentId ?? null, ...result },
+    });
+    return result;
+  }
+
+  /**
+   * ⭐💰 D2d (§M4-SHIP.19.10 con §19.27–§19.30) — guía en proceso, verificación de la compra en vuelo (adopta / libera /
+   * incierta), conciliación de huérfanas con fusible, calibración pasiva y purga. ⛔ Nunca `purchase` (PS-99).
+   */
+  @Post('shipment-label-processing')
+  @HttpCode(200)
+  async runShipmentLabelProcessing(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.labelProcessing).run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.shipment_label_processing.run',
+      entityType: 'Job',
+      entityId: 'shipment-label-processing',
+      after: result as unknown as Record<string, unknown>,
+    });
+    return result;
+  }
+
+  /** 💰 D2d (§M4-SHIP.19.10, AG-6) — los cargos extra de Skydropx de los últimos 45 días (idempotente por `providerChargeId`). */
+  @Post('shipment-extra-charges')
+  @HttpCode(200)
+  async runShipmentExtraCharges(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.extraCharges).run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.shipment_extra_charges.run',
+      entityType: 'Job',
+      entityId: 'shipment-extra-charges',
+      after: { ...result },
+    });
+    return result;
+  }
+
+  /**
+   * 💰 C1 (§M4-SHIP.19.33.9, §19.29.7) — `spend-watch` a mano: marca del dueño (AG-21), correos pendientes, lotes de la hora y,
+   * con `shipping_provider='skydropx'`, saldo (AG-7), AG-8 (b) y AG-10. Single-flight por el candado del servicio (otra corrida
+   * viva ⇒ `skipped:'already_running'`). ⛔ No compra ni cancela.
+   */
+  @Post('spend-watch')
+  @HttpCode(200)
+  async runSpendWatch(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.spendWatch).run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.spend_watch.run',
+      entityType: 'Job',
+      entityId: 'spend-watch',
+      after: result as unknown as Record<string, unknown>,
+    });
+    return result;
+  }
+
+  /**
+   * 💰 C1 (§M4-SHIP.19.33.9, §19.29.7) — `spend-digest` a mano. `{day?}` (`YYYY-MM-DD`, día de México): re-manda ese día solo si
+   * quedó `failed`; sin `day` = ayer en México (lo que haría el cron). Fuera de formato ⇒ `400 VALIDATION_ERROR {field:'day'}`.
+   */
+  @Post('spend-digest')
+  @HttpCode(200)
+  async runSpendDigest(@Body() dto: SpendDigestDto, @CurrentUser() user: { id: string; role: Role }) {
+    const svc = this.need(this.spendDigest);
+    const day = dto?.day;
+    if (day !== undefined && !isYmd(day)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'day must be YYYY-MM-DD', { field: 'day' });
+    }
+    const result = await svc.run(day !== undefined ? { day } : {});
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.spend_digest.run',
+      entityType: 'Job',
+      entityId: 'spend-digest',
+      after: { requestedDay: day ?? null, ...result },
+    });
+    return result;
+  }
 
   @Post('portfolio-snapshot')
   @HttpCode(200)

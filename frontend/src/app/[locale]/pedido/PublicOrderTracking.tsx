@@ -10,6 +10,7 @@ import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { CardImage } from '@/components/ui/CardImage';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
+import { ShipmentTimeline, TrackingLink } from '@/components/domain/ShipmentTrackingExtras';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { SupportContact } from '@/components/domain/SupportContact';
 import {
@@ -117,6 +118,8 @@ export function PublicOrderTracking({
                 };
               })}
             />
+            {/* ⭐ §43.11 (FS-10): movimientos bajo el estado (el título sigue siendo `publicStatus`). */}
+            <ShipmentTimeline events={data.shipping.timeline} className="mt-4" />
           </div>
         ) : (
           // Reembolsado / cancelado / en revisión: sin detalles del proceso (§15.6).
@@ -140,6 +143,8 @@ export function PublicOrderTracking({
             >
               {copied === 'tracking' ? t('copied') : t('copyTracking')}
             </Button>
+            {/* ⭐ §43.11: la liga VIENE del servidor o no existe (la regla de arriba sigue en pie). */}
+            <TrackingLink url={data.shipping.trackingUrl} labelKey="track.trackingLink" />
           </div>
         ) : (
           <p className="mt-3 font-mono text-[11px] uppercase tracking-label text-muted">

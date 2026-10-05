@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Locale, Order, OrderStatus, Prisma, ShipmentRequest, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -18,7 +18,10 @@ import { OrdersService, OwnReservation } from './orders.service';
 import { RESERVATION_TX_OPTIONS, lockReservationGate, reservedUntilFrom } from './reservation';
 import { OrderAccessTokenService } from './order-access-token.service';
 import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
+import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { GuestOrderMailService } from './guest-order-mail.service';
+import { PostalCodeService } from '../shipping-provider/geo/postal-code';
+import { blankToNull } from '../users/address-rules';
 import { GuestQuoteDto, GuestResendLinkDto, GuestSessionDto } from './dto/guest-checkout.dto';
 import { maskEmail, maskPostalCode, maskRecipientName, normalizeEmail } from './guest-privacy';
 import {
@@ -42,6 +45,8 @@ export interface GuestAddressSnapshot {
   country: string;
   phone: string;
   recipientName: string;
+  /** ⭐ v1.81 (M-64): décimo campo. Ausente en los snapshots anteriores (se lee como `null`). */
+  references?: string | null;
 }
 
 /**
@@ -70,7 +75,15 @@ export class GuestCheckoutService {
     private readonly stripe: StripeService,
     private readonly tokens: OrderAccessTokenService,
     private readonly mail: GuestOrderMailService,
+    // ⭐ v1.81 (M-64, §M4-SHIP.19.5): la lista de colonias por CP. `@Optional()` (unitarios a mano); sin él, cotizar
+    // con dirección o crear la sesión LANZA — ⛔ un pedido nunca nace sin validar la colonia.
+    @Optional() private readonly postalCodesSvc?: PostalCodeService,
   ) {}
+
+  private get postalCodes(): PostalCodeService {
+    if (!this.postalCodesSvc) throw new Error('PostalCodeService no disponible');
+    return this.postalCodesSvc;
+  }
 
   // ------------------------------------------------------------------ quote
 
@@ -85,7 +98,11 @@ export class GuestCheckoutService {
    * `createSession` (abajo) NO usa esta ruta: sigue estricta (anti double-sell).
    */
   async quote(dto: GuestQuoteDto) {
-    if (dto.shippingAddress) this.assertMxAddress(dto.shippingAddress.country);
+    if (dto.shippingAddress) {
+      // ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): el quote NO consulta el catálogo — solo forma (pipe) y `ADDRESS_NOT_MX`.
+      // No persiste nada y ya no hay nada geográfico que rechazar.
+      this.assertMxAddress(dto.shippingAddress.country);
+    }
     // v1.68.1 (§4-R.5): la reserva propia existe SOLO con `retryOfCheckoutToken` + `email` válidos
     // (misma regla que la sesión, §4-R.3). Token inválido/otro correo ⇒ conducta de hoy. READ-ONLY.
     const claimedOrderId =
@@ -152,7 +169,16 @@ export class GuestCheckoutService {
     // Anti-enumeración (criterio 56): NO se consulta `User` por este correo. Que tenga cuenta o no
     // es indistinguible desde fuera (mismo status, mismo shape, mismos tiempos).
     const guestEmail = normalizeEmail(dto.email);
-    const addressSnapshot = this.toAddressSnapshot(dto.shippingAddress);
+    // ⭐ v1.80.12.5 (§M4-SHIP.19.25.1, `HECHOS.md:57`): `resolveAddressGeo` decide qué se guarda y ⛔ NUNCA rechaza
+    // por geografía (con el catálogo vacío la tienda vende). Corre ANTES de reservar y antes del PaymentIntent; la
+    // colonia sigue obligatoria como texto (pipe). `check` no se persiste.
+    const { check: _check, ...geo } = await this.postalCodes.resolveAddressGeo(
+      dto.shippingAddress.postalCode,
+      dto.shippingAddress.neighborhood,
+      dto.shippingAddress.city,
+      dto.shippingAddress.state,
+    );
+    const addressSnapshot = this.toAddressSnapshot({ ...dto.shippingAddress, ...geo });
 
     // v1.68 (§4-R.3): la reserva PROPIA existe SOLO si el body trae `retryOfCheckoutToken` válido
     // que resuelve a una orden `pending` de ESTE correo. Sin reclamo ⇒ conducta de hoy, literal.
@@ -347,7 +373,8 @@ export class GuestCheckoutService {
       where: { id: token.orderId },
       include: {
         items: { include: { inventoryItem: { include: { card: { include: { set: true } } } }, refund: true } },
-        shipmentRequests: { orderBy: { requestedAt: 'desc' } },
+        // ⭐ D2e (§19.12, PS-89): + los eventos del transportista para la línea de tiempo pública.
+        shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT } },
         refunds: true,
       },
     });
@@ -521,6 +548,7 @@ export class GuestCheckoutService {
     country: string;
     phone: string;
     recipientName: string;
+    references?: string;
   }): GuestAddressSnapshot {
     return {
       line1: a.line1,
@@ -532,6 +560,8 @@ export class GuestCheckoutService {
       country: a.country,
       phone: a.phone,
       recipientName: a.recipientName,
+      // ⭐ v1.81: décimo campo; vacío ⇒ `null`.
+      references: blankToNull(a.references),
     };
   }
 
@@ -599,7 +629,7 @@ export class GuestCheckoutService {
     return publicStatus(orderStatus, shipmentStatus, money);
   }
 
-  private activeShipment(shipments: ShipmentRequest[]): ShipmentRequest | undefined {
+  private activeShipment<T extends ShipmentRequest>(shipments: T[]): T | undefined {
     return activeShipment(shipments);
   }
 
@@ -623,14 +653,18 @@ export class GuestCheckoutService {
           card: { name: string; number: string; imageSmallUrl: string | null; set: { name: string } | null };
         };
       }[];
-      shipmentRequests: ShipmentRequest[];
+      shipmentRequests: (ShipmentRequest & { carrierEvents?: TimelineEventRow[] })[];
       refunds?: { status: string; amountCents: number }[];
     },
     tokenExpiresAt: Date,
   ) {
     const shipment = this.activeShipment(order.shipmentRequests);
-    const address = (order.shippingAddressSnapshot ?? {}) as Partial<GuestAddressSnapshot>;
+    // ⭐ v1.80.12 (§M4-SHIP.19.20.1, «lo que ve el cliente»): con envío, la dirección es la DEL ENVÍO (la que el
+    // operador pudo corregir); sin envío, la que capturó al pagar. Medido: era la única superficie del cliente que
+    // leía `Order.shippingAddressSnapshot` habiendo envío (`/orders/:id` y `/shipments/:id` ya leían el del envío).
+    const address = ((shipment?.addressSnapshot as Prisma.JsonValue | undefined) ?? order.shippingAddressSnapshot ?? {}) as Partial<GuestAddressSnapshot>;
     const deliveredAt = shipment?.deliveredAt ?? null;
+    const trackingUrl = shipment ? providerTrackingUrlOf(shipment) : null;
     // v1.80 (§M4-SHIP.10): lo devuelto POR STRIPE (`submitted|succeeded`) y la regla «todo devuelto ⇒ reembolsado».
     const refundedCents = refundedCentsOf(order.refunds ?? []);
 
@@ -678,6 +712,9 @@ export class GuestCheckoutService {
         trackingNumber: shipment?.trackingNumber ?? undefined,
         shippedAt: shipment?.shippedAt ?? undefined,
         deliveredAt: deliveredAt ?? undefined,
+        // ⭐ D2e (§19.12, PS-88/PS-89): liga de rastreo SOLO si Skydropx la dio; línea de tiempo pública (sin detalle ni códigos).
+        ...(trackingUrl ? { trackingUrl } : {}),
+        timeline: shipment ? toCustomerTimeline(shipment.carrierEvents ?? [], shipment) : [],
       },
       // Solo tras liquidar, y SOLO marca + 4 últimos (nunca PAN/BIN/titular/clientSecret).
       payment:

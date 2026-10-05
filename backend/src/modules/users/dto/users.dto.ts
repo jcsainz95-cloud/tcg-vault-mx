@@ -14,6 +14,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { ADDRESS_LIMITS, PHONE_PATTERN, POSTAL_CODE_PATTERN } from '../address-rules';
 
 /** Recorta espacios ANTES de validar (el contrato manda `trim` server-side para nombres). */
 const trim = () => Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
@@ -37,14 +38,20 @@ export class AddressDto {
    * El servidor NUNCA lo deriva de `User.name` (ARCHITECTURE §4.47.4).
    */
   @trim() @IsString() recipientName!: string;
-  @IsString() @MinLength(1) line1!: string;
-  @IsOptional() @IsString() line2?: string;
-  @IsOptional() @IsString() neighborhood?: string;
-  @IsString() @MinLength(1) city!: string;
-  @IsString() @MinLength(1) state!: string;
-  @IsString() @MinLength(3) postalCode!: string;
+  // ⭐ v1.81 (M-64, §M4-SHIP.19.5, criterio 235): la libreta al nivel del invitado — MISMAS cotas que
+  // `GuestAddressInput` (`address-rules.ts`, un juego). ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): colonia, `city` y `state`
+  // OBLIGATORIOS como texto (1..120); la colonia puede ser de la lista o escrita a mano. El servicio
+  // (`resolveAddressGeo`) nunca rechaza por geografía: con el CP en el catálogo `city`/`state` se sobrescriben con
+  // los del catálogo; con el CP fuera, se guarda lo escrito.
+  @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.line1) line1!: string;
+  @IsOptional() @trim() @IsString() @MaxLength(ADDRESS_LIMITS.line2) line2?: string;
+  @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.neighborhood) neighborhood!: string;
+  @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.city) city!: string;
+  @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.state) state!: string;
+  @trim() @IsString() @Matches(POSTAL_CODE_PATTERN, { message: 'postalCode must be 5 digits' }) postalCode!: string;
   @IsString() country!: string;
-  @IsString() @MinLength(7) phone!: string;
+  @trim() @IsString() @Matches(PHONE_PATTERN, { message: 'phone must be 10 digits' }) phone!: string;
+  @IsOptional() @trim() @IsString() @MaxLength(ADDRESS_LIMITS.references) references?: string;
   @IsOptional() @IsBoolean() isDefault?: boolean;
 }
 
@@ -56,14 +63,18 @@ export class UpdateAddressDto {
    * `422 RECIPIENT_NAME_REQUIRED`.
    */
   @IsOptional() @trim() @IsString() recipientName?: string;
-  @IsOptional() @IsString() line1?: string;
-  @IsOptional() @IsString() line2?: string;
-  @IsOptional() @IsString() neighborhood?: string;
-  @IsOptional() @IsString() city?: string;
-  @IsOptional() @IsString() state?: string;
-  @IsOptional() @IsString() postalCode?: string;
+  // ⭐ v1.81: mismas cotas que `AddressDto` cuando el campo viene. ⭐ v1.80.12.5: `postalCode` exige `neighborhood`,
+  // `city` y `state` ⇒ si falta alguno, `400 {field:<el primero>, reason:'required_with_postal_code'}` (servicio).
+  @IsOptional() @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.line1) line1?: string;
+  @IsOptional() @trim() @IsString() @MaxLength(ADDRESS_LIMITS.line2) line2?: string;
+  @IsOptional() @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.neighborhood) neighborhood?: string;
+  @IsOptional() @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.city) city?: string;
+  @IsOptional() @trim() @IsString() @MinLength(1) @MaxLength(ADDRESS_LIMITS.state) state?: string;
+  @IsOptional() @trim() @IsString() @Matches(POSTAL_CODE_PATTERN, { message: 'postalCode must be 5 digits' }) postalCode?: string;
   @IsOptional() @IsString() country?: string;
-  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @trim() @IsString() @Matches(PHONE_PATTERN, { message: 'phone must be 10 digits' }) phone?: string;
+  /** `null` o `""` ⇒ borra las referencias. */
+  @IsOptional() @trim() @IsString() @MaxLength(ADDRESS_LIMITS.references) references?: string | null;
   @IsOptional() @IsBoolean() isDefault?: boolean;
 }
 
