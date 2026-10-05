@@ -19532,3 +19532,75 @@ y se escribieron estas: `admin.m10.ownerOnly.denied` + `field.*`; `admin.m6.owne
 | ajustes | campo del dueño habilitado para el no dueño | 1 roja (PS-164) |
 | usuarios (`d01c626d`) | bloquear/borrar visibles en la cuenta del dueño | 2 rojas (PS-164) |
 | i18n | volver a poner `labelAlert.unknown.ownerOnly` | 3 rojas (UX-GAS-7 + UX-SDX-14) |
+
+## §93 · **Errata v4.21 (`DESIGN_SYSTEM §43.20`)** — la cuenta del dueño, AG-21/AG-22, `seen` con «Lo marca el dueño», los avisos apagados, «del {ref}» y el canario de «24 horas» (2026-10-05, rama `claude/skydropx-d`, base `04494049`; FS-44…FS-53 y FS-55, UX-GAS-8…13, UX-SDX-28 (c) sustituida)
+
+**Commit:** `e47c0bf4` (código, i18n y pruebas juntos: las pruebas que fijaban los textos viejos —`SpendAlerts.test.tsx`
+«de el», `skipped`, el `403` de Configuración— cambian en el mismo commit que sus claves).
+
+**Zonas compartidas tocadas:** ninguna de código (`types/contract.ts`, `lib/api.ts`, `lib/mock/`, `components/` sin
+cambio). Solo la prueba de paridad `src/lib/i18n-spend-v420.test.ts` (añadido el bloque FS-44).
+
+**Decisiones de implementación**
+- **FS-44 (i18n):** aplicado con un script sobre el JSON (round-trip medido idéntico salvo el escape ` `, que se
+  conserva). Retiradas `kind.AG-22.text` y `m10.spend.alerts.byCase`. `summary.muted` existe en los dos idiomas pero
+  **sin lector** (ver FS-54).
+- **FS-46 AG-21:** la variante sale de `cause` y de si `previousOwner` es objeto con `userId`; `{previous}`/`{current}`
+  por `name` (vacío ⇒ «una cuenta sin nombre»). Ni `userId` ni correo llegan al texto.
+- **FS-47 AG-22:** `act` fuera de los seis ⇒ `act.other`. `{target}` = `target` con rol si el rol tiene rótulo
+  (`kind.AG-22.role.*`), si no solo el nombre; `target:null` ⇒ `targetNone`. `{owner}` = nombre sin rol (con
+  `target:null`, `targetNone`). `{settings}`: los rótulos de `admin.m10.ownerOnly.field.*` llegan por
+  `AlertTextCtx.ownerSetting` (una fuente, la misma que el `403`), sin repetidos, con `joinAnd`; vacío/`null` ⇒
+  `field.other`.
+- **`403 OWNER_ONLY_SETTING`:** `useOwnerOnlyDenied` une ahora con `joinAnd` («…por persona y qué avisos…»), como pide
+  §43.20.1 bajo la tabla; antes `", "`.
+- **FS-49 `?muted=`:** `muted:false` («Sin los apagados») cuenta como filtro activo («Limpiar filtros» y el vacío
+  filtrado); antes `hasFilters` descartaba todo valor `false`.
+- **FS-50/51 «Lo marca el dueño»:** `useOwnerMarks()` (en `SpendAlertsView.tsx`) = `known ∧ ¬isOwner ∧ (code = AG-21 ∨
+  subject.userId = me.id)`. `useIsOwner` devuelve además `userId` (de `GET /users/me`). Mientras `me` no se sabe ⇒ se
+  pinta el botón (§43.20.6: no se falla cerrado). La selección múltiple no se recorta.
+- **Apagados:** `MailStatus` pinta `mutedTag` en lugar de la línea del correo (lista y fila «Correo» del detalle);
+  `SeverityTag` recibe `muted` y deja el bermellón.
+- **FS-52:** `ALWAYS_ON_CODES = ['AG-21','AG-22']` vive en `spend-alerts/filters.ts` (lo importan el filtro «Tipo» y
+  Configuración; no se tocó `types/contract.ts`). Las dos casillas van marcadas, `disabled`, `aria-describedby` al párrafo
+  `alwaysOn`; el `PUT` sigue filtrando por `SPEND_ALERT_SWITCHABLE_CODES`.
+- **FS-53:** `OwnerTag` (versalita mono `text-muted`, sin color) junto al nombre en la columna de la lista y en la
+  cabecera del detalle; nota `ownerAccountSelf` cuando `isOwner ∧ isSelf`.
+- **FS-55:** `figures()` quita solo `/(?<!\d)24 (horas|hours)\b/g`; prueba nueva con el canario: el texto real pasa y
+  «MX$2,500.00», «2500», «MX$24.00», «80 %» y «124 horas» muerden.
+
+**Lo que NO hice**
+- **FS-54 (`summary.muted` en «Resumen de un día") fuera:** `SpendAlertSummaryDTO` no trae la cuenta de apagados
+  (`grep mutedCount docs/API_CONTRACT.md` ⇒ 0 resultados, medido 2026-10-05). Pendiente del arquitecto (**S-GAS-7**).
+  La clave i18n queda lista.
+- **Observación para ux-ui (no cambiada):** el subtítulo de «Envíos» (`admin.m10.shipping.subtitle`) sigue diciendo
+  «Solo el súper-admin. Cada cambio queda en la bitácora.», y esa sección tiene diales del dueño (`compra-guias`, saldo
+  bajo). §43.20.6 no la lista; con OWN-1 quizá debería decir «el dueño» en parte. No lo toqué sin diseño.
+
+**Pruebas (medido por mí, árbol vivo con el contenido de `e47c0bf4`):** `tsc --noEmit` limpio · `next lint` sin
+avisos · i18n (`src/lib/i18n*`) 156/156 · vitest completa **231/231 ficheros, 2880/2880 pruebas**. Nuevas:
+`SpendAlerts.v421.test.tsx` (UX-GAS-8…12, AG-9, `cancelKind`), bloques UX-GAS-11 (Configuración) y UX-GAS-13 en
+`SpendControlSection.test.tsx`, §43.20.6 en `M6View.owner.test.tsx`, canario (c) en `CaptureLabelDialog.v420.test.tsx`,
+FS-44 en `i18n-spend-v420.test.ts`.
+
+**Mutaciones** (copia `git archive e47c0bf4` del árbol entero en el scratchpad `fe-v421/`, borrada al terminar; N=1
+cada una — son deterministas: render sin carreras ni temporizadores; base de la copia 85/85 verde):
+
+| Bloque | Mutación | Resultado |
+|---|---|---|
+| AG-21 | `no_owner` siempre `textNoOwner` | 1 roja (UX-GAS-8) |
+| AG-22 | `{settings}` = `keys.join(', ')` crudo | 2 rojas (UX-GAS-9) |
+| AG-9 | quitar `orphan_cancel_unknown` de las causas | 1 roja |
+| `cancelKind` | volver a `String(v)` | 1 roja |
+| `seen` | `ownerMarks` nunca | 2 rojas (UX-GAS-10, lista y detalle) |
+| apagados | `MailStatus` sin la rama `muted` (pinta las dos líneas) | 2 rojas (UX-GAS-11) |
+| apagados | gravedad apagada en bermellón | 1 roja (UX-GAS-11) |
+| filtro | `?muted=` no se escribe en la URL | 1 roja (UX-GAS-11) |
+| filtro | «Tipo» sin AG-21/AG-22 | 1 roja |
+| Configuración | AG-21/AG-22 añadidos al `PUT` | 3 rojas (UX-GAS-11 + UX-GAS-4) |
+| Configuración | `403` con `join(', ')` | 1 roja (PS-164) |
+| i18n | `ref.order` = «el pedido {orderNumber}» | 14 rojas (UX-GAS-12 + UX-GAS-6) |
+| i18n | `cap.hint` vuelve a «Tú no tienes tope; … sin correo sí» | 1 roja (UX-GAS-13) |
+| Usuarios | `ownerAccountSelf` nunca | 1 roja |
+| Usuarios | sin `OwnerTag` en la lista | 1 roja |
+| canario (c) | quitar `\S*24\S*` (deja pasar «MX$24.00») | 1 roja (UX-SDX-28 (c)) |
