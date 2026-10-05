@@ -10,7 +10,7 @@ import * as refundTpl from '../src/modules/payments/refunds/mail/refund-notice.t
 import * as shipmentTpl from '../src/modules/shipments/mail/shipment-notice.templates';
 import * as disputeTpl from '../src/modules/disputes/mail/dispute-notice.templates';
 import * as kycTpl from '../src/modules/admin/mail/kyc-notice.templates';
-import { footerDescriptor, privacyNoticeUrl } from '../src/modules/buylist/mail-shell';
+import { footerDescriptor, privacyNoticeUrl, spacerRow } from '../src/modules/buylist/mail-shell';
 import { spendAlertBatchMail, spendAlertImmediateMail, spendDigestMail } from '../src/modules/spend-alerts/spend-alert.mail';
 import { SpendAlertMailView } from '../src/modules/spend-alerts/spend-alert-text';
 import { SealedRestockNotifyService } from '../src/modules/catalog/sealed-restock-notify.service';
@@ -374,11 +374,30 @@ describe('PRIV-5 — (v1.84.5 §14.18) los correos solo-staff (AVG-1/2/3) no lle
           }
           // CONTROL: el correo tiene su pie (el shell corrió entero).
           expect(m.html).toContain(footerDescriptor(l));
+          // E5-2.1: con `staff` el shell omite el `privacyRow` **y** su `spacerRow(16)`. Tras el último
+          // `spacerRow(32)` (el que el shell pone tras `blocks`) solo queda el pie en tinta.
+          expect(tailAfterLastSpacer32(m.html)).not.toContain(spacerRow(16));
         }
       });
     }
   }
+
+  it('CONTROL del espaciador: un correo a cliente SÍ lleva `spacerRow(16)` tras el último `spacerRow(32)`', () => {
+    // Sin este control, la aserción de arriba pasaría también si el recorte del final no encontrara nada.
+    env(ORIGIN, undefined);
+    for (const l of LOCALES) {
+      const html = RENDERS.orderSettledTemplate(l).html; // cliente vía `mailShell` (las de cuenta no usan el shell)
+      expect(tailAfterLastSpacer32(html)).toContain(spacerRow(16));
+    }
+  });
 });
+
+/** Lo que el shell emite tras su `spacerRow(32)` fijo: [`privacyRow` + `spacerRow(16)`] + pie. Falla si no hay `spacerRow(32)`. */
+function tailAfterLastSpacer32(html: string): string {
+  const at = html.lastIndexOf(spacerRow(32));
+  expect(at).toBeGreaterThan(-1);
+  return html.slice(at + spacerRow(32).length);
+}
 
 describe('PRIV-6 — (v1.84.5 §14.18 E5-2.3) `audience: \'staff\'` solo donde el contrato lo permite', () => {
   it('los ficheros de `src/` con `audience: \'staff\'` son exactamente `spend-alert.mail.ts`, con 3 apariciones', () => {

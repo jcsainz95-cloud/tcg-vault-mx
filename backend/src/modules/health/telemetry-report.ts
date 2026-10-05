@@ -150,7 +150,7 @@ const JWT = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
  * ⚠️ El contrato dice «el resultado solo puede ser más corto o igual»; eso NO se cumple cuando un valor de secreto
  * mide menos que `[redacted]` (`sig=a` ⇒ `sig=[redacted]`). Lo que el contrato protege con esa frase es el tope de
  * 300 del DTO, así que se garantiza ESO recortando al final (recortar solo quita cola: no puede destapar nada).
- * Discrepancia anotada para el arquitecto en `BACKEND_NOTES §57.7`.
+ * Discrepancia anotada para el arquitecto en `BACKEND_NOTES §76.7`.
  */
 export function scrubClientText(s: string): string {
   const out = s
