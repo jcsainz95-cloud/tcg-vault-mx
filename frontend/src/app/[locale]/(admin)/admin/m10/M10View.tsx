@@ -33,6 +33,7 @@ import { IvaTransferSection } from './sections/IvaTransferSection';
 import { ShippingSection } from './sections/ShippingSection';
 import { SpendControlSection } from './sections/SpendControlSection';
 import { PremiumFloorSection } from './sections/PremiumFloorSection';
+import { BuylistCycleSection } from './sections/BuylistCycleSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
@@ -438,6 +439,9 @@ export function M10View() {
           )}
         </QueryState>
       </section>
+
+      {/* §60.7 b (F-9) — los DIEZ diales del ciclo de venta, en su propio grupo, guardado y errores por campo. */}
+      <BuylistCycleSection />
 
       {/* ⭐ Sección 1a: EL DIAL DE TRASLACIÓN DEL IVA (§M10-IVA, criterio 213). Va en su propia
           sección y NO en la retícula de diales de arriba, y no es estética: es **la única puerta**

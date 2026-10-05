@@ -16,6 +16,8 @@ import { AmountBreakdown, type BreakdownView } from '@/components/ui/AmountBreak
 import { QueryState } from '@/components/ui/QueryState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { OrderItemStatusLine } from '@/components/domain/OrderItemStatusLine';
+import { SupportContact } from '@/components/domain/SupportContact';
+import { useSupportContact } from '@/hooks/useSupportContact';
 import { useShipmentClientSteps } from '@/lib/pipelines';
 
 /** Lee un campo string de un `addressSnapshot` de forma tolerante (forma abierta del contrato §5). */
@@ -72,6 +74,7 @@ export function ShipmentDetailView({ shipmentId }: { shipmentId: string }) {
   const ts = useTranslations('shipmentStage');
   const locale = useLocale() as AppLocale;
   const steps = useShipmentClientSteps();
+  const support = useSupportContact();
   const query = useQuery({
     queryKey: ['shipment', shipmentId],
     queryFn: () => getShipment(shipmentId),
@@ -192,6 +195,11 @@ export function ShipmentDetailView({ shipmentId }: { shipmentId: string }) {
                     <span className="text-muted">{t('addressUnavailable')}</span>
                   )}
                 </address>
+
+                {/* §60.1 b: «¿Problema con tu retiro? Escríbenos» — solo ENTREGADO. */}
+                {query.data.status === 'entregado' && (
+                  <SupportContact email={support.contact} reference={query.data.id} kind="withdrawal" className="mt-8" />
+                )}
 
                 {/* Total del retiro desglosado (si el DTO trae montos). */}
                 {(() => {

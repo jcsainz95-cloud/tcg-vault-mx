@@ -2121,11 +2121,13 @@ export interface ShipmentTrackingRequest {
 // Enums de Prisma (clase E, `M-61`).
 /** Por qué una carta de un ENVÍO (o de una colocación) no sale. `damaged` ⇒ la pieza queda `damaged`. */
 export type MissingReason = 'not_found' | 'damaged';
-export type PaymentRefundKind = 'item_missing' | 'order_remaining' | 'shipment_fee' | 'order_full' | 'case_refund';
+/** v1.82 (§PNL.2, M-70): + `item_delivered` = UNA carta de un envío directo YA ENTREGADO, reembolsada con motivo. */
+export type PaymentRefundKind = 'item_missing' | 'order_remaining' | 'shipment_fee' | 'order_full' | 'case_refund' | 'item_delivered';
 export type PaymentRefundStatus = 'requested' | 'submitted' | 'succeeded' | 'failed';
 export type ReplacementCaseSource = 'withdrawal' | 'vault_purchase';
 export type ReplacementCaseStatus = 'open' | 'replaced' | 'found' | 'refunded' | 'voided';
-export type ManualRefundSource = 'case_excess' | 'stripe_failed';
+/** v1.82 (§PNL.3, M-70): + `withdrawal_delivered` = SPEI de UNA carta de un retiro YA ENTREGADO (sin caso). */
+export type ManualRefundSource = 'case_excess' | 'stripe_failed' | 'withdrawal_delivered';
 export type ManualRefundStatus = 'pending' | 'paid' | 'cancelled';
 
 /** §M4-SHIP.10 — `{ userId, fullName, email }`; `fullName` null ⇔ `customerDisplayName` derivado. */
@@ -2148,7 +2150,40 @@ export interface PaymentRefundDTO {
   succeededAt: string | null;
   failedAt: string | null;
   failureCode: string | null;
+  /** v1.82 (§PNL.2, aditivo): el motivo de una fila `item_delivered` (si no, `null`/ausente). */
+  deliveredReason?: ShippedRefundReason | null;
 }
+
+/**
+ * v1.82 (§PNL.2) — `GET /admin/orders/:id` · `items[].deliveredRefund`: si ESTA carta entregada se puede
+ * reembolsar sola, con el importe que calcula el servidor (⛔ la pantalla no lo calcula ni lo edita). `null` ⇔
+ * la línea ya tiene `refund`.
+ */
+export type DeliveredRefundDTO =
+  | { kind: 'refundable'; amountCents: number }
+  | { kind: 'not_refundable'; reason: 'not_direct_ship' | 'order_not_settled' | 'legacy_convention' | 'not_delivered' };
+
+/** v1.82 (§PNL.2) — `POST /admin/orders/:id/items/:orderItemId/refund-delivered`. ⛔ Sin `amountCents`. */
+export interface RefundDeliveredItemRequest {
+  reason: ShippedRefundReason;
+  /** 3–500 tras `trim()`. Queda en bitácora; el cliente no la ve. */
+  note: string;
+  /** El importe que el súper-admin VIO (`deliveredRefund.amountCents`). */
+  expectedRefundCents: number;
+}
+export interface RefundDeliveredItemResponse {
+  refund: PaymentRefundDTO;
+}
+/** `409 ITEM_REFUND_NOT_AVAILABLE { reason }` (§PNL.2 paso 3 y §PNL.3 paso 3). */
+export type ItemRefundNotAvailableReason =
+  | 'not_direct_ship'
+  | 'order_not_settled'
+  | 'legacy_convention'
+  | 'already_refunded'
+  | 'not_delivered'
+  | 'not_withdrawal'
+  | 'not_shipped'
+  | 'no_reference';
 
 /** §M4-SHIP.3 — referencia corta al caso que abrió una línea de retiro. */
 export interface ReplacementCaseRefDTO {
@@ -2449,7 +2484,18 @@ export interface ManualRefundDTO {
   beneficiaryName: string | null; // VIVO: KycProfile.legalName ?? customerDisplayName(User)
   clabeOnFile: boolean; // VIVO
   clabeMasked: string | null; // ⛔ NUNCA la CLABE entera en este DTO
-  case: { id: string; source: ReplacementCaseSource; card: PreparationItemDTO['card']; folio: string; reason: string };
+  /** ⚠️ v1.82 (§PNL.3): `null` ⇔ `source = 'withdrawal_delivered'`. ⛔ Leerlo sin guarda tumba la cubeta. */
+  case: { id: string; source: ReplacementCaseSource; card: PreparationItemDTO['card']; folio: string; reason: string } | null;
+  /** v1.82 (§PNL.3): solo `withdrawal_delivered` (si no, `null`/ausente): de qué retiro entregado y qué carta. */
+  withdrawal?: {
+    shipmentId: string;
+    shipmentItemId: string;
+    card: PreparationItemDTO['card'];
+    folio: string;
+    reason: ShippedRefundReason;
+    note: string;
+    deliveredAt: string | null;
+  } | null;
   origin: { orderId: string; orderNumber: string | null; orderStatus: OrderStatus } | null;
   paymentRefundId: string | null;
   createdAt: string;
@@ -2468,6 +2514,33 @@ export interface ManualRefundDTO {
   reissuedFromId: string | null;
   reissuedAsId: string | null;
 }
+/**
+ * v1.82 (§PNL.3) — `GET /admin/manual-refunds/withdrawal-delivered/preview?shipmentItemId=&amountCents=` (súper-admin):
+ * el subconjunto de `CaseRefundPreviewDTO` sin las cifras de Stripe. `paidReferenceCents` `null` ⇔ sin compra de origen.
+ */
+export interface WithdrawalDeliveredPreviewDTO {
+  amountCents: number | null;
+  paidReferenceCents: number | null;
+  market: { cents: number; capturedDate: string } | null;
+  referenceCents: number;
+  confirmAboveCents: number;
+  limitCents: number;
+  confirmation: 'none' | 'reinforced' | 'blocked' | null;
+}
+/** v1.82 (§PNL.3) — `POST /admin/manual-refunds/withdrawal-delivered`. El monto LO CAPTURA el dueño. */
+export interface CreateWithdrawalDeliveredRefundRequest {
+  shipmentItemId: string;
+  reason: ShippedRefundReason;
+  /** 3–500 tras `trim()`. */
+  note: string;
+  amountCents: number;
+  /** Obligatorio `true` si `amountCents > 2·R` (el diálogo de re-escribir). */
+  confirmAboveReference?: boolean;
+}
+export interface CreateWithdrawalDeliveredRefundResponse {
+  manualRefund: ManualRefundDTO;
+}
+
 export interface ManualRefundsFilters {
   status?: ManualRefundStatus;
   q?: string;
@@ -2678,7 +2751,16 @@ export interface AdminOrderDetailDTO {
   manualRefundedCents?: number; // Σ SPEI `paid` (solo super_admin)
   refunds?: PaymentRefundDTO[];
   manualRefunds?: ManualRefundDTO[]; // solo super_admin
-  items?: (Omit<OrderItemDTO, 'refund'> & { refund?: PaymentRefundDTO | null })[];
+  items?: (Omit<OrderItemDTO, 'refund'> & {
+    refund?: PaymentRefundDTO | null;
+    /**
+     * v1.82.1 (§PNL.10, E-6, ratificado): la llave de `refund-delivered` (`AdminOrderItemDTO.orderItemId: string`).
+     * Opcional aquí solo por tolerancia a un backend anterior; sin ella no hay botón.
+     */
+    orderItemId?: string | null;
+    /** v1.82 (§PNL.2): ver `DeliveredRefundDTO`. Ausente ⇒ servidor anterior ⇒ nada que ofrecer. */
+    deliveredRefund?: DeliveredRefundDTO | null;
+  })[];
   shipments?: {
     id: string;
     status: ShipmentStatus;
@@ -2702,7 +2784,14 @@ export interface CustomerReplacementInfo {
 /** `items[].refund` del cliente: solo filas `submitted|succeeded`. */
 export interface CustomerItemRefundInfo {
   amountCents: number;
-  reason: MissingReason;
+  /**
+   * v1.82 (§PNL.2 «Lecturas que cambian»): de dónde salió el reembolso de ESTA carta. Ausente ⇒
+   * backend anterior ⇒ se lee como `missing_at_prep`. La línea del cliente se elige por `kind`,
+   * ⛔ nunca por el valor de `reason` (DESIGN_SYSTEM §60.2 a).
+   */
+  kind?: 'missing_at_prep' | 'after_delivery';
+  /** `MissingReason` con `missing_at_prep`; `ShippedRefundReason` con `after_delivery`. */
+  reason: MissingReason | ShippedRefundReason;
   refundedAt: string;
 }
 export interface CustomerOrderShipmentDTO {
@@ -4476,6 +4565,21 @@ export interface PendingPublishRowDTO {
   createdAt: string;
 }
 
+/** v1.82 (§PNL.4) — `POST /admin/buylist/:id/reject-items`. `itemIds` 1–200 sin repetidos; `reason` 3–500 tras `trim()`. */
+export interface RejectBuylistItemsRequest {
+  itemIds: string[];
+  reason: string;
+}
+/**
+ * v1.82.1 (§PNL.10.1, E-1) — `200` de `reject-items`: una carta por id, EN SU ORDEN (la proyección de la decisión por
+ * carta) y `requestClosed` ⇔ ESTA llamada cerró la solicitud. El total aprobado y el estado de la solicitud no viajan:
+ * el front recarga el detalle.
+ */
+export interface RejectBuylistItemsResponse {
+  items: SellItemDTO[];
+  requestClosed: boolean;
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;
@@ -4527,6 +4631,18 @@ export interface AdminBuylistDTO {
    * vendedor le anticiparía un depósito que aún puede no ocurrir.
    */
   isPayable: boolean;
+  /**
+   * v1.82.3 ([§PNL.12](docs/API_CONTRACT.md)) — **DERIVADO SERVER-SIDE, ADMIN-ONLY.** ¿Ofrece M5 «Rechazar solicitud»?
+   * ```
+   * Línea que CUENTA  :=  offerDecision IS NULL  OR  offerDecision <> 'skip'
+   * isRejectable      :=  isTerminal === false  ∧  ∃ ≥1 línea que cuenta  ∧  toda línea que cuenta está `rechazada`
+   * ```
+   * Existe para borrar `allItemsRejected` de `M5View` — la copia local de la regla **sin el filtro `skip`**, que dejaba
+   * atorada en `verificacion` una solicitud con las `buy` rechazadas y una `skip` viva. **El cliente no recompone la
+   * regla**: lee `=== true` (campo ausente ⇒ sin botón, fail-closed como `isTerminal === false`).
+   * ⛔ Jamás en el DTO del vendedor.
+   */
+  isRejectable: boolean;
   /**
    * v1.61 (§M5-V.5, `BL-45`) — **ADITIVO, DERIVADO SERVER-SIDE, ADMIN-ONLY.** Cuántas líneas
    * **`offerDecision='buy'`** siguen **sin veredicto** (`itemStatus ∉ {aprobada, rechazada,
@@ -4672,24 +4788,18 @@ export interface DisputeDTO {
   };
 }
 
-// ---- Disputas del CLIENTE (contrato §7) ----
-// WS-F F6. Forma CLIENTE (distinta del DisputeDTO admin): incluye `deadlineAt` (ventana de 7 días)
-// y `evidenceContact` (correo de soporte donde el cliente envía la evidencia, v1.2). El `type` lo
-// deriva server-side del productType del ítem (el cliente NO lo envía).
-export interface CreateDisputeInput {
-  inventoryItemId: string;
-  description: string;
+// ---- Soporte «Escríbenos» (contrato v1.82 §PNL.1) ----
+/** `GET /support/contact` — público, `Cache-Control: public, max-age=300`. `contact` no vacío. */
+export interface SupportContactResponse {
+  contact: string;
+}
+/** `410 DISPUTES_DISCONTINUED` de `POST /disputes` (v1.82 PNL-1): `details.supportContact`. */
+export interface DisputesDiscontinuedDetails {
+  supportContact: string;
 }
 
-// Respuesta 201 de POST /disputes. `evidenceContact` alimenta el componente DisputeEvidenceContact.
-export interface CreateDisputeResponse {
-  disputeId: string;
-  status: DisputeStatus;
-  type: DisputeType;
-  deadlineAt: string;
-  evidenceContact: string;
-}
-
+// ---- Disputas del CLIENTE (contrato §7 — EN TRANSICIÓN, PNL-1) ----
+// `POST /disputes` ya no crea (410); `GET /disputes` sigue para leer las que existan.
 // Fila de GET /disputes / GET /disputes/:id (cliente). El listado crudo del backend NO trae
 // `evidenceContact` (solo la creación lo devuelve), por eso es opcional aquí.
 export interface ClientDisputeDTO {
@@ -5724,6 +5834,20 @@ export interface SettingsDTO {
   buylistCapPerMonthCents: number;
   ineThresholdCents: number;
   repoCapPerCardCents: number;
+  /*
+   * v1.51 (M-46) · §E2E-ADM.3 (F-9): los DIEZ diales del ciclo de adquisición del buylist (§M10, tabla «DIEZ diales»).
+   * Opcionales por tolerancia a un backend anterior; la pantalla (M10 «Ciclo de venta») los pinta si vienen.
+   */
+  buylistOfferIssueDeadlineBusinessDays?: number;
+  buylistOfferAcceptDeadlineBusinessDays?: number;
+  buylistShipDeadlineBusinessDays?: number;
+  buylistMinimumRequestCents?: number;
+  buylistShippingFeeCents?: number;
+  buylistMinimumOfferNetCents?: number;
+  buylistOperatorOfferCapCents?: number;
+  buylistShipmentConfirmAlertBusinessDays?: number;
+  buylistOfferReissueAlertCount?: number;
+  buylistVariantPositionCap?: number;
   fxBufferPct: number;
   fxManualOverrideRate?: number;
   pricingProviderRaw: string;

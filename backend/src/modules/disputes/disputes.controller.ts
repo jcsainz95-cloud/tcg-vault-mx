@@ -6,12 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { DisputesService } from './disputes.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
-
-class CreateDisputeDto {
-  @IsString() inventoryItemId!: string;
-  @IsString() description!: string;
-  // v1.2: SIN claimPhotoUploadKeys — la evidencia se envía por correo a soporte (evidenceContact).
-}
+import { supportContact } from '../mail/support-contact';
 
 class ResolveDisputeDto {
   @IsIn(['repurchase', 'reject']) resolution!: 'repurchase' | 'reject';
@@ -23,10 +18,28 @@ class ResolveDisputeDto {
 export class DisputesController {
   constructor(private readonly disputes: DisputesService) {}
 
+  /**
+   * v1.82 · **PNL-1** (`API_CONTRACT §PNL.1`, `HECHOS.md:44`) — **las disputas salieron de la tienda.**
+   * Tras la autenticación (sin sesión ⇒ `401` de `JwtAuthGuard`, como siempre) responde **SIEMPRE**
+   * `410 DISPUTES_DISCONTINUED { supportContact }`.
+   *
+   * ⛔ **Sin `@Body()`, y es la mitad del candado.** El `ValidationPipe` global corre sobre los
+   * parámetros decorados ANTES del handler: con el DTO de antes, un cuerpo vacío daba `400` y uno bien
+   * formado `403`/`422` según la pieza — **un oráculo de qué piezas existen y de quién son**. Sin
+   * parámetro no hay nada que validar ni que leer: la respuesta es la misma para cualquier cuerpo
+   * (DSC-1/DSC-2). Cero filas `Dispute`, cero bitácora, cero correo.
+   *
+   * La ruta **se conserva** (no `404`) para que un frontend viejo en caché reciba un código que sabe
+   * pintar. Las lecturas de abajo y M8 siguen **en transición** para cerrar las que existan (§PNL.1).
+   */
   @Post()
-  @HttpCode(201)
-  create(@CurrentUser('id') userId: string, @Body() dto: CreateDisputeDto) {
-    return this.disputes.create(userId, dto.inventoryItemId, dto.description);
+  create(): never {
+    throw new BusinessException(
+      'DISPUTES_DISCONTINUED',
+      HttpStatus.GONE,
+      'Disputes are no longer opened from the store; write to support instead',
+      { supportContact: supportContact() },
+    );
   }
 
   @Get()

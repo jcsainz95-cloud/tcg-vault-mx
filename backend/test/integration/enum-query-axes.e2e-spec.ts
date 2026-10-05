@@ -1510,7 +1510,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `YYYY-MM-DD` (formato, no tokens), como `?date=` de «Pedidos a preparar» (`picking-list::date`).
     // 💰 **51 → 52 (D2f, §19.22.3; ⚠️ PENDIENTE de ratificar por el arquitecto, como G6):**
     // `GET /admin/shipping/catalogs/consignment-notes::description` — texto libre 3..60 que viaja tal cual a Skydropx (no tokens).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(52);
+    // ⭐ **52 → 54 (v1.82 §PNL.3; era «44 → 46» en la rama del panel, renumerado en el merge panel+skydropx):** los
+    // dos ejes de `GET /admin/manual-refunds/withdrawal-delivered/preview` (id de línea y entero), declarados por el contrato en §PNL.3; ⚠️ ratificación del arquitecto pendiente (BACKEND_NOTES §58.6).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(54);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

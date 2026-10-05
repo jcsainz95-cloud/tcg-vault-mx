@@ -238,6 +238,8 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
           card: {},
         }),
         update: jest.fn(),
+        // v1.82.1 · §PNL.10.3: la escritura de la carta es `updateMany` con CAS (`aprobada` ∧ sin pieza).
+        updateMany: jest.fn(async () => ({ count: 1 })),
       },
       nextFolio: jest.fn(async () => 'INV-000001'),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),

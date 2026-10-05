@@ -219,6 +219,12 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // {field:'description'}` sin `allowed`) que viaja tal cual a `GET /shipments/consignment_notes?description=` de Skydropx: ⛔ no
   // es un dominio de tokens. `admin-shipping.controller.ts` → `shipping-config.ts` (`parseConsignmentDescription`).
   'GET /admin/shipping/catalogs/consignment-notes::description',
+
+  // 💰 v1.82 (§PNL.3, `API_CONTRACT` «Previsualización — GET …/withdrawal-delivered/preview?shipmentItemId=…&amountCents=A»):
+  // un id de línea (`shipmentItemId`, abierto) y el MISMO entero que la vista previa del caso — sin enum detrás. ⚠️ El tope
+  // sube 44 → 46: pendiente de que el arquitecto lo ratifique (BACKEND_NOTES §58.6).
+  'GET /admin/manual-refunds/withdrawal-delivered/preview::shipmentItemId',
+  'GET /admin/manual-refunds/withdrawal-delivered/preview::amountCents',
 ];
 
 /**

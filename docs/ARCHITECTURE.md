@@ -146,6 +146,7 @@
 > | **v1.80.9** | Feature (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md` «Usuarios de back-office SIN correo…» (a)(b)(c) + default del orquestador; `PROJECT §U`, criterios 256–270, P-STF-1…8 con su default). `User.email` opcional; `User.username` (`@unique`, canónico en minúsculas) y `User.lockNoticeAt`; **5 CHECK** (email XOR usuario; cliente ⇒ correo; forma del usuario; sin correo ⇒ no verificado; aviso solo sin correo). **Mismo `POST /auth/login`, misma llave `email`** = identificador (`@` ⇒ correo, si no ⇒ usuario); misma clave C7 para correos; cero enumeración. Alta de staff **sin** correo (staff con correo ⇒ `422`), `409 USERNAME_TAKEN`, `mustChangePassword` siempre; aviso de candado en el panel; `lockedUntil` en Usuarios leído del almacén; `403 ACCOUNT_WITHOUT_EMAIL`; denegación auditada a `vault_operator`. **Migración `M-STF` (número NO asignado).** Stream posterior a `precios-s5`. Norma: `API_CONTRACT` rev v1.80.9, §M6-U | §4.58, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2` | **Sí** (backend + frontend + textos ux-ui) · 🔒 seguridad |
 > | **v1.80.9.1** | Errata (2026-10-04, rama `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`, ⛔ sha NO MEDIDO por el arquitecto; cierra C-1 del techlead; origen `BACKEND_NOTES §55` (errata de 55.2.1 en §56.3), `DESIGN_SYSTEM §42.10 A-1`, decisión del dueño sobre TD-4). Aceptados tal cual: **D-1** (rama `@` = `isEmail` de hoy), **D-2** (anonimización anula también `lockNoticeAt`), **D-3** (`M-63`, `20261005120000_m63_staff_username`), **D-5** (`rule:'customer_without_username'`, `field` en todo `422` del alta). **Cambian:** **D-4** el resiliente degradado/Redis sin contestar ⇒ `peekLockMs` lanza `LoginAttemptStoreUnavailableError` sin `markDown` ⇒ `lockState:'unavailable'`; **A-1** `lockState` en la ficha; **TD-9** sin servicio ⇒ lanza, y solo la clase del almacén ⇒ `'unavailable'`; **TD-4** reset desde Usuarios a cualquier rol (normado + STF-36), script con `ADMIN_USERNAME` y `emailVerified` solo con correo; ⛔ no se prohíbe el súper-admin sin correo. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` §M6-U.11 | §4.58.5, §4.58.9, §11 `M-63` | **Sí** (backend; frontend: `lockState` de la ficha) · 🔒 seguridad |
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
+> | **v1.82** | 💰 Stream «Arreglos del panel» (2026-10-05, rama `claude/arreglos-panel` desde `production` `3e09685a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:44`, `:45`, REGLA GENERAL de `/home/user/tcg-skyd/HECHOS.md:59`; `PROJECT §V`; `SECURITY_NOTES.md:77`). **PNL-1** disputas fuera: `POST /disputes` ⇒ `410`, M8 en transición, `GET /support/contact` con **un** resolutor del buzón, «Escríbenos» en pedido directo / retiro / invitado entregados — **sustituye F-2 de v1.80.10**. **PNL-2** reembolso de UNA carta de un directo entregado (`item_delivered`, fórmula `item_missing`, súper-admin, motivo cerrado; cubre al invitado ⇒ cierra `D-DSP-1`). **PNL-3** retiro entregado ⇒ SPEI capturado (`ManualRefund` `withdrawal_delivered`, sin caso). **PNL-4** rechazar varias cartas de una solicitud con **un** correo; «Declinar» en la mesa; `receive → verify` en un clic. **PNL-5** F-4/F-7/F-8/F-9/F-11 de v1.80.10 vigentes. **PNL-6** `R69-1`. **Migración `M-70`** (número elegido para no chocar con `M-64…M-68` de Skydropx). Norma: `API_CONTRACT` rev v1.82, §PNL | §4.61, §9, §11 `M-70` | **Sí** (backend 💰 `orders`/`payments`/`disputes`/`buylist`; frontend tienda + M3/M5/M10/M6/reembolsos; ux-ui textos) · 🔒 seguridad |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 > | **v1.81 / v1.81.1 ⟨skydropx⟩** | Frente `claude/skydropx-envios` (2026-09-29, base `8fd637fb`), fusionado en v1.80.11: diseño de envíos con Skydropx y cierres de la revisión de seguridad. Su cabecera va abajo, verbatim | §4.60, §11 `M-SDX-C/D` | ver su tabla |
 > | **v1.80.11** | Consolidación + fase D con la API medida (arriba) | §4.60 (l) | **Sí** |
@@ -27376,6 +27377,151 @@ anclada a orden y línea, `userId` opcional) ⇒ no entra en una errata. `D-DSP-
 - **Un endpoint nuevo `POST /orders/:id/disputes`:** dos puertas para la misma fila; la regla de ventana, tipo y `NOT_RAW`
   se duplicaría. La vía B entra por la misma puerta.
 
+> ⛔ **v1.82 — §4.59 entera queda SUSTITUIDA por §4.61.1** (`HECHOS.md:44`: el dueño saca las disputas de la tienda). La vía
+> B no se construye. Lo de arriba queda como registro de por qué el derecho a reclamar no es titularidad, que §4.61.2 reusa.
+
+### 4.61 ARREGLOS DEL PANEL — disputas fuera, la carta que llegó mal, la solicitud que llegó mal (v1.82, 2026-10-05, NORMATIVO, 💰 **DINERO**)
+
+Norma: `API_CONTRACT §PNL` (rev v1.82). ⚠️ **§4.60 la usa la rama `claude/skydropx-d`** (Skydropx); este stream salta a
+§4.61 para no chocar al fusionar.
+
+#### 4.61.1 Disputas fuera: por qué `410` y un solo buzón
+- **Cerrar la puerta, no solo el botón** (`PROJECT §V.5`, criterio 272). `410 GONE` con código propio dice «esto existió
+  y ya no»; un `404` haría que un frontend viejo en caché pintara «no encontrado». Se responde **antes** de leer nada: el
+  `403`/`422` de hoy según la pieza sería un oráculo de qué piezas existen.
+- **Transición, no borrado:** las lecturas y M8 siguen hasta que no quede ninguna abierta (default P-DSP-1). Borrar M8 con
+  disputas vivas dejaría dinero sin resolver y sin pantalla.
+- **Un resolutor del buzón.** Hoy hay dos cascadas que solo coinciden por casualidad (`API_CONTRACT §PNL.0`). «Escríbenos» en
+  cuatro pantallas multiplica el daño de que diverjan. Un endpoint público y cacheable (`GET /support/contact`) en vez de
+  un campo en cada DTO: una sola fuente, sirve también a pantallas sin DTO (confirmación de compra) y cierra el MOCK del
+  frontend.
+
+#### 4.61.2 La carta que llegó mal (envío directo): un `kind` nuevo del libro, no una disputa
+- **El libro ya sabe hacerlo.** `PaymentRefund` tiene llave única por carta (`orderItemId @unique`), importe congelado,
+  ciclo con Stripe, reintento, aviso al cliente y remanente para el total. Una carta reembolsada tras la entrega es la
+  **misma** forma que una que faltó al preparar; cambia **cuándo** y **por qué**. ⇒ `kind = item_delivered` + motivo
+  `ShippedRefundReason` (el de `M-62`), y la fórmula de `item_missing` (D-1 del dueño).
+- **Por qué `kind` nuevo y no reusar `item_missing`:** `item_missing` significa «la pieza no salió» y su CHECK exige
+  `missingReason`; los informes y el tope del operador la leen así. Mezclar «no salió» con «salió y llegó mal» rompe M7
+  (inventario perdido vs. devolución de venta) y el motivo.
+- **Sin inventario:** la carta está con el cliente (`HECHOS.md:37` (b)). **Sin cambiar la orden:** sigue `settled`; el
+  total posterior cobra el remanente (la suma de reembolsos nunca excede lo cobrado, §M4-SHIP.4).
+- **El invitado queda cubierto** (no necesita `Dispute.userId`): cierra `D-DSP-1` sin schema de disputas.
+
+#### 4.61.3 El retiro que llegó mal: `ManualRefund` sin caso
+- El dueño eligió SPEI (`HECHOS.md:44` (b)) y la cubeta SPEI ya existe con pagar/cancelar/re-emitir, aviso AV-14 y
+  contador. Lo único que la ataba a «Por reponer» es `replacementCaseId NOT NULL`. Se relaja con CHECK por `source` (cada
+  `source` sigue con su forma inexpresable a medias).
+- **Alternativa descartada: abrir un `ReplacementCase` después de la entrega.** Un caso significa «le debemos una carta» y
+  mueve la pieza a `lost/damaged`, corre 7 días de plazo y puede reponerse; aquí el cliente **tiene** la carta. Forzarlo
+  ensuciaría el apartado y su tablero.
+- **El monto lo captura el dueño** (`HECHOS.md:31` (b)) con las **mismas** referencias y topes de dedo de §M4-SHIP.15.5
+  (`HECHOS.md:32`); ⛔ un segundo juego de topes sería dos reglas para el mismo error humano.
+
+#### 4.61.4 La solicitud de venta que llegó mal
+- `aceptada` no se cancela (`HECHOS.md:45`). El rechazo por carta en `verificacion` **ya existía**; lo que el dueño no
+  encontró fue el camino (la mesa es de solo lectura fuera de `cotizada`, `BuylistDecisionDesk.tsx:277`) y lo que le
+  sobraba fueron clics y correos (uno por carta). ⇒ un verbo **atómico** de varias cartas con **un** correo que dice
+  cuáles y por qué; «Declinar» dentro de la mesa; `receive → verify` encadenados (REGLA GENERAL: lo automático primero, el
+  botón de hoy queda de respaldo).
+- Por qué atómico: un rechazo a medias le mandaría al vendedor un correo con la mitad de las cartas.
+
+#### 4.61.5 Piezas, roles, ficheros y dinero
+
+| Pieza | Rol | Ficheros (este árbol) | 💰 |
+|---|---|---|---|
+| PNL-1 back | backend (fuerte: toca `disputes` 💰 y la superficie de cliente) | `backend/src/modules/disputes/disputes.service.ts`, `disputes.controller` (ruta `POST`), `disputes.constants.ts`; nuevo `backend/src/modules/mail/support-contact.ts`; nuevo `backend/src/modules/orders/support-contact.controller.ts`; `orders/guest-checkout.constants.ts:56-63`; `buylist/buylist-mail.templates.ts:45-51`; `buylist/mail-shell.ts:617`; `common/error-codes.ts` | Indirecto (cierra una vía de money-out) |
+| PNL-1 front | frontend + ux-ui | `(storefront)/vault/WithdrawalsList.tsx`, `(storefront)/orders/[orderId]/OrderDetailView.tsx`, `(storefront)/shipments/…`, seguimiento del invitado (`PublicOrderTracking.tsx`), `checkout/support-contact.ts`, `lib/api.ts` (zona compartida), `messages/{es,en}.json` | No |
+| PNL-2 | backend **fuerte** + frontend + ux-ui | `backend/src/modules/orders/admin-orders.controller.ts` (ruta), nuevo `orders/item-delivered-refund.service.ts`, `orders/dto/orders.dto.ts`, `payments/refunds/refund-ledger.service.ts` (envío a Stripe, lectores de `kind`), `common/money.ts` (`itemRefundComponents`, un cuerpo), `prisma/schema.prisma` + `M-70`; frontend `(admin)/admin/m3/[orderId]/M3OrderDetailView.tsx`, `types/contract.ts` | **Sí** |
+| PNL-3 | backend **fuerte** + frontend + ux-ui | `payments/refunds/admin-manual-refunds.controller.ts`, `payments/refunds/manual-refund.service.ts`, `vault/replacement-case.service.ts` (extraer referencias/topes a un cuerpo común), `schema.prisma` + `M-70`; frontend pestaña de reembolsos (cubeta SPEI) | **Sí** |
+| PNL-4 | backend (fuerte: `buylist`) + frontend + ux-ui | `buylist/admin-buylist.controller.ts`, `buylist/buylist.service.ts` (extraer `rejectItemInTx`), `buylist/buylist-mail.templates.ts` (plantilla nueva); frontend `(admin)/admin/m5/M5View.tsx`, `m5/BuylistDecisionDesk.tsx` | No (adyacente: cambia lo que se paga al vendedor) |
+| PNL-5 | frontend (F-4, F-8, F-9, F-11) + backend (F-7) + ux-ui | `m5/M5View.tsx`, `m10/M10View.tsx`, `m3/M3View.tsx`, `(admin)/admin/m6/…`, `types/contract.ts`, `lib/error-audience.ts`; backend `admin/admin.service.ts:669-755` (alta) | No |
+| PNL-6 | backend | `orders/dto/orders.dto.ts:23` | Adyacente |
+
+#### 4.61.6 Zonas que este stream comparte con `claude/skydropx-d` (medido el 2026-10-05 con `Grep`/`Glob` en `/home/user/tcg-skyd`, ⛔ sin `git diff`: sin Bash)
+
+| Zona | Qué hace Skydropx (cita en `/home/user/tcg-skyd`) | Qué hace este stream | Riesgo | Orden propuesto |
+|---|---|---|---|---|
+| `backend/prisma/` (schema + migraciones) | `M-64…M-68` ya en el árbol (`migrations/20261006120000_m64_sdx_c_address` … `20261009120000_m68_gas_1_spend_control`); `M-68` gana `User.isOwner` y tablas de avisos (`API_CONTRACT.md:47`, `:55`) | `M-70` sobre `PaymentRefund`/`ManualRefund` (tablas que Skydropx no toca) | Bajo en SQL; **alto en el fichero `schema.prisma`** (un solo fichero) | Skydropx fusiona primero; esta rama rebasa y reescribe `M-70` encima |
+| `backend/src/modules/admin/` | D2g: `403 OWNER_ACCOUNT_PROTECTED` en status/reset/delete y aviso AG-22 al **crear** personal (`API_CONTRACT.md:27809-27831`); ya hay ~8 líneas nuevas antes de `createUser` (`admin.service.ts:677` allá vs `:669` aquí) | F-7: celular obligatorio en `createUser` (`admin.service.ts:752-755` aquí) | **Medio**: mismo método `createUser` | Serializar: D2g primero (es condición para encender compras), F-7 después |
+| `backend/src/modules/settings/` + `(admin)/admin/m10/` | D2g: `SettingsController` a `@MoneyOut()` de clase y `403 OWNER_ONLY_SETTING` (`settings.constants.ts:342`, `API_CONTRACT.md:27796-27808`); diales de §Z en M10 | F-8/F-9: solo **frontend** de M10 (`M10View.tsx`) y `types/contract.ts` | **Medio** en `M10View.tsx`/`contract.ts`; backend de settings no se toca aquí | F-9/F-8 después de D2g, o D2g sin pantalla de M10 primero |
+| `backend/src/modules/users/` | D2g: `GET /users/me` + `isOwner` (`users.service.ts:179-197`, cita del contrato de Skydropx `API_CONTRACT.md:27847-27849`; no leído en código) | **Nada** | Ninguno | Libre |
+| `backend/src/modules/shipments/` | D2c/D2d: compra, cancelación, rastreo (`label-purchase.service.ts`, `label-recovery.service.ts`, `admin-shipments.controller.ts:191-195`) | **Nada en backend** (PNL-3 vive en `payments/refunds`; solo **lee** envíos) | Ninguno en código | Libre |
+| `backend/src/modules/orders/` y `payments/` | Cancelar la guía tras el commit de un reembolso total (`orders/order-refund.service.ts:211`, `payments/refunds/refund-ledger.service.ts:342`, `payments/payments.service.ts:743`); `folio` en `order-refund.service.ts:54,86` | PNL-2 (verbo y servicio nuevos, lectores de `PaymentRefundKind` en `refund-ledger.service.ts`), PNL-6 (`orders.dto.ts`) | **Medio** en `refund-ledger.service.ts` | PNL-2 en fichero nuevo; tocar `refund-ledger.service.ts` solo para el `switch` de `kind`, después de que Skydropx fusione |
+| Tienda: «Retiros» y detalle del pedido | `WithdrawalsList.tsx`: 5 coincidencias de `folio\|trackingUrl…` allá vs 4 aquí (cambió algo; qué, NO MEDIDO) | PNL-1 quita el botón y añade «Escríbenos» | **Medio** en `WithdrawalsList.tsx` | Frontend de PNL-1 después de la fusión de Skydropx, o coordinado línea a línea |
+| `frontend/src/lib/api.ts`, `types/contract.ts`, `messages/*.json` | tipos y textos de envíos y avisos | tipos y textos de todas las piezas | **Alto** (los tres los tocan ambos) | Zona compartida: un stream a la vez (CLAUDE.md); el que fusione segundo rebasa |
+| M3 (Ventas) | Sin cambios medidos (`(admin)/admin/m3`: mismo conteo de coincidencias en los dos árboles, 42/42) | PNL-2 | Bajo | Libre |
+| M5 / `buylist` | Sin cambios de Skydropx medidos (mismo conteo en `backend/src/modules/buylist`, 4/4) | PNL-4, F-4 | Bajo | Libre |
+| Disputas | — | PNL-1 | Ninguno | Libre |
+
+**Lectura para el orquestador:** lo que **no** choca y puede ir ya: PNL-4 (buylist + M5), PNL-2 backend en fichero nuevo,
+PNL-6, PNL-1 backend, F-4 y F-11. Lo que conviene **después** de que D2g fusione: F-7 (`createUser`), F-8/F-9 (M10), y
+`M-70` en `schema.prisma` (o se escribe ya y se rebasa: el SQL no choca, el fichero sí).
+
+#### 4.61.7 Errata v1.82.1 — por qué (2026-10-05; norma en `API_CONTRACT §PNL.10`)
+
+- **Una carta que ya es inventario no se decide otra vez (E-2, 💰).** La decisión por carta nació antes que la
+  conversión y nunca aprendió que hay estados después de `aprobada`. El efecto medido (backend, 1/1): rechazar una carta
+  convertida la saca de lo que se le paga al vendedor mientras la pieza sigue a la venta. La regla es de **estado de la
+  carta**, no del verbo: por eso cubre `approve`/`adjust` (que la sacarían de `convertida_inventario` y, fuera del ciclo,
+  reescribirían el precio pagado con otro distinto del costo congelado de la pieza: dos fuentes para un hecho) y vive en
+  **un** predicado (`ITEM_FINAL_STATUSES`) del que se compone la lista de `reject-items`.
+- **La conversión escribía a ciegas (E-3, 💰, NO MEDIDO).** Revisar E-2 obligó a mirar la otra puerta: la conversión
+  comprueba `aprobada` en una lectura y escribe sin estado en el `where`. Es la misma clase que BL-14/BL-27/BRJ-8 — un `if`
+  sobre una lectura previa no es una guarda — y la misma corrección: CAS en el `where`, `count === 1`, dentro de la tx.
+  El índice único SEC-A3 cubre conversión contra conversión, no conversión contra rechazo.
+- **Por qué el `PATCH {reject}` no gana CAS por estado leído y `approve` sí.** Rechazar es la dirección segura (saca dinero
+  del total, no mete mercancía); su único estado prohibido es el final, que ya va en el `where`. `approve` decide la
+  limpieza de los campos de rechazo con la lectura, así que **necesita** la lectura vigente.
+- **M8 se retira de la pantalla pero no de la API (E-9).** La producción de hoy todavía crea disputas hasta el despliegue;
+  una medición previa no es final y la posterior sí (sin escritor, el número solo baja). Retirar la API antes de la
+  medición final dejaría una disputa nacida en la ventana sin salida. *Lo que se mide en la ventana se prepara antes*
+  (CLAUDE.md «Cómo se publica»): las dos consultas van escritas en §PNL.10.
+- **IVA_EXCLUSIVE en el SPEI del retiro (E-7):** un cuerpo de fórmulas para una sola convención; lo que no se puede
+  desglosar como venta se registra como compensación, sin bloquear el remedio que eligió el dueño.
+
+| Pieza v1.82.1 | Rol | Ficheros (este árbol, leídos 2026-10-05) | 💰 |
+|---|---|---|---|
+| E-2 | backend **fuerte** | `backend/src/modules/buylist/buylist-reject-items.ts:60-82` (predicado), `buylist/buylist.service.ts:6673-6896` (`itemDecision`), `:7035-7056` (`rejectItemWrite`) | **Sí** |
+| E-3 | backend **fuerte** | `buylist/buylist.service.ts:7418-7508` (`convertToInventory`) | **Sí** |
+| E-6/E-7/E-8 | backend (prueba WDR-11) + frontend (tipo) | `backend/test/integration/pnl-delivered-refunds.e2e-spec.ts`; `frontend/src/types/contract.ts` | E-7 sí |
+| E-2 front, E-9 | frontend + ux-ui | `(admin)/admin/m5/M5View.tsx`, `lib/error-audience.ts`; `components/layout/AdminSidebar.tsx:66`, `admin/AdminDashboard.tsx:128-136`, `admin/m8/*`, `admin/m6/M6View.tsx:907-908, 986-988`, `AdminPageTitles.test.tsx`, `messages/{es,en}.json` | No |
+
+#### 4.61.8 Errata v1.82.2 — por qué (2026-10-05; norma en `API_CONTRACT §PNL.11`)
+
+- **A-1 y A-3 se difieren, no se rechazan.** Los dos piden un campo en DTOs de `shipments`, la zona que `claude/skydropx-d`
+  reescribe (§4.61.6). Abrir esa zona para visibilidad (no dinero) el día que se quiere salir en vivo obliga a serializar
+  con Skydropx por un beneficio que el correo AV-14 (A-1) y el visor de la imagen pequeña (A-3) ya cubren. Quedan como
+  deuda `D-PNL-A1`/`D-PNL-A3` con diseño posterior a la fusión de Skydropx.
+- **A-2 ya estaba resuelto por el contrato:** `kind` es el discriminador de la fila de M4 desde v1.21.2. Que ux-ui lo
+  preguntara indica que el nombre `guest_direct_ship` engaña (también cubre al comprador con cuenta); se deja escrito en
+  §PNL.11, ⛔ sin renombrar (rompería el eje `?kind=` de clase R, §0-Q).
+- **F-26 en commit propio:** la medición (b) de §PNL.10.7 puede obligar a revertir solo la retirada de M8; si va mezclada
+  con FE-BRJ-4 u otro texto, el revert arrastra lo que no debe.
+
+#### 4.61.9 Errata v1.82.3 — por qué (2026-10-05; norma en `API_CONTRACT §PNL.12`)
+
+- **El defecto es de agregación, no de pantalla.** QA (IMPORTANTE-1 sobre `8fcdfa7c`, medido por QA) vio el síntoma en M5,
+  pero la causa es que la regla de cierre de v1.24 («todo ítem `rechazada`») nació antes del ciclo de oferta y nunca aprendió
+  que existen líneas que no compramos. §M5-V.0 ya resolvió lo mismo para pagar («las `skip` NO cuentan»); el cierre no.
+  Arreglarlo solo en el frontend era imposible (el servidor contesta `422`) o dañino (rechazar la `skip` manda un correo falso).
+- **Salida elegida: las `skip` no cuentan para cerrar.** Es la mínima: una regla, cuatro sitios del servidor que ya existen,
+  sin schema ni migración, y la línea `skip` no se escribe. Alternativas descartadas: (i) un «cerrar sin comprar» nuevo en
+  `verificacion` ⇒ endpoint y estado de UI nuevos para lo que la regla de hoy ya hace si cuenta bien; (ii) que «Rechazar
+  solicitud» rechace en cascada las `skip` ⇒ les ancla los plazos de §H y decide `D-BL-SKIP-1` por la puerta de atrás.
+- **El frontend pierde su copia de la regla.** `allItemsRejected` (`M5View.tsx:1169-1170`) era una copia sin el filtro `skip`:
+  la regla vuelve al servidor como `isRejectable`, igual que `isTerminal`/`isPayable` borraron sus copias (§4.39c).
+- **Trampa del `NULL`:** el filtro se escribe con `OR` explícito (`admin.service.ts:2066-2071` ya lo documenta); el `not` de
+  Prisma sobre la columna nullable borraría toda línea pre-ciclo del conteo y cerraría solicitudes con cartas vivas (SKP-5).
+- **Efecto en `D-BL-SKIP-1`:** ninguno sobre la carta (sigue sin registro, como hoy). Sí uno de diseño: la solicitud puede
+  estar cerrada cuando el dueño decida qué se hace con esa carta; el verbo futuro no puede exigir solicitud viva.
+
+| Pieza v1.82.3 | Rol | Ficheros (este árbol, leídos 2026-10-05) | 💰 |
+|---|---|---|---|
+| Regla C (a, b, c, d) + SKP-1…6 | backend **fuerte** (`buylist`) | `backend/src/modules/buylist/buylist.service.ts:7062-7079`, `:7293-7340`, `buylist-reject.constants.ts:109-135`, proyección admin compartida (donde vive `isTerminal`) | No mueve dinero; toca el cierre de una solicitud de compra |
+| `isRejectable` en el tipo + predicado + FE-SKP-1/2 | frontend | `frontend/src/app/[locale]/(admin)/admin/m5/M5View.tsx:1165-1182`, `frontend/src/types/contract.ts` | No |
+| Texto de `rejectRequestConsequence` (propuesta en §PNL.12.4) | ux-ui (ratifica) → frontend | `docs/DESIGN_SYSTEM.md §60`, `frontend/messages/{es,en}.json:2372` | No; no bloquea |
+
 ---
 
 ### 4.60 ENVÍOS CON SKYDROPX — puerto/adaptador, hitos sin estado nuevo, consulta periódica, la dirección primero, y el costo real al P&L (v1.81, `M-SDX-C`/`M-SDX-D`, NORMATIVO, 💰 **DINERO + PII + TERCERO**)
@@ -28661,6 +28807,23 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **v1.82 — `D-PNL-1` (de `PROJECT`, no de código; para product-owner; medida 2026-10-05 por lectura):** `PROJECT §V`
+> (borrador del 2026-10-04) quedó **atrás de `HECHOS.md:44`**: §V.1 pone por defecto que el **retiro** entregado **no**
+> muestra «Escríbenos» (P-DSP-4) y §V.2/§V.3 que la compensación es **solo total** (P-DSP-3, `PROJECT.md:7589-7605`,
+> `:15337-15344`). El dueño respondió lo contrario el mismo día: (a) **reembolsar solo la carta**; (b) el retiro entregado
+> **sí** muestra «Escríbenos» y se compensa por SPEI. Este contrato sigue a `HECHOS.md` (precedente: v1.80.9 con §U.3).
+> product-owner reescribe §V.1–§V.3, cierra P-DSP-3/P-DSP-4 y numera los criterios nuevos (el último de §V es el 274).
+>
+> **v1.82 — `D-PNL-2` (código, backend, se cierra con PNL-1; medida 2026-10-05):** el buzón de soporte se resuelve con
+> **dos** cascadas distintas: `disputes.constants.ts:17-18` y `orders/guest-checkout.constants.ts:62` (solo
+> `DISPUTE_EVIDENCE_CONTACT`) frente a `buylist/buylist-mail.templates.ts:49-51` y `buylist/mail-shell.ts:617`
+> (`SUPPORT_EMAIL` primero). Si producción define `SUPPORT_EMAIL` distinto, el vendedor y el comprador reciben buzones
+> distintos. Valores en Railway: NO MEDIDO.
+>
+> **v1.82 — cierre de `D-DSP-1…4`:** `D-DSP-1` **cerrada** por `API_CONTRACT §PNL.2` (el invitado se compensa por carta
+> desde Ventas, sin `Dispute`); `D-DSP-2` y `D-DSP-4` **sin objeto** (no hay disputas nuevas); `D-DSP-3` **sigue abierta**
+> (backend, baja).
+>
 > **v1.80.10 — `D-DSP-1` (de `PROJECT`, abierta, para product-owner; medida 2026-10-04 por lectura):** un invitado no
 > tiene vía de **compensación por carta** tras la entrega: no puede crear `Dispute` (`schema.prisma:1937`, decisión v1.21)
 > y M3 solo reembolsa la orden **entera** (`API_CONTRACT §M3`, v1.80.8.6). `PROJECT` 56b pide «las mismas reglas». ¿Basta
@@ -28684,6 +28847,9 @@ Riesgos técnicos:
 > paquete**: §H dice que se registra y corren sus plazos, que se anclan en `rejectedAt`; pero rechazarla manda un correo
 > de rechazo por carta que diría algo falso (§M5-V). La UI ya no ofrece decisión sobre una `skip` (`API_CONTRACT
 > §E2E-ADM.2`); ¿qué hace el operador con la que llegó?
+> ⚠️ **v1.82.3 (`API_CONTRACT §PNL.12`):** el síntoma «la solicitud queda atorada» se cierra sin decidir esto (las `skip` no
+> cuentan para cerrar). La pregunta sigue abierta, redactada para el dueño en §PNL.12.6; el verbo futuro debe admitir
+> solicitud ya cerrada.
 >
 > **v1.80.10 — `D-PHONE-1` (abierta, backend, stream «Cuentas y acceso»; medida 2026-10-04):** `POST /auth/register` exige
 > `phone` en el contrato (§1; criterio 128(a)) y `RegisterDto` lo tiene `@IsOptional` (`auth.dto.ts:17-19`). Manda el
@@ -30374,6 +30540,13 @@ Riesgos técnicos:
   difiere (no bloqueante — es cosmético). Decisión de producto (default propuesto): subset por prefijo alfabético no
   cuenta como secret rare.
 
+- **v1.82.1 (backend, 💰, 2026-10-05) — la decisión por carta y la conversión de buylist no guardan el estado final de la
+  carta.** (1) `PATCH /admin/buylist/items/:itemId/decision` acepta los tres verbos sobre una carta
+  `convertida_inventario` (`reject` medido por backend 1/1, `BACKEND_NOTES §59.5`; `approve`/`adjust` leído en
+  `buylist.service.ts:6859-6872`, NO MEDIDO). (2) `convertToInventory` escribe la carta sin CAS
+  (`buylist.service.ts:7503-7506`; NO MEDIDO). **Acción (backend):** `API_CONTRACT §PNL.10.2`/`.3`, pruebas BRJ-10…13.
+  **Acción (dueño, vía orquestador):** las dos consultas de solo lectura de §PNL.10.2 paso 5 en la ventana de despliegue.
+
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
 
@@ -31232,6 +31405,19 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.82-arreglos-panel (**M-70**: reembolso de una carta tras la entrega y SPEI de retiro entregado — **DDL ADITIVO + 2 valores de enum + 4 columnas + `DROP NOT NULL` + 4 CHECK + 1 índice parcial, SIN backfill**, §4.61)
+
+Forma normativa entera: `API_CONTRACT §PNL.7`. Carpeta: **`prisma/migrations/20261020120000_m70_panel_refunds/`**.
+- **Número:** `M-70`, elegido **después** de medir la rama de Skydropx (`/home/user/tcg-skyd/backend/prisma/migrations/`:
+  `M-64` `20261006120000` … `M-68` `20261009120000`, medido con `Glob` el 2026-10-05). `M-69` queda libre para Skydropx. La
+  fecha de carpeta es **posterior** a todas las de Skydropx para que el orden de aplicación sea el mismo en cualquier orden
+  de fusión. Si al fusionar `M-70` ya existe, se renumera **esta**.
+- **Con datos (norma v1.64):** ninguna columna `NOT NULL` nueva; las filas existentes cumplen todos los CHECK (ninguna es
+  `item_delivered` ni `withdrawal_delivered`; toda `ManualRefund` existente tiene caso). ⛔ Sin backfill.
+- **Enum en la misma tx:** los CHECK comparan `::text` (ver `M-62:6-8`); si Postgres aun así lo rechaza, van a `M-70b`.
+- **Reversible:** rollback de código con columnas quietas (nulas). `SET NOT NULL` en `replacementCaseId` solo si no hay
+  filas `withdrawal_delivered`. Con filas de dinero ⛔ no se borra nada.
 
 ### v1.80.9-staff-sin-correo (**M-63**: usuarios de back-office sin correo — **DDL ADITIVO + `DROP NOT NULL` + 5 CHECK, SIN backfill**, §4.58)
 

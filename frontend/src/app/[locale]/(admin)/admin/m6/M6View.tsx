@@ -578,7 +578,12 @@ export function M6View() {
               </div>
 
               {/* Historial 360° por pestañas (lazy-load por endpoint filtrado por userId) */}
-              <UserHistoryTabs userId={d.id} ownedItems={d.ownedItems ?? []} locale={locale} />
+              <UserHistoryTabs
+                userId={d.id}
+                ownedItems={d.ownedItems ?? []}
+                hasDisputes={(d.disputes?.length ?? 0) > 0}
+                locale={locale}
+              />
 
               {/* Direcciones */}
               {d.addresses && d.addresses.length > 0 && (
@@ -950,18 +955,25 @@ const HISTORY_TABS: HistoryTab[] = ['purchases', 'sales', 'shipments', 'disputes
 function UserHistoryTabs({
   userId,
   ownedItems,
+  hasDisputes,
   locale,
 }: {
   userId: string;
   ownedItems: AdminUserOwnedItemRef[];
+  /**
+   * F-26 (§PNL.10.7 · `DESIGN_SYSTEM §60.8`): M8 se retiró; «Disputas» queda como historia de LECTURA y la pestaña
+   * solo existe si la ficha trae alguna (`detail.disputes?.length > 0`). Con cero, ni pestaña ni llamada.
+   */
+  hasDisputes: boolean;
   locale: AppLocale;
 }) {
   const t = useTranslations('admin.m6');
   const [tab, setTab] = useState<HistoryTab>('purchases');
+  const tabs = hasDisputes ? HISTORY_TABS : HISTORY_TABS.filter((k) => k !== 'disputes');
   return (
     <div className="flex flex-col gap-3">
       <div role="tablist" className="flex flex-wrap gap-1 border-b border-border">
-        {HISTORY_TABS.map((k) => (
+        {tabs.map((k) => (
           <button
             key={k}
             role="tab"
@@ -1017,7 +1029,7 @@ function UserHistoryTabs({
             ]}
           />
         )}
-        {tab === 'disputes' && (
+        {tab === 'disputes' && hasDisputes && (
           <PaginatedHistory
             queryKey={['admin-user-disputes', userId]}
             queryFn={(p) => getAdminUserDisputes(userId, p)}

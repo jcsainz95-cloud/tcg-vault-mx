@@ -23,15 +23,14 @@ describe('AdminDashboard · cola de trabajo accionable (§7.8)', () => {
   it('los conteos de la cola de trabajo son ENLACES a su módulo', async () => {
     renderWithProviders(<AdminDashboard />, 'es');
 
-    // Cada conteo enlaza a su módulo: envíos→M4, buylist→M5, disputas→M8, precios→M2.
+    // Cada conteo enlaza a su módulo: envíos→M4, buylist→M5, precios→M2 (F-26: M8 retirado, sin enlace a disputas).
     const shipments = await screen.findByRole('link', { name: /Envíos/ });
     expect(shipments.getAttribute('href')).toContain('/admin/m4');
 
     const buylist = screen.getByRole('link', { name: /^Buylist/ });
     expect(buylist.getAttribute('href')).toContain('/admin/m5');
 
-    const disputes = screen.getByRole('link', { name: /Disputas/ });
-    expect(disputes.getAttribute('href')).toContain('/admin/m8');
+    expect(screen.queryByRole('link', { name: /Disputas/ })).toBeNull();
 
     // "Precios pendientes" aparece como enlace a M2 (cola de trabajo y salud de datos).
     const pending = screen.getAllByRole('link', { name: /Precios pendientes/ });

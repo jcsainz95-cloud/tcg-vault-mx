@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
-import type { CardDTO, ShipmentDTO } from '@/types/contract';
+import type { CardDTO, ShipmentDTO, ShipmentStatus } from '@/types/contract';
 import { WithdrawalsList, addressSummary } from './WithdrawalsList';
 
 vi.mock('@/i18n/navigation', () => ({
@@ -56,7 +56,6 @@ describe('WithdrawalsList · retiros del cliente (§33.4)', () => {
     renderWithProviders(<WithdrawalsList />, 'es');
     expect(await screen.findByRole('link', { name: 'shp-7001' })).toHaveAttribute('href', '/shipments/shp-7001');
     expect(screen.getByRole('heading', { name: 'Mis retiros' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Mis disputas' })).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Solicitar retiro' })[0]).toHaveAttribute('href', '/shipments');
   });
 
@@ -85,63 +84,85 @@ describe('WithdrawalsList · retiros del cliente (§33.4)', () => {
   });
 });
 
+const ALL_SHIPMENT_STATUSES: ShipmentStatus[] = [
+  'solicitado',
+  'picking',
+  'guia',
+  'enviado',
+  'entregado',
+  'cancelado',
+];
+
 /**
- * F6 · Disputas del cliente: "Abrir disputa" aparece SOLO en ítems elegibles de un envío
- * ENTREGADO (raw/sellado, dentro de la ventana de 7 días, sin disputa activa). El graded y el
- * envío fuera de plazo no ofrecen el botón (UI-gate; el backend sigue siendo la autoridad).
- * (Movidos tal cual desde `ShipmentsView.test.tsx`.)
+ * DESIGN_SYSTEM §60.1 · contrato v1.82 §PNL.1 — la disputa sale de la tienda; «Escríbenos» entra.
  */
-describe('WithdrawalsList · disputas (F6)', () => {
-  it('"Abrir disputa" aparece solo en el ítem raw elegible, no en el graded', async () => {
-    vi.spyOn(api, 'getShipments').mockResolvedValue([deliveredRecent()]);
+describe('WithdrawalsList · «Escríbenos» sustituye a la disputa (§60.1)', () => {
+  // SC-1 = FE-DSC-1. Canario: devolver el botón «Abrir disputa» ⇒ rojo.
+  it.each(ALL_SHIPMENT_STATUSES)('SC-1 · retiro en «%s»: ningún botón ni texto «disputa»', async (status) => {
+    const s = deliveredRecent();
+    s.status = status;
+    vi.spyOn(api, 'getShipments').mockResolvedValue([s]);
     vi.spyOn(api, 'getDisputes').mockResolvedValue([]);
-    renderWithProviders(<WithdrawalsList />, 'es');
-
+    vi.spyOn(api, 'getSupportContact').mockResolvedValue({ contact: 'otro@x' });
+    const { container } = renderWithProviders(<WithdrawalsList />, 'es');
     await screen.findByText('Bulbasaur');
-    expect(screen.getByText('Mewtwo')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Abrir disputa' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /disputa/i })).not.toBeInTheDocument();
+    expect(container.textContent ?? '').not.toMatch(/disputa/i);
   });
 
-  it('fuera de la ventana de 7 días NO ofrece "Abrir disputa"', async () => {
-    const old = deliveredRecent();
-    old.deliveredAt = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    vi.spyOn(api, 'getShipments').mockResolvedValue([old]);
-    vi.spyOn(api, 'getDisputes').mockResolvedValue([]);
-    renderWithProviders(<WithdrawalsList />, 'es');
-
-    await screen.findByText('Bulbasaur');
-    expect(screen.queryByRole('button', { name: 'Abrir disputa' })).not.toBeInTheDocument();
-  });
-
-  it('abrir el modal, describir y enviar → createDispute + contacto de evidencia', async () => {
+  // SC-3 = FE-DSC-3 (lado retiro) + SC-4 (asunto). Canario: pintar el fallback siempre ⇒ rojo.
+  it('SC-3 · retiro ENTREGADO ⇒ una sección «Escríbenos» con el correo del endpoint y el folio en el asunto', async () => {
     vi.spyOn(api, 'getShipments').mockResolvedValue([deliveredRecent()]);
     vi.spyOn(api, 'getDisputes').mockResolvedValue([]);
-    const spy = vi.spyOn(api, 'createDispute').mockResolvedValue({
-      disputeId: 'dsp-new-1',
-      status: 'abierta',
-      type: 'condition_raw',
-      deadlineAt: '2026-08-24T00:00:00Z',
-      evidenceContact: 'evidencias@ejemplo.test',
-    });
+    vi.spyOn(api, 'getSupportContact').mockResolvedValue({ contact: 'otro@x' });
     renderWithProviders(<WithdrawalsList />, 'es');
+    const email = await screen.findByTestId('support-email');
+    expect(email).toHaveTextContent('otro@x');
+    expect(screen.getAllByTestId('support-contact')).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: '¿PROBLEMA CON TU RETIRO?' })).toBeInTheDocument();
+    const href = email.closest('a')!.getAttribute('href')!;
+    expect(href.startsWith('mailto:otro@x?subject=')).toBe(true);
+    expect(decodeURIComponent(href.split('subject=')[1])).toBe('Problema con mi retiro shp-del');
+  });
 
+  it.each(ALL_SHIPMENT_STATUSES.filter((x) => x !== 'entregado'))(
+    'SC-3 · retiro en «%s» (antes de la entrega) ⇒ sin sección',
+    async (status) => {
+      const s = deliveredRecent();
+      s.status = status;
+      vi.spyOn(api, 'getShipments').mockResolvedValue([s]);
+      vi.spyOn(api, 'getDisputes').mockResolvedValue([]);
+      vi.spyOn(api, 'getSupportContact').mockResolvedValue({ contact: 'otro@x' });
+      renderWithProviders(<WithdrawalsList />, 'es');
+      await screen.findByText('Bulbasaur');
+      expect(screen.queryByTestId('support-contact')).not.toBeInTheDocument();
+    },
+  );
+
+  // SC-5. Canario: pintar el `EmptyState` / el título con cero ⇒ rojo.
+  it('SC-5 · con getDisputes() = [] no existe «Mis disputas»; con una, sí (lectura)', async () => {
+    vi.spyOn(api, 'getShipments').mockResolvedValue([deliveredRecent()]);
+    const spy = vi.spyOn(api, 'getDisputes').mockResolvedValue([]);
+    vi.spyOn(api, 'getSupportContact').mockResolvedValue({ contact: 'otro@x' });
+    const { unmount } = renderWithProviders(<WithdrawalsList />, 'es');
     await screen.findByText('Bulbasaur');
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir disputa' }));
+    expect(screen.queryByRole('heading', { name: 'Mis disputas' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No tienes disputas.')).not.toBeInTheDocument();
+    unmount();
 
-    const dialog = await screen.findByRole('dialog', { name: 'Abrir disputa de condición' });
-    fireEvent.change(within(dialog).getByLabelText('Describe el problema'), {
-      target: { value: 'Corner wear on arrival, reported same day.' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Abrir disputa' }));
-
-    await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith({
+    spy.mockResolvedValue([
+      {
+        id: 'dsp-1',
         inventoryItemId: 'inv-raw',
-        description: 'Corner wear on arrival, reported same day.',
-      }),
-    );
-    expect(await within(dialog).findByTestId('evidence-email')).toHaveTextContent(
-      'evidencias@ejemplo.test',
-    );
+        type: 'condition_raw',
+        status: 'abierta',
+        description: 'x',
+        deadlineAt: '2026-08-24T00:00:00Z',
+        createdAt: '2026-08-17T00:00:00Z',
+      },
+    ]);
+    renderWithProviders(<WithdrawalsList />, 'es');
+    const heading = await screen.findByRole('heading', { name: 'Mis disputas' });
+    expect(within(heading.closest('section')!).getByText('dsp-1')).toBeInTheDocument();
   });
 });

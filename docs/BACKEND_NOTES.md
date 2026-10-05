@@ -28649,3 +28649,319 @@ exportado): siguen rojas en PS-173.
    quien compare la línea de tiempo con `shippedAt` (p. ej. un E2E de frontend) debe usar la cota.
 2. **Frontend:** sin cambio de forma. F-5 (invertir) es independiente.
 3. **QA:** PS-89 (c) vive en `sdx-b2-timeline.e2e-spec.ts`; las condiciones C-TL-1/2 y D-1/D-8 en `test/sdx-tl31af.units.spec.ts`.
+
+## 72 · v1.82 PNL-2 + PNL-3 construidas (💰) — reembolso de UNA carta tras la entrega, SPEI de un retiro entregado, `M-70` (2026-10-05, rama `claude/arreglos-panel`; código en `24097323` + `5a3bd05c`)
+
+> **Nota de renumeración (fusión `claude/arreglos-panel` + `claude/skydropx-d`, 2026-10-05):** en la rama del panel estas secciones eran **§58, §59 y §60**; Skydropx ya usaba esos números (§57…§71), así que aquí pasan a **§72, §73 y §74** (subsecciones igual: §58.6 ⇒ §72.6, §60.10 ⇒ §74.10). Las citas «`BACKEND_NOTES §58.x` / `§59.x` / `§60.x`» escritas en la rama del panel (código, pruebas, contrato, `DESIGN_SYSTEM`) se leen §72.x / §73.x / §74.x; ⛔ no se reescribieron en la fusión.
+
+**Fuente:** `API_CONTRACT §PNL.2, §PNL.3, §PNL.7, §PNL.8` (v1.82); `ARCHITECTURE §4.61.2/.3`; `DESIGN_SYSTEM §60.2 (b)` (correos);
+`HECHOS.md:30` (D-1), `:31` (b), `:32` (D-12), `:44` (a)(b).
+
+### 72.1 `M-70` (`20261020120000_m70_panel_refunds`)
+- **Cabe en una migración: ⛔ no hizo falta `M-70b`.** Medido aplicándola con `psql -1` (UNA transacción, el caso más
+  estricto) sobre una copia con datos de `tcg_marketplace`: los `ADD VALUE` y los CHECK que comparan `::text` conviven en
+  la misma tx (el literal es texto; el valor nuevo del enum no se usa).
+- **Huella antes/después** (copia de `tcg_marketplace`, 2026-10-05): `PaymentRefund 0 filas`, `ManualRefund 2 filas md5
+  a2f54d1a…`, `Order 39 md5 5258a4ae…`, `ShipmentItem 0` — **idénticas** tras la 1.ª y la 2.ª aplicación; `pg_dump
+  --schema-only` tras la 2.ª = tras la 1.ª (solo difiere el token `\restrict` de `pg_dump`). Idempotente: `ADD VALUE /
+  ADD COLUMN / CREATE INDEX IF NOT EXISTS` y `DROP CONSTRAINT IF EXISTS` + `ADD`.
+- **Reversa** (la del encabezado del SQL) **probada** en esa copia (sin filas de los `kind`/`source` nuevos): OK, y re-subir
+  M-70 después: OK con la misma huella.
+- Las dos `ManualRefund` existentes (`case_excess`, con caso) cumplen `ManualRefund_case_sources_chk` sin backfill.
+
+### 72.2 PNL-2 — `POST /admin/orders/:id/items/:orderItemId/refund-delivered`
+- Verbo en `OrderRefundService.refundDelivered` (⛔ no hay servicio nuevo registrado: `orders.module.ts` lo tocaba PNL-1 a la
+  vez). Piezas puras en `orders/item-delivered-refund.ts`: `deliveredRefundDecision` (pasos 3–4, **un cuerpo** para el verbo
+  y para `items[].deliveredRefund` de M3), `deliveredLinesOf` (la línea `si`, por lote), `parseItemDeliveredBody` (cuerpo
+  crudo: las llaves extra se ignoran ⇒ un `amountCents` nunca se lee).
+- Importe: `itemRefundComponents(order, orderItem)` en `common/money.ts` = **el mismo cuerpo** que `item_missing`.
+- **Aditivo no listado en el contrato:** `GET /admin/orders/:id` → `items[].orderItemId`. Sin él la pantalla no tiene la llave
+  del verbo (el DTO de M3 no la traía). Pregunta abierta al arquitecto (abajo).
+- Cliente / invitado: `clientRefundOf` gana `kind` (`item_delivered` ⇒ `after_delivery`; el resto ⇒ `missing_at_prep`) y
+  `reason = deliveredReason ?? missingReason`. ⚠️ `GET /shipments/:id` (`shipments.service.ts:544`, zona de otro stream)
+  sigue con su proyección propia sin `kind`; **no es alcanzable** para un directo (production escribe `userId: null` en el
+  envío de un directo ⇒ el cliente no lo ve en «Retiros»), así que no se tocó.
+
+### 72.3 PNL-3 — `POST /admin/manual-refunds/withdrawal-delivered` + `GET …/preview`
+- `payments/refunds/withdrawal-delivered-refund.service.ts`. `PaymentsModule` importa `VaultModule` (por `marketRefOf`: `M`
+  es LA valuación de «Mi bóveda»); sin ciclo de proveedores (medido: la app arranca en las 27 de integración).
+- **Topes en un cuerpo:** `payments/refunds/refund-reference.ts` (`refundReferenceOf`, `refundConfirmationOf`,
+  `assertCapturedAmountWithinLimits`); `ReplacementCaseService` dejó de tener su propia copia.
+- Decisiones donde el contrato calla (pregunta al arquitecto abajo): origen `IVA_EXCLUSIVE` ⇒ `Q = null` y componentes «todo
+  compensación», pero `orderId` = el origen igual. La preview aplica las mismas guardas `409` que el verbo.
+- `ManualRefundDTO.case` anulable + `withdrawal`; `reissue` de una `withdrawal_delivered` copia línea/motivo/nota y busca la
+  «viva» **por línea** (⛔ `replacementCaseId: null` en el `where` habría encontrado la viva de OTRO retiro); la búsqueda `q`
+  de la cubeta también mira el folio de la carta del retiro.
+- Bitácora del acto: `createRow` acepta la acción (`manual_refund.withdrawal_delivered_created`, una fila, en la tx).
+
+### 72.4 Lectores de `PaymentRefundKind` (§PNL.2, `rg` 2026-10-05) y qué hacen con `item_delivered`
+| Lector | Qué hace con `item_delivered` |
+|---|---|
+| `refund-ledger.service.ts` `operatorUsedCents` (`kind ≠ order_full`) | entra en la suma, pero solo cuenta filas del operador y este `kind` solo lo crea el súper-admin ⇒ nunca suma |
+| `refund-ledger.service.ts` `retry` | `SUPER_ADMIN_ONLY_RETRY_KINDS`: el operador NO lo reintenta (como `order_full`/`case_refund`) |
+| `refund-ledger.service.ts` `notifyCustomer` (AV-12) | `AV12_CARD_KINDS`: nombra la carta; variante `item_delivered` (correo 23, §60.2) |
+| `refund-ledger.service.ts` `applyStripeOutcome` / `av3Allowed` | solo miran `order_full` ⇒ sin cambio (no cierra la orden, no manda AV-3) |
+| `orderFullRefundComponents` / `refundedNonFailedCents` | genéricos: el total posterior reembolsa el remanente (IDR-9 `68159`) |
+| `shipment-prep.service.ts:376-380` (cierre `order_remaining`) | solo cuenta `item_missing`; una carta `item_delivered` existe solo tras `entregado` ⇒ el preparado ya pasó |
+| `origin.ts:237`, `shipment-prep.service.ts:732` | solo `order_full` ⇒ sin cambio |
+| M7 `refundsInPeriod` (`admin.service.ts`) | suma componentes sin mirar `kind` ⇒ devolución de venta (mercancía + IVA + comisión), como `item_missing` |
+| `admin-refunds.controller.ts` `?kind=` | derivado del enum (clase E) ⇒ `item_delivered` válido |
+| `manual-refund.service.ts:toManual` | solo `case_refund` ⇒ `409 REFUND_NOT_CONVERTIBLE` para `item_delivered` (sin cambio) |
+
+### 72.5 Correos (DESIGN_SYSTEM §60.2 (b))
+- AV-12 `item_delivered` y AV-14 `withdrawal_delivered`: funciones propias en `refund-notice.templates.ts`; ⛔ ni «no salió» ni
+  «reponer». Candado **ML-25** en `test/pnl-delivered-refunds.spec.ts` (el encargo decía ML-24, que en §60.13 es el correo de
+  buylist de PNL-4). Sin correo nuevo (SRF-13 sigue verde).
+
+### 72.6 Pruebas y mutaciones (medido por backend sobre copias `git archive`, BD propia `tcg_be_pnlm`)
+- Integración `test/integration/pnl-delivered-refunds.e2e-spec.ts`: IDR-1…15 + `?kind=` + WDR-1…10 (+ WDR-9b), 27/27.
+  Carreras: **IDR-5 10/10** y **WDR-6 10/10** (N=10, backend).
+- Mutaciones (todas rojas, sobre la copia): fórmula con otro `G` ⇒ IDR-1; sin comparar `expectedRefundCents` ⇒ IDR-8; aceptar
+  `enviado` ⇒ IDR-3; sin `@MoneyOut` ⇒ IDR-2; ignorar `item_delivered` en el remanente ⇒ IDR-9; quitar candados + mapeo
+  `P2002` ⇒ IDR-5 **0/10** (500 en 10/10) y WDR-6 **0/10**; quitar SOLO los candados ⇒ sigue 10/10 (el índice + el mapeo
+  bastan: defensa en profundidad); índice sin `WHERE status <> 'cancelled'` ⇒ WDR-5; leer `case.id` sin nulo ⇒ WDR-1/WDR-7
+  (y el compilador ya lo impide: `TS18047`); quitar cada variante de correo ⇒ ML-25 (2+2).
+- **Suites completas** (copia `git archive` de `5a3bd05c`, BD `tcg_be_pnlm`): unitarias **394/394 suites, 6641/6641**
+  (la paridad de enums, roja a propósito hasta M-70, queda verde); integración **78/80 suites, 1605/1608** con tres rojos:
+  (1) `C-EQ-1` descubrimiento — los dos `@Query` de la preview sin clase ⇒ **arreglado en el commit de esta sección**
+  (`NO_ENUM_POR_RUTA` + tope 44 → 46, ⚠️ ratificación del arquitecto pendiente); (2) `C-EQ-1` fila 2 `GET /admin/vaults?sort=`
+  — **2/3 rojo sobre la BD ya usada por la corrida completa, 3/3 verde sobre BD recién creada** (carga 1.6–3), y la base
+  `7ce3bff4` (sin estos cambios) **3/3 verde** sobre BD nueva; base sobre BD usada: NO MEDIDO. Huele a dependencia de datos
+  del propio test, no a estos cambios (no tocan `admin/vaults`); (3) `shipped-refund-reason` SRF-7 manda un `reason` de 600 y
+  espera `201`: lo rompe **PNL-6** (`171c36bf`, `@MaxLength(500)`, de otro agente), no PNL-2/3.
+
+## 73 · v1.82 PNL-1 + PNL-4 + PNL-6 construidas — disputas fuera (`410`) y un solo buzón, rechazo de varias cartas con un correo, tope del motivo del reembolso (2026-10-05, rama `claude/arreglos-panel`; código en `1a61cdbd`, `171c36bf`, `5cbbe29b`, `8818ff09`)
+
+**Fuente:** `API_CONTRACT §PNL.1, §PNL.4, §PNL.6, §PNL.8` (v1.82); `ARCHITECTURE §4.61.1/.4`; `DESIGN_SYSTEM §60.6` (correo 29)
+y `§60.13` (ML-24). Medido sobre copia `git archive` del árbol entero + mis parches, base propia `tcg_be_pnlb`.
+
+### 73.1 PNL-1 — `POST /disputes` ⇒ `410` y `GET /support/contact`
+- `POST /api/v1/disputes` lanza **siempre** `410 DISPUTES_DISCONTINUED { supportContact }`. El handler **no tiene
+  parámetros** (ni `@Body`): el `ValidationPipe` no tiene nada que validar, así que ningún `400`/`403`/`422` se adelanta
+  (DSC-2 lo mide con seis cuerpos distintos: respuesta idéntica). Sin sesión ⇒ `401` (guard global, como siempre).
+- `DisputesService.create` **se retiró** (no solo se desenrutó). Lecturas del cliente, `GET /admin/disputes` y `resolve`
+  siguen (transición; DSC-4).
+- **Resolutor único:** `backend/src/modules/mail/support-contact.ts` → `supportContact()` =
+  `SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → 'soporte@tcghunt.mx'` (con `envOr`), **leído en cada llamada** (las
+  constantes de antes se fijaban al importar). `disputes.constants.ts` se borró; `SUPPORT_EVIDENCE_CONTACT` salió de
+  `orders/guest-checkout.constants.ts`; `buylist-mail.templates.ts`, `buylist/mail-shell.ts` (pie), los correos de
+  disputa y `GuestOrderTrackingDTO.support.evidenceContact` lo importan. **Cambio de conducta posible:** si en
+  producción `SUPPORT_EMAIL` existe y difiere de `DISPUTE_EVIDENCE_CONTACT`, el seguimiento del invitado y `evidenceContact`
+  de disputas pasan a decir `SUPPORT_EMAIL` (NO MEDIDO qué valen en Railway — lo mide devops, §PNL.1).
+- `GET /api/v1/support/contact`: `@Public`, limitador global, `Cache-Control: public, max-age=300`, `200 { contact }`.
+  Controlador `orders/support-contact.controller.ts`, registrado en `OrdersModule`.
+- Candado DSC-8 (`test/support-contact.single-resolver.spec.ts`): barre `src/` **en crudo** (el limpiador de comentarios
+  es ciego a trozos en `mail-shell.ts`) buscando lecturas de las dos variables fuera del resolutor; con canario.
+
+### 73.2 PNL-6 — `RefundDto.reason` ≤ 500
+`@IsString() @MaxLengthWithField('reason', REFUND_REASON_MAX)` en `orders/dto/orders.dto.ts`. El `ValidationPipe` global
+no emite `details.field` (BE-82), así que el decorador es `@Transform` (lanza `BusinessException 400 VALIDATION_ERROR
+{field, max}` dentro de `plainToInstance`, antes del servicio) + `@MaxLength` con la misma cifra. Sin `MinLength`.
+⚠️ SRF-7 (`shipped-refund-reason.e2e-spec.ts`) mandaba 604 caracteres esperando `201` y recorte a 500: con v1.82 es
+`400`; la prueba se puso al día en `8818ff09` (lo encontró la corrida completa, no la dirigida — mi error de orden).
+
+### 73.3 PNL-4 — `POST /admin/buylist/:id/reject-items`
+- Cuerpo **crudo** validado en `buylist/buylist-reject-items.ts` (`parseRejectItemsBody`): `400 VALIDATION_ERROR
+  {field, rule}` con `rule ∈ required|type|size|duplicates|length`. Claves de más se ignoran.
+- `runSerializable` + `SELECT … FROM "SellRequest" … FOR UPDATE`; precedencia del contrato: cerrada (terminal o
+  `closedAt`) ⇒ `409 CONFLICT {status, closedAt}`; `status ≠ verificacion` ⇒ `409 INVALID_TRANSITION {from,
+  allowedFrom:['verificacion']}`; id ajeno/inexistente ⇒ `404`; alguna `skip` ⇒ `422 ITEM_NOT_OFFERED {itemIds}`; alguna
+  no rechazable ⇒ `409 CONFLICT {itemIds}`.
+- **No rechazable** (`REJECT_ITEMS_BLOCKED_STATUSES`): `convertida_inventario`, `pagada` **y `rechazada`** — esta última
+  es decisión mía (ver 59.5 Q-2): re-rechazar movería `rejectedAt`, el ancla de los plazos de devolución/abandono.
+- Por carta, `rejectItemWrite` — **el mismo cuerpo** que usa ahora `PATCH …/decision {reject}` (sin CAS allí: sin cambio
+  de conducta) — con **CAS por estado** de la carta; el total aprobado se recalcula y la auto-transición
+  (`autoRejectIfAllRejectedTx`, el mismo cuerpo que `maybeAutoRejectRequest`) corre **en la misma tx**.
+- `200 { items: AdminSellItemRow[] (orden de itemIds), requestClosed: boolean }` (ver 59.5 Q-1). Bitácora
+  `buylist.items_rejected { itemIds, reason, requestClosed }` solo si no lanzó. Correo 29 post-commit, best-effort.
+- **Correo 29** `sellItemsRejectedTemplate` (junto al 4): textos de §60.6; los días («7», «30») se **derivan** de
+  `deadline − rejectedAt` (ML-24: con plazos de +10/+45 el texto dice 10 y 45). Saludo como el correo 4
+  (`Hola {name}:`) — `greetingLine` de §41.13 E-2 aún no existe en el código.
+- **Dos defectos medidos por BRJ-8, cerrados en el mismo commit:**
+  1. `PATCH …/decision approve` no hacía CAS por estado: si `reject-items` confirmaba entre su lectura y su escritura,
+     la carta quedaba **`aprobada` con `rejectedAt`/`rejectionReason`** (la limpieza se decidía con la lectura vieja).
+     Medido forzando el orden con candado de fila. Ahora `itemStatus` observado en el `where` y, si cambió,
+     `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }` (antes caía en `NO_LIVE_ADJUSTMENT`, que mentiría).
+  2. `recomputeApprovedTotal` suelto (post-commit de la decisión por carta) leía el agregado y escribía sin candado:
+     **total viejo** sobre una carta ya rechazada (medido 1 de 4 corridas de BRJ-8 (c) con N=12 rondas: `approvedTotalCents
+     = 12000` con la carta `rechazada`). Ahora toma `SellRequest FOR UPDATE` antes de agregar.
+- `runSerializable` pasa de 6 a 7 llamadores (`serializable-retry.guard.spec.ts`); el cuerpo de `rejectItems` solo toca BD.
+
+### 73.4 Mediciones (copia `git archive` + parches; base `tcg_be_pnlb`)
+| Qué | Resultado |
+|---|---|
+| unitarios completos (antes de ajustar censos/mocks) | 6658/6695; los 37 rojos = 7 specs de mocks sin `$queryRaw` + 3 censos (runSerializable, plantillas ×2) + `enum-values-parity` (M-70, del otro agente: ya en `24097323`) |
+| unitarios tras el ajuste, dirigidos (`test/buylist*`, `serializable-retry`, `refund-review`) | 1332/1332 + 22/22 |
+| integración completa | 78/80 suites, 1585/1594: SRF-7 (corregido en `8818ff09`) y `graded-estimate` (8 rojos en la corrida completa, **verde aislada 2/2** — no toco `catalog`; orden-dependiente, NO diagnosticado) |
+| integración dirigida tras el commit (buylist ×9, disputes ×2, refund-reason-max, graded-estimate ×3) | 205/205 |
+| BRJ-8 (c) N=20 rondas | 6/6 corridas verdes (120 rondas coherentes; 0–4 rondas por corrida con los dos `200`) |
+
+**Mutaciones** (sobre la copia): restaurar `@Body` en `POST /disputes` ⇒ DSC-1/2/6 rojas (1/1, determinista);
+cascada local en `guest-checkout` ⇒ DSC-6 y DSC-8 rojas (1/1); quitar el tope de `reason` ⇒ RFD-1 roja; tope 499 ⇒ RFD-1/2
+rojas; quitar el CAS de la aprobación ⇒ BRJ-8 (a) roja **3/3** y (c) roja **3/3** (estado mixto visto); «7»/«30» literales
+⇒ ML-24 canario rojo; recálculo sin `FOR UPDATE` ⇒ unitario de orden rojo, ⚠️ pero **BRJ-8 (c) no lo ve: 0/6 corridas
+rojas a N=20** — el único rojo por HTTP de ese defecto fue 1/4 corridas a N=12 antes del arreglo. La prueba HTTP de ese
+defecto **no es sensible**; lo sostiene el unitario de orden de llamadas.
+⚠️ Una ventana de ~20 s de mutación unitaria se solapó con la corrida completa de integración en la misma copia; por eso
+las suites de buylist/disputas se re-corrieron después (fila «dirigida tras el commit»).
+
+### 73.5 Para el arquitecto
+- **Q-1:** la forma del `200` de `reject-items` («la misma proyección que la decisión por carta») era ambigua para varias
+  cartas: elegí `{ items: [...], requestClosed }`. Pido que §PNL.4 lo fije.
+- **Q-2 (💰, defecto existente):** §PNL.4 paso 4 dice «alguna que la decisión por carta **no** dejaría rechazar (mismo
+  predicado)». **La decisión por carta no tiene ese predicado.** MEDIDO por HTTP (sonda en la copia, 1/1, determinista):
+  `PATCH …/decision {reject}` sobre una carta `convertida_inventario` con `approvedPriceCents = 8000` ⇒ **`200`**, la carta
+  queda `rechazada` y `approvedPriceCents = null` — **la pieza sigue en nuestro inventario y su precio sale del total que
+  se le paga al vendedor**. Implementé el `409` de BRJ-5 en `reject-items` y **no** toqué `PATCH` (el contrato dice «sin
+  cambio»). Pido decisión: ¿`PATCH reject` gana el mismo predicado (`409` sobre `convertida_inventario`/`pagada`)?
+- **Q-3:** `ML-25` (AV-12 / AV-14) son plantillas de `payments/` (PNL-2/3, el otro agente), no de este encargo.
+
+## 74 · Errata v1.82.1 §PNL.10 construida (💰) — `ITEM_FINAL` en la decisión por carta (E-2), CAS en la conversión a inventario (E-3); BRJ-10…14, WDR-11 (2026-10-05, rama `claude/arreglos-panel`; código en `24edf8a7`)
+
+### 74.1 Qué cambió (y dónde)
+- **Un predicado:** `ITEM_FINAL_STATUSES = ['convertida_inventario','pagada']` e `isItemFinal()` en
+  `buylist-reject-items.ts`; `REJECT_ITEMS_BLOCKED_STATUSES = [...ITEM_FINAL_STATUSES, 'rechazada']` (compuesto, no a mano).
+- **`PATCH /admin/buylist/items/:itemId/decision`, los tres verbos:** `assertItemNotFinal(item)` justo después de
+  `NO_LIVE_ADJUSTMENT` ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`, antes de la idempotencia del
+  `reject` y de la escalera del ciclo (incluido `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`). Cero escrituras, correo, bitácora
+  (el controlador audita solo tras el `200`) y recálculo. Sin código de error nuevo: valor nuevo de `details.reason`.
+- **La guarda del motor del rechazo:** el `where` de `rejectItemWrite` lleva **siempre** `itemStatus NOT IN
+  ITEM_FINAL_STATUSES` (en un `AND`, junto al `expectedItemStatus` de `reject-items` cuando viene). En el `PATCH {reject}`,
+  `count ≠ 1` se relee (`throwRejectWriteConflict`): solicitud terminal ⇒ `NO_LIVE_ADJUSTMENT` (gana); carta final ⇒
+  `ITEM_FINAL`; otra cosa ⇒ el `409` terminal de siempre. `approve`/`adjust` no ganan guarda nueva: su CAS por estado leído
+  ya lo es (una conversión en medio ⇒ `409 … CONCURRENT_UPDATE`, §PNL.10.2.3).
+- **`convertToInventory`:** la escritura de la carta pasa a `updateMany({ where: { id, itemStatus: 'aprobada',
+  inventoryItemId: null } })` dentro de la misma tx que crea pieza y `InventoryMovement`. Si no casa, se relee dentro de la
+  tx y se lanza una señal interna (`ConvertCasMiss`) ⇒ rollback entero; fuera: `inventoryItemId` ya puesto ⇒ respuesta
+  idempotente de siempre; si no ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }`. El folio de
+  `nextFolio()` se pierde (como en `P2002`). El índice único `sourceSellRequestItemId` sigue cubriendo conversión contra
+  conversión.
+- Para frontend: la forma del `409 ITEM_FINAL` es la de `CONCURRENT_UPDATE` en el mismo endpoint; se distingue por
+  `details.reason` (FE-BRJ-4).
+
+### 74.2 El defecto, medido ANTES del arreglo (copia `git archive` + la prueba nueva, BD `tcg_be_pnlf`)
+BRJ-13 (b), rondas simultáneas `convert-to-inventory` ∥ rechazo sobre una carta `aprobada`, N = 12 por corrida. «Mixta» =
+`convertida_inventario` con `rejectedAt`/sin precio, o `rechazada` con pieza.
+
+| Código | Variante | Corridas (mixtas / N) |
+|---|---|---|
+| sin E-2 ni E-3 (el de `63961651`) | `PATCH {reject}` | **12/12, 12/12, 12/12** — 10, 10 y 12 de ellas E-3 (`convertida+rejectedAt`); el resto E-2 (`rechazada` con pieza) |
+| sin E-2 ni E-3 | `reject-items` | **7/12, 9/12** (todas E-3: el lote ya bloqueaba la convertida) |
+| con E-2, sin E-3 (aísla E-3) | `PATCH {reject}` / `reject-items` | **7/12** / **8/12** |
+| con E-2 y E-3 | las dos | **0/12** y **0/12**; después N = 20 ×2 corridas: **0/20, 0/20** en cada variante |
+
+El defecto **es** sensible sin forzar (no hizo falta el candado para verlo), pero BRJ-13 (a) lo fuerza igualmente: la
+prueba toma `"Card" FOR UPDATE`, la conversión se detiene en su `INSERT "InventoryItem"` (FK ⇒ `FOR KEY SHARE`) **después**
+de leer `aprobada`, el rechazo confirma entero, y se suelta. Determinista.
+Reparto de desenlaces con el arreglo (N = 20; corrida 1 · corrida 2): `PATCH` — conversión `409 CONCURRENT_UPDATE` 13 · 14,
+conversión gana y rechazo `409 ITEM_FINAL` 3 · 3, conversión `422 ITEM_NOT_APPROVED` 4 · 3; `reject-items` — `409
+CONCURRENT_UPDATE` 12 · 12, conversión gana y lote `409 {itemIds}` 7 · 5, `422` 1 · 3.
+
+### 74.3 Pruebas
+| Prueba | Dónde | Qué |
+|---|---|---|
+| BRJ-10 (+10b, 10c) | `test/integration/buylist-item-final.e2e-spec.ts` | `reject` sobre convertida (8000, fabricada por `approve`→`convert`) ⇒ `409 ITEM_FINAL`, fila/total/pieza/bitácora idénticos, 0 correos; 10b: carta `pagada` en los tres verbos (incluido `adjust` en ciclo: `ITEM_FINAL` gana a `ADJUST_NOT_ALLOWED…`); 10c: solicitud `pagada` ⇒ `NO_LIVE_ADJUSTMENT` gana |
+| BRJ-11 | ídem | `approve` (ciclo) y `adjust {1}` / `approve {1}` (legado) ⇒ `409 ITEM_FINAL`; `approvedPriceCents` sigue 8000; `adjustmentSentAt` sigue nulo |
+| BRJ-12 | ídem + `test/buylist.reject-items.spec.ts` | integración con `assertItemNotFinal` apagado por `jest.spyOn` ⇒ el `where` responde `409 ITEM_FINAL`; unitarios del `where` (con y sin `expectedItemStatus`) y de la relectura (viva+final ⇒ `ITEM_FINAL`; terminal ⇒ `NO_LIVE_ADJUSTMENT`) |
+| BRJ-13 🔁 | `buylist-item-final.e2e-spec.ts` | (a) forzado ×2 variantes; (b) N = `BRJ13_N` (12 por defecto) ×2 variantes, proporción al log; cuenta también `InventoryMovement` (rollback entero) |
+| BRJ-14 | ídem | `reject-items` sobre una ya `rechazada` ⇒ `409 {itemIds}`, `rejectedAt`/motivo idénticos, 0 correos |
+| composición | `test/buylist.reject-items.spec.ts` | `REJECT_ITEMS_BLOCKED_STATUSES ⊇ ITEM_FINAL_STATUSES` y `= [...ITEM_FINAL_STATUSES,'rechazada']` |
+| CAS de la conversión | `test/buylist.convert-guard.spec.ts` | `updateMany` con `{id, itemStatus:'aprobada', inventoryItemId:null}`; `count 0` ⇒ `409 CONCURRENT_UPDATE` lanzado dentro de la tx; `count 0` con pieza ⇒ idempotente |
+| WDR-11 | `test/integration/pnl-delivered-refunds.e2e-spec.ts` | origen `IVA_EXCLUSIVE`, M = 60000 ⇒ preview `paidReferenceCents null`, `referenceCents = M`; verbo `201`, todo `compensationCents = A`, `orderId` = origen. No existía con otro nombre (WDR-9b es «sin origen») |
+
+⚠️ BRJ-13 sube el tope MENSUAL de intake (`buylist_cap_per_month_cents`) durante la suite y lo restaura en `afterAll`:
+cada ronda aprueba 12000 del mismo vendedor y sin eso la ronda 22 choca con `BUYLIST_LIMIT_EXCEEDED` (medido).
+Mocks unitarios de la conversión (`buylist.security`, `bl25-bl26`, `inventory.card-product-id`, `convert-guard`) pasan de
+`update` a `updateMany`; `buylist.reject.spec` afirma el término nuevo del `where`.
+
+### 74.4 Mutaciones (copia `git archive`, BD `tcg_be_pnlf`; cada una revertida antes de la siguiente)
+| Mutación | Resultado |
+|---|---|
+| M1 quitar el peldaño **y** el término del `where` | BRJ-10 roja (`200`) |
+| M2 peldaño solo para `reject` | BRJ-11 y BRJ-10b rojas (`200`) |
+| M3 quitar solo el término del `where` | BRJ-12 integración roja (`200`), unitarios del `where` rojos ×2, `buylist.reject.spec` rojo; BRJ-10 sigue verde (lo sostiene el pre-check, como pide el contrato) |
+| M4 `count = 0` del `PATCH` siempre a terminal | BRJ-12 roja (`NO_LIVE_ADJUSTMENT` en vez de `CONFLICT`) |
+| M5 quitar el CAS de la conversión | BRJ-13 (a) roja en las dos variantes **4/4 corridas**; (b) **11/12** (`PATCH`) y **6/12** (`reject-items`) mixtas; `convert-guard` rojo |
+| M6 quitar `'rechazada'` de la lista compuesta | BRJ-14 roja (`200`, `rejectedAt` movido); unitarios de composición rojos |
+| M7 lista escrita a mano sin `pagada` | unitario de composición rojo (y el de `not_rejectable`) |
+| M8 `caseRefundComponents` también con `IVA_EXCLUSIVE` | WDR-11 roja en la preview (`paidReferenceCents 52885`); con esa aserción quitada en la copia, roja en componentes (`merchandiseCents 42546`, `compensationCents 0`) |
+
+### 74.5 Suites completas
+Medido por backend sobre `git archive` de **`24edf8a7`** (árbol entero), BD `tcg_be_pnlf` recién creada, load 6–18 (4 CPU;
+otros agentes vivos).
+
+| Qué | Resultado |
+|---|---|
+| unitarios completos (antes de ajustar los mocks de la conversión) | 6703/6718: los 15 rojos = 4 specs de mocks con `sellRequestItem.update` (conversión) + `buylist.reject.spec` (el `where` exacto) — esperados por el cambio, ajustados en el mismo commit |
+| unitarios completos (`24edf8a7`) | **396/396 suites · 6720/6720** |
+| integración completa (`24edf8a7`) | **79/82 suites · 1623/1632**. Los 9 rojos, ninguno de este cambio: |
+| · `infra-smoke` (1) + `kyc-ine-links` (7) | `PUT presignado devolvió 403` contra el almacén local. **Aislado: rojo 2/2 en `24edf8a7` y rojo 1/1 en la base `378055e8` (sin este cambio), mismo 8/26** ⇒ de ENTORNO (almacén S3 local), no del código. Dueño: devops. NO diagnosticado |
+| · `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` (1) | el conocido **P-INT-CEQ1-VAULTS**; aislado sobre la BD ya usada: **verde 3/3** |
+| · `graded-estimate` (P-INT-GRADED) | verde en esta corrida completa (1/1) |
+| BRJ-13 (b) dentro de la corrida completa | 0/12 y 0/12 mixtas; BRJ-8 (c) 20/20 coherentes |
+
+### 74.6 Errata v1.82.3 §PNL.12 construida (💰) — «Regla C»: las líneas `skip` no cuentan para cerrar la solicitud (2026-10-05, rama `claude/arreglos-panel`, sobre `b06ac1ca`)
+
+**La regla, una vez en cada forma** (`backend/src/modules/buylist/buylist-reject.constants.ts`, bloque final):
+- `SELL_ITEM_COUNTS_FOR_CLOSURE_WHERE = { OR: [{ offerDecision: null }, { offerDecision: { not: 'skip' } }] }` y
+  `readClosureRule(db, sellRequestId)` → `{ countingItems, nonRejectedItemStatuses }` (UN `findMany` filtrado por ese
+  `where`; las `skip` no llegan a memoria) + `closesAsRejectedByWhere(reading)`.
+- Forma pura: `countsForClosure(item)` / `closesAsRejected(items)` (`offerDecision` ausente ⇒ cuenta).
+
+**Los cuatro sitios:**
+| # | Sitio | Qué hace ahora |
+|---|---|---|
+| a | `autoRejectIfAllRejectedTx` (`buylist.service.ts`) | `readClosureRule` en la tx del llamador; 0 líneas que cuentan ⇒ no cierra. Resto igual |
+| b | `rejectRequest` | precondición = Regla C por `readClosureRule`; `422 REQUEST_HAS_NON_REJECTED_ITEMS` con los estados de **las líneas que cuentan**; con 0 que cuentan, `422` con los estados de **todas** (fail-closed, contrato 12.1 b) |
+| c | `deriveRejectedReason` | `'all_items_rejected'` ⇔ `closesAsRejected(items)`. Tipo de `items` = `ClosureRuleItem[]` (`offerDecision` opcional: ausente cuenta, o sea la conducta previa) |
+| d | `adminSellRequestDTO` | **`isRejectable: !isTerminalSellRequestStatus(status) && closesAsRejected(items)`** — en la proyección admin COMPARTIDA (listado, detalle, mesa, mutaciones). No toca `toSellRequestBaseDTO` ⇒ no llega al vendedor (afirmado en SKP-3) |
+
+Sin schema, migración, endpoint ni correo. La `skip` nunca se escribe. Nota para frontend: `isRejectable` sigue la fórmula
+literal del contrato (`isTerminal === false ∧ Regla C`); una fila incoherente de §M5-T (`closedAt` sellado con `status` vivo)
+daría `true` y el `POST …/reject` respondería `409` — la misma situación que ya tiene `isTerminal`.
+
+**Pruebas que cambian por la errata (dueño backend):**
+- Mocks unitarios con `sellRequestItem.count` (la auto-transición) pasan a `findMany` (`buylist.reject`, `offer-cycle-guards`,
+  `m5r-received-approve`, `ronda-c`, `request-reject`); en `request-reject` el `where` afirmado es ahora el `OR` explícito.
+- ⚠️ `test/integration/buylist-pay-verdicts.e2e-spec.ts` **assert 3** y **B1**: montaban por la API la fila de `BL-45`
+  (única `buy` rechazada + `skip` ⇒ viva con el aprobado en `null`). Con la Regla C **la API ya la cierra `rechazada`**: assert 3
+  ahora afirma primero eso (cierre + `pay-spei` ⇒ `409 CONFLICT`, cero pesos) y después reconstruye la fila **atorada** de
+  antes de la errata deshaciendo SOLO el cierre (`status=verificacion, closedAt=null`) para seguir midiendo V-a. Es la única
+  excepción a la norma «nada de sembrar» de ese fichero, y queda escrita en su cabecera. Cuántas filas así hay en producción:
+  **NO MEDIDO** (consulta de §PNL.12.5).
+
+### 74.7 El defecto, medido ANTES del arreglo
+Copia del árbol de trabajo entero (`b06ac1ca` + la prueba nueva), BD `tcg_be_skp`: `buylist-skip-closure.e2e-spec.ts`
+**7/7 rojos** — SKP-1 `requestClosed` false; SKP-2 sigue `verificacion`; SKP-3 `POST …/reject` 422; SKP-4 los `details` traen
+el estado de la `skip`; SKP-5 `isRejectable` undefined; SKP-5b/6b sin la regla.
+
+### 74.8 Pruebas
+| Prueba | Fichero |
+|---|---|
+| SKP-1, SKP-2, SKP-3 (+ SKP-6 antes/después), SKP-4 💰, SKP-5, **SKP-5b** (pre-ciclo, se rechazan las 2 ⇒ cierra), **SKP-6b** (solo `skip` ⇒ `422` fail-closed, `isRejectable:false`) — Postgres real, por HTTP | `backend/test/integration/buylist-skip-closure.e2e-spec.ts` |
+| Regla pura vs lectura `where` (8 casos), candado del `OR` explícito, `deriveRejectedReason` con `skip` | `backend/test/buylist.skip-closure-rule.spec.ts` |
+
+⚠️ **SKP-5 tal como está escrita no muerde la mutación del NULL, y por qué.** Con `{ offerDecision: { not: 'skip' } }`
+(o `{ offerDecision: 'buy' }`) las líneas `null` desaparecen de **las dos** lecturas (las que cuentan y las vivas), y como la
+Regla C exige ≥1 línea que cuenta, el efecto es «el pre-ciclo **nunca** cierra», no «cierra de más». SKP-5 («se rechaza 1 ⇒ no
+cierra») sigue verde bajo la mutación. Lo que muerde es **SKP-5b** (se rechazan las 2 ⇒ debe cerrar, como hoy). Medido además:
+con el Prisma del árbol, `{ not: 'skip' }` **sí descarta los NULL** (SKP-5b rojo 3/3).
+
+### 74.9 Mutaciones (copia del árbol entero, BD `tcg_be_skp`; cada una revertida antes de la siguiente; deterministas, N=3)
+| Mutación | Rojos | N |
+|---|---|---|
+| M1 — (a) cuenta todas las líneas (el `count` de antes) | SKP-1, SKP-2 | 3/3 |
+| M2 — (b) guard de antes (todas las líneas no `rechazada`) | SKP-3, SKP-4 | 3/3 |
+| M3 💰 — Regla C sin «toda línea que cuenta»: solo bloquean las `buy` sin veredicto (`aprobada` deja cerrar) | SKP-4 (`requestClosed` true con una `aprobada`) | 3/3 |
+| M4 — `{ offerDecision: { not: 'skip' } }` en vez del `OR` | SKP-5b | 3/3 |
+| M4b — `{ offerDecision: 'buy' }` | SKP-5b | 3/3 |
+| M5 — (c) sin el filtro `skip` (`every` sobre todas) | SKP-3 (`rejectedReason` null) | 3/3 |
+| M6 — (d) `every(itemStatus==='rechazada')` local | SKP-3 (`isRejectable` false antes) | 3/3 |
+| M7 — la pura diverge del `where` (`countsForClosure` siempre true) | SKP-3 (la igualdad de SKP-6) | 3/3 |
+
+### 74.10 Suites completas (copia del árbol de trabajo entero = `b06ac1ca` + este cambio; load 1–5, 4 CPU)
+| Qué | Resultado |
+|---|---|
+| unitarios completos | **397/397 suites · 6732/6732** |
+| integración completa (antes de adaptar `buylist-pay-verdicts`) | 82/83 · los 2 rojos = assert 3 y B1 (ver 60.6) |
+| integración completa (final) | **82/83 suites · 1636/1639 (2 skipped)**. El rojo: `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` = el conocido **P-INT-CEQ1-VAULTS**; aislado **2/3 verde, 1/3 rojo** (N=3) — intermitente, ajeno a buylist |

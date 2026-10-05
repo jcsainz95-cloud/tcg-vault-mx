@@ -942,6 +942,16 @@ export function itemMissingRefundComponents(o: RefundOrderMoney, unitPriceCents:
 }
 
 /**
+ * 💰 v1.82 (§PNL.2) — «la carta más su parte de la comisión» (D-1 del dueño, `HECHOS.md:30`) para UNA línea de orden:
+ * el MISMO cuerpo de `item_missing` (⛔ ninguna segunda fórmula). Lo usan el reembolso de una carta YA ENTREGADA
+ * (`item_delivered`: el verbo y el `deliveredRefund` de M3), con el mismo importe y componentes que si hubiera faltado
+ * al preparar (envío `0`).
+ */
+export function itemRefundComponents(o: RefundOrderMoney, orderItem: { unitPriceCents: number }): RefundComponents {
+  return itemMissingRefundComponents(o, orderItem.unitPriceCents);
+}
+
+/**
  * `order_remaining` (§M4-SHIP.4): un DIRECTO del que NO sale ninguna carta ⇒ `totalCents − Σ amountCents`
  * de las filas no fallidas. Mercancía `0` · envío `E` · IVA de envío = el RESIDUAL `ivaCents − Σ
  * merchandiseIvaCents` (§4.44.j.1: el envío absorbe el centavo) · comisión `amount − E`.

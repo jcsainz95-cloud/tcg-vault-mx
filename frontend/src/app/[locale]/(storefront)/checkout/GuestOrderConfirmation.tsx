@@ -7,7 +7,7 @@ import { claimGuestOrders } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { InlineAuthPanel } from './InlineAuthPanel';
-import { SUPPORT_CONTACT_FALLBACK } from './support-contact';
+import { useSupportContact } from '@/hooks/useSupportContact';
 
 export interface GuestOrderConfirmationProps {
   orderNumber: string;
@@ -42,6 +42,8 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
   const t = useTranslations('checkout.confirmation');
   const tn = useTranslations('nav');
   const tErr = useTranslations('error');
+  // §60.1 b · §PNL.1: el buzón sale de `GET /support/contact` (fallo ⇒ valor de respaldo).
+  const { contact: supportContact } = useSupportContact();
   const [copied, setCopied] = useState(false);
   const [claim, setClaim] = useState<ClaimState>({ kind: 'idle' });
 
@@ -103,9 +105,9 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
       <p className="rule-note mt-8 text-[15px] leading-[1.7] text-muted">
         {t('emailSentTo', { email })}
       </p>
-      <p className="mt-3 text-xs leading-relaxed text-muted">
-        {t('wrongEmail', { contact: SUPPORT_CONTACT_FALLBACK })}
-      </p>
+      {supportContact && (
+        <p className="mt-3 text-xs leading-relaxed text-muted">{t('wrongEmail', { contact: supportContact })}</p>
+      )}
 
       {/* ---- Bloque 2 · reclamo post-compra (AccountClaimOffer) -------------------- */}
       <section aria-labelledby="claim-title" className="mt-12 border-t-2 border-border-strong pt-8">

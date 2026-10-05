@@ -10,8 +10,8 @@ import {
   ruleRow,
   smallPrintRow,
   spacerRow,
-  supportEmail,
 } from '../../buylist/mail-shell';
+import { supportContact } from '../../mail/support-contact';
 import { formatDateTime } from '../../buylist/buylist-mail.templates';
 
 /**
@@ -122,11 +122,11 @@ function folio(params: ShipmentNoticeParams): string {
 
 /**
  * ⭐ D2e (§43.12) — la frase de soporte, escrita UNA vez para `AV-17/18/19`: pedido ⇒ «¿Problema con tu pedido?» con el
- * número; retiro ⇒ «¿Problema con tu envío?» con la referencia (el folio). `{soporte}` = `supportEmail()`, la MISMA cascada
- * que el pie (⛔ dos buzones). Va en la PROSA, ⛔ no en el pie (§31.6h: en el pie no vive nada que el lector necesite).
+ * número; retiro ⇒ «¿Problema con tu envío?» con la referencia (el folio). `{soporte}` = `supportContact()` (el resolutor
+ * ÚNICO, PNL-1/DSC-8 — merge panel+skydropx), la MISMA cascada que el pie (⛔ dos buzones). Va en la PROSA, ⛔ no en el pie (§31.6h: en el pie no vive nada que el lector necesite).
  */
 function supportLine(params: ShipmentNoticeParams, en: boolean): string {
-  const to = supportEmail();
+  const to = supportContact();
   if (params.orderNumber) {
     return en
       ? `Problem with your order? Write to ${to} with your order number ${params.orderNumber} and, if needed, photos.`

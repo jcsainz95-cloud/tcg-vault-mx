@@ -180,6 +180,7 @@ enum PaymentRefundKind {
   shipment_fee // el cobro de un RETIRO cuando no sale ninguna carta
   order_full // M3, súper-admin: el remanente de la orden (§M3)
   case_refund // v1.80.1 — cierra un caso «Por reponer» sin reposición (súper-admin, §M4-SHIP.15.5)
+  item_delivered // v1.82 (M-70, §PNL.2) — UNA carta de un envío directo YA ENTREGADO (súper-admin, motivo ShippedRefundReason)
 }
 
 // v1.80 (M-61, §M4-SHIP.7) — ciclo de una fila del libro. Clase E.
@@ -209,6 +210,7 @@ enum ReplacementCaseStatus {
 enum ManualRefundSource {
   case_excess // la parte de un reembolso de caso que no cabe en el cobro de Stripe (o todo, si el remanente es 0)
   stripe_failed // una fila `case_refund` que Stripe rechazó en definitiva, pasada a SPEI por el súper-admin
+  withdrawal_delivered // v1.82 (M-70, §PNL.3) — UNA carta de un retiro de bóveda YA ENTREGADO, monto capturado, sin caso
 }
 
 enum ManualRefundStatus {
@@ -1932,6 +1934,8 @@ model ShipmentItem {
   // v1.80.1: el caso que abrió esta línea (solo retiros) · la línea NUEVA que una reposición metió al paquete.
   replacementCase    ReplacementCase?      @relation("CaseOpenedByLine")
   replacedIntoCase   ReplacementCase?      @relation("CaseReplacementLine")
+  // v1.82 (M-70, §PNL.3): las devoluciones SPEI de esta línea de un retiro ENTREGADO (una VIVA, índice parcial SQL).
+  manualRefunds      ManualRefund[]
 
   @@index([shipmentRequestId])
 }
@@ -1942,7 +1946,7 @@ model ShipmentItem {
 // Idempotency-Key de Stripe), componentes CONGELADOS y estado. ⛔ Ningún importe se re-deriva.
 model PaymentRefund {
   id                  String              @id @default(uuid())
-  // Formas: `item:<shipmentItemId>` · `order-rest:<orderId>` · `ship-fee:<shipmentRequestId>` · `order-full:<orderId>` · `case:<caseId>`
+  // Formas: `item:<shipmentItemId>` · `order-rest:<orderId>` · `ship-fee:<shipmentRequestId>` · `order-full:<orderId>` · `case:<caseId>` · `item-delivered:<orderItemId>`
   idempotencyKey      String              @unique
   kind                PaymentRefundKind
   status              PaymentRefundStatus @default(requested)
@@ -1957,6 +1961,8 @@ model PaymentRefund {
   shipmentItemId      String?             @unique
   shipmentItem        ShipmentItem?       @relation(fields: [shipmentItemId], references: [id], onDelete: Restrict)
   missingReason       MissingReason?
+  // v1.82 (M-70, §PNL.2): ⇔ kind = item_delivered (CHECK). Por qué se reembolsó una carta YA ENTREGADA.
+  deliveredReason     ShippedRefundReason?
   // IMPORTE y componentes, CONGELADOS al crear la fila (§M4-SHIP.4). IVA DENTRO de mercancía y envío (IVA_INCLUSIVE).
   amountCents         Int
   merchandiseCents    Int
@@ -2040,14 +2046,20 @@ model ReplacementCase {
 // v1.80.2 — cubeta «Reembolsos manuales (SPEI)» (§M4-SHIP.15.13). ⛔ Sin nombre, CLABE ni correo copiados.
 model ManualRefund {
   id                  String             @id @default(uuid())
-  // `case-spei:<caseId>` · `refund-spei:<paymentRefundId>` · `reissue:<manualRefundId>`
+  // `case-spei:<caseId>` · `refund-spei:<paymentRefundId>` · `reissue:<manualRefundId>` · `withdrawal-delivered:<id>`
   idempotencyKey      String             @unique
   source              ManualRefundSource
   status              ManualRefundStatus @default(pending)
   customerUserId      String
   customer            User               @relation(fields: [customerUserId], references: [id], onDelete: Restrict)
-  replacementCaseId   String
-  replacementCase     ReplacementCase    @relation(fields: [replacementCaseId], references: [id], onDelete: Restrict)
+  // v1.82 (M-70): opcional — ⇔ source ∈ {case_excess, stripe_failed} (CHECK `ManualRefund_case_sources_chk`).
+  replacementCaseId   String?
+  replacementCase     ReplacementCase?   @relation(fields: [replacementCaseId], references: [id], onDelete: Restrict)
+  // v1.82 (M-70, §PNL.3): solo withdrawal_delivered (CHECK): la línea del retiro ENTREGADO, el motivo y la nota.
+  shipmentItemId      String?
+  shipmentItem        ShipmentItem?      @relation(fields: [shipmentItemId], references: [id], onDelete: Restrict)
+  deliveredReason     ShippedRefundReason?
+  deliveredNote       String?
   paymentRefundId     String? // solo stripe_failed: la fila de Stripe que sustituye (unicidad parcial entre vivas, SQL crudo)
   paymentRefund       PaymentRefund?     @relation(fields: [paymentRefundId], references: [id], onDelete: Restrict)
   orderId             String?

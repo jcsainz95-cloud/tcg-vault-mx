@@ -76,6 +76,14 @@ import type {
   CustomerPhysicalInventoryDTO,
   PreparationDestination,
   RefundOrderResponse,
+  RefundDeliveredItemRequest,
+  RejectBuylistItemsRequest,
+  RejectBuylistItemsResponse,
+  WithdrawalDeliveredPreviewDTO,
+  CreateWithdrawalDeliveredRefundRequest,
+  CreateWithdrawalDeliveredRefundResponse,
+  RefundDeliveredItemResponse,
+  DeliveredRefundDTO,
   RevealClabeResponse,
   BuylistItemDecisionInput,
   ConvertToInventoryResponse,
@@ -84,8 +92,7 @@ import type {
   SellItemStatus,
   SellRequestStatus,
   DisputeDTO,
-  CreateDisputeInput,
-  CreateDisputeResponse,
+  SupportContactResponse,
   ClientDisputeDTO,
   ProductType,
   PricingOverrideIntent,
@@ -1673,6 +1680,8 @@ export async function getAdminShipments(
   // MOCK §19.20.2: `?alert=true` = la UNIÓN de las dos alertas, sobre las MISMAS filas decoradas que ve la lista.
   if (filters.alert) data = data.filter((s) => s.carrierAlert != null || s.labelAlert != null);
   const q = filters.q?.trim().toLowerCase();
+  // MOCK v1.82 §PNL.3: el retiro ENTREGADO de demo solo entra a las BÚSQUEDAS (no a la cola de envíos).
+  if (q) data = [...data, { ...m4ship.MOCK_DELIVERED_WITHDRAWAL, items: m4ship.MOCK_DELIVERED_WITHDRAWAL.items?.map(({ inventoryItemId }) => ({ inventoryItemId })) }];
   if (q) {
     data = data.filter((s) =>
       s.id === filters.q?.trim() ||
@@ -1681,6 +1690,49 @@ export async function getAdminShipments(
     );
   }
   return delay(paginate(data, filters));
+}
+
+/**
+ * 💰 `GET /admin/manual-refunds/withdrawal-delivered/preview?shipmentItemId=&amountCents=` (contrato v1.82 §PNL.3,
+ * súper-admin, `no-store`): referencias y topes D-12 para la cifra que el dueño escribe. Sin `amountCents` ⇒ solo
+ * referencias, `confirmation: null`.
+ */
+export async function previewWithdrawalDeliveredRefund(
+  shipmentItemId: string,
+  amountCents: number | null,
+): Promise<WithdrawalDeliveredPreviewDTO> {
+  if (!config.useMocks) {
+    return apiRequest<WithdrawalDeliveredPreviewDTO>('/admin/manual-refunds/withdrawal-delivered/preview', {
+      query: { shipmentItemId, amountCents: amountCents ?? undefined },
+    });
+  }
+  try {
+    return await delay(m4ship.mockWithdrawalDeliveredPreview(shipmentItemId, amountCents));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * 💰 `POST /admin/manual-refunds/withdrawal-delivered` (contrato v1.82 §PNL.3, `@MoneyOut`): crea la transferencia
+ * SPEI de UNA carta de un retiro ENTREGADO, con el monto que CAPTURÓ el dueño. ⛔ Cero Stripe. Respuestas:
+ * `201 { manualRefund }`, `409 ITEM_REFUND_NOT_AVAILABLE { reason, manualRefundId? }`,
+ * `422 CASE_REFUND_CONFIRMATION_REQUIRED` / `422 CASE_REFUND_ABOVE_LIMIT`, `403`, `400 { field }`.
+ */
+export async function createWithdrawalDeliveredRefund(
+  body: CreateWithdrawalDeliveredRefundRequest,
+): Promise<CreateWithdrawalDeliveredRefundResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CreateWithdrawalDeliveredRefundResponse>('/admin/manual-refunds/withdrawal-delivered', {
+      method: 'POST',
+      body,
+    });
+  }
+  try {
+    return await delay({ manualRefund: m4ship.mockCreateWithdrawalDeliveredRefund(body) });
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /**
@@ -2085,9 +2137,13 @@ async function mockSdx<T>(fn: () => T): Promise<T> {
 /**
  * `GET /admin/shipments/:id` (§M4, operador+). La ventana lo lee al abrir (paso 0 de §19.19.13) y para
  * RELEER tras un `5xx`/red de la compra (§19.20.5) o un `409 CONFLICT {reason:'address_changed'}`.
+ * También lo usa el diálogo SPEI de retiro entregado (§60.4 b paso 2: las líneas con `id` = `shipmentItemId`,
+ * folio, carta y `prepStatus`). Fusión panel+skydropx: las dos ramas declaraban esta función; queda una, con el
+ * retiro entregado del mock del panel como caso propio.
  */
 export async function getAdminShipment(shipmentId: string): Promise<AdminShipmentDTO> {
   if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}`);
+  if (shipmentId === m4ship.MOCK_DELIVERED_WITHDRAWAL.id) return delay(structuredClone(m4ship.MOCK_DELIVERED_WITHDRAWAL));
   return mockSdx(() => sdx.mockDecorateAdminShipment(mockLiveAdminRow(shipmentId)));
 }
 
@@ -2914,63 +2970,22 @@ export async function respondSellRequest(
   return delay({ id: req.sellRequestId, status: req.status });
 }
 
-// ---------- Disputas del cliente (contrato §7) ----------
+// ---------- Soporte: «Escríbenos» (contrato v1.82 §PNL.1) ----------
 /**
- * Abre una disputa de CONDICIÓN sobre un ítem entregado (contrato §7 · POST /disputes, `customer`).
- * El `type` (condition_raw | condition_sealed) lo deriva el backend del `productType` del ítem (el
- * cliente NO lo envía); graded → `422 NOT_RAW`. Ventana de 7 días desde la entrega → fuera de plazo
- * `422 DISPUTE_WINDOW_CLOSED`; ítem ajeno → `403`. La evidencia va por CORREO a soporte
- * (`evidenceContact`, v1.2 — no hay subida de archivos). Res 201 `CreateDisputeResponse`.
+ * El buzón de soporte (contrato v1.82 §PNL.1 · `GET /support/contact`, público,
+ * `Cache-Control: max-age=300`) → `200 { contact }`. Es la ÚNICA fuente del correo en pantalla;
+ * `SUPPORT_CONTACT_FALLBACK` solo se usa si esta llamada falla (lo decide `useSupportContact`).
+ *
+ * ⛔ `createDispute` ya no existe (PNL-1: `POST /disputes` ⇒ `410 DISPUTES_DISCONTINUED`).
  */
-export async function createDispute(input: CreateDisputeInput): Promise<CreateDisputeResponse> {
+export async function getSupportContact(): Promise<SupportContactResponse> {
   if (!config.useMocks) {
-    return apiRequest<CreateDisputeResponse>('/disputes', { method: 'POST', body: input });
+    return apiRequest<SupportContactResponse>('/support/contact');
   }
-  // MOCK: espeja las guardas del backend (§7). Localiza el ítem en los envíos del usuario para
-  // derivar productType/type y anclar la ventana a la entrega.
-  const shipItem = fx.mockShipments
-    .flatMap((s) => (s.items ?? []).map((it) => ({ item: it, shipment: s })))
-    .find((x) => x.item.inventoryItemId === input.inventoryItemId);
-  const productType = shipItem?.item.productType;
-  if (productType === 'graded') {
-    throw new ApiClientError(422, {
-      code: 'NOT_RAW',
-      message: 'Disputes apply only to raw/sealed items',
-    });
-  }
-  const deliveredAt = shipItem?.shipment.deliveredAt;
-  const now = Date.now();
-  const WINDOW_MS = 7 * 24 * 3600 * 1000;
-  if (deliveredAt && now > new Date(deliveredAt).getTime() + WINDOW_MS) {
-    throw new ApiClientError(422, {
-      code: 'DISPUTE_WINDOW_CLOSED',
-      message: 'Dispute window (7d) closed',
-    });
-  }
-  const type = productType === 'sealed' ? 'condition_sealed' : 'condition_raw';
-  const deadlineAt = new Date(
-    (deliveredAt ? new Date(deliveredAt).getTime() : now) + WINDOW_MS,
-  ).toISOString();
-  const dispute: ClientDisputeDTO = {
-    id: `dsp-new-${Math.floor(Math.random() * 9000 + 1000)}`,
-    inventoryItemId: input.inventoryItemId,
-    type,
-    status: 'abierta',
-    description: input.description,
-    deadlineAt,
-    createdAt: new Date().toISOString(),
-  };
-  // Refleja la nueva disputa en "Mis disputas" (para que el refetch la muestre).
-  fx.mockClientDisputes.unshift(dispute);
-  return delay({
-    disputeId: dispute.id,
-    status: 'abierta',
-    type,
-    deadlineAt,
-    evidenceContact: fx.DISPUTE_EVIDENCE_CONTACT,
-  });
+  return delay({ contact: fx.DISPUTE_EVIDENCE_CONTACT });
 }
 
+// ---------- Disputas del cliente (contrato §7 — en transición, PNL-1: solo lectura) ----------
 /** Lista de disputas propias del cliente (contrato §7 · GET /disputes → { data }). */
 export async function getDisputes(): Promise<ClientDisputeDTO[]> {
   if (!config.useMocks) {
@@ -5128,9 +5143,11 @@ export async function rejectBuylistRequest(
       details: { status: req.status },
     });
   }
-  // Guard de precondición: sólo cierra si TODOS los ítems ya están `rechazada`.
-  const nonRejected = req.items.filter((it) => it.itemStatus !== 'rechazada');
-  if (nonRejected.length > 0) {
+  // Guard de precondición (v1.82.3 §PNL.12.1 b): la Regla C — las `skip` NO cuentan. `details` lista solo los estados de
+  // las líneas que cuentan; si no hay ninguna, los de todas (fail-closed). Las `skip` no se escriben.
+  const counting = fx.mockCountingItems(req.items);
+  const nonRejected = counting.length > 0 ? counting.filter((it) => it.itemStatus !== 'rechazada') : req.items;
+  if (!fx.mockRuleC(req)) {
     throw new ApiClientError(422, {
       code: 'REQUEST_HAS_NON_REJECTED_ITEMS',
       message: 'The sell request still has non-rejected items',
@@ -5230,6 +5247,15 @@ export async function decideBuylistItem(
     });
   }
   const { item } = mockFindBuylistItem(itemId);
+  // Espeja el peldaño de §PNL.10.2 (E-2, v1.82.1): carta ya inventario o ya pagada ⇒ `409 CONFLICT {reason:'ITEM_FINAL'}`,
+  // cero escrituras, para los TRES verbos.
+  if (item.itemStatus === 'convertida_inventario' || item.itemStatus === 'pagada') {
+    throw new ApiClientError(409, {
+      code: 'CONFLICT',
+      message: 'Sell request item is final',
+      details: { itemId, itemStatus: item.itemStatus, reason: 'ITEM_FINAL' },
+    });
+  }
   const next: Record<BuylistItemDecisionInput['decision'], SellItemStatus> = {
     approve: 'aprobada',
     adjust: 'ajustada',
@@ -5257,6 +5283,60 @@ export async function decideBuylistItem(
   item.itemStatus = next[input.decision];
   item.approvedPriceCents = input.approvedPriceCents ?? item.quotedPriceCents ?? 0;
   return delay({ ...item });
+}
+
+/**
+ * Rechazar VARIAS cartas de una solicitud en verificación con UN motivo y UN correo (contrato v1.82 §PNL.4 ·
+ * `POST /admin/buylist/:id/reject-items`, operador+, ⛔ no es dinero saliente). Todo o nada. Respuestas: `200`
+ * (la proyección de la decisión por carta), `422 ITEM_NOT_OFFERED { itemIds }`, `409 CONFLICT { itemIds }` (o
+ * sin `itemIds` si la solicitud cerró), `409 INVALID_TRANSITION { from, allowedFrom }`, `404`, `400`.
+ */
+export async function rejectBuylistItems(
+  requestId: string,
+  body: RejectBuylistItemsRequest,
+): Promise<RejectBuylistItemsResponse> {
+  if (!config.useMocks) {
+    return apiRequest<RejectBuylistItemsResponse>(`/admin/buylist/${requestId}/reject-items`, { method: 'POST', body });
+  }
+  // MOCK: espeja las guardas de §PNL.4 (en ese orden) sobre la solicitud en memoria.
+  const req = fx.mockAdminBuylist.find((r) => r.id === requestId);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  const reason = body.reason?.trim() ?? '';
+  if (reason.length < 3 || reason.length > 500) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'reason 3-500', details: { field: 'reason' } });
+  }
+  if (new Set(body.itemIds).size !== body.itemIds.length) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'duplicates', details: { field: 'itemIds', rule: 'duplicates' } });
+  }
+  if (fx.mockAdminBuylistDTO(req).isTerminal) throw new ApiClientError(409, { code: 'CONFLICT', message: 'closed', details: { status: req.status } });
+  if (req.status !== 'verificacion') {
+    throw new ApiClientError(409, {
+      code: 'INVALID_TRANSITION',
+      message: 'not in verification',
+      details: { verb: 'rejectItems', from: req.status, allowedFrom: ['verificacion'] },
+    });
+  }
+  const items = body.itemIds.map((id) => req.items.find((it) => it.id === id));
+  if (items.some((it) => !it)) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'item not in request' });
+  const skip = items.filter((it) => it!.offerDecision === 'skip').map((it) => it!.id);
+  if (skip.length > 0) throw new ApiClientError(422, { code: 'ITEM_NOT_OFFERED', message: 'not offered', details: { itemIds: skip } });
+  const stuck = items.filter((it) => it!.itemStatus === 'rechazada' || it!.itemStatus === 'pagada' || it!.itemStatus === 'convertida_inventario').map((it) => it!.id);
+  if (stuck.length > 0) throw new ApiClientError(409, { code: 'CONFLICT', message: 'not rejectable', details: { itemIds: stuck } });
+  const rejectedAt = new Date().toISOString();
+  const deadlines = mockRejectDeadlines(rejectedAt);
+  for (const it of items) {
+    it!.itemStatus = 'rechazada';
+    it!.approvedPriceCents = undefined;
+    it!.rejectionReason = reason;
+    it!.rejectedAt = rejectedAt;
+    it!.returnDeadlineAt = deadlines.returnDeadlineAt;
+    it!.abandonDeadlineAt = deadlines.abandonDeadlineAt;
+  }
+  // Auto-transición (§M5 «(1)»): si no queda ninguna carta de la compra sin rechazar, la solicitud se cierra sola.
+  // v1.82.3 §PNL.12.1 a: la misma Regla C que `isRejectable` y `POST …/reject` (una copia en el servidor falso).
+  const closed = fx.mockRuleC(req);
+  if (closed) req.status = 'rechazada';
+  return delay({ items: items.map((it) => ({ ...it! })), requestClosed: closed });
 }
 
 /**
@@ -5517,7 +5597,13 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDT
   const additions = m4ship.mockAdminOrderDetailAdditions(orderId);
   const items: AdminOrderDetailDTO['items'] = fx.mockOrderDetail.items.map(({ refund: _r, ...it }) => {
     void _r;
-    return { ...it, refund: null };
+    const done = mockDeliveredRefunds.get(`${orderId}:${it.inventoryItemId}`) ?? null;
+    return {
+      ...it,
+      refund: done,
+      orderItemId: `oi-${orderId}-${it.inventoryItemId}`,
+      deliveredRefund: done ? null : mockDeliveredRefundOf(orderId, it.unitPriceCents),
+    };
   });
   // v1.80.8.7 (A-1): `settledAt` SIEMPRE presente en el detalle (`null` ⇔ nunca liquidada).
   const settledAt = order.settledAt ?? (order.status === 'pending' || order.status === 'failed' ? null : order.createdAt);
@@ -5544,6 +5630,77 @@ export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDT
     settledAt,
   };
   return delay(detail);
+}
+
+/**
+ * MOCK (§PNL.2): `deliveredRefund` por línea. El importe real lo calcula el SERVIDOR (`A = P + floor(F×P/G)`); el mock
+ * usa el precio de la línea para no reimplementar dinero en el cliente. Reembolsable ⇔ directo `settled` con algún
+ * envío de la orden `entregado` (las filas de envío del propio mock, `m4ship`).
+ */
+const mockDeliveredRefunds = new Map<string, NonNullable<AdminOrderDetailDTO['items']>[number]['refund']>();
+function mockDeliveredRefundOf(orderId: string, unitPriceCents: number): DeliveredRefundDTO {
+  const row = fx.mockAdminOrders.find((o) => o.id === orderId);
+  const add = m4ship.mockAdminOrderDetailAdditions(orderId);
+  const mode = add.fulfillmentMode ?? row?.fulfillmentMode;
+  const status = add.status ?? row?.status;
+  if (mode !== 'direct_ship') return { kind: 'not_refundable', reason: 'not_direct_ship' };
+  if (status !== 'settled') return { kind: 'not_refundable', reason: 'order_not_settled' };
+  if (!(add.shipments ?? []).some((sh) => sh.status === 'entregado')) return { kind: 'not_refundable', reason: 'not_delivered' };
+  return { kind: 'refundable', amountCents: unitPriceCents };
+}
+
+/**
+ * 💰 `POST /admin/orders/:id/items/:orderItemId/refund-delivered` (contrato v1.82 §PNL.2, `@MoneyOut`). Reembolsa UNA
+ * carta de un pedido directo ENTREGADO. El cuerpo lleva `expectedRefundCents` (la cifra que el súper-admin VIO) y
+ * ⛔ nunca `amountCents`. Respuestas: `201 { refund }`, `409 REFUND_PREVIEW_STALE { refundCents }`,
+ * `409 ITEM_REFUND_NOT_AVAILABLE { reason }`, `403 MONEY_OUT_FORBIDDEN`, `400 VALIDATION_ERROR { field }`, `409 CONFLICT`.
+ */
+export async function refundDeliveredItem(
+  orderId: string,
+  orderItemId: string,
+  body: RefundDeliveredItemRequest,
+): Promise<RefundDeliveredItemResponse> {
+  if (!config.useMocks) {
+    return apiRequest<RefundDeliveredItemResponse>(
+      `/admin/orders/${orderId}/items/${orderItemId}/refund-delivered`,
+      { method: 'POST', body, headers: { 'Idempotency-Key': `item-delivered:${orderItemId}` } },
+    );
+  }
+  if (m4ship.mockCallerRole() !== 'super_admin') {
+    throw new ApiClientError(403, { code: 'MONEY_OUT_FORBIDDEN', message: 'Super admin only' });
+  }
+  const order = fx.mockAdminOrders.find((o) => o.id === orderId);
+  const prefix = `oi-${orderId}-`;
+  const item = fx.mockOrderDetail.items.find((it) => `${prefix}${it.inventoryItemId}` === orderItemId);
+  if (!order || !item) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Order item not found' });
+  const key = `${orderId}:${item.inventoryItemId}`;
+  if (mockDeliveredRefunds.has(key)) {
+    throw new ApiClientError(409, { code: 'ITEM_REFUND_NOT_AVAILABLE', message: 'already refunded', details: { reason: 'already_refunded' } });
+  }
+  const view = mockDeliveredRefundOf(orderId, item.unitPriceCents);
+  if (view.kind === 'not_refundable') {
+    throw new ApiClientError(409, { code: 'ITEM_REFUND_NOT_AVAILABLE', message: 'not available', details: { reason: view.reason } });
+  }
+  if (body.expectedRefundCents !== view.amountCents) {
+    throw new ApiClientError(409, { code: 'REFUND_PREVIEW_STALE', message: 'stale', details: { refundCents: view.amountCents } });
+  }
+  const now = new Date().toISOString();
+  const refund = {
+    id: `pr-del-${Math.floor(Math.random() * 9000 + 1000)}`,
+    kind: 'item_delivered' as const,
+    status: 'requested' as const,
+    amountCents: view.amountCents,
+    missingReason: null,
+    deliveredReason: body.reason,
+    requestedAt: now,
+    requestedBy: { userId: 'u-admin', name: 'Admin', role: 'super_admin' as const },
+    submittedAt: null,
+    succeededAt: null,
+    failedAt: null,
+    failureCode: null,
+  };
+  mockDeliveredRefunds.set(key, refund);
+  return delay({ refund });
 }
 
 /** MOCK: quita las claves `undefined` de un parcial antes de esparcirlo (no pisa lo que la fila sí sabe). */

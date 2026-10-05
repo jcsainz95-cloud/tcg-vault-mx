@@ -15,6 +15,8 @@ import { Link } from '@/i18n/navigation';
 import { historicalCardMeta, historicalCardName } from '@/lib/historical-card';
 import { OrderItemStatusLine } from '@/components/domain/OrderItemStatusLine';
 import { OrderShipmentBlock } from '@/components/domain/OrderShipmentBlock';
+import { SupportContact } from '@/components/domain/SupportContact';
+import { useSupportContact } from '@/hooks/useSupportContact';
 import { TRACKING_STATUS_KEY, TRACKING_STATUS_TONE } from '@/app/[locale]/pedido/tracking-status';
 import { ResumePaymentAction } from '../ResumePaymentAction';
 
@@ -37,6 +39,11 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       ? query.data.items.reduce((acc, it) => acc + (it.refund?.amountCents ?? 0), 0)
       : 0;
   const originRefunded = query.data?.fulfillmentMode === 'vault' && query.data.publicStatus === 'reembolsado';
+  // §60.1 b · §PNL.1: «Escríbenos» SOLO en un pedido de envío directo cuyo envío está ENTREGADO
+  // (el DTO del cliente trae UN `shipment`). Orden a bóveda: nunca (su entrega es el retiro).
+  const showSupport =
+    query.data?.fulfillmentMode === 'direct_ship' && query.data.shipment?.status === 'entregado';
+  const support = useSupportContact();
 
   return (
     <QueryState
@@ -158,6 +165,14 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                   publicStatus={query.data.publicStatus}
                   fulfillmentMode={query.data.fulfillmentMode}
                   className="mb-8 border-b border-border pb-8"
+                />
+              )}
+              {showSupport && (
+                <SupportContact
+                  email={support.contact}
+                  reference={query.data.orderNumber ?? query.data.id}
+                  kind="order"
+                  className="mb-8 border-t-0 border-b pb-8 pt-0"
                 />
               )}
               <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />

@@ -146,6 +146,8 @@ export function ShipPreparationCard({
   const [rowErrors, setRowErrors] = useState<Record<string, ShownError>>({});
   const [footerError, setFooterError] = useState<ShownError | null>(null);
   const [cardNotice, setCardNotice] = useState<string | null>(null);
+  // §60.9 b: la dirección plegada en el teléfono durante el paso 1 (el operador la abre si la necesita).
+  const [addressOpen, setAddressOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmAmount, setConfirmAmount] = useState(0);
   const [unprepareOpen, setUnprepareOpen] = useState(false);
@@ -519,7 +521,7 @@ export function ShipPreparationCard({
             {order.orderId && (
               <Link
                 href={`/admin/m3/${order.orderId}`}
-                className="text-sm text-text underline underline-offset-4 hover:text-accent print:hidden"
+                className="inline-flex min-h-[44px] items-center text-sm text-text underline underline-offset-4 hover:text-accent print:hidden"
               >
                 {tm4('viewOrder')}
               </Link>
@@ -547,8 +549,26 @@ export function ShipPreparationCard({
         {order.customer.email && <p className="text-sm text-muted print:hidden">{order.customer.email}</p>}
       </div>
 
-      {/* Plano 2 · a dónde (§35.5): la dirección se transcribe a mano ⇒ nunca en `muted`. */}
-      <div data-testid={`prep-address-${shipmentId}`} className="flex flex-col gap-1 text-sm text-text">
+      {/* Plano 2 · a dónde (§35.5): la dirección se transcribe a mano ⇒ nunca en `muted`.
+          §60.9 b: en `< sm` y en el paso 1 va PLEGADA (se transcribe en el paso 2, no en el estante). El
+          contenedor lo decide el CSS (`hidden sm:flex`), ⛔ no un media query en JS (§37.1a). */}
+      {step === 'collect' && (
+        <button
+          type="button"
+          aria-expanded={addressOpen}
+          aria-controls={`${uid}-address`}
+          onClick={() => setAddressOpen((v) => !v)}
+          className="inline-flex min-h-[44px] items-center gap-2 self-start text-sm text-text underline underline-offset-4 sm:hidden print:hidden"
+          data-testid={`prep-address-toggle-${shipmentId}`}
+        >
+          {t('addressToggle')}
+        </button>
+      )}
+      <div
+        id={`${uid}-address`}
+        data-testid={`prep-address-${shipmentId}`}
+        className={cn('flex-col gap-1 text-sm text-text', step === 'collect' && !addressOpen ? 'hidden sm:flex print:flex' : 'flex')}
+      >
         {shipTo.recipientName && (
           <p>
             <span className={LABEL}>{tm4('recipient')}</span> <span>{shipTo.recipientName}</span>
@@ -707,7 +727,9 @@ export function ShipPreparationCard({
       {/* Plano 5 · pie de acción: una acción principal por paso (V5). */}
       <div
         data-testid={`ship-footer-${shipmentId}`}
-        className="flex flex-col gap-3 border-t border-border pt-3 print:hidden"
+        // §60.9 d: en `< sm` el pie es PEGAJOSO dentro de su tarjeta (fondo de la tarjeta, regla superior, área segura);
+        // se va con ella al salir de la vista. Sin sombra (§4).
+        className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-3 border-t border-border bg-surface px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 sm:static sm:mx-0 sm:px-0 sm:pb-0 print:hidden"
       >
         {step === 'collect' ? (
           <>
@@ -716,7 +738,7 @@ export function ShipPreparationCard({
             )}
             <Button
               variant="primary"
-              className="self-start sm:min-h-[44px]"
+              className="self-start min-h-[44px]"
               disabled={preparation.pending > 0 || missingNotRefundable}
               loading={prepare.isPending}
               aria-describedby={preparation.pending > 0 || missingNotRefundable ? prepareReasonId : undefined}
@@ -742,7 +764,7 @@ export function ShipPreparationCard({
             ) : (
               <Button
                 variant="ghost"
-                className="self-start sm:min-h-[44px]"
+                className="self-start min-h-[44px]"
                 disabled={unprepare.isPending}
                 onClick={() => setUnprepareOpen(true)}
               >
@@ -752,7 +774,7 @@ export function ShipPreparationCard({
             <div className="flex flex-col items-start gap-2 sm:items-end">
               <Button
                 variant="primary"
-                className="sm:min-h-[44px]"
+                className="min-h-[44px]"
                 disabled={openReplacements > 0}
                 aria-describedby={openReplacements > 0 ? guideReasonId : undefined}
                 onClick={() => onCaptureGuide(order)}
@@ -762,7 +784,7 @@ export function ShipPreparationCard({
               {openReplacements > 0 && (
                 <p id={guideReasonId} className="text-sm text-text sm:text-right">
                   {ts('guide.waiting', { count: openReplacements })}{' '}
-                  <Link href={replaceHref} className="underline underline-offset-4 hover:text-accent">
+                  <Link href={replaceHref} className="inline-flex min-h-[44px] items-center underline underline-offset-4 hover:text-accent">
                     {tm4('tracking.goToReplace')}
                   </Link>
                 </p>
@@ -801,12 +823,12 @@ function ErrorLine({ error, tc }: { error: ShownError; tc: Translator }) {
     <div role="alert" className="flex flex-col items-start gap-2 text-sm text-text">
       <p>{error.text}</p>
       {error.links?.map((l) => (
-        <Link key={l.href} href={l.href} className="underline underline-offset-4 hover:text-accent">
+        <Link key={l.href} href={l.href} className="inline-flex min-h-[44px] items-center underline underline-offset-4 hover:text-accent">
           {l.label}
         </Link>
       ))}
       {error.retry && (
-        <Button size="sm" variant="secondary" className="sm:min-h-[44px]" onClick={error.retry}>
+        <Button size="sm" variant="secondary" className="min-h-[44px]" onClick={error.retry}>
           {tc('retry')}
         </Button>
       )}
@@ -878,7 +900,8 @@ function ShipItemRow({
       <div data-testid={`prep-location-${item.shipmentItemId}`} className="flex shrink-0 flex-col gap-0.5 sm:w-32">
         <span className={LABEL}>{t('location')}</span>
         {located ? (
-          <span className="tabular text-sm text-text">
+          // §60.9 c: en `< sm` la ubicación va ARRIBA y GRANDE (mono 17 px, tinta, 600): es lo que se busca al caminar.
+          <span className="tabular font-mono text-[17px] font-semibold text-text sm:font-sans sm:text-sm sm:font-normal">
             {item.currentLocation.kind === 'assigned' ? item.currentLocation.label : ''}
           </span>
         ) : (
@@ -899,14 +922,14 @@ function ShipItemRow({
         <div
           role="group"
           aria-labelledby={nameId}
-          className="order-last flex flex-wrap gap-2 sm:order-none sm:w-44 sm:shrink-0 sm:flex-col print:hidden"
+          className="order-last flex flex-wrap gap-3 sm:order-none sm:w-44 sm:shrink-0 sm:flex-col sm:gap-2 print:hidden"
         >
           {item.prepStatus === 'pending' ? (
             <>
               <Button
                 size="sm"
                 variant="secondary"
-                className="min-h-[44px] basis-full sm:min-h-[44px] sm:basis-auto"
+                className="min-h-[44px] basis-full sm:basis-auto"
                 aria-label={aria(tv('item.pick'))}
                 loading={busy === 'picked'}
                 disabled={anyBusy && busy !== 'picked'}
@@ -917,7 +940,7 @@ function ShipItemRow({
               <Button
                 size="sm"
                 variant="ghost"
-                className="min-h-[44px] flex-1 sm:min-h-[44px] sm:flex-none"
+                className="min-h-[44px] flex-1 sm:flex-none"
                 aria-label={aria(tv('item.miss'))}
                 loading={busy === 'missing' && item.missingReason !== 'damaged'}
                 disabled={anyBusy && busy !== 'missing'}
@@ -928,7 +951,7 @@ function ShipItemRow({
               <Button
                 size="sm"
                 variant="ghost"
-                className="min-h-[44px] flex-1 sm:min-h-[44px] sm:flex-none"
+                className="min-h-[44px] flex-1 sm:flex-none"
                 aria-label={aria(ts('item.damaged'))}
                 disabled={anyBusy}
                 onClick={() => onMark('missing', 'damaged')}
@@ -940,7 +963,7 @@ function ShipItemRow({
             <Button
               size="sm"
               variant="ghost"
-              className="min-h-[44px] sm:min-h-[44px]"
+              className="min-h-[44px]"
               aria-label={aria(tv('item.undo'))}
               loading={busy === 'pending'}
               onClick={() => onMark('pending')}
@@ -998,12 +1021,12 @@ function ShipItemRow({
           <div role="alert" className="flex flex-col items-start gap-2 text-sm text-text">
             <p>{error.text}</p>
             {error.offerUnprepare && (
-              <Button size="sm" variant="ghost" className="min-h-[44px] sm:min-h-[44px]" onClick={onUnprepare}>
+              <Button size="sm" variant="ghost" className="min-h-[44px]" onClick={onUnprepare}>
                 {ts('unprepare.cta')}
               </Button>
             )}
             {error.retry && (
-              <Button size="sm" variant="secondary" className="min-h-[44px] sm:min-h-[44px]" onClick={error.retry}>
+              <Button size="sm" variant="secondary" className="min-h-[44px]" onClick={error.retry}>
                 {tc('retry')}
               </Button>
             )}
@@ -1072,7 +1095,7 @@ function RefundLine({
             <Button
               size="sm"
               variant="ghost"
-              className="min-h-[44px] sm:min-h-[44px]"
+              className="min-h-[44px]"
               loading={retryBusy === f.id}
               onClick={() => onRetry(f.id)}
             >
@@ -1103,7 +1126,7 @@ function RefundLine({
         : ts(`item.replacementStatus.${c.status}`);
     return (
       <p className="text-sm text-text print:hidden" data-testid={`ship-refund-line-${item.shipmentItemId}`}>
-        <Link href={`/admin/m4/reponer/${c.id}`} className="underline underline-offset-4 hover:text-accent">
+        <Link href={`/admin/m4/reponer/${c.id}`} className="inline-flex min-h-[44px] items-center underline underline-offset-4 hover:text-accent">
           {ts('item.replacementLink')}
         </Link>{' '}
         {statusText}
@@ -1156,20 +1179,21 @@ function PrepareDialog({
       onClose={onCancel}
       title={title}
       footer={
-        <>
-          <Button ref={cancelRef} variant="secondary" className="sm:min-h-[44px]" onClick={onCancel}>
+        // §60.9 e: en el teléfono, botones apilados a lo ancho y CONFIRMAR ARRIBA (`flex-col-reverse`).
+        <div className="flex w-full flex-col-reverse gap-3 sm:w-auto sm:flex-row sm:gap-2">
+          <Button ref={cancelRef} variant="secondary" className="min-h-[44px] w-full sm:w-auto" onClick={onCancel}>
             {ts('confirmRefund.cancel')}
           </Button>
           <Button
             variant="secondary"
-            className="sm:min-h-[44px]"
+            className="min-h-[44px] w-full sm:w-auto"
             loading={pending}
             onClick={onConfirm}
             data-testid="ship-prepare-confirm"
           >
             {casesMode ? ts('confirmCases.confirm') : ts('confirmRefund.confirm', { amount })}
           </Button>
-        </>
+        </div>
       }
     >
       <div className="flex flex-col gap-3 text-sm text-text">
@@ -1229,14 +1253,14 @@ function UnprepareDialog({
       onClose={onCancel}
       title={ts('unprepare.title')}
       footer={
-        <>
-          <Button ref={cancelRef} variant="secondary" className="sm:min-h-[44px]" onClick={onCancel}>
+        <div className="flex w-full flex-col-reverse gap-3 sm:w-auto sm:flex-row sm:gap-2">
+          <Button ref={cancelRef} variant="secondary" className="min-h-[44px] w-full sm:w-auto" onClick={onCancel}>
             {ts('unprepare.cancel')}
           </Button>
-          <Button variant="secondary" className="sm:min-h-[44px]" loading={pending} onClick={onConfirm}>
+          <Button variant="secondary" className="min-h-[44px] w-full sm:w-auto" loading={pending} onClick={onConfirm}>
             {ts('unprepare.confirm')}
           </Button>
-        </>
+        </div>
       }
     >
       <p>{ts('unprepare.body')}</p>

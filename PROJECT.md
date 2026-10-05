@@ -1560,9 +1560,10 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] **Excepción 1 — la carta llegó dañada o equivocada** *(reescrita 2026-10-04, **§V**)*: tras la entrega el
       cliente **escribe a soporte** («¿Problema con tu pedido? Escríbenos»), con su número de pedido y sus fotos
       por correo; ⛔ **no hay botón de disputa** en ninguna parte de la tienda. Si procede, el **súper-admin
-      compensa desde Ventas con el reembolso que lleva motivo «llegó en mala condición»** (§S.11.4). El cliente
+      compensa con motivo «llegó en mala condición»**: desde Ventas, **solo esa carta** o el pedido entero
+      (§S.11.4); en un retiro de bóveda entregado, por **SPEI** (§V.2, *2026-10-05*). El cliente
       **conserva la carta** (las cartas de un pedido enviado no vuelven a inventario). Para juzgar, siguen
-      valiendo el **grado y certificado** (gradeadas) y el **estándar NM** (raw). Criterios **271–273**.
+      valiendo el **grado y certificado** (gradeadas) y el **estándar NM** (raw). Criterios **271–273** y **403–407**.
 - [ ] **Excepción 2 — error de la plataforma (siempre se reembolsa)**: un **error nuestro** —por ejemplo, un
       **cobro duplicado** o **inventario fantasma** (compra de una carta de la que nunca tuvimos existencia
       real en bóveda)— **siempre se reembolsa**. NO es "arrepentimiento del comprador": es la **corrección de
@@ -2177,9 +2178,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       plataforma** (cobro duplicado / inventario fantasma) se ejecuta en **M3** (no requiere disputa ni ventana).
       *(**M8 RETIRADO el 2026-10-04** — `HECHOS.md` fila 2026-10-04 «Disputas: se quitan de la tienda…». Motivo:
       el cliente ya no abre disputas; la carta dañada o equivocada se compensa desde **Ventas (M3)** con el
-      reembolso con motivo «llegó en mala condición» (§S.11.4, §V). **(SUPUESTO / default de P-DSP-1:** M8 queda
+      reembolso con motivo «llegó en mala condición» —la carta sola o el pedido entero; un retiro entregado, por
+      SPEI— (§S.11.4, §V.2). **Default de P-DSP-1, aceptado** (`HECHOS.md:44`): M8 queda
       **en transición**: no entra ninguna disputa nueva, conserva solo lo necesario para **cerrar las que ya
-      existan**, y **se retira** cuando no quede ninguna abierta.) Criterio **272**.)*
+      existan**, y **se retira** cuando no quede ninguna abierta. Criterios **272** y **400**.)*
 - [ ] **M9 — Reportes mínimos**: métricas de lanzamiento + **export**.
 - [ ] **M10 — Config y bitácora**: **diales editables sin deploy** + **auditoría global** (quién / qué / cuándo).
       Diales con **valores por defecto** (todos configurables): **markup de precio de venta** (% sobre la
@@ -2343,10 +2345,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **Carta dañada o equivocada — se escribe a soporte, se compensa con reembolso** *(reescrita 2026-10-04,
       §V)*: no hay disputa en la tienda. Tras la entrega, el cliente **escribe a soporte** con su número de pedido
       y su evidencia; el **súper-admin** juzga (grado/cert en gradeadas, estándar NM en raw) y, si procede,
-      **reembolsa desde Ventas con motivo «llegó en mala condición»** (§S.11.4). El cliente conserva la carta.
-      Ni antes del envío ni con la carta en bóveda existe esta vía (palabras del dueño).
-      **(SUPUESTO / default de P-DSP-2:** la **ventana de 7 días desde la entrega** se conserva como **política
-      escrita en términos**, pero el sistema **no la aplica**: no hay disputa que cerrar; decide el súper-admin.)
+      **reembolsa con motivo «llegó en mala condición»**: desde Ventas, **solo esa carta** o el pedido entero
+      (§S.11.4); de un **retiro de bóveda entregado**, por **SPEI** (§V.2, `HECHOS.md:44`). El cliente conserva la
+      carta. Ni antes de la entrega ni con la carta en bóveda existe esta vía (palabras del dueño).
+      **Default de P-DSP-2, aceptado** (`HECHOS.md:44`): la **ventana de 7 días desde la entrega** se conserva como
+      **política escrita en términos**, pero el sistema **no la aplica**: no hay disputa que cerrar; decide el súper-admin.
 - [ ] **Error de la plataforma (siempre se reembolsa)**: un error propio —**cobro duplicado** o **inventario
       fantasma** (venta de una carta sin existencia real en bóveda)— **siempre se reembolsa**. No es
       arrepentimiento del comprador sino corrección de un error nuestro; **no aplica la ventana de 7 días ni la
@@ -7598,18 +7601,31 @@ Ver la sección final **«Preguntas — usuarios de back-office sin correo (2026
 P-STF-8. **Todas cerradas el 2026-10-04**: P-STF-4 la decidió el dueño (misma pantalla); las otras siete,
 default aceptado.
 
-### V. Disputas fuera de la tienda — el cliente escribe a soporte o reclama a su banco (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-DSP abiertas)
+### V. Disputas fuera de la tienda — el cliente escribe a soporte o reclama a su banco (transversal — NUEVO 2026-10-04, sesión 5 · ✅ **reescrita 2026-10-05** con las respuestas del dueño a P-DSP-1…5 · norma: `API_CONTRACT` v1.82 §PNL)
 
-> **Fuente:** `HECHOS.md`, fila **2026-10-04** «Disputas: se quitan de la tienda. No hay disputa antes del envío ni
+> **Fuente:** `HECHOS.md:44`, fila **2026-10-04** «Disputas: se quitan de la tienda. No hay disputa antes del envío ni
 > en bóveda; tras la entrega, el cliente escribe a soporte o reclama con su banco vía Stripe.» Palabras del dueño,
 > literales: *«que la disputa se abra en stripe que el cliente la pele con ellos no con nosotros»*; *«no debería
 > haber disputas hasta después del envío, menos en bóveda»*; y, a la propuesta del orquestador, *«sí, quita el
 > botón y pon escríbenos»*. Lo dicho **no se re-pregunta**.
 >
-> **Letra:** §T la usa la rama viva `claude/skydropx-envios` (criterios 234–248) y §U ya existe; por eso esta es
-> §V. **Criterios: 271–274** (medido el 2026-10-04 sobre este `PROJECT.md`: el último ocupado es el 270; **NO
-> MEDIDO** si otra rama viva distinta de la de Skydropx usa números ≥ 271 — lo comprueba el orquestador antes de
-> fusionar).
+> **Respuestas del dueño el mismo día (misma fila `HECHOS.md:44`, «Respuestas del dueño a P-DSP-3/P-DSP-4»)**, que
+> **sustituyen** los defaults que este borrador traía el 2026-10-04:
+> - **(a) P-DSP-3:** *reembolsar solo la carta* que llegó mal de un pedido entregado, desde Ventas, con motivo («no
+>   llegó» / «llegó en mala condición»). Hoy no existe: **se construye**. ⛔ Ya **no** vale «compensación solo total».
+> - **(b) P-DSP-4:** el **retiro de bóveda entregado también muestra «Escríbenos»**; si hay que devolver dinero, **por
+>   SPEI**, como los reembolsos manuales que ya existen. ⛔ Ya **no** vale «el retiro entregado no muestra Escríbenos».
+> - **P-DSP-1, P-DSP-2 y P-DSP-5:** quedan con su default (dicho en la misma fila).
+>
+> **Corte en el que se construye:** rama `claude/arreglos-panel`, contrato **v1.82 §PNL** (piezas PNL-1…PNL-6). Este
+> mismo corte trae tres piezas que no son de disputas (solicitud de venta, lo vivo de v1.80.10, `R69-1`): viven en
+> **§V.10** para que sus criterios tengan de dónde colgar.
+>
+> **Letra:** §T la usa la rama viva `claude/skydropx-envios` y §U ya existe; por eso esta es §V. **Criterios:
+> 271–274** (2026-10-04) y **400–418** (2026-10-05, nuevos). ⚠️ Los nuevos empiezan en el **400** a propósito: según
+> el orquestador, la rama de Skydropx ya ocupa **275–338** (**NO MEDIDO** por product-owner: sin Bash, no leí esa
+> rama). ⚠️ Y en **este** árbol 275–305 ya los ocupan §W, §X y §Y: si el dato del orquestador es cierto, **ya hay
+> choque 275–305 entre las dos ramas**, ajeno a §V — lo resuelve el orquestador antes de fusionar.
 >
 > **Sustituye:** la **«vía B»** de la errata `API_CONTRACT §E2E-ADM.1` (v1.80.10, F-2: disputa del comprador de un
 > envío directo desde el detalle del pedido) — dicho en la propia fila de `HECHOS.md`. Y retira, tachados en su
@@ -7625,11 +7641,13 @@ default aceptado.
   el **detalle del pedido**, ni en la **página de seguimiento del invitado**. *(Medido el 2026-10-04 por lectura:
   hoy el botón vive en «Retiros», `frontend/src/app/[locale]/(storefront)/vault/WithdrawalsList.tsx:196`; la
   errata v1.80.10 proponía añadirlo al detalle del pedido, y eso ya no se hace.)*
-- En un **pedido entregado** (con cuenta o como invitado), el cliente ve **«¿Problema con tu pedido?
-  Escríbenos»** con el **correo de soporte**. Antes de «entregado» la línea no aparece (*«no debería haber
-  disputas hasta después del envío»*).
-- **(SUPUESTO / default de P-DSP-4:** en un **retiro de bóveda entregado** la línea **no** aparece en este corte —
-  el dueño habló de «pedido»—; si la quiere también ahí, lo dice.)
+- **«¿Problema con tu pedido? Escríbenos»** con el **correo de soporte** aparece en **tres** lugares, y solo cuando
+  lo enviado ya está **entregado** (*«no debería haber disputas hasta después del envío»*):
+  - el **detalle de un pedido de envío directo** cuyo envío está **entregado** (cliente con cuenta);
+  - **«Retiros»** —la lista y la ficha del retiro— cuando el retiro de bóveda está **entregado** (`HECHOS.md:44` (b));
+  - la **página de seguimiento del invitado** con su envío **entregado**.
+  Antes de «entregado» la línea **no** aparece. Un **pedido a bóveda** no la muestra: su entrega física es el retiro,
+  y ahí sí aparece. Criterio **401**.
 - Los textos que hoy prometen una disputa (términos, checkout, seguimiento del invitado: ventana, «recompra»,
   «abrir disputa») se reescriben para decir **escríbenos a soporte**. El aviso corto del checkout («ventas
   finales, sin reembolso salvo carta dañada/equivocada o error de la plataforma») **sigue siendo cierto** y no
@@ -7638,22 +7656,32 @@ default aceptado.
 #### V.2 Cómo compensa el dueño
 
 - El cliente escribe a soporte con su **número de pedido** y su evidencia (fotos por correo, como hasta hoy).
-- El **súper-admin** decide caso por caso (grado/cert en gradeadas; estándar NM en raw) y, si procede, compensa
-  **desde Ventas (M3) con el reembolso que lleva motivo** —**«no llegó»** o **«llegó en mala condición»**—, el de
-  **§S.11.4** (criterio **251**). Las cartas de un pedido enviado **no vuelven a inventario**: el cliente se queda
-  con ellas. ⛔ No hay acción nueva de compensación: es la que ya existe.
-- **(SUPUESTO / default de P-DSP-3:** ese reembolso es **total**, porque es el único que existe después de
-  «enviado» (`Fuera de alcance`, §S.11: hoy no hay reembolso **por carta** tras el envío). Si en un pedido de 5
-  cartas llega mal **una**, en este corte el dueño elige entre reembolsar todo o arreglarlo fuera del sistema.)
+- El **súper-admin** decide caso por caso (grado/cert en gradeadas; estándar NM en raw) y, si procede, compensa con
+  una de **tres** vías, según qué le llegó mal al cliente. En las tres la carta **no vuelve a inventario**: la
+  tiene el cliente (`HECHOS.md:37` (b), fila 2026-10-02 «Cartas apartadas… depende de si el pedido ya salió»).
+
+  | Qué llegó mal | Cómo compensa | Dónde | Nuevo |
+  |---|---|---|---|
+  | **Una carta** de un pedido de **envío directo entregado** (`HECHOS.md:44` (a)) | 💰 **Reembolsa solo esa carta** a la tarjeta, con motivo **«no llegó»** o **«llegó en mala condición»** y una **nota obligatoria** (qué pasó). Importe: **la carta más su parte de la comisión, sin envío** — la misma regla que el dueño fijó para la carta que falta al preparar (`HECHOS.md:30`, fila 2026-09-29 «Preparar envíos — respuestas a D-1..D-4», D-1: *«$314.58: la carta más su parte de la comisión»*) **(SUPUESTO del arquitecto, `API_CONTRACT §PNL.9`; ver P-PNL-3)**. El sistema calcula el importe y lo muestra; el súper-admin confirma la cifra que vio. El pedido **sigue liquidado** (es parcial). El cliente —con cuenta **o invitado**— recibe el aviso por correo y ve en su pedido el reembolso de esa carta | Ventas (M3), en la línea de la carta | **Sí** — criterios **403–405** |
+  | **El pedido entero** (no llegó el paquete, o llegó todo mal) | El reembolso **total** con motivo de §S.11.4 (criterio **251**). Si ya hubo reembolsos de cartas sueltas, el total devuelve **solo lo que queda** | Ventas (M3) | No |
+  | **Una carta** de un **retiro de bóveda entregado** (`HECHOS.md:44` (b)) | 💰 **Devolución por SPEI**: el súper-admin **captura el monto** (como en «Por reponer», `HECHOS.md:31` (b), fila 2026-09-29 «"Por reponer" — respuestas a D-5..D-10»: *«yo busco lo que vale y capturo»*), con motivo **«no llegó» / «llegó en mala condición»** y nota obligatoria. La pantalla le enseña de referencia lo que el cliente pagó por esa carta y su valor de mercado; los **topes contra errores de dedo** son los mismos de `HECHOS.md:32` (fila 2026-09-29 «Reembolsos manuales (SPEI) — D-11 y D-12»: más de 2× la referencia ⇒ volver a escribir el monto; más de k× ⇒ bloqueado). ⛔ **No toca la tarjeta**: nace un reembolso SPEI pendiente en la cubeta SPEI existente, que el dueño paga en su banco y marca como pagado (*«solo marcar si se realizó y quién»*, D-11). Sin referencia (ni pagado ni mercado) **no se puede** capturar | La pestaña de reembolsos, cubeta SPEI (`HECHOS.md:36`, fila 2026-10-02 «Menú del panel… una sola pestaña con dos cubetas») | **Sí** — criterios **406–407** |
+
+- **Solo el súper-admin** compensa por estas vías. El operador **no** (el permiso de operador para reembolsar es
+  solo el de la carta que falta **al preparar**, `HECHOS.md:29` (2), §S.10.4).
+- **Una carta se compensa una sola vez.** Si ya se reembolsó al preparar, o ya tiene su reembolso tras la entrega,
+  no se puede volver a reembolsar. En el retiro, una devolución SPEI **cancelada** libera la carta para capturar otra.
+- **«Enviado» no basta: tiene que estar «entregado».** El dueño habló de lo que **llegó** mal. Un paquete que nunca
+  llegó no se reembolsa carta por carta: es el **total** con «no llegó».
+- Una carta que **faltó al preparar** un retiro no entra aquí: su vía es **«Por reponer»** (§S.10.5), sin cambio.
 - **Errores de plataforma** (cobro duplicado, inventario fantasma) **no cambian**: M3, sin ventana.
 
 #### V.3 El invitado
 
-- **La misma vía:** su página de seguimiento, con el pedido entregado, muestra «¿Problema con tu pedido?
-  Escríbenos»; escribe a soporte con su número de pedido y el dueño reembolsa desde Ventas con motivo. **No necesita
-  cuenta.** Con esto `D-DSP-1` (compensación por carta del invitado, que pedía cambio de esquema) **queda sin
-  objeto**: no se construye disputa del invitado. *(La limitación «solo total» de V.2 le aplica igual que a un
-  cliente con cuenta.)*
+- **La misma vía:** su página de seguimiento, con el envío entregado, muestra «¿Problema con tu pedido?
+  Escríbenos»; escribe a soporte con su número de pedido y el dueño reembolsa desde Ventas con motivo —**la carta
+  sola o el pedido entero**, igual que a un cliente con cuenta—. El aviso del reembolso le llega a su correo de
+  invitado. **No necesita cuenta.** Con esto `D-DSP-1` (compensación por carta del invitado) **queda cerrada** por el
+  reembolso de una carta de V.2 (`API_CONTRACT §PNL.5`), sin disputa del invitado ni esquema propio. Criterio **403**.
 
 #### V.4 Contracargos de Stripe — **sin cambio**
 
@@ -7681,8 +7709,10 @@ nosotros»*. Lo que pasa hoy *(medido el 2026-10-04 por lectura del código, sin
 #### V.5 Lo que se retira del lado del sistema
 
 - **No se crean disputas nuevas por ninguna vía**: ni desde la tienda ni llamando directo al servidor (quitar el
-  botón sin cerrar la puerta dejaría la función viva). Criterio **272**.
-- **M8 y las disputas que ya existan** — default de **P-DSP-1**: M8 queda **en transición** —sin entradas nuevas,
+  botón sin cerrar la puerta dejaría la función viva). El intento se rechaza **siempre igual**, diga lo que diga la
+  petición y sin mirar la carta (una respuesta distinta según la carta le diría a un curioso qué cartas existen), y la
+  respuesta trae el correo de soporte. Criterios **272** y **400**.
+- **M8 y las disputas que ya existan** — default de **P-DSP-1** (aceptado, `HECHOS.md:44`): M8 queda **en transición** —sin entradas nuevas,
   con lo justo para **cerrar las abiertas** con las acciones de hoy— y **se retira** cuando no quede ninguna
   abierta. Si el cliente tiene disputas viejas, las sigue viendo en modo lectura hasta que cierren. **NO MEDIDO**
   cuántas disputas abiertas hay en producción (§R decía «hoy: cero» el 2026-09-14); lo cierra una consulta de
@@ -7697,30 +7727,69 @@ nosotros»*. Lo que pasa hoy *(medido el 2026-10-04 por lectura del código, sin
 - Hoy llega a la pantalla **solo** en el seguimiento del invitado (`support.evidenceContact`,
   `PublicOrderTracking.tsx:255`) y en la respuesta de crear disputa. El detalle del pedido del cliente con cuenta
   **no lo trae**; el frontend tiene un valor fijo de reserva (`checkout/support-contact.ts:14`).
-- **(SUPUESTO / default de P-DSP-5:** se usa **el mismo buzón y el mismo origen** que hoy —sin dial nuevo—; cómo
-  llega al detalle del pedido lo decide el arquitecto, ⛔ sin escribirlo a mano en la pantalla.)
+- **Default de P-DSP-5 (aceptado, `HECHOS.md:44`):** **el mismo buzón y el mismo origen** que hoy —sin dial
+  nuevo—, ⛔ sin escribirlo a mano en la pantalla. El arquitecto midió que hoy hay **dos** lecturas de esa
+  configuración que pueden dar buzones distintos (`API_CONTRACT §PNL.0`); la regla de producto es **un solo buzón**:
+  toda pantalla y todo correo que muestre el contacto de soporte muestra **el mismo**, y la tienda lo lee del servidor
+  (el cómo: `§PNL.1`). Criterio **402**. **NO MEDIDO** qué valen hoy esas dos configuraciones en producción (lo mide
+  devops antes de desplegar, `§PNL.1`).
 
 #### V.7 Desviaciones del arquitecto (`ARCHITECTURE §9`, `API_CONTRACT` v1.80.10) — qué queda de cada una
 
 | Desviación | Qué preguntaba | Queda |
 |---|---|---|
-| **D-DSP-1** | Compensación **por carta** del invitado (disputa del invitado ⇒ esquema) | **Sin objeto.** El invitado escribe a soporte y el dueño reembolsa desde Ventas (V.3). No hay esquema nuevo. El hueco «por carta» pasa a ser **P-DSP-3**, igual para todos |
+| **D-DSP-1** | Compensación **por carta** del invitado (disputa del invitado ⇒ esquema) | **Cerrada** (`API_CONTRACT §PNL.5`): el invitado escribe a soporte y el dueño le reembolsa **la carta** desde Ventas (V.2, V.3), igual que a todos. Sin disputa del invitado |
 | **D-DSP-2** | ¿Se disputa una carta que sigue en la bóveda? | **Sin objeto — respondida por el dueño: no** (*«menos en bóveda»*). La disputa en bóveda (vía A) se retira entera |
 | **D-DSP-3** | `kind` del envío derivado de `userId` en el código vs. de la orden en el contrato | **Cambia de peso, no desaparece.** No depende de disputas; su detonante cercano (la vía B) ya no se construye. Sigue siendo una divergencia contrato/código de backend, baja |
 | **D-DSP-4** | ¿Se disputa una carta repuesta («Por reponer»)? | **Sin objeto.** No hay disputa; una carta repuesta que llegue mal se atiende por soporte y reembolso como cualquier otra |
 | *(errata F-2, vía B)* | Disputa del comprador del envío directo desde el pedido | **Sustituida** (fila de `HECHOS.md`): no se construye; sus pruebas DSP-1…12 y OD-DSP-1…7 quedan sin objeto |
 
-#### V.8 Lo que NO cambia (se verifica por ausencia, criterio 274)
+#### V.8 Lo que NO cambia (se verifica por ausencia, criterios 274 y 417)
 
 - Contracargos: su regla de cartas, estados y confirmación humana (V.4); y **no** piden motivo (P-S11-3).
-- El reembolso por **error de plataforma** (M3) y el reembolso **por carta al preparar** (§S.10).
-- El reembolso total y su regla «enviado ⇒ motivo» (§S.11): **se usa**, no se modifica.
+- El reembolso por **error de plataforma** (M3), el reembolso **por carta al preparar** (§S.10) y **«Por reponer»**
+  con sus topes (§S.10.5, §S.10.7).
+- El reembolso total y su regla «enviado ⇒ motivo» (§S.11): **se usa**, no se modifica; solo que, tras reembolsos de
+  cartas sueltas, devuelve lo que queda.
+- La cubeta SPEI: sus verbos (pagar, cancelar, re-emitir) y su contador son los de hoy; solo recibe una fuente más.
 - «Ventas finales» como política; la evidencia sigue llegando **por correo**, sin subida de fotos.
 
-#### V.9 Preguntas de §V — cada una con su default
+#### V.9 Preguntas de §V
 
-Ver la sección final **«Preguntas — disputas fuera de la tienda (§V, 2026-10-04)»**: P-DSP-1 a P-DSP-5. Ninguna
-bloquea al arquitecto: si el dueño no contesta, se construye con el default.
+Ver la sección final **«Preguntas — disputas fuera de la tienda (§V)»**. P-DSP-1…5 están **todas respondidas**
+(`HECHOS.md:44`). Quedan abiertas **P-PNL-1…3** (del contrato v1.82 §PNL.9), cada una con su default; ninguna bloquea.
+
+#### V.10 Mismo corte, fuera de disputas — solicitud de venta, lo vivo de v1.80.10 y `R69-1` (2026-10-05)
+
+> Viven aquí porque se construyen en el **mismo corte** (rama `claude/arreglos-panel`, `API_CONTRACT` v1.82 PNL-4…6).
+> No cambian nada de §V.
+
+**(a) Solicitud de venta aceptada: no se cancela; se rechazan las cartas que llegaron mal** — `HECHOS.md:45`, fila
+2026-10-04 «Solicitud de venta aceptada: no se cancela…». Palabras del dueño: *«solo no las acepto si están en mala
+condición entonces es solo decirle ese motivo y cuáles de las que mando»*.
+- Una solicitud **aceptada no gana «cancelar»**. Lo que llega mal se resuelve **al revisar el paquete**.
+- **En revisión**, el operador o el dueño **marcan varias cartas** (o todas) y las rechazan **con un solo motivo**. El
+  vendedor recibe **un solo correo** que dice **cuáles** cartas (nombre, set, número, acabado), **el motivo**, los
+  plazos de devolución de hoy y, si todas quedaron rechazadas, que la solicitud se **cerró**. Es todo o nada: si una
+  de las marcadas no se puede rechazar, no cambia ninguna.
+- Las cartas **«no compradas»** (las que no entraron en la oferta) no se pueden marcar: no se rechaza lo que no se
+  compró. El caso de una «no comprada» que **llegó** en el paquete sigue abierto (`D-BL-SKIP-1`), sin cambio.
+- Rechazar **una** carta a la vez sigue como hoy, con su correo por carta.
+- Lo que el dueño no encontró: **«Declinar»** aparece **dentro de la mesa de decisión** cuando la solicitud está
+  cotizada; fuera de ese estado la mesa dice qué toca y dónde.
+- **Un clic menos:** con la solicitud **en tránsito**, un solo botón la marca recibida **y** la pone en revisión. Si
+  el segundo paso falla, queda «recibida» con el botón «Verificar» de hoy.
+- Lo físico de las cartas rechazadas (devolución al vendedor): **como hoy** (default de P-PNL-2).
+- Criterios **408–410**.
+
+**(b) Lo que sigue vivo de la errata v1.80.10** (`API_CONTRACT §PNL.5`; medido por el arquitecto el 2026-10-05):
+M5 rotula «No comprada» (F-4); el alta de **cliente** en M6 exige celular (F-7, criterio **128(b)**); M10 muestra y
+deja editar los **diez** diales del ciclo de buylist (F-9) y pinta sus errores por campo (F-8); Ventas filtra por
+estado (F-11); el total del detalle de un pedido no sale «MX$NaN» (F-1, hecho en código: se verifica). La vía B de
+disputas (F-2) **se retira** (V.5). Criterios **411–415**.
+
+**(c) `R69-1`:** el motivo escrito del reembolso **total** tiene tope de **500 caracteres** (el de toda nota de ese
+módulo); más largo ⇒ se rechaza sin reembolsar. Criterio **416**.
 
 ### W. Finanzas para el dueño — lo que falta para leer el negocio en pesos (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-FIN abiertas)
 
@@ -8703,8 +8772,11 @@ Están en la sección final **«Preguntas — control del gasto (§Z)»**: **P-G
   cambiar la regla de §O.2/§O.7 en la rejilla, destacadas o ficha mientras P-JOY-6 no diga otra cosa.
 - **De §V (disputas fuera de la tienda)** *(2026-10-04)*: cualquier **disputa iniciada por el cliente dentro de
   la tienda** (antes del envío, en bóveda, en retiros o en pedidos — decisión del dueño); la disputa del invitado
-  con esquema propio (`D-DSP-1`); un formulario de contacto dentro de la app (es un correo a soporte); y, mientras
-  P-DSP-3 no diga otra cosa, el **reembolso por carta después de «enviado»**.
+  con esquema propio (`D-DSP-1`); un formulario de contacto dentro de la app (es un correo a soporte); el
+  reembolso **carta por carta** de un paquete **enviado que no se entregó** (si no llegó, es el total con «no
+  llegó»); devolver a la **tarjeta** el dinero de un retiro de bóveda (va por SPEI, `HECHOS.md:44` (b)); y
+  «cancelar» una solicitud de venta **aceptada** (`HECHOS.md:45`). *(Corregido 2026-10-05: el reembolso por carta
+  **tras la entrega** ya NO está fuera de alcance — lo pidió el dueño, §V.2.)*
 - **De §U (usuarios de back-office sin correo)** *(2026-10-04)*: doble verificación para el staff (el dueño dijo
   «sin doble verificación»); que el staff recupere su contraseña por su cuenta (sin correo no hay canal: la
   restablece el dueño); pasar a usuario sin correo al staff que **ya** tiene correo (P-STF-2); cambiar el nombre
@@ -12124,6 +12196,7 @@ cerradas el mismo día: P-STF-4 por decisión del dueño, el resto con default a
    `soporte@tcghunt.mx`; se verifica cambiando la configuración en un entorno de prueba y viendo que la pantalla
    cambia — ⛔ no puede estar escrito a mano en la pantalla). En un pedido **no entregado** la línea no aparece.
    La página de términos ya no dice «abrir una disputa» ni «recompra»: dice que se escribe a soporte.
+   *(2026-10-05: «Escríbenos» también en el **retiro entregado** — criterio **401**.)*
 272. **No se puede crear una disputa nueva por ninguna vía** *(§V.5)*: con sesión de cliente, una llamada directa
    al servidor para crear una disputa —sobre una carta en bóveda, de un retiro entregado o de un envío directo
    entregado— **se rechaza** y **no crea ninguna fila**. M8 no ofrece alta de disputas. *(Default P-DSP-1:)* una
@@ -12134,6 +12207,8 @@ cerradas el mismo día: P-STF-4 por decisión del dueño, el resto con default a
    Ventas eligiendo «llegó en mala condición» (y en otro, «no llegó»): el reembolso se hace, guarda el motivo,
    quién y cuándo, y las cartas **no** vuelven a inventario (la misma conducta del criterio **251**, sin ningún
    paso de disputa). El invitado no necesitó crear cuenta. Sin motivo ⇒ no hay reembolso (criterio 251).
+   *(2026-10-05: además existe el reembolso de **una sola carta** — criterios **403–405** — y la devolución SPEI de un
+   retiro — **406–407**; este criterio sigue cubriendo el reembolso **total**.)*
 274. **Lo que NO cambia con §V — se verifica por ausencia** *(§V.4, §V.8)*: un `charge.dispute.created` de Stripe
    produce **lo mismo que hoy** en cada uno de los cuatro casos de §V.4 (envío vivo ⇒ envío cancelado y cartas
    congeladas; enviado/entregado ⇒ cartas sin tocar; sin envío ⇒ vuelven a la venta; bóveda ⇒ las que siguen en
@@ -12679,6 +12754,112 @@ ausencia.** Todo lo de Skydropx se verifica **contra el doble** del proveedor (�
    de casos, tope de oferta de buylist) **conservan valor y conducta**; ningún tope de §Z bloquea la guía manual,
    un reembolso automático ni un acto del sistema; el personal y los clientes **no** reciben ningún correo nuevo;
    no hay correo por cada reembolso de operador. **⛔ Falla** si algo de esto cambia.
+*(Criterios 400–418 **nuevos el 2026-10-05** — §V reescrita con `HECHOS.md:44` (respuestas a P-DSP-3/4) y §V.10
+(`HECHOS.md:45`, lo vivo de v1.80.10, `R69-1`); norma: `API_CONTRACT` v1.82 §PNL, piezas PNL-1…PNL-6. ⚠️ **Numerados
+desde el 400** para no chocar con la rama de Skydropx, que según el orquestador ocupa 275–338 (**NO MEDIDO** por
+product-owner). 306–399 quedan **libres**. 💰 403–407 mueven dinero: tres veredictos. Las cifras de ejemplo son las del
+pedido de prueba de `§PNL.8` / `§M4-SHIP.4`: cartas de MX$500.00 y MX$300.00 (IVA dentro), envío MX$150.00, comisión
+de cobro MX$46.17, total MX$996.17. La carta de MX$300 se reembolsa con `30000 + floor(4617×30000/95000)` = MX$314.58.)*
+400. **PNL-1 · Nadie crea una disputa nueva, y el rechazo es siempre el mismo** *(§V.5)*: con sesión de cliente, una
+   llamada directa al servidor para crear una disputa —(i) sobre una carta suya en bóveda que **hoy** sí la habría
+   creado, (ii) con una carta que no existe y el cuerpo vacío— recibe en **ambos** casos **la misma respuesta** «las
+   disputas ya no existen», que incluye el **correo de soporte**; **cero** disputas creadas, cero bitácora, cero
+   correo. Sin sesión ⇒ «no autenticado», como hoy. Una disputa abierta que ya existiera **se sigue viendo** (cliente y
+   M8) y **se puede cerrar** con las acciones de hoy. *(Contrato: DSC-1…4.)*
+401. **PNL-1 · «¿Problema con tu pedido? Escríbenos» en tres lugares, y solo tras la entrega** *(§V.1)*: QA ve la
+   línea, con el correo de soporte, en: (i) el detalle de un pedido de **envío directo** con su envío **entregado**;
+   (ii) **«Retiros»** —lista **y** ficha— con un retiro **entregado**; (iii) el **seguimiento del invitado** con su
+   envío **entregado**. **No** la ve en el mismo pedido o retiro en **enviado** (ni antes), ni en un **pedido a
+   bóveda**. En «Retiros», en **ninguno** de sus estados aparece «Abrir disputa». «Mis disputas» solo aparece si el
+   cliente tiene alguna. *(Contrato: FE-DSC-1…4.)*
+402. **PNL-1 · Un solo buzón de soporte, leído del servidor** *(§V.6)*: en un entorno de prueba se configura el buzón
+   con un valor distinto del de siempre (p. ej. `otro@x`) ⇒ el detalle del pedido, «Retiros», el seguimiento del
+   invitado, la confirmación de compra **y** los correos de solicitudes de venta muestran **todos** `otro@x` (⛔ ninguno
+   sigue diciendo el anterior ni un valor escrito en la pantalla). Sin configurar nada ⇒ todos dicen
+   `soporte@tcghunt.mx`. El correo de soporte se puede consultar **sin iniciar sesión**. *(Contrato: DSC-5…8,
+   FE-DSC-2.)*
+403. 💰 **PNL-2 · Reembolsar UNA carta de un pedido entregado** *(§V.2, §V.3)*: sobre el pedido de ejemplo, de envío
+   directo, **liquidado** y con el envío **entregado**, el súper-admin abre la venta en Ventas, elige la carta de
+   MX$300.00 ⇒ la pantalla le muestra **MX$314.58** (la carta + su parte de la comisión, **sin envío**); elige «llegó en
+   mala condición», escribe la nota y confirma ⇒ se reembolsan **MX$314.58** a la tarjeta, una sola vez; queda
+   registrado **motivo, nota, quién y cuándo**; el pedido **sigue liquidado**; la carta **no** vuelve a inventario (la
+   pieza queda idéntica antes y después). El cliente recibe **un** correo de aviso y en su pedido ve esa carta como
+   **reembolsada tras la entrega**, con su motivo. Lo mismo con un **pedido de invitado**: el aviso llega a su correo
+   de invitado y no necesitó cuenta. Sin motivo, con un motivo que no sea de los dos, o con nota de menos de 3 o más
+   de 500 caracteres ⇒ no hay reembolso. *(Contrato: IDR-1, IDR-12, IDR-13, IDR-14.)*
+404. 💰 **PNL-2 · Las guardas del reembolso de una carta** *(§V.2)*: **no** hay reembolso, ni fila, ni llamada a
+   Stripe en ninguno de estos casos: (i) lo intenta un **operador** (rechazado, y el intento queda en la bitácora);
+   (ii) el envío está **enviado** y no entregado; (iii) la carta **ya se reembolsó** antes —al preparar o tras la
+   entrega— (la segunda vez dice cuál reembolso ya existe); (iv) pedido **a bóveda** o pedido ya **reembolsado
+   completo**; (v) un pedido anterior al IVA incluido; (vi) la carta es de **otro** pedido; (vii) el importe que vio el
+   súper-admin **ya no es** el actual (p. ej. MX$314.57) ⇒ la pantalla recarga y le enseña MX$314.58. **Dos pestañas a
+   la vez** sobre la misma carta, **N ≥ 10 rondas**: en **cada** ronda pasa exactamente **una**, la otra recibe «ya
+   reembolsada», nunca un error de servidor; el reporte trae la proporción (O-3). *(Contrato: IDR-2…8, IDR-10,
+   IDR-11.)*
+405. 💰 **PNL-2 · Lo que ve el dueño y el total que queda** *(§V.2)*: en el detalle de Ventas, el botón «Reembolsar
+   esta carta» aparece **solo** al súper-admin y **solo** en cartas que se pueden reembolsar; en las que no, la pantalla
+   dice **por qué** (no es envío directo, no está liquidado, no se ha entregado…); en una carta ya reembolsada se ve su
+   reembolso. Tras el reembolso del criterio 403, un reembolso **total** del mismo pedido devuelve **MX$681.59**
+   (MX$996.17 − MX$314.58), no MX$996.17. El botón de reembolso total no cambia. *(Contrato: IDR-9, IDR-15, FE-IDR-1/2.)*
+406. 💰 **PNL-3 · Devolver por SPEI una carta de un retiro entregado** *(§V.2)*: sobre un retiro de bóveda
+   **entregado**, desde la pestaña de reembolsos el súper-admin busca el retiro, elige la carta, ve de referencia **lo
+   que el cliente pagó por ella** y **su valor de mercado**, captura un monto dentro de la referencia, el motivo y la
+   nota ⇒ nace **un** reembolso SPEI **pendiente** en la cubeta SPEI, que cuenta en su contador; el cliente recibe el
+   aviso de SPEI de hoy; **cero** reembolsos a tarjeta (Stripe no se llama) y la carta **no** vuelve a inventario.
+   Ese SPEI se **marca pagado** (quién y cuándo) y se **cancela** con los botones de hoy, sin error. *(Contrato: WDR-1,
+   WDR-7, FE-WDR-1.)*
+407. 💰 **PNL-3 · Las guardas de la devolución SPEI** *(§V.2)*: (i) un monto de **más de 2×** la referencia pide
+   **volver a escribirlo** y uno de **más de k×** (el dial de hoy) queda **bloqueado** — los **mismos** topes y mensajes
+   que «Por reponer» (`HECHOS.md:32`); (ii) carta **sin** referencia (ni pagado ni mercado) ⇒ no se puede capturar;
+   (iii) **operador** ⇒ rechazado, y el intento queda en la bitácora; (iv) retiro **enviado** y no entregado, carta que
+   **faltó al preparar** (su vía es «Por reponer») o un **envío directo** (su vía es el 403) ⇒ no; (v) una carta con una
+   devolución **viva** ⇒ no hay segunda; si la anterior se **canceló**, sí. **Dos capturas a la vez**, **N ≥ 10 rondas**:
+   en cada ronda queda **una sola** viva; proporción reportada. *(Contrato: WDR-2…6, WDR-8…10.)*
+408. **PNL-4 · Rechazar varias cartas con un motivo y un solo correo** *(§V.10 a)*: con una solicitud **en revisión**
+   de 3 cartas compradas, el **operador** marca 2, escribe el motivo y rechaza ⇒ esas 2 quedan rechazadas con motivo,
+   fecha y plazos de devolución de hoy; la 3.ª **no cambia**; el vendedor recibe **un solo** correo que nombra **las 2
+   cartas** (nombre, set, número, acabado) y **el motivo**. Rechazando **las 3** ⇒ la solicitud queda **cerrada como
+   rechazada** y el correo **lo dice**. Lo puede hacer el operador y el dueño. *(Contrato: BRJ-1, BRJ-2, BRJ-7,
+   FE-BRJ-1.)*
+409. **PNL-4 · Las guardas del rechazo de varias** *(§V.10 a)*: (i) solicitud **aceptada** o **pagada** ⇒ no se puede
+   (solo en revisión) y **no** aparece ningún «cancelar» en una aceptada; (ii) si entre las marcadas hay una **«no
+   comprada»**, o una ya **pasada a inventario**, **ninguna** cambia (todo o nada) y la pantalla no deja marcar las «no
+   compradas»; (iii) una carta de **otra** solicitud, una repetida o un motivo de menos de 3 caracteres ⇒ rechazado sin
+   cambios; (iv) rechazar **una** carta a la vez sigue mandando **su** correo por carta; (v) rechazar y **aprobar** la
+   misma carta a la vez, **N ≥ 10 rondas** ⇒ en cada ronda gana **uno**, nunca queda aprobada y rechazada; proporción
+   reportada. *(Contrato: BRJ-3…6, BRJ-8, BRJ-9.)*
+410. **PNL-4 · «Declinar» en la mesa y el clic que recibe y revisa** *(§V.10 a)*: con una solicitud **cotizada**,
+   «Declinar» está **dentro de la mesa de decisión** y hace lo mismo que el de la fila; fuera de «cotizada», la mesa
+   dice qué toca y dónde. Con una solicitud **en tránsito**, **un** clic en «Recibida: empezar revisión» la deja **en
+   revisión** (sin un segundo botón); si el paso de revisión falla, queda **recibida** con el «Verificar» de hoy.
+   *(Contrato: FE-BRJ-2, FE-BRJ-3.)*
+411. **PNL-5 · M5 rotula «No comprada»** *(§V.10 b, F-4)*: en revisión, una carta que **no** entró en la oferta lleva el
+   rótulo «No comprada» y **ningún** botón de decisión; una comprada tiene **Aprobar** y **Rechazar**, **sin**
+   Ajustar; una solicitud anterior al ciclo de ofertas conserva los tres. Si el servidor rechaza una acción sobre una
+   «no comprada», el aviso sale **en español** con el texto del sistema de diseño, no en inglés.
+412. **PNL-5 · Alta de cliente en M6 exige celular** *(§V.10 b, F-7; criterio 128(b))*: crear una cuenta de
+   **cliente** sin celular o con solo espacios ⇒ rechazada, el campo celular marcado, **sin** cuenta creada; con
+   `" 5512345678 "` ⇒ creada y guardada como `5512345678`. Un **operador** o súper-admin sin celular ⇒ se crea.
+413. **PNL-5 · M10: los diez diales del buylist y sus errores** *(§V.10 b, F-9, F-8)*: los **diez** diales del ciclo
+   de buylist (plazos, montos y alertas) aparecen en M10 y se pueden editar; guardar uno cambia **solo** ese. Un valor
+   inválido (p. ej. IVA 200) marca **el campo** con un texto propio de ese campo (no el texto en inglés del servidor);
+   el error de la regla cruzada (tarifa + neto mínimo ≤ mínimo de solicitud) muestra **los tres montos**.
+414. **PNL-5 · Ventas filtra por estado** *(§V.10 b, F-11)*: en Ventas, elegir un estado muestra solo las ventas en
+   ese estado; «Todos» las muestra todas.
+415. **PNL-5 · Sin «MX$NaN»** *(§V.10 b, F-1)*: el total del detalle de un pedido, del lado del cliente **y** del
+   panel, muestra la cifra correcta en pesos; en **ningún** detalle aparece «MX$NaN».
+416. 💰 **PNL-6 · `R69-1`: el motivo del reembolso total tiene tope** *(§V.10 c)*: un reembolso total con motivo de
+   **501** caracteres ⇒ rechazado, **sin** reembolso ni llamada a Stripe; con **500** ⇒ pasa la validación. *(Contrato:
+   RFD-1, RFD-2.)*
+417. **Lo que NO cambia con PNL — se verifica por ausencia** *(§V.8)*: además de lo del criterio 274, el reembolso por
+   carta **al preparar** (§S.10), «Por reponer» y sus topes, el reembolso **total** con motivo (criterio 251), los
+   verbos y el contador de la cubeta SPEI, el rechazo de **una** carta con su correo, y la pantalla de «Pedidos por
+   preparar» se comportan **igual que hoy**.
+418. **Los tres recorridos de punta a punta** *(O-4; contrato §PNL.8 E2E)*: contra el stack corriendo, QA recorre:
+   (i) compra real de envío directo ⇒ entregado ⇒ el súper-admin reembolsa **una** carta desde Ventas ⇒ el cliente
+   ve en su pedido el reembolso de **esa** carta; (ii) retiro real ⇒ entregado ⇒ SPEI capturado ⇒ aparece en la
+   cubeta ⇒ marcado pagado; (iii) solicitud de venta en tránsito ⇒ **un** clic ⇒ en revisión ⇒ rechazar dos cartas ⇒
+   **un** correo al vendedor.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -16599,30 +16780,43 @@ ese frente:**
   back-office (sin correo no hay recibo ni avisos de pedido; y ya está escrito que el staff no vende, D11). Si un
   miembro del equipo quiere comprar, usa una cuenta de cliente con su correo. Criterio 269.
 
-## Preguntas — disputas fuera de la tienda (§V, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
+## Preguntas — disputas fuera de la tienda (§V, 2026-10-04, sesión 5) — ✅ P-DSP-1…5 RESPONDIDAS (`HECHOS.md:44`) · P-PNL-1…3 abiertas (2026-10-05)
 
-> Salen de aterrizar la fila de `HECHOS.md` **2026-10-04 «Disputas: se quitan de la tienda…»**. Lo que esa fila ya
-> dice (sin botón, «Escríbenos» en el pedido entregado, compensación por reembolso con motivo, contracargos como hoy)
-> **no se pregunta**. Si el dueño no contesta, se construye con el default. **Ninguna bloquea al arquitecto.**
+> Salen de aterrizar la fila de `HECHOS.md:44` **2026-10-04 «Disputas: se quitan de la tienda…»**. **Respondidas el
+> mismo día** (misma fila): P-DSP-3 ⇒ **reembolsar solo la carta**; P-DSP-4 ⇒ **«Escríbenos» también en retiros,
+> devolución por SPEI**; P-DSP-1, 2 y 5 ⇒ **default**. Lo que sigue es el registro de lo que se preguntó; **no se
+> re-pregunta**. Abajo, las tres que trae el contrato v1.82 §PNL.9 (P-PNL-1…3), cada una con su default.
 
 - **P-DSP-1 · ¿Qué pasa con la pantalla de disputas del panel (M8) y con las disputas que ya estén abiertas?**
+  ✅ **Default aceptado** (`HECHOS.md:44`).
   Default: M8 queda **en transición** —sin disputas nuevas, con lo justo para **cerrar las abiertas** con las
   acciones de hoy— y **se retira** cuando no quede ninguna abierta; el cliente ve las suyas en lectura hasta que
   cierren. **NO MEDIDO** cuántas hay abiertas hoy en producción. §V.5, criterio 272.
 - **P-DSP-2 · ¿Se conserva la «ventana de 7 días desde la entrega» para reclamar una carta dañada?** Default: se
   queda **como texto de la política** en términos, pero el sistema no la aplica (no hay disputa que cerrar);
-  decides tú caso por caso. Alternativa: quitarla de los términos. §H.
-- **P-DSP-3 · Si en un pedido llega mal UNA carta de varias, ¿cómo compensas?** Hoy, después del envío, solo existe
-  el reembolso **total** del pedido. Default: en este corte, **solo total** (o lo arreglas fuera del sistema); el
-  reembolso **por carta** después del envío queda fuera de alcance. Si lo quieres, es trabajo nuevo de dinero
-  (diseño + tres veredictos). §V.2.
-- **P-DSP-4 · ¿«¿Problema con tu pedido? Escríbenos» también en un RETIRO de bóveda entregado?** Default: **no** en
-  este corte (dijiste «pedido»); y para compensar un retiro que llegó mal no hay hoy reembolso con motivo (el
-  reembolso total de una compra a bóveda no pide motivo, P-S11-4). ¿Lo quieres en retiros, y con qué compensación?
-  §V.1.
+  decides tú caso por caso. Alternativa: quitarla de los términos. §H. ✅ **Default aceptado** (`HECHOS.md:44`).
+- **P-DSP-3 · Si en un pedido llega mal UNA carta de varias, ¿cómo compensas?** ✅ **Respondida** (`HECHOS.md:44`
+  (a)): **reembolsar solo esa carta**, desde Ventas, con motivo. Se construye (§V.2, criterios 403–405). *(El default
+  «solo total» que traía este borrador queda **descartado**.)*
+- **P-DSP-4 · ¿«¿Problema con tu pedido? Escríbenos» también en un RETIRO de bóveda entregado?** ✅ **Respondida**
+  (`HECHOS.md:44` (b)): **sí**, y si hay que devolver dinero, **por SPEI** como los reembolsos manuales existentes
+  (§V.1, §V.2, criterios 401, 406–407). *(El default «no» queda **descartado**.)*
 - **P-DSP-5 · El correo de soporte, ¿sale de la configuración que ya existe o lo fijamos?** Medido: hoy **no es un
   dial de M10**; sale de la configuración del servidor (`DISPUTE_EVIDENCE_CONTACT` / `SUPPORT_EMAIL`, por defecto
-  `soporte@tcghunt.mx`). Default: **el mismo buzón y el mismo origen**, sin dial nuevo. §V.6.
+  `soporte@tcghunt.mx`). Default: **el mismo buzón y el mismo origen**, sin dial nuevo. §V.6. ✅ **Default aceptado**
+  (`HECHOS.md:44`).
+
+**Abiertas (2026-10-05, de `API_CONTRACT` v1.82 §PNL.9) — ninguna bloquea; si no contestas, se construye con el default:**
+- **P-PNL-1 · ¿El personal va a usar el panel desde el celular?** El 2026-09-08 dijiste «solo computadora», antes de
+  que existiera personal. Default (recomendación del arquitecto): **solo «Pedidos por preparar»** funciona en celular
+  (quien prepara está en el estante); lo demás sigue de escritorio. ⚠️ No entra en ningún criterio de este corte
+  hasta que lo confirmes.
+- **P-PNL-2 · Las cartas que rechazas al revisar una solicitud de venta, ¿se le devuelven al vendedor como hoy?** Hoy:
+  tiene **7 días** para pedir la devolución, el envío lo paga él, y a los **30 días** se dan por abandonadas.
+  Default: **dejarlo así** (§V.10 a). `HECHOS.md:45` dice que esto no se te preguntó.
+- **P-PNL-3 · El reembolso de UNA carta tras la entrega, ¿devuelve la carta más su parte de la comisión, sin envío?**
+  Es lo mismo que respondiste para la carta que falta al preparar (`HECHOS.md:30`, D-1: «$314.58»). Default: **sí**
+  (§V.2, criterio 403). Si quieres que devuelva también parte del envío, se cambia el importe y el criterio 403.
 
 ## Preguntas — finanzas para el dueño (§W, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
 

@@ -909,7 +909,19 @@ export function CaptureLabelDialog({
           </div>
         )}
         <Input label={tm4('tracking.carrierLabel')} type="text" value={carrierValue} onChange={(e) => setCarrierValue(e.target.value)} />
-        <Input label={tm4('tracking.numberLabel')} type="text" inputMode="numeric" value={trackingNumberValue} onChange={(e) => setTrackingNumberValue(e.target.value)} />
+        {/* §60.9 e (rama panel, llevado aquí en el merge panel+skydropx): en el teléfono — sin autocorrección ni mayúsculas
+            inventadas; 16 px (Input `text-base`) para que iOS no haga zoom. */}
+        <Input
+          label={tm4('tracking.numberLabel')}
+          type="text"
+          inputMode="text"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          value={trackingNumberValue}
+          onChange={(e) => setTrackingNumberValue(e.target.value)}
+          data-testid="m4-tracking-number"
+        />
         <Input
           label={tm4('tracking.shippingCostLabel')}
           hint={tm4('tracking.shippingCostHint')}

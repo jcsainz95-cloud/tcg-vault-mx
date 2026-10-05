@@ -47,6 +47,8 @@ describe('⚠️ BL-25 — el disparador (a): `convert-to-inventory` PIDE, no or
       sellRequestItem: {
         findUnique: jest.fn(async () => item),
         update: jest.fn(async () => item),
+        // v1.82.1 · §PNL.10.3: la escritura de la carta es `updateMany` con CAS.
+        updateMany: jest.fn(async () => ({ count: 1 })),
       },
       inventoryItem: {
         create: jest.fn(async ({ data }: any) => {
@@ -166,7 +168,7 @@ describe('⚠️ BL-25 — el disparador (a): `convert-to-inventory` PIDE, no or
         $transaction: jest.fn(async (cb: any) => cb({
           inventoryItem: { create: jest.fn(async () => ({ id: 'inv-1', folio: 'INV-1' })) },
           inventoryMovement: { create: jest.fn(async () => ({})) },
-          sellRequestItem: { update: jest.fn(async () => ({})) },
+          sellRequestItem: { updateMany: jest.fn(async () => ({ count: 1 })) },
         })),
       } as unknown as PrismaService,
       {} as unknown as PricingService,

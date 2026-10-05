@@ -10,7 +10,7 @@ import {
   smallPrintRow,
   spacerRow,
 } from '../../buylist/mail-shell';
-import { DISPUTE_EVIDENCE_CONTACT } from '../disputes.constants';
+import { supportContact } from '../../mail/support-contact';
 
 /**
  * # Los dos avisos de DISPUTA — `AV-10` (recompra) y `AV-11` (rechazada) · §R.3, v1.74
@@ -119,8 +119,8 @@ export function disputeRepurchaseTemplate(
     ? 'We reviewed your claim and we are buying the card back from you. You keep the card.'
     : 'Revisamos tu aclaración y te recompramos la carta. La carta se queda contigo.';
   const tail = en
-    ? `If anything does not match, reply to ${DISPUTE_EVIDENCE_CONTACT}.`
-    : `Si algo no cuadra, escríbenos a ${DISPUTE_EVIDENCE_CONTACT}.`;
+    ? `If anything does not match, reply to ${supportContact()}.`
+    : `Si algo no cuadra, escríbenos a ${supportContact()}.`;
   const { blocks, lines } = blocksFor(params, l, title, intro, tail);
   return {
     subject: en ? `${BRAND} — Your claim was resolved` : `${BRAND} — Resolvimos tu aclaración`,
@@ -138,7 +138,7 @@ export function disputeRepurchaseTemplate(
 /**
  * **`AV-11` — RECHAZADA.** *Decisión que le afecta y sobre la que querrá responder* (`PROJECT §R.3`).
  *
- * ⭐ **Por eso el correo termina en el canal de respuesta** (`DISPUTE_EVIDENCE_CONTACT`, el mismo
+ * ⭐ **Por eso el correo termina en el canal de respuesta** (`supportContact()`, el mismo
  * buzón que ya publica el DTO): un «no» sin a dónde contestar es un callejón, y el dueño pidió este
  * aviso justamente **porque querrá responder**.
  * ⛔ **No argumenta la decisión más allá del texto que el operador escribió**: inventar un motivo que
@@ -155,8 +155,8 @@ export function disputeRejectedTemplate(
     ? 'We reviewed your claim and it did not proceed.'
     : 'Revisamos tu aclaración y no procedió.';
   const tail = en
-    ? `If you have something else to show us, reply to ${DISPUTE_EVIDENCE_CONTACT}.`
-    : `Si tienes algo más que mostrarnos, escríbenos a ${DISPUTE_EVIDENCE_CONTACT}.`;
+    ? `If you have something else to show us, reply to ${supportContact()}.`
+    : `Si tienes algo más que mostrarnos, escríbenos a ${supportContact()}.`;
   const { blocks, lines } = blocksFor(params, l, title, intro, tail);
   return {
     subject: en ? `${BRAND} — Your claim was resolved` : `${BRAND} — Resolvimos tu aclaración`,

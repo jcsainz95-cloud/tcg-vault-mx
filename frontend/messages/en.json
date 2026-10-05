@@ -828,19 +828,8 @@
     "selectItem": "Select",
     "payTitle": "Pay shipping",
     "dispute": {
-      "open": "Open dispute",
-      "alreadyOpen": "Dispute open",
       "myDisputes": "My disputes",
-      "noDisputes": "You have no disputes.",
-      "deadline": "Deadline:",
-      "title": "Open a condition dispute",
-      "done": "Got it",
-      "cancel": "Cancel",
-      "submit": "Open dispute",
-      "descLabel": "Describe the issue",
-      "descPlaceholder": "E.g.: the card arrived with corner wear.",
-      "descHint": "At least 10 characters. Evidence (photos) is sent by email to support after opening the dispute.",
-      "errorTitle": "Could not open the dispute"
+      "deadline": "Deadline:"
     },
     "addressIncomplete": {
       "required": "The selected address is missing {missing}. Complete it to pay for shipping and request the withdrawal.",
@@ -1129,7 +1118,12 @@
         "cancelled": "cancelled"
       },
       "transferCancelledHelp": "If you don't know why, contact us.",
-      "originRefunded": "No longer in your vault: this order was refunded."
+      "originRefunded": "No longer in your vault: this order was refunded.",
+      "refundAfterDelivery": "Refunded · we refunded you {amount}",
+      "refundReasonAfterDelivery": {
+        "not_arrived": "didn't arrive",
+        "arrived_damaged": "arrived in bad condition"
+      }
     },
     "resume": {
       "cta": "Resume payment",
@@ -1171,21 +1165,12 @@
     "refundTitle": "Refunds and final sales",
     "refundBody": "All sales are final. Once you buy a card, the sale is not eligible for a refund or cancellation.",
     "platformErrorTitle": "Exception: platform error",
-    "platformErrorBody": "If the problem is an error on our side —for example, a duplicate charge or a purchase with no real inventory backing it— we always refund you, with no need to open a dispute.",
-    "disputeTitle": "Exception: damaged or wrong card",
-    "disputeBody": "Another exception is receiving a damaged or wrong card. In that case you may open a condition dispute within 7 calendar days, counted from shipment delivery. Evidence is sent by email to our support inbox (no photo upload in the app).",
-    "disputeWindowNote": "The 7-day window starts on the day the shipment is delivered, not on the purchase or payment date.",
-    "disputeOutcome": "If the dispute is upheld, we compensate you for the damage or error and you keep the card: there is no product return.",
+    "platformErrorBody": "If the problem is our mistake —for example, a duplicate charge or a purchase with no real inventory behind it— we always refund you.",
     "questionsTitle": "Questions",
-    "questionsBody": "For any clarification about these terms, email us at soporte@tcghunt.mx."
-  },
-  "dispute": {
-    "evidenceTitle": "Send your evidence by email",
-    "evidenceBody": "Email your photos and evidence to our support inbox, citing your order or dispute number. No photo upload in the app.",
-    "copyEmail": "Copy email",
-    "copied": "Copied",
-    "mailSubject": "Condition dispute evidence {reference}",
-    "mailSubjectGeneric": "Condition dispute evidence"
+    "questionsBody": "For any question about these terms, write to {contact}.",
+    "deliveryIssueTitle": "Exception: a card arrived in bad shape or the package didn't arrive",
+    "deliveryIssueBody": "If a card reached you damaged or wrong, or the package didn't arrive, write to {contact} with your order or withdrawal number and, if you can, photos. We review the case and, if it applies, refund that card. You don't need to open anything in the store.",
+    "deliveryIssueOutcome": "If it applies, you keep the card: there's no product return."
   },
   "auth": {
     "loginTitle": "Log in",
@@ -1312,7 +1297,6 @@
       "m5": "Sell requests",
       "m6": "Users",
       "m7": "Finance",
-      "m8": "Disputes",
       "m9": "Reports",
       "m10": "Settings",
       "m11": "Sealed",
@@ -1344,7 +1328,6 @@
       "dataHealth": "Data health",
       "launch": "Launch progress",
       "shipments": "Shipments",
-      "disputes": "Disputes",
       "pendingPrices": "Pending prices",
       "lastSync": "Last price sync",
       "lastFx": "Last FX rate",
@@ -1673,7 +1656,8 @@
           "order_remaining": "Rest of the order",
           "shipment_fee": "Withdrawal cost",
           "order_full": "Full order",
-          "case_refund": "“To replace” case"
+          "case_refund": "“To replace” case",
+          "item_delivered": "Card after delivery"
         },
         "retry": "Retry",
         "viewTransfer": "View transfer"
@@ -1802,6 +1786,37 @@
       "unsettledRefund": {
         "title": "Refunded before it was paid",
         "body": "Stripe refunded this order before the store marked it as paid, so it was never prepared. The cards it was holding went back on sale by themselves; each one shows “Released by refund” in its history."
+      },
+      "deliveredRefund": {
+        "cta": "Refund this card · {amount}",
+        "notRefundable": {
+          "not_delivered": "It can be refunded once its shipment is delivered.",
+          "order_not_settled": "The order is no longer settled: it isn't refunded per card.",
+          "legacy_convention": "Order from before VAT-inclusive prices: it isn't refunded per card from here."
+        },
+        "title": "Refund a delivered card",
+        "amount": "{amount} will be refunded",
+        "amountHint": "The card plus its share of the processing fee, no shipping. The system calculates it and it can't be edited.",
+        "legend": "What happened to this card? (required)",
+        "noteLabel": "What happened",
+        "noteHint": "Required, 3 to 500 characters. Saved in the audit log; the customer doesn't see it.",
+        "effects": "The order stays settled. The card doesn't go back into inventory: the customer has it. The customer gets an email with what was refunded.",
+        "confirm": "Refund {amount}",
+        "done": "{amount} refund {state, select, requested {sent to Stripe} other {accepted by Stripe}} for {card}. Reason: “{reason}”.",
+        "error": {
+          "stale": "The amount changed while you were confirming: it's now {amount}. Nothing was refunded. Check it and confirm again.",
+          "notAvailable": {
+            "already_refunded": "This card had already been refunded. It wasn't refunded again.",
+            "not_delivered": "Its shipment no longer shows as delivered. Nothing was refunded.",
+            "order_not_settled": "The order is no longer settled: it was fully refunded or is disputed with the bank. Nothing was refunded.",
+            "legacy_convention": "Order from before VAT-inclusive prices: it isn't refunded per card from here. Nothing was refunded.",
+            "not_direct_ship": "This is a vault order: its cards aren't refunded this way. Nothing was refunded."
+          },
+          "forbidden": "Only the super-admin can refund. The attempt was logged.",
+          "invalidReason": "Pick “Didn't arrive” or “Arrived in bad condition”.",
+          "invalidNote": "Say what happened (3 to 500 characters).",
+          "conflict": "The refund couldn't be calculated without exceeding what was charged. Nothing was done. Tell the tech team."
+        }
       }
     },
     "m4": {
@@ -2427,6 +2442,11 @@
           "noLocations": "There are no active platform stock locations. Create them in Inventory.",
           "confirm": "Save location",
           "error": "We couldn't save the location."
+        },
+        "addressToggle": "Shipping address",
+        "photo": {
+          "view": "View photo of {card}",
+          "close": "Close"
         }
       },
       "tabs": {
@@ -2782,7 +2802,7 @@
     },
     "m5": {
       "title": "Sell requests",
-      "receive": "Mark received",
+      "receive": "Received: start review",
       "verify": "Start verification",
       "approve": "Approve",
       "adjust": "Adjust",
@@ -2817,7 +2837,7 @@
       "rejectConfirm": "Reject and notify",
       "rejectRequest": "Reject request",
       "rejectRequestTitle": "Reject entire request",
-      "rejectRequestConsequence": "The request will be closed as rejected. This only applies once all of its items are already rejected; it moves no money and sends no emails (per-card notices already went out when each item was rejected).",
+      "rejectRequestConsequence": "The request will be closed as rejected. It only applies when all its items are already rejected; it doesn't move money or send emails (the seller already got the notice about the rejected cards).",
       "rejectRequestReasonLabel": "Internal reason (optional)",
       "rejectRequestReasonHint": "Optional, up to 500 characters. Kept in the audit log; not shown to the seller.",
       "rejectRequestConfirm": "Reject request",
@@ -2963,7 +2983,6 @@
         },
         "sent": "Offer issued: the email went out and the seller now has {netAmount} on the table.",
         "pendingAuthorization": "Prepared and waiting for super admin approval. The email has NOT been sent and nothing changed for the seller.",
-        "readOnly": "The offer is out: the desk is read-only.",
         "decline": {
           "action": "Decline",
           "title": "Decline this request",
@@ -2982,7 +3001,14 @@
           "confirm": "Cancel the offer and notify them",
           "done": "Offer on {id} cancelled: the request is back in “To offer”."
         },
-        "reasonTooLong": "The reason cannot be longer than 500 characters."
+        "reasonTooLong": "The reason cannot be longer than 500 characters.",
+        "readOnlyByStatus": {
+          "ofertada": "The offer is out and the seller has it. To change or close it, use “Cancel the offer” on the request.",
+          "aceptada": "The seller accepted: the request can no longer be cancelled. If a card arrives in bad condition, you reject it during review, with its reason.",
+          "en_transito": "The package is on its way. When it arrives, press “Received: start review” and reject there any cards that arrive in bad shape.",
+          "review": "It's under review: approve or reject each card on the request, or select several and “Reject selected”.",
+          "done": "There's nothing left to decide here for this request."
+        }
       },
       "shipment": {
         "title": "Label and shipping",
@@ -3069,21 +3095,39 @@
           "latestStatus": "Latest status",
           "note": "This is the list of people we owe an answer to. Oldest first."
         }
+      },
+      "receiveReview": {
+        "done": "Request {id} received and under review.",
+        "goVerifying": "Go to “Verifying”",
+        "verifyFailed": "We marked it as received, but the review couldn't be opened. Press “Start verification”."
+      },
+      "acceptedNote": "Accepted: it can no longer be cancelled. If a card arrives in bad condition, you reject it during review, stating the reason.",
+      "notBought": {
+        "tag": "NOT BOUGHT",
+        "note": "It was marked as not bought when the offer went out: it isn't approved or rejected."
+      },
+      "bulkReject": {
+        "all": "All that can be rejected ({n})",
+        "count": "{k, plural, one {# selected} other {# selected}}",
+        "selected": "Reject selected ({k})",
+        "allCta": "Reject all ({n})",
+        "hint": "Mark the cards that arrived in bad shape.",
+        "selectOne": "Select {card} · {folio}",
+        "title": "Reject {k, plural, one {# card} other {# cards}}",
+        "more": "and {r} more",
+        "reasonLabel": "Reason (the seller reads it in the email)",
+        "reasonHint": "One for all of them. E.g. “they arrived creased with worn edges”.",
+        "notice": "On confirming, the seller gets a single email with these cards, the reason and their options: they have 7 days to ask us to send them back (shipping at their cost); otherwise, after 30 days they're considered abandoned. If no card is left to approve after this, the request closes by itself.",
+        "confirm": "Reject {k} and notify them",
+        "done": "{k, plural, one {# card rejected} other {# cards rejected}}. The seller is notified in a single email.",
+        "closed": "The request is closed: no card is left to approve.",
+        "error": {
+          "notOffered": "{n, plural, one {One of the chosen cards wasn't} other {# of the chosen cards weren't}} part of the purchase: they were marked as not bought when the offer went out and aren't rejected. We removed them from the selection. Nothing was saved.",
+          "conflictItems": "{n, plural, one {One card can no longer be rejected} other {# cards can no longer be rejected}}: someone approved, converted or rejected them meanwhile. Nothing was saved. We've refreshed the list: check and try again.",
+          "closed": "This request is already closed: its cards can't be changed. Nothing was saved.",
+          "notFound": "A card no longer belongs to this request. We've refreshed the list. Nothing was saved."
+        }
       }
-    },
-    "m8": {
-      "title": "Disputes",
-      "empty": "No disputes right now.",
-      "emptyBody": "When a customer opens a dispute it will show up here to resolve.",
-      "resolveRepurchase": "Resolve with repurchase",
-      "resolveReject": "Reject dispute",
-      "resolveConfirm": "Confirm resolution",
-      "repurchaseQuestion": "Confirm the repurchase at the price paid? The customer keeps the card and money leaves the platform.",
-      "rejectQuestion": "Confirm rejecting this dispute?",
-      "noteLabel": "Resolution note",
-      "noteHint": "Required; recorded in the audit log.",
-      "resolvedRepurchase": "Dispute resolved with repurchase.",
-      "resolvedReject": "Dispute rejected."
     },
     "m2": {
       "title": "Catalog & pricing",
@@ -4342,7 +4386,7 @@
         "saved": "Settings saved.",
         "sealedMovedToM11": "Sealed pricing dials (provider, market source, trend, alerts and spreads) are now edited in “Sealed”.",
         "labels": {
-          "shippingFeeCents": "Shipping fee",
+          "shippingFeeCents": "Withdrawal shipping (charged to the customer)",
           "aportacionPct": "In-kind contribution %",
           "ivaPct": "VAT",
           "buylistCapPerRequestCents": "Buylist cap per request",
@@ -4703,6 +4747,55 @@
           "shippingLabelPurchase": "who can buy labels",
           "other": "an owner setting"
         }
+      },
+      "buylistCycle": {
+        "title": "Sell cycle (sell requests)",
+        "subtitle": "They apply to new requests: the ones in progress keep the deadlines and label fee they were offered with.",
+        "groups": {
+          "deadlines": "Deadlines (business days)",
+          "amounts": "Amounts (MX$)",
+          "alerts": "Alerts and suggestions"
+        },
+        "labels": {
+          "buylistOfferIssueDeadlineBusinessDays": "Deadline to send the offer",
+          "buylistOfferAcceptDeadlineBusinessDays": "Seller's deadline to respond",
+          "buylistShipDeadlineBusinessDays": "Seller's deadline to ship",
+          "buylistMinimumRequestCents": "Minimum to quote",
+          "buylistShippingFeeCents": "Label fee deducted from the seller",
+          "buylistMinimumOfferNetCents": "Minimum the seller receives",
+          "buylistOperatorOfferCapCents": "Maximum offer without approval",
+          "buylistShipmentConfirmAlertBusinessDays": "Unconfirmed shipment alert",
+          "buylistOfferReissueAlertCount": "Cancelled offers alert",
+          "buylistVariantPositionCap": "Copies per variant cap (suggestion)"
+        },
+        "help": {
+          "buylistOfferIssueDeadlineBusinessDays": "Business days we have to make the offer. If they run out, the request closes and the seller gets the “we won't proceed” email.",
+          "buylistOfferAcceptDeadlineBusinessDays": "If they don't respond to the offer within these business days, it counts as rejected.",
+          "buylistShipDeadlineBusinessDays": "Business days from when we send the label. If they don't ship, the request expires.",
+          "buylistMinimumRequestCents": "Minimum quoted total to create a request. The exact amount does qualify.",
+          "buylistShippingFeeCents": "What's deducted from their payment for the label. It isn't withdrawal shipping.",
+          "buylistMinimumOfferNetCents": "Minimum net, after the label, to be able to send an offer. The exact amount does go out.",
+          "buylistOperatorOfferCapCents": "Above this gross, the super-admin approves the offer before it goes out. The exact amount goes out without approval.",
+          "buylistShipmentConfirmAlertBusinessDays": "Business days after “I sent it” to flag the request. Nothing expires.",
+          "buylistOfferReissueAlertCount": "From how many cancellations of an already-sent offer the request is flagged. It doesn't block or show in emails.",
+          "buylistVariantPositionCap": "At this quantity, the desk suggests “don't buy” for cards without a bounty. It never blocks."
+        },
+        "rule": {
+          "buylistOfferIssueDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistOfferAcceptDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistShipDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistMinimumRequestCents": "In pesos, 0 or more.",
+          "buylistShippingFeeCents": "In pesos, 0 or more.",
+          "buylistMinimumOfferNetCents": "In pesos, greater than 0.",
+          "buylistOperatorOfferCapCents": "In pesos, 0 or more.",
+          "buylistShipmentConfirmAlertBusinessDays": "Whole number, 1 or more.",
+          "buylistOfferReissueAlertCount": "Whole number, 1 or more.",
+          "buylistVariantPositionCap": "Whole number, 1 or more."
+        },
+        "checkFields": "Check the marked fields. Nothing was saved.",
+        "cross": "The label fee deducted ({fee}) plus the minimum the seller receives ({net}) can't exceed the minimum to quote ({min}). Nothing was saved.",
+        "save": "Save {count, plural, =0 {changes} one {# change} other {# changes}}",
+        "saved": "Sell cycle saved."
       }
     },
     "m7": {
@@ -5199,7 +5292,10 @@
       },
       "source": {
         "case_excess": "Case excess {card} · {folio}",
-        "stripe_failed": "Card refund rejected by Stripe · case {card} · {folio}"
+        "stripe_failed": "Card refund rejected by Stripe · case {card} · {folio}",
+        "withdrawal_delivered": "Delivered withdrawal · {card} · {folio} · {reason}",
+        "withdrawal_delivered_unknown": "Delivered withdrawal",
+        "unknown": "—"
       },
       "originNotSettled": "disputed / refunded",
       "noClabe": "No CLABE on file",
@@ -5295,6 +5391,14 @@
         "notConvertibleStatus": "This refund can still go through Stripe ({status}): moving it to a transfer would pay twice. Retry the refund or wait.",
         "notConvertibleKind": "Only “To replace” case refunds can be moved to a bank transfer.",
         "originNotSettled": "The origin purchase is {status, select, chargeback {disputed} other {refunded}}{disputed, select, yes { (Stripe rejected due to a dispute)} other {}}: the bank is already resolving that money. Nothing is created."
+      },
+      "withdrawal": {
+        "title": "Delivered withdrawal",
+        "folio": "Withdrawal",
+        "card": "Card",
+        "reason": "Reason",
+        "note": "What happened",
+        "deliveredAt": "Delivered on"
       }
     },
     "refundsPage": {
@@ -5304,7 +5408,49 @@
         "operators": "Operator refunds",
         "speiCount": "{count, plural, one {# pending} other {# pending}}"
       },
-      "reviewLink": "Shipped orders refunded from Stripe that need a reason: see them in Sales →"
+      "reviewLink": "Shipped orders refunded from Stripe that need a reason: see them in Sales →",
+      "withdrawalDelivered": {
+        "cta": "Refund a card from a delivered withdrawal",
+        "title": "Refund a card from a delivered withdrawal",
+        "back": "Back",
+        "step1": {
+          "heading": "1 · Find the withdrawal",
+          "label": "Find the withdrawal",
+          "hint": "Withdrawal number, customer's name or email.",
+          "empty": "Nothing matches “{q}”.",
+          "notDelivered": "Not delivered yet ({status})."
+        },
+        "step2": {
+          "heading": "2 · Which card? · {folio}",
+          "legend": "Which card?",
+          "notShipped": "This card didn't ship in the withdrawal: it's handled under “To replace”.",
+          "next": "Continue"
+        },
+        "step3": {
+          "heading": "3 · Amount and reason",
+          "title": "Refund by bank transfer: {card}",
+          "noOrigin": "No known origin purchase",
+          "legend": "What happened to this card? (required)",
+          "noteLabel": "What happened and where the figure comes from",
+          "noteHint": "Saved in the audit log; the customer doesn't see it.",
+          "allTransfer": "It all goes by bank transfer (SPEI bucket): the card isn't touched.",
+          "confirm": "Create {amount} transfer"
+        },
+        "done": "{amount} transfer created for {customer}. They're notified by email{clabe, select, no { and asked to register their CLABE} other {}}.",
+        "viewTransfer": "View transfer",
+        "error": {
+          "not_withdrawal": "This is an order shipment, not a withdrawal: that card is refunded from Sales, in the order. Nothing was created.",
+          "not_delivered": "This withdrawal no longer shows as delivered. Nothing was created.",
+          "not_shipped": "This card didn't ship in the withdrawal (missing or damaged when prepared): it's handled under “To replace”. Nothing was created.",
+          "toReplaceLink": "Go to “To replace”",
+          "already_refunded": "This card already has a live transfer. Another one wasn't created.",
+          "viewTransfer": "View the transfer",
+          "no_reference": "This card has nothing to compare against: no origin purchase and no market price. Without a reference there's no typo guard, so it can't be entered here. Nothing was created. Tell the tech team.",
+          "forbidden": "Only the super-admin can refund. The attempt was logged.",
+          "note": "Say what happened and where the figure comes from (3 to 500 characters).",
+          "reason": "Pick “Didn't arrive” or “Arrived in bad condition”."
+        }
+      }
     },
     "refunds": {
       "hint": "What each operator has refunded while preparing shipments. No email: the panel is the notice.",
@@ -5663,6 +5809,9 @@
       "prev": "Previous",
       "next": "Next",
       "pageInfo": "Page {page} of {totalPages} · {total, plural, one {# alert} other {# alerts}}"
+    },
+    "mobile": {
+      "desktopOnly": "This section is designed for a computer. On your phone, use <link>“Orders to prepare”</link>."
     }
   },
   "locale": {
@@ -5839,6 +5988,8 @@
     "NOT_FOUND": "We couldn't find what you were looking for.",
     "CONFLICT": "There was a conflict with the current state.",
     "CONFLICT_WITH_DETAILS": "{closed, select, yes {This request is already closed (it ended in “{status}”), so this action no longer applies.} other {This action doesn’t apply to the request’s current status (“{status}”).}} This isn’t an app failure and retrying won’t change it: refresh the view to see the real status.",
+    "CONFLICT_ITEM_FINAL": "This card no longer takes decisions: it is already in inventory or has already been paid to the seller, so it can't be approved, adjusted or rejected. Nothing was saved and retrying won't change it: we've refreshed the request so you see its real status.",
+    "CONFLICT_ITEM_FINAL_WITH_DETAILS": "{itemStatus, select, convertida_inventario {This card is already in inventory, so it can no longer be approved, adjusted or rejected here; if the piece needs a fix, do it from “Inventory”.} pagada {This card has already been paid to the seller, so it can no longer be approved, adjusted or rejected.} other {This card no longer takes decisions: it can't be approved, adjusted or rejected.}} Nothing was saved and retrying won't change it: we've refreshed the request so you see its real status.",
     "RATE_LIMITED": "Too many requests, try again later.",
     "TOO_MANY_PASSWORD_ATTEMPTS": "Too many attempts. Try again later.",
     "TOO_MANY_PASSWORD_ATTEMPTS_WITH_DETAILS": "Too many attempts. Try again in {minutes} min.",
@@ -5880,7 +6031,7 @@
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "This offer would put the seller over the most we can buy from them this month, so it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS": "This offer would put the seller at {wouldBeAmount} this month, and the most we can buy from them is {capAmount}: it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",
     "APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE": "This card's price was frozen when the offer went out and is now binding: it cannot be changed. What it hits is the most we can buy from this seller in a month, so this card cannot be approved or paid. Do not try to re-price it: escalate the request to a super-admin. Nothing was saved.",
-    "REQUEST_NOT_RECEIVED": "This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, use “Mark received” on the request and approve again. Nothing was saved.",
+    "REQUEST_NOT_RECEIVED": "This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, press “Received: start review” on the request and approve again. Nothing was saved.",
     "PICKUP_ADDRESS_MISSING": "This request has no pickup address (it is an old request), so no offer can be issued. Call the seller so they add it from their profile and issue the offer again, or decline the request. Do not fill it in for them.",
     "PICKUP_ADDRESS_LOCKED": "This address can no longer be changed: your shipping label is already printed with it, or the request is closed. If something is wrong, contact us before you send the parcel.",
     "PICKUP_ADDRESS_LOCKED_OPERATOR": "This address can no longer be edited: the label went out printed with it, or the request is closed. If the address is wrong, that label has to be cancelled and a new one issued; it cannot be done from here. Nothing was saved.",
@@ -5928,8 +6079,9 @@
     "INVALID_TRANSITION": "This action does not apply to the current step of the request. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
     "INVALID_TRANSITION_WITH_DETAILS": "This request is in “{from}”: {verb} only applies when it is in {allowedFrom}. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
     "INVALID_TRANSITION_VERB": {
-      "receive": "“Mark received”",
-      "verify": "“Start verification”"
+      "receive": "“Received: start review”",
+      "verify": "“Start verification”",
+      "rejectItems": "Reject cards"
     },
     "INVALID_TRANSITION_ALLOWED_FROM_JOIN": " or ",
     "PAYMENT_IN_PROGRESS": "Your previous attempt already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check that order before retrying.",
@@ -5943,7 +6095,10 @@
     "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again.",
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
     "OFFER_NOT_CANCELLABLE": "This offer can no longer be cancelled: there is no live offer or the request has moved on (an accepted one is not cancelled here). Reload it to see its status. Nothing was saved.",
-    "ADDRESS_INCOMPLETE": "The selected address is missing data for the label (neighborhood, postal code or phone). Complete it to continue; nothing was charged."
+    "ADDRESS_INCOMPLETE": "The selected address is missing data for the label (neighborhood, postal code or phone). Complete it to continue; nothing was charged.",
+    "DISPUTES_DISCONTINUED": "Claims are no longer opened from the store. If you have a problem with your order, write to us with your order number.",
+    "DISPUTES_DISCONTINUED_WITH_DETAILS": "Claims are no longer opened from the store. If you have a problem with your order, write to {contact} with your order number.",
+    "ITEM_NOT_OFFERED": "This card was not part of the purchase: it was marked as not bought when the offer went out, so it cannot be approved. Leave it as it is —do not approve it at some other amount and do not reject it— and move on to the cards we did buy. Nothing was saved."
   },
   "payment": {
     "title": "Payment",
@@ -6044,7 +6199,6 @@
     "copyOrderNumber": "Copy",
     "copied": "Copied",
     "copyTracking": "Copy tracking number",
-    "troubleWithOrder": "A problem with your order?",
     "supportNote": "Check with support quoting your order number.",
     "resendCta": "Email the link to me again",
     "createAccountCta": "Create an account and save this order",
@@ -6229,5 +6383,15 @@
       "emptyTitle": "Paste a list to get started",
       "emptyBody": "You haven't pasted anything yet. Copy your list and paste it above."
     }
+  },
+  "support": {
+    "orderTitle": "PROBLEM WITH YOUR ORDER?",
+    "withdrawalTitle": "PROBLEM WITH YOUR WITHDRAWAL?",
+    "orderBody": "If a card arrived in bad condition or the package didn't arrive, write to us with your order number and, if you can, photos. We'll look into it and reply by email.",
+    "withdrawalBody": "If a card arrived in bad condition or the package didn't arrive, write to us with your withdrawal number and, if you can, photos. We'll look into it and reply by email.",
+    "copyEmail": "Copy email",
+    "copied": "Copied",
+    "mailSubjectOrder": "Problem with my order {reference}",
+    "mailSubjectWithdrawal": "Problem with my withdrawal {reference}"
   }
 }

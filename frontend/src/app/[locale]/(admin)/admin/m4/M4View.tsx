@@ -89,6 +89,8 @@ export function M4View({
 
   useEffect(() => {
     if (initialTab !== 'preparar') tabRefs.current[initialTab]?.focus();
+    // §60.9 a: en el celular las pestañas desplazan en horizontal; la activa siempre a la vista al cargar.
+    tabRefs.current[initialTab]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

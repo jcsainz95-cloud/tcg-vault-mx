@@ -186,6 +186,8 @@ export class AdminOrdersController {
     // ⭐ v1.80.4 (§M4-SHIP.18.6) — `vaultPieces`, DERIVADO en la lectura (un cuerpo con el cierre).
     const vaultPieces = extra?.fulfillmentMode === 'vault' ? await this.refunds.vaultPieces(id) : undefined;
     if (!extra) throw BusinessException.notFound();
+    // 💰 v1.82 (§PNL.2): `items[].deliveredRefund` — el MISMO cuerpo que el verbo `refund-delivered` (pasos 3–4), sin candados.
+    const deliveredViews = await this.refunds.deliveredRefundViews(id);
     const {
       user: buyer,
       refunds: rows,
@@ -218,9 +220,13 @@ export class AdminOrdersController {
       customer: buyer ? { userId: buyer.id, fullName: customerDisplayName(buyer), email: customerEmailOrBlank(buyer.email, 'AdminOrderDetail.customer', buyer.id) } : null,
       refunds: refundDtos,
       // `items[].refund: PaymentRefundDTO | null` (§M4-SHIP.10 M3, cualquier estado): la fila de ESA carta.
+      // 💰 v1.82 (§PNL.2, aditivo): `orderItemId` (la llave del verbo `refund-delivered`; ⚠️ pendiente de arquitecto: el
+      // contrato no lo listaba en `AdminOrderItemDTO`) y `deliveredRefund` (`null` ⇔ la línea ya tiene `refund`).
       items: (detail.items as { inventoryItemId: string }[]).map((it) => {
         const i = rows.findIndex((r) => r.orderItem?.inventoryItemId === it.inventoryItemId);
-        return { ...it, refund: i >= 0 ? refundDtos[i] : null };
+        const refund = i >= 0 ? refundDtos[i] : null;
+        const dv = deliveredViews.get(it.inventoryItemId);
+        return { ...it, orderItemId: dv?.orderItemId ?? null, refund, deliveredRefund: refund ? null : (dv?.view ?? null) };
       }),
       shipments: shipmentRequests.map((s) => ({
         id: s.id,
@@ -330,6 +336,22 @@ export class AdminOrdersController {
     @Headers('idempotency-key') _idempotencyKey?: string,
   ) {
     return this.refunds.requestFullRefund(id, dto, user);
+  }
+
+  /**
+   * 💰 v1.82 (§PNL.2) — reembolsar UNA carta de un pedido de envío directo YA ENTREGADO. `@MoneyOut()`: solo
+   * `super_admin`; el operador recibe `403 MONEY_OUT_FORBIDDEN` AUDITADO (`MoneyOutGuard`). Cuerpo crudo: el servicio lo
+   * valida (`400 {field}`) y las llaves extra se ignoran (⛔ el importe lo calcula el servidor). Res `201 { refund }`.
+   */
+  @Post(':id/items/:orderItemId/refund-delivered')
+  @MoneyOut()
+  async refundDelivered(
+    @Param('id') id: string,
+    @Param('orderItemId') orderItemId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.refunds.refundDelivered(id, orderItemId, body, user);
   }
 
   /**

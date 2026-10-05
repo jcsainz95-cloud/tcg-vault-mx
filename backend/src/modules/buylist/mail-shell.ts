@@ -54,6 +54,7 @@
  */
 
 import { envOr } from '../mail/mail-env.util';
+import { supportContact } from '../mail/support-contact';
 
 // =================================================================================================
 // TOKENS — §31.11 no crea NI UNO: son los mismos hex de §2.2/§17.2, aplanados (sin alfa, porque
@@ -585,7 +586,7 @@ export function footerDescriptor(locale: 'es' | 'en'): string {
  * cuerpo**. *Lo que es igual en los ocho lo pone el sitio que sabe que son ocho.*
  */
 export function mailShell(opts: MailShellOptions): string {
-  const contacto = `${BRAND_SITE} · ${supportEmail()}`;
+  const contacto = `${BRAND_SITE} · ${supportContact()}`;
   const cuerpo = table(
     brandRows() +
       opts.blocks.join('') +
@@ -612,7 +613,3 @@ export function mailShell(opts: MailShellOptions): string {
   );
 }
 
-/** El buzón vivo de soporte (misma cascada que las plantillas: env → contacto de disputas → default). */
-export function supportEmail(): string {
-  return envOr(process.env.SUPPORT_EMAIL, envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcghunt.mx'));
-}

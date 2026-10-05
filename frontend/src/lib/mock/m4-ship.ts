@@ -11,6 +11,8 @@
  */
 import { SHIPPED_REFUND_REASONS } from '@/types/contract';
 import type {
+  WithdrawalDeliveredPreviewDTO,
+  CreateWithdrawalDeliveredRefundRequest,
   FullRefundReviewDTO,
   RecordShippedRefundReasonRequest,
   RecordShippedRefundReasonResponse,
@@ -735,7 +737,8 @@ function projectCase(c: MockCase): ReplacementCaseDTO {
 // ────────────────────────────────────────────────────────────────────────────────────────────
 
 interface MockManualRefund extends Omit<ManualRefundDTO, 'clabeOnFile' | 'clabeMasked' | 'beneficiaryName' | 'clabeUpdatedAt' | 'clabeChangedRecently' | 'paidToCurrentClabe' | 'origin'> {
-  replacementCaseId: string;
+  /** v1.82 (§PNL.3): `null` en `withdrawal_delivered` (CHECK por `source`, M-70). */
+  replacementCaseId: string | null;
   originOrderId: string | null;
   paidClabeHmac: string | null;
 }
@@ -801,6 +804,7 @@ function projectManualRefund(m: MockManualRefund): ManualRefundDTO {
     clabeMasked: k.clabe ? `****${k.clabe.slice(-4)}` : null,
     origin: origin ? { orderId: origin.id, orderNumber: origin.orderNumber, orderStatus: origin.status } : m.originOrderId ? { orderId: m.originOrderId, orderNumber: null, orderStatus: 'settled' } : null,
     paidToCurrentClabe: m.status === 'paid' ? paidClabeHmac === k.clabeHmac : null,
+    withdrawal: m.withdrawal ?? null,
     clabeUpdatedAt: k.clabeUpdatedAt,
     clabeChangedRecently: changedRecently,
   });
@@ -1439,7 +1443,7 @@ export function mockManualRefunds(filters: ManualRefundsFilters): ManualRefundsR
   const status = filters.status ?? 'pending';
   let rows = manualRefunds.filter((m) => m.status === status);
   const q = filters.q?.trim().toLowerCase();
-  if (q) rows = rows.filter((m) => [m.customer.fullName, m.customer.email, m.case.folio, m.speiReference, origins[m.originOrderId ?? '']?.orderNumber].some((v) => v?.toLowerCase().includes(q)));
+  if (q) rows = rows.filter((m) => [m.customer.fullName, m.customer.email, m.case?.folio ?? m.withdrawal?.folio, m.speiReference, origins[m.originOrderId ?? '']?.orderNumber].some((v) => v?.toLowerCase().includes(q)));
   rows.sort((a, b) => (status === 'pending' ? a.createdAt.localeCompare(b.createdAt) : ((b.paidAt ?? b.cancelledAt) ?? '').localeCompare((a.paidAt ?? a.cancelledAt) ?? '')));
   const data = rows.map(projectManualRefund);
   return { data, page: filters.page ?? 1, pageSize: 25, total: data.length, pendingCents: manualRefunds.filter((m) => m.status === 'pending').reduce((s, m) => s + m.amountCents, 0) };
@@ -1519,7 +1523,12 @@ export function mockReissueManualRefund(id: string, note: string): ManualRefundD
   const m = findManualRefund(id);
   if (m.status !== 'cancelled') throw new ApiFixtureError(409, 'MANUAL_REFUND_NOT_CANCELLED', 'Not cancelled', { status: m.status });
   if (m.reissuedAsId) return projectManualRefund(findManualRefund(m.reissuedAsId));
-  const alive = manualRefunds.find((x) => x.replacementCaseId === m.replacementCaseId && x.source === m.source && x.status !== 'cancelled');
+  const alive = manualRefunds.find(
+    (x) =>
+      x.source === m.source &&
+      x.status !== 'cancelled' &&
+      (m.replacementCaseId !== null ? x.replacementCaseId === m.replacementCaseId : x.withdrawal?.shipmentItemId === m.withdrawal?.shipmentItemId),
+  );
   if (alive) throw new ApiFixtureError(409, 'MANUAL_REFUND_NOT_CANCELLED', 'Another live row exists', { status: 'cancelled', activeManualRefundId: alive.id });
   const n: MockManualRefund = {
     ...clone(m), id: nextId('mr'), status: 'pending', createdAt: nowIso(), createdBy: MOCK_SUPER,
@@ -1875,4 +1884,95 @@ export function mockHoldingWithdrawabilityOf(h: HoldingDTO): Pick<HoldingDTO, 'w
 export function mockAdminOrderRowAdditions(orderId: string): Partial<AdminOrderDetailDTO> {
   const a = mockAdminOrderDetailAdditions(orderId);
   return { orderNumber: a.orderNumber, fulfillmentMode: a.fulfillmentMode, status: a.status, customer: a.customer, refundedCents: a.refundedCents, chargebackNeedsManual: a.chargebackNeedsManual, refundReviewPending: a.fullRefundReview?.pending === true };
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────
+// MOCK v1.82 §PNL.3 — retiro ENTREGADO ⇒ SPEI de UNA carta (súper-admin)
+// ────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * MOCK: un retiro de bóveda ENTREGADO de Ana (`u-777`) para el diálogo «Devolver una carta de un retiro entregado».
+ * Solo aparece en `GET /admin/shipments?q=` (búsqueda), para no alterar la cola de envíos ni sus pruebas. Dos cartas:
+ * una que salió (`picked`) y una que faltó al preparar (`missing` ⇒ `409 … not_shipped`).
+ */
+export const MOCK_DELIVERED_WITHDRAWAL: AdminShipmentDTO = {
+  id: 'shp-7201',
+  userId: 'u-777',
+  kind: 'vault_withdrawal',
+  orderId: null,
+  status: 'entregado',
+  carrier: 'Estafeta',
+  trackingNumber: 'EST-7201',
+  requestedAt: '2026-09-20T10:00:00Z',
+  customer: { userId: 'u-777', fullName: 'Ana López', email: 'ana@example.com' },
+  items: [
+    { id: 'sit-7201-1', inventoryItemId: 'inv-7201', folio: 'INV-007201', prepStatus: 'picked', missingReason: null,
+      card: { id: 'base1-4', externalId: 'base1-4', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: 'BS', imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png', imageLargeUrl: 'https://images.pokemontcg.io/base1/4_hires.png', availableFinishes: ['holofoil'] } },
+    { id: 'sit-7201-2', inventoryItemId: 'inv-7202', folio: 'INV-007202', prepStatus: 'missing', missingReason: 'not_found',
+      card: { id: 'base1-2', externalId: 'base1-2', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: 'BS', imageSmallUrl: 'https://images.pokemontcg.io/base1/2.png', imageLargeUrl: 'https://images.pokemontcg.io/base1/2_hires.png', availableFinishes: ['holofoil'] } },
+  ],
+};
+const MOCK_WD_DELIVERED_AT = '2026-09-25T18:00:00Z';
+/** Referencias del mock por línea: Q (pagó) y M (mercado). R = max(Q, M); 2R confirma; 5R bloquea. */
+const MOCK_WD_REFS: Record<string, { q: number | null; m: number | null }> = { 'sit-7201-1': { q: 52_000, m: 48_000 } };
+
+function wdRefs(shipmentItemId: string) {
+  const r = MOCK_WD_REFS[shipmentItemId] ?? { q: null, m: null };
+  const reference = Math.max(r.q ?? 0, r.m ?? 0);
+  return { ...r, reference, confirmAbove: reference * 2, limit: reference * 5 };
+}
+
+export function mockWithdrawalDeliveredPreview(shipmentItemId: string, amountCents: number | null): WithdrawalDeliveredPreviewDTO {
+  requireSuperAdmin();
+  const r = wdRefs(shipmentItemId);
+  const confirmation =
+    amountCents === null ? null : amountCents > r.limit ? 'blocked' : amountCents > r.confirmAbove ? 'reinforced' : 'none';
+  return {
+    amountCents,
+    paidReferenceCents: r.q,
+    market: r.m === null ? null : { cents: r.m, capturedDate: '2026-10-01' },
+    referenceCents: r.reference,
+    confirmAboveCents: r.confirmAbove,
+    limitCents: r.limit,
+    confirmation,
+  };
+}
+
+export function mockCreateWithdrawalDeliveredRefund(body: CreateWithdrawalDeliveredRefundRequest): ManualRefundDTO {
+  requireSuperAdmin();
+  const note = body.note?.trim() ?? '';
+  if (body.reason !== 'not_arrived' && body.reason !== 'arrived_damaged') {
+    throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'reason', { field: 'reason', allowed: ['not_arrived', 'arrived_damaged'] });
+  }
+  if (note.length < 3 || note.length > 500) throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'note 3-500', { field: 'note' });
+  if (!Number.isInteger(body.amountCents) || body.amountCents < 1) throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'amountCents', { field: 'amountCents' });
+  const sh = MOCK_DELIVERED_WITHDRAWAL;
+  const item = sh.items?.find((i) => i.id === body.shipmentItemId);
+  if (!item) throw new ApiFixtureNotFound(`ShipmentItem ${body.shipmentItemId} not found`);
+  if (item.prepStatus === 'missing') throw new ApiFixtureError(409, 'ITEM_REFUND_NOT_AVAILABLE', 'not shipped', { reason: 'not_shipped' });
+  const live = manualRefunds.find((m) => m.withdrawal?.shipmentItemId === item.id && m.status !== 'cancelled');
+  if (live) throw new ApiFixtureError(409, 'ITEM_REFUND_NOT_AVAILABLE', 'already', { reason: 'already_refunded', manualRefundId: live.id });
+  const r = wdRefs(item.id!);
+  if (r.reference === 0) throw new ApiFixtureError(409, 'ITEM_REFUND_NOT_AVAILABLE', 'no reference', { reason: 'no_reference' });
+  if (body.amountCents > r.limit) {
+    throw new ApiFixtureError(422, 'CASE_REFUND_ABOVE_LIMIT', 'above limit', { referenceCents: r.reference, limitCents: r.limit });
+  }
+  if (body.amountCents > r.confirmAbove && body.confirmAboveReference !== true) {
+    throw new ApiFixtureError(422, 'CASE_REFUND_CONFIRMATION_REQUIRED', 'confirm', { referenceCents: r.reference, confirmAboveCents: r.confirmAbove, limitCents: r.limit });
+  }
+  const m: MockManualRefund = {
+    id: nextId('mr'), source: 'withdrawal_delivered', status: 'pending', amountCents: body.amountCents,
+    components: { merchandiseCents: 0, merchandiseIvaCents: 0, processingFeeCents: 0, compensationCents: body.amountCents },
+    customer: sh.customer!, case: null,
+    withdrawal: {
+      shipmentId: sh.id, shipmentItemId: item.id!,
+      card: { name: item.card!.name, setName: item.card!.setName, finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: item.card!.imageSmallUrl },
+      folio: item.folio!, reason: body.reason, note, deliveredAt: MOCK_WD_DELIVERED_AT,
+    },
+    paymentRefundId: null, createdAt: nowIso(), createdBy: MOCK_SUPER, paidAt: null, paidBy: null, speiReference: null, paidNote: null,
+    cancelledAt: null, cancelledBy: null, cancelNote: null, reissuedFromId: null, reissuedAsId: null,
+    replacementCaseId: null, originOrderId: null, paidClabeHmac: null,
+  };
+  manualRefunds.push(m);
+  return projectManualRefund(m);
 }

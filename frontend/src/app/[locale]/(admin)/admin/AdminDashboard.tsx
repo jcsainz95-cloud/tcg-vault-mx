@@ -14,7 +14,8 @@ import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
- * (envíos→M4, buylist→M5, disputas→M8, precios pendientes→M2), no cifras muertas.
+ * (envíos→M4, buylist→M5, precios pendientes→M2), no cifras muertas. F-26 (§PNL.10.7, `DESIGN_SYSTEM §60.8`):
+ * M8 se retiró de la interfaz ⇒ `workQueue.disputes` ya no se suma ni enlaza (el DTO lo sigue trayendo).
  * Subrayado en hover + anillo bermellón en foco (DESIGN_SYSTEM §8.2); el número va
  * en `tabular` para que StatCard lo tiña cuando corresponde.
  */
@@ -228,14 +229,12 @@ export function AdminDashboard() {
               label={t('workQueue')}
               value={
                 query.data.workQueue.shipments +
-                query.data.workQueue.buylist +
-                query.data.workQueue.disputes
+                query.data.workQueue.buylist
               }
               sub={
                 <span className="flex flex-wrap gap-x-3 gap-y-1">
                   <QueueLink href="/admin/m4" label={t('shipments')} count={query.data.workQueue.shipments} />
                   <QueueLink href="/admin/m5" label="Buylist" count={query.data.workQueue.buylist} />
-                  <QueueLink href="/admin/m8" label={t('disputes')} count={query.data.workQueue.disputes} />
                   <QueueLink href="/admin/m2" label={t('pendingPrices')} count={query.data.workQueue.pendingPrices} />
                 </span>
               }

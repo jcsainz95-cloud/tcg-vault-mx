@@ -43,6 +43,8 @@ function build(itemOverrides: Record<string, unknown> = {}) {
         ...itemOverrides,
       }),
       update: jest.fn(),
+      // v1.82.1 · §PNL.10.3: la escritura de la carta es `updateMany` con CAS.
+      updateMany: jest.fn(async () => ({ count: 1 })),
     },
     nextFolio: jest.fn(async () => 'INV-000001'),
     $transaction: jest.fn(async (cb: any) => cb(prisma)),

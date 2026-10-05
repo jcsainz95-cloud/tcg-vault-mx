@@ -9,6 +9,40 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { applyDecorators } from '@nestjs/common';
+import { Transform } from 'class-transformer';
+import { BusinessException } from '../../../common/business.exception';
+
+/** v1.82 · PNL-6 (`R69-1`): tope del motivo del reembolso total — el de toda nota de este módulo. */
+export const REFUND_REASON_MAX = 500;
+
+/**
+ * v1.82 · PNL-6 — `@MaxLength(max)` **que además nombra el campo** (`400 VALIDATION_ERROR { field, max }`).
+ *
+ * El `ValidationPipe` global no emite `details.field` (TECH_DEBT BE-82: haría falta un `exceptionFactory`
+ * en `main.ts`, que no es de este pase), y el contrato pide `{ field: 'reason' }`. El `@Transform` corre
+ * dentro de `plainToInstance`, ANTES de class-validator, y una `BusinessException` lanzada ahí sale
+ * intacta por `AllExceptionsFilter` ⇒ ⛔ el servicio no llega a correr (cero filas, cero Stripe).
+ * El `@MaxLength` queda como declaración (y respaldo) con **la misma cifra**: un solo número.
+ * Un no-string pasa intacto al `@IsString()` de siempre.
+ */
+function MaxLengthWithField(field: string, max: number): PropertyDecorator {
+  return applyDecorators(
+    Transform(
+      ({ value }) => {
+        if (typeof value === 'string' && value.length > max) {
+          throw BusinessException.badRequest('VALIDATION_ERROR', `${field} must be at most ${max} characters`, {
+            field,
+            max,
+          });
+        }
+        return value;
+      },
+      { toClassOnly: true },
+    ),
+    MaxLength(max),
+  );
+}
 
 export class QuoteDto {
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) inventoryItemIds!: string[];
@@ -20,7 +54,9 @@ export class SessionDto {
 }
 
 export class RefundDto {
-  @IsString() reason!: string;
+  // 🔒 v1.82 (PNL-6, `R69-1`): 0–500 caracteres; más ⇒ `400 VALIDATION_ERROR {field:'reason'}`. ⛔ Sin
+  // `MinLength` (rompería a quien hoy manda `""`).
+  @IsString() @MaxLengthWithField('reason', REFUND_REASON_MAX) reason!: string;
   /**
    * 💰 v1.80.5 (SEC-SHIP-B10, §M4-SHIP.18.4): en una orden `vault` con cartas ya en manos del cliente
    * (`already_withdrawn`) el reembolso total exige esta confirmación explícita ⇒ si no, `422

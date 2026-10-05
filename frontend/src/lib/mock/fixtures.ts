@@ -477,6 +477,17 @@ export let mockSettings: SettingsDTO = {
   buylistCapPerMonthCents: 1000000,
   ineThresholdCents: 300000,
   repoCapPerCardCents: 5000000,
+  // §M10 «DIEZ diales» del ciclo de buylist (defaults del contrato).
+  buylistOfferIssueDeadlineBusinessDays: 7,
+  buylistOfferAcceptDeadlineBusinessDays: 2,
+  buylistShipDeadlineBusinessDays: 3,
+  buylistMinimumRequestCents: 50000,
+  buylistShippingFeeCents: 18000,
+  buylistMinimumOfferNetCents: 20000,
+  buylistOperatorOfferCapCents: 150000,
+  buylistShipmentConfirmAlertBusinessDays: 5,
+  buylistOfferReissueAlertCount: 2,
+  buylistVariantPositionCap: 10,
   fxBufferPct: 3,
   // Coherente con `mockFxWorld` a propósito: es **el mismo ajuste** (`fx_manual_override_rate`)
   // visto por la otra puerta (§M2-F.5). Dos superficies del simulador que discrepan sobre el mismo
@@ -1631,6 +1642,24 @@ function mockIsPayable(row: MockPayabilityRow): boolean {
 }
 
 /**
+ * v1.82.3 (contrato §PNL.12.1) — **las líneas que CUENTAN para cerrar la solicitud**: `offerDecision IS NULL OR
+ * offerDecision <> 'skip'`. En JS `!== 'skip'` conserva `null`/ausente (el `<>` de SQL no: por eso el backend lo escribe
+ * con `OR` explícito). Pre-ciclo toda línea es `null` ⇒ toda línea cuenta ⇒ conducta idéntica a la de antes.
+ */
+export function mockCountingItems<T extends Pick<SellItemDTO, 'offerDecision'>>(items: T[]): T[] {
+  return items.filter((it) => it.offerDecision !== 'skip');
+}
+
+/**
+ * v1.82.3 (§PNL.12.1) — **Regla C**: ∃ ≥1 línea que cuenta ∧ toda línea que cuenta está `rechazada`. Una sola copia en el
+ * servidor falso: la usan `isRejectable` (proyección) y la guarda de `POST …/reject` (`api.ts`).
+ */
+export function mockRuleC(row: Pick<AdminBuylistDTO, 'items'>): boolean {
+  const counting = mockCountingItems(row.items);
+  return counting.length > 0 && counting.every((it) => it.itemStatus === 'rechazada');
+}
+
+/**
  * Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`).
  *
  * ⚠️ Las columnas ocultas de pagabilidad **NO salen en el DTO**: son columnas de la «tabla» del
@@ -1648,6 +1677,8 @@ export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
     approvedTotalCents: row.approvedTotalCents ?? undefined,
     isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status),
     isPayable: mockIsPayable(row),
+    // v1.82.3 §PNL.12.1 d: `isTerminal === false ∧ Regla C`.
+    isRejectable: !MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) && mockRuleC(row),
     // v1.61 §M5-V.5: **el servidor manda el número**; el cliente no cuenta `itemStatus`.
     pendingDecisionItemCount: mockPendingDecisionItemIds(row).length,
   };
@@ -3191,7 +3222,7 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
  */
 export type MockAdminBuylistRow = Omit<
   AdminBuylistDTO,
-  'isTerminal' | 'isPayable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
+  'isTerminal' | 'isPayable' | 'isRejectable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
 > &
   MockPayabilityColumns;
 

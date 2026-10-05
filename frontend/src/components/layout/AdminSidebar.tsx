@@ -77,7 +77,6 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
           return count > 0 ? { count, overdue: s.toReplaceOverdue > 0 } : null;
         },
       },
-      { href: '/admin/m8', key: 'm8' },
     ],
   },
   {

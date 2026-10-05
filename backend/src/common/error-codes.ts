@@ -609,6 +609,9 @@ export const ErrorCode = {
   // Disputes
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',
   NOT_RAW: 'NOT_RAW',
+  // 410 — v1.82 (§PNL.1, `HECHOS.md:44`): `POST /disputes` ya no crea disputas. `details: { supportContact }`.
+  // Sale ANTES de validar el cuerpo y de leer la pieza (un 403/422 según la pieza sería un oráculo).
+  DISPUTES_DISCONTINUED: 'DISPUTES_DISCONTINUED',
 
   // ── MODO del tipo de cambio (v1.63/v1.63.1 · API_CONTRACT §M2-F · ARCHITECTURE §4.43) ──
   // Las DOS mitades del invariante I-FX4 («no existe manual sin número»), disparadas por la MISMA
@@ -691,6 +694,9 @@ export const ErrorCode = {
   REFUND_PREVIEW_STALE: 'REFUND_PREVIEW_STALE',
   // 409 💰 — una carta faltante no se puede reembolsar por esta vía. `details: { lines: [{ shipmentItemId, reason }] }`.
   REFUND_NOT_AVAILABLE: 'REFUND_NOT_AVAILABLE',
+  // 409 💰 — v1.82 (§PNL.2/§PNL.3): una carta YA ENTREGADA no se puede reembolsar (directo) ni devolver por SPEI
+  // (retiro) por la vía pedida. `details: { reason, refundId?, manualRefundId? }`. Cero escrituras, cero Stripe.
+  ITEM_REFUND_NOT_AVAILABLE: 'ITEM_REFUND_NOT_AVAILABLE',
   // 403 💰 — el operador superaría su tope de 24 h. `details: { capCents, usedCents, requestedCents }`.
   MONEY_OUT_LIMIT_EXCEEDED: 'MONEY_OUT_LIMIT_EXCEEDED',
   // 409 — `PATCH …/status {to:'cancelado'}` sobre un envío pagado (o `solicitado` ya cobrado). `details: { status }`.

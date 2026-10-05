@@ -19766,3 +19766,167 @@ stripeFees − shippingCost − refunds − refundedFees − compensations` (`:1
   Queda en `P66_3_KNOWN_HITS` con su motivo; `p66_3Offenders` marca `stale:` si deja de acertar, así que la excepción
   no puede sobrevivir al arreglo. Decisión de copy: orquestador → ux-ui.
 - Ningún «M-n» con guion en `messages/*.json` (grep medido 2026-10-05 sobre `7d930c4e`).
+
+## §98 · **Arreglos del panel — `DESIGN_SYSTEM §60` (v5.0) contra el contrato v1.82 §PNL** (2026-10-05, rama `claude/arreglos-panel`; commits `e6760b49` · `7ce3bff4` · `91cb27a1` · `6f10d315` · `5dc6357e` · `53ee8c35` · `2e93eb0f`)
+
+> **Nota de renumeración (fusión `claude/arreglos-panel` + `claude/skydropx-d`, 2026-10-05):** en la rama del panel estas secciones eran **§88, §89, §90 y §91**; Skydropx ya usaba §88…§97, así que aquí pasan a **§98, §99, §100 y §101** (mismo orden). Las citas «`FRONTEND_NOTES §88`…`§91`» escritas en la rama del panel se leen §98…§101; ⛔ no se reescribieron en la fusión.
+
+**Alcance:** F-1…F-25 y F-27…F-32 de §60.11. ⛔ **F-26 (retiro de M8) NO se tocó**: espera la errata del arquitecto
+(§60.8, N-4). Respuestas del dueño aplicadas (HECHOS, última fila 2026-10-05): **sin plazo escrito** para escribir tras la
+entrega (sale `legal.disputeWindowNote`) y **sin mencionar el contracargo** en los términos.
+
+**Zonas compartidas tocadas:** `lib/api.ts` (`getSupportContact`, fuera `createDispute`, `refundDeliveredItem`,
+`getAdminShipment`, `previewWithdrawalDeliveredRefund`, `createWithdrawalDeliveredRefund`, `rejectBuylistItems`, mocks),
+`lib/mock/{m4-ship,fixtures}.ts`, `lib/error-audience.ts`, `types/contract.ts`, `components/ui/QueryState.tsx`
+(`DISPUTES_DISCONTINUED`, verbo `rejectItems`), `components/domain/{SupportContact,OrderItemStatusLine,DisputeEvidenceContact}`,
+`components/layout/AdminShell.tsx`, `hooks/useSupportContact.ts`. ⚠️ El hook vive en `src/hooks/` (no existe `lib/hooks/`).
+
+**Decisiones de implementación:**
+1. **`DisputeEvidenceContact` se queda SOLO para M8** (en transición) con sus claves `dispute.*`; la tienda usa
+   `SupportContact`. Se retiran juntos con F-26.
+2. **`useSupportContact`**: `['support-contact']`, 5 min; mientras carga `contact = null` ⇒ `Skeleton` y «Copiar» apagado
+   (⛔ nunca el respaldo antes de tiempo); error ⇒ `SUPPORT_CONTACT_FALLBACK`. Los contactos neutros (confirmación de
+   invitado, enlace caducado, pie de `/pedido`) pintan su frase cuando el correo ya llegó. Términos (servidor): `fetch`
+   con `revalidate: 300` en `terminos/support-contact-server.ts` (un `page.tsx` no admite exportaciones extra).
+   ⚠️ **Siguen con el valor fijo** (fuera de la lista F-9, zonas de buylist/reclamo): `ClaimableOrdersNotice.tsx:118` y
+   `SellRequestDetailView.tsx:289,560`. Medido con `grep SUPPORT_CONTACT_FALLBACK`.
+3. **`OrderItemStatusLine`** ramifica por `refund.kind`; el motivo de `after_delivery` sale de
+   `orders.item.refundReasonAfterDelivery.*` (mapa propio por tipo, para no mezclar `MissingReason` y `ShippedRefundReason`).
+4. **M3:** `items[].orderItemId` — ratificado en el contrato v1.82.1 §PNL.10 (E-6) mientras se construía; tipado
+   opcional por tolerancia, sin él no hay botón. (`784ab697` alinea además `reject-items` a `{ items, requestClosed }`.)
+   ⚠️ **Pendiente de copy (ux-ui):** FE-BRJ-4 de §PNL.10 — `409 CONFLICT { reason: 'ITEM_FINAL' }` en la decisión por
+   carta; hoy cae al copy base de `error.CONFLICT`. No se improvisa texto.
+   El reintento de una fila `item_delivered` se ofrece solo al súper-admin (conservador: es dinero saliente del súper-admin).
+5. **SPEI de retiro:** el diálogo vive en `admin/refunds/` y reusa textos de `admin.m4.replace.refund.*` (referencias,
+   re-escribir, bloqueo) y `pesosToCents` de M4 sin tocar M4. El mock del retiro entregado (`shp-7201`) solo aparece en
+   búsquedas (`?q=`), para no mover la cola de envíos ni sus pruebas. «Entregado el» en el paso 1 se omite: la fila de
+   `GET /admin/shipments` no trae `deliveredAt` (NO MEDIDO en backend real).
+6. **M5:** un clic encadena `receive → verify` en el cliente (`VerifyStepError` distingue el fallo del 2.º paso).
+   `admin.m5.receive` pasa a «Recibida: empezar revisión»; `error.INVALID_TRANSITION_VERB.receive` sigue diciendo
+   «Marcar recibida» (nombra el verbo del servidor; ux-ui decide si cambia). `ITEM_NOT_OFFERED` pasa del lote 2 pendiente
+   a cableado (copy literal de §27.2); `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` sigue pendiente (Ajustar ya no se ofrece en `buy`).
+   El cierre de la solicitud tras el rechazo múltiple lo dice la lista **recargada**, no la pantalla.
+7. **M10:** sección propia `BuylistCycleSection` (draft, guardado y errores propios); el `422` por clave pinta la regla
+   del campo y nunca `errors[clave]`. `admin.m5.desk.readOnly` se retiró (sustituido por `readOnlyByStatus.*`).
+8. **Celular:** el contenedor lo decide el CSS (`hidden sm:flex`, `sticky … sm:static`, `lg:hidden`), ⛔ sin media
+   query en JS (§37.1a). No se tocó `components/ui/Modal` (hoja inferior a lo ancho en `< sm`, patrón del sistema): los
+   diálogos de preparar/deshacer apilan botones con confirmar arriba. El conteo NO se duplica en el pie pegajoso (dos
+   nodos con el mismo texto romperían la región `role="status"`); el pie lleva «Pedido preparado». Playwright midió dos
+   enlaces de 15 px en la tarjeta («Por reponer →», «Ver en «Por reponer»») y se subieron a 44 px.
+
+**Censo E2E:** `needsSeed` 34 → **36** (9 → 10 ficheros): `e2e/m4-mobile.spec.ts` (import + una llamada en `beforeEach`:
+la cola de preparar exige un envío en `picking`, mismo motivo que `m4-preparation.spec.ts`). El baseline es de devops:
+`./scripts/check-e2e-skip-census.sh --update --motivo "m4-mobile.spec: MOB-1…5 necesitan un envío en picking"`.
+
+**Mediciones (2026-10-05, árbol vivo):** `tsc` 0 · lint 0 · vitest **220/220 ficheros, 2616/2616** · i18n **4307 = 4307**,
+0 vacías · Playwright mock (bundle propio `.next-e2e-mock-fepnl`, `:3317`) suite completa **270 passed, 9 skipped, 0
+failed** (antes de `2e93eb0f`: 3 rojas de specs propios, arregladas en ese commit y re-corridas 33/33).
+Mutaciones (copia `git archive HEAD` entera, N=1 cada una, deterministas): B1 4/4 rojas · B2 3/3 · B3 3/3 · B4 5/5 ·
+B5 3/3 · B6 4/4 (MOB-3 en Playwright sobre build de la copia, 2 rojas a 360 y 390).
+
+## §99 · **F-26 — M8 «Disputas» se retira de la interfaz** (2026-10-05, rama `claude/arreglos-panel`, base `5a8a5852`; contrato §PNL.10.7 / §PNL.11 errata v1.82.2; `DESIGN_SYSTEM §60.8`)
+
+**Un commit propio y revertible** (§PNL.10.7 paso 3 (b)): si la medición posterior al despliegue da alguna disputa
+`abierta`/`en_revision`, `git revert` de ese commit devuelve menú, ruta, pantalla, enlace del tablero y textos. La API de
+disputas **no cambia** (lecturas y `resolve` siguen; los correos 20/21 tampoco se tocan) — `lib/api.ts` y
+`types/contract.ts` se dejaron intactos a propósito (`getAdminDisputes`, `resolveDispute`, `getAdminUserDisputes`,
+`workQueue.disputes`).
+
+**Qué cambió:**
+1. **Menú:** sale la línea `{ href: '/admin/m8', key: 'm8' }` de `AdminSidebar.tsx` y nada más (cambio mínimo: la rama
+   Skydropx añade «Avisos de gasto» en el mismo grupo, unas líneas más arriba).
+2. **Ruta:** `m8/page.tsx` redirige a `/admin` en el servidor conservando el idioma (patrón de `manual-refunds/page.tsx`).
+   Salen `M8View.tsx`, `M8View.test.tsx` y `components/domain/DisputeEvidenceContact.tsx` (solo lo usaba M8, §88 decisión 1).
+3. **Tablero:** la cola suma envíos + buylist (sin `workQueue.disputes`) y pierde el enlace a M8.
+4. **M6:** la pestaña «Disputas» de la ficha solo se pinta si `detail.disputes?.length > 0`; con cero ni pestaña ni
+   llamada a `GET /admin/disputes?userId=`. Es historia de lectura.
+5. **Textos (es/en):** salen `admin.modules.m8`, `admin.m8.*`, `admin.dashboard.disputes` y el namespace `dispute.*` (el de
+   `DisputeEvidenceContact`). Se quedan `admin.m6.tabs.disputes`, `admin.m6.disputes`, `admin.m6.disputeType.*` y todos los
+   «en disputa» del contracargo. i18n 4287 = 4287 claves.
+6. **Candado de títulos:** sale la fila de M8 y el mapa `PAGES` en el mismo commit; el menú pasa de 16 a 15 entradas.
+7. **E2E:** los dos tests de M8 (`admin.spec.ts`) se sustituyen por uno `@real`: `/es/admin/m8` ⇒ `/es/admin`,
+   `/en/admin/m8` ⇒ `/en/admin`, sin enlaces a `/admin/m8`. Censo: `needsSeed` 36 → **35** (10 ficheros); bajar no es rojo,
+   el baseline (de devops) puede regenerarse para fijar el techo.
+
+**Pruebas:** FE-M8-1…3 en `admin/M8Retired.test.tsx`, FE-M8-4 en `m6/M6View.test.tsx` (tres casos: `[]`, ausente, una).
+Rojas antes del cambio (9 rojas por el motivo esperado; FE-M8-3 `expected '11' to be '8'`).
+
+**Mediciones (copia del árbol entero en scratchpad, sin `.git`):** `tsc` 0 · lint 0 · vitest **219/220 ficheros,
+2618/2619** — la única roja es `error-audience.test.ts` LITERALIDAD §26 («Recibida: empezar revisión»), que ux-ui cambió en
+`DESIGN_SYSTEM` v5.1 y se cierra con F-34 (no es de F-26). Mutaciones, N=3 cada una, deterministas: devolver la entrada
+del menú ⇒ FE-M8-1 3/3 rojo · volver a sumar disputas ⇒ FE-M8-3 3/3 · pestaña sin condición ⇒ FE-M8-4 3/3 · redirigir sin
+idioma ⇒ FE-M8-2 3/3 (rojo el caso `en`). Playwright del nuevo E2E: NO MEDIDO (carga de la máquina > 2× CPUs).
+
+## §100 · **F-33 (FE-BRJ-4 · `409 CONFLICT {reason:'ITEM_FINAL'}`) y F-34 («Recibida: empezar revisión»)** (2026-10-05, rama `claude/arreglos-panel`; `DESIGN_SYSTEM` v5.1 §60.14, §60.15, §26.3; contrato §PNL.10.2 / §PNL.10.6)
+
+**F-34** (commit propio, antes que F-33): `error.REQUEST_NOT_RECEIVED` e `error.INVALID_TRANSITION_VERB.receive` (es/en)
+nombran el botón por su nombre de hoy. Cierra el rojo de literalidad de `error-audience.test.ts` que dejó el cambio de §26.
+Candado **BRJ-UI-6** (`m5/M5ReceiveCopy.test.ts`): ningún valor de los catálogos contiene «Marcar recibida» / “Mark
+received”, y los dos textos carácter por carácter. `M5View.transitions.test.tsx:158` esperaba el texto viejo y se
+actualizó (prueba propia). Mutación (N=3): devolver la cadena vieja a `es` ⇒ 3/3 rojo (3 pruebas cada vez).
+
+**F-33** — `decisionMutation.onError` (`M5View.tsx`):
+1. **Primera rama** del error: `409` + `code === 'CONFLICT'` + `details.reason === 'ITEM_FINAL'`. Claves planas
+   `error.CONFLICT_ITEM_FINAL` / `error.CONFLICT_ITEM_FINAL_WITH_DETAILS` (no se usó la alternativa anidada: medido, ningún
+   candado exige que toda clave `error.*` sea un código del contrato). Los textos se copiaron de la tabla de §60.14 con un
+   script, no a mano.
+2. `itemStatus` ∈ `ITEM_TERMINAL` (`pagada`/`convertida_inventario`) ⇒ `_WITH_DETAILS` (el `select` elige la frase);
+   ausente o desconocido ⇒ la base.
+3. Cierra el diálogo de Ajustar/Rechazar, llama a `refresh()` (misma invalidación de `['admin-buylist']`) y pinta el aviso
+   **en la fila** con `Banner variant="warning" role="status"` (la variante existe: no se creó ninguna). El aviso va
+   envuelto en un `div tabIndex={-1}` que recibe el foco (`Banner` no reenvía `ref`; no se tocó el componente compartido).
+4. El rechazo múltiple no cambia (§60.14 punto 6).
+5. **Mock** (`lib/api.ts`, `decideBuylistItem`): espeja el peldaño — carta `convertida_inventario`/`pagada` ⇒
+   `409 CONFLICT {itemId, itemStatus, reason:'ITEM_FINAL'}` sin escribir, en los tres verbos.
+
+**Pruebas (BRJ-UI-5 = FE-BRJ-4, `m5/M5View.pnl.test.tsx`):** textos de los catálogos = tabla de §60.14 (la prueba lee
+`docs/DESIGN_SYSTEM.md`); Rechazar desde el diálogo sobre una convertida ⇒ diálogo cerrado, recarga (2.ª llamada a
+`getAdminBuylist`), texto de la rama `convertida_inventario` en `role="status"`, foco en el aviso, carta sin
+Aprobar/Ajustar/Rechazar ni casilla; Aprobar sobre una pagada ⇒ texto de `pagada`; Ajustar sin `itemStatus` y con uno
+desconocido ⇒ base; ⛔ en todas, ni «Hubo un conflicto con el estado actual.», ni «Esta solicitud ya está cerrada», ni el
+`message` del servidor. Mock: los tres verbos ⇒ 409 con los `details` exactos y la carta intacta.
+Mutaciones (copia del árbol, N=3 cada una, deterministas): comprobar `CONCURRENT_UPDATE` en vez de `ITEM_FINAL` ⇒ 3/3 rojo
+(4 pruebas) · quitar la rama ⇒ 3/3 (4) · ignorar `itemStatus` (siempre la base) ⇒ 3/3 (2) · quitar el espejo del mock
+⇒ 3/3 (2).
+
+**Verificación de solo lectura pedida (M5 oculta los botones de cartas finales), medida en `M5View.tsx` de este commit:**
+`ITEM_TERMINAL` (`:194`) gobierna `decidable` (`:1375`) ⇒ sin Aprobar/Ajustar/Rechazar para `pagada` y
+`convertida_inventario`; `isBulkRejectable` (`:211`) excluye `ITEM_TERMINAL` ⇒ sin casilla. Lo comprueban ahora BRJ-UI-5
+(las dos ramas, tras la recarga). ⚠️ **Observación, no cambiada:** «Convertir a inventario» (`:1467`) se oculta solo para
+`convertida_inventario`; con `pagada` se pinta **deshabilitado** con el título `convertNeedsApproval`. No es un botón de
+decisión y no lo pide §60.14; si una carta pagada debe poder convertirse (o el título es engañoso), lo decide ux-ui.
+
+**Mediciones (copia del árbol entero, idéntica al vivo por `diff -r`):** `tsc` 0 · lint 0 · vitest **221/221 ficheros,
+2629/2629** · i18n es = en (4289 claves).
+
+## §101 · **Errata v1.82.3 — «Rechazar solicitud» sale de `isRejectable` (contrato §PNL.12.3; FE-SKP-1/2)** (2026-10-05, rama `claude/arreglos-panel`, base `b06ac1ca`)
+
+**Qué cambió.** `M5View.tsx`: `canRejectRequest = req.isRejectable === true`. ⛔ **Se borró `allItemsRejected`**: era la
+copia local de la Regla C **sin el filtro `skip`** — el defecto (con una `skip` viva la solicitud quedaba en
+`verificacion` sin salida). El `isTerminal === false` que vivía junto a ella ya está dentro de `isRejectable`
+(§PNL.12.1 d). Botón, diálogo y verbo (`openRejectRequest`, `POST …/reject`) sin cambios; `rejectRequestConsequence`
+se queda (la propuesta de §PNL.12.4 espera a ux-ui y no bloquea).
+
+**Tipo.** `AdminBuylistDTO.isRejectable: boolean` (obligatorio, como lo pidió el orquestador y como lo escribe la
+proyección del contrato; §PNL.12.3 lo escribe `?:`). La pantalla igual lo lee fail-closed (`=== true`), y FE-SKP-2 prueba
+el campo ausente con un cast deliberado.
+
+**Servidor falso (`lib/mock/fixtures.ts`, `lib/api.ts`).** Una sola copia de la regla: `mockCountingItems`
+(`offerDecision !== 'skip'`: en JS conserva `null`, a diferencia del `<>` de SQL) y `mockRuleC`. La usan la proyección
+(`isRejectable = !terminal ∧ Regla C`), la guarda de `POST …/reject` (`422 REQUEST_HAS_NON_REJECTED_ITEMS` con
+`nonRejectedItemStatuses` de las líneas que cuentan; con 0 líneas que cuentan, los de todas) y el auto-cierre de
+`reject-items` (que ya filtraba `skip` a mano; misma conducta, ahora por el helper). ⚠️ La decisión por carta del mock
+**no** auto-cierra (no lo hacía antes; fuera de este alcance).
+
+**Pruebas.** `m5/M5View.pnl.test.tsx` · FE-SKP-1 (`isRejectable: true`, `buy` rechazadas + `skip` viva ⇒ botón, diálogo,
+`rejectBuylistRequest('sr-pnl', …)`), FE-SKP-2 (todas `rechazada` con `false` ⇒ sin botón; con el campo ausente ⇒ sin
+botón). `lib/mock/rejectability.test.ts` · la derivación del mock (SKP-1/3, SKP-4, SKP-5 pre-ciclo, 0 líneas que cuentan,
+terminal) y la guarda de `/reject` (cierra la atorada con la `skip` intacta; `422` solo con `['aprobada']`; `422`
+fail-closed). Las 3 de FE-SKP y 7 de 8 del mock salieron **rojas antes del cambio**. M5-NC-1…4 sin tocar.
+
+**Mutaciones (copia del árbol entero, N=3 cada una, deterministas):** volver al `every(itemStatus === 'rechazada')` local
+⇒ 3/3 rojo (FE-SKP-1 y las dos FE-SKP-2) · `isRejectable !== false` ⇒ 3/3 (1) · mock sin el filtro `skip` ⇒ 3/3 (4) ·
+mock contando solo `buy` (pierde las `null`) ⇒ 3/3 (1) · mock sin «∃ ≥1 línea que cuenta» ⇒ 3/3 (2).
+
+**Mediciones (copia del árbol entero, idéntica al vivo por `diff -rq`):** `tsc` 0 · lint 0 · vitest **222/222 ficheros,
+2640/2640**.

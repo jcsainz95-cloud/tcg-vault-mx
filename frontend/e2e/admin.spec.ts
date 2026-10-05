@@ -5,8 +5,8 @@ import { loginAs, mockOnly, needsSeed } from './utils/auth';
 /**
  * Flujo: panel admin responsive (PROJECT §F / AC 24, 25, 27; contrato §10).
  * Dashboard de 8 tarjetas + enmascarado financiero para vault_operator, M1
- * (alta SIN foto propia + certNumber de gradeada, v1.2), M5 (cherry-pick), M8
- * (disputa por correo a soporte, sin comparador de fotos, v1.2).
+ * (alta SIN foto propia + certNumber de gradeada, v1.2), M5 (cherry-pick) y M8 retirado (F-26: solo la
+ * redirección a `/admin`).
  */
 test.describe('admin · dashboard', () => {
   /**
@@ -418,7 +418,8 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
-    await page.getByRole('button', { name: t('es', 'admin.m5.reject') }).first().click();
+    // `exact`: desde §60.5 c la fila también trae «Rechazar seleccionadas (k)» y «Rechazar todas (n)».
+    await page.getByRole('button', { name: t('es', 'admin.m5.reject'), exact: true }).first().click();
 
     // El mini-diálogo pide el motivo; sin él, confirmar está deshabilitado.
     const dialog = page.getByRole('dialog', { name: t('es', 'admin.m5.rejectTitle') });
@@ -440,47 +441,20 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
   });
 });
 
-test.describe('admin · M8 disputas', () => {
-  test('disputa por correo a soporte, sin comparador de fotos (v1.2)', async ({ page }) => {
-    // `DisputeEvidenceContact` cuelga de la disputa ACTIVA (M8View:141): sin disputas no hay panel.
-    // Verificado contra el stack vivo: `GET /admin/disputes` → `total: 0`.
-    needsSeed('ninguna disputa sembrada (GET /admin/disputes → total 0)');
+/**
+ * F-26 (contrato §PNL.10.7 · `DESIGN_SYSTEM §60.8`) — M8 «Disputas» se retiró de la interfaz. Sustituye a los dos
+ * tests de M8 (ficha con evidencia y P-97 «nunca en blanco»): la pantalla ya no existe, así que el invariante pasa a
+ * ser «quien entra a `/es/admin/m8` acaba en el resumen, en su idioma, y el menú no ofrece Disputas». Corre en los dos
+ * modos: no depende de que haya disputas sembradas.
+ */
+test.describe('admin · M8 retirado (F-26)', () => {
+  test('@real /admin/m8 redirige al resumen conservando el idioma y el menú no tiene «Disputas»', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m8');
-    await expect(page.getByRole('heading', { name: t('es', 'admin.m8.title') })).toBeVisible();
-    // Panel de contacto de evidencia (correo del contrato, no hardcodeado en la UI).
-    await expect(page.getByText(t('es', 'dispute.evidenceTitle')).first()).toBeVisible();
-    await expect(page.getByTestId('evidence-email').first()).toBeVisible();
-    // Ya no existe comparador de fotos de ingreso/reclamo.
-    await expect(page.getByText('Comparador de fotos')).toHaveCount(0);
-  });
-
-  /**
-   * P-97 — el dueño entró a `/es/admin/m8` y vio **el título y nada más**. La pantalla estaba SANA
-   * (cero disputas) y se leía como ROTA, porque la lista se pintaba sin rama de vacío.
-   *
-   * Este test afirma el INVARIANTE, no el dato: *la pantalla nunca está en blanco*. Con disputas
-   * enseña la ficha (panel de evidencia); sin disputas enseña el estado vacío. Por eso corre en los
-   * DOS modos y **no lleva NINGUNA salvaguarda de salto**: el caso que rompía es justamente el que
-   * el seed real no siembra — el de arriba se salta con `total: 0`, y ése era el agujero por el que
-   * se coló P-97.
-   *
-   * ⚠️ La redacción anterior decía aquí el nombre del helper en prosa, y eso tenía un coste medido:
-   * `scripts/check-e2e-skip-census.sh` cuenta por PALABRA (`grep -rwo`), así que una frase que
-   * explica que NO hay salvaguarda se contaba como una salvaguarda. Medido 2026-09-14: el censo
-   * llevaba en ROJO desde `bb30997` (32 vs baseline 31) por esta línea y solo por ella.
-   * En mock hay fixtures ⇒ ejercita la rama con datos; en real (hoy `total: 0`) ejercita el vacío.
-   */
-  test('@real la pantalla nunca está en blanco: o ficha de disputa, o estado vacío', async ({
-    page,
-  }) => {
-    await loginAs(page, 'admin');
-    await page.goto('/es/admin/m8');
-    await expect(page.getByRole('heading', { name: t('es', 'admin.m8.title') })).toBeVisible();
-
-    const evidence = page.getByText(t('es', 'dispute.evidenceTitle')).first();
-    const empty = page.getByText(t('es', 'admin.m8.empty')).first();
-    await expect(evidence.or(empty)).toBeVisible();
+    await expect(page).toHaveURL(/\/es\/admin\/?$/);
+    await expect(page.locator('a[href$="/admin/m8"]')).toHaveCount(0);
+    await page.goto('/en/admin/m8');
+    await expect(page).toHaveURL(/\/en\/admin\/?$/);
   });
 });
 

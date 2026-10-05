@@ -174,7 +174,8 @@ export function PreparationQueue({
             {/* §37.11c — la hoja imprimible: la misma cola, en papel, sin precios ni correos ni teléfonos. */}
             <Link
               href={{ pathname: '/admin/m4/print', query: bucket ? { destination: bucket } : undefined }}
-              className="inline-flex min-h-[44px] items-center border border-text px-3.5 text-[10px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg print:hidden"
+              // §60.9 a: oculto por debajo de `sm` — nadie imprime desde el teléfono y ocupaba la primera fila.
+              className="hidden min-h-[44px] items-center border border-text px-3.5 text-[10px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg sm:inline-flex print:hidden"
             >
               {ts('print.cta')}
             </Link>

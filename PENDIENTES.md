@@ -6,6 +6,12 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## Abiertos añadidos 2026-10-05 (sesión 5)
+
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| P-KYC-STAFF | **Los operadores y administradores del panel NO deben tener KYC.** Palabras del dueño (2026-10-05): «Los operadores de la página y admin no deberían de tener KYC, ponlo en pendientes». El KYC (INE) es del vendedor del buylist. Hoy el KYC es por usuario sin mirar el rol: `backend/src/modules/users/pendings.service.ts:92-106` lee `KycProfile` para cualquier cuenta (el filtro por rol **NO MEDIDO** en el resto: `users.service.ts`, `admin.service.ts`, `admin.controller.ts`, la UI de «pendientes» y el formulario de KYC). | arquitecto (qué superficies esconden/rechazan KYC para `vault_operator`/`super_admin`) → backend + frontend | 2026-10-05: solo `pendings.service.ts:92-106` leído; lo demás NO MEDIDO | Un staff (`vault_operator` y `super_admin`) no ve pendiente ni pantalla de KYC, no puede iniciar uno (4xx), y no se le exige en ningún flujo; prueba por rol con su mutación. Stream: «Cuentas y acceso» (serializar con D2g de Skydropx, que toca `users/` y `admin/`). |
+
 ## Recuento del backlog 2026-09-29 (cierre de la sesión 4, sobre production `a2da420`) — punto de partida de la sesión 5
 
 > Ramas vivas y sus veredictos: `TRASPASO.md §2`. Todo lo de esta tabla lleva **fecha de medición** y
