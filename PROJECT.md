@@ -9011,6 +9011,19 @@ qué acto constituye aceptación y si se guarda constancia — hoy el sistema no
 >   correo de privacidad, más P-LEG-11 plazo de conservación). Al llegar los datos se cambia a modo final y se re-miden
 >   500, 501, 506, 507 y 508 (casilla «Regularización legal» de §14.10 / §14.17 E4-4).
 
+> **NOTA 2026-10-05 (sesión 6): «pie de todos los correos» se acota a los correos a CLIENTES.**
+> **Fuente:** `docs/API_CONTRACT.md §14.18` (errata **v1.84.5**, E5-1/E5-2); porqué en `docs/ARCHITECTURE.md §4.63.15`.
+> - **Qué cambia:** el enlace «Aviso de privacidad» va en el pie de todo
+>   correo cuyo destinatario **puede ser un cliente**. Los correos que van **solo al personal o al dueño** (hoy: los
+>   avisos de gasto de Skydropx AVG-1/2/3) **no** lo llevan. Un correo mixto (p. ej. verificación o contraseña, que puede
+>   ir a un cliente o a un empleado) cuenta como de cliente y **sí** lo lleva.
+> - **Por qué:** §LEG informa a **quien da sus datos a la tienda**; el dueño o un empleado que recibe un aviso interno no
+>   es ese caso. Además, así la regla SDX-I-8 (los enlaces de los correos de gasto son solo páginas de `admin/…`) queda
+>   **intacta**, sin excepción.
+> - ⚠️ **Es una interpretación, no una decisión del dueño:** la letra de esta sección («todos los correos») y la del
+>   criterio 507 (seis familias, todas a clientes) no coincidían. **Si el dueño la rechaza, se revierte cambiando una
+>   línea** (§14.18 E5-2 punto 1); en ese caso SDX-I-8 vuelve a chocar y la decisión es del dueño, no del equipo.
+
 #### LEG.4 Términos actuales vs. decisiones del dueño — contradicciones (medido 2026-10-05; NO se arreglan aquí)
 
 Los términos se pintan en `frontend/src/app/[locale]/(storefront)/terminos/page.tsx:22-60` con las claves
@@ -13222,6 +13235,12 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
    (ii) **enlace «Aviso de privacidad»** en el pie de **todas** las familias de correo: ⛔ **sigue bloqueando** el paso
    a modo real — no lo cubre la excepción; lo construye backend y se publica en el mismo despliegue que deja el aviso
    visible (para no enlazar a un 404).)*
+   *(**Nota 2026-10-05, sesión 6 — el criterio se acota a los correos a CLIENTES** (`API_CONTRACT §14.18`, errata
+   **v1.84.5**, E5-1): «todos» = todas las familias cuyo destinatario puede ser un cliente (las seis de arriba lo son).
+   Los correos **solo al personal o al dueño** (hoy AVG-1/2/3, avisos de gasto de Skydropx) **no** llevan el enlace ni
+   se miden aquí. Motivo: §LEG informa a quien da sus datos a la tienda; el dueño o un empleado no es ese caso. La regla
+   SDX-I-8 queda intacta. Es interpretación marcada (ver nota en §LEG.3): **si el dueño la rechaza, se revierte
+   cambiando una línea** (§14.18 E5-2 punto 1).)*
 508. **El correo de privacidad recibe** *(§LEG.2 punto 7)*: un correo enviado desde fuera al buzón de privacidad que
    publica el aviso **llega** a un buzón que el dueño lee (lo confirma el dueño). El buzón del aviso es el **mismo**
    en ES y EN.
