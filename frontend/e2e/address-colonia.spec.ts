@@ -47,7 +47,7 @@ test.describe('colonia como Mercado Libre · §M4-SHIP.19.25', () => {
     await page.getByRole('combobox', { name: t('es', 'addresses.state'), exact: true }).selectOption({ label: 'Aguascalientes' });
     await page.getByLabel(t('es', 'addresses.phone')).fill('4491234567');
     await page.getByRole('checkbox', { name: /Confirmo que/ }).check();
-    await page.getByRole('checkbox', { name: t('es', 'checkout.guest.acceptTerms') }).check();
+    await page.locator('#guest-terms').check(); // LIVE-8 sitio 3: la etiqueta lleva enlaces (§80.1)
 
     const session = page.waitForRequest((r) => r.method() === 'POST' && r.url().includes('/checkout/guest/session'), {
       timeout: IS_REAL ? 30_000 : 1_000,

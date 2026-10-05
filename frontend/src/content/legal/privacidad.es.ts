@@ -166,6 +166,7 @@ export const privacyNoticeEs: LegalDocument = {
           rows: [
             ['**Stripe**', 'Monto y datos del pago que tú capturas en su formulario', 'Procesar el cobro y los reembolsos'],
             ['**Paqueterías**', 'Nombre de quien recibe, dirección y teléfono', 'Entregar o recoger el paquete'],
+            ['**Skydropx**', 'Nombre de quien recibe, dirección, teléfono y correo', 'Cotizar y generar la guía de envío con la paquetería'],
             ['**Resend**', 'Tu correo y el contenido del aviso', 'Enviarte los correos de la tienda'],
             ['**Cloudflare (R2)**', 'Imagen de tu INE', 'Guardarla en almacenamiento privado'],
             ['**Railway y Vercel**', 'Los datos de la tienda', 'Alojar el servidor, la base de datos y el sitio'],

@@ -24,10 +24,15 @@ vi.mock('@/i18n/navigation', () => ({
   ),
 }));
 
-const SITES = ['register', 'googleSignIn', 'checkout', 'sellForm', 'accountIne'] as const;
+const SITES = ['register', 'googleSignIn', 'guestCheckout', 'checkout', 'sellForm', 'accountIne'] as const;
 
 function plain(s: string) {
   return s.replace(/<\/?(terms|privacy)>/g, '');
+}
+
+/** El trozo `<privacy>…</privacy>` de la clave (la casilla del invitado lo lleva en minúsculas, §80.0 regla 5). */
+function privacyChunk(site: string) {
+  return (es.privacy.sites as Record<string, string>)[site].match(/<privacy>(.*?)<\/privacy>/)![1];
 }
 
 afterEach(() => vi.unstubAllEnvs());
@@ -45,7 +50,7 @@ describe('UX-PRIV-1 · inline con la página servida', () => {
       expect(a).not.toBeNull();
       expect(a).toHaveAttribute('target', '_blank');
       expect(a.getAttribute('rel') ?? '').toMatch(/\bnoopener\b/);
-      expect(a.textContent).toContain('Aviso de privacidad');
+      expect(a.textContent).toContain(privacyChunk(site));
       expect(a.textContent).toContain('(se abre en otra pestaña)');
       expect(a.querySelector('.sr-only')?.textContent?.trim()).toBe('(se abre en otra pestaña)');
       expect(a.querySelector('svg')).toHaveAttribute('aria-hidden');
@@ -55,16 +60,18 @@ describe('UX-PRIV-1 · inline con la página servida', () => {
     });
   }
 
-  it('«Términos» de la misma frase (register, googleSignIn) se comporta igual: pestaña nueva y aviso', () => {
-    renderWithIntl(
-      <PrivacyLinkProvider linked>
-        <PrivacySiteNote site="register" />
-      </PrivacyLinkProvider>,
-    );
-    const a = screen.getByTestId('privacy-site-register').querySelector('a[href="/terminos"]')!;
-    expect(a).toHaveAttribute('target', '_blank');
-    expect(a.textContent).toContain('(se abre en otra pestaña)');
-  });
+  for (const site of ['register', 'googleSignIn', 'guestCheckout'] as const) {
+    it(`«Términos» de la misma frase (${site}) se comporta igual: pestaña nueva y aviso`, () => {
+      renderWithIntl(
+        <PrivacyLinkProvider linked>
+          <PrivacySiteNote site={site} />
+        </PrivacyLinkProvider>,
+      );
+      const a = screen.getByTestId(`privacy-site-${site}`).querySelector('a[href="/terminos"]')!;
+      expect(a).toHaveAttribute('target', '_blank');
+      expect(a.textContent).toContain('(se abre en otra pestaña)');
+    });
+  }
 
   it('en inglés: «Privacy notice (opens in a new tab)»', () => {
     renderWithIntl(
@@ -91,7 +98,7 @@ describe('UX-PRIV-2 · inline con la página NO servida', () => {
       // Términos (si la frase lo lleva) sigue enlazado; el trozo del aviso no lleva aviso de pestaña.
       const visible = p.textContent!.replace(/\s*\(se abre en otra pestaña\)/g, '');
       expect(visible).toBe(plain((es.privacy.sites as Record<string, string>)[site]));
-      expect(p.querySelector('[data-privacy-link="off"]')?.textContent).toBe('Aviso de privacidad');
+      expect(p.querySelector('[data-privacy-link="off"]')?.textContent).toBe(privacyChunk(site));
     });
   }
 

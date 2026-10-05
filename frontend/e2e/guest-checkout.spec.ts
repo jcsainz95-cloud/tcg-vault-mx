@@ -148,7 +148,7 @@ test.describe('guest checkout · identidad y desglose', () => {
     await chooseNeighborhood(page, 'Guadalajara Centro');
     await page.getByLabel(t('es', 'addresses.phone')).fill('3312345678');
     await page.getByRole('checkbox', { name: /Confirmo que/ }).check();
-    await page.getByRole('checkbox', { name: t('es', 'checkout.guest.acceptTerms') }).check();
+    await page.locator('#guest-terms').check(); // LIVE-8 sitio 3: la etiqueta lleva enlaces (§80.1)
 
     await page.getByRole('button', { name: /Pagar/ }).click();
 

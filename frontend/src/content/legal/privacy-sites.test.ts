@@ -12,7 +12,7 @@ import { PRIVACY_NOTICE_SITES, missingUses } from './privacy-sites';
 
 const ROOT = join(__dirname, '../../..');
 /** Lotes construidos en esta rama. Al construir el lote 2 o 3, se añade aquí. */
-const BUILT_LOTES = new Set([1]);
+const BUILT_LOTES = new Set([1, 2, 3]);
 
 function source(file: string) {
   return stripComments(readFileSync(join(ROOT, file), 'utf8'), file);

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { PostalCodeNeighborhoodFields, type NeighborhoodMode } from '@/components/domain/PostalCodeNeighborhoodFields';
 import { LINE2_MAX, REFERENCES_MAX } from '@/lib/address-rules';
+import { PrivacySiteNote, privacyPlainTags } from '@/components/legal/PrivacyNoticeLink';
 import { VaultUpsellPanel } from './VaultUpsellPanel';
 import { suggestEmailTypo, type GuestErrors, type GuestField, type GuestFormState } from './guest-validation';
 
@@ -108,6 +109,7 @@ export function GuestCheckoutForm({
 }: GuestCheckoutFormProps) {
   const t = useTranslations('checkout');
   const ta = useTranslations('addresses');
+  const tp = useTranslations('privacy.sites');
   const summaryRef = useRef<HTMLDivElement>(null);
   const vaultRadioRef = useRef<HTMLInputElement>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -149,7 +151,9 @@ export function GuestCheckoutForm({
       case 'recipientName':
         return t('guest.recipientName');
       case 'terms':
-        return t('guest.acceptTerms');
+        // §80.1 / F-5: el resumen necesita texto plano; se deriva de LA MISMA clave que la casilla
+        // (⛔ nunca una segunda copia de una frase legal).
+        return tp.markup('guestCheckout', privacyPlainTags);
       case 'references':
         return ta('references');
       default:
@@ -425,7 +429,9 @@ export function GuestCheckoutForm({
             onChange={(e) => onChange({ acceptedTerms: e.target.checked })}
             className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[color:var(--color-accent)]"
           />
-          <span>{t('guest.acceptTerms')}</span>
+          {/* LIVE-8 · sitio 3 (§14.14 E-9 lote 2; DESIGN_SYSTEM §80.2/§80.3; criterio 505 i): «términos» y
+              «aviso de privacidad» enlazan dentro de la etiqueta (pestaña nueva); el aviso solo si se sirve. */}
+          <PrivacySiteNote site="guestCheckout" as="span" />
         </label>
         {visible('terms') && (
           <p className="mt-2 font-mono text-xs text-accent">{messageFor('terms')}</p>

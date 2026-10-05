@@ -40,6 +40,7 @@ const ALL_SITES_OK: Record<number, string> = Object.fromEntries(
       '<PrivacyNoticeLink variant="nav" />',
       '<PrivacySiteNote site="register" />',
       '<PrivacySiteNote site="googleSignIn" />',
+      '<PrivacySiteNote site="guestCheckout" as="span" />',
       '<PrivacySiteNote site="checkout" />',
       '<PrivacySiteNote site="sellForm" />',
       '<PrivacySiteNote site="accountIne" />',
@@ -242,5 +243,23 @@ describe('LEG-P7 · contacto único y sin trámites inventados', () => {
     const all = JSON.stringify(privacyNoticeEs);
     expect(all).not.toMatch(/tr[áa]mite/i);
     expect(all).not.toMatch(/privacidad@/);
+  });
+});
+
+describe('E4-2 `:141` · Skydropx entra como fila propia con el lote 2 (criterio 502)', () => {
+  it('«Con quién compartimos» lista Stripe, Paqueterías, Skydropx, Resend, Cloudflare, Railway/Vercel y Google', () => {
+    const s = privacyNoticeEs.sections.find((x) => x.id === 'remisiones')!;
+    const table = s.blocks.find((b) => b.type === 'table');
+    expect(table?.type).toBe('table');
+    const providers = table!.type === 'table' ? table!.rows.map((r) => r[0]) : [];
+    expect(providers).toEqual([
+      '**Stripe**',
+      '**Paqueterías**',
+      '**Skydropx**',
+      '**Resend**',
+      '**Cloudflare (R2)**',
+      '**Railway y Vercel**',
+      '**Google**',
+    ]);
   });
 });

@@ -40,7 +40,7 @@ export const PRIVACY_NOTICE_SITES: readonly PrivacyNoticeSite[] = [
     name: 'checkout de invitado (casilla de términos)',
     file: 'src/app/[locale]/(storefront)/checkout/GuestCheckoutForm.tsx',
     lote: 2,
-    uses: [/<PrivacyNoticeLink\b|privacyRichTags|<PrivacySiteNote\b/],
+    uses: [/<PrivacySiteNote\s+site="guestCheckout"/],
   },
   {
     id: 4,

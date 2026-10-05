@@ -92,20 +92,33 @@ export const privacyRichTags = {
   privacy: (chunks: ReactNode) => <PrivacyNoticeLink variant="inline">{chunks}</PrivacyNoticeLink>,
 };
 
-/** Una frase `privacy.sites.<key>` con sus etiquetas. Lo que usan los sitios `inline`. */
+export type PrivacySite = 'register' | 'googleSignIn' | 'guestCheckout' | 'checkout' | 'sellForm' | 'accountIne';
+
+/**
+ * Una frase `privacy.sites.<key>` con sus etiquetas. Lo que usan los sitios `inline`.
+ * `as="span"`: para ir dentro de una `<label>` (sitio 3, la casilla del invitado), donde un `<p>` no es válido.
+ */
 export function PrivacySiteNote({
   site,
   className,
   testId,
+  as: Tag = 'p',
 }: {
-  site: 'register' | 'googleSignIn' | 'checkout' | 'sellForm' | 'accountIne';
+  site: PrivacySite;
   className?: string;
   testId?: string;
+  as?: 'p' | 'span';
 }) {
   const t = useTranslations('privacy.sites');
   return (
-    <p className={className} data-testid={testId ?? `privacy-site-${site}`}>
+    <Tag className={className} data-testid={testId ?? `privacy-site-${site}`}>
       {t.rich(site, privacyRichTags)}
-    </p>
+    </Tag>
   );
 }
+
+/** Etiquetas de `privacy.sites.*` que devuelven solo su texto, para `t.markup` (resúmenes en texto plano, §80.1). */
+export const privacyPlainTags = {
+  terms: (chunks: string) => chunks,
+  privacy: (chunks: string) => chunks,
+};

@@ -3,6 +3,7 @@ import { Link } from '@/i18n/navigation';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 import { SupportEmailLink } from '@/components/domain/SupportContact';
+import { PrivacyNoticeLink } from '@/components/legal/PrivacyNoticeLink';
 
 /**
  * Chrome REDUCIDO de la vista pública de seguimiento (DESIGN_SYSTEM §15.6).
@@ -10,7 +11,7 @@ import { SupportEmailLink } from '@/components/domain/SupportContact';
  * Cabecera con logo + `LocaleToggle` y NADA más: sin buscador, sin carrito, sin "Mi cuenta"
  * y sin navegación a Bóveda/Buylist/Mis órdenes. Motivo: la página **no implica sesión** y
  * no debe ofrecer superficies que sugieran una (ni muros de login que se lean como error).
- * Pie con términos y correo de soporte, nada más.
+ * Pie con términos, aviso de privacidad (si se sirve) y correo de soporte, nada más.
  *
  * Deliberadamente NO usa el layout de `(storefront)`: ese trae `StorefrontHeader` (carrito,
  * sesión, nav privado), `VerifyEmailBanner` y `PrivateRouteGuard`.
@@ -66,9 +67,14 @@ function TrackingFooter() {
     <footer className="border-t border-border">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-8 font-mono text-[11px] uppercase tracking-label text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
         <SupportEmailLink className="text-text hover:text-accent" />
-        <Link href="/terminos" className="text-text hover:text-accent">
-          {t('footerTerms')}
-        </Link>
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <Link href="/terminos" className="text-text hover:text-accent">
+            {t('footerTerms')}
+          </Link>
+          {/* LIVE-8 · sitio 7 (§14.14 E-9 lote 3; DESIGN_SYSTEM §80.2; criterio 503): variante `nav`, tras
+              «Términos», misma fila y mismas clases; solo si /privacidad se sirve (decisión del layout de [locale]). */}
+          <PrivacyNoticeLink variant="nav" className="text-text hover:text-accent" />
+        </div>
       </div>
     </footer>
   );

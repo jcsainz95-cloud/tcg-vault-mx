@@ -20344,3 +20344,41 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
   LEG-2, LEG-4, F-7); quitar (a) → 2 rojas; quitar (b) → 1 roja (LEG-P3); final con reglas del provisional → 2 rojas
   (LEG-P4); quitar la guarda (c) → 1 roja (LEG-P5); provisional sin LEG-5 → 8 rojas (LEG-P6); otro correo en §7 →
   2 rojas (LEG-P7). Restaurado: 88/88 (12 saltadas).
+
+### 103.8 LIVE-8 · enlaces al aviso — lotes 2 y 3: sitio 3 (casilla del invitado) y sitio 7 (pie de `/pedido`) (§14.14 E-9; §14.17 E4-2/E4-3; DESIGN_SYSTEM §80, F-5/F-6) — medido 2026-10-05 sobre `0d3f6b42` + este cambio
+- **Por qué ahora:** F-SKY y F-PNL ya están en `claude/listo-real` (encargo del orquestador; `check:legal:provisional`
+  rojo solo por los sitios 3 y 7, medido por él en `9dc572c4`).
+- **Sitio 3** (`GuestCheckoutForm.tsx`): la etiqueta de la casilla pinta `<PrivacySiteNote site="guestCheckout" as="span" />`
+  (`<span>` porque dentro de `<label>` no cabe un `<p>`). Clave nueva `privacy.sites.guestCheckout` ES/EN, verbatim de
+  §80.3: la frase de antes **sin cambiar una palabra**, con `<terms>`/`<privacy>` (minúsculas, regla 5 de §80.0). Se
+  retira `checkout.guest.acceptTerms` (ES y EN); `acceptTermsRequired` se queda. El resumen de errores
+  (`labelFor('terms')`) usa `t.markup('guestCheckout', privacyPlainTags)`: texto plano de **la misma clave**.
+  `PrivacySiteNote` gana `as?: 'p' | 'span'` y el tipo `PrivacySite`.
+- **Sitio 7** (`pedido/layout.tsx`): `<PrivacyNoticeLink variant="nav">` tras «Términos y políticas», mismas clases,
+  agrupados en una fila `flex-wrap gap-x-6` (como el pie de la tienda); sin página servida no pinta nada.
+- **Aviso** (`privacidad.es.ts`, E4-2 `:141`): fila **Skydropx** en «5. Con quién compartimos» («Nombre de quien
+  recibe, dirección, teléfono y correo» / «Cotizar y generar la guía de envío con la paquetería»), en el mismo cambio
+  que el lote 2. Lo que recibe se leyó en `backend/src/modules/shipping-provider/skydropx.adapter.ts:111-126`
+  (`name`, `street1`…, `phone`, `email`). `updatedAt` sigue «5 de octubre de 2026» (es hoy) y `version` sigue
+  `0.2-provisional-2026-10-05`: E4-2 fija ese valor y `provisional.test.ts` lo vigila; si el arquitecto quiere subirla
+  por la fila nueva, es una línea. «Si ya opera» (criterio 502): NO MEDIDO por frontend; se siguió E4-2.
+- **LEG-5:** el patrón del sitio 3 pasa de «cualquier uso del componente» a `<PrivacySiteNote site="guestCheckout"`;
+  `privacy-sites.test.ts` exige ya los lotes 1, 2 y 3 (cero sitios saltados). `ALL_SITES_OK` de `provisional.test.ts`
+  gana la línea del sitio 3.
+- **Pruebas nuevas:** `checkout/GuestCheckoutPrivacy.test.tsx` (enlaces dentro de la etiqueta en pestaña nueva; frase
+  ES/EN idéntica a la de antes; sin página ⇒ sin enlace al aviso y frase entera; la casilla se sigue marcando; resumen
+  en texto plano sin enlaces anidados) y `pedido/layout.test.tsx` (tras «Términos», misma fila, mismas clases, misma
+  pestaña, ES/EN; sin página ⇒ nada). `PrivacyNoticeLink.test.tsx`: `guestCheckout` entra en UX-PRIV-1/2/5 y en el
+  caso de «Términos». `provisional.test.ts`: lista de proveedores con Skydropx.
+- **E2E (sin correr en este pase, NO MEDIDO):** `guest-checkout`, `checkout-retry` y `address-colonia` marcaban la casilla
+  por el nombre `checkout.guest.acceptTerms` (clave retirada; el nombre accesible ahora incluye «(se abre en otra
+  pestaña)»); pasan a `page.locator('#guest-terms')`.
+- **Medido (copia del árbol entero, `git archive HEAD` + este cambio):** tsc 0; lint sin avisos; vitest 271 ficheros
+  (+1 saltado) / 3418 pruebas verdes, 10 saltadas (antes 12: los dos sitios de lotes 2/3 ya corren).
+  `check:legal:provisional` **rc 0** (9 verdes, 1 saltada). `check:legal` (final) **rc 1**, rojo solo por «faltan
+  P-LEG-1…3» y `legalEntity` (es/en): los sitios 3 y 7 ya no aparecen.
+- **Mutaciones** (deterministas, N=1 cada una, sobre la copia): sitio 3 sin el componente (texto plano en la
+  etiqueta) ⇒ `check:legal:provisional` rc 1 nombrando «sitio 3 · checkout de invitado…: falta el componente del
+  aviso», y 4 rojas en vitest (LEG-5 + 3 de `GuestCheckoutPrivacy`); sitio 7 sin `PrivacyNoticeLink` ⇒
+  `check:legal:provisional` rc 1 nombrando «sitio 7 · pie del seguimiento del invitado», y 3 rojas en vitest (LEG-5 +
+  2 de `pedido/layout.test`). Restaurado: rc 0.
