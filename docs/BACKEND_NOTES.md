@@ -28563,3 +28563,77 @@ Todas deterministas (sin carrera ni temporizador): N = 1 cada una.
 3. **`AV-6` (§41.2 fila 19) sigue con `TCG HUNT — `** en el asunto y `IR A MI CUENTA` (§41.4 fila 19): fuera de las notas
    N-SDX-4/5, no tocado.
 4. **Frontend:** `workQueue.shipping.withLabelAlert` ya viene en la respuesta (F-1 lo tipa). B-4 no cambia nada del front.
+
+## 71 · Condiciones del gate techlead sobre `31af0883` (C-TL-1, C-TL-2), deudas D-1/D-8 pagadas, D-9 corregida y B-6 de la errata v1.80.12.17 (`API_CONTRACT §M4-SHIP.19.36.2 (2)`) (2026-10-05, rama `claude/skydropx-d`, desde `31af0883`; B-6 contra el contrato de `bf9e73fc`)
+
+### 71.1 Qué cambió
+
+| Encargo | Fichero | Qué |
+|---|---|---|
+| **C-TL-1** (un cuerpo SQL) | `shipments/shipping-work-queue.ts` | `carrierAlertShipmentIds` (antes solo `countCarrierAlerts`) y `alertShipmentIdsOf(db, now, tUnknownMs)` = `carrierAlertShipmentIds ∪ labelAlertShipmentIds`. La ventana de huérfanas usa `ORPHAN_ALERT_TTL_MS` |
+| C-TL-1 | `shipments/shipments.service.ts` | `alertShipmentIds()` (`?alert=true`) = `alertShipmentIdsOf(prisma, labelClock.now(), labelCfg.tUnknownMs)`; ⛔ ya no hay consulta ancha propia. `labelFieldsOf` usa `ORPHAN_ALERT_TTL_MS` en vez del literal `7 * 24 * 60 * 60 * 1000`. Se quitó el import ya sin uso de `CARRIER_ALERT_STATUSES` |
+| C-TL-1 (inyección) | `shipments/shipping-work-queue.service.ts` (nuevo), `shipments.module.ts`, `admin/dashboard-shipping.service.ts` | `ShippingWorkQueueService` (Prisma + `SHIPMENTS_LABEL_CLOCK` + `LABEL_VERIFY_CONFIG` inyectados normal) lo provee y **exporta** `ShipmentsModule`; `DashboardShippingService` lo inyecta y solo pone los diales y la lectura del saldo. ⛔ `ModuleRef.get(…, {strict:false})` |
+| **C-TL-2** (AV-6) | `shipments/mail/shipment-notice.templates.ts` | botón con `ctaLabelOf` (§41.4 fila 19: pedido ⇒ `VER MI PEDIDO`/`SEE MY ORDER`; retiro ⇒ `VER MI ENVÍO`/`SEE MY SHIPMENT`); `next` («vuelve a solicitarlo desde tu cuenta») solo sin `orderNumber`; asunto sin `TCG HUNT — ` (§41.2 fila 19) |
+| **D-1** | `shipments.service.ts` `transitionFromProvider` | `await this.requirePrep().assertCanAdvance(…)`: sin `ShipmentPrepService` lanza, ⛔ se salta la guarda |
+| **D-8** | `shipments/guest-mail-link.ts` (`safeErrorTag`, exportada), `shipments.service.ts` `claimAndNotify`, `payments/refunds/refund-ledger.service.ts` `notifyCustomer` | los `catch` registran `name` + `code`, ⛔ `message` (podía llevar el enlace con token). `guest-mail-link.ts` usa la misma función (antes en línea) |
+| **D-9** | `src/jobs/scheduler.service.ts:119`, `test/integration/sdx-d2e-notices.e2e-spec.ts:15` | referencias corregidas (de una línea): `sdx-d2d-jobs` (no existe) ⇒ `sdx-d2d-charges.e2e-spec.ts:132-133`; «invitado: §67 P-D2E-1» ⇒ `sdx-b1-guest-mail-link.e2e-spec.ts`, §69 |
+| **B-6** (§19.36.2 (2)) | `shipments/customer-timeline.ts` | `shipped.at = min(shippedAt, primer occurredAt de un MOVIMIENTO de la guía vigente)`, `MOVEMENT_KINDS = {in_transit, out_for_delivery, delivery_attempt, at_branch, delivered}` (⛔ `label_created` ni no mapeados). `shipped` se empuja primero ⇒ en empate va antes. `shippedAt` en BD intacto; guía manual sin cambio |
+| D-2…D-7, D-10, D-12 | `docs/TECH_DEBT.md` (sección «Backend · 2026-10-05 · Skydropx · gate techlead sobre 31af0883») | anotadas con dónde/impacto/corrección/disparador/comprobación. D-9 anotada como cerrada. D-11 es de frontend, no anotada |
+
+**Desvío consciente de la letra de C-TL-1:** el techlead pidió «exportar la constante de `shipping-work-queue.ts:27`». Ya existía
+`ORPHAN_ALERT_TTL_MS` exportada en `label-verify.constants.ts:69` (§19.28.6, sin ningún uso). Exportar una segunda habría dejado
+**dos nombres para un hecho**; se borró la local y los tres sitios usan la existente. El censo de la prueba lo asevera.
+
+### 71.2 Pruebas
+
+| Prueba | Fichero | Qué |
+|---|---|---|
+| C-TL-1 (6) | `test/sdx-tl31af.units.spec.ts` (nuevo) | unión exacta y sin duplicados (incluye `cancelado` con `exception`: sin alerta de transportista, con `label_live_on_cancelled`); `ShipmentsService.alertShipmentIds` con reloj inyectado 1 h adelante ⇒ la unión y la ventana desde ESE reloj; censo (sin consulta ancha ni literal de 7 d en `shipments.service.ts`/`shipping-work-queue.ts`); `ShippingWorkQueueService` con el reloj y el `tUnknownMs` inyectados (dos pruebas); `ShipmentsModule` lo provee y exporta, el tablero no importa `@nestjs/core` ni los dos tokens |
+| C-TL-2 (7) | ídem | rótulo por destino (pedido ES/EN, invitado con `customerUrl`, retiro ES/EN), `next` solo en retiro (html y texto), ⛔ `IR A MI CUENTA`; asuntos exactos ES/EN |
+| D-1 (1) | ídem | sin prep ⇒ rechaza `/ShipmentPrepService/` y cero `updateMany` |
+| D-8 (3) | ídem | `safeErrorTag`; `claimAndNotify` y `AV-12` con un error cuyo mensaje lleva `…/pedido?token=…` ⇒ el log lleva `Error E_MAIL` y ⛔ ni `token` ni el mensaje |
+| B-6 unit (11) | `test/sdx-b6.units.spec.ts` (nuevo) | PS-89 (c) exacta (y la fila intacta); salida a T+30min ⇒ sin cambio; `created` y `exception`/`retained` no acotan; cada uno de los cinco movimientos acota con `shipped` primero en el empate; otra guía no acota; guía manual sin cambio |
+| PS-89 (c) (2) | `test/integration/sdx-b2-timeline.e2e-spec.ts` | por `POST /orders/guest/track`: `created` T, `picked_up` T+1h, `delivered_to_branch` T+3h, sondeo a T+5h ⇒ `[label_created T, shipped T+1h, in_transit T+1h, at_branch T+3h]` y `shippedAt` en BD = T+5h; salida por `PATCH` a S = T+30min ⇒ `shipped` = S |
+| Ajustadas al contrato nuevo | `sdx-b2-timeline` (PS-89 de 7), `sdx-d2e-notices` (PS-87/88/89, tres superficies) | aseveraban `shipped.at = shippedAt` con un `picked_up` 8 d antes; ahora `min(shippedAt, primer movimiento)` (= `picked_up`), con la fila intacta |
+
+**Rojo primero** (copia `git archive 31af0883` del árbol ENTERO + las pruebas nuevas, con stubs de tipo de los nombres nuevos sin
+conducta): `sdx-tl31af` **15 rojas / 16** (la verde es la de `ShipmentsService.alertShipmentIds`, que caracteriza conducta que ya
+era así: el refactor debe conservarla); `sdx-b6` **5 rojas / 10** (las 5 verdes son los «sin cambio» que el contrato pide conservar).
+
+**Suites completas** sobre copia del árbol ENTERO (`git archive bf9e73fc` + mis rutas; `cmp` contra el vivo = idénticos), scratchpad
+`be-skyfix/tree`, BD propia `tcg_be_skyfix` (`prisma migrate deploy`), `stack-native.sh test:integration` (pool 5):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest --maxWorkers=2`) | **415/415 suites · 7241/7241**; después se añadió 1 prueba a `sdx-tl31af` (la de `tUnknownMs`, ver M3) ⇒ ese fichero **17/17** |
+| Integración | **98/99 suites · 1971/1972**. La roja: `sdx-d2e-notices` PS-87/88/89 aseveraba `shipped.at = shippedAt` — conducta que B-6 cambia por contrato. Ajustada (arriba); re-corridas `sdx-d2e-notices` + `sdx-b2-timeline`: **2/2 suites · 16/16** |
+| `tsc --noEmit` (incluye `test/`); `eslint` de los 14 ficheros | 0 errores; 0 avisos |
+
+Carga durante las corridas: 4–16 (4 CPU, otros agentes vivos); ninguna roja por tiempo.
+
+### 71.3 Mutaciones
+
+`be-skyfix/mut.py`: aplica UNA sobre la copia, corre, restaura y compara con el vivo (todas «restaurado OK»). Deterministas: N = 1.
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M3 | `tUnknownMs × 2` en `ShippingWorkQueueService` | unit `sdx-tl31af` + PS-173 | primero **sobrevivió** en unitaria (las filas al límite eran de `T_STUCK_MS`): se añadió la prueba de una en vuelo justo a `tUnknownMs` ⇒ rojo 1; PS-173 rojo |
+| M3b | reloj del sistema en `ShippingWorkQueueService` | unit + PS-173 | rojo (unit 1→2 con la prueba nueva; PS-173 1) |
+| U1 | `alertShipmentIdsOf` sin la parte del transportista | unit + `sdx-d2d-tracking` + `sdx-d2e-notices` | rojo (unit 2; integración 5). En `sdx-d2f-money` sola **sobrevive** (PS-173 compara solo `labelAlert`) — esperado |
+| T1 | AV-6 con `IR A MI CUENTA` fijo | unit | rojo 5 |
+| T2 | `next` siempre | unit | rojo 3 |
+| T3 | prefijo de marca en el asunto de AV-6 | unit | rojo 2 |
+| D1 | volver a `if (this.prep)` | unit | rojo 1 |
+| D8a / D8b | `e.message` en el log de `claimAndNotify` / `AV-12` | unit | rojo 1 / 1 |
+| B6a | quitar la cota | unit + PS-89 (c) + d2e | rojo (unit 6; integración 3) |
+| B6b | `created` cuenta como movimiento | unit + PS-89 (c) + d2e | rojo (unit 6; integración 4) |
+
+Las M3/M3b de §70.3 se repitieron en su sitio nuevo (el reloj y `tUnknownMs` ya no viven en el tablero sino en el servicio
+exportado): siguen rojas en PS-173.
+
+### 71.4 Notas para otros roles
+
+1. **Arquitecto:** ninguna discrepancia con el contrato. `shipped.at` ahora puede ser ANTERIOR a `shippedAt` (por diseño, §19.36.2);
+   quien compare la línea de tiempo con `shippedAt` (p. ej. un E2E de frontend) debe usar la cota.
+2. **Frontend:** sin cambio de forma. F-5 (invertir) es independiente.
+3. **QA:** PS-89 (c) vive en `sdx-b2-timeline.e2e-spec.ts`; las condiciones C-TL-1/2 y D-1/D-8 en `test/sdx-tl31af.units.spec.ts`.
