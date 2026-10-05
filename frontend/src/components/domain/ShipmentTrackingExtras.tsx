@@ -38,7 +38,8 @@ export function ShipmentTimeline({ events, className }: { events?: CustomerTimel
   const locale = useLocale() as AppLocale;
   const known = (events ?? []).filter((e) => (CUSTOMER_TIMELINE_KINDS as readonly string[]).includes(e.kind));
   if (known.length === 0) return null;
-  const ordered = [...known].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  // El orden lo pone el servidor (`at asc`, contrato §M4-SHIP.19.36); la pantalla solo lo invierte (F-5: nada de re-ordenar por `at`).
+  const ordered = [...known].reverse();
   return (
     <div className={className} data-testid="shipment-timeline">
       <h3 className="eyebrow">{t('title')}</h3>

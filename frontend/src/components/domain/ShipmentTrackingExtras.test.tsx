@@ -48,6 +48,20 @@ describe('UX-SDX-15 · movimientos', () => {
     expect(list[1].textContent).toMatch(/^Guía creada · /);
     expect(screen.getByTestId('shipment-timeline').textContent).not.toMatch(/exception/);
   });
+  it('F-5 · empate de `at`: el servidor manda `at asc`; la pantalla solo invierte (no re-ordena)', () => {
+    const events = [
+      { kind: 'label_created', at: '2026-10-01T10:00:00Z' },
+      { kind: 'shipped', at: '2026-10-02T10:00:00Z' },
+      { kind: 'in_transit', at: '2026-10-02T10:00:00Z' },
+    ] as unknown as CustomerTimelineEventDTO[];
+    renderWithIntl(<ShipmentTimeline events={events} />, 'es');
+    const list = within(screen.getByTestId('shipment-timeline')).getAllByRole('listitem');
+    expect(list).toHaveLength(3);
+    // asc del servidor: [label_created, shipped, in_transit] ⇒ invertido: [in_transit, shipped, label_created]
+    expect(list[2].textContent).toMatch(/^Guía creada · /);
+    expect(list[0].textContent).toMatch(/^En camino/);
+    expect(list[1].textContent).toMatch(/^Salió/);
+  });
   it('sin eventos ⇒ nada', () => {
     const { container } = renderWithIntl(<ShipmentTimeline events={[]} />, 'es');
     expect(container).toBeEmptyDOMElement();

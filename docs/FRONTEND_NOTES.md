@@ -19642,3 +19642,33 @@ una alerta sembrada), `lib/i18n-shipping-alerts.test.ts` (UX-SDX-44), FS-67 en `
 `lowBalance !== false`; pintar `balanceCents`; «Ver el saldo» al operador; enlace sin `alert=true`; sumar las dos cifras;
 nota de la unión siempre; `withLabelAlert` ausente sin defensa; api sin `alert`; api con `alert` siempre; la cola no manda
 el filtro; `parseAlert` acepta `1`; el mock sin filtro de unión; sin ancla; clave borrada en `en.json`; «AG-7» en `lowBalance`.
+- **F-5** (errata v1.80.12.17, §M4-SHIP.19.36): `ShipmentTimeline` ya no re-ordena por `at`; el servidor manda `at asc` y la pantalla solo invierte (`[...known].reverse()`). Prueba de empate; mutación (volver al sort) roja N=3.
+
+## §95 · 💰 **F-3 — el estado de resultados de M7 completo: ocho renglones con signo y los «Incluye…» de ajustes de paquetería y seguro** (2026-10-05, rama `claude/skydropx-d`, base `d1184262`; contrato v1.80.12.17 `§M4-SHIP.19.36.1` y `.4` fila F-3, forma `§M10-IVA.8`; diseño v4.25 `DESIGN_SYSTEM §43.23`, FS-68…FS-70, UX-PNL-1…6, N-PNL-1)
+
+### 95.1 Comprobación previa del servidor (medida por lectura antes de tocar nada)
+`backend/src/modules/admin/admin.service.ts:1807-1823` en este árbol (sin cambios locales en ese fichero, `git diff --stat`
+vacío): el objeto lleva, en este orden, `shippingCostMissingCount, shippingAdjustmentsCents, shippingInsuranceCents,
+refundsCents, refundedFeesCents, compensationsCents, profitCents`, y `profitCents = income + shippingRevenue − cogs −
+stripeFees − shippingCost − refunds − refundedFees − compensations` (`:1807-1809`); los ajustes se suman DENTRO de
+`shippingCostCents` (`:1797`) y el seguro es informativo (`:1767`). Cuadra con el contrato: nombres y signos iguales.
+
+### 95.2 Qué cambió
+- `types/contract.ts` — `PnlDTO` con los cinco campos que faltaban (obligatorios, en el orden del servidor).
+- `lib/mock/fixtures.ts` — `mockPnl` con ajustes 4 200 y seguro 2 500 (< `shippingCostCents` 31 800, N-PNL-1), reembolsos
+  35 000, comisión devuelta 1 400, compensaciones 12 000; `profitCents` = la fórmula de ocho términos = 534 000.
+  ⚠️ `mockCsv('pnl')` NO se tocó: ya divergía del CSV del servidor (formato `metric,valueCents`) antes de este encargo.
+- `M7View.tsx` — `PnlLine` con `data-testid="pnl-line"`, `data-sign`, `sr-only` «suma»/«resta» antes del rótulo y monto en
+  `pnl-amount`; nuevo `PnlIncluded` (`pnl-included`, sin signo ni `data-sign`, `pl-6 text-xs`, monto `text-muted
+  font-normal`). Ocho renglones; «Costo de envío» y sus «Incluye…» en un único hijo del `divide-y`, cada «Incluye…» con
+  `> 0`. La ganancia sigue siendo `profitCents` (`data-testid="pnl-profit"`). Quitada la rama muerta `sign '='`.
+- `messages/{es,en}.json` — `formula` nueva y las 7 claves de §43.23.3, textos literales.
+
+### 95.3 Decisiones
+- Estructura con `div`s (§43.23.4 lo permite); el «Incluye…» no es hermano con signo de nadie.
+- `items-start` en los renglones para que un rótulo largo parta línea en móvil sin truncar (§43.23.4).
+
+### 95.4 Pruebas
+`(admin)/admin/m7/M7View.pnl.test.tsx` (fixture N-PNL-1 + UX-PNL-1…5, UX-PNL-5 en ES y EN) y `lib/i18n-pnl.test.ts`
+(UX-PNL-6). Rojo previo medido: 18 de 20 rojas antes del código (las 2 verdes, paridad y P66-3, lo son en vacío).
+`M7View.test.tsx` actualiza la ganancia esperada a MX$5,340.00 por el cambio del fixture.
