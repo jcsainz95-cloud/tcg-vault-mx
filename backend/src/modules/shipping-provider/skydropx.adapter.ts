@@ -227,10 +227,17 @@ function eventsFrom(...candidates: unknown[]): ProviderEvent[] {
       if (!e) continue;
       const rawStatus = firstStr(e.status, e.tracking_status, e.code);
       if (!rawStatus) continue;
+      // ⭐ D2d (§19.3): tolerante — forma NO MEDIDA hasta PG-1 (§19.19.10); ausente ⇒ la llave no se pone, ⛔ nunca un `500`.
+      const detail = firstStr(e.description, e.detail, e.details, e.message);
+      const branchName = firstStr(e.branch_name, e.office_name, e.location);
+      const providerEventId = idOf(e.id);
       out.push({
         status: asCarrierStatus(rawStatus),
         rawStatus,
         occurredAt: firstStr(e.occurred_at, e.date, e.created_at, e.updated_at),
+        ...(detail ? { detail } : {}),
+        ...(branchName ? { branchName } : {}),
+        ...(providerEventId ? { providerEventId } : {}),
       });
     }
     return out;

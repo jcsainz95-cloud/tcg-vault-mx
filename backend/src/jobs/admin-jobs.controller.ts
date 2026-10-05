@@ -1,6 +1,7 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Optional, Post } from '@nestjs/common';
+import { BusinessException } from '../common/business.exception';
 import { Role } from '@prisma/client';
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../modules/audit/audit.service';
@@ -16,12 +17,23 @@ import { PriceIngestJobService } from './price-ingest.service';
 import { SealedPriceIngestJobService } from './sealed-price-ingest.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
 import { DecksMetaRefreshService } from '../modules/decks-meta/decks-meta-refresh.service';
+import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job';
+import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processing.job';
+import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
 
 /** Body opcional del disparo de `decks-meta-refresh` (DECKS-META Fase 2, §7): `dryRun?`. */
 class DecksMetaRefreshDto {
   // `dryRun:true` corre el pipeline REAL sin escribir nada publicado (verificación en prod, §8);
   // omitirlo respeta el dial `decks_meta_autofetch` (off ⇒ no-op).
   @IsOptional() @IsBoolean() dryRun?: boolean;
+}
+
+/**
+ * Body opcional del disparo de `shipment-tracking-poll` (⭐ D2d, API_CONTRACT §M4-SHIP.19.10: excepción a la familia, como
+ * `price-ingest {setId}`): `shipmentId?` refresca UN envío; omitirlo corre el lote.
+ */
+class ShipmentTrackingPollDto {
+  @IsOptional() @IsUUID() shipmentId?: string;
 }
 
 /** Body opcional del disparo de `price-ingest` (excepción a la familia body-vacío, §M10-ops). */
@@ -63,7 +75,72 @@ export class AdminJobsController {
     private readonly sealedRestockNotify: SealedRestockNotifyService,
     private readonly decksMetaRefresh: DecksMetaRefreshService,
     private readonly audit: AuditService,
+    // ⭐💰 D2d (§M4-SHIP.19.10): los tres jobs de Skydropx (no-op con `shipping_provider='off'`). `@Optional()` SOLO por las
+    // pruebas unitarias que construyen el controlador con la lista posicional de antes; en la app los da `ShipmentsModule`
+    // (sin ellos, el disparo responde `404`, ⛔ nunca un `500`).
+    @Optional() private readonly trackingPoll?: ShipmentTrackingPollJob,
+    @Optional() private readonly labelProcessing?: ShipmentLabelProcessingJob,
+    @Optional() private readonly extraCharges?: ShipmentExtraChargesJob,
   ) {}
+
+  private need<T>(svc: T | undefined): T {
+    if (!svc) throw BusinessException.notFound();
+    return svc;
+  }
+
+  /**
+   * ⭐ D2d (§M4-SHIP.19.10) — el sondeo de rastreo de Skydropx; `{shipmentId?}` refresca uno (el mismo cuerpo que
+   * `POST /admin/shipments/:id/refresh-tracking`). Lee al proveedor; ⛔ no compra ni cancela.
+   */
+  @Post('shipment-tracking-poll')
+  @HttpCode(200)
+  async runShipmentTrackingPoll(@Body() dto: ShipmentTrackingPollDto, @CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.trackingPoll).run({ shipmentId: dto.shipmentId });
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.shipment_tracking_poll.run',
+      entityType: 'Job',
+      entityId: 'shipment-tracking-poll',
+      after: { shipmentId: dto.shipmentId ?? null, ...result },
+    });
+    return result;
+  }
+
+  /**
+   * ⭐💰 D2d (§M4-SHIP.19.10 con §19.27–§19.30) — guía en proceso, verificación de la compra en vuelo (adopta / libera /
+   * incierta), conciliación de huérfanas con fusible, calibración pasiva y purga. ⛔ Nunca `purchase` (PS-99).
+   */
+  @Post('shipment-label-processing')
+  @HttpCode(200)
+  async runShipmentLabelProcessing(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.labelProcessing).run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.shipment_label_processing.run',
+      entityType: 'Job',
+      entityId: 'shipment-label-processing',
+      after: result as unknown as Record<string, unknown>,
+    });
+    return result;
+  }
+
+  /** 💰 D2d (§M4-SHIP.19.10, AG-6) — los cargos extra de Skydropx de los últimos 45 días (idempotente por `providerChargeId`). */
+  @Post('shipment-extra-charges')
+  @HttpCode(200)
+  async runShipmentExtraCharges(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.extraCharges).run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.shipment_extra_charges.run',
+      entityType: 'Job',
+      entityId: 'shipment-extra-charges',
+      after: { ...result },
+    });
+    return result;
+  }
 
   @Post('portfolio-snapshot')
   @HttpCode(200)

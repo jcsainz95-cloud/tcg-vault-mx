@@ -212,7 +212,20 @@ export class ShipmentQuoteService {
         },
         orderBy: { requestedAt: 'desc' },
       });
-      if (reusable) return this.toDto(reusable, packages, g.charged, coverage.costCents, true);
+      if (reusable) {
+        // ⭐💰 v1.80.12.13 (§19.32.2): REUTILIZAR también escribe `requestedAt`/`requestedByUserId` (la «vigente» de
+        // `GET …/quote` es la última que el operador pidió) con CAS `expiresAt > now` — ⛔ `expiresAt` no cambia, y el CAS
+        // mantiene el CHECK `expiresAt > requestedAt` por construcción. `count 0` ⇒ venció entre la lectura y la escritura ⇒
+        // «sin reutilizable», sigue a la red (⛔ ni 500 ni 409). El reloj se relee: es el instante de la escritura.
+        const at = this.clock.now();
+        const touched = await this.prisma.shipmentQuote.updateMany({
+          where: { id: reusable.id, expiresAt: { gt: at } },
+          data: { requestedAt: at, requestedByUserId: actor.id },
+        });
+        if (touched.count === 1) {
+          return this.toDto({ ...reusable, requestedAt: at, requestedByUserId: actor.id }, packages, g.charged, coverage.costCents, true);
+        }
+      }
     }
 
     // La llamada de red, FUERA de la tx. ⛔ El destino viaja neutralizado (C-23), el snapshot no cambia.

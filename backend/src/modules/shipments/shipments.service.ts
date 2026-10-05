@@ -68,6 +68,7 @@ import { NeighborhoodCheck, PostalCodeService } from '../shipping-provider/geo/p
 import { DEFAULT_LABEL_VERIFY_CONFIG, LABEL_VERIFY_CONFIG, LabelVerifyConfig } from './label-verify.constants';
 import { LabelClock, SHIPMENTS_LABEL_CLOCK, systemLabelClock } from './label-clock';
 import {
+  CarrierAlertDTO,
   InFlightUncertainReason,
   LabelAlertDTO,
   LabelOptionsDTO,
@@ -827,6 +828,7 @@ export class ShipmentsService {
     labelPending: LabelPendingDTO | null;
     labelAlert: LabelAlertDTO | null;
     costAdjustments: ShipmentCostAdjustmentDTO[];
+    carrierAlert: CarrierAlertDTO | null;
   }> {
     const chosenByName = s.rateChosenByUserId
       ? nullIfBlank((await this.prisma.user.findUnique({ where: { id: s.rateChosenByUserId }, select: { name: true } }))?.name ?? null)
@@ -878,7 +880,25 @@ export class ShipmentsService {
       labelPending: toLabelPendingDTO(s, chosenByName, providerReference, this.labelCfg.tUnknownMs),
       labelAlert: labelAlertOf(s, this.labelClock.now(), actorRole, { tUnknownMs: this.labelCfg.tUnknownMs, orphanSince: orphan?.createdAt ?? null, uncertainReason }),
       costAdjustments,
+      carrierAlert: await this.carrierAlertOf(s),
     };
+  }
+
+  /**
+   * ⭐ D2d (§19.3 «Alertas al admin», §19.32.5) — `carrierAlert` del `AdminShipmentDTO`: SOLO si `carrierAlertActive` (el MISMO
+   * cuerpo que `?alert=true` y `workQueue.shipping.withCarrierAlert`; ⛔ ninguna segunda definición). `detail` = el del último
+   * evento de ESE estado en la guía vigente; `at` = `carrierStatusAt` (la fecha del transportista).
+   */
+  private async carrierAlertOf(s: ShipmentRequest): Promise<CarrierAlertDTO | null> {
+    if (!carrierAlertActive(s) || s.carrierStatus == null) return null;
+    const ev = s.providerShipmentId
+      ? await this.prisma.shipmentCarrierEvent.findFirst({
+          where: { shipmentRequestId: s.id, providerShipmentId: s.providerShipmentId, status: s.carrierStatus },
+          orderBy: [{ occurredAt: 'desc' }, { observedAt: 'desc' }],
+          select: { detail: true },
+        })
+      : null;
+    return { status: s.carrierStatus, detail: ev?.detail ?? null, at: (s.carrierStatusAt ?? s.carrierPolledAt ?? s.requestedAt).toISOString() };
   }
 
   /**
@@ -1513,61 +1533,9 @@ export class ShipmentsService {
         }
         const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
 
-        if (isDirectShip && (to === 'enviado' || to === 'entregado')) {
-          const fromStatus = to === 'enviado' ? 'picking' : 'shipped';
-          const toStatus = to === 'enviado' ? 'shipped' : 'delivered';
-          // ⭐ v1.80: una faltante ya es `lost/damaged` — se excluye por legibilidad y defensa en profundidad.
-          const shipmentItems = await tx.shipmentItem.findMany({
-            where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
-            select: { inventoryItemId: true },
-          });
-          for (const si of shipmentItems) {
-            // Guardia POSITIVA + idempotente: solo avanza la pieza que está en el estado previo esperado.
-            const moved = await tx.inventoryItem.updateMany({
-              where: { id: si.inventoryItemId, status: fromStatus },
-              data: { status: toStatus },
-            });
-            if (moved.count !== 1) continue;
-            await tx.inventoryMovement.create({
-              data: {
-                itemId: si.inventoryItemId,
-                fromStatus,
-                toStatus,
-                // `sale`: la pieza sale por una VENTA con envío directo, no por un retiro de bóveda.
-                reason: MovementReason.sale,
-                note: `guest shipment ${id} ${to}`,
-              },
-            });
-          }
-          return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
-        }
-
-        if (!isDirectShip && to === 'entregado') {
-          // 🔴 v1.80 (§M4-SHIP.6, corrige H1): `withdrawn` SOLO desde `in_custody` del dueño del retiro (guarda
-          // en el `WHERE`) y movimiento solo si `count = 1`; una faltante (`lost`, del cliente o de plataforma)
-          // ⛔ jamás pasa a `withdrawn` al entregar el resto.
-          const shipmentItems = await tx.shipmentItem.findMany({
-            where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
-            select: { inventoryItemId: true },
-          });
-          for (const si of shipmentItems) {
-            const moved = await tx.inventoryItem.updateMany({
-              where: { id: si.inventoryItemId, status: 'in_custody', ownerType: 'customer', ownerUserId: shipment.userId },
-              // Solo cambia `status`; conserva ownerType/ownerUserId/ownershipStatus.
-              data: { status: 'withdrawn' },
-            });
-            if (moved.count !== 1) continue;
-            await tx.inventoryMovement.create({
-              data: {
-                itemId: si.inventoryItemId,
-                fromStatus: 'in_custody',
-                toStatus: 'withdrawn',
-                reason: MovementReason.withdrawal,
-                note: `shipment ${id} delivered`,
-              },
-            });
-          }
-        }
+        // ⭐💰 v1.81 D2d (§19.3): el movimiento de piezas vive en `movePiecesOnTransition`, el MISMO cuerpo que usa
+        // `transitionFromProvider` (sondeo y «Salida de hoy»). Sin cambio de conducta: mismas guardas y movimientos.
+        await this.movePiecesOnTransition(tx, id, shipment.userId, to, isDirectShip);
         return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
       },
       { maxWait: 10_000, timeout: 30_000 },
@@ -1575,6 +1543,125 @@ export class ShipmentsService {
     // v1.74 (§R) — `AV-5`/`AV-6`, POST-COMMIT y best-effort; avisa el GANADOR del CAS y nadie más.
     if (result.gane) await this.notifyStatus(shipment, to);
     return result.row;
+  }
+
+  /**
+   * El movimiento de las PIEZAS de una transición (§M4, D4 + §M4-SHIP.6 H1 corregida). UN cuerpo: lo usan `updateStatus`
+   * (`PATCH …/status`) y `transitionFromProvider` (sondeo de Skydropx y «Salida de hoy»). Directo: `enviado` ⇒
+   * `picking → shipped`, `entregado` ⇒ `shipped → delivered`. Retiro: solo `entregado`, `in_custody` del dueño del retiro
+   * ⇒ `withdrawn` (⛔ una faltante `lost` jamás). Guardas POSITIVAS en el `WHERE` y movimiento solo con `count = 1`.
+   */
+  private async movePiecesOnTransition(
+    tx: Prisma.TransactionClient,
+    id: string,
+    shipmentUserId: string | null,
+    to: ShipmentStatus,
+    isDirectShip: boolean,
+  ): Promise<void> {
+    if (isDirectShip && (to === 'enviado' || to === 'entregado')) {
+      const fromStatus = to === 'enviado' ? 'picking' : 'shipped';
+      const toStatus = to === 'enviado' ? 'shipped' : 'delivered';
+      // ⭐ v1.80: una faltante ya es `lost/damaged` — se excluye por legibilidad y defensa en profundidad.
+      const shipmentItems = await tx.shipmentItem.findMany({
+        where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
+        select: { inventoryItemId: true },
+      });
+      for (const si of shipmentItems) {
+        // Guardia POSITIVA + idempotente: solo avanza la pieza que está en el estado previo esperado.
+        const moved = await tx.inventoryItem.updateMany({
+          where: { id: si.inventoryItemId, status: fromStatus },
+          data: { status: toStatus },
+        });
+        if (moved.count !== 1) continue;
+        await tx.inventoryMovement.create({
+          data: {
+            itemId: si.inventoryItemId,
+            fromStatus,
+            toStatus,
+            // `sale`: la pieza sale por una VENTA con envío directo, no por un retiro de bóveda.
+            reason: MovementReason.sale,
+            note: `guest shipment ${id} ${to}`,
+          },
+        });
+      }
+      return;
+    }
+    if (!isDirectShip && to === 'entregado') {
+      // 🔴 v1.80 (§M4-SHIP.6, corrige H1): `withdrawn` SOLO desde `in_custody` del dueño del retiro (guarda en el `WHERE`) y
+      // movimiento solo si `count = 1`; una faltante (`lost`, del cliente o de plataforma) ⛔ jamás pasa a `withdrawn`.
+      const shipmentItems = await tx.shipmentItem.findMany({
+        where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
+        select: { inventoryItemId: true },
+      });
+      for (const si of shipmentItems) {
+        const moved = await tx.inventoryItem.updateMany({
+          where: { id: si.inventoryItemId, status: 'in_custody', ownerType: 'customer', ownerUserId: shipmentUserId },
+          // Solo cambia `status`; conserva ownerType/ownerUserId/ownershipStatus.
+          data: { status: 'withdrawn' },
+        });
+        if (moved.count !== 1) continue;
+        await tx.inventoryMovement.create({
+          data: {
+            itemId: si.inventoryItemId,
+            fromStatus: 'in_custody',
+            toStatus: 'withdrawn',
+            reason: MovementReason.withdrawal,
+            note: `shipment ${id} delivered`,
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * ⭐💰 v1.81 D2d — `transitionFromProvider(tx, id, to)` (API_CONTRACT §M4-SHIP.19.3 paso 5 y §19.9 `departed`): el
+   * cuerpo de `updateStatus` para las transiciones que NO pide una persona por `PATCH` sino un hecho del transportista (el
+   * sondeo) o el lote de «Salida de hoy». ⚠️ El llamador YA tiene el candado de la fila (`FOR UPDATE`, primera sentencia).
+   *  - `enviado`: guardas de §M4-SHIP.6 (`assertCanAdvance(…,'enviado')`, lanzan su `BusinessException`) y CAS
+   *    `WHERE status='guia'` ⇒ `count 1`: `shippedAt`, piezas `shipped` (directo); `count 0` ⇒ nada (ya salió).
+   *  - `entregado`: si aún está en `guia` ⇒ primero `enviado` (con sus guardas y su AV-5) y luego `entregado`, en la MISMA
+   *    tx; CAS `WHERE status='enviado'`; `deliveredAt` lo da el llamador (`max(occurredAt, observedAt)`, SEC-SDX-1).
+   * Devuelve qué ganó: el AV-5 lo manda el llamador POST-COMMIT solo si `shipped` (el ganador del CAS y nadie más, REL-B).
+   */
+  async transitionFromProvider(
+    tx: Prisma.TransactionClient,
+    id: string,
+    to: 'enviado' | 'entregado',
+    at: { now: Date; deliveredAt?: Date },
+  ): Promise<{ shipped: boolean; delivered: boolean }> {
+    const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id }, select: { status: true, userId: true, orderId: true } });
+    let isDirectShip = false;
+    if (row.orderId != null) {
+      const order = await tx.order.findUnique({ where: { id: row.orderId }, select: { fulfillmentMode: true } });
+      isDirectShip = this.kindForFulfillment(order?.fulfillmentMode, id) === 'guest_direct_ship';
+    }
+    let shipped = false;
+    let delivered = false;
+    if (row.status === 'guia') {
+      if (this.prep) await this.prep.assertCanAdvance(tx, id, 'enviado');
+      const moved = await tx.shipmentRequest.updateMany({ where: { id, status: 'guia' }, data: { status: 'enviado', shippedAt: at.now } });
+      if (moved.count === 1) {
+        shipped = true;
+        await this.movePiecesOnTransition(tx, id, row.userId, 'enviado', isDirectShip);
+      }
+    }
+    if (to === 'entregado') {
+      const done = await tx.shipmentRequest.updateMany({
+        where: { id, status: 'enviado' },
+        data: { status: 'entregado', deliveredAt: at.deliveredAt ?? at.now },
+      });
+      if (done.count === 1) {
+        delivered = true;
+        await this.movePiecesOnTransition(tx, id, row.userId, 'entregado', isDirectShip);
+      }
+    }
+    return { shipped, delivered };
+  }
+
+  /** ⭐ D2d — el `AV-5` de una transición a `enviado` que ganó `transitionFromProvider` (post-commit, best-effort). */
+  async notifyShipped(id: string): Promise<void> {
+    const row = await this.prisma.shipmentRequest.findUnique({ where: { id } });
+    if (row) await this.notifyStatus(row, 'enviado');
   }
 
   /** §M4-SHIP.9 — cancelar el PI de un `solicitado`; cobrado/en proceso/desconocido ⇒ `409 PAID_SHIPMENT_NOT_CANCELLABLE`. */

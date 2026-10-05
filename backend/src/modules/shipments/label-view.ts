@@ -176,6 +176,13 @@ export function labelAlertOf(
   return null;
 }
 
+/** §19.7 `AdminShipmentDTO.carrierAlert` (D2d): el estado crudo que enciende la alerta, el texto del transportista y cuándo. */
+export interface CarrierAlertDTO {
+  status: CarrierStatus;
+  detail: string | null;
+  at: string;
+}
+
 /** §19.3 «Alertas al admin»: los estados del transportista que encienden la alerta de un envío vivo con guía Skydropx. */
 export const CARRIER_ALERT_STATUSES: readonly CarrierStatus[] = ['delivery_attempt', 'exception', 'retained', 'in_return', 'destroyed'];
 

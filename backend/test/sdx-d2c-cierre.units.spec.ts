@@ -206,14 +206,15 @@ describe('PS-169 — las llaves del `data` del reclamo ⊆ las de CADA deshacer'
     [...code.matchAll(/rateChosenAt: null/g)].map((m) => topKeys(enclosingBlock(code, m.index as number)));
   const missing = (claim: string[], undo: string[]) => claim.filter((k) => !undo.includes(k));
 
-  it('código real: el reclamo y los CUATRO deshacer (undo, CAS local, CLAIM_UNDO, liberar)', () => {
+  // ⭐ D2d: el job gana el QUINTO deshacer (`autoRelease`: `not_sent` / `not_charged`, §19.28.5 / §19.27.5), en el mismo fichero.
+  it('código real: el reclamo y los CINCO deshacer (undo, CAS local, CLAIM_UNDO, liberar, liberación automática)', () => {
     const purchase = codigoDeFichero(join(SRC, 'label-purchase.service.ts'), ['labelProcessingSince: since,', 'export const CLAIM_UNDO']);
     const recovery = codigoDeFichero(join(SRC, 'label-recovery.service.ts'), ['rateChosenAt: null']);
     const claim = claimKeysOf(purchase);
     const undos = [...undoBlocksOf(purchase), ...undoBlocksOf(recovery)];
-    expect(undos.length).toBe(4);
+    expect(undos.length).toBe(5);
     // ⊆ primero: el rojo de una columna nueva sin deshacer NOMBRA la columna.
-    expect(undos.map((u) => missing(claim, u))).toEqual([[], [], [], []]);
+    expect(undos.map((u) => missing(claim, u))).toEqual([[], [], [], [], []]);
     expect(claim).toEqual(
       [
         'labelProcessingSince',

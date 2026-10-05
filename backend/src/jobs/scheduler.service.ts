@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue, Worker } from 'bullmq';
 import IORedis, { Redis } from 'ioredis';
@@ -19,6 +19,9 @@ import { DecksMetaRefreshService } from '../modules/decks-meta/decks-meta-refres
 import { FxSnapshot } from '../modules/pricing/price-ingest.service';
 import { bullRedisOptions } from './redis-connection.util';
 import { isSchedulerDisabled } from '../config/test-env';
+import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job';
+import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processing.job';
+import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
 
 const QUEUE_NAME = 'tcg-daily';
 
@@ -106,6 +109,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly orderReservationSweep: OrderReservationSweepJobService,
     // DECKS-META Fase 2 (§7): refresh SEMANAL de decks meta desde Limitless (fail-closed por dial).
     private readonly decksMetaRefresh: DecksMetaRefreshService,
+    // ⭐💰 D2d (API_CONTRACT §M4-SHIP.19.10): los tres jobs de Skydropx (no-op con `shipping_provider='off'`). `@Optional()`
+    // SOLO por las pruebas unitarias que construyen el planificador a mano con la lista posicional de antes; en la app
+    // `ShipmentsModule` los exporta y `JobsModule` lo importa (lo asevera `sdx-d2d-jobs.e2e-spec.ts` con el AppModule real).
+    @Optional() private readonly shipmentTrackingPoll?: ShipmentTrackingPollJob,
+    @Optional() private readonly shipmentLabelProcessing?: ShipmentLabelProcessingJob,
+    @Optional() private readonly shipmentExtraCharges?: ShipmentExtraChargesJob,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -226,6 +235,20 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     const metadataCron = this.config.get<string>('CATALOG_METADATA_SYNC_CRON') ?? '0 1 * * *';
     await this.queue.add('catalog-metadata-sync', {}, this.repeat('catalog-metadata-sync', metadataCron));
 
+    // ⭐💰 D2d (§M4-SHIP.19.10): Skydropx. Crons por env (devops ajusta sin redeploy); los tres son no-op con el dial
+    // `shipping_provider='off'` (seed) y con el adaptador `noop`. El sondeo y la guía en proceso son de alta frecuencia: su
+    // `jobId` lleva `-cron` (no son diarios). ⛔ Ninguno compra (PS-99).
+    const trackingCron = this.config.get<string>('SHIPMENT_TRACKING_POLL_CRON') ?? '*/10 * * * *';
+    const labelProcessingCron = this.config.get<string>('SHIPMENT_LABEL_PROCESSING_CRON') ?? '* * * * *';
+    const extraChargesCron = this.config.get<string>('SHIPMENT_EXTRA_CHARGES_CRON') ?? '30 8 * * *';
+    if (this.shipmentTrackingPoll && this.shipmentLabelProcessing && this.shipmentExtraCharges) {
+      await this.queue.add('shipment-tracking-poll', {}, this.repeatEvery('shipment-tracking-poll', trackingCron));
+      await this.queue.add('shipment-label-processing', {}, this.repeatEvery('shipment-label-processing', labelProcessingCron));
+      await this.queue.add('shipment-extra-charges', {}, this.repeat('shipment-extra-charges', extraChargesCron));
+    } else {
+      this.logger.error('Scheduler: los jobs de Skydropx NO están inyectados; shipment-* no quedan programados.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -282,6 +305,13 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
           // (flag en memoria del servicio). Fail-closed por dial: sin `on` no publica.
           case 'decks-meta-refresh':
             return this.decksMetaRefresh.run({});
+          // ⭐💰 D2d (§M4-SHIP.19.10): rastreo (lote), guía en proceso + verificación + huérfanas, cargos extra.
+          case 'shipment-tracking-poll':
+            return this.shipmentTrackingPoll?.run() ?? null;
+          case 'shipment-label-processing':
+            return this.shipmentLabelProcessing?.run() ?? null;
+          case 'shipment-extra-charges':
+            return this.shipmentExtraCharges?.run() ?? null;
           default:
             this.logger.warn(`Job desconocido en la cola: ${job.name}`);
             return null;
@@ -308,7 +338,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         'set-value-snapshot, ine-retention, buylist-sweep, dispute-deadline, auth-token-sweep diarios ' +
         '+ price-ingest 2×/día (00:00 y 12:00 UTC, dial price_provider) ' +
         '+ sealed-price-ingest diario (21:30 UTC, dial sealed_price_source, seed off) ' +
-        '+ catalog-metadata-sync diario (import de sets nuevos, force:false).',
+        '+ catalog-metadata-sync diario (import de sets nuevos, force:false) ' +
+        '+ shipment-tracking-poll / shipment-label-processing / shipment-extra-charges (Skydropx, dial shipping_provider).',
     );
 
     // Catch-up (auditoría 2026-08-17): si NO hay ingesta de precios reciente (hoy/ayer),
@@ -344,6 +375,16 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     return {
       repeat: { pattern },
       jobId: `${jobId}-daily`,
+      removeOnComplete: true,
+      removeOnFail: 100,
+    };
+  }
+
+  /** Igual que `repeat` pero con sufijo `-cron` (⭐ D2d): jobs de alta frecuencia (cada minuto / cada 10 min). */
+  private repeatEvery(jobId: string, pattern: string) {
+    return {
+      repeat: { pattern },
+      jobId: `${jobId}-cron`,
       removeOnComplete: true,
       removeOnFail: 100,
     };

@@ -161,6 +161,14 @@ export interface ProviderEvent {
   status: ProviderCarrierStatus | null;
   occurredAt: string | null;
   rawStatus: string;
+  /**
+   * ⭐ D2d (§19.3 `event.detail` / `branchName`; forma NO MEDIDA hasta `PG-1`, §19.19.10): texto del transportista y
+   * sucursal, si vienen. ⛔ `detail` nunca va al cliente tal cual (lo lee solo la tarjeta del operador).
+   */
+  detail?: string | null;
+  branchName?: string | null;
+  /** Id propio del evento en Skydropx, si viene: la llave del evento lo usa antes que `estado:fecha` (§19.3 paso 3). */
+  providerEventId?: string | null;
 }
 
 export interface ProviderShipmentState extends Omit<PurchaseResult, 'raw' | 'providerShipmentId'> {

@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -14,6 +15,9 @@ import { ShipmentLabelCancelService } from './label-cancel.service';
 import { ShipmentLabelRecoveryService } from './label-recovery.service';
 import { ShipmentLabelPdfService } from './label-pdf.service';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
+import { ShipmentDepartureService } from './departure.service';
+import { ShipmentTrackingPollJob } from './tracking-poll.job';
+import { ShipmentThrottlerGuard } from './shipment-throttler.guard';
 
 /**
  * M4 — Retiros / envíos (vault_operator+). API_CONTRACT §M4.
@@ -31,6 +35,8 @@ export class AdminShipmentsController {
     private readonly labelCancel: ShipmentLabelCancelService,
     private readonly labelRecovery: ShipmentLabelRecoveryService,
     private readonly labelPdfs: ShipmentLabelPdfService,
+    private readonly departure: ShipmentDepartureService,
+    private readonly trackingPoll: ShipmentTrackingPollJob,
   ) {}
 
   @Get()
@@ -96,6 +102,36 @@ export class AdminShipmentsController {
   @Get('picking-list')
   pickingList(@Query('date') date?: string, @Query('destination') destination?: string) {
     return this.shipments.pickingList(date, destination);
+  }
+
+  /**
+   * ⭐ D2d (§M4-SHIP.19.9, S-GAS-1) — «Salida de hoy»: lo que está por salir con guía de Skydropx, agrupado por paquetería.
+   * `?date=YYYY-MM-DD` (default: hoy MX). ⛔ Sin precios, sin teléfonos, sin dirección completa. Declarada ANTES de `:id`.
+   */
+  @Header('Cache-Control', 'no-store')
+  @Get('departure')
+  departureBoard(@Query('date') date?: string) {
+    return this.departure.board(date);
+  }
+
+  /** ⭐ D2d (§M4-SHIP.19.9) — «salieron»: el lote marca `enviado` (el mismo cuerpo que el sondeo; AV-5 al ganador). */
+  @Post('departed')
+  @HttpCode(200)
+  departed(@Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    return this.departure.departed(body, user);
+  }
+
+  /**
+   * ⭐ D2d (§M4-SHIP.19.10) — «Actualizar rastreo» (operador+): el MISMO cuerpo que `shipment-tracking-poll {shipmentId}`;
+   * `6/min` POR ENVÍO; responde el `AdminShipmentDTO`. Con `shipping_provider='off'` ⇒ `404 FEATURE_DISABLED`.
+   */
+  @Post(':id/refresh-tracking')
+  @HttpCode(200)
+  @UseGuards(ShipmentThrottlerGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 6 } })
+  async refreshTracking(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    await this.trackingPoll.refreshOne(id);
+    return this.shipments.adminGet(id, user, (actor, shipmentId) => this.labels.labelOptionsFor(actor, shipmentId));
   }
 
   /**

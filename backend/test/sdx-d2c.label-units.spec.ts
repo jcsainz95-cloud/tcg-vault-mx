@@ -251,9 +251,14 @@ describe('PS-132 (b) / C-11 (b) — censo de claves de los candados consultivos'
   it('toda llamada usa una constante con nombre y los valores son distintos entre sí', () => {
     expect(lockKeyProblems(files)).toEqual([]);
   });
-  it('la compra usa SKYDROPX_PURCHASE_LOCK_KEY con `try` (nunca espera)', () => {
+  // ⭐ D2d (§19.30.6, C-19): el fusible de la conciliación de huérfanas es el SEGUNDO candado de `shipments/` (este sí espera:
+  // serializa el conteo de intenciones; su tx no tiene red).
+  it('la compra usa SKYDROPX_PURCHASE_LOCK_KEY con `try` (nunca espera); el fusible de huérfanas, ORPHAN_FUSE_LOCK_KEY', () => {
     const calls = advisoryLockCalls(files).filter((c) => c.path.includes('shipments/'));
-    expect(calls).toEqual([{ path: 'src/modules/shipments/label-purchase.service.ts', args: ['SKYDROPX_PURCHASE_LOCK_KEY'] }]);
+    expect(calls).toEqual([
+      { path: 'src/modules/shipments/label-purchase.service.ts', args: ['SKYDROPX_PURCHASE_LOCK_KEY'] },
+      { path: 'src/modules/shipments/orphan-reconcile.service.ts', args: ['ORPHAN_FUSE_LOCK_KEY'] },
+    ]);
     const t = code(readFileSync(join(SRC, 'modules/shipments/label-purchase.service.ts'), 'utf8'));
     expect(t).toMatch(/pg_try_advisory_xact_lock\(\$\{SKYDROPX_PURCHASE_LOCK_KEY\}/);
     expect(t).not.toMatch(/pg_advisory_xact_lock\(\$\{SKYDROPX_PURCHASE_LOCK_KEY\}/);

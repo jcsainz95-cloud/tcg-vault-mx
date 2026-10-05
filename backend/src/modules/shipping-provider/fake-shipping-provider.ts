@@ -402,10 +402,15 @@ export class FakeShippingProvider implements ShippingProviderPort {
     this.shipments.set(providerShipmentId, { ...base, ...patch });
   }
 
-  pushEvent(providerShipmentId: string, status: ProviderCarrierStatus, occurredAt: string): void {
+  pushEvent(
+    providerShipmentId: string,
+    status: ProviderCarrierStatus,
+    occurredAt: string | null,
+    extra: Partial<Pick<ProviderEvent, 'detail' | 'branchName' | 'providerEventId' | 'rawStatus'>> = {},
+  ): void {
     const base = this.shipments.get(providerShipmentId);
     if (!base) throw new Error(`FakeShippingProvider: envío desconocido ${providerShipmentId}`);
-    const ev: ProviderEvent = { status, rawStatus: status, occurredAt };
+    const ev: ProviderEvent = { status, rawStatus: status, occurredAt, ...extra };
     this.shipments.set(providerShipmentId, { ...base, carrierStatus: status, events: [...base.events, ev] });
   }
 

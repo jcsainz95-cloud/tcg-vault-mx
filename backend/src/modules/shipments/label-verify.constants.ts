@@ -51,6 +51,23 @@ export const ORPHAN_FUSE_LOCK_KEY = 65_310_703;
 /** §19.29.1.5 (d): cancelaciones automáticas de huérfanas en 24 h antes del fusible. */
 export const ORPHAN_AUTO_CANCEL_MAX_24H = 3;
 
+/** §19.28.9 (cable trampa): con una `shipment.inflight_negative_violated` en esta ventana NO existe `not_charged`. */
+export const NEGATIVE_TRIPWIRE_MS = 30 * 24 * 60 * MIN;
+
+// ⭐💰 D2d (§19.10, §19.27.5, §19.27.7, §19.28.6) — los jobs. Mecanismo, ⛔ no env ni dial.
+/** §19.10: envíos por corrida del sondeo de rastreo (a ≤ 2 req/s ⇒ ≤ 25 s por lote). */
+export const TRACKING_POLL_BATCH = 50;
+/** §19.27.5: pasada `T_UNKNOWN`, la compra en vuelo se mira cada 10 min hasta `since + T_VERIFY_TAIL`. */
+export const T_VERIFY_TAIL_EVERY_MS = 10 * MIN;
+/** §19.27.7: la calibración pasiva lee saldo y listado en los minutos 1…5 tras una compra que sí respondió. */
+export const CALIBRATION_MINUTES = 5;
+/** §19.10: ventana del job de cargos extra (`port.extraCharges(now − 45 d, now)`). */
+export const EXTRA_CHARGES_LOOKBACK_MS = 45 * 24 * 60 * MIN;
+/** §19.10 (SEC-SDX-6): en la primera corrida del día se purgan cotizaciones vencidas hace más de esto (salvo la comprada). */
+export const QUOTE_PURGE_AFTER_MS = 30 * 24 * 60 * MIN;
+/** §19.28.6: sin poder leerla, la alerta `label_orphan` vive 7 días (luego queda solo la bitácora). */
+export const ORPHAN_ALERT_TTL_MS = 7 * 24 * 60 * MIN;
+
 /** §19.29.6 AG-8: hoy el reembolso de una cancelación NO se puede comprobar ⇒ toda cancelación sin cifra avisa al día N. */
 export const CANCEL_REFUND_VERIFIABLE = false;
 

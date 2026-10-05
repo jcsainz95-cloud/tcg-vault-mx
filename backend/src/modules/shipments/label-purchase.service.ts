@@ -829,7 +829,7 @@ export class ShipmentLabelService {
       wrote = 'taken';
     }
     if (wrote === 'taken') return this.providerIdTaken(claim, actor, id, takenBy as string);
-    if (wrote === 'cas0') return this.casZero(claim, actor, result, providerReference, origin);
+    if (wrote === 'cas0') return this.casZero(claim, actor, result, providerReference, origin, adoption);
     // Post-commit, best-effort: AV-4 (una vez; T.4.4). ⛔ No puede tumbar la respuesta.
     await this.shipments.notifyLabelCaptured(claim.row.id);
     return this.respond(claim.row.id, actor, 'labeled');
@@ -888,7 +888,7 @@ export class ShipmentLabelService {
       wrote = 'taken';
     }
     if (wrote === 'taken') return this.providerIdTaken(claim, actor, id, takenBy as string);
-    if (wrote === 'cas0') return this.casZero(claim, actor, result, null, origin);
+    if (wrote === 'cas0') return this.casZero(claim, actor, result, null, origin, adoption);
     if (result.error) {
       this.logger.error(`skydropx purchase_error_with_id providerShipmentId=${id} providerCode=${result.error.code}`);
       const res = await this.respond(claim.row.id, actor, 'processing');
@@ -926,6 +926,7 @@ export class ShipmentLabelService {
     result: PurchaseResult,
     providerReference: string | null,
     origin: 'response' | 'adopted' = 'response',
+    adoption?: AdoptionMark,
   ): Promise<LabelResponse> {
     const id = result.providerShipmentId as string;
     const now = this.clock.now();
@@ -969,7 +970,13 @@ export class ShipmentLabelService {
         });
         if (w.count !== 1) return { kind: 'stale' as const };
         await this.recordPaidLabel(tx, claim, id, origin, cost.shippingCostCents, now);
-        await this.audit(tx, actor, row.id, 'shipment.label_cancelled', { reason: 'auto_close', during: 'purchase' }, now, { providerShipmentId: id, priceCents: claim.rate.priceCents });
+        // §19.28.7 (D2d): la adopción del job sobre un envío ya `cancelado` deja su marca (actor de sistema, `via` por folio).
+        if (adoption?.via === 'recent_list') await this.auditAdoption(tx, actor, claim, id, adoption, now);
+        await this.audit(tx, actor, row.id, 'shipment.label_cancelled', {
+          reason: 'auto_close',
+          during: 'purchase',
+          ...(adoption?.via === 'recent_list' ? { via: 'recent_list_folio', actor: adoption.actorTag ?? 'system:label-verify' } : {}),
+        }, now, { providerShipmentId: id, priceCents: claim.rate.priceCents });
         return { kind: 'auto_close' as const };
       }
       // (4) mismo reclamo en `picking` (p. ej. `preparedAt` retirado o un caso abierto): deshacer y cancelar la guía pagada.
