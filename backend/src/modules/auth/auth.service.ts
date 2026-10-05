@@ -14,6 +14,7 @@ import { AuthTokenService } from './auth-token.service';
 import { normalizeIdentifier } from '../../common/validation/credentials';
 import { DeviceTokenService } from './device-token.service';
 import { PasswordAttemptsService } from './password-attempts.service';
+import { SESSION_MAX_AGE_REASON, sessionMaxAgeSeconds, ttlSeconds } from './session-max-age';
 
 /** Máx. de correos por hora y por usuario (reenvío de verificación / olvido de contraseña). */
 const MAX_EMAILS_PER_HOUR = 3;
@@ -94,7 +95,12 @@ export class AuthService {
   async issueTokens(
     user: Pick<User, 'id' | 'email' | 'role' | 'tokenVersion'>,
     sid: string = randomUUID(),
+    sat?: number,
   ): Promise<TokenPair> {
+    // v1.84 (LIVE-2, §14.2): `sat` = segundos epoch del NACIMIENTO de la sesión. Sin él (login, Google,
+    // registro, cambio de contraseña ⇒ sesión nueva) es `now`; `refresh` pasa el heredado. ⛔ Interno como
+    // `sid`: viaja solo en el refresh token, nunca en un cuerpo.
+    const sessionStart = sat ?? Math.floor(Date.now() / 1000);
     // v1.3.1: el JWT lleva `tv` (tokenVersion). El guard/refresh lo comparan contra el valor
     // vigente en BD y rechazan los tokens con versión previa → revocación de sesiones tras
     // reset de contraseña / soft-delete (que incrementan User.tokenVersion).
@@ -105,13 +111,17 @@ export class AuthService {
       algorithm: 'HS256',
       expiresIn: this.config.get<string>('JWT_ACCESS_TTL') ?? '15m',
     });
+    // `exp = min(now + JWT_REFRESH_TTL, sat + tope(rol))` (§14.2 paso 4). El rol es el que trae `user`: en el
+    // refresh, el leído de BD (SES-5). `exp` va explícito (⛔ `expiresIn` no se combina con `exp`); el TTL se
+    // interpreta con el mismo formato que `jsonwebtoken` (`ttlSeconds`).
+    const nowSec = Math.floor(Date.now() / 1000);
+    const exp = Math.min(
+      nowSec + ttlSeconds(this.config.get<string>('JWT_REFRESH_TTL') ?? '30d'),
+      sessionStart + sessionMaxAgeSeconds(user.role),
+    );
     const refreshToken = await this.jwt.signAsync(
-      { ...payload, typ: 'refresh', sid },
-      {
-        secret: this.config.get<string>('JWT_REFRESH_SECRET'),
-        algorithm: 'HS256',
-        expiresIn: this.config.get<string>('JWT_REFRESH_TTL') ?? '30d',
-      },
+      { ...payload, typ: 'refresh', sid, sat: sessionStart, exp },
+      { secret: this.config.get<string>('JWT_REFRESH_SECRET'), algorithm: 'HS256' },
     );
     return { accessToken, refreshToken };
   }
@@ -547,12 +557,20 @@ export class AuthService {
 
   async refresh(refreshToken: string): Promise<TokenPair & { deviceToken: string }> {
     try {
-      const payload = await this.jwt.verifyAsync<{ sub?: unknown; typ?: unknown; tv?: unknown; sid?: unknown; iat?: unknown }>(
+      const payload = await this.jwt.verifyAsync<{
+        sub?: unknown; typ?: unknown; tv?: unknown; sid?: unknown; iat?: unknown; sat?: unknown; exp?: unknown;
+      }>(
         refreshToken,
         {
           secret: this.config.get<string>('JWT_REFRESH_SECRET'),
           // S-B4: solo se acepta HS256 al verificar (evita algorithm-confusion).
           algorithms: ['HS256'],
+          // v1.84 (LIVE-2): la caducidad se comprueba ABAJO, a mano y DESPUÉS del tope de sesión. Con
+          // `exp = min(now + TTL, sat + tope)` el refresh siempre caduca justo en el tope; si `jsonwebtoken`
+          // lo rechazara aquí, el `401` saldría sin `reason` y SES-1/SES-2 (día 31 / día 8 ⇒
+          // `session_max_age`) serían inalcanzables. ⛔ Un token caducado NUNCA emite par: solo cambia el
+          // `reason` del 401.
+          ignoreExpiration: true,
         },
       );
       // SEC-C7-RT (2026-09-29): la firma no basta. `env.validation` no impide que los dos secretos
@@ -582,12 +600,39 @@ export class AuthService {
       // el mismo token da el mismo cubo. Sunset de la rama legado: TECH_DEBT (30 d tras el despliegue).
       const sid = AuthService.sessionIdOf(payload);
       if (sid === null) throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
-      const tokens = await this.issueTokens(user, sid);
+      // v1.84 (LIVE-2, §14.2 pasos 2-3): tope ABSOLUTO desde el nacimiento de la sesión, con el rol
+      // ACTUAL (el de BD, no el del token: un cliente ascendido a staff cae al tope de staff — SES-5).
+      const sat = AuthService.sessionStartOf(payload);
+      if (sat === null) throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (nowSec - sat > sessionMaxAgeSeconds(user.role)) {
+        throw new BusinessException('UNAUTHENTICATED', 401, 'Session max age exceeded', {
+          reason: SESSION_MAX_AGE_REASON,
+        });
+      }
+      // Caducidad normal (la que `jsonwebtoken` hacía con `ignoreExpiration: false`: `now >= exp`).
+      if (typeof payload.exp !== 'number' || nowSec >= payload.exp) {
+        throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or expired refresh token');
+      }
+      // Paso 4: mismo `sid` y mismo `sat`; `issueTokens` acota el `exp` al tope.
+      const tokens = await this.issueTokens(user, sid, sat);
       return { ...tokens, deviceToken: await this.devices.issue(user.id, sid) };
     } catch (e) {
       if (e instanceof BusinessException) throw e;
       throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or expired refresh token');
     }
+  }
+
+  /**
+   * v1.84 (LIVE-2, §14.2 paso 2): el `sat` (nacimiento de la sesión, segundos epoch) de un refresh ya
+   * verificado. Claim numérico ⇒ ése; AUSENTE (token pre-v1.84) ⇒ `iat` del token presentado
+   * (determinista: el legado gana como mucho un tope completo desde su último refresco); presente pero no
+   * numérico, o sin `iat` ⇒ `null` (401).
+   */
+  static sessionStartOf(payload: { sat?: unknown; iat?: unknown }): number | null {
+    if (typeof payload.sat === 'number' && Number.isFinite(payload.sat)) return Math.floor(payload.sat);
+    if (payload.sat !== undefined) return null;
+    return typeof payload.iat === 'number' && Number.isFinite(payload.iat) ? Math.floor(payload.iat) : null;
   }
 
   /**
