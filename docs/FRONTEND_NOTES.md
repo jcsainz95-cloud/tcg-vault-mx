@@ -19603,4 +19603,4 @@ cada una — son deterministas: render sin carreras ni temporizadores; base de l
 | i18n | `cap.hint` vuelve a «Tú no tienes tope; … sin correo sí» | 1 roja (UX-GAS-13) |
 | Usuarios | `ownerAccountSelf` nunca | 1 roja |
 | Usuarios | sin `OwnerTag` en la lista | 1 roja |
-| canario (c) | quitar `\S*24\S*` (deja pasar «MX$24.00») | 1 roja (UX-SDX-28 (c)) |
+| canario (c) | cambiar la excepción anclada por `/\S*24\S*( (horas\|hours))?/g` (deja pasar «MX$24.00») | 1 roja (UX-SDX-28 (c)) |
