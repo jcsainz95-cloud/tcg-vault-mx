@@ -20382,3 +20382,17 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
   aviso», y 4 rojas en vitest (LEG-5 + 3 de `GuestCheckoutPrivacy`); sitio 7 sin `PrivacyNoticeLink` ⇒
   `check:legal:provisional` rc 1 nombrando «sitio 7 · pie del seguimiento del invitado», y 3 rojas en vitest (LEG-5 +
   2 de `pedido/layout.test`). Restaurado: rc 0.
+
+### 103.9 IMPORTANTE-1 de QA (gate de release sobre `c62621e6`): el mock de la cola manda `sealedProductId` en el sellado — medido 2026-10-05 sobre `2e41f36c` + este cambio
+- **Defecto (del mock, no de la conducta):** la fila sellada `inv-1009` de `mockPendingPublish` (`lib/mock/fixtures.ts`)
+  no traía la clave `sealedProductId`. `sealedPieceLinkOf` la leía `'unknown'` y `canEditSealedPiecePrice` cerraba el
+  lápiz, como manda §M11-SP.13.5.1 (falla cerrado). El back real sí la manda (`inventory.service.ts`, `sealedProductId:
+  item.sealedProductId`).
+- **Valor:** `sealedProductId: null`. §M11-SP.13.5: «`productType = 'sealed'` ⇒ la clave está siempre: `string` =
+  ligada, `null` = sin producto». inv-1009 es la ETB sv06 sin ligar (el mock `ppe-sealed-unmapped` ya la trae con `null`).
+  ⛔ `sealed-price-role.ts` sin tocar.
+- **Medido (copia del árbol entero, `git archive HEAD` + este cambio):** tsc 0; lint sin avisos; vitest 271 ficheros
+  (+1 saltado) / 3418 verdes, 10 saltadas. E2E de mocks (build de producción, `E2E_MOCKS=1`, 1 worker):
+  **antes** (HEAD sin el cambio, `-g "Listas para publicar" --repeat-each=10`) `:103` 0/10 y `:125` 0/10 (rojas en
+  `:121` y `:130`, el lápiz «Poner precio de INV-000109»); **después** (`precios-s5.spec.ts` entero, `--repeat-each=10`)
+  90/90 verdes, 10 saltadas (`:306`, `realOnly`); `:103` 10/10 y `:125` 10/10.
