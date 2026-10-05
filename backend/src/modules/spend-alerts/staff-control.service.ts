@@ -76,13 +76,9 @@ export class StaffControlAlertsService {
       const sortedKeys = keys ? [...keys].sort() : null;
       const what = target ? target.userId : (sortedKeys ?? []).join(',');
       const severity = staffControlSeverity(act, target);
-      // G2 (§19.33.7): `target` es el objeto persona de `SpendFactValue` (⛔ sin cast). §19.30.2 (3) le pone además `role`
-      // (`{userId, name, role}`), que el correo usa (`targetOf`, `spend-alert-text.ts`): va como SUBTIPO del objeto persona, sin
-      // cast — la discrepancia con «⛔ sin más formas» de G2 está preguntada al arquitecto (BACKEND_NOTES §66).
-      const person: { userId: string; name: string; role: StaffTarget['role'] } | null = target
-        ? { userId: target.userId, name: target.name, role: target.role }
-        : null;
-      const facts: SpendFacts = { act, target: person, keys: sortedKeys };
+      // G2 (§19.33.7) con §19.34.1: `target` es el objeto persona de `SpendFactValue`, `role` incluido (§19.30.2 (3); el correo
+      // lo usa, `targetOf` en `spend-alert-text.ts`). ⛔ Sin cast ni subtipo propio.
+      const facts: SpendFacts = { act, target: target ? { userId: target.userId, name: target.name, role: target.role } : null, keys: sortedKeys };
       const res = await this.alerts.raise(
         this.prisma,
         { kind: 'staff_control_by_non_owner', severity, dedupKey: `ag22:${actorUserId}:${act}:${what}:${dayMx(now)}`, subjectUserId: actorUserId, facts },

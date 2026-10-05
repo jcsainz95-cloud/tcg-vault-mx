@@ -227,7 +227,8 @@ export function shipmentGuideTemplate(
   // ⭐ D2e (§19.12, PS-88): la liga de rastreo SOLO si Skydropx la dio; letra chica (un solo CTA, §41.4).
   const track = trackLine(params, en);
   const url = shipmentUrl(params, l);
-  const ctaLabel = en ? 'SEE MY SHIPMENT' : 'VER MI ENVÍO';
+  // N-SDX-4 (DESIGN_SYSTEM §41.4 fila 17, §43.22.10): el rótulo nombra el DESTINO (pedido ⇒ «VER MI PEDIDO»; retiro ⇒ «VER MI ENVÍO»).
+  const ctaLabel = ctaLabelOf(params, en);
   const blocks = [
     eyebrowRow(eyebrow(params, en), folio(params)),
     headingRow(title, 22),
@@ -244,7 +245,8 @@ export function shipmentGuideTemplate(
     ...(url ? [ctaRows(url, ctaLabel, 'ink')] : []),
   ];
   return {
-    subject: en ? `${BRAND} — Your tracking number` : `${BRAND} — Tu guía de envío`,
+    // N-SDX-5 (§41.2 fila 17 ✏): sin prefijo de marca — el remitente ya la lleva.
+    subject: en ? 'Your tracking number' : 'Tu guía de envío',
     html: mailShell({ locale: l, title, preheader: `${title}. ${dato}`, blocks, footerWhy: shipmentFooterWhy(en) }),
     text: [`${title}`, '', intro, '', dato, '', nota, ...(track ? ['', track] : []), ...(url ? ['', url] : []), '', BRAND].join('\n'),
   };
@@ -267,17 +269,14 @@ export function shipmentShippedTemplate(
   const intro = en
     ? 'Your package left our hands and is now with the carrier.'
     : 'Tu paquete salió de nuestras manos y ya va con la paquetería.';
-  // ⛔ Si no hay número, NO se escribe una línea vacía ni un «—»: el dato no existe y no se finge.
-  const dato =
-    params.trackingNumber
-      ? en
-        ? `Carrier: ${params.carrier ?? ''} · Tracking: ${params.trackingNumber}`
-        : `Paquetería: ${params.carrier ?? ''} · Guía: ${params.trackingNumber}`
-      : '';
+  // ⛔ Si no hay número, NO se escribe una línea vacía ni un «—»: el dato no existe y no se finge. N-SDX-5 (§41.7 ✏ del 18):
+  // sin paquetería ⇒ solo `Guía: <n>` (⛔ «Paquetería:  · Guía: …» con el hueco) — la regla de `carrierDato`, un cuerpo.
+  const dato = carrierDato(params, en);
   // ⭐ D2e (§19.12, PS-88): ídem `AV-4`.
   const track = trackLine(params, en);
   const url = shipmentUrl(params, l);
-  const ctaLabel = en ? 'SEE MY SHIPMENT' : 'VER MI ENVÍO';
+  // N-SDX-4 (§41.4 fila 18): rótulo según destino.
+  const ctaLabel = ctaLabelOf(params, en);
   const blocks = [
     eyebrowRow(eyebrow(params, en), folio(params)),
     headingRow(title, 22),
@@ -289,7 +288,8 @@ export function shipmentShippedTemplate(
     ...(url ? [ctaRows(url, ctaLabel, 'ink')] : []),
   ];
   return {
-    subject: en ? `${BRAND} — Your package is on its way` : `${BRAND} — Tu paquete va en camino`,
+    // N-SDX-5 (§41.2 fila 18 ✏): sin prefijo de marca.
+    subject: en ? 'Your package is on its way' : 'Tu paquete va en camino',
     html: mailShell({ locale: l, title, preheader: `${title}. ${intro}`, blocks, footerWhy: shipmentFooterWhy(en) }),
     text: [title, '', intro, ...(dato ? ['', dato] : []), ...(track ? ['', track] : []), ...(url ? ['', url] : []), '', BRAND].join('\n'),
   };

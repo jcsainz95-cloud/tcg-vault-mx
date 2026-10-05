@@ -9,6 +9,10 @@
  *  - ⛔ Sin `detail`, sin códigos de Skydropx, sin `providerShipmentId`, sin actores: lista BLANCA de claves (`kind`, `at`, y
  *    `branchName` solo en `at_branch` y solo si vino).
  *  - Guía manual (o sin guía de Skydropx) ⇒ solo lo derivado de las fechas (`shipped`, `delivered`), como hoy.
+ *  - ⭐ v1.80.12.16 (§19.35.3 (2), B-2) — `delivered`, UN cuerpo para las dos guías: evento `delivered` de la guía vigente ⇒ su
+ *    `occurredAt` (la fecha del transportista); si no hay, y `deliveredAt ≠ null` ⇒ `deliveredAt` (la de la tienda: Skydropx
+ *    marcada `entregado` a mano, o guía manual). ⛔ Nunca dos `delivered` (ni evento + fecha, ni dos eventos: manda el primero).
+ *    El título ya dice «entregado» (`publicStatus`) y la línea no puede contradecirlo; el `AV-17` sigue mudo en ese caso (242).
  *  - Solo los eventos de la guía VIGENTE (`providerShipmentId` del envío): una guía re-emitida no hereda la historia de la
  *    cancelada (decisión de D2e, BACKEND_NOTES §67).
  */
@@ -72,17 +76,23 @@ export function toCustomerTimeline(events: readonly TimelineEventRow[], shipment
   const push = (e: CustomerTimelineEntry, t: number) => out.push({ e, t, i: out.length });
   if (shipment.shippedAt) push({ kind: 'shipped', at: shipment.shippedAt.toISOString() }, shipment.shippedAt.getTime());
   const fromProvider = shipment.labelSource === 'skydropx' && !!shipment.providerShipmentId;
+  let delivered = false;
   if (fromProvider) {
     for (const ev of events) {
       if (ev.providerShipmentId !== shipment.providerShipmentId) continue;
       const kind = KIND_OF[ev.status];
       if (!kind) continue;
+      if (kind === 'delivered') {
+        if (delivered) continue; // ⛔ nunca dos: manda el primero (orden `occurredAt, observedAt`)
+        delivered = true;
+      }
       const entry: CustomerTimelineEntry = { kind, at: ev.occurredAt.toISOString() };
       const branch = ev.branchName?.trim();
       if (kind === 'at_branch' && branch) entry.branchName = branch;
       push(entry, ev.occurredAt.getTime());
     }
-  } else if (shipment.deliveredAt) {
+  }
+  if (!delivered && shipment.deliveredAt) {
     push({ kind: 'delivered', at: shipment.deliveredAt.toISOString() }, shipment.deliveredAt.getTime());
   }
   out.sort((a, b) => a.t - b.t || a.i - b.i);

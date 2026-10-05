@@ -8,18 +8,29 @@
  *    estados ni de «envío vivo» (PS-171, censo). Con §19.33.2 el estado desconocido llega como `exception` y entra solo.
  *  - `labelProcessing` = envíos con la guía EN PROCESO: `labelProcessingSince ≠ null` (la misma condición que `labelPending`,
  *    `toLabelPendingDTO`: compra en vuelo o en proceso con id).
+ *  - ⭐ v1.80.12.16 (§19.35.5 fila 1, B-3) `withLabelAlert` = envíos con **`labelAlertOf(fila, now) ≠ null`** — el MISMO cuerpo
+ *    que llena `labelAlert` en `AdminShipmentDTO` (§19.20.2), con el MISMO reloj (`SHIPMENTS_LABEL_CLOCK`) y el MISMO
+ *    `tUnknownMs` (`LABEL_VERIFY_CONFIG`) que el DTO y `?alert=true`. La consulta SQL es solo un superconjunto ancho (los
+ *    predicados de las cinco alertas sin umbral de tiempo) y las huérfanas de 7 días de la bitácora, como el DTO; quién cuenta lo
+ *    decide la función. ⛔ Ningún umbral propio (PS-173). Un envío con las dos alertas cuenta en las dos cifras.
  *  - `lowBalance` = saldo < dial `skydropx_low_balance_cents`, con la lectura CACHEADA 5 min de `ProviderBalanceService` (una
  *    cifra, una fuente; esa lectura llama `observeBalance`, AG-7). `null` ⇔ proveedor `off` (⛔ ni una llamada) o sin respuesta.
  *    El operador recibe el booleano, ⛔ nunca la cifra (T.11): este objeto no la lleva para nadie.
  */
 import { Prisma } from '@prisma/client';
-import { CARRIER_ALERT_STATUSES, carrierAlertActive } from './label-view';
+import { CARRIER_ALERT_STATUSES, carrierAlertActive, labelAlertOf } from './label-view';
 
 type Db = Pick<Prisma.TransactionClient, 'shipmentRequest'>;
+type AlertDb = Pick<Prisma.TransactionClient, 'shipmentRequest' | 'auditLog'>;
+
+/** La ventana de `label_orphan` del DTO (`ShipmentsService.labelFieldsOf`, `alertShipmentIds`): 7 días. */
+const ORPHAN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ShippingWorkQueueDTO {
   lowBalance: boolean | null;
   withCarrierAlert: number;
+  /** ⭐ v1.80.12.16 (§19.35.5 fila 1): envíos con `labelAlert ≠ null`. */
+  withLabelAlert: number;
   labelProcessing: number;
 }
 
@@ -29,6 +40,10 @@ export interface ShippingWorkQueueDeps {
   thresholdCents: number;
   /** La lectura cacheada del saldo (`ProviderBalanceService.read`); `null` ⇔ sin respuesta. */
   readBalance: () => Promise<number | null>;
+  /** El reloj de la guía (`SHIPMENTS_LABEL_CLOCK`): el MISMO que pinta `labelAlert` en el DTO. */
+  now: Date;
+  /** `LABEL_VERIFY_CONFIG.tUnknownMs`: la MISMA constante inyectada que usa el DTO. */
+  tUnknownMs: number;
 }
 
 export async function countCarrierAlerts(db: Db): Promise<number> {
@@ -39,11 +54,43 @@ export async function countCarrierAlerts(db: Db): Promise<number> {
   return rows.filter((r) => carrierAlertActive(r)).length;
 }
 
-export async function shippingWorkQueueOf(db: Db, deps: ShippingWorkQueueDeps): Promise<ShippingWorkQueueDTO> {
-  const [withCarrierAlert, labelProcessing, balanceCents] = await Promise.all([
+/**
+ * Los envíos con `labelAlert ≠ null` (§19.20.2): superconjunto ancho en SQL y, fila a fila, `labelAlertOf` — el cuerpo del DTO.
+ * `actorRole` no cambia si hay alerta (solo `canRelease`), así que se pasa `null`.
+ */
+export async function labelAlertShipmentIds(db: AlertDb, now: Date, tUnknownMs: number): Promise<string[]> {
+  const orphans = await db.auditLog.findMany({
+    where: { action: 'shipment.label_orphan', entityType: 'ShipmentRequest', createdAt: { gt: new Date(now.getTime() - ORPHAN_WINDOW_MS) } },
+    orderBy: { createdAt: 'desc' },
+    select: { entityId: true, createdAt: true },
+  });
+  const orphanSince = new Map<string, Date>();
+  for (const o of orphans) if (o.entityId && !orphanSince.has(o.entityId)) orphanSince.set(o.entityId, o.createdAt);
+  const candidates = await db.shipmentRequest.findMany({
+    where: {
+      OR: [
+        { status: 'cancelado', labelSource: 'skydropx', providerCanceledAt: null },
+        { providerShipmentId: { not: null }, providerCanceledAt: { not: null }, providerCancelConfirmedAt: null },
+        { labelProcessingSince: { not: null } },
+        ...(orphanSince.size > 0 ? [{ id: { in: [...orphanSince.keys()] } }] : []),
+      ],
+    },
+  });
+  return candidates
+    .filter((row) => labelAlertOf(row, now, null, { tUnknownMs, orphanSince: orphanSince.get(row.id) ?? null }) !== null)
+    .map((row) => row.id);
+}
+
+export async function countLabelAlerts(db: AlertDb, now: Date, tUnknownMs: number): Promise<number> {
+  return (await labelAlertShipmentIds(db, now, tUnknownMs)).length;
+}
+
+export async function shippingWorkQueueOf(db: AlertDb, deps: ShippingWorkQueueDeps): Promise<ShippingWorkQueueDTO> {
+  const [withCarrierAlert, withLabelAlert, labelProcessing, balanceCents] = await Promise.all([
     countCarrierAlerts(db),
+    countLabelAlerts(db, deps.now, deps.tUnknownMs),
     db.shipmentRequest.count({ where: { labelProcessingSince: { not: null } } }),
     deps.provider === 'skydropx' ? deps.readBalance() : Promise.resolve(null),
   ]);
-  return { lowBalance: balanceCents === null ? null : balanceCents < deps.thresholdCents, withCarrierAlert, labelProcessing };
+  return { lowBalance: balanceCents === null ? null : balanceCents < deps.thresholdCents, withCarrierAlert, withLabelAlert, labelProcessing };
 }

@@ -1,6 +1,6 @@
 /**
  * sdx-c1.facts-type.spec.ts — 💰 C1 / G2 (API_CONTRACT §M4-SHIP.19.33.7): el tipo de `facts` se AMPLÍA (⛔ no se aplana) con el
- * objeto persona `{ userId: string; name: string | null }`, y es el MISMO en el servicio (`SpendFacts`) y en el DTO
+ * objeto persona `{ userId: string; name: string | null; role?: Role }` (`role?` desde §19.34.1, B-4: AG-22 `target`), y es el MISMO en el servicio (`SpendFacts`) y en el DTO
  * (`SpendAlertDTO.facts`). Lo construido ya escribía objetos (AG-21 `previousOwner`/`currentOwner`, AG-22 `target`) a través de
  * un `as unknown as SpendFacts`; G2 quita ese cast del llamador. Propiedad: backend.
  *
@@ -9,6 +9,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
+import { Role } from '@prisma/client';
 import { SpendFacts, SpendFactValue } from '../src/modules/spend-alerts/spend-alerts.service';
 import { SpendAlertDTO } from '../src/modules/spend-alerts/spend-alert.view';
 
@@ -30,11 +31,17 @@ describe('G2 — `SpendFactValue` admite el objeto persona y es el tipo de `fact
     expect(Object.keys(facts)).toHaveLength(7);
   });
 
+  it('compila (§19.34.1, B-4): AG-22 `target` con `role` es el objeto persona, sin subtipo ni cast; AG-21 sin `role`', () => {
+    const target: SpendFactValue = { userId: 'u-3', name: 'Ana', role: Role.vault_operator };
+    const facts: SpendFacts = { act: 'staff_created', target, keys: null };
+    expect(facts.target).toEqual({ userId: 'u-3', name: 'Ana', role: 'vault_operator' });
+  });
+
   it('`SpendFacts` ≡ `Record<string, SpendFactValue>` ≡ `SpendAlertDTO["facts"]` (un solo tipo, ⛔ dos que derivan)', () => {
     expect(assertType<Equal<SpendFacts, Record<string, SpendFactValue>>>()).toBe(true);
     expect(assertType<Equal<SpendAlertDTO['facts'], Record<string, SpendFactValue>>>()).toBe(true);
     expect(
-      assertType<Equal<SpendFactValue, string | number | boolean | string[] | null | { userId: string; name: string | null }>>(),
+      assertType<Equal<SpendFactValue, string | number | boolean | string[] | null | { userId: string; name: string | null; role?: Role }>>(),
     ).toBe(true);
   });
 

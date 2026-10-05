@@ -221,10 +221,9 @@ describe('AVG-1/2/3 — cada tipo tiene título y frase, en ES y EN; SDX-I-8', (
   }) as SpendAlertKind[];
 
   it.each(TRIGGERED)('%s: título y frase no vacíos en ES y EN, sin «undefined», `{ref}` sin «de el»', (kind) => {
-    // AG-22 `target` lleva `role` (§19.30.2 (3)) como subtipo del objeto persona de G2 (§19.33.7; ver BACKEND_NOTES §66).
-    const target = { userId: 'u', name: 'Ana', role: 'vault_operator' };
     for (const l of ['es', 'en'] as const) {
-      const v = view(kind, { cause: 'changed', act: 'staff_created', target, changedKeys: ['line1'] });
+      // AG-22 `target` lleva `role` (§19.30.2 (3)), parte del objeto persona de `SpendFactValue` (§19.34.1): el literal compila.
+      const v = view(kind, { cause: 'changed', act: 'staff_created', target: { userId: 'u', name: 'Ana', role: 'vault_operator' }, changedKeys: ['line1'] });
       expect(spendAlertTitle(v, l).length).toBeGreaterThan(3);
       const s = spendAlertSentence(v, l);
       expect(s.length).toBeGreaterThan(10);

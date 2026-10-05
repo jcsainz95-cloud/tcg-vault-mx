@@ -10,6 +10,10 @@
  *  - PS-90 (tablero/saldo): `workQueue.shipping.lowBalance` con saldo 40000 y umbral 50000, UNA llamada al doble por dos
  *    cargas (caché de 5 min); el operador recibe `lowBalance` sin `balanceCents`; `off` ⇒ `null` y cero llamadas;
  *    `GET /admin/shipping/balance` súper-admin, en vivo, `no-store`, `observeBalance` (AG-7); operador ⇒ 403.
+ *  - ⭐ v1.80.12.16 (§19.35.5 fila 3, B-5) PS-90 ampliada: con `shipping_provider = off`, catálogos, Carta Porte y saldo ⇒ `200`
+ *    (el doble SÍ se llama) y `quote` ⇒ `404 FEATURE_DISABLED`; sin credenciales (adaptador `noop`) ⇒ `409 {missing:['env']}`.
+ *  - ⭐ v1.80.12.16 (§19.35.5 fila 1, B-3) PS-173: `withLabelAlert` = filas de `GET /admin/shipments` con `labelAlert ≠ null`
+ *    (cada `LabelAlertKind`, uno justo por debajo de cada umbral, uno con las dos alertas; el MISMO reloj inyectado).
  *  - PS-171: `withCarrierAlert` = filas de `GET /admin/shipments` con `carrierAlert ≠ null` (cada `CarrierStatus`, entregado con
  *    exception, cancelado con delivery_attempt, `canceled` con `providerCanceledAt`, estado desconocido como exception).
  *  - `workQueue.spendControl` (súper-admin; `null` al operador) y S-GAS-3 con el MISMO número.
@@ -27,6 +31,11 @@ import { ProviderBalanceService } from '../../src/modules/spend-alerts/provider-
 import { isOwnerAccount, OWNER_SELECT } from '../../src/modules/spend-alerts/owner';
 import { labelSpend24h } from '../../src/modules/shipments/label-spend';
 import { CarrierStatus, ShippingPackage, SpendAlertKind, SpendAlertSeverity } from '@prisma/client';
+import { LabelVerifyConfig, T_CANCEL_MS, T_STUCK_MS } from '../../src/modules/shipments/label-verify.constants';
+import { E2E_USERS } from '../../prisma/e2e-fixtures';
+import { NoopShippingProviderAdapter } from '../../src/modules/shipping-provider/noop-shipping-provider.adapter';
+import { SHIPPING_PROVIDER_SELECTION } from '../../src/modules/shipping-provider/shipping-provider.module';
+import { ShippingProviderSelection } from '../../src/modules/shipping-provider/shipping-provider.factory';
 
 const RUN = `d2f${Date.now().toString(36)}`;
 const H = 3_600_000;
@@ -37,6 +46,7 @@ describe('💰 D2f — dinero y tablero (§19.11, §19.13, §19.29.9, §19.33.6)
   let fake: FakeShippingProvider;
   let clock: ManualLabelClock;
   let balance: ProviderBalanceService;
+  let cfg: LabelVerifyConfig;
   let savedPackages: ShippingPackage[] = [];
   const alertIds: string[] = [];
 
@@ -64,7 +74,7 @@ describe('💰 D2f — dinero y tablero (§19.11, §19.13, §19.29.9, §19.33.6)
   const balanceCalls = () => fake.calls.filter((c) => c.op === 'balance').length;
 
   beforeAll(async () => {
-    ({ h, db, fake, clock } = await createLabelWorld(RUN));
+    ({ h, db, fake, clock, cfg } = await createLabelWorld(RUN));
     await purchaseOn(h, 'operators');
     await dial(h, 'operator_label_cap_24h_cents', 1_000_000_000);
     balance = h.app.get(ProviderBalanceService);
@@ -177,7 +187,7 @@ describe('💰 D2f — dinero y tablero (§19.11, §19.13, §19.29.9, §19.33.6)
       const r = await dashboard(db.opToken);
       expect(errCode(r)).toBe('200');
       expect(r.body.workQueue.shipping.lowBalance).toBe(false);
-      expect(Object.keys(r.body.workQueue.shipping).sort()).toEqual(['labelProcessing', 'lowBalance', 'withCarrierAlert']);
+      expect(Object.keys(r.body.workQueue.shipping).sort()).toEqual(['labelProcessing', 'lowBalance', 'withCarrierAlert', 'withLabelAlert']);
       expect(JSON.stringify(r.body.workQueue)).not.toMatch(/balanceCents|60000|thresholdCents/);
     });
 
@@ -231,6 +241,108 @@ describe('💰 D2f — dinero y tablero (§19.11, §19.13, §19.29.9, §19.33.6)
       expect(after.wq).toBe(after.list);
       // 5 estados de la lista + `canceled` por la paquetería + el desconocido; ni entregado, ni cancelado, ni nuestro `canceled`.
       expect(after.wq - before.wq).toBe(7);
+    });
+  });
+
+  // ============================================================================ PS-173 (§19.35.5 fila 1, B-3)
+
+  describe('PS-173 (§19.35.5 fila 1) — `workQueue.shipping.withLabelAlert` = filas con `labelAlert ≠ null` (un cuerpo, `labelAlertOf`)', () => {
+    it('cada `LabelAlertKind`, uno justo por debajo de cada umbral y uno con las dos alertas; reloj inyectado 1 h por delante del sistema', async () => {
+      // El reloj de la guía va 1 h por DELANTE del sistema: si el tablero usara otro reloj, los «atascados» de abajo aún no lo
+      // estarían para él y las cifras no cuadrarían con la lista (que lee el reloj inyectado).
+      clock.set(new Date(Date.now() + H));
+      const countList = async () => {
+        let n = 0;
+        for (let page = 1; ; page += 1) {
+          const r = await api('GET', `/admin/shipments?alert=true&pageSize=100&page=${page}`, db.adminToken);
+          expect(errCode(r)).toBe('200');
+          n += r.body.data.filter((x: any) => x.labelAlert != null).length;
+          if (page * 100 >= r.body.total) return n;
+        }
+      };
+      const wq = async () => (await dashboard(db.opToken)).body.workQueue.shipping.withLabelAlert as number;
+      const before = { list: await countList(), wq: await wq() };
+      expect(before.wq).toBe(before.list);
+      const C = () => clock.now().getTime();
+      const upd = (id: string, data: Record<string, unknown>) => h.prisma.shipmentRequest.update({ where: { id }, data });
+      const S = 1000;
+      // label_live_on_cancelled
+      const live = await labeled();
+      await upd(live.id, { status: 'cancelado' });
+      // label_orphan (bitácora de los últimos 7 días)
+      const orphan = await db.mkDirect({ prices: [50000] });
+      await h.prisma.auditLog.create({ data: { action: 'shipment.label_orphan', entityType: 'ShipmentRequest', entityId: orphan.shipment.id, after: { cause: 'prueba' } } });
+      // label_cancel_failed y su «joven» (1 s por debajo de T_CANCEL)
+      const cf = await labeled();
+      await upd(cf.id, { providerCanceledAt: new Date(C() - T_CANCEL_MS), providerCancelReason: 'prueba' });
+      const cfYoung = await labeled();
+      await upd(cfYoung.id, { providerCanceledAt: new Date(C() - T_CANCEL_MS + 60 * S), providerCancelReason: 'prueba' });
+      // label_unknown (compra en vuelo sin id) y su «joven»
+      const unk = await db.mkDirect({ prices: [50000] });
+      await upd(unk.shipment.id, { labelProcessingSince: new Date(C() - cfg.tUnknownMs) });
+      const unkYoung = await db.mkDirect({ prices: [50000] });
+      await upd(unkYoung.shipment.id, { labelProcessingSince: new Date(C() - cfg.tUnknownMs + 60 * S) });
+      // label_processing_stuck y su «joven»
+      const stuck = await labeled();
+      await upd(stuck.id, { trackingNumber: null, labelProcessingSince: new Date(C() - T_STUCK_MS) });
+      const stuckYoung = await labeled();
+      await upd(stuckYoung.id, { trackingNumber: null, labelProcessingSince: new Date(C() - T_STUCK_MS + 60 * S) });
+      // las DOS alertas: atascada y con `exception` del transportista (cuenta en las dos cifras)
+      const both = await labeled();
+      await upd(both.id, { trackingNumber: null, labelProcessingSince: new Date(C() - T_STUCK_MS), carrierStatus: 'exception', carrierStatusAt: new Date(C() - H) });
+      const after = { list: await countList(), wq: await wq() };
+      expect(after.wq).toBe(after.list);
+      expect(after.wq - before.wq).toBe(6);
+      const adminWq = (await dashboard(db.adminToken)).body.workQueue.shipping;
+      expect(adminWq.withLabelAlert).toBe(after.wq);
+      // El de las dos alertas cuenta TAMBIÉN en `withCarrierAlert`, y en la lista `?alert=true` es una sola fila.
+      const one = await api('GET', `/admin/shipments?alert=true&pageSize=100&q=${both.id}`, db.adminToken);
+      expect(one.body.data.filter((x: any) => x.id === both.id).map((x: any) => [x.labelAlert?.kind, x.carrierAlert?.status])).toEqual([
+        ['label_processing_stuck', 'exception'],
+      ]);
+      // Un minuto después los tres «jóvenes» ya cruzaron su umbral: las dos cifras siguen cuadrando, +3.
+      clock.advance(61 * S);
+      const later = { list: await countList(), wq: await wq() };
+      expect(later.wq).toBe(later.list);
+      expect(later.wq - after.wq).toBe(3);
+      // Deja limpias las alertas para las pruebas de abajo.
+      await h.prisma.shipmentRequest.updateMany({
+        where: { id: { in: [unk.shipment.id, unkYoung.shipment.id, stuck.id, stuckYoung.id, both.id] } },
+        data: { labelProcessingSince: null },
+      });
+    });
+  });
+
+  // ============================================================================ PS-90 ampliada (§19.35.5 fila 3, B-5)
+
+  describe('PS-90 ampliada (§19.35.5 fila 3) — catálogos y saldo funcionan con `off`; `404` solo en los verbos que operan', () => {
+    it('`shipping_provider = off` ⇒ `catalogs`, `consignment-notes?description=cart` y `balance` ⇒ 200 (el doble SÍ se llama); `quote` ⇒ 404 FEATURE_DISABLED', async () => {
+      await dial(h, 'shipping_provider', 'off');
+      const packagings = jest.spyOn(fake, 'packagings');
+      const search = jest.spyOn(fake, 'searchConsignmentNotes');
+      try {
+        const cat = await api('GET', '/admin/shipping/catalogs', db.adminToken);
+        expect(errCode(cat)).toBe('200');
+        expect(cat.body.packagings.length).toBeGreaterThan(0);
+        expect(packagings).toHaveBeenCalledTimes(1);
+        const cn = await api('GET', '/admin/shipping/catalogs/consignment-notes?description=cart', db.adminToken);
+        expect(errCode(cn)).toBe('200');
+        expect(cn.body).toEqual({ consignmentNotes: expect.any(Array), hasMore: false });
+        expect(search).toHaveBeenCalledWith('cart');
+        fake.balanceCents = 70000;
+        const bal = await api('GET', '/admin/shipping/balance', db.adminToken);
+        expect(errCode(bal)).toBe('200');
+        expect(bal.body.balanceCents).toBe(70000);
+        expect(balanceCalls()).toBe(1);
+        // Los verbos que operan siguen apagados con `off` (§19.13).
+        const d = await db.mkDirect({ prices: [50000] });
+        await ready(db, d.shipment.id);
+        expect(errCode(await quote(d.shipment.id))).toBe('404:FEATURE_DISABLED');
+        expect(fake.callsOf('quote')).toHaveLength(0);
+      } finally {
+        packagings.mockRestore();
+        search.mockRestore();
+      }
     });
   });
 
@@ -413,5 +525,34 @@ describe('💰 D2f — dinero y tablero (§19.11, §19.13, §19.29.9, §19.33.6)
       fake.balanceSequence.push(ShippingProviderError.error('balance', 500));
       expect(errCode(await api('GET', '/admin/shipping/balance', db.adminToken))).toBe('502:SHIPPING_PROVIDER_ERROR');
     });
+  });
+});
+
+// ============================================================================ PS-90 ampliada: sin credenciales
+
+describe('PS-90 ampliada (§19.35.5 fila 3) — sin credenciales (adaptador `noop`) ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:[\'env\']}`', () => {
+  let h2: E2EHarness;
+  let adminToken: string;
+
+  beforeAll(async () => {
+    // La selección que `selectShippingProvider` da SIN credenciales (`noop`, §19.19.7), fijada aquí: el entorno de la pila puede
+    // traer `SHIPPING_PROVIDER_ADAPTER=fake`, y con él estas rutas responden con el doble. Cero red (PS-99).
+    const noop: ShippingProviderSelection = { port: new NoopShippingProviderAdapter(), kind: 'noop', urlHosts: [], client: null };
+    h2 = await E2EHarness.create((b) => b.overrideProvider(SHIPPING_PROVIDER_SELECTION).useValue(noop));
+    adminToken = await h2.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
+  });
+
+  afterAll(async () => {
+    await restoreDials(h2);
+    await h2?.close();
+  });
+
+  it.each(['off', 'skydropx'])('dial `%s`: catálogos, Carta Porte y saldo ⇒ 409 {missing:[env]}', async (provider) => {
+    await dial(h2, 'shipping_provider', provider);
+    for (const path of ['/admin/shipping/catalogs', '/admin/shipping/catalogs/consignment-notes?description=cart', '/admin/shipping/balance']) {
+      const r = await h2.api('GET', path, { token: adminToken });
+      expect({ path, code: errCode(r) }).toEqual({ path, code: '409:SHIPPING_PROVIDER_NOT_CONFIGURED' });
+      expect({ path, details: r.body.error.details }).toEqual({ path, details: expect.objectContaining({ missing: ['env'] }) });
+    }
   });
 });

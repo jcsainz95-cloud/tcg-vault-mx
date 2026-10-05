@@ -18,7 +18,7 @@
  * Dentro de la tx del hecho cuando la hay (outbox); después del rollback en las negativas (como la bitácora).
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, SpendAlertKind, SpendAlertMailStatus, SpendAlertSeverity } from '@prisma/client';
+import { Prisma, Role, SpendAlertKind, SpendAlertMailStatus, SpendAlertSeverity } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -69,9 +69,11 @@ const REWRITTEN_FACTS = ['cancelledCount', 'unrecoveredCents', 'unknownRefunds']
 /**
  * G2 (API_CONTRACT §M4-SHIP.19.33.7): el valor de un hecho. AMPLIADO (aditivo, ⛔ no se aplana) con el objeto persona — AG-21
  * `previousOwner`/`currentOwner` y AG-22 `target`. ⛔ Sin más formas: un objeto nuevo en `facts` es errata del contrato.
+ * ⭐ v1.80.12.15 (§19.34.1, B-4): el objeto persona gana `role?: Role` — opcional: AG-21 no lo lleva; AG-22 `target` siempre, y
+ * solo con rol de personal (§19.30.2 (3)).
  * Es el mismo tipo en el DTO (`SpendAlertDTO.facts`, §19.29.9).
  */
-export type SpendFactValue = string | number | boolean | string[] | null | { userId: string; name: string | null };
+export type SpendFactValue = string | number | boolean | string[] | null | { userId: string; name: string | null; role?: Role };
 
 export type SpendFacts = Record<string, SpendFactValue>;
 
