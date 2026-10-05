@@ -492,11 +492,19 @@ describe('💰 §M4-SHIP.18.12 — reembolso TOTAL «depende de si ya salió» (
       expect(av3()).toHaveLength(1);
     });
 
-    it('nota del motivo = `reason` recortado a 500', async () => {
+    // v1.82 · PNL-6 (`R69-1`, `API_CONTRACT §PNL.6`): `reason` > 500 ya NO se recorta en silencio — es
+    // `400 VALIDATION_ERROR {field:'reason'}` antes de tocar nada (el caso de 604 caracteres que esta prueba
+    // mandaba pasó de `201` a `400`, que es exactamente el cambio que el contrato declara). La nota sigue
+    // siendo el `reason` recortado de espacios.
+    it('nota del motivo = `reason` sin espacios de orilla; > 500 ⇒ 400 {field:reason} sin escribir (v1.82 PNL-6)', async () => {
       const d = await mkShipped('entregado');
-      const r = await db.m3Refund(d.order.id, { reason: `  ${'n'.repeat(600)}  `, shippedReason: 'not_arrived' });
+      const largo = await db.m3Refund(d.order.id, { reason: `  ${'n'.repeat(600)}  `, shippedReason: 'not_arrived' });
+      expect(largo.status).toBe(400);
+      expect(largo.body.error.details).toMatchObject({ field: 'reason' });
+      expect((await db.order(d.order.id)).shippedRefundNote).toBeNull();
+      const r = await db.m3Refund(d.order.id, { reason: `  ${'n'.repeat(496)}  `, shippedReason: 'not_arrived' });
       expect(r.status).toBe(201);
-      expect((await db.order(d.order.id)).shippedRefundNote).toBe('n'.repeat(500));
+      expect((await db.order(d.order.id)).shippedRefundNote).toBe('n'.repeat(496));
     });
   });
 
