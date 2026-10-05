@@ -5304,6 +5304,20 @@ export interface SettingsDTO {
   buylistCapPerMonthCents: number;
   ineThresholdCents: number;
   repoCapPerCardCents: number;
+  /*
+   * v1.51 (M-46) · §E2E-ADM.3 (F-9): los DIEZ diales del ciclo de adquisición del buylist (§M10, tabla «DIEZ diales»).
+   * Opcionales por tolerancia a un backend anterior; la pantalla (M10 «Ciclo de venta») los pinta si vienen.
+   */
+  buylistOfferIssueDeadlineBusinessDays?: number;
+  buylistOfferAcceptDeadlineBusinessDays?: number;
+  buylistShipDeadlineBusinessDays?: number;
+  buylistMinimumRequestCents?: number;
+  buylistShippingFeeCents?: number;
+  buylistMinimumOfferNetCents?: number;
+  buylistOperatorOfferCapCents?: number;
+  buylistShipmentConfirmAlertBusinessDays?: number;
+  buylistOfferReissueAlertCount?: number;
+  buylistVariantPositionCap?: number;
   fxBufferPct: number;
   fxManualOverrideRate?: number;
   pricingProviderRaw: string;

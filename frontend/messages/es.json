@@ -3933,7 +3933,7 @@
         "saved": "Configuración guardada.",
         "sealedMovedToM11": "Los diales de precio del sellado (proveedor, fuente de mercado, tendencia, alertas y spreads) se editan ahora en «Sellado».",
         "labels": {
-          "shippingFeeCents": "Tarifa de envío",
+          "shippingFeeCents": "Envío de un retiro (cobro al cliente)",
           "aportacionPct": "% aportación en especie",
           "ivaPct": "IVA",
           "buylistCapPerRequestCents": "Tope buylist por solicitud",
@@ -4099,6 +4099,55 @@
           "all": "publicar todas al piso",
           "none": "retener todas"
         }
+      },
+      "buylistCycle": {
+        "title": "Ciclo de venta (solicitudes de venta)",
+        "subtitle": "Aplican a solicitudes nuevas: las que están en curso conservan los plazos y la guía con que se ofertaron.",
+        "groups": {
+          "deadlines": "Plazos (días hábiles)",
+          "amounts": "Montos (MX$)",
+          "alerts": "Alertas y sugerencias"
+        },
+        "labels": {
+          "buylistOfferIssueDeadlineBusinessDays": "Plazo para mandar la oferta",
+          "buylistOfferAcceptDeadlineBusinessDays": "Plazo del vendedor para responder",
+          "buylistShipDeadlineBusinessDays": "Plazo del vendedor para enviar",
+          "buylistMinimumRequestCents": "Mínimo para cotizar",
+          "buylistShippingFeeCents": "Guía que se descuenta al vendedor",
+          "buylistMinimumOfferNetCents": "Mínimo que recibe el vendedor",
+          "buylistOperatorOfferCapCents": "Oferta máxima sin autorización",
+          "buylistShipmentConfirmAlertBusinessDays": "Alerta de envío sin confirmar",
+          "buylistOfferReissueAlertCount": "Alerta por ofertas canceladas",
+          "buylistVariantPositionCap": "Tope de copias por variante (sugerencia)"
+        },
+        "help": {
+          "buylistOfferIssueDeadlineBusinessDays": "Días hábiles que tenemos para ofertar. Si se vencen, la solicitud se cierra y el vendedor recibe el correo de «no procederemos».",
+          "buylistOfferAcceptDeadlineBusinessDays": "Si no responde la oferta en estos días hábiles, se da por rechazada.",
+          "buylistShipDeadlineBusinessDays": "Días hábiles desde que le mandamos la guía. Si no envía, la solicitud vence.",
+          "buylistMinimumRequestCents": "Total cotizado mínimo para crear una solicitud. El monto exacto sí entra.",
+          "buylistShippingFeeCents": "Lo que se le resta del pago por la guía. No es el envío de los retiros.",
+          "buylistMinimumOfferNetCents": "Neto mínimo, ya descontada la guía, para poder mandar una oferta. El monto exacto sí sale.",
+          "buylistOperatorOfferCapCents": "Arriba de este bruto, la oferta la autoriza el súper-admin antes de salir. El monto exacto sale sin autorización.",
+          "buylistShipmentConfirmAlertBusinessDays": "Días hábiles tras «ya lo mandé» para marcar la solicitud en alerta. No vence nada.",
+          "buylistOfferReissueAlertCount": "A partir de cuántas cancelaciones de una oferta ya enviada se marca la solicitud en alerta. No bloquea ni sale en correos.",
+          "buylistVariantPositionCap": "Con esta cantidad, la mesa sugiere «no comprar» en cartas sin bounty. Nunca bloquea."
+        },
+        "rule": {
+          "buylistOfferIssueDeadlineBusinessDays": "Número entero, 1 o más.",
+          "buylistOfferAcceptDeadlineBusinessDays": "Número entero, 1 o más.",
+          "buylistShipDeadlineBusinessDays": "Número entero, 1 o más.",
+          "buylistMinimumRequestCents": "En pesos, 0 o más.",
+          "buylistShippingFeeCents": "En pesos, 0 o más.",
+          "buylistMinimumOfferNetCents": "En pesos, mayor que 0.",
+          "buylistOperatorOfferCapCents": "En pesos, 0 o más.",
+          "buylistShipmentConfirmAlertBusinessDays": "Número entero, 1 o más.",
+          "buylistOfferReissueAlertCount": "Número entero, 1 o más.",
+          "buylistVariantPositionCap": "Número entero, 1 o más."
+        },
+        "checkFields": "Revisa los campos marcados. No se guardó nada.",
+        "cross": "La guía que se descuenta ({fee}) más el mínimo que recibe el vendedor ({net}) no puede pasar del mínimo para cotizar ({min}). No se guardó nada.",
+        "save": "Guardar {count, plural, =0 {cambios} one {# cambio} other {# cambios}}",
+        "saved": "Ciclo de venta guardado."
       }
     },
     "m7": {

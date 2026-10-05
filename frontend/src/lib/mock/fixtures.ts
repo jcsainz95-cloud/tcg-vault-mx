@@ -477,6 +477,17 @@ export let mockSettings: SettingsDTO = {
   buylistCapPerMonthCents: 1000000,
   ineThresholdCents: 300000,
   repoCapPerCardCents: 5000000,
+  // §M10 «DIEZ diales» del ciclo de buylist (defaults del contrato).
+  buylistOfferIssueDeadlineBusinessDays: 7,
+  buylistOfferAcceptDeadlineBusinessDays: 2,
+  buylistShipDeadlineBusinessDays: 3,
+  buylistMinimumRequestCents: 50000,
+  buylistShippingFeeCents: 18000,
+  buylistMinimumOfferNetCents: 20000,
+  buylistOperatorOfferCapCents: 150000,
+  buylistShipmentConfirmAlertBusinessDays: 5,
+  buylistOfferReissueAlertCount: 2,
+  buylistVariantPositionCap: 10,
   fxBufferPct: 3,
   // Coherente con `mockFxWorld` a propósito: es **el mismo ajuste** (`fx_manual_override_rate`)
   // visto por la otra puerta (§M2-F.5). Dos superficies del simulador que discrepan sobre el mismo

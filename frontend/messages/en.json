@@ -3933,7 +3933,7 @@
         "saved": "Settings saved.",
         "sealedMovedToM11": "Sealed pricing dials (provider, market source, trend, alerts and spreads) are now edited in “Sealed”.",
         "labels": {
-          "shippingFeeCents": "Shipping fee",
+          "shippingFeeCents": "Withdrawal shipping (charged to the customer)",
           "aportacionPct": "In-kind contribution %",
           "ivaPct": "VAT",
           "buylistCapPerRequestCents": "Buylist cap per request",
@@ -4099,6 +4099,55 @@
           "all": "publish all at the floor",
           "none": "hold all"
         }
+      },
+      "buylistCycle": {
+        "title": "Sell cycle (sell requests)",
+        "subtitle": "They apply to new requests: the ones in progress keep the deadlines and label fee they were offered with.",
+        "groups": {
+          "deadlines": "Deadlines (business days)",
+          "amounts": "Amounts (MX$)",
+          "alerts": "Alerts and suggestions"
+        },
+        "labels": {
+          "buylistOfferIssueDeadlineBusinessDays": "Deadline to send the offer",
+          "buylistOfferAcceptDeadlineBusinessDays": "Seller's deadline to respond",
+          "buylistShipDeadlineBusinessDays": "Seller's deadline to ship",
+          "buylistMinimumRequestCents": "Minimum to quote",
+          "buylistShippingFeeCents": "Label fee deducted from the seller",
+          "buylistMinimumOfferNetCents": "Minimum the seller receives",
+          "buylistOperatorOfferCapCents": "Maximum offer without approval",
+          "buylistShipmentConfirmAlertBusinessDays": "Unconfirmed shipment alert",
+          "buylistOfferReissueAlertCount": "Cancelled offers alert",
+          "buylistVariantPositionCap": "Copies per variant cap (suggestion)"
+        },
+        "help": {
+          "buylistOfferIssueDeadlineBusinessDays": "Business days we have to make the offer. If they run out, the request closes and the seller gets the “we won't proceed” email.",
+          "buylistOfferAcceptDeadlineBusinessDays": "If they don't respond to the offer within these business days, it counts as rejected.",
+          "buylistShipDeadlineBusinessDays": "Business days from when we send the label. If they don't ship, the request expires.",
+          "buylistMinimumRequestCents": "Minimum quoted total to create a request. The exact amount does qualify.",
+          "buylistShippingFeeCents": "What's deducted from their payment for the label. It isn't withdrawal shipping.",
+          "buylistMinimumOfferNetCents": "Minimum net, after the label, to be able to send an offer. The exact amount does go out.",
+          "buylistOperatorOfferCapCents": "Above this gross, the super-admin approves the offer before it goes out. The exact amount goes out without approval.",
+          "buylistShipmentConfirmAlertBusinessDays": "Business days after “I sent it” to flag the request. Nothing expires.",
+          "buylistOfferReissueAlertCount": "From how many cancellations of an already-sent offer the request is flagged. It doesn't block or show in emails.",
+          "buylistVariantPositionCap": "At this quantity, the desk suggests “don't buy” for cards without a bounty. It never blocks."
+        },
+        "rule": {
+          "buylistOfferIssueDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistOfferAcceptDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistShipDeadlineBusinessDays": "Whole number, 1 or more.",
+          "buylistMinimumRequestCents": "In pesos, 0 or more.",
+          "buylistShippingFeeCents": "In pesos, 0 or more.",
+          "buylistMinimumOfferNetCents": "In pesos, greater than 0.",
+          "buylistOperatorOfferCapCents": "In pesos, 0 or more.",
+          "buylistShipmentConfirmAlertBusinessDays": "Whole number, 1 or more.",
+          "buylistOfferReissueAlertCount": "Whole number, 1 or more.",
+          "buylistVariantPositionCap": "Whole number, 1 or more."
+        },
+        "checkFields": "Check the marked fields. Nothing was saved.",
+        "cross": "The label fee deducted ({fee}) plus the minimum the seller receives ({net}) can't exceed the minimum to quote ({min}). Nothing was saved.",
+        "save": "Save {count, plural, =0 {changes} one {# change} other {# changes}}",
+        "saved": "Sell cycle saved."
       }
     },
     "m7": {
