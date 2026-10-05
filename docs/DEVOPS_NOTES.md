@@ -14407,3 +14407,53 @@ Revertir los commits. Solo tocan config de CI, scripts y esta nota: no afectan a
 revierte 87.1, `P-GL-2` vuelve a estar abierta y bloquea `sk_live_` (CL-2). Si se revierte 87.3, el candado de
 imágenes deja de mirar los `npm -g` y `deploy.yml` vuelve a `@latest`.
 
+
+## §88 · `format-mix` (BL-27): falso rojo en `backend/src/main.ts` de la PR #76 (2026-10-05, rama `claude/listo-real`)
+
+**Causa (medida con prettier 3.9.6 sobre `fe2b58d3`..`3e3f341d`):** en la base, `main.ts` tenía **una** sola zona
+que no estaba formateada con prettier: el `app.use('/api/v1/webhooks/stripe', json({ verify… }))` de las líneas
+50-54. El cambio **borra** esa zona y pone `applyBodyParsers(app)`. Con eso HEAD queda prettier-limpio sin que se
+reformatee nada. El comparador razonaba así: «HEAD está limpio y la base no; entonces el cambio reformateó; y como
+`prettier(base) ≠ HEAD`, hay mezcla». Ese «entonces» es falso: hay dos maneras de que un archivo quede limpio, y
+borrar la zona sin formato es la segunda.
+
+Las dos listas, medidas: R son las líneas que prettier escribe sobre la base, es decir, las 9 líneas del
+`app.use(` reformateado. A son las líneas que añade el cambio: el import, 2 comentarios y `applyBodyParsers(app);`.
+**A ∩ R = ∅**, así que en el diff no hay ninguna línea reformateada.
+
+**Arreglo, que no relaja la norma:** se añade una rama (3c) en `scripts/check-format-mix.sh`, que solo actúa
+cuando antes se daba rojo (3b). Si ninguna línea añadida (`>` de `diff base head`) coincide exactamente con una
+línea que escribe prettier (`>` de `diff base prettier(base)`), el diff no tiene líneas reformateadas donde
+esconder lógica, y el resultado es OK. Para saber qué archivos han entrado por esta rama, se listan aparte. El
+cotejo es por línea exacta, así que una línea genérica que coincida (`);`, `},`, una línea en blanco) cuenta como
+reformateo y da rojo.
+
+**Límite conocido:** si **todas** las líneas reformateadas de un archivo llevan también un cambio de lógica, ninguna
+coincide con R y el resultado es verde. En ese caso cada línea tocada es un cambio real que se ve en el diff, así que
+no hay nada escondido entre reformateo puro, que es lo que vigila BL-27.
+
+Nuevo modo `FORMAT_MIX_VERBOSE=1`: imprime en stderr una línea por archivo con la rama de decisión. No cambia el
+veredicto.
+
+**Canario** (`check-format-mix-canary.sh`), que pasa de 4 a 6 casos:
+- Caso 5: la base tiene una sola zona sin formato y HEAD la sustituye. Es esta PR y debe dar VERDE.
+- Caso 6: misma base, pero HEAD reformatea esa zona y además cambia `1.16` por `1.17`. Debe dar ROJO, y es el
+  contrapeso del caso 5.
+
+Resultados:
+
+| Canario | Comparador | Resultado |
+|---|---|---|
+| nuevo | nuevo | **6/6** |
+| nuevo | viejo | **1/6 fallan**: falla solo el caso 5 (rc=1); el caso 6 sigue en ROJO |
+| viejo (4 casos) | nuevo | **4/4** |
+
+**Diff real** (`fe2b58d3`..`3e3f341d`, 54 archivos evaluados), verbose del comparador viejo frente al nuevo:
+
+- **53/54** archivos tienen la misma rama de decisión: 47 caen en (1) «HEAD sin formato» y 6 en (2) «base ya
+  formateada».
+- Solo cambia `backend/src/main.ts`, que pasa de 3b-MEZCLA a 3c.
+- El comparador nuevo da rc=0; el viejo original da rc=1, con el mismo «15 líneas» que el check-run 112019293240.
+
+**Rollback:** revertir el commit. Así vuelve el falso rojo en cualquier diff que borre la última zona sin formato
+de un archivo.

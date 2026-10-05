@@ -15,9 +15,16 @@
 #   2. base sin formatear -> HEAD reformateado + lógica nueva  -> ROJO  (rc=1)
 #   3. base sin formatear -> HEAD solo lógica (sin reformatear)-> VERDE (rc=0)
 #   4. BASE_REF inexistente                                    -> rc=2 (nunca 0)
+#   5. base con UNA zona sin formatear -> HEAD la BORRA y la sustituye por
+#      otra línea, y queda prettier-limpio sin reformatear nada  -> VERDE
+#      (falso positivo de la PR #76, backend/src/main.ts; §88. Con el
+#      comparador anterior a §88 este caso salía ROJO)
+#   6. la misma base -> HEAD REFORMATEA esa zona y además cambia la lógica
+#                                                             -> ROJO
+#      (el contrapeso del 5: la regla nueva no deja pasar una mezcla real)
 #
 # Uso:  ./scripts/check-format-mix-canary.sh
-# Sale 0 si los 4 casos salen como deben; 1 si alguno no; 2 si NO PUDO MEDIR
+# Sale 0 si los 6 casos salen como deben; 1 si alguno no; 2 si NO PUDO MEDIR
 # (sin prettier 3.9.6 local ni por red). Sin red si hay prettier local.
 #
 # rc=2 y no 1 (techlead F1-3, 2026-09-11): antes «no hay prettier» salía con
@@ -108,6 +115,34 @@ caso VERDE "Solo lógica, árbol sin formatear (como este repo)" "$D" base
 # 4. base inexistente
 D="$BASE/c4"; repo "$D"
 caso RC2 "BASE_REF inexistente: no concluye, nunca verde" "$D" no-existe
+
+# 5 y 6. Base prettier-limpia salvo UNA zona (como main.ts antes de la PR #76).
+ZONA_SIN_FORMATO='export function iva(x: number){ return x*1.16 }
+'
+BASE56="${CON_FORMATO}
+${ZONA_SIN_FORMATO}"
+repo56() { # como repo(), pero con BASE56 como base
+  local d="$1"; mkdir -p "$d/src"
+  git -C "$d" init -q -b main; git -C "$d" config user.email c@x; git -C "$d" config user.name canario
+  printf '%s' "$BASE56" > "$d/src/a.ts"; git -C "$d" add -A; git -C "$d" commit -qm base; git -C "$d" tag base
+}
+limpio() { cmp -s "$1" <(fmt < "$1"); }
+
+# 5. borra la zona sin formato y la sustituye por una línea ya formateada
+D="$BASE/c5"; repo56 "$D"
+limpio "$D/src/a.ts" && bad "caso 5: la base ya es prettier-limpia; no reproduce el falso positivo"
+printf '%s\n%s\n' "$CON_FORMATO" 'export const IVA = 1.16;' > "$D/src/a.ts"
+limpio "$D/src/a.ts" || bad "caso 5: HEAD no es prettier-limpio; el comparador lo saltaría sin evaluar"
+git -C "$D" commit -qam "refactor: sustituye la zona sin formato"
+caso VERDE "Borra/sustituye la única zona sin formato, sin reformatear nada (PR #76)" "$D" base
+
+# 6. reformatea esa zona Y cambia la lógica dentro de ella
+D="$BASE/c6"; repo56 "$D"
+printf '%s' "$BASE56" | fmt | sed 's/1\.16/1.17/' > "$D/src/a.ts"
+grep -q '1.17' "$D/src/a.ts" || bad "caso 6: la mutación no se aplicó"
+limpio "$D/src/a.ts" || bad "caso 6: HEAD no es prettier-limpio; el comparador lo saltaría sin evaluar"
+git -C "$D" commit -qam "feat: iva 1.17 + reformateo"
+caso ROJO "Reformatea la zona sin formato Y cambia la lógica (no lo abre la regla del caso 5)" "$D" base
 
 echo
 if [ "$FALLOS" -ne 0 ]; then
