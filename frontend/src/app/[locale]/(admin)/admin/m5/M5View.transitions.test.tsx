@@ -155,7 +155,8 @@ describe('M5View · §M5-S: 409 INVALID_TRANSITION dice DESDE QUÉ ESTADO se per
     const msg = await screen.findByText(/solo aplica cuando está en/);
     expect(msg.textContent).toContain('En verificación');
     expect(msg.textContent).toContain('En tránsito');
-    expect(msg.textContent).toContain('«Marcar recibida»');
+    // F-34 (§60.15): el verbo nombra el botón por su nombre de hoy.
+    expect(msg.textContent).toContain('«Recibida: empezar revisión»');
     // Ni el enum crudo ni el inglés del servidor.
     expect(msg.textContent).not.toMatch(/verificacion|en_transito|not allowed/);
     expect(screen.queryByText('Hubo un conflicto con el estado actual.')).toBeNull();

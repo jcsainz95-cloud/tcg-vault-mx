@@ -5076,7 +5076,7 @@
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "Esta oferta dejaría al vendedor por encima del máximo que le podemos comprar este mes, así que no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope.",
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS": "Esta oferta dejaría al vendedor en {wouldBeAmount} este mes, y el máximo que le podemos comprar es {capAmount}: no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope.",
     "APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE": "El precio de esta carta se congeló al emitir la oferta y ya es vinculante: no se puede cambiar. Lo que choca es el máximo que le podemos comprar al vendedor en el mes, así que esta carta no se puede aprobar ni pagar. No intentes repreciarla: escala la solicitud a un súper-admin. No se guardó nada.",
-    "REQUEST_NOT_RECEIVED": "Esta solicitud no tiene registrada la llegada del paquete, así que ninguna de sus cartas se puede aprobar. Cuando el paquete esté en tus manos, usa «Marcar recibida» en la solicitud y vuelve a aprobar. No se guardó nada.",
+    "REQUEST_NOT_RECEIVED": "Esta solicitud no tiene registrada la llegada del paquete, así que ninguna de sus cartas se puede aprobar. Cuando el paquete esté en tus manos, pulsa «Recibida: empezar revisión» en la solicitud y vuelve a aprobar. No se guardó nada.",
     "PICKUP_ADDRESS_MISSING": "Esta solicitud no trae la dirección de recolección (es una solicitud vieja), así que no se puede ofertar. Llama al vendedor para que la capture desde su perfil y vuelve a emitir, o declina la solicitud. No la captures tú por él.",
     "PICKUP_ADDRESS_LOCKED": "Esta dirección ya no se puede cambiar: tu guía de envío ya está impresa con ella, o la solicitud ya cerró. Si algo está mal, contáctanos antes de mandar el paquete.",
     "PICKUP_ADDRESS_LOCKED_OPERATOR": "Esta dirección ya no se edita: la guía salió impresa con ella, o la solicitud ya cerró. Si la dirección está mal, hay que cancelar esa guía y emitir una nueva; desde aquí no se puede. No se guardó nada.",
@@ -5124,7 +5124,7 @@
     "INVALID_TRANSITION": "Esta acción no aplica al paso actual de la solicitud. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
     "INVALID_TRANSITION_WITH_DETAILS": "Esta solicitud está en «{from}»: {verb} solo aplica cuando está en {allowedFrom}. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
     "INVALID_TRANSITION_VERB": {
-      "receive": "«Marcar recibida»",
+      "receive": "«Recibida: empezar revisión»",
       "verify": "«Iniciar verificación»",
       "rejectItems": "Rechazar cartas"
     },

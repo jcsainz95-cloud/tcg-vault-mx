@@ -5076,7 +5076,7 @@
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "This offer would put the seller over the most we can buy from them this month, so it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",
     "BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS": "This offer would put the seller at {wouldBeAmount} this month, and the most we can buy from them is {capAmount}: it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",
     "APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE": "This card's price was frozen when the offer went out and is now binding: it cannot be changed. What it hits is the most we can buy from this seller in a month, so this card cannot be approved or paid. Do not try to re-price it: escalate the request to a super-admin. Nothing was saved.",
-    "REQUEST_NOT_RECEIVED": "This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, use “Mark received” on the request and approve again. Nothing was saved.",
+    "REQUEST_NOT_RECEIVED": "This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, press “Received: start review” on the request and approve again. Nothing was saved.",
     "PICKUP_ADDRESS_MISSING": "This request has no pickup address (it is an old request), so no offer can be issued. Call the seller so they add it from their profile and issue the offer again, or decline the request. Do not fill it in for them.",
     "PICKUP_ADDRESS_LOCKED": "This address can no longer be changed: your shipping label is already printed with it, or the request is closed. If something is wrong, contact us before you send the parcel.",
     "PICKUP_ADDRESS_LOCKED_OPERATOR": "This address can no longer be edited: the label went out printed with it, or the request is closed. If the address is wrong, that label has to be cancelled and a new one issued; it cannot be done from here. Nothing was saved.",
@@ -5124,7 +5124,7 @@
     "INVALID_TRANSITION": "This action does not apply to the current step of the request. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
     "INVALID_TRANSITION_WITH_DETAILS": "This request is in “{from}”: {verb} only applies when it is in {allowedFrom}. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
     "INVALID_TRANSITION_VERB": {
-      "receive": "“Mark received”",
+      "receive": "“Received: start review”",
       "verify": "“Start verification”",
       "rejectItems": "Reject cards"
     },
