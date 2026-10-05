@@ -1,0 +1,167 @@
+# =============================================================================
+# uptime-watch.yml — vigía de disponibilidad de la tienda publicada (LIVE-9)
+# Marketplace TCG con Bóveda (Pokémon, México)  ·  Propiedad: devops
+# =============================================================================
+# API_CONTRACT §14 LIVE-9 · ARCHITECTURE §4.63.6 (nivel 0, sin cuenta nueva).
+# Mismo patrón que db-disk-watch.yml: autoprueba con canario + vigilancia +
+# issue con etiqueta. GitHub manda CORREO al dueño cuando se abre el issue.
+#
+# DOS trabajos:
+#   1) `autoprueba` — SIEMPRE corre el canario (scripts/check-uptime-watch-canary.sh):
+#      demuestra contra un servidor de mentira que el vigía SABE ponerse rojo. Sin
+#      red externa. Si el canario falla, la vigilancia no emite verde (needs).
+#   2) `vigilancia` — solo en cron/dispatch: GET a la home y a /api/v1/health de
+#      PRODUCCIÓN (rutas públicas, sin secreto, sin escribir nada). Con rojo abre UN
+#      issue (label `caida`); si ya hay uno abierto NO comenta en cada corrida (un
+#      correo por incidente, no 144 al día). Con verde y un issue abierto, comenta
+#      «recuperado» y lo cierra.
+#
+# CARGA SOBRE PRODUCCIÓN (medida por construcción, no por tráfico): 2 GET cada
+# 10 min (+ hasta 2 reintentos por GET si falla) ≈ 288 peticiones/día. `/health`
+# no tiene tope (`@SkipThrottle`). No escanea, no carga, no dispara despliegues.
+#
+# ⚠️ LÍMITES DECLARADOS (de GitHub, no nuestros):
+#   · `schedule` solo corre desde la rama POR DEFECTO (`main`): este vigía empieza
+#     a vigilar cuando el fichero llegue a `main`, no antes.
+#   · GitHub retrasa los `schedule` en horas de carga (frecuencia real NO MEDIDA):
+#     avisa en minutos, no en segundos.
+#   · GitHub DESACTIVA los `schedule` de un repo público tras 60 días sin
+#     actividad en el repo. Si el repo se queda quieto dos meses, hay que
+#     reactivarlo en Actions (DEVOPS_NOTES §83.2).
+#
+# VARIABLES DE REPOSITORIO (Settings → Secrets and variables → Actions →
+# Variables; NO son secretos):
+#   EXPECTED_STRIPE_MODE  test | live | none  — sin ella, `stripeMode` no se
+#                         compara y el run lo DICE (no finge verde de ese punto).
+#   UPTIME_SITE_URL       por defecto https://tcghunt.mx/
+#   UPTIME_HEALTH_URL     por defecto https://tcg-vault-mx-production.up.railway.app/api/v1/health
+#                         (dominio del backend según DEVOPS_NOTES §23.2; vigente
+#                         hoy: NO MEDIDO desde este entorno — si cambió, el vigía
+#                         se pone rojo y lo dice, que es el aviso correcto).
+#
+# ⛔ NO es un required check: no gatea nada. Su trabajo es AVISAR.
+# =============================================================================
+
+name: Uptime Watch (LIVE-9)
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/uptime-watch.sh"
+      - "scripts/check-uptime-watch-canary.sh"
+      - ".github/workflows/uptime-watch.yml"
+  push:
+    paths:
+      - "scripts/uptime-watch.sh"
+      - "scripts/check-uptime-watch-canary.sh"
+      - ".github/workflows/uptime-watch.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime-watch-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  autoprueba:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Canario del vigía (¿sabe ponerse rojo?)
+        run: ./scripts/check-uptime-watch-canary.sh
+
+  vigilancia:
+    runs-on: ubuntu-latest
+    needs: autoprueba
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      SITE_URL: ${{ vars.UPTIME_SITE_URL || 'https://tcghunt.mx/' }}
+      HEALTH_URL: ${{ vars.UPTIME_HEALTH_URL || 'https://tcg-vault-mx-production.up.railway.app/api/v1/health' }}
+      EXPECTED_STRIPE_MODE: ${{ vars.EXPECTED_STRIPE_MODE }}
+      TITLE: "[caída] La tienda o su backend no responden como deben (uptime-watch, LIVE-9)"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Medir (GET a la home y a la salud)
+        id: medir
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ARGS=(--site "$SITE_URL" --health "$HEALTH_URL")
+          [ -n "$EXPECTED_STRIPE_MODE" ] && ARGS+=(--expected-stripe-mode "$EXPECTED_STRIPE_MODE")
+          ./scripts/uptime-watch.sh "${ARGS[@]}" | tee watch-out.txt
+
+      - name: Resumen en el run
+        if: always()
+        run: |
+          {
+            echo '### uptime-watch (LIVE-9)'
+            echo ''
+            echo '```'
+            cat watch-out.txt 2>/dev/null || echo '(sin salida — ver el paso «Medir»)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$EXPECTED_STRIPE_MODE" ]; then
+            echo "::notice title=stripeMode NO comparado::Falta la variable de repositorio EXPECTED_STRIPE_MODE (test|live|none). Sin ella el vigía comprueba que la tienda responde, pero no que cobre en el modo esperado. DEVOPS_NOTES §83.2."
+          fi
+
+      - name: Abrir issue si es ROJO (uno por incidente)
+        if: steps.medir.outcome == 'failure'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          EXISTING="$(gh issue list --state open --limit 50 --json number,title \
+            --jq "map(select(.title == \"${TITLE}\")) | .[0].number // empty")"
+          if [ -n "${EXISTING}" ]; then
+            echo "Ya hay un issue abierto (#${EXISTING}); no se comenta en cada corrida para no inundar el correo."
+            exit 0
+          fi
+          gh label create caida --color B60205 --description "Tienda o backend sin responder (LIVE-9)" 2>/dev/null || true
+          {
+            echo "El vigía de disponibilidad dio **ROJO** ($(date -u +%FT%TZ))."
+            echo ""
+            echo '```'
+            cat watch-out.txt 2>/dev/null || echo '(sin salida)'
+            echo '```'
+            echo ""
+            echo "- Run: ${RUN_URL}"
+            echo ""
+            echo "**Qué mirar, por orden:**"
+            echo "1. ¿Abre https://tcghunt.mx en tu navegador? Si no: panel de **Vercel** → Deployments."
+            echo "2. ¿La salud dice \`status: degraded\`? Panel de **Railway** → servicio backend → Logs; y el servicio Postgres/Redis."
+            echo "3. ¿\`stripeMode\` distinto del esperado? Alguien cambió las claves de Stripe en Railway, o falta actualizar la variable \`EXPECTED_STRIPE_MODE\` (guía: DEVOPS_NOTES §83.7, paso 8)."
+            echo ""
+            echo "Este issue se **cierra solo** cuando el vigía vuelva a verde."
+          } > issue-body.md
+          gh issue create --title "${TITLE}" --body-file issue-body.md --label caida
+
+      - name: Cerrar el issue si ya se recuperó
+        if: steps.medir.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          EXISTING="$(gh issue list --state open --limit 50 --json number,title \
+            --jq "map(select(.title == \"${TITLE}\")) | .[0].number // empty")"
+          [ -n "${EXISTING}" ] || exit 0
+          gh issue comment "${EXISTING}" --body "Recuperado: el vigía volvió a verde a las $(date -u +%FT%TZ). Se cierra solo."
+          gh issue close "${EXISTING}"
+
+      - name: Marcar el run en rojo si el veredicto fue ROJO
+        if: steps.medir.outcome == 'failure'
+        run: |
+          echo "::error::uptime-watch (LIVE-9) dio ROJO: la tienda o su backend no responden como deben. Ver el resumen del run y el issue con label 'caida'."
+          exit 1

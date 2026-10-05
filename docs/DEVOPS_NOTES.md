@@ -13115,3 +13115,229 @@ mock no sirve (legítimos: miden en el pase real).
 **gitleaks PR #70 (devops, 2026-10-04):** el job `gitleaks` (run 37192755201) marcaba 3 `generic-api-key` en dos specs de integración de backend (`staff-without-email.e2e-spec.ts:405,:412` @0a42d85a; `stf-errata-v1-80-9-1.e2e-spec.ts:167` @1d946722): contraseñas de ficción, medido que no aparecen en ningún `.env`, workflow ni `scripts/`. Añadidas a `[allowlist]` de `security/gitleaks.toml` **por valor exacto anclado** (no por ruta). Medido con gitleaks 8.30.1: rango `origin/production..HEAD` 3 → 0 hallazgos (21 commits); `sast-gitleaks-canary.sh` 11/11; una variante del valor con sufijo sigue roja. **Rollback:** revertir el commit (la PR vuelve a rojo).
 
 **Manifiesto de secretos publicados, PR #70 (devops, 2026-10-04):** el job `stripe-webhook-failclosed` (run 37193001346) fallaba en `check-secret-defaults.sh` (E): el manifiesto no cubría 3 literales nuevos de esta rama. Medido de dónde salen: `backend/prisma/reset-admin-password.ts:26` (placeholder `'…'` del ejemplo de uso en un docstring), `backend/test/integration/stf-errata-v1-80-9-1.e2e-spec.ts:167` (prefijo de ficción + `randomUUID()`) y `:170` (el identificador `HMAC_KEY`, que es `randomBytes(32)` en tiempo de ejecución). Ninguno es un valor real. Regenerado con `gen-published-secrets-manifest.sh`: +3 hashes, 0 jubilados, catálogos sin cambios. El job entero sale verde: failclosed rc=0 (3/3), su canario 31/31, `check-secret-defaults` rc=0 y su canario 70/70. **Rollback:** revertir el commit (el job vuelve a rojo).
+
+---
+
+## §83 · Listo para dinero real — la parte de devops: LIVE-3 · 9 · 10 · 11 · 13 · 16, y el 403 del almacén local (2026-10-05, rama `claude/listo-real`)
+
+> Norma: `API_CONTRACT §14` (rev v1.84), porqué en `ARCHITECTURE §4.63`. Escrito sobre `2fe1cea1`; todo lo
+> medido aquí se midió el 2026-10-05 en `/home/user/tcg-real` (local, **sin** producción: el proxy de este
+> entorno responde `403 CONNECT` a `tcghunt.mx` y a `…up.railway.app`, medido con `curl` ese día).
+> Numeración: §78 la usa `claude/hotfix-texto-sellado` y §78–§82 `claude/skydropx-d`; esta sección es **§83**.
+
+### 83.1 · LIVE-3 (parte devops) — la pareja `CSP_MODE` ↔ ZAP 10038/10055
+
+- `security/zap/baseline.conf`: 10038 y 10055 **siguen en WARN** (fase `report-only`). Comentario nuevo encima.
+  Suben a **FAIL en el mismo cambio** que ponga `CSP_MODE = 'enforce'` en `frontend/src/security/csp.ts` (§14.3).
+- Candado `scripts/check-csp-zap-parity.sh` (job `live-candados` de `ci.yml`): `enforce` sin las dos en FAIL ⇒ rojo;
+  `report-only` con alguna en FAIL ⇒ rojo (ZAP no cuenta la `-Report-Only` y el DAST de release se pondría rojo por un
+  hallazgo esperado); constante no literal ⇒ rc 2; sin `csp.ts` ⇒ «no aplica todavía». Medido hoy contra el `csp.ts`
+  que está escribiendo frontend (sin commitear): `CSP_MODE=report-only · 10038=WARN · 10055=WARN` ⇒ rc 0.
+- Canario `check-csp-zap-parity-canary.sh`: **8/8**, con mutación «enforce sin exigir FAIL» cazada.
+- `.env.example`: `NEXT_PUBLIC_UPLOAD_ORIGIN=` (público; sin valor ⇒ comodín de R2 del contrato). Valor de producción
+  **NO MEDIDO** (lo revela la fase Report-Only).
+
+### 83.2 · LIVE-9 — vigía de disponibilidad (`.github/workflows/uptime-watch.yml`)
+
+- Cada 10 min: `GET` a la home (sigue hasta 5 redirecciones) y a `/api/v1/health` (200, `status: ok`, y `stripeMode`
+  = variable `EXPECTED_STRIPE_MODE` si existe). Cada comprobación se reintenta 3 veces (20 s) antes de llamarla roja.
+  Con rojo abre **un** issue `[caída] …` con label `caida` (GitHub manda correo al dueño); con verde y el issue abierto,
+  comenta «recuperado» y lo cierra. No comenta en cada corrida roja (un correo por incidente).
+- Herramienta `scripts/uptime-watch.sh` (solo GET, solo https, rc 0/1/2). Canario `check-uptime-watch-canary.sh`:
+  **13/13** contra un servidor de mentira (home 500, salud 503, salud sin `stripeMode`, `stripeMode` distinto, no-JSON,
+  conexión rechazada, redirección de idioma, parpadeo absorbido por el reintento) + 2 mutaciones cazadas. Corre en el
+  job `autoprueba` antes de cada vigilancia y en `live-candados`.
+- **Carga sobre producción:** ≈ 288 GET/día (2 cada 10 min). `/health` es `@SkipThrottle`. Nada escribe.
+- **Límites de GitHub (declarados):** los `schedule` solo corren desde `main` (el vigía empieza cuando esto llegue a
+  `main`); GitHub los retrasa en horas de carga (frecuencia real **NO MEDIDA**); y los **desactiva tras 60 días sin
+  actividad** en un repo público (se reactivan en Actions → Uptime Watch → Enable). Un run rojo también puede mandar el
+  correo estándar de «workflow failed» de GitHub a quien editó el cron por última vez; si molesta, se apaga en
+  *Settings → Notifications → Actions* sin perder el issue.
+- **URLs:** variables de repositorio opcionales `UPTIME_SITE_URL` (def. `https://tcghunt.mx/`) y `UPTIME_HEALTH_URL`
+  (def. `https://tcg-vault-mx-production.up.railway.app/api/v1/health`, el dominio de §23.2; vigente hoy **NO MEDIDO**
+  desde aquí — si cambió, el vigía se pone rojo y lo dice).
+- **`EXPECTED_STRIPE_MODE`** (variable de repositorio, no secreta): `test` ahora; `live` en el paso 8 de §83.7. Sin
+  ella el run emite `::notice:: stripeMode NO comparado` y no finge verde de ese punto. ⚠️ Hasta que el backend
+  publique LIVE-7, la salud no trae `stripeMode`: con la variable puesta el vigía saldría rojo «(ausente)». **Ponerla
+  después** de que LIVE-7 esté en producción.
+- **Rollback:** borrar `.github/workflows/uptime-watch.yml` (o *Disable workflow* en Actions). Nada más depende de él.
+
+### 83.3 · LIVE-10 — DAST `full` como puerta previa a la solicitud de fusión
+
+- `security-dast.yml`: (a) `run-name` con `perfil=`, `ref=` y ` · report_only` para leer la lista de runs; (b) paso
+  nuevo **«Sello del barrido (LIVE-10)»** tras el candado: anotación `notice` con título `DAST-SELLO` y mensaje
+  `sha=<sha escaneado> perfil=<full|baseline> report_only=<0|1> blocking=<true|false|vacío> gate=<outcome>`.
+- `scripts/check-candidate-checks.sh --exige-dast-full <sha>`: además de los check-runs del commit, exige un run verde de
+  `security-dast.yml` cuyo job «DAST contra el stack efímero» salió `success` y cuyo sello es **exactamente**
+  `sha=<ESTE sha> perfil=full report_only=0 blocking=false gate=success`. Imprime la URL para citarla. rc nuevo **4** =
+  «no hay DAST full sellado» (distinto de rc 2 «no pude leer»). El sello se lee de las **anotaciones** (API de
+  check-runs), no del título: un `ref` de rama no dice qué commit se escaneó.
+- Canario C5 ampliado: **26/26** (12 casos nuevos: baseline, report_only con hallazgos, `blocking` vacío, otro sha, job
+  no-success, sin sello, sin runs, respuesta no-JSON ⇒ rc 2, rojo + DAST bueno ⇒ rc 1, sin la opción ⇒ conducta de
+  siempre; mutación «solo mirar el sha» cazada). `check-dast-gate-live.sh` y `check-provenance-gate.sh` siguen en rc 0.
+- **Procedimiento de release:** Actions → «DAST (stack efímero de CI)» → *Run workflow* en `main` con `ref=<sha
+  candidato>`, `scan_profile=full`, `report_only=false` ⇒ cuando acabe, `GITHUB_TOKEN=… ./scripts/check-candidate-checks.sh
+  --exige-dast-full <sha>` ⇒ rc 0 ⇒ pegar la URL en la solicitud `main → production`.
+- ⚠️ El sello solo existe en runs **posteriores** a este cambio (cuando `security-dast.yml` llegue a la rama desde la
+  que se dispara). Ningún run anterior cuenta. **NO MEDIDO** contra la API real: el proxy de esta sesión niega
+  `actions/*` (`403 Access to this GitHub Actions path is not permitted`). Lo cierra la primera ejecución real.
+- **Rollback:** revertir; sin `--exige-dast-full` el script se comporta como antes (caso del canario).
+
+### 83.4 · LIVE-11 — C6: la sonda daba **falso cierre**, corregida
+
+**Hallazgo (devops, medido 2026-10-05).** `edge-xff-probe.sh` mandaba los 6 logins con **el mismo** correo. Desde C7
+(v1.80) existe un segundo tope **por cuenta**: `PASSWORD_FREE_ATTEMPTS = 5`
+(`backend/src/modules/auth/password-attempts.constants.ts:11`); el 5.º fallo pone un candado de 60 s y el 6.º intento
+es `429 TOO_MANY_PASSWORD_ATTEMPTS` **venga de la IP que venga**. La sonda leía «6.º = 429» como «el tope por IP
+cuenta por la IP del borde» ⇒ **«C6 CIERRA» aunque el bypass existiera**. Medido con la sonda de `HEAD` contra un
+backend de mentira que deja elegir la IP por `X-Forwarded-For` y tiene el candado de cuenta: **«C6 CIERRA» 3/3**
+(log `orig-*.log`). C6 nunca se había corrido en producción (§58.3 sigue con el hueco del resultado), así que no hay
+ningún cierre falso registrado — pero el primero lo habría sido.
+
+**Arreglo** (`scripts/edge-xff-probe.sh`): un correo `@example.invalid` **distinto por petición** (ninguna cuenta
+llega a 5 ⇒ no hay candado, ni correo de aviso, ni bitácora); un 429 solo cuenta si `error.code = RATE_LIMITED`
+(`TOO_MANY_PASSWORD_ATTEMPTS` ⇒ rc 2 «sonda contaminada»); pausa de 65 s entre rondas si hay más de una.
+
+**Presupuesto: el autorizado.** El dueño autorizó **6 intentos fallidos** para C6 (`HECHOS.md`, fila 2026-10-05
+«Listo para dinero real — respuestas del dueño», P-7/P-9). Por eso el valor por defecto es **una ronda = 6
+peticiones**. Si el 6.º es `429 RATE_LIMITED`, C6 cierra: ese código solo lo pone el tope por IP, así que no hace
+falta control. Si rotando XFF **no** hay ningún 429, la sonda **para con rc 2** y pide autorización para **6 más**
+(`--with-control`: 6 peticiones sin XFF propio que tienen que dar 429 `RATE_LIMITED`); sin ese control, «nunca 429»
+no distingue un bypass de un tope apagado. Rondas extra (`--rounds N`) también exigen autorización nueva. ⚠️ Con una
+sola ronda la proporción es **1/1**: un cierre con N=1 (O-3) — suficiente para un tope determinista con un solo nodo
+de borde; con varios nodos de borde (NO MEDIDO) haría falta más N.
+
+Canario `check-edge-xff-probe-canary.sh` (N=3 por caso): borde que fija la IP ⇒ rc 0 con **6 peticiones** **3/3**;
+borde que deja elegirla sin control ⇒ rc 2 «hace falta autorización» **3/3**; con `--with-control` ⇒ rc 1 «C6 FALLA»
+**3/3**; sin tope por IP ⇒ rc 2 **3/3**; 3 rondas ⇒ rc 0 **3/3**; guarda de host local; mutación «un solo correo» ⇒
+deja de dar «FALLA» **3/3** (sale rc 2); mutación «forma de antes» (un correo + cualquier 429) ⇒ **rc 0 «CIERRA»
+3/3**, que es el falso cierre.
+
+**Ventana (con el permiso ya dado por el dueño; la corre el agente de pruebas, no yo):**
+```
+TARGET_BASE_URL='https://<host-del-backend-de-produccion>' ./scripts/edge-xff-probe.sh --i-have-a-window
+```
+> **[RESULTADO C6 — se rellena en la ventana autorizada: proporción N/N, control sí/no, fecha y hora]**
+
+### 83.5 · LIVE-13 — respaldos y simulacro de restauración (`scripts/restore-drill-verify.sh`)
+
+**Estado:** que los respaldos de Railway estén **activados**: NO MEDIDO (lo ve el dueño, §14.11 paso 1). Restauración
+probada contra producción: **ninguna todavía**. Instrumento: **escrito y probado en local**.
+
+**Qué hace.** `--snapshot` (solo lectura) saca una foto de control: filas de **cada** tabla de `public`,
+`SUM("totalCents")` y filas de `Order` por estado, `PaymentRefund` y `ManualRefund` por estado, última migración y
+cuántas hay. Con `--dump FICHERO` hace además el `pg_dump -Fc` **dentro del mismo snapshot** de la base
+(`pg_export_snapshot` + `pg_dump --snapshot`), así foto y volcado describen el mismo instante aunque la tienda venda.
+`--restore` hace `pg_restore` y **se niega si la base de destino tiene alguna tabla** (producción nunca está vacía).
+`--verify` toma la misma foto en la restaurada y compara; rc 0 solo si todo cuadra; imprime la antigüedad (RPO).
+`--target` obligatorio y cruzado con el host; `--target prod` no restaura ni verifica. Nunca imprime el URL ni el host
+(solo una huella sha256 de 8 hex).
+
+**Medido en local (2026-10-05, Postgres 16, base sembrada con `seed-e2e.ts`, 51 migraciones, 44 tablas):**
+- foto + volcado (184 KB, 0 s) ⇒ restaurar en base vacía (2 s) ⇒ `--verify` **49/49 líneas cuadran**, rc 0;
+- 3 mutaciones sobre la restaurada (un centavo en `Order.totalCents`, una `ManualRefund` menos, una migración menos):
+  **3/3 rc 1**, cada una nombrando su línea; tras re-restaurar, verde otra vez;
+- restaurar encima de la base de origen (44 tablas) ⇒ **rc 2, se niega**; `--verify --target prod` ⇒ rc 2;
+- **por qué el snapshot compartido:** con un escritor concurrente actualizando `Order` (N=5): foto+volcado
+  compartidos **cuadran 5/5**; foto y `pg_dump` separados **cuadran 0/5**.
+- Canario sin base para CI `check-restore-drill-canary.sh`: **16/16** (mutación «siempre cuadra» cazada).
+
+**Procedimiento del simulacro (lo corre el dueño en SU terminal; ⛔ ningún valor por chat):**
+1. *Railway → Postgres → Backups*: activar diario (y semanal si lo hay); captura con la fecha del último. Guardar
+   `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` y `JWT_*` en su gestor de contraseñas (sin ellas la CLABE/RFC del respaldo es
+   **irrecuperable**).
+2. En su terminal, con la conexión **pública** de Railway (mejor un usuario de solo lectura):
+   ```
+   DATABASE_URL='…' ./scripts/restore-drill-verify.sh --snapshot --target prod --out foto.tsv --dump respaldo.dump
+   ```
+   ⚠️ `pg_dump` tiene que ser **de la misma versión mayor o mayor** que el Postgres de Railway (versión del servidor:
+   NO MEDIDA; si no cuadra, `pg_dump` lo dice y el script no escribe nada).
+3. Crear una base **nueva y vacía** que no sea producción (entorno temporal de Railway o Postgres en su máquina) y:
+   ```
+   DATABASE_URL='<base temporal>' ./scripts/restore-drill-verify.sh --restore respaldo.dump --target drill
+   DATABASE_URL='<base temporal>' ./scripts/restore-drill-verify.sh --verify foto.tsv --target drill
+   ```
+4. Anotar abajo: fecha, duración de cada paso (RTO = crear base + restaurar + cambiar conexión), antigüedad del
+   respaldo (RPO), y el rc del `--verify`. Borrar la base temporal. `respaldo.dump` y `foto.tsv` ⇒ disco cifrado;
+   ⛔ nunca al repo ni a un artefacto de Actions.
+5. Objetivo por defecto (§14.11.5): **RPO ≤ 24 h, RTO ≤ 2 h**. Lo cobrado entre respaldo y caída se reconcilia
+   contra el panel de Stripe.
+
+> **[SIMULACRO EN PRODUCCIÓN — fecha · duración volcado/restauración · RPO · rc --verify · quién]** (vacío: no hecho)
+
+### 83.6 · El 403 en el PUT presignado del almacén local (`infra-smoke`, `kyc-ine-links`) — causa y arreglo
+
+**Causa (medida):** el s3-local que ocupaba `:9000` era de **otro clon**: proceso de `/home/user/tcg-skyd/…/server.js`,
+vivo desde hacía ~5,5 h. Su log (`/home/user/tcg-skyd/.native-stack/s3.log`) tiene **28 × «403 PUT
+/tcg-photos/kyc_ine/… — la firma NO coincide»** y más GET igual. Cada clon genera su propio `S3_SECRET_ACCESS_KEY` en
+`<clon>/.native-stack/secrets.env` (S-88-1; `tcg-panel` tiene el suyo), y `start_s3` **reutilizaba cualquier cosa viva
+en el puerto** («ya respondía en :9000, se reutiliza»). El backend del clon B firmaba con el secreto de B contra un
+servidor que solo conoce el de A ⇒ `403 SignatureDoesNotMatch`. No es defecto del producto ni de las pruebas: es el
+arnés juntando clones en un recurso compartido (O-8 en el recurso «puerto»). No leí los secretos de ningún clon: el
+diagnóstico sale del log del servidor y del código.
+
+**Arreglo (`scripts/stack-native.sh`, `scripts/s3-local/probe-credentials.js`):**
+- antes de reutilizar un s3-local vivo, `s3_creds_ok` **firma** un GET con las credenciales de este clon: 404/200 ⇒
+  es mío, se reutiliza; 403 de firma ⇒ **para** con el diagnóstico (pid y cwd del dueño del puerto) y la salida;
+  `test:integration` con `E2E_STRICT_INFRA=true` hace la misma comprobación;
+- `S3_ENDPOINT` ahora **sigue** a `S3_LOCAL_PORT` (antes era un literal `:9000`, así que `S3_LOCAL_PORT=9100` levantaba
+  el almacén en 9100 y el backend seguía firmando contra 9000: la salida no funcionaba).
+- **Qué hace quien se lo encuentre:** `S3_LOCAL_PORT=9100 ./scripts/stack-native.sh up --infra` y el mismo
+  `S3_LOCAL_PORT` en `test:integration`. ⛔ No apagar el s3-local de otro clon.
+- Canario `check-s3-local-clone-canary.sh` (N=3): sonda mismo secreto ⇒ rc 0 **3/3**; secreto de otro clon ⇒ rc 1
+  **3/3**; puerto vacío ⇒ rc 2 **3/3**; `start_s3` **real** extraído del fichero: propio ⇒ reutiliza **3/3**, ajeno ⇒
+  se para **3/3**; endpoint sigue al puerto; mutación «reutilizar sin sonda» ⇒ rojo **3/3**. Candados del arnés que
+  tocan `stack-native.sh` re-corridos: `harness-gaps`, `db-pool-limit`, `daemon-stdout-leak`, `secret-defaults`,
+  `secret-absence-wording`, `secret-masking` ⇒ rc 0.
+- **NO MEDIDO:** la re-corrida de `infra-smoke` y `kyc-ine-links` en `claude/arreglos-panel` con este arreglo (es otra
+  rama y otro árbol; la mide quien la lleve, con `S3_LOCAL_PORT` propio o tras merge).
+
+### 83.7 · LIVE-16 — guía del dueño: cambio a modo real (transcripción de `API_CONTRACT §14.10`)
+
+⛔ **Ningún valor de clave sale del panel donde se crea:** se copia de Stripe y se pega directo en Railway/Vercel.
+
+**Antes (todo verde o no se empieza):**
+- [ ] Condiciones de §14.0 cerradas (C1, S5-1, SEC-HDR-2, TD-4, C2, C3, DAST full previo, C6, MSH-1).
+- [ ] Fase A del cobro de punta a punta pasada (§14.9).
+- [ ] Censo y limpieza de datos de prueba hechos (§14.8), C3 = 0.
+- [ ] Respaldo del día existente y simulacro hecho (§83.5).
+- [ ] Cuenta de Stripe **activada** para cobrar y depositar en MX (solo lo ve el dueño, §14.13 P-2).
+
+**Pasos:**
+1. [ ] **Stripe (live) → Developers → Webhooks → Add endpoint.** URL `https://<dominio-del-backend>/api/v1/webhooks/stripe`;
+   **versión de API `2024-06-20`**; eventos: exactamente los 9 de `security/stripe-webhook-events.txt`. Guardar.
+2. [ ] En ese endpoint, **Reveal signing secret** (`whsec_…` de live) ⇒ **Railway → backend → Variables →
+   `STRIPE_WEBHOOK_SECRET`** (si Railway despliega al guardar, seguir al paso 3 de inmediato).
+3. [ ] **Stripe (live) → Developers → API keys:** Secret key `sk_live_…` ⇒ Railway `STRIPE_SECRET_KEY`.
+   (`STRIPE_PUBLISHABLE_KEY` de Railway no la lee el backend; opcional.) Railway vuelve a desplegar.
+4. [ ] Publishable key `pk_live_…` ⇒ **Vercel → Settings → Environment Variables →
+   `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`**, solo **Production** ⇒ **Redeploy** de producción (se hornea al construir).
+5. [ ] Abrir `https://<dominio-del-backend>/api/v1/health` ⇒ `"stripeMode":"live"`. En el pago, ya no sale el aviso de
+   modo prueba de Stripe.
+6. [ ] **Desactivar** en Stripe **modo prueba** el endpoint que apunta a producción.
+7. [ ] Fase B de §14.9 (una compra real pequeña + reembolso **desde Ventas**).
+8. [ ] GitHub → Settings → Secrets and variables → Actions → **Variables** → `EXPECTED_STRIPE_MODE` = `live` (la lee el
+   vigía de §83.2; no es secreta).
+
+**Ventana:** entre el paso 3 y el 4 el backend es live y la tienda aún prueba: un pago en ese intervalo **falla** (no
+cobra). Hora de poco tráfico.
+
+**Reversa (volver a prueba):** los mismos pasos con `sk_test_`/`pk_test_` y el `whsec_` del endpoint de prueba
+(reactivarlo); `health` ⇒ `"stripeMode":"test"`; `EXPECTED_STRIPE_MODE` = `test`. ⚠️ Los pedidos **live** cobrados en
+el intervalo se reembolsan desde el panel de Stripe live **solo** en ese caso, y se anota.
+
+### 83.8 · Rollback de esta sección
+
+Todo es aditivo y vive en `scripts/`, `security/`, `.github/workflows/` y `.env.example`; revertir el commit lo
+deshace sin tocar datos. Lo único con efecto fuera del repo es `uptime-watch.yml` (issues y GET a producción), que
+se apaga con *Disable workflow*. `stack-native.sh`: revertir vuelve a reutilizar cualquier s3-local vivo (y al 403).
+
+### 83.9 · Lo que le toca al dueño (y la medición que lo justifica)
+
+| # | Qué | Por qué (medido) | Cuándo |
+|---|---|---|---|
+| D-1 | Variable de repositorio `EXPECTED_STRIPE_MODE=test` | sin ella el vigía no compara el modo (lo dice en cada run); la salud no trae `stripeMode` hasta que LIVE-7 llegue a producción | **después** de publicar LIVE-7 |
+| D-2 | Activar respaldos en Railway y captura (§83.5 paso 1) | `DEVOPS_NOTES.md:459` lo afirma sin medición; nadie de devops ve el panel | antes del cambio |
+| D-3 | Simulacro (§83.5 pasos 2–4) en su terminal | la base de producción solo se alcanza donde vive la credencial (este entorno: `403 CONNECT`) | antes del cambio |
+| D-4 | Solo si la sonda de C6 sale rc 2 «hace falta autorización»: autorizar **6 intentos más** (ronda de control) | ya autorizó 6 (`HECHOS.md` 2026-10-05); el control solo hace falta si rotando XFF no hay ningún 429 | en la ventana, si pasa |
+| D-5 | Nada más. `UPTIME_*_URL` solo si el dominio del backend ya no es el de §23.2 | NO MEDIDO desde aquí; si cambió, el vigía lo avisará en rojo | si el vigía avisa |
