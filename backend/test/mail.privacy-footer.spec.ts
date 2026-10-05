@@ -10,13 +10,16 @@ import * as refundTpl from '../src/modules/payments/refunds/mail/refund-notice.t
 import * as shipmentTpl from '../src/modules/shipments/mail/shipment-notice.templates';
 import * as disputeTpl from '../src/modules/disputes/mail/dispute-notice.templates';
 import * as kycTpl from '../src/modules/admin/mail/kyc-notice.templates';
-import { privacyNoticeUrl } from '../src/modules/buylist/mail-shell';
+import { footerDescriptor, privacyNoticeUrl } from '../src/modules/buylist/mail-shell';
+import { spendAlertBatchMail, spendAlertImmediateMail, spendDigestMail } from '../src/modules/spend-alerts/spend-alert.mail';
+import { SpendAlertMailView } from '../src/modules/spend-alerts/spend-alert-text';
 import { SealedRestockNotifyService } from '../src/modules/catalog/sealed-restock-notify.service';
 import { stripComments } from './helpers/strip-comments';
 
 /**
- * # v1.84.4 — el enlace «Aviso de privacidad» en el pie de TODOS los correos
- * (`API_CONTRACT §14.17` E4-5, criterio 507, `PROJECT §LEG.3`)
+ * # v1.84.4 — el enlace «Aviso de privacidad» en el pie de todos los correos **a clientes**
+ * (`API_CONTRACT §14.17` E4-5, criterio 507, `PROJECT §LEG.3`); los solo-staff (AVG-1/2/3) no lo llevan:
+ * PRIV-5/6 (v1.84.5, `API_CONTRACT §14.18` E5-1…E5-3).
  *
  * PRIV-1 — render: cada plantilla exportada (`*Template`, las 31 del censo SRF-13 tras la fusión de `listo-real`) más el correo de
  *          reposición, en ES y EN, lleva `<a href="<origen>/es/privacidad">` con su etiqueta.
@@ -26,6 +29,10 @@ import { stripComments } from './helpers/strip-comments';
  * PRIV-3 — sin ningún origen: el correo sale con la dirección como texto y ⛔ sin `href` a medias.
  * PRIV-4 — barrido de `src/`: todo fichero que arma HTML de correo pasa por `mailShell(` o
  *          `privacyNoticeHtml(` (un pie nuevo escrito a mano queda cubierto sin tocar este fichero).
+
+ * PRIV-5 — (v1.84.5) los tres correos solo-staff de `spend-alert.mail.ts` NO llevan el aviso (con y sin origen),
+ *          pero sí el pie en tinta (CONTROL: «no hay pie de privacidad» no es «no hay nada»).
+ * PRIV-6 — (v1.84.5) barrido: `audience: 'staff'` aparece SOLO en `spend-alert.mail.ts`, exactamente 3 veces.
  */
 
 const ORIGIN = 'https://tienda.example.test';
@@ -319,5 +326,75 @@ describe('PRIV-4 — barrido: todo HTML de correo en `src/` pasa por el pie com�
       ]),
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('PRIV-5 — (v1.84.5 §14.18) los correos solo-staff (AVG-1/2/3) no llevan el aviso de privacidad', () => {
+  const view = (kind: SpendAlertMailView['kind'], facts: SpendAlertMailView['facts'] = {}): SpendAlertMailView => ({
+    id: '11111111-2222-4333-8444-555555555555',
+    kind,
+    severity: 'immediate',
+    facts,
+    amountCents: 15000,
+    subjectName: 'Luis',
+    orderNumber: 'TCG-000123',
+    folio: 'ENV-000045',
+    firstOccurredAt: new Date('2031-03-10T16:05:00Z'),
+  });
+  const recipient = (locale: Locale) => ({ email: 'duena@x.mx', name: 'Dueña', nameSource: 'user' as const, locale });
+  const mails = (l: Locale) => [
+    // AVG-1 de un 🔴 de guías (AG-3, con «Frenar»).
+    spendAlertImmediateMail(view('label_cap_blocked', { priceCents: 1, usedCents: 2, capCents: 3 }), recipient(l)),
+    // AVG-2 (lote de la hora).
+    spendAlertBatchMail([view('label_charged_unexplained', { cause: 'orphan_fuse' })], new Date('2031-03-10T16:00:00Z'), recipient(l)),
+    // AVG-3 (resumen del día).
+    spendDigestMail(
+      '2031-03-09',
+      { from: '2031-03-09', to: '2031-03-09', byKind: [{ code: 'AG-3', immediate: 1, digest: 0, amountCents: 15000 }], mutedCount: 0, labelSpendByPerson: [], costlyChoices: { count: 0, overRecommendedCents: 0, byPerson: [] } },
+      [view('label_cap_blocked')],
+      recipient(l),
+      () => 'x',
+    ),
+  ];
+
+  for (const [label, pub] of [
+    ['con origen', ORIGIN],
+    ['sin origen', undefined],
+  ] as const) {
+    for (const l of LOCALES) {
+      it(`[${l}] ${label}: ni enlace, ni etiqueta, ni dirección del aviso; sí el pie en tinta`, () => {
+        env(pub, undefined);
+        const ms = mails(l);
+        expect(ms).toHaveLength(3);
+        for (const m of ms) {
+          for (const body of [m.html, m.text]) {
+            expect(body).not.toMatch(/privacidad/i);
+            expect(body).not.toContain(LABEL.es);
+            expect(body).not.toContain(LABEL.en);
+          }
+          // CONTROL: el correo tiene su pie (el shell corrió entero).
+          expect(m.html).toContain(footerDescriptor(l));
+        }
+      });
+    }
+  }
+});
+
+describe('PRIV-6 — (v1.84.5 §14.18 E5-2.3) `audience: \'staff\'` solo donde el contrato lo permite', () => {
+  it('los ficheros de `src/` con `audience: \'staff\'` son exactamente `spend-alert.mail.ts`, con 3 apariciones', () => {
+    const SRC = join(__dirname, '..', 'src');
+    const hits: Record<string, number> = {};
+    const walk = (d: string): void => {
+      for (const n of readdirSync(d)) {
+        const p = join(d, n);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (p.endsWith('.ts') && !p.endsWith('.spec.ts')) {
+          const c = (stripComments(readFileSync(p, 'utf8')).match(/audience:\s*['"]staff['"]/g) ?? []).length;
+          if (c > 0) hits[relative(SRC, p)] = c;
+        }
+      }
+    };
+    walk(SRC);
+    expect(hits).toEqual({ [join('modules', 'spend-alerts', 'spend-alert.mail.ts')]: 3 });
   });
 });

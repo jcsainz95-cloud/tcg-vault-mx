@@ -610,6 +610,13 @@ export interface MailShellOptions {
   blocks: string[];
   /** §31.6h — **la única línea variable del pie**; el resto es idéntico en los ocho. */
   footerWhy: string;
+  /**
+   * v1.84.5 (`API_CONTRACT §14.18` E5-1/E5-2) — a quién va el correo. `'staff'` ⇒ **sin** la fila «Aviso de
+   * privacidad» (ni su `spacerRow(16)`): solo para correos cuyos destinatarios salen **por construcción** de cuentas
+   * de personal (hoy, únicamente AVG-1/2/3 de `spend-alert.mail.ts`; PRIV-6 lo vigila). ⛔ El defecto es
+   * `'customer'` a propósito: olvidar el campo deja el enlace legal puesto, nunca lo quita en silencio.
+   */
+  audience?: 'customer' | 'staff';
 }
 
 /**
@@ -647,8 +654,7 @@ export function mailShell(opts: MailShellOptions): string {
     brandRows() +
       opts.blocks.join('') +
       spacerRow(32) +
-      privacyRow(opts.locale) +
-      spacerRow(16) +
+      (opts.audience === 'staff' ? '' : privacyRow(opts.locale) + spacerRow(16)) +
       footerRows(footerDescriptor(opts.locale), contacto, opts.footerWhy),
     `width="600" style="width:100%;max-width:600px"`,
   );

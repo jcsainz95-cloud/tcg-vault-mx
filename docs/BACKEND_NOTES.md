@@ -29405,3 +29405,29 @@ producción: solo se añadió su render a `RENDERS` en `test/mail.privacy-footer
 pruebas, 1 roja**: SDX-I-8 en `sdx-d2g.units.spec.ts` (choque B, fuera de este cambio). **Mutaciones** (deterministas, N=1
 cada una): quitar el enlace al aviso del HTML de `sellItemsRejectedTemplate` ⇒ **3 rojas** (PRIV-1 ES y EN + CONTROL de
 aparición única); quitar el render de `shipmentAtBranchTemplate` del censo ⇒ **1 roja** (PRIV-0). Restaurado: 72/72.
+
+### 76.11 Errata v1.84.5 · §14.18 E5-1…E5-5 — choque B: los correos solo-staff (AVG-1/2/3) sin el pie de privacidad (2026-10-05, sobre `0d3f6b42`)
+
+**Qué se construyó (E5-2).** `MailShellOptions.audience?: 'customer' | 'staff'` (defecto `'customer'`). Con `'staff'`,
+`mailShell` omite `privacyRow` **y** su `spacerRow(16)`; el resto del esqueleto no cambia. `audience: 'staff'` solo en las
+tres llamadas de `spend-alerts/spend-alert.mail.ts` (AVG-1 `spendAlertImmediateMail`, AVG-2 `spendAlertBatchMail`,
+AVG-3 `spendDigestMail`). ⛔ Ningún otro fichero lo pasa (PRIV-6 lo vigila); ampliar la lista exige errata.
+SDX-I-8 (`sdx-d2g.units.spec.ts`) y PRIV-0…4 **sin cambio de aserciones**; en `mail.privacy-footer.spec.ts` cambió la
+cabecera y entraron **PRIV-5** (AVG-1 🔴 de guías, AVG-2, AVG-3 × ES/EN × con/sin origen: ni `privacidad` ni la etiqueta en
+`html` ni `text`; CONTROL: el `html` lleva `footerDescriptor(l)`) y **PRIV-6** (barrido sin comentarios: `audience:'staff'`
+solo en `spend-alert.mail.ts`, exactamente 3).
+
+**Medido (copia `git archive 0d3f6b42` del árbol ENTERO + este diff, 2026-10-05):** `tsc --noEmit` limpio; `eslint` de los
+3 ficheros limpio; unitaria completa **427/427 suites, 7553/7553** (SDX-I-8 en verde). **Mutaciones** (deterministas, **una
+tirada cada una**, sobre la copia; restauradas y comprobadas con `cmp` contra el árbol, después 119/119):
+| # | Mutación | Rojas reales (privacy-footer + sdx-d2g.units) |
+|---|---|---|
+| MUT-B1 | `mailShell` ignora `audience` | 5: PRIV-5 ×4 + SDX-I-8 |
+| MUT-B2 | defecto `'staff'` (`opts.audience ?? 'staff'`) | 55: PRIV-1 de las **26** plantillas de shell ×2 idiomas + CONTROL + PRIV-3 ×2; las 5 de pie a mano, verdes |
+| MUT-B3 | `audience: 'staff'` en `refundNoticeTemplate` | 6: PRIV-1 `refundNoticeTemplate` ×2 + PRIV-6 + CONTROL + PRIV-3 ×2 |
+| MUT-B4 | quitar `audience` de `spendDigestMail` | 6: PRIV-5 ×4 + PRIV-6 + SDX-I-8 |
+| MUT-B5 | `spendAlertUrl` añade `?token=x` | 1: SDX-I-8 |
+
+**NO MEDIDO:** la integración `test/integration/sdx-d2g-mail.e2e-spec.ts` (canarios SDX-I-8) — necesita BD y crear una base
+propia me fue denegado por permisos en esta corrida. La cierra correrla con `./scripts/stack-native.sh test:integration
+test/integration/sdx-d2g-mail.e2e-spec.ts` (o en CI). Por construcción usa los mismos tres constructores que PRIV-5.

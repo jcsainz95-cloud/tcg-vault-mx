@@ -138,7 +138,7 @@ export function spendAlertImmediateMail(v: SpendAlertMailView, r: SpendMailRecip
   ];
   return {
     subject,
-    html: mailShell({ locale: l, title, preheader: sentence.slice(0, 90), blocks, footerWhy: footerWhy(l, opts.previousOwner) }),
+    html: mailShell({ locale: l, audience: 'staff', title, preheader: sentence.slice(0, 90), blocks, footerWhy: footerWhy(l, opts.previousOwner) }),
     text: [title, '', greeting(r, l), '', sentence, '', ...rows, ...(stop ? ['', stop] : []), ...(url ? ['', `${cta}: ${url}`] : []), '', footerWhy(l, opts.previousOwner)].join('\n'),
   };
 }
@@ -180,7 +180,7 @@ export function spendAlertBatchMail(items: SpendAlertMailView[], hourStart: Date
   ];
   return {
     subject,
-    html: mailShell({ locale: l, title, preheader: subject, blocks, footerWhy: footerWhy(l) }),
+    html: mailShell({ locale: l, audience: 'staff', title, preheader: subject, blocks, footerWhy: footerWhy(l) }),
     text: [title, '', greeting(r, l), '', intro, '', ...lines.map((x) => (x.url ? `${x.text} — ${x.url}` : x.text)), ...(url ? ['', `${cta}: ${url}`] : []), '', footerWhy(l)].join('\n'),
   };
 }
@@ -239,7 +239,7 @@ export function spendDigestMail(
   const blocks = [headingRow(title, 22), spacerRow(24), proseRow(greeting(r, l)), spacerRow(16), ...sec, smallPrintRow(note), spacerRow(32), ...(url ? [ctaRows(url, cta, 'ink')] : [])];
   return {
     subject,
-    html: mailShell({ locale: l, title, preheader: subject, blocks, footerWhy: footerWhy(l) }),
+    html: mailShell({ locale: l, audience: 'staff', title, preheader: subject, blocks, footerWhy: footerWhy(l) }),
     text: [title, '', greeting(r, l), '', ...txt, note, ...(url ? ['', `${cta}: ${url}`] : []), '', footerWhy(l)].join('\n'),
   };
 }
