@@ -88,6 +88,14 @@ jobs:
       HEALTH_URL: ${{ vars.UPTIME_HEALTH_URL || 'https://tcg-vault-mx-production.up.railway.app/api/v1/health' }}
       EXPECTED_STRIPE_MODE: ${{ vars.EXPECTED_STRIPE_MODE }}
       TITLE: "[caída] La tienda o su backend no responden como deben (uptime-watch, LIVE-9)"
+      # TD-LIVE-8 (techlead, 2026-10-05): el issue se buscaba SOLO por título. El repo es
+      # público: cualquiera podía abrir un issue con ese título y el vigía, al verlo
+      # «ya abierto», NO abría el suyo — un desconocido suprimía la alerta de caída.
+      # Ahora solo cuenta un issue con etiqueta `caida` (poner etiquetas exige permiso
+      # de triage) Y abierto por el bot de Actions. Un único filtro para abrir y cerrar;
+      # lo prueba scripts/check-uptime-watch-canary.sh (sección «issue propio») con el
+      # MISMO `jq` que corre aquí (no el --jq embebido de gh).
+      ISSUE_JQ: 'map(select(.title == $T and .author.is_bot == true and (.author.login == "app/github-actions" or .author.login == "github-actions[bot]") and any(.labels[]; .name == "caida"))) | sort_by(.number) | .[0].number // empty'
     steps:
       - uses: actions/checkout@v5
 
@@ -122,8 +130,8 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          EXISTING="$(gh issue list --state open --limit 50 --json number,title \
-            --jq "map(select(.title == \"${TITLE}\")) | .[0].number // empty")"
+          EXISTING="$(gh issue list --state open --label caida --limit 50 \
+            --json number,title,author,labels | jq -r --arg T "${TITLE}" "${ISSUE_JQ}")"
           if [ -n "${EXISTING}" ]; then
             echo "Ya hay un issue abierto (#${EXISTING}); no se comenta en cada corrida para no inundar el correo."
             exit 0
@@ -154,8 +162,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          EXISTING="$(gh issue list --state open --limit 50 --json number,title \
-            --jq "map(select(.title == \"${TITLE}\")) | .[0].number // empty")"
+          EXISTING="$(gh issue list --state open --label caida --limit 50 \
+            --json number,title,author,labels | jq -r --arg T "${TITLE}" "${ISSUE_JQ}")"
           [ -n "${EXISTING}" ] || exit 0
           gh issue comment "${EXISTING}" --body "Recuperado: el vigía volvió a verde a las $(date -u +%FT%TZ). Se cierra solo."
           gh issue close "${EXISTING}"

@@ -123,6 +123,57 @@ escenario '{"/":[307,"",'"\"/es\""'],"/es":[200,"x"],"/api/v1/health":[200,'"$SA
 vigia "$TMP/m2.sh"; rc=$?
 [ "$rc" -eq 1 ] && ok "mutación m-sin-redirecciones ⇒ el caso «/ → /es» pasa a ROJO (rc 1): el canario la caza" || mal "mutación m-sin-redirecciones no cambió el veredicto (rc $rc)"
 
+# --- issue propio (TD-LIVE-8) ------------------------------------------------
+# El vigía busca SU issue con el filtro `ISSUE_JQ` del workflow (se extrae del yml, no
+# se copia) y el mismo `jq` del paso. Un issue con el mismo título abierto por un
+# desconocido —con o sin etiqueta— NO puede contar como «ya abierto»: si contara, la
+# alerta de caída quedaría suprimida por cualquiera.
+WF="$ROOT_DIR/.github/workflows/uptime-watch.yml"
+if ! command -v jq >/dev/null 2>&1; then
+  mal "sin jq no puedo probar el filtro del issue (el workflow lo usa)"
+else
+  python3 - "$WF" "$TMP/jq" "$TMP/title" <<'PY'
+import sys, yaml
+env = yaml.safe_load(open(sys.argv[1]))['jobs']['vigilancia']['env']
+open(sys.argv[2], 'w').write(env.get('ISSUE_JQ', ''))
+open(sys.argv[3], 'w').write(env.get('TITLE', ''))
+PY
+  JQF="$(cat "$TMP/jq" 2>/dev/null)"; T="$(cat "$TMP/title" 2>/dev/null)"
+  if [ -z "$JQF" ] || [ -z "$T" ]; then mal "uptime-watch.yml sin ISSUE_JQ/TITLE en jobs.vigilancia.env"
+  else
+    [ "$(grep -c 'jq -r --arg T "${TITLE}" "${ISSUE_JQ}"' "$WF")" = 2 ] \
+      && ok "abrir y cerrar usan los dos el filtro ISSUE_JQ" || mal "abrir/cerrar no usan ISSUE_JQ (las 2 búsquedas deben)"
+    issue() { # <número> <login> <is_bot> <etiqueta|-> — título = el del vigía
+      jq -n --argjson n "$1" --arg l "$2" --argjson b "$3" --arg lab "$4" --arg t "$T" \
+        '{number:$n,title:$t,author:{login:$l,is_bot:$b},labels:(if $lab=="-" then [] else [{name:$lab}] end)}'
+    }
+    filtro() { jq -s "." | jq -r --arg T "$T" "$1"; }
+    probar() { # <filtro> <esperado> <nombre> <issues…>
+      local f="$1" esp="$2" nom="$3"; shift 3
+      local got; got="$(printf '%s\n' "$@" | filtro "$f")"
+      [ "$got" = "$esp" ] && ok "$nom ⇒ «${got:-ninguno}»" || mal "$nom ⇒ «${got:-ninguno}» (esperado «${esp:-ninguno}»)"
+    }
+    INTRUSO="$(issue 7 mallory false -)"; INTRUSO_L="$(issue 8 mallory false caida)"
+    FALSO_BOT="$(issue 9 mallory true caida)"; BOT="$(issue 12 app/github-actions true caida)"
+    BOT_SIN="$(issue 10 app/github-actions true -)"
+    probar "$JQF" ""   "issue de un desconocido con el mismo título (sin etiqueta) no cuenta" "$INTRUSO"
+    probar "$JQF" ""   "…ni con la etiqueta caida" "$INTRUSO_L"
+    probar "$JQF" ""   "…ni de otro bot" "$FALSO_BOT"
+    probar "$JQF" ""   "issue del bot SIN etiqueta caida no cuenta" "$BOT_SIN"
+    probar "$JQF" "12" "issue del bot con caida, entre intrusos ⇒ el del bot" "$INTRUSO" "$INTRUSO_L" "$FALSO_BOT" "$BOT"
+    # Mutación: el filtro viejo (solo título) ⇒ el intruso suprime la alerta.
+    probar 'map(select(.title == $T)) | .[0].number // empty' "7" \
+      "mutación m-solo-título ⇒ el intruso SÍ cuenta (el canario distingue el filtro viejo)" "$INTRUSO" "$BOT"
+    MUT="$(printf '%s' "$JQF" | sed 's/ and \.author\.is_bot == true and (.author.login == "app\/github-actions" or .author.login == "github-actions\[bot\]")//')"
+    if [ "$MUT" = "$JQF" ]; then mal "mutación m-sin-autor no aplicó (anclaje desfasado)"
+    else
+      got="$(printf '%s\n' "$INTRUSO_L" "$BOT" | filtro "$MUT")"
+      [ "$got" = "8" ] && ok "mutación m-sin-autor ⇒ el intruso etiquetado SÍ cuenta: el autor es lo que muerde" \
+                       || mal "mutación m-sin-autor no cambió el resultado («$got»)"
+    fi
+  fi
+fi
+
 echo
 if [ "$FALLOS" -eq 0 ]; then printf '\033[1;32m✓ LIVE-9 vigía: %s/%s.\033[0m\n' "$PASADAS" "$PASADAS"; exit 0; fi
 printf '\033[1;31m✗ LIVE-9 vigía: %s fallo(s) de %s.\033[0m\n' "$FALLOS" "$((PASADAS+FALLOS))"; exit 1
