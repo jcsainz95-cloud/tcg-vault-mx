@@ -28490,3 +28490,76 @@ scratchpad `be-b1/tree`, BD propia `tcg_be_b1`; mutaciones en `be-b1/mut` con BD
 2. El encabezado de `test/integration/sdx-d2e-notices.e2e-spec.ts` (línea 15) todavía dice que el invitado quedó fuera por P-D2E-1: es
    un comentario; no lo toqué porque ese fichero lo edita B-2 (PS-89) en paralelo.
 3. Nota para product-owner (del contrato, no bloquea): `PROJECT` T.8 «el mismo token» es irrealizable al pie de la letra.
+
+## 70 · B-2…B-5 construidas y las notas N-SDX-4/N-SDX-5 de ux-ui (`API_CONTRACT §M4-SHIP.19.35.2/.3/.5`, §19.34.1; `DESIGN_SYSTEM §43.22.10` contra §41.2, §41.4, §41.7) (2026-10-05, rama `claude/skydropx-d`, desde `37899dac`, en paralelo con B-1; código y pruebas en `75cb2800` + el commit de esta sección)
+
+### 70.1 Qué cambió
+
+| Encargo | Fichero | Qué |
+|---|---|---|
+| **B-2** (§19.35.2/.3) | `shipments/customer-timeline.ts` | `delivered` con UN cuerpo para las dos guías: evento `delivered` de la guía vigente ⇒ su `occurredAt`; si no hay y `deliveredAt ≠ null` ⇒ `deliveredAt` (Skydropx marcada `entregado` a mano, o guía manual). ⛔ Nunca dos: ni evento + fecha, ni dos eventos `delivered` (manda el primero en el orden `occurredAt, observedAt`). PS-89 «de 6» se lee «de 7»: lo construido ya daba 7 con `shippedAt`; la prueba nueva lo asevera |
+| **B-3** (§19.35.5 fila 1) | `shipments/shipping-work-queue.ts`, `admin/dashboard-shipping.service.ts` | `workQueue.shipping.withLabelAlert` (los dos roles) = envíos con `labelAlertOf(fila, now) ≠ null`. `labelAlertShipmentIds(db, now, tUnknownMs)`: superconjunto ancho en SQL (los cuatro predicados de fila + huérfanas de 7 días de la bitácora, como el DTO) y la decisión fila a fila con `labelAlertOf`. ⛔ Ningún umbral propio (censo en la unitaria). El reloj y `tUnknownMs` son los de `ShipmentsModule` (`SHIPMENTS_LABEL_CLOCK`, `LABEL_VERIFY_CONFIG`), leídos por `ModuleRef.get(…, {strict:false})` — ver 70.4 (1) |
+| **B-4** (§19.34.1) | `spend-alerts/spend-alerts.service.ts:74`, `spend-alerts/staff-control.service.ts` | `SpendFactValue` objeto persona gana `role?: Role`; `staff-control` deja de construir su subtipo y pone el objeto en `facts` sin cast |
+| **B-5** (§19.35.5 fila 3) | solo prueba | PS-90 ampliada en `sdx-d2f-money.e2e-spec.ts` |
+| **N-SDX-4** | `shipments/mail/shipment-notice.templates.ts` | `AV-4`/`AV-5` usan `ctaLabelOf` (§41.4 filas 17/18: pedido — incluido el `/pedido?token` del invitado — ⇒ `VER MI PEDIDO`/`SEE MY ORDER`; retiro ⇒ `VER MI ENVÍO`/`SEE MY SHIPMENT`) |
+| **N-SDX-5** | ídem | `AV-5` usa `carrierDato` (§41.7 ✏ del 18: sin paquetería ⇒ `Guía: <n>`, sin el hueco «Paquetería:  · »); asuntos de `AV-4`/`AV-5` sin `TCG HUNT — ` (§41.2 filas 17/18 ✏). Comprobado en `DESIGN_SYSTEM.md` §41.2 (tabla de asuntos), §41.4 (filas 17/18/19) y §41.7 (fila 18) antes de cambiar |
+
+### 70.2 Pruebas
+
+| Prueba | Fichero | Qué |
+|---|---|---|
+| B-2 cuerpo (6) | `test/sdx-b25.units.spec.ts` (nuevo) | 7 con `shipped` en orden; `entregado` a mano ⇒ última `delivered` = `deliveredAt`; evento + `deliveredAt` ⇒ una (la del evento); dos eventos ⇒ una; evento de guía cancelada no cuenta; sin nada ⇒ sin `delivered` |
+| PS-89 corregida y ampliada (3) | `test/integration/sdx-b2-timeline.e2e-spec.ts` (nuevo) | por `POST /orders/guest/track`: secuencia completa + `shippedAt` ⇒ 7; `created`,`in_transit` + `PATCH entregado` ⇒ última `delivered` con `at = deliveredAt`, cero AV-17; `delivered` del transportista ⇒ una, con la fecha del evento |
+| B-3 cuerpo (4) | `test/sdx-b25.units.spec.ts` | juego con cada `LabelAlertKind`, los tres «jóvenes» 1 s por debajo de su umbral y uno con dos alertas ⇒ = `labelAlertOf` fila a fila; reloj que se le pasa; ventana de huérfanas; censo sin `T_*_MS` |
+| PS-173 | `sdx-d2f-money.e2e-spec.ts` | reloj inyectado 1 h POR DELANTE del sistema; los cinco `kind` + tres jóvenes + uno con dos alertas ⇒ `withLabelAlert` = filas de `GET /admin/shipments?alert=true` con `labelAlert ≠ null`, delta 6; el de dos alertas es UNA fila con `label_processing_stuck` y `exception`; +61 s ⇒ los jóvenes entran, delta 3, siguen cuadrando. Claves exactas del operador con `withLabelAlert` |
+| PS-90 ampliada | `sdx-d2f-money.e2e-spec.ts` | `off` ⇒ `catalogs`, `consignment-notes?description=cart`, `balance` `200` con el doble llamado (espía / `calls`), `quote` `404 FEATURE_DISABLED` y cero `quote` al doble; harness con la selección `noop` (sin credenciales) ⇒ los tres `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['env']}` con dial `off` y `skydropx` |
+| B-4 | `test/sdx-c1.facts-type.spec.ts`, `test/sdx-d2g.units.spec.ts` | igualdad de tipos con `role?: Role`; AG-22 `target` con `role` sin cast; el literal con `role` vuelve en línea en la de plantillas |
+| N-SDX-4/5 (14) | `test/sdx-b25.units.spec.ts` | rótulo por destino en `AV-4`/`AV-5` (pedido, invitado con `customerUrl`, retiro; ES/EN); `AV-5` sin paquetería ⇒ `Guía: X` sin «Paquetería:»; asuntos exactos sin marca |
+
+**Rojo primero** (copia `git archive 37899dac` del árbol ENTERO + las pruebas, con stubs de tipo de `countLabelAlerts`/`labelAlertShipmentIds`
+que devuelven 0/[]): unitaria **21 rojas / 26** (B-2: 3 — los otros 3 describen lo que ya era así; B-3: 4; N-SDX-4/5: 14 — de ellas, las del rótulo
+de retiro eran rojas por falta de `APP_PUBLIC_URL` en la prueba (sin CTA), corregido; que muerden lo prueban M5–M7 abajo; B-4: las
+dos suites de tipos no compilan); integración **5 rojas / 22** (PS-173, claves del operador, PS-89 ampliada; las 2 de `noop` eran un
+defecto de la prueba — el entorno de la pila trae `SHIPPING_PROVIDER_ADAPTER=fake` — y se corrigieron fijando la selección `noop`).
+
+**Suites completas** sobre la copia `git archive 37899dac` del árbol ENTERO + mis rutas (= `75cb2800` salvo los docs de B-1 en
+`6f5461a9`), scratchpad `be-b25/tree`, BD propia `tcg_be_b25`, `stack-native.sh test:integration` (pool 5):
+
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest --maxWorkers=3`) | **413/413 suites · 7214/7214** |
+| Integración | **98/99 suites · 1969/1970**. La roja era MI prueba nueva (PS-89 ampliada, «última entrada»): mezclaba relojes — `shippedAt` sale del reloj inyectado de la guía (adelantado 1 s por `refresh`) y `deliveredAt` del `PATCH` (reloj del sistema), así que `shipped` quedaba 0,6 s DESPUÉS de `delivered`. Corregida (el sondeo corre 1 min por detrás, como en producción con un reloj); la suite sola: **3/3** |
+| `tsc --noEmit` (incluye `test/`); `eslint` de los 11 ficheros | 0 errores; 0 avisos |
+
+Carga durante las corridas: 3–11 (4 CPU, otros agentes vivos); ninguna roja por tiempo.
+
+### 70.3 Mutaciones
+
+Copia `be-b25/mut` (= la de suites); `mut.py` aplica UNA, corre sus pruebas y restaura (verificado con `cmp` contra el árbol vivo).
+Todas deterministas (sin carrera ni temporizador): N = 1 cada una.
+
+| # | Mutación | Prueba | Resultado |
+|---|---|---|---|
+| M1 | quitar la rama de `deliveredAt` para Skydropx | unitaria + PS-89 ampliada | rojo (unit 2; integración 1) |
+| M2 | quitar el «nunca dos» | unitaria + e2e | rojo (unit 3; integración 2: la de 7 da 8 y «una, la del evento») |
+| M3 | umbral propio en el tablero (`tUnknownMs × 2`) | unitaria + PS-173 | rojo (unit 2; integración «6 ≠ 5») |
+| M3b | el tablero con el reloj del sistema en vez del inyectado | PS-173 | rojo («6 ≠ 2») |
+| M4 | quitar `role?` | `tsc` | no compila: `staff-control.service.ts:81`, `sdx-c1.facts-type.spec.ts:35,44`, `sdx-d2g.units.spec.ts:226` |
+| M5 / M5b | rótulo fijo «VER MI ENVÍO» en `AV-4` / `AV-5` | unitaria | rojo 3 / 3 |
+| M6 | la línea con hueco en `AV-5` | unitaria | rojo 2 |
+| M7 | prefijo de marca en el asunto de `AV-4` | unitaria | rojo 2 |
+
+### 70.4 Decisiones y notas para otros roles
+
+1. **`ModuleRef` en `DashboardShippingService`.** `SHIPMENTS_LABEL_CLOCK` y `LABEL_VERIFY_CONFIG` son proveedores de `ShipmentsModule` que el
+   módulo no exporta, y `shipments.module.ts` era de B-1 en este pase. Se leen con `ModuleRef.get(token, {strict:false})`: es LA
+   instancia de `ShipmentsModule` (la que las pruebas sustituyen; PS-173 lo mide con el reloj 1 h adelantado y la mutación
+   «reloj del sistema» sale roja). Alternativa más limpia cuando el fichero esté libre: exportar los dos tokens desde
+   `ShipmentsModule` e inyectarlos. ⛔ No se declaran por segunda vez en `AdminModule` (podrían divergir).
+2. **Un cuerpo para `?alert=true` (pendiente, fuera de mi columna):** `ShipmentsService.alertShipmentIds` (`shipments.service.ts`,
+   de B-1) repite la consulta ancha y el mapa de huérfanas que ahora exporta `labelAlertShipmentIds`. Hoy coinciden (PS-173 lo
+   compara contra la lista). Cuando el fichero esté libre, `alertShipmentIds` debería ser `countCarrierAlerts`-ids ∪
+   `labelAlertShipmentIds` para que el SQL ancho viva en un solo sitio.
+3. **`AV-6` (§41.2 fila 19) sigue con `TCG HUNT — `** en el asunto y `IR A MI CUENTA` (§41.4 fila 19): fuera de las notas
+   N-SDX-4/5, no tocado.
+4. **Frontend:** `workQueue.shipping.withLabelAlert` ya viene en la respuesta (F-1 lo tipa). B-4 no cambia nada del front.
