@@ -9146,3 +9146,60 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Disparador:** cualquier periodo previsto de > 45 días sin commits a `main`, o el correo de GitHub «scheduled
   workflow disabled». Dirección si se vuelve real: un monitor externo de disponibilidad (servicio nuevo ⇒ se propone
   al arquitecto antes) o un commit periódico automatizado.
+
+---
+
+## Backend · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-1/2/7)
+
+### TD-LIVE-1 · P3 · «¿Es clave live?» decidido en dos sitios
+- **Dueño:** backend.
+- **Qué es:** la misma pregunta —¿`STRIPE_SECRET_KEY` es de modo live?— se responde en dos sitios con dos
+  formas: `backend/src/modules/health/health.service.ts:26-31` (`stripeModeOf`, `startsWith` de
+  `sk_live_`/`rk_live_` tras `trim`) y `backend/src/common/crypto/pii-crypto.service.ts:103` (regex
+  `/^(sk|rk)_live_/` tras `trim`). Medido 2026-10-05 en `a047c3cb`: **hoy coinciden**; el riesgo es que diverjan
+  (p. ej. un prefijo nuevo de Stripe añadido en uno solo) y `/health` diga `live` mientras `pii-crypto` exime el
+  cifrado, o al revés.
+- **Dirección:** `stripeModeOf` pasa a un módulo compartido (en `common/`) y `pii-crypto` lo usa
+  (`stripeModeOf(k) === 'live'`). `common/` es **zona compartida** ⇒ el cambio se serializa con el orquestador.
+- **Disparador:** el próximo cambio que toque cualquiera de los dos sitios.
+- **Cómo se cierra:** un solo `grep -rn "_live_" backend/src` con una sola definición, y una prueba que asevere
+  que `pii-crypto` exige cifrado para `rk_live_…` y para `sk_live_…` (las dos ramas del compartido).
+
+### TD-LIVE-2 · ✅ CERRADA en este pase (2026-10-05) · Nada impedía `ignoreExpiration: true` fuera del refresh
+- **Dueño:** backend (`modules/auth`).
+- **Qué era:** LIVE-2 puso `ignoreExpiration: true` en el `verifyAsync` de `AuthService.refresh()`
+  (`auth.service.ts:573`) porque ahí la caducidad se comprueba a mano después del tope de sesión. Copiado a otro
+  `verifyAsync` (guard de acceso, dispositivo, `reject-authenticated`, `JwtModule`) sería aceptar tokens caducados.
+- **Cierre:** candado estático `backend/test/auth.ignore-expiration.lock.spec.ts` (AST de TypeScript sobre todo
+  `backend/src`, comentarios excluidos, forma `['ignoreExpiration']` incluida): **exactamente una** aparición, como
+  propiedad del objeto de opciones de un `*.verifyAsync(...)` dentro del método `refresh` de `AuthService`.
+  Canarios dentro de la suite (guard de acceso, corchetes, otro método, constante suelta, cero apariciones) y
+  mutación real sobre copia (`ignoreExpiration: true` añadido al `verifyAsync` de `jwt-auth.guard.ts`) ⇒ rojo
+  **3/3** (N=3, determinista). Detalle en `BACKEND_NOTES §57.8`.
+- **Lo que no cubre (aceptado):** opciones armadas por spread desde otro módulo sin nombrar la clave y un
+  `clockTolerance` enorme; ambos exigen escribir algo nuevo y visible en revisión.
+
+### TD-LIVE-3 · P3 · Amplificación de log en `POST /telemetry/csp`
+- **Dueño:** backend (`modules/health`).
+- **Qué es:** `summarizeCspReports` admite hasta `CSP_MAX_REPORTS_PER_REQUEST = 20` informes por petición
+  (`backend/src/modules/health/telemetry-report.ts:18`) y el controller escribe **una línea por informe**
+  (`telemetry.controller.ts:25-26`) con un límite de 60 peticiones/min por IP (`:23`) ⇒ hasta **1 200 líneas/min por
+  IP** desde un endpoint público. Riesgo: llenar/encarecer el log de Railway y tapar líneas útiles. Nota CGNAT: el
+  límite por IP es a la vez **demasiado laxo** para un atacante con varias IP y **demasiado estricto** para muchos
+  clientes legítimos detrás de una misma IP de operador móvil (sus informes se pierden con 429; inocuo, es telemetría).
+- **Dirección:** agregar en **una** línea los informes repetidos de una misma petición (mismos cuatro campos ⇒ una
+  entrada con contador `n`), de modo que una petición produzca ≤ (informes distintos) líneas; valorar con el
+  arquitecto un tope global (no por IP) de líneas CSP por minuto. Cambia la forma de la línea `CSP_VIOLATION`
+  (§14.7) ⇒ pasa por el arquitecto antes.
+- **Disparador:** pasar CSP a `enforce` (más informes reales) o la primera vez que el log de Railway muestre ráfagas
+  de `CSP_VIOLATION` repetidas.
+
+### TD-LIVE-4 · P3 · Discrepancia contrato ↔ código en E2-3: recorte final a 300 de `scrubClientText`
+- **Dueño:** arquitecto decide; backend ejecuta (cambio de una línea).
+- **Qué es:** `API_CONTRACT §14.15 E2-3` punto 4 dice «el resultado solo puede ser más corto o igual de largo». Con
+  la regla 2 tal cual no es cierto: un valor de < 10 caracteres crece (`sig=a` ⇒ `sig=[redacted]`). El código
+  recorta a 300 al final (`CLIENT_MESSAGE_MAX`) para mantener lo que el punto 4 quiere garantizar; está probado.
+  Medido 2026-10-05 en `a047c3cb`: el contrato **sigue** diciendo la frase original (no resuelto aún; el arquitecto
+  trabaja el contrato en paralelo en este pase — **NO MEDIDO** si lo resuelve). Detalle en `BACKEND_NOTES §57.7`.
+- **Cómo se cierra:** el arquitecto elige (a) normar el recorte final a 300 (el código ya lo hace), (b) un marcador
+  más corto, o (c) aceptar que crezca; backend alinea código y prueba si no es (a).

@@ -27221,3 +27221,20 @@ este diff que con él** (N=1 cada uno); sola, `graded-estimate` da **17/17**. Es
   forma). ⚠️ Con «quitar rutas relativas» **sola**, el oráculo literal de TLM-6 en el contrato (`no contiene abc123`)
   seguiría verde porque la regla 2 redacta `token=abc123`; muerde por la aserción extra `no contiene 'token'` y por
   la ruta seguida de ` al cargar`. Fuente restaurada y comparada byte a byte con el árbol vivo.
+
+### 57.8 Gate del techlead sobre `241d4dca` — TD-LIVE-2 construido, TD-LIVE-1/3/4 anotados (2026-10-05, sobre `a047c3cb`)
+- **TD-LIVE-2 (construido, no anotado):** `test/auth.ignore-expiration.lock.spec.ts`. Recorre todo `src/**/*.ts` con
+  el AST de TypeScript (`ts.createSourceFile`; los comentarios no cuentan, la clave entre corchetes sí) y exige
+  **exactamente una** aparición de `ignoreExpiration`, como propiedad del objeto de opciones de una llamada
+  `*.verifyAsync(...)` cuyo método envolvente es `refresh` de la clase `AuthService`. Si alguien necesita otra, la
+  necesidad pasa por revisión: el candado se cambia a propósito, no por accidente.
+- **Canarios en la propia suite** (5): copia al `verifyAsync` de `jwt-auth.guard.ts`, forma
+  `['ignoreExpiration']`, movida a otro método de `AuthService`, constante de opciones suelta, cero apariciones.
+- **Mutación real** (copia `git archive HEAD` entera + este diff, en scratchpad `be-live4`, borrada al terminar):
+  añadir `ignoreExpiration: true,` al `verifyAsync` de `src/common/guards/jwt-auth.guard.ts` ⇒ **rojo 3/3** (N=3,
+  determinista: no depende de reloj ni de orden). Fuente restaurada y comparada con `cmp` contra el árbol vivo.
+- **Anotados en `TECH_DEBT.md` (sección backend):** TD-LIVE-1 (`stripeModeOf` vs regex de `pii-crypto`; toca
+  `common/`, se serializa), TD-LIVE-3 (amplificación de `CSP_VIOLATION`: ≤ 20 líneas × 60 pet/min por IP), TD-LIVE-4
+  (la discrepancia del recorte a 300 de §57.7, para el arquitecto).
+- **Suites** (misma copia entera + este diff): unitaria **395/395 suites, 6699/6699** (antes 394/6692: +1 suite, +7
+  pruebas); `tsc --noEmit` limpio; `eslint` del fichero nuevo limpio. Sin cambios de código de producción.
