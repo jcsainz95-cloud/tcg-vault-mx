@@ -1380,6 +1380,16 @@
         "personNoCap": "{name}: {cents} · sin tope",
         "noLabels": "Nadie compró guías en las últimas 24 h.",
         "more": "y {n} más"
+      },
+      "shippingAlerts": {
+        "title": "Alertas de envíos",
+        "alerts": "{label} con alerta de guía · {carrier} con aviso de la paquetería",
+        "alertsCarrierOnly": "{carrier} con aviso de la paquetería",
+        "none": "Ningún envío con alerta.",
+        "overlap": "Un envío puede tener las dos alertas: en la lista sale una sola vez.",
+        "processing": "{n, plural, one {# guía en proceso} other {# guías en proceso}}",
+        "lowBalance": "Queda poco saldo en Skydropx: comprar guías puede fallar hasta que se recargue.",
+        "seeBalance": "Ver el saldo"
       }
     },
     "m1": {
@@ -2766,7 +2776,9 @@
         "withdrawal": "Retiro de bóveda"
       },
       "folioFilter": "Solo el envío {folio}",
-      "folioFilterRemove": "Quitar el filtro del envío {folio}"
+      "folioFilterRemove": "Quitar el filtro del envío {folio}",
+      "alertFilter": "Solo envíos con alerta de guía o aviso de la paquetería",
+      "alertFilterRemove": "Quitar el filtro de alertas"
     },
     "m5": {
       "title": "Solicitudes de venta",

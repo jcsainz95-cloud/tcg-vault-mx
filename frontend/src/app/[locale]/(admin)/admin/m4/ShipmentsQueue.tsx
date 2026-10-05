@@ -66,7 +66,16 @@ const MANUAL_TRANSITIONS: Partial<Record<ShipmentStatus, ShipmentStatus[]>> = {
  * §M4-SHIP.9/.10): quién es quién (número de pedido y COMPRADOR), búsqueda `?q=`, guía, enviado/entregado
  * con confirmación y el «Cancelar» que solo existe en `solicitado`.
  */
-export function ShipmentsQueue({ onCaptureGuide, initialFolio = null }: { onCaptureGuide: (s: AdminShipmentDTO) => void; initialFolio?: string | null }) {
+export function ShipmentsQueue({
+  onCaptureGuide,
+  initialFolio = null,
+  initialAlert = false,
+}: {
+  onCaptureGuide: (s: AdminShipmentDTO) => void;
+  initialFolio?: string | null;
+  /** §43.22.4 (FS-65/66): `?alert=true` — la unión de las dos alertas; se quita con su ✕, como el folio. */
+  initialAlert?: boolean;
+}) {
   const t = useTranslations('admin.m4');
   const ts = useTranslations('shipments');
   const tStatus = useTranslations('status.shipment');
@@ -88,9 +97,17 @@ export function ShipmentsQueue({ onCaptureGuide, initialFolio = null }: { onCapt
 
   // 🔒 S-GAS-2: `?folio=` (enlace de un aviso de retiro) filtra por igualdad exacta; se quita con su ✕.
   const [folioFilter, setFolioFilter] = useState<string | null>(initialFolio);
+  // v1.80.12.16 (§43.22.4): el filtro de alertas. ⛔ La lista no recuenta ni muestra «N de M»: la cifra es la del tablero.
+  const [alertFilter, setAlertFilter] = useState<boolean>(initialAlert);
   const shipments = useQuery({
-    queryKey: ['admin-shipments', statusFilter, q, folioFilter ?? ''],
-    queryFn: () => getAdminShipments({ status: statusFilter || undefined, q: q || undefined, folio: folioFilter ?? undefined }),
+    queryKey: ['admin-shipments', statusFilter, q, folioFilter ?? '', alertFilter],
+    queryFn: () =>
+      getAdminShipments({
+        status: statusFilter || undefined,
+        q: q || undefined,
+        folio: folioFilter ?? undefined,
+        alert: alertFilter || undefined,
+      }),
   });
 
   // --- Cambio de estado manual (contrato §M4 · PATCH /admin/shipments/:id/status) ---
@@ -176,6 +193,14 @@ export function ShipmentsQueue({ onCaptureGuide, initialFolio = null }: { onCapt
         <p className="flex items-center gap-1 text-sm text-text" data-testid="shipments-folio-filter">
           {t('folioFilter', { folio: folioFilter })}
           <Button size="sm" variant="ghost" aria-label={t('folioFilterRemove', { folio: folioFilter })} onClick={() => setFolioFilter(null)}>
+            ✕
+          </Button>
+        </p>
+      )}
+      {alertFilter && (
+        <p className="flex items-center gap-1 text-sm text-text" data-testid="shipments-alert-filter">
+          {t('alertFilter')}
+          <Button size="sm" variant="ghost" aria-label={t('alertFilterRemove')} onClick={() => setAlertFilter(false)}>
             ✕
           </Button>
         </p>

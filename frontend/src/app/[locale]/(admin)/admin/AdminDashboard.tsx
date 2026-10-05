@@ -10,7 +10,7 @@ import { formatMoneyCents, formatDate } from '@/lib/format';
 import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
-import type { SpendControlDTO } from '@/types/contract';
+import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
@@ -69,6 +69,61 @@ function SpendControlCard({ data }: { data: SpendControlDTO }) {
             </ul>
           )}
           {rest > 0 && <span>{t('more', { n: rest })}</span>}
+        </div>
+      }
+    />
+  );
+}
+
+type ShippingWorkQueue = NonNullable<DashboardDTO['workQueue']['shipping']>;
+
+const LINK_CLASS = 'underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none';
+
+/**
+ * «Alertas de envíos» (`DESIGN_SYSTEM §43.22`, contrato §19.13 + §19.35.5 fila 1). La MISMA tarjeta para los dos roles,
+ * salvo «Ver el saldo» (Configuración es solo de súper-admin).
+ * - ⛔ GAS-4: cada cifra tal cual del DTO; ⛔ la pantalla no las suma (un envío con las dos alertas cuenta en las dos,
+ *   y la lista de `?alert=true` es la UNIÓN: por eso la nota «sale una sola vez»).
+ * - `withLabelAlert` ausente (servidor sin B-3) ⇒ «—» y la línea solo de la paquetería; ⛔ nunca `NaN` ni un `0` inventado.
+ * - `lowBalance`: SOLO `true` pinta la línea (`null` = proveedor apagado o sin respuesta ⇒ nada). ⛔ Jamás la cifra del
+ *   saldo, para ningún rol: si un servidor la mandara de más, aquí no se lee.
+ */
+function ShippingAlertsCard({ data, isSuperAdmin }: { data: ShippingWorkQueue; isSuperAdmin: boolean }) {
+  const t = useTranslations('admin.dashboard.shippingAlerts');
+  const label = Number.isFinite(data.withLabelAlert) ? data.withLabelAlert : null;
+  const carrier = data.withCarrierAlert;
+  const anyAlert = (label ?? 0) > 0 || carrier > 0;
+  const href = '/admin/m4?tab=envios&alert=true';
+  return (
+    <StatCard
+      label={t('title')}
+      // Bermellón SOLO la cifra de guía > 0 (la que tiene saldo de por medio, §43.22.2).
+      className={label !== null && label > 0 ? '[&_span.tabular]:text-accent' : undefined}
+      value={<span data-testid="dashboard-shipping-alerts-value">{label ?? '—'}</span>}
+      sub={
+        <div className="flex flex-col gap-1" data-testid="dashboard-shipping-alerts">
+          {!anyAlert ? (
+            <span>{t('none')}</span>
+          ) : (
+            <Link href={href} className={LINK_CLASS}>
+              {label === null ? t('alertsCarrierOnly', { carrier }) : t('alerts', { label, carrier })}
+            </Link>
+          )}
+          {label !== null && label > 0 && carrier > 0 && <span>{t('overlap')}</span>}
+          {data.labelProcessing > 0 && <span>{t('processing', { n: data.labelProcessing })}</span>}
+          {data.lowBalance === true && (
+            <span className="text-accent" data-testid="dashboard-shipping-low-balance">
+              {t('lowBalance')}
+              {isSuperAdmin && (
+                <>
+                  {' · '}
+                  <Link href="/admin/m10#envios-skydropx" className={LINK_CLASS}>
+                    {t('seeBalance')}
+                  </Link>
+                </>
+              )}
+            </span>
+          )}
         </div>
       }
     />
@@ -223,6 +278,10 @@ export function AdminDashboard() {
                   </span>
                 }
               />
+            )}
+            {/* v1.80.12.16 (§43.22.1): los DOS roles; `shipping` ausente o `null` (servidor anterior) ⇒ la tarjeta NO existe. */}
+            {query.data.workQueue.shipping && (
+              <ShippingAlertsCard data={query.data.workQueue.shipping} isSuperAdmin={isSuperAdmin} />
             )}
             {/* v1.80.2 (§37.11b): solo súper-admin; `null` (operador) ⇒ la tarjeta NO existe (S6). */}
             {isSuperAdmin && query.data.workQueue.manualRefunds && (

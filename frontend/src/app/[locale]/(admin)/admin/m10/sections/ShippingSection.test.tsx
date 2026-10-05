@@ -125,3 +125,11 @@ describe('tierErrors (función pura)', () => {
     expect(tierErrors([{ coverage: '100', cost: '1', measuredAt: 'x' }, { coverage: '100', cost: '1', measuredAt: 'x' }])).toEqual({ 1: { coverage: 'notIncreasing' } });
   });
 });
+
+describe('FS-67 (`DESIGN_SYSTEM §43.22.3`) · el ancla de «Ver el saldo»', () => {
+  it('la sección de envíos lleva `id="envios-skydropx"`', async () => {
+    renderWithProviders(<ShippingSection />, 'es');
+    const section = await screen.findByTestId('shipping-section');
+    expect(section).toHaveAttribute('id', 'envios-skydropx');
+  });
+});

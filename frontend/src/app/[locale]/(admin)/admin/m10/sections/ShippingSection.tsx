@@ -75,8 +75,17 @@ export function ShippingSection() {
   const balance = useQuery({ queryKey: ['shipping-balance'], queryFn: getShippingBalance, enabled: available, retry: false });
   const catalogs = useQuery({ queryKey: ['shipping-catalogs'], queryFn: getShippingCatalogs, enabled: available, retry: false });
 
+  // §43.22.3 (FS-67): «Ver el saldo» del tablero llega a `/admin/m10#envios-skydropx`. La sección se monta después de
+  // que la página carga, así que el salto nativo del navegador puede no encontrarla: se hace a mano al montar
+  // (`?.` porque jsdom no implementa `scrollIntoView`; el patrón de `AccountView`).
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.location.hash !== '#envios-skydropx') return;
+    sectionRef.current?.scrollIntoView?.({ block: 'start' });
+  }, []);
+
   return (
-    <section className="flex flex-col gap-4" data-testid="shipping-section">
+    <section ref={sectionRef} id="envios-skydropx" className="flex flex-col gap-4" data-testid="shipping-section">
       <div className="flex flex-col gap-1">
         <h2 className="text-h2 font-semibold">{t('title')}</h2>
         <p className="text-sm text-muted">{t('subtitle')}</p>

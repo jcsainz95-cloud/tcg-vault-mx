@@ -27,3 +27,13 @@ export function parseFolio(v: string | string[] | undefined): string | null {
   const one = Array.isArray(v) ? v[0] : v;
   return one && /^ENV-\d{6,}$/.test(one) ? one : null;
 }
+
+/**
+ * v1.80.12.16 (`DESIGN_SYSTEM §43.22.4`, FS-65): `?alert=true` — el enlace de «Alertas de envíos» del tablero abre
+ * «Envíos» filtrado por la unión de las dos alertas. Solo el literal `'true'` activa (el dominio del servidor es `true`;
+ * `false` sería `400`): cualquier otro valor o ausente ⇒ sin filtro.
+ */
+export function parseAlert(v: string | string[] | undefined): boolean {
+  const one = Array.isArray(v) ? v[0] : v;
+  return one === 'true';
+}

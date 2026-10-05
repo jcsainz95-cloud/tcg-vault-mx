@@ -1629,6 +1629,8 @@ export interface AdminShipmentsFilters {
   q?: string;
   /** 🔒 v1.80.12.10 (§19.30.8 S-GAS-2): igualdad exacta `^ENV-\d{6,}$` (el enlace de un aviso de retiro). */
   folio?: string;
+  /** v1.80.12.13 (§19.3, §19.20.2; §0-Q clase L, dominio `true`): la UNIÓN `carrierAlert ≠ null ∨ labelAlert ≠ null`. */
+  alert?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -1637,23 +1639,39 @@ export interface AdminShipmentsFilters {
  * COLA ADMIN de envíos de CLIENTES (contrato §M4 · GET /admin/shipments, `vault_operator+`).
  * Distinta de getShipments() (los envíos del PROPIO usuario). Paginada; filtros `?status=` y `?q=`.
  */
+/**
+ * MOCK §M4-SHIP.10: cada fila gana `customer`, `preparedAt`, `missingCount`… del servidor falso vivo, y su `status` es
+ * el vivo (el preparado puede haberla cerrado). MOCK §M4-SHIP.19.20: y las piezas de Skydropx (guía, alerta, compra
+ * pendiente). ⭐ Una fuente para la lista y para `workQueue.shipping` del tablero (§19.35.5: «el MISMO cuerpo»).
+ */
+function mockLiveAdminShipments(): AdminShipmentDTO[] {
+  return fx.mockAdminShipments.map((s) => {
+    const live = m4ship.mockShipStatusOf(s.id);
+    return sdx.mockDecorateAdminShipment({ ...s, ...(m4ship.mockShipAdminAdditions(s.id) ?? {}), ...(live ? { status: live } : {}) });
+  });
+}
+
 export async function getAdminShipments(
   filters: AdminShipmentsFilters = {},
 ): Promise<Paginated<AdminShipmentDTO>> {
   if (!config.useMocks) {
     return apiRequest<Paginated<AdminShipmentDTO>>('/admin/shipments', {
-      query: { status: filters.status, q: filters.q?.trim() || undefined, folio: filters.folio, page: filters.page, pageSize: filters.pageSize },
+      query: {
+        status: filters.status,
+        q: filters.q?.trim() || undefined,
+        folio: filters.folio,
+        // ⛔ solo `'true'`: `false` es `400` en el servidor (dominio `true`, como `refundReview`).
+        alert: filters.alert ? 'true' : undefined,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
     });
   }
-  // MOCK §M4-SHIP.10: cada fila gana `customer`, `preparedAt`, `missingCount`… del servidor falso vivo,
-  // y su `status` es el vivo (el preparado puede haberla cerrado).
-  let data = fx.mockAdminShipments.map((s) => {
-    const live = m4ship.mockShipStatusOf(s.id);
-    // MOCK §M4-SHIP.19.20: y las piezas de Skydropx (guía, alerta, compra pendiente) del servidor falso.
-    return sdx.mockDecorateAdminShipment({ ...s, ...(m4ship.mockShipAdminAdditions(s.id) ?? {}), ...(live ? { status: live } : {}) });
-  });
+  let data = mockLiveAdminShipments();
   if (filters.status) data = data.filter((s) => s.status === filters.status);
   if (filters.folio) data = data.filter((s) => s.folio === filters.folio);
+  // MOCK §19.20.2: `?alert=true` = la UNIÓN de las dos alertas, sobre las MISMAS filas decoradas que ve la lista.
+  if (filters.alert) data = data.filter((s) => s.carrierAlert != null || s.labelAlert != null);
   const q = filters.q?.trim().toLowerCase();
   if (q) {
     data = data.filter((s) =>
@@ -3524,6 +3542,16 @@ export async function changePassword(input: ChangePasswordRequest): Promise<Chan
 }
 
 // ---------- Admin ----------
+function mockShippingWorkQueue(): NonNullable<DashboardDTO['workQueue']['shipping']> {
+  const rows = mockLiveAdminShipments();
+  return {
+    lowBalance: sdx.mockShippingBalance().lowBalance,
+    withCarrierAlert: rows.filter((r) => r.carrierAlert != null).length,
+    withLabelAlert: rows.filter((r) => r.labelAlert != null).length,
+    labelProcessing: rows.filter((r) => r.labelPending != null).length,
+  };
+}
+
 export async function getDashboard(): Promise<DashboardDTO> {
   if (!config.useMocks) return apiRequest<DashboardDTO>('/admin/dashboard');
   // MOCK §M4-SHIP.11/.17.5: `toPrepare` (con bóveda y «Por reponer»), `manualRefunds` y
@@ -3548,6 +3576,9 @@ export async function getDashboard(): Promise<DashboardDTO> {
       refundReviews: m4ship.mockRefundReviewsCounter(),
       // MOCK §19.29.9 (D2f): «Control del gasto» (`null` para el operador ⇒ la tarjeta no existe, GAS-1).
       spendControl: spendMock.mockSpendControl(),
+      // MOCK §19.13 + §19.35.5 (D2f/B-3): «Alertas de envíos», los dos roles; cuenta sobre las MISMAS filas que
+      // `GET /admin/shipments` (⛔ ningún umbral propio). `lowBalance` sin la cifra (T.11).
+      shipping: mockShippingWorkQueue(),
     },
   });
 }

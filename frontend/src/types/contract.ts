@@ -3085,6 +3085,14 @@ export interface DashboardDTO {
      * `labelSpend24h` = las 24 h MÓVILES de TG-1 (se rotula «últimas 24 h», ⛔ nunca «hoy»); `capCents: null` ⇔ el dueño.
      */
     spendControl?: SpendControlDTO | null;
+    /**
+     * v1.80.12.16 (§M4-SHIP.19.13 + §19.35.5 fila 1, F-1): «Alertas de envíos», los DOS roles. Opcional: un servidor
+     * anterior no la manda ⇒ la tarjeta no existe. `lowBalance: null` ⇔ proveedor `off` o Skydropx sin respuesta.
+     * `withLabelAlert` = envíos con `labelAlert ≠ null` (el mismo cuerpo que el DTO); `withCarrierAlert` =
+     * `carrierAlertActive`; `labelProcessing` = `labelPending ≠ null`. ⛔ Nunca trae la cifra del saldo (T.11).
+     * La tarjeta lee `withLabelAlert` con `Number.isFinite`: un servidor con D2f y sin B-3 no lo manda (§43.22.2 ⇒ «—»).
+     */
+    shipping?: { lowBalance: boolean | null; withCarrierAlert: number; withLabelAlert: number; labelProcessing: number } | null;
   };
   inventoryValueCents?: number;
   custodyValueCents?: number;

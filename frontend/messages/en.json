@@ -1380,6 +1380,16 @@
         "personNoCap": "{name}: {cents} · no limit",
         "noLabels": "Nobody bought labels in the last 24 h.",
         "more": "and {n} more"
+      },
+      "shippingAlerts": {
+        "title": "Shipping alerts",
+        "alerts": "{label} with a label alert · {carrier} with a carrier alert",
+        "alertsCarrierOnly": "{carrier} with a carrier alert",
+        "none": "No shipments with alerts.",
+        "overlap": "A shipment can have both alerts: it shows up once in the list.",
+        "processing": "{n, plural, one {# label in progress} other {# labels in progress}}",
+        "lowBalance": "Skydropx balance is low: buying labels may fail until it's topped up.",
+        "seeBalance": "See the balance"
       }
     },
     "m1": {
@@ -2766,7 +2776,9 @@
         "withdrawal": "Vault withdrawal"
       },
       "folioFilter": "Only shipment {folio}",
-      "folioFilterRemove": "Remove the shipment {folio} filter"
+      "folioFilterRemove": "Remove the shipment {folio} filter",
+      "alertFilter": "Only shipments with a label alert or a carrier alert",
+      "alertFilterRemove": "Remove the alerts filter"
     },
     "m5": {
       "title": "Sell requests",
