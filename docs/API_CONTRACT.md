@@ -2,9 +2,31 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.83.1** sobre la rev
-> **v1.83**, stream «precio del sellado», rama `claude/precio-sellado`; antes: rev **v1.80.10**; errata **v1.80.9.1** al
-> stream «staff sin correo»).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (errata **v1.83.2** y **v1.83.1**
+> sobre la rev **v1.83**, stream «precio del sellado», rama `claude/precio-sellado`; antes: rev **v1.80.10**; errata
+> **v1.80.9.1** al stream «staff sin correo»).
+>
+> **Errata v1.83.2 — RESPUESTAS A LAS SEIS PREGUNTAS DE BACKEND (`BACKEND_NOTES §57.8`) Y CIERRE DE LO QUE LE FALTA A
+> SP-F (2026-10-05, arquitecto, rama `claude/precio-sellado` en `/home/user/tcg-sellado`, HEAD dado por el orquestador
+> `eb36e388`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M11-SP.13](#M11-SP-13)**. Porqué:
+> `ARCHITECTURE §4.62.9`. ⛔ Sin migración nueva (`M-71` sin cambio), sin enum nuevo, sin código de error nuevo.
+>
+> | # | Pregunta | Decisión | ¿Cambia conducta construida? | Construye · cuándo |
+> |---|---|---|---|---|
+> | **Q-1** | Carpeta de `M-71` | **`20261021120000_m71_sealed_product_owner_display_price`** (la de SP.12.12; existe, medido con `Glob`). El nombre `…_owner_price` de la rev v1.83 queda retirado | No | nadie |
+> | **Q-2** | 💰 Doble clic y `autoPublish` | El paso 2 no escribe **nada** en la tx; el disparo post-commit de SP.12.6 **sí corre**. `autoPublish: null ⇔ el intento lanzó` sin excepción. El segundo clic es además el **reintento** del dueño si el primero dio `null` | No (se norma lo construido) | backend: prueba **SP-16b** · ya, en esta rama |
+> | **Q-3** | Diales de la bitácora | Se leen en la **misma petición, justo antes** de abrir la tx. ⛔ Sin `getIvaDials(db)` en `settings` | No (se norma lo construido; cambia el texto de SP.12.4) | nadie |
+> | **Q-4** | 💰 Export `.xlsx` | ⛔ Ni `L` equivalente ni `P` en la columna de `L`. La columna 17 se rotula **«Precio venta antes de IVA MXN»** y queda **vacía** cuando manda el precio del producto; columna **18 nueva «Precio del producto con IVA MXN»** = lo que tecleó el dueño, exacto. El export deja de leer diales | **Sí** (forma del `.xlsx`) | backend · ya, en esta rama (prueba **SP-20**) |
+> | **Q-5** | `sealedProductId` en raw/graded del listado | Ausente en raw/graded, como construido. El front decide por **`productType`** primero, ⛔ nunca por la presencia de la clave | No | frontend (SP-F) |
+> | **Q-6** | «encontrada» sin `sealedProductId` | ⛔ No se declara. La fila «ligado ⇒ `422`» de SP.4 para ese escritor se sustituye por «n/a: entra sin producto»; la llamada a la regla **se queda** | No (texto + una prueba) | backend: fila de **SP-9** · ya, en esta rama |
+> | **A-5** | `sealedProductId` en `GET …/items/:id` | **Ya viaja** (`toAdminInventoryItemRow`, `inventory.service.ts:696`, vía `getItem` `:2819`/`:2823`; leído 2026-10-05). Se **declara**: `string \| null` en **toda** fila (raw/graded `null`). La prop provisional de `DESIGN_SYSTEM §70.3 (c)` deja de hacer falta | No | frontend (SP-F) |
+> | **A-3** | `?attention=true` en la hoja | **Aplazada** (no bloquea; la hoja ya marca esas filas) | — | — |
+>
+> - **SP-F (frontend):** el contrato que consume la pantalla de `DESIGN_SYSTEM §70` está **completo**; las precisiones
+>   que faltaban (cuentas a cero ≠ `null`, `market` nunca `pending`, el `expected` en panel/cola, `400` del cuerpo) en
+>   [§M11-SP.13.7](#M11-SP-13).
+> - **Preguntas al dueño:** ninguna. **Aviso** para la solicitud de fusión: la hoja `.xlsx` del inventario cambia de
+>   columnas (Q-4).
 >
 > **Errata v1.83.1 — 💰 EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO **CON IVA** (2026-10-05, arquitecto, rama
 > `claude/precio-sellado` en `/home/user/tcg-sellado`, HEAD dado por el orquestador `8a64f27f`; ⛔ sha NO MEDIDO por el
@@ -38,7 +60,8 @@
 > lo leyó** el arquitecto (sin Bash); HECHOS:50 dice que queda respondida, y esta rev sigue a HECHOS.
 > **Numeración elegida para no chocar:** Skydropx usa v1.80.11…v1.81.x, §4.60 y `M-64`…`M-69`; el panel usa v1.82, §4.61
 > y `M-70` (`20261020120000_m70_panel_refunds`, medido con `Glob` en `/home/user/tcg-panel`). Aquí: **v1.83**, **§4.62**,
-> **`M-71`** con carpeta `20261021120000_m71_sealed_product_owner_price` (fecha posterior a las dos).
+> **`M-71`** con carpeta ~~`20261021120000_m71_sealed_product_owner_price`~~ (fecha posterior a las dos) — ⛔ **v1.83.2
+> (Q-1):** la carpeta es **`20261021120000_m71_sealed_product_owner_display_price`** (SP.12.12).
 >
 > | # | Pieza | Decisión | ¿Rompe algo construido? | Construye |
 > |---|---|---|---|---|
@@ -13696,6 +13719,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     de COMPRA manual (`VariantPriceOverride.buyOverrideCents`, sin recomputar la regla del cotizador); Precio venta =
     `listPriceCents` por pieza o, en su defecto, `sellOverrideCents` (sin derivar mercado×markup). **Regla dura: sin
     dato ⇒ celda VACÍA, nunca `0`** (`centsToMxn(null) = null`). Consultas EN LOTE (sin N+1).
+  - 💰 **v1.83.2 (Q-4, [§M11-SP.13.4](#M11-SP-13)) — SUSTITUYE la columna «Precio venta MXN»:** la 17 se rotula
+    **«Precio venta antes de IVA MXN»** y se añade la **18 «Precio del producto con IVA MXN»**. Ambas siguen siendo
+    STORED. Con `m = manualSaleOf(item)`: col 17 = `m.listCents` si `m.origin = 'piece'`; vacía si `m.origin =
+    'product'`; si `m = null`, `sellOverrideCents` como hoy (o vacía). Col 18 = `m.displayCents` si `m.origin =
+    'product'`; si no, vacía. ⛔ El export no lee diales ni deriva `L` ni `P`.
   - Res `200` **binario**: `Content-Type:
     application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
     `Content-Disposition: attachment; filename="inventario-YYYY-MM-DD.xlsx"` (+ `Content-Length`). El controller usa
@@ -29665,7 +29693,7 @@ alta **sin precio**. Antecedente: `HECHOS.md:38` (b) y lo construido en #69 (`Se
 |---|---|---|---|
 | `POST …/items` (`CreateItemDto.listPriceCents`) | **`422 SEALED_PRICE_IS_PER_PRODUCT`** | dueño ⇒ como hoy; otro ⇒ **`403 FORBIDDEN`** | sin cambio |
 | `POST …/items/batch` (línea) | `422` — **el lote entero**, nada creado | ídem, lote entero | sin cambio |
-| `POST …/adjustments` (línea «encontrada») | `422` | ídem | sin cambio |
+| `POST …/adjustments` (línea «encontrada») | ~~`422`~~ **v1.83.2 (Q-6): n/a** — `AdjustmentFoundItemInput` no declara `sealedProductId` (el pipe lo descarta): todo sellado «encontrado» entra **sin producto** | ídem | sin cambio |
 | `POST …/bulk-publish` (línea con `listPriceCents`) | `422` | ídem | sin cambio |
 | `PATCH …/items/:id` (`listPriceCents`) | `422` (también el dueño) | dueño ⇒ §M1-SFP (allowlist, CAS, bitácora); otro ⇒ `403` | **sin cambio** (P-PRE-1: operador incluido) |
 | `CreateItemDto.manualMarketMxnCents` (sellado) | dueño ⇒ como hoy; otro ⇒ `403` (**`HECHOS.md:51` (1)**, antes default de P-SP-1) | n/a (exige producto, `:806`) | n/a |
@@ -29950,7 +29978,8 @@ voy a meter con iva». Solicitudes: `DESIGN_SYSTEM §70.8`. Porqué: `ARCHITECTU
   - Req: `{ displayPriceCents: number /* P, entero 1…100_000_000 */, expectedDisplayPriceCents: number | null }`.
   - `409 CONFLICT` `details: { currentDisplayPriceCents: number | null }`.
   - Bitácora `sealed_product.sale_price_set`: `before: { ownerDisplayPriceCents }`, `after: { ownerDisplayPriceCents,
-    pieces: { inStock, listed, reserved }, ivaDials: { ivaTransferPct, ivaRatePct } }` (diales leídos en la tx: con ellos
+    pieces: { inStock, listed, reserved }, ivaDials: { ivaTransferPct, ivaRatePct } }` (~~diales leídos en la tx~~
+    **v1.83.2 (Q-3): diales leídos en la misma petición, justo antes de abrir la tx**, [SP.13.3](#M11-SP-13): con ellos
     se reconstruye el `L` equivalente del momento).
   - Res `200`: `{ data: SealedPriceSheetRowDTO, autoPublish: SealedAutoPublishDTO | null }` (12.6). Mecánica, CAS,
     idempotencia (paso 2, ahora sobre `ownerDisplayPriceCents`), cierre de la cola (paso 5) y errores: los de SP.2.
@@ -30011,6 +30040,8 @@ voy a meter con iva». Solicitudes: `DESIGN_SYSTEM §70.8`. Porqué: `ARCHITECTU
   `PublishReevaluationResult.outcome` (`published`; `missing_location`; el resto). **`null` ⇔ el intento lanzó** (se
   registra en log): el precio **ya está** confirmado y las piezas siguen en «Listas para publicar», que es la red. La
   fila `data` se relee **después** del intento.
+- **v1.83.2 (Q-2):** el disparo corre **también** en el `200` idempotente del paso 2 (doble clic), que sigue sin escribir
+  nada en la tx. [SP.13.2](#M11-SP-13).
 - ⛔ El «Guardar y publicar» de #69 desaparece para la pieza **ligada**: un solo «Guardar», y lo publicable se publica
   solo. (Pieza sin producto: sin cambio, 12.11.)
 - **Prueba SP-16** (abajo). Carrera con el checkout: la de siempre de `claimListed` (CAS por conjunto de origen).
@@ -30023,7 +30054,9 @@ voy a meter con iva». Solicitudes: `DESIGN_SYSTEM §70.8`. Porqué: `ARCHITECTU
   y la fila es de las de S-2 (`platform ∧ in_stock|listed`) en el listado, o cualquier fila ligada de la cola. **Misma
   definición y misma función de agregación** que `SealedPriceSheetRowDTO.pieces` (plataforma, ligadas a ese producto;
   ⛔ contar las filas de la página): un `groupBy (sealedProductId, status)` por página sobre los ids distintos.
-- ⛔ `GET …/items/:id` sin cambio.
+- ⛔ `GET …/items/:id` sin cambio. *(v1.83.2, A-5: sin cambio de conducta, pero su `sealedProductId` —que ya viaja— se
+  **declara**: [SP.13.6](#M11-SP-13).)*
+- *(v1.83.2, Q-5: qué espera el front de la ausencia en raw/graded — [SP.13.5](#M11-SP-13).)*
 
 **12.8 · A-4 — unidad de `appliedSpreadPct`.** La **misma** que `SealedSpreadsDTO` (`API_CONTRACT §DTOs`, `SealedSpreadsDTO`;
 `types/contract.ts:4663-4665`): **puntos porcentuales de markup sobre el mercado**, `22` ⇒ `L = round(mercado × 1.22)`
@@ -30109,6 +30142,139 @@ cambio (`vault_operator+` ve costo y margen); (3) esta errata.
 | **product-owner** | Reconciliar `PROJECT §X.2` con `HECHOS.md:49` (12.10) | `PROJECT §X.2` |
 | **QA** | SP-1, -2, -5, -7, -10, -12, -15…-19; F-SP-2, -7, -8; recorrido O-4: el dueño escribe MX$7.00 en la hoja ⇒ la ficha pública dice MX$7.00 ⇒ un cliente paga MX$7.00 (`OrderItem` y PI) ⇒ una pieza en caja con ubicación del producto quedó publicada sola | build |
 | **orquestador** | En la solicitud de fusión: N-1 (12.9), N-2 (12.10), el valor de los diales en producción (e1, NO MEDIDO) y el conteo de legado de SP.7 antes de desplegar | fusión |
+
+<a id="M11-SP-13"></a>**SP.13 · Errata v1.83.2 (2026-10-05, NORMATIVA, 💰) — respuestas a `BACKEND_NOTES §57.8` (Q-1…Q-6) y lo que le
+falta a SP-F.** Porqué: `ARCHITECTURE §4.62.9`. Donde SP.1–SP.12 digan otra cosa, **manda SP.13**.
+
+> **Lo medido por el arquitecto (lectura de ficheros en `/home/user/tcg-sellado`, 2026-10-05; HEAD dado por el orquestador
+> `eb36e388`, ⛔ sha NO MEDIDO: sin Bash):**
+> - (q1) `Glob backend/prisma/migrations/2026102*/*` ⇒ una sola carpeta:
+>   `20261021120000_m71_sealed_product_owner_display_price/migration.sql`.
+> - (q2) `inventory/sealed-price.service.ts`: diales leídos en `:317`, **antes** del `$transaction` de `:318`; paso 2 en
+>   `:327` (`return` dentro de la tx, sin escribir); disparo post-commit en `:368` **fuera** de la tx, corre en los dos
+>   caminos; `autoPublishAfterPrice` (`:380-402`) devuelve `{0,0,0}` si no hay piezas `in_stock` y `null` solo en el
+>   `catch`. La fila de respuesta se calcula con **otra** lectura de diales (`:375`).
+> - (q3) `inventory.service.ts:3861-3866`: el export lee `getIvaDials` y escribe el `L` equivalente del precio del dueño
+>   en «Precio venta MXN» (`INVENTORY_EXPORT_COLUMNS`, `:624`). La norma del export (§M1, «Money-safe: STORED, sin
+>   derivar») no lo admite.
+> - (q4) `dto/inventory.dto.ts:268-286`: `AdjustmentFoundItemInput` sin `sealedProductId` ni `manualMarketMxnCents`.
+> - (q5) Listado: `sealedProductId` solo si `productType = 'sealed'` (`inventory.service.ts:2712-2714`); cola: ídem
+>   (`:2189-2197`). Detalle: `getItem` (`:2795-2824`) proyecta `toAdminInventoryItemRow` (`:640-700`), que lleva
+>   `sealedProductId` (`:696`) en **toda** fila.
+> - (q6) Frontend: `Grep sealedProductId frontend/src` ⇒ ningún consumidor de `InventoryItemDTO.sealedProductId` ni de la
+>   del detalle (usos en `HoldingDTO`, la cola de M2, M4 y el alta; `types/contract.ts:892`, `:4405`, `:3591`).
+> - (q7) `SetSealedSalePriceDto` (`dto/inventory.dto.ts:403-410`): `expectedDisplayPriceCents` **obligatorio** (ausente ⇒
+>   `400 VALIDATION_ERROR`), `null` admitido; los dos enteros `1…100_000_000`.
+
+**13.1 · Q-1 — carpeta de `M-71`.** **`prisma/migrations/20261021120000_m71_sealed_product_owner_display_price/`** (q1).
+La de la cabecera de v1.83 y SP.7 (`…_owner_price`) queda retirada. Sin cambio.
+
+**13.2 · 💰 Q-2 — doble clic: no escribe, pero dispara.** Se norma lo construido (q2):
+- **Paso 2** (`displayPriceCents = expectedDisplayPriceCents = actual`): ⛔ ni precio, ni bitácora, ni cierre de la cola
+  (el primer clic ya los hizo). `200`.
+- **El disparo de 12.6 corre igual** después de la tx (idempotente: `reevaluateForPublication` no publica lo ya
+  publicado). `autoPublish` lleva las cuentas de **este** intento; `null ⇔ este intento lanzó`, sin excepción.
+- *Por qué:* (1) la regla de 12.6 no tiene casos especiales y el front no tiene que distinguir «doble clic» de «guardado»;
+  (2) si el primer clic dio `autoPublish: null`, **volver a guardar el mismo precio es el reintento** del dueño, sin
+  pantalla nueva; (3) lo que no se escribe es lo que dejaría huella doble (bitácora); publicar es idempotente.
+- Cuentas a cero ≠ `null`: `{ published: 0, missingLocation: 0, notPublished: 0 }` = «no había piezas en caja».
+
+**13.3 · Q-3 — diales de la bitácora: en la petición, antes de la tx.** Vale lo construido (q2). ⛔ Sin
+`getIvaDials(db)` en `settings`.
+- `after.ivaDials` = los diales **leídos en la misma petición, justo antes de abrir la tx**. Sirven para reconstruir el
+  `L` equivalente del momento: un derivado **informativo**. Lo que se cobra es `P` (la columna); cada orden congela sus
+  propios diales por fila. Si un dial cambia en los milisegundos entre la lectura y el commit, la bitácora guarda los
+  de un instante antes: el error cae en una reconstrucción informativa, ⛔ nunca en dinero.
+- Leerlos **dentro** pediría una segunda conexión (clase I1) o una firma nueva en `settings`, zona de otro stream
+  («Cuentas y acceso»), para nada que cambie una cifra cobrada.
+- La fila `data` de la respuesta puede usar otra lectura (q2): es la hoja, informativa como la hoja.
+
+**13.4 · 💰 Q-4 — export `.xlsx`: dos columnas STORED, una por escala.** Sustituye lo construido (q3).
+- El dueño escribe el precio **con IVA** (`HECHOS.md:51` (3), «yo lo voy a meter con iva»). Si teclea MX$1,450.00 y su
+  hoja dice MX$1,250.00 bajo «Precio venta», la hoja le miente. Y la norma del export es **STORED, sin derivar** (§M1):
+  el `L` equivalente es un derivado que depende del dial.
+- **Columnas** (`INVENTORY_EXPORT_COLUMNS`): la 17 pasa a **«Precio venta antes de IVA MXN»** (la escala que siempre
+  tuvo); se añade la **18 «Precio del producto con IVA MXN»** (`width` 22). Con `m = manualSaleOf(item)` (un solo
+  camino):
+
+  | Pieza | Col 17 (antes de IVA) | Col 18 (con IVA) |
+  |---|---|---|
+  | `m.origin = 'product'` (incluida la pieza con legado **sombreado**) | **vacía** | `m.displayCents` (lo tecleado, exacto) |
+  | `m.origin = 'piece'` (raw/graded, sellado sin producto, sellado ligado cuyo producto no tiene precio) | `m.listCents` | vacía |
+  | `m = null` | `sellOverrideCents` como hoy, o vacía | vacía |
+
+- ⛔ El export **no** lee diales (se retira la lectura de `:3864-3866`) ni deriva `L` ni `P`. Sin dato ⇒ celda vacía.
+- Es el precio **vigente**, también en piezas vendidas (igual que la col 17 hoy): lo cobrado vive en el pedido.
+- Que `sellOverrideCents` esté en escala `L`: **NO MEDIDO** por el arquitecto; backend lo confirma en SP-20 (si no lo
+  está, lo reporta y no se rotula).
+- **Aviso** (no pregunta) para la solicitud de fusión: si el dueño usa fórmulas sobre la hoja exportada, la columna 17
+  cambia de nombre y hay una 18. Si las usa: **NO MEDIDO**.
+
+**13.5 · Q-5 — `sealedProductId` en el listado: qué espera el front.** Lo construido es 12.7 (q5); sin cambio.
+- Antes viajaba en toda fila por ser un *spread* de la fila de Prisma, **sin estar declarado** en `InventoryItemDTO`
+  (`types/contract.ts:2606-2643`) y **sin consumidor** (q6) ⇒ quitarlo de raw/graded no rompe nada medido.
+- **Regla del front:** se decide por `productType` **primero**. `productType = 'sealed'` ⇒ la clave está siempre:
+  `string` = ligada, `null` = sin producto. Raw/graded ⇒ la clave **no** se lee. ⛔ «Clave ausente» no significa «sin
+  producto», ni «servidor anterior» con este servidor: en sellado no ocurre. Los mocks/fixtures de raw/graded del listado
+  no la llevan.
+- `sealedProductPieces`, `sealedProductDisplayPriceCents`, `resolvedDisplayPriceCents` y `sealedPriceOrigin` siguen con
+  sus condiciones (12.4, 12.7): las cuatro solo en filas S-2 del listado (`platform ∧ in_stock|listed`) y en filas
+  `sealed` de la cola.
+
+**13.6 · A-5 — `sealedProductId` en `GET /admin/inventory/items/:id`: ya viaja; se declara.** (q5)
+- `sealedProductId: string | null` **en toda fila** (raw/graded `null`, porque el detalle pasa por la lista blanca
+  `toAdminInventoryItemRow`). ⛔ Sin cambio de backend. La asimetría con el listado (allí ausente en raw/graded) es
+  inocua por la regla de 13.5: el front decide por `productType`.
+- El detalle **no** trae `sealedPriceOrigin` ni `resolvedDisplayPriceCents` (sin cambio). En `ItemDetailModal`, sellado
+  ligado ⇒ «Lo fija el producto», ⛔ sin `ManualPriceBadge` y ⛔ sin deducir «a mano» de `listPriceCents`.
+- La prop provisional `sealedProductId?` de `DESIGN_SYSTEM §70.3 (c)` deja de hacer falta: el modal lee el del detalle.
+
+**13.7 · SP-F — el contrato de la pantalla de `DESIGN_SYSTEM §70`, completo.** Revisado contra §70.2–§70.3 y
+SP-F-1…SP-F-12. ⛔ Ningún endpoint ni campo nuevo; estas son las precisiones:
+- **`GET …/sealed-price-sheet`**: `SealedPriceSheetResponse = { data, page, pageSize, total, unlinkedCount, canEdit,
+  iva: { ratePct, transferPct } }` (SP.5 + 12.4). `market` es `null` o una referencia `status: 'priced'`, ⛔ nunca
+  `pending`. Con `scope=all`, un producto sin piezas trae `pieces {0,0,0}` y `cost` todo `null` con `withoutCost 0`.
+  `q` busca en el **nombre del producto**. `pageSize` ≤ 100 (la hoja usa 50).
+- **`PUT …/sealed-products/:id/sale-price`**: cuerpo `{ displayPriceCents, expectedDisplayPriceCents }`, los **dos
+  obligatorios** (`expectedDisplayPriceCents: null` = «no tenía»; ausente ⇒ `400 VALIDATION_ERROR`, q7). Respuestas:
+  `200 { data: SealedPriceSheetRowDTO, autoPublish: SealedAutoPublishDTO | null }` (cuentas a cero ≠ `null`, 13.2);
+  `400 VALIDATION_ERROR`; `401`; `403 FORBIDDEN`; `404 NOT_FOUND`; `409 CONFLICT { currentDisplayPriceCents: number |
+  null }`. Un `PUT` con el mismo número pero `expected` viejo **es** `409` (nadie cambia un precio que no vio).
+- **`expected` en panel y cola** (SP-F-9, SP-F-10): `sealedProductDisplayPriceCents` de una fila **S-2 del listado** o
+  `sealed` de la cola del mismo producto. Si en la vista no hay ninguna fila del producto que lo traiga (p. ej. todas
+  `reserved`), ⛔ no se ofrece el editor: se pinta el enlace a la hoja. ⛔ Nunca `expected` leído de otra fuente.
+- **Nombre** para la confirmación en panel/cola: el que ya pinta la fila; tras el `200`, el toast usa `data.name`.
+- Lo demás de §70 (margen en vivo con `iva.ratePct`, toasts por `autoPublish`, `409` con recarga automática, pieza sin
+  producto en `L` con `resolvedDisplayPriceCents`) **ya tiene contrato** (12.4–12.7, 12.11). A-3 (`?attention=true`):
+  **aplazada**.
+
+**13.8 · Q-6 — «encontrada» no liga a producto.** (q4)
+- ⛔ **No** se declara `sealedProductId` en `AdjustmentFoundItemInput`. Ligar al alta es del alta (`SealedAddFlow` →
+  `POST …/items/batch`). «Encontrada» corrige un conteo; abrirle una segunda puerta de alta por identidad es otra
+  decisión que nadie ha pedido.
+- SP.4: la fila «ligado ⇒ `422`» de ese escritor pasa a **n/a** (tabla de SP.4). La columna «sin producto» sigue igual
+  (operador ⇒ `403`, dueño ⇒ como hoy) y es la que aplica a **todo** sellado encontrado.
+- La llamada a `assertSealedPriceWriters` en `adjust` **se queda**: el día que alguien declare el campo, el `422` ya
+  está puesto.
+
+**13.9 · Pruebas** (deterministas ⇒ N=1 es medida; mutaciones sobre copia del árbol ENTERO, O-9).
+
+| # | Caso | Esperado | Mutación que la pone roja |
+|---|---|---|---|
+| 💰 **SP-16b** | Producto con A (`in_stock`, con ubicación). 1.er `PUT` 700 con `reevaluateForPublication` que lanza ⇒ `autoPublish: null`, A `in_stock`. 2.º `PUT` idéntico (`700`, `expected 700`) con el disparo sano | `200`; A `listed`; `autoPublish {1,0,0}`; **cero** filas nuevas de bitácora; cola sin escrituras nuevas. Y un 3.º idéntico ⇒ `autoPublish {0,0,0}` (≠ `null`) | el paso 2 sale sin disparar (`autoPublish: null` o A sigue `in_stock`) |
+| **SP-8** (+) | Bitácora: `after.ivaDials` = los diales de la petición | igual que hoy | — (Q-3 sin cambio de código) |
+| 💰 **SP-20** | Export (13.4): X con `ownerDisplayPriceCents 700` y piezas A (sin `listPriceCents`) y B (`listPriceCents 1000`, sombreado); Y sin precio del dueño y C (`1000`); D sellado sin producto (`1200`); E raw (`500`); F sellado ligado sin precio alguno | cabeceras 17 «Precio venta antes de IVA MXN», 18 «Precio del producto con IVA MXN»; A: 17 vacía, 18 `7.00`; B: 17 vacía, 18 `7.00`; C: 17 `10.00`, 18 vacía; D: `12.00` / vacía; E: `5.00` / vacía; F: vacía / vacía; **cero** lecturas de diales en el export | exportar el `L` equivalente (A ⇒ `6.03`); poner el legado sombreado en la 17 (B ⇒ `10.00`); poner `P` en la 17 |
+| **SP-9** (cambia) | «encontrada» sellado con `listPriceCents` y con `sealedProductId` en el cuerpo: operador ⇒ `403`, nada creado; dueño ⇒ creada con `sealedProductId: null` | tabla SP.4 corregida | canario: declarar `sealedProductId` en el DTO ⇒ la del dueño da `422 SEALED_PRICE_IS_PER_PRODUCT` en vez de crearse sin producto (y la fila deja de ser n/a: hay que volver a SP.4) |
+
+**13.10 · Cambios por rol.**
+
+| Rol | Qué | Cuándo |
+|---|---|---|
+| **backend** 💰 | 13.4 (columnas del export, sin diales) + SP-20; SP-16b; fila de SP-9; actualizar `BACKEND_NOTES §57` | ya, en esta rama, **antes** de los gates (no depende de nadie) |
+| **frontend** | SP-F según §70 con 13.5–13.7: `sealedProductId` por `productType`; `ItemDetailModal` lee el del detalle (sin prop provisional); `expected` solo de filas que lo traen | ya, en paralelo con backend (no toca el export) |
+| **ux-ui** | §70.3 (c): retirar la prop provisional (A-5) y la fila «ausente ⇒ servidor anterior» de §70.3 (a); §70.8: A-3 aplazada, A-5 respondida | cuando el orquestador lo encargue; ⛔ no bloquea a frontend (manda el contrato) |
+| **QA** | SP-16b, SP-20, SP-9; recorrido O-4 del export: el dueño fija MX$1,450.00 ⇒ exporta ⇒ la col 18 dice `1450.00` y la 17 está vacía en esas piezas | gate del stream |
+| **orquestador** | Aviso de 13.4 en la solicitud de fusión | fusión |
 
 ---
 

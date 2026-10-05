@@ -28,6 +28,7 @@
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
 > | **v1.83** | 💰 Feature (2026-10-05, rama `claude/precio-sellado`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:50` (1)–(4) y `:38` (b)). El precio del sellado es **del producto** (`SealedProduct.ownerSalePriceCents`, `L`; **`M-71`** con relleno que no mueve ningún precio efectivo); precedencia **producto > pieza (legado) > mercado×spread > pendiente**, por **un** resolvedor cuyo tipo exige el producto; verbo `PUT …/sealed-products/:id/sale-price` con CAS sobre el precio leído y bitácora en la tx, ⛔ sin escribir piezas ⇒ sin candado con el checkout; **solo el dueño** (hoy `super_admin`, converge a `isOwner` al fusionar Skydropx, `D-SP-1`); el personal da de alta sin precio (`422 SEALED_PRICE_IS_PER_PRODUCT`); hoja `GET …/sealed-price-sheet` con costo, automático, `P`, mercado y margen sobre `L`; el modal de pago muestra el total de la **sesión** (`D-SP-2`). Norma: `API_CONTRACT` rev v1.83, §M11-SP | §4.62, §9 `D-SP-1`…`D-SP-3`, §11 `M-71` | **Sí** (backend 💰 + frontend M11/M1/checkout 💰 + textos ux-ui) |
 > | **v1.83.1** | 💰 Errata (2026-10-05, rama `claude/precio-sellado`, HEAD dado por el orquestador `8a64f27f`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md:51`: el dueño escribe el precio **con IVA**; solicitudes A-1, A-2, A-4, N-1, N-2 de `DESIGN_SYSTEM §70.8`). Se guarda **`P`** (`SealedProduct.ownerDisplayPriceCents`), porque `P = L + round(L·t·r/10⁴)` no alcanza todos los enteros (MX$7.00 sin `L` con 100/16); un dial que se mueve conserva lo que paga el cliente; un camino a `P` (`saleDisplayCentsOf`) en los tres sitios de venta; margen sobre el neto fiscal `taxBaseCentsOf(P, r)`; el `PUT` **dispara la auto-publicación** tras confirmar; `sealedProductId` y conteo en las filas; `M-71` **sin relleno** (sería una segunda fórmula en SQL); sellado sin producto sigue en `L` (`D-SP-4`); #69 llama «precio final» a `L` (`D-SP-5`); SP.6 provisional hasta §X. Norma: `API_CONTRACT` §M11-SP.12 | §4.62.8, §9 `D-SP-2`, `D-SP-4`, `D-SP-5`, §11 `M-71` | **Sí** (backend 💰 + frontend + ux-ui; nada de v1.83 estaba construido) |
+> | **v1.83.2** | 💰 Errata (2026-10-05, rama `claude/precio-sellado`, HEAD dado por el orquestador `eb36e388`, ⛔ sha NO MEDIDO por el arquitecto; responde a `BACKEND_NOTES §57.8` Q-1…Q-6 y a A-3/A-5 de `DESIGN_SYSTEM §70.8`). Carpeta de `M-71` = `…_owner_display_price` (Q-1); el doble clic no escribe pero **dispara** la auto-publicación, y es el reintento si el primero dio `null` (Q-2); diales de la bitácora leídos en la petición antes de la tx, sin firma nueva en `settings` (Q-3); 💰 el export `.xlsx` deja de exportar el `L` equivalente: columna 17 «antes de IVA» y **columna 18 nueva «Precio del producto con IVA»**, ambas STORED (Q-4); `sealedProductId` se lee por `productType` (Q-5); «encontrada» no liga a producto (Q-6); `sealedProductId` del detalle declarado tal cual (A-5); A-3 aplazada. ⛔ Sin migración ni enum. Norma: `API_CONTRACT` §M11-SP.13 | §4.62.9, §11 `M-71` | **Sí** (backend: export + pruebas; frontend SP-F) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27335,6 +27336,34 @@ transacción del dueño sigue sin escribir piezas (§4.62.4 intacto). Descartado
 es de raw/graded también, y meter `P` para un tipo y `L` para otro rompe la regla de que la convención viaja con el
 importe. SP.6 (aviso y segundo clic) **contradice en la letra** a `HECHOS.md:49` y es provisional hasta §X (`D-SP-2`).
 
+#### 4.62.9 v1.83.2 — lo que la construcción preguntó (`BACKEND_NOTES §57.8`)
+
+Norma: `API_CONTRACT §M11-SP.13`.
+
+**(a) Un verbo idempotente repite el efecto idempotente y omite el que deja huella.** El doble clic del `PUT` no escribe
+precio, bitácora ni cola (escribirlas dos veces sería contar dos veces un hecho), pero sí vuelve a intentar publicar:
+publicar es idempotente y, si el primer intento falló, el segundo clic es el reintento natural del dueño. Así
+`autoPublish` tiene una sola regla («`null` ⇔ este intento lanzó») y la pantalla no distingue casos.
+
+**(b) Lo informativo no justifica tocar la frontera de otro stream.** Los diales de la bitácora sirven para reconstruir un
+derivado (`L` equivalente); el dinero cobrado sale de `P` y de los diales que cada orden congela. Leerlos un instante
+antes de la tx tiene un error posible solo en esa reconstrucción. Leerlos dentro exigía una firma nueva en `settings`
+(«Cuentas y acceso») o una segunda conexión: coste real a cambio de exactitud en un dato que no decide nada.
+
+**(c) Un fichero que sale del sistema sigue la regla del dinero: la escala viaja con la cifra, y solo lo guardado.** El
+export ponía el `L` equivalente del precio del dueño bajo «Precio venta»: un derivado dependiente del dial, y una cifra
+distinta de la que el dueño tecleó, bajo un rótulo que no decía la escala. Dos columnas STORED, una por escala, ambas
+rotuladas, elegidas por `manualSaleOf` (el mismo camino que la venta). Descartado: `P` en la columna de `L` (mezcla de
+escalas en una columna, `money.ts`) y `P` derivado para todas las piezas (derivar en un fichero que se declara «sin
+derivar»).
+
+**(d) La ausencia de una clave no es un dato.** El front decide «ligada / sin producto» por `productType` y luego por el
+valor (`string`/`null`), nunca por si la clave vino. Por eso listado (ausente en raw/graded) y detalle (`null` en
+raw/graded) pueden diferir sin daño, y no se cambia ninguno de los dos.
+
+**(e) Una regla que hoy no se alcanza se deja puesta.** «Encontrada» no admite producto; la regla del precio por
+producto sigue llamándose en ese escritor para que abrir la puerta (declarar el campo) no la deje sin candado.
+
 ---
 
 ## 5. Decisiones transversales
@@ -30710,6 +30739,10 @@ productivas); las migraciones solo redefinen esquema.~~
   `20261021120000_m71_sealed_product_owner_display_price/`. Comentario del modelo: «`P` del dueño (lo que paga el
   cliente); `null` = automático; escritor único: `PUT /admin/inventory/sealed-products/:id/sale-price`». SQL y rollback:
   `API_CONTRACT §M11-SP.12.12`.
+- ✅ **v1.83.2 (Q-1):** construida con ese nombre — `Glob backend/prisma/migrations/2026102*/*` ⇒
+  `20261021120000_m71_sealed_product_owner_display_price/migration.sql` (leído por el arquitecto 2026-10-05, sha NO
+  MEDIDO). El nombre `…_owner_price` queda retirado. Prueba sobre base con datos: `BACKEND_NOTES §57.6` (reportado por
+  backend).
 
 ### v1.80.9-staff-sin-correo (**M-63**: usuarios de back-office sin correo — **DDL ADITIVO + `DROP NOT NULL` + 5 CHECK, SIN backfill**, §4.58)
 
