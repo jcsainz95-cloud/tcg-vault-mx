@@ -32,6 +32,8 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
           ...itemOverrides,
         }),
         update: jest.fn(),
+        // v1.82.1 · §PNL.10.3: la escritura de la carta es `updateMany` con CAS; `count` lo fija cada prueba.
+        updateMany: jest.fn(async () => ({ count: 1 })),
       },
       nextFolio: jest.fn(async () => 'INV-000001'),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
@@ -61,6 +63,7 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
     });
     expect(prisma.inventoryItem.create).not.toHaveBeenCalled();
     expect(prisma.sellRequestItem.update).not.toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).not.toHaveBeenCalled();
   });
 
   it.each(['cotizada', 'recibida', 'verificacion', 'ajustada', 'precio_pendiente'])(
@@ -89,11 +92,12 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
     });
     expect(prisma.inventoryItem.create).toHaveBeenCalledTimes(1);
     expect(created.id).toBe('inv-1');
-    expect(prisma.sellRequestItem.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ itemStatus: 'convertida_inventario', inventoryItemId: 'inv-1' }),
-      }),
-    );
+    // 💰 v1.82.1 · §PNL.10.3 (E-3): la carta se escribe con CAS — `aprobada` ∧ sin pieza — nunca por `id` a secas.
+    expect(prisma.sellRequestItem.update).not.toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).toHaveBeenCalledWith({
+      where: { id: 'sri-1', itemStatus: 'aprobada', inventoryItemId: null },
+      data: { itemStatus: 'convertida_inventario', inventoryItemId: 'inv-1' },
+    });
   });
 
   it('idempotencia: item ya convertido (inventoryItemId set) NO dispara la guardia', async () => {
@@ -107,5 +111,42 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
       pendingPublish: { missing: ['location', 'price'] },
     });
     expect(prisma.inventoryItem.create).not.toHaveBeenCalled();
+  });
+
+  it('💰 §PNL.10.3 CAS no casa (un rechazo confirmó entre la lectura y la escritura) ⇒ 409 CONFLICT CONCURRENT_UPDATE, lanzado DENTRO de la tx', async () => {
+    const { svc, prisma } = build({ itemStatus: 'aprobada' });
+    prisma.sellRequestItem.updateMany.mockResolvedValueOnce({ count: 0 });
+    // La relectura (dentro de la tx) ve la carta ya rechazada y sin pieza.
+    prisma.sellRequestItem.findUnique
+      .mockResolvedValueOnce({ id: 'sri-1', cardId: 'c1', productType: 'raw', rawCondition: 'NM', approvedPriceCents: 5000, quotedPriceCents: 5000, inventoryItemId: null, itemStatus: 'aprobada', card: {} })
+      .mockResolvedValueOnce({ itemStatus: 'rechazada', inventoryItemId: null });
+    let thrownInsideTx: unknown;
+    prisma.$transaction.mockImplementationOnce(async (cb: any) => {
+      try {
+        return await cb(prisma);
+      } catch (e) {
+        thrownInsideTx = e;
+        throw e;
+      }
+    });
+    await expect(svc.convertToInventory('sri-1', 'actor')).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: { itemId: 'sri-1', itemStatus: 'rechazada', reason: 'CONCURRENT_UPDATE' },
+    });
+    // Lanzar dentro del callback es lo que hace que Prisma deshaga la pieza y su movimiento.
+    expect(thrownInsideTx).toBeDefined();
+  });
+
+  it('§PNL.10.3 CAS no casa pero la carta YA tiene pieza ⇒ la respuesta idempotente de siempre', async () => {
+    const { svc, prisma } = build({ itemStatus: 'aprobada' });
+    prisma.sellRequestItem.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.sellRequestItem.findUnique
+      .mockResolvedValueOnce({ id: 'sri-1', cardId: 'c1', productType: 'raw', rawCondition: 'NM', approvedPriceCents: 5000, quotedPriceCents: 5000, inventoryItemId: null, itemStatus: 'aprobada', card: {} })
+      .mockResolvedValueOnce({ itemStatus: 'convertida_inventario', inventoryItemId: 'inv-other' });
+    await expect(svc.convertToInventory('sri-1', 'actor')).resolves.toEqual({
+      inventoryItemId: 'inv-other',
+      alreadyConverted: true,
+      pendingPublish: { missing: ['location', 'price'] },
+    });
   });
 });

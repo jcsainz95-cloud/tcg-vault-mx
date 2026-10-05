@@ -67,7 +67,7 @@ import {
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
 import { runSerializable } from '../../common/serializable-retry';
-import { parseRejectItemsBody, rejectItemsBlock } from './buylist-reject-items';
+import { ITEM_FINAL_STATUSES, isItemFinal, parseRejectItemsBody, rejectItemsBlock } from './buylist-reject-items';
 import {
   deriveRejectedReason,
   rejectDeadlines,
@@ -640,6 +640,16 @@ interface DecisionLine {
   cardProductId: number | null;
 }
 
+
+/**
+ * 💰 v1.82.1 · §PNL.10.3 — señal INTERNA de `convertToInventory`: el CAS de la carta no casó. Se lanza dentro de la
+ * tx para deshacerla entera (pieza y movimiento) y se traduce fuera (idempotente o `409 CONCURRENT_UPDATE`).
+ */
+class ConvertCasMiss extends Error {
+  constructor(readonly fresh: { itemStatus: SellItemStatus; inventoryItemId: string | null } | null) {
+    super('convert-to-inventory CAS miss');
+  }
+}
 
 @Injectable()
 export class BuylistService implements OnModuleInit {
@@ -6312,6 +6322,49 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * 💰 v1.82.1 · §PNL.10.2 (E-2) — el `409 CONFLICT { itemId, itemStatus, reason: 'ITEM_FINAL' }`. Un cuerpo para
+   * los dos llamadores (el pre-check y la relectura del rechazo). ⛔ Sin código nuevo: es un valor de
+   * `details.reason` del `409 CONFLICT` que ya existe (forma de `CONCURRENT_UPDATE`), §PNL.10.2.4.
+   */
+  private itemFinalConflict(itemId: string, itemStatus: SellItemStatus): BusinessException {
+    return BusinessException.conflict(
+      'CONFLICT',
+      'This card is already inventory or already paid: it can no longer be decided',
+      { itemId, itemStatus, reason: 'ITEM_FINAL' },
+    );
+  }
+
+  /**
+   * 💰 v1.82.1 · §PNL.10.2.2 — el PRE-CHECK `ITEM_FINAL` (el aviso honesto, sobre la lectura). Método propio para
+   * que BRJ-12 pueda apagarlo por inyección y medir que el `where` de `rejectItemWrite` sostiene la regla solo.
+   */
+  private assertItemNotFinal(item: { id: string; itemStatus: SellItemStatus }): void {
+    if (isItemFinal(item.itemStatus)) throw this.itemFinalConflict(item.id, item.itemStatus);
+  }
+
+  /**
+   * 💰 v1.82.1 · §PNL.10.2.3 — el `PATCH {reject}` cuyo `where` no casó: se RELEE. Solicitud terminal ⇒ lo de
+   * siempre (`throwTerminalConflict`, gana); carta en estado final ⇒ `409 … ITEM_FINAL`; cualquier otra cosa
+   * (la fila desapareció) ⇒ el `409` terminal de siempre, con su relectura.
+   */
+  private async throwRejectWriteConflict(
+    db: SellRequestReader & Pick<Prisma.TransactionClient, 'sellRequestItem'>,
+    itemId: string,
+    sellRequestId: string,
+  ): Promise<never> {
+    const current = await db.sellRequest.findUnique({
+      where: { id: sellRequestId },
+      select: { status: true },
+    });
+    // Mismo eje que el `where` del rechazo (`notTerminalWhere`: estado), para que la relectura diga lo que chocó.
+    if (current != null && !isTerminalSellRequestStatus(current.status)) {
+      const fresh = await db.sellRequestItem.findUnique({ where: { id: itemId }, select: { itemStatus: true } });
+      if (fresh && isItemFinal(fresh.itemStatus)) throw this.itemFinalConflict(itemId, fresh.itemStatus);
+    }
+    return this.throwTerminalConflict(db, sellRequestId);
+  }
+
+  /**
    * v1.51.20 · **BL-27** — el `409` del CICLO DE OFERTA, con el estado **releído** (y dentro de la
    * transacción, cuando la hay). Hermano exacto de `throwTerminalConflict`: mismo motivo para releer
    * —`details.status` tiene que decir el estado REAL contra el que se chocó— y misma forma que el
@@ -6717,6 +6770,12 @@ export class BuylistService implements OnModuleInit {
       );
     }
 
+    // 💰 v1.82.1 · §PNL.10.2 (E-2) — PELDAÑO `ITEM_FINAL`, en los TRES verbos: inmediatamente después de
+    // `NO_LIVE_ADJUSTMENT` (la solicitud cerrada gana a todo) y antes de cualquier otro, incluida la idempotencia
+    // del `reject` (`rechazada` no es final: no se solapan). Cero escrituras, correo, bitácora y recálculo.
+    // La guarda REAL del rechazo es el `where` de `rejectItemWrite`; la de `approve`/`adjust`, su CAS por estado.
+    this.assertItemNotFinal(item);
+
     // ⚠️ v1.51.20 · BL-27 — PRE-CHECK del CICLO DE OFERTA. Va DESPUÉS del de terminal (precedencia
     // normativa: `NO_LIVE_ADJUSTMENT` gana) y ANTES de cualquier escritura. La guarda REAL —la del
     // motor— está en el `where` de cada escritura de abajo.
@@ -6777,7 +6836,9 @@ export class BuylistService implements OnModuleInit {
       // v1.82 · PNL-4: la escritura vive en `rejectItemWrite`, UN cuerpo con `reject-items`. Aquí sin
       // `expectedItemStatus` (el `where` es el de siempre: `PATCH …/decision {reject}` sin cambio, §PNL.4).
       const written = await this.rejectItemWrite(this.prisma, itemId, trimmedReason, rejectedAt);
-      if (!written) await this.throwTerminalConflict(this.prisma, item.sellRequestId);
+      // v1.82.1 · §PNL.10.2.3 — `count ≠ 1` se RELEE: solicitud terminal ⇒ `NO_LIVE_ADJUSTMENT` (gana); carta en
+      // estado final ⇒ `409 CONFLICT … ITEM_FINAL` (una conversión confirmó entre la lectura y aquí).
+      if (!written) await this.throwRejectWriteConflict(this.prisma, itemId, item.sellRequestId);
       // `updateMany` no devuelve filas: la relectura es la única forma de responder el estado ya
       // escrito (mismo motivo que en `respond`).
       const updated = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
@@ -7043,7 +7104,13 @@ export class BuylistService implements OnModuleInit {
       where: {
         id: itemId,
         sellRequest: this.notTerminalWhere(),
-        ...(expectedItemStatus ? { itemStatus: expectedItemStatus } : {}),
+        // 💰 v1.82.1 · §PNL.10.2.3 (E-2) — **SIEMPRE**, venga o no `expectedItemStatus`: una carta que ya es
+        // inventario (o ya se pagó) no se rechaza. Sin este término, el `PATCH {reject}` sin `if` la dejaba
+        // `rechazada` con su pieza `in_stock` y fuera del total que se le paga al vendedor (medido 1/1, §59.5).
+        AND: [
+          { itemStatus: { notIn: [...ITEM_FINAL_STATUSES] } },
+          ...(expectedItemStatus ? [{ itemStatus: expectedItemStatus }] : []),
+        ],
       },
       data: {
         itemStatus: 'rechazada',
@@ -7500,10 +7567,25 @@ export class BuylistService implements OnModuleInit {
             note: `from sellRequestItem ${item.id}`,
           },
         });
-        await tx.sellRequestItem.update({
-          where: { id: itemId },
+        // 💰 v1.82.1 · §PNL.10.3 (E-3) — **CAS en la escritura de la carta**, dentro de la MISMA tx que crea la
+        // pieza y su movimiento. La guarda de arriba (`itemStatus === 'aprobada'`) es una LECTURA: un rechazo
+        // (`PATCH {reject}` o `reject-items`) que confirmara entre ella y aquí dejaba la carta
+        // `convertida_inventario` con `rejectedAt` y `approvedPriceCents = null` y una pieza `in_stock` — una carta
+        // rechazada, que no se le paga al vendedor, a la venta en nuestra tienda (MEDIDO con el defecto: BRJ-13 (b)
+        // 7/12 y 8/12 rondas mixtas, N = 12). Si el `where` no casa ⇒ se relee y se lanza DENTRO de la tx ⇒ rollback
+        // entero (ni pieza, ni movimiento). El índice único `sourceSellRequestItemId` (SEC-A3) sigue cubriendo
+        // conversión contra conversión; esto cubre conversión contra rechazo.
+        const guard = await tx.sellRequestItem.updateMany({
+          where: { id: itemId, itemStatus: 'aprobada', inventoryItemId: null },
           data: { itemStatus: 'convertida_inventario', inventoryItemId: inv.id },
         });
+        if (guard.count !== 1) {
+          const fresh = await tx.sellRequestItem.findUnique({
+            where: { id: itemId },
+            select: { itemStatus: true, inventoryItemId: true },
+          });
+          throw new ConvertCasMiss(fresh);
+        }
         return inv;
       });
       // ⚠️ **POST-COMMIT.** La conversión ya está escrita: el disparo no puede deshacerla ni
@@ -7516,6 +7598,26 @@ export class BuylistService implements OnModuleInit {
         pendingPublish: await this.triggerPublish(created.id),
       };
     } catch (e) {
+      // v1.82.1 · §PNL.10.3 — el CAS no casó (la tx ya se deshizo entera). `inventoryItemId` ya puesto ⇒ la
+      // respuesta idempotente de siempre; si no ⇒ `409 CONFLICT { itemId, itemStatus, reason: 'CONCURRENT_UPDATE' }`.
+      // El folio de `nextFolio()` (fuera de la tx) se pierde, como en `P2002`.
+      if (e instanceof ConvertCasMiss) {
+        if (e.fresh?.inventoryItemId) {
+          return {
+            inventoryItemId: e.fresh.inventoryItemId,
+            alreadyConverted: true,
+            pendingPublish: await this.triggerPublish(e.fresh.inventoryItemId),
+          };
+        }
+        this.logger.warn(
+          `convert-to-inventory ${itemId}: la carta cambió a '${e.fresh?.itemStatus ?? 'desaparecida'}' bajo la conversión; se deshace (§PNL.10.3).`,
+        );
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'This card was modified by another operation; nothing was changed. Please retry.',
+          { itemId, itemStatus: e.fresh?.itemStatus, reason: 'CONCURRENT_UPDATE' },
+        );
+      }
       // Violación de unicidad → otra conversión ganó la carrera: ya convertido.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         const existing = await this.prisma.inventoryItem.findFirst({

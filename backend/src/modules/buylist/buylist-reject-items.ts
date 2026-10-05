@@ -56,17 +56,27 @@ export function parseRejectItemsBody(body: unknown): RejectItemsBody {
 }
 
 /**
- * Estados de la CARTA desde los que ya no se rechaza: el desenlace ya ocurrió.
- * - `convertida_inventario`: la carta ya es inventario nuestro (BRJ-5).
- * - `pagada`: ya se le pagó al vendedor.
- * - `rechazada`: ya está rechazada; re-rechazarla movería `rejectedAt` (el ancla de los plazos de
- *   devolución y abandono) y la volvería a nombrar en un correo. En el lote es `409`, no un no-op.
+ * 💰 v1.82.1 · §PNL.10.2 (E-2) — **estados FINALES de la carta: un predicado, un cuerpo.** La carta ya es
+ * inventario nuestro (`convertida_inventario`, con su pieza `in_stock`) o ya se le pagó al vendedor (`pagada`).
+ * Ninguna decisión por carta la toca (`PATCH …/decision`, los tres verbos ⇒ `409 CONFLICT {reason:'ITEM_FINAL'}`),
+ * el `where` del rechazo la excluye siempre (`rejectItemWrite`), y el lote la bloquea (abajo, compuesto de éste).
+ * ⚠️ `pagada` como estado de CARTA hoy no lo escribe nadie (§PNL.10.2.1): va por el enum, no por un camino medido.
  */
-export const REJECT_ITEMS_BLOCKED_STATUSES: readonly SellItemStatus[] = [
-  'convertida_inventario',
-  'pagada',
-  'rechazada',
-];
+export const ITEM_FINAL_STATUSES: readonly SellItemStatus[] = ['convertida_inventario', 'pagada'];
+
+/** ¿La carta está en un estado final? (§PNL.10.2) — el único lector de `ITEM_FINAL_STATUSES` fuera de los `where`. */
+export function isItemFinal(itemStatus: SellItemStatus): boolean {
+  return ITEM_FINAL_STATUSES.includes(itemStatus);
+}
+
+/**
+ * Estados de la CARTA desde los que el LOTE ya no rechaza — **compuesto** de `ITEM_FINAL_STATUSES` (⛔ dos listas
+ * escritas a mano, §PNL.10.2.1):
+ * - los finales: el desenlace ya ocurrió (BRJ-5);
+ * - `rechazada`: ya está rechazada; re-rechazarla movería `rejectedAt` (el ancla de los plazos de
+ *   devolución y abandono) y la volvería a nombrar en un correo. En el lote es `409`, no un no-op (E-4, BRJ-14).
+ */
+export const REJECT_ITEMS_BLOCKED_STATUSES: readonly SellItemStatus[] = [...ITEM_FINAL_STATUSES, 'rechazada'];
 
 /**
  * El predicado de §PNL.4 paso 4, **un cuerpo**: por qué una carta NO entra al lote.

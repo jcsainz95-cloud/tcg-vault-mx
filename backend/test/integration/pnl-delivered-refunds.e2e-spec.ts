@@ -96,11 +96,20 @@ describe('§PNL.2/§PNL.3 — reembolsos tras la entrega (Postgres real)', () =>
   const body = (extra: Record<string, unknown> = {}) => ({ reason: 'arrived_damaged', note: 'llegó doblada, foto por correo 05-oct', expectedRefundCents: 31458, ...extra });
 
   /** Retiro de bóveda ENTREGADO de la carta de MX$500 (orden vault [50000, 30000]) con mercado `market`. */
-  async function deliveredWithdrawal(market: number | null = 60000, opts: { to?: ShipmentStatus } = {}) {
+  async function deliveredWithdrawal(
+    market: number | null = 60000,
+    opts: { to?: ShipmentStatus; priceConvention?: 'IVA_INCLUSIVE' | 'IVA_EXCLUSIVE' } = {},
+  ) {
     const u = await db.mkUser('Retiro Entregado');
     const drawer = await db.mkDrawer();
     const card = await db.mkCard(market);
-    const vo = await db.mkVaultOrder(u.id, { prices: [50000, 30000], placement: 'placed', locationId: drawer.id, cardIds: [card.id] });
+    const vo = await db.mkVaultOrder(u.id, {
+      prices: [50000, 30000],
+      placement: 'placed',
+      locationId: drawer.id,
+      cardIds: [card.id],
+      ...(opts.priceConvention ? { priceConvention: opts.priceConvention } : {}),
+    });
     const w = await db.mkWithdrawal(u.id, [vo.pieces[0].id], 'picking');
     await ship(w.shipment.id, opts.to ?? 'entregado');
     return { u, vo, w, line: w.lines[0], piece: vo.pieces[0] };
@@ -518,6 +527,29 @@ describe('§PNL.2/§PNL.3 — reembolsos tras la entrega (Postgres real)', () =>
       expect(err(await wdrPreview(w.line.id, 0))).toBe('400:VALIDATION_ERROR');
       expect((await db.h.api('GET', '/admin/manual-refunds/withdrawal-delivered/preview?shipmentItemId=nope', { token: db.adminToken })).status).toBe(404);
       expect(await db.manualRows({ shipmentItemId: w.line.id })).toHaveLength(0);
+    });
+
+    it('WDR-11 (§PNL.10.5 E-7): origen IVA_EXCLUSIVE y mercado M ⇒ preview paidReferenceCents null, referenceCents = M; verbo 201 con TODO compensación y orderId = origen', async () => {
+      const M = 60000;
+      const A = 45000;
+      const w = await deliveredWithdrawal(M, { priceConvention: 'IVA_EXCLUSIVE' });
+      expect((await db.order(w.vo.order.id)).priceConvention).toBe('IVA_EXCLUSIVE');
+      const p = await wdrPreview(w.line.id);
+      expect(p.status).toBe(200);
+      expect(p.body).toMatchObject({ amountCents: null, paidReferenceCents: null, market: { cents: M }, referenceCents: M, confirmation: null });
+      const r = await wdr(wBody(w.line.id, A));
+      expect(r.status).toBe(201);
+      expect(r.body.manualRefund).toMatchObject({ amountCents: A, origin: { orderId: w.vo.order.id } });
+      const row = await h.prisma.manualRefund.findUniqueOrThrow({ where: { id: r.body.manualRefund.id } });
+      // ⛔ `caseRefundComponents` partiría el IVA con la convención equivocada: todo es compensación.
+      expect(row).toMatchObject({
+        orderId: w.vo.order.id,
+        amountCents: A,
+        merchandiseCents: 0,
+        merchandiseIvaCents: 0,
+        processingFeeCents: 0,
+        compensationCents: A,
+      });
     });
   });
 });

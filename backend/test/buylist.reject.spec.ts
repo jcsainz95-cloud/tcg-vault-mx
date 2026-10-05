@@ -165,7 +165,12 @@ describe('itemDecision(reject) — efectos persistidos (BL-1 + rejectedAt)', () 
     // v1.51.5 · BL-14: el `where` lleva la GUARDA de terminal además del id — es la exclusión del
     // motor, no un `if` sobre la lectura previa (que una carrera invalida).
     expect(prisma.sellRequestItem.updateMany).toHaveBeenCalledWith({
-      where: { id: 'sri-1', sellRequest: { status: { notIn: expect.arrayContaining(['pagada']) } } },
+      where: {
+        id: 'sri-1',
+        sellRequest: { status: { notIn: expect.arrayContaining(['pagada']) } },
+        // 💰 v1.82.1 · §PNL.10.2.3 (E-2): una carta final no se rechaza — término SIEMPRE presente.
+        AND: [{ itemStatus: { notIn: ['convertida_inventario', 'pagada'] } }],
+      },
       data: {
         itemStatus: 'rechazada',
         approvedPriceCents: null,
