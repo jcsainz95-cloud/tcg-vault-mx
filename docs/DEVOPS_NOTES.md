@@ -13302,6 +13302,10 @@ diagnóstico sale del log del servidor y del código.
 - [ ] Censo y limpieza de datos de prueba hechos (§14.8), C3 = 0.
 - [ ] Respaldo del día existente y simulacro hecho (§83.5).
 - [ ] Cuenta de Stripe **activada** para cobrar y depositar en MX (solo lo ve el dueño, §14.13 P-2).
+- [ ] **`npm run check:legal` verde (criterios 500–508)** sobre el sha que está en producción (lo corre devops o el CI;
+  aquí se cita el run). Rojo ⇒ nombra lo que falta y no se empieza. (`API_CONTRACT §14.10`, errata v1.84.2.)
+- [ ] **QA aprobó 500–508 contra la tienda publicada** (veredicto citado con su sha). `check:legal` solo mide 501 y
+  503–505; 500, 502, 506, 507 y 508 los mide QA. **Las dos casillas o no se empieza.**
 
 **Pasos:**
 1. [ ] **Stripe (live) → Developers → Webhooks → Add endpoint.** URL `https://<dominio-del-backend>/api/v1/webhooks/stripe`;
@@ -13397,3 +13401,54 @@ se apaga con *Disable workflow*. `stack-native.sh`: revertir vuelve a reutilizar
 - **Rollback:** borrar `ttfb-probe.yml` (o *Disable workflow*) y el paso E-8 de `live-candados`. El issue queda como
   registro; nada más depende de esto.
 - **Dueño:** nada. `TTFB_URL` solo si la primera corrida sale rc 1 por redirección; permisos solo si sale 403.
+
+### 83.11 · Arreglos del gate de QA/techlead sobre `241d4dca` (B-1, C-2, M-3, M-4, TD-LIVE-8/9) — 2026-10-05
+
+Medido sobre una copia **del árbol entero** (`git archive HEAD` = `5ea58917` + los ficheros de este pase, con `git init`
+para que `git ls-files` funcione), no sobre el árbol vivo (en él trabajaban backend y frontend a la vez). Load 6–18
+en 4 CPU durante las corridas.
+
+- **B-1 (bloqueante) · S-88-1 rojo.** `gen-published-secrets-manifest.sh --check` no cubría 4 literales. Identificados
+  uno a uno (hash ⇒ valor, con una copia instrumentada del generador): `clonA_$RANDOM$RANDOM$RANDOM` y
+  `clonB_$RANDOM$RANDOM$RANDOM` (`SECRETO_A/B`: **plantillas** de bash que generan un aleatorio al correr,
+  `check-s3-local-clone-canary.sh:50-51`); `"$1" node "$PROBE" …` (`S3_SECRET_ACCESS_KEY`: un **fragmento de código**,
+  `:74`); `acc-secret-ses-0123456789abcdef0123456789` (`JWT_ACCESS_SECRET`: **fixture** de
+  `backend/test/auth.session-max-age.spec.ts:39`). Ninguno es real. Manifiesto regenerado: **+4 hashes, 0 jubilados,
+  catálogos sin cambio** (148 valores). Resultado en la copia: `--check` rc 0; `check-secret-defaults.sh` **rc 0**;
+  su canario **70/70**; `check-stripe-webhook-failclosed.sh` 3/3 y su canario **31/31**. Control positivo: en otra copia,
+  `scripts/plantado.sh` con `export STRIPE_SECRET_KEY=sk_live_<30 alfanum. aleatorios>` commiteado ⇒
+  `check-secret-defaults.sh` **rc 1** (sección C lo nombra y el manifiesto sale desfasado); gitleaks 8.30.1 sobre el
+  mismo fichero ⇒ `stripe-access-token` (rojo). N=1 cada uno (deterministas).
+- **gitleaks** (CI escanea el rango del push, `security-sast.yml`): con 8.30.1 (binario oficial, sha256 del tarball
+  `551f6fc8…` = el de `checksums.txt`) sobre `3e09685a..HEAD` daba **2** hallazgos `generic-api-key`, ambos en
+  `backend/test/auth.session-max-age.spec.ts` (`6a227527`): `ref-secret-ses-0123…` y `acc-secret-ses-0123…`, ficción.
+  Permitidos **por valor exacto anclado** en `[allowlist]` de `security/gitleaks.toml` (precedente `868dbcea`) ⇒ **0**.
+  `sast-gitleaks-canary.sh` **11/11**. (Modo `dir` local ve 8 más: 5 en `.native-stack/secrets.env`, ignorado por git, y
+  3 en specs de backend que ya estaban en la base `3e09685a` — ni lo uno ni lo otro lo escanea el CI.)
+- ⚠️ **Pendiente fuera de mis rutas:** el `backend/test/telemetry.spec.ts` **sin commitear** de backend (en curso a la
+  hora de esta medición) añade un literal de ficción (`… 'PaSsWoRd=[redacted] TOKEN=[redacted]'`, hash `2d6dd2cb…`).
+  Cuando se commitee, S-88-1 volverá a rojo hasta regenerar el manifiesto (`./scripts/gen-published-secrets-manifest.sh`
+  + commit de `security/secretos-publicados.sha256`), y conviene pasar gitleaks por el rango.
+- **C-2** · §83.7 «Antes» lleva las **dos** casillas de la errata v1.84.2 (`API_CONTRACT §14.10/§14.15`, `5ea58917`):
+  `npm run check:legal` verde (criterios 500–508) y QA aprobó 500–508 contra la tienda publicada (con sha).
+- **M-3** · `stack-native.sh` exporta `NEXT_PUBLIC_UPLOAD_ORIGIN` = origen de `S3_ENDPOINT` (sigue a `S3_LOCAL_PORT`;
+  un valor explícito se respeta). `next build`/`start`/`dev` lo heredan. Candado `check-stack-upload-origin.sh`
+  (9000 y 9100, casa con `ORIGIN_RE` leído de `csp.ts`, nadie lo pisa) y canario **3/3** mutaciones rojas, N=3 corridas.
+  **NO MEDIDO:** la cabecera CSP de un `up` real con el s3-local (no levanté stack: load alto y el árbol era compartido).
+- **M-4** · copia sin `.git`: `STACK_EXPECTED_SHA=<sha>` da el sha esperado (sello y aserto); sin `.git` y sin variable,
+  `up --gate` y `verify:head` paran **en < 1 s, antes de levantar nada**, diciendo exactamente eso; con `.git` y una
+  variable que no es prefijo de HEAD ⇒ rojo. `dirty` sin `.git` es `?` (no `0`). `assert-serving-head.sh --sha ""` ⇒
+  rc 2 con mensaje claro en vez de «--sha necesita valor». Candado `check-stack-expected-sha.sh` (infra sustituida por
+  señuelos: un mutante no puede tocar el Postgres/s3 de otros clones) y canario **4/4** mutaciones rojas, N=3 corridas.
+  `check-gate-parity-canary.sh` (su sandbox no tiene `.git`) pasa ahora `STACK_EXPECTED_SHA` fijo: 12/12.
+  **NO MEDIDO:** un `up --gate` completo en copia con la variable (exige levantar el stack entero).
+  Uso para QA: `STACK_EXPECTED_SHA=$(git -C <árbol> rev-parse HEAD) ./scripts/stack-native.sh up --gate` en la copia.
+- **TD-LIVE-8 (cerrada, no anotada como abierta)** · `uptime-watch.yml` busca su issue con un filtro único `ISSUE_JQ`:
+  título + etiqueta `caida` + autor bot de Actions; evaluado con el `jq` del runner. Canario de uptime-watch **21/21**
+  (antes 13/13; +8 comprobaciones «issue propio»: 6 casos y 2 mutaciones del filtro).
+- **TD-LIVE-9 y el aviso de 60 días** anotados en `docs/TECH_DEBT.md` (sección Devops · 2026-10-05).
+- Re-corridos en la copia, rc 0: `harness-gaps`, `stack-kill-scope`, `secret-masking`, `secret-absence-wording`,
+  `provenance-gate` (+canario), `workflow-cwd` (+canario), `db-pool-limit` (+canario 11/11), `daemon-stdout-leak`,
+  `gate-parity-canary` 12/12. `check-ci-ok.sh`: parte estructural verde; la de veredicto necesita `NEEDS_JSON` (solo CI).
+  No re-corrido: `check-s3-local-clone-canary.sh` (necesita `npm ci` del s3-local; no toca nada de lo cambiado).
+- **Rollback:** revertir el commit. Sin efecto en datos ni en producción; `uptime-watch` vuelve a buscar por título.

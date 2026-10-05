@@ -9107,3 +9107,42 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   reescribe C3 (y la nota de §38.2 (b)) a «junto a «Ventas»» y el código se queda. En ambos casos, candado: prueba del
   sidebar que asevera el grupo y la posición de `admin.modules.manualRefunds` para `super_admin` y su ausencia para
   `operator` (medir antes si ya existe en `AdminSidebar*.test.tsx` — **NO MEDIDO**).
+
+---
+
+## Devops · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-9 / E-8)
+
+### TD-LIVE-8 · ✅ CERRADA en este pase (2026-10-05) · El vigía de caídas buscaba su issue solo por título
+- **Dueño:** devops (`.github/workflows/uptime-watch.yml`).
+- **Qué era:** abrir y cerrar el issue `[caída] …` buscaban por **título exacto**. El repo es público: cualquiera
+  podía abrir un issue con ese título y el vigía, al verlo «ya abierto», no abría el suyo ⇒ **un desconocido
+  suprimía la alerta** (y el correo al dueño).
+- **Cierre:** un único filtro `ISSUE_JQ` (env del job `vigilancia`) para abrir y cerrar: título **y** etiqueta
+  `caida` (etiquetar exige permiso de triage) **y** autor bot de Actions (`app/github-actions` /
+  `github-actions[bot]`, `is_bot`). Se evalúa con el `jq` del runner, no con el `--jq` embebido de `gh`.
+- **Candado:** `scripts/check-uptime-watch-canary.sh` sección «issue propio» (corre en `autoprueba` antes de cada
+  vigilancia y en `live-candados`): intruso sin/con etiqueta, otro bot y bot sin etiqueta ⇒ no cuentan; el del bot
+  entre intrusos ⇒ cuenta; mutaciones «solo título» y «sin autor» ⇒ el canario las distingue. Medido 2026-10-05 en
+  `claude/listo-real`: **21/21**, N=1 (determinista: sin red ni reloj). **NO MEDIDO:** el `gh issue list --json author`
+  real de GitHub (forma de `author.login` del bot); por eso se aceptan los dos nombres.
+
+### TD-LIVE-9 · P3 · Fecha de retiro del `schedule` diario de `ttfb-probe`
+- **Dueño:** devops (`.github/workflows/ttfb-probe.yml`).
+- **Qué es:** la sonda E-8 (`API_CONTRACT §14.14`) existe para dar los dos comentarios **antes/después** que el commit
+  de `CSP_MODE = 'enforce'` cita. Pasado ese commit, una sonda diaria contra producción ya no gatea nada y solo suma
+  ruido (comentarios, carga mínima, correos de run rojo).
+- **Disparador:** **commit que pone `CSP_MODE = 'enforce'`** en `frontend/src/security/csp.ts` **+ 72 h** (la ventana
+  para ver que `enforce` no degrada el TTFB en producción).
+- **Cómo se cierra:** devops quita el bloque `schedule:` de `ttfb-probe.yml` (se conserva `workflow_dispatch` para
+  medir a mano) y cita en el commit el último comentario del issue `ttfb`. Comprobación: `grep -n schedule
+  .github/workflows/ttfb-probe.yml` vacío.
+
+### TD-LIVE-GH60 · P3 · aceptada · GitHub desactiva los `schedule` tras 60 días sin actividad (repo público)
+- **Dueño:** devops (`uptime-watch.yml`, `ttfb-probe.yml`). Ya declarado en sus cabeceras y en `DEVOPS_NOTES §83.2`.
+- **Qué es:** si el repo pasa 60 días sin commits, GitHub **apaga** los cron: el vigía de caídas (LIVE-9) deja de
+  vigilar **sin avisar** salvo por el correo de GitHub que anuncia la desactivación.
+- **Riesgo aceptado:** la tienda se mantiene activamente hoy; la reactivación es un clic (Actions → *Uptime Watch* →
+  *Enable workflow*).
+- **Disparador:** cualquier periodo previsto de > 45 días sin commits a `main`, o el correo de GitHub «scheduled
+  workflow disabled». Dirección si se vuelve real: un monitor externo de disponibilidad (servicio nuevo ⇒ se propone
+  al arquitecto antes) o un commit periódico automatizado.
