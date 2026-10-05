@@ -2,9 +2,29 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.12.11**). ⛔ Es la
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.80.12.12**). ⛔ Es la
 > **única** línea «Versión de API» del documento (v1.80.11 la consolida: las dos que trajo la fusión de
 > `claude/skydropx-envios` pasan a separadores).
+>
+> **Rev v1.80.12.12 — 💰 ERRATA TRAS D2b/D2c/M-67/M-68 Y PLAN PARA CERRAR LA FASE D (2026-10-05, arquitecto, rama
+> `claude/skydropx-d`, HEAD dado por el orquestador `69707cfa` o posterior; ⛔ sha NO MEDIDO: sin Bash).** Norma entera:
+> **[§M4-SHIP.19.31](#M4-SHIP-19-31)**. Porqué: `ARCHITECTURE §4.60 (x)`. Origen: `BACKEND_NOTES.md §62.5` (15 preguntas) y
+> `DESIGN_SYSTEM.md:25872-25874` (S-GAS-7…9).
+>
+> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
+> |---|---|---|---|---|
+> | **1** | Paridad de enums (`M-68`) | Seis líneas canónicas nuevas en §0; coinciden con `schema.prisma:1752-1818` valor a valor | No (las 7 rojas deberían pasar a verde; NO MEDIDO) | — |
+> | **2** | Cotización reutilizada pasadas 24 h | Generación nueva si no queda fila vigente; `requestedAt` se actualiza al re-cotizar | Sí, pequeño: `label-quote.service.ts:441-469` | backend 💰 |
+> | **3** | PS-73 vs §19.28.8 | Relectura `FOR SHARE` RATIFICADA (+ rama `labelSource`); PS-73 reescrita | Sí, una rama | backend 💰 |
+> | **4** | PS-122 (a) | Manda la fórmula (60 / 160) | No | — |
+> | **5** | Compra en la E2E con el doble | Tercera llave por adaptador; env nueva `SHIPPING_FAKE_PURCHASE` solo con `fake`; PDF del doble; PS-99 intacta | Sí: `spend-gate.ts`, fábrica, pila E2E | backend + devops + frontend |
+> | **6** | `cancel` que lanza | Revertir RATIFICADO + `label_cancel_unknown`; `getShipment` antes de revertir por `ok:false` | Sí, pequeño | backend 💰 |
+> | **7** | `409` sin `reason` | `shipment_changed_during_purchase`, `claim_released` | Sí, dos líneas | backend + frontend |
+> | **8** | «Liberar», AG-9 (a), deshacer, `packageCode`, correo vacío, `excluded` | RATIFICADOS (el deshacer, generalizado) | No | — |
+> | **9** | S-GAS-7/8/9, `isOwner` en la ficha | `mutedCount`, `muted`, `keys` camelCase, `isOwner` en las dos fichas | Aditivo | backend + frontend |
+> | **10** | Plan de cierre de D | 1 D2c-cierre (`label.pdf`, filtros, esta errata) → 2a D2d ∥ 2b D2g → 3a D2e ∥ 3b D2f → gates | — | orquestador |
+>
+> **Pruebas:** PS-73 y PS-122 (a) reescritas; **PS-166…PS-170**. **Migración:** ninguna. **Códigos de error nuevos:** ninguno.
 >
 > **Rev v1.80.12.11 — PARIDAD DE ENUMS TRAS D2a: CUATRO LÍNEAS CANÓNICAS EN §0 (2026-10-04, arquitecto, rama
 > `claude/skydropx-d`, sobre `cd50d7a0`).** `M-SDX-D` (= `M-66`, commit `62f89781` según el orquestador) creó en
@@ -274,7 +294,7 @@
 > D2c (§19.19.15).
 >
 > **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
+> salvo lo que tocan las de encima): v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
 > v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
 > v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
 >
@@ -7648,6 +7668,12 @@ ShipmentLabelSource = manual | skydropx  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.
 CarrierStatus       = created | picked_up | in_transit | last_mile | delivery_attempt | delivered_to_branch | delivered | exception | in_return | canceled | destroyed | retained  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2/.19.3): estado CRUDO que reporta Skydropx (referencia §5, NO MEDIDO contra la API, §19.19.10). Clase E (espeja `schema.prisma:436-449` y `CARRIER_STATUSES` del puerto, `shipping-provider.port.ts:11-24`). ⛔ Ningún valor nuevo en `ShipmentStatus`; el mapeo vive solo en `applyCarrierStatus`. Valor desconocido ⇒ evento no aplicado (§19.19.10). Solo DTO (`carrierStatus`, `carrierAlert.status`); `?alert=true` es clase L ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
 ShippingIvaSource   = provider | computed | manual  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2, T.7 / criterio 238): de dónde salió la línea de IVA del costo de envío; `provider` es lo normal, `computed` = 16/116 (§19.11), `manual` = captura de hoy. Clase E (espeja `schema.prisma:452-456`). Lo usan `ShipmentRequest.shippingIvaSource` y `ShipmentCostAdjustment.ivaSource`. Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
 ShipmentCostAdjustmentKind = overweight | extended_zone | return | other  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2, §9 D3, T.7): tipo de cargo extra de Skydropx con fecha propia. Clase E (espeja `schema.prisma:459-464`). Dominio cerrado de `facts.kind` de AG-6 (S-GAS-4). Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
+LabelAttemptOutcome = pending | labeled | not_charged | released_unverified  // v1.80.12.9 (M-68, §M4-SHIP.19.29.2): resultado de un reclamo de compra (`ShipmentLabelAttempt.outcome`). Clase E (espeja `schema.prisma:1752-1757`). Interno: ningún DTO ni filtro lo expone ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida tras D2c (§19.29.2 decía «los cinco» y son seis), sin cambio de dominio.
+PaidLabelOrigin     = response | adopted | orphan | duplicate  // v1.80.12.9 (M-68, §19.29.2): de dónde salió una guía que Skydropx nos cobró (`ShipmentPaidLabel.origin`). Clase E (espeja `schema.prisma:1760-1765`). Interno ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
+LabelCancelKind     = reissue | auto_close | orphan_auto | orphan_manual  // v1.80.12.9 (M-68, §19.29.2): cómo se canceló una guía pagada (`ShipmentPaidLabel.cancelKind`; `facts.cancelKind` de AG-8). Clase E (espeja `schema.prisma:1768-1773`). Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
+SpendAlertKind      = label_after_address_fix | label_cap_warning | label_cap_blocked | label_reissue_loop | label_charge_drift | carrier_extra_charge | provider_balance_low | cancel_refund_missing | label_charged_unexplained | label_not_shipped | parcel_returned | parcel_problem | label_costly_choice | operator_refund_cap | super_admin_money_out | shrinkage | chargeback | buylist_manual_price | psa_credits | stuck_refund | owner_account_changed | staff_control_by_non_owner  // v1.80.12.9 (M-68, §19.29.2) AG-1…AG-20 en ese orden (AG-14…AG-20 reservados, sin disparador) + v1.80.12.10 (§19.30.1 (6), §19.30.2 (3)) AG-21 y AG-22. Clase E (espeja `schema.prisma:1776-1799`). Filtro `?kind=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio (22 valores).
+SpendAlertSeverity  = immediate | digest  // v1.80.12.9 (M-68, §19.29.2): 🔴 inmediato / 🟡 resumen (Z.2). Clase E (espeja `schema.prisma:1802-1805`). Filtro `?severity=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
+SpendAlertMailStatus = not_applicable | pending | sending | sent | batched | batch_sent | failed | failed_unknown | no_recipient  // v1.80.12.9 (M-68, §19.29.5): estado del correo de un aviso (outbox). Clase E (espeja `schema.prisma:1808-1818`). Solo DTO (`SpendAlertDTO.mail.status`) ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 SellRequestStatus   = cotizada | ofertada | aceptada | en_transito | recibida | verificacion | aprobada | pagada
                     | rechazada | abandonada | expirada
                     // ⚠️ v1.51 (M-46, PROJECT §P.1 / criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`,
@@ -23737,6 +23763,7 @@ v4.12).** ⛔ Sin schema, sin verbo, sin código de error nuevos. Lecturas del a
 | **.28** | 🔒💰 **v1.80.12.8** — folio `ENV-000045` en `address_to.reference`, adopción por folio exacto (SDX-D-14), vida máxima de compra y `since` exacto (SDX-D-16), cancelación solo por folio y conciliación de huérfanas (SDX-D-15), contaminación y regla de encendido (SDX-D-17), `pg_try_advisory_xact_lock` y censo (SDX-D-18), `not_sent`, PS-129…PS-136 |
 | **.29** | 🔒💰 **v1.80.12.9** — control del gasto (§Z, D2): TG-1/TG-2 en la tx del candado, el dueño como única excepción, libros `ShipmentLabelAttempt`/`ShipmentPaidLabel`, avisos AG-1…AG-13 con correo al dueño y resumen diario (`M-68`); C-14 (sustituye §19.28.6), C-15…C-18, SDX-I-5/6; PS-137…PS-159 |
 | **.30** | 🔒💰 **v1.80.12.10** — errata de la revisión de §Z: el dueño como marca explícita `User.isOwner` (C-20), la vigilancia no la apaga el vigilado (C-21: diales y cuenta del dueño, AG-21/AG-22, `seen`, silenciado), TG-1 falla cerrado con reembolso desconocido (C-22), neutralización por llaves con NFKC (C-23), residuo de C-14 (C-19), 2 correos por persona y hora (C-24), enlaces de correo (SDX-I-8); PS-160…PS-165 |
+| **.31** | 💰 **v1.80.12.12** — errata tras D2b/D2c/`M-67`/`M-68`: seis enums en §0, generación de la cotización reutilizada, PS-73/PS-122 reescritas, dos `reason` de `409`, `cancel` sin respuesta, la compra de punta a punta en la E2E con el doble (`SHIPPING_FAKE_PURCHASE`), S-GAS-7…9, `isOwner` en la ficha, y el plan para cerrar la fase D; PS-166…PS-170 |
 
 **Vocabulario (fijo):** *guía Skydropx* = `ShipmentRequest.providerShipmentId ≠ null`; *guía manual* = `carrier/trackingNumber`
 capturados por `POST …/tracking` sin `providerShipmentId` (T.10); *guía en proceso* = `providerShipmentId ≠ null ∧
@@ -24380,7 +24407,9 @@ solo antes de que recojan); `status ∉ {picking, guia}` ⇒ ídem `{reason:'sta
 `updateMany({ where:{ id, labelSource:'skydropx', providerCanceledAt:null, carrierStatus:{in:[null,'created']} }, data:{
 providerCanceledAt: now, providerCancelReason:'reissue' } })`, `count 0` ⇒ `200 outcome:'already_cancelled'`. Commit;
 `port.cancel(providerShipmentId, reason)` **fuera de la tx**; si Skydropx **rechaza** (`ok:false`) ⇒ se **revierte** el
-sello en tx nueva (CAS inverso) y `422 SHIPPING_PROVIDER_REJECTED` (la guía sigue viva). Si acepta ⇒ tx nueva: el envío
+sello en tx nueva (CAS inverso) y `422 SHIPPING_PROVIDER_REJECTED` (la guía sigue viva) — ⭐ **v1.80.12.12
+([§19.31.6](#M4-SHIP-19-31)): antes de revertir por `ok:false` se lee `getShipment`; y si `cancel` LANZA (sin respuesta
+legible) se revierte igual, con bitácora `shipment.label_cancel_unknown`**. Si acepta ⇒ tx nueva: el envío
 **vuelve a `picking`** conservando `preparedAt` (CAS `WHERE status='guia' ∧ providerCanceledAt≠null`; en `picking` ya
 estaba: guía en proceso cancelada), `labelSource:null`, `providerShipmentId:null` (el anterior queda en la bitácora; los eventos se **conservan**:
 `ShipmentCarrierEvent` lleva su propia columna `providerShipmentId String` — incluida en `M-SDX-D` — para que la historia
@@ -24683,7 +24712,7 @@ rechaza. ⛔ Ninguna prueba unitaria/E2E habla con Skydropx; el guion PS-SBX es 
 | **PS-70** | **Cotización normalizada:** doble con 4 tarifas (99minutos home, PuntoPost branch $1.19, Paquetexpress home con IVA desglosado, FedEx home sin IVA) ⇒ `rates` ordenadas por precio, `hidden:true` solo en branch, `recommended` = 99minutos aunque no sea la más barata, `ivaSource:'provider'` en Paquetexpress y `'computed'` = `round(total×16/116)` en FedEx, `marginCents = 17500 − netCost` con `charged.netCents=17500` de las **columnas** de la orden; con `shipping_preferred_carriers=[]` ⇒ recomendada = la más barata `home`; sin ninguna `home` ⇒ `recommendedRateId:null`; **empaque**: 61 cartas ⇒ `box`, 3 cartas + 1 sellado ⇒ `box`, 10 cartas ⇒ `envelope`; `packageCode:'box'` explícito gana; valor declarado = Σ `unitPriceCents` picked (directo) y recortado al tope | preseleccionar la más barata; calcular el margen con el dial vivo; esconder el seguro en `priceCents` (no sumarlo) |
 | **PS-71** | **Cotización reusada y vigencia:** segundo `quote` en < 24 h con mismos parámetros ⇒ `reused:true`, **cero** llamadas nuevas; con `force` o distinto empaque ⇒ llamada nueva; reloj a +24 h ⇒ `label` ⇒ `409 QUOTE_EXPIRED` con cotización nueva y **cero** compras | comprar tras re-cotizar en la misma llamada |
 | **PS-72** 🔒 | **Un evento, una vez:** el mismo `getShipment` aplicado 10 veces (N=10, secuencial y concurrente con barrera) ⇒ 1 fila de evento, 1 transición, 1 correo; conteo de filas y `updatedAt` idénticos después de la 1ª. 🔒 **v1.81.1 (SEC-SDX-2):** doble en modo **«solo estado actual»** (sin historial, sin `updated_at`) con `delivery_attempt` sondeado ×10 con reloj avanzando ⇒ **1** fila, **1** `AV-19`, `carrierPolledAt` avanza; el doble cambia a `delivered` ⇒ 1 fila nueva y `AV-17`; con `updated_at` ⇒ llave `status:<updated_at>`. **(SEC-SDX-9):** historial fuera de orden (`delivered` y luego `in_transit` más viejo) ⇒ `carrierStatus` sigue `delivered`, ambas filas existen; guía re-emitida con el mismo `providerEventKey` que la cancelada ⇒ fila nueva (no P2002) | quitar el `@@unique` del evento; avisar fuera del `count===1`; llave con `now` ⇒ 10 filas / 10 correos; CAS sin `carrierStatusAt` ⇒ retrocede |
-| **PS-73** 💰 | **Una guía:** 10 `POST …/label` simultáneos (barrera en la fila) ⇒ **una** llamada `purchase` en el doble, un `providerShipmentId`, un `AV-4`; 9 respuestas `200 in_progress|labeled` (⛔ ningún `409`); repetir tras `labeled` ⇒ `409 SHIPMENT_ALREADY_LABELED` | quitar el CAS de `labelProcessingSince` ⇒ ≥ 2 `purchase` en ≥ 1 tirada |
+| **PS-73** 💰 | **Una guía:** 10 `POST …/label` simultáneos (barrera en la fila) ⇒ **una** llamada `purchase` en el doble, un `providerShipmentId`, un `AV-4`; 9 respuestas `200 in_progress|labeled` (⛔ ningún `409`); repetir tras `labeled` ⇒ `409 SHIPMENT_ALREADY_LABELED`. ⚠️ **v1.80.12.12 ([§19.31.3](#M4-SHIP-19-31)): «ningún `409`» se REESCRIBE** — las 9 ∈ {`200 in_progress`, `409 CONFLICT {reason:'purchase_in_flight', otherShipmentId:null}`, `409 SHIPMENT_ALREADY_LABELED`}; lo invariante es **una** `purchase`; la proporción de `409 purchase_in_flight` se reporta con su N | quitar el CAS de `labelProcessingSince` ⇒ ≥ 2 `purchase` en ≥ 1 tirada |
 | **PS-74** 💰 | **Compra rechazada no deja rastro:** doble con `error_detail` ⇒ `422 SHIPPING_PROVIDER_REJECTED`, el envío sigue `picking` preparado, `labelProcessingSince`/`providerRateId`/`chosenRateJson` **NULL**, bitácora `label_failed`; después `label` con otra tarifa de la misma cotización ⇒ `200 labeled`. 🔒 **v1.81.1 (SEC-SDX-4):** doble que **crea y luego falla al responder** (timeout tras el POST) ⇒ reclamo **puesto**, `providerShipmentId NULL`; `label/release` a los 10 min ⇒ `409 LABEL_NOT_RELEASABLE {reason:'too_early', retryAfterSeconds}`; a los 16 min con el doble devolviendo el envío por `findByReference` (o por replay con la misma `idempotencyKey`) ⇒ `200 outcome:'adopted'`, `providerShipmentId` puesto, **cero** `purchase` nuevas, bitácora `label_adopted`; con el doble sin nada ⇒ `200 outcome:'released'`, reclamo NULL, bitácora `label_released` con `note`; operador ⇒ `403`; sin `note` ⇒ `400`; sobre un envío con `providerShipmentId` ⇒ `409 {reason:'has_provider_id'}`; **liberar y comprar a la vez** (N≥10) ⇒ a lo sumo una guía viva | no deshacer el reclamo ⇒ `409 LABEL_IN_PROGRESS` para siempre; liberar **sin buscar** ⇒ dos `purchase` en el doble (doble costo) |
 | **PS-75** | **Guía en proceso:** doble devuelve `trackingNumber:null` ⇒ `200 processing`, `status='picking'`, `providerShipmentId` puesto, **cero** `AV-4`; el job `shipment-label-processing` con el doble ahora dando número ⇒ `status='guia'`, par escrito, **un** `AV-4`; correr el job otra vez ⇒ nada. **Y** `entregado` a mano en un envío Skydropx ⇒ cero `AV-17`; después `delivered` del doble ⇒ `AV-17` **una** vez aunque el CAS de estado cuente 0 | mandar `AV-4` al recibir `processing`; colgar `AV-17` de la transición |
 | **PS-76** 💰 | **Cifras vistas y confirmaciones:** `expectedPriceCents` distinto ⇒ `409 LABEL_PREVIEW_STALE`; margen negativo sin `confirmNegativeMargin` ⇒ `422 LABEL_CONFIRMATION_REQUIRED {required:['negative_margin']}`; tarifa `branch` sin `confirmBranchDelivery` ⇒ `['branch_delivery']`; ambos ⇒ los dos; con confirmaciones ⇒ `200` y la bitácora las lleva; saldo del doble < precio ⇒ `409 SHIPPING_INSUFFICIENT_BALANCE` **sin** `balanceCents` | ignorar `expected*`; devolver el saldo al operador |
@@ -24833,7 +24862,9 @@ escribir y proxy acotado (PS-84/PS-88; norma §19.18.5). `C-AV-1` = 19, `C-AV-3a
   5. **No encontrada** ⇒ tx nueva: CAS `updateMany({ where:{ id, labelProcessingSince:{not:null},
      providerShipmentId:null, labelProcessingSince:{lt: now − 15 min} }, data:{ labelProcessingSince:null,
      providerQuotationId:null, providerRateId:null, chosenRateJson:null, recommendedRateJson:null,
-     rateChosenByUserId:null, rateChosenAt:null } })` (el mismo `data` que la rama de rechazo); `count 0` ⇒ relee y
+     rateChosenByUserId:null, rateChosenAt:null } })` (el mismo `data` que la rama de rechazo — ⭐ **v1.80.12.12
+     ([§19.31.7](#M4-SHIP-19-31) (d)): ese `data` es el inverso EXACTO del reclamo e incluye también `packageCode`,
+     `packageDimsJson`, `declaredValueCents`, `insuredValueCents`**); `count 0` ⇒ relee y
      responde el `409` que corresponda. Bitácora `shipment.label_released` (`before:{ labelProcessingSince, quoteId,
      rateId, priceCents }`, `after:{ note }`) ⇒ **`200 { outcome:'released', shipment }`**. El envío vuelve a
      «preparado sin guía»: el operador cotiza y compra de nuevo.
@@ -25010,6 +25041,11 @@ escribir y proxy acotado (PS-84/PS-88; norma §19.18.5). `C-AV-1` = 19, `C-AV-3a
   `expiresAt = (el primer `requestedAt` que **nuestro sistema** registró para ese `providerQuotationId`, en cualquier envío) +
   24 h` — ⛔ nunca `now + 24 h` sobre un id ya visto (la cotización de Skydropx puede ser más vieja que nuestra petición; su
   fecha de creación no viene en la respuesta, M-6). Si el id es nuevo para nosotros, `requestedAt` de esta petición.
+  ⚠️ **v1.80.12.12 ([§19.31.2](#M4-SHIP-19-31)) — SUSTITUIDO en dos puntos:** (1) `expiresAt` se hereda solo de una fila
+  **vigente** con ese id; si todas vencieron, la observación abre una **generación nueva** (`now + 24 h`) — sin esto una
+  cotización que Skydropx reutiliza pasadas 24 h nacía vencida y el paso 3 de §19.7 entraba en un ciclo de `QUOTE_EXPIRED`;
+  (2) al actualizar la fila del mismo envío **sí** se escriben `requestedAt = now` y `requestedByUserId` (la «vigente» es la
+  última que el operador pidió).
 - **Qué tarifas se ofrecen (filtro, en este orden; cada descarte suma a `excluded` **una** vez por tarifa):** ⭐
   **v1.80.12.1 (D-SDX-1, §19.21.1) — orden corregido, `status` antes que `success`:** `status === 'no_coverage'` ⇒
   `noCoverage` · `status === 'not_applicable'` ⇒ `notApplicable` · `success !== true` **o** `status ∉
@@ -25150,6 +25186,10 @@ como único dato del seguro (ahora el desglose siempre trae `insuranceCents`, de
   inyecta `FakeShippingProvider` (el de PS-67…) para la pila E2E de QA/CI; el arranque **rechaza** `fake` si
   `SKYDROPX_ALLOW_SPEND === 'true'` (un despliegue real nunca corre con el doble). Con `NODE_ENV=test` el módulo **solo**
   ofrece `Fake`/`Noop`; el adaptador real solo se construye a mano en pruebas unitarias con un transporte grabador.
+- ⭐ **v1.80.12.12 ([§19.31.5](#M4-SHIP-19-31)) — la compra de punta a punta en la pila E2E:** la tercera llave pasa a
+  depender del **adaptador elegido al arrancar**: real ⇒ `SKYDROPX_ALLOW_SPEND === 'true'` (sin cambio); doble ⇒ env nueva
+  **`SHIPPING_FAKE_PURCHASE === 'true'`**; `noop` ⇒ nunca. El arranque **rechaza** `SHIPPING_FAKE_PURCHASE` no vacía con un
+  adaptador que no sea `fake`. ⛔ Nunca entra en `evaluateMutationGate`. PS-166.
 - `AdminShipmentDTO` (detalle de M4) gana **`labelOptions: { provider: 'off' | 'skydropx'; purchase: 'disabled' |
   'super_admin_only' | 'operators'; canPurchase: boolean }`** — `canPurchase` calculado **para el actor** (dial + rol +
   env); la ventana lo usa para no ofrecer un botón que va a responder `403`/`404` (§19.19.13). ⛔ No dice cuál llave falta
@@ -26822,7 +26862,7 @@ Las constantes de .7 se **inyectan** en la prueba (⛔ no se cambia el fichero).
 
 | # | Qué asevera | Mutación que la pone roja |
 |---|---|---|
-| **PS-122** 💰 | **Serialización.** (a) A con reclamo de hace 2 min sin id ⇒ `POST …/label` de B ⇒ `409 CONFLICT {reason:'purchase_in_flight', otherShipmentId:A, retryAfterSeconds}`, **0** `purchase`, B idéntico byte a byte; A con reclamo de hace 20 s ⇒ `retryAfterSeconds = 5`. (b) A con reclamo de hace 16 min ⇒ B compra (1 `purchase`). (c) **Carrera:** 10 `POST …/label` sobre **10 envíos distintos** con barrera y `purchase` del doble demorada 1 s ⇒ **exactamente 1** `purchase` y 9 × `409 purchase_in_flight`, **por ronda, N ≥ 10, se reporta la proporción** (esperado 10/10) | quitar `pg_advisory_xact_lock` ⇒ (c) registra > 1 `purchase` en alguna ronda (se reporta cuántas de N); quitar el `EXISTS` ⇒ (a) compra |
+| **PS-122** 💰 | **Serialización.** (a) A con reclamo de hace 2 min sin id ⇒ `POST …/label` de B ⇒ `409 CONFLICT {reason:'purchase_in_flight', otherShipmentId:A, retryAfterSeconds}`, **0** `purchase`, B idéntico byte a byte; ~~A con reclamo de hace 20 s ⇒ `retryAfterSeconds = 5`~~ ⚠️ **v1.80.12.12 ([§19.31.4](#M4-SHIP-19-31)): manda la fórmula de §19.28.8** — con `T_INFLIGHT_BLOCK` = 3 min: reclamo de hace 2 min ⇒ `60`; de hace 20 s ⇒ `160`. (b) A con reclamo de hace 16 min ⇒ B compra (1 `purchase`). (c) **Carrera:** 10 `POST …/label` sobre **10 envíos distintos** con barrera y `purchase` del doble demorada 1 s ⇒ **exactamente 1** `purchase` y 9 × `409 purchase_in_flight`, **por ronda, N ≥ 10, se reporta la proporción** (esperado 10/10) | quitar `pg_advisory_xact_lock` ⇒ (c) registra > 1 `purchase` en alguna ronda (se reporta cuántas de N); quitar el `EXISTS` ⇒ (a) compra |
 | **PS-123** 💰 | **Foto del saldo tras el reclamo.** El doble devuelve 100000 en la 1.ª lectura de `balance` y 90000 en la 2.ª: orden de llamadas `balance → (reclamo) → balance → purchase`, y `label_purchase_sent.balanceBeforeCents = 90000`, `expectedChargeCents = chosen.priceCents`. 2.ª lectura con `5xx` ⇒ reclamo deshecho, `503`, **0** `purchase`; 2.ª lectura `< priceCents` ⇒ reclamo deshecho, `409 SHIPPING_INSUFFICIENT_BALANCE`, **0** `purchase` | guardar la lectura del paso 6 ⇒ `100000`; saltarse el 7b ⇒ el orden no cuadra |
 | **PS-124** 💰 | **Encontrada ⇒ se adopta, sin comprar.** S en vuelo desde T; el listado del doble a T+70 s trae X (id ya de otro envío) e Y (desconocido, `createdAt` T+5 s, misma paquetería, `totalCents` y CP iguales) ⇒ el job a T+1 min adopta **Y** (no X): `providerShipmentId = Y`, bitácora `label_adopted {via:'recent_list'}` con actor de sistema; con número ⇒ `guia` y **un** `AV-4`; Y con `hasError` ⇒ rama «rechazo con id» (`processing`); S pasó a `cancelado` ⇒ §19.18.3 (`cancel` una vez). **Tardía:** Y aparece solo a T+40 min ⇒ adoptada en la corrida de cola. En todas, **0** `purchase` | contar `knownIds` como candidatos ⇒ adopta X; adoptar solo tras `T_UNKNOWN` ⇒ la aserción de T+1 min falla |
 | **PS-125** 💰 | **Lo ambiguo nunca se adopta.** (a) dos desconocidos que cuadran; (b) uno con total distinto; (c) uno que cuadra **y** otro envío en vuelo S' que también cuadra; (d) uno con solo la paquetería legible (`totalCents` y CP `null`); (e) S con `label_conflict` ⇒ en todos: **no** se adopta, a T+15 `label_verify_uncertain` con `ambiguous` (en (e), `conflict`) y `labelAlert.reason` igual; **0** `purchase` | tomar el primer candidato; cuadrar solo por paquetería; no mirar S' |
@@ -27048,6 +27088,10 @@ cuadra en paquetería, total y CP pero **sin** nuestro folio ⇒ **0** adopción
   PURCHASE_MAX_LIFE_MS`** (hoy **3 min**, no 15). *Por qué baja:* con la adopción por folio, otra compra no confunde al
   listado; el bloqueo largo solo sirve a la evidencia negativa del saldo, que hoy está apagada.
   `retryAfterSeconds = ceil((otro.labelProcessingSince + T_INFLIGHT_BLOCK − now)/1000)`, mínimo 1.
+- ⭐ **v1.80.12.12 ([§19.31.3](#M4-SHIP-19-31)):** con el candado consultivo **ocupado**, antes de responder el `409` se relee
+  la fila del **propio** envío con `FOR SHARE` (fuera de toda tx que tenga el candado; espera, como mucho, a la tx del
+  reclamo que ya la escribió): `labelProcessingSince ≠ null` ⇒ **`200 in_progress`** (doble clic sobre el mismo envío); si
+  no ⇒ el `409` de arriba. Lectura sola, cero escrituras, cero red.
 - **`otherShipmentId: string | null`** (antes `string`). **`otherFolio: string | null`** (aditivo) para el texto.
 - **Censo de claves (C-11 (b)):** `SKYDROPX_PURCHASE_LOCK_KEY = 65_310_701` en `shipments/`. Una prueba de censo recorre
   `backend/src` y exige: toda llamada `pg_(try_)?advisory_xact_lock(<un argumento>)` usa una constante nombrada con
@@ -27367,7 +27411,8 @@ model SpendDigestRun {
   AND "valueJson"='50000'::jsonb AND "updatedBy"='migration:m66-sdx-d'` (solo si nadie la movió). En ambos casos
   `SETTING_DEFAULTS` pasa a `100000` (`settings.constants.ts:533`) y el candado `test/sdx-d.dials.spec.ts:34` aserta el seed
   **efectivo tras todas las migraciones**.
-- `C-ENUM`: los cinco enums entran en §Enums con paridad contra `schema.prisma`.
+- `C-ENUM`: los ~~cinco~~ **seis** enums entran en §Enums con paridad contra `schema.prisma`. ⚠️ **v1.80.12.12
+  ([§19.31.1](#M4-SHIP-19-31)):** no habían entrado (7 rojas en `enum-values-parity.spec.ts`); sus líneas canónicas ya están en §0.
 - **Invariantes (con prueba, PS-159):** (I-1) todo `ShipmentRequest` con `labelSource='skydropx'` tiene su
   `ShipmentPaidLabel` con el mismo `providerShipmentId`, `origin ∈ {response, adopted}` y `chargedCents =
   shippingCostCents`, escritos en **la misma tx** por **una** función (`recordPaidLabel`); (I-2) toda fila de intento con
@@ -27592,10 +27637,12 @@ export interface SpendAlertDTO {
   occurrenceCount: number; firstOccurredAt: string; lastOccurredAt: string; resolvedAt: string | null;
   seen: { at: string; by: { userId: string; name: string } } | null;
   mail: { status: SpendAlertMailStatus; at: string | null };
+  muted: boolean;                                                   // ⭐ v1.80.12.12 (S-GAS-8, §19.31.8): la columna de §19.30.2 (5)
 }
 export interface SpendAlertSummaryDTO {
   from: string; to: string;
-  byKind: { code: SpendAlertCode; immediate: number; digest: number; amountCents: number }[];
+  byKind: { code: SpendAlertCode; immediate: number; digest: number; amountCents: number }[];  // ⭐ v1.80.12.12: solo NO silenciados
+  mutedCount: number;                                               // ⭐ v1.80.12.12 (S-GAS-7, §19.31.8): silenciados del rango
   labelSpendByPerson: { userId: string; name: string; cents: number; labels: number }[];
   costlyChoices: { count: number; overRecommendedCents: number; byPerson: { userId: string; name: string; count: number }[] };
 }
@@ -27946,6 +27993,243 @@ medido).
 | **product-owner** | Ajustar `PROJECT.md`: Z.0.4 (`:8539`, «el dueño» = la cuenta **marcada**, no «súper-admin con correo»), Z.0.2 (`:8536`, los ajustes de §Z los cambia **el dueño**), criterio 332 (`:12650-12651`, «a la cuenta del dueño») y 335 (`:12667`, «súper-admin que no es el dueño»). Es la letra de P-GAS-9 aceptada («solo a las cuentas de súper-admin con correo **(la suya)**», `:16798-16799`): con C-20 (a) = 1 coinciden; con > 1 manda «la suya» y lo confirma el dueño (§19.30.10 (1)) |
 | **seguridad** | Verificar C-19…C-24 en el código (D2c, D2d, D2g) y que la errata cierra SDX-Z-1…6 |
 | **orquestador** | Pasar al dueño las tres preguntas de §19.30.10 tal cual; anotar sus respuestas en `HECHOS.md` |
+
+###### <a id="M4-SHIP-19-31"></a>M4-SHIP.19.31 — 💰 v1.80.12.12: errata tras D2b, D2c, `M-67` y `M-68` — paridad de enums, vigencia de la cotización reutilizada, PS-73 y PS-122, dos `reason` que faltaban, la cancelación sin respuesta, «Liberar», **la compra de punta a punta en la E2E con el doble**, S-GAS-7…9, y el plan para cerrar la fase D (**NORMATIVA**, **DINERO**)
+
+> **Fuentes:** `BACKEND_NOTES.md §62` (2026-10-05, rama `claude/skydropx-d`; preguntas en §62.5, `:27609-27645`; decisiones
+> propias en §62.2, `:27517-27555`); `DESIGN_SYSTEM.md:25872-25874` (S-GAS-7…9); `FRONTEND_NOTES.md:19574`. Código leído por el
+> arquitecto el 2026-10-05 en `/home/user/tcg-skyd` (Read/Grep, ⛔ sin ejecutar nada; ⛔ sha NO MEDIDO: sin Bash; el
+> orquestador dio `69707cfa` o posterior): `label-purchase.service.ts:48-53,244-258,284-285,975-994`,
+> `label-cancel.service.ts:85-114`, `label-quote.service.ts:292,419-480`, `shipping-provider.factory.ts:50-80`,
+> `spend-gate.ts:28-62`, `label-proxy.ts:39`, `admin-shipments.controller.ts:33-202`, `shipments.module.ts:36-37`,
+> `schema.prisma:1752-1818`, `test/enum-values-parity.spec.ts:221-280`, `scripts/stack-native.sh:196-205`,
+> `docker-compose.staging.yml:201-206`. **Manda** sobre §19.7 (paso 7, respuesta del candado ocupado), §19.8 (cancelar),
+> §19.18.3 punto 1 (respuesta), §19.18.4 paso 5 (`data`), §19.19.4 («Reutilización y vigencia»), §19.19.7 (tercera llave),
+> §19.28.8, §19.29.1.4 (respuesta), §19.29.7–.11 (reparto D2d/D2g), §19.29.9 (DTO), PS-73, PS-95, PS-98, PS-122, donde choque.
+> **Migración:** ninguna. **Códigos de error nuevos:** ninguno; `409 CONFLICT` gana dos `reason`. **Env nueva:**
+> `SHIPPING_FAKE_PURCHASE` (solo pila E2E con el doble).
+
+**M4-SHIP.19.31.1 — Paridad de enums (pregunta 1 de §62.5).** Las seis líneas canónicas entran en §0 junto a
+`ShipmentCostAdjustmentKind`, con el formato que lee `enum-values-parity.spec.ts:251-259` (`Nombre = a | b …`, comentario tras
+`//`). Comparadas valor a valor contra `schema.prisma:1752-1818` y contra lo que el contrato declaraba (§19.29.2 y, para
+`SpendAlertKind`, §19.30.1 (6) + §19.30.2 (3)): **coinciden las seis**, sin diferencia que reportar. `SpendAlertKind` tiene
+**22** valores (AG-1…AG-20 de §19.29.2 + AG-21/AG-22 de v1.80.12.10). «Los cinco» de §19.29.2 era un error de cuenta: son seis
+(`SpendAlertMailStatus` no estaba contado). ⛔ Ninguno entra a `SIN_LINEA_CANONICA`. Las 7 rojas (6 de banda 3 + la de «exactamente
+`SIN_LINEA_CANONICA`») **deberían** pasar a verde — ⛔ NO MEDIDO por el arquitecto; lo cierra la suite sobre una copia del árbol
+**entero** (O-9). **Bandas 1–2:** `SpendAlertKind` y `SpendAlertSeverity` son filtro de query (`?kind=`, `?severity=`, §19.29.9);
+cuando `src/` los valide (D2g), entran a `EXPECTED_ENUM_VALUES` y a `enum-values.ts` (§4.37, una sola declaración).
+
+**M4-SHIP.19.31.2 — 💰 Vigencia de la cotización reutilizada y «la vigente» (preguntas 2 y 15).**
+
+*Qué estaba mal (por lectura del contrato; ⛔ no reproducido):* con «`expiresAt` = primera observación + 24 h» un
+`providerQuotationId` que Skydropx devuelve pasadas 24 h nace vencido. El paso 3 de §19.7 re-cotiza sin `force`, recibe el mismo
+id, la fila sigue vencida y responde `409 QUOTE_EXPIRED` con una cotización ya vencida; el operador confirma y vuelve a caer en el
+paso 3: **un ciclo sin salida** y el envío sin guía. No era lo querido.
+
+*Regla (sustituye «Reutilización y vigencia» de §19.19.4 en lo que choque), una función pura `quoteExpiryFor(rows, now)`:*
+1. `V` = filas con ese `providerQuotationId` (en **cualquier** envío) con `expiresAt > now`.
+2. `V ≠ ∅` ⇒ `expiresAt = max(V.expiresAt)` — la misma **generación**: ⛔ nunca se alarga una cotización viva (PS-95 sigue).
+3. `V = ∅` ⇒ **generación nueva**: `expiresAt = now + 24 h`. Si existían filas (todas vencidas) ⇒ log `info
+   quotation_id_reissued_after_expiry {fp(providerQuotationId), lastExpiredAt}` (es la medición: ⛔ NO MEDIDO si Skydropx honra
+   una tarifa de un id reutilizado; mientras tanto mandan las guardas de siempre — el paso 4 compara contra el `ratesJson` recién
+   escrito, AG-5 avisa una diferencia de cobro y un rechazo sin id deshace el reclamo sin costo).
+4. La regla vale al **crear** y al **actualizar**: la fila del mismo envío que estaba vencida y se vuelve a observar abre
+   generación; si estaba vigente, su `expiresAt` no cambia.
+5. **Al actualizar la fila del mismo envío** se escriben además **`requestedAt = now`** y **`requestedByUserId = actor`**
+   (§19.19.4 decía «`requestedAt` no se toca»: queda sustituido). Así «la vigente» de `GET …/quote` (la de `requestedAt` mayor,
+   `label-quote.service.ts:292`) es **la última que el operador pidió**, también si entre medias cotizó con otro empaque.
+   `expiresAt` ya no se deriva de `requestedAt` en ningún sitio (se deriva de las filas vigentes), así que mover `requestedAt` no
+   alarga nada. ⛔ **Sin columna nueva** (`updatedAt` sería una segunda fuente de «cuándo la pidió»).
+- `excluded` de una reutilizada (pregunta 13): ver §19.31.7 (g).
+
+**M4-SHIP.19.31.3 — 💰 PS-73 frente a §19.28.8 (pregunta 3): se RATIFICA la relectura, y PS-73 se reescribe.**
+- Con el candado consultivo **ocupado**, se relee la fila del **propio** envío con `SELECT "labelProcessingSince", "labelSource"
+  … FOR SHARE`, en una consulta que **no** tiene el candado consultivo (`label-purchase.service.ts:252-256`):
+  `labelSource ≠ null` ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource}` (⭐ rama nueva: hoy cae al `409 purchase_in_flight`);
+  `labelProcessingSince ≠ null` ⇒ `200 in_progress`; si no ⇒ `409 CONFLICT {reason:'purchase_in_flight', otherShipmentId:null,
+  otherFolio:null, retryAfterSeconds:1}` (§19.28.8).
+- *Por qué es seguro:* sin ciclo de candados (el reclamo toma consultivo → fila; la relectura **solo** fila); espera acotada (la
+  tx del paso 7 no tiene red: milisegundos); cero escrituras, cero red.
+- *Residuo, dicho:* entre que el ganador toma el candado y escribe la fila, la relectura ve la fila sin reclamo y responde el
+  `409 purchase_in_flight` con `retryAfterSeconds: 1`; la ventana reintenta y recibe `in_progress`. Por eso «ningún `409`» de PS-73
+  **no es una propiedad del sistema** y se reescribe (§19.31.9). Medido por **backend** (`BACKEND_NOTES.md:27523-27527`, relayado,
+  ⛔ no medido por el arquitecto): **0 de 90** respuestas perdedoras fueron `409`, N = 10 rondas × 9.
+
+**M4-SHIP.19.31.4 — PS-122 (a) (pregunta 4): manda la fórmula.** «`retryAfterSeconds = 5`» era de §19.27.2, sustituida por
+§19.28.8. Con `INFLIGHT_NEGATIVE_VERIFIED = false`, `T_INFLIGHT_BLOCK = PURCHASE_MAX_LIFE_MS` (3 min): reclamo de hace 2 min ⇒
+**60**; de hace 20 s ⇒ **160**. Se RATIFICA lo construido; PS-122 (a) se reescribe así.
+
+**M4-SHIP.19.31.5 — 💰🔒 La compra de punta a punta en la pila E2E, con el doble y sin debilitar PS-99 (pregunta 9).**
+
+*El problema:* la tercera llave de la puerta (§19.19.7) es hoy «`SKYDROPX_ALLOW_SPEND === 'true'`», y PS-98 prohíbe arrancar con
+`SHIPPING_PROVIDER_ADAPTER=fake` y esa llave. Así, en la pila E2E (`stack-native.sh:204-205`, `docker-compose.staging.yml:206`)
+`label` responde siempre `409 {missing:['allow_spend']}` y ningún flujo de compra se puede probar de punta a punta. Las pruebas de
+integración lo rodean sustituyendo el proveedor `LABEL_SPEND_KEY` (`test/integration/helpers/label-db.ts:72`), cosa imposible en
+una pila que corre.
+
+*Decisión:* la tercera llave **depende del adaptador elegido al arrancar**, y el doble tiene **su propia** llave.
+
+```ts
+// shipping-provider/spend-gate.ts — sigue siendo el ÚNICO fichero de backend/src que lee estas dos envs (C-SDX-8 ampliado)
+export type ProviderKind = 'skydropx' | 'fake' | 'noop';           // = ShippingProviderSelection.kind
+export function isPurchaseKeyTurned(kind: ProviderKind, env: NodeJS.ProcessEnv = process.env): boolean;
+//   'skydropx' ⇒ env.SKYDROPX_ALLOW_SPEND === 'true'   (sin cambio)
+//   'fake'     ⇒ env.SHIPPING_FAKE_PURCHASE === 'true'
+//   'noop'     ⇒ false
+export function fakePurchaseKeyMisplaced(adapter: string, env: NodeJS.ProcessEnv = process.env): boolean;
+//   true ⇔ SHIPPING_FAKE_PURCHASE no vacía (trim) ∧ adapter !== 'fake'
+// ⛔ evaluateMutationGate / readMutationGateInput NO leen SHIPPING_FAKE_PURCHASE (sin cambio de firma).
+```
+
+1. **`kind` sale del arranque**, nunca de la petición: es `ShippingProviderSelection.kind` (`shipping-provider.factory.ts:41-48`).
+   Lo usan, con **una** llamada a `isPurchaseKeyTurned`, el paso 1 de `label` (`409 {missing:['allow_spend']}` sin cambio de
+   forma), `labelOptions.canPurchase` y el proveedor por defecto de `LABEL_SPEND_KEY` (`label-purchase.service.ts:48-53`,
+   `shipments.module.ts:36-37`). Las pruebas que hoy sustituyen `LABEL_SPEND_KEY` siguen igual.
+2. **Arranque (fábrica):** `fakePurchaseKeyMisplaced(adapter)` ⇒ **el proceso no arranca** (falla ruidosa: una llave suelta en
+   producción tumba el despliegue en vez de ignorarse en silencio). La regla existente sigue: `fake` + `SKYDROPX_ALLOW_SPEND=true`
+   ⇒ no arranca (PS-98).
+3. **El PDF del doble:** `GET …/label.pdf` (§19.31.10, pieza 1) con `kind = 'fake'` responde `FakeShippingProvider.labelPdf()`
+   (un PDF fijo y pequeño, en el proceso; ⛔ **ningún** `fetch`), con las mismas cabeceras y la misma bitácora `label_printed`.
+   Con `kind = 'noop'` ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['env']}` (§19.10, SEC-SDX-12). Así «Imprimir etiqueta»
+   también se prueba.
+4. **Dónde se gira (devops, todo literal, ⛔ sin `${…:-}` en la pila de E2E):** `scripts/stack-native.sh` exporta
+   `SHIPPING_FAKE_PURCHASE=true` junto a `SHIPPING_PROVIDER_ADAPTER=fake` (`:204`); `docker-compose.staging.yml` lleva
+   `SHIPPING_FAKE_PURCHASE: "true"` junto a `SHIPPING_PROVIDER_ADAPTER: fake` (`:206`); `docker-compose.yml` (local) pasa
+   `${SHIPPING_FAKE_PURCHASE:-}`; `.env.example` trae **una** línea `SHIPPING_FAKE_PURCHASE=` **vacía**. ⛔ Nunca en un
+   workflow de `.github/` como env propia (los workflows levantan la pila por esos dos ficheros) y ⛔ nunca en Railway.
+5. **El dial y el dueño en la E2E:** la compra sigue exigiendo el dial `shipping_label_purchase ≠ 'disabled'` y
+   `shipping_provider = 'skydropx'`, que el arnés gira por `PUT /admin/settings` **como el dueño** (§19.30.2 (1)). Exige que la
+   semilla de la pila tenga **exactamente un** súper-admin con correo activo (así `M-68` lo marca) o que el arnés corra
+   `prisma/set-owner.ts` con el correo semilla. ⛔ NO MEDIDO qué siembra hoy la pila: lo comprueba devops.
+6. **Qué compra el doble:** el resultado por defecto del Fake en la pila debe ser «éxito con número» (determinista); los demás
+   resultados siguen siendo guionizables solo en pruebas. ⛔ NO MEDIDO el defecto actual de `fake-shipping-provider.ts`: lo
+   confirma backend.
+
+*Por qué PS-99 no se debilita:* (a) el adaptador real solo existe con `SHIPPING_PROVIDER_ADAPTER=skydropx`, y entonces la llave
+del doble **impide arrancar**; (b) `evaluateMutationGate` no cambia y no lee la llave nueva: el adaptador real sigue sin poder
+gastar en pruebas, CI ni sin `SKYDROPX_ALLOW_SPEND`; (c) el veto de red de jest no cambia; (d) el censo estático gana la env nueva.
+Con el doble no hay red ni dinero: «comprar» es escribir filas en la base de la pila.
+
+*Alternativas descartadas:* **poner `SKYDROPX_ALLOW_SPEND` con el doble** — quita el candado de PS-98 (lo que impide que un
+despliegue real corra con el doble) y mete la variable que significa «gastar dinero» en la configuración de CI (C-SDX-8, PS-99
+(d)); **un interruptor por cabecera o parámetro** — superficie de ataque en una ruta de dinero; **decidir por `NODE_ENV`** — no
+distingue: la pila de staging corre en `production` (`docker-compose.staging.yml`); **sustituir `LABEL_SPEND_KEY`** — solo existe
+en jest, no en una pila que corre.
+
+*Residuo:* el panel de Railway no está en el repositorio: un `SHIPPING_PROVIDER_ADAPTER=fake` **con** `SHIPPING_FAKE_PURCHASE=true`
+en producción «compraría» guías falsas (sin dinero, pero con números de rastreo falsos al cliente). El candado del repo no lo ve
+(NO MEDIDO). devops lo añade a la lista de comprobación del despliegue a producción (`DEVOPS_NOTES`): ninguna de las dos envs
+existe en Railway producción.
+
+**M4-SHIP.19.31.6 — 💰 `label/cancel` cuando `port.cancel` LANZA (pregunta 6): se RATIFICA revertir, con dos añadidos.**
+1. **Sin respuesta legible** (timeout, `5xx`, red) en el verbo (`reissue`, con persona delante) ⇒ CAS inverso del sello
+   (`label-cancel.service.ts:94-98`, sin cambio), bitácora **`shipment.label_cancel_unknown {providerShipmentId, error}`** fuera de
+   toda tx, y se propaga el error del cliente (`502 SHIPPING_PROVIDER_ERROR {op:'cancel'}` / `503 SHIPPING_PROVIDER_BUSY`). *Por qué
+   revertir y no conservar el sello:* un sello `reissue` sin confirmar sobre un envío en `guia` **no tiene camino de reintento** —
+   el CAS del verbo exige `providerCanceledAt IS NULL` y respondería `200 already_cancelled` sin red (`:85-88`)— y el envío quedaría
+   sin poder cancelarse ni re-emitirse. Revertido dice la verdad conservadora («viva hasta que Skydropx confirme») y deja el
+   reintento a un clic. TG-1 la cuenta igual en los dos casos (es guía pagada): no hay sub-conteo de gasto.
+2. **`ok:false`** (también en el reintento tras 1) ⇒ **antes de revertir**, `port.getShipment(id)` (lectura): legible y con
+   `carrierStatus` mapeado a `canceled` ⇒ se trata como **aceptada** con `refundedCents: null` (sigue la re-emisión de §19.8;
+   bitácora `shipment.label_cancelled` con `after.via:'provider_already_cancelled'`; AG-8 (b) vigila el reembolso al día 3). Si no
+   ⇒ revertir + `422 SHIPPING_PROVIDER_REJECTED`, como hoy. Cierra el caso «el primer `cancel` sí entró y el segundo se rechaza»
+   (⛔ NO MEDIDO cómo responde Skydropx a un segundo `cancel`).
+3. **Sin persona** (`auto_close`, reintento de `cancelado ∧ auto_close`): sin cambio — el sello se conserva y sale
+   `label_cancel_failed` (§19.18.3 punto 3; `:109-113`).
+
+**M4-SHIP.19.31.7 — Las demás de §62.5 (preguntas 5, 7, 8, 10–14).**
+- **(a) Dos `reason` que faltaban (pregunta 5).** `count 0` con el **mismo** `since`, envío en `picking` y otra causa (§19.28.3
+  punto 4 / §19.18.3 punto 1; `label-purchase.service.ts:994`) ⇒ **`409 CONFLICT {reason:'shipment_changed_during_purchase',
+  labelAutoCancelled: true}`** (`labelAutoCancelled` con el mismo sentido que en §19.18.3 punto 4: el sistema **pidió** la
+  cancelación; si falla, sale `label_cancel_failed`). 7b.2 con `count ≠ 1` (§19.29.1.4; `:285`) ⇒ **`409 CONFLICT
+  {reason:'claim_released'}`** — **cero** compra («se liberó mientras se preparaba; no se compró nada; cotiza de nuevo»).
+  `attempts_exhausted` sin cambio. ⛔ Ningún `409 CONFLICT` del verbo `label` sale ya sin `reason`, salvo el «otro ⇒ `409
+  CONFLICT`» del paso 7 cuando la relectura no cuadra con ninguna rama (no debería ocurrir; log `error`).
+- **(b) «Liberar» con veredicto `not_sent` (pregunta 7): RATIFICADO.** Libera con `via:'manual_verified'`, intento `not_charged`
+  con `outcomeReason:'not_sent'`; `verdict.outcome:'not_sent'` (ya admitido en §19.28.11). `not_sent` es un hecho local (§19.28.5),
+  más fuerte que `not_charged`. ⛔ Sin valor nuevo de `lastLabelRelease.via`.
+- **(c) AG-9 (a) desde «Liberar» (pregunta 8): RATIFICADO.** Veredicto `uncertain('charged_not_found')` en el verbo ⇒ AG-9 🔴
+  con la **misma** llave `ag9:nf:<attemptId>` que el job: un solo aviso lo vea quien lo vea primero. Es justo el caso que el dueño
+  quiere saber (alguien libera con el saldo bajado exactamente lo de la guía).
+- **(d) El deshacer del reclamo (pregunta 11): RATIFICADO y generalizado.** El `data` de deshacer es el **inverso exacto** del
+  `data` del reclamo (paso 7): `labelProcessingSince`, `providerQuotationId`, `providerRateId`, `chosenRateJson`,
+  `recommendedRateJson`, `rateChosenByUserId`, `rateChosenAt`, `packageCode`, `packageDimsJson`, `declaredValueCents`,
+  `insuredValueCents` ⇒ `null`. §19.18.4 paso 5 enumeraba 7: queda sustituido. Una prueba falla si el reclamo escribe una columna
+  que el deshacer no limpia (PS-169).
+- **(e) `ShipmentRequest.packageCode` (pregunta 10): RATIFICADO.** Manda el comentario del schema de §19.2 («`providerPackageType`
+  congelado», lo que viajó y por lo que Skydropx cobró); el `packageCode` del paso 7 de §19.7 se lee así. El código propio
+  (`ShippingPackage.code`) se recupera de la `ShipmentQuote` comprada, que nunca se purga (§19.10, SEC-SDX-6).
+- **(f) Sin correo del destinatario (pregunta 12): se deja `''`, ⛔ no se exige ni se sustituye.** Falla cerrado: si Skydropx lo
+  rechaza (`422` sin id) el reclamo se deshace sin costo y el operador captura a mano. ⛔ No se pone un correo de la tienda: llevaría
+  avisos de la paquetería sobre un cliente a nuestro buzón y eso lo decide el dueño. Caso raro (invitado con `guestEmail`, cuenta con
+  correo). ⛔ NO MEDIDO si Skydropx acepta `''`: se observa en la primera compra real sin correo.
+- **(g) `excluded` de una reutilizada (pregunta 13): RATIFICADO**, sin columna. Condición: la redacción conserva los campos que el
+  filtro lee (`status`, `success`, `total`, el desglose, `shipment_creation_type`); prueba: `excluded` de la fresca == `excluded`
+  de la reutilizada con el fixture de PS-94 (PS-168).
+- **(h) `BACKEND_NOTES §61` (pregunta 14):** deuda de backend (la cabecera de `M-66` cita «§61.6» que no existe). No es del
+  contrato; el orquestador la enruta a backend.
+
+**M4-SHIP.19.31.8 — Solicitudes de frontend y ux-ui (no bloquean; aditivas).**
+- **S-GAS-8:** `SpendAlertDTO.muted: boolean` (la columna de §19.30.2 (5)).
+- **S-GAS-7:** `SpendAlertSummaryDTO.mutedCount: number` = avisos **silenciados** con `firstOccurredAt` en el rango (misma frontera
+  de día MX). `byKind` cuenta **solo** los no silenciados; `labelSpendByPerson` y `costlyChoices` sin cambio (salen de los libros,
+  no de los avisos). Un cuerpo, `summarizeSpendAlerts`, para el panel y el correo (§19.29.7): la línea «N avisos apagados» del
+  correo es este número.
+- **S-GAS-9:** AG-22 `facts.keys` = **nombres del DTO** (camelCase), ordenados — la **misma** lista y la misma función que `403
+  OWNER_ONLY_SETTING {keys}`.
+- **`isOwner` en la ficha:** `AdminUserDetailDTO` **y** `AdminUserDetailOperatorDTO` ganan `isOwner: boolean` en la raíz (misma
+  derivación que el listado, §19.30.3). Frontend lo leía porque su tipo extiende el resumen; el contrato **no** los relaciona
+  (§11): ahora lo declara.
+
+**M4-SHIP.19.31.9 — Pruebas que DEBEN fallar** (reglas de §19.27.8: copia del árbol **entero** con su sha, mutación demostrada roja,
+carreras con barrera y **N ≥ 10 con proporción y autor**, reloj y constantes inyectados, ⛔ nunca la red).
+
+| # | Cierra | Qué asevera | Mutación que la pone roja |
+|---|---|---|---|
+| **PS-73** (reescrita) 💰 | §19.31.3 | 10 `POST …/label` al mismo envío con barrera y `purchase` del doble demorada ⇒ **exactamente una** `purchase` por ronda (N ≥ 10, proporción); cada una de las otras 9 ∈ {`200 in_progress`, `409 CONFLICT {reason:'purchase_in_flight', otherShipmentId:null}`, `409 SHIPMENT_ALREADY_LABELED`}; se **reporta** cuántos `409 purchase_in_flight` de 9·N. Repetir tras `labeled` ⇒ `409 SHIPMENT_ALREADY_LABELED` | quitar el CAS de `labelProcessingSince` ⇒ ≥ 2 `purchase` en alguna ronda; relectura sin `labelSource` con el envío ya `labeled` ⇒ sale `purchase_in_flight` en vez de `ALREADY_LABELED` (fila determinista) |
+| **PS-122 (a)** (reescrita) 💰 | §19.31.4 | Reclamo de A de hace 2 min ⇒ `retryAfterSeconds = 60`; de hace 20 s ⇒ `160` | literal `5`, o `T_UNKNOWN` en la fórmula |
+| **PS-166** 💰🔒 | §19.31.5 | (a) `isPurchaseKeyTurned`: tabla 3 `kind` × {nada, `ALLOW_SPEND=true`, `FAKE_PURCHASE=true`, las dos} ⇒ `true` **solo** en (`skydropx`, ALLOW) y (`fake`, FAKE). (b) Arranque: `FAKE_PURCHASE=true` con adaptador `skydropx` (con y sin credenciales) o sin `SHIPPING_PROVIDER_ADAPTER` ⇒ no arranca; con `fake` ⇒ `kind:'fake'`; `fake` + `ALLOW_SPEND=true` ⇒ no arranca (PS-98). (c) `evaluateMutationGate(readMutationGateInput({NODE_ENV:'production', SHIPPING_FAKE_PURCHASE:'true'}))` ⇒ `forbidden 'not_enabled'`; censo: `SHIPPING_FAKE_PURCHASE` aparece en `backend/src` **solo** en `spend-gate.ts` y fuera de `evaluateMutationGate`/`readMutationGateInput`. (d) Integración con el cableado **real** del módulo (⛔ sin sustituir `LABEL_SPEND_KEY`), adaptador `fake`, `FAKE_PURCHASE=true`, dial `super_admin_only`, dueño ⇒ `POST …/label` `200 labeled`, **una** `purchase` en el doble, `GET …/label.pdf` `200 application/pdf` con `label_printed` y **cero** `fetch`; sin la env ⇒ `409 {missing:['allow_spend']}` y `canPurchase:false`. (e) devops: candado (E) de §19.31.11 con canario. (f) frontend: los flujos F de compra de Playwright contra la pila (cotizar → elegir → comprar → guía → imprimir) | `ALLOW || FAKE` sin mirar `kind` ⇒ (a) en (`skydropx`, FAKE); quitar la comprobación del arranque ⇒ (b); meter la env en `allowSpend` ⇒ (c); `fetch` del `labelUrl` del doble ⇒ (d) |
+| **PS-167** 💰 | §19.31.6 | (a) `cancel` del doble lanza *timeout* en una re-emisión ⇒ sello revertido (`providerCanceledAt` nulo), `502`/`503`, `label_cancel_unknown`, la guía intacta; el reintento con `ok` ⇒ `cancelled`. (b) `ok:false` y `getShipment` con `canceled` ⇒ `cancelled` (re-emisión aplicada, `refundedCents:null`, `via:'provider_already_cancelled'`); `ok:false` y `getShipment` sin `canceled` o ilegible ⇒ `422` y revertido. (c) `auto_close` con *timeout* ⇒ sello conservado y `label_cancel_failed` | no revertir en (a) ⇒ el reintento responde `already_cancelled` sin red; saltarse `getShipment` ⇒ (b) |
+| **PS-168** 💰 | §19.31.2, (g) | (a) id X visto en T (envío A), en T+10 h para B ⇒ `expiresAt` de B = T+24 h. (b) X visto en T+25 h para B (todas vencidas) ⇒ `expiresAt` = T+49 h, log `quotation_id_reissued_after_expiry`; `label` con esa cotización en T+26 h ⇒ compra, ⛔ sin `QUOTE_EXPIRED`. (c) A re-cotiza con `force` en T+2 h y recibe X ⇒ fila actualizada con `requestedAt` = T+2 h, `requestedByUserId` = actor, `expiresAt` = T+24 h; con una cotización Y de otro empaque en T+1 h entre medias, `GET …/quote` devuelve X. (d) `excluded` fresca == reutilizada (fixture PS-94) | heredar de la primera observación sin mirar si sigue viva ⇒ (b) nace vencida; no tocar `requestedAt` ⇒ (c) devuelve Y; alargar una viva ⇒ (a) |
+| **PS-169** 💰 | §19.31.7–.8 | `count 0` local ⇒ `409 {reason:'shipment_changed_during_purchase', labelAutoCancelled:true}` y **un** `cancel`; 7b.2 liberado ⇒ `409 {reason:'claim_released'}` y **cero** `purchase`; las llaves del `data` del reclamo ⊆ las del deshacer; AG-22 `facts.keys` en camelCase e iguales al `403`; `muted` en `SpendAlertDTO`; `mutedCount` y `byKind` sin silenciados; `isOwner` en las dos fichas | quitar el `reason`; añadir una columna al reclamo sin el deshacer; `keys` en snake_case |
+| **PS-170** (frontend) | §19.31.7–.8 | Contra MSW: los dos `reason` nuevos ⇒ su texto, por `reason` (⛔ nunca por status); `502 {op:'cancel'}` en «Cancelar guía» ⇒ «no sabemos si Skydropx la canceló; vuelve a intentar»; avisos silenciados con su marca; «N avisos apagados» solo con `mutedCount`; en la ficha de M6, `isOwner` oculta restablecer/bloquear/borrar a un no dueño | ramificar por status; pintar la línea sin el campo |
+
+**M4-SHIP.19.31.10 — 💰 El plan para cerrar la fase D (orden CONFIRMADO con cambios).** Medido por el arquitecto el 2026-10-05
+con `Grep` sobre `backend/src` (⛔ sha no medido): `applyCarrierStatus`, `shipment-tracking-poll`, `shipment-extra-charges` y
+`refresh-tracking` ⇒ **0** ficheros; `admin-shipments.controller.ts` no tiene `label.pdf`, `departure` ni `departed` (rutas en
+`:33-202`); `downloadLabelPdf` existe (`label-proxy.ts:39`).
+
+| # | Pieza | Qué | Quién | Depende de |
+|---|---|---|---|---|
+| **1** | **D2c-cierre** (`shipments/` + `shipping-provider/`, un agente) | Lo de backend de §19.31.2–.8; **`GET …/label.pdf`** (§19.8, sobre `downloadLabelPdf`; con el doble, §19.31.5 (3)); filtros **`?labelSource=`**, **`?alert=`**, **`?folio=`** de `GET /admin/shipments` (§19.7 «filtros nuevos», §19.30.8 S-GAS-2; clase E / L / L en §0-Q punto 4); PS-73, PS-122 (a), PS-166 (a)–(d), PS-167…PS-169. **En paralelo:** devops PS-166 (e); frontend PS-170, tipos y los flujos F de compra (PS-166 (f)) | backend 💰 · devops · frontend | nada |
+| **2a** | **D2d · Rastreo y verificación** (`shipments/` + `shipping-provider/`) | `applyCarrierStatus`; los tres jobs: `shipment-tracking-poll`, **`shipment-label-processing`** (segundo llamador de `recoverInFlightLabel`; `not_sent` y `not_charged` automáticos; filas `label_verify_*`; **evidencia negativa construida** con `INFLIGHT_NEGATIVE_VERIFIED = false` y cable trampa; calibración pasiva; **conciliación de huérfanas** con las dos filas `origin:'duplicate'`, C-14/C-19 y fusible `ORPHAN_FUSE_LOCK_KEY`), `shipment-extra-charges` (AG-6); `refresh-tracking`; relleno de `labelUrl`; estado desconocido; AG-9 (b)(c)(d), AG-11 (correo por la base de D2g), AG-12; **«Salida de hoy» (§19.9, `departure`/`departed`)**, que ninguna pieza tenía asignada. PS-72, PS-75, PS-77…PS-80, PS-124…PS-127, PS-130, PS-133, PS-134 (a)(c), PS-150 | backend 💰 | 1 |
+| **2b** | **D2g · Despacho de avisos** (`spend-alerts/`; y `settings/`, `admin/`, `users/` — ⚠️ módulos de otros streams: el orquestador los serializa, §19.30.13) | Correo con freno (outbox, `SPEND_MAIL_LOCK_KEY`, 5/h, 2 por persona y hora C-24, lote, AVG-1/2/3, SDX-I-8); `spend-watch` con el paso (0) (AG-21), AG-7, **AG-8 (b) y AG-10** (son pasos de `spend-watch`, §19.29.7: ⭐ pasan de D2d a D2g); `spend-digest`; endpoints con `muted`, `mutedCount`, `seen` con `skipped`; §19.30.2 (diales del dueño, cuenta protegida, AG-22); `isOwner` en `me`, listado y fichas; bandas 1–2 de `?kind=`/`?severity=`. PS-147 (b), PS-149, PS-152…PS-155, PS-160…PS-165 | backend 💰 | 1 (para `isOwner` y el DTO); **en paralelo con 2a**: módulos disjuntos y `M-68` ya construida |
+| **3a** | **D2e · Correos al cliente** | `AV-17` (sin plazo de disputa), `AV-18`, `AV-19`, `customerUrl`, `timeline`, `C-AV-3a/3b`, `C-AV-1 = 19`; PS-87…PS-89 | backend | 2a (`applyCarrierStatus` es su disparador) |
+| **3b** | **D2f · Dinero y tablero** | P&L (`shippingAdjustmentsCents`, `shippingInsuranceCents`), `workQueue.shipping` y `spendControl`, `GET/PUT …/packages`, `catalogs`, `balance` (con `observeBalance`), S-GAS-3; PS-80, PS-81, PS-90 | backend 💰 | 2b (`spendControl` y el mismo `admin.service.ts`, stream «Admin y auditoría») |
+| **4** | **E · Gates** | QA con la E2E **completa con compra** (PS-166 (f)), techlead, pentester + seguridad (C-19…C-24); luego `PG-1` con el dueño | gates → dueño | 1–3 |
+
+- *Qué cambia frente al orden propuesto (D2d → `label.pdf` → filtros → D2e → D2f → D2g):* (i) `label.pdf` y los filtros van
+  **primero**: son pequeños, cierran el ciclo del operador (comprar → **imprimir**, O-4) y tocan los mismos ficheros que D2d, así
+  que van antes y no en medio; (ii) **D2g no va al final**: es la condición para encender `shipping_label_purchase` en producción
+  (C-20/C-21, §19.30.13) y sus módulos son disjuntos de D2d ⇒ en paralelo con D2d; (iii) D2e espera a D2d y D2f a D2g por sus
+  dependencias reales.
+- **Antes de encender la compra en producción:** D2g fusionada, la medición C-20 (a) del dueño en `HECHOS.md`, el dial lo gira el
+  dueño, y `SKYDROPX_ALLOW_SPEND` la pone devops solo con su instrucción (§19.19.7). Sin cambio.
+
+**M4-SHIP.19.31.11 — Qué cambia para quién** (fichero:línea leído el 2026-10-05; ⛔ sha no medido).
+
+| Rol | Qué |
+|---|---|
+| **backend 💰 (modelo fuerte)** | `label-purchase.service.ts:252-256` (la relectura lee también `labelSource` ⇒ `SHIPMENT_ALREADY_LABELED`), `:285` (`reason:'claim_released'`), `:994` (`reason:'shipment_changed_during_purchase'`, `labelAutoCancelled:true`), `:48-53` + `shipments.module.ts:36-37` (`LABEL_SPEND_KEY` por defecto = `isPurchaseKeyTurned(selection.kind)`); `spend-gate.ts:54-62` (`isPurchaseKeyTurned`, `fakePurchaseKeyMisplaced`); `shipping-provider.factory.ts:50-63` (no arrancar con la llave mal puesta); `fake-shipping-provider.ts` (`labelPdf()`; defecto «éxito con número» en la pila); `admin-shipments.controller.ts` (`GET :id/label.pdf`; filtros en `@Get()` de `:33`); `label-cancel.service.ts:94-108` (`label_cancel_unknown`; `getShipment` antes de revertir por `ok:false`); `label-quote.service.ts:441-469` (`quoteExpiryFor`; `requestedAt`/`requestedByUserId` al actualizar); `spend-alerts/` (`muted`, `mutedCount`, `byKind` sin silenciados, AG-22 `keys` camelCase); fichas de M6 (`isOwner`). Pruebas: PS-73 y PS-122 (a) reescritas en `test/integration/sdx-d2c-label.e2e-spec.ts`, PS-166 (a)–(d), PS-167…PS-169; `test/skydropx.no-real-purchase.spec.ts` gana la env en el censo. `BACKEND_NOTES §61` (pregunta 14) |
+| **frontend** | `types/contract.ts`: `reason` `'shipment_changed_during_purchase' \| 'claim_released'` (con `labelAutoCancelled?`), `SpendAlertDTO.muted`, `SpendAlertSummaryDTO.mutedCount`, `isOwner` en las dos fichas (⛔ ya no por herencia del resumen); `CaptureLabelDialog.tsx`/`LabelActions.tsx` (los dos `reason`; «Cancelar guía» con `502 {op:'cancel'}`); `SpendAlertsView.tsx:185` y FS-54 (`mutedCount`); ficha de M6; MSW `lib/mock/skydropx.ts`. **Playwright:** los flujos F de compra e impresión contra la pila con el doble (PS-166 (f)); dejan de quedarse en el botón. PS-170 |
+| **devops** | `scripts/stack-native.sh:204-205` (`export SHIPPING_FAKE_PURCHASE=true`, fijo); `docker-compose.staging.yml:206` (`SHIPPING_FAKE_PURCHASE: "true"`, literal); `docker-compose.yml:246` (`${SHIPPING_FAKE_PURCHASE:-}`); `.env.example:858-864` (una línea vacía). **Candado (E)** en `scripts/check-skydropx-spend-lock.sh`: en cada fichero de pila donde aparezca `SHIPPING_FAKE_PURCHASE`, el mismo servicio fija `SHIPPING_PROVIDER_ADAPTER: fake` literal; `.github/` ⇒ 0 apariciones; `.env.example` ⇒ exactamente una, vacía. Canario en `check-skydropx-spend-lock-canary.sh`: la llave junto a un adaptador `skydropx` ⇒ rojo; `.env.example` con `true` ⇒ rojo. Semilla de la pila con **un** dueño (o `set-owner.ts` en el arnés). `DEVOPS_NOTES`: comprobar en cada despliegue a producción que Railway no tiene `SHIPPING_PROVIDER_ADAPTER=fake` ni `SHIPPING_FAKE_PURCHASE` |
+| **ux-ui** | Copys: `shipment_changed_during_purchase` («El envío cambió mientras comprábamos la guía; la guía se canceló sola. Cotiza de nuevo»), `claim_released` («Esta compra se liberó antes de salir; no se compró nada. Cotiza de nuevo»), cancelación sin respuesta («No sabemos si Skydropx canceló la guía. Vuelve a intentarlo»), «N avisos apagados» |
+| **QA** | La E2E completa de la fase D incluye la compra con el doble (PS-166 (f)); PS-73 y PS-122 (a) se miden con su redacción nueva |
+| **orquestador** | Correr `enum-values-parity.spec.ts` sobre una copia del árbol **entero** tras esta errata (O-9); enrutar `BACKEND_NOTES §61` a backend; serializar D2g con los streams de `admin/`, `users/`, `settings/` |
+
+**M4-SHIP.19.31.12 — Lo que esta errata NO decide.** Si Skydropx honra la tarifa de un id de cotización reutilizado tras 24 h
+(se mide con el log de §19.31.2); si acepta `email: ''`; cómo responde a un segundo `cancel` (PS-167 (b) cubre los dos casos);
+P-SDX-REL (sigue (a)); `INFLIGHT_NEGATIVE_VERIFIED` sigue `false` (regla de §19.28.9).
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
@@ -34789,6 +35073,9 @@ AdminUserDetailDTO = {            // ← `super_admin`
   sellRequests: AdminSellRequestSummaryDTO[],// últimas 20 (historial completo: §M5 con ?userId=)
   disputes: AdminDisputeSummaryDTO[],        // últimas 20 (historial completo: §M8 con ?userId=)
   ownedItems: AdminUserOwnedItemRef[] }
+// ⭐ v1.80.12.12 (§M4-SHIP.19.31.8): AdminUserDetailDTO **y** AdminUserDetailOperatorDTO ganan en su raíz
+//    `isOwner: boolean` — la MISMA derivación que AdminUserSummaryDTO.isOwner (§19.30.3: `isOwnerAccount` de la fila).
+//    No es dato nuevo para el operador: el listado ya se lo da. ⛔ Nunca autoriza en el front.
 // ⚠️ EL ROL ES PARTE DE LA FORMA — DOS DTOs, no uno con opcionales. Si la diferencia fuera «campos opcionales»,
 // omitir el recorte NO sería error de compilación y ningún test lo vería: es EXACTAMENTE B-1 con otro campo.
 // Misma decisión y misma razón que `GroupedListingSummaryDTO` en D2.

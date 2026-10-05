@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.80.12.12 — 💰 ERRATA TRAS D2b/D2c Y PLAN DE CIERRE DE LA FASE D** (2026-10-05, arquitecto, rama
+> `claude/skydropx-d`, HEAD dado por el orquestador `69707cfa` o posterior; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a
+> **v1.80.12.12**; norma en `API_CONTRACT §M4-SHIP.19.31`; porqué en **§4.60 (x)**. La tercera llave de la compra depende del
+> adaptador elegido al arrancar (el doble tiene su propia llave, `SHIPPING_FAKE_PURCHASE`, y la compra se prueba de punta a punta
+> en la E2E sin tocar PS-99); la cotización reutilizada abre generación cuando no queda una vigente; la cancelación sin respuesta
+> se revierte con bitácora; seis enums en §0; plan D2c-cierre → D2d ∥ D2g → D2e ∥ D2f. Sin migración.
+>
 > **Rev v1.80.12.10 — 🔒💰 ERRATA DE LA REVISIÓN DE §Z** (2026-10-04, arquitecto, rama `claude/skydropx-d`, veredicto de
 > seguridad sobre `0363f7e2`; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.10**; norma en
 > `API_CONTRACT §M4-SHIP.19.30`; porqué en **§4.60 (w)**. «El dueño» pasa a ser una marca explícita (`User.isOwner`, como
@@ -27756,6 +27763,29 @@ puede depender de un dato que el controlado mueve, ni de un hecho de datos que n
 recompra legítima con reembolso sin cifra gasta el tope dos veces ese día. El segundo factor del dueño no existe (pregunta
 al dueño, `API_CONTRACT §19.30.10`). NO MEDIDO: cuántos súper-admin con correo hay en producción (C-20 (a), lo mide el
 dueño); los valores del tipo de envío para `SpendAlertDTO.shipment.kind`.
+
+**(x) 💰 v1.80.12.12 — errata tras D2b/D2c y plan de cierre de la fase D** (norma en `API_CONTRACT §M4-SHIP.19.31`; origen
+`BACKEND_NOTES.md §62.5` y `DESIGN_SYSTEM.md:25872-25874`). Una idea gobierna: **probar el camino entero sin que la prueba pueda
+gastar, y que ningún estado deje al operador sin salida.**
+
+| Regla | Alternativa descartada | Por qué |
+|---|---|---|
+| **La tercera llave de compra depende del adaptador elegido al arrancar**; el doble tiene su propia env (`SHIPPING_FAKE_PURCHASE`), que impide arrancar con cualquier otro adaptador | Poner `SKYDROPX_ALLOW_SPEND` con el doble | Quitaría el candado de PS-98 (lo que impide que un despliegue real corra con el doble) y metería la variable de «gastar dinero» en la configuración de CI |
+| | Interruptor por cabecera o parámetro | Superficie de ataque en una ruta de dinero |
+| | Decidir por `NODE_ENV` | La pila de staging corre en `production`: no distingue |
+| **La llave del doble nunca entra en `evaluateMutationGate`** | Un solo «permiso de compra» para los dos | El candado del adaptador real debe seguir sin depender de nada que la pila E2E encienda |
+| **El PDF del doble se sirve en el proceso** | Seguir el `labelUrl` del doble | Sería un `fetch` a un host inventado; el proxy es el único `fetch` a URL ajena y no se ensancha |
+| **Cotización: generación nueva si no queda fila vigente con ese id** | Primera observación + 24 h siempre | Un id reutilizado pasadas 24 h nacía vencido y el paso 3 de la compra entraba en un ciclo de `QUOTE_EXPIRED` |
+| | Columna `updatedAt` para «la vigente» | Segunda fuente de «cuándo la pidió»; `requestedAt` ya lo es si se escribe al re-cotizar |
+| **`cancel` sin respuesta en la re-emisión ⇒ revertir el sello + bitácora** | Conservar el sello y alertar | Un sello `reissue` sin confirmar no tiene camino de reintento: el envío quedaba sin poder cancelarse ni re-emitirse |
+| **`ok:false` ⇒ leer `getShipment` antes de revertir** | Revertir siempre | Si el primer `cancel` sí entró, el segundo se rechaza y la guía quedaría «viva» para siempre en nuestra base |
+| **Relectura `FOR SHARE` con el candado consultivo ocupado** | `409` siempre (§19.28.8 tal cual) | El doble clic del mismo envío recibía `409`; la relectura no forma ciclo (solo toma fila) y no espera red |
+| **D2g en paralelo con D2d, no al final** | El orden propuesto (D2g último) | D2g es condición para encender la compra en producción (C-20/C-21) y sus módulos son disjuntos de D2d |
+
+**Deuda que deja (x):** el panel de Railway no está en el repositorio, así que el candado no ve un `fake` + llave del doble en
+producción (devops lo comprueba a mano en cada despliegue). NO MEDIDO: si Skydropx honra una cotización reutilizada pasadas
+24 h; si acepta `email: ''`; cómo responde a un segundo `cancel`; qué siembra hoy la pila E2E (un dueño); el resultado por
+defecto del doble en la pila.
 
 ---
 
