@@ -14,6 +14,10 @@ import { QueryState } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
 import { ItemDetailModal } from './ItemDetailModal';
 import { SealedFinalPrice } from './SealedFinalPrice';
+import { SealedPiecePriceLabel } from './SealedPiecePriceLabel';
+import { SealedProductPriceEditor, type SealedProductPriceSaved } from './SealedProductPriceEditor';
+import { SealedPriceSavedNotice, SHEET_ANCHOR_HREF } from './SealedPriceSavedNotice';
+import { canSetSealedPrice } from '@/lib/sealed-price-role';
 
 /**
  * Origen traducido (`DESIGN_SYSTEM §39.3 (c)`). ⛔ El valor crudo nunca llega al DOM: un tipo nuevo del servidor
@@ -204,6 +208,10 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
   // §39.2 (b): una fila editando a la vez; abrir otra cierra la anterior sin guardar.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // §70.3 (b): el aviso del editor del PRODUCTO (cuentas de `autoPublish`), aparte del de la pieza sin producto.
+  const [saved, setSaved] = useState<{ value: SealedProductPriceSaved; seq: number } | null>(null);
+  const { role } = useRole();
+  const canSetPrice = canSetSealedPrice(role);
 
   function closeDetail() {
     const id = detailId;
@@ -250,6 +258,11 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
           <Banner key={done} variant="success" role="status" dismissible>
             {done}
           </Banner>
+        </div>
+      )}
+      {saved && (
+        <div className="mt-3">
+          <SealedPriceSavedNotice key={saved.seq} saved={saved.value} />
         </div>
       )}
 
@@ -305,8 +318,49 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
                     <MissingCell row={row} />
                   </td>
                   <td className="px-3 py-3 align-top text-sm">
-                    {row.productType === 'sealed' ? (
-                      /* §39.2 — SOLO el sellado admite precio final a mano. ⛔ raw/graded no montan esto (P-PRE-1). */
+                    {row.productType === 'sealed' && typeof row.sealedProductId === 'string' ? (
+                      /* §70.3 (b): pieza LIGADA ⇒ rótulo del precio de la pieza (con IVA) y, para el dueño, el editor
+                         del PRODUCTO. `expected` = `sealedProductDisplayPriceCents` de ESTA fila (§M11-SP.13.7). */
+                      <span className="flex flex-col gap-1">
+                        <SealedPiecePriceLabel
+                          id={row.inventoryItemId}
+                          origin={row.sealedPriceOrigin}
+                          resolvedDisplayPriceCents={row.resolvedDisplayPriceCents}
+                        />
+                        {canSetPrice && row.sealedProductDisplayPriceCents !== undefined ? (
+                          <SealedProductPriceEditor
+                            product={{
+                              id: row.sealedProductId,
+                              name: row.sealedProductName ?? t('sealedUnidentified'),
+                              ownerDisplayPriceCents: row.sealedProductDisplayPriceCents,
+                              displayPriceCents: row.sealedProductDisplayPriceCents ?? row.resolvedDisplayPriceCents ?? null,
+                              effectiveOrigin:
+                                row.sealedProductDisplayPriceCents != null
+                                  ? 'product'
+                                  : row.sealedPriceOrigin === 'automatic'
+                                    ? 'automatic'
+                                    : 'pending',
+                              pieces: row.sealedProductPieces ?? null,
+                            }}
+                            triggerVariant="product"
+                            editing={editingId === row.inventoryItemId}
+                            onEditingChange={(open) => setEditingId(open ? row.inventoryItemId : null)}
+                            onDone={(value) => setSaved((prev) => ({ value, seq: (prev?.seq ?? 0) + 1 }))}
+                          />
+                        ) : (
+                          (row.missing ?? []).includes('price') && (
+                            /* UX-SP-15: la ligada sin precio va a la HOJA, ⛔ no a la cola de M2. */
+                            <Link
+                              href={SHEET_ANCHOR_HREF}
+                              className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
+                            >
+                              {t('sealedPriceLink')}
+                            </Link>
+                          )
+                        )}
+                      </span>
+                    ) : row.productType === 'sealed' ? (
+                      /* §39.2 — sellado SIN producto (o servidor anterior): precio por pieza, antes de IVA. */
                       <span className="flex flex-col gap-1">
                         <SealedFinalPrice
                           layout="queue"
@@ -319,9 +373,13 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
                             hasLocation: row.locationId != null,
                             listPriceCents: row.listPriceCents,
                             resolvedSalePriceCents: row.resolvedSalePriceCents,
+                            resolvedDisplayPriceCents: row.resolvedDisplayPriceCents,
                             priceBasis: row.priceBasis,
                             name: row.sealedProductName ?? null,
                           }}
+                          // Sin producto (`null`): solo el dueño (§M11-SP.3). Clave ausente: conducta de antes.
+                          canEdit={row.sealedProductId === null ? canSetPrice : true}
+                          staffNote={row.sealedProductId === null}
                           editing={editingId === row.inventoryItemId}
                           onEditingChange={(open) => setEditingId(open ? row.inventoryItemId : null)}
                           onDone={setDone}

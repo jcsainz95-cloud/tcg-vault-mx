@@ -23,6 +23,11 @@ import { ManualPriceBadge } from '@/components/domain/ManualPriceBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { asApiError } from '@/lib/api-client';
+import { useRole } from '@/lib/role';
+import { canSetSealedPrice } from '@/lib/sealed-price-role';
+import { Link } from '@/i18n/navigation';
+import { SHEET_ANCHOR_HREF } from './SealedPriceSavedNotice';
 
 export interface ItemDetailModalProps {
   itemId: string | null;
@@ -41,7 +46,9 @@ export interface ItemDetailModalProps {
  */
 export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalProps) {
   const t = useTranslations('admin.m1');
+  const tsp = useTranslations('admin.sealedProductPrice');
   const tc = useTranslations('common');
+  const { role } = useRole();
   // Etiquetas de estado de inventario ya existentes (catálogo global `status.inventory`).
   const tInv = useTranslations('status.inventory');
   const locale = useLocale() as AppLocale;
@@ -61,15 +68,27 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const [price, setPrice] = useState('');
   const priceCents = price.trim() === '' ? undefined : Math.round(Number(price) * 100);
   const priceInvalid = price.trim() !== '' && (!Number.isFinite(priceCents!) || priceCents! < 0);
-  // Sellado publicable exige precio manual: sin listPriceCents previo ni capturado, se bloquea.
+  /**
+   * §M11-SP.13.5/13.6 — se decide por `productType` PRIMERO. Sellado + `sealedProductId` string ⇒ LIGADO: el precio es
+   * del producto (sin input, ⛔ `listPriceCents` en el PATCH, UX-SP-10). Sellado + `null` ⇒ SIN producto: precio por
+   * pieza antes de IVA, solo el dueño (§M11-SP.3).
+   */
+  const isSealed = item?.productType === 'sealed';
+  const sealedLinked = isSealed && typeof item?.sealedProductId === 'string';
+  const sealedUnlinked = isSealed && !sealedLinked;
+  const canSetSealed = canSetSealedPrice(role);
+  // Sin producto, el dueño escribe el precio a mano para publicar (§39); el personal no tiene campo (lo resuelve el
+  // servidor o responde `422 PRICE_PENDING`).
   const sealedNeedsPrice =
-    item?.productType === 'sealed' && priceCents == null && item.listPriceCents == null;
+    sealedUnlinked && canSetSealed && priceCents == null && item?.listPriceCents == null;
+  const showPriceInput = !isSealed || (sealedUnlinked && canSetSealed);
 
   const publish = useMutation({
     mutationFn: (status: 'listed' | 'in_stock') =>
       updateInventoryItem(itemId!, {
         status,
-        ...(priceCents != null ? { listPriceCents: priceCents } : {}),
+        // ⛔ Sellado ligado: nunca `listPriceCents` (el precio es del producto, `422 SEALED_PRICE_IS_PER_PRODUCT`).
+        ...(priceCents != null && showPriceInput ? { listPriceCents: priceCents } : {}),
       }),
     onSuccess: () => {
       setPrice('');
@@ -194,7 +213,8 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 {item.finish && <FinishBadge finish={item.finish} productType={item.productType} />}
                 {/* INV-3: precio manual (override) — badge sobrio compartido; ignora las reglas globales.
                     `hasManualPrice` (dentro del componente) espeja el motor: sellado exige override `> 0`. */}
-                <ManualPriceBadge item={item} />
+                {/* §M11-SP.13.6: sellado ligado ⛔ sin badge (el detalle no trae `sealedPriceOrigin`). */}
+                {!sealedLinked && <ManualPriceBadge item={item} />}
               </div>
               <p className="text-sm">
                 <span lang="en" className="font-medium">{item.card.name}</span>{' '}
@@ -223,9 +243,18 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                   )}
                 </dd>
                 <dt className="text-muted">{t('listPrice')}</dt>
-                <dd className="tabular">
-                  {item.listPriceCents != null ? formatMoneyCents(item.listPriceCents, locale) : '—'}
-                </dd>
+                {sealedLinked ? (
+                  <dd className="flex flex-col" data-testid="detail-sealed-price-by-product">
+                    <span>{t('detail.sealedPriceByProduct')}</span>
+                    <Link href={SHEET_ANCHOR_HREF} className="w-fit text-xs text-text underline underline-offset-4 hover:text-accent">
+                      {t('detail.seeSheet')}
+                    </Link>
+                  </dd>
+                ) : (
+                  <dd className="tabular">
+                    {item.listPriceCents != null ? formatMoneyCents(item.listPriceCents, locale) : '—'}
+                  </dd>
+                )}
               </dl>
             </div>
 
@@ -254,10 +283,10 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
                   <Megaphone size={16} aria-hidden /> {t('publish.title')}
                 </h3>
-                {canPublish && (
+                {canPublish && showPriceInput && (
                   <>
                     <Input
-                      label={t('publish.priceLabel')}
+                      label={isSealed ? t('publish.priceLabelSealed') : t('publish.priceLabel')}
                       type="text"
                       inputMode="decimal"
                       prefix="MX$"
@@ -265,18 +294,13 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                       onChange={(e) => setPrice(e.target.value)}
                       error={priceInvalid ? t('publish.priceInvalid') : undefined}
                     />
-                    <p className="text-xs text-muted">
-                      {item.productType === 'sealed'
-                        ? t('publish.priceRequiredSealed')
-                        : t('publish.priceHint')}
-                    </p>
+                    {!isSealed && <p className="text-xs text-muted">{t('publish.priceHint')}</p>}
                   </>
                 )}
-                {publish.isError && (
-                  <Banner variant="danger" role="alert" title={t('publish.error')}>
-                    {getError(publish.error)}
-                  </Banner>
+                {canPublish && sealedUnlinked && !canSetSealed && (
+                  <p className="text-xs text-muted">{t('publish.priceRequiredSealed')}</p>
                 )}
+                {publish.isError && publishError(publish.error)}
                 <div className="flex gap-2">
                   {canPublish && (
                     <Button
@@ -446,4 +470,40 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
       </Modal>
     </>
   );
+
+  /** Los errores de publicar, con los textos propios del sellado (§70.3 (c)); ⛔ solo toast: va junto al botón. */
+  function publishError(error: unknown) {
+    const sealed = isSealed;
+    const linked = sealedLinked;
+    const err = asApiError(error);
+    if (sealed && err?.status === 422 && err.code === 'SEALED_PRICE_IS_PER_PRODUCT') {
+      return (
+        <Banner variant="danger" role="alert" title={t('publish.error')}>
+          <p>{tsp('errors.perProduct')}</p>
+          <Link href={SHEET_ANCHOR_HREF} className="text-text underline underline-offset-4 hover:text-accent">
+            {tsp('errors.perProductLink')}
+          </Link>
+        </Banner>
+      );
+    }
+    if (linked && err?.status === 422 && err.code === 'PRICE_PENDING') {
+      return (
+        <Banner variant="danger" role="alert" title={t('publish.error')}>
+          {t('publish.sealedPricePending')}
+        </Banner>
+      );
+    }
+    if (sealed && !linked && err?.status === 403) {
+      return (
+        <Banner variant="danger" role="alert" title={t('publish.error')}>
+          {tsp('errors.ownerOnly')}
+        </Banner>
+      );
+    }
+    return (
+      <Banner variant="danger" role="alert" title={t('publish.error')}>
+        {getError(error)}
+      </Banner>
+    );
+  }
 }

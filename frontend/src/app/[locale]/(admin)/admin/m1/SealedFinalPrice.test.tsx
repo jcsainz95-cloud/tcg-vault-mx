@@ -122,7 +122,7 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
 
     // Sin precio: «—», ⛔ nunca MX$0.00.
     expect(await screen.findByTestId('sealed-final-price-inv-s1')).toHaveTextContent('— · sin precio');
-    expect(screen.getByTestId('publish-reason-inv-s1')).toHaveTextContent('El sellado no tiene precio automático: ponle precio.');
+    expect(screen.getByTestId('publish-reason-inv-s1')).toHaveTextContent('Sin mercado ni precio del dueño: se pone en «Precios del sellado».');
     await openEditorAndType('INV-001950', '1250');
     const editor = screen.getByTestId('sealed-final-price-editor-inv-s1');
     expect(within(editor).getByRole('button', { name: 'Guardar y publicar' })).toBeEnabled();

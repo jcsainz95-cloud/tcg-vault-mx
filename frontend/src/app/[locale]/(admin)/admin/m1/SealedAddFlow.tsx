@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useRole } from '@/lib/role';
+import { canSetSealedPrice } from '@/lib/sealed-price-role';
 import { QuickAddSection } from './QuickAdd';
 import {
   SealedProductPicker,
@@ -72,8 +73,9 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
   const tCond = useTranslations('status.sealedCondition');
   const locale = useLocale() as AppLocale;
   const { role, isSuperAdmin } = useRole();
-  // Permiso del precio manual = vault_operator+ (decisión del humano v1.39.1).
-  const canManualMarket = role === 'super_admin' || role === 'vault_operator';
+  // §M11-SP.4 / `HECHOS.md:51` (1) (2026-10-05): el mercado a mano en el alta es SOLO del dueño — el mismo predicado
+  // que el precio del sellado (`canSetSealedPrice`). Sustituye a «vault_operator+» de v1.39.1.
+  const canManualMarket = canSetSealedPrice(role);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   const [step, setStep] = useState<'pick' | 'quantity'>('pick');
@@ -384,7 +386,14 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
                   </div>
                 </div>
 
-                {/* Precio de mercado MANUAL money-safe — solo si NO hay mercado gateado y vault_operator+. */}
+                {/* Personal sin mercado (§70.3 (c)): ⛔ sin campo; se da de alta sin precio. */}
+                {selected != null && gatedMarketCents == null && !canManualMarket && (
+                  <p className="text-xs text-muted" data-testid="sealed-add-staff-no-market">
+                    {t('manualMarket.staffNoMarket')}
+                  </p>
+                )}
+
+                {/* Precio de mercado MANUAL money-safe — solo si NO hay mercado gateado y es el dueño. */}
                 {showManualField && (
                   <SealedManualMarketField
                     value={manualPrice}
@@ -426,7 +435,9 @@ function SealedAddFlowInner({ onClose, presetSet, onToast, onCreated }: SealedAd
                     de Aportación se bloquea); el hint apunta al campo manual de arriba, no a otra
                     sección — coherente con `contrib.pendingBlockedInline`. */}
                 {gatedMarketCents == null && !manualValid && (
-                  <p className="text-xs text-muted">{t('manualMarket.pendingIfEmpty')}</p>
+                  <p className="text-xs text-muted">
+                    {canManualMarket ? t('manualMarket.pendingIfEmpty') : t('manualMarket.pendingIfEmptyStaff')}
+                  </p>
                 )}
 
                 {createdOnce && (

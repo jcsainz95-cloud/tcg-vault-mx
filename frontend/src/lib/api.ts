@@ -209,6 +209,10 @@ import type {
   SealedPriceIngestResponse,
   SealedPriceStatusResponse,
   SealedPriceState,
+  SealedPriceSheetResponse,
+  SealedPriceSheetScope,
+  SetSealedSalePriceRequest,
+  SetSealedSalePriceResponse,
   SetMainGroupRequest,
   GradedInventoryResponse,
   PublicBountiesResponse,
@@ -3348,7 +3352,12 @@ export async function getAdminInventoryItem(id: string): Promise<AdminInventoryI
     return apiRequest<AdminInventoryItemDetailDTO>(`/admin/inventory/items/${id}`);
   }
   const item = mockFindInventoryItem(id);
-  return delay({ ...item, movements: [...(fx.mockInventoryMovements[id] ?? [])] });
+  // §M11-SP.13.6: el detalle trae `sealedProductId` en toda fila (raw/graded `null`).
+  return delay({
+    ...item,
+    sealedProductId: item.sealedProductId ?? null,
+    movements: [...(fx.mockInventoryMovements[id] ?? [])],
+  });
 }
 
 export interface UpdateInventoryItemInput {
@@ -3932,6 +3941,63 @@ export async function getSealedPriceStatus(
   }
   // MOCK: sin fixtures reales de estado persistido; los tests espían esta función. Demo → vacío.
   return delay({ sealedPriceSource: 'off', data: [], page: 1, pageSize: 20, total: 0 });
+}
+
+/**
+ * §M11-SP.5 (+ 12.4, 13.7) — la hoja «Precios del sellado» (`GET /admin/inventory/sealed-price-sheet`,
+ * `vault_operator+`). Un precio por PRODUCTO, con IVA. `canEdit` lo calcula el servidor; `iva.ratePct` alimenta el
+ * margen en vivo del editor. `q` busca en el nombre del producto; `pageSize` ≤ 100 (la hoja usa 50).
+ */
+export async function getSealedPriceSheet(
+  params: { setId?: string; q?: string; scope?: SealedPriceSheetScope; page?: number; pageSize?: number } = {},
+): Promise<SealedPriceSheetResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedPriceSheetResponse>('/admin/inventory/sealed-price-sheet', {
+      query: {
+        setId: params.setId,
+        q: params.q,
+        scope: params.scope,
+        page: params.page,
+        pageSize: params.pageSize,
+      },
+    });
+  }
+  // MOCK: servidor falso de la hoja (fixtures), con `canEdit` por el rol del dial de demo.
+  return delay(fx.mockSealedPriceSheet(params, mockRoleIsOwner()));
+}
+
+/**
+ * 💰 §M11-SP.2 + 12.4 + 13.7 — el dueño fija el precio CON IVA del producto (`PUT
+ * /admin/inventory/sealed-products/:id/sale-price`). Cuerpo con los DOS campos obligatorios: `displayPriceCents` = lo
+ * tecleado, exacto (⛔ ninguna derivación en el cliente, F-SP-7); `expectedDisplayPriceCents` = el
+ * `ownerDisplayPriceCents` que la pantalla pintó (`null` = no tenía). `409 CONFLICT { currentDisplayPriceCents }`.
+ * `200 { data, autoPublish }`; `autoPublish: null` ⇔ el intento de publicar lanzó (el precio SÍ se guardó).
+ */
+export async function setSealedProductSalePrice(
+  sealedProductId: string,
+  body: SetSealedSalePriceRequest,
+): Promise<SetSealedSalePriceResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SetSealedSalePriceResponse>(
+      `/admin/inventory/sealed-products/${encodeURIComponent(sealedProductId)}/sale-price`,
+      { method: 'PUT', body },
+    );
+  }
+  if (!mockRoleIsOwner()) {
+    throw new ApiClientError(403, { code: 'FORBIDDEN', message: 'Only the owner sets sealed prices' });
+  }
+  try {
+    return await delay(fx.mockSetSealedSalePrice(sealedProductId, body));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** MOCK: el rol del dial de demo (`tcg.role`) — el servidor falso decide `canEdit`/`403` como el real (SP.3). */
+function mockRoleIsOwner(): boolean {
+  if (typeof window === 'undefined') return true;
+  const stored = window.localStorage.getItem('tcg.role');
+  return stored == null || stored === 'super_admin';
 }
 
 /**

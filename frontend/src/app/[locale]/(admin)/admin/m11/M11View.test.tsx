@@ -36,6 +36,7 @@ vi.mock('../m1/PendingPublishQueue', () => ({
     <div data-testid="pending-queue" data-product-type={productType} />
   ),
 }));
+vi.mock('./sections/SealedPriceSheet', () => ({ SealedPriceSheet: () => <div data-testid="price-sheet" /> }));
 vi.mock('./sections/SealedPriceStatusSection', () => ({
   SealedPriceStatusSection: () => <div data-testid="collection-section" />,
 }));
@@ -97,5 +98,18 @@ describe('M11View · Sellado (§diseño §1/§2 · tres capas)', () => {
     ).toBeInTheDocument();
     // El botón «Traer precios ahora» ya NO vive en los diales: subió a la capa 2.
     expect(screen.queryByRole('button', { name: /Traer precios ahora/ })).not.toBeInTheDocument();
+  });
+
+  it('SP-F-5 · la hoja «Precios del sellado» vive ENTRE el inventario y la cola, con su ancla', async () => {
+    renderWithProviders(<M11View />, 'es');
+    await screen.findByRole('heading', { level: 1, name: /^Sellado$/ });
+    const sheetSection = screen.getByTestId('price-sheet').closest('section')!;
+    expect(sheetSection).toHaveAttribute('id', 'precios-sellado');
+    expect(screen.getByRole('heading', { level: 2, name: 'Precios del sellado' })).toBeInTheDocument();
+    const inv = screen.getByTestId('sealed-tab');
+    const queue = screen.getByTestId('pending-queue');
+    expect(inv.compareDocumentPosition(sheetSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sheetSection.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(queue.closest('section')).toHaveAttribute('id', 'listas-para-publicar');
   });
 });

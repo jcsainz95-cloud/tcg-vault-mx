@@ -37,6 +37,9 @@ import { QuickAddSection, type QuickAddTarget } from './QuickAdd';
 import { QuickRemoveSection } from './QuickRemove';
 import { ItemDetailModal } from './ItemDetailModal';
 import { SealedFinalPrice } from './SealedFinalPrice';
+import { SealedPiecePriceLabel } from './SealedPiecePriceLabel';
+import { SealedProductPriceBlock } from './SealedProductPriceBlock';
+import { canSetSealedPrice } from '@/lib/sealed-price-role';
 
 /**
  * Drill-down de piezas por VARIANTE — P-17 (DESIGN_SYSTEM §16.4). Panel lateral (sheet 480px en
@@ -409,6 +412,25 @@ function PiecesSection({
   const [priceInput, setPriceInput] = useState('');
   const [lossItem, setLossItem] = useState<InventoryItemDTO | null>(null);
   const [sealedEditingId, setSealedEditingId] = useState<string | null>(null);
+  const { role } = useRole();
+  const canSetPrice = canSetSealedPrice(role);
+  /**
+   * §M11-SP.12.7 / 13.5 — en sellado se decide por `sealedProductId` de la fila: `string` ⇒ ligada (precio del
+   * PRODUCTO, un bloque encima de la lista), `null` ⇒ sin producto (precio por pieza, antes de IVA, solo el dueño).
+   * Clave ausente ⇒ servidor anterior a §M11-SP: el panel de hoy sin cambio.
+   */
+  const linkedProducts = useMemo(() => {
+    if (!sealed) return [];
+    const byId = new Map<string, InventoryItemDTO[]>();
+    for (const r of rows) {
+      if (typeof r.sealedProductId === 'string') {
+        const list = byId.get(r.sealedProductId) ?? [];
+        list.push(r);
+        byId.set(r.sealedProductId, list);
+      }
+    }
+    return [...byId.entries()];
+  }, [rows, sealed]);
 
   // batchKey estable por sesión de publicación (replay idempotente en reintentos).
   const publishKeyRef = useRef<string | null>(null);
@@ -477,6 +499,18 @@ function PiecesSection({
         error={query.error}
         onRetry={() => query.refetch()}
       >
+        {/* §70.3 (a): «Precio del producto · N piezas», UNA vez encima de la lista, por producto ligado. */}
+        {sealed &&
+          linkedProducts.map(([productId, productRows]) => (
+            <SealedProductPriceBlock
+              key={productId}
+              productId={productId}
+              name={sealed.name}
+              rows={productRows}
+              canSet={canSetPrice}
+              onChanged={onChanged}
+            />
+          ))}
         {query.data != null &&
           (rows.length === 0 ? (
             <p className="text-sm text-muted">{t('noPieces')}</p>
@@ -541,7 +575,16 @@ function PiecesSection({
                       </button>
                     )}
                     <StatusBadge domain="inventory" value={piece.status} />
-                    {sealed ? (
+                    {sealed && typeof piece.sealedProductId === 'string' ? (
+                      /* §70.3 (a): pieza LIGADA ⇒ solo lectura; el precio es del producto (bloque de arriba). */
+                      <span className="ml-auto">
+                        <SealedPiecePriceLabel
+                          id={piece.id}
+                          origin={piece.sealedPriceOrigin}
+                          resolvedDisplayPriceCents={piece.resolvedDisplayPriceCents}
+                        />
+                      </span>
+                    ) : sealed ? (
                       <span className="ml-auto">
                         <SealedFinalPrice
                           layout="panel"
@@ -553,10 +596,14 @@ function PiecesSection({
                             hasLocation: piece.location != null,
                             listPriceCents: piece.listPriceCents ?? null,
                             resolvedSalePriceCents: piece.resolvedSalePriceCents,
+                            resolvedDisplayPriceCents: piece.resolvedDisplayPriceCents,
                             priceBasis: piece.priceBasis,
                             name: sealed.name,
                             marketRefCents: sealed.marketRefCents,
                           }}
+                          // Sin producto (`null`): solo el dueño (§M11-SP.3). Clave ausente: conducta de antes.
+                          canEdit={piece.sealedProductId === null ? canSetPrice : true}
+                          staffNote={piece.sealedProductId === null}
                           editing={sealedEditingId === piece.id}
                           onEditingChange={(open) => setSealedEditingId(open ? piece.id : null)}
                           onDone={(msg) => {
