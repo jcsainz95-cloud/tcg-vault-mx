@@ -11,7 +11,7 @@ import { loginAs, needsSeed } from './utils/auth';
  * vigila además `ShipPreparationCard.mobile.test.tsx` (vitest), que corre en cada PR sin navegador.
  *
  * El dato que se necesita es UN pedido de envío en `picking` (cubeta «ship»): en mocks son las filas de
- * `mockPreparationQueue`; contra el stack real, `needsSeed` — mismo motivo que `m4-preparation.spec.ts`.
+ * `mockPreparationQueue`; contra el stack real se salta por falta de seed — mismo motivo que `m4-preparation.spec.ts`.
  */
 
 const PHONES = [

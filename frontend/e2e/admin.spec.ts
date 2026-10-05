@@ -418,7 +418,8 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
-    await page.getByRole('button', { name: t('es', 'admin.m5.reject') }).first().click();
+    // `exact`: desde §60.5 c la fila también trae «Rechazar seleccionadas (k)» y «Rechazar todas (n)».
+    await page.getByRole('button', { name: t('es', 'admin.m5.reject'), exact: true }).first().click();
 
     // El mini-diálogo pide el motivo; sin él, confirmar está deshabilitado.
     const dialog = page.getByRole('dialog', { name: t('es', 'admin.m5.rejectTitle') });

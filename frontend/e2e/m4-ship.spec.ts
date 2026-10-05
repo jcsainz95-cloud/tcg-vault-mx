@@ -136,12 +136,14 @@ for (const vp of VIEWPORTS) {
       // La línea de dinero pasa a «reembolsada» con su estado; la fila queda fija (sin «Deshacer»).
       await expect(page.getByTestId('ship-refund-line-sit-9004-2')).toContainText('314.58');
       // Fila fija: ni «Deshacer» ni ningún verbo de palomeo (el grupo entero desaparece). El único botón que
-      // queda es «Ubicar» (hueco 1, arreglos-operador), que no toca el estado de preparación; contar 1 con ese
-      // nombre conserva el candado de «ningún otro botón en la fila».
+      // queda es «Ubicar» (hueco 1, arreglos-operador), que no toca el estado de preparación — más, desde §60.9 c,
+      // el disparador «Ver foto de Pikachu» (amplía la foto; tampoco toca el estado). Contar 2 con esos dos nombres
+      // conserva el candado de «ningún otro botón en la fila».
       await expect(pikachu.getByRole('button', { name: V('item.actionAria', { action: V('item.undo'), card: 'Pikachu', folio: 'INV-000113' }), exact: true })).toHaveCount(0);
       await expect(pikachu.getByRole('group')).toHaveCount(0);
-      await expect(pikachu.getByRole('button')).toHaveCount(1);
+      await expect(pikachu.getByRole('button')).toHaveCount(2);
       await expect(pikachu.getByRole('button', { name: t('es', 'admin.m4.prep.locate.actionAria', { folio: 'INV-000113' }), exact: true })).toHaveCount(1);
+      await expect(pikachu.getByRole('button', { name: t('es', 'admin.m4.prep.photo.view', { card: 'Pikachu' }), exact: true })).toHaveCount(1);
       await expect(page.getByTestId('prep-notice')).toContainText('314.58');
 
       await expectNoHorizontalOverflow(page);
