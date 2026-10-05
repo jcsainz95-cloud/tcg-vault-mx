@@ -762,6 +762,9 @@ jobs:
       - name: LIVE-13 · el simulacro de restauración sabe decir «NO cuadra»
         if: ${{ !cancelled() }}
         run: ./scripts/check-restore-drill-canary.sh
+      - name: E-8 · la sonda de TTFB distingue antes/después y sabe ponerse roja (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-ttfb-probe-canary.sh
       - name: S3-CLON · el arnés local no reutiliza el almacén de otro clon
         if: ${{ !cancelled() }}
         run: |
