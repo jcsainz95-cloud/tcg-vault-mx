@@ -27098,3 +27098,73 @@ compartida tiene que limpiar ese residuo**, o STF-28 se pondrá roja en la sigui
   `a@b.c`.
 - §M6-U.6 2-bis (v1.80.10, F-7, `customer_phone_required`) **no está construido** en esta rama (medido:
   `rg customer_phone_required backend/src` ⇒ 0). No es parte de este encargo.
+
+## 57 · v1.84 «Listo para dinero real» — parte backend de LIVE-1, LIVE-2 y LIVE-7 (2026-10-05, rama `claude/listo-real`, sobre `2fe1cea1`; código en `df6d8dcc` (LIVE-1), `6a227527` (LIVE-2), `659704f7` (LIVE-7))
+
+Contrato: `API_CONTRACT §14.1`, `§14.2`, `§14.7`. ⛔ Sin schema, sin migración, sin código de error nuevo. LIVE-4/5/6
+**no** están aquí (chocan con otras ramas, §14.12).
+
+### 57.1 LIVE-1 · `qs` y dependientes
+- `backend/package.json` → `overrides`: `qs` `^6.15.3` ⇒ **`^6.16.0`**, `multer` `^2.2.0` ⇒ **`^2.4.0`** (primera sin
+  GHSA-3pph). Nota: la línea `package.json:74` que cita el contrato es la del bloque `overrides` (ya existía; `qs` no es
+  dependencia directa). `express` 4.22.2 / `body-parser` 1.20.6 se quedan: con el override ya resuelven `qs@6.16.0`
+  (`npm ls qs` ⇒ todas `deduped` a 6.16.0).
+- Lock regenerado con `npm install --package-lock-only` (sale `concat-stream`/`typedarray`, que `multer` 2.4 ya no usa).
+- **Cierre medido:** `npm audit --omit=dev` ⇒ **2 moderadas**, ambas `@nestjs/core`/`platform-express` (GHSA-36xv, la de
+  SSE que el contrato deja seguir). Antes: 6 (`qs` ×2 advisories, `body-parser`, `express`, `multer`, `@nestjs/*`).
+- ⚠️ `node_modules` del árbol vivo NO se reinstaló (sigue con `qs@6.15.3` hasta el próximo `npm ci`); el lock es la fuente.
+
+### 57.2 LIVE-2 · tope absoluto de sesión (`modules/auth`)
+Decisión del dueño: `HECHOS.md` fila «Listo para dinero real — respuestas del dueño (2026-10-05) a §4.63.9», P-6 «Cada
+7 días»: 7 d panel (personal y dueño), 30 d clientes.
+- `auth/session-max-age.ts`: constantes (⛔ no dial), `sessionMaxAgeSeconds(role)` (`customer` 30 d; cualquier otro 7 d),
+  `SESSION_MAX_AGE_REASON = 'session_max_age'` y `ttlSeconds()` (ver abajo).
+- `issueTokens(user, sid?, sat?)`: el refresh gana el claim **`sat`** (sin él ⇒ `now`: login, Google, registro,
+  cambio de contraseña) y `exp = min(now + JWT_REFRESH_TTL, sat + tope(user.role))`. El access token **no** cambia.
+- `refresh()`: tras typ/tv/usuario/sid, `sat = claim` (o **`iat`** si falta — legado; presente pero no numérico ⇒ 401),
+  `now − sat > tope(rol de BD)` ⇒ **`401 UNAUTHENTICATED {details:{reason:'session_max_age'}}`**; luego la caducidad
+  normal (`now >= exp` ⇒ 401 sin `reason`); emite el par con el mismo `sid` y el mismo `sat`.
+- ⭐ **Decisión de implementación que el contrato no escribe (y que SES-1/SES-2 exigen):** como el `exp` del refresh se
+  acota a `sat + tope`, el token **siempre caduca justo en el tope**; si `jsonwebtoken` rechazara la caducidad en
+  `verifyAsync`, el `401` del día 31 / día 8 saldría **sin** `reason` y SES-1/SES-2 serían inalcanzables. Por eso
+  `verifyAsync` va con `ignoreExpiration: true` y la caducidad se comprueba **a mano, después** del tope (misma regla
+  `now >= exp` que `jsonwebtoken`). Firma, algoritmo, typ, tv, usuario y sid se siguen comprobando antes. Un token
+  caducado **nunca** emite par: solo cambia el `reason` del 401. Efecto colateral medido: un refresh caducado ahora
+  hace una lectura de `user` antes de rechazarse (antes se rechazaba sin BD). Un refresh sin `exp` ⇒ 401 (antes
+  `jsonwebtoken` lo aceptaba; nuestros tokens siempre lo llevan).
+- `ttlSeconds()`: como el `exp` va explícito (`jsonwebtoken` prohíbe `exp` + `expiresIn`), el TTL se interpreta igual
+  que `jsonwebtoken`/`ms`; prueba de paridad contra `jsonwebtoken` real (13 formatos). Formato inválido ⇒ lanza (como antes).
+- Frontend: el `reason` solo elige el texto (clave nueva en `auth`, de frontend/ux-ui).
+
+### 57.3 LIVE-7 · salud y telemetría (`modules/health`, `main.ts`)
+- `GET /health` gana `stripeMode` (`stripeModeOf()` en `health.service.ts`): `sk_live_`/`rk_live_` ⇒ `live`,
+  `sk_test_`/`rk_test_` ⇒ `test`, vacía/ausente ⇒ `none`. **Cualquier otro prefijo ⇒ `none`** (el contrato no define un
+  cuarto valor). No degrada. `HealthService` recibe `ConfigService` (2.º parámetro).
+- `POST /api/v1/telemetry/csp` (`telemetry.controller.ts`, en `HealthModule`): `@Public`, `@Throttle 60/min`, `204`
+  siempre. Registra `warn` `CSP_VIOLATION {"effectiveDirective","blockedOrigin","documentPath","disposition"}`, una
+  línea por informe, ≤ 20 por petición; campo fuera de forma ⇒ se omite (nunca crudo). `blocked-uri` no-URL
+  (`inline`, `eval`…) se registra tal cual; `data:`/`blob:` ⇒ solo el esquema.
+- `POST /api/v1/telemetry/client-error`: `@Public`, `@Throttle 30/min`, DTO `ClientErrorReportDto`, `204`; registra
+  `error` `CLIENT_ERROR {"message","path"(sin query/fragmento),"digest"?,"release"?}`. Nada en BD.
+- **Parsers** (`src/body-parsers.ts`, ⭐ una sola fuente para `main.ts` **y** el arnés `test/integration/helpers/e2e-app.ts`,
+  que antes duplicaba la configuración): webhook raw → **CSP: `text()` de cualquier tipo, límite 16 KB** → `json()`.
+  Texto y no JSON a propósito: un JSON roto daría `400` y el contrato pide `204`. **`413` sale sin cuerpo** (el contrato
+  no fija cuerpo y ⛔ no hay código nuevo; el filtro global mapearía 413 a `INTERNAL`). Otro fallo de lectura ⇒ `204`.
+
+### 57.4 Pruebas y mediciones (copia `git archive HEAD` entera + este diff; BD propia)
+- Nuevas: `test/auth.session-max-age.spec.ts` (SES-1…6 + TTL), `test/health.stripe-mode.spec.ts` (HLT-1),
+  `test/telemetry.spec.ts` (TLM-1, TLM-4, forma del log), `test/integration/telemetry.e2e-spec.ts` (HLT-1 HTTP, TLM-1…5,
+  SES-6 HTTP). SES-1…5 se vieron **rojas antes del código (7 rojas / 11)**. Las de LIVE-7 se escribieron junto con el código (no se corrieron antes); su mordida la prueban las mutaciones de abajo.
+- Unitaria completa: **394/394 suites, 6666/6666**; `tsc` y `eslint` limpios. Integración completa: **77/78 suites,
+  1571 verdes, 8 rojas, 2 omitidas** — las 8 son `graded-estimate.e2e-spec.ts` y son **previas** (ver 57.5).
+- Mutaciones (todas restauradas y el árbol comprobado limpio): LIVE-2 quitar paso 3 **3/3 rojo**, tope de cliente para
+  todos **3/3**, `exp` sin tope **3/3**, legado `sat = now` **3/3**, rol del token **3/3**, `sat` en el cuerpo **3/3**;
+  LIVE-7 HLT-1 prefijo crudo **3/3**, TLM-1 URI completa **3/3**, TLM-4 sin `MaxLength` **3/3**, `path` con query **3/3**,
+  TLM-2 sin límite **2/2**, TLM-3 sin `@Throttle` **2/2**, TLM-5 persistir **2/2**; LIVE-1 lock con `qs@6.15.3` ⇒ `npm
+  audit` vuelve a listar `qs` **2/2**. Son deterministas (no hay carrera); la N es de repetición, no de proporción.
+
+### 57.5 Hallazgo previo (no de este encargo): `graded-estimate.e2e-spec.ts` depende del orden
+Corriendo `enum-query-axes → buylist-cycle → replacement-cases → full-refund-vault → graded-estimate` (secuenciador fijo)
+salen **8 rojas** en `graded-estimate` (p. ej. `3) … teja.gradingHighlight` `undefined`) **igual en `HEAD 2fe1cea1` sin
+este diff que con él** (N=1 cada uno); sola, `graded-estimate` da **17/17**. Es contaminación de estado entre suites
+(clase H-2), sin relación con LIVE-*. Queda para quien lleve catálogo/precios.
