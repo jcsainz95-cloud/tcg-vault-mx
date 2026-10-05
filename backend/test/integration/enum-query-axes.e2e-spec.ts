@@ -1506,7 +1506,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // 💰 **45 → 50 (D2g, v1.80.12.13 §19.32.1: «`?subjectUserId=` (uuid) y `?from=&to=` ⛔ no son §0-Q (lista de no-enums de
     // `C-EQ-1`)»):** `GET /admin/spend-alerts::subjectUserId|from|to` y `GET /admin/spend-alerts/summary::from|to` — un uuid y
     // días MX (`YYYY-MM-DD`; fuera de forma ⇒ `400 {field}` sin `allowed`), medidos en `sdx-d2g-panel.e2e-spec.ts`.
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(50);
+    // 💰 **50 → 51 (C2, v1.80.12.14 §19.33.9):** `GET /admin/shipments/departure::date` — el tablero de salida de D2d; una fecha
+    // `YYYY-MM-DD` (formato, no tokens), como `?date=` de «Pedidos a preparar» (`picking-list::date`).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(51);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

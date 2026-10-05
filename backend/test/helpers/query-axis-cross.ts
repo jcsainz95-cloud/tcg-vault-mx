@@ -212,6 +212,9 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/spend-alerts::to',
   'GET /admin/spend-alerts/summary::from',
   'GET /admin/spend-alerts/summary::to',
+  // 💰 C2 (v1.80.12.14, §19.33.9): el tablero de salida de D2d — `?date=` es una FECHA `YYYY-MM-DD` (formato, ⛔ no tokens), como
+  // el `?date=` de «Pedidos a preparar» (`picking-list::date`, arriba). `admin-shipments.controller.ts` → `departure.service.ts`.
+  'GET /admin/shipments/departure::date',
 ];
 
 /**
