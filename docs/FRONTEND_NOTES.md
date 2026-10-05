@@ -19111,3 +19111,56 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
 - STF-17-E2E en mock: 2/2. Mutaciones deterministas, N=1 cada una, todas rojas y restauradas: enlace «Mi cuenta»
   (real 2/2, mock 2/2), M-5 en navegador (2/2, el `403` de QA reproducido), M-5 Vitest, A-1, STF-36, M-3, M-4 ×2,
   TD-5; canario B-1 con el `temp-actors.ts` previo ⇒ `422 staff_without_email`.
+
+## §88 · **Arreglos del panel — `DESIGN_SYSTEM §60` (v5.0) contra el contrato v1.82 §PNL** (2026-10-05, rama `claude/arreglos-panel`; commits `e6760b49` · `7ce3bff4` · `91cb27a1` · `6f10d315` · `5dc6357e` · `53ee8c35` · `2e93eb0f`)
+
+**Alcance:** F-1…F-25 y F-27…F-32 de §60.11. ⛔ **F-26 (retiro de M8) NO se tocó**: espera la errata del arquitecto
+(§60.8, N-4). Respuestas del dueño aplicadas (HECHOS, última fila 2026-10-05): **sin plazo escrito** para escribir tras la
+entrega (sale `legal.disputeWindowNote`) y **sin mencionar el contracargo** en los términos.
+
+**Zonas compartidas tocadas:** `lib/api.ts` (`getSupportContact`, fuera `createDispute`, `refundDeliveredItem`,
+`getAdminShipment`, `previewWithdrawalDeliveredRefund`, `createWithdrawalDeliveredRefund`, `rejectBuylistItems`, mocks),
+`lib/mock/{m4-ship,fixtures}.ts`, `lib/error-audience.ts`, `types/contract.ts`, `components/ui/QueryState.tsx`
+(`DISPUTES_DISCONTINUED`, verbo `rejectItems`), `components/domain/{SupportContact,OrderItemStatusLine,DisputeEvidenceContact}`,
+`components/layout/AdminShell.tsx`, `hooks/useSupportContact.ts`. ⚠️ El hook vive en `src/hooks/` (no existe `lib/hooks/`).
+
+**Decisiones de implementación:**
+1. **`DisputeEvidenceContact` se queda SOLO para M8** (en transición) con sus claves `dispute.*`; la tienda usa
+   `SupportContact`. Se retiran juntos con F-26.
+2. **`useSupportContact`**: `['support-contact']`, 5 min; mientras carga `contact = null` ⇒ `Skeleton` y «Copiar» apagado
+   (⛔ nunca el respaldo antes de tiempo); error ⇒ `SUPPORT_CONTACT_FALLBACK`. Los contactos neutros (confirmación de
+   invitado, enlace caducado, pie de `/pedido`) pintan su frase cuando el correo ya llegó. Términos (servidor): `fetch`
+   con `revalidate: 300` en `terminos/support-contact-server.ts` (un `page.tsx` no admite exportaciones extra).
+   ⚠️ **Siguen con el valor fijo** (fuera de la lista F-9, zonas de buylist/reclamo): `ClaimableOrdersNotice.tsx:118` y
+   `SellRequestDetailView.tsx:289,560`. Medido con `grep SUPPORT_CONTACT_FALLBACK`.
+3. **`OrderItemStatusLine`** ramifica por `refund.kind`; el motivo de `after_delivery` sale de
+   `orders.item.refundReasonAfterDelivery.*` (mapa propio por tipo, para no mezclar `MissingReason` y `ShippedRefundReason`).
+4. **M3:** `items[].orderItemId` lo emite backend pero **el contrato no lo lista** en el ítem admin
+   (`admin-orders.controller.ts:223`, comentario de backend). Tipado opcional; sin él no hay botón. **Solicitud al arquitecto.**
+   El reintento de una fila `item_delivered` se ofrece solo al súper-admin (conservador: es dinero saliente del súper-admin).
+5. **SPEI de retiro:** el diálogo vive en `admin/refunds/` y reusa textos de `admin.m4.replace.refund.*` (referencias,
+   re-escribir, bloqueo) y `pesosToCents` de M4 sin tocar M4. El mock del retiro entregado (`shp-7201`) solo aparece en
+   búsquedas (`?q=`), para no mover la cola de envíos ni sus pruebas. «Entregado el» en el paso 1 se omite: la fila de
+   `GET /admin/shipments` no trae `deliveredAt` (NO MEDIDO en backend real).
+6. **M5:** un clic encadena `receive → verify` en el cliente (`VerifyStepError` distingue el fallo del 2.º paso).
+   `admin.m5.receive` pasa a «Recibida: empezar revisión»; `error.INVALID_TRANSITION_VERB.receive` sigue diciendo
+   «Marcar recibida» (nombra el verbo del servidor; ux-ui decide si cambia). `ITEM_NOT_OFFERED` pasa del lote 2 pendiente
+   a cableado (copy literal de §27.2); `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` sigue pendiente (Ajustar ya no se ofrece en `buy`).
+   El cierre de la solicitud tras el rechazo múltiple lo dice la lista **recargada**, no la pantalla.
+7. **M10:** sección propia `BuylistCycleSection` (draft, guardado y errores propios); el `422` por clave pinta la regla
+   del campo y nunca `errors[clave]`. `admin.m5.desk.readOnly` se retiró (sustituido por `readOnlyByStatus.*`).
+8. **Celular:** el contenedor lo decide el CSS (`hidden sm:flex`, `sticky … sm:static`, `lg:hidden`), ⛔ sin media
+   query en JS (§37.1a). No se tocó `components/ui/Modal` (hoja inferior a lo ancho en `< sm`, patrón del sistema): los
+   diálogos de preparar/deshacer apilan botones con confirmar arriba. El conteo NO se duplica en el pie pegajoso (dos
+   nodos con el mismo texto romperían la región `role="status"`); el pie lleva «Pedido preparado». Playwright midió dos
+   enlaces de 15 px en la tarjeta («Por reponer →», «Ver en «Por reponer»») y se subieron a 44 px.
+
+**Censo E2E:** `needsSeed` 34 → **36** (9 → 10 ficheros): `e2e/m4-mobile.spec.ts` (import + una llamada en `beforeEach`:
+la cola de preparar exige un envío en `picking`, mismo motivo que `m4-preparation.spec.ts`). El baseline es de devops:
+`./scripts/check-e2e-skip-census.sh --update --motivo "m4-mobile.spec: MOB-1…5 necesitan un envío en picking"`.
+
+**Mediciones (2026-10-05, árbol vivo):** `tsc` 0 · lint 0 · vitest **220/220 ficheros, 2616/2616** · i18n **4307 = 4307**,
+0 vacías · Playwright mock (bundle propio `.next-e2e-mock-fepnl`, `:3317`) suite completa **270 passed, 9 skipped, 0
+failed** (antes de `2e93eb0f`: 3 rojas de specs propios, arregladas en ese commit y re-corridas 33/33).
+Mutaciones (copia `git archive HEAD` entera, N=1 cada una, deterministas): B1 4/4 rojas · B2 3/3 · B3 3/3 · B4 5/5 ·
+B5 3/3 · B6 4/4 (MOB-3 en Playwright sobre build de la copia, 2 rojas a 360 y 390).
