@@ -149,6 +149,8 @@ export function M4View({ initialTab = 'preparar' }: { initialTab?: M4Tab }) {
 
   useEffect(() => {
     if (initialTab !== 'preparar') tabRefs.current[initialTab]?.focus();
+    // §60.9 a: en el celular las pestañas desplazan en horizontal; la activa siempre a la vista al cargar.
+    tabRefs.current[initialTab]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -242,7 +244,18 @@ export function M4View({ initialTab = 'preparar' }: { initialTab?: M4Tab }) {
             </p>
           )}
           <Input label={t('tracking.carrierLabel')} type="text" value={carrierValue} onChange={(e) => setCarrierValue(e.target.value)} />
-          <Input label={t('tracking.numberLabel')} type="text" inputMode="numeric" value={trackingNumberValue} onChange={(e) => setTrackingNumberValue(e.target.value)} />
+          {/* §60.9 e: en el teléfono — sin autocorrección ni mayúsculas inventadas; 16 px (Input `text-base`) para que iOS no haga zoom. */}
+          <Input
+            label={t('tracking.numberLabel')}
+            type="text"
+            inputMode="text"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            value={trackingNumberValue}
+            onChange={(e) => setTrackingNumberValue(e.target.value)}
+            data-testid="m4-tracking-number"
+          />
           <Input
             label={t('tracking.shippingCostLabel')}
             hint={t('tracking.shippingCostHint')}

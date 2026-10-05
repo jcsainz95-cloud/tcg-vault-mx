@@ -2128,6 +2128,11 @@
           "noLocations": "There are no active platform stock locations. Create them in Inventory.",
           "confirm": "Save location",
           "error": "We couldn't save the location."
+        },
+        "addressToggle": "Shipping address",
+        "photo": {
+          "view": "View photo of {card}",
+          "close": "Close"
         }
       },
       "tabs": {
@@ -4888,6 +4893,9 @@
         "validation": "Invalid price: it must be above zero and at most {max}."
       },
       "reload": "Reload"
+    },
+    "mobile": {
+      "desktopOnly": "This section is designed for a computer. On your phone, use <link>“Orders to prepare”</link>."
     }
   },
   "locale": {

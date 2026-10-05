@@ -2128,6 +2128,11 @@
           "noLocations": "No hay ubicaciones activas de stock de plataforma. Créalas en Inventario.",
           "confirm": "Guardar ubicación",
           "error": "No se pudo guardar la ubicación."
+        },
+        "addressToggle": "Dirección de envío",
+        "photo": {
+          "view": "Ver foto de {card}",
+          "close": "Cerrar"
         }
       },
       "tabs": {
@@ -4888,6 +4893,9 @@
         "validation": "El precio no es válido: debe ser mayor que cero y como máximo {max}."
       },
       "reload": "Recargar"
+    },
+    "mobile": {
+      "desktopOnly": "Esta sección está pensada para computadora. En el celular, usa <link>«Pedidos por preparar»</link>."
     }
   },
   "locale": {
