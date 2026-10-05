@@ -19606,3 +19606,39 @@ cada una — son deterministas: render sin carreras ni temporizadores; base de l
 | canario (c) | cambiar la excepción anclada por `/\S*24\S*( (horas\|hours))?/g` (deja pasar «MX$24.00») | 1 roja (UX-SDX-28 (c)) |
 
 - 2026-10-05 · G5 (errata v1.80.12.15 §M4-SHIP.19.34.3/§19.33.10): `SpendAlertDTO.shipment.kind` pasa a `AdminShipmentKind | null` (obligatorio, sin `'order_ship'`). Medido con grep: ningún lector del campo en `frontend/src` (`AlertRef` decide por `alert.order`, no por `kind`); `null` ⇒ envíos por folio ya es el comportamiento.
+
+## §94 · **«Alertas de envíos» del tablero y el filtro `?alert=true` en «Envíos»** — F-1 y F-2 de la errata v1.80.12.16 (2026-10-05, rama `claude/skydropx-d`, base `a132cf59`; contrato `§M4-SHIP.19.35.5` fila 1 y `§19.35.8` F-1/F-2; diseño v4.24 `DESIGN_SYSTEM §43.22`, FS-63…FS-67, UX-SDX-39…44)
+
+**Comprobado antes de construir:** `GET /admin/shipments?alert=true` existe en el contrato (§0-Q clase **L**, dominio `true`;
+§19.20.2: la unión `carrierAlert ≠ null ∨ labelAlert ≠ null`) y en el servidor (`backend/src/modules/shipments/
+admin-shipments.controller.ts:52-66`, `@Query('alert')`; leído, no ejecutado).
+
+**Qué se construyó**
+- **F-1** `types/contract.ts`: `DashboardDTO.workQueue.shipping?: { lowBalance: boolean | null; withCarrierAlert; withLabelAlert;
+  labelProcessing } | null` — el tipo del contrato tal cual (`withLabelAlert: number`, no opcional). La ausencia de
+  `withLabelAlert` (servidor con D2f sin B-3, §43.22.2) se defiende en la **lectura** con `Number.isFinite`, el mismo patrón
+  que `salesPeriod.netAmountCents` (hueco 9), en vez de debilitar el tipo.
+- **FS-64** `AdminDashboard.tsx`: `ShippingAlertsCard` tras «Pedidos por preparar», para los **dos** roles; `shipping`
+  ausente/`null` ⇒ no existe. Cifra grande = `withLabelAlert` (`—` si falta; bermellón solo si `> 0`); línea-enlace a
+  `/admin/m4?tab=envios&alert=true` (`alerts` o `alertsCarrierOnly`); sin alertas ⇒ `none` sin enlace; `overlap` solo con las
+  dos `> 0`; `processing` (plural) con `labelProcessing > 0`; `lowBalance` **solo** con `=== true`, en `text-accent`, y
+  «Ver el saldo» → `/admin/m10#envios-skydropx` solo súper-admin. ⛔ La pantalla no suma cifras ni lee `balanceCents`.
+- **FS-65/66** `m4/tabs.ts` `parseAlert` (solo el literal `'true'`), `page.tsx` → `M4View` → `ShipmentsQueue` (`initialAlert`),
+  estado `alertFilter` en el `queryKey`, línea con ✕ como la del folio. **Decisión (§43.22.4 la deja a frontend):** quitar el
+  filtro **no** reescribe la URL, igual que el folio. `lib/api.ts`: `AdminShipmentsFilters.alert?: boolean` ⇒
+  `query.alert = 'true'` solo si es `true` (`false` sería `400`).
+- **FS-67** `ShippingSection.tsx`: `id="envios-skydropx"` en la `section` + salto a mano al montar si el hash coincide (la
+  sección se monta tras la carga y el salto nativo puede no encontrarla; patrón de `AccountView`).
+- **FS-63** claves `admin.dashboard.shippingAlerts.*` (8) y `admin.m4.alertFilter`/`alertFilterRemove`, ES/EN.
+- **Mock:** `mockLiveAdminShipments()` es ahora la única fuente de filas para la lista y para `workQueue.shipping` del
+  tablero (§19.35.5: «el mismo cuerpo»); `?alert=true` filtra por la unión. `lowBalance` del mock = `mockShippingBalance()`.
+
+**Pruebas** (escritas primero; rojas 22/36 antes de construir, medido): `ShippingAlertsCard.test.tsx` (UX-SDX-39…42),
+`m4/alert-filter.test.tsx` (UX-SDX-43: `parseAlert`, la cola, la rama REAL de `getAdminShipments`, el mock de la unión con
+una alerta sembrada), `lib/i18n-shipping-alerts.test.ts` (UX-SDX-44), FS-67 en `ShippingSection.test.tsx`. E2E
+`e2e/shipping-alerts.spec.ts` (mock-only: los dos roles sin `MX$`, y `?tab=envios&alert=true` con su ✕).
+
+**Mutaciones** (copia del árbol entero, N=3 cada una, 17/17 rojas 3/3): tarjeta solo súper-admin; tarjeta vacía con `null`;
+`lowBalance !== false`; pintar `balanceCents`; «Ver el saldo» al operador; enlace sin `alert=true`; sumar las dos cifras;
+nota de la unión siempre; `withLabelAlert` ausente sin defensa; api sin `alert`; api con `alert` siempre; la cola no manda
+el filtro; `parseAlert` acepta `1`; el mock sin filtro de unión; sin ancla; clave borrada en `en.json`; «AG-7» en `lowBalance`.
