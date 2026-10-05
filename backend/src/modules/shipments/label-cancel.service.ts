@@ -38,6 +38,15 @@ export function parseCancelBody(raw: unknown): { reason: string } {
   return { reason: r };
 }
 
+/** Lo que la bitácora `label_cancel_unknown` guarda del error: código y, si lo hay, `status`/`reason` (⛔ nunca cuerpos). */
+function cancelErrorOf(e: unknown): Record<string, unknown> {
+  if (e instanceof ShippingProviderError) {
+    const d = e.details as { status?: unknown; reason?: unknown };
+    return { code: e.code, status: d.status ?? null, ...(d.reason !== undefined ? { reason: d.reason } : {}) };
+  }
+  return { code: 'UNKNOWN' };
+}
+
 @Injectable()
 export class ShipmentLabelCancelService implements LabelAutoCloser {
   private readonly logger = new Logger(ShipmentLabelCancelService.name);
@@ -92,27 +101,53 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
     try {
       res = await this.selection.port.cancel(providerShipmentId, reason);
     } catch (e) {
-      // ⚠️ Sin respuesta legible: se revierte el sello (la guía se tiene por viva) y el operador reintenta. NO MEDIDO si
-      // Skydropx canceló; un `cancel` repetido sobre una guía ya cancelada lo rechaza el proveedor sin costo.
-      if (sealed.kind === 'sealed') await this.unseal(shipmentId, sealedAt);
+      // §19.31.6 (1): SIN respuesta legible (timeout, 5xx, red). Con persona delante (`reissue`) se REVIERTE el sello: un
+      // sello sin confirmar sobre un envío en `guia` no tendría camino de reintento (el CAS exige `providerCanceledAt IS
+      // NULL` ⇒ `already_cancelled` sin red). La guía se tiene por viva hasta que Skydropx confirme; el reintento está a un
+      // clic. Bitácora `label_cancel_unknown` FUERA de toda tx. El reintento de un `auto_close` conserva su sello (punto 3).
+      if (sealed.kind === 'sealed') {
+        await this.unseal(shipmentId, sealedAt);
+        await this.labels.audit(this.prisma, actor, shipmentId, 'shipment.label_cancel_unknown', {
+          providerShipmentId,
+          error: cancelErrorOf(e),
+        });
+      }
       throw e instanceof ShippingProviderError ? e.toBusinessException() : e;
     }
+    let via: 'provider_already_cancelled' | null = null;
     if (!res.ok) {
-      if (sealed.kind === 'sealed') await this.unseal(shipmentId, sealedAt);
-      throw new BusinessException('SHIPPING_PROVIDER_REJECTED', 422, 'The provider rejected the cancellation', {
-        provider: 'skydropx',
-        op: 'cancel',
-        providerCode: res.code,
-        providerMessage: res.message,
-      });
+      // §19.31.6 (2): antes de revertir, ¿ya está cancelada en Skydropx? (el primer `cancel` sí entró y éste se rechaza).
+      // Lectura legible con `canceled` ⇒ se trata como ACEPTADA con `refundedCents: null` (AG-8 (b) vigila el reembolso).
+      if (await this.providerSaysCanceled(providerShipmentId)) {
+        res = { ok: true, refundedCents: null };
+        via = 'provider_already_cancelled';
+      } else {
+        if (sealed.kind === 'sealed') await this.unseal(shipmentId, sealedAt);
+        throw new BusinessException('SHIPPING_PROVIDER_REJECTED', 422, 'The provider rejected the cancellation', {
+          provider: 'skydropx',
+          op: 'cancel',
+          providerCode: res.code,
+          providerMessage: res.message,
+        });
+      }
     }
     if (sealed.kind === 'retry') {
       await this.labels.confirmCancellation(shipmentId, providerShipmentId, res.refundedCents, 'auto_close', null, reason);
-      await this.labels.audit(this.prisma, actor, shipmentId, 'shipment.label_cancelled', { reason, refundedCents: res.refundedCents, retryOf: 'auto_close' }, this.clock.now(), { providerShipmentId });
+      await this.labels.audit(this.prisma, actor, shipmentId, 'shipment.label_cancelled', { reason, refundedCents: res.refundedCents, retryOf: 'auto_close', ...(via ? { via } : {}) }, this.clock.now(), { providerShipmentId });
       return { outcome: 'cancelled', shipment: (await this.labels.respond(shipmentId, actor, 'in_progress')).shipment };
     }
-    await this.applyReissue(shipmentId, providerShipmentId, sealedAt, sealed.row, res.refundedCents, reason, actor);
+    await this.applyReissue(shipmentId, providerShipmentId, sealedAt, sealed.row, res.refundedCents, reason, actor, via);
     return { outcome: 'cancelled', shipment: (await this.labels.respond(shipmentId, actor, 'in_progress')).shipment };
+  }
+
+  /** §19.31.6 (2): `getShipment` legible con `carrierStatus = 'canceled'`. Ilegible o con otro estado ⇒ `false`. */
+  private async providerSaysCanceled(providerShipmentId: string): Promise<boolean> {
+    try {
+      const s = await this.selection.port.getShipment(providerShipmentId);
+      return s.carrierStatus === 'canceled';
+    } catch {
+      return false;
+    }
   }
 
   /** CAS inverso del sello (la guía sigue viva). */
@@ -132,6 +167,7 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
     refundedCents: number | null,
     reason: string,
     actor: LabelActor,
+    via: 'provider_already_cancelled' | null = null,
   ): Promise<void> {
     const now = this.clock.now();
     await this.prisma.$transaction(async (tx) => {
@@ -175,7 +211,7 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
         actor,
         shipmentId,
         'shipment.label_cancelled',
-        { reason, refundedCents },
+        { reason, refundedCents, ...(via ? { via } : {}) },
         now,
         { providerShipmentId, carrier: before.carrier, trackingNumber: before.trackingNumber, priceCents: asRate(before.chosenRateJson)?.priceCents ?? before.shippingCostCents },
       );

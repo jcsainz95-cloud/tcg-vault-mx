@@ -9,6 +9,7 @@
  * ⛔ No pasa por la puerta de compra (§19.19.7): solo exige `shipping_provider = 'skydropx'`.
  * La tx solo toma el candado para las guardas y se cierra ANTES de la llamada de red (§4.50/§4.57 (e)).
  */
+import { createHash } from 'crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Prisma, Role, ShipmentQuote, ShipmentRequest, ShippingPackage } from '@prisma/client';
@@ -417,8 +418,10 @@ export class ShipmentQuoteService {
   }
 
   /**
-   * §19.19.4 — persistencia con la unicidad `(shipmentRequestId, providerQuotationId)`: mismo envío ⇒ se ACTUALIZA la fila
-   * (`requestedAt` no se toca); `expiresAt` = primera observación del id por NUESTRO sistema (en cualquier envío) + 24 h.
+   * §19.19.4 con §19.31.2 — persistencia con la unicidad `(shipmentRequestId, providerQuotationId)`: mismo envío ⇒ se
+   * ACTUALIZA la fila, ahora con `requestedAt = now` y `requestedByUserId = actor` (así «la vigente» de `GET …/quote` es la
+   * última que el operador pidió). `expiresAt` = `quoteExpiryFor(filas del id en CUALQUIER envío, now)`: la misma generación
+   * mientras haya una viva (⛔ nunca se alarga una viva, PS-95) o una generación nueva (`now + 24 h`) si todas vencieron.
    */
   private async persist(
     shipmentId: string,
@@ -438,12 +441,19 @@ export class ShipmentQuoteService {
       recommendedRateId: string | null;
     },
   ): Promise<ShipmentQuote> {
-    const first = await this.prisma.shipmentQuote.findFirst({
+    const seen = await this.prisma.shipmentQuote.findMany({
       where: { providerQuotationId: q.providerQuotationId },
-      orderBy: { requestedAt: 'asc' },
-      select: { requestedAt: true },
+      select: { shipmentRequestId: true, expiresAt: true },
     });
-    const firstSeen = first?.requestedAt ?? now;
+    const expiry = quoteExpiryFor(seen, now);
+    if (expiry.reissuedAfter !== null) {
+      this.logger.log(
+        `skydropx quotation_id_reissued_after_expiry fp=${quotationFingerprint(q.providerQuotationId)} lastExpiredAt=${expiry.reissuedAfter.toISOString()}`,
+      );
+    }
+    // La fila de ESTE envío, si estaba vigente, conserva su `expiresAt` (§19.31.2 punto 4); si estaba vencida, abre generación.
+    const own = seen.find((r) => r.shipmentRequestId === shipmentId);
+    const ownExpiresAt = own && own.expiresAt.getTime() > now.getTime() ? own.expiresAt : expiry.expiresAt;
     const fields = {
       completedAt: q.completed ? now : null,
       packageCode: q.packageCode,
@@ -461,12 +471,12 @@ export class ShipmentQuoteService {
     const write = () =>
       this.prisma.shipmentQuote.upsert({
         where: key,
-        update: fields,
+        update: { ...fields, requestedAt: now, expiresAt: ownExpiresAt },
         create: {
           shipmentRequestId: shipmentId,
           providerQuotationId: q.providerQuotationId,
           requestedAt: now,
-          expiresAt: new Date(firstSeen.getTime() + QUOTE_TTL_MS),
+          expiresAt: expiry.expiresAt,
           ...fields,
         },
       });
@@ -518,6 +528,31 @@ export class ShipmentQuoteService {
       excluded: excluded ?? excludedFromRaw(q.rawResponseJson),
     };
   }
+}
+
+/**
+ * 💰 §19.31.2 — la vigencia de una cotización con un `providerQuotationId` ya visto. Función PURA sobre las filas de ese id
+ * (en CUALQUIER envío):
+ *  - `V` = las vigentes (`expiresAt > now`); `V ≠ ∅` ⇒ `max(V.expiresAt)` (misma generación; ⛔ nunca se alarga);
+ *  - `V = ∅` ⇒ generación nueva `now + 24 h`; si había filas (todas vencidas) `reissuedAfter` = la última vencida (el log
+ *    `quotation_id_reissued_after_expiry`: ⛔ NO MEDIDO si Skydropx honra la tarifa de un id reutilizado).
+ */
+export function quoteExpiryFor(rows: readonly { expiresAt: Date }[], now: Date): { expiresAt: Date; reissuedAfter: Date | null } {
+  const t = now.getTime();
+  let alive: number | null = null;
+  let lastExpired: number | null = null;
+  for (const r of rows) {
+    const e = r.expiresAt.getTime();
+    if (e > t) alive = alive === null ? e : Math.max(alive, e);
+    else lastExpired = lastExpired === null ? e : Math.max(lastExpired, e);
+  }
+  if (alive !== null) return { expiresAt: new Date(alive), reissuedAfter: null };
+  return { expiresAt: new Date(t + QUOTE_TTL_MS), reissuedAfter: lastExpired === null ? null : new Date(lastExpired) };
+}
+
+/** Huella corta (sha256, 12 hex) del id de cotización para el log: ⛔ el id entero no viaja a los registros. */
+export function quotationFingerprint(id: string): string {
+  return createHash('sha256').update(id).digest('hex').slice(0, 12);
 }
 
 function asObj(v: unknown): Record<string, unknown> {

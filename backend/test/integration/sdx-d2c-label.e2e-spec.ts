@@ -14,6 +14,7 @@ import { Prisma } from '@prisma/client';
 import { E2EHarness } from './helpers/e2e-app';
 import { R, ShipPrepDb } from './helpers/ship-prep-db';
 import { buyBody, createLabelWorld, dial, errCode, purchaseOn, ready, restoreDials } from './helpers/label-db';
+import { diferida, esperarBloqueoDeFila } from './helpers/row-lock-barrier';
 import { FakeShippingProvider } from '../../src/modules/shipping-provider/fake-shipping-provider';
 import { ShippingProviderError } from '../../src/modules/shipping-provider/shipping-provider.errors';
 import { PurchaseInput } from '../../src/modules/shipping-provider/shipping-provider.port';
@@ -712,34 +713,104 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
 
   // ================================================================ PS-73 / PS-121 — una guía por envío
 
-  it(`PS-73 / PS-121 — 10 \`POST …/label\` simultáneos sobre el MISMO envío ⇒ 1 \`purchase\` por ronda, ningún 409, un AV-4 (N = ${N} rondas)`, async () => {
+  // ⭐ v1.80.12.12 (§19.31.3, §19.31.9): PS-73 REESCRITA. «Ningún 409» no es una propiedad del sistema (entre que el ganador
+  // toma el candado consultivo y escribe la fila, la relectura `FOR SHARE` ve la fila sin reclamo ⇒ `409 purchase_in_flight`
+  // con `retryAfterSeconds: 1`). Lo INVARIANTE es UNA `purchase`. Barrera: la prueba retiene la fila del envío con
+  // `FOR UPDATE`, espera a que ≥ 2 peticiones estén BLOQUEADAS en el paso 2 (comprobado en `pg_stat_activity`, ⛔ sin
+  // `sleep`) y las suelta juntas; la `purchase` del doble se demora 300 ms para que las tardías vean el reclamo.
+  it(`PS-73 / PS-121 — 10 \`POST …/label\` al MISMO envío con barrera ⇒ 1 \`purchase\` por ronda; las otras 9 ∈ {in_progress, 409 purchase_in_flight, 409 SHIPMENT_ALREADY_LABELED}; un AV-4 (N = ${N} rondas)`, async () => {
     let good = 0;
     let inflight409 = 0;
+    let labeled409 = 0;
     const bad: string[] = [];
     for (let i = 0; i < N; i += 1) {
       const s = await readyQuoted();
       bandeja = [];
-      const rs = await Promise.all(Array.from({ length: 10 }, () => buy(s.id, buyBody(s.q, s.rate))));
-      const codes = rs.map((r) => (r.status === 200 ? r.body.outcome : r.status === 409 ? `409:${r.body.error.details?.reason}` : errCode(r)));
-      inflight409 += codes.filter((c) => c === '409:purchase_in_flight').length;
+      fake.purchaseBarrier = () => new Promise((res) => setTimeout(res, 300));
+      const gate = diferida();
+      const held = diferida();
+      const holder = h.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${s.id} FOR UPDATE`;
+          held.abrir();
+          await gate.promesa;
+        },
+        { timeout: 30_000 },
+      );
+      await held.promesa;
+      const pending = Promise.all(Array.from({ length: 10 }, () => buy(s.id, buyBody(s.q, s.rate))));
+      await esperarBloqueoDeFila(h.prisma, 'ShipmentRequest', 2);
+      gate.abrir();
+      await holder;
+      const rs = await pending;
+      fake.purchaseBarrier = null;
+      const codes = rs.map((r) =>
+        r.status === 200 ? r.body.outcome : r.status === 409 ? `409:${r.body.error.code}:${r.body.error.details?.reason ?? ''}` : errCode(r),
+      );
+      const flight = rs.filter((r) => r.status === 409 && r.body.error.details?.reason === 'purchase_in_flight');
+      inflight409 += flight.length;
+      labeled409 += codes.filter((c) => c.startsWith('409:SHIPMENT_ALREADY_LABELED')).length;
       const n = purchases(s.id).length;
       const s1 = await row(s.id);
-      // ⚠️ PREGUNTA AL ARQUITECTO (BACKEND_NOTES §62): PS-73 dice «ningún 409» y §19.28.8 manda `409 purchase_in_flight`
-      // cuando el candado consultivo está ocupado. Se asierta lo que no admite duda (una compra, un AV-4, cero 500) y se
-      // CUENTAN los 409 del candado (el servicio devuelve `in_progress` si el reclamo del mismo envío ya comiteó).
+      const losersOk = codes.every(
+        (c) => c === 'labeled' || c === 'in_progress' || c === '409:CONFLICT:purchase_in_flight' || c.startsWith('409:SHIPMENT_ALREADY_LABELED'),
+      );
+      const flightShapeOk = flight.every((r) => r.body.error.details.otherShipmentId === null);
+      const again = await buy(s.id, buyBody(s.q, s.rate));
       const ok =
         n === 1 &&
-        codes.every((c) => c === 'labeled' || c === 'in_progress' || c === '409:purchase_in_flight') &&
+        losersOk &&
+        flightShapeOk &&
         codes.filter((c) => c === 'labeled').length === 1 &&
         s1.providerShipmentId !== null &&
-        bandeja.length === 1;
+        bandeja.length === 1 &&
+        errCode(again) === '409:SHIPMENT_ALREADY_LABELED' &&
+        purchases(s.id).length === 1;
       if (ok) good += 1;
-      else bad.push(JSON.stringify({ n, codes, mails: bandeja.length }));
+      else bad.push(JSON.stringify({ n, codes, mails: bandeja.length, again: errCode(again) }));
     }
     // eslint-disable-next-line no-console
-    console.log(`PS-73: 409 purchase_in_flight en ${inflight409} de ${N * 9} respuestas no ganadoras`);
+    console.log(`PS-73: 409 purchase_in_flight en ${inflight409} de ${N * 9} respuestas no ganadoras; 409 SHIPMENT_ALREADY_LABELED en ${labeled409}`);
     expect({ proportion: `${good}/${N}`, bad }).toEqual({ proportion: `${N}/${N}`, bad: [] });
   }, 300_000);
+
+  // ⭐ v1.80.12.12 (§19.31.3) — la fila DETERMINISTA de PS-73: con el candado consultivo OCUPADO y el envío YA con guía, la
+  // relectura `FOR SHARE` lee `labelSource` ⇒ `409 SHIPMENT_ALREADY_LABELED` (antes caía al `409 purchase_in_flight`).
+  // Inyección por el saldo del paso 6 (entre el paso 2 y el 7, sin candado de fila): la prueba escribe la guía y toma el
+  // candado consultivo en OTRA transacción que no suelta hasta que la compra responde.
+  it('PS-73 (fila determinista) — candado consultivo ocupado y el envío ya con guía ⇒ 409 SHIPMENT_ALREADY_LABELED {labelSource}, 0 purchase', async () => {
+    const s = await readyQuoted();
+    const gate = diferida();
+    const held = diferida();
+    let holder: Promise<unknown> | null = null;
+    let calls = 0;
+    fake.onBalance = async () => {
+      calls += 1;
+      if (calls !== 1) return;
+      await h.prisma.shipmentRequest.update({ where: { id: s.id }, data: { trackingNumber: `MAN73-${RUN}`, carrier: 'dhl', labelSource: 'manual' } });
+      holder = h.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(${SKYDROPX_PURCHASE_LOCK_KEY}::bigint)`;
+          held.abrir();
+          await gate.promesa;
+        },
+        { timeout: 30_000 },
+      );
+      await held.promesa;
+    };
+    let r: R;
+    try {
+      r = await buy(s.id, buyBody(s.q, s.rate));
+    } finally {
+      gate.abrir();
+      fake.onBalance = null;
+      await holder;
+    }
+    expect(errCode(r)).toBe('409:SHIPMENT_ALREADY_LABELED');
+    expect(r.body.error.details).toEqual({ labelSource: 'manual' });
+    expect(purchases(s.id)).toHaveLength(0);
+    expect((await row(s.id)).labelProcessingSince).toBeNull();
+  });
 
   // ================================================================ PS-122 / PS-132 — una compra en vuelo a la vez
 
@@ -754,10 +825,16 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
       const r = await buy(b.id, buyBody(b.q, b.rate));
       expect(errCode(r)).toBe('409:CONFLICT');
       const folioA = (await row(a.id)).folio;
-      // §19.28.8: `retryAfterSeconds = ceil((since_A + T_INFLIGHT_BLOCK − now) / 1 s)` = 180 − 120 = 60.
+      // ⭐ v1.80.12.12 (§19.31.4): PS-122 (a) REESCRITA — manda la fórmula de §19.28.8 con `T_INFLIGHT_BLOCK` = 3 min:
+      // `retryAfterSeconds = ceil((since_A + T_INFLIGHT_BLOCK − now) / 1 s)`; reclamo de hace 2 min ⇒ 60 (⛔ ni `5` ni `T_UNKNOWN`).
       expect(r.body.error.details).toEqual({ reason: 'purchase_in_flight', otherShipmentId: a.id, otherFolio: folioA, retryAfterSeconds: 60 });
       expect(purchases()).toHaveLength(0);
       expect(await row(b.id)).toEqual(before);
+      // …y de hace 20 s ⇒ 160.
+      await h.prisma.shipmentRequest.update({ where: { id: a.id }, data: { labelProcessingSince: new Date(clock.now().getTime() + 1 - 20_000) } });
+      const r20 = await buy(b.id, buyBody(b.q, b.rate));
+      expect(r20.body.error.details).toEqual({ reason: 'purchase_in_flight', otherShipmentId: a.id, otherFolio: folioA, retryAfterSeconds: 160 });
+      expect(purchases()).toHaveLength(0);
       await h.prisma.shipmentRequest.update({ where: { id: a.id }, data: { labelProcessingSince: new Date(clock.now().getTime() - 4 * MIN) } });
       expect(errCode(await buy(b.id, buyBody(b.q, b.rate)))).toBe('200');
       expect(purchases(b.id)).toHaveLength(1);
