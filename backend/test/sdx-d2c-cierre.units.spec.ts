@@ -210,6 +210,10 @@ describe('PS-169 — las llaves del `data` del reclamo ⊆ las de CADA deshacer'
     const purchase = codigoDeFichero(join(SRC, 'label-purchase.service.ts'), ['labelProcessingSince: since,', 'export const CLAIM_UNDO']);
     const recovery = codigoDeFichero(join(SRC, 'label-recovery.service.ts'), ['rateChosenAt: null']);
     const claim = claimKeysOf(purchase);
+    const undos = [...undoBlocksOf(purchase), ...undoBlocksOf(recovery)];
+    expect(undos.length).toBe(4);
+    // ⊆ primero: el rojo de una columna nueva sin deshacer NOMBRA la columna.
+    expect(undos.map((u) => missing(claim, u))).toEqual([[], [], [], []]);
     expect(claim).toEqual(
       [
         'labelProcessingSince',
@@ -225,9 +229,6 @@ describe('PS-169 — las llaves del `data` del reclamo ⊆ las de CADA deshacer'
         'insuredValueCents',
       ].sort(),
     );
-    const undos = [...undoBlocksOf(purchase), ...undoBlocksOf(recovery)];
-    expect(undos.length).toBe(4);
-    for (const u of undos) expect(missing(claim, u)).toEqual([]);
   });
 
   it('canario: una columna nueva en el reclamo que el deshacer no limpia ⇒ se detecta', () => {

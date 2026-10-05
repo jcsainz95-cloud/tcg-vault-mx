@@ -740,11 +740,20 @@ describe('💰🔒 D2c — comprar la guía (§M4-SHIP.19.7 + erratas)', () => {
         { timeout: 30_000 },
       );
       await held.promesa;
+      // El reloj de la guía AVANZA 1 ms en cada lectura durante la ronda (como un reloj real): con el reloj congelado los 10
+      // reclamos compartirían `since` y el único `(shipmentRequestId, since)` del libro de intentos taparía la mutación
+      // «sin CAS» con un 500 en vez de dejar ver la segunda `purchase` (medido: §63.4).
+      const frozenNow = clock.now.bind(clock);
+      clock.now = () => {
+        clock.advance(1);
+        return frozenNow();
+      };
       const pending = Promise.all(Array.from({ length: 10 }, () => buy(s.id, buyBody(s.q, s.rate))));
       await esperarBloqueoDeFila(barrierDb as unknown as Parameters<typeof esperarBloqueoDeFila>[0], 'ShipmentRequest', 2);
       gate.abrir();
       await holder;
       const rs = await pending;
+      clock.now = frozenNow;
       fake.purchaseBarrier = null;
       const codes = rs.map((r) =>
         r.status === 200 ? r.body.outcome : r.status === 409 ? `409:${r.body.error.code}:${r.body.error.details?.reason ?? ''}` : errCode(r),
