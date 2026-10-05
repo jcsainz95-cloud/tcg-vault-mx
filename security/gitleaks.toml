@@ -136,6 +136,35 @@ regexes = [
   #   · `acc-secret-ses-0123…`  → JWT_ACCESS_SECRET (línea 39 en 241d4dca).
   '''^ref-secret-ses-0123456789abcdef0123456789$''',
   '''^acc-secret-ses-0123456789abcdef0123456789$''',
+  # Ruido de `gitleaks dir .` (seguridad, veredicto listo-real 2026-10-05,
+  # §3.1 «Ruido aparte»): tres valores de FICCIÓN en specs de backend que el
+  # escaneo del árbol completo marcaba como generic-api-key (CI no, porque
+  # escanea el rango). Medido con 8.30.1: solo aparecen en esos specs. Por VALOR
+  # EXACTO (anclado), no por ruta:
+  #   · `ref-secret-rt-0123…`  → backend/test/auth.refresh-typ.spec.ts:27.
+  #   · `otra-clave-123`       → backend/test/auth.c7-policy.spec.ts:466.
+  #   · `bk-p79-legacy`        → backend/test/inventory.sealed-product-alta.spec.ts:521.
+  '''^ref-secret-rt-0123456789abcdef0123456789$''',
+  '''^otra-clave-123$''',
+  '''^bk-p79-legacy$''',
+  # P-GL-2 / CL-2 (2026-10-05): al retirar la exención POR RUTA de `docs/*.md`,
+  # `security/*` y `docker-compose*.yml` (ver `paths` abajo), el escaneo de
+  # 8.30.1 sobre el historial COMPLETO (`gitleaks git .`, 2255 commits) da
+  # exactamente 5 hallazgos nuevos, los cinco en `docs/` y los cinco ficción o
+  # no-secretos. Se eximen POR VALOR EXACTO (anclado):
+  #   · `sk_live_51ClaveRealDelDueno` → ficción de canario citada en
+  #       docs/SECURITY_NOTES.md (19 caracteres: no tiene forma de clave real;
+  #       cualquier otra `sk_live_…` sigue siendo roja).
+  #   · `ppt_live_ABC123`             → ejemplo en docs/DEVOPS_NOTES.md.
+  #   · `re_AbCd123456`               → ejemplo en el historial de DEVOPS_NOTES.md (3a44fb73).
+  #   · `E2E_ENABLE_THROTTLER=true`   → nombre de un dial, docs/BACKEND_NOTES.md.
+  #   · `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9` → la cabecera JWT pública
+  #       `{"alg":"HS256","typ":"JWT"}` en base64, docs/specs/SKYDROPX_API_REFERENCIA.md.
+  '''^sk_live_51ClaveRealDelDueno$''',
+  '''^ppt_live_ABC123$''',
+  '''^re_AbCd123456$''',
+  '''^E2E_ENABLE_THROTTLER=true$''',
+  '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9$''',
 ]
 paths = [
   '''\.env\.example$''',
@@ -147,9 +176,18 @@ paths = [
   # sigue siendo rojo (el canario lo comprueba copiándolo a otra ruta).
   '''^scripts/check-secret-defaults-canary\.sh$''',
   '''^scripts/check-stripe-webhook-failclosed-canary\.sh$''',
-  '''(^|/)docs/.*\.md$''',
-  '''security/.*\.(md|toml|yml|yaml)$''',
-  '''docker-compose.*\.yml$''',
+  # P-GL-2 / CL-2 (seguridad, 2026-09-11 y re-medido 2026-10-05): aquí había
+  # tres exenciones POR RUTA, desde el commit de arranque (ec8b9595), no por
+  # ruido medido: `(^|/)docs/.*\.md$`, `security/.*\.(md|toml|yml|yaml)$` y
+  # `docker-compose.*\.yml$`. Con ellas, una `sk_live_`/`rk_live_`/`whsec_`
+  # real escrita en una guía de `docs/` (donde los agentes escriben guías y
+  # traspasos, en un repo PÚBLICO) pasaba en verde: seguridad plantó en 5
+  # sitios y gitleaks vio 2/5. RETIRADAS. Su coste medido: 5 valores de
+  # ficción en todo el historial, eximidos por valor arriba. El canario
+  # (security/scripts/sast-gitleaks-canary.sh, bloque P-GL-2) planta en los
+  # 5 sitios y exige 5/5; con cualquiera de las tres rutas de vuelta sale rojo.
+  # Si un doc futuro da un falso positivo: se exime ESE VALOR, anclado. Nunca
+  # la ruta.
   # F1-4 (techlead, 2026-09-11): aquí estaba `\.github/workflows/.*\.yml$`, que
   # eximía los workflows ENTEROS. Retirada: medido con el mismo binario
   # (v8.30.1) sobre `gitleaks dir .` y `gitleaks git .` (historial completo)
