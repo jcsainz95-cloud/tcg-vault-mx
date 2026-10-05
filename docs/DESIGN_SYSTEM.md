@@ -4,7 +4,16 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v5.0 (2026-10-05) — ARREGLOS DEL PANEL (§60 NUEVA; `API_CONTRACT` v1.82 §PNL, `ARCHITECTURE §4.61`;
+> Estado: **v5.1 (2026-10-05) — ERRATA DE §60 TRAS `API_CONTRACT` v1.82.2 (§PNL.10.6, §PNL.10.7, §PNL.11; fichero:línea
+> leídos en `/home/user/tcg-panel`, rama `claude/arreglos-panel`, HEAD `5a8a5852` dado por el orquestador — ux-ui sin
+> Bash, sha NO MEDIDO por mí):** **§60.14** el texto del `409 CONFLICT {reason:'ITEM_FINAL'}` del buylist (decidir una
+> carta que ya entró al inventario o ya se pagó) y su conducta (cierra el diálogo, recarga el detalle) — FE-BRJ-4.
+> **§60.15** los dos textos que mandaban pulsar «Marcar recibida», botón que ya no existe; ⚠ uno de ellos vive en la
+> tabla de §26 (`error.REQUEST_NOT_RECEIVED`) y se corrige **allí**, porque el candado de literalidad la lee. **§60.8**
+> alineado con §PNL.10.7: la errata ya existe (F-26 desbloqueado), los correos 20/21 **no** se retiran y la API de
+> disputas **tampoco**. Cero tokens nuevos, cero pares de contraste nuevos. Lo que sigue es la v5.0 sin más cambio.
+>
+> Estado anterior: **v5.0 (2026-10-05) — ARREGLOS DEL PANEL (§60 NUEVA; `API_CONTRACT` v1.82 §PNL, `ARCHITECTURE §4.61`;
 > `HECHOS.md:44`, `:45`, `:50` y `:30`–`:32`, `:36`, `:37`; REGLA GENERAL de automatizar, `HECHOS.md` de la rama Skydropx
 > `:59`). ⚠ **Salto de numeración deliberado:** esta rama (`claude/arreglos-panel`) venía de la v4.14; la rama de Skydropx
 > va por la **v4.22** y usa secciones a partir de la 43 (hasta dónde llega: NO MEDIDO). Para no chocar al fusionar, esta
@@ -12144,21 +12153,22 @@ remedio de cada uno, tal como los define el contrato:
 
 | Código | Qué pasó exactamente (contrato) | Palanca que nombra el texto |
 |---|---|---|
-| `REQUEST_NOT_RECEIVED` (422) | `decision:"approve"` sobre una línea cuya **solicitud padre no tiene constancia de recepción** (`receivedAt IS NULL`). **Es sobre la SOLICITUD, no sobre la carta** | **`POST …/receive`** = el botón **«Marcar recibida»** del detalle de M5, **cuando el paquete de verdad llegó** |
+| `REQUEST_NOT_RECEIVED` (422) | `decision:"approve"` sobre una línea cuya **solicitud padre no tiene constancia de recepción** (`receivedAt IS NULL`). **Es sobre la SOLICITUD, no sobre la carta** | **`POST …/receive`** = el botón **«Recibida: empezar revisión»** del detalle de M5 (antes «Marcar recibida»; v5.1, §60.15), **cuando el paquete de verdad llegó** |
 | `PICKUP_ADDRESS_MISSING` (422) | `POST /admin/buylist/:id/offer` sobre una solicitud **sin snapshot de dirección** — solo puede ser una fila **vieja** (anterior a M-46) | **llamar al vendedor** (su teléfono viaja en la cola) para que la capture **desde su perfil**, o **declinar**. ⛔ **el operador NO la captura por él** |
 | `PICKUP_ADDRESS_LOCKED` (409) | `PATCH …/pickup-address` cuando **ya hay guía** (`guideSentAt != null`) **o la solicitud está cerrada** | **el remedio es humano**: cancelar la guía y emitir una nueva. **No es un reintento** |
 | `OFFER_PRICE_IMMUTABLE` (422) | dentro del ciclo, el cuerpo trae **`approvedPriceCents`** — **con cualquier `decision`, `reject` incluido**. El monto lo fija el servidor (`approvedPriceCents = offeredPriceCents`) | **aprobar sin monto**; si la carta no llegó como se ofertó, **rechazarla con su motivo** |
 
 | Clave | ES | EN |
 |---|---|---|
-| `error.REQUEST_NOT_RECEIVED` | Esta solicitud no tiene registrada la llegada del paquete, así que ninguna de sus cartas se puede aprobar. Cuando el paquete esté en tus manos, usa «Marcar recibida» en la solicitud y vuelve a aprobar. No se guardó nada. | This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, use “Mark received” on the request and approve again. Nothing was saved. |
+| `error.REQUEST_NOT_RECEIVED` | Esta solicitud no tiene registrada la llegada del paquete, así que ninguna de sus cartas se puede aprobar. Cuando el paquete esté en tus manos, pulsa «Recibida: empezar revisión» en la solicitud y vuelve a aprobar. No se guardó nada. | This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, press “Received: start review” on the request and approve again. Nothing was saved. |
 | `error.PICKUP_ADDRESS_MISSING` | Esta solicitud no trae la dirección de recolección (es una solicitud vieja), así que no se puede ofertar. Llama al vendedor para que la capture desde su perfil y vuelve a emitir, o declina la solicitud. No la captures tú por él. | This request has no pickup address (it is an old request), so no offer can be issued. Call the seller so they add it from their profile and issue the offer again, or decline the request. Do not fill it in for them. |
 | `error.PICKUP_ADDRESS_LOCKED` | Esta dirección ya no se puede cambiar: tu guía de envío ya está impresa con ella, o la solicitud ya cerró. Si algo está mal, contáctanos antes de mandar el paquete. | This address can no longer be changed: your shipping label is already printed with it, or the request is closed. If something is wrong, contact us before you send the parcel. |
 | `error.PICKUP_ADDRESS_LOCKED_OPERATOR` | Esta dirección ya no se edita: la guía salió impresa con ella, o la solicitud ya cerró. Si la dirección está mal, hay que cancelar esa guía y emitir una nueva; desde aquí no se puede. No se guardó nada. | This address can no longer be edited: the label went out printed with it, or the request is closed. If the address is wrong, that label has to be cancelled and a new one issued; it cannot be done from here. Nothing was saved. |
 | `error.OFFER_PRICE_IMMUTABLE` | El precio de esta carta se congeló al emitir la oferta y ya es vinculante: desde esta pantalla no viaja ningún monto. Apruébala tal cual; si no llegó como se ofertó, recházala con su motivo. No se guardó nada. | This card's price was frozen when the offer went out and is now binding: no amount travels from this screen. Approve it as it is; if it did not arrive as offered, reject it with a reason. Nothing was saved. |
 
 - **`REQUEST_NOT_RECEIVED` nombra la solicitud y cita el rótulo real del botón** (`admin.m5.receive` =
-  «Marcar recibida» / “Mark received”). **Si ese rótulo cambia, esta cadena cambia con él** — es la única
+  «Recibida: empezar revisión» / “Received: start review” desde v5.1 — antes «Marcar recibida»; §60.15). **Si ese
+  rótulo cambia, esta cadena cambia con él** — es la única
   dependencia de texto-a-texto de §26, y se acepta porque *el error que no nombra el botón obliga a
   buscarlo*. **Y la condición va antes que el acto** («cuando el paquete esté en tus manos»): marcar
   recepción es el ancla de la mercancía ajena, **no un trámite para desbloquear la pantalla**.
@@ -23137,8 +23147,9 @@ respondemos por correo.
 
 - Los términos (`terminos/page.tsx:48-52`) leen `{contact}` del mismo endpoint (página de servidor: `fetch` con
   `revalidate: 300`; fallo ⇒ el valor fijo).
-- **M8 hacia el cliente** (correos 20 y 21 de §41.1): **sin cambio** mientras M8 siga en transición; se retiran con M8
-  (§60.8). El checkout **no** tiene textos de disputa (medido: 0 coincidencias en las claves de `checkout.*`).
+- **M8 hacia el cliente** (correos 20 y 21 de §41.1): **sin cambio, y NO se retiran con M8** (v5.1, `API_CONTRACT`
+  §PNL.10.7 paso 2: backend sin cambio; la resolución por API sigue viva y es la que los manda). Se revisan el día que
+  el arquitecto cierre la API de disputas (§60.8). El checkout **no** tiene textos de disputa (medido: 0 coincidencias en las claves de `checkout.*`).
 
 ---
 
@@ -23488,8 +23499,12 @@ este orden (el del ciclo):
 
 ### 60.8 M8 «Disputas» — se retira (`HECHOS.md:50` (3))
 
-**Cuándo:** cuando el arquitecto publique la errata que retira M8 (hoy §PNL.1 la deja «en transición») **y** la consulta
-de §PNL.9 dé 0 en la ventana de despliegue (`HECHOS.md:50`, columna de consecuencias). Antes, **nada de esto se construye**.
+**Cuándo (v5.1, alineado con `API_CONTRACT` §PNL.10.7 y §PNL.11 F-26):** la errata **ya está publicada** (§PNL.10.7,
+v1.82.1) ⇒ F-26 se construye, en **un commit propio** que contenga solo esto (menú, ruta, tablero, pestaña de M6, textos,
+fila del candado de títulos), para poder revertirlo solo. La salida depende de la consulta de §PNL.10.7 paso 3, que se
+corre **dos veces**: (a) antes de fusionar a `production` — alguna disputa abierta ⇒ el dueño la resuelve en el M8 de hoy
+antes de fusionar, o se fusiona sin ese commit; (b) después del despliegue — alguna ⇒ se revierte ese commit para
+resolverla. Esto es solo la **interfaz**: ⛔ la API de disputas **no** se retira (abajo).
 
 | Superficie | Qué pasa |
 |---|---|
@@ -23500,7 +23515,8 @@ de §PNL.9 dé 0 en la ventana de despliegue (`HECHOS.md:50`, columna de consecu
 | «Mis disputas» del cliente | §60.1 c (solo si tiene alguna) |
 | Textos | se retiran `admin.modules.m8`, `admin.m8.*` (`es.json:1308`, `:2607-2618`) y `admin.dashboard.disputes` (`:1338`). ⚠ **Se quedan** todos los «en disputa» que hablan del **contracargo del banco** (`:1793`, `:1992`, `:2047`, `:2227`, `:4530`, `:4554`, `:4582`, `:4623`): esa disputa existe y no es M8 |
 | `admin.dashboard.withdrawals` «Retiros sin disputa» (`:1346`, `:4100`) | qué cuenta: NO MEDIDO. Si cuenta retiros sin disputa de M8, pasa a **«Retiros entregados»**; si es otra cosa, no se toca (§60.12 N-3) |
-| Correos 20 y 21 (§41.1) | los retira backend con M8; ML-* de §41.14 dejan de contarlos |
+| Correos 20 y 21 (§41.1) | **se quedan** (v5.1 corrige la v5.0, que decía «los retira backend con M8»): §PNL.10.7 paso 2 deja el backend sin cambio y `POST /admin/disputes/:id/resolve` los sigue mandando. ML-* de §41.14 **siguen** contándolos. Se revisan cuando el arquitecto cierre la API (errata posterior, tras la medición (b)) |
+| API de disputas | **se queda entera** (§PNL.10.7 paso 2): `GET /admin/disputes` (la pestaña de M6 lo usa con `?userId=`), `GET /admin/disputes/:id`, `POST /admin/disputes/:id/resolve`, `GET /disputes`, `GET /disputes/:id`, y `workQueue.disputes` en el DTO del tablero (el front deja de leerlo, el campo sigue). Lo que se retira es la **ruta de pantalla** `/admin/m8`, no la API. Si nace una disputa entre la medición (a) y el despliegue, la salida es la API o revertir el commit de F-26 |
 | Candado de títulos (`AdminPageTitles.test.tsx`) | sale la fila de M8 en el **mismo** commit que el menú (N-10 de §37.20 h) |
 
 ---
@@ -23631,13 +23647,15 @@ computer. On your phone, use “Orders to prepare”.” Se pinta con CSS (`lg:h
 | F-23 | `es.json:2352` (`rejectRequestConsequence`) | Valor nuevo de §60.5 c | 60.5 c |
 | F-24 | `es.json:4977-4980` (`INVALID_TRANSITION_VERB`) | + `rejectItems` | 60.5 c |
 | F-25 | `admin/m10/M10View.tsx:84-108` | Grupo de los diez (orden y textos §60.7 b); errores por campo y cruzado; rótulo nuevo de `shippingFeeCents` (`es.json:3873`) | 60.7 b |
-| F-26 | `components/layout/AdminSidebar.tsx:66`, `admin/AdminDashboard.tsx:128-136`, `admin/m8/*`, `admin/m6/M6View.tsx:907-908, 986-988`, `AdminPageTitles.test.tsx` | Retiro de M8 (§60.8) — **solo tras la errata del arquitecto** | 60.8 |
+| F-26 | `components/layout/AdminSidebar.tsx:66`, `admin/AdminDashboard.tsx:128-136`, `admin/m8/*`, `admin/m6/M6View.tsx:907-908, 986-988`, `AdminPageTitles.test.tsx` | Retiro de M8 (§60.8) — errata publicada (§PNL.10.7; v5.1): **desbloqueado**, en un commit propio solo con esto | 60.8 |
 | F-27 | `admin/m4/ShipPreparationCard.tsx:679,701,710,764,1115,1120,1188,1191` (y el mismo patrón en `VaultPlacementCard.tsx`: NO MEDIDO) | `sm:min-h-[44px]` ⇒ `min-h-[44px]` | 60.9 c |
 | F-28 | `admin/m4/prep-shared.tsx:82` | Foto `w-[72px]` en `< sm` + disparador «Ver foto» y `Modal` | 60.9 c |
 | F-29 | `admin/m4/ShipPreparationCard.tsx` (fila de carta `:828-898`, cabecera `:495`, pie `:698-720`) | Ubicación arriba en `< sm`; dirección plegada en paso 1; pie `sticky bottom-0` en `< sm` | 60.9 b-d |
 | F-30 | `admin/m4/PreparationQueue.tsx:177` | `hidden sm:inline-flex` en imprimir | 60.9 a |
 | F-31 | `components/layout/AdminShell.tsx:117` (inicio de `main`) | Banner `lg:hidden` salvo en `/admin/m4` — ⚠ zona compartida | 60.9 f |
 | F-32 | `frontend/messages/{es,en}.json` | Todas las claves de §60 (paridad en el mismo commit) | todas |
+| F-33 (v5.1) | `admin/m5/M5View.tsx:438-444` (`decisionMutation.onError`) + `error.*` | `409 CONFLICT` con `details.reason === 'ITEM_FINAL'` ⇒ cerrar diálogo, recargar, aviso en la fila con `error.CONFLICT_ITEM_FINAL[_WITH_DETAILS]`; claves nuevas en `es`/`en` | 60.14 |
+| F-34 (v5.1) | `es.json:5103`, `:5151` y `en.json:5103`, `:5151` | Textos corregidos de §60.15 — `REQUEST_NOT_RECEIVED` en el mismo pase que este documento (candado de literalidad) | 60.15 |
 
 **Backend (correos; estilo §41, re-medir líneas):** AV-12 variante `after_delivery` en `payments/refunds/mail/refund-notice.templates.ts`
 (correo 23); AV-14 variante `withdrawal_delivered` (correo 25, `:190`); `sellItemsRejectedTemplate` nuevo junto a
@@ -23655,7 +23673,8 @@ computer. On your phone, use “Orders to prepare”.” Se pinta con CSS (`lg:h
 | **N-1** | product-owner | El correo único (§60.6) escribe «7» y «30» además de las fechas, por `HECHOS.md:50` (2). El correo 4 (una carta) **no** los escribe hoy; por coherencia, el 4 debería ganarlos igual (cambio de copy de un correo congelado de §31: ratificación de PO) |
 | **N-2** | orquestador | **Zonas compartidas tocadas:** `lib/api.ts` (F-2, F-3, F-16), `lib/hooks/` (F-2), `types/contract.ts` (F-12, F-13), `components/domain/*` (F-1, F-11), `components/layout/*` (F-26, F-31). Un stream a la vez |
 | **N-3** | frontend | `admin.dashboard.withdrawals` «Retiros sin disputa»: qué cuenta, NO MEDIDO. Medir antes de tocarlo (§60.8) |
-| **N-4** | orquestador | El retiro de M8 (§60.8) **no** entra en el pase de PNL: depende de la errata del arquitecto y de la medición de la ventana de despliegue (`HECHOS.md:50`) |
+| **N-4** | orquestador | ~~El retiro de M8 (§60.8) **no** entra en el pase de PNL: depende de la errata del arquitecto~~ — **v5.1:** la errata existe (§PNL.10.7) y F-26 está desbloqueado (§PNL.11). Queda la medición (a)/(b) de §PNL.10.7 paso 3 y si entra en esta salida (§PNL.11: «lo decide el orquestador») |
+| **A-1…A-3** | — | **Respondidas** por el arquitecto en `API_CONTRACT` §PNL.11 (v1.82.2): A-1 y A-3 quedan como deuda (`D-PNL-A1`, `D-PNL-A3`), A-2 ya lo trae (`kind`). Las filas de arriba quedan como historia |
 
 ### 60.13 Candados sugeridos (frontend/backend los escriben con la pantalla; QA mide en 360×740, 390×844 y 1280×800)
 
@@ -23686,6 +23705,92 @@ computer. On your phone, use “Orders to prepare”.” Se pinta con CSS (`lg:h
 | **MOB-3** | A 390 px, con la tarjeta en pantalla, «Pedido preparado» es visible sin desplazar (pie pegajoso) | quitar `sticky` |
 | **MOB-4** | A 390 px, la foto abre el visor y lo cierra con «Cerrar» y con `Esc`; sin `imageSmallUrl` no hay disparador | disparador sin foto |
 | **MOB-5** | En `< lg`, `/admin/m3` muestra el aviso de computadora y `/admin/m4` no | pintarlo también en M4 |
-| **M8-1** (tras la errata) | Ningún enlace del panel a `/admin/m8`; `/es/admin/m8` termina en `/es/admin` | dejar la entrada |
+| **M8-1** = FE-M8-1…4 | Ningún enlace del panel a `/admin/m8`; `/es/admin/m8` termina en `/es/admin` (§PNL.10.7 pruebas) | dejar la entrada |
+| **BRJ-UI-5** = FE-BRJ-4 | §60.14: `PATCH …/decision` ⇒ `409 CONFLICT {itemId, itemStatus:'convertida_inventario', reason:'ITEM_FINAL'}` ⇒ el texto de `error.CONFLICT_ITEM_FINAL_WITH_DETAILS` (rama `convertida_inventario`), el diálogo cerrado, el detalle recargado y la carta sin Aprobar/Ajustar/Rechazar ni casilla; ⛔ el DOM no contiene «Hubo un conflicto con el estado actual» ni el `message` del servidor | tratar `ITEM_FINAL` como `CONCURRENT_UPDATE` (o caer al `error.CONFLICT` genérico) |
+| **BRJ-UI-6** | §60.15: ningún valor de `es.json`/`en.json` contiene «Marcar recibida» / “Mark received” | devolver la cadena vieja a `error.REQUEST_NOT_RECEIVED` |
+
+---
+
+### 60.14 `409 CONFLICT {reason:'ITEM_FINAL'}` — decidir una carta que ya es inventario o ya se pagó (FE-BRJ-4, v5.1)
+
+**Fuente:** `API_CONTRACT` §7 (errores, `:7005-7008`), §PNL.10.2 y §PNL.10.6 «Frontend (mocks)» (`:12797-12800`), §PNL.11
+(«lo que falta es el texto»). Medido el 2026-10-05 (lectura, sin Bash): `Grep "ITEM_FINAL"` en `frontend/messages/` = 0;
+hoy cae a `error.CONFLICT` (`es.json:5060` «Hubo un conflicto con el estado actual.»); la decisión por carta pinta su
+error **dentro** del diálogo de ajustar/rechazar y en la fila para aprobar (`M5View.tsx:438-444`); las cartas
+`pagada`/`convertida_inventario` ya no ofrecen botones tras recargar (`M5View.tsx:194`, `:1348`).
+
+**Qué pasó, en palabras del operador:** pulsó Aprobar, Ajustar o Rechazar sobre una carta que, mientras tanto (otra
+pestaña, otra persona, o su propia vista vieja), **ya entró al inventario** o **ya se le pagó al vendedor**. El servidor no
+escribió nada. No es un fallo ni algo que se arregle reintentando: la carta ya no se decide.
+
+**Conducta (normativa):**
+
+1. **Se distingue por `details.reason`, antes que cualquier otra rama del `409 CONFLICT`.** `reason === 'ITEM_FINAL'` ⇒
+   las claves de abajo. ⛔ No pasa por `error.CONFLICT_WITH_DETAILS` (su `{status}` es el estado de la **solicitud**; aquí
+   el sujeto es la **carta**, y la frase «esta solicitud ya está cerrada» sería falsa). ⛔ No se trata como
+   `CONCURRENT_UPDATE` (§PNL.10.6, mutación de FE-BRJ-4).
+2. **Con `details.itemStatus` reconocido** ⇒ `error.CONFLICT_ITEM_FINAL_WITH_DETAILS`; **sin él** (o con un valor que la
+   pantalla no conoce) ⇒ la base `error.CONFLICT_ITEM_FINAL`. Misma convención de §26.1/§26.5
+   (`error.<CODE>[_WITH_DETAILS]`); el discriminador `ITEM_FINAL` va pegado al código porque es un valor de `reason` del
+   mismo `409`, no un código nuevo. **Sin `_OPERATOR`:** la ruta es solo de admin (§26.1 ⇒ la base ya le habla al
+   operador).
+3. **Si el error llegó desde el diálogo de Ajustar o Rechazar, el diálogo se cierra** (⛔ no se queda abierto con el
+   botón activo: invitaría a reintentar algo que ya no aplica; el motivo tecleado se descarta, no hay dónde usarlo). El
+   texto va **en la fila de la carta**, en el mismo sitio que hoy usa Aprobar (`fail(requestId, e)`), con
+   `role="status"` (no `alert`: nada falló en la aplicación). Si el aviso de fila tiene variante `warning`, va en
+   `warning`; si no la tiene (NO MEDIDO), va en la de hoy — ⛔ no se crea una variante para esto.
+4. **El detalle se recarga solo** (la misma invalidación que `refresh()` del rechazo múltiple, `M5View.tsx:386-387`): al
+   volver, la carta muestra su estado real y **ya no** ofrece Aprobar/Ajustar/Rechazar ni casilla (eso ya lo hace hoy
+   `ITEM_TERMINAL`; se verifica, no se reconstruye — §PNL.10.6). El texto dice «actualizamos la solicitud» porque **es
+   cierto en el momento en que se lee**: la recarga se lanza en el mismo `onError`, antes de pintar.
+5. **Foco:** al cerrarse el diálogo, el botón que lo abrió ya no existe tras la recarga ⇒ el foco va al aviso de la fila
+   (`tabIndex={-1}`), no al `body`.
+6. El rechazo **múltiple** (`POST …/reject-items`) **no** usa estas claves: su `409 CONFLICT {itemIds}` ya tiene texto
+   (§60.5 c, «alguien la aprobó, la convirtió o la rechazó mientras tanto») y el contrato no le manda `reason`.
+
+**Textos** (clave nueva en los dos catálogos, en el mismo commit — F-32; ⛔ sin `|` dentro del texto):
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.CONFLICT_ITEM_FINAL` | Esta carta ya no admite decisiones: ya entró al inventario o ya se le pagó al vendedor, así que no se aprueba, ajusta ni rechaza. No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real. | This card no longer takes decisions: it is already in inventory or has already been paid to the seller, so it can't be approved, adjusted or rejected. Nothing was saved and retrying won't change it: we've refreshed the request so you see its real status. |
+| `error.CONFLICT_ITEM_FINAL_WITH_DETAILS` | {itemStatus, select, convertida_inventario {Esta carta ya entró al inventario, así que aquí ya no se aprueba, ajusta ni rechaza; si hay algo que corregir en la pieza, se hace desde «Inventario».} pagada {Esta carta ya se le pagó al vendedor, así que ya no se aprueba, ajusta ni rechaza.} other {Esta carta ya no admite decisiones: no se aprueba, ajusta ni rechaza.}} No se guardó nada y reintentar no lo cambia: actualizamos la solicitud para que veas su estado real. | {itemStatus, select, convertida_inventario {This card is already in inventory, so it can no longer be approved, adjusted or rejected here; if the piece needs a fix, do it from “Inventory”.} pagada {This card has already been paid to the seller, so it can no longer be approved, adjusted or rejected.} other {This card no longer takes decisions: it can't be approved, adjusted or rejected.}} Nothing was saved and retrying won't change it: we've refreshed the request so you see its real status. |
+
+- `{itemStatus}` = `details.itemStatus` **tal cual** (valor de máquina, nunca se pinta: solo elige la rama del `select`).
+- «Inventario» / “Inventory” es el nombre real de la entrada del menú (`admin.modules.m1`, `es.json:1294`, `en.json:1294`).
+  ⛔ Ningún código de módulo ni de pantalla en el texto (candado P66-3).
+- ⚠ **Las claves no colisionan** (medido: `Grep "CONFLICT_ITEM_FINAL\|ITEM_FINAL"` en `frontend/messages/` = 0), pero
+  **NO MEDIDO** si algún candado de frontend exige que toda clave `error.*` sea un código del contrato; si existe, la
+  alternativa equivalente es anidar (`error.CONFLICT_REASON.ITEM_FINAL`, como `INVALID_TRANSITION_VERB`) con el **mismo**
+  texto — lo decide frontend y lo anota en su `FRONTEND_NOTES`.
+- Estas filas viven en §60, que el candado de literalidad (`error-audience.test.ts:248`, lee solo §26 + §27) **no**
+  parsea. Para que el texto quede atado al documento, el candado BRJ-UI-5 lo compara contra esta tabla (o frontend
+  amplía el parser a §60; su decisión).
+
+---
+
+### 60.15 Los textos que mandaban pulsar «Marcar recibida» (v5.1)
+
+**Fuente:** §60.5 a renombró el botón a **«Recibida: empezar revisión»** (`admin.m5.receive`, medido `es.json:2347` y
+`en.json:2347` = “Received: start review”). Dos textos de error siguen nombrando el botón viejo (medido el 2026-10-05):
+`es.json:5103` / `en.json:5103` (`error.REQUEST_NOT_RECEIVED`) y `es.json:5151` / `en.json:5151`
+(`error.INVALID_TRANSITION_VERB.receive`). `en_transito` de la mesa (`es.json:2550`, `en.json:2550`) **ya** usa el nombre
+nuevo.
+
+| Clave | Hoy ES · EN | Nuevo ES | Nuevo EN |
+|---|---|---|---|
+| `error.REQUEST_NOT_RECEIVED` | «…usa «Marcar recibida» en la solicitud…» · “…use “Mark received” on the request…” | Esta solicitud no tiene registrada la llegada del paquete, así que ninguna de sus cartas se puede aprobar. Cuando el paquete esté en tus manos, pulsa «Recibida: empezar revisión» en la solicitud y vuelve a aprobar. No se guardó nada. | This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, press “Received: start review” on the request and approve again. Nothing was saved. |
+| `error.INVALID_TRANSITION_VERB.receive` | «Marcar recibida» · “Mark received” (con comillas) | «Recibida: empezar revisión» | “Received: start review” |
+
+- ⚠ **`error.REQUEST_NOT_RECEIVED` es la fila normativa de §26.3** y el candado de literalidad la compara carácter por
+  carácter (`error-audience.test.ts:248`, `:276-292`). Por eso **se corrigió en §26** (no se duplica aquí como fuente: la
+  fila de esta tabla es copia de lectura) — y **el catálogo tiene que cambiar en el mismo pase que este documento**: entre
+  el commit del documento y el del catálogo, ese candado está rojo. El orquestador decide el orden (lo ideal: un solo
+  commit con los dos, o el del catálogo inmediatamente después).
+- «pulsa» en lugar de «usa»: es lo que dice el texto de la mesa en `en_transito` (`es.json:2550`), mismo verbo para el
+  mismo botón.
+- `error.INVALID_TRANSITION_VERB.receive` conserva la forma de hoy (comillas incluidas, como `verify`); entra en
+  `INVALID_TRANSITION_WITH_DETAILS` («…: {verb} solo aplica cuando…»). `verify` «Iniciar verificación» **no cambia**: el
+  botón sigue existiendo como respaldo (`admin.m5.verify`, `es.json:2348`).
+- Ninguna de las dos claves nuevas ni las corregidas contiene códigos de módulo (P66-3).
 
 ---
