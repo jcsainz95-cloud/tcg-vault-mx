@@ -2,8 +2,20 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.2**, segunda
-> errata de v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes v1.84.1, v1.80.10 y v1.80.9.1).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84.3**, tercera
+> errata de v1.84, stream «Listo para dinero real», rama `claude/listo-real`; antes v1.84.2, v1.84.1, v1.80.10 y v1.80.9.1).
+>
+> **Errata v1.84.3 — RESPUESTA A `FRONTEND_NOTES §94.6` (CSP-5 y LIVE-2) (2026-10-05, arquitecto, árbol
+> `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `a047c3cb`; ⛔ sha NO MEDIDO por el
+> arquitecto: sin Bash).** Norma entera: [§14.16](#LIVE-E3). Porqué y alcance de la CSP: `ARCHITECTURE §4.63.13`.
+> ⛔ **Sin schema, sin migración, sin enum, sin código de error nuevo, sin forma nueva de petición ni de respuesta.**
+>
+> | # | Origen | Decisión | ¿Cambia conducta? | Construye · cuándo |
+> |---|---|---|---|---|
+> | E3-1 | frontend §94.6 | E2-2 paso 3 corregido: el `<script>` en línea se inyecta **en el HTML servido** (interceptando la respuesta en el navegador de la prueba), no creado por código tras cargar. Bajo `'strict-dynamic'` un script creado por código **hereda la confianza** del script que lo crea: no hay violación que contar | No (prueba) | — (hecho por frontend; QA lo mide) |
+> | E3-2 | arquitecto (consecuencia de E3-1) | E2-5: la comprobación de **entrega** antes de `enforce` ya no se hace «por la consola» (no dispara nada, mismo motivo); se hace con la técnica de CSP-5 contra producción | No (procedimiento) | frontend o tester-e2e · antes de `enforce` |
+> | E3-3 | frontend §94.6 → seguridad | **Alcance de la CSP escrito**: qué bloquea y qué **no** (un DOM-XSS que **cree** `<script>` desde código de confianza no lo bloquea, ni en `enforce`). Candado nuevo **XSS-SINK-1** (lint bloqueante de sumideros de HTML/código) como pendiente | No (dato) / Sí (lint) | frontend (lint) · antes de `enforce`; pentester/seguridad (dato) · fase de seguridad |
+> | E3-4 | frontend §94.6 | LIVE-2: mecanismo de frontend (marca de un solo uso 10 s consumida por `AuthForm` + `router.replace`, sin tocar `components/layout/*`) **ratificado**; también el aviso de inactividad desaparece al primer intento (DESIGN_SYSTEM §81.2.7) | No (ya construido) | — |
 >
 > **Errata v1.84.2 — HALLAZGOS DE LOS GATES (QA + TECHLEAD) SOBRE `241d4dca` (2026-10-05, arquitecto, árbol
 > `/home/user/tcg-real`, rama `claude/listo-real`; ⛔ sha dado por el orquestador, NO MEDIDO por el arquitecto: sin
@@ -31295,7 +31307,8 @@ Google, registro o cambio de contraseña que creó el `sid`). `sat` es interno c
 
 **Frontend:** ante `401` del refresh con `reason:'session_max_age'`, el mismo flujo de hoy hacia el login con el texto
 «Tu sesión caducó por seguridad. Vuelve a entrar.» (ux-ui fija el texto; clave nueva en `auth`). Sin `reason` ⇒ igual
-que hoy. **v1.84.2 (§14.15 E2-4):** esta parte **sigue en `claude/listo-real`** y entra antes de F1.
+que hoy. **v1.84.2 (§14.15 E2-4):** esta parte **sigue en `claude/listo-real`** y entra antes de F1. **v1.84.3
+(§14.16 E3-4):** mecanismo de frontend ratificado (marca de un solo uso consumida por el login; los guards no cambian).
 
 **Pruebas (deben fallar hoy):**
 
@@ -31372,7 +31385,8 @@ termina sin violaciones en consola; `CSP-4` el botón de Google carga; `CSP-5` u
 página no se ejecuta (mutación: quitar el nonce de `script-src` ⇒ `CSP-2` roja; ~~poner `'unsafe-inline'` ⇒ `CSP-5`
 roja~~ ~~**v1.84.1 (E-5):** añadir la directiva `script-src-elem 'unsafe-inline'` (o `script-src-attr 'unsafe-inline'`) ⇒
 `CSP-5` roja~~ **v1.84.2 (E2-2):** esa mutación solo muerde en `enforce`; en `report-only` CSP-5 sale verde (0/3, N=3,
-autor QA) — la forma de CSP-5 se fija en [§14.15 E2-2](#LIVE-E2); `'unsafe-inline'` **dentro** de `script-src` no la pone
+autor QA) — la forma de CSP-5 se fija en [§14.15 E2-2](#LIVE-E2) (**v1.84.3:** inyección en el HTML servido,
+[§14.16 E3-1](#LIVE-E3)); `'unsafe-inline'` **dentro** de `script-src` no la pone
 roja en Chromium —CSP3 lo ignora si hay nonce— y la caza el unitario `csp.test.ts`, que fija la lista **exacta** de
 directivas); `CSP-6` en `enforce`, la cabecera no es la
 `-Report-Only` (mutación: dejar `report-only` ⇒ roja). **v1.84.1 (E-6):** `CSP-1` afirma además el invariante de
@@ -31786,15 +31800,25 @@ distinguía «la política caza el inline» de «hay ruido en la consola». E-5 
    `window` cada evento como `{effectiveDirective, blockedURI, disposition}`.
 2. Cargada la página, se lee el número de eventos que cumplen **`effectiveDirective` empieza por `script-src`** (en
    Chromium sale `script-src-elem`) **y `blockedURI === 'inline'`** ⇒ `antes`.
-3. Se inyecta un `<script>` **en línea** (con texto, ⛔ sin `src`: un script externo creado por código de confianza es
-   **legítimo** bajo `'strict-dynamic'`) y sin nonce, cuyo cuerpo pone `window.__csp5 = true`.
+3. ~~Se inyecta un `<script>` **en línea** (con texto, ⛔ sin `src`: un script externo creado por código de confianza es
+   **legítimo** bajo `'strict-dynamic'`) y sin nonce, cuyo cuerpo pone `window.__csp5 = true`.~~ **v1.84.3
+   ([§14.16 E3-1](#LIVE-E3)):** se carga la **misma** página una segunda vez con un `<script>` **en línea** (con texto,
+   ⛔ sin `src`, ⛔ sin nonce, cuerpo `window.__csp5 = true`) **escrito en el HTML de la respuesta**: la prueba
+   intercepta la respuesta en su propio navegador (`page.route` → `route.fetch()` → `route.fulfill({ response, body })`),
+   **conservando las cabeceras originales** (la CSP y su nonce son los que sirvió el servidor). ⛔ **No** se crea el script
+   desde código (`createElement` + `textContent`, `evaluate`, `setTimeout`): bajo `'strict-dynamic'` hereda la confianza
+   del script que lo crea, **no produce evento** y se ejecuta también en `enforce` (medido por frontend,
+   `FRONTEND_NOTES §94.6`, N=1 por sonda y fase; la versión así escrita salió roja 3/3 por fase sin mutación).
+   El `antes` del paso 2 se cuenta en la primera carga, sin inyección.
 4. Se espera (con tope) a que ese número sea `antes + 1` como mínimo, y que el evento nuevo traiga `disposition` =
    `'report'` en `report-only` o `'enforce'` en `enforce`.
 5. Solo en `enforce`: además `window.__csp5` sigue `undefined`. En `report-only` **se ejecuta** y la prueba no lo trata
    como fallo (es lo que esa fase hace).
 - ⛔ La consola deja de ser oráculo de CSP-5 (CSP-3 puede seguir mirándola para «sin violaciones»).
 - **Mutación que debe morder en las dos fases:** añadir `script-src-elem 'unsafe-inline'` ⇒ el paso 4 no llega ⇒ roja.
-  Frontend reporta la proporción con su N (O-3), una por fase.
+  Frontend reporta la proporción con su N (O-3), una por fase. **v1.84.3 (autor frontend, `FRONTEND_NOTES §94.6`):**
+  **5/5 rojas** en `report-only` y **5/5 rojas** en `enforce` (N=5 por fase), sin mutación verde (54/54 por fase con
+  `--repeat-each 3`). Pendiente de que QA lo repita (O-15).
 
 #### E2-3 · Limpieza de `message` en el servidor (backend · antes de F1)
 **Decisión: se norma ahora, no se deja como deuda.** Motivo: el log de Railway es el único sitio donde la tienda
@@ -31834,9 +31858,94 @@ se da por cerrado en F1 sin ella.
   está medido aquí (comportamiento de navegadores **de memoria, NO MEDIDO** por el arquitecto). Añadirlo hoy duplica lo
   que hay que probar sin ganar un informe.
 - **Antes de `enforce` (obligatorio, lo hace frontend o tester-e2e con permiso del dueño):** comprobación de **entrega**
-  en producción: forzar una violación de `script-src` en `https://tcghunt.mx` desde un Chromium (p. ej. la inyección de
-  CSP-5 por la consola) y ver la línea `CSP_VIOLATION` con `disposition=report` en el log del backend. Se anota con hora
+  en producción: forzar una violación de `script-src` en `https://tcghunt.mx` desde un Chromium ~~(p. ej. la inyección de
+  CSP-5 por la consola)~~ **v1.84.3 ([§14.16 E3-2](#LIVE-E3)): con la técnica de CSP-5 (script en línea escrito en el
+  HTML interceptado en el navegador del que prueba); por la consola no se dispara nada** y ver la línea `CSP_VIOLATION`
+  con `disposition=report` en el log del backend. Se anota con hora
   en `FRONTEND_NOTES`. Que en 72 h no haya informes **no** prueba que no haya violaciones.
 - **Disparador de D-CSP-RT (vuelve al arquitecto):** (a) esa comprobación no llega; o (b) una versión estable de Chromium
   deja de enviar `report-uri`. Entonces se diseña `report-to` + `Reporting-Endpoints` manteniendo `report-uri` para los
   demás motores (el endpoint ya acepta `application/reports+json`, §14.7).
+
+### <a id="LIVE-E3"></a>14.16 Errata v1.84.3 — respuesta a `FRONTEND_NOTES §94.6` (2026-10-05, NORMATIVA)
+
+Origen: `FRONTEND_NOTES §94.6` (medido por frontend sobre `5ea58917` + su cambio; HEAD actual dado por el orquestador
+`a047c3cb`; ⛔ ningún sha MEDIDO por el arquitecto). Porqué y alcance: `ARCHITECTURE §4.63.13`. ⛔ Sin schema,
+migración, enum, código de error ni forma nueva.
+
+#### E3-1 · CSP-5: el script se inyecta en el HTML servido (corrige E2-2 paso 3)
+- **Lo medido (frontend, Chromium del entorno contra `next start`, N=1 por sonda y fase):** un `<script>` en línea
+  creado por código (`createElement('script')` + `textContent`, desde `page.evaluate` **y** desde un `setTimeout` de la
+  propia página) **no produce `securitypolicyviolation` y se ejecuta**, en `report-only` **y en `enforce`**. El mismo
+  `<script>` escrito en el HTML (lo inserta el parser) produce `script-src-elem` / `blockedURI 'inline'` con
+  `disposition` `report` / `enforce`, y en `enforce` no se ejecuta.
+- **Por qué:** `'strict-dynamic'` (§14.3) hace que la confianza del nonce **se propague**: todo script que un script ya
+  confiable inserte **sin pasar por el parser** queda permitido, tenga `src` o texto. Es lo que deja cargar Stripe.js y
+  Google Identity; y es lo mismo que permite el script de la prueba, porque `evaluate` y el `setTimeout` corren como
+  código de la página. Solo los scripts **del parser** (los del HTML) necesitan nonce. La letra de E2-2 paso 3 pedía
+  una inyección que la política, por diseño, admite: el error era del contrato, no de frontend.
+- **Norma:** E2-2 paso 3 queda como está escrito en §14.15 (versión v1.84.3): segunda carga de la misma página con el
+  script escrito en el HTML, interceptado en el navegador de la prueba, cabeceras originales intactas. Pasos 1, 2, 4 y 5
+  sin cambio. Es también el modelo de amenaza correcto: un XSS **almacenado o reflejado** llega dentro del HTML.
+- **Mutación:** sin cambio (`script-src-elem 'unsafe-inline'` ⇒ roja en las dos fases). Medido por frontend: 5/5 en
+  cada fase. QA la repite con su N antes de dar CSP-5 por buena.
+- ⛔ **No es una prueba de DOM-XSS.** CSP-5 demuestra que la política bloquea un script en línea **del HTML**; no dice
+  nada de los scripts creados por código (E3-3).
+
+#### E3-2 · Comprobación de entrega antes de `enforce` (corrige E2-5)
+«Por la consola» crea el script desde código ⇒ bajo `'strict-dynamic'` **no hay violación** ⇒ la comprobación no
+llegaría nunca y dispararía D-CSP-RT (a) en falso. Método normativo: un Playwright **de solo lectura** contra
+`https://tcghunt.mx/es/login` con la técnica de E3-1 (la página modificada existe solo en el navegador del que prueba;
+el servidor no cambia y nadie más la ve). El informe lo envía ese navegador al `report-uri` real ⇒ se busca la línea
+`CSP_VIOLATION` con `disposition=report` en el log del backend, con hora, en `FRONTEND_NOTES`. Lo corre frontend o
+tester-e2e, con el permiso del dueño que ya exige E2-5. Antes de lanzarlo contra producción se corre una vez contra
+`next start` local con el `report-uri` apuntando a una API local, para no confundir «no llega» con «el método no
+dispara».
+
+#### E3-3 · Qué protege esta CSP y qué no — dato para la fase de seguridad; candado XSS-SINK-1
+- **Dato (frontend, N=1, Chromium; otros motores NO MEDIDOS):** un DOM-XSS cuyo efecto sea **crear** un `<script>`
+  desde código de la página **no lo bloquea la CSP, ni en `enforce`**. Tabla completa de qué cubre y qué no:
+  `ARCHITECTURE §4.63.13`. Pentester y seguridad la reciben como **entrada** de la fase de seguridad (no es un hallazgo
+  cerrado ni abierto: es el perímetro declarado de una barrera).
+- **La defensa contra DOM-XSS es no tener sumideros**, no la CSP. Hoy (Grep del arquitecto 2026-10-05 sobre
+  `frontend/src`, árbol `/home/user/tcg-real`): **0** `dangerouslySetInnerHTML`, **0** escrituras a `innerHTML`/`outerHTML`
+  (las apariciones son lecturas en pruebas), **0** `insertAdjacentHTML`/`document.write`/`eval(`/`new Function`; **1**
+  `createElement('script')` con `src` literal (`GoogleSignInButton.tsx:112-113`).
+- **Candado existente, y por qué no basta:** `security/semgrep.yml:94-103` (`react-dangerously-set-innerhtml`) es
+  **`WARNING`**, y el gate de semgrep bloquea **solo `ERROR`** (`.github/workflows/security-sast.yml:96-104`) ⇒ hoy un
+  `dangerouslySetInnerHTML` nuevo **no rompe** ningún PR; solo aparece en el SARIF. Además solo cubre la forma JSX
+  autocerrada y ningún otro sumidero. Ninguna regla de `frontend/.eslintrc.json` (solo `next/core-web-vitals`) lo cubre.
+- **Pendiente XSS-SINK-1 (dueño: frontend; ruta `frontend/.eslintrc.json`; cuándo: antes de pasar a `enforce`, no
+  bloquea F1):** reglas ESLint a nivel **`error`** (el job `frontend` de `ci.yml:216-217` corre `npm run lint` y rompe
+  con errores) que prohíban en `frontend/src` (pruebas incluidas salvo lecturas):
+  | Sumidero | Regla (forma sugerida, no normativa) |
+  |---|---|
+  | `dangerouslySetInnerHTML` | `react/no-danger` |
+  | escritura en `innerHTML` / `outerHTML` | `no-restricted-syntax` sobre `AssignmentExpression` con `left.property.name` = esos nombres |
+  | `insertAdjacentHTML`, `document.write`/`writeln`, `createContextualFragment`, `srcdoc` | `no-restricted-syntax` / `no-restricted-properties` |
+  | `eval`, `new Function`, `setTimeout`/`setInterval` con texto | `no-eval`, `no-new-func`, `no-implied-eval` |
+  | `createElement('script')` | `no-restricted-syntax`; **excepción única** en `GoogleSignInButton.tsx` con `eslint-disable-next-line` y motivo, `src` literal |
+  | `href`/`src` con `javascript:` construido | fuera del lint: React ya avisa; queda para el pentester |
+  **Canario obligatorio** (patrón del canario de semgrep): un fichero de muestra con un caso por fila hace que el lint
+  salga ≠ 0, y uno limpio sale 0; frontend reporta la proporción. Si una regla no existe en la versión instalada de
+  ESLint/plugins (NO MEDIDO por el arquitecto), frontend lo dice y propone la equivalente; no se baja a `warn`.
+- **Devops (opcional, no lo sustituye):** subir `react-dangerously-set-innerhtml` a `ERROR` en `security/semgrep.yml`
+  daría una segunda red en el gate SAST. Un único candado bloqueante basta; el lint va primero porque corre en cada PR
+  del frontend y en local.
+
+#### E3-4 · LIVE-2: mecanismo de frontend ratificado
+- **Ratificado** (`FRONTEND_NOTES §94.6` puntos 1–6): el interceptor deja la marca solo con
+  `details.reason === 'session_max_age'`; marca en memoria, **de un solo uso**, ventana **10 s**; `AuthForm` (solo
+  login) la consume al montar y hace `router.replace` a `/login` con `next` **y** `reason=session_max_age`; los guards de
+  `components/layout/*` no cambian. Cumple DESIGN_SYSTEM §81.5 F-3 (conducta exigida); §81.2.2 ya decía que la forma
+  de los guards era «no normativa».
+- **Efecto aceptado:** el URL pasa un instante por `/login?next=<ruta>` sin `reason` (un `replace`, sin entrada nueva
+  en el historial). No hay estado que dependa de ese instante.
+- **Condiciones (las cumple lo descrito; quedan escritas para que no se pierdan):** (a) el `next` del `replace` es el
+  que llegó, **sin re-codificar** ni saltarse la validación de destino de hoy; (b) sin marca, el login no añade `reason`
+  (UX-SMA-3); (c) la marca no sale de la pestaña (§81.2.6). La marca **no autoriza nada**: solo elige un texto, así que
+  una marca indebida dentro de los 10 s (N-2 de §81.6) muestra un aviso verdadero y no abre ningún camino.
+- **Aviso de inactividad que desaparece al primer intento (§81.2.7):** ratificado; es la recomendación de ux-ui y no
+  cambia ningún contrato.
+- Deuda: ninguna. Cuando F-SKY y F-PNL estén en `main` **no** hay que mover el mecanismo a los guards: centralizarlo en
+  el login es más simple que repetirlo en dos guards.

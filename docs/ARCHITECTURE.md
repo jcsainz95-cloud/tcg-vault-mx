@@ -29,6 +29,7 @@
 > | **v1.84** | 🔒💰 Plan (2026-10-05, rama `claude/listo-real` desde `production` = `3e09685a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **Listo para dinero real:** cierra las condiciones «antes de `sk_live_`» de `SECURITY_NOTES.md:14048-14050` — C1 `qs`, S5-1 (claim `sat`, tope 30 d cliente / 7 d staff), SEC-HDR-2 (CSP con nonce, Report-Only primero), TD-4 ⟨orders⟩ (CAS `pending → failed`), C2 (lectura fresca del cargo en Stripe en la cubeta SPEI en vez de la lista de códigos; también detecta pedidos pagados **en modo prueba**), DAST `full` previo, C6 (medición) — más MSH-1, salud con `stripeMode`, telemetría CSP/errores sin cuenta nueva, `/privacidad`, respaldos con simulacro, censo y limpieza de datos de prueba, guion de cobro de punta a punta y guía del cambio de claves. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.84, §14 | §4.63 | **Sí** (backend `auth`, `orders` 💰, `payments` 💰, `shipments` 💰, `health`; frontend; devops) · 🔒 seguridad |
 > | **v1.84.1** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `bed71dc8`, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES §57`, `FRONTEND_NOTES §94`, `DEVOPS_NOTES §83`). Ratifica refresh con `ignoreExpiration` y caducidad a mano **después** del tope, con el borde a `>=` (SES-7/8); `ttlSeconds()` propio; `413` sin cuerpo; `upgrade-insecure-requests` solo en `enforce`. CSP: `style-src` + `https://accounts.google.com/gsi/style`; mutación de CSP-5 y «sustituye, no interseca» corregidas, con invariante `frame-ancestors`. TTFB se mide **en producción** con sonda de devops (antes = F1, después = F2). Enlaces al aviso en tres lotes con candado en `check:legal`. Texto de C6 corregido; **P-10** al dueño (N de C6). ⛔ Sin schema, migración, enum ni código nuevo. Norma: `API_CONTRACT §14.14` | §4.63.3, §4.63.5, §4.63.7, §4.63.9, §4.63.10, §4.63.11 | **Sí** (backend un carácter + 2 pruebas; frontend CSP + enlaces; devops sonda TTFB; ux-ui textos) |
 > | **v1.84.2** | Errata (2026-10-05, rama `claude/listo-real`, gates sobre `241d4dca` dado por el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **E2-1:** guía del dueño gana la casilla «`check:legal` verde (criterios 500–508)» + «QA aprobó 500–508» (el candado solo mide 501 y 503–505). **E2-2:** CSP-5 pasa a contar eventos `securitypolicyviolation` (`script-src*` + `blockedURI='inline'`) antes/después de inyectar; la mutación de E-5 solo mordía en `enforce`. **E2-3:** `message` de `/telemetry/client-error` se limpia **en el servidor** (query/fragmento pegados, `nombre=valor` de secretos, JWT), TLM-6/7/8. **E2-4:** texto de LIVE-2 sigue en este stream. **E2-5:** `report-uri` solo; comprobación de entrega antes de `enforce`; `report-to` = decisión pendiente **D-CSP-RT**. ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.15` | §4.63.7, §4.63.12 | **Sí** (backend limpieza + 3 pruebas; frontend CSP-5 + texto LIVE-2; devops casilla en la guía; ux-ui texto) |
+> | **v1.84.3** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `a047c3cb`, ⛔ sha NO MEDIDO por el arquitecto; origen `FRONTEND_NOTES §94.6`). **E3-1:** CSP-5 inyecta el script **en el HTML servido** (bajo `'strict-dynamic'` un script creado por código hereda la confianza: sin evento, se ejecuta incluso en `enforce`). **E3-2:** la comprobación de entrega de E2-5 usa esa técnica, no la consola. **E3-3:** perímetro de la CSP escrito (no cubre DOM-XSS que cree scripts) como dato para la fase de seguridad; candado pendiente **XSS-SINK-1** (lint `error` de sumideros, frontend, antes de `enforce`); el de semgrep es `WARNING` y no bloquea. **E3-4:** LIVE-2 por marca de un solo uso en el login ratificado, y aviso de inactividad que se oculta al primer intento. ⛔ Sin schema, migración, enum, código ni forma nueva. Norma: `API_CONTRACT §14.16` | §4.63.3, §4.63.13 | **Sí** (frontend: lint XSS-SINK-1; resto ya construido o procedimiento) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27254,7 +27255,8 @@ no está en «construir el modo real», sino en tres cosas que en modo prueba no
   tope: la cadena seguiría renovándose).
 
 #### 4.63.3 SEC-HDR-2 — CSP con nonce, y su coste
-- **Por qué nonce:** los tokens viven en `localStorage` (`api-client.ts:36-42`); la CSP es la segunda barrera ante un XSS.
+- **Por qué nonce:** los tokens viven en `localStorage` (`api-client.ts:36-42`); la CSP es la segunda barrera ante un XSS
+  **inyectado en el HTML** (no ante un DOM-XSS que cree scripts desde código: perímetro exacto en §4.63.13, v1.84.3).
   Next inyecta `<script>` en línea con datos de cada página: un hash por script es inviable, y `'unsafe-inline'` en
   `script-src` anula la barrera.
 - **Coste:** con nonce, la página se genera por petición. Hoy el árbol puede prerenderizar por idioma
@@ -27439,6 +27441,47 @@ pedido de prueba falla en Stripe y no mueve dinero. Las dos no cuestan schema.
   sí se exige antes de `enforce` es medir que los informes **llegan** desde producción: sin eso, «cero informes en 72 h»
   no distingue «sin violaciones» de «sin entrega», y ese es exactamente el dato con el que se decide pasar a `enforce`.
   Disparadores para reabrir: la comprobación no llega, o Chromium estable deja de enviar `report-uri`.
+
+#### 4.63.13 Errata v1.84.3 — CSP-5, perímetro de la CSP y LIVE-2 (norma: `API_CONTRACT §14.16`)
+- **E3-1 (frontend refutó la letra de E2-2 con datos):** `'strict-dynamic'` existe para que el código confiable cargue
+  más código sin enumerar orígenes; el precio es que **todo** script insertado por código ya confiable hereda la
+  confianza. Inyectar desde `evaluate` era pedirle a la prueba que la política fallara en algo que la política permite
+  por diseño. Se inyecta en el HTML porque ese es el camino de un XSS almacenado/reflejado y el único que el nonce
+  vigila. Gana el dato (O-2): la versión literal salió roja 3/3 por fase **sin** mutación.
+- **E3-2:** el mismo motivo invalida «por la consola» en la comprobación de entrega de E2-5; si no se corregía,
+  producción habría dado «no llega» y habría disparado D-CSP-RT en falso.
+- **E3-4 (LIVE-2):** se ratifica el mecanismo en el login y no en los guards porque (a) los guards los cambian otras
+  dos ramas vivas (`arreglos-panel`, `skydropx-d`) y tocarlos crea un conflicto sin ganar conducta; (b) un sitio en vez
+  de dos; (c) la marca solo elige un texto, así que su ventana de 10 s no puede abrir nada. El instante sin `reason` en
+  el URL no lo observa nada.
+
+**Perímetro de esta CSP (política de §14.3, `'nonce' + 'strict-dynamic'`) — lo que el pentester y seguridad deben
+tomar como dato, no como suposición.** Origen de cada fila: **[medido-fe]** = `FRONTEND_NOTES §94.6` (Chromium, N=1 por
+sonda); **[memoria]** = conducta de CSP3 de memoria del arquitecto, **NO MEDIDA** aquí.
+
+| Vector | ¿Lo bloquea en `enforce`? | En `report-only` (lo publicado hoy) | Origen |
+|---|---|---|---|
+| `<script>` en línea **en el HTML** sin nonce (XSS almacenado/reflejado que llega en la respuesta) | **Sí** | No bloquea; informa | medido-fe |
+| `<script src=…>` **en el HTML** sin nonce, cualquier origen (con `'strict-dynamic'` se ignoran `'self'` y `https:`) | Sí | No; informa | memoria |
+| `<script>` **creado por código** de la página (`createElement` + `textContent`/`src`, o una librería que lo haga) | **No** — ni evento ni bloqueo | No; **sin informe** | medido-fe (texto); memoria (`src`) |
+| Manejadores en línea (`onerror=`, `onclick=`), p. ej. `<img onerror>` metido con `innerHTML` | Sí (`script-src-attr`; `'strict-dynamic'` no los cubre) | No; informa | memoria |
+| URL `javascript:` en enlaces/navegación | Sí | No; informa | memoria |
+| `eval`, `new Function`, `setTimeout('texto')` | Sí (sin `'unsafe-eval'` en producción) | No; informa | memoria |
+| `<script>` dentro de `innerHTML` | No se ejecuta **por HTML**, no por la CSP | igual | memoria |
+| Exfiltración por imagen a cualquier `https:` (`img-src https:`) | **No** (deliberado, §14.3) | — | política |
+| Inyección de CSS / `<style>` (`style-src 'unsafe-inline'`) | **No** | — | política |
+| Robo del token con un script **ya** ejecutándose (vive en `localStorage`) | **No**: la CSP solo impide que el script arranque | — | diseño |
+| Marcos ajenos que nos enmarquen | Sí, en las dos fases (`frame-ancestors 'none'` aplicada, E-6) | **Sí** | medido-fe (§94.1) |
+
+Lectura: en `report-only`, que es lo publicado hasta pasar a `enforce`, la CSP **no bloquea nada** salvo
+`frame-ancestors`. En `enforce` cierra el XSS que llega **en el HTML** y los atajos clásicos (manejadores, `javascript:`,
+`eval`), pero **no** el que consigue que código nuestro o de un tercero confiable **inserte un script**. Contra eso la
+defensa es **no tener sumideros** (React escapa; hoy 0 sumideros en `frontend/src`, Grep del arquitecto 2026-10-05) y
+un candado que lo mantenga: **XSS-SINK-1** (§14.16 E3-3; dueño frontend; antes de `enforce`). Hoy el único candado
+existente (`security/semgrep.yml:94-103`) es `WARNING` y el gate SAST solo rompe en `ERROR`
+(`security-sast.yml:96-104`): **no vigila nada** en la práctica. Superficie residual que el pentester debe mirar: los
+scripts de terceros confiables (Stripe.js, Google Identity), cuyo comportamiento ante datos nuestros no controlamos, y
+cualquier `src` dinámico de `createElement('script')` (hoy solo uno, literal, `GoogleSignInButton.tsx:112-113`).
 
 ---
 
