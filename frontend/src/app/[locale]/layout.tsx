@@ -1,11 +1,13 @@
 import type { Metadata } from 'next';
 import { Archivo, JetBrains_Mono, Montserrat } from 'next/font/google';
 import localFont from 'next/font/local';
+import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getTranslations } from 'next-intl/server';
 import { routing, type AppLocale } from '@/i18n/routing';
 import { Providers } from '@/components/Providers';
+import { NONCE_HEADER } from '@/security/csp';
 import '../globals.css';
 
 /*
@@ -90,12 +92,19 @@ export default async function LocaleLayout({
 }) {
   const { locale } = await params;
   if (!routing.locales.includes(locale as AppLocale)) notFound();
+  // LIVE-3 (§14.3): leer la petición obliga a renderizar POR PETICIÓN. Sin esto las páginas salen
+  // prerenderizadas en el build (SSG por `generateStaticParams`) con `<script>` SIN nonce, y en
+  // `enforce` la CSP las bloquearía. Next pone el nonce en sus scripts solo (lo saca de la CSP de
+  // la petición que fija `middleware.ts`); aquí no hay `<script>` propio que lo necesite, pero si
+  // algún día lo hay, lleva `nonce={nonce}`. Coste medido en FRONTEND_NOTES (TTFB N=10).
+  const nonce = (await headers()).get(NONCE_HEADER) ?? undefined;
   const messages = await getMessages();
 
   return (
     <html
       lang={locale}
       className={`${zenOldMincho.variable} ${sans.variable} ${mono.variable} ${brand.variable}`}
+      data-csp={nonce ? 'nonce' : undefined}
     >
       <head>
         {/* PERF — TODAS las imágenes de carta (catálogo, carrusel, carritos, bóveda, admin)

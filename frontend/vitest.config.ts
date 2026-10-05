@@ -19,6 +19,10 @@ export default defineConfig({
     // apagarlo servía fixtures en silencio. Los tests que quieren la rama real siguen espiando
     // `apiRequest`/`config` como siempre.
     env: { NEXT_PUBLIC_USE_MOCKS: 'true' },
+    // LIVE-3: `src/middleware.test.ts` ejercita el middleware REAL de next-intl, cuyo ESM importa
+    // `next/server` sin extensión; Node no lo resuelve fuera de Vite. Inlinearlo deja que Vite lo
+    // resuelva como lo hace el build de Next.
+    server: { deps: { inline: ['next-intl'] } },
   },
   resolve: {
     alias: {
