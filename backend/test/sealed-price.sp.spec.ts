@@ -1,4 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
+import { Reflector } from '@nestjs/core';
+import { ROLES_KEY } from '../src/common/decorators/roles.decorator';
+import { InventoryController } from '../src/modules/inventory/inventory.controller';
 import { join, relative } from 'node:path';
 import {
   computeSealedSaleOf,
@@ -389,5 +392,29 @@ describe('SP-17 — `sealedProductPieces` del listado: UN `groupBy` por página 
       resolvedSalePriceCents: 111_983,
     });
     expect('sealedProduct' in fifty.first).toBe(false);
+  });
+});
+
+// ================================================================================================ SP-4
+
+describe('💰 SP-4 (unitaria) — «solo el dueño» en las DOS puntas: `@Roles` de MÉTODO y el predicado en el servicio', () => {
+  it('el `PUT` lleva `@Roles(super_admin)` de método, y gana al de clase (`getAllAndOverride`)', () => {
+    const handler = InventoryController.prototype.setSealedSalePrice;
+    expect(Reflect.getMetadata(ROLES_KEY, handler)).toEqual(['super_admin']);
+    expect(new Reflector().getAllAndOverride(ROLES_KEY, [handler, InventoryController])).toEqual(['super_admin']);
+    // La hoja hereda la clase (`vault_operator+`): el personal VE costo y margen (HECHOS 2026-10-05 (2)).
+    expect(Reflect.getMetadata(ROLES_KEY, InventoryController.prototype.sealedPriceSheet)).toBeUndefined();
+  });
+  it('el servicio rechaza a un no-dueño ANTES de leer o escribir nada (403), aunque el guard no estuviera', async () => {
+    const prisma: any = { $transaction: jest.fn(), sealedProduct: { findUnique: jest.fn() } };
+    const settings: any = { getIvaDials: jest.fn() };
+    const svc = new SealedPriceService(prisma, {} as PricingService, settings, {} as InventoryService);
+    for (const role of ['vault_operator', 'customer', undefined]) {
+      await expect(svc.setSalePrice('sp-1', { displayPriceCents: 700, expectedDisplayPriceCents: null }, { id: 'u', role })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+    }
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(settings.getIvaDials).not.toHaveBeenCalled();
   });
 });

@@ -113,6 +113,8 @@ import { PENDING_PUBLISH_MISSING_VALUES } from '../../src/modules/inventory/inve
 import { REFUND_REVIEW_FILTER_VALUES } from '../../src/modules/orders/admin-orders.controller';
 // ⭐ `EQ-D2` — dominio del eje `?state=` de `GET /admin/inventory/sealed-price-status` (M11 §10, clase L).
 import { SEALED_PRICE_STATE_VALUES } from '../../src/modules/inventory/sealed-product.service';
+// 💰 v1.83 (§M11-SP.5) — dominio de `?scope=` de `GET /admin/inventory/sealed-price-sheet` (clase L).
+import { SEALED_PRICE_SHEET_SCOPE_VALUES } from '../../src/modules/inventory/sealed-price.service';
 import { PRICING_BRACKETS_AXIS_VALUES } from '../../src/modules/admin/admin.controller';
 import { VAULT_SEALED_SORT_VALUES } from '../../src/modules/vault/vault.service';
 // ⭐ `EQ-D1` — dominios de los ejes migrados en este pase (kind/scope/sort de catálogo).
@@ -624,6 +626,12 @@ const REGISTRO: readonly AxisRow[] = [
   // sets sembrados en estados distintos (bloque (i) del fixture).
   // ==========================================================================================
   { route: 'GET /admin/inventory/sealed-price-status', param: 'state', clazz: 'L', allowed: SEALED_PRICE_STATE_VALUES, valid: 'unmapped', alterno: 'mapped_unpriced', auth: 'admin', echoValue: false },
+  // 💰 v1.83 (§M11-SP.5) — `?scope=` de la hoja de precios del sellado, clase **L** (unión pura `on_hand | all`, ⛔ sin
+  // columna); su fila de §0-Q punto 4 la escribió el arquitecto con la rev (`API_CONTRACT.md`, tabla de §0-Q) ⇒
+  // `transcrita`. ⚠️ El default es `on_hand`, así que `valid` tiene que ser `all` (el que CAMBIA el resultado respecto
+  // de no filtrar) y `alterno` `on_hand`. Fixture (k): en el set CEQ1, un producto con pieza en existencia y otro SOLO
+  // con precio del dueño ⇒ `all` = 2 filas, `on_hand` (y sin filtro) = 1.
+  { route: 'GET /admin/inventory/sealed-price-sheet', param: 'scope', clazz: 'L', allowed: SEALED_PRICE_SHEET_SCOPE_VALUES, valid: 'all', alterno: 'on_hand', auth: 'admin', echoValue: false, extra: (c) => `setId=${c.setId}` },
 
   // ==========================================================================================
   // ⭐⭐ `EQ-D1` LOTE 2 (este pase) — CINCO ejes de ORDEN/RANGO SIN DINERO que hoy CLAMPABAN en
@@ -1034,6 +1042,17 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
     ],
   });
 
+  // (k) 💰 v1.83 · `GET /admin/inventory/sealed-price-sheet?scope=` — en el set CEQ1 (el de `?setId=` de la fila): la
+  //     «caja» con UNA pieza de plataforma `reserved` (cuenta para `on_hand`; ⛔ no entra a `pending-publish` ni a
+  //     `/catalog`, así que no mueve la huella de otros ejes) y la «promo» SOLO con precio del dueño (solo en `all`).
+  const [ceq1Caja, ceq1Promo] = await Promise.all(
+    CEQ1_SEALED_PRODUCT_IDS.map((pid) => h.prisma.sealedProduct.findUniqueOrThrow({ where: { tcgplayerProductId: pid }, select: { id: true } })),
+  );
+  await h.prisma.sealedProduct.update({ where: { id: ceq1Promo.id }, data: { ownerDisplayPriceCents: 9_900 } });
+  await h.prisma.inventoryItem.create({
+    data: { folio: 'CEQ1-HOJA-1', cardId: card.id, productType: 'sealed', sealedSubtype: 'box', sealedCondition: 'mint', sealedProductId: ceq1Caja.id, status: 'reserved', ownerType: 'platform', acquisitionType: 'compra' },
+  });
+
   return { setId: set.id, userId: cliente.id };
 }
 
@@ -1394,7 +1413,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // sin fila en §0-Q punto 4 (el contrato la pide «en el mismo commit»; no está) ⇒ PENDIENTE-ARQUITECTO.
     // ⭐ v1.80.8.8 ((10).3) — 52 fijo y 19 → **18**: el arquitecto escribió la fila de `?refundReview=` en §0-Q punto 4.
     // Se pagó una deuda; no salió ningún eje.
-    expect(REGISTRO.length).toBe(52);
+    // 💰 52 → **53** (v1.83, §M11-SP.5): `?scope=` de `GET /admin/inventory/sealed-price-sheet`, clase L, CON fila en
+    // §0-Q punto 4 (la escribió el arquitecto en la misma rev) ⇒ `transcrita`: los pendientes siguen en 18.
+    expect(REGISTRO.length).toBe(53);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
