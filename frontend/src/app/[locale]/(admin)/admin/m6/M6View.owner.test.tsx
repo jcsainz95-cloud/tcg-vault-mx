@@ -48,7 +48,7 @@ afterEach(() => {
 
 async function openDetail(target: AdminUserSummaryDTO) {
   vi.spyOn(api, 'getAdminUsers').mockResolvedValue({ data: [target], page: 1, pageSize: 20, total: 1, lockState: 'ok' });
-  vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...target, ownedItems: [] } as AdminUserDetailDTO);
+  vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...target, lockState: 'ok', ownedItems: [] } as AdminUserDetailDTO);
   renderWithProviders(<M6View />, 'es');
   fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
   return screen.findByTestId('m6-owner-account').catch(() => null);
@@ -100,7 +100,7 @@ describe('§43.20.6 · la cuenta del dueño en Usuarios: «Dueño» junto al nom
   it('`ownerTag` «Dueño» en la fila de la lista y en la cabecera del detalle, en `text-muted` sin color; otra cuenta ⇒ sin etiqueta', async () => {
     setStoredUser({ id: 'u-sa2', email: 'otro@tcghunt.mx', name: 'Otro súper', role: 'super_admin', locale: 'es' });
     vi.spyOn(api, 'getAdminUsers').mockResolvedValue({ data: [OWNER, OTHER], page: 1, pageSize: 20, total: 2, lockState: 'ok' });
-    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...OWNER, ownedItems: [] } as AdminUserDetailDTO);
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...OWNER, lockState: 'ok', ownedItems: [] } as AdminUserDetailDTO);
     renderWithProviders(<M6View />, 'es');
     await screen.findAllByRole('button', { name: 'Ver ficha' });
     const tags = screen.getAllByTestId('m6-owner-tag');
