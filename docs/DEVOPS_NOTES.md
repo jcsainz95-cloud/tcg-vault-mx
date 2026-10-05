@@ -13452,3 +13452,32 @@ en 4 CPU durante las corridas.
   `gate-parity-canary` 12/12. `check-ci-ok.sh`: parte estructural verde; la de veredicto necesita `NEEDS_JSON` (solo CI).
   No re-corrido: `check-s3-local-clone-canary.sh` (necesita `npm ci` del s3-local; no toca nada de lo cambiado).
 - **Rollback:** revertir el commit. Sin efecto en datos ni en producción; `uptime-watch` vuelve a buscar por título.
+
+## §84 · Re-pase de QA sobre `44943d30`: B-3 (censo E2E) y los dos canarios que daban falso rojo bajo carga (2026-10-05, rama `claude/listo-real`)
+
+**B-3 · censo E2E `realOnly 19/6 → 22/7`.** Las 3 apariciones nuevas son de `frontend/e2e/session-max-age.spec.ts`
+(fab9bb13, LIVE-2, FRONTEND_NOTES §94): `import` (l.3), mención en el docblock (l.17) y **una** llamada en
+`beforeEach` (l.68) que cubre los dos UX-SMA-2 (tienda y panel). Es legítima: el spec finge los dos `401` con
+`page.route` y necesita el bundle sin mocks (con `NEXT_PUBLIC_USE_MOCKS`, `api.ts` no llama a `fetch` y no hay
+`401` que interceptar); el tope real de 30/7 días lo miden los unitarios y la integración de backend. Medido: los
+otros 6 ficheros con `realOnly` tienen los mismos recuentos que en `a86ee970` (el último baseline), y las otras
+cuatro claves no cambian. Baseline regenerado con `--update --motivo` en `655f1221`. `check-e2e-skip-census.sh`
+rc=0; canario 3/3 rc=0 (N=3, devops). El pendiente P-CENSO-S5 (§77) sigue abierto: su motivo ya no está en la
+cabecera del baseline (la reescribe cada `--update`), pero vive en §77.
+
+**Canarios `check-ci-ok` y `check-stripe-webhook-events` (QA menores 1 y 2).** La causa no era un timeout (ninguno
+de los dos tiene temporizador): era **SIGPIPE + `pipefail`**. `printf … | grep -q X` dentro de un script con
+`set -o pipefail`: `grep -q` sale al primer acierto, el `stdout` de bash va con búfer por línea, así que `printf`
+puede seguir escribiendo, recibe SIGPIPE (141) y `pipefail` convierte un **acierto en «no encontrado»**. Bajo
+carga, el planificador intercala más y el falso rojo aparece.
+- Medido (devops, load ≈6–10, 4 CPU): microbanco de la línea exacta, tubería **4/3000** y **3/2000** falsos en la
+  búsqueda de jobs de ci-ok; **2/2000** y **0/3000** en la de §11.G; here-string **0/3000** en ambas.
+  Canarios completos, árbol antes y después del arreglo, N=40 cada uno: ci-ok **2/40 → 0/40** rojos; stripe-events
+  **1/40 → 0/40**.
+- Arreglo: here-strings (`grep -q X <<<"$var"`) en `scripts/check-ci-ok.sh` (lista de OPCIONALES) y en
+  `scripts/check-stripe-webhook-events.sh` (las 3 búsquedas). Sin cambio de conducta: las mutaciones siguen
+  mordiendo (OPCIONALES con un job fantasma ⇒ rc=1; manifiesto con un evento que no está en §11.G ⇒ rc=1).
+- El mismo patrón aparece en otros 10 scripts (TECH_DEBT TD-DO-PIPE-1), **sin medir** si alguno es vulnerable: depende
+  de que lo escrito ocupe más de un `write`.
+- **Rollback:** revertir el commit. Solo toca scripts de CI; no afecta a datos ni a producción.
+

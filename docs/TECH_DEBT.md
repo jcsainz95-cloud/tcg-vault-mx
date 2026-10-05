@@ -9147,6 +9147,18 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   workflow disabled». Dirección si se vuelve real: un monitor externo de disponibilidad (servicio nuevo ⇒ se propone
   al arquitecto antes) o un commit periódico automatizado.
 
+
+### TD-DO-PIPE-1 · P3 · `… | grep -q` bajo `pipefail` en 10 scripts más (falso rojo posible bajo carga)
+- **Qué:** la clase arreglada en DEVOPS_NOTES §84 (SIGPIPE de quien escribe cuando `grep -q` sale al primer acierto ⇒
+  `pipefail` lo convierte en «no encontrado»). La tienen también, con alguna línea cada uno: `check-db-disk-watch-canary.sh`,
+  `check-e2e-must-run-canary.sh`, `check-gate-parity-canary.sh`, `check-graded-estimate-dials.sh`,
+  `check-secret-absence-wording.sh`, `check-stack-expected-sha.sh`, `check-stack-upload-origin.sh`,
+  `check-stripe-webhook-failclosed.sh`, `edge-xff-probe.sh`, `stripe-test-key-preflight.sh` (inventario hecho con
+  `grep -nE "(printf|echo|cat)[^|]*\|\s*grep -[a-zA-Z]*q"`, 2026-10-05).
+- **NO MEDIDO** si alguno falla de verdad: con una sola línea (un único `write`) no hay carrera; con varias líneas, o con
+  `cat` de un fichero grande, sí puede haberla. QA no ha visto rojos en ellos.
+- **Remedio:** here-string (`grep -q X <<<"$v"`) o `grep -q X file` directo. Barato; se hace en bloque cuando se
+  toque cualquiera de ellos, o antes si uno da un rojo que no se puede reproducir. Dueño: devops.
 ---
 
 ## Backend · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-1/2/7)
