@@ -4,7 +4,13 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
+> Estado: **v4.15 (2026-10-05) — ENLACES AL AVISO DE PRIVACIDAD (§80 NUEVA; `API_CONTRACT` v1.84.1 §14.14 E-9;
+> `PROJECT §LEG.3`, criterios 503–505, P-LEG-9):** un componente con dos variantes (`inline` en pestaña nueva y
+> subrayado; `nav` en la misma pestaña), sus dos estados (con enlace / sin enlace), los siete sitios con su posición
+> y los textos ES/EN en `privacy.sites.*`. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la
+> v4.14 sin cambio.
+>
+> Estado anterior: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
 > 2026-10-04 «Usuarios de back-office SIN correo», puntos (a)(b)(c); `API_CONTRACT` v1.80.9 §M6-U; fichero:línea medidos
 > en el worktree `claude/precios-s5`, HEAD `43c42b3d` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
 > **§42.1** login: la etiqueta «Correo o usuario», `type="text"`, el candado por cuenta con usuario tecleado dice
@@ -22960,3 +22966,199 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 | **N-3** | product-owner | **El alta de cliente de hoy no pide celular** (`M6View.tsx:540-565`: correo, nombre, rol, contraseña), aunque `PROJECT §U.2` dice «sigue exigiendo correo (y celular, D11)». Este diseño **no lo cambia** (criterio 270: «como hoy»). Si el celular debe pedirse ahí, es otro encargo |
 | **N-4** | orquestador | **Zonas compartidas tocadas:** `frontend/src/lib/format.ts` (F-10), `frontend/src/components/layout/AdminShell.tsx` (F-12), `frontend/src/components/domain/*` (F-1…F-3, F-13…F-15) y `types/contract.ts` (§M6-U.10). Un solo stream a la vez |
 | **N-5** | orquestador | **F-3 (credenciales con usuario) va más allá de los tres puntos de §M6-U.10.** Lo sostiene `PROJECT §U.3` («texto final de ux-ui»; puede variar por la forma de lo tecleado) y no toca la rama `@`. Si se prefiere el cambio mínimo estricto, se omite F-3 y UX-4, y el equipo leerá «Correo o contraseña incorrectos» |
+
+---
+
+## 80. Enlaces al aviso de privacidad — un componente, dos variantes, siete sitios (v4.15, 2026-10-05 · `API_CONTRACT` v1.84.1 §14.14 E-9 y §14.12 LIVE-8 · `PROJECT §LEG.3`, criterios 503–505, P-LEG-9)
+
+> **Por qué §80 y no §43:** en los worktrees del disco, `claude/skydropx-d` ya usa **§43**
+> (`/home/user/tcg-skyd/docs/DESIGN_SYSTEM.md:23059`), `claude/arreglos-panel` **§60** (`/home/user/tcg-panel/…:22987`)
+> y el sellado **§70** (`/home/user/tcg-sellado/…:22989`). Medido por `Grep` sobre esos ficheros el 2026-10-05; las ramas
+> remotas **NO MEDIDAS** (ux-ui sin Bash). §80 no choca con ninguna de las tres al fusionar.
+>
+> **Fuente leída (2026-10-05, árbol `/home/user/tcg-real`):** `API_CONTRACT.md:31703-31723` (E-9),
+> `PROJECT.md:8122-8139` (§LEG.3), `:11720-11730` (503–505), `:15760` (P-LEG-9); el texto del aviso en
+> `frontend/src/content/legal/privacidad.es.ts`; la decisión de visibilidad en `content/legal/legal-gate.ts:65-72` y
+> `(storefront)/footer.ts:28-30`; el espacio `privacy.*` en `messages/es.json:5239-5246` y `en.json:5239-5246`.
+>
+> ⛔ **Cero tokens nuevos, cero pares de contraste nuevos** (§80.4 usa pares ya existentes, recalculados con los
+> valores reales de `globals.css`). ⛔ **Ningún dato del dueño** (razón social, RFC, domicilio, correo): siguen
+> pendientes (P-LEG-1…3) y ningún texto de esta sección los necesita.
+
+### 80.0 Reglas duras
+
+1. **Un solo componente** para los siete sitios (E-9). Frontend elige el nombre y el sitio en su módulo legal; aquí
+   se le llama **`PrivacyNoticeLink`** solo para poder hablar de él.
+2. **La misma decisión que el pie:** enlaza si y solo si `privacyVisibility(...) !== 'hidden'` (la regla de
+   `footer.ts:28-30`). ⛔ Nunca un enlace a un `404`.
+3. **Ningún texto promete lo que el aviso no dice.** Cada frase de §80.3 se contrastó con un apartado concreto de
+   `privacidad.es.ts` (columna «Lo sostiene»). Si el abogado cambia el aviso, estas frases se revisan.
+4. **Tuteo** (como la tienda: `checkout.guest.acceptTerms` «Acepto…», `auth.toLogin` «¿Ya tienes cuenta?»), lenguaje
+   llano, sin «LFPDPPP», «responsable», «titular», «tratamiento» ni «ARCO» en estas frases: eso vive en el aviso.
+5. **El nombre del documento se escribe igual en todas partes:** «Aviso de privacidad» / «Privacy notice» (igual que
+   `privacy.link` y `privacy.title`), con mayúscula inicial también a media frase cuando es enlace — es un nombre
+   propio de documento, igual que «Términos». **Excepción:** la casilla del invitado conserva sus minúsculas de hoy
+   («los términos y el aviso de privacidad», `es.json:517`) para no cambiar una frase que el cliente ya acepta.
+
+### 80.1 El componente — dos variantes y dos estados
+
+| | **`inline`** (dentro de una frase, junto a un formulario) | **`nav`** (pie, en la fila de enlaces) |
+|---|---|---|
+| Sitios | 2 registro · 3 checkout invitado · 4 checkout con cuenta · 5 formulario de venta · 6 INE de «Mi cuenta» | 1 pie de la tienda · 7 pie de `pedido/layout.tsx` |
+| **Con enlace** (página servida) | `<a>` con el texto del trozo de la frase, **subrayado siempre** (`underline underline-offset-4 decoration-1`), color `text-accent`, hover `text-text`; **se abre en pestaña nueva** (`target="_blank" rel="noopener noreferrer"`); icono `ArrowUpRight` 12 px `aria-hidden` pegado al texto; texto oculto para lector «(se abre en otra pestaña)» (`privacy.opensInNewTab`); todo el enlace `whitespace-nowrap` para que el icono no quede solo en otra línea | `<Link>` del router en la **misma pestaña**, mismas clases que su vecino «Términos» de esa fila (hoy `text-text hover:text-accent`, mono 11 px versalitas, `layout.tsx:69` y `pedido/layout.tsx:71`); texto `privacy.link`; sin icono, sin subrayado |
+| **Sin enlace** (página no servida) | el **mismo texto** en un `<span>` que **hereda** color y peso de la frase: sin subrayado, sin icono, sin texto oculto, no enfocable. ⛔ Ni «próximamente», ni `title`, ni tachado, ni gris distinto | **no se pinta nada** (lo que hace hoy el pie, `layout.tsx:73-77`) |
+
+**Por qué `nav` oculta y no pinta texto:** E-9 dice «pinta el texto sin enlace» pensando en una frase: quitar las
+palabras rompería la gramática («…aceptas los Términos y el .»). En una **fila de enlaces** del pie, en cambio, una
+etiqueta que no se puede pulsar entre dos que sí se leen como **enlace roto**; ocultarla no deja ningún hueco. Es la
+conducta que ya tiene el sitio 1 (E-9 lo da por «hecho»), así que no es un cambio. Si el arquitecto prefiere texto
+también en el pie, cambia una celda de esta tabla y nada más (§80.7 A-1).
+
+**Pestaña nueva — decisión y porqué.**
+- **`inline` ⇒ pestaña nueva.** Los cinco sitios están **al lado de un formulario a medio llenar**: contraseña
+  tecleada (registro), correo, dirección y casillas (invitado), destino y dirección elegidos (checkout con cuenta),
+  CLABE tecleada y **fotos de INE ya subidas** (venta y «Mi cuenta»). Navegar en la misma pestaña los pierde. El
+  criterio 504 lo exige para el registro («abren sin perder lo tecleado: nueva pestaña o equivalente»), y aplicar la
+  misma regla en los cinco sitios da **una** conducta aprendible. WCAG (técnica G201): se avisa **antes** de abrir —
+  icono visible + texto para lector—, nunca por sorpresa.
+- **`nav` ⇒ misma pestaña.** En el pie no hay formulario que perder, y su vecino «Términos» abre en la misma pestaña
+  desde siempre: dos enlaces iguales de la misma fila no pueden comportarse distinto.
+- **El enlace «Términos» que comparte frase con el aviso** (sitios 2 y 3) **sigue la misma regla `inline`** (pestaña
+  nueva, subrayado, icono): no es parte del componente —la página de términos siempre se sirve—, pero dos enlaces de
+  la misma frase con conducta distinta son un defecto. Frontend lo resuelve como quiera (un `<a>` con las mismas
+  clases o un `LegalInlineLink` hermano); lo que se revisa es la conducta.
+
+**Foco y teclado.** El anillo global (`:focus-visible`, `outline 2px var(--color-focus-ring)`, offset 2px,
+`globals.css:122`) se queda tal cual; ⛔ nada de `outline-none` en el enlace. En `inline` el enlace entra al orden de
+tabulación **en el sitio donde está la frase** (registro: después de «Crear cuenta» y antes de «Continuar con Google»;
+invitado: el foco va a la casilla y después a los dos enlaces de su etiqueta, que es el orden del DOM). En la variante
+sin enlace no hay parada de tabulación. Objetivo táctil: los enlaces dentro de frase entran en la excepción «en línea»
+de WCAG 2.5.8; los del pie conservan su fila actual.
+
+**Enlaces dentro de la etiqueta de la casilla (sitio 3).** Es HTML válido (`<a>` no es un control etiquetable) y el
+navegador no marca la casilla al pulsar el enlace. El nombre accesible de la casilla incluirá el texto del enlace y
+«(se abre en otra pestaña)»; se acepta. Para el resumen de errores (`labelFor('terms')`, `GuestCheckoutForm.tsx:116-117`),
+que necesita **texto plano**, se deriva **de la misma clave** (p. ej. `t.markup` con etiquetas que devuelven solo el
+texto). ⛔ Nunca una segunda clave con la misma frase: dos copias de una frase legal acaban diciendo cosas distintas.
+
+### 80.2 Dónde va cada uno (posición en la pantalla)
+
+| # | Sitio | Fichero (medido 2026-10-05) | Posición | Estilo del párrafo | Lote |
+|---|---|---|---|---|---|
+| 1 | Pie de la tienda | `(storefront)/layout.tsx:72-77` | igual que hoy; migra al componente `nav` | — | hecho (migrar) |
+| 2a | Registro | `components/domain/AuthForm.tsx:223-238` | `mode === 'register'`: **bajo** el botón «Crear cuenta» y **antes** del divisor «o», de modo que se lee antes de «Continuar con Google» (504) | `mt-4 text-center text-[13px] leading-[1.6] text-muted` | 1 |
+| 2b | Entrar (solo Google) | mismo fichero, `:239-241` | `mode === 'login'`: **bajo** «Continuar con Google» | igual que 2a | 1 — ver nota |
+| 3 | Checkout invitado | `checkout/GuestCheckoutForm.tsx:374-386` | dentro de la etiqueta de la casilla de términos (sustituye su texto) | el de hoy | 2 (tras F-SKY) |
+| 4 | Checkout con cuenta | `checkout/CheckoutView.tsx:322-334` | **párrafo nuevo** justo después del de ventas finales (`:323-328`) y antes del de CFDI (`:329`) | `rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted` (el de CFDI) | 1 |
+| 5 | Formulario de venta | `components/domain/BuylistKycForm.tsx:537-566` | **párrafo nuevo, siempre visible**, después de la sección de la INE (`</section>` de `:537`) y antes de la zona de avisos. ⚠ **No** en la línea `ine.privacy` (`:534`): esa solo aparece cuando se pide la INE, y la CLABE se pide siempre | `text-xs leading-[1.6] text-muted` (el de `ine.privacy`) | 1 |
+| 6 | INE de «Mi cuenta» | `components/domain/account/KycSection.tsx:231` | **justo debajo** de `ine.privacy`, dentro del bloque de subida | `text-xs leading-[1.6] text-muted` | 1 |
+| 7 | Pie del seguimiento del invitado | `pedido/layout.tsx:71-73` | tras «Términos y políticas», misma fila | igual que su vecino | 3 (tras F-PNL) |
+
+**Nota 2b — un hueco medido que E-9 no lista.** «Continuar con Google» en la pantalla de **entrar** también **crea
+cuenta** si el correo no existe (`backend/src/modules/auth/auth.service.ts:527`, «Alta nueva (solo-Google)», leído
+2026-10-05). Hoy quien llega por «Entrar» y pulsa Google abre una cuenta sin haber visto ninguna leyenda. 2b vive en el
+**mismo fichero** que 2a y usa el **mismo componente**, así que no añade un sitio al candado: el sitio 2 es `AuthForm`.
+Si el arquitecto no lo quiere, se omite 2b sin tocar nada más (§80.7 A-2).
+
+### 80.3 Los textos — ES y EN exactos, con sus claves
+
+Todas en el espacio **`privacy.*`** que ya existe (`es.json:5239`, `en.json:5239`). Ninguna choca con las seis que hay
+(`link`, `title`, `updated`, `spanishOnly`, `draftTitle`, `draftBody`): las nuevas son `opensInNewTab` y el
+subárbol `sites.*`, que no existe. Etiquetas de texto enriquecido de next-intl: **`<terms>…</terms>`** (enlace a
+términos) y **`<privacy>…</privacy>`** (el componente). Lo que hay dentro de `<privacy>` es lo que se pinta con enlace
+o sin él.
+
+| Clave | Sitio | ES | EN | Lo sostiene (aviso) |
+|---|---|---|---|---|
+| `privacy.link` *(existe, sin cambio)* | 1, 7 | Aviso de privacidad | Privacy notice | — |
+| `privacy.opensInNewTab` **nueva** | todos los `inline` (solo lector de pantalla) | (se abre en otra pestaña) | (opens in a new tab) | — |
+| `privacy.sites.register` **nueva** | 2a | Al crear tu cuenta aceptas los `<terms>`Términos`</terms>` y el `<privacy>`Aviso de privacidad`</privacy>`. | By creating your account you accept the `<terms>`Terms`</terms>` and the `<privacy>`Privacy notice`</privacy>`. | Criterio 504, verbatim (+ punto final). §10 del aviso |
+| `privacy.sites.googleSignIn` **nueva** | 2b | Si entras con Google por primera vez, creamos tu cuenta y aceptas los `<terms>`Términos`</terms>` y el `<privacy>`Aviso de privacidad`</privacy>`. | If you sign in with Google for the first time, we create your account and you accept the `<terms>`Terms`</terms>` and the `<privacy>`Privacy notice`</privacy>`. | `auth.service.ts:527`; §2 del aviso («Si entras con Google…») |
+| `privacy.sites.guestCheckout` **nueva** — sustituye a `checkout.guest.acceptTerms` | 3 | Acepto los `<terms>`términos`</terms>` y el `<privacy>`aviso de privacidad`</privacy>`, y entiendo que todas las ventas son finales. | I accept the `<terms>`terms`</terms>` and the `<privacy>`privacy notice`</privacy>`, and I understand that all sales are final. | Frase de hoy (`es.json:517`, `en.json:517`) **sin cambiar una palabra**; solo se añaden las etiquetas |
+| `privacy.sites.checkout` **nueva** | 4 | Qué hacemos con tus datos: `<privacy>`Aviso de privacidad`</privacy>`. | What we do with your data: `<privacy>`Privacy notice`</privacy>`. | §3 del aviso (finalidades); no afirma nada por sí misma |
+| `privacy.sites.sellForm` **nueva** | 5 | Tu CLABE la usamos para pagarte por transferencia a tu nombre, y tu INE —si te la pedimos— para verificar tu identidad. Detalles en el `<privacy>`Aviso de privacidad`</privacy>`. | We use your CLABE to pay you by bank transfer in your name, and your ID (if we ask for it) to verify your identity. Details in the `<privacy>`Privacy notice`</privacy>`. | §2 («tu CLABE… para pagarte a tu nombre»; INE «cuando el monto lo requiere») y §3 d) y e) |
+| `privacy.sites.accountIne` **nueva** | 6 | Para qué usamos tu INE y cuándo la borramos: `<privacy>`Aviso de privacidad`</privacy>`. | What we use your ID for and when we delete it: `<privacy>`Privacy notice`</privacy>`. | §3 e) y §6 («la borramos 180 días después…») |
+
+**Decisiones de redacción (para que nadie las «mejore» sin saber por qué):**
+- **Sitio 3 no cambia de sentido.** «Todas las ventas son finales» choca con los reembolsos que el dueño sí hace
+  (`PROJECT §LEG.4` T-2), pero eso lo decide **P-LEG-6** (criterio 510), no esta sección. Cuando se resuelva, cambia
+  **solo la cola** de esta misma clave; las etiquetas `<terms>`/`<privacy>` se quedan.
+- **Sitio 5 dice «transferencia», no «SPEI»:** quien vende no tiene por qué saber la sigla; el aviso la usa en §3 d)
+  y está a un clic. **No dice «solo»** («solo para verificar tu identidad»): el aviso también la coteja con la dirección
+  para prevenir fraude (§3 e) y la entrega a autoridades cuando la ley lo exige (§5). «Solo» sería prometer de más.
+- **Sitio 5 no menciona la dirección ni el teléfono** que el mismo formulario puede pedir: la frase nombra lo que es
+  propio de vender (CLABE, INE) y remite al aviso para el resto. Más largo dejaría de leerse.
+- **Sitios 4 y 6 no afirman nada**: son una pregunta que el cliente se hace y el enlace que la contesta. Así no
+  pueden quedar desfasados si el abogado cambia el aviso.
+- **Ninguna frase dice «cifrada», «segura» ni «protegemos».** Ver §80.7 N-2 sobre `ine.privacy`.
+- **EN usa «ID» por «INE»** como ya hace `ine.privacy` en `en.json:1052` («Your ID…»), y «CLABE» sin traducir (es
+  el nombre del dato en México).
+
+**Claves que se retiran:** `checkout.guest.acceptTerms` (ES y EN), **en el lote 2**, al pasar el sitio 3 a
+`privacy.sites.guestCheckout`. `checkout.guest.acceptTermsRequired` («Para pagar, acepta los términos.») **se queda**.
+Ninguna otra clave existente cambia de valor.
+
+**Longitud (§9.4).** La más larga es `sellForm` EN (~170 caracteres): a `text-xs` en 390 px son 3–4 líneas, igual que
+`ine.privacy` hoy. `register` y `googleSignIn` caben en 2–3 líneas centradas en la columna del formulario de acceso.
+
+### 80.4 Contraste — pares existentes, recalculados con `globals.css`
+
+Valores reales: papel `--color-bg #F4F1EA` (`globals.css:16`), pozo `--color-surface-2 #EFEBE2` (`:18`), tinta
+`#1A1A18` (`:25`), muted `#6E695E` (`:26`), acento `#B31217` (`:40`), anillo `#B31217` (`:92`). Luminancias
+calculadas a mano por ux-ui (fórmula WCAG 2.1); ratios aproximados.
+
+| Par | Ratio aprox. | Cumple |
+|---|---|---|
+| Enlace `accent #B31217` sobre papel | ~6.2:1 | AA texto |
+| Enlace `accent` sobre pozo `#EFEBE2` (sección INE de venta, `bg-surface-2/40`) | ~5.9:1 | AA texto |
+| Texto sin enlace `muted #6E695E` sobre papel / pozo | ~4.8:1 / ~4.6:1 | AA texto |
+| Anillo de foco `#B31217` sobre papel / pozo | ~6.2:1 / ~5.9:1 | ≥ 3:1 UI |
+| **Enlace `accent` contra el texto que lo rodea** — `muted` / tinta | **~1.3:1 / ~2.5:1** | ⛔ **< 3:1** |
+
+La última fila es **por qué el subrayado es obligatorio** en `inline`: el color solo no distingue el enlace de su frase
+(WCAG 1.4.1 pide 3:1 contra el texto vecino **más** otra señal, o una señal no cromática). El subrayado es esa señal y
+no depende del hover. En `nav` no hace falta: el enlace no está dentro de una frase, está en una fila de enlaces cuyo
+vecino ya es enlace y se pinta igual.
+
+### 80.5 Accesibilidad — resumen comprobable
+
+- `inline` con enlace: nombre accesible = «Aviso de privacidad (se abre en otra pestaña)»; el icono es `aria-hidden`.
+- `inline` sin enlace: el lector lee la frase de corrido; ningún rol, ninguna parada de tabulación.
+- `nav`: nombre accesible = «Aviso de privacidad»; sin aviso de pestaña porque no abre otra.
+- `lang`: mientras el aviso solo exista en español (`privacy.spanishOnly`, `PrivacyNoticeView`), el enlace en inglés
+  **puede** llevar `hrefLang="es"`; opcional, no se revisa.
+- Movimiento: ninguno. Contraste: §80.4.
+
+### 80.6 Lista para frontend y candados
+
+| # | Qué | Lote |
+|---|---|---|
+| F-1 | Componente con `variant: 'inline' \| 'nav'` y los dos estados de §80.1; la decisión **es** la de `footer.ts:28-30` (no una copia) | 1 |
+| F-2 | Claves de §80.3 en `es.json` y `en.json`, mismo orden | 1 (la de invitado, 2) |
+| F-3 | Sitios 2a, 2b, 4, 5, 6 con su posición de §80.2 | 1 |
+| F-4 | Sitio 1 migra al componente `nav` sin cambio visible | 1 |
+| F-5 | Sitio 3 + retirar `checkout.guest.acceptTerms`; `labelFor('terms')` en texto plano derivado de la misma clave | 2 |
+| F-6 | Sitio 7 con `nav` | 3 |
+| F-7 | ⚠ **NO MEDIDO — riesgo de implementación:** los cinco sitios `inline` son **componentes de cliente** (`'use client'` en `AuthForm`, `CheckoutView`, `GuestCheckoutForm`, `BuylistKycForm`, `KycSection`, medido con `Grep` 2026-10-05). `legalEnvFromProcess()` lee `process.env.VERCEL_ENV`, que en el navegador **no existe** salvo que se exponga. Consecuencia probable: con el texto **limpio** todo funciona (`published` no depende del entorno, `legal-gate.ts:66`), pero en la **vista previa** con borrador el pie enlazaría y las frases no. Además importar `privacidad.es.ts` en cliente mete el aviso entero en el paquete. Cómo resolverlo (calcular en servidor y pasarlo, o una constante de compilación) es de frontend. Medición que lo cierra: prueba del componente con `vercelEnv:'preview'` y texto con marcadores ⇒ enlaza, igual que el pie | 1 |
+
+**Candados sugeridos** (los escribe frontend; ux-ui solo dice qué deben morder):
+
+| Id | Qué afirma | Mutación que lo pone rojo |
+|---|---|---|
+| UX-PRIV-1 | Con la página servida, cada sitio `inline` pinta un `<a>` con `target="_blank"`, `rel` con `noopener` y el texto oculto «(se abre en otra pestaña)» | quitar `target` o el texto oculto |
+| UX-PRIV-2 | Con la página **no** servida, cada sitio `inline` pinta el texto **sin** `<a>` y la frase sigue entera | devolver el `<a>` con `href="/privacidad"` |
+| UX-PRIV-3 | `nav` sin página ⇒ cero nodos; con página ⇒ `<a>` sin `target` | poner `target="_blank"` en `nav` |
+| UX-PRIV-4 | El enlace `inline` lleva clase de subrayado | quitar `underline` |
+| UX-PRIV-5 | Paridad: cada clave `privacy.sites.*` existe en los dos idiomas con las mismas etiquetas `<terms>`/`<privacy>` | quitar `<privacy>` de una en `en.json` |
+| LEG-5 *(E-9, ya pedido)* | `check:legal` nombra el sitio al que le falta el componente | quitar el componente de un sitio |
+
+### 80.7 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **A-1** | arquitecto | **El pie oculta en vez de pintar texto** (§80.1). E-9 dice «pinta el texto sin enlace»; aquí se aplica a las frases y el pie conserva su conducta de hoy (`layout.tsx:73-77`). Confirmar o pedir texto también en el pie. No bloquea |
+| **A-2** | arquitecto | **Sitio 2b (Google desde «Entrar») no está en los siete de E-9**, pero crea cuenta (`auth.service.ts:527`). Se diseña dentro del sitio 2 (mismo fichero, mismo componente). Confirmar; si no, se omite |
+| **A-3** | arquitecto | **`GuestCheckoutView.tsx:371-374`** también pinta «Todas las ventas son finales… Ver términos» en el checkout de invitado y no está en la lista. **No** se le añade enlace: el invitado ya lo tiene en la casilla (sitio 3) de la misma pantalla, y repetirlo sería ruido. Igual `GuestOrderConfirmation.tsx:160` (después de pagar, no se piden datos). Se anota para que el candado no los cuente como olvido |
+| **N-1** | product-owner | **«Aceptas» frente a «reconoces haber leído».** El criterio 504 fija «Al crear tu cuenta **aceptas** los Términos y el Aviso de privacidad»; el §10 del aviso dice «Al crear tu cuenta… **reconoces haber leído** este aviso». No son lo mismo (un aviso de privacidad se da a conocer; los términos se aceptan). Este diseño usa el texto del criterio, verbatim. Va al abogado con P-LEG-9; si cambia, cambian `register` y `googleSignIn`, nada más |
+| **N-2** | orquestador / product-owner | **`ine.privacy` dice «se guarda cifrada»** (`es.json:1052`, texto de §34.8 punto 5) y eso es **NO MEDIDO** (`PROJECT §LEG.4` T-10: la app no cifra la imagen; depende de que R2 cifre en reposo). Esa línea queda **junto** a los enlaces de los sitios 5 y 6. Si no se confirma, el valor de reemplazo es: «Tu INE se guarda en un almacenamiento privado, solo la ve el responsable de la tienda y se borra al cumplirse el periodo de retención.» / «Your ID is stored privately, only the store owner sees it, and it's deleted when the retention period ends.» Medición que lo cierra: la configuración de cifrado del bucket en Cloudflare (devops) |
+| **N-3** | orquestador | Zonas compartidas que toca el lote 1: `frontend/src/components/domain/` (`AuthForm`, `BuylistKycForm`, `account/KycSection`) y `messages/*.json`. Un solo stream a la vez |
