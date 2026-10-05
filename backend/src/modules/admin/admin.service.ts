@@ -1764,7 +1764,12 @@ export class AdminService {
     // una señal para un humano —«estos N envíos no tienen costo: revísalos»—, ⛔ no una afirmación
     // fiscal.* Un cero silencioso convierte el ingreso de ese envío en **ganancia fantasma**.
     let shippingCostMissingCount = 0;
-    // 💰 D2f (§19.11): el seguro del periodo, INFORMATIVO (ya va dentro del bruto de `shippingCostCents`; ⛔ no se resta aparte).
+    // 💰 D2f (§19.11): el seguro del periodo, INFORMATIVO (⛔ no se resta aparte: ya va DENTRO de `shippingCostCents`, que
+    // aquí es NETO). Por qué el neto lo contiene entero (techlead NT1-a sobre 7d930c4e): al capturar,
+    // `label-purchase.service.ts` `costOf` congela `shippingCostCents = totalCents + insuranceCostCents` y el IVA sale de
+    // `rate.breakdown.ivaCents` o de 16/116 sobre `totalCents − serviceFeeCents` — ⛔ nunca sobre el seguro. El seguro va
+    // SIN línea de IVA (§19.19.11), así que en `netShippingCostCents` su neto = su bruto. ⚠️ NO MEDIDO si Skydropx cobra IVA
+    // sobre la protección: depende de PS-SBX-4; si lo cobra, cambia la captura (no este sumador).
     let shippingInsuranceCents = 0;
     for (const s of shipments) {
       // v1.64 (§4.44.j, sitio 2): neteado por la convención de ESTA `ShipmentRequest`. En el retiro

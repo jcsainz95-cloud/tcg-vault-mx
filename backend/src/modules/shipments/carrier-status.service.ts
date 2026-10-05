@@ -25,6 +25,7 @@ import { ShipmentPrepService } from './shipment-prep.service';
 import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
 import { CARRIER_NOTICES, CarrierNotice, CarrierNoticePort } from './carrier-notices';
 import { asRate } from './label-view';
+import { safeErrorTag } from './guest-mail-link';
 
 type Tx = Prisma.TransactionClient;
 const TX = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -317,7 +318,8 @@ export class ShipmentCarrierService {
           providerEventKey: event.providerEventKey,
         });
       } catch (e) {
-        this.logger.error(`carrier_notice_failed shipmentId=${shipmentId} notice=${notice}: ${e instanceof Error ? e.message : String(e)}`);
+        // ⛔ Nunca `e.message` (QA M-1 sobre 7d930c4e, como D-8): el aviso arma el enlace con token del correo.
+        this.logger.error(`carrier_notice_failed shipmentId=${shipmentId} notice=${notice} (${safeErrorTag(e)})`);
       }
     }
     return res;

@@ -5,7 +5,7 @@
  *
  *  - Mapeo FIJO: `created→label_created`, `picked_up|in_transit→in_transit`, `last_mile→out_for_delivery`,
  *    `delivery_attempt→delivery_attempt`, `delivered_to_branch→at_branch` (+ `branchName?`), `delivered→delivered`;
- *    `shipped` = `shippedAt`. `exception|retained|in_return|destroyed|canceled` ⇒ NO aparecen (criterio 242, por ausencia).
+ *    `shipped` = `shippedAt` acotado por el primer movimiento (regla B-6, abajo). `exception|retained|in_return|destroyed|canceled` ⇒ NO aparecen (criterio 242, por ausencia).
  *  - ⛔ Sin `detail`, sin códigos de Skydropx, sin `providerShipmentId`, sin actores: lista BLANCA de claves (`kind`, `at`, y
  *    `branchName` solo en `at_branch` y solo si vino).
  *  - Guía manual (o sin guía de Skydropx) ⇒ solo lo derivado de las fechas (`shipped`, `delivered`), como hoy.
@@ -83,35 +83,31 @@ export function toCustomerTimeline(events: readonly TimelineEventRow[], shipment
   const out: { e: CustomerTimelineEntry; t: number; i: number }[] = [];
   const push = (e: CustomerTimelineEntry, t: number) => out.push({ e, t, i: out.length });
   const fromProvider = shipment.labelSource === 'skydropx' && !!shipment.providerShipmentId;
+  // Los eventos de la guía VIGENTE, filtrados UNA vez para los dos usos (techlead B6-1): la cota de «Salió» y la línea.
+  const current = fromProvider ? events.filter((ev) => ev.providerShipmentId === shipment.providerShipmentId) : [];
   if (shipment.shippedAt) {
     // ⭐ v1.80.12.17 (§19.36.2 (2), B-6): «Salió» se FECHA con la cota que da el propio dato — a más tardar el primer
     // movimiento del transportista en la guía vigente. ⛔ `shippedAt` en BD no cambia; sin movimientos (o guía manual) ⇒ igual.
     let t = shipment.shippedAt.getTime();
-    if (fromProvider) {
-      for (const ev of events) {
-        if (ev.providerShipmentId !== shipment.providerShipmentId) continue;
-        const kind = KIND_OF[ev.status];
-        if (kind && MOVEMENT_KINDS.has(kind)) t = Math.min(t, ev.occurredAt.getTime());
-      }
+    for (const ev of current) {
+      const kind = KIND_OF[ev.status];
+      if (kind && MOVEMENT_KINDS.has(kind)) t = Math.min(t, ev.occurredAt.getTime());
     }
     // Empuja PRIMERO: en un empate con ese movimiento, `shipped` va antes (el desempate de siempre, `i`).
     push({ kind: 'shipped', at: new Date(t).toISOString() }, t);
   }
   let delivered = false;
-  if (fromProvider) {
-    for (const ev of events) {
-      if (ev.providerShipmentId !== shipment.providerShipmentId) continue;
-      const kind = KIND_OF[ev.status];
-      if (!kind) continue;
-      if (kind === 'delivered') {
-        if (delivered) continue; // ⛔ nunca dos: manda el primero (orden `occurredAt, observedAt`)
-        delivered = true;
-      }
-      const entry: CustomerTimelineEntry = { kind, at: ev.occurredAt.toISOString() };
-      const branch = ev.branchName?.trim();
-      if (kind === 'at_branch' && branch) entry.branchName = branch;
-      push(entry, ev.occurredAt.getTime());
+  for (const ev of current) {
+    const kind = KIND_OF[ev.status];
+    if (!kind) continue;
+    if (kind === 'delivered') {
+      if (delivered) continue; // ⛔ nunca dos: manda el primero (orden `occurredAt, observedAt`)
+      delivered = true;
     }
+    const entry: CustomerTimelineEntry = { kind, at: ev.occurredAt.toISOString() };
+    const branch = ev.branchName?.trim();
+    if (kind === 'at_branch' && branch) entry.branchName = branch;
+    push(entry, ev.occurredAt.getTime());
   }
   if (!delivered && shipment.deliveredAt) {
     push({ kind: 'delivered', at: shipment.deliveredAt.toISOString() }, shipment.deliveredAt.getTime());

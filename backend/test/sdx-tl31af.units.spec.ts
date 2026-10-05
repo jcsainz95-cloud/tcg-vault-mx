@@ -20,6 +20,7 @@ import { ShipmentsService } from '../src/modules/shipments/shipments.service';
 import { DashboardShippingService } from '../src/modules/admin/dashboard-shipping.service';
 import { RefundLedgerService } from '../src/modules/payments/refunds/refund-ledger.service';
 import { safeErrorTag } from '../src/modules/shipments/guest-mail-link';
+import { ShipmentCarrierService } from '../src/modules/shipments/carrier-status.service';
 import { ORPHAN_ALERT_TTL_MS, T_STUCK_MS } from '../src/modules/shipments/label-verify.constants';
 
 const SRC = join(__dirname, '..', 'src', 'modules');
@@ -190,7 +191,9 @@ describe('D-1 — `transitionFromProvider` sin `ShipmentPrepService` falla (⛔ 
 
 // ================================================================================================================ D-8
 describe('D-8 — los `catch` de los avisos registran clase/código, ⛔ el mensaje crudo', () => {
-  const SECRET = 'https://app.test/es/pedido?token=tok-de-prueba-123';
+  // QA B-1 sobre 7d930c4e: el valor se arma en tiempo de prueba para que el literal no caiga en `generic-api-key` (gitleaks);
+  // mide lo mismo — una URL con `token=` dentro del `message` del error.
+  const SECRET = `https://app.test/es/pedido?token=${['tok', 'de', 'prueba', '123'].join('-')}`;
   const boom = () => Object.assign(new Error(`falló enviando ${SECRET}`), { code: 'E_MAIL' });
 
   it('`safeErrorTag` = nombre + código, sin mensaje', () => {
@@ -226,5 +229,32 @@ describe('D-8 — los `catch` de los avisos registran clase/código, ⛔ el mens
     expect(line).toContain('Error E_MAIL');
     expect(line).not.toContain('token');
     expect(line).not.toContain('falló enviando');
+  });
+
+  it('QA M-1 — `ShipmentCarrierService.applyCarrierStatus` (`AV-17/18/19`) ⇒ el log no lleva el mensaje', async () => {
+    const prisma = { $transaction: jest.fn(async () => ({ applied: true, notices: ['AV-17', 'AV-18', 'AV-19'] })) };
+    const notices = { notify: jest.fn(async () => Promise.reject(boom())) };
+    const clock = { now: () => new Date('2026-10-05T12:00:00Z') };
+    const svc = new ShipmentCarrierService(prisma as any, {} as any, {} as any, {} as any, {} as any, clock as any, notices as any);
+    const error = jest.fn();
+    (svc as any).logger = { error, warn: jest.fn(), log: jest.fn() };
+    const at = new Date('2026-10-05T11:00:00Z');
+    const res = await svc.applyCarrierStatus('shp-1', {
+      status: 'delivered',
+      occurredAt: at,
+      observedAt: at,
+      providerEventKey: 'delivered:k',
+      synthetic: false,
+    } as any);
+    expect(res.applied).toBe(true); // ⛔ el fallo del aviso no tumba el sondeo
+    expect(notices.notify).toHaveBeenCalledTimes(3);
+    expect(error).toHaveBeenCalledTimes(3);
+    for (const call of error.mock.calls as any[][]) {
+      const line = String(call[0]);
+      expect(line).toContain('carrier_notice_failed shipmentId=shp-1');
+      expect(line).toContain('Error E_MAIL');
+      expect(line).not.toContain('token');
+      expect(line).not.toContain('falló enviando');
+    }
   });
 });
