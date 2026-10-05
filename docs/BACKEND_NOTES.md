@@ -27924,6 +27924,7 @@ PS-117), solo el doble.
   | Unitaria (`npx jest`) | `473e8eb7` | **406/406 suites · 7047/7047** |
   | Integración (`stack-native.sh test:integration`, pool 5) | `473e8eb7` | **89/90 suites · 1844/1845**. La roja es la **esperada**: `C-EQ-1` (`enum-query-axes.e2e-spec.ts`, «DESCUBRIMIENTO») nombra `GET /admin/shipments/departure::date` — hasta la costura **C2** (§19.32.9: el fichero es de D2g en esta fase). Carga 4–16 (4 CPU, otro agente vivo); ninguna roja por timeout |
   | Unitarias de D2d/D2c/Skydropx/jobs + integración `sdx-d2*` y `C-EQ-1` | `be2de724` | 23/23 · 588/588; 15/16 · 727/728 (la misma roja esperada de `C-EQ-1`) |
+  | **Árbol combinado D2d + D2g** (unitaria e integración completas) | `f7b4eebd` | **407/407 · 7095/7095**; **93/94 · 1922/1923** — la única roja, la ESPERADA de `C-EQ-1` (`departure::date`); PS-72 y PS-77 10/10 otra vez (60/60 y 50/50 en total) |
   | `tsc --noEmit`, `eslint` de los ficheros tocados | `be2de724` | 0 errores, 0 avisos |
 
 ### 64.4 Mutaciones
