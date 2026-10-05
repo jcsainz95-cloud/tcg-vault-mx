@@ -4,7 +4,7 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.25 (2026-10-05) — ERRATA v1.80.12.17, U-3 (§43.23 NUEVA; `API_CONTRACT §M4-SHIP.19.36.1` y fila U-3 de
+> Estado: **v4.26 (2026-10-05) — NT2-b:** patrón P66-3 con y sin guion `\b(M-?1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b` (regla igual); §43.11 fija el orden de «Movimientos». Anterior: **v4.25 (2026-10-05) — ERRATA v1.80.12.17, U-3 (§43.23 NUEVA; `API_CONTRACT §M4-SHIP.19.36.1` y fila U-3 de
 > §19.36.4; forma del P&L en §M10-IVA.8; criterio 238; ux-ui sin Bash, sha NO MEDIDO por mí):** el estado de resultados de
 > «Finanzas» pinta **ocho renglones con signo** (gana «Reembolsos», «Comisión de plataforma devuelta» y «Compensaciones por
 > carta perdida», siempre visibles aunque valgan cero), dos **sub-renglones «Incluye…»** bajo «Costo de envío» («ajustes de
@@ -19877,7 +19877,8 @@ Medido en `es.json` (2026-09-28; `en.json` en las mismas claves — frontend cot
 Ejemplos: «Se enciende y se apaga en M10 · Config.» → «Se enciende y se apaga en «Configuración».» · «…viven ahora en
 M11 · Sellado.» → «…viven ahora en «Sellado».» · «…entra a reposición (M7).» → «…entra a reposición («Finanzas»).» ·
 «…en M2 · Precios › Capturar estimado a mano.» → «…en «Catálogo y precios» › Capturar estimado a mano.»
-**Comprobación barata:** `grep -nE '\bM1?[0-9]\b' frontend/messages/{es,en}.json` = **0** tras el pase.
+**Comprobación barata:** `grep -nE '\bM-?1?[0-9]\b' frontend/messages/{es,en}.json` = **0** tras el pase (con y sin
+guion: «M3» y «M-3» cuentan igual; v4.26).
 
 #### (d) «Beta cerrada» y las metas N/X/Y/Z en M9 (el texto que el dueño pidió corregir)
 
@@ -19904,7 +19905,9 @@ M9 (P-67).
 - **P66-1** ningún rótulo de `admin.modules.*` casa con `/^M\d/`.
 - **P66-2** para cada entrada del menú, el `h1` de su página es igual a `t('admin.modules.<key>')` (una prueba por
   ruta; mutación: volver a «M3 · Ventas / órdenes» ⇒ rojo).
-- **P66-3** el `grep` de (c) da 0 en `es.json` y en `en.json`.
+- **P66-3** el `grep` de (c) da 0 en `es.json` y en `en.json`. Desde §43 (v4.26) el patrón de las claves nuevas es
+  `\b(M-?1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b` (códigos de módulo con o sin guion, y de alerta/aviso); la prosa «M-n» de este
+  documento nombra **ambas** grafías. Si frontend lo saca a un patrón único (`P66_3_CODE_RE`), es este.
 
 ---
 
@@ -20037,7 +20040,7 @@ distintas, **manda esta tabla**; el texto superado se deja tachado o señalado e
 | # | Punto | Regla vigente | Superado | Fuente |
 |---|---|---|---|---|
 | **C1** | Rótulo de M4 en el menú (`admin.modules.m4`) | **«Pedidos por preparar» / “Orders to prepare”**, **sin** «M4 ·» delante. El `<h1>` de `/admin/m4` es **el mismo texto** (§38.2 regla 2), y así la tarjeta del tablero, las migas y el `<title>` | «M4 · Pedidos por preparar» / “M4 · Orders to prepare” (§37.1, §37.2 y §37.16 de esta sección) · «Preparar y enviar» / “Pick & ship” (§38.2) | `HECHOS.md` 2026-09-29 «La sección M4 del panel se llama «Pedidos por preparar»…», (a) «Menú y título de página: «Pedidos por preparar» / en: «Orders to prepare»» · §38.2 (a) regla 1: el código M-n no se ve en el menú |
-| **C2** | Códigos «M-n» dentro de los copys nuevos de esta sección | Se aplica el barrido de §38.2 (c) **en el mismo pase**: el código pasa al nombre del menú de §38.2 (b), entre comillas latinas. **M3 → «Ventas» / “Sales”**; **M10 → «Configuración» / “Settings”**. Ej.: «Lo atiende el súper-admin en Pedidos (M3).» → **«Lo atiende el súper-admin en «Ventas».»** · «…el súper-admin resuelve ese pedido en M3.» → **«…en «Ventas».»** · «…sube el límite en Ajustes (M10)…» → **«…en «Configuración»…»**; EN “in Orders (M3)” → **“in “Sales””**, “in Settings (M10)” → **“in “Settings””**. Vale para §37.3c, §37.4, §37.8c/d, §37.9 y las filas equivalentes de §37.16. Las menciones «M3»/«M4» del **texto de diseño** (no de copy) se quedan: nombran el módulo para quien implementa | los literales con «(M3)», «en M3», «(M10)» y «M3 · Órdenes» de esta sección | §38.2 (c) y su candado **P66-3** (`grep -nE '\bM1?[0-9]\b'` = 0 en `es.json`/`en.json`), que los literales de §37 pondrían en rojo. `HECHOS.md` no decide este punto |
+| **C2** | Códigos «M-n» dentro de los copys nuevos de esta sección | Se aplica el barrido de §38.2 (c) **en el mismo pase**: el código pasa al nombre del menú de §38.2 (b), entre comillas latinas. **M3 → «Ventas» / “Sales”**; **M10 → «Configuración» / “Settings”**. Ej.: «Lo atiende el súper-admin en Pedidos (M3).» → **«Lo atiende el súper-admin en «Ventas».»** · «…el súper-admin resuelve ese pedido en M3.» → **«…en «Ventas».»** · «…sube el límite en Ajustes (M10)…» → **«…en «Configuración»…»**; EN “in Orders (M3)” → **“in “Sales””**, “in Settings (M10)” → **“in “Settings””**. Vale para §37.3c, §37.4, §37.8c/d, §37.9 y las filas equivalentes de §37.16. Las menciones «M3»/«M4» del **texto de diseño** (no de copy) se quedan: nombran el módulo para quien implementa | los literales con «(M3)», «en M3», «(M10)» y «M3 · Órdenes» de esta sección | §38.2 (c) y su candado **P66-3** (`grep -nE '\bM-?1?[0-9]\b'` = 0 en `es.json`/`en.json`), que los literales de §37 pondrían en rojo. `HECHOS.md` no decide este punto |
 | ~~**C3**~~ | ~~Sitio en el menú de «Reembolsos manuales (SPEI)» (`admin.modules.manualRefunds`) y «Reembolsos de operadores» (`admin.modules.refunds`)~~ | **RETIRADA (v4.10, 2026-10-02).** ~~Grupo «Administración», tras «Finanzas», SÚPER — consolidación de ux-ui, a confirmar.~~ El dueño decidió: **el menú se queda como está** (grupo «Día a día», justo tras «Ventas») y las dos entradas se **juntan en una**, «Reembolsos» / “Refunds”, con dos cubetas dentro ⇒ **§37.20** | la propuesta C3 entera (mover a «Administración») | `HECHOS.md` 2026-10-02 «Menú del panel: se queda como está; «Reembolsos manuales (SPEI)» y «Reembolsos de operadores» se JUNTAN en UNA sola pestaña con dos cubetas», (a) «se descarta mover la cubeta SPEI a «Administración»». Cierra `TECH_DEBT` **RS5-UX-Q1** |
 | **C4** | Numeración | Esta sección **conserva §37**; la del paquete pasa a **§38** (se cita «§38.1–§38.3»). Sin cambio de contenido | «§37.1–§37.3» para P-61/P-66/P-71 | orden de fusión; esta sección tiene muchas más citas vivas en el documento y en `frontend/` |
 
@@ -23896,6 +23899,10 @@ En las **cuatro** superficies (registrado `OrderShipmentBlock`, invitado `Public
 - **Movimientos** (`timeline`, solo si tiene ≥ 1 elemento): bajo el `PipelineStepper`, lista con encabezado `eyebrow`
   **«Movimientos»** / “Tracking updates”, una línea por evento, el más reciente arriba: **«{rótulo} · {fecha y hora}»**.
   ⛔ El título del estado **no cambia** (sigue `publicStatus`).
+- **Orden, explícito (v4.26):** de la más reciente a la más vieja, también en la vista del invitado; con fecha y hora
+  **empatadas**, «En camino» se pinta **arriba** de «Salió» (orden lógico: la API entrega `shipped` antes que
+  `in_transit` en el empate y la pantalla invierte). Medido en pantalla por QA en el re-pase sobre `7d930c4e` (N=2), de
+  arriba abajo: «En sucursal · En camino · Salió · Guía creada»; este documento lo ratifica, ux-ui no lo midió.
 
 | `kind` | ES | EN |
 |---|---|---|
@@ -24230,7 +24237,7 @@ reescribir la cabecera `:41-44`; `ShipmentNoticeParams` (`:62-75`) gana `carrier
 | **UX-SDX-11** ⭐💰 (SK5, *v4.16*) | (a) `200 {outcome:'in_flight'}` ⇒ «Compra sin confirmar»; (b) `503`/`500`/error de red en `POST …/label` con la relectura devolviendo `labelPending.state='in_flight'` ⇒ el mismo texto; (c) ídem con la relectura **fallando** ⇒ el mismo texto; en (a)(b)(c) **cero** botones «Comprar guía» y **cero** «Capturar a mano», y N ≥ 10 clics simulados ⇒ **1** llamada a `POST …/label`; (d) `503` con relectura `labelPending:null, label:null` ⇒ «no se compró nada» y el botón vuelve, pero **0** llamadas nuevas sin un clic | Decidir por el status (tratar el 503 como «no se compró nada» sin releer); con la relectura fallida, repintar el botón |
 | **UX-SDX-12** | Los errores se eligen por `error.code`: un `409` con `code:'SHIPPING_INSUFFICIENT_BALANCE'` y otro con `code:'QUOTE_EXPIRED'` dan textos distintos; un `502` con `reason:'edge_blocked'` no ofrece «Volver a cotizar» | Ramificar por `status` |
 | **UX-SDX-13** = PS-101 (f) | `outcome:'labeled'` ⇒ número + «Imprimir etiqueta»; `processing` ⇒ «Guía en proceso» y relectura cada 5 s (reloj falso) que se detiene a los 2 min; `trackingUrl:null` ⇒ ningún enlace de rastreo | Enlace construido con la guía |
-| **UX-SDX-14** | Paridad: cada clave de §43.13 existe en `es` y `en`; `grep -nE '\bM1?[0-9]\b'` sobre las claves nuevas ⇒ 0 (P66-3) | Borrar una en `en.json` |
+| **UX-SDX-14** | Paridad: cada clave de §43.13 existe en `es` y `en`; `grep -nE '\b(M-?1?[0-9]\|AG-[0-9]+\|AV-[0-9]+)\b'` sobre las claves nuevas ⇒ 0 (P66-3; v4.26: con y sin guion) | Borrar una en `en.json`; meter «M-3» en una clave |
 | **UX-SDX-15** | Cliente: `trackingUrl` presente ⇒ un `a[target=_blank][rel~=noopener]` con «Rastrear en la paquetería»; ausente ⇒ cero enlaces externos en la sección; `timeline` con `exception` **no** puede llegar (el DTO no lo trae) y los siete `kind` tienen rótulo | Construir la URL; rótulo crudo |
 | **UX-SDX-16** *(v4.16)* | «Liberar» está en el DOM ⇔ `labelAlert.kind='label_unknown' ∧ canRelease=true`; con `canRelease=false` **no** está (ni apagado) y aparece «Solo el dueño puede liberarla: avísale.»; se prueba con la sesión de **súper-admin** y `canRelease:false` (el rol no decide) | Decidir por el rol de la sesión; pintarlo apagado |
 | **UX-SDX-17** | `ShippingSection`: pasar a `operators` abre el diálogo y **no** manda `PUT` hasta confirmar; escalones no crecientes ⇒ error bajo la fila y cero `PUT` | Guardar sin confirmar |
@@ -26253,7 +26260,7 @@ el CTA va a **nuestra** página, y la paquetería en **letra chica** con la URL 
 
 | # | Fichero:línea | Cambio | § |
 |---|---|---|---|
-| FS-63 | `messages/es.json` y `en.json`: dentro de `admin.dashboard` (tras `spendControl`, `:1375-1383`) + objeto `shippingAlerts` con `title`, `alerts`, `alertsCarrierOnly`, `none`, `overlap`, `processing`, `lowBalance`, `seeBalance`; junto a `admin.m4.folioFilter*` (`:2768-2769`) + `alertFilter`, `alertFilterRemove` | Paridad `i18n-parity`; `grep -nE '\b(M1?[0-9]\|AG-[0-9]+\|AV-[0-9]+)\b'` sobre las claves nuevas ⇒ 0 (P66-3) | 43.22.2, .4 |
+| FS-63 | `messages/es.json` y `en.json`: dentro de `admin.dashboard` (tras `spendControl`, `:1375-1383`) + objeto `shippingAlerts` con `title`, `alerts`, `alertsCarrierOnly`, `none`, `overlap`, `processing`, `lowBalance`, `seeBalance`; junto a `admin.m4.folioFilter*` (`:2768-2769`) + `alertFilter`, `alertFilterRemove` | Paridad `i18n-parity`; `grep -nE '\b(M-?1?[0-9]\|AG-[0-9]+\|AV-[0-9]+)\b'` sobre las claves nuevas ⇒ 0 (P66-3; v4.26: con y sin guion) | 43.22.2, .4 |
 | FS-64 | `(admin)/admin/AdminDashboard.tsx` tras `:226` | `ShippingAlertsCard` (componente propio, como `SpendControlCard`) con `workQueue.shipping` presente; mismo contenido para los dos roles; «Ver el saldo» con `isSuperAdmin`. Depende de F-1 (tipo) | 43.22.1–.3 |
 | FS-65 | `m4/page.tsx:8` y `M4View` → `ShipmentsQueue` | Leer `alert` de `searchParams` (solo `'true'` activa) y pasarlo como estado inicial, como `folio` | 43.22.4 |
 | FS-66 | `lib/api.ts:1640-1646` (+ `AdminShipmentsFilters`) y `ShipmentsQueue.tsx:89-93`, `:175-182` | `alert?: boolean` ⇒ `query.alert = 'true'` (y en el `queryKey`); línea del filtro con ✕ como la de folio; el MSW/mock filtra por `carrierAlert ≠ null ∨ labelAlert ≠ null` | 43.22.4 |
@@ -26448,7 +26455,7 @@ Las claves nuevas no chocan con las existentes (`title`, `formula`, `income`, `s
 
 | # | Fichero:línea | Cambio | § |
 |---|---|---|---|
-| FS-68 | `messages/es.json:4715-4725` y `en.json:4715-4725` (`admin.m7.pnl`) | Nuevo valor de `formula`; + `refunds`, `refundedFees`, `compensations`, `shippingAdjustments`, `shippingInsurance`, `signAdds`, `signSubtracts`. Paridad `i18n-parity`; `grep -nE '\b(M1?[0-9]\|AG-[0-9]+\|AV-[0-9]+)\b'` sobre las claves nuevas y `formula` ⇒ 0 (P66-3) | 43.23.3 |
+| FS-68 | `messages/es.json:4715-4725` y `en.json:4715-4725` (`admin.m7.pnl`) | Nuevo valor de `formula`; + `refunds`, `refundedFees`, `compensations`, `shippingAdjustments`, `shippingInsurance`, `signAdds`, `signSubtracts`. Paridad `i18n-parity`; `grep -nE '\b(M-?1?[0-9]\|AG-[0-9]+\|AV-[0-9]+)\b'` sobre las claves nuevas y `formula` ⇒ 0 (P66-3; v4.26: con y sin guion, así el canario «M-1» de UX-PNL-6 muerde) | 43.23.3 |
 | FS-69 | `(admin)/admin/m7/M7View.tsx:30-41` (`PnlLine`) | Texto `sr-only` del signo (`signAdds`/`signSubtracts`); variante o componente hermano para el sub-renglón «Incluye…» (sin signo, `pl-6`, `text-xs`, monto `text-muted font-normal`) | 43.23.2, .4 |
 | FS-70 | `(admin)/admin/m7/M7View.tsx:103-109` | Tres renglones `−` nuevos tras «Costo de envío»; los dos «Incluye…» bajo «Costo de envío», cada uno con `> 0` como condición (⛔ no `??`, ⛔ no truthy de algo que pueda ser `undefined` y pintar «MX$NaN»); padre + sub-renglones en un solo hijo del `divide-y`. La ganancia sigue leyendo `profitCents`. Depende de F-3 (tipo `PnlDTO` y `mockPnl`) | 43.23.1 |
 
