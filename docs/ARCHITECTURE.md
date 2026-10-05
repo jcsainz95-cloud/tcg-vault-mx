@@ -26,6 +26,7 @@
 > | **v1.80.9** | Feature (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; `HECHOS.md` «Usuarios de back-office SIN correo…» (a)(b)(c) + default del orquestador; `PROJECT §U`, criterios 256–270, P-STF-1…8 con su default). `User.email` opcional; `User.username` (`@unique`, canónico en minúsculas) y `User.lockNoticeAt`; **5 CHECK** (email XOR usuario; cliente ⇒ correo; forma del usuario; sin correo ⇒ no verificado; aviso solo sin correo). **Mismo `POST /auth/login`, misma llave `email`** = identificador (`@` ⇒ correo, si no ⇒ usuario); misma clave C7 para correos; cero enumeración. Alta de staff **sin** correo (staff con correo ⇒ `422`), `409 USERNAME_TAKEN`, `mustChangePassword` siempre; aviso de candado en el panel; `lockedUntil` en Usuarios leído del almacén; `403 ACCOUNT_WITHOUT_EMAIL`; denegación auditada a `vault_operator`. **Migración `M-STF` (número NO asignado).** Stream posterior a `precios-s5`. Norma: `API_CONTRACT` rev v1.80.9, §M6-U | §4.58, §11 `M-STF`, §9 `D-STF-1`/`D-STF-2` | **Sí** (backend + frontend + textos ux-ui) · 🔒 seguridad |
 > | **v1.80.9.1** | Errata (2026-10-04, rama `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`, ⛔ sha NO MEDIDO por el arquitecto; cierra C-1 del techlead; origen `BACKEND_NOTES §55` (errata de 55.2.1 en §56.3), `DESIGN_SYSTEM §42.10 A-1`, decisión del dueño sobre TD-4). Aceptados tal cual: **D-1** (rama `@` = `isEmail` de hoy), **D-2** (anonimización anula también `lockNoticeAt`), **D-3** (`M-63`, `20261005120000_m63_staff_username`), **D-5** (`rule:'customer_without_username'`, `field` en todo `422` del alta). **Cambian:** **D-4** el resiliente degradado/Redis sin contestar ⇒ `peekLockMs` lanza `LoginAttemptStoreUnavailableError` sin `markDown` ⇒ `lockState:'unavailable'`; **A-1** `lockState` en la ficha; **TD-9** sin servicio ⇒ lanza, y solo la clase del almacén ⇒ `'unavailable'`; **TD-4** reset desde Usuarios a cualquier rol (normado + STF-36), script con `ADMIN_USERNAME` y `emailVerified` solo con correo; ⛔ no se prohíbe el súper-admin sin correo. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` §M6-U.11 | §4.58.5, §4.58.9, §11 `M-63` | **Sí** (backend; frontend: `lockState` de la ficha) · 🔒 seguridad |
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
+> | **v1.84** | 🔒💰 Plan (2026-10-05, rama `claude/listo-real` desde `production` = `3e09685a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **Listo para dinero real:** cierra las condiciones «antes de `sk_live_`» de `SECURITY_NOTES.md:14048-14050` — C1 `qs`, S5-1 (claim `sat`, tope 30 d cliente / 7 d staff), SEC-HDR-2 (CSP con nonce, Report-Only primero), TD-4 ⟨orders⟩ (CAS `pending → failed`), C2 (lectura fresca del cargo en Stripe en la cubeta SPEI en vez de la lista de códigos; también detecta pedidos pagados **en modo prueba**), DAST `full` previo, C6 (medición) — más MSH-1, salud con `stripeMode`, telemetría CSP/errores sin cuenta nueva, `/privacidad`, respaldos con simulacro, censo y limpieza de datos de prueba, guion de cobro de punta a punta y guía del cambio de claves. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.84, §14 | §4.63 | **Sí** (backend `auth`, `orders` 💰, `payments` 💰, `shipments` 💰, `health`; frontend; devops) · 🔒 seguridad |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27218,6 +27219,159 @@ anclada a orden y línea, `userId` opcional) ⇒ no entra en una errata. `D-DSP-
   conceptos y cambia la cara de una tabla de dinero.
 - **Un endpoint nuevo `POST /orders/:id/disputes`:** dos puertas para la misma fila; la regla de ventana, tipo y `NOT_RAW`
   se duplicaría. La vía B entra por la misma puerta.
+
+---
+
+### 4.63 LISTO PARA DINERO REAL — cerrar lo que solo importa cuando el dinero es de verdad (v1.84, 2026-10-05, NORMATIVO, 🔒💰 **DINERO**)
+
+Norma: `API_CONTRACT §14` (LIVE-1…LIVE-16). Aquí, el porqué y lo descartado. Leído por el arquitecto el 2026-10-05 en
+`/home/user/tcg-real` (⛔ sha NO MEDIDO por él: sin Bash). Ramas vivas leídas solo por `Grep`/`Glob` (no por `diff`).
+
+#### 4.63.1 Qué cambia al pasar a `sk_live_`, y qué no
+
+El código no distingue hoy entre dinero de prueba y dinero real: lo único que cambia es una clave. Por eso el riesgo
+no está en «construir el modo real», sino en tres cosas que en modo prueba no costaban nada:
+1. **Huecos de seguridad aceptados «hasta `sk_live_`»** (`SECURITY_NOTES.md:14048-14050`): con dinero real, una sesión
+   robada de súper-admin mueve dinero (S5-1), y una carrera de `failed` puede acabar en reembolso **y** entrega (TD-4).
+2. **Datos de prueba en la base de producción.** Todo pedido pagado hasta hoy es de prueba (`HECHOS.md:16`, `:87-90`).
+   Después del cambio, sus PaymentIntents **no existen** para la clave live. Un reembolso fallaría en Stripe y la cubeta
+   SPEI (`manual-refund.service.ts:560-591`) lo podría convertir en una transferencia real. ⇒ LIVE-14 (limpiar antes)
+   y LIVE-5 (el sistema lo detecta solo).
+3. **Lo que nadie ha medido en la tienda publicada:** un cobro de punta a punta, los correos y los webhooks live ⇒
+   LIVE-15.
+
+#### 4.63.2 S5-1 — por qué un claim y no una tabla de sesiones
+- **Elegido:** `sat` (inicio de sesión) en el refresh, comparado contra un tope por rol. Sin estado, sin migración, y
+  **no reabre** la decisión del dueño de no tener cierre por dispositivo (`auth.service.ts:117-128`; `SECURITY_NOTES.md:13932`).
+- **Topes:** 30 d para clientes = el `JWT_REFRESH_TTL` de hoy (`DEVOPS_NOTES.md:768`): un cliente que entra a diario no
+  nota nada salvo que, al mes del login, vuelve a escribir su contraseña. 7 d para staff: el súper-admin mueve dinero
+  (`@MoneyOut`); el tope acota el robo de un refresh a una semana. El dueño puede pedir otro número (P-6).
+- **Constantes, no dial:** un tope de seguridad que se afloja desde el panel lo afloja también quien robe esa sesión.
+- **Descartado:** tabla de sesiones / familias de refresh con detección de reúso (necesita estado y toca la decisión del
+  dueño; seguridad lo deja como opción, `:13945`); acortar `JWT_REFRESH_TTL` para todos (castiga al cliente y no pone
+  tope: la cadena seguiría renovándose).
+
+#### 4.63.3 SEC-HDR-2 — CSP con nonce, y su coste
+- **Por qué nonce:** los tokens viven en `localStorage` (`api-client.ts:36-42`); la CSP es la segunda barrera ante un XSS.
+  Next inyecta `<script>` en línea con datos de cada página: un hash por script es inviable, y `'unsafe-inline'` en
+  `script-src` anula la barrera.
+- **Coste:** con nonce, la página se genera por petición. Hoy el árbol puede prerenderizar por idioma
+  (`[locale]/layout.tsx:57`). Choca potencialmente con `HECHOS.md:49` (home < 1 s), por eso la norma exige medir el
+  TTFB (N = 10, antes/después) y fija el umbral.
+- **Si la medición falla:** queda en vigor la CSP **sin nonce** —todas las directivas de la norma salvo
+  `script-src 'self' 'unsafe-inline' https://js.stripe.com https://accounts.google.com`—. Ya cierra la mitad (a) de
+  `SECURITY_NOTES.md:13034` (objetos, base, formularios, `connect-src` restringido), pero **no** la (b). Esa decisión
+  vuelve a **seguridad** y al dueño, porque S5-1 la cuenta como condición. ⛔ No la toma frontend solo.
+- **Report-Only primero:** es la única forma de descubrir orígenes que el código no declara (la subida de la INE a R2,
+  lo que Stripe.js pida en 3DS) sin romper el pago. Se publica mientras la tienda sigue en modo prueba, así que una
+  violación no cuesta una venta.
+- **Fase por constante en código, no por variable de Vercel:** es un paso menos para el dueño, y queda en el diff.
+
+#### 4.63.4 C2 — preguntar a Stripe en vez de adivinar el código
+- **Hoy:** la cubeta SPEI no convierte un reembolso fallido si la orden ya no está `settled` **o** si el `failureCode`
+  está en una lista que nadie midió (`replacement-case.rules.ts:16-20`). El aviso del contracargo puede llegar
+  después del rechazo, y la lista puede no tener el código real. En los dos casos el resultado sería pagar por SPEI un
+  cargo que el banco ya está devolviendo.
+- **Elegido:** una lectura del PaymentIntent con su cargo justo antes de la decisión (`chargeState`). Cubre las dos
+  causas a la vez (`disputed` y `resource_missing` = pedido de otro modo) y no depende de ningún código. Va **fuera** de
+  la transacción para no alargar candados (lección I3, `stripe.service.ts:138-149`).
+- **Dónde:** en `to-manual` bloquea, porque aún no ha salido dinero. En `reveal-clabe` solo avisa: es el último momento
+  **antes** de que el dueño transfiera desde su banco. En `paid` pide confirmación: el dinero ya salió y bloquear el
+  registro escondería el hecho.
+- **Descartado:** (a) medir la lista y quedarse con ella: sigue sin cubrir el retraso del webhook. (b) Una columna
+  `Order.stripeLivemode`: es schema y migración para lo que una lectura ya resuelve. (c) Una variable
+  `STRIPE_LIVE_SINCE` con la fecha del cambio: es un paso más para el dueño, y si se olvida, falla en silencio.
+- **Contracargo, el resto:** sin cambio (`HECHOS.md:44`). La evidencia la presenta el dueño en el panel de Stripe; el
+  contracargo **no** pasa por la tienda.
+
+#### 4.63.5 C6 — es una medición, no una configuración
+La condición pregunta si el borde de Railway deja al cliente **elegir** su IP vía `X-Forwarded-For`. Con
+`trust proxy = 1` (`main.ts:41`, `trust-proxy.ts`), el contador por IP confía en la **última** entrada. La sonda ya
+existe y se niega a correr sin ventana (`scripts/edge-xff-probe.sh`; `DEVOPS_NOTES.md:11283-11293`). Hacen falta
+**el permiso del dueño** (pega a producción: 6 logins fallidos con un correo inexistente, sin efecto de lado) y
+**devops**. El dueño no tiene nada que configurar en Railway: el arquitecto no conoce ningún ajuste de límite de
+peticiones en el borde de Railway (NO MEDIDO). Si la sonda sale mal (6.º = `401`), el arreglo es de **código**
+(número de saltos en `trust-proxy.ts`, o leer la cabecera propia de IP del borde si Railway la pone; diseño del
+arquitecto con la cabecera medida). Poner Cloudflare delante solo hace falta si eso no basta, y exige cuenta: sería una
+pregunta nueva al dueño, no hoy.
+**Relacionado, NO MEDIDO:** cuántas réplicas corre el backend y si hay Redis para el contador (`SECURITY_NOTES.md:13057`,
+N-C7-1/2). Con una réplica y sin Redis el contador vive en memoria: se reinicia con cada despliegue, pero cuenta bien.
+El dueño lo ve en Railway (réplicas del servicio).
+
+#### 4.63.6 Monitoreo — lo más simple que avisa
+- **Nivel 0 (sin cuenta nueva, se hace):**
+  - (a) Un vigía de disponibilidad en GitHub Actions (`uptime-watch.yml`, mismo patrón que `db-disk-watch.yml`:
+    autoprueba con canario + vigilancia + issue con etiqueta). Cada 10 min hace `GET` a la home y a `/api/v1/health`;
+    comprueba el `200` y que `stripeMode` sea igual a la variable `EXPECTED_STRIPE_MODE`. Con rojo abre un issue, y
+    GitHub le manda **correo** al dueño. Sin secretos (las URL son públicas). ⚠️ GitHub retrasa los `schedule`
+    (frecuencia real NO MEDIDA): avisa en minutos, no en segundos.
+  - (b) Telemetría propia: errores del navegador y violaciones CSP al log del backend (LIVE-7). Se leen en los logs
+    de Railway filtrando `CLIENT_ERROR` / `CSP_VIOLATION`.
+  - (c) Avisos nativos que ya trae lo que el dueño usa: Railway (despliegue fallido o servicio caído) y Stripe
+    (contracargos, webhooks que fallan). Están activados: NO MEDIDO; el dueño los revisa (guía §14.10 «Antes»).
+- **Nivel 1 (opcional, requiere cuenta):** Sentry en backend y frontend, con plan gratuito. Agrupa errores y avisa por
+  correo. Pide al dueño crear la cuenta y poner el DSN en Railway/Vercel (el DSN no es secreto, pero se trata como
+  configuración). Hay que añadir su origen a `connect-src`, y `sendDefaultPii: false` sin cuerpos de petición. El
+  dueño decide (P-8). Nada de Nivel 0 depende de esto.
+- **Descartado:** contar los errores en BD o en Redis y mostrarlos en el panel. Es construir un producto de monitoreo.
+
+#### 4.63.7 Lo legal — dónde vive y cómo se enlaza
+- **Medido (corrige el inventario):** el texto «Acepto los términos y el aviso de privacidad» **no** está en el registro.
+  Está en el **checkout de invitado** (`messages/es.json:517`, dentro de `checkout.guest`; usado en
+  `GuestCheckoutForm.tsx:117`, `:385`; contrato §4-G `acceptedTerms`). El registro no enlaza nada legal (grep en `(auth)` =
+  0). El aviso de privacidad no existe como página (la única legal es `(storefront)/terminos/page.tsx`).
+- **Medido:** la razón social `[Razón social pendiente]` (`es.json:11`) **no se ve**: `resolveLegalEntity`
+  (`(storefront)/footer.ts:13-17`) oculta los valores entre corchetes. Lo que falta es el dato, no código.
+- **Dónde vive:** ruta **`/privacidad`** (`frontend/src/app/[locale]/(storefront)/privacidad/page.tsx`). El texto va en
+  un módulo de contenido versionado (`frontend/src/content/legal/privacidad.es.ts`: `version`, `updatedAt`,
+  secciones), **no** en `messages/*.json`. Motivos: es largo, lo valida un abogado palabra por palabra, y no debe
+  pasar por la paridad de traducciones ni chocar con las ramas que editan `messages/`. En inglés se muestra el texto en
+  español con una línea «Legal notice available in Spanish only» (por defecto; el abogado puede pedir traducción).
+- **Quién escribe qué:** product-owner redacta el borrador (en `PROJECT.md`, sección legal) a partir de lo que el
+  sistema hace de verdad: qué datos se piden (correo, nombre, teléfono, direcciones, INE, CLABE, RFC), para qué, quién
+  los ve (`HECHOS.md:21`, INFO-1 `SECURITY_NOTES.md:13948-13960`), retención de la INE (`INE_RETENTION_DAYS`), a quién se
+  transfieren (Stripe, Resend, Cloudflare R2, Railway, Vercel; Skydropx cuando entre, P-SKY-PRIV) y cómo se ejercen los
+  derechos ARCO (`soporte@tcghunt.mx`). El dueño lo valida con su abogado. Frontend lo transcribe **verbatim**.
+- **Enlaces:** pie de la tienda (junto a «Términos», `(storefront)/layout.tsx:66`); checkout de invitado (la frase de
+  `:517` con los dos enlaces); checkout registrado (`CheckoutView.tsx:325`); registro (línea pasiva «Al crear tu cuenta
+  aceptas…» con los dos enlaces, sin casilla); subida de INE. ⛔ `/terminos` **no se toca aquí**: el panel (v1.82)
+  reescribe sus textos de disputas.
+- **Abierto para el abogado, no para el código:** si la INE pide **consentimiento expreso** con constancia (casilla +
+  fecha guardada). Si dice que sí, es un cambio de schema y vuelve al arquitecto.
+
+#### 4.63.8 Datos de prueba — limpiar antes, detectar después
+Dos capas, porque cada una sola falla. La **limpieza** (censo + reembolso en modo prueba, `API_CONTRACT §14.8`) deja
+la base sin pedidos de prueba vivos, pero depende de que alguien la haga bien. La **detección** (`payment_other_mode`,
+LIVE-5) atrapa lo que se escape, pero solo en las salidas por SPEI. Lo demás se cae solo: un reembolso por Stripe de un
+pedido de prueba falla en Stripe y no mueve dinero. Las dos no cuestan schema.
+
+#### 4.63.9 Preguntas al dueño (solo las que nadie más puede responder)
+
+| # | Pregunta, en llano | Por qué solo tú | Si no contestas |
+|---|---|---|---|
+| **P-1** | Seguridad pide, antes del primer peso real, que **una empresa externa** intente atacar la tienda (pentest) y abrir un programa de recompensas por fallos. ¿Lo contratas, o aceptas por escrito empezar sin él? | Es un gasto y un riesgo de negocio | **Bloquea** `sk_live_` (`SECURITY_NOTES.md:14050`) |
+| **P-2** | ¿Tu cuenta de Stripe ya está **activada para cobrar en real** (negocio verificado, cuenta bancaria para depósitos, nombre que aparece en el estado de cuenta del cliente)? Una captura de la pantalla de Stripe basta | Solo tú ves esa cuenta | **Bloquea** el cambio |
+| **P-3** | ¿A nombre de quién opera la tienda (**razón social** o tu nombre como persona física), con qué **domicilio** y **RFC**? Va en el aviso de privacidad, en el pie y en las facturas | Dato tuyo y de tu abogado | **Bloquea** el aviso de privacidad |
+| **P-4** | Hoy hay cartas en bóvedas de cuentas de prueba. Cuando hagamos la limpieza, ¿esas cartas **vuelven a tu inventario a la venta**? | Son tus cartas físicas | Por defecto **sí**. Te pasamos la lista para que la revises antes |
+| **P-5** | En Railway, ¿tu plan tiene **respaldos automáticos** de la base? ¿Puedes hacer una vez por semana una copia en tu computadora (te damos el comando)? | Solo tú entras a Railway | Por defecto: respaldo diario de Railway + copia semanal tuya |
+| **P-6** | Para el panel, ¿te parece bien volver a escribir tu contraseña **cada 7 días**? (Clientes: cada 30) | Es tu comodidad contra tu riesgo | **7 días** |
+| **P-7** | ¿Nos autorizas a hacer **6 intentos de entrada fallidos** contra la tienda publicada con un correo que no existe, para medir el candado contra fuerza bruta? No crea ni cambia nada | Toca producción | **Bloquea** C6 |
+| **P-8** | ¿Te basta con que los avisos de «la tienda se cayó» te lleguen como **correo de GitHub**, o quieres abrir una cuenta gratuita en **Sentry** para ver los errores agrupados? | Abrir una cuenta es tuyo | **Correo de GitHub** |
+| **P-9** | ¿Autorizas a tester-e2e a hacer ~6 **pedidos de prueba** en `tcghunt.mx` (los verás en tu panel)? Y, tras el cambio, ¿haces tú **una compra real pequeña con tu tarjeta** y su reembolso? (cuesta la comisión de Stripe) | Tu tienda y tu tarjeta | **Bloquea** el cambio (el cobro nunca se ha probado en la tienda publicada) |
+
+#### 4.63.10 Hallazgos de la lectura (para enrutar; ⛔ no los corrige el arquitecto)
+- **MSH-1 sigue abierta** (`TECH_DEBT.md:496-500`, disparador «antes de operar con dinero real»). Medido:
+  `shipments.service.ts:446` y `payments.service.ts:352-368`. ⇒ LIVE-6.
+- **D5 está cerrada** (`TECH_DEBT.md:4988-4995`); el inventario la listaba como no medida.
+- **BE-26** (`TECH_DEBT.md:1465-1475`, orden a $0): NO MEDIDO. Probablemente lo frena el mínimo de cargo
+  (`stripe.service.ts:61-62`). Backend lo mide con una prueba (`fixed:0` ⇒ checkout ⇒ esperado `422`), en `orders`,
+  junto con LIVE-4. **BE-13** (AML, `:1293-1303`): compensado por tres capas, NO MEDIDO hoy. Está en `buylist`, que
+  toca el panel ⇒ después del panel. No bloquea.
+- **`STRIPE_PUBLISHABLE_KEY` de Railway no la lee el backend** (grep = 0 en `backend/src`). `DEVOPS_NOTES.md:770` la
+  pide. Sin daño; devops la marca como opcional.
+- **«Backups automáticos + point-in-time»** (`DEVOPS_NOTES.md:459`) es una afirmación sin medición ⇒ LIVE-13.
+- **Rama `claude/<hotfix>`** (`/home/user/tcg-hotfix`): su contrato no ha cambiado (cabecera v1.80.10). Qué toca: **NO
+  MEDIDO** por el arquitecto. Lo cierra `git diff --stat origin/production...<rama>`.
 
 ---
 

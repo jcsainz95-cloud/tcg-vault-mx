@@ -2,8 +2,42 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-04 (rev **v1.80.10**; errata
-> **v1.80.9.1** al stream «staff sin correo», rama `claude/staff-sin-correo`).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-05 (rev **v1.84**, stream «Listo
+> para dinero real», rama `claude/listo-real`; antes rev v1.80.10 y errata v1.80.9.1).
+>
+> **Rev v1.84 — 🔒💰 LISTO PARA DINERO REAL: LAS CONDICIONES «ANTES DE `sk_live_`», EL CONTRACARGO, LOS DATOS DE PRUEBA,
+> MONITOREO, RESPALDOS, LO LEGAL MÍNIMO Y LA GUÍA DEL CAMBIO (2026-10-05, arquitecto, árbol `/home/user/tcg-real`, rama
+> `claude/listo-real` desde `production` = `3e09685a` según el orquestador; ⛔ sha NO MEDIDO por el arquitecto: sin
+> Bash).** Norma entera: **[§14 LIVE](#LIVE)**. Porqué: `ARCHITECTURE §4.63`. Origen: `HECHOS.md:16` (modo real «cuando
+> cierre todo»), `HECHOS.md:44` (disputas fuera; contracargos «como hoy»), `HECHOS.md:87-90` (ninguna venta real),
+> `SECURITY_NOTES.md:14048-14050` y `:14301` (condiciones antes de `sk_live_`), inventario go-live del 2026-10-05.
+> **Numeración elegida para no chocar:** Skydropx usa v1.80.11…v1.80.12.x y `ARCHITECTURE §4.60`; panel v1.82 y §4.61;
+> sellado v1.83 y §4.62. Aquí: **v1.84**, **§4.63**, **§14** del contrato. ⛔ **Sin schema, sin migración, sin enum.**
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | 💰 | Construye |
+> |---|---|---|---|---|---|
+> | **LIVE-1** | C1 · `qs` | `qs` directo ≥ 6.16.0 y `overrides` para que `express`/`body-parser` lo resuelvan igual; `multer` a la versión sin GHSA-3pph. Cierre = `npm audit --omit=dev` sin esas 6 moderadas | No | — | backend |
+> | **LIVE-2** | S5-1 · tope absoluto de sesión | Claim `sat` (nacimiento de la sesión) en el refresh; `refresh()` ⇒ **`401 UNAUTHENTICATED {reason:'session_max_age'}`** pasado **30 d** (cliente) / **7 d** (staff) desde `sat`; `exp` del refresh = `min(ahora+TTL, sat+tope)` | **Sí** (sesiones que hoy se renuevan sin fin caducan) | protege | backend + frontend (copy) |
+> | **LIVE-3** | SEC-HDR-2 · CSP completa | CSP con **nonce** por petición en `middleware.ts`, `'strict-dynamic'`, Stripe/Google/API/subida declarados; **primero `Report-Only`** con informes a `POST /telemetry/csp`, luego `enforce`; ZAP `10038`/`10055` a FAIL | **Sí** (cabecera) | protege | frontend + devops + backend (endpoint) |
+> | **LIVE-4** | TD-4 · CAS en los 3 escritores de `failed` | `pending → failed` solo con `WHERE status='pending'`; si no casa, **no** se liberan piezas | Solo en la carrera | 💰 | backend (`orders`) |
+> | **LIVE-5** | C2 · contracargo + datos de prueba | Ya no se depende de la lista de códigos: lectura fresca del cargo en Stripe (`chargeState`) en `to-manual` (bloquea), `reveal-clabe` (avisa) y `paid` (exige confirmación). Un cobro **de otro modo** (prueba con clave live) ⇒ `409 CASE_ORIGIN_NOT_SETTLED {reason:'payment_other_mode'}` | **Sí** (aditivo + dos `reason`) | 💰 | backend (`payments`) + frontend (aviso) |
+> | **LIVE-6** | MSH-1 · rutas hermanas del dinero | `Idempotency-Key` del cliente **ignorada** en el cobro de envío; aserción monto/moneda en la rama `shipment` de `payment_intent.succeeded` | **Sí** (mínimo) | 💰 | backend (`shipments`, `payments`) |
+> | **LIVE-7** | Salud + telemetría | `GET /health` gana `stripeMode`; nuevos `POST /telemetry/csp` y `POST /telemetry/client-error` (públicos, con tope, solo log) | No (aditivo) | — | backend (`health`) + frontend (`error.tsx`) |
+> | **LIVE-8** | Lo legal mínimo | Página **`/privacidad`** (texto de product-owner, validado por el dueño y su abogado); enlaces en pie, checkout (registrado e invitado), registro y subida de INE; razón social desde `common.footer.legalEntity` (ya se oculta si es marcador) | **Sí** (pantallas) | — | product-owner (texto) + frontend |
+> | **LIVE-9** | Monitoreo sin cuenta nueva | Vigía de disponibilidad en GitHub Actions ⇒ issue ⇒ correo de GitHub; avisos nativos de Railway y Stripe; Sentry **opcional** (requiere cuenta) | No | — | devops (+ dueño: revisar avisos) |
+> | **LIVE-10** | DAST `full` como puerta previa | `check-candidate-checks.sh` exige un run verde de `security-dast.yml` `scan_profile: full` sobre el sha candidato, citado en la solicitud de fusión | No | — | devops |
+> | **LIVE-11** | C6 · borde de Railway | **Es una medición, no una configuración:** `scripts/edge-xff-probe.sh` en ventana autorizada por el dueño | No | — | devops (con permiso del dueño) |
+> | **LIVE-12** | C3 · residuo B13 | Consulta de solo lectura ([§14.8](#LIVE)); la corre el dueño en su consola de Railway o con usuario RO | No | 💰 | dueño |
+> | **LIVE-13** | Respaldos | Respaldo diario activo + copia fuera de Railway + **simulacro de restauración** en una base que no es producción | No | — | dueño + devops (guion de verificación) |
+> | **LIVE-14** | Datos de prueba antes del cambio | Censo de solo lectura + reembolso total **en modo prueba** de los pedidos de prueba vivos, antes de cambiar claves | No (procedimiento) | 💰 | dueño (o tester-e2e con permiso) |
+> | **LIVE-15** | Cobro de punta a punta | Guion en dos fases: 4242 en modo prueba sobre `tcghunt.mx`; tras el cambio, una compra real pequeña + su reembolso desde el panel | No | 💰 | tester-e2e (fase A, con permiso) · dueño (fase B) |
+> | **LIVE-16** | Guía del cambio a modo real | Procedimiento sin pedir ningún secreto por chat ([§14.10](#LIVE)), con su reversa | No | 💰 | devops la transcribe a `DEVOPS_NOTES`; el dueño la ejecuta |
+>
+> - **Pruebas que deben fallar hoy:** `SES-1…6` (LIVE-2), `TD4-1…3` (LIVE-4), `CS-1…7` (LIVE-5), `MSH-1a/1b` (LIVE-6),
+>   `HLT-1`, `TLM-1…5` (LIVE-7), `CSP-1…6` y `LEG-1…4` (frontend). Ninguna es carrera salvo `TD4-3` (N ≥ 10, proporción).
+> - **Lo que bloquea `sk_live_` y no es código:** C3 = 0, C6 medido, respaldo + simulacro, censo y limpieza de datos de
+>   prueba, fase A del cobro de punta a punta, texto legal validado, y la decisión del dueño sobre el **pentest de un
+>   tercero** (`SECURITY_NOTES.md:14050`). Preguntas al dueño: [§14.13](#LIVE).
 >
 > **Errata v1.80.9.1 — CIERRE DE LA CONDICIÓN C-1 DEL TECHLEAD SOBRE «STAFF SIN CORREO» (2026-10-04, arquitecto, rama
 > `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
@@ -31152,3 +31186,410 @@ Res `200`: `{ "inventoryItemIds": ["…", "…"] }`. El front las agrega con `us
   Es solo lectura/procedencia: **no** altera `verdict`, `checks`, `inBand` ni ningún conteo. El frontend lo pinta
   como una columna «Portada» (miniatura + `SET-NÚM` + estado). Tipo cliente: `cover?: … | null` (tolerante a un
   backend anterior). La misma información se escribe en la `MetaDeckList` al persistir (modo vivo).
+
+---
+
+## <a id="LIVE"></a>14. LISTO PARA DINERO REAL (rev v1.84, 2026-10-05, **NORMATIVA**, 🔒💰)
+
+> Porqué y alternativas: `ARCHITECTURE §4.63`. Las líneas de código citadas las leyó el arquitecto el 2026-10-05 en
+> `/home/user/tcg-real` (rama `claude/listo-real`, que el orquestador dice creada desde `production` = `3e09685a`;
+> ⛔ sha NO MEDIDO por el arquitecto). ⛔ **Sin schema, sin migración, sin enum, sin código de error nuevo.** Todo lo
+> nuevo de la API es **aditivo** salvo LIVE-2 (un `401` donde hoy hay `200`, solo pasado el tope) y LIVE-6 (la cabecera
+> `Idempotency-Key` deja de usarse en un endpoint).
+
+### 14.0 Qué significa «listo»
+
+«Listo para dinero real» = se puede poner `sk_live_` en producción **sin** que quede abierta ninguna condición de
+seguridad «antes de `sk_live_`» (`SECURITY_NOTES.md:14048-14050`, `:14301`) y con el ciclo de cobro medido **en la
+tienda publicada** (nunca medido: inventario go-live, fila A6). El cambio de claves lo hace **el dueño** (§14.10); el
+equipo deja todo lo demás cerrado, medido y escrito antes.
+
+Mapa condición → pieza:
+
+| Condición (fuente) | Pieza | Cierra |
+|---|---|---|
+| C1 `qs` (`SECURITY_NOTES.md:13998`) | LIVE-1 | backend + `npm audit` |
+| S5-1 (`:13934-13946`) | LIVE-2 + LIVE-3 | backend + frontend |
+| SEC-HDR-2 (`:14002`, `:13032-13037`) | LIVE-3 | frontend + devops |
+| TD-4 ⟨orders⟩ (`:13911-13918`) | LIVE-4 | backend |
+| C2 (`:13999`) | LIVE-5 | backend + arquitecto (esta norma) |
+| C3 (`:14000`) | LIVE-12 | dueño |
+| DAST `full` previo (`:13023-13028`) | LIVE-10 | devops |
+| C6 (`DEVOPS_NOTES §58.3`, `:11273-11295`) | LIVE-11 | devops con ventana del dueño |
+| Pentest de un tercero + bug bounty (`:14031`) | — | **decisión del dueño** (§14.13 P-1) |
+| MSH-1 (`TECH_DEBT.md:496-500`, disparador «antes de operar con dinero real») | LIVE-6 | backend |
+
+> ⚠️ **Homónimo:** «TD-4» nombra **dos** cosas distintas en `docs/`: la deuda de `orders` de `SECURITY_NOTES.md:13911` (la
+> de aquí) y la decisión del rescate del súper-admin de la errata v1.80.9.1. En esta sección **TD-4 = la de `orders`**.
+
+### 14.1 LIVE-1 · C1 — `qs` y sus dependientes
+
+- `backend/package.json:74` `"qs": "^6.15.3"` (medido 2026-10-05, igual en las cuatro ramas vivas) ⇒ `"qs": "^6.16.0"` y
+  un bloque `overrides` para que `express`/`body-parser` resuelvan la misma; `multer` a la primera versión sin GHSA-3pph.
+- **Cierre:** `npm audit --omit=dev` (backend) sin las moderadas de `qs`/`body-parser`/`express`/`multer`; la de
+  `@nestjs/core` SSE puede seguir (Info, sin `@Sse`). Suites completas verdes sobre la copia entera (O-9).
+- ⚠️ `package-lock.json` es zona de choque con cualquier rama que haya cambiado dependencias (NO MEDIDO para las
+  cuatro; lo mide `git diff origin/production...origin/<rama> -- backend/package-lock.json`). Si choca: se regenera el
+  lock tras fusionar, no se resuelve a mano.
+
+### 14.2 LIVE-2 · S5-1 — tope absoluto de vida de la sesión
+
+**Forma del refresh token** (sustituye la fila «refresh» de §0 «Forma exigida de cada token»): `typ:"refresh"`, `sub`
+string, `tv` number, `sid` (v1.80.1), **`sat` number (v1.84): segundos epoch del inicio de la sesión** (el login,
+Google, registro o cambio de contraseña que creó el `sid`). `sat` es interno como `sid`: ⛔ no aparece en ningún cuerpo.
+
+**Topes (constantes en código, ⛔ no dial de M10 — un tope de seguridad no se afloja desde el panel):**
+
+| Rol actual del usuario (leído de BD en el refresh) | Tope desde `sat` |
+|---|---|
+| `customer` | **30 días** |
+| `vault_operator`, `super_admin` (y cualquier rol ≠ `customer`) | **7 días** |
+
+**`POST /api/v1/auth/refresh` — algoritmo (sustituye los pasos de §1 desde la verificación de `tv`):**
+1. Lo de hoy (`auth.service.ts:548-584`): firma, `typ`, `tv`, usuario activo, `sid`.
+2. `sat` = el claim si es number; si falta (token emitido antes de v1.84) ⇒ **`sat = iat`** del token presentado
+   (determinista; el legado gana como mucho un tope completo desde su último refresco, nunca más).
+3. `now − sat > tope(rol)` ⇒ **`401 UNAUTHENTICATED`** `details: { reason: 'session_max_age' }`. Mismo `code` que
+   cualquier refresh inválido ⇒ el frontend ya cierra la sesión (sin cambio de lógica); `reason` solo elige el texto.
+4. Emite el par con el **mismo** `sid` y el **mismo** `sat`; el refresh nuevo lleva
+   `exp = min(now + JWT_REFRESH_TTL, sat + tope(rol))`.
+5. Login / Google / registro / cambio de contraseña ⇒ `sid` nuevo y `sat = now` (`issueTokens` recibe `sat`; hoy
+   `auth.service.ts:94-117`).
+
+**Frontend:** ante `401` del refresh con `reason:'session_max_age'`, el mismo flujo de hoy hacia el login con el texto
+«Tu sesión caducó por seguridad. Vuelve a entrar.» (ux-ui fija el texto; clave nueva en `auth`). Sin `reason` ⇒ igual
+que hoy.
+
+**Pruebas (deben fallar hoy):**
+
+| Id | Caso | Mutación que la pone roja |
+|---|---|---|
+| SES-1 | Cadena de refrescos de un `customer` con reloj falso: día 29 ⇒ `200`; día 31 ⇒ `401 {reason:'session_max_age'}` | quitar la comparación del paso 3 |
+| SES-2 | Igual para `super_admin`: día 6 ⇒ `200`; día 8 ⇒ `401` | usar el tope de cliente para todos |
+| SES-3 | El refresh emitido el día 29 de un cliente lleva `exp ≤ sat + 30 d` (no `+30 d` desde ahora) | `exp` fijo de `JWT_REFRESH_TTL` |
+| SES-4 | Token legado sin `sat` ⇒ hereda `sat = iat`; el siguiente refresh lleva ese `sat` | derivar `sat = now` |
+| SES-5 | Un `customer` ascendido a staff con sesión de 10 días ⇒ el siguiente refresh es `401` (el rol se lee de BD) | leer el rol del token |
+| SES-6 | Ninguna respuesta de `/auth/*` contiene `sat` ni `sid` (shape exacto) | devolver el claim en el cuerpo |
+
+### 14.3 LIVE-3 · SEC-HDR-2 — CSP completa (frontend; norma de cabecera)
+
+No es un endpoint, pero lo fija el contrato porque **declara los orígenes** con los que habla el navegador.
+
+**Política objetivo (documentos HTML; nonce nuevo por petición, generado en `frontend/src/middleware.ts`):**
+
+```
+default-src 'self';
+script-src 'self' 'nonce-<N>' 'strict-dynamic' https:;
+style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob: https:;
+font-src 'self' data:;
+connect-src 'self' <API_ORIGIN> https://api.stripe.com https://accounts.google.com <UPLOAD_ORIGIN>;
+frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://accounts.google.com;
+worker-src 'self' blob:;
+object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';
+upgrade-insecure-requests;
+report-uri <API_ORIGIN>/api/v1/telemetry/csp
+```
+
+- `<API_ORIGIN>` = el origen de `NEXT_PUBLIC_API_BASE_URL` (`frontend/src/lib/config.ts:3`). `<UPLOAD_ORIGIN>` = el
+  origen de las URL prefirmadas de la INE (R2 según `DEVOPS_NOTES.md:461`; valor exacto **NO MEDIDO** desde el repo:
+  la fase Report-Only lo revela). Variable pública nueva `NEXT_PUBLIC_UPLOAD_ORIGIN` (devops la añade a Vercel y a
+  `.env.example`; sin ella, `https://*.r2.cloudflarestorage.com`).
+- `'strict-dynamic'` hace válidos los scripts que inyectan scripts con nonce: Stripe.js (`StripePaymentModal.tsx:30`,
+  `loadStripe`) y Google Identity (`GoogleSignInButton.tsx:112-113`, `createElement('script')`). `https:` solo lo leen
+  navegadores sin CSP3. ⛔ Nunca `'unsafe-eval'` en producción (solo `next dev`).
+- `img-src https:` es deliberado: el arte viene de hosts de terceros abiertos por dato (`layout.tsx:124-127`,
+  `tcgplayer-cdn`, portadas de Limitless) y una imagen no ejecuta código.
+- Vista previa de Vercel (`VERCEL_ENV=preview`): se añade `https://vercel.live` a `script-src`/`frame-src`/`connect-src`;
+  **nunca** en producción.
+- La cabecera estática de `next.config.mjs:75` (`frame-ancestors 'none'`) **se queda** como red para lo que no pase por
+  el middleware (`matcher` de `middleware.ts:8` excluye `_next`, `api`, ficheros): dos CSP se intersecan, no se pisan.
+
+**Dos fases, controladas por una constante en código** (`frontend/src/security/csp.ts`, `CSP_MODE`), ⛔ no por
+variable de Vercel (sin paso del dueño que se pueda olvidar):
+1. **`report-only`**: cabecera `Content-Security-Policy-Report-Only` con la política objetivo. Se publica **en modo
+   prueba de Stripe** y se deja **≥ 72 h** con el recorrido de §14.9 fase A pasado al menos una vez. Se leen los
+   informes en el log del backend (`TLM`, §14.5). Cada violación legítima se resuelve **añadiendo el origen exacto**,
+   nunca con comodín de esquema ni `'unsafe-inline'` en `script-src`.
+2. **`enforce`**: cabecera `Content-Security-Policy`. Devops sube **`10038` y `10055` a FAIL** en `baseline.conf` en el
+   mismo cambio (`SECURITY_NOTES.md:13030-13037`).
+
+**Coste a medir antes de `enforce` (⚠️ choca con `HECHOS.md:49`, «home en < 1 s»):** el nonce obliga a renderizar en
+dinámico las páginas que hoy pueden salir estáticas (`[locale]/layout.tsx:57` `generateStaticParams`). Frontend mide el
+TTFB de `/es` en la vista previa de Vercel **antes y después**, **N = 10** cada uno, y reporta p50/p90. Si el p90 de
+después supera **800 ms** o sube más de **300 ms**, ⛔ no se pasa a `enforce`: vuelve al arquitecto con la cifra
+(alternativa en `ARCHITECTURE §4.63.3`).
+
+**Pruebas (frontend):** `CSP-1` toda respuesta HTML lleva la cabecera con un nonce distinto en dos peticiones; `CSP-2`
+los `<script>` de Next llevan ese nonce; `CSP-3` (Playwright) el pago con `PaymentElement` y 3DS (`4000 0025 0000 3155`)
+termina sin violaciones en consola; `CSP-4` el botón de Google carga; `CSP-5` un `<script>` inyectado sin nonce en la
+página no se ejecuta (mutación: quitar el nonce de `script-src` ⇒ `CSP-2` roja; poner `'unsafe-inline'` ⇒ `CSP-5`
+roja); `CSP-6` en `enforce`, la cabecera no es la `-Report-Only` (mutación: dejar `report-only` ⇒ roja).
+
+### 14.4 LIVE-4 · TD-4 — CAS en los tres escritores de `failed` (💰 `orders`)
+
+Sitios (leídos 2026-10-05): `orders.service.ts:891-899` (`releaseReservation`), `:1036-1043` (sustitución dentro del
+checkout), `:1189-1196` (barrido). Los tres escriben `status:'failed'` con `update({ where: { id } })`; el tercero decide
+con una lectura previa (`order.status === 'pending'`, `:1194`).
+
+**Norma (las tres):** dentro de la transacción, **primero**
+`order.updateMany({ where: { id, status: 'pending' }, data: { status: 'failed' } })`; si `count === 0` ⇒ **no** se
+liberan piezas y la transacción termina sin escrituras (otro escritor ya movió la orden: liquidación, reembolso,
+contracargo). Solo con `count === 1` se ejecuta el `inventoryItem.updateMany` con `reservationGuard`. Sin cambio de
+respuesta HTTP en ningún endpoint (son caminos internos). Coherente con `failAndRelease` (CAS `status:'pending'`,
+`ARCHITECTURE` cabecera v1.80.8.3).
+
+| Id | Caso | Mutación |
+|---|---|---|
+| TD4-1 | Orden `settled` cuando `releaseReservation` escribe ⇒ sigue `settled` y sus piezas siguen `sold` | volver a `update` por `id` |
+| TD4-2 | Igual en la sustitución (`:1043`) y en el barrido (`:1195`) con la orden pasada a `refunded` | ídem en cada sitio |
+| TD4-3 | Carrera `payment_intent.succeeded` ∥ barrido sobre la misma orden, **N ≥ 10**: en el **100 %** de las tiradas la orden termina `settled` con sus piezas `sold`, o `failed` con piezas liberadas — nunca `failed` con piezas `sold` ni `settled` con piezas liberadas | quitar el `status:'pending'` del `where` |
+
+### 14.5 LIVE-5 · C2 — el contracargo y el cobro de otro modo (💰 `payments`)
+
+**Qué hace la tienda con un contracargo (decisión; `HECHOS.md:44`: «los contracargos siguen manejándose como hoy»):**
+- **Sin cambio:** `charge.dispute.created` ⇒ orden `chargeback` y piezas congeladas (`payments.service.ts:173-174`,
+  `:796`); `closed`/`funds_reinstated` ⇒ `won`/`lost` (`:177-183`, `:1052`). La **respuesta al banco** (evidencia: guía,
+  entrega, comunicación) la da el dueño **en el panel de Stripe**; la tienda no construye pantalla para ello (la de
+  disputas internas se retira en el stream del panel, v1.82.1 E-9).
+- **Cambia:** ninguna salida de dinero por **SPEI** ligada a un cobro de Stripe se apoya ya en la lista
+  `REFUND_FAILURE_DISPUTE_CODES` (`vault/replacement-case.rules.ts:16-20`, NO MEDIDA). Se pregunta a Stripe.
+  - *Por qué:* un SPEI y un contracargo sobre el mismo cobro son **doble pago**, y el aviso del banco puede llegar
+    **después** de que el rechazo del reembolso ya esté en la fila (`§M4-SHIP.17.4` paso 4). Los nombres documentados
+    que conoce el arquitecto (`charge_disputed` como error de la API; `charge_for_pending_refund_disputed` como
+    `failure_reason` de un reembolso) son **de memoria, NO MEDIDOS**; la lista sigue como atajo y registro, no como
+    puerta.
+
+**`StripeService.chargeState(paymentIntentId)`** (firma nueva, interna): `paymentIntents.retrieve(pi, { expand:
+['latest_charge'] })` ⇒
+`{ mode: 'current' } & { disputed: boolean; amountRefundedCents: number }` · o `{ mode: 'other' }` si Stripe responde
+`resource_missing` (el PI existe solo en el otro modo: un pedido de **prueba** leído con clave **live**, o al revés) ·
+o lanza `PaymentProviderUnavailable` (red/5xx tras los reintentos de `stripe.service.ts:137`). ⛔ Se llama **fuera** de
+la transacción de BD (no alarga candados; `TIMEOUT_MS`, `:123`).
+
+**Dónde se usa (orden con PI de Stripe; sin orden o sin PI ⇒ no se llama):**
+
+| Verbo | Regla v1.84 | Respuesta |
+|---|---|---|
+| `POST /api/v1/admin/refunds/:refundId/to-manual` (§M4-SHIP.17.4) | Paso **3-bis**, tras el `FOR UPDATE` de la orden: `mode:'other'` ⇒ `409 CASE_ORIGIN_NOT_SETTLED {originStatus:'settled', reason:'payment_other_mode'}`; `disputed` ⇒ `409 CASE_ORIGIN_NOT_SETTLED {originStatus:'settled', reason:'charge_disputed'}`; Stripe caído ⇒ `503 PAYMENT_PROVIDER_UNAVAILABLE`. Cero escrituras en los tres | **cambia** (antes `200`) |
+| `GET /api/v1/admin/manual-refunds/:id/reveal-clabe` | Respuesta gana **`originCharge: { disputed: boolean; otherMode: boolean } \| null`** (aditivo; `null` sin orden/PI **o** con Stripe caído — y entonces `originChargeUnavailable: true`). ⛔ No bloquea: es el momento **antes** de transferir y el aviso tiene que verse ahí | aditivo |
+| `POST /api/v1/admin/manual-refunds/:id/paid` (§M4-SHIP.17.3 paso 7) | `disputed` u `otherMode` cuentan como **origen no liquidado**: sin `confirmOriginNotSettled:true` ⇒ `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['origin_not_settled'], originStatus, reason}`. Stripe caído ⇒ se registra igual (el dinero ya salió; esconderlo sería peor) con `originChargeUnavailable:true` en la bitácora | **cambia** solo en esos casos |
+
+**Frontend (cubeta SPEI):** con `originCharge.disputed` ⇒ aviso rojo «Este cobro tiene un contracargo en el banco. No
+transfieras: el banco ya está resolviendo el dinero.»; con `otherMode` ⇒ «Este pedido se pagó en modo prueba. No hay
+dinero real que devolver.»; con `originChargeUnavailable` ⇒ «No pudimos consultar Stripe. Revisa el cobro en tu panel
+de Stripe antes de transferir.» (ux-ui fija textos).
+
+**Medición que cierra C2 en Stripe real (backend, modo prueba con `sk_test_` real del CI):** la tarjeta
+`4000 0000 0000 0259` crea un contracargo al pagar; sobre ese cobro se pide un reembolso y se anota **el código
+exacto** que Stripe devuelve (error síncrono o `failure_reason`), en `BACKEND_NOTES` y en la constante. Con la norma de
+arriba, ese número ya **no decide** dinero; solo se registra.
+
+> ⚠️ **Al fusionar con el panel (v1.82, PNL-3, `withdrawal_delivered`):** toda `ManualRefund` nueva con `orderId` y PI
+> sigue la misma tabla. El panel toca `payments/refunds/manual-refund.service.ts` (medido: 11 marcas `v1.82`/`PNL`) ⇒
+> **LIVE-5 se construye después de que el panel fusione** (§14.12).
+
+| Id | Caso | Mutación |
+|---|---|---|
+| CS-1 | `to-manual` con el doble devolviendo `disputed:true` y orden `settled`, `failureCode` fuera de la lista ⇒ `409 … reason:'charge_disputed'`, cero `ManualRefund` | quitar el paso 3-bis |
+| CS-2 | `to-manual` con `resource_missing` ⇒ `409 … reason:'payment_other_mode'` | tratar `resource_missing` como «no disputado» |
+| CS-3 | `to-manual` con Stripe caído ⇒ `503 PAYMENT_PROVIDER_UNAVAILABLE`, cero escrituras | `catch` que sigue |
+| CS-4 | `reveal-clabe` trae `originCharge` con los dos indicadores | — (forma) |
+| CS-5 | `paid` sobre cobro `disputed` sin confirmación ⇒ `422 {required:['origin_not_settled']}`; con ella ⇒ `200` y bitácora con `reason` | no contar `disputed` como origen no liquidado |
+| CS-6 | `chargeState` **no** se llama dentro de una `$transaction` (espía) | moverlo dentro |
+| CS-7 | PS-48 sigue verde (no se rompe la regla por estado de la orden) | — |
+
+### 14.6 LIVE-6 · MSH-1 — las rutas hermanas (💰 `shipments`, `payments`)
+
+Medido 2026-10-05: `shipments.service.ts:445-446` ``const idem = idempotencyKey ?? `pi-shipment-${shipment.id}` `` (la
+cabecera del cliente llega a Stripe) y la rama de envío de `onPaymentSucceeded` (`payments.service.ts:352-368`) liquida
+`solicitado → picking` **sin** comparar monto y moneda (la rama de orden sí: `:230-257`). El reembolso de M3 ya ignora la
+cabecera (`admin-orders.controller.ts:319`).
+
+- **Norma:** la clave del PaymentIntent del envío es **siempre** `pi-shipment-<id>`; la cabecera `Idempotency-Key` de ese
+  endpoint se acepta y ⛔ no se usa (igual que M3). En `payment_intent.succeeded` de un envío,
+  `(amount_received ?? amount) ≠ shippingFeeCents` **o** `currency ≠ 'mxn'` ⇒ no avanza, `warn` + bitácora con esperado y
+  recibido (misma forma que H1 de la orden).
+- **Pruebas:** `MSH-1a` dos peticiones con cabeceras distintas para el mismo envío ⇒ **un** PI (mutación: volver al
+  `??`); `MSH-1b` evento con monto distinto ⇒ el envío sigue `solicitado` (mutación: quitar la aserción).
+- ⚠️ Skydropx toca `shipments.service.ts` (medido: la misma línea está en `:549` de `/home/user/tcg-skyd`) ⇒ choque de
+  una línea al fusionar (§14.12).
+
+### 14.7 LIVE-7 · Salud y telemetría (`health`)
+
+#### `GET /api/v1/health` — `public`, sin tope (`@SkipThrottle`, `health.controller.ts:14`)
+Primera vez en el contrato; documenta lo construido (`health.service.ts:17-58`) **más un campo**:
+```jsonc
+{ "status": "ok" | "degraded", "uptime": 1234, "timestamp": "…", "db": "up"|"down", "redis": "up"|"down"|"skipped",
+  "stripeMode": "live" | "test" | "none" }   // v1.84: del PREFIJO de STRIPE_SECRET_KEY (sk_live_/rk_live_ ⇒ live; sk_test_/rk_test_ ⇒ test; vacío ⇒ none)
+```
+`200` si `ok`, `503` si `degraded` (hoy). `stripeMode` **no** degrada la salud. Es público a propósito: dice si la
+tienda cobra dinero real, lo que ya es visible en el formulario de pago; ⛔ jamás se devuelve la clave ni un fragmento.
+Prueba `HLT-1` (las tres formas + que ningún carácter de la clave aparezca; mutación: devolver el prefijo crudo).
+
+#### `POST /api/v1/telemetry/csp` — `public`, tope 60/min por IP, ⛔ sin cookies ni auth
+- Acepta `Content-Type` `application/csp-report` (forma `{ "csp-report": {…} }`) y `application/reports+json` (lista).
+  Cuerpo ≤ **16 KB** (si no ⇒ `413`). Siempre **`204`**, también si el cuerpo no se entiende (un navegador no reintenta
+  y no hay nada que enseñarle).
+- Escribe **una línea de log** `level=warn` con prefijo `CSP_VIOLATION` y solo: `effectiveDirective`,
+  origen de `blockedURI` (sin ruta), ruta de `documentURI` **sin query ni fragmento** (⛔ `reset-password?token=…`,
+  `verify-email?token=…` llevan secretos en la query), `disposition`. ⛔ Sin `sample`/`script-sample`, sin IP, sin UA.
+- ⛔ Nada se guarda en BD.
+- Necesita un parser para esos dos tipos **solo en esa ruta** (`main.ts:49-55` ya hace lo mismo para el webhook).
+
+#### `POST /api/v1/telemetry/client-error` — `public`, tope 30/min por IP
+- Req `application/json`: `{ message: string ≤ 300, digest?: string ≤ 64, path: string ≤ 200, release?: string ≤ 40 }`.
+  `path` se recorta en el servidor a la ruta sin query. Res **`204`**; forma inválida ⇒ `400 VALIDATION_ERROR`.
+- Una línea `level=error`, prefijo `CLIENT_ERROR`, sin IP, sin UA, sin usuario. ⛔ Nada en BD.
+- Lo llaman `frontend/src/app/[locale]/error.tsx` y `app/global-error.tsx` (si no existen, se crean) una vez por error
+  mostrado, con `digest` de Next y `release` = sha público del build si Vercel lo expone (`VERCEL_GIT_COMMIT_SHA`).
+
+| Id | Caso | Mutación |
+|---|---|---|
+| TLM-1 | Informe CSP con `documentURI` `…/reset-password?token=abc` ⇒ el log no contiene `abc` | registrar la URI completa |
+| TLM-2 | Cuerpo de 20 KB ⇒ `413`, sin log | quitar el límite |
+| TLM-3 | 61.º informe en un minuto desde la misma IP ⇒ `429` | quitar el `@Throttle` |
+| TLM-4 | `client-error` con `message` de 301 ⇒ `400` | quitar el `MaxLength` |
+| TLM-5 | Ninguna tabla cambia de tamaño tras 100 informes (conteo antes/después) | persistir |
+
+### 14.8 Consultas de solo lectura para la ventana (C3 y censo de datos de prueba)
+
+Las corre **el dueño** donde la credencial ya vive (consola SQL de su panel de Railway, si la tiene — NO MEDIDO — o su
+terminal), o devops con un usuario de solo lectura (`scripts/vault-full-refund-residue.sh`, que ya existe y aborta si el
+rol puede escribir: `:103-109`). ⛔ Nunca una credencial por chat.
+
+**C3 · residuo B13** (fase POST: `M-61` ya está en producción; literal de `vault-full-refund-residue.sh:116-119`):
+```sql
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '60s';
+SELECT count(*) AS residuo_b13
+  FROM "Order"
+ WHERE "fulfillmentMode" = 'vault' AND status = 'refunded' AND "fullRefundClosedAt" IS NULL;
+COMMIT;
+```
+Esperado **0**. Si da > 0: como **ninguna** venta ha sido real (`HECHOS.md:87-90`), son pedidos de prueba con su carta
+quedada en una bóveda; el súper-admin los resuelve con los verbos existentes (`reclaim-vault`/`chargeback-inventory`,
+`vault-full-refund-residue.sh:144-145`) **antes** del cambio, y se re-corre hasta 0.
+
+**Censo de datos de prueba (LIVE-14).** Todo pedido pagado hasta hoy se pagó en modo prueba. Tras el cambio, un
+reembolso de esos pedidos fallaría en Stripe live y, sin LIVE-5, podría acabar en la cubeta SPEI como dinero real.
+```sql
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '60s';
+SELECT 'order' AS t, status::text, "fulfillmentMode"::text AS sub, count(*) FROM "Order" GROUP BY 2,3
+UNION ALL SELECT 'shipment', status::text, NULL, count(*) FROM "ShipmentRequest" GROUP BY 2
+UNION ALL SELECT 'payment_refund', status::text, NULL, count(*) FROM "PaymentRefund" GROUP BY 2
+UNION ALL SELECT 'manual_refund', status::text, NULL, count(*) FROM "ManualRefund" GROUP BY 2
+UNION ALL SELECT 'vault_placement', status::text, NULL, count(*) FROM "VaultPlacement" GROUP BY 2
+UNION ALL SELECT 'item_en_boveda_de_cliente', NULL, NULL, count(*) FROM "InventoryItem" WHERE "ownerUserId" IS NOT NULL
+ORDER BY 1,2,3;
+COMMIT;
+```
+(Columnas leídas en `schema.prisma:948-951`, `:1290`, `:1305`, `:1415`, `:1473`, `:1561`, `:1659`; tablas sin `@@map`
+— ⚠️ si alguna tuviera `@@map`, devops corrige el nombre al pasarla a `scripts/`.)
+**Qué se hace con el resultado (antes de cambiar claves, todavía en modo prueba):** cada orden `settled` que **no** salió
+(sin envío `enviado|entregado`) se **reembolsa entera desde Ventas** en modo prueba: el reembolso sí funciona en prueba y
+sus cartas vuelven a la venta (`HECHOS.md:39` 4a). Las `ManualRefund` `pending` de pedidos de prueba se **cancelan**
+(`POST …/cancel`, ⛔ no se pagan). Las piezas en bóvedas de clientes de prueba: decide el dueño (§14.13 P-4). Se re-corre
+el censo y se anota el antes/después en `DEVOPS_NOTES`.
+
+### 14.9 Cobro de punta a punta en la tienda publicada (LIVE-15)
+
+**Fase A — modo prueba, sobre `https://tcghunt.mx` (antes del cambio).** La corre tester-e2e **con permiso del dueño**
+(verá pedidos de prueba en su panel; `HECHOS.md:34` (b)). Tarjeta `4242 4242 4242 4242`, fecha futura, CVC cualquiera.
+
+| # | Paso | Se mira | Medido si… |
+|---|---|---|---|
+| A1 | Invitado compra 1 carta barata con envío a domicilio | pago aceptado; pantalla de confirmación con `TCG-…` | orden `settled` en Ventas; correo de confirmación recibido en buzón real |
+| A2 | Cliente registrado compra 1 carta **a bóveda** | pago aceptado | aparece en «Pedidos por preparar» (cubeta bóveda) |
+| A3 | Pago con 3DS `4000 0025 0000 3155` | ventana del banco, pago aceptado | sin violaciones CSP en consola (LIVE-3) |
+| A4 | Pago rechazado `4000 0000 0000 0002` | mensaje de tarjeta rechazada | la carta vuelve a estar disponible (reserva liberada) |
+| A5 | Desde Ventas, reembolso total de A1 **antes** de prepararlo | reembolso creado | orden `refunded`, correo de reembolso, la carta vuelve a la venta (`HECHOS.md:39` 4a) |
+| A6 | Contracargo `4000 0000 0000 0259` | pago aceptado y luego disputa | orden `chargeback`; C2 medido (§14.5) |
+| A7 | Panel de Stripe (modo prueba) → Webhooks → entregas | — | **todas** las entregas de A1–A6 en `2xx` |
+
+Se reporta cada fila con captura y hora; las que no se pudieron hacer se marcan **NO MEDIDO** con el motivo.
+
+**Fase B — dinero real (después del cambio, la hace el dueño con su tarjeta).** Una sola compra de la carta más barata
+publicada con envío **a domicilio** (el total supera el mínimo de MX$10 de Stripe, `stripe.service.ts:61-62`).
+B1 pagar; B2 ver la orden `settled` y el correo; B3 **desde Ventas** (⛔ nunca desde el panel de Stripe,
+`SECURITY_NOTES.md:14036`) reembolso total antes de prepararla; B4 ver `refunded`, el correo, el reembolso en Stripe
+(modo live) y la carta de vuelta a la venta; B5 webhooks live en `2xx`. ⚠️ Stripe no devuelve su comisión en un
+reembolso (comportamiento general de Stripe; **NO MEDIDO** para MX): el costo de la prueba es esa comisión.
+
+### 14.10 Guía del dueño: cambio a modo real (LIVE-16)
+
+Devops la transcribe a `DEVOPS_NOTES.md` como sección propia (con casillas) y la enlaza desde la solicitud de fusión.
+⛔ **Ningún valor de clave sale del panel donde se crea:** se copia de Stripe y se pega directo en Railway/Vercel.
+
+**Antes (todo verde o no se empieza):** condiciones de §14.0 cerradas; fase A pasada; censo y limpieza hechos (§14.8);
+C3 = 0; respaldo del día existente (§14.11); cuenta de Stripe **activada** para cobrar y depositar en MX (verificación
+del negocio y cuenta bancaria — solo el dueño lo ve, §14.13 P-2).
+
+1. **Stripe (modo live) → Developers → Webhooks → Add endpoint.** URL: `https://<dominio-del-backend>/api/v1/webhooks/stripe`
+   (la misma ruta que el endpoint de prueba). **Versión de API: `2024-06-20`** (la fijada en `stripe.service.ts:136`).
+   Eventos: exactamente los **9** de `security/stripe-webhook-events.txt:6-15`. Guardar.
+2. En ese endpoint, **Reveal signing secret** (`whsec_…` de **live**, distinto del de prueba) ⇒ pegarlo en **Railway →
+   backend → Variables → `STRIPE_WEBHOOK_SECRET`** (sin guardar todavía el despliegue si Railway lo permite; si no, sigue
+   al paso 3 de inmediato).
+3. **Stripe (live) → Developers → API keys:** la **Secret key** `sk_live_…` ⇒ Railway `STRIPE_SECRET_KEY`. (La variable
+   `STRIPE_PUBLISHABLE_KEY` de Railway **no la lee el backend** — `grep` = 0 en `backend/src`, medido 2026-10-05 —; se
+   puede actualizar por orden, no cambia nada.) Railway vuelve a desplegar el backend.
+4. La **Publishable key** `pk_live_…` ⇒ **Vercel → proyecto → Settings → Environment Variables →
+   `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`**, solo entorno **Production** ⇒ **Redeploy** de producción (la variable se
+   hornea al construir: sin redeploy no cambia).
+5. **Comprobar:** abrir `https://<dominio-del-backend>/api/v1/health` ⇒ `"stripeMode":"live"` (LIVE-7). En el formulario
+   de pago de la tienda, el aviso de «modo prueba» de Stripe ya no aparece.
+6. **Desactivar** en Stripe **modo prueba** el endpoint que apunta a producción (si no, Stripe prueba seguirá enviando
+   eventos firmados con otro secreto: todos serán rechazados y Stripe avisará por correo).
+7. Fase B de §14.9.
+8. Cambiar la variable de repositorio `EXPECTED_STRIPE_MODE` a `live` (la lee el vigía de LIVE-9; no es secreta).
+
+**Ventana:** entre el paso 3 y el 4 el backend es live y la tienda aún prueba: un pago en ese intervalo **falla** (no
+cobra). Hacerlo en hora de poco tráfico; dura lo que tarde el redeploy de Vercel.
+
+**Reversa (volver a prueba):** los mismos pasos con `sk_test_`/`pk_test_` y el `whsec_` del endpoint de prueba
+(reactivarlo); `health` ⇒ `"stripeMode":"test"`. ⚠️ Los pedidos **live** cobrados en el intervalo no se pueden
+reembolsar con clave de prueba: se reembolsan desde el panel de Stripe live **solo** en ese caso, y se anota.
+
+### 14.11 Respaldos y simulacro de restauración (LIVE-13)
+
+**Estado medido:** `DEVOPS_NOTES.md:459` afirma «backups automáticos + point-in-time» y `:819` pide snapshot antes de
+cada migración; que estén **activados** en el plan del dueño: **NO MEDIDO**; restauración probada: **no hay registro**.
+
+1. **Dueño — activar y fotografiar:** Railway → servicio Postgres → **Backups**: programación diaria (y semanal si la
+   ofrece). Captura con la fecha del último respaldo. Si el plan no los ofrece, decirlo (§14.13 P-5).
+2. **Dueño — guardar las llaves fuera de Railway:** `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` (`pii-crypto.service.ts:113`,
+   `:148`) y `JWT_*` en su gestor de contraseñas. ⚠️ Un respaldo de la base **sin** esas llaves deja la CLABE y el RFC
+   cifrados **irrecuperables**.
+3. **Copia fuera de Railway (semanal, recomendada):** `pg_dump -Fc` desde la terminal del dueño con la conexión pública
+   de Railway; el fichero contiene datos personales ⇒ disco cifrado del dueño. ⛔ Nunca en el repositorio, ni en
+   artefactos de GitHub Actions (el repositorio es público, `HECHOS.md:19`).
+4. **Simulacro (una vez antes del cambio, luego trimestral):** restaurar ese volcado en una base **nueva** que no sea
+   producción (un entorno temporal de Railway o la máquina del dueño) y correr `scripts/restore-drill-verify.sh`
+   (devops lo escribe): (a) en producción, con usuario de solo lectura o por el dueño, `--snapshot` imprime conteos por
+   tabla, `SUM("totalCents")` de `Order` por estado, conteos de `PaymentRefund`/`ManualRefund` por estado y la última
+   fila de `_prisma_migrations`; (b) en la restaurada, `--verify <snapshot>` compara y sale `0` solo si todo cuadra.
+   Se anota en `DEVOPS_NOTES` fecha, duración (RTO medido) y antigüedad del respaldo (RPO medido). Se borra la base
+   temporal al terminar.
+5. **Objetivo por defecto** (el dueño puede pedir otro): RPO ≤ 24 h, RTO ≤ 2 h. Stripe es la fuente de verdad del dinero
+   cobrado: lo perdido entre respaldo y caída se reconcilia contra el panel de Stripe.
+
+### 14.12 Paralelo y zonas compartidas
+
+| Pieza | ¿Ya? | Ficheros que toca | Choque medido con ramas vivas |
+|---|---|---|---|
+| LIVE-1 | **Sí** | `backend/package.json:74`, `package-lock.json` | `qs` igual en las 4 (medido); lock NO MEDIDO |
+| LIVE-2 | **Sí** | `modules/auth/auth.service.ts:94-117`, `:548-591`; textos `auth` | 0 marcas v1.8x en `auth/` de skyd/panel/sellado/hotfix (grep, no diff) |
+| LIVE-3 | **Sí** | `frontend/src/middleware.ts`, `next.config.mjs`, `src/security/csp.ts` (nuevo); devops `baseline.conf` | `middleware.ts` sin cambios aparentes en las 4 (grep) |
+| LIVE-4 | **Tras sellado** o con sha fijado | `orders.service.ts:891-899, 1036-1043, 1189-1196` | sellado edita `orders.service.ts` (`:105-375`, otros hunks; sus `failed` en `:923/1069/1221`) |
+| LIVE-5 | **Tras panel** | `payments/stripe.service.ts`, `payments/refunds/manual-refund.service.ts`, `admin-manual-refunds.controller.ts`; frontend cubeta SPEI | panel: 11 marcas en `manual-refund.service.ts` |
+| LIVE-6 | Sí, con choque de 1 línea | `shipments.service.ts:445-446`, `payments.service.ts:352-368` | skyd mueve esa línea a `:549` |
+| LIVE-7 | **Sí** | `modules/health/*`, `main.ts:49-55` (parser), `app/[locale]/error.tsx`, `app/global-error.tsx` | 0 marcas en `health/` (grep) |
+| LIVE-8 | **Sí** (página); enlaces con choque menor | `(storefront)/privacidad/page.tsx` (nuevo), `src/content/legal/` (nuevo), `(storefront)/layout.tsx:66`, `GuestCheckoutForm.tsx:385`, `CheckoutView.tsx:325`, registro, subida de INE; `messages/*.json` | skyd mueve `GuestCheckoutForm` (`:428`); panel mueve `pedido/layout.tsx` (`:69`) y reescribe `legal.*` de `/terminos` ⇒ **no** tocar `/terminos` aquí |
+| LIVE-9/10/11/13 | **Sí** | `.github/workflows/uptime-watch.yml` (nuevo), `scripts/`, `security/` | devops; sin choque conocido |
+| LIVE-12/14/15/16 | Procedimiento | — | — |
+
+### 14.13 Preguntas al dueño
+
+Ver `ARCHITECTURE §4.63.9` (lenguaje llano, con el valor por defecto de cada una).
