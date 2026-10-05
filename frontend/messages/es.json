@@ -1199,6 +1199,7 @@
     "loading": "Procesando…",
     "mockNotice": "Autenticación pendiente de backend: el envío simula el flujo y guarda una sesión local.",
     "inactivityLogout": "Tu sesión se cerró por inactividad.",
+    "sessionMaxAgeLogout": "Tu sesión caducó por seguridad. Vuelve a entrar.",
     "dividerOr": "o",
     "google": {
       "cta": "Continuar con Google",

@@ -71,6 +71,38 @@ export function resetIntentionalLogoutForTests() {
   intentionalLogoutAt = 0;
 }
 
+/**
+ * LIVE-2 pantalla (API_CONTRACT v1.84 §14.2 «Frontend», v1.84.2 §14.15 E2-4; DESIGN_SYSTEM §81.2 F-3;
+ * FRONTEND_NOTES §94): el `401` de `POST /auth/refresh` con `details.reason === 'session_max_age'`
+ * (tope absoluto de vida de la sesión) deja esta marca. Los guards (`PrivateRouteGuard`, `AdminShell`)
+ * siguen redirigiendo como hoy a `/login?next=<ruta>` —no se tocan—, y es el LOGIN (`AuthForm`) quien
+ * la consume y añade `reason=session_max_age` a su URL para pintar «Tu sesión caducó por seguridad».
+ *
+ * De UN SOLO USO (la consume el primer login que la lee) y con ventana: si el refresh muere en una
+ * página pública (sin guard, §81.6 N-2) y el usuario entra al login mucho después, el aviso ya no se
+ * afirma. Vive en memoria del módulo, como `markIntentionalLogout`: solo la pestaña que recibió el
+ * motivo puede afirmarlo (§81.2.6); otras pestañas llegan al login como hoy.
+ */
+let sessionMaxAgeAt = 0;
+const SESSION_MAX_AGE_MARK_WINDOW_MS = 10_000;
+
+/** La llama el interceptor de refresh (`lib/api-client.ts`) al leer `reason: 'session_max_age'`. */
+export function markSessionMaxAgeLogout(now: number = Date.now()) {
+  sessionMaxAgeAt = now;
+}
+
+/** `true` si hay una marca vigente; la borra en cualquier caso (un solo uso). */
+export function consumeSessionMaxAgeLogout(now: number = Date.now()): boolean {
+  const at = sessionMaxAgeAt;
+  sessionMaxAgeAt = 0;
+  return at > 0 && now - at >= 0 && now - at < SESSION_MAX_AGE_MARK_WINDOW_MS;
+}
+
+/** Solo para tests. */
+export function resetSessionMaxAgeLogoutForTests() {
+  sessionMaxAgeAt = 0;
+}
+
 export interface SessionState {
   user: UserDTO | null;
   isAuthenticated: boolean;

@@ -1199,6 +1199,7 @@
     "loading": "Processing…",
     "mockNotice": "Authentication pending backend: submit simulates the flow and stores a local session.",
     "inactivityLogout": "Your session was closed due to inactivity.",
+    "sessionMaxAgeLogout": "Your session expired for security reasons. Log in again.",
     "dividerOr": "or",
     "google": {
       "cta": "Continue with Google",
