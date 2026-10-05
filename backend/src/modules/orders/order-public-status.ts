@@ -62,10 +62,35 @@ export function activeShipment<T extends { status: ShipmentStatus }>(shipments: 
   return shipments.find((s) => s.status !== 'cancelado') ?? shipments[0];
 }
 
-/** `items[].refund` del CLIENTE/INVITADO (§M4-SHIP.10): solo filas `submitted|succeeded`; ⛔ sin actor, `failureCode` ni componentes. */
+/** v1.82 (§PNL.2): cuándo se reembolsó la carta — al preparar (no salió) o tras la entrega (no llegó / llegó mal). */
+export type ClientRefundKind = 'missing_at_prep' | 'after_delivery';
+
+/**
+ * `items[].refund` del CLIENTE/INVITADO (§M4-SHIP.10): solo filas `submitted|succeeded`; ⛔ sin actor, `failureCode` ni
+ * componentes. 💰 v1.82 (§PNL.2, aditivo): `kind` (`item_delivered` ⇒ `after_delivery`; el resto ⇒ `missing_at_prep`) y
+ * `reason` = `MissingReason | ShippedRefundReason` (el motivo de entrega manda si existe).
+ */
 export function clientRefundOf(
-  r: { status: string; amountCents: number; missingReason: string | null; submittedAt: Date | null; succeededAt: Date | null } | null | undefined,
-): { amountCents: number; reason: string | null; refundedAt: string | null } | null {
+  r:
+    | {
+        status: string;
+        // Opcionales en el TIPO (un llamador declara la fila a mano, `guest-checkout.service.ts:615`); en runtime
+        // todos pasan la fila entera (`include: { refund: true }`), así que llegan.
+        kind?: string | null;
+        amountCents: number;
+        missingReason: string | null;
+        deliveredReason?: string | null;
+        submittedAt: Date | null;
+        succeededAt: Date | null;
+      }
+    | null
+    | undefined,
+): { kind: ClientRefundKind; amountCents: number; reason: string | null; refundedAt: string | null } | null {
   if (!r || (r.status !== 'submitted' && r.status !== 'succeeded')) return null;
-  return { amountCents: r.amountCents, reason: r.missingReason, refundedAt: (r.succeededAt ?? r.submittedAt)?.toISOString() ?? null };
+  return {
+    kind: r.kind === 'item_delivered' ? 'after_delivery' : 'missing_at_prep',
+    amountCents: r.amountCents,
+    reason: r.deliveredReason ?? r.missingReason,
+    refundedAt: (r.succeededAt ?? r.submittedAt)?.toISOString() ?? null,
+  };
 }

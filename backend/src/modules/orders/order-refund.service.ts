@@ -11,15 +11,20 @@
  *  Post-commit: `executeRefund` (Stripe con `amount = remaining` y esa llave).
  *
  * `POST /admin/orders/:id/reclaim-vault` (`super_admin`, custodia, ⛔ no dinero, auditado) — §M4-SHIP.18.10.
+ *
+ * 💰 v1.82 `POST /admin/orders/:id/items/:orderItemId/refund-delivered` (`super_admin`, `@MoneyOut`) — §PNL.2: UNA carta
+ *  de un directo YA ENTREGADO. Mismos candados que la tx1 (envíos → `Order` → libro); fila `item_delivered`
+ *  (`item-delivered:<orderItemId>`); ⛔ cero inventario; la orden sigue `settled`. Cuerpo puro: `item-delivered-refund.ts`.
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, Role, ShippedRefundReason } from '@prisma/client';
+import { PaymentRefund, Prisma, Role, ShippedRefundReason } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { orderFullRefundComponents } from '../../common/money';
 import { FullRefundService, VaultPieceState } from '../payments/refunds/full-refund.service';
 import { NON_FAILED, PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { ACCEPTED_SHIPPED_REFUND_REASONS } from '../../common/business-rules';
+import { DeliveredRefundView, deliveredLinesOf, deliveredRefundDecision, deliveredRefundViewOf, parseItemDeliveredBody } from './item-delivered-refund';
 import {
   FULL_REFUND_REVIEW_SELECT,
   FullRefundReviewDTO,
@@ -343,5 +348,126 @@ export class OrderRefundService {
       chargebackNeedsManual: pass.chargebackNeedsManual,
       vaultPieces: await this.vaultPieces(orderId),
     };
+  }
+
+  // ================================================================ 💰 v1.82 §PNL.2 — UNA carta tras la entrega
+
+  /**
+   * `items[].deliveredRefund` de `GET /admin/orders/:id` — mismo cuerpo que los pasos 3–4 del verbo, ⛔ sin candados.
+   * Mapa `inventoryItemId ⇒ { orderItemId, vista }` (la pieza es única por orden). Tres consultas, ⛔ sin N+1.
+   */
+  async deliveredRefundViews(orderId: string): Promise<Map<string, { orderItemId: string; view: DeliveredRefundView }>> {
+    const out = new Map<string, { orderItemId: string; view: DeliveredRefundView }>();
+    const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { items: { select: { id: true, inventoryItemId: true, unitPriceCents: true } } } });
+    if (!order) return out;
+    const [lines, rows] = await Promise.all([
+      deliveredLinesOf(this.prisma, orderId, order.items.map((i) => i.inventoryItemId)),
+      this.prisma.paymentRefund.findMany({ where: { orderItemId: { in: order.items.map((i) => i.id) } }, select: { id: true, orderItemId: true } }),
+    ]);
+    const byItem = new Map(rows.map((r) => [r.orderItemId as string, r]));
+    for (const oi of order.items) {
+      out.set(oi.inventoryItemId, { orderItemId: oi.id, view: deliveredRefundViewOf(order, oi, byItem.get(oi.id) ?? null, lines.get(oi.inventoryItemId) ?? null) });
+    }
+    return out;
+  }
+
+  /**
+   * 💰 §PNL.2 — el verbo. Orden normativo: (1) validación ⇒ 400; línea inexistente o de OTRA orden ⇒ 404; (2) tx con los
+   * candados de M3 (envíos de la orden `FOR UPDATE` id asc. → `Order FOR UPDATE` → libro); (3) guardas bajo candado ⇒
+   * `409 ITEM_REFUND_NOT_AVAILABLE {reason}`; (4) importe + defensa del remanente; (5) `expectedRefundCents ≠ A` ⇒ `409
+   * REFUND_PREVIEW_STALE {refundCents}`; (6) fila `item_delivered` (`P2002` ⇒ `already_refunded`, ⛔ nunca 500); (7)
+   * bitácora en la tx; (8) post-commit Stripe + AV-12 por el cuerpo del libro. ⛔ Cero inventario; la orden sigue `settled`.
+   */
+  async refundDelivered(orderId: string, orderItemId: string, rawBody: unknown, actor: { id: string; role: Role }): Promise<{ refund: PaymentRefundDTO }> {
+    const body = parseItemDeliveredBody(rawBody);
+    const head = await this.prisma.orderItem.findUnique({ where: { id: orderItemId }, select: { orderId: true } });
+    // `:orderItemId` de OTRA orden ⇒ 404 (⛔ nunca se reembolsa una línea buscándola sin su orden).
+    if (!head || head.orderId !== orderId) throw BusinessException.notFound();
+    let row: PaymentRefund;
+    try {
+      row = await this.prisma.$transaction(
+        async (tx) => {
+          // (2) candados en el orden de M3.
+          await lockShipmentsOfOrder(tx, orderId);
+          await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+          const order = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
+          const oi = await tx.orderItem.findUniqueOrThrow({ where: { id: orderItemId }, select: { id: true, inventoryItemId: true, unitPriceCents: true } });
+          // (3) guardas BAJO candado (la primera que falle).
+          const existing = await tx.paymentRefund.findUnique({ where: { orderItemId }, select: { id: true } });
+          const line = (await deliveredLinesOf(tx, orderId, [oi.inventoryItemId])).get(oi.inventoryItemId) ?? null;
+          const decision = deliveredRefundDecision(order, oi, existing, line);
+          if (decision.kind === 'already_refunded') {
+            throw BusinessException.conflict('ITEM_REFUND_NOT_AVAILABLE', 'This card was already refunded', { reason: 'already_refunded', refundId: decision.refundId });
+          }
+          if (decision.kind === 'blocked') {
+            throw BusinessException.conflict('ITEM_REFUND_NOT_AVAILABLE', 'This card cannot be refunded after delivery', { reason: decision.reason });
+          }
+          // (4) defensa: la suma de reembolsos nunca excede lo cobrado (no debe ocurrir: `floor`, §M4-SHIP.4).
+          const A = decision.components.amountCents;
+          const refunded = await this.ledger.refundedNonFailedCents(tx, orderId);
+          if (A > order.totalCents - refunded) {
+            this.logger.error(`refund-delivered ${orderId}/${orderItemId}: A=${A} excede el remanente ${order.totalCents - refunded} (no debe ocurrir).`);
+            throw BusinessException.conflict('CONFLICT', 'The refund would exceed what remains of the charge', { remainingCents: order.totalCents - refunded });
+          }
+          // (5) lo que el súper-admin vio.
+          if (body.expectedRefundCents !== A) {
+            throw BusinessException.conflict('REFUND_PREVIEW_STALE', 'The refund amount changed', { refundCents: A });
+          }
+          // (6) la fila del libro.
+          const [created] = await this.ledger.createRows(
+            tx,
+            [
+              {
+                idempotencyKey: `item-delivered:${orderItemId}`,
+                kind: 'item_delivered',
+                orderId,
+                orderItemId,
+                shipmentItemId: decision.line.id,
+                deliveredReason: body.reason,
+                missingReason: null,
+                reason: body.note,
+                components: decision.components,
+              },
+            ],
+            actor,
+            { deliveredReason: body.reason },
+          );
+          // (7) bitácora del acto.
+          await tx.auditLog.create({
+            data: {
+              actorUserId: actor.id,
+              actorRole: actor.role,
+              action: 'order.item_refund_delivered',
+              entityType: 'Order',
+              entityId: orderId,
+              after: {
+                orderItemId,
+                inventoryItemId: oi.inventoryItemId,
+                shipmentItemId: decision.line.id,
+                reason: body.reason,
+                note: body.note,
+                amountCents: created.amountCents,
+                refundId: created.id,
+              },
+            },
+          });
+          return created;
+        },
+        { maxWait: 10_000, timeout: 30_000 },
+      );
+    } catch (e) {
+      // (6) otra pestaña ganó la llave única (`orderItemId` / `idempotencyKey`) ⇒ 409 con la fila ganadora, ⛔ nunca 500.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const winner = await this.prisma.paymentRefund.findUnique({ where: { orderItemId }, select: { id: true } });
+        throw BusinessException.conflict('ITEM_REFUND_NOT_AVAILABLE', 'This card was already refunded', {
+          reason: 'already_refunded',
+          ...(winner ? { refundId: winner.id } : {}),
+        });
+      }
+      throw e;
+    }
+    // (8) post-commit: Stripe (`amount = A`, `Idempotency-Key = item-delivered:<id>`) y AV-12 (invitado incluido).
+    const [finalRow] = await this.ledger.executeAndNotify([row.id], actor);
+    return { refund: (await this.ledger.toDtos([finalRow]))[0] };
   }
 }
