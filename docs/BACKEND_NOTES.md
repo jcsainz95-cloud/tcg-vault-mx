@@ -27314,3 +27314,41 @@ deterministas ⇒ N=1 por mutante, como dice §M11-SP.13.9): **8/8 mordidas.**
 nombre y aparece una 18; si el dueño tiene fórmulas sobre la hoja exportada: **NO MEDIDO**.
 
 **Preguntas al arquitecto:** ninguna nueva.
+
+### 57.10 Tras el gate de techlead (sobre `4f367aea`): D-8 cerrada, SP-18 con redundancia, deuda anotada (backend, 2026-10-05, commit `75b6c363`)
+
+**D-8 cerrada (código).** `inventory/sealed-price.service.ts#setSalePrice`: si la relectura posterior al commit no
+encuentra el producto (borrado entre el commit y la relectura), ahora lanza `404 NOT_FOUND` (código ya listado para el
+`PUT …/sale-price` en el contrato) en vez de devolver `200` con `data: undefined`. El precio y su bitácora ya quedaron
+confirmados en la tx; lo que no hay es fila que devolver. Prueba: «D-8» en `test/sealed-price.sp.spec.ts` (doble clic
+idempotente + relectura `null` ⇒ `rejects { code: 'NOT_FOUND' }`).
+
+**SP-18 con redundancia (QA menor 2).** Con el dial 100 → 50, `P = 129 900` da ida y vuelta exacta `P → L → P` en los
+dos diales, así que la mutación «`P` derivado desde el `L` equivalente» pasaba SP-18. Se añadió un producto con
+`P = 7000`, que **no** la da en ninguno de los dos (100/16: `L` 6034 ⇒ 6999; 50/16: `L` 6481 ⇒ 6999 — búsqueda
+exhaustiva por múltiplos de 100: el menor `P` que falla en ambos es 6500, y 7000 también). Se afirma `[ficha, quote] =
+[7000, 7000]` con dial 100 y con dial 50, y `qo100 = o100` (antes solo se comparaba el quote consigo mismo).
+⚠️ Con el `P = 700` que sugería el encargo la redundancia es solo a medias: 700 sí falla en 100/16 (699) pero en
+50/16 da 700 exacto.
+
+**Deuda anotada** en `docs/TECH_DEBT.md` (sección «Backend · 2026-10-05 · stream Precio del sellado»): `SPS-D1`, `D2`,
+`D3`, `D4` (va en el encargo de SP-14; incluye el espejo de frontend, cuya mitad es de frontend), `D7`; `SPS-D8`
+marcada cerrada.
+
+**Mutaciones (medido por backend; copias `git archive 75b6c363` del árbol ENTERO en `scratchpad/be-sell3/`, BD
+`tcg_be_sell3`):**
+| Mutante | Prueba | Resultado |
+|---|---|---|
+| M-A: `orders.service.ts:326` `unitPriceCents: displayPriceCentsOf(d.listPriceCents, …)` (P desde el `L` equivalente) | SP-18 | **roja 4/4** (N=4: 1 corrida de la integración completa + 3 de SP-18 sola), siempre en la nueva aserción `[7000, 6999] ≠ [7000, 7000]` (línea 982). En la corrida completa también cayó SP-2 (lo esperado) y dos `PS-57/PS-57c` por timeout de 30 s con carga ~15 en 4 CPU (O-16: no cuentan como rojo; ajenas a la mutación) |
+| D-8: quitar el `throw` (volver a `rowsOf(product ? [product] : [])`) | «D-8» unitaria | **roja 1/1** («Received promise resolved instead of rejected»); determinista |
+
+**Suites (medido por backend, copia `git archive 75b6c363` del árbol ENTERO en `scratchpad/be-sell3/tree`):**
+| Suite | Resultado | Carga al empezar |
+|---|---|---|
+| `tsc --noEmit`, `npm run lint` | 0 errores | 7.12 |
+| Unitaria (`npx jest`) | **392/392 suites, 6663/6663** (+1 = D-8) | 7.12 (al terminar 14.75) |
+| Integración `sealed-price.e2e-spec.ts` (BD `tcg_be_sell3`, `stack-native.sh test:integration`) | **30/30** | 7.53 |
+
+La integración completa **no** se corrió sobre el árbol sin mutar (solo la de `sealed-price`, como pedía el encargo).
+
+**Preguntas al arquitecto:** ninguna nueva.
