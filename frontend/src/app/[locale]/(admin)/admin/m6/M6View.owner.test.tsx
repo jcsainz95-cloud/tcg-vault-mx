@@ -85,4 +85,41 @@ describe('PS-164 · la cuenta del dueño en Usuarios', () => {
     fireEvent.click(screen.getByRole('button', { name: /Restablecer contraseña/ }));
     await waitFor(() => expect(screen.getByText('Esta es la cuenta del dueño: no se puede cambiar desde otra cuenta.')).toBeInTheDocument());
   });
+
+});
+
+describe('§43.20.6 · la cuenta del dueño en Usuarios: «Dueño» junto al nombre y la nota del propio dueño', () => {
+  it('el propio dueño en su ficha ⇒ `ownerAccountSelf` (⛔ la de «desde otra cuenta»)', async () => {
+    setStoredUser({ id: 'u-owner', email: 'dueno@tcghunt.mx', name: 'Dueño', role: 'super_admin', locale: 'es', isOwner: true });
+    const note = await openDetail(OWNER);
+    expect(note).toHaveTextContent(
+      'Es tu cuenta de dueño: puedes restablecer tu contraseña, pero no bloquearla ni borrarla; la tienda se quedaría sin quien reciba los avisos de gasto.',
+    );
+    expect(note).not.toHaveTextContent('desde otra cuenta');
+  });
+  it('`ownerTag` «Dueño» en la fila de la lista y en la cabecera del detalle, en `text-muted` sin color; otra cuenta ⇒ sin etiqueta', async () => {
+    setStoredUser({ id: 'u-sa2', email: 'otro@tcghunt.mx', name: 'Otro súper', role: 'super_admin', locale: 'es' });
+    vi.spyOn(api, 'getAdminUsers').mockResolvedValue({ data: [OWNER, OTHER], page: 1, pageSize: 20, total: 2, lockState: 'ok' });
+    vi.spyOn(api, 'getAdminUser').mockResolvedValue({ ...OWNER, ownedItems: [] } as AdminUserDetailDTO);
+    renderWithProviders(<M6View />, 'es');
+    await screen.findAllByRole('button', { name: 'Ver ficha' });
+    const tags = screen.getAllByTestId('m6-owner-tag');
+    expect(tags.length).toBeGreaterThan(0);
+    for (const tag of tags) {
+      expect(tag).toHaveTextContent('Dueño');
+      expect(tag.className).toMatch(/text-muted/);
+      expect(tag.className).not.toMatch(/text-accent|text-danger|bg-/);
+    }
+    const before = tags.length;
+    fireEvent.click(screen.getAllByRole('button', { name: 'Ver ficha' })[0]);
+    await screen.findByTestId('m6-owner-account');
+    expect(screen.getAllByTestId('m6-owner-tag').length).toBe(before + 1);
+  });
+  it('sin ninguna cuenta del dueño en la lista ⇒ cero etiquetas', async () => {
+    setStoredUser({ id: 'u-owner', email: 'dueno@tcghunt.mx', name: 'Dueño', role: 'super_admin', locale: 'es', isOwner: true });
+    vi.spyOn(api, 'getAdminUsers').mockResolvedValue({ data: [OTHER], page: 1, pageSize: 20, total: 1, lockState: 'ok' });
+    renderWithProviders(<M6View />, 'es');
+    await screen.findAllByRole('button', { name: 'Ver ficha' });
+    expect(screen.queryAllByTestId('m6-owner-tag')).toHaveLength(0);
+  });
 });

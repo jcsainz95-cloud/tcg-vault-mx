@@ -19,13 +19,30 @@ type T = {
 export interface AlertTextCtx {
   money: (cents: number) => string;
   dateTime: (iso: string) => string;
+  /**
+   * El rótulo de un ajuste del dueño por su clave del DTO (`admin.m10.ownerOnly.field.*`, una fuente para el nombre de
+   * cada ajuste, §43.20.3); clave sin rótulo ⇒ `field.other`. ⛔ Nunca la clave cruda.
+   */
+  ownerSetting: (key: string) => string;
 }
 
 const num = (v: SpendAlertFactValue | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: SpendAlertFactValue | undefined): string | null => (typeof v === 'string' && v.trim() ? v : null);
 const list = (v: SpendAlertFactValue | undefined): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-const person = (v: SpendAlertFactValue | undefined): { name: string | null } | null =>
-  v && typeof v === 'object' && !Array.isArray(v) && 'userId' in v ? { name: v.name } : null;
+const person = (v: SpendAlertFactValue | undefined): { name: string | null; role: string | null } | null =>
+  v && typeof v === 'object' && !Array.isArray(v) && 'userId' in v ? { name: v.name, role: typeof v.role === 'string' ? v.role : null } : null;
+
+/** AG-22 (§43.20.3): los `act` con frase propia; uno desconocido o ausente ⇒ `act.other`. */
+export const AG22_ACTS = [
+  'staff_created',
+  'staff_password_reset',
+  'staff_status_changed',
+  'staff_deleted',
+  'owner_account_denied',
+  'owner_setting_denied',
+] as const;
+/** AG-9 (§43.19.11 + §43.20.4): las causas con frase propia; otra ⇒ `other`. */
+export const AG9_CAUSES = ['charged_not_found', 'orphan', 'duplicate', 'orphan_auto_cancelled', 'orphan_fuse', 'orphan_cancel_unknown'] as const;
 
 /** «a, b y c» con la conjunción del idioma. */
 export function joinAnd(t: T, parts: string[]): string {
@@ -105,7 +122,7 @@ export function alertText(t: T, a: SpendAlertDTO, ctx: AlertTextCtx): string {
       return t('kind.AG-8.textB', { ref, charged: m(f.chargedCents) });
     case 'AG-9': {
       const cause = str(f.cause);
-      const key = cause && ['charged_not_found', 'orphan', 'duplicate', 'orphan_auto_cancelled', 'orphan_fuse'].includes(cause) ? cause : 'other';
+      const key = cause && (AG9_CAUSES as readonly string[]).includes(cause) ? cause : 'other';
       return t(`kind.AG-9.${key}`, { ref, amount: m(f.expectedChargeCents ?? a.amountCents), reference: str(f.providerReference) ?? none });
     }
     case 'AG-10':
@@ -125,19 +142,24 @@ export function alertText(t: T, a: SpendAlertDTO, ctx: AlertTextCtx): string {
       return t('kind.AG-13.text', { person: who, ref, parts: joinAnd(t, parts) });
     }
     case 'AG-21': {
-      if (f.cause === 'no_owner') return t('kind.AG-21.textNoOwner');
-      const prev = person(f.previousOwner)?.name?.trim() || t('personNone');
+      // §43.20.2: la variante la deciden `cause` y si `previousOwner` es `null`. ⛔ Ningún correo ni `userId` en pantalla.
+      const prevP = person(f.previousOwner);
+      const prev = prevP?.name?.trim() || t('personNone');
       const cur = person(f.currentOwner)?.name?.trim() || t('personNone');
-      return t('kind.AG-21.textChanged', { previous: prev, current: cur });
+      if (f.cause === 'no_owner') return prevP ? t('kind.AG-21.textNoOwnerFrom', { previous: prev }) : t('kind.AG-21.textNoOwner');
+      return prevP ? t('kind.AG-21.textChanged', { previous: prev, current: cur }) : t('kind.AG-21.textFirst', { current: cur });
     }
     case 'AG-22': {
-      const target = person(f.target);
-      const keys = list(f.keys);
-      return t('kind.AG-22.text', {
-        person: who,
-        act: str(f.act) ?? 'other',
-        target: target ? target.name?.trim() || t('personNone') : keys.length ? keys.join(', ') : none,
-      });
+      // §43.20.3: una frase por `act`; `{target}` con rol, `{owner}` sin rol, `{settings}` por los rótulos de los ajustes.
+      const act = str(f.act);
+      const key = act && (AG22_ACTS as readonly string[]).includes(act) ? act : 'other';
+      const tp = person(f.target);
+      const name = tp?.name?.trim() || t('personNone');
+      const roleLabel = tp?.role && t.has(`kind.AG-22.role.${tp.role}`) ? t(`kind.AG-22.role.${tp.role}`) : null;
+      const target = !tp ? t('kind.AG-22.targetNone') : roleLabel ? t('kind.AG-22.target', { name, role: roleLabel }) : name;
+      const labels = [...new Set(list(f.keys).map((k) => ctx.ownerSetting(k)))];
+      const settings = joinAnd(t, labels.length ? labels : [ctx.ownerSetting('other')]);
+      return t(`kind.AG-22.act.${key}`, { person: who, target, owner: tp ? name : t('kind.AG-22.targetNone'), settings });
     }
     default:
       return t('kind.generic.text');

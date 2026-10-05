@@ -64,19 +64,19 @@ function a(over: Partial<SpendAlertDTO> & Pick<SpendAlertDTO, 'id' | 'code' | 'k
 
 /** Los trece tipos, con la frase que su `facts` debe producir (§43.19.11). */
 const THIRTEEN: [SpendAlertDTO, string][] = [
-  [a({ id: 'a1', code: 'AG-1', kind: 'label_after_address_fix', subject: ANA, facts: { changedKeys: ['line1', 'postalCode'], carrierName: '99minutos', chargedCents: 14850 } }), 'Ana corrigió la dirección de el pedido TCG-000123 (calle y número y CP) y compró su guía: 99minutos, MX$148.50.'],
+  [a({ id: 'a1', code: 'AG-1', kind: 'label_after_address_fix', subject: ANA, facts: { changedKeys: ['line1', 'postalCode'], carrierName: '99minutos', chargedCents: 14850 } }), 'Ana corrigió la dirección del pedido TCG-000123 (calle y número y CP) y compró su guía: 99minutos, MX$148.50.'],
   [a({ id: 'a2', code: 'AG-2', kind: 'label_cap_warning', severity: 'digest', subject: ANA, facts: { usedCents: 200000, capCents: 250000, pct: 80 } }), 'Ana lleva MX$2,000.00 en guías en las últimas 24 horas: el 80 % de su tope de MX$2,500.00.'],
-  [a({ id: 'a3', code: 'AG-3', kind: 'label_cap_blocked', subject: ANA, facts: { priceCents: 15000, usedCents: 240000, capCents: 250000 } }), 'A Ana se le negó la guía de el pedido TCG-000123 (MX$150.00): con ella pasaba su tope de MX$2,500.00 en 24 horas (llevaba MX$2,400.00). Puedes comprarla tú o subir su tope.'],
-  [a({ id: 'a4', code: 'AG-4', kind: 'label_reissue_loop', subject: ANA, facts: { cancelledCount: 2, unrecoveredCents: 3000, unknownRefunds: 1, actors: ['Ana', 'Luis'], triggers: ['shipment_cancels'] } }), 'el pedido TCG-000123 lleva 2 guías canceladas (Ana y Luis). Saldo no recuperado: MX$30.00; sin cifra de reembolso en 1.'],
-  [a({ id: 'a5', code: 'AG-5', kind: 'label_charge_drift', facts: { quotedCents: 14850, chargedCents: 15350, diffCents: 777 } }), 'La guía de el pedido TCG-000123 se cobró en MX$153.50; se cotizó en MX$148.50 (+MX$7.77).'],
+  [a({ id: 'a3', code: 'AG-3', kind: 'label_cap_blocked', subject: ANA, facts: { priceCents: 15000, usedCents: 240000, capCents: 250000 } }), 'A Ana se le negó la guía del pedido TCG-000123 (MX$150.00): con ella pasaba su tope de MX$2,500.00 en 24 horas (llevaba MX$2,400.00). Puedes comprarla tú o subir su tope.'],
+  [a({ id: 'a4', code: 'AG-4', kind: 'label_reissue_loop', subject: ANA, facts: { cancelledCount: 2, unrecoveredCents: 3000, unknownRefunds: 1, actors: ['Ana', 'Luis'], triggers: ['shipment_cancels'] } }), 'Van 2 guías canceladas en el pedido TCG-000123 (Ana y Luis). Saldo no recuperado: MX$30.00; sin cifra de reembolso en 1.'],
+  [a({ id: 'a5', code: 'AG-5', kind: 'label_charge_drift', facts: { quotedCents: 14850, chargedCents: 15350, diffCents: 777 } }), 'La guía del pedido TCG-000123 se cobró en MX$153.50; se cotizó en MX$148.50 (+MX$7.77).'],
   [a({ id: 'a6', code: 'AG-6', kind: 'carrier_extra_charge', facts: { kind: 'overweight', carrierName: 'FedEx', amountCents: 16000 } }), 'Cargo extra de FedEx en el pedido TCG-000123: sobrepeso, MX$160.00.'],
   [a({ id: 'a7', code: 'AG-7', kind: 'provider_balance_low', order: null, shipment: null, facts: { balanceCents: 96516, thresholdCents: 100000 } }), 'Tu saldo de Skydropx bajó a MX$965.16 (avisamos debajo de MX$1,000.00). Recarga en el panel de Skydropx.'],
-  [a({ id: 'a8', code: 'AG-8', kind: 'cancel_refund_missing', facts: { chargedCents: 14850, refundedCents: null, unrefundedCents: null, cancelKind: 'reissue' } }), 'Se canceló la guía de el pedido TCG-000123 y Skydropx no dijo cuánto devolvió; no podemos confirmar que regresaran MX$148.50. Revísalo en tu panel de Skydropx.'],
-  [a({ id: 'a9', code: 'AG-9', kind: 'label_charged_unexplained', facts: { cause: 'charged_not_found', expectedChargeCents: 14850, providerReference: 'ENV-000045-01' } }), 'Skydropx descontó MX$148.50 por la guía de el pedido TCG-000123 y no encontramos la guía. Búscala en tu panel de Skydropx como «Pedido ENV-000045-01».'],
-  [a({ id: 'a10', code: 'AG-10', kind: 'label_not_shipped', severity: 'digest', order: null, shipment: { id: 's', folio: 'ENV-000047', kind: 'vault_withdrawal' }, facts: { daysSincePurchase: 3, chargedCents: 14850, carrierName: '99minutos' } }), 'La guía de el envío ENV-000047 (99minutos, MX$148.50) se compró hace 3 días y el paquete no ha salido. Si ya no va a salir, cancélala para recuperar el saldo.'],
-  [a({ id: 'a11', code: 'AG-11', kind: 'parcel_returned', facts: { status: 'destroyed', carrierName: 'FedEx', chargedCents: 14850 } }), 'El paquete de el pedido TCG-000123 (FedEx) fue destruido por la paquetería. La guía costó MX$148.50.'],
+  [a({ id: 'a8', code: 'AG-8', kind: 'cancel_refund_missing', facts: { chargedCents: 14850, refundedCents: null, unrefundedCents: null, cancelKind: 'reissue' } }), 'Se canceló la guía del pedido TCG-000123 y Skydropx no dijo cuánto devolvió; no podemos confirmar que regresaran MX$148.50. Revísalo en tu panel de Skydropx.'],
+  [a({ id: 'a9', code: 'AG-9', kind: 'label_charged_unexplained', facts: { cause: 'charged_not_found', expectedChargeCents: 14850, providerReference: 'ENV-000045-01' } }), 'Skydropx descontó MX$148.50 por la guía del pedido TCG-000123 y no encontramos la guía. Búscala en tu panel de Skydropx como «Pedido ENV-000045-01».'],
+  [a({ id: 'a10', code: 'AG-10', kind: 'label_not_shipped', severity: 'digest', order: null, shipment: { id: 's', folio: 'ENV-000047', kind: 'vault_withdrawal' }, facts: { daysSincePurchase: 3, chargedCents: 14850, carrierName: '99minutos' } }), 'La guía del envío ENV-000047 (99minutos, MX$148.50) se compró hace 3 días y el paquete no ha salido. Si ya no va a salir, cancélala para recuperar el saldo.'],
+  [a({ id: 'a11', code: 'AG-11', kind: 'parcel_returned', facts: { status: 'destroyed', carrierName: 'FedEx', chargedCents: 14850 } }), 'El paquete del pedido TCG-000123 (FedEx) fue destruido por la paquetería. La guía costó MX$148.50.'],
   [a({ id: 'a12', code: 'AG-12', kind: 'parcel_problem', severity: 'digest', facts: { status: 'retained', carrierName: 'FedEx' } }), 'FedEx reporta el paquete retenido en el pedido TCG-000123.'],
-  [a({ id: 'a13', code: 'AG-13', kind: 'label_costly_choice', severity: 'digest', subject: ANA, facts: { marginCents: -1200, priceCents: 20300, recommendedPriceCents: 18000, overRecommendedCents: 2300 } }), 'Ana compró la guía de el pedido TCG-000123 con margen negativo (−MX$12.00) y MX$23.00 por encima de la recomendada (MX$203.00 contra MX$180.00).'],
+  [a({ id: 'a13', code: 'AG-13', kind: 'label_costly_choice', severity: 'digest', subject: ANA, facts: { marginCents: -1200, priceCents: 20300, recommendedPriceCents: 18000, overRecommendedCents: 2300 } }), 'Ana compró la guía del pedido TCG-000123 con margen negativo (−MX$12.00) y MX$23.00 por encima de la recomendada (MX$203.00 contra MX$180.00).'],
 ];
 
 function serveList(rows: SpendAlertDTO[], total = rows.length) {
@@ -105,7 +105,7 @@ describe('UX-GAS-6 (GAS-2) · los trece textos, ⛔ ningún dato del cliente aun
     ]);
     renderWithProviders(<SpendAlertsView />, 'es');
     const table = await screen.findByTestId('spend-alerts-table');
-    expect(within(table).getByText(/^Se negó otra guía de el pedido TCG-000123: ya había usado su recompra\./)).toBeInTheDocument();
+    expect(within(table).getByText(/^Se negó una guía más para el pedido TCG-000123: ya había usado todas sus recompras\./)).toBeInTheDocument();
     expect(within(table).getByText('Cargo extra de FedEx en el pedido TCG-000123: otro cargo, MX$1.00.')).toBeInTheDocument();
   });
 });
@@ -200,12 +200,12 @@ describe('UX-GAS-2 · filtros en la URL, «Marcar como vistos», ⛔ sin borrar 
     expect(screen.getByTestId(`spend-alert-row-${r1.id}`)).toBeInTheDocument();
     expect(screen.queryAllByRole('button', { name: /Borrar|Eliminar|Archivar|no visto|Deshacer/i })).toHaveLength(0);
   });
-  it('🔒 v1.80.12.10: `skipped` ⇒ se dice cuántos no se marcaron (sobre uno mismo)', async () => {
+  it('🔒 v1.80.12.10: `skipped` ⇒ se dice cuántos no se marcaron (sobre uno mismo o la cuenta del dueño)', async () => {
     serveList([THIRTEEN[2][0]]);
     vi.spyOn(api, 'markSpendAlertsSeen').mockResolvedValue({ updated: 0, skipped: 1 });
     renderWithProviders(<SpendAlertsView />, 'es');
     fireEvent.click(within(await screen.findByTestId('spend-alerts-table')).getByRole('button', { name: 'Marcar visto' }));
-    expect(await screen.findByText(/1 aviso no se marcó: es sobre ti y lo marca el dueño\./)).toBeInTheDocument();
+    expect(await screen.findByText(/1 aviso no se marcó: los avisos sobre ti y los de la cuenta del dueño solo los marca el dueño\./)).toBeInTheDocument();
   });
   it('vacío sin filtros ⇒ el texto de §43.19.8', async () => {
     serveList([]);

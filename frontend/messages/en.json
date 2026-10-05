@@ -4064,7 +4064,9 @@
         "user_create": "Account created"
       },
       "ownerProtected": "This is the owner's account: it can't be changed from another account.",
-      "ownerAccount": "This is the owner's account: it can't be reset, blocked or deleted from another account."
+      "ownerAccount": "This is the owner's account: it can't be reset, blocked or deleted from another account.",
+      "ownerAccountSelf": "This is your owner account: you can reset your password, but not block or delete it; the store would be left with nobody to receive spending alerts.",
+      "ownerTag": "Owner"
     },
     "m11": {
       "title": "Sealed",
@@ -4507,7 +4509,7 @@
           "superAdminOnly": "Super admins only",
           "superAdminOnlyNote": "Each label is bought by a super admin with their own click and recorded in their name.",
           "operators": "Staff too",
-          "operatorsNote": "Staff buy with their name in the log, up to their 24-hour limit and their rebuy per shipment (in “Spending control”). You have no limit.",
+          "operatorsNote": "Staff buy with their name in the log, up to their 24-hour limit and their rebuy per shipment (in “Spending control”). The owner has no limit.",
           "serverKey": "On top of this, the server needs its own authorization to spend. If it's missing, nobody buys even if this says yes.",
           "confirmTitle": "Let staff buy labels?",
           "confirmBody": "They'll be able to spend the Skydropx balance without asking you, each label in their name and up to their 24-hour limit. You'll get alerts according to “Spending control”.",
@@ -4591,23 +4593,23 @@
         "save": "Save shipping",
         "saved": "Shipping settings saved.",
         "saveError": "Not saved: the server rejected a value. Check the marked field.",
-        "lowBalanceHint": "Below this amount you get an email (alert AG-7), once each time it drops."
+        "lowBalanceHint": "Below this amount the owner gets an email (alert AG-7), once each time it drops."
       },
       "spend": {
         "title": "Spending control",
-        "subtitle": "Super admin only. Every change is logged. All alerts start switched on.",
+        "subtitle": "Only the owner changes these settings; other super admins can see them. Every change is logged. All alerts start switched on.",
         "notAvailable": "This server doesn't have the spending control settings yet.",
         "staff": {
           "title": "Staff limits"
         },
         "cap": {
           "label": "Label spend limit per person over 24 hours",
-          "hint": "Counts what each person spent on labels in the last 24 hours, not since midnight. When they hit it, the purchase is refused without telling them the amount and you get an alert; they can still enter labels by hand. You have no limit; super admins without an email do.",
+          "hint": "Counts what each person spent on labels in the last 24 hours, not since midnight. When they hit it, the purchase is refused without telling them the amount and the owner gets an alert; they can still enter labels by hand. The owner has no limit; other super admins do.",
           "error": "The minimum limit is MX$1.00. To stop everyone from buying, use “Who can buy labels?” in Shipping."
         },
         "reissue": {
           "label": "Label rebuys per shipment",
-          "hint": "How many times staff can cancel a shipment's label and buy another. After that, you buy the next one. 0 = none.",
+          "hint": "How many times staff can cancel a shipment's label and buy another. After that, the owner buys the next one. 0 = none.",
           "error": "0 to 10."
         },
         "when": {
@@ -4656,13 +4658,16 @@
           "immediate": "Immediate email",
           "digest": "Daily summary",
           "byAmount": "Immediate or summary, depending on the amount",
-          "byCase": "Immediate or summary, depending on the case",
-          "note": "A switched-off alert isn't recorded: not in the list and not by email. What happens while it's off can't be seen later."
+          "note": "A switched-off alert sends no email and doesn't count as unseen on the dashboard, but it's still recorded: it shows in “Spending alerts” marked “Switched off” and the daily summary says how many there were. Switching it on or off doesn't change alerts that already exist.",
+          "sevAG1": "Immediate email if the recipient, street, postal code, municipality, state or country changed; otherwise, daily summary",
+          "sevAG9": "Immediate email; an extra label we cancel automatically goes in the daily summary",
+          "sevAG22": "Immediate email if it involves a super admin or the owner's account or settings; otherwise, daily summary",
+          "alwaysOn": "Always on: it watches the owner's account and settings."
         },
         "save": "Save spending control",
         "saved": "Spending control settings saved.",
         "offTitle": "Switch off {n, plural, one {# alert} other {# alerts}}?",
-        "offBody": "While they're off they aren't recorded. What happens can't be seen later: {list}.",
+        "offBody": "While they're off you won't get emails for them and they won't count on the dashboard; they'll still show in “Spending alerts” marked “Switched off”: {list}.",
         "offConfirm": "Yes, switch them off",
         "back": "Back"
       },
@@ -4671,16 +4676,16 @@
         "denied": "Nothing was saved: only the owner can change {fields}.",
         "field": {
           "operatorLabelCap24hCents": "the per-person label limit",
-          "shippingLabelReissueMaxPerShipment": "the rebuys per shipment",
-          "spendAlertsDisabled": "which alerts are on",
-          "spendAlertLabelCapWarnPct": "the limit alert percentage",
-          "spendAlertShipmentCancelCount": "the cancelled labels per shipment",
-          "spendAlertPersonCancelCount24h": "the cancelled labels per person",
-          "spendAlertChargeDriftImmediateCents": "the charge difference",
-          "spendAlertExtraChargeImmediateCents": "the extra charge",
-          "skydropxLowBalanceCents": "the low balance",
-          "spendAlertCancelRefundDays": "the refund days",
-          "spendAlertLabelNotShippedDays": "the days without shipping",
+          "shippingLabelReissueMaxPerShipment": "the label rebuys per shipment",
+          "spendAlertsDisabled": "which alerts are switched on",
+          "spendAlertLabelCapWarnPct": "the near-limit alert",
+          "spendAlertShipmentCancelCount": "the cancelled-labels-per-shipment alert",
+          "spendAlertPersonCancelCount24h": "the cancelled-labels-per-person alert",
+          "spendAlertChargeDriftImmediateCents": "the charged-versus-quoted alert",
+          "spendAlertExtraChargeImmediateCents": "the extra-charge alert",
+          "skydropxLowBalanceCents": "the low-balance alert",
+          "spendAlertCancelRefundDays": "the cancellation-refund alert",
+          "spendAlertLabelNotShippedDays": "the unshipped-label alert",
           "shippingLabelPurchase": "who can buy labels",
           "other": "an owner setting"
         }
@@ -5373,7 +5378,7 @@
       "reload": "Reload"
     },
     "spendAlerts": {
-      "subtitle": "What the system caught on its own about money that costs us. Immediate ones also reach you by email; the rest go in the 08:00 daily summary.",
+      "subtitle": "What the system caught on its own about money that costs us. Immediate ones also reach the owner by email; the rest go in the 08:00 daily summary.",
       "filters": {
         "kind": "Type",
         "kindAll": "All",
@@ -5388,7 +5393,11 @@
         "subject": "Only {name}",
         "subjectRemove": "Remove the “Only {name}” filter",
         "subjectUnknown": "this person",
-        "clear": "Clear filters"
+        "clear": "Clear filters",
+        "muted": "Switched-off alerts",
+        "mutedAll": "Include them",
+        "mutedOnly": "Only switched-off",
+        "mutedNone": "Leave them out"
       },
       "col": {
         "select": "Select alert {code}",
@@ -5415,9 +5424,10 @@
       "seenBy": "Seen by {name} · {date}",
       "unseenTag": "Unseen",
       "markSeen": "Mark seen",
+      "ownerMarks": "The owner marks it",
       "markSelected": "Mark as seen ({n})",
       "marked": "{updated, plural, one {# alert marked} other {# alerts marked}} as seen.",
-      "skipped": "{skipped, plural, one {# alert wasn't marked: it's about you and the owner marks it.} other {# alerts weren't marked: they're about you and the owner marks them.}}",
+      "skipped": "{skipped, plural, one {# alert wasn't marked} other {# alerts weren't marked}}: alerts about you and about the owner account can only be marked by the owner.",
       "resolved": "Cleared on its own · {date}",
       "mutedTag": "Switched off: no email",
       "mail": {
@@ -5429,7 +5439,7 @@
         "batch_sent": "Sent in the batch email · {time}",
         "failed": "The email failed; we'll retry",
         "failed_unknown": "We don't know if the email went out; we won't resend it to avoid a duplicate",
-        "no_recipient": "No email: there's no owner account with an email"
+        "no_recipient": "No email: no account is marked as the owner's"
       },
       "empty": "No spending alerts yet. When the system catches something it will show up here; if it's immediate, you'll also get an email.",
       "emptyFiltered": "No alerts match these filters.",
@@ -5449,7 +5459,8 @@
         "labelSpendEmpty": "Nobody bought labels that day.",
         "costly": "Expensive choices",
         "costlyRow": "{count, plural, one {# label} other {# labels}} above the recommended option or with a negative margin: {over} over ({byPerson})",
-        "costlyNone": "None."
+        "costlyNone": "None.",
+        "muted": "{n, plural, one {# switched-off alert} other {# switched-off alerts}} that day: they sent no email and they're in the list."
       },
       "detail": {
         "back": "← Spending alerts",
@@ -5526,10 +5537,10 @@
         "other": "other charge"
       },
       "cancelKind": {
-        "reissue": "rebuy",
-        "auto_close": "automatic cancellation when the shipment closed",
-        "orphan_auto": "extra label cancelled automatically",
-        "orphan_manual": "extra label cancelled by a person"
+        "reissue": "cancelled by a person to buy another",
+        "auto_close": "cancelled automatically when the shipment closed",
+        "orphan_auto": "extra label, cancelled automatically",
+        "orphan_manual": "extra label, cancelled by a person"
       },
       "kind": {
         "AG-1": {
@@ -5546,10 +5557,10 @@
         },
         "AG-4": {
           "title": "Cancel and buy again",
-          "textShipment": "{ref} has {k} cancelled labels ({who}). Balance not recovered: {unrecovered}{unknown}.",
+          "textShipment": "There are {k} cancelled labels on {ref} ({who}). Balance not recovered: {unrecovered}{unknown}.",
           "textPerson": "{person} cancelled {k} labels in the last 24 hours. Balance not recovered: {unrecovered}{unknown}.",
           "unknown": "; no refund amount for {u}",
-          "denied": "Another label for {ref} was refused: its rebuy was already used."
+          "denied": "Another label for {ref} was refused: it had already used all its rebuys."
         },
         "AG-5": {
           "title": "Charged differently from the quote",
@@ -5576,6 +5587,7 @@
           "duplicate": "Skydropx created two labels for the same purchase on {ref} (“Pedido {reference}”): it charged twice. Cancel the extra one in your Skydropx panel.",
           "orphan_auto_cancelled": "We automatically cancelled an extra label for {ref} (“Pedido {reference}”, {amount}). You don't need to do anything; if the balance doesn't come back, we'll let you know.",
           "orphan_fuse": "Several extra labels were already cancelled automatically today, so for safety we stopped cancelling them automatically until tomorrow. Check the extra labels in your Skydropx panel.",
+          "orphan_cancel_unknown": "We tried to cancel an extra label for {ref} automatically (“Pedido {reference}”, {amount}) and Skydropx didn't answer: we don't know if it was cancelled. We won't retry on our own; look it up in your Skydropx panel and cancel it there if it's still active.",
           "other": "There's label money for {ref} that doesn't add up. Check it in your Skydropx panel."
         },
         "AG-10": {
@@ -5599,12 +5611,28 @@
         "AG-21": {
           "title": "The owner account changed",
           "titleNoOwner": "There is no owner account",
-          "textChanged": "The owner account changed from {previous} to {current}.",
-          "textNoOwner": "No account is marked as the owner's: nobody is exempt from limits, nobody can change the spending settings and emails don't go out."
+          "textChanged": "The owner account changed from {previous} to {current}. That mark can only be changed from the server: if you weren't expecting this, check it today with whoever runs it.",
+          "textFirst": "{current}'s account is now marked as the owner's; before, there was none. From now on it's the only one with no limit, the one that changes the spending settings and the one that gets these emails.",
+          "textNoOwner": "No account is marked as the owner's. While that lasts, nobody is exempt from the limits, nobody can change the spending settings and alerts send no email. It's fixed by marking the owner account from the server.",
+          "textNoOwnerFrom": "{previous}'s account stopped being the owner's and no other was marked. While that lasts, nobody is exempt from the limits, nobody can change the spending settings and alerts send no email. It's fixed by marking the owner account from the server."
         },
         "AG-22": {
-          "title": "Change to staff accounts",
-          "text": "{person} {act, select, staff_created {created the account of} staff_password_reset {reset the password of} staff_status_changed {changed the status of} staff_deleted {deleted the account of} owner_account_denied {tried to change the owner account:} owner_setting_denied {tried to change owner settings:} other {made a change to}} {target}."
+          "title": "Changes by another super admin",
+          "act": {
+            "staff_created": "{person} created an account for {target}.",
+            "staff_password_reset": "{person} reset the password of {target}.",
+            "staff_status_changed": "{person} blocked or reactivated the account of {target}; its current state is in “Users”.",
+            "staff_deleted": "{person} deleted the account of {target}.",
+            "owner_account_denied": "{person} tried to reset, block or delete the owner account ({owner}). The system refused: nothing changed.",
+            "owner_setting_denied": "{person} tried to change {settings}. Only the owner can change that: nothing was saved.",
+            "other": "{person} made a change to a staff account."
+          },
+          "target": "{name} ({role})",
+          "targetNone": "a staff account",
+          "role": {
+            "super_admin": "super admin",
+            "vault_operator": "operator"
+          }
         },
         "generic": {
           "title": "Alert {code}",

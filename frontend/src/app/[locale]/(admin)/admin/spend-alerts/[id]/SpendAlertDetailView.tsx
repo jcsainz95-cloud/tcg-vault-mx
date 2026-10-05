@@ -15,7 +15,7 @@ import { PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
 import type { AppLocale } from '@/i18n/routing';
 import type { SpendAlertCode, SpendAlertDTO, SpendAlertFactValue } from '@/types/contract';
 import { FACT_INT, FACT_MONEY, FACT_WHITELIST, joinAnd } from '../alert-text';
-import { AlertRef, MailStatus, SeverityTag, useAlertTexts } from '../SpendAlertsView';
+import { AlertRef, MailStatus, SeverityTag, useAlertTexts, useOwnerMarks } from '../SpendAlertsView';
 
 const LABEL = 'font-mono text-[11px] uppercase tracking-[0.06em] text-muted';
 /** 🔴 de guías: el enlace «Frenar la compra de guías» (§43.19.8). */
@@ -36,6 +36,7 @@ export function SpendAlertDetailView({ id }: { id: string }) {
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const texts = useAlertTexts();
+  const ownerMarks = useOwnerMarks();
   const [copied, setCopied] = useState(false);
   const query = useQuery({ queryKey: ['spend-alert', id], queryFn: () => getSpendAlert(id), retry: false });
   const mark = useMutation({
@@ -59,7 +60,8 @@ export function SpendAlertDetailView({ id }: { id: string }) {
     if (key === 'changedKeys') return joinAnd(t, (Array.isArray(v) ? v : []).map((k) => (t.has(`field.${k}`) ? t(`field.${k}`) : k)));
     if (key === 'actors') return Array.isArray(v) ? v.join(', ') : none;
     if (key === 'kind') return typeof v === 'string' && t.has(`chargeKind.${v}`) ? t(`chargeKind.${v}`) : t('chargeKind.other');
-    if (key === 'cancelKind') return typeof v === 'string' && t.has(`cancelKind.${v}`) ? t(`cancelKind.${v}`) : String(v);
+    // §43.20.1: un valor sin rótulo ⇒ «sin dato» (⛔ nunca el valor crudo).
+    if (key === 'cancelKind') return typeof v === 'string' && t.has(`cancelKind.${v}`) ? t(`cancelKind.${v}`) : none;
     if (key === 'status') return typeof v === 'string' && tCarrier.has(v) ? tCarrier(v) : String(v);
     if (key === 'providerReference' && typeof v === 'string') {
       const text = `Pedido ${v}`;
@@ -96,7 +98,7 @@ export function SpendAlertDetailView({ id }: { id: string }) {
             <article className="flex flex-col gap-5" data-testid="spend-alert-detail">
               <header className="flex flex-col gap-2">
                 <h1 className="font-serif text-2xl text-text">{texts.title(a)}</h1>
-                <SeverityTag severity={a.severity} />
+                <SeverityTag severity={a.severity} muted={!!a.muted} />
                 <p className="text-base text-text">{texts.text(a)}</p>
               </header>
               <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm text-text sm:grid-cols-[auto_1fr]" data-testid="spend-alert-facts">
@@ -130,11 +132,16 @@ export function SpendAlertDetailView({ id }: { id: string }) {
                 </dd>
               </dl>
               <div className="flex flex-wrap items-center gap-3">
-                {!a.seen && (
-                  <Button loading={mark.isPending} onClick={() => mark.mutate()}>
-                    {t('detail.markSeen')}
-                  </Button>
-                )}
+                {!a.seen &&
+                  (ownerMarks(a) ? (
+                    <span className="text-sm text-muted" data-testid="spend-alert-owner-marks">
+                      {t('ownerMarks')}
+                    </span>
+                  ) : (
+                    <Button loading={mark.isPending} onClick={() => mark.mutate()}>
+                      {t('detail.markSeen')}
+                    </Button>
+                  ))}
                 {a.severity === 'immediate' && STOP_CODES.includes(a.code) && (
                   <Link href="/admin/m10#compra-guias" className="text-sm text-text underline underline-offset-4 hover:text-accent">
                     {t('detail.stopPurchases')}

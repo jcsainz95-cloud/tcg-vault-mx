@@ -320,7 +320,16 @@ export function M6View() {
   }, [selectedId]);
 
   const columns: Column<AdminUserSummaryDTO>[] = [
-    { key: 'name', header: t('table.name'), render: (u) => <span className="font-medium">{u.name}</span> },
+    {
+      key: 'name',
+      header: t('table.name'),
+      render: (u) => (
+        <span className="inline-flex flex-wrap items-baseline gap-2">
+          <span className="font-medium">{u.name}</span>
+          {u.isOwner === true && <OwnerTag label={t('ownerTag')} />}
+        </span>
+      ),
+    },
     /* ⭐ v1.80.9 (§42.5.1, UX-8 = STF-27): una sola regla de pintado, `email ?? username`. */
     { key: 'identifier', header: t('table.identifier'), render: (u) => <span className="tabular text-muted">{userIdentifier(u)}</span> },
     { key: 'role', header: t('table.role'), render: (u) => <Badge tone="neutral">{u.role}</Badge> },
@@ -481,6 +490,7 @@ export function M6View() {
               <div className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-h3 font-semibold">{d.name}</span>
+                  {ownerTarget && <OwnerTag label={t('ownerTag')} />}
                   <UserStatusBadge status={d.status} t={t} />
                   {detailLockTime && <LockMark time={detailLockTime} t={t} />}
                   <Badge tone="neutral">{d.role}</Badge>
@@ -574,7 +584,8 @@ export function M6View() {
 
               {ownerTarget && (
                 <p className="text-sm text-muted" data-testid="m6-owner-account">
-                  {t('ownerAccount')}
+                  {/* §43.20.6: el propio dueño lee su nota; los demás, la de «desde otra cuenta». */}
+                  {isSelf ? t('ownerAccountSelf') : t('ownerAccount')}
                 </p>
               )}
 
@@ -1201,5 +1212,17 @@ function ActivityTab({ userId, locale }: { userId: string; locale: AppLocale }) 
         <p className="py-6 text-center text-sm text-muted">{t('historyEmpty')}</p>
       )}
     </QueryState>
+  );
+}
+
+/**
+ * «Dueño» junto al nombre (`DESIGN_SYSTEM §43.20.6`): versalita mono `text-muted`, ⛔ sin color — es un dato, no un aviso.
+ * Solo para mostrar (`isOwner` del DTO); ⛔ no autoriza.
+ */
+function OwnerTag({ label }: { label: string }) {
+  return (
+    <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted" data-testid="m6-owner-tag">
+      {label}
+    </span>
   );
 }

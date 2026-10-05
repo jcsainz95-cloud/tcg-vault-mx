@@ -4064,7 +4064,9 @@
         "user_create": "Alta de la cuenta"
       },
       "ownerProtected": "Esta es la cuenta del dueño: no se puede cambiar desde otra cuenta.",
-      "ownerAccount": "Esta es la cuenta del dueño: no se restablece, bloquea ni borra desde otra cuenta."
+      "ownerAccount": "Esta es la cuenta del dueño: no se restablece, bloquea ni borra desde otra cuenta.",
+      "ownerAccountSelf": "Es tu cuenta de dueño: puedes restablecer tu contraseña, pero no bloquearla ni borrarla; la tienda se quedaría sin quien reciba los avisos de gasto.",
+      "ownerTag": "Dueño"
     },
     "m11": {
       "title": "Sellado",
@@ -4507,7 +4509,7 @@
           "superAdminOnly": "Solo los súper-admin",
           "superAdminOnlyNote": "Cada guía la compra un súper-admin con su clic y queda a su nombre.",
           "operators": "También el personal",
-          "operatorsNote": "El personal compra con su nombre en la bitácora, hasta su tope de 24 horas y su recompra por envío (en «Control del gasto»). Tú no tienes tope.",
+          "operatorsNote": "El personal compra con su nombre en la bitácora, hasta su tope de 24 horas y su recompra por envío (en «Control del gasto»). El dueño no tiene tope.",
           "serverKey": "Además, el servidor necesita su propia autorización para gastar. Si falta, nadie compra aunque aquí diga que sí.",
           "confirmTitle": "¿Dejar que el personal compre guías?",
           "confirmBody": "Podrá gastar el saldo de Skydropx sin pedirte permiso, cada guía a su nombre y hasta su tope de 24 horas. Te avisamos según «Control del gasto».",
@@ -4591,23 +4593,23 @@
         "save": "Guardar envíos",
         "saved": "Ajustes de envío guardados.",
         "saveError": "No se guardó: el servidor rechazó un valor. Revisa el campo marcado.",
-        "lowBalanceHint": "Debajo de esta cifra te llega un correo (aviso AG-7), una vez por cada vez que baja."
+        "lowBalanceHint": "Debajo de esta cifra le llega un correo al dueño (aviso AG-7), una vez por cada vez que baja."
       },
       "spend": {
         "title": "Control del gasto",
-        "subtitle": "Solo el súper-admin. Cada cambio queda en la bitácora. Todos los avisos arrancan encendidos.",
+        "subtitle": "Solo el dueño cambia estos ajustes; los demás súper-admin los ven. Cada cambio queda en la bitácora. Todos los avisos arrancan encendidos.",
         "notAvailable": "Este servidor todavía no tiene los ajustes de control del gasto.",
         "staff": {
           "title": "Topes del personal"
         },
         "cap": {
           "label": "Tope de guías por persona en 24 horas",
-          "hint": "Cuenta lo que cada persona gastó en guías en las últimas 24 horas, no desde la medianoche. Al llegar, se le niega la compra sin decirle la cifra y te avisamos; puede seguir capturando guías a mano. Tú no tienes tope; los súper-admin sin correo sí.",
+          "hint": "Cuenta lo que cada persona gastó en guías en las últimas 24 horas, no desde la medianoche. Al llegar, se le niega la compra sin decirle la cifra y se avisa al dueño; puede seguir capturando guías a mano. El dueño no tiene tope; los demás súper-admin sí.",
           "error": "El tope mínimo es MX$1.00. Para que nadie compre, usa «¿Quién puede comprar guías?» en Envíos."
         },
         "reissue": {
           "label": "Recompras de guía por envío",
-          "hint": "Cuántas veces el personal puede cancelar la guía de un envío y comprar otra. Después, la siguiente la compras tú. 0 = ninguna.",
+          "hint": "Cuántas veces el personal puede cancelar la guía de un envío y comprar otra. Después, la siguiente la compra el dueño. 0 = ninguna.",
           "error": "De 0 a 10."
         },
         "when": {
@@ -4656,13 +4658,16 @@
           "immediate": "Correo inmediato",
           "digest": "Resumen diario",
           "byAmount": "Inmediato o resumen, según el monto",
-          "byCase": "Inmediato o resumen, según el caso",
-          "note": "Un aviso apagado no se registra: ni en la lista ni en el correo. Lo que pase mientras está apagado no se puede ver después."
+          "note": "Un aviso apagado no manda correo ni cuenta como «sin ver» en el tablero, pero se sigue registrando: aparece en «Avisos de gasto» marcado «Apagado» y el resumen diario dice cuántos hubo. Encenderlo o apagarlo no cambia los avisos que ya existen.",
+          "sevAG1": "Correo inmediato si cambió destinatario, calle, CP, municipio, estado o país; si no, resumen diario",
+          "sevAG9": "Correo inmediato; la guía de más que cancelamos solos va en el resumen diario",
+          "sevAG22": "Correo inmediato si toca a un súper-admin o la cuenta o los ajustes del dueño; si no, resumen diario",
+          "alwaysOn": "Siempre encendido: vigila la cuenta y los ajustes del dueño."
         },
         "save": "Guardar control del gasto",
         "saved": "Ajustes de control del gasto guardados.",
         "offTitle": "¿Apagar {n, plural, one {# aviso} other {# avisos}}?",
-        "offBody": "Mientras estén apagados no se registran. Lo que pase no se podrá ver después: {list}.",
+        "offBody": "Mientras estén apagados no te llegará correo por ellos ni contarán en el tablero; seguirán apareciendo en «Avisos de gasto» marcados «Apagado»: {list}.",
         "offConfirm": "Sí, apagarlos",
         "back": "Volver"
       },
@@ -4671,16 +4676,16 @@
         "denied": "No se guardó nada: solo el dueño puede cambiar {fields}.",
         "field": {
           "operatorLabelCap24hCents": "el tope de guías por persona",
-          "shippingLabelReissueMaxPerShipment": "las recompras por envío",
+          "shippingLabelReissueMaxPerShipment": "las recompras de guía por envío",
           "spendAlertsDisabled": "qué avisos están encendidos",
-          "spendAlertLabelCapWarnPct": "el porcentaje de aviso del tope",
-          "spendAlertShipmentCancelCount": "las guías canceladas por envío",
-          "spendAlertPersonCancelCount24h": "las guías canceladas por persona",
-          "spendAlertChargeDriftImmediateCents": "la diferencia de cobro",
-          "spendAlertExtraChargeImmediateCents": "el cargo extra",
-          "skydropxLowBalanceCents": "el saldo bajo",
-          "spendAlertCancelRefundDays": "los días del reembolso",
-          "spendAlertLabelNotShippedDays": "los días sin salir",
+          "spendAlertLabelCapWarnPct": "el aviso de cercanía al tope",
+          "spendAlertShipmentCancelCount": "el aviso de guías canceladas por envío",
+          "spendAlertPersonCancelCount24h": "el aviso de guías canceladas por persona",
+          "spendAlertChargeDriftImmediateCents": "el aviso de cobro distinto de lo cotizado",
+          "spendAlertExtraChargeImmediateCents": "el aviso de cargo extra",
+          "skydropxLowBalanceCents": "el aviso de saldo bajo",
+          "spendAlertCancelRefundDays": "el aviso de reembolso de cancelación",
+          "spendAlertLabelNotShippedDays": "el aviso de guía que no sale",
           "shippingLabelPurchase": "quién puede comprar guías",
           "other": "un ajuste del dueño"
         }
@@ -5373,7 +5378,7 @@
       "reload": "Recargar"
     },
     "spendAlerts": {
-      "subtitle": "Lo que el sistema detectó solo sobre dinero que nos cuesta. Los inmediatos te llegan también por correo; el resto, en el resumen diario de las 08:00.",
+      "subtitle": "Lo que el sistema detectó solo sobre dinero que nos cuesta. Los inmediatos le llegan también por correo al dueño; el resto va en el resumen diario de las 08:00.",
       "filters": {
         "kind": "Tipo",
         "kindAll": "Todos",
@@ -5388,7 +5393,11 @@
         "subject": "Solo de {name}",
         "subjectRemove": "Quitar el filtro «Solo de {name}»",
         "subjectUnknown": "esta persona",
-        "clear": "Limpiar filtros"
+        "clear": "Limpiar filtros",
+        "muted": "Avisos apagados",
+        "mutedAll": "Incluirlos",
+        "mutedOnly": "Solo los apagados",
+        "mutedNone": "Sin los apagados"
       },
       "col": {
         "select": "Seleccionar aviso {code}",
@@ -5415,9 +5424,10 @@
       "seenBy": "Visto por {name} · {date}",
       "unseenTag": "Sin ver",
       "markSeen": "Marcar visto",
+      "ownerMarks": "Lo marca el dueño",
       "markSelected": "Marcar como vistos ({n})",
       "marked": "{updated, plural, one {# aviso marcado} other {# avisos marcados}} como visto.",
-      "skipped": "{skipped, plural, one {# aviso no se marcó: es sobre ti y lo marca el dueño.} other {# avisos no se marcaron: son sobre ti y los marca el dueño.}}",
+      "skipped": "{skipped, plural, one {# aviso no se marcó} other {# avisos no se marcaron}}: los avisos sobre ti y los de la cuenta del dueño solo los marca el dueño.",
       "resolved": "Se resolvió solo · {date}",
       "mutedTag": "Apagado: sin correo",
       "mail": {
@@ -5429,7 +5439,7 @@
         "batch_sent": "Enviado en el correo de lote · {time}",
         "failed": "El correo falló; lo reintentamos",
         "failed_unknown": "No sabemos si el correo salió; no lo reenviamos para no duplicarlo",
-        "no_recipient": "Sin correo: no hay cuenta de dueño con correo"
+        "no_recipient": "Sin correo: ninguna cuenta está marcada como la del dueño"
       },
       "empty": "Todavía no hay avisos de gasto. Cuando el sistema detecte algo aparecerá aquí; si es inmediato, también te llegará por correo.",
       "emptyFiltered": "Ningún aviso con estos filtros.",
@@ -5449,7 +5459,8 @@
         "labelSpendEmpty": "Nadie compró guías ese día.",
         "costly": "Elecciones caras",
         "costlyRow": "{count, plural, one {# guía} other {# guías}} por encima de la recomendada o con margen negativo: {over} de más ({byPerson})",
-        "costlyNone": "Ninguna."
+        "costlyNone": "Ninguna.",
+        "muted": "{n, plural, one {# aviso apagado} other {# avisos apagados}} ese día: no mandaron correo y están en la lista."
       },
       "detail": {
         "back": "← Avisos de gasto",
@@ -5502,9 +5513,9 @@
       },
       "noData": "sin dato",
       "ref": {
-        "order": "el pedido {orderNumber}",
-        "shipment": "el envío {folio}",
-        "none": "un envío"
+        "order": "pedido {orderNumber}",
+        "shipment": "envío {folio}",
+        "none": "envío sin folio"
       },
       "personNone": "una cuenta sin nombre",
       "and": "y",
@@ -5526,15 +5537,15 @@
         "other": "otro cargo"
       },
       "cancelKind": {
-        "reissue": "recompra",
-        "auto_close": "cancelación automática al cerrar el envío",
-        "orphan_auto": "guía de más cancelada sola",
-        "orphan_manual": "guía de más cancelada por una persona"
+        "reissue": "cancelada por una persona para comprar otra",
+        "auto_close": "cancelada sola al cerrar el envío",
+        "orphan_auto": "guía de más, cancelada sola",
+        "orphan_manual": "guía de más, cancelada por una persona"
       },
       "kind": {
         "AG-1": {
           "title": "Corrigió la dirección y compró la guía",
-          "text": "{person} corrigió la dirección de {ref} ({fields}) y compró su guía: {carrier}, {charged}."
+          "text": "{person} corrigió la dirección del {ref} ({fields}) y compró su guía: {carrier}, {charged}."
         },
         "AG-2": {
           "title": "Cerca del tope de guías",
@@ -5542,69 +5553,86 @@
         },
         "AG-3": {
           "title": "Guía negada por el tope",
-          "text": "A {person} se le negó la guía de {ref} ({price}): con ella pasaba su tope de {cap} en 24 horas (llevaba {used}). Puedes comprarla tú o subir su tope."
+          "text": "A {person} se le negó la guía del {ref} ({price}): con ella pasaba su tope de {cap} en 24 horas (llevaba {used}). Puedes comprarla tú o subir su tope."
         },
         "AG-4": {
           "title": "Cancelar y volver a comprar",
-          "textShipment": "{ref} lleva {k} guías canceladas ({who}). Saldo no recuperado: {unrecovered}{unknown}.",
+          "textShipment": "Van {k} guías canceladas en el {ref} ({who}). Saldo no recuperado: {unrecovered}{unknown}.",
           "textPerson": "{person} canceló {k} guías en las últimas 24 horas. Saldo no recuperado: {unrecovered}{unknown}.",
           "unknown": "; sin cifra de reembolso en {u}",
-          "denied": "Se negó otra guía de {ref}: ya había usado su recompra."
+          "denied": "Se negó una guía más para el {ref}: ya había usado todas sus recompras."
         },
         "AG-5": {
           "title": "Se cobró distinto de lo cotizado",
-          "text": "La guía de {ref} se cobró en {charged}; se cotizó en {quoted} ({diff})."
+          "text": "La guía del {ref} se cobró en {charged}; se cotizó en {quoted} ({diff})."
         },
         "AG-6": {
           "title": "Cargo extra de la paquetería",
-          "text": "Cargo extra de {carrier} en {ref}: {type}, {amount}."
+          "text": "Cargo extra de {carrier} en el {ref}: {type}, {amount}."
         },
         "AG-7": {
           "title": "Saldo de Skydropx bajo",
           "textOpen": "Tu saldo de Skydropx bajó a {balance} (avisamos debajo de {threshold}). Recarga en el panel de Skydropx.",
-          "textInsufficient": "Una guía de {ref} no se pudo comprar: el saldo no alcanzaba (hacían falta {required})."
+          "textInsufficient": "Una guía del {ref} no se pudo comprar: el saldo no alcanzaba (hacían falta {required})."
         },
         "AG-8": {
           "title": "Reembolso de cancelación que no llegó",
-          "textA": "La guía cancelada de {ref} costó {charged} y Skydropx devolvió {refunded}: faltan {unrefunded}.",
-          "textB": "Se canceló la guía de {ref} y Skydropx no dijo cuánto devolvió; no podemos confirmar que regresaran {charged}. Revísalo en tu panel de Skydropx."
+          "textA": "La guía cancelada del {ref} costó {charged} y Skydropx devolvió {refunded}: faltan {unrefunded}.",
+          "textB": "Se canceló la guía del {ref} y Skydropx no dijo cuánto devolvió; no podemos confirmar que regresaran {charged}. Revísalo en tu panel de Skydropx."
         },
         "AG-9": {
           "title": "Cobro sin guía o guía de más",
-          "charged_not_found": "Skydropx descontó {amount} por la guía de {ref} y no encontramos la guía. Búscala en tu panel de Skydropx como «Pedido {reference}».",
-          "orphan": "Skydropx tiene una guía pagada de un intento anterior de {ref} («Pedido {reference}», {amount}) que no se canceló sola. Cancélala en tu panel de Skydropx para recuperar el saldo.",
-          "duplicate": "Skydropx creó dos guías para la misma compra de {ref} («Pedido {reference}»): se cobró dos veces. Cancela la que sobra en tu panel de Skydropx.",
-          "orphan_auto_cancelled": "Cancelamos sola una guía de más de {ref} («Pedido {reference}», {amount}). No tienes que hacer nada; si el saldo no regresa, te avisamos.",
+          "charged_not_found": "Skydropx descontó {amount} por la guía del {ref} y no encontramos la guía. Búscala en tu panel de Skydropx como «Pedido {reference}».",
+          "orphan": "Skydropx tiene una guía pagada de un intento anterior del {ref} («Pedido {reference}», {amount}) que no se canceló sola. Cancélala en tu panel de Skydropx para recuperar el saldo.",
+          "duplicate": "Skydropx creó dos guías para la misma compra del {ref} («Pedido {reference}»): se cobró dos veces. Cancela la que sobra en tu panel de Skydropx.",
+          "orphan_auto_cancelled": "Cancelamos sola una guía de más del {ref} («Pedido {reference}», {amount}). No tienes que hacer nada; si el saldo no regresa, te avisamos.",
           "orphan_fuse": "Hoy ya se cancelaron solas varias guías de más y, por seguridad, dejamos de cancelarlas solas hasta mañana. Revisa las guías de más en tu panel de Skydropx.",
-          "other": "Hay dinero de guías de {ref} que no cuadra. Revísalo en tu panel de Skydropx."
+          "orphan_cancel_unknown": "Intentamos cancelar sola una guía de más del {ref} («Pedido {reference}», {amount}) y Skydropx no contestó: no sabemos si se canceló. No lo volvemos a intentar solos; búscala en tu panel de Skydropx y cancélala ahí si sigue activa.",
+          "other": "Hay dinero de guías del {ref} que no cuadra. Revísalo en tu panel de Skydropx."
         },
         "AG-10": {
           "title": "Guía comprada que no sale",
-          "text": "La guía de {ref} ({carrier}, {charged}) se compró hace {d} días y el paquete no ha salido. Si ya no va a salir, cancélala para recuperar el saldo."
+          "text": "La guía del {ref} ({carrier}, {charged}) se compró hace {d} días y el paquete no ha salido. Si ya no va a salir, cancélala para recuperar el saldo."
         },
         "AG-11": {
           "title": "Paquete devuelto o destruido",
-          "text": "El paquete de {ref} ({carrier}) {status, select, destroyed {fue destruido por la paquetería} other {viene de regreso a la tienda}}. La guía costó {charged}."
+          "text": "El paquete del {ref} ({carrier}) {status, select, destroyed {fue destruido por la paquetería} other {viene de regreso a la tienda}}. La guía costó {charged}."
         },
         "AG-12": {
           "title": "Incidencia de la paquetería",
-          "text": "{carrier} reporta {status, select, retained {el paquete retenido} delivery_attempt {un intento de entrega fallido} other {una incidencia}} en {ref}."
+          "text": "{carrier} reporta {status, select, retained {el paquete retenido} delivery_attempt {un intento de entrega fallido} other {una incidencia}} en el {ref}."
         },
         "AG-13": {
           "title": "Guía cara o con margen negativo",
-          "text": "{person} compró la guía de {ref} {parts}.",
+          "text": "{person} compró la guía del {ref} {parts}.",
           "negative": "con margen negativo ({margin})",
           "over": "{over} por encima de la recomendada ({price} contra {recommended})"
         },
         "AG-21": {
           "title": "Cambió la cuenta del dueño",
           "titleNoOwner": "No hay cuenta de dueño",
-          "textChanged": "La cuenta del dueño pasó de {previous} a {current}.",
-          "textNoOwner": "Ninguna cuenta está marcada como la del dueño: nadie queda sin tope, nadie puede cambiar los ajustes de gasto y los correos no salen."
+          "textChanged": "La cuenta del dueño pasó de {previous} a {current}. Esa marca solo se cambia desde el servidor: si no lo esperabas, revísalo hoy con quien lo administra.",
+          "textFirst": "La cuenta de {current} quedó marcada como la del dueño; antes no había ninguna. Desde ahora es la única sin tope, la que cambia los ajustes de gasto y la que recibe estos correos.",
+          "textNoOwner": "Ninguna cuenta está marcada como la del dueño. Mientras siga así, nadie queda sin tope, nadie puede cambiar los ajustes de gasto y los avisos no mandan correo. Se arregla marcando la cuenta del dueño desde el servidor.",
+          "textNoOwnerFrom": "La cuenta de {previous} dejó de ser la del dueño y ninguna otra quedó marcada. Mientras siga así, nadie queda sin tope, nadie puede cambiar los ajustes de gasto y los avisos no mandan correo. Se arregla marcando la cuenta del dueño desde el servidor."
         },
         "AG-22": {
-          "title": "Cambio en cuentas del personal",
-          "text": "{person} {act, select, staff_created {creó la cuenta de} staff_password_reset {restableció la contraseña de} staff_status_changed {cambió el estado de} staff_deleted {borró la cuenta de} owner_account_denied {intentó cambiar la cuenta del dueño:} owner_setting_denied {intentó cambiar ajustes del dueño:} other {hizo un cambio en}} {target}."
+          "title": "Cambios de otro súper-admin",
+          "act": {
+            "staff_created": "{person} creó una cuenta para {target}.",
+            "staff_password_reset": "{person} restableció la contraseña de {target}.",
+            "staff_status_changed": "{person} bloqueó o reactivó la cuenta de {target}; cómo quedó se ve en «Usuarios».",
+            "staff_deleted": "{person} borró la cuenta de {target}.",
+            "owner_account_denied": "{person} intentó restablecer, bloquear o borrar la cuenta del dueño ({owner}). El sistema se lo negó: no cambió nada.",
+            "owner_setting_denied": "{person} intentó cambiar {settings}. Solo el dueño puede cambiarlo: no se guardó nada.",
+            "other": "{person} hizo un cambio en una cuenta del personal."
+          },
+          "target": "{name} ({role})",
+          "targetNone": "una cuenta del personal",
+          "role": {
+            "super_admin": "súper-admin",
+            "vault_operator": "operador"
+          }
         },
         "generic": {
           "title": "Aviso {code}",

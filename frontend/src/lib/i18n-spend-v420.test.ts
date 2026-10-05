@@ -82,3 +82,50 @@ describe('UX-GAS-7 · i18n de v4.20 (§43.19.13)', () => {
     expect(all).not.toMatch(/Solo el dueño compra guías|No hay tope aparte del saldo|only the owner buys labels/i);
   });
 });
+
+/** **v4.21** (`DESIGN_SYSTEM §43.20.11` FS-44): las claves nuevas existen en los dos idiomas; las dos retiradas en ninguno. */
+const SA = 'admin.spendAlerts.';
+const NEW_421 = [
+  ...['muted', 'mutedAll', 'mutedOnly', 'mutedNone'].map((k) => `${SA}filters.${k}`),
+  `${SA}ownerMarks`,
+  `${SA}summary.muted`,
+  `${SA}kind.AG-9.orphan_cancel_unknown`,
+  ...['title', 'titleNoOwner', 'textChanged', 'textFirst', 'textNoOwner', 'textNoOwnerFrom'].map((k) => `${SA}kind.AG-21.${k}`),
+  ...['staff_created', 'staff_password_reset', 'staff_status_changed', 'staff_deleted', 'owner_account_denied', 'owner_setting_denied', 'other'].map(
+    (k) => `${SA}kind.AG-22.act.${k}`,
+  ),
+  ...['title', 'target', 'targetNone', 'role.super_admin', 'role.vault_operator'].map((k) => `${SA}kind.AG-22.${k}`),
+  ...['sevAG1', 'sevAG9', 'sevAG22', 'alwaysOn'].map((k) => `admin.m10.spend.alerts.${k}`),
+  'admin.m6.ownerTag',
+  'admin.m6.ownerAccountSelf',
+];
+const RETIRED_421 = [`${SA}kind.AG-22.text`, 'admin.m10.spend.alerts.byCase'];
+
+describe('FS-44 · i18n de v4.21 (§43.20)', () => {
+  it('cada clave nueva existe en ES y en EN, con texto', () => {
+    for (const k of NEW_421) {
+      expect(ES[k], `ES ${k}`).toBeTruthy();
+      expect(EN[k], `EN ${k}`).toBeTruthy();
+    }
+  });
+  it('`kind.AG-22.text` y `alerts.byCase` no existen en ninguno', () => {
+    for (const k of RETIRED_421) {
+      expect(ES[k], k).toBeUndefined();
+      expect(EN[k], k).toBeUndefined();
+    }
+  });
+  it('OWN-4: ningún texto de la sección dice que un aviso apagado «no se registra»', () => {
+    const spend = Object.entries({ ...ES, ...Object.fromEntries(Object.entries(EN).map(([k, v]) => [`en:${k}`, v])) })
+      .filter(([k]) => k.replace(/^en:/, '').startsWith('admin.m10.spend.'))
+      .map(([, v]) => v)
+      .join('\n');
+    expect(spend).not.toMatch(/no se registra|no se podrá ver|isn't recorded|aren't recorded|can't be seen later/);
+  });
+  it('§43.20.7: `ref.*` en ES sin artículo y ninguna frase ES de avisos dice «de {ref}» (sería «de el»)', () => {
+    expect(ES[`${SA}ref.order`]).toBe('pedido {orderNumber}');
+    expect(ES[`${SA}ref.shipment`]).toBe('envío {folio}');
+    expect(ES[`${SA}ref.none`]).toBe('envío sin folio');
+    const phrases = Object.entries(ES).filter(([k]) => k.startsWith(`${SA}kind.`));
+    for (const [k, v] of phrases) expect(v, k).not.toMatch(/\b(de|en|a) \{ref\}/);
+  });
+});

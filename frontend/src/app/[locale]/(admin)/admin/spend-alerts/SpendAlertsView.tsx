@@ -19,21 +19,21 @@ import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import {
   SPEND_ALERT_CODE_BY_KIND,
-  SPEND_ALERT_SWITCHABLE_CODES,
   type SpendAlertDTO,
   type SpendAlertKind,
   type SpendAlertListFilters,
   type SpendAlertSeverity,
 } from '@/types/contract';
 import { alertText, alertTitle, titleOfCode } from './alert-text';
-import { DAY_RE, KINDS, type SpendAlertsUrlFilters } from './filters';
+import { DAY_RE, FILTER_KINDS, type SpendAlertsUrlFilters } from './filters';
+import { useIsOwner } from '../_owner/useIsOwner';
 
 /**
  * «Avisos de gasto» (`DESIGN_SYSTEM §43.19.8` · contrato `§M4-SHIP.19.29.9` + §19.30): lo que el sistema detectó solo
  * sobre dinero que nos cuesta. Solo del súper-admin (GAS-1): el servidor responde `403 MONEY_OUT_FORBIDDEN` al operador
  * y aquí se dice con palabras.
  *
- * - Los filtros escriben la URL (`?kind=&severity=&subjectUserId=&from=&to=&unseen=true&page=`) con `replaceState`: al
+ * - Los filtros escriben la URL (`?kind=&severity=&subjectUserId=&from=&to=&unseen=true&muted=&page=`) con `replaceState`: al
  *   volver del detalle, la página se abre con los mismos filtros (UX-GAS-2).
  * - ⛔ GAS-3: ningún aviso se borra ni se «des-ve». «Marcar visto» deja quién y cuándo y la fila SE QUEDA.
  * - ⛔ GAS-4: las cifras (montos, resumen) se pintan tal cual del DTO; la pantalla no suma ni resta.
@@ -42,13 +42,14 @@ import { DAY_RE, KINDS, type SpendAlertsUrlFilters } from './filters';
 function writeUrl(f: SpendAlertsUrlFilters) {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
-  for (const k of ['kind', 'severity', 'subjectUserId', 'from', 'to', 'unseen', 'page']) url.searchParams.delete(k);
+  for (const k of ['kind', 'severity', 'subjectUserId', 'from', 'to', 'unseen', 'muted', 'page']) url.searchParams.delete(k);
   if (f.kind) url.searchParams.set('kind', f.kind);
   if (f.severity) url.searchParams.set('severity', f.severity);
   if (f.subjectUserId) url.searchParams.set('subjectUserId', f.subjectUserId);
   if (f.from) url.searchParams.set('from', f.from);
   if (f.to) url.searchParams.set('to', f.to);
   if (f.unseen) url.searchParams.set('unseen', 'true');
+  if (f.muted !== undefined) url.searchParams.set('muted', String(f.muted));
   if (f.page && f.page > 1) url.searchParams.set('page', String(f.page));
   window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
 }
@@ -60,10 +61,15 @@ function yesterdayMx(now = Date.now()): string {
 
 export function useAlertTexts() {
   const t = useTranslations('admin.spendAlerts');
+  const tOwner = useTranslations('admin.m10.ownerOnly');
   const locale = useLocale() as AppLocale;
   const ctx = useMemo(
-    () => ({ money: (c: number) => formatMoneyCents(c, locale), dateTime: (iso: string) => formatDateTimeMx(iso, locale) }),
-    [locale],
+    () => ({
+      money: (c: number) => formatMoneyCents(c, locale),
+      dateTime: (iso: string) => formatDateTimeMx(iso, locale),
+      ownerSetting: (k: string) => (tOwner.has(`field.${k}`) ? tOwner(`field.${k}`) : tOwner('field.other')),
+    }),
+    [locale, tOwner],
   );
   return {
     title: (a: SpendAlertDTO) => alertTitle(t, a),
@@ -94,19 +100,35 @@ export function AlertRef({ alert }: { alert: SpendAlertDTO }) {
   return <span className="text-sm text-muted">{t('noRef')}</span>;
 }
 
-/** El estado del correo (`mail.status`), en `text-xs text-muted`. */
+/**
+ * El estado del correo (`mail.status`), en `text-xs text-muted`. Un aviso apagado (`muted`, §43.20.5) dice
+ * «Apagado: sin correo» **en lugar de** la línea del correo (⛔ las dos a la vez no: «Va en el resumen» mentiría).
+ */
 export function MailStatus({ alert }: { alert: SpendAlertDTO }) {
   const t = useTranslations('admin.spendAlerts');
   const locale = useLocale() as AppLocale;
+  if (alert.muted) return <span className="text-xs text-muted">{t('mutedTag')}</span>;
   const time = alert.mail.at ? formatDateTimeMx(alert.mail.at, locale) : '';
   return <span className="text-xs text-muted">{t(`mail.${alert.mail.status}`, { time })}</span>;
 }
 
-export function SeverityTag({ severity }: { severity: SpendAlertSeverity }) {
+/**
+ * §43.20.6 (`seen`, §19.30.2 (4)): un súper-admin que NO es el dueño no marca los avisos sobre sí mismo ni los AG-21 —
+ * en su lugar «Lo marca el dueño». Solo para mostrar (OWN-2): el servidor decide y cuenta `skipped`. `isOwner`
+ * desconocido ⇒ se pinta el botón (⛔ aquí no se falla cerrado: no hay dinero en marcar visto).
+ */
+export function useOwnerMarks() {
+  const { isOwner, known, userId } = useIsOwner();
+  return (a: Pick<SpendAlertDTO, 'code' | 'subject'>) =>
+    known && !isOwner && (a.code === 'AG-21' || (!!userId && a.subject?.userId === userId));
+}
+
+export function SeverityTag({ severity, muted = false }: { severity: SpendAlertSeverity; muted?: boolean }) {
   const t = useTranslations('admin.spendAlerts');
-  // ⛔ Sin color de fondo: la gravedad la dice la palabra (§43.19.16); «Inmediato» en bermellón.
+  // ⛔ Sin color de fondo: la gravedad la dice la palabra (§43.19.16); «Inmediato» en bermellón, salvo apagado
+  // (§43.20.5: no mandó correo ni cuenta en la tarjeta; el bermellón mentiría).
   return (
-    <span className={cn('font-mono text-[11px] uppercase tracking-[0.06em]', severity === 'immediate' ? 'text-accent' : 'text-muted')}>
+    <span className={cn('font-mono text-[11px] uppercase tracking-[0.06em]', severity === 'immediate' && !muted ? 'text-accent' : 'text-muted')}>
       {t(`severityTag.${severity}`)}
     </span>
   );
@@ -118,6 +140,7 @@ export function SpendAlertsView({ initial = {} }: { initial?: SpendAlertsUrlFilt
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const texts = useAlertTexts();
+  const ownerMarks = useOwnerMarks();
   const [filters, setFiltersState] = useState<SpendAlertsUrlFilters>(initial);
   const [subjectName, setSubjectName] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -135,7 +158,8 @@ export function SpendAlertsView({ initial = {} }: { initial?: SpendAlertsUrlFilt
   const query: SpendAlertListFilters = { ...filters, pageSize: 25 };
   const list = useQuery({ queryKey: ['spend-alerts', query], queryFn: () => listSpendAlerts(query), retry: false });
   const rows = list.data?.data ?? [];
-  const hasFilters = Object.entries(filters).some(([k, v]) => k !== 'page' && v !== undefined && v !== false);
+  // `muted:false` («Sin los apagados») SÍ es un filtro.
+  const hasFilters = Object.entries(filters).some(([k, v]) => k !== 'page' && v !== undefined && (k === 'muted' || v !== false));
   const forbidden = asApiError(list.error)?.code === 'MONEY_OUT_FORBIDDEN';
 
   const mark = useMutation({
@@ -160,8 +184,8 @@ export function SpendAlertsView({ initial = {} }: { initial?: SpendAlertsUrlFilt
 
   const kindOptions = [
     { value: '', label: t('filters.kindAll') },
-    // Solo los trece con disparador (AG-14…AG-20 sin disparador en D2 no se listan).
-    ...KINDS.filter((k) => SPEND_ALERT_SWITCHABLE_CODES.includes(SPEND_ALERT_CODE_BY_KIND[k])).map((k) => ({
+    // Los trece con disparador más AG-21 y AG-22 (OWN-3); AG-14…AG-20 sin disparador no se listan.
+    ...FILTER_KINDS.map((k) => ({
       value: k,
       label: t('filters.kindOption', { code: SPEND_ALERT_CODE_BY_KIND[k], title: titleOfCode(t, SPEND_ALERT_CODE_BY_KIND[k]) }),
     })),
@@ -176,13 +200,16 @@ export function SpendAlertsView({ initial = {} }: { initial?: SpendAlertsUrlFilt
       ) : (
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-text">{t('unseenTag')}</span>
-          <Button size="sm" variant="ghost" disabled={mark.isPending} onClick={() => mark.mutate([a.id])}>
-            {t('markSeen')}
-          </Button>
+          {ownerMarks(a) ? (
+            <span className="text-sm text-muted">{t('ownerMarks')}</span>
+          ) : (
+            <Button size="sm" variant="ghost" disabled={mark.isPending} onClick={() => mark.mutate([a.id])}>
+              {t('markSeen')}
+            </Button>
+          )}
         </span>
       )}
       {a.resolvedAt && <span className="text-sm text-muted">{t('resolved', { date: formatDateTimeMx(a.resolvedAt, locale) })}</span>}
-      {a.muted && <span className="text-xs text-muted">{t('mutedTag')}</span>}
       <MailStatus alert={a} />
     </div>
   );
@@ -273,6 +300,18 @@ export function SpendAlertsView({ initial = {} }: { initial?: SpendAlertsUrlFilt
             </div>
             <Input label={t('filters.from')} type="date" value={filters.from ?? ''} onChange={(e) => patch({ from: e.target.value || undefined })} />
             <Input label={t('filters.to')} type="date" value={filters.to ?? ''} onChange={(e) => patch({ to: e.target.value || undefined })} />
+            <div className="min-w-[11rem]">
+              <Select
+                label={t('filters.muted')}
+                options={[
+                  { value: '', label: t('filters.mutedAll') },
+                  { value: 'true', label: t('filters.mutedOnly') },
+                  { value: 'false', label: t('filters.mutedNone') },
+                ]}
+                value={filters.muted === undefined ? '' : String(filters.muted)}
+                onChange={(e) => patch({ muted: e.target.value === '' ? undefined : e.target.value === 'true' })}
+              />
+            </div>
             <label className="flex items-center gap-2 pb-3 text-sm text-text">
               <input type="checkbox" checked={!!filters.unseen} onChange={(e) => patch({ unseen: e.target.checked || undefined })} />
               {t('filters.unseen')}
@@ -367,7 +406,7 @@ export function SpendAlertsView({ initial = {} }: { initial?: SpendAlertsUrlFilt
                           <td className="py-3 pr-3">{checkbox(a)}</td>
                           <td className="py-3 pr-3">{whenCell(a)}</td>
                           <td className="py-3 pr-3">
-                            <SeverityTag severity={a.severity} />
+                            <SeverityTag severity={a.severity} muted={!!a.muted} />
                           </td>
                           <td className="py-3 pr-3">{alertCell(a)}</td>
                           <td className="py-3 pr-3">{whoCell(a)}</td>
@@ -386,7 +425,7 @@ export function SpendAlertsView({ initial = {} }: { initial?: SpendAlertsUrlFilt
                         <div className="flex items-center gap-3">
                           {checkbox(a)}
                           {whenCell(a)}
-                          <SeverityTag severity={a.severity} />
+                          <SeverityTag severity={a.severity} muted={!!a.muted} />
                         </div>
                         {alertCell(a)}
                         {whoCell(a)}

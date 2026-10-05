@@ -13,6 +13,7 @@ import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { SPEND_ALERT_SWITCHABLE_CODES, type EditableSettingsPatch, type SettingsDTO, type SpendAlertCode } from '@/types/contract';
 import { pesosToCents } from '../../m4/pesosToCents';
 import { useIsOwner, useOwnerOnlyDenied } from '../../_owner/useIsOwner';
+import { ALWAYS_ON_CODES } from '../../spend-alerts/filters';
 
 /**
  * **«Configuración › Control del gasto»** (`DESIGN_SYSTEM §43.19.10a` · contrato `§M4-SHIP.19.29.8` + §19.30.2 (1)).
@@ -22,8 +23,9 @@ import { useIsOwner, useOwnerOnlyDenied } from '../../_owner/useIsOwner';
  * - 🔒 Son diales del DUEÑO (`OWNER_ONLY_SETTING_KEYS`): a cualquier otra cuenta se le ven deshabilitados con su frase,
  *   y si el servidor responde `403 OWNER_ONLY_SETTING {keys}` se dice qué campos, por sus `keys`.
  * - Validación de rangos antes del `PUT` (⛔ 0 peticiones con un error); `422` del servidor ⇒ bajo su campo.
- * - **Apagar un aviso pide confirmación** (lo apagado no se registra); encender o mover cifras no pregunta. Lo que se
- *   manda es la lista de los DESMARCADOS (`spendAlertsDisabled`).
+ * - **Apagar un aviso pide confirmación** (lo apagado no manda correo, pero se registra: §43.20.5); encender o mover
+ *   cifras no pregunta. Lo que se manda es la lista de los DESMARCADOS (`spendAlertsDisabled`), solo de los trece.
+ * - AG-21 y AG-22 (OWN-3) van tras los trece, marcados y deshabilitados («Siempre encendido»); ⛔ nunca en el `PUT`.
  */
 
 type Field =
@@ -59,9 +61,9 @@ const WHEN: Field[] = [
   'spendAlertCancelRefundDays',
   'spendAlertLabelNotShippedDays',
 ];
-/** La gravedad de cada aviso para la casilla (§43.19.10a (3), según §19.29.6). */
-const SEVERITY: Record<string, 'immediate' | 'digest' | 'byAmount' | 'byCase'> = {
-  'AG-1': 'byCase',
+/** La gravedad de cada aviso para la casilla (§43.19.10a (3) + §43.20.5: una frase por código donde «según el caso»). */
+const SEVERITY: Record<string, 'immediate' | 'digest' | 'byAmount' | 'sevAG1' | 'sevAG9' | 'sevAG22'> = {
+  'AG-1': 'sevAG1',
   'AG-2': 'digest',
   'AG-3': 'immediate',
   'AG-4': 'immediate',
@@ -69,11 +71,13 @@ const SEVERITY: Record<string, 'immediate' | 'digest' | 'byAmount' | 'byCase'> =
   'AG-6': 'byAmount',
   'AG-7': 'immediate',
   'AG-8': 'immediate',
-  'AG-9': 'byCase',
+  'AG-9': 'sevAG9',
   'AG-10': 'digest',
   'AG-11': 'immediate',
   'AG-12': 'digest',
   'AG-13': 'digest',
+  'AG-21': 'immediate',
+  'AG-22': 'sevAG22',
 };
 
 const toText = (f: Field, v: number | undefined) => (v === undefined ? '' : FIELDS[f].kind === 'pesos' ? (v / 100).toFixed(2) : String(v));
@@ -237,10 +241,22 @@ function SpendControlForm({ settings }: { settings: SettingsDTO }) {
             />
             <span className="flex flex-col">
               <span className="text-sm text-text">{t('alerts.option', { code: c, title: tAlerts(`kind.${c}.title`) })}</span>
-              <span className="text-xs text-muted">{t(`alerts.${SEVERITY[c] ?? 'byCase'}`)}</span>
+              <span className="text-xs text-muted">{t(`alerts.${SEVERITY[c]}`)}</span>
             </span>
           </label>
         ))}
+        {ALWAYS_ON_CODES.map((c) => (
+          <label key={c} className="flex items-start gap-3" data-testid={`spend-control-always-${c}`}>
+            <input type="checkbox" className="mt-1" checked disabled readOnly aria-describedby="spend-control-always-on" />
+            <span className="flex flex-col">
+              <span className="text-sm text-text">{t('alerts.option', { code: c, title: tAlerts(`kind.${c}.title`) })}</span>
+              <span className="text-xs text-muted">{t(`alerts.${SEVERITY[c]}`)}</span>
+            </span>
+          </label>
+        ))}
+        <p id="spend-control-always-on" className="text-xs text-muted">
+          {t('alerts.alwaysOn')}
+        </p>
         <p className="text-sm text-muted">{t('alerts.note')}</p>
       </fieldset>
       <div className="flex flex-col gap-2">

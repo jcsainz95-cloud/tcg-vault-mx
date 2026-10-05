@@ -138,7 +138,7 @@ describe('PS-164 (pantalla) · los diales del dueño, deshabilitados para los de
     await screen.findByTestId('shipping-purchase');
     expect(container.querySelector('fieldset#compra-guias')).not.toBeNull();
     expect(container.querySelector('section#control-gasto')).not.toBeNull();
-    expect(await screen.findByText(/^Debajo de esta cifra te llega un correo \(aviso AG-7\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Debajo de esta cifra le llega un correo al dueño \(aviso AG-7\)/)).toBeInTheDocument();
     expect(screen.getByText('Solo los súper-admin')).toBeInTheDocument();
     expect(screen.getByText('También el personal')).toBeInTheDocument();
     // ⛔ «No hay tope aparte del saldo» era falso con TG-1 (§43.19.0).
@@ -158,8 +158,77 @@ describe('PS-164 (pantalla) · los diales del dueño, deshabilitados para los de
     await ready();
     fireEvent.click(save());
     expect(
-      await screen.findByText('No se guardó nada: solo el dueño puede cambiar el tope de guías por persona, qué avisos están encendidos.'),
+      await screen.findByText('No se guardó nada: solo el dueño puede cambiar el tope de guías por persona y qué avisos están encendidos.'),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('MENSAJE_CRUDO');
+  });
+});
+
+describe('UX-GAS-11 (Configuración) · AG-21 y AG-22 «Siempre encendido»; la nota ya no dice que lo apagado no se registra (§43.20.5)', () => {
+  it('AG-21 y AG-22 marcadas y deshabilitadas con `alwaysOn`; desmarcar los trece ⇒ el `PUT` NO las incluye; gravedad por código', async () => {
+    vi.spyOn(api, 'getMe').mockResolvedValue(ME(true));
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    renderWithProviders(<SpendControlSection />, 'es');
+    await ready();
+    const alerts = screen.getByTestId('spend-control-alerts');
+    for (const [code, title, sev] of [
+      ['AG-21', 'Cambió la cuenta del dueño', 'Correo inmediato'],
+      ['AG-22', 'Cambios de otro súper-admin', 'Correo inmediato si toca a un súper-admin o la cuenta o los ajustes del dueño; si no, resumen diario'],
+    ] as const) {
+      const box = within(alerts).getByRole('checkbox', { name: new RegExp(`^${code} · ${title}`) });
+      expect(box).toBeChecked();
+      expect(box).toBeDisabled();
+      expect(box).toHaveAccessibleDescription('Siempre encendido: vigila la cuenta y los ajustes del dueño.');
+      expect(screen.getByTestId(`spend-control-always-${code}`)).toHaveTextContent(sev);
+    }
+    expect(within(alerts).getByRole('checkbox', { name: /^AG-1 ·/ }).closest('label')).toHaveTextContent(
+      'Correo inmediato si cambió destinatario, calle, CP, municipio, estado o país; si no, resumen diario',
+    );
+    expect(within(alerts).getByRole('checkbox', { name: /^AG-9 ·/ }).closest('label')).toHaveTextContent(
+      'Correo inmediato; la guía de más que cancelamos solos va en el resumen diario',
+    );
+    expect(alerts.textContent).not.toMatch(/según el caso/);
+    for (const box of within(alerts).getAllByRole('checkbox')) if (!(box as HTMLInputElement).disabled) fireEvent.click(box);
+    // Las dos siguen marcadas (deshabilitadas: el clic no las cambia).
+    expect(within(alerts).getByRole('checkbox', { name: /^AG-21 ·/ })).toBeChecked();
+    fireEvent.click(save());
+    const dialog = await screen.findByRole('dialog', { name: '¿Apagar 13 avisos?' });
+    expect(dialog).toHaveTextContent('seguirán apareciendo en «Avisos de gasto» marcados «Apagado»');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sí, apagarlos' }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    const sent = put.mock.calls[0][0].spendAlertsDisabled ?? [];
+    expect(sent).toHaveLength(13);
+    expect(sent).not.toContain('AG-21');
+    expect(sent).not.toContain('AG-22');
+  });
+  it('la sección ya no dice «no se registra» ni «no se podrá ver»; dice que se sigue registrando', async () => {
+    vi.spyOn(api, 'getMe').mockResolvedValue(ME(true));
+    renderWithProviders(<SpendControlSection />, 'es');
+    await ready();
+    const section = screen.getByTestId('spend-control-section');
+    expect(section.textContent).not.toMatch(/no se registra|no se podrá ver|no se puede ver después/);
+    expect(section).toHaveTextContent('pero se sigue registrando: aparece en «Avisos de gasto» marcado «Apagado»');
+  });
+});
+
+describe('UX-GAS-13 (OWN-1) · lo que lee un súper-admin que no es el dueño no le habla de «tú» como si fuera el dueño (§43.20.6)', () => {
+  it('`isOwner:false`: Configuración en ES sin «Tú no tienes tope», «la compras tú» ni «sin correo sí»; el subtítulo dice «Solo el dueño»', async () => {
+    vi.spyOn(api, 'getMe').mockResolvedValue(ME(false));
+    renderWithProviders(
+      <>
+        <ShippingSection />
+        <SpendControlSection />
+      </>,
+      'es',
+    );
+    await screen.findByTestId('spend-control-owner-only');
+    await screen.findByTestId('shipping-purchase');
+    const body = document.body.textContent ?? '';
+    expect(body).not.toMatch(/Tú no tienes tope|la compras tú|sin correo sí|te llega un correo/);
+    expect(screen.getByTestId('spend-control-section')).toHaveTextContent(
+      'Solo el dueño cambia estos ajustes; los demás súper-admin los ven.',
+    );
+    expect(body).toContain('El dueño no tiene tope; los demás súper-admin sí.');
+    expect(body).toContain('la siguiente la compra el dueño');
   });
 });

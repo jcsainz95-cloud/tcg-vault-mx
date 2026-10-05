@@ -56,11 +56,11 @@ async function toStep3(locale: 'es' | 'en' = 'es') {
   await screen.findByText(locale === 'es' ? 'Paso 3 de 4 · Comprar' : /^Step 3 of 4/);
 }
 /**
- * SK11 — sin cifras de tope, gasto ni porcentaje. ⚠ El texto del propio diseño dice «últimas 24 horas» (la ventana
- * del tope, no una cifra de dinero): se descuenta esa frase y lo demás debe quedar SIN dígitos (§43.19.15 (c) pide
- * `/\d/ ⇒ 0`, que su copy no cumple; anotado en FRONTEND_NOTES §92 como nota a ux-ui).
+ * SK11 — sin cifras de tope, gasto ni porcentaje. UX-SDX-28 (c) **sustituida** por `DESIGN_SYSTEM §43.20.8`: «24 horas»
+ * es la REGLA (la ventana del tope, igual para todos), no un dato de la persona; se quita SOLO esa ventana, anclada
+ * (`(?<!\d)…\b`: «124 horas» no se cuela), y lo demás debe quedar sin dígitos, `MX$` ni `%`.
  */
-const figures = (text: string | null) => (text ?? '').replace(/24 horas|24 hours/g, '').match(/\d|MX\$|%/g) ?? [];
+const figures = (text: string | null) => (text ?? '').replace(/(?<!\d)24 (horas|hours)\b/g, '').match(/\d|MX\$|%/g) ?? [];
 const buyButtons = () => screen.queryAllByRole('button', { name: /^(Comprar guía|Buy label)/ });
 const manualButtons = () => screen.queryAllByRole('button', { name: /^(Capturar a mano|Enter by hand)/ });
 
@@ -99,6 +99,19 @@ describe('UX-SDX-27 · comprar también el personal: el dial habla de súper-adm
 });
 
 describe('UX-SDX-28 💰 = PS-158 (negativa) · el tope niega sin cifras y «Capturar a mano» es la primaria', () => {
+  it('(c) §43.20.8 · el canario muerde: la ventana «24 horas» pasa; el tope, lo gastado, el porcentaje, «MX$24.00» y «124 horas» no', () => {
+    expect(figures('Llegaste a tu tope de guías de las últimas 24 horas.')).toEqual([]);
+    expect(figures("You've reached your label limit for the last 24 hours.")).toEqual([]);
+    for (const leak of [
+      'Llegaste a tu tope de MX$2,500.00 de las últimas 24 horas.',
+      'Llegaste a tu tope de 2500 de las últimas 24 horas.',
+      'Llegaste a tu tope de MX$24.00.',
+      'Llegaste a tu tope de las últimas 24 horas (llevas el 80 %).',
+      'Llegaste a tu tope de las últimas 124 horas.',
+    ]) {
+      expect(figures(leak), leak).not.toEqual([]);
+    }
+  });
   it.each([
     ['daily_spend', 'Llegaste a tu tope de guías de las últimas 24 horas.', 'llegaste a tu tope de las últimas 24 horas'],
     ['reissue', 'Este envío ya tuvo su recompra de guía.', 'este envío ya tuvo su recompra'],
