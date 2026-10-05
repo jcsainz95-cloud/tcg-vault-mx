@@ -7,6 +7,7 @@ import { InventoryController } from '../src/modules/inventory/inventory.controll
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * P-31 — export de inventario a Excel (GET /admin/inventory/export.xlsx):
@@ -17,7 +18,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
  *  - el controller manda Content-Type xlsx + Content-Disposition attachment.
  */
 
-const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
 
 /**
  * Doble de `PricingService` para el export.

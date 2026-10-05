@@ -8,12 +8,13 @@ import { BusinessException } from '../../common/business.exception';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
   PriceBasis,
+  SEALED_SALE_PRICE_INCLUDE,
   SealedSpreadSource,
-  displayPriceCentsOf,
   ivaIsIncluded,
+  saleDisplayCentsOf,
   sealedPriceBasisOf,
 } from '../../common/money';
-import type { IvaDials } from '../../common/money';
+import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { CardDTO, CatalogService, ListingDTO, toCardDTO } from './catalog.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
@@ -39,7 +40,11 @@ export type SealedListSort = (typeof SEALED_LIST_SORT_VALUES)[number];
 /** El default declarado por el contrato (§2-S): vacío/ausente ⇒ `newest`, nunca `400`. */
 const SEALED_LIST_SORT_DEFAULT: SealedListSort = 'newest';
 
-type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
+// 💰 v1.83 (§M11-SP.1, SP-3): con el precio del dueño del producto (`SEALED_SALE_PRICE_INCLUDE`) — obligatorio.
+type ItemWithCard = InventoryItem & {
+  card: Card & { set?: CardSet | null };
+  sealedProduct: SealedProductSaleRef | null;
+};
 
 /**
  * `SealedGroupDTO` del contrato (§DTOs), **declarado como tipo a propósito** (v2.1.7).
@@ -113,7 +118,10 @@ export interface SealedGroupDTO {
 /** Una pieza sellada con su precio de venta YA resuelto (SEC-A1) y su referencia de mercado cruda. */
 interface PricedSealed {
   item: ItemWithCard;
+  /** `L` (escala de lista; con precio del dueño, su `L` equivalente). */
   salePriceCents: number;
+  /** 💰 v1.83.1 (§M11-SP.12.3): `P` fijo del dueño, o `null` (⇒ `P` se deriva de `salePriceCents`). */
+  fixedDisplayCents: number | null;
   source: SealedSpreadSource;
   /**
    * v2.0 (P-48) — se deriva AQUÍ, donde vive el `SealedSpreadResult` completo, y no en el builder del
@@ -144,10 +152,14 @@ export class SealedCatalogService {
   // ---------------------------------------------------------------------------
   // Precio del sellado en LOTE — resuelve override/mercado×spread por pieza (money-safe).
   // ---------------------------------------------------------------------------
-  private async loadPricedSealed(where: Prisma.InventoryItemWhereInput): Promise<PricedSealed[]> {
+  private async loadPricedSealed(
+    where: Prisma.InventoryItemWhereInput,
+    // 💰 v1.83.1: los diales que la petición YA izó (el `L` equivalente del precio del dueño sale con ellos).
+    dials: IvaDials,
+  ): Promise<PricedSealed[]> {
     const items = await this.prisma.inventoryItem.findMany({
       where,
-      include: { card: { include: { set: true } } },
+      include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
       orderBy: { createdAt: 'desc' },
     });
     if (items.length === 0) return [];
@@ -169,12 +181,13 @@ export class SealedCatalogService {
       const ref = gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
       // H-1 (v1.24): resolver ÚNICO (gate del mercado por dial + pura). Mismo cuerpo que
       // catálogo/Compra/bulk-publish, incluida la regla override=0.
-      const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
+      const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed, dials);
       // Solo grupos con ≥1 pieza vendible (precio resuelto > 0). Money-safe: sin precio no se lista.
       if (sale.salePriceCents == null || sale.salePriceCents <= 0) continue;
       out.push({
         item,
         salePriceCents: sale.salePriceCents,
+        fixedDisplayCents: sale.fixedDisplayCents,
         source: sale.source,
         priceBasis: sealedPriceBasisOf(sale),
         marketRef: ref,
@@ -197,7 +210,9 @@ export class SealedCatalogService {
    * le pasan (⛔ nunca leídos aquí dentro: el grid los iza una vez por petición).
    */
   private toGroupDTO(members: PricedSealed[], dials: IvaDials): SealedGroupDTO {
-    const sorted = [...members].sort((a, b) => a.salePriceCents - b.salePriceCents);
+    // 💰 v1.83.1 (§M11-SP.12.3): el representante es el de menor **`P`** (lo que paga el cliente), ⛔ no el de menor
+    // `L`: con un precio del dueño, `L` es un equivalente y comparar equivalentes contra `L` reales elegiría mal.
+    const sorted = [...members].sort((a, b) => this.displayOf(a, dials) - this.displayOf(b, dials));
     const cheapest = sorted[0];
     const item = cheapest.item;
     const referenceValue: PriceInfo =
@@ -219,11 +234,8 @@ export class SealedCatalogService {
       // ⭐⭐ `P = round(L × (1 + t·r))` — la MISMA función que deriva el precio de una carta y el que
       // congela el checkout. *Si el sellado tuviera su propia derivación, la vitrina y el cobro
       // podrían separarse un centavo sin que nada fallara.*
-      fromPriceCents: displayPriceCentsOf(
-        cheapest.salePriceCents,
-        dials.ivaTransferPct,
-        dials.ivaRatePct,
-      ),
+      // 💰 v1.83.1 (E-3): con precio del dueño, SU `P` tal cual (`saleDisplayCentsOf`, SP-19).
+      fromPriceCents: this.displayOf(cheapest, dials),
       ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
       ivaRatePct: dials.ivaRatePct,
       priceSource: cheapest.source,
@@ -241,6 +253,11 @@ export class SealedCatalogService {
       // Requerido por el contrato y también se omitía.
       currency: 'MXN',
     };
+  }
+
+  /** 💰 v1.83.1 — `P` de una pieza preciada: EL camino único (`saleDisplayCentsOf`). */
+  private displayOf(p: PricedSealed, dials: IvaDials): number {
+    return saleDisplayCentsOf({ listPriceCents: p.salePriceCents, fixedDisplayCents: p.fixedDisplayCents }, dials);
   }
 
   /**
@@ -298,7 +315,10 @@ export class SealedCatalogService {
     if (q.q) cardWhere.name = { contains: q.q, mode: 'insensitive' };
     if (Object.keys(cardWhere).length) where.card = cardWhere;
 
-    const priced = await this.loadPricedSealed(where);
+    // ⭐ Los diales, UNA lectura por petición (BE-25 + §4.44.b) — antes de preciar (v1.83.1: el precio del dueño
+    // los necesita para su `L` equivalente).
+    const dials = await this.settings.getIvaDials();
+    const priced = await this.loadPricedSealed(where, dials);
 
     // Agrupa en memoria (patrón set-value): una tarjeta por producto+condición.
     const groups = new Map<string, PricedSealed[]>();
@@ -309,8 +329,6 @@ export class SealedCatalogService {
       else groups.set(k, [p]);
     }
 
-    // ⭐ Los diales, UNA lectura por petición (BE-25 + §4.44.b).
-    const dials = await this.settings.getIvaDials();
     // v2.1.9 (D2): la REJILLA emite `SealedGroupSummaryDTO` — sin priceBasis/referenceValue/priceSource.
     const cards = [...groups.values()].map((members) => ({
       dto: this.toGroupSummaryDTO(members, dials),
@@ -351,16 +369,16 @@ export class SealedCatalogService {
       groupWhere.cardId = rep.cardId;
       groupWhere.sealedSubtype = rep.sealedSubtype;
     }
-    const priced = await this.loadPricedSealed(groupWhere);
+    const dials = await this.settings.getIvaDials();
+    const priced = await this.loadPricedSealed(groupWhere, dials);
     if (priced.length === 0) throw BusinessException.notFound(); // el grupo no tiene piezas vendibles
 
-    const dials = await this.settings.getIvaDials();
     const group = this.toGroupDTO(priced, dials);
     const sealedCtx = await this.pricing.loadSealedSpreads();
     // v2.1.9 (T-2): anotado con el tipo del contrato (`SealedGroupDetailResponse.listings`).
     const listings: ListingDTO[] = await Promise.all(
       [...priced]
-        .sort((a, b) => a.salePriceCents - b.salePriceCents)
+        .sort((a, b) => this.displayOf(a, dials) - this.displayOf(b, dials))
         .map((p) =>
           // ⭐ Los diales se pasan izados: ⛔ una lectura por pieza sería N+1 **y** abriría la puerta
           // a que dos piezas de la misma ficha se derivaran con posiciones distintas del dial.

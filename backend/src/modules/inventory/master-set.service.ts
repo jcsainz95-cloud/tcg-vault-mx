@@ -6,7 +6,7 @@ import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
-import { hasManualPrice } from '../../common/money';
+import { manualSaleOf, SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
 import { VariantPricingDTO, composeVariantPricing, resolveMarketReference } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
@@ -1086,7 +1086,9 @@ export class MasterSetService implements OnModuleInit {
         productType: { not: 'sealed' },
         cardId: { in: [...new Set(pairs.map((p) => p.cardId))] },
       },
-      include: { card: true },
+      // 💰 v1.83 (§M11-SP.1, SP-3): el precio del dueño del producto viaja con la pieza (aquí solo singles, pero
+      // el predicado único lo exige en el tipo).
+      include: { card: true, ...SEALED_SALE_PRICE_INCLUDE },
     });
     const candidates = listed.filter((i) => wanted.has(`${i.cardId}|${i.finish}`));
     if (candidates.length === 0) return map;
@@ -1096,7 +1098,8 @@ export class MasterSetService implements OnModuleInit {
     const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
     const derivableKeys = candidates
       // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ esas piezas también derivan precio.
-      .filter((i) => !hasManualPrice(i))
+      // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(i) != null`.
+      .filter((i) => manualSaleOf(i) == null)
       // v1.53 (§4.40.4b, MONEY) — LECTURA: una graduada sin identidad de slab no aporta clave; abajo
       // cae al `continue` (no comprable), que es lo correcto. Antes se ofrecía al precio de un PSA 10.
       .flatMap((i) => {
@@ -1110,8 +1113,13 @@ export class MasterSetService implements OnModuleInit {
 
     for (const item of candidates) {
       let salePriceCents: number | null;
-      if (hasManualPrice(item)) {
-        salePriceCents = item.listPriceCents; // override manual POR PIEZA gana siempre (§4.9/§4.26b)
+      // v1.83 (§M11-SP.1): el predicado único. El binder solo ofrece singles (`productType != sealed`), así que el
+      // peldaño del producto no aplica aquí; si aplicara, `manualSaleOf` lo devolvería y NO se trataría como pieza.
+      const manual = manualSaleOf(item);
+      if (manual?.origin === 'piece') {
+        salePriceCents = manual.listCents; // override manual POR PIEZA gana siempre (§4.9/§4.26b)
+      } else if (manual != null) {
+        continue; // (inalcanzable: sellado fuera del binder) — nunca se compara un `P` contra `L`.
       } else {
         // v1.53 (§4.40.4b): sin clave no hay referencia ⇒ `null` ⇒ `continue` de abajo (no buyable).
         const gradeKey = this.pricing.tryGradeKeyFor(item);

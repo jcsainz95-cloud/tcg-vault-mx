@@ -10,6 +10,7 @@ import {
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
 import { AuditService } from '../src/modules/audit/audit.service';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.39-sealed-product-module (M-39, P-38 · ARCHITECTURE §4.34d · API_CONTRACT §M1) — el alta de SELLADO
@@ -19,7 +20,7 @@ import { AuditService } from '../src/modules/audit/audit.service';
  * 422 MANUAL_MARKET_NOT_ALLOWED SOLO por «mercado ya resuelto», ≤0 → VALIDATION_ERROR, sin override → PRICE_PENDING).
  */
 
-function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean } = {}) {
+function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean; ownerDisplayPriceCents?: number | null } = {}) {
   const created: any[] = [];
   const adjustments: any[] = [];
   const pendingStore: any[] = [];
@@ -35,6 +36,8 @@ function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean } = {}) {
     subtype: 'etb',
     imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/777.jpg',
     active: true,
+    // 💰 v1.83 (M-71): `P` del dueño del producto (`null` = no lo ha fijado).
+    ownerDisplayPriceCents: opts.ownerDisplayPriceCents ?? null,
   };
 
   const prisma: any = {
@@ -118,7 +121,7 @@ function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean } = {}) {
     ),
   };
 
-  const settings = { getNumber: jest.fn(async () => 100) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 100) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,
@@ -209,10 +212,15 @@ describe('alta por sealedProductId — IDENTIDAD correcta (no ancla-a-single)', 
   });
 });
 
+// 💰 v1.83 (§M11-SP.4, `HECHOS.md` 2026-10-05 «Precio del sellado — respuestas a P-SP-1/2/3» (1)): el mercado a mano
+// del alta lo pone SOLO el dueño. Estas pruebas miden la MECÁNICA del override (gate, atomicidad, auditoría), así que
+// el actor es el dueño; la regla de rol la mide abajo «solo el dueño fija el mercado a mano» y SP-9.
+const OWNER = 'super_admin' as never;
+
 describe('fallback MANUAL money-safe (v1.39.1 — vault_operator+, auditado, gate por mercado-resuelto)', () => {
   it('mercado null + manualMarketMxnCents>0 → usa el override, lo persiste (isManualOverride) y AUDITA', async () => {
     const h = buildHarness({ sourceOn: true, withAudit: true }); // sin mercado
-    const res = await h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1');
+    const res = await h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1', OWNER);
     // Aportación valuada por el override manual (150000 × 100%).
     expect(res.acquisitionCostCents).toBe(150000);
     // Persistió PriceReference isManualOverride=true con la clave de mercado del sellado.
@@ -232,7 +240,7 @@ describe('fallback MANUAL money-safe (v1.39.1 — vault_operator+, auditado, gat
   it('mercado YA resuelto + manualMarketMxnCents → 422 MANUAL_MARKET_NOT_ALLOWED (jamás pisa un mercado vivo)', async () => {
     const h = buildHarness({ sourceOn: true, withAudit: true });
     seedMarket(h); // mercado resuelto
-    await expect(h.svc.createItem(line({ manualMarketMxnCents: 999 }) as any, 'op-1')).rejects.toMatchObject({
+    await expect(h.svc.createItem(line({ manualMarketMxnCents: 999 }) as any, 'op-1', OWNER)).rejects.toMatchObject({
       code: 'MANUAL_MARKET_NOT_ALLOWED',
       status: 422,
     });
@@ -242,22 +250,29 @@ describe('fallback MANUAL money-safe (v1.39.1 — vault_operator+, auditado, gat
 
   it('manualMarketMxnCents ≤ 0 (con mercado null) → 422 VALIDATION_ERROR (nunca 0)', async () => {
     const h = buildHarness({ sourceOn: true });
-    await expect(h.svc.createItem(line({ manualMarketMxnCents: 0 }) as any, 'op-1')).rejects.toMatchObject({
+    await expect(h.svc.createItem(line({ manualMarketMxnCents: 0 }) as any, 'op-1', OWNER)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
-    await expect(h.svc.createItem(line({ manualMarketMxnCents: -5 }) as any, 'op-1')).rejects.toMatchObject({
+    await expect(h.svc.createItem(line({ manualMarketMxnCents: -5 }) as any, 'op-1', OWNER)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
 
-  it('vault_operator puede fijar el precio manual (NO se restringe por rol — decisión del humano v1.39.1)', async () => {
-    // El servicio no consulta rol para el override (la autorización vault_operator+ vive en el controller);
-    // aquí se ejercita que el override procede sin ninguna barrera de rol en el servicio.
+  // 💰 v1.83 — SUSTITUYE «vault_operator puede fijar el precio manual (decisión del humano v1.39.1)»: el dueño la
+  // cambió el 2026-10-05 (`HECHOS.md`, «Precio del sellado — respuestas a P-SP-1/2/3» (1): el mercado a mano del alta
+  // lo pone SOLO el dueño). El servicio SÍ consulta el rol (`assertSealedPriceWriters`, §M11-SP.4).
+  it('solo el dueño fija el mercado a mano: vault_operator ⇒ 403 sin pieza, sin override ni bitácora; dueño ⇒ procede', async () => {
     const h = buildHarness({ sourceOn: true, withAudit: true });
-    const res = await h.svc.createItem(line({ manualMarketMxnCents: 42000 }) as any, 'vault-op-user');
+    await expect(
+      h.svc.createItem(line({ manualMarketMxnCents: 42000 }) as any, 'vault-op-user', 'vault_operator' as never),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', status: 403 });
+    expect(h.created).toHaveLength(0);
+    expect(h.overrides.some((o) => o.isManualOverride === true)).toBe(false);
+    expect(h.auditLog).not.toHaveBeenCalled();
+    const res = await h.svc.createItem(line({ manualMarketMxnCents: 42000 }) as any, 'owner-user', OWNER);
     expect(res.acquisitionCostCents).toBe(42000);
     expect(h.auditLog).toHaveBeenCalledWith(
-      expect.objectContaining({ actorUserId: 'vault-op-user', action: 'inventory.sealed_manual_market' }),
+      expect.objectContaining({ actorUserId: 'owner-user', action: 'inventory.sealed_manual_market' }),
       expect.anything(),
     );
   });
@@ -273,7 +288,7 @@ describe('H-1 — override manual atómico con el alta (no override huérfano)',
   it('single: la creación de la pieza corre en $transaction y el override participa del MISMO cliente tx', async () => {
     const h = buildHarness({ sourceOn: true, withAudit: true }); // sin mercado → path override
     const mo = jest.spyOn((h.svc as any).pricing, 'manualOverride');
-    await h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1');
+    await h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1', OWNER);
     // El alta corrió en una transacción...
     expect(h.prisma.$transaction).toHaveBeenCalledTimes(1);
     // ...y el override se escribió con el cliente transaccional (6º arg presente ⇒ participa de la tx;
@@ -288,7 +303,7 @@ describe('H-1 — override manual atómico con el alta (no override huérfano)',
     h.prisma.inventoryItem.create.mockImplementationOnce(async () => {
       throw new Error('DB boom (post-resolución, pre-commit)');
     });
-    await expect(h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1')).rejects.toThrow();
+    await expect(h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1', OWNER)).rejects.toThrow();
     // El override se aplica DESPUÉS de crear la pieza → si la creación revienta, jamás se escribe.
     expect(h.overrides.some((o) => o.isManualOverride === true)).toBe(false);
     expect(h.auditLog).not.toHaveBeenCalled();
@@ -304,6 +319,7 @@ describe('H-1 — override manual atómico con el alta (no override huérfano)',
     const res = await h.svc.batchCreate(
       { batchKey: 'bk-h1', items: [line({ manualMarketMxnCents: 150000 }) as any] },
       'op-1',
+      OWNER,
     );
     expect(res.results[0].ok).toBe(false);
     // El override NO se escribió (se aplica tras crear la pieza; la línea falló antes) → sin huérfano.
@@ -317,6 +333,7 @@ describe('H-1 — override manual atómico con el alta (no override huérfano)',
     const res = await h.svc.batchCreate(
       { batchKey: 'bk-h1-ok', items: [line({ manualMarketMxnCents: 150000 }) as any] },
       'op-1',
+      OWNER,
     );
     expect(res.results[0].ok).toBe(true);
     // Override escrito con el 6º arg (tx) ⇒ atómico con la creación de la pieza (rollback lo revierte).
@@ -341,7 +358,7 @@ describe('H-2 — manualMarketMxnCents exige sealedProductId validado', () => {
   it('manualMarketMxnCents SIN sealedProductId → 422 MANUAL_MARKET_NOT_ALLOWED, sin override ni pieza', async () => {
     const h = buildHarness({ sourceOn: true, withAudit: true });
     await expect(
-      h.svc.createItem(noSpid({ manualMarketMxnCents: 500000 }) as any, 'op-1'),
+      h.svc.createItem(noSpid({ manualMarketMxnCents: 500000 }) as any, 'op-1', OWNER),
     ).rejects.toMatchObject({ code: 'MANUAL_MARKET_NOT_ALLOWED', status: 422 });
     expect(h.overrides.some((o) => o.isManualOverride === true)).toBe(false);
     expect(h.auditLog).not.toHaveBeenCalled();
@@ -354,6 +371,7 @@ describe('H-2 — manualMarketMxnCents exige sealedProductId validado', () => {
       h.svc.createItem(
         noSpid({ tcgplayerProductId: 424242, tcgplayerGroupId: 900, manualMarketMxnCents: 999999 }) as any,
         'op-1',
+        OWNER,
       ),
     ).rejects.toMatchObject({ code: 'MANUAL_MARKET_NOT_ALLOWED', status: 422 });
     // NUNCA se ancló un override al productId 424242 arbitrario del cliente.
@@ -364,7 +382,7 @@ describe('H-2 — manualMarketMxnCents exige sealedProductId validado', () => {
 
   it('CON sealedProductId validado, el override SÍ procede (ancla derivada server-side, no del cliente)', async () => {
     const h = buildHarness({ sourceOn: true, withAudit: true }); // sin mercado
-    const res = await h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1');
+    const res = await h.svc.createItem(line({ manualMarketMxnCents: 150000 }) as any, 'op-1', OWNER);
     expect(res.acquisitionCostCents).toBe(150000);
     // El override quedó anclado al productId DERIVADO del SealedProduct (777), no a uno del cliente.
     expect(h.overrides.some((o) => o.isManualOverride === true && o.gradeKey === 'sealed:tcg:777')).toBe(true);
@@ -474,13 +492,24 @@ describe('P-79(d) — alta de sellado por COMPRA: escala con la MISMA clave que 
     expect(h.pendingStore[0].gradeKey).toBe('sealed:tcg:777');
   });
 
-  it('LOTE · con `listPriceCents` NO se escala nada (la pieza ya tiene precio publicable)', async () => {
+  // 💰 v1.83 (§M11-SP.4) — SUSTITUYE «LOTE · con `listPriceCents` NO se escala nada»: sobre un sellado LIGADO el lote
+  // ya no acepta precio (`422 SEALED_PRICE_IS_PER_PRODUCT`, lote entero, nada creado — SP-9). La misma propiedad
+  // («si la pieza nace con precio, no se escala») se mide ahora con el precio del PRODUCTO.
+  it('LOTE · con `listPriceCents` sobre sellado ligado ⇒ 422 SEALED_PRICE_IS_PER_PRODUCT, nada creado ni escalado', async () => {
     const h = buildHarness({ sourceOn: true });
-    const res = await h.svc.batchCreate(
-      { batchKey: 'bk-p79-conprecio', items: [compra({ listPriceCents: 320000 }) as any] },
-      'op-1',
-    );
+    await expect(
+      h.svc.batchCreate({ batchKey: 'bk-p79-conprecio', items: [compra({ listPriceCents: 320000 }) as any] }, 'op-1'),
+    ).rejects.toMatchObject({ code: 'SEALED_PRICE_IS_PER_PRODUCT', status: 422 });
+    expect(h.created).toHaveLength(0);
+    expect(h.pendingStore).toHaveLength(0);
+  });
+
+  it('LOTE · producto con precio del dueño ⇒ la pieza nace con precio ⇒ NO se escala nada', async () => {
+    const h = buildHarness({ sourceOn: true, ownerDisplayPriceCents: 129900 });
+    const res = await h.svc.batchCreate({ batchKey: 'bk-p79-precio-producto', items: [compra() as any] }, 'op-1');
     expect(res.results[0].ok).toBe(true);
+    expect(h.created).toHaveLength(1);
+    expect(h.created[0].listPriceCents ?? null).toBeNull(); // la pieza NO se reescribe: lee el del producto
     expect(h.pendingStore).toHaveLength(0);
   });
 

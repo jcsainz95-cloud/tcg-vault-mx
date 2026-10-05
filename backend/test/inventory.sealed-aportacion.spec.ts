@@ -9,6 +9,7 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.28 (P-19/P-25, fix normativo §4.26g / API_CONTRACT §M1) — la APORTACIÓN de SELLADO valúa por
@@ -95,7 +96,7 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
     nextFolio: jest.fn(async () => `INV-00000${created.length + 1}`),
   };
 
-  const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,

@@ -4,6 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { CreateItemDto } from '../src/modules/inventory/dto/inventory.dto';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.1 — Sellado como línea de venta (ARCHITECTURE §3.6, API_CONTRACT §M1):
@@ -26,7 +27,7 @@ function buildPricing() {
     getReference: jest.fn(),
   } as unknown as PricingService;
 }
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 function buildPrisma() {
   const created: any[] = [];
@@ -69,6 +70,8 @@ describe('InventoryService.createItem — sellado', () => {
     const res = await svc.createItem(
       { ...base, sealedSubtype: 'etb', listPriceCents: 250000 } as CreateItemDto,
       'admin',
+      // v1.83 (§M11-SP.4): el precio de un sellado SIN producto solo lo escribe el dueño.
+      'super_admin' as never,
     );
     expect(res.folio).toBe('INV-000009');
     const data = prisma.__created[0];
@@ -109,7 +112,8 @@ describe('InventoryService.createItem — sellado', () => {
     const prisma = buildPrisma();
     const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
     await expect(
-      svc.createItem({ ...base, rawCondition: 'NM' as any, listPriceCents: 1000 } as CreateItemDto, 'admin'),
+      // v1.83: actor dueño ⇒ la regla SP.4 deja pasar el precio y la guarda de forma es la que responde.
+      svc.createItem({ ...base, rawCondition: 'NM' as any, listPriceCents: 1000 } as CreateItemDto, 'admin', 'super_admin' as never),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(prisma.inventoryItem.create).not.toHaveBeenCalled();
   });

@@ -14,6 +14,7 @@ import {
   sealedMarketGradeKey,
 } from '../src/modules/pricing/pricing.types';
 import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.53-buylist-graded-identity (ARCHITECTURE §4.40.4c / §4.40.9 qa-e y qa-f, **MONEY**) —
@@ -206,7 +207,8 @@ describe('checkout — una pieza sin identidad de slab NO es vendible (`PRICE_PE
     return new OrdersService(
       {} as PrismaService,
       pricingWithRealKeys(),
-      {} as never,
+      // v1.83.1: `salePriceOf` lee los diales (el `L` equivalente del precio del dueño).
+      ivaDialsStub() as never,
       {} as never,
       {} as never,
     );

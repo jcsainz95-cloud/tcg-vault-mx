@@ -9,6 +9,7 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from '../src/modules/pricing/providers/graded-sealed.providers';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.28 (P-19, §4.26c / API_CONTRACT §M1) — POST /admin/inventory/publish-all.
@@ -137,7 +138,7 @@ function buildHarness() {
     },
   };
 
-  const settings = { getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+  const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
   const pricing = new PricingService(
     prisma as PrismaService,
     settings,

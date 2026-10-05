@@ -38,7 +38,11 @@ import {
   usdToMxnCents,
   computeSalePriceFromCurve,
   computeSealedSalePrice,
+  computeSealedSaleOf,
+  manualSaleOf,
   CurvePriceResult,
+  IvaDials,
+  ManualSaleInput,
   PriceBasis,
   SealedSpreadResult,
   VariantPriceControls,
@@ -1863,17 +1867,23 @@ export class PricingService {
    * ConfigSetting (vía `ctx`, izado una vez por request con `loadSealedSpreads`); nada del DTO del cliente.
    */
   resolveSealedSalePrice(
-    item: { listPriceCents: number | null; sealedSubtype: string | null },
+    // 💰 v1.83.1 (§M11-SP.1/SP.12.3): `sealedProduct` OBLIGATORIA en el tipo (SP-3) — el precio del dueño por
+    // producto es el peldaño 1. `productType` viaja para que `manualSaleOf` no lea el producto en raw/graded.
+    item: ManualSaleInput & { sealedSubtype: string | null },
     ref: PriceInfo | undefined | null,
     ctx: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean },
+    // 💰 v1.83.1: los diales que la petición YA izó (⛔ leerlos aquí dentro): con ellos se saca el `L` equivalente
+    // del `P` del dueño. Obligatorios: dos piezas del mismo lote no pueden derivarse con diales distintos.
+    dials: IvaDials,
   ): SealedSpreadResult {
     const marketCents = this.gateSealedMarketCents(ref, ctx.sourceOn);
-    return computeSealedSalePrice(
-      item.listPriceCents,
+    return computeSealedSaleOf(
+      manualSaleOf(item),
       item.sealedSubtype,
       marketCents,
       ctx.spreadPctBySubtype,
       ctx.fallbackPct,
+      dials,
     );
   }
 
@@ -2163,6 +2173,22 @@ export class PricingService {
     if (ids.length === 0) return 0;
     const res = await this.prisma.pendingPriceEntry.updateMany({
       where: { id: { in: ids }, status: 'open', context: 'inventory', reason: null },
+      data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
+    });
+    return res.count;
+  }
+
+  /**
+   * 💰 v1.83 (`API_CONTRACT §M11-SP.2` paso 5) — **el precio del dueño de un producto sellado cierra SU cola de VENTA.**
+   *
+   * Cierra (`resolved`, `resolvedAt=now`, `resolvedPriceRefId=null`) las `PendingPriceEntry` `open` con
+   * `sealedProductId = :id` y `context = 'inventory'`, **con el handle `tx` del `PUT`** (se confirma junto con el precio
+   * y su bitácora, o no se confirma). ⛔ No toca las de OTRO producto del mismo set (la clave lleva `sealedProductId`), ni
+   * las de COMPRA. Vive aquí porque toda escritura de la cola es de `PricingService` (VQ-5). Devuelve cuántas cerró.
+   */
+  async closeSealedProductSaleQueue(tx: Prisma.TransactionClient, sealedProductId: string): Promise<number> {
+    const res = await tx.pendingPriceEntry.updateMany({
+      where: { sealedProductId, context: 'inventory', status: 'open' },
       data: { status: 'resolved', resolvedAt: new Date(), resolvedPriceRefId: null },
     });
     return res.count;

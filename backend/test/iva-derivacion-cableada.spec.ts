@@ -44,16 +44,20 @@ function ficherosQueMencionan(simbolo: string): string[] {
 
 describe('⭐⭐ la pieza 7 — `displayPriceCents` SALIÓ del módulo del dial y llegó al dinero', () => {
   it('⭐⭐ el censo INVERSO: la derivación se usa en `common`, `catalog` y `orders`', () => {
-    const ficheros = ficherosQueMencionan('displayPriceCents');
-    // Antes del corte: **solo** `modules/settings/iva-transfer.ts`. Ahora tiene que estar donde se
-    // hace el precio. Se asierta el conjunto EXACTO: si un módulo nuevo empieza a derivar precios
-    // por su cuenta, esto se pone rojo y alguien tiene que mirarlo.
+    // 💰 v1.83.1 (§M11-SP.12.1, E-3) — los TRES sitios de VENTA ya no llaman a `displayPriceCentsOf` a pelo: pasan
+    // por `saleDisplayCentsOf` (precio del dueño ⇒ su `P` tal cual; si no ⇒ la derivación de siempre). El censo
+    // sigue siendo EXACTO, ahora sobre el camino único de venta: si un módulo nuevo empieza a derivar `P` por su
+    // cuenta, o uno de los tres deja de pasar por él, esto se pone rojo. (El censo de `displayPriceCentsOf(` a pelo
+    // —SP-19— vive en `sealed-price.sp.spec.ts`.)
+    const ficheros = ficherosQueMencionan('saleDisplayCentsOf(');
     expect(ficheros).toEqual([
       'common/money.ts',
       'modules/catalog/catalog.service.ts',
       'modules/catalog/sealed-catalog.service.ts',
+      // Proyecciones ADMIN de `P` (`resolvedDisplayPriceCents` de M1/M11 y la hoja de precios del sellado).
+      'modules/inventory/inventory.service.ts',
+      'modules/inventory/sealed-price.service.ts',
       'modules/orders/orders.service.ts',
-      'modules/settings/iva-transfer.ts',
     ]);
   });
 
@@ -72,15 +76,19 @@ describe('⭐⭐ la pieza 7 — `displayPriceCents` SALIÓ del módulo del dial 
     const orders = stripComments(readFileSync(join(SRC, 'modules', 'orders', 'orders.service.ts'), 'utf8'));
     // ⭐ UN solo sitio (`derivedSaleDecision`), y por eso *«la vitrina dice 100 y el checkout cobra
     // sobre 116» no puede ocurrir por olvido de UNA rama* — hay cuatro precedencias de precio.
-    expect(orders.match(/displayPriceCentsOf\(/g)).toHaveLength(1);
+    // 💰 v1.83.1: ese sitio deriva por `saleDisplayCentsOf` (con precio del dueño, su `P`), ⛔ nunca a pelo.
+    expect(orders.match(/saleDisplayCentsOf\(/g)).toHaveLength(1);
+    expect(orders).not.toMatch(/displayPriceCentsOf\(/);
     expect(orders).toContain('private derivedSaleDecision(');
-    // Y `buildLines` —el cuerpo ÚNICO de las líneas de orden— pasa por él.
-    expect(orders).toContain('this.derivedSaleDecision(await this.resolveSaleDecision(item), iva)');
+    // Y `buildLines` —el cuerpo ÚNICO de las líneas de orden— pasa por él (con los diales izados del carrito).
+    expect(orders).toContain('this.derivedSaleDecision(await this.resolveSaleDecision(item, iva), iva)');
   });
 
   it('⭐ el CATÁLOGO deriva en `toListingRow`, que es por donde pasa toda pieza del storefront', () => {
     const catalog = stripComments(readFileSync(join(SRC, 'modules', 'catalog', 'catalog.service.ts'), 'utf8'));
-    expect(catalog.match(/displayPriceCentsOf\(/g)).toHaveLength(1);
+    // 💰 v1.83.1: por el camino único de venta (`saleDisplayCentsOf`), ⛔ nunca `displayPriceCentsOf` a pelo.
+    expect(catalog.match(/saleDisplayCentsOf\(/g)).toHaveLength(1);
+    expect(catalog).not.toMatch(/displayPriceCentsOf\(/);
     expect(catalog).toContain('private async toListingRow(');
     // ⛔ Y `toListingDTO` NO es un segundo camino: es un envoltorio del primero.
     expect(catalog).toContain('return (await this.toListingRow(item, ctx)).dto;');
@@ -172,6 +180,9 @@ describe('⛔⛔ criterio 209 — `ivaTransferPct` NO viaja a ninguna superficie
     // retirando `source`/`isManualOverride` de lo público.*
     expect(emisores).toEqual([
       'common/money.ts', // el tipo `IvaDials`
+      // 💰 v1.83.1 (§M11-SP.12.4): la BITÁCORA del precio del dueño (`after.ivaDials`, `AuditLog`, admin-only) —
+      // con ellos se reconstruye el `L` equivalente del momento. ⛔ No viaja a ninguna superficie de cliente.
+      'modules/inventory/sealed-price.service.ts',
       'modules/orders/guest-checkout.service.ts', // la COLUMNA de la fila
       'modules/orders/orders.service.ts', // la COLUMNA de la fila
       'modules/settings/iva-transfer.ts', // el DTO de la puerta (`/admin/*`)

@@ -5,6 +5,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { UpdateItemDto } from '../src/modules/inventory/dto/inventory.dto';
 import { DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
 import { BusinessException } from '../src/common/business.exception';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.51 — **FASE 8: PUBLICAR.** *«Me gustaría saber también cómo la subimos a inventario, porque ahí
@@ -27,7 +28,7 @@ import { BusinessException } from '../src/common/business.exception';
  *     correcto y la cola existe precisamente para que esa pieza SE VEA.*
  */
 
-const settings = { getNumber: jest.fn() } as unknown as SettingsService;
+const settings = { ...ivaDialsStub(), getNumber: jest.fn() } as unknown as SettingsService;
 
 interface ItemOpts {
   id: string;

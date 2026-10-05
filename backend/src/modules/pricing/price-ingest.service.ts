@@ -20,7 +20,7 @@ import {
   VariantPublishRef,
 } from '../inventory/inventory-publish.port';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido.
-import { hasManualPrice } from '../../common/money';
+import { manualSaleOf, SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 import { saleQueueKeyOf } from './sale-queue-key';
 // v1.50.3 (§4.38m.2): la fecha de negocio del gate de EVIDENCIA — la MISMA que usa la lectura.
 import { businessDateCdmx } from '../../common/graded-estimate';
@@ -989,7 +989,8 @@ export class PriceIngestService {
           productType: 'raw',
           card: { setId: set.id },
         },
-        include: { card: true },
+        // 💰 v1.83 (§M11-SP.1, SP-3): el predicado único exige el precio del producto en el tipo.
+        include: { card: true, ...SEALED_SALE_PRICE_INCLUDE },
       });
       if (items.length === 0) return;
       // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
@@ -1013,7 +1014,8 @@ export class PriceIngestService {
         // H-1 (E5-bis): `<= 0` es AUSENTE, así que esa pieza SÍ deriva de la curva y SÍ tiene que
         // entrar al barrido. Con el `!= null` de antes se saltaba y NUNCA se reconciliaba — el mismo
         // hueco de D5, recién abierto por este bucle.
-        if (hasManualPrice(item)) continue;
+        // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(item) != null`.
+        if (manualSaleOf(item) != null) continue;
         // v1.53 (§4.40.4b): sin clave no hay variante que reconciliar — se omite (no se abre ni se
         // cierra cola con una clave inventada).
         const gradeKey = this.pricing.tryGradeKeyFor(item);
