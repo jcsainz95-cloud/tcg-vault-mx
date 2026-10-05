@@ -27,6 +27,7 @@
 > | **v1.80.9.1** | Errata (2026-10-04, rama `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`, ⛔ sha NO MEDIDO por el arquitecto; cierra C-1 del techlead; origen `BACKEND_NOTES §55` (errata de 55.2.1 en §56.3), `DESIGN_SYSTEM §42.10 A-1`, decisión del dueño sobre TD-4). Aceptados tal cual: **D-1** (rama `@` = `isEmail` de hoy), **D-2** (anonimización anula también `lockNoticeAt`), **D-3** (`M-63`, `20261005120000_m63_staff_username`), **D-5** (`rule:'customer_without_username'`, `field` en todo `422` del alta). **Cambian:** **D-4** el resiliente degradado/Redis sin contestar ⇒ `peekLockMs` lanza `LoginAttemptStoreUnavailableError` sin `markDown` ⇒ `lockState:'unavailable'`; **A-1** `lockState` en la ficha; **TD-9** sin servicio ⇒ lanza, y solo la clase del almacén ⇒ `'unavailable'`; **TD-4** reset desde Usuarios a cualquier rol (normado + STF-36), script con `ADMIN_USERNAME` y `emailVerified` solo con correo; ⛔ no se prohíbe el súper-admin sin correo. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` §M6-U.11 | §4.58.5, §4.58.9, §11 `M-63` | **Sí** (backend; frontend: `lockState` de la ficha) · 🔒 seguridad |
 > | **v1.80.10** | 💰 Errata (2026-10-04, rama `claude/precios-s5`, ⛔ sha NO MEDIDO por el arquitecto; origen: recorrido E2E del panel sobre production `279d96de`/`aab55abe`, relayado por el orquestador). **F-2:** `POST /disputes` gana la **vía B** — el comprador con cuenta de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** — **sin dar titularidad**; se escribe `Dispute.orderItemId` y `resolve` lo usa; la entrada es el detalle del pedido. ⚠️ El `403` del tester salió de un fixture con `ShipmentRequest.userId` que production no escribe; el hueco real es que ese comprador no tenía **ninguna** vía. Invitado: sin API (v1.21) y **sin compensación por carta** (`D-DSP-1`). **F-7:** alta de **cliente** desde M6 ⇒ celular obligatorio (`422 … rule:'customer_phone_required'`). **F-4, F-8, F-9, F-11:** el contrato y el backend ya lo tenían; falta pantalla (regla de botones por `offerDecision`, `error.code`, los diez diales, forma doble del `422` de settings, filtro de estado). **F-1:** forma del dinero del detalle de M3 escrita. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.80.10, §E2E-ADM | §4.59, §9 `D-DSP-1…4`, `D-BL-SKIP-1`, `D-PHONE-1` | **Sí** (backend `disputes` 💰 + `admin`; frontend pedidos, M5, M10, M3, M6; textos ux-ui) |
 > | **v1.84** | 🔒💰 Plan (2026-10-05, rama `claude/listo-real` desde `production` = `3e09685a` según el orquestador, ⛔ sha NO MEDIDO por el arquitecto). **Listo para dinero real:** cierra las condiciones «antes de `sk_live_`» de `SECURITY_NOTES.md:14048-14050` — C1 `qs`, S5-1 (claim `sat`, tope 30 d cliente / 7 d staff), SEC-HDR-2 (CSP con nonce, Report-Only primero), TD-4 ⟨orders⟩ (CAS `pending → failed`), C2 (lectura fresca del cargo en Stripe en la cubeta SPEI en vez de la lista de códigos; también detecta pedidos pagados **en modo prueba**), DAST `full` previo, C6 (medición) — más MSH-1, salud con `stripeMode`, telemetría CSP/errores sin cuenta nueva, `/privacidad`, respaldos con simulacro, censo y limpieza de datos de prueba, guion de cobro de punta a punta y guía del cambio de claves. ⛔ Sin schema ni migración. Norma: `API_CONTRACT` rev v1.84, §14 | §4.63 | **Sí** (backend `auth`, `orders` 💰, `payments` 💰, `shipments` 💰, `health`; frontend; devops) · 🔒 seguridad |
+> | **v1.84.1** | Errata (2026-10-05, rama `claude/listo-real`, HEAD dado por el orquestador `bed71dc8`, ⛔ sha NO MEDIDO por el arquitecto; origen `BACKEND_NOTES §57`, `FRONTEND_NOTES §94`, `DEVOPS_NOTES §83`). Ratifica refresh con `ignoreExpiration` y caducidad a mano **después** del tope, con el borde a `>=` (SES-7/8); `ttlSeconds()` propio; `413` sin cuerpo; `upgrade-insecure-requests` solo en `enforce`. CSP: `style-src` + `https://accounts.google.com/gsi/style`; mutación de CSP-5 y «sustituye, no interseca» corregidas, con invariante `frame-ancestors`. TTFB se mide **en producción** con sonda de devops (antes = F1, después = F2). Enlaces al aviso en tres lotes con candado en `check:legal`. Texto de C6 corregido; **P-10** al dueño (N de C6). ⛔ Sin schema, migración, enum ni código nuevo. Norma: `API_CONTRACT §14.14` | §4.63.3, §4.63.5, §4.63.7, §4.63.9, §4.63.10, §4.63.11 | **Sí** (backend un carácter + 2 pruebas; frontend CSP + enlaces; devops sonda TTFB; ux-ui textos) |
 > | **5** | P-OUTCOME: el `outcome` aditivo de `paid`/`cancel` de la cubeta SPEI **se declara** en el contrato (construido; patrón `outcome` del resto de verbos idempotentes) | `API_CONTRACT §M4-SHIP.15.13`, §17.3 | **No** (frontend puede tiparlo) |
 >
 > ---
@@ -27257,7 +27258,9 @@ no está en «construir el modo real», sino en tres cosas que en modo prueba no
   `script-src` anula la barrera.
 - **Coste:** con nonce, la página se genera por petición. Hoy el árbol puede prerenderizar por idioma
   (`[locale]/layout.tsx:57`). Choca potencialmente con `HECHOS.md:49` (home < 1 s), por eso la norma exige medir el
-  TTFB (N = 10, antes/después) y fija el umbral.
+  TTFB (N = 10, antes/después) y fija el umbral. **v1.84.1:** frontend midió que `/es` **ya** se renderizaba por
+  petición antes del cambio (`FRONTEND_NOTES §94.1`, local, N=10, autor frontend) — el coste esperado es casi nulo —, y
+  la medida oficial se mueve a **producción** porque las ramas `claude/*` ya no despliegan (§4.63.11 E-8).
 - **Si la medición falla:** queda en vigor la CSP **sin nonce** —todas las directivas de la norma salvo
   `script-src 'self' 'unsafe-inline' https://js.stripe.com https://accounts.google.com`—. Ya cierra la mitad (a) de
   `SECURITY_NOTES.md:13034` (objetos, base, formularios, `connect-src` restringido), pero **no** la (b). Esa decisión
@@ -27288,8 +27291,14 @@ no está en «construir el modo real», sino en tres cosas que en modo prueba no
 La condición pregunta si el borde de Railway deja al cliente **elegir** su IP vía `X-Forwarded-For`. Con
 `trust proxy = 1` (`main.ts:41`, `trust-proxy.ts`), el contador por IP confía en la **última** entrada. La sonda ya
 existe y se niega a correr sin ventana (`scripts/edge-xff-probe.sh`; `DEVOPS_NOTES.md:11283-11293`). Hacen falta
-**el permiso del dueño** (pega a producción: 6 logins fallidos con un correo inexistente, sin efecto de lado) y
-**devops**. El dueño no tiene nada que configurar en Railway: el arquitecto no conoce ningún ajuste de límite de
+**el permiso del dueño** (pega a producción: ~~6 logins fallidos con un correo inexistente~~ **v1.84.1: 6 logins
+fallidos, cada uno con un correo inexistente distinto** (`@example.invalid`), sin efecto de lado) y **devops**.
+*Por qué distintos (hallazgo de devops, `DEVOPS_NOTES §83.4`):* desde C7 hay un segundo tope **por cuenta**
+(`PASSWORD_FREE_ATTEMPTS = 5`); con un solo correo, el 6.º intento es `429 TOO_MANY_PASSWORD_ATTEMPTS` venga de la IP
+que venga, y la sonda leía ese `429` como «C6 cierra» aunque el borde dejara elegir la IP — **cierre falso**. Ahora un
+`429` solo cuenta si `error.code = RATE_LIMITED`. Si rotando `X-Forwarded-For` no aparece ningún `429`, la sonda para
+(rc 2) y la ronda de **control** (6 peticiones más sin XFF propio) solo corre con `--with-control` y **autorización
+nueva** del dueño. N de la medición: P-10 (§4.63.9). El dueño no tiene nada que configurar en Railway: el arquitecto no conoce ningún ajuste de límite de
 peticiones en el borde de Railway (NO MEDIDO). Si la sonda sale mal (6.º = `401`), el arreglo es de **código**
 (número de saltos en `trust-proxy.ts`, o leer la cabecera propia de IP del borde si Railway la pone; diseño del
 arquitecto con la cabecera medida). Poner Cloudflare delante solo hace falta si eso no basta, y exige cuenta: sería una
@@ -27336,6 +27345,12 @@ El dueño lo ve en Railway (réplicas del servicio).
   `:517` con los dos enlaces); checkout registrado (`CheckoutView.tsx:325`); registro (línea pasiva «Al crear tu cuenta
   aceptas…» con los dos enlaces, sin casilla); subida de INE. ⛔ `/terminos` **no se toca aquí**: el panel (v1.82)
   reescribe sus textos de disputas.
+- **v1.84.1 — cómo y cuándo:** un solo componente que enlaza **solo si la página se sirve** (misma decisión que el pie;
+  si no, texto sin enlace: nunca un enlace a un `404`). Tres lotes por las zonas de choque: lote 1 (registro, checkout
+  con cuenta, formulario de venta, INE de «Mi cuenta») antes de F1; lote 2 (`GuestCheckoutForm`) tras la fusión de
+  skydropx; lote 3 (`pedido/layout.tsx`) tras la del panel. El olvido lo impide `check:legal`, que exige los siete
+  sitios (`API_CONTRACT §14.14 E-9`). Por qué un candado y no una nota: los criterios 500–508 bloquean `sk_live_`
+  (`PROJECT.md:11702`), y un lote que depende de otra rama es exactamente lo que se pierde en un traspaso (O-18).
 - **Abierto para el abogado, no para el código:** si la INE pide **consentimiento expreso** con constancia (casilla +
   fecha guardada). Si dice que sí, es un cambio de schema y vuelve al arquitecto.
 
@@ -27358,6 +27373,7 @@ pedido de prueba falla en Stripe y no mueve dinero. Las dos no cuestan schema.
 | **P-7** | ¿Nos autorizas a hacer **6 intentos de entrada fallidos** contra la tienda publicada con un correo que no existe, para medir el candado contra fuerza bruta? No crea ni cambia nada | Toca producción | **Bloquea** C6 |
 | **P-8** | ¿Te basta con que los avisos de «la tienda se cayó» te lleguen como **correo de GitHub**, o quieres abrir una cuenta gratuita en **Sentry** para ver los errores agrupados? | Abrir una cuenta es tuyo | **Correo de GitHub** |
 | **P-9** | ¿Autorizas a tester-e2e a hacer ~6 **pedidos de prueba** en `tcghunt.mx` (los verás en tu panel)? Y, tras el cambio, ¿haces tú **una compra real pequeña con tu tarjeta** y su reembolso? (cuesta la comisión de Stripe) | Tu tienda y tu tarjeta | **Bloquea** el cambio (el cobro nunca se ha probado en la tienda publicada) |
+| **P-10** (v1.84.1) | Para comprobar que nadie puede saltarse el freno contra adivinar contraseñas fingiendo venir de otra dirección, nos autorizaste **6 intentos de entrada fallidos** (`HECHOS.md`, 2026-10-05, P-7). Con 6 intentos la prueba se hace **una vez**. Si sale bien, es casi seguro que el freno funciona; lo único que una sola vez no descarta es que el servidor de entrada de Railway tenga varias puertas configuradas distinto (no lo sabemos y es poco probable). Opciones: **(A)** basta con una vez (6 intentos, ya autorizados); **(B)** autorizas **12 intentos más** (dos repeticiones, con un minuto de pausa entre cada una) para repetir la prueba tres veces. En ambos casos se usan correos inventados que no existen: no se bloquea ninguna cuenta ni se manda ningún correo | Toca tu tienda publicada | **(A)**: se cierra con «1 de 1» y queda anotado así |
 
 #### 4.63.10 Hallazgos de la lectura (para enrutar; ⛔ no los corrige el arquitecto)
 - **MSH-1 sigue abierta** (`TECH_DEBT.md:496-500`, disparador «antes de operar con dinero real»). Medido:
@@ -27372,6 +27388,30 @@ pedido de prueba falla en Stripe y no mueve dinero. Las dos no cuestan schema.
 - **«Backups automáticos + point-in-time»** (`DEVOPS_NOTES.md:459`) es una afirmación sin medición ⇒ LIVE-13.
 - **Rama `claude/<hotfix>`** (`/home/user/tcg-hotfix`): su contrato no ha cambiado (cabecera v1.80.10). Qué toca: **NO
   MEDIDO** por el arquitecto. Lo cierra `git diff --stat origin/production...<rama>`.
+- **v1.84.1 · `413` del parser JSON global en el resto de rutas:** backend reporta (`BACKEND_NOTES §57.3`) que el filtro
+  global mapearía un `413` a `INTERNAL`. Qué ve hoy un cliente que manda un JSON por encima del límite del parser JSON (valor del límite NO MEDIDO por el
+  arquitecto; `backend/src/body-parsers.ts`) a una ruta normal:
+  **NO MEDIDO**. Lo cierra una prueba de integración de backend (cuerpo grande a una ruta JSON ⇒ leer status y
+  `error.code`). No bloquea `sk_live_`; si sale `500 INTERNAL`, vuelve al arquitecto para fijar código.
+
+#### 4.63.11 Errata v1.84.1 — por qué cada respuesta (norma: `API_CONTRACT §14.14`)
+- **E-1 (refresh):** la alternativa a `ignoreExpiration` sería deducir el `reason` de los claims del token caducado sin
+  leer BD (si `exp == sat + tope(rol del token)`). Se descarta porque usa el rol **del token**, justo lo que SES-5
+  prohíbe. La lectura extra de BD solo la alcanza quien tiene un refresh firmado por nosotros, con tope 20/min. El
+  borde `>`→`>=` lo encontró el arquitecto leyendo `auth.service.ts:608/614`: no se ve en SES-1/SES-2 (días 29/31),
+  solo en el segundo exacto, y es el tipo de diferencia que un reloj de prueba redondo nunca toca.
+- **E-2:** se ratifica por la prueba de paridad, que es lo que convierte una reimplementación en algo seguro.
+- **E-3:** un código nuevo es enum, paridad y texto de frontend para una respuesta que nadie lee.
+- **E-4:** ruta exacta y no `https://accounts.google.com` entero, por la regla de §14.3 («el origen exacto»); un
+  `style-src` más ancho no ejecuta código, pero la regla es la misma para todos.
+- **E-6:** lo que importa no es si se sustituyen o se intersecan, sino que `frame-ancestors 'none'` esté **aplicada**
+  siempre. En `report-only` la del middleware no aplica nada, así que esa garantía la da **solo** la estática: de ahí la
+  aserción nueva de CSP-1 en esa fase.
+- **E-8:** se mide en producción porque (a) la vista previa ya no existe para las ramas y la de `main` puede estar
+  tras la protección de Vercel (NO MEDIDO), (b) Report-Only cuesta lo mismo que `enforce`, y (c) el umbral protege a los
+  clientes de `tcghunt.mx`, no a una URL de vista previa. Coste: una sonda de solo lectura de 11 GET por corrida. El
+  resultado va a un issue porque es lo que esta sesión puede leer.
+- **E-11:** no lo decide el arquitecto porque son intentos contra la tienda publicada, y el dueño autorizó un número.
 
 ---
 
