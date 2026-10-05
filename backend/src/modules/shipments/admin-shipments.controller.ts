@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -11,6 +12,7 @@ import { ShipmentQuoteService } from './label-quote.service';
 import { ShipmentLabelService } from './label-purchase.service';
 import { ShipmentLabelCancelService } from './label-cancel.service';
 import { ShipmentLabelRecoveryService } from './label-recovery.service';
+import { ShipmentLabelPdfService } from './label-pdf.service';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
 
 /**
@@ -28,6 +30,7 @@ export class AdminShipmentsController {
     private readonly labels: ShipmentLabelService,
     private readonly labelCancel: ShipmentLabelCancelService,
     private readonly labelRecovery: ShipmentLabelRecoveryService,
+    private readonly labelPdfs: ShipmentLabelPdfService,
   ) {}
 
   @Get()
@@ -40,6 +43,10 @@ export class AdminShipmentsController {
     @Query('pageSize') pageSize = '20',
     // ⭐ v1.80 (§M4-SHIP.10): búsqueda `q` (gramática de §M3).
     @Query('q') q?: string,
+    // ⭐ v1.80.12.12 (§19.31.10 pieza 1): `?labelSource=` (E), `?alert=` (L, `true`), `?folio=` (S-GAS-2, `^ENV-\d{6,}$`).
+    @Query('labelSource') labelSource?: string,
+    @Query('alert') alert?: string,
+    @Query('folio') folio?: string,
     @CurrentUser() user?: { id: string; role: Role },
   ) {
     return this.shipments.adminList(
@@ -50,6 +57,7 @@ export class AdminShipmentsController {
       kind,
       q,
       user?.role,
+      { labelSource, alert, folio },
     );
   }
 
@@ -88,6 +96,20 @@ export class AdminShipmentsController {
   @Get('picking-list')
   pickingList(@Query('date') date?: string, @Query('destination') destination?: string) {
     return this.shipments.pickingList(date, destination);
+  }
+
+  /**
+   * 🔒 ⭐ v1.80.12.12 (§M4-SHIP.19.8 + §19.18.5 + §19.31.5 (3)) — la etiqueta POR PROXY (operador+, `@Roles` de la clase).
+   * ⛔ Nunca redirige a `labelUrl`. `inline`, `private, no-store`; bitácora `shipment.label_printed` solo si se sirvió.
+   */
+  @Get(':id/label.pdf')
+  async labelPdf(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }, @Res() res: Response) {
+    const pdf = await this.labelPdfs.labelPdf(id, user);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${pdf.filename}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Length', String(pdf.body.length));
+    res.send(pdf.body);
   }
 
   @Get(':id')

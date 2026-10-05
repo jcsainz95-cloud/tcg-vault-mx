@@ -4,7 +4,7 @@
  * `limit`). Funciones PURAS sobre la fila (⛔ ninguna tabla nueva: misma doctrina que `carrierAlert`, §19.3).
  * ⛔ `labelUrl`, `rawResponseJson`, `providerRateId` y los sellos NO entran (lista blanca).
  */
-import { Role, ShipmentRequest } from '@prisma/client';
+import { CarrierStatus, Role, ShipmentRequest } from '@prisma/client';
 import { ShipmentRateDTO } from './label-dto';
 import { T_CANCEL_MS, T_STUCK_MS } from './label-verify.constants';
 
@@ -174,4 +174,18 @@ export function labelAlertOf(
     return { kind: 'label_processing_stuck', since: row.labelProcessingSince.toISOString(), canRelease: false, reason: null };
   }
   return null;
+}
+
+/** §19.3 «Alertas al admin»: los estados del transportista que encienden la alerta de un envío vivo con guía Skydropx. */
+export const CARRIER_ALERT_STATUSES: readonly CarrierStatus[] = ['delivery_attempt', 'exception', 'retained', 'in_return', 'destroyed'];
+
+/**
+ * §19.3 — `carrierAlert ≠ null` ⇔ envío VIVO (`status ∉ {entregado, cancelado}`) con guía Skydropx cuyo `carrierStatus` ∈
+ * `CARRIER_ALERT_STATUSES`, o `carrierStatus = 'canceled' ∧ providerCanceledAt IS NULL` (cancelada por la paquetería).
+ * La usa `?alert=true`; el DTO `carrierAlert` (con `detail` del último evento) llega con `applyCarrierStatus` (D2d).
+ */
+export function carrierAlertActive(row: Pick<ShipmentRequest, 'status' | 'labelSource' | 'carrierStatus' | 'providerCanceledAt'>): boolean {
+  if (row.labelSource !== 'skydropx' || row.status === 'entregado' || row.status === 'cancelado' || row.carrierStatus == null) return false;
+  if (row.carrierStatus === 'canceled') return row.providerCanceledAt == null;
+  return CARRIER_ALERT_STATUSES.includes(row.carrierStatus);
 }

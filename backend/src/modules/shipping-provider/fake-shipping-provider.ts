@@ -78,6 +78,31 @@ export interface FakeCall {
   input: unknown;
 }
 
+/** Un PDF 1.4 válido de una página con el texto «GUIA DE PRUEBA (doble)». Fijo: mismos bytes en cada llamada. */
+export const FAKE_LABEL_PDF = buildFakeLabelPdf();
+
+function buildFakeLabelPdf(): string {
+  const text = 'BT /F1 18 Tf 72 720 Td (GUIA DE PRUEBA - doble de Skydropx, sin valor) Tj ET';
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${text.length} >>\nstream\n${text}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let out = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  objs.forEach((body, i) => {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+  for (const o of offsets) out += `${String(o).padStart(10, '0')} 00000 n \n`;
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return out;
+}
+
 const MEASURED_INSURANCE: Record<number, number> = { 250000: 2500, 1000000: 17000 };
 
 export function fakeInsuranceCostCents(coverageCents: number): number {
@@ -393,6 +418,16 @@ export class FakeShippingProvider implements ShippingProviderPort {
       if (s) this.shipments.set(providerShipmentId, { ...s, carrierStatus: 'canceled' });
     }
     return outcome;
+  }
+
+  /**
+   * 💰 v1.80.12.12 (§M4-SHIP.19.31.5 (3)) — la etiqueta del doble: un PDF FIJO y pequeño generado en el proceso. ⛔ Ningún
+   * `fetch`: `GET …/label.pdf` con `kind='fake'` sirve esto en vez de descargar `labelUrl`. Así «Imprimir etiqueta» se
+   * prueba en la pila E2E sin red.
+   */
+  labelPdf(providerShipmentId: string): Buffer {
+    this.calls.push({ op: 'labelPdf', input: providerShipmentId });
+    return Buffer.from(FAKE_LABEL_PDF, 'latin1');
   }
 
   async protect(providerShipmentId: string, coverageCents: number): Promise<void> {

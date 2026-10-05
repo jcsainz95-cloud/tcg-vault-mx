@@ -200,6 +200,10 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/refunds::to',
   'GET /admin/replacement-cases::overdue',
   'GET /admin/replacement-cases/:id/refund-preview::amountCents',
+  // 💰 v1.80.12.12 (S-GAS-2, `API_CONTRACT.md:27916`): el folio del envío — un FORMATO (`^ENV-\d{6,}$`), igualdad exacta,
+  // fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}` (sin `allowed`). Medido en `parseFolioFilter`
+  // (`shipments.service.ts`) y por HTTP en `sdx-d2c-cierre.e2e-spec.ts`.
+  'GET /admin/shipments::folio',
 ];
 
 /**

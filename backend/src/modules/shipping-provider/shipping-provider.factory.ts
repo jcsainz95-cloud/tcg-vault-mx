@@ -9,8 +9,14 @@
  *    construye a mano en las unitarias, con un transporte grabador).
  *  - `skydropx` sin `SKYDROPX_BASE_URL`/`CLIENT_ID`/`CLIENT_SECRET` ⇒ `Noop` (`409 {missing:['env']}`).
  *
- * ⭐ `SKYDROPX_CLIENT_SECRET` se lee SOLO aquí en `backend/src` (`C-SDX-1`, PS-86); `SKYDROPX_ALLOW_SPEND`, solo en
- * `spend-gate.ts` (C-SDX-8): aquí se pregunta con `isSpendKeyTurned()`.
+ *  - 🔒 v1.80.12.12 (§M4-SHIP.19.31.5 (2)): la llave del doble puesta con un adaptador que NO es `fake` (incluido el
+ *    default `skydropx`, con o sin credenciales) ⇒ el arranque FALLA (`fakePurchaseKeyMisplaced`, del `env` recibido).
+ *  - El doble de la pila trae una `labelUrl` por defecto en un host admitido (`https://<host>/labels/fake.pdf`) para que
+ *    `labelAvailable` sea `true` y «Imprimir etiqueta» se pueda probar; `GET …/label.pdf` con `kind='fake'` NUNCA la
+ *    descarga (sirve `FakeShippingProvider.labelPdf()`, §19.31.5 (3)).
+ *
+ * ⭐ `SKYDROPX_CLIENT_SECRET` se lee SOLO aquí en `backend/src` (`C-SDX-1`, PS-86); `SKYDROPX_ALLOW_SPEND` y la llave del
+ * doble, solo en `spend-gate.ts` (C-SDX-8): aquí se pregunta con `isSpendKeyTurned()` / `fakePurchaseKeyMisplaced()`.
  */
 import { FakeShippingProvider } from './fake-shipping-provider';
 import { SkydropxClient } from './http/skydropx-client';
@@ -18,7 +24,7 @@ import { NoopShippingProviderAdapter } from './noop-shipping-provider.adapter';
 import { resolveUrlHosts } from './provider-url';
 import { SkydropxAdapter } from './skydropx.adapter';
 import { ShippingProviderPort } from './shipping-provider.port';
-import { isSpendKeyTurned } from './spend-gate';
+import { fakePurchaseKeyMisplaced, isSpendKeyTurned, ProviderKind } from './spend-gate';
 
 export type EnvMap = Record<string, string | undefined>;
 
@@ -40,7 +46,7 @@ export function readSkydropxConfig(env: EnvMap): SkydropxRuntimeConfig | null {
 
 export interface ShippingProviderSelection {
   port: ShippingProviderPort;
-  kind: 'skydropx' | 'fake' | 'noop';
+  kind: ProviderKind;
   /** Hosts admitidos para `labelUrl`/`trackingUrl` (`SKYDROPX_URL_HOSTS` o el host de la API). */
   urlHosts: string[];
   /** Solo con el adaptador real: el cliente (el proxy de la etiqueta pide token y turno de la cubeta). */
@@ -52,6 +58,12 @@ export function selectShippingProvider(env: EnvMap): ShippingProviderSelection {
   if (adapter !== 'skydropx' && adapter !== 'fake') {
     throw new Error(`SHIPPING_PROVIDER_ADAPTER desconocido: '${adapter}' (admite 'skydropx' | 'fake')`);
   }
+  if (fakePurchaseKeyMisplaced(adapter, env as NodeJS.ProcessEnv)) {
+    throw new Error(
+      `La llave de compra del doble está puesta con SHIPPING_PROVIDER_ADAPTER='${adapter}': solo vale con 'fake' ` +
+        '(§19.31.5). El proceso no arranca.',
+    );
+  }
   if (adapter === 'fake') {
     if (isSpendKeyTurned()) {
       throw new Error(
@@ -59,7 +71,10 @@ export function selectShippingProvider(env: EnvMap): ShippingProviderSelection {
           'corre con el doble (§19.19.7). El proceso no arranca.',
       );
     }
-    return { port: new FakeShippingProvider(), kind: 'fake', urlHosts: resolveUrlHosts(env.SKYDROPX_URL_HOSTS, 'fake.invalid'), client: null };
+    const urlHosts = resolveUrlHosts(env.SKYDROPX_URL_HOSTS, FAKE_LABEL_HOST);
+    const fake = new FakeShippingProvider();
+    fake.defaultLabelUrl = fakeLabelUrlFor(urlHosts);
+    return { port: fake, kind: 'fake', urlHosts, client: null };
   }
   const noop = (): ShippingProviderSelection => ({
     port: new NoopShippingProviderAdapter(),
@@ -77,4 +92,16 @@ export function selectShippingProvider(env: EnvMap): ShippingProviderSelection {
     urlHosts: resolveUrlHosts(env.SKYDROPX_URL_HOSTS, client.apiHost),
     client,
   };
+}
+
+/** Host de la API del doble (no resuelve: `.invalid`, RFC 2606). */
+export const FAKE_LABEL_HOST = 'fake.invalid';
+
+/**
+ * La `labelUrl` que el doble de la pila devuelve con cada guía: en el PRIMER host admitido (`*.dominio` ⇒ `labels.dominio`)
+ * para que pase `assertProviderUrl` al escribirse. ⛔ Nunca se descarga: con `kind='fake'` el proxy sirve el PDF fijo.
+ */
+export function fakeLabelUrlFor(urlHosts: readonly string[]): string {
+  const first = (urlHosts[0] ?? FAKE_LABEL_HOST).replace(/^\*\./, 'labels.');
+  return `https://${first}/labels/fake.pdf`;
 }

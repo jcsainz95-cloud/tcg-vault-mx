@@ -30,7 +30,7 @@ import { ShippingProviderSelection } from '../shipping-provider/shipping-provide
 import { OriginSnapshot, PurchaseInput, PurchaseResult, rejectedWithIdResult } from '../shipping-provider/shipping-provider.port';
 import { providerUrlsFrom } from '../shipping-provider/provider-url';
 import { FOLIO_ATTEMPT_MAX, providerReferenceOf, referenceTextOf } from '../shipping-provider/folio-token';
-import { isSpendKeyTurned } from '../shipping-provider/spend-gate';
+import { isPurchaseKeyTurned, ProviderKind } from '../shipping-provider/spend-gate';
 import { OWNER_SELECT, isOwnerAccount } from '../spend-alerts/owner';
 import { SpendAlertsService, dayMx } from '../spend-alerts/spend-alerts.service';
 import { ShipmentQuoteService } from './label-quote.service';
@@ -45,12 +45,18 @@ import { LabelOptionsDTO, asRate } from './label-view';
 import { labelSourceOf } from './label-source';
 import { shipmentAddressMissing } from './shipment-address-missing';
 
-/** 🔒 La llave de entorno `SKYDROPX_ALLOW_SPEND` (§19.19.7), INYECTABLE: las pruebas la sustituyen sin tocar el entorno (PS-99). */
+/**
+ * 🔒 La tercera llave de la puerta (§19.19.7 con §19.31.5), INYECTABLE: las pruebas la sustituyen sin tocar el entorno
+ * (PS-99). Por defecto `purchaseKeyFor(selection.kind)`: el `kind` sale del ARRANQUE, nunca de la petición.
+ */
 export const LABEL_SPEND_KEY = 'LABEL_SPEND_KEY';
 export interface LabelSpendKey {
   turned(): boolean;
 }
-export const processSpendKey: LabelSpendKey = { turned: () => isSpendKeyTurned() };
+/** La llave por defecto: `isPurchaseKeyTurned(kind)` leída del proceso en CADA llamada (⛔ sin caché). */
+export function purchaseKeyFor(kind: ProviderKind): LabelSpendKey {
+  return { turned: () => isPurchaseKeyTurned(kind) };
+}
 
 /** C-13: conjuntos EXPLÍCITOS de roles por modo del dial (⛔ nunca `role !== 'customer'`). */
 const PURCHASE_ROLES: Readonly<Record<'super_admin_only' | 'operators', ReadonlySet<Role>>> = {
@@ -246,12 +252,16 @@ export class ShipmentLabelService {
     try {
       claimed = await this.claim(shipmentId, body, actor, pre.quote, rate, pre.recommended);
     } catch (e) {
-      // §19.28.8: candado ocupado ⇒ `409 purchase_in_flight {otherShipmentId:null}`. Si quien lo tenía era un reclamo de
-      // ESTE envío (doble clic), la respuesta es la de PS-73: `200 in_progress`. `FOR SHARE` espera SOLO a la tx del reclamo
-      // que ya escribió esta fila (milisegundos; ⛔ nunca al candado consultivo). Lectura sola, cero escrituras, cero red.
+      // §19.28.8 + §19.31.3: candado ocupado ⇒ se relee la fila del PROPIO envío con `FOR SHARE` (espera SOLO a la tx del
+      // reclamo que ya escribió esta fila, milisegundos; ⛔ nunca al candado consultivo). Lectura sola, cero escrituras,
+      // cero red. En este orden: ya tiene guía ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource}`; reclamo de ESTE envío
+      // (doble clic) ⇒ `200 in_progress`; si no ⇒ el `409 purchase_in_flight {otherShipmentId:null}` del candado.
       if (e instanceof BusinessException && (e.details as { reason?: string } | undefined)?.reason === 'purchase_in_flight') {
-        const [now] = await this.prisma.$queryRaw<{ labelProcessingSince: Date | null }[]>`
-          SELECT "labelProcessingSince" FROM "ShipmentRequest" WHERE id = ${shipmentId} FOR SHARE`;
+        const [now] = await this.prisma.$queryRaw<
+          { labelProcessingSince: Date | null; labelSource: ShipmentRequest['labelSource']; trackingNumber: string | null }[]
+        >`SELECT "labelProcessingSince", "labelSource", "trackingNumber" FROM "ShipmentRequest" WHERE id = ${shipmentId} FOR SHARE`;
+        const ls = now ? labelSourceOf(now) : null;
+        if (ls !== null) throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Shipment already has a label', { labelSource: ls });
         if (now?.labelProcessingSince) return this.respond(shipmentId, actor, 'in_progress');
       }
       throw e;
@@ -282,7 +292,8 @@ export class ShipmentLabelService {
     const sent = await this.markSent(claim, actor, balanceBefore, balanceReadAt);
     if (sent.kind !== 'ok') {
       if (sent.kind === 'exhausted') throw BusinessException.conflict('CONFLICT', 'Too many purchase attempts for this shipment', { reason: 'attempts_exhausted' });
-      if (sent.kind === 'released') throw BusinessException.conflict('CONFLICT', 'The purchase claim was released meanwhile');
+      // §19.31.7 (a): 7b.2 con `count ≠ 1` ⇒ el reclamo se liberó mientras se preparaba; ⛔ cero compra.
+      if (sent.kind === 'released') throw BusinessException.conflict('CONFLICT', 'The purchase claim was released meanwhile; nothing was bought', { reason: 'claim_released' });
       throw ShippingProviderError.busy('purchase').toBusinessException();
     }
 
@@ -448,6 +459,11 @@ export class ShipmentLabelService {
         if (now.labelProcessingSince !== null) return { kind: 'in_progress' as const };
         const ls = labelSourceOf(now);
         if (ls !== null) throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Shipment already has a label', { labelSource: ls });
+        // §19.31.7 (a): el «otro ⇒ 409 CONFLICT» del paso 7 (sin `reason`). La dirección corregida entre el paso 2 y el 7 es
+        // la causa esperada (PS-105b/PS-113: el `WHERE` de `addressVersion` es el muro); cualquier otra no debería ocurrir.
+        if (now.addressVersion === quote.addressVersion) {
+          this.logger.error(`label paso 7: CAS 0 sin rama para ${shipmentId} (status=${now.status}, preparedAt=${now.preparedAt ? 'sí' : 'no'})`);
+        }
         throw BusinessException.conflict('CONFLICT', 'The shipment changed; reload it');
       }
       const attempt = await tx.shipmentLabelAttempt.create({
@@ -991,7 +1007,11 @@ export class ShipmentLabelService {
         labelAutoCancelled: true,
       });
     }
-    throw BusinessException.conflict('CONFLICT', 'The shipment changed while buying the label; the label was cancelled');
+    // §19.31.7 (a): mismo reclamo en `picking` por otra causa ⇒ la guía se pidió cancelar (si falla, `label_cancel_failed`).
+    throw BusinessException.conflict('CONFLICT', 'The shipment changed while buying the label; the label was cancelled', {
+      reason: 'shipment_changed_during_purchase',
+      labelAutoCancelled: true,
+    });
   }
 
   /**

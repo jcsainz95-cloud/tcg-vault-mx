@@ -18,6 +18,7 @@ import {
   ShipmentCostAdjustmentKind,
   ShippingIvaSource,
   ShipmentItem,
+  ShipmentLabelSource,
   ShipmentRequest,
   ShipmentStatus,
   VaultLocation,
@@ -72,6 +73,8 @@ import {
   LabelOptionsDTO,
   LabelPendingDTO,
   ShipmentLabelDTO,
+  CARRIER_ALERT_STATUSES,
+  carrierAlertActive,
   labelAlertOf,
   toLabelPendingDTO,
   toShipmentLabelDTO,
@@ -118,6 +121,22 @@ const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(S
  * `API_CONTRACT §M4`. Antes: `if (kind === 'guest_direct_ship')…` ⇒ un valor desconocido se
  * **ignoraba en silencio** (§0-Q punto 1 lo prohíbe). Ahora fuera de dominio ⇒ `400`.
  */
+/** ⭐ v1.80.12.12 — `?labelSource=` de `GET /admin/shipments`: clase E, DERIVADO del enum (⛔ nunca transcrito). */
+export const SHIPMENT_LABEL_SOURCE_FILTER_VALUES = Object.values(ShipmentLabelSource) as ShipmentLabelSource[];
+/** ⭐ v1.80.12.12 — `?alert=` de `GET /admin/shipments`: clase L, dominio `true` (§19.3, §19.20.2). */
+export const SHIPMENT_ALERT_FILTER_VALUES = ['true'] as const;
+/** S-GAS-2: `?folio=` — formato del folio de `M-67`. */
+export const SHIPMENT_FOLIO_FILTER_RE = /^ENV-\d{6,}$/;
+
+/** `?folio=`: ausente o en blanco ⇒ sin filtro; fuera de `^ENV-\d{6,}$` ⇒ `400 VALIDATION_ERROR {field:'folio'}`. */
+export function parseFolioFilter(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'string') throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid folio filter', { field: 'folio' });
+  if (raw.trim() === '') return undefined;
+  if (!SHIPMENT_FOLIO_FILTER_RE.test(raw)) throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid folio filter', { field: 'folio' });
+  return raw;
+}
+
 export const SHIPMENT_KIND_VALUES = ['guest_direct_ship', 'vault_withdrawal'] as const;
 export type ShipmentKind = (typeof SHIPMENT_KIND_VALUES)[number];
 
@@ -683,8 +702,10 @@ export class ShipmentsService {
     kind?: string,
     q?: string,
     actorRole?: Role,
+    filters: { labelSource?: string; alert?: string; folio?: string } = {},
   ) {
     const where: Prisma.ShipmentRequestWhereInput = {};
+    const and: Prisma.ShipmentRequestWhereInput[] = [];
     // ⭐ v1.80 (§M4-SHIP.10) — `?q=` (gramática de §M3: trim, vacío ≡ ausente, ≤ 200 ⇒ 400): contains
     // insensible OR sobre `Order.orderNumber`, `Order.guestEmail`, `User.name`/`User.email` (del retiro Y de la
     // orden), `addressSnapshot.recipientName` (ruta JSON, parametrizado) e `id` exacto. ⛔ SQL crudo concatenado.
@@ -719,6 +740,18 @@ export class ShipmentsService {
     const kindFilter = parseEnumFilter('kind', kind, SHIPMENT_KIND_VALUES);
     if (kindFilter === 'guest_direct_ship') where.orderId = { not: null };
     else if (kindFilter === 'vault_withdrawal') where.orderId = null;
+    // ⭐ v1.80.12.12 (§M4-SHIP.19.31.10 pieza 1; §19.7 «filtros nuevos», §19.20.2, §19.30.8 S-GAS-2).
+    // `?labelSource=` — clase E (`ShipmentLabelSource`), con la MISMA derivación que `labelSourceOf` (una guía manual
+    // anterior a v1.81 tiene número y `labelSource` nulo).
+    const labelSourceFilter = parseEnumFilter('labelSource', filters.labelSource, SHIPMENT_LABEL_SOURCE_FILTER_VALUES);
+    if (labelSourceFilter === 'skydropx') and.push({ labelSource: 'skydropx' });
+    else if (labelSourceFilter === 'manual') and.push({ OR: [{ labelSource: 'manual' }, { labelSource: null, trackingNumber: { not: null } }] });
+    // `?alert=true` — clase L, dominio `true`: `carrierAlert ≠ null ∨ labelAlert ≠ null`, con las MISMAS funciones del DTO.
+    if (parseEnumFilter('alert', filters.alert, SHIPMENT_ALERT_FILTER_VALUES) === 'true') and.push({ id: { in: await this.alertShipmentIds(actorRole ?? null) } });
+    // `?folio=` — igualdad exacta, `^ENV-\d{6,}$`; fuera de formato ⇒ `400 VALIDATION_ERROR {field:'folio'}`. Admin (SDX-I-6).
+    const folio = parseFolioFilter(filters.folio);
+    if (folio !== undefined) and.push({ folio });
+    if (and.length > 0) where.AND = and;
     const [data, total] = await Promise.all([
       this.prisma.shipmentRequest.findMany({
         where,
@@ -846,6 +879,41 @@ export class ShipmentsService {
       labelAlert: labelAlertOf(s, this.labelClock.now(), actorRole, { tUnknownMs: this.labelCfg.tUnknownMs, orphanSince: orphan?.createdAt ?? null, uncertainReason }),
       costAdjustments,
     };
+  }
+
+  /**
+   * `?alert=true` (§19.20.2 «Filtro y tablero»): los envíos con `carrierAlert ≠ null ∨ labelAlert ≠ null`. Una consulta
+   * ANCHA (superconjunto de los predicados de las dos alertas) y después la derivación EXACTA con las mismas funciones que
+   * pintan el DTO (`labelAlertOf`, `carrierAlertActive`): un solo cuerpo, ⛔ ninguna segunda definición en SQL.
+   */
+  private async alertShipmentIds(actorRole: Role | null): Promise<string[]> {
+    const now = this.labelClock.now();
+    const orphanFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const orphans = await this.prisma.auditLog.findMany({
+      where: { action: 'shipment.label_orphan', entityType: 'ShipmentRequest', createdAt: { gt: orphanFrom } },
+      orderBy: { createdAt: 'desc' },
+      select: { entityId: true, createdAt: true },
+    });
+    const orphanSince = new Map<string, Date>();
+    for (const o of orphans) if (o.entityId && !orphanSince.has(o.entityId)) orphanSince.set(o.entityId, o.createdAt);
+    const candidates = await this.prisma.shipmentRequest.findMany({
+      where: {
+        OR: [
+          { status: 'cancelado', labelSource: 'skydropx', providerCanceledAt: null },
+          { providerShipmentId: { not: null }, providerCanceledAt: { not: null }, providerCancelConfirmedAt: null },
+          { labelProcessingSince: { not: null } },
+          { carrierStatus: { in: [...CARRIER_ALERT_STATUSES, 'canceled'] } },
+          ...(orphanSince.size > 0 ? [{ id: { in: [...orphanSince.keys()] } }] : []),
+        ],
+      },
+    });
+    return candidates
+      .filter(
+        (row) =>
+          carrierAlertActive(row) ||
+          labelAlertOf(row, now, actorRole, { tUnknownMs: this.labelCfg.tUnknownMs, orphanSince: orphanSince.get(row.id) ?? null }) !== null,
+      )
+      .map((row) => row.id);
   }
 
   /**

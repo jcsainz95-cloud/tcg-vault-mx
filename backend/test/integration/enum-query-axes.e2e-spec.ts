@@ -88,6 +88,7 @@ import {
   SealedGroupKind,
   SealedSubtype,
   SellRequestStatus,
+  ShipmentLabelSource,
   ShipmentStatus,
   UserStatus,
   VaultZone,
@@ -116,7 +117,7 @@ import { SEALED_PRICE_STATE_VALUES } from '../../src/modules/inventory/sealed-pr
 import { PRICING_BRACKETS_AXIS_VALUES } from '../../src/modules/admin/admin.controller';
 import { VAULT_SEALED_SORT_VALUES } from '../../src/modules/vault/vault.service';
 // ⭐ `EQ-D1` — dominios de los ejes migrados en este pase (kind/scope/sort de catálogo).
-import { SHIPMENT_KIND_VALUES } from '../../src/modules/shipments/shipments.service';
+import { SHIPMENT_ALERT_FILTER_VALUES, SHIPMENT_KIND_VALUES } from '../../src/modules/shipments/shipments.service';
 // ⭐ §M4-PREP (v1.78) — dominio de `?destination=` de «Pedidos a preparar».
 import { PREPARATION_DESTINATION_VALUES } from '../../src/modules/shipments/shipments.service';
 import { USER_AUDIT_SCOPE_VALUES } from '../../src/modules/audit/audit.service';
@@ -564,6 +565,14 @@ const REGISTRO: readonly AxisRow[] = [
   //    ⛔ Ninguno lleva `echoValue`: son ejes NUEVOS, no de los seis públicos legados (§0-Q punto 2).
   // ==========================================================================================
   { route: 'GET /admin/shipments', param: 'kind', clazz: 'R', allowed: SHIPMENT_KIND_VALUES, valid: 'vault_withdrawal', alterno: 'guest_direct_ship', auth: 'admin', echoValue: false },
+  // ⭐💰 **v1.80.12.12 (§M4-SHIP.19.31.10 pieza 1) — los dos ejes nuevos de `GET /admin/shipments` con dominio cerrado.**
+  // Clase decidida por el contrato (§19.7 «filtros nuevos» `:24610`: `?labelSource=` **E** derivado de
+  // `ShipmentLabelSource`; `?alert=` **L** con dominio `true`, §19.3 / §19.20.2), pero ⚠️ **SIN fila en la TABLA de §0-Q
+  // punto 4** (medido con `grep` en `API_CONTRACT.md:6876-6915` el 2026-10-05: ni `labelSource` ni `alert`) ⇒
+  // `PENDIENTE-ARQUITECTO`. Fixture propio: (e) gana una guía manual y (e-bis) una de Skydropx con alerta del transportista.
+  // `?folio=` NO entra aquí: su dominio es un FORMATO (`^ENV-\d{6,}$`, S-GAS-2), no un conjunto de tokens ⇒ `NO_ENUM_POR_RUTA`.
+  { route: 'GET /admin/shipments', param: 'labelSource', clazz: 'E', allowed: Object.values(ShipmentLabelSource), valid: 'skydropx', alterno: 'manual', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/shipments', param: 'alert', clazz: 'L', allowed: SHIPMENT_ALERT_FILTER_VALUES, valid: 'true', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   // ⭐ **§M4-PREP (v1.78) — `?destination=` de «Pedidos a preparar»** (`GET …/picking-list`).
   //
   // Clase **L** y ⛔ no **R**: `PreparationDestination` es un **TIPO DE DTO**, no un subconjunto de
@@ -815,8 +824,34 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
   await h.prisma.shipmentRequest.createMany({
     data: [
       { userId: cliente.id, addressSnapshot: direccion, status: 'solicitado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', carrier: 'CEQ1-fixture-a' },
-      { userId: cliente.id, addressSnapshot: direccion, status: 'entregado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', carrier: 'CEQ1-fixture-b' },
+      // ⭐ v1.80.12.12: con número y sin `labelSource` ⇒ guía MANUAL heredada (`labelSourceOf`) — munición de `?labelSource=manual`.
+      { userId: cliente.id, addressSnapshot: direccion, status: 'entregado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', carrier: 'CEQ1-fixture-b', trackingNumber: 'CEQ1-TN-B' },
     ],
+  });
+  // (e-bis) ⭐💰 v1.80.12.12 · `?labelSource=skydropx` y `?alert=true` — UNA guía de Skydropx en `enviado` cuyo transportista
+  //     reporta `exception` (⇒ `carrierAlert`, §19.3). Con los datos de compra que exigen los CHECK de M-66.
+  await h.prisma.shipmentRequest.create({
+    data: {
+      userId: cliente.id,
+      addressSnapshot: direccion,
+      status: 'enviado',
+      shippingFeeCents: 9_900,
+      priceConvention: 'IVA_EXCLUSIVE',
+      carrier: 'CEQ1-fixture-sky',
+      trackingNumber: 'CEQ1-TN-SKY',
+      labelSource: 'skydropx',
+      providerShipmentId: `CEQ1-psid-${Date.now()}`,
+      providerRateId: 'CEQ1-rate',
+      chosenRateJson: { rateId: 'CEQ1-rate' },
+      rateChosenByUserId: cliente.id,
+      rateChosenAt: new Date(),
+      labelPurchasedAt: new Date(),
+      packageCode: '5H4',
+      declaredValueCents: 0,
+      insuredValueCents: 0,
+      carrierStatus: 'exception',
+      carrierStatusAt: new Date(),
+    },
   });
 
   // (f) ⭐ `EQ-D0` — la BÓVEDA DEL CLIENTE (`/vault/sealed` y su hermana admin). Tres piezas y no
@@ -1247,6 +1282,9 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       'GET /admin/refunds?status=',
       'GET /admin/replacement-cases?source=',
       'GET /admin/replacement-cases?state=',
+      // 💰 v1.80.12.12 (§19.31.10 pieza 1): clase decidida en §19.7 (`API_CONTRACT.md:24610`), fila de §0-Q pendiente.
+      'GET /admin/shipments?alert=',
+      'GET /admin/shipments?labelSource=',
       // ⛔ `GET /admin/shipments/picking-list?destination=` estuvo aquí en v1.78 y **SALIÓ en
       // v1.78.1**: el arquitecto escribió su fila en §0-Q punto 4 (`API_CONTRACT.md:5231`). Es el
       // movimiento que esta lista existe para hacer visible — una pendiente se cierra **por el
@@ -1394,8 +1432,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // sin fila en §0-Q punto 4 (el contrato la pide «en el mismo commit»; no está) ⇒ PENDIENTE-ARQUITECTO.
     // ⭐ v1.80.8.8 ((10).3) — 52 fijo y 19 → **18**: el arquitecto escribió la fila de `?refundReview=` en §0-Q punto 4.
     // Se pagó una deuda; no salió ningún eje.
-    expect(REGISTRO.length).toBe(52);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
+    // 💰 52 → **54** y 18 → **20** (v1.80.12.12, §M4-SHIP.19.31.10 pieza 1): `?labelSource=` (E) y `?alert=` (L) de
+    // `GET /admin/shipments`, con clase decidida en §19.7 y SIN fila en la tabla de §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO.
+    expect(REGISTRO.length).toBe(54);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(20);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
@@ -1432,7 +1472,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // §M4-SHIP.15.5). Los SIETE de dominio cerrado del mismo stream NO vienen aquí: van al `REGISTRO` (E/L).
     // ⛔ `NO_ENUM_TRANSVERSAL` **NO se toca**: su `toEqual` de 14 nombres queda igual (la exención
     // es de ESTA ruta, no del nombre).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(44);
+    // 💰 **44 → 45 (v1.80.12.12, S-GAS-2 `API_CONTRACT.md:27916`):** `GET /admin/shipments?folio=` — igualdad exacta con un
+    // FORMATO (`^ENV-\d{6,}$`, fuera ⇒ `400 {field:'folio'}` SIN `allowed`): no es un conjunto cerrado de tokens. El
+    // contrato lo rotula «clase L»; la forma de su error (sin `allowed`) no cabe en la conformidad L ⇒ pregunta al arquitecto.
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(45);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

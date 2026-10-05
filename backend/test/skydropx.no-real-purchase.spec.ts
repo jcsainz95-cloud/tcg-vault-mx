@@ -252,6 +252,28 @@ describe('PS-99 (d) — estático C-SDX-8', () => {
     expect(readers).toEqual(['src/modules/shipping-provider/spend-gate.ts']);
   });
 
+  // 💰🔒 v1.80.12.12 (§M4-SHIP.19.31.5, PS-166 (c) censo): la llave del doble se lee SOLO en `spend-gate.ts`, y ⛔ NUNCA
+  // dentro de `evaluateMutationGate`/`readMutationGateInput` (el candado de ejecución del adaptador real no la ve).
+  // Canario: meterla en `readMutationGateInput` (p. ej. como `allowSpend`) ⇒ rojo en la segunda aserción.
+  it('SHIPPING_FAKE_PURCHASE se lee SOLO en spend-gate.ts y FUERA de evaluateMutationGate/readMutationGateInput', () => {
+    const KEY = 'SHIPPING_FAKE_PURCHASE';
+    const readers = srcFiles()
+      .filter((f) => {
+        const raw = readFileSync(f, 'utf8');
+        return raw.includes(KEY) && codigoDeTexto(raw, rel(f), anclasEstructurales(raw, rel(f))).includes(KEY);
+      })
+      .map(rel);
+    expect(readers).toEqual(['src/modules/shipping-provider/spend-gate.ts']);
+    const gatePath = join(SRC, 'modules/shipping-provider/spend-gate.ts');
+    const code = codigoDeFichero(gatePath, ['export function evaluateMutationGate(', 'export function readMutationGateInput(']);
+    expect(code).toContain(KEY); // no-vacuidad: el código limpio SÍ la contiene (en isPurchaseKeyTurned)
+    for (const header of [/export function evaluateMutationGate\(/, /export function readMutationGateInput\(/]) {
+      const [a, b] = functionSpan(code, header);
+      expect(code.slice(a, b)).not.toContain(KEY);
+      expect(code.slice(a, b)).not.toContain('FAKE');
+    }
+  });
+
   // ⭐ v1.80.12.3 (§M4-SHIP.19.23.5) — sustituye la aserción transitoria «nunca con valor», que era VERDE con la línea
   // BORRADA (el `for` recorría cero líneas). (d4) y (d5) son funciones puras sobre el texto, con sus canarios
   // sintéticos aquí mismo (que la regla muerde) y la aserción sobre los ficheros reales del árbol.

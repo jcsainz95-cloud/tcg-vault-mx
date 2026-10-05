@@ -1,7 +1,8 @@
 /**
  * spend-gate.ts — 💰🔒 el candado de ejecución de la compra (API_CONTRACT §M4-SHIP.19.19.7, PS-99 (b)).
  *
- * ⭐ ÚNICO fichero de `backend/src` que lee `SKYDROPX_ALLOW_SPEND` (C-SDX-8, prueba estática). Las otras dos llaves
+ * ⭐ ÚNICO fichero de `backend/src` que lee `SKYDROPX_ALLOW_SPEND` y `SHIPPING_FAKE_PURCHASE` (C-SDX-8 ampliado en
+ * v1.80.12.12, prueba estática). ⛔ `evaluateMutationGate`/`readMutationGateInput` NO leen `SHIPPING_FAKE_PURCHASE`. Las otras dos llaves
  * (el dial `shipping_label_purchase` y el rol) las mira el verbo `label`; ésta es la que no depende de que el verbo
  * se acuerde: el cliente la evalúa justo antes de tocar la red en TODA llamada que gasta o cambia estado en
  * Skydropx (`assertMutationAllowed`, §19.19.3 (6)).
@@ -52,13 +53,38 @@ export function assertMutationAllowed(op: string): void {
 }
 
 /**
- * ¿Está girada la llave de devops? (`SKYDROPX_ALLOW_SPEND === 'true'`). La usan el verbo `label` (`409
- * {missing:['allow_spend']}` antes del reclamo, §19.19.7), `labelOptions.canPurchase` y el arranque (rechaza
- * `SHIPPING_PROVIDER_ADAPTER=fake` con la llave girada, PS-98). ⛔ No es el candado: el candado es
- * `assertMutationAllowed`.
+ * ¿Está girada la llave de devops? (`SKYDROPX_ALLOW_SPEND === 'true'`). La usa el arranque (rechaza
+ * `SHIPPING_PROVIDER_ADAPTER=fake` con la llave girada, PS-98) y, para el adaptador real, `isPurchaseKeyTurned`.
+ * ⛔ No es el candado: el candado es `assertMutationAllowed`.
  */
 export function isSpendKeyTurned(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.SKYDROPX_ALLOW_SPEND === 'true';
+}
+
+/** = `ShippingProviderSelection.kind` (la fábrica lo decide al ARRANCAR; ⛔ nunca sale de la petición). */
+export type ProviderKind = 'skydropx' | 'fake' | 'noop';
+
+/**
+ * 💰🔒 v1.80.12.12 (§M4-SHIP.19.31.5) — la TERCERA llave de la puerta de compra depende del adaptador elegido al arrancar:
+ *  - `skydropx` ⇒ `SKYDROPX_ALLOW_SPEND === 'true'` (sin cambio; el candado de ejecución sigue dentro del cliente real);
+ *  - `fake`     ⇒ `SHIPPING_FAKE_PURCHASE === 'true'` (la pila E2E con el doble: sin red y sin dinero);
+ *  - `noop`     ⇒ `false`.
+ * La usan el paso 1 de `label` (`409 {missing:['allow_spend']}`), `labelOptions.canPurchase` y el proveedor por defecto
+ * de `LABEL_SPEND_KEY`. ⛔ `SHIPPING_FAKE_PURCHASE` NO abre el adaptador real y NO entra en `evaluateMutationGate`.
+ */
+export function isPurchaseKeyTurned(kind: ProviderKind, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (kind === 'skydropx') return isSpendKeyTurned(env);
+  if (kind === 'fake') return env.SHIPPING_FAKE_PURCHASE === 'true';
+  return false;
+}
+
+/**
+ * 🔒 v1.80.12.12 (§M4-SHIP.19.31.5 (2)) — ¿la llave del doble está puesta junto a un adaptador que NO es el doble?
+ * `true` ⇔ `SHIPPING_FAKE_PURCHASE` no vacía (tras `trim`) ∧ `adapter !== 'fake'`. La fábrica NO arranca entonces: una
+ * llave suelta en producción tumba el despliegue en vez de ignorarse en silencio.
+ */
+export function fakePurchaseKeyMisplaced(adapter: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return nonEmpty(env.SHIPPING_FAKE_PURCHASE) && adapter !== 'fake';
 }
 
 function nonEmpty(v: string | undefined): boolean {
