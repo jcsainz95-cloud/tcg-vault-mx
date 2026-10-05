@@ -8771,6 +8771,62 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Comprobación de cierre:** `rg -n "return \{ state: 'unavailable'" backend/src/modules/admin/admin.service.ts` ⇒ solo
   la del `catch` con `instanceof LoginAttemptStoreUnavailableError`.
 
+## Frontend · 2026-10-04 · gate del techlead sobre `da6d910e` (rama `claude/staff-sin-correo`, condición C-2: TD-5 parte frontend, TD-6, TD-7, TD-8)
+
+> Deuda frontend del veredicto del techlead sobre «staff sin correo» (v1.80.9). Líneas medidas por frontend el
+> 2026-10-04 sobre el árbol de trabajo (base `68e5d93a`). La parte backend de TD-5 la cerró backend (STF-TD-5, arriba).
+
+### STF-FE-TD5 · ✅ CERRADA en parte (2026-10-04) · El mock del alta de equipo divergía del servidor real
+- **Cerrado:** el `409 USERNAME_TAKEN` del servidor falso (`frontend/src/lib/api.ts`, rama mock de `createAdminUser`)
+  no traía `details.field`; el real sí (`admin.service.ts`, rama `P2002` de `username`). Ahora lo trae. Candado:
+  `src/lib/api.staff-mock.test.ts` «TD-5»; mutación quitar `details` ⇒ roja (N=1, determinista).
+- **Queda abierto (P3, aceptado):** el mock sigue replicando la regla del usuario (`MOCK_USERNAME_RULES`, mismo
+  orden `required → length → charset → start`) — una cuarta copia de la regex canónica, además del CHECK SQL,
+  `USERNAME_CANONICAL_REGEX` y la prueba de backend. Es el servidor falso: la UI real no valida (el techlead lo
+  da por bueno). Riesgo: que el mock acepte o rechace distinto que el real y una prueba de mocks mida conducta
+  inexistente.
+- **Disparador:** cualquier cambio de la regla del usuario en `backend/src/common/validation/credentials.ts`.
+- **Comprobación de cierre:** una prueba de paridad que recorra la tabla de STF-5 contra el mock y exija los mismos
+  `details.rule` que la de backend.
+
+### STF-FE-TD6 · P3 · Ternario de cuatro niveles del 429 en `AuthForm` y `username?` opcional en la fila de operador
+- **Dónde:** `frontend/src/components/domain/AuthForm.tsx:156-166` (texto del banner `auth-rate-limited`: cuenta ×
+  usuario tecleado × minutos, o IP × minutos); `frontend/src/types/contract.ts:2039` (`username?: string | null` en
+  la fila de «Reembolsos de operadores», un DTO que no se guarda en `localStorage` ⇒ el opcional sobra).
+- **Impacto:** legibilidad del sitio más delicado del login (la rama `RATE_LIMITED` de `HECHOS.md:40` no se toca, y
+  el ternario hace difícil ver que no se tocó); el opcional deja pasar un DTO sin la clave sin que `tsc` lo diga.
+- **Corrección:** función pura `rateLimitMessage(rateLimited, perAccount, perAccountUsername)` con su tabla de
+  pruebas; `username: string | null` en esa fila.
+- **Disparador:** el próximo cambio al texto o a las ramas del 429 del login.
+- **Comprobación de cierre:** `AuthForm.tsx` sin ternarios anidados en ese bloque; `AuthForm.rateLimited.test.tsx` y
+  `AuthForm.staff.test.tsx` verdes sin diff de aserciones.
+
+### STF-FE-TD7 · P3 · `M6View()` mide ~740 líneas; el diálogo de alta debe ser un componente propio
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m6/M6View.tsx:103-841` (fichero de 1194 líneas): el diálogo
+  «Crear usuario» con su estado, `usernameErrorOf` y `createErrorMessage` vive dentro de la función de la pantalla.
+- **Impacto:** cada cambio a la ficha, al listado o al alta toca el mismo componente y su estado compartido; el
+  riesgo de pisar un estado ajeno (p. ej. borrar el borrador del reset al cambiar de usuario) crece con cada pase.
+- **Corrección:** extraer `CreateUserDialog` (estado propio, `onCreated`) y, después, la ficha (`UserDetailModal`).
+- **Disparador:** el próximo cambio al alta de usuarios (p. ej. F-7: celular obligatorio en cliente, v1.80.10).
+- **Comprobación de cierre:** `M6View()` < 400 líneas; `M6View.test.tsx` y `M6View.staff.test.tsx` verdes sin diff
+  de aserciones.
+
+### STF-FE-TD8 · P3 · «Identificador visible» y «necesita verificar correo» escritos copia a copia
+- **Dónde (medido con `rg`):** `email ?? username` en `M6View.tsx:85`, `:487`, `KycReviewView.tsx:203`,
+  `OperatorRefundsView.tsx:83`, `AccountView.tsx:113` (dos variantes: con y sin «Usuario:»; claves duplicadas
+  `admin.m6.usernameLine` y `account.usernameLine`). «Necesita verificar» (`emailVerified === false && email != null`)
+  en `VerifyEmailBanner.tsx:26`, `BuylistKycForm.tsx:255`, `hooks/useSellRequirements.ts:95`. Y, desde este pase,
+  «cuenta sin correo ⇒ textos de cliente fuera» en `ProfileSection.tsx` (`withoutEmail`, M-3 de QA).
+- **Impacto:** una regla que §42.5.1 llama «una sola regla de pintado» vive en 5+ sitios; la próxima pantalla que
+  pinte una cuenta (la Actividad, si algún día muestra al actor) hará la séptima copia, y si una diverge el
+  equipo sin correo vuelve a ver un hueco o un «verifica tu correo».
+- **Corrección:** `frontend/src/lib/account-identity.ts` con `accountIdentifier(u, { withLabel })`,
+  `needsEmailVerification(u)` e `isStaffWithoutEmail(u)`; una sola clave `usernameLine`.
+- **Disparador:** la próxima pantalla que pinte una cuenta o decida por `emailVerified`.
+- **Comprobación de cierre:** `rg -n "email \?\? .*username" frontend/src --glob '!*.test.*'` ⇒ solo
+  `lib/account-identity.ts`; `rg -n "email != null" frontend/src --glob '!*.test.*'` ⇒ solo ese fichero (y
+  `PasswordPage.tsx` si sigue siendo un candado local); UX-8, UX-12, UX-13 verdes.
+
 ## Backend · 2026-10-05 · Skydropx · gate techlead sobre 31af0883 (rama `claude/skydropx-d`, D-2…D-10, D-12)
 
 > Deuda no bloqueante del veredicto del techlead sobre `31af0883` (APROBADO CON CONDICIONES). C-TL-1, C-TL-2, D-1 y D-8 se

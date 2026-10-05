@@ -27072,11 +27072,23 @@ STF-30 no anular `lockNoticeAt` (CHECK 5 ⇒ 500) · TD-5 regex de la app `{2,30
 - `stf-errata-v1-80-9-1.e2e-spec.ts` (STF-32 tiene plazos reales: `timeoutMs` 100 ms, modo memoria 400 ms): **10/10
   verdes** (copia del árbol, `tcg_stf2_mut`, load 3–4 con 4 CPU).
 - Unitarias STF-31/33/34 (STF-31 (b) con plazo real de 20 ms): **10/10 verdes**.
-- Carreras STF-6 y STF-20 (R = 10 rondas × N = 10 por corrida): ver 56.7.
+- Carreras STF-6 y STF-20 (R = 10 rondas × N = 10 por corrida, en la corrida completa de 56.7): **10/10** y **10/10**
+  rondas verdes.
 
-### 56.7 Suites completas
+### 56.7 Suites completas (medido por backend, 2026-10-04, copia `git archive HEAD` del árbol ENTERO en `db62b28c`)
 
-Ver la cifra en el commit de cierre de esta sección (copia `git archive HEAD` del árbol entero).
+| Suite | Resultado |
+|---|---|
+| Unitaria (`npx jest`) | **391/391 suites, 6621/6621 pruebas** |
+| Integración (`stack-native.sh test:integration`, BD `tcg_stf2_mut`) | **77/77 suites, 1571/1571 pruebas** |
+| `tsc --noEmit`, `npm run lint` | 0 errores |
+
+⚠️ La **primera** corrida de integración dio **1 roja de 1571** (STF-28, `I-STF-1 = 1`), y **no era conducta**: la
+mutación de STF-30 («no anular `lockNoticeAt`») hace fallar el soft-delete y deja en `tcg_stf2_mut` un staff sin correo
+con un `ShipmentRequest` sembrado; la consulta I-STF-1 de STF-28 es **global** a la BD y lo cuenta. Medido con SQL
+(1 fila, usuario `del…`, el prefijo de STF-30), anonimizado a mano como lo hace la app, y la corrida completa repetida:
+verde. En `tcg_stf2` (sin mutaciones) la misma consulta da 0. **Quien corra la mutación de STF-30 sobre una BD
+compartida tiene que limpiar ese residuo**, o STF-28 se pondrá roja en la siguiente corrida.
 
 ### 56.8 Pendiente para el arquitecto (⛔ no lo toqué)
 

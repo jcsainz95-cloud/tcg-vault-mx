@@ -385,7 +385,7 @@
 >
 > **Errata v1.80.9.1 — CIERRE DE LA CONDICIÓN C-1 DEL TECHLEAD SOBRE «STAFF SIN CORREO» (2026-10-04, arquitecto, rama
 > `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
-> Origen: `BACKEND_NOTES §22` (21.2/21.3), valoración del techlead (D-1…D-5, TD-4, TD-9), `DESIGN_SYSTEM §42.10 A-1` y
+> Origen: `BACKEND_NOTES §55` (55.2/55.3; errata de 55.2.1 en §56.3), valoración del techlead (D-1…D-5, TD-4, TD-9), `DESIGN_SYSTEM §42.10 A-1` y
 > **decisión del dueño 2026-10-04 sobre TD-4** («dame la capacidad de moverlo desde mi cuenta», relayada por el
 > orquestador). Norma entera: [§M6-U.11](#M6-U-11). Porqué: `ARCHITECTURE §4.58.9`. ⛔ Sin schema, sin migración, sin
 > endpoint nuevo, sin código de error nuevo. Un campo aditivo en la ficha (`lockState`).
@@ -32880,7 +32880,7 @@ la mutación, la proporción de rondas rojas, sin redondear a «falla»).
 | STF-32 | 265 | ⭐ **v1.80.9.1 D-4 + A-1 — por HTTP**, `AppModule` con el proveedor del almacén sustituido por un `ResilientLoginAttemptStore` real sobre el doble de Redis (`fake-redis-attempt-store.ts`) puesto a fallar, y 5 fallos previos de `ana` contados **en la memoria** de respaldo: `GET /admin/users` ⇒ `200`, `lockState:'unavailable'`, **todas** `lockedUntil: null`; `GET /admin/users/:id` de `ana` como `super_admin` **y** como `vault_operator` ⇒ `200`, `lockState:'unavailable'`, `lockedUntil: null`. Con el doble sano y candado puesto ⇒ ficha `lockState:'ok'`, `lockedUntil` ∈ [ahora+55 s, ahora+60 s]. Listas de claves exactas de los dos DTOs de la ficha (`admin.user-detail-shape`) ganan `lockState` | (i) Conducta construida (degradado ⇒ memoria) ⇒ el listado dice `'ok'` con `lockedUntil` ≠ `null` ⇒ roja; (ii) ficha sin `lockState` (o fijo a `'ok'`) ⇒ roja; (iii) quitar `lockState` de **uno** de los dos DTOs ⇒ su caso rojo |
 | STF-33 | — | ⭐ **v1.80.9.1 TD-9 — unitaria de `AdminService`**: (a) construido **sin** `PasswordAttemptsService` ⇒ `listUsers` **rechaza** (no resuelve `'unavailable'`) y `getUser` también; (b) con un servicio cuyo `lockMsForUser` lanza `new Error('boom')` (no la clase del almacén) ⇒ `listUsers` rechaza con ese error; (c) lanza `LoginAttemptStoreUnavailableError` ⇒ resuelve `lockState:'unavailable'`, todas `null` | (i) Restaurar `if (!attempts) return { state:'unavailable', … }` (`admin.service.ts:965`) ⇒ (a) roja; (ii) `catch (e)` sin mirar la clase ⇒ (b) roja; (iii) `catch` que solo relanza ⇒ (c) roja |
 | STF-34 | — | ⭐ **v1.80.9.1 TD-4(b) — script de rescate por usuario** (`reset-admin-password.spec.ts` + `C7-23` ampliadas): cuenta `super_admin` `ana` **sin correo**, candado en el doble de Redis. `ADMIN_USERNAME='ANA '` ⇒ hash cambia, `tokenVersion +1`, `mustChangePassword=false`, **`emailVerified` NO se escribe** (sigue `false`), las seis claves de **su** cubo (`blindIndex('auth-pw:v1:ana')`, `auth-cp:v1:<id>`, `auth-pwdevagg:v1:<id>`) desaparecen y la salida dice `ana` y el rol; `ADMIN_EMAIL` **y** `ADMIN_USERNAME` a la vez ⇒ error **sin** escritura; `ADMIN_USERNAME` inexistente ⇒ error sin escritura; con `ADMIN_EMAIL` (cuenta con correo) ⇒ los 6 casos de hoy **intactos** (incluido `emailVerified=true`). Integración con BD real para el caso sin correo (el CHECK 4 es el juez) | (i) Escribir `emailVerified: true` siempre ⇒ CHECK 4 ⇒ el `update` lanza ⇒ roja; (ii) `clearPasswordLock` con `{ id, email }` sin `username` ⇒ `passwordAttemptKeysForUser` lanza ⇒ `cleared:false` ⇒ roja; (iii) buscar sin `normalizeIdentifier` ⇒ `'ANA '` no casa ⇒ roja; (iv) dar precedencia a una de las dos variables en vez de fallar ⇒ roja |
-| STF-35 | 270 | ⭐ **v1.80.9.1 D-1 — sin conducta nueva, se fija la de hoy:** `POST /auth/login {email:'a@b', password}` ⇒ `400 VALIDATION_ERROR` (como antes de v1.80.9: `isEmail('a@b') === false`); `{email:'ana'}` ⇒ el `401`/`200` de M6-U.2 | Sustituir `isEmail(value)` por `EMAIL_REGEX.test(value)` en `isLoginIdentifier` ⇒ si `EMAIL_REGEX` acepta `a@b` ⇒ `401` ⇒ roja (⚠️ que `EMAIL_REGEX` acepte `a@b` lo afirma backend en §21.2.1; **NO MEDIDO** por el arquitecto — si no lo acepta, backend elige otro valor que distinga las dos reglas y lo anota) |
+| STF-35 | 270 | ⭐ **v1.80.9.1 D-1 — sin conducta nueva, se fija la de hoy:** `POST /auth/login {email:'a@b', password}` ⇒ `400 VALIDATION_ERROR` (como antes de v1.80.9: `isEmail('a@b') === false`) **y** `{email:'a@b.c', password}` ⇒ `400 VALIDATION_ERROR` (`isEmail('a@b.c') === false`); `{email:'ana'}` ⇒ el `401`/`200` de M6-U.2. ⚠️ **Errata (2026-10-04):** `a@b` lo rechazan **las dos** reglas (`EMAIL_REGEX` exige un punto tras la `@`), así que por sí solo **no** distingue `isEmail` de `EMAIL_REGEX`; el valor que las distingue es **`a@b.c`** (`isEmail` ⇒ `false`, `EMAIL_REGEX` ⇒ `true`; otros: `a..b@x.com`, `.a@x.com`, `a@x_y.com`). Medido por backend con `node` sobre el class-validator del árbol (`BACKEND_NOTES §56.3`; NO MEDIDO por el arquitecto). `a@b` se queda como caso de conducta; `a@b.c` es el que muerde | Sustituir `isEmail(value)` por `EMAIL_REGEX.test(value)` en `isLoginIdentifier` ⇒ `a@b.c` pasa la validación ⇒ `401` en vez de `400` ⇒ roja (medido por backend, `BACKEND_NOTES §56.5`) |
 | STF-36 | 261 | ⭐ **v1.80.9.1 TD-4(a) — el dueño rescata a un súper-admin sin correo desde Usuarios:** cuentas `owner` (`super_admin` con correo) y `jefa` (`super_admin` **sin** correo, contraseña ya cambiada, con 5 fallos ⇒ candado). `owner` `POST /admin/users/<jefa>/reset-password` ⇒ `200` con `tempPassword`; login `{email:'jefa', password: temporal}` ⇒ `200` (**no** `429`) con `mustChangePassword: true`; la sesión previa de `jefa` ⇒ `401`; fila `user.reset_password` con `actorUserId = owner`, `entityId = jefa`; **cero** `mail.send`. **Front (Vitest de M6View):** ficha de un usuario `role:'super_admin'`, `email:null` ⇒ el botón «Restablecer contraseña» **está** | (i) En `resetPassword`, rechazar destinatarios `super_admin` (`403`/`422`) ⇒ roja; (ii) rechazar destinatarios con `email: null` ⇒ roja; (iii) ocultar el botón para `role === 'super_admin'` en M6View ⇒ la de front roja |
 
 #### M6-U.10 Frontend y ux-ui
@@ -32906,7 +32906,7 @@ la mutación, la proporción de rondas rojas, sin redondear a «falla»).
 <a id="M6-U-11"></a>
 #### M6-U.11 Errata v1.80.9.1 — cierre de C-1 del techlead (2026-10-04, **NORMATIVA**)
 
-Origen: `BACKEND_NOTES §22` (21.2 puntos 1, 2, 4, 5; 21.3 A-1), valoración del techlead (D-1…D-5, TD-4, TD-9), y
+Origen: `BACKEND_NOTES §55` (55.2 puntos 1, 2, 4, 5; 55.3 A-1; el punto 55.2.1 lo corrige §56.3), valoración del techlead (D-1…D-5, TD-4, TD-9), y
 decisión del dueño 2026-10-04 sobre TD-4 relayada por el orquestador (⚠️ fila de `HECHOS.md` **NO MEDIDA** por el
 arquitecto: el orquestador la registra). Las líneas citadas las **leyó** el arquitecto en `/home/user/tcg-staff`
 (rama `claude/staff-sin-correo`) el 2026-10-04. Porqué de cada una: `ARCHITECTURE §4.58.9`.
@@ -33660,6 +33660,9 @@ la decisión, pero las tres son condición de aceptación)*:
   Res `200`: `{ data: UserAuditEntryDTO[], page, pageSize, total }` (`orderBy createdAt desc`).
   - **Proyección expuesta** (`UserAuditEntryDTO`): `id, actorUserId, actorRole, action, entityType, entityId, createdAt`,
     y **`ip` SOLO para `super_admin`**.
+  - ⭐ **Eventos del sistema (errata 2026-10-04):** `actorUserId` y `actorRole` son **`null`** (los dos a la vez) cuando
+    no hay actor humano — p. ej. `auth.password_lock` disparado desde el login (`password-attempts.service.ts:190-191`).
+    El front pinta «—». Ver `UserAuditEntryDTO` en el apéndice de tipos.
   - **NUNCA se exponen `before`/`after`** (pueden contener PII/estado sensible; misma regla que ARCHITECTURE §3.2 —
     "PII/secretos nunca en before/after", y el DTO no los devuelve para evitar filtrado incluso de los que sí traen datos).
   - **Roles / proyección:** `super_admin` → proyección completa (incluye `ip`). `vault_operator` → **reducida** (mismos
@@ -35882,10 +35885,17 @@ AdminDisputeSummaryDTO = { id: string, userId: string, inventoryItemId: string, 
                            type: string, status: DisputeStatus, deadlineAt: string,
                            createdAt: string, resolvedAt?: string }
 
-AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entityId, createdAt }
+AuditLogDTO      = { id, actorUserId: string | null, actorRole: Role | null, action, entityType, entityId, createdAt }
 // v1.7-admin-users: entrada de auditoría por usuario (GET /admin/users/:id/audit). Superset de AuditLogDTO:
 // `ip?` SOLO se puebla para super_admin (vault_operator lo recibe omitido). NUNCA incluye before/after.
-UserAuditEntryDTO= { id, actorUserId, actorRole: Role, action, entityType, entityId, createdAt, ip?: string }
+UserAuditEntryDTO= { id, actorUserId: string | null, actorRole: Role | null, action, entityType, entityId, createdAt, ip?: string }
+// ⭐ Errata 2026-10-04 (gate QA de «staff sin correo», MENOR): `actorUserId` y `actorRole` son `null` en los EVENTOS
+// DEL SISTEMA (sin actor humano). Caso medido: `auth.password_lock` disparado desde el login lo escribe
+// `password-attempts.service.ts:190-191` con `actorUserId: ctx.actorUserId ?? null` y `actorRole: ctx.actorUserId ?
+// user.role : null` (desde `change-password` sí lleva actor). Las columnas son anulables en el schema
+// (`AuditLog.actorUserId String?`, `actorRole Role?`). Los dos son `null` A LA VEZ o ninguno. Sin cambio de código:
+// es lo que la API ya devuelve. El front pinta «—» (ya construido). ⛔ El backend NO inventa un actor para rellenarlo.
+// La misma anulabilidad aplica a `AuditLogDTO` (misma fila, misma fuente).
 // v1.7-admin-users: respuesta de POST /admin/users. `user` = shape público (sin passwordHash).
 AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, status: UserStatus,
                                emailVerified: boolean, authProvider: AuthProvider, createdAt: string },

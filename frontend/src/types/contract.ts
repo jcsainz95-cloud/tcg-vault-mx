@@ -5632,6 +5632,12 @@ export interface AdminUserOwnedItemRef {
 // GET /admin/users/:id — ficha 360°. billingProfile = null para vault_operator
 // (proyección reducida SEC-A4: sin RFC/INE/billing).
 export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
+  /**
+   * ⭐ v1.80.9.1 A-1 (§M6-U.7): en la RAÍZ de la ficha, en los DOS DTOs (`AdminUserDetailDTO` y
+   * `AdminUserDetailOperatorDTO`), con la misma regla que el listado. `'unavailable'` ⇒
+   * `lockedUntil: null` y el front pinta el aviso discreto, no «sin candado».
+   */
+  lockState: AdminUsersLockState;
   locale?: Locale;
   authProvider?: AuthProvider;
   phone?: string;
@@ -5679,8 +5685,10 @@ export interface AdminCreatedUserDTO {
 // omitido). NUNCA incluye before/after (posible PII/estado sensible; §M6/ARCHITECTURE §3.2).
 export interface UserAuditEntryDTO {
   id: string;
-  actorUserId: string;
-  actorRole: Role;
+  // Eventos del sistema (p. ej. `auth.password_lock` desde el login): los dos son null a la vez
+  // (contrato, errata 2026-10-04). El front pinta «—».
+  actorUserId: string | null;
+  actorRole: Role | null;
   action: string;
   entityType: string;
   entityId: string;
@@ -6190,8 +6198,10 @@ export interface GradedEstimateDeleteResponse {
 
 export interface AuditLogDTO {
   id: string;
-  actorUserId: string;
-  actorRole: Role;
+  // Eventos del sistema (p. ej. `auth.password_lock` desde el login): los dos son null a la vez
+  // (contrato, errata 2026-10-04). El front pinta «—».
+  actorUserId: string | null;
+  actorRole: Role | null;
   action: string;
   entityType: string;
   entityId: string;

@@ -4195,6 +4195,8 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
   const base = mockAdminUsers.find((u) => u.id === id) ?? mockAdminUsers[0];
   return {
     ...base,
+    // ⭐ v1.80.9.1 A-1: la ficha trae su `lockState` (el servidor falso siempre contesta).
+    lockState: 'ok',
     locale: 'es',
     authProvider: id === 'u-778' ? 'google' : 'local',
     // ⭐ v1.69 (§M6-K.3): el origen del nombre va en la ficha SIEMPRE (los dos roles).

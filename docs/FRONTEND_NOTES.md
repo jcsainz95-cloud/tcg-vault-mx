@@ -19064,7 +19064,60 @@ motivo; con eso los casos `mockOnly` de §40 se reescriben agnósticos.
 - A-2 (¿sale `auth.password_lock` en la Actividad de esa persona?) sigue NO MEDIDO: el rótulo está, la fila depende
   del backend.
 
-## §87 · **Skydropx en «Capturar guía»** — la ventana de cuatro pasos, las tarjetas, «Salida de hoy», «Configuración › Envíos» y el cliente (2026-10-04, rama `claude/skydropx-d`; contrato v1.80.11/v1.80.12 (`§M4-SHIP.19.19`, `§19.20`; la errata v1.80.12.1 dice «frontend: nada»), diseño v4.15/v4.16 `§43`; código en `f9996337`, `bd9ab31e`, `eed6b6a0`, `9a8e3969`)
+## §87 · **Gate de QA y techlead sobre `da6d910e`** (B-1, I-1 = STF-17-E2E, errata v1.80.9.1 parte frontend, M-3, M-4, M-5, C-2) (2026-10-04, rama `claude/staff-sin-correo`, base `68e5d93a`)
+
+**Qué se hizo:**
+
+| Hallazgo | Cambio | Candado (mutación ⇒ rojo) |
+|---|---|---|
+| **B-1** (QA) | `e2e/utils/temp-actors.ts`: el operador desechable nace **sin correo**, con `username` `e2e-tmp-op-…` (súper-admin `e2e-tmp-sa-…`); la barredera busca los dos prefijos (correo `e2e-disposable-temp-`, usuario `e2e-tmp-`) | Canario: el `temp-actors.ts` de `HEAD` ⇒ `account.spec.ts:194` rojo con `422 staff_without_email` (1/1) |
+| **I-1** STF-17-E2E | `e2e/staff-without-email.spec.ts`: ciclo del criterio 263, pasos (1)–(7), `vault_operator` y `super_admin` | Quitar el enlace «Mi cuenta» de `AdminTopbar.tsx` ⇒ 2/2 rojos en real y 2/2 en mock (`getByRole('banner').getByRole('link', {name:'Mi cuenta'})`) |
+| Errata v1.80.9.1 **A-1** | `lockState` en `AdminUserDetailDTO` (`contract.ts`); la ficha pinta el mismo `lockUnavailable` que el listado y ninguna marca | Ficha que ignora `lockState` ⇒ roja (Vitest) |
+| **STF-36** (front) | Vitest: ficha `super_admin` + `email:null` ⇒ «Restablecer contraseña» está y llama al reset | Ocultar el botón para `role === 'super_admin'` ⇒ roja |
+| **M-3** | `ProfileSection.tsx`: sin correo no se pintan «Así te llamamos en los correos…» ni «Sin celular. Lo necesitas para vender.» (se ocultan; §42.8 no da copy de equipo) | `withoutEmail` fijo a `false` ⇒ roja |
+| **M-4** | Actividad: `actorRole` vacío ⇒ «—»; rótulos `auth_password_changed` («Cambió su contraseña» / «Changed their password») y `auth_logout` («Cerró sesión» / «Signed out») | Sin el «—» ⇒ roja; sin la clave `auth_logout` en `es` ⇒ roja |
+| **M-5** | `hooks/usePickingSummary.ts`: no consulta mientras la sesión local diga `mustChangePassword` (ni antes de leerla) | Vitest `AdminShell.mustChange` y el colector de `403` del E2E ⇒ rojos (el E2E reproduce el `GET …/picking-list/summary` → 403 de QA, 2/2) |
+| **TD-5** (frontend) | El `409 USERNAME_TAKEN` del mock lleva `details.field:'username'`, como el real | Quitar `details` ⇒ roja (`api.staff-mock.test.ts`) |
+| **C-2** | `TECH_DEBT.md` «Frontend · gate del techlead sobre `da6d910e`»: STF-FE-TD5 (parte cerrada), TD6, TD7, TD8 | — |
+
+**Decisiones que no están escritas en otro sitio:**
+
+1. **STF-17-E2E corre en los dos entornos, sin salto por entorno** (el censo no crece: 135/19 medidos con
+   `scripts/check-e2e-skip-census.sh`). En mock entran `ana`/`jefa` (`MOCK_STAFF_USERNAMES`, `lib/api.ts`: lo tecleado
+   sin `@` que esté en ese mapa entra como staff sin correo con la temporal pendiente). Los pasos (1)–(5) y la mutación
+   del menú se miden igual en los dos; lo que el mock no puede servir (no guarda contraseñas ni sesiones) va en
+   `if (IS_REAL)`: `GET /users/me` vivo en (3) y (5), la otra sesión que muere en (5), y los logins de (6)–(7).
+   «Ningún correo en todo el ciclo» no se ve desde el navegador: lo fija STF-17 de backend.
+2. **Cupo de `POST /auth/change-password`** (`e2e/utils/state.ts` `reserveChangePasswordSlot`): la ruta tiene su propio
+   `@Throttle(5/60 s)` por IP. STF-17-E2E manda 4 por cuenta y `account.spec.ts` 3; sin cupo compartido dos workers se
+   comen el `429`. Mismo mecanismo que el del login (B-2); `account.spec.ts` ya lo usa.
+3. **`TempPasswordActor.email` conserva el nombre** aunque para el staff lleve el usuario: es la llave `email` del
+   cuerpo del login (§M6-U.2), así que `loginWith`/`sessionForCredentials` no cambian.
+4. **M-4 `actorRole` nulo:** el contrato dice `UserAuditEntryDTO.actorRole: Role` (no anulable) y el backend lo emite
+   vacío en `auth.password_lock` (captura de QA `k-activity.png`). El front lo tolera («—») sin cambiar el tipo
+   (el contrato manda): **solicitud al arquitecto** — o se escribe `actorRole: Role | null` para eventos del sistema,
+   o backend lo rellena.
+5. **M-3 sin copy nuevo:** se ocultan los dos textos; la ayuda del celular («El teléfono de cada dirección es para
+   la paquetería») se queda — no estaba en el hallazgo y el staff no tiene direcciones; si ux-ui quiere otra, lo dice.
+6. **Rótulos de M-4** redactados por frontend (tono de §42.5.5); pendientes de que ux-ui los ratifique.
+
+**Mediciones (2026-10-04, árbol vivo salvo los E2E):**
+- `tsc --noEmit` 0 errores · `npm run lint` sin avisos · Vitest **210/210 ficheros, 2543/2543 pruebas** · paridad
+  i18n 4169 = 4169 claves, 0 vacías (y `i18n-parity`/`i18n-staff-without-email` verdes) · censo E2E sin crecimiento.
+- `@real` contra stack propio levantado desde `git archive 48dfb4ca` (árbol entero; BD `tcg_stf2_fe`, Redis db 13,
+  `:3270`/`:3271`, `next build` + `next start`): `staff-without-email` + `account` + `admin` + `auth` ⇒ **17/17**
+  (`auth.spec.ts` no tiene casos `@real`; corrido entero contra el stack real: 4 verdes, 1 saltado por su
+  `harnessLimit` de Google). La misma corrida sobre `58126076` + este diff dio 17/17 antes de la fusión de la errata.
+- STF-17-E2E en mock: 2/2. Mutaciones deterministas, N=1 cada una, todas rojas y restauradas: enlace «Mi cuenta»
+  (real 2/2, mock 2/2), M-5 en navegador (2/2, el `403` de QA reproducido), M-5 Vitest, A-1, STF-36, M-3, M-4 ×2,
+  TD-5; canario B-1 con el `temp-actors.ts` previo ⇒ `422 staff_without_email`.
+
+## §97 · **Skydropx en «Capturar guía»** — la ventana de cuatro pasos, las tarjetas, «Salida de hoy», «Configuración › Envíos» y el cliente (2026-10-04, rama `claude/skydropx-d`; contrato v1.80.11/v1.80.12 (`§M4-SHIP.19.19`, `§19.20`; la errata v1.80.12.1 dice «frontend: nada»), diseño v4.15/v4.16 `§43`; código en `f9996337`, `bd9ab31e`, `eed6b6a0`, `9a8e3969`)
+
+> **Renumerada al fusionar `production` (2026-10-05):** en la rama `claude/skydropx-d` esta sección era **§87** (y su
+> subsección §87.1). Chocó con la §87 de `claude/staff-sin-correo` (PR #70, arriba), que conserva su número. Las
+> referencias «`FRONTEND_NOTES §87`» de `API_CONTRACT.md`, `DESIGN_SYSTEM.md §43.5a` y `ARCHITECTURE.md` hechas en el
+> contexto de Skydropx («Capturar guía», solicitudes 1–3) apuntan **aquí**.
 
 **Contra qué se construyó.** El backend de cotizar/comprar no existe (solo el cliente y el doble de D1). La pantalla
 consume la API **tal como la fija el contrato** (`lib/api.ts`), y en modo mock la sirve un **servidor falso**
@@ -19169,7 +19222,7 @@ que muerdan por separado).
   `processing`, `in_progress` e `in_flight`, no. La prueba lo fija así.
 - **«Volver a cotizar» en `502 edge_blocked` de la compra:** ver arriba (no se ofrece reintentar ni vuelve el botón).
 
-### §87.1 · Respuestas del contrato v1.80.12.2 (`§M4-SHIP.19.22`, `4b3f3c10`) y diseño v4.17 (`f6cb8fdb`)
+### §97.1 · Respuestas del contrato v1.80.12.2 (`§M4-SHIP.19.22`, `4b3f3c10`) y diseño v4.17 (`f6cb8fdb`)
 - **Solicitud 1 — cerrada.** `address.missing: ShipmentAddressMissingField[]` es obligatorio (`[]` si completa, orden
   fijo `recipientName, line1, neighborhood, postalCode, phone`) y es la misma lista del `422`. El tipo deja de ser
   «MOCK»; el paso 1 lo usa como pide §43.2a. Se conserva una defensa: si un servidor anterior no lo manda, la ventana no
@@ -19465,7 +19518,7 @@ note, confirmConflict)`, `listSpendAlerts`, `getSpendAlertSummary`, `getSpendAle
 `components/ui/` cambió.
 
 **Decisiones de implementación**
-- **Todo contra la API espiada** (patrón de §87: `vi.spyOn(api, …)`, equivalente a MSW) y el servidor falso `// MOCK:
+- **Todo contra la API espiada** (patrón de §97: `vi.spyOn(api, …)`, equivalente a MSW) y el servidor falso `// MOCK:
   pendiente de backend real` (`lib/mock/skydropx.ts`, `lib/mock/spend-alerts.ts`). El servidor falso siembra 5 avisos de
   demo; los **13 tipos**, los cinco `reason` de `409`, los dos `limit`, los cuatro `via`, los ocho motivos, `label_orphan`,
   `verdict` y el resumen que no cuadra viven como fixtures **en las pruebas** (FS-43 parcial en la demo).

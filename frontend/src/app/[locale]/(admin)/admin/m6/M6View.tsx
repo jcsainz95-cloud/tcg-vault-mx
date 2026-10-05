@@ -375,7 +375,11 @@ export function M6View() {
   }
 
   const totalPages = users.data ? Math.max(1, Math.ceil(users.data.total / PAGE_SIZE)) : 1;
-  const detailLockTime = d ? activeLockTime(d.lockedUntil, locale) : null;
+  // ⭐ v1.80.9.1 A-1 (§M6-U.7, §M6-U.10): la ficha trae su propio `lockState`. Con `'unavailable'`
+  // pinta el MISMO aviso discreto que el listado y ⛔ ninguna marca (no afirma un candado de una
+  // lectura que el servidor declaró caída); con `'ok'` y `lockedUntil: null`, nada.
+  const detailLockUnavailable = d?.lockState === 'unavailable';
+  const detailLockTime = d && !detailLockUnavailable ? activeLockTime(d.lockedUntil, locale) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -502,6 +506,12 @@ export function M6View() {
                 </span>
                 {detailLockTime && <p className="text-xs text-muted">{t('lockHint')}</p>}
               </div>
+
+              {detailLockUnavailable && (
+                <Banner variant="info" role="status">
+                  {t('lockUnavailable')}
+                </Banner>
+              )}
 
               {/* KYC (CLABE/RFC enmascarados) */}
               <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
@@ -1176,7 +1186,9 @@ function ActivityTab({ userId, locale }: { userId: string; locale: AppLocale }) 
 
   const columns: Column<UserAuditEntryDTO>[] = [
     { key: 'action', header: t('table.action'), render: (r) => <span className="tabular">{actionLabel(r.action)}</span> },
-    { key: 'actorRole', header: t('table.actorRole'), render: (r) => <Badge tone="neutral">{r.actorRole}</Badge> },
+    // M-4 (QA sobre da6d910e): un evento sin actor (el candado lo pone el sistema) llega sin
+    // `actorRole`; la celda dice «—», como la de IP, nunca un hueco.
+    { key: 'actorRole', header: t('table.actorRole'), render: (r) => (r.actorRole ? <Badge tone="neutral">{r.actorRole}</Badge> : <span className="tabular text-muted">—</span>) },
     { key: 'createdAt', header: t('table.date'), render: (r) => formatDate(r.createdAt, locale) },
     ...(showIp
       ? [{ key: 'ip', header: t('table.ip'), render: (r: UserAuditEntryDTO) => <span className="tabular text-muted">{r.ip ?? '—'}</span> }]

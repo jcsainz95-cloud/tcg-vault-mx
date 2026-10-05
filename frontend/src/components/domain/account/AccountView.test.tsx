@@ -257,4 +257,32 @@ describe('UX-12 · «Mi cuenta» sin correo', () => {
     const index = screen.getByRole('navigation', { name: 'Secciones' });
     expect(within(index).getByRole('link', { name: 'Usuario' })).toHaveAttribute('href', '#username');
   });
+  it('M-3 (QA sobre da6d910e): sin correo, Datos personales NO dice «Así te llamamos en los correos…» ni «Sin celular. Lo necesitas para vender.»', async () => {
+    setStoredUser(ana);
+    getMe.mockResolvedValue(ana);
+    renderWithProviders(<AccountView surface="admin" />, 'es');
+    const profile = await waitFor(() => {
+      const el = document.getElementById('profile');
+      if (!el) throw new Error('sin sección de perfil');
+      return el;
+    });
+    expect(within(profile).getByLabelText('Nombre')).toHaveValue('Ana Operadora');
+    expect(within(profile).getByLabelText('Celular')).toHaveValue('');
+    expect(profile.textContent).not.toMatch(/Así te llamamos en los correos/);
+    expect(profile.textContent).not.toMatch(/Sin celular\. Lo necesitas para vender\./i);
+  });
+
+  it('M-3 · con correo (cliente o staff de antes) los dos textos siguen como hoy', async () => {
+    const withEmail: UserDTO = { ...ana, email: 'ana@tcghunt.mx', username: null, emailVerified: true };
+    setStoredUser(withEmail);
+    getMe.mockResolvedValue(withEmail);
+    renderWithProviders(<AccountView surface="admin" />, 'es');
+    const profile = await waitFor(() => {
+      const el = document.getElementById('profile');
+      if (!el) throw new Error('sin sección de perfil');
+      return el;
+    });
+    await waitFor(() => expect(profile.textContent).toMatch(/Así te llamamos en los correos y en tus envíos\./));
+    expect(profile.textContent).toMatch(/Sin celular\. Lo necesitas para vender\./i);
+  });
 });

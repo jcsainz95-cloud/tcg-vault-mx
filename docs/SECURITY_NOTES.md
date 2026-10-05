@@ -698,6 +698,100 @@ proporción.
 
 ---
 
+# VEREDICTO BLUE TEAM — **STF «Usuarios de back-office sin correo»** (v1.80.9 + v1.80.9.1, M-63) **y pase RETROACTIVO de la PR #69** (precios y reembolsos, `aab55abe..da3e8ae2`) · SHA **`b688bb5d`** (rama `claude/staff-sin-correo`) · 2026-10-04
+
+> ## VEREDICTO 1 — Stream STF: **APROBADO** sobre `b688bb5d`
+> **0 críticos · 0 altos · 0 medios.** 1 Baja (`STF-P1`, **aceptada** como deuda, abajo) + 1 Baja propia (`STF-S1`, aceptada, decisión del dueño) + Info.
+> El código auditado es el del pentest: `git diff --stat 8adefd6a b688bb5d -- backend frontend` = vacío (los dos commits posteriores son solo docs).
+>
+> ## VEREDICTO 2 — PR #69 retroactivo (ya en producción): **APROBADO**
+> **0 críticos · 0 altos · 0 medios.** 1 Baja (`R69-1`) + Info. Ninguna condición de código.
+> **Hallazgo de PROCESO `PROC-69` (dueño: orquestador):** la PR #69 se publicó sin fase de seguridad (incumple CLAUDE.md, flujo paso 7 y DoD). Este pase lo repara a posteriori. Sin red team sobre #69: lo mío es revisión de código más dos mutaciones medidas, **no** un pentest en vivo de ese delta.
+>
+> **Lo que medí yo (2026-10-04, copia `git archive b688bb5d` en scratchpad, BD `tcg_sec_s5`; la copia ya está borrada):**
+> - Unitarias: `stf.staff-without-email`, `stf.errata-v1-80-9-1`, `refund-review`, `admin-orders.list-review-columns`, `admin.user-audit`, `reset-admin-password.username` ⇒ **6/6 suites, 87/87**.
+> - Integración contra `tcg_sec_s5`: `shipped-refund-reason.e2e-spec` + `staff-without-email.e2e-spec` ⇒ **2/2 suites, 63/63**.
+> - **Mutación A** (#69): quité `@MoneyOut()` de `POST /admin/orders/:id/shipped-refund-reason` ⇒ `shipped-refund-reason.e2e-spec` **ROJA** (1 rojo: «operador 403 auditado»). El candado muerde. Es determinista (no hay carrera), así que N=1 basta.
+> - **Mutación B** (STF): `AuditedSuperAdminGuard` admite también a `vault_operator` ⇒ integración **ROJA** (STF-3 y STF-15) y unitaria **ROJA** (2/33). El candado muerde.
+> - Dependencias: `git diff aab55abe HEAD -- {backend,frontend}/package*.json` = vacío ⇒ ningún delta toca dependencias. `npm audit` **NO RE-MEDIDO** en este pase.
+> - Secretos: `git grep` de `sk_live|sk_test|whsec_` con 10+ caracteres en `backend/src`, `frontend/src` y `backend/prisma` ⇒ 0.
+
+## Parte A · Stream STF: consolidación del red team (`PENTEST_NOTES` «PASE STF … 8adefd6a»)
+
+| Id | Sev. red team | Mi decisión | Base en código |
+|---|---|---|---|
+| `STF-P1` username en `AuditLog user.create` tras anonimizar | Baja | **Confirmado. Baja. ACEPTADO** (no se arregla ahora; razones y disparador en «Deuda aceptada») | `admin.controller.ts:203-204` escribe `after.username`. Ningún código reescribe ni borra `AuditLog`: `grep auditLog\.(update\|delete)` en `src/` da 0 resultados. |
+| `STF-P2` rutas de seguimiento sin `@RequireEmailVerified` | Info | **Confirmado, no explotable.** Los cinco puntos de entrada de dinero sí llevan la guarda (`orders.controller.ts:32,65,77`, `shipments.controller.ts:21`, `buylist.controller.ts:111`); el seguimiento se decide por titularidad. | `email-verified.guard.ts`: `hasEmail === false` ⇒ 403 antes de mirar `emailVerified`. `hasEmail` sale de la BD (`jwt-auth.guard.ts`, `select … email`), no del token. |
+| `STF-P3` `/auth/register` responde `EMAIL_TAKEN` | Info | **Confirmado. Viene de antes y queda fuera del delta.** El staff no tiene correo, así que no es enumerable por esta vía. | — |
+| `STF-P4` `X-Forwarded-For` y throttle por IP | Info | **Confirmado.** El candado C7 va por cuenta (blindIndex del identificador), no por IP. Devops mantiene `trust proxy = 1`. | `password-attempts.service.ts` `passwordAttemptKeysForUser` |
+
+### Lo que revisé yo (lo que el red team no cubrió o cubrió solo desde fuera)
+- **M-63:** los cinco CHECK son el respaldo correcto. El regex del CHECK (`^[a-z][a-z0-9._-]{2,29}$`) es el mismo literal que `USERNAME_CANONICAL_REGEX` (`credentials.ts`). `checkUsername` re-aplica el regex al final, así que nunca deja pasar algo que el CHECK convertiría en 500. La migración no hace backfill y su reversa está documentada.
+- **Login:** con `@` busca por `email` y sin `@` por `username` (`auth.service.ts:login`). Un username no puede contener `@`, así que **no hay colisión de cubo** entre una cuenta con correo y una sin él. El dummy argon2 corre siempre (medido en vivo por el red team). `isLoginIdentifier` no valida la forma del username: es intencional para que el formato no decida el código de respuesta (cero oráculo).
+- **`forgot-password`:** busca **solo** por `email` y exige `user.email`, así que un username nunca emite token.
+- **Alta (`createUser`):** el staff **no** puede traer correo (422 `staff_without_email`) y siempre nace con `mustChangePassword` a `true`. La unicidad la decide el índice (`P2002` sobre `username` ⇒ `USERNAME_TAKEN`). Asignación masiva cerrada (medido en vivo por el red team).
+- **`AuditedSuperAdminGuard`:** falla en cerrado (sin metadato o con otro rol ⇒ 403). La bitácora es best-effort, pero el rechazo no depende de ella. Corre antes de los pipes. Mutación B: muerde.
+- **Cambio de rol:** no existe ruta que mute `role` ni `email`/`username` (`admin.controller.ts` solo tiene `@Patch(':id/kyc')` y `@Patch(':id/status')`; `UpdateMeDto` no tiene `email`). Los CHECK `user_customer_has_email`/XOR no se pueden romper por API. Que el rol se lea del token (pre-existente) no abre ventana, porque el rol es inmutable.
+- **`login-attempt.store` `peekLockMs`:** lectura sin efectos. En modo degradado lanza `LoginAttemptStoreUnavailableError` **sin** `markDown`, así que una lectura del panel no cambia por dónde decide el login. `lockedUntilOf` solo traduce esa clase; cualquier otro error se propaga (TD-9).
+- **Aviso de candado sin correo:** `updateMany where {id, email:null}` cumple el CHECK 5 por construcción. `POST /users/me/lock-notice/dismiss` filtra por `userId` del token (sin IDOR).
+- **Script de rescate:** `ADMIN_EMAIL` y `ADMIN_USERNAME` a la vez ⇒ error sin cambios. Prisma lo parametriza. Rechaza cuentas que no son staff. Exige contraseña ≥ 12. Con `email: null` no escribe `emailVerified` (CHECK 4). Incrementa `tokenVersion` en la misma escritura. Nunca imprime la contraseña.
+- **`customerEmailOrBlank`:** si I-STF-1 está rota, devuelve `""` más `logger.error`. El log lleva `userId`, **no** PII. Correcto.
+- **Anonimización (`admin.service.ts` `deleteUser`, soft):** anula `username` y `lockNoticeAt`, y vuelve a anonimizar el correo, cumpliendo los CHECK 1 y 5.
+
+### Hallazgos propios del stream STF
+- **`STF-S1` · Baja · un `super_admin` puede restablecer la contraseña de OTRO `super_admin` (incluido el dueño) y recibe la temporal en claro.** Ubicación: `admin.service.ts` `resetPassword` (no compara el rol del destino) + `createUser` (admite `role: super_admin` con username). Una segunda cuenta `super_admin` creada por el dueño puede tomar la del dueño: reset ⇒ temporal ⇒ login. Mitigaciones existentes: queda auditado (`user.reset_password`); `tokenVersion++` expulsa al dueño, que lo nota; y el `super_admin` ya puede mover dinero, así que no es escalada. El contrato v1.80.9.1 lo prevé a propósito («reset de súper-admin sin correo desde Usuarios por otro súper-admin»). **Decisión: ACEPTADO** mientras haya **un solo** `super_admin` humano. **Disparador:** el día que exista un segundo `super_admin`, el arquitecto decide si `reset-password` sobre un `super_admin` exige confirmación por correo del destino o queda solo para el script de rescate. Dueño: arquitecto → backend.
+- **`STF-S2` · Info · bloqueo por intentos contra staff con username adivinable.** Con 5 fallos en 60 s cualquiera bloquea a `ana` desde fuera. Pasaba igual con correos; un handle corto se adivina más fácil. Lo mitiga la vía por dispositivo conocido (`viaDevice`) y el reset del dueño. No requiere acción; se anota para que ux-ui recomiende usernames no triviales en el alta (opcional).
+
+### Decisión sobre `STF-P1`: **ACEPTAR, no arreglar ahora**
+- Lo que queda es un **handle interno de back-office** (no correo, ni nombre legal, ni RFC/INE/CLABE) dentro de una bitácora **append-only** por diseño.
+- `before/after` **no salen por ninguna API**: `audit.service.ts:107-117` («before/after NUNCA se seleccionan») y `settings.controller.ts:233-241` seleccionan solo `id/actor/action/entity/createdAt`. Solo se lee con acceso directo a la BD.
+- Conservar quién existió y con qué rol es el propósito legítimo de la bitácora de altas. Reescribir `AuditLog` abriría una excepción a su inmutabilidad, y eso cuesta más que lo que protege.
+- **Disparadores (cualquiera reabre el hallazgo, dueño backend):** (1) una ruta o exportación empieza a devolver `before/after`; (2) llega una solicitud ARCO de cancelación de un ex-empleado; (3) se define una política de retención de `AuditLog`. **Regla para backend desde hoy:** ninguna fila nueva de bitácora lleva más identidad que `username`/`hasEmail`.
+
+## Parte B · Duda N-6 de ux-ui (Skydropx, `claude/skydropx-d` DESIGN_SYSTEM:24160 / API_CONTRACT §M4-SHIP.19.20 paso 6 y fila «seguridad»): qué hace la anonimización con las filas de bitácora que guardan direcciones
+
+**Medido hoy en `b688bb5d`:**
+1. **La anonimización NO toca `AuditLog`.** Ningún `auditLog.update`/`delete` en `src/`. Lo que se escriba en `before/after` es **permanente**.
+2. El soft-delete (`admin.service.ts` `deleteUser`) borra `Address`, `BillingProfile` y `PortfolioSnapshot`, anula RFC/razón social/claves de INE/CLABE, pero **conserva** `ShipmentRequest.addressSnapshot` y `Order.shippingAddressSnapshot` como registro económico (decisión previa).
+3. El proyecto **ya tiene la norma contraria**: `buylist.controller.ts:172` y `admin-buylist.controller.ts:473` auditan **solo `addressId`**: *«Un domicilio en la bitácora es PII que nadie va a purgar»*.
+
+**Conclusión:** tal como lo especifica §M4-SHIP.19.20 paso 6 (`before/after` con los **valores** de las claves cambiadas), cada corrección dejaría el domicilio viejo y el nuevo de un cliente **en una bitácora que nunca se purga**, contra la norma vigente. **`SKX-SEC-1` · Media si se construye así · condición del gate de seguridad de la release de Skydropx** (no bloquea este stream, porque Skydropx no está construido). Dueño: **arquitecto** (contrato) → backend. Opciones, a decidir por el arquitecto:
+- (a) la bitácora guarda **solo las claves** cambiadas + `addressVersion` + actor, y el valor viejo vive en una tabla de revisiones ligada al `ShipmentRequest` que la anonimización **purga o redacta**; o
+- (b) `before/after` cifrados con una clave por sujeto (crypto-shredding al anonimizar).
+- Además, la prueba de la release debe medir: anonimizar al cliente ⇒ cero domicilios legibles en `AuditLog` para sus envíos.
+
+## Parte C · PR #69 retroactivo (`git diff aab55abe da3e8ae2 -- backend frontend`)
+
+**Revisado y correcto:**
+- **Autorización de dinero:** `POST /admin/orders/:id/refund` y `POST /admin/orders/:id/shipped-refund-reason` llevan `@MoneyOut` (el operador recibe 403 auditado; mutación A muerde). `PUT /admin/settings` es de clase `@Roles(super_admin)` (`settings.controller.ts:19`). `refundReviews` vale `null` para `vault_operator` (`admin.service.ts` dashboard).
+- **Carreras de dinero:** el corte «ya salió» se lee **bajo** `FOR UPDATE` de todos los envíos (`lockShipmentsOfOrder`). M3 y `onFullRefund` usan el mismo predicado (`isShippedOut`). El motivo exige `sealedNow ∧ afterShipment` como invariante. `recordShippedRefundReason` hace `FOR UPDATE` + CAS `where {fullRefundAfterShipment:true, shippedRefundReason:null}` + bitácora en la misma tx; el mismo motivo ⇒ idempotente, otro ⇒ 409. Ni Stripe, ni libro, ni piezas.
+- **Liberar piezas (`releaseReservedOfUnsettledRefund` + barrido):** solo con estado **bajo candado** ∈ `SETTLEABLE` (`pending|failed`) o `refunded ∧ settledAt IS NULL` (releído bajo `FOR UPDATE` en el barrido). CAS por pieza `where {status:'reserved', reservedByOrderId: orden}` (nunca suelta legadas ajenas). Movimiento solo con `count === 1`. Un `succeeded` tardío sobre `refunded` no liquida (`settleable-order-statuses.ts`), así que no hay doble venta de una pieza liberada. M3 tx1 exige `settled`, así que la liberación por M3 solo actúa sobre la anomalía SRF-11.
+- **Bitácora de precios + CAS `claimListed`:** el CAS del `PATCH` publicante condiciona `status` **y** `listPriceCents` leídos, en la misma `$transaction` que la fila `inventory.item_updated` (si la bitácora falla, no se publica). `listPriceCents` va como `@IsInt @Min(1) @Max(MAX_LIST_PRICE_CENTS)` (`inventory.dto.ts`).
+- **Dial `premiumFloorSalePublish`:** validador estricto (claves desconocidas ⇒ error, `mode` cerrado, `rarities` solo canónicas premium, sin duplicados ⇒ tamaño acotado). Una fila inválida en BD ⇒ `mode:none` (retiene todo) + `logger.error [MONEY]`. La compra no lo lee (`BUY_PREMIUM_FLOOR_POLICY`).
+- **Cola de publicación y barrido VQ en «Publicar todo»:** el barrido solo cierra filas `open ∧ context='inventory'` con `reason` nulo o `premium_at_floor` (lo repite el `where` de la escritura). Falla de forma segura. El deep-link filtra `context:'inventory'`.
+- **Inyección:** todo `$queryRaw` nuevo es plantilla etiquetada (parametrizada). Ningún `$queryRawUnsafe`.
+- **DTOs:** el listado de M3 descarta las cinco columnas crudas del motivo (`admin-orders.list-review-columns.spec`, verde). `fullRefundReview.recordedBy` = `{id, name}`, sin correo.
+- **Frontend:** `parseFinalPrice` convierte pesos → centavos con aritmética entera sobre texto (`isSafeInteger`, tope `MAX_LIST_PRICE_CENTS`). Ni `dangerouslySetInnerHTML` ni `innerHTML` en el delta. `RefundOrderDialog` solo envía `shippedReason` del enum; el servidor decide (400/409/422).
+
+**Hallazgos #69:**
+- **`R69-1` · Baja · `RefundDto.reason` sin `@MaxLength`** (`orders/dto/orders.dto.ts:23`). Va entero a `AuditLog.after.reason` (`order-refund.service.ts`, `order.refund`), acotado solo por el límite por defecto del body-parser de Express (~100 KB; `main.ts` no fija uno: medido con `grep`). Solo lo puede enviar un `super_admin` (`@MoneyOut`), así que es higiene, no ataque. La nota del motivo ya se recorta a 500. **Dueño: backend** (`@MaxLength(500)` o el tope que fije el arquitecto). Disparador: el siguiente cambio en `orders/dto`.
+- **`R69-2` · Info · `fullRefundReview.note` (texto libre del súper-admin) lo ve también `vault_operator`** en `GET /admin/orders/:id`. El operador ya ve el correo del comprador en M3, así que no hay exposición nueva. Si el dueño quiere notas «solo súper-admin», lo decide el arquitecto.
+- **`R69-3` · Info · `publish-all` (abierto a `vault_operator`) dispara ahora el barrido VQ global en cada llamada.** El costo está acotado por las filas abiertas de la cola. El throttle de ese verbo está **NO MEDIDO**. Sin acción salvo que el volumen crezca.
+- **`PROC-69` · proceso · dueño orquestador:** publicar sin fase de seguridad. Queda cubierto por este pase retroactivo, sin pentest en vivo de #69. **Bandera para el humano:** si quiere paridad completa, falta un pase del red team sobre `aab55abe..da3e8ae2` (prioridad baja: la revisión no encontró superficie nueva expuesta a cliente; todo el delta es back-office con `@MoneyOut`/`super_admin`).
+
+## Deuda de seguridad aceptada (este pase)
+| Id | Sev. | Impacto | Disparador | Dueño |
+|---|---|---|---|---|
+| `STF-P1` | Baja | El handle del staff persiste en `AuditLog.user.create` tras borrar o anonimizar | API/exportación de `before/after`; solicitud ARCO de un ex-empleado; política de retención de `AuditLog` | backend |
+| `STF-S1` | Baja | Un `super_admin` puede tomar la cuenta de otro `super_admin` por `reset-password` | Que exista un segundo `super_admin` humano | arquitecto → backend |
+| `R69-1` | Baja | `reason` sin tope en la bitácora (solo súper-admin) | Siguiente cambio en `orders/dto` | backend |
+
+## Banderas para el humano
+- `SKX-SEC-1`: la corrección de dirección de Skydropx, tal como está especificada, deja domicilios **para siempre** en la bitácora. Se decide en el contrato antes de construir.
+- Sigue pendiente un pentest de terceros + bug bounty antes de operar a escala con dinero real y PII (INE/CLABE), igual que en los veredictos anteriores.
+
+---
+
 # VEREDICTO BLUE TEAM — **FRENTE B · PAQUETE DINERO** (tope del bounty · SEC-SETTLE-LATE · SSL-R1 · SK-5 · guardarraíl BG · errata v1.80.2.1) · SHA **`a3cde51`** (rama `claude/paquete-dinero`) · 2026-09-29
 
 > ## VEREDICTO — **APROBADO** sobre `a3cde51` (con una condición de PROCESO, no de código)

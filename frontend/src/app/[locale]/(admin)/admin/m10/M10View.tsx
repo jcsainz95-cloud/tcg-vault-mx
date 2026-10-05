@@ -276,12 +276,16 @@ export function M10View() {
   const auditColumns: Column<AuditLogDTO>[] = useMemo(
     () => [
       { key: 'date', header: t('audit.date'), render: (a) => <span className="tabular">{formatDate(a.createdAt, locale)}</span> },
-      { key: 'actor', header: t('audit.actor'), render: (a) => (
+      // Eventos del sistema (p. ej. `auth.password_lock` desde el login): `actorUserId` y `actorRole`
+      // llegan null a la vez (contrato, errata 2026-10-04). La celda dice «—», nunca un hueco ni un Badge vacío.
+      { key: 'actor', header: t('audit.actor'), render: (a) => (a.actorUserId === null || a.actorRole === null ? (
+        <span className="tabular text-muted">—</span>
+      ) : (
         <span className="flex flex-col">
           <span className="tabular text-sm">{a.actorUserId}</span>
           <Badge tone={a.actorRole === 'super_admin' ? 'primary' : 'neutral'}>{a.actorRole}</Badge>
         </span>
-      ) },
+      )) },
       { key: 'action', header: t('audit.action'), render: (a) => <span className="tabular font-medium">{a.action}</span> },
       { key: 'entity', header: t('audit.entity'), render: (a) => <span className="tabular text-muted">{a.entityType} · {a.entityId}</span> },
     ],

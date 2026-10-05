@@ -25,10 +25,11 @@ vi.mock('@/i18n/navigation', () => ({
 }));
 
 const logout = vi.fn().mockResolvedValue(undefined);
+const pickingSummary = vi.fn(() => Promise.reject(new Error('no backend')));
 // v1.80: el menú sondea el contador de «Pedidos por preparar» (`usePickingSummary`); aquí no hay backend ⇒ rechaza.
 vi.mock('@/lib/api', () => ({
   logout: () => logout(),
-  getPickingListSummary: () => Promise.reject(new Error('no backend')),
+  getPickingListSummary: () => pickingSummary(),
   // v1.80.9 (§42.6): el shell consulta `/users/me` para el aviso de candado; sin aviso aquí.
   getMe: () => Promise.reject(new Error('no backend')),
   dismissLockNotice: () => Promise.resolve(),
@@ -42,6 +43,7 @@ describe('AdminShell · contraseña temporal bloquea el panel', () => {
     replace.mockClear();
     push.mockClear();
     logout.mockClear();
+    pickingSummary.mockClear();
     window.localStorage.clear();
     setStoredUser(null);
     currentPath = '/admin';
@@ -82,6 +84,24 @@ describe('AdminShell · contraseña temporal bloquea el panel', () => {
     renderWithProviders(<AdminShell>panel</AdminShell>, 'es');
     expect(await screen.findByText('panel')).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('M-5 (QA sobre da6d910e): con la temporal pendiente el menú NO pide el contador de «Pedidos por preparar» (sería un 403)', async () => {
+    currentPath = '/admin/account/password';
+    setStoredUser({ ...operator, mustChangePassword: true });
+    renderWithProviders(<AdminShell>panel</AdminShell>, 'es');
+    expect(await screen.findByText('panel')).toBeInTheDocument();
+    // El menú ya está pintado (la entrada existe) y aun así la petición no salió.
+    expect(screen.getAllByRole('link', { name: /Pedidos por preparar/ }).length).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(pickingSummary).not.toHaveBeenCalled();
+  });
+
+  it('M-5: sin la bandera el menú sí pide el contador (la regla no apaga el aviso de pedidos)', async () => {
+    setStoredUser({ ...operator, mustChangePassword: false });
+    renderWithProviders(<AdminShell>panel</AdminShell>, 'es');
+    expect(await screen.findByText('panel')).toBeInTheDocument();
+    await waitFor(() => expect(pickingSummary).toHaveBeenCalled());
   });
 
   it('sin la bandera el operador ve el panel; el drawer lleva «Mi cuenta» y «Cerrar sesión» al pie (§33.2)', async () => {
