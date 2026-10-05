@@ -116,7 +116,7 @@ export function summarizeCspReports(raw: unknown): CspLogFields[] {
   return out;
 }
 
-/** `path` de `client-error` recortado a la ruta: sin query ni fragmento (acepta relativo o URL absoluta). */
+/** `path` de `client-error` recortado a la ruta: sin query NI fragmento (v1.84.2 E2-3; acepta relativo o URL absoluta). */
 export function pathWithoutQuery(path: string): string {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) {
     try {
@@ -126,4 +126,37 @@ export function pathWithoutQuery(path: string): string {
     }
   }
   return path.split(/[?#]/, 1)[0];
+}
+
+/** Tope de `message` en el DTO (`ClientErrorReportDto`). */
+export const CLIENT_MESSAGE_MAX = 300;
+
+/** Regla 1: `?`/`#` pegados a un carácter que no es espacio ⇒ fuera hasta el siguiente espacio. */
+const ATTACHED_QUERY_OR_FRAGMENT = /(\S)[?#]\S*/g;
+/**
+ * Regla 2: `nombre=valor` cuyo nombre ES o TERMINA en uno de los de secreto (sin mayúsculas). `access_token`,
+ * `refresh_token` e `id_token` quedan cubiertos por el sufijo `token`. Solo valores no vacíos: un `token=` sin valor
+ * no esconde nada y el marcador lo alargaría.
+ */
+const SECRET_ASSIGNMENT = /([\w.-]*(?:token|code|secret|password|key|signature|sig))=\S+/gi;
+/** Regla 3: JWT (`eyJ` + 3 segmentos base64url; la firma puede venir vacía en `alg:none`). */
+const JWT = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g;
+
+/**
+ * v1.84.2 (API_CONTRACT §14.15 E2-3) — limpia el `message` de `client-error` ANTES de construir la línea de log.
+ * El endpoint es público: la limpieza del cliente (`report-client-error.ts`) no es barrera, esta sí.
+ * Orden 1 → 2 → 3. Vacío ⇒ `Error`. Pura, no lanza.
+ *
+ * ⚠️ El contrato dice «el resultado solo puede ser más corto o igual»; eso NO se cumple cuando un valor de secreto
+ * mide menos que `[redacted]` (`sig=a` ⇒ `sig=[redacted]`). Lo que el contrato protege con esa frase es el tope de
+ * 300 del DTO, así que se garantiza ESO recortando al final (recortar solo quita cola: no puede destapar nada).
+ * Discrepancia anotada para el arquitecto en `BACKEND_NOTES §57.7`.
+ */
+export function scrubClientText(s: string): string {
+  const out = s
+    .replace(ATTACHED_QUERY_OR_FRAGMENT, '$1')
+    .replace(SECRET_ASSIGNMENT, '$1=[redacted]')
+    .replace(JWT, '[jwt]')
+    .slice(0, CLIENT_MESSAGE_MAX);
+  return out.length === 0 ? 'Error' : out;
 }

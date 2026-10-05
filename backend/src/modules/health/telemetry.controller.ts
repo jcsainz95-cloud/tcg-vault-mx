@@ -2,7 +2,7 @@ import { Body, Controller, HttpCode, Logger, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { ClientErrorReportDto } from './dto/client-error-report.dto';
-import { pathWithoutQuery, summarizeCspReports } from './telemetry-report';
+import { pathWithoutQuery, scrubClientText, summarizeCspReports } from './telemetry-report';
 
 /**
  * LIVE-7 (API_CONTRACT §14.7, v1.84) — telemetría del navegador. Públicos, con tope por IP, ⛔ SOLO LOG:
@@ -32,9 +32,10 @@ export class TelemetryController {
   @HttpCode(204)
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   clientError(@Body() dto: ClientErrorReportDto): void {
-    // Campo a campo (⛔ no `...dto`): solo lo que el contrato nombra. `JSON.stringify` escapa los saltos de
-    // línea del `message` ⇒ una sola línea de log.
-    const line: Record<string, string> = { message: dto.message, path: pathWithoutQuery(dto.path) };
+    // Campo a campo (⛔ no `...dto`): solo lo que el contrato nombra. `message` pasa por `scrubClientText`
+    // (v1.84.2 §14.15 E2-3: query/fragmento pegados, `nombre=valor` de secreto, JWT) y `JSON.stringify` escapa
+    // sus saltos de línea ⇒ una sola línea de log (TLM-8).
+    const line: Record<string, string> = { message: scrubClientText(dto.message), path: pathWithoutQuery(dto.path) };
     if (dto.digest !== undefined) line.digest = dto.digest;
     if (dto.release !== undefined) line.release = dto.release;
     this.logger.error(`CLIENT_ERROR ${JSON.stringify(line)}`);

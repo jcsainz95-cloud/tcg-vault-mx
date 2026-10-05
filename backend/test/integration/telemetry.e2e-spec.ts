@@ -8,6 +8,8 @@
  *  - TLM-3: 61.º informe en un minuto desde la misma IP ⇒ `429`.  (mutación: quitar el `@Throttle`)
  *  - TLM-4: `client-error` con `message` de 301 ⇒ `400 VALIDATION_ERROR`.
  *  - TLM-5: ninguna tabla cambia de tamaño tras 100 informes (conteo exacto antes/después).
+ *  - TLM-6/7/8 (v1.84.2, §14.15 E2-3) por HTTP: `message` limpio en el servidor y en una sola línea.
+ *    Valores OBVIAMENTE falsos; el JWT se arma en ejecución (`alg:none`) — ningún literal con forma de token.
  */
 import { Logger } from '@nestjs/common';
 import { E2EHarness } from './helpers/e2e-app';
@@ -140,6 +142,28 @@ describe('LIVE-7 — salud y telemetría (sin throttler: comportamiento)', () =>
     expect(lines).toHaveLength(1);
     expect(lines[0]).not.toContain(SECRET);
     expect(lines[0]).toContain('/es/reset-password');
+  });
+
+  it('TLM-6/7/8 (v1.84.2): client-error limpia message en el servidor y deja una sola línea', async () => {
+    const b64url = (v: string) => Buffer.from(v).toString('base64url');
+    const jwt = [b64url('{"alg":"none"}'), b64url('{"sub":"fake-e2e"}'), b64url('no-sig')].join('.');
+    const logs = spyLogs();
+    const r = await h.api('POST', '/telemetry/client-error', {
+      json: {
+        message: `Fallo en /es/reset-password?token=abc123 al cargar\nhttps://x.test/a?b=1#access_token=s3cr3t token=t0k3n ${jwt} Minified React error #418`,
+        path: '/es/reset-password?token=abc123#access_token=s3cr3t',
+      },
+    });
+    expect(r.status).toBe(204);
+    const lines = logs.lines('CLIENT_ERROR');
+    expect(lines).toHaveLength(1);
+    expect(lines[0].split(/\r?\n/)).toHaveLength(1);
+    for (const leak of ['abc123', 's3cr3t', 't0k3n', jwt]) expect(lines[0]).not.toContain(leak);
+    const body = JSON.parse(lines[0].replace(/^CLIENT_ERROR /, ''));
+    expect(body.path).toBe('/es/reset-password');
+    expect(body.message).toContain('/es/reset-password al cargar');
+    expect(body.message).toContain('[jwt]');
+    expect(body.message).toContain('Minified React error #418');
   });
 
   it('TLM-5: 100 informes (50 CSP + 50 client-error) no cambian el tamaño de NINGUNA tabla', async () => {

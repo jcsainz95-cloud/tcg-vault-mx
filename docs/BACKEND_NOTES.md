@@ -27188,3 +27188,36 @@ este diff que con él** (N=1 cada uno); sola, `graded-estimate` da **17/17**. Es
 - **Suites** (misma copia): unitaria **394/394 suites, 6671/6671** (+5 netos: +6 casos, −1 absorbido en SES-8); `tsc` y
   `eslint` limpios. Integración de auth + telemetría sobre BD propia `tcg_be_live2` (`E2E_STRICT_INFRA=false`, solo
   esas suites; no es corrida de gate): **7/7 suites, 85/85**.
+
+### 57.7 Errata v1.84.2 · §14.15 E2-3 — `scrubClientText` en `client-error` (TLM-6, TLM-7, TLM-8) (2026-10-05, sobre `5ea58917`)
+- **Dónde:** `scrubClientText(s)` en `modules/health/telemetry-report.ts` (pura, no lanza); `telemetry.controller.ts`
+  la aplica a `message` antes de construir la línea `CLIENT_ERROR`. `path` sigue por `pathWithoutQuery` (ya quitaba
+  query **y** fragmento; ahora hay prueba para el fragmento). `digest`/`release` no se tocan (E2-3).
+- **Reglas, en orden 1 → 2 → 3:** (1) `/(\S)[?#]\S*/g` ⇒ `$1` (`error #418` intacto: `#` con espacio delante);
+  (2) `/([\w.-]*(?:token|code|secret|password|key|signature|sig))=\S+/gi` ⇒ `$1=[redacted]` — el sufijo cubre
+  `access_token`, `refresh_token`, `id_token`, `X-Amz-Signature`, `client_secret`, `apikey`; **solo valor no vacío**
+  (`token=` sin valor no esconde nada); (3) `/eyJ[\w-]+\.[\w-]+\.[\w-]*/g` ⇒ `[jwt]` (firma vacía admitida: `alg:none`).
+  Vacío ⇒ `Error`. Consecuencia del sufijo, conforme al contrato: `monkey=x` también se redacta.
+- ⚠️ **Para el arquitecto (no cambié el contrato):** E2-3 punto 4 dice «el resultado solo puede ser más corto o igual
+  de largo». **No es cierto con la regla 2 tal cual:** un valor de menos de 10 caracteres crece (`sig=a` ⇒
+  `sig=[redacted]`; `'sig=a '×50` = 300 ⇒ 650 sin tope). Como el motivo declarado es «los 300 del DTO siguen valiendo»,
+  el código **recorta a 300 al final** (`CLIENT_MESSAGE_MAX`; recortar solo quita cola, no puede destapar nada) y hay
+  prueba de ello. Si el arquitecto prefiere otra salida (marcador más corto, o aceptar que crezca), es un cambio de una
+  línea.
+- **Pruebas:** `test/telemetry.spec.ts` — TLM-6, TLM-7 (combinada + «#418» sola, byte a byte), TLM-8, fragmento de
+  `path`, tabla regla a regla (14 casos), tope 300, entradas raras; `test/integration/telemetry.e2e-spec.ts` —
+  TLM-6/7/8 por HTTP en una petición. Valores obviamente falsos (`abc123`, `s3cr3t`, `t0k3n`, `fake`); el JWT se arma
+  en ejecución (`alg:none`). ⛔ Ningún nombre en MAYÚSCULAS seguido de `=` en las cadenas de prueba: el generador del
+  manifiesto S-88-1 lo leería como variable de entorno (me pasó con `TOKEN=fake`, cambiado a `ToKeN=fake`).
+- **Roja antes del código** (stub identidad): **17/31** en `telemetry.spec.ts` (TLM-6, TLM-7 ×2, TLM-8 —por el secreto
+  tras el `\n`; su parte «una línea» ya era verde, es candado de lo construido—, 13 de la tabla).
+- **Suites** (copia `git archive HEAD` entera + este diff): unitaria **394/394 suites, 6692/6692**; `tsc` y `eslint`
+  limpios. Integración auth + telemetría + health, BD propia `tcg_be_live3` (`E2E_STRICT_INFRA=false`, no es gate):
+  **7/7 suites, 86/86**.
+- **Mutaciones** (deterministas; la N es de repetición): regla 1 solo para URL absolutas («quitar rutas relativas»)
+  ⇒ unit **3/3** rojas (5 casos: TLM-6, TLM-8, 3 de tabla), integración **2/2**; quitar regla JWT ⇒ unit **3/3** (TLM-7
+  + 1 de tabla), integración **2/2**; solo la regla del cliente (mutación de TLM-7 en el contrato) ⇒ **3/3** (14 casos);
+  controller sin llamar a `scrubClientText` ⇒ **3/3** (TLM-6/7/8); `message` sin escapar ⇒ **3/3** (TLM-8 + la de
+  forma). ⚠️ Con «quitar rutas relativas» **sola**, el oráculo literal de TLM-6 en el contrato (`no contiene abc123`)
+  seguiría verde porque la regla 2 redacta `token=abc123`; muerde por la aserción extra `no contiene 'token'` y por
+  la ruta seguida de ` al cargar`. Fuente restaurada y comparada byte a byte con el árbol vivo.
