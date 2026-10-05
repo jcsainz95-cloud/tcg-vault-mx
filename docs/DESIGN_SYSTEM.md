@@ -4,7 +4,20 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
+> Estado: **v6.0 (2026-10-05) — EL PRECIO DEL SELLADO ES DEL PRODUCTO (§70 NUEVA; `API_CONTRACT` v1.83 §M11-SP,
+> `ARCHITECTURE §4.62`; `HECHOS.md:50` «Precio del sellado», puntos (1)–(4), y `HECHOS.md:59` de la rama Skydropx
+> «REGLA GENERAL: … lo más automáticos posible»; rama `claude/precio-sellado`, HEAD `9bd8a2da` dado por el orquestador —
+> ux-ui sin Bash, sha NO MEDIDO por mí).** **Numeración elegida para no chocar:** la rama de Skydropx usa v4.2x y §43;
+> la del panel usa v5.0 y §60 (medido con `Grep` de `^## ` en `/home/user/tcg-skyd` y `/home/user/tcg-panel`); aquí
+> **v6.0** y **§70**. **§70.2** la hoja «Precios del sellado» en M11 (una fila por producto, el precio del dueño editable
+> en la fila con CAS y `409`, margen informativo, legado sombreado, `unlinkedCount`; el personal la ve sin lápiz).
+> **§70.3** el rótulo «precio del producto · N piezas» en el panel de la presentación y en «Listas para publicar», y el
+> alta del personal sin precio de sellado (`422 SEALED_PRICE_IS_PER_PRODUCT`). **§70.4** 💰 el aviso «el total cambió»
+> antes del modal de pago en los dos checkouts, con segundo clic. **Cero tokens nuevos, cero pares de contraste
+> nuevos.** Cuatro solicitudes al arquitecto en §70.8 (una, **A-2**, toca el criterio 125: la pieza en caja con
+> ubicación que recibe precio del dueño no se publica y sale de la cola). Lo que sigue es la v4.14 sin cambio.
+>
+> Estado anterior: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
 > 2026-10-04 «Usuarios de back-office SIN correo», puntos (a)(b)(c); `API_CONTRACT` v1.80.9 §M6-U; fichero:línea medidos
 > en el worktree `claude/precios-s5`, HEAD `43c42b3d` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
 > **§42.1** login: la etiqueta «Correo o usuario», `type="text"`, el candado por cuenta con usuario tecleado dice
@@ -22960,3 +22973,500 @@ sin teclear la ruta (`AdminTopbar.tsx:80-85`, `AdminShell.tsx:134-140` en el caj
 | **N-3** | product-owner | **El alta de cliente de hoy no pide celular** (`M6View.tsx:540-565`: correo, nombre, rol, contraseña), aunque `PROJECT §U.2` dice «sigue exigiendo correo (y celular, D11)». Este diseño **no lo cambia** (criterio 270: «como hoy»). Si el celular debe pedirse ahí, es otro encargo |
 | **N-4** | orquestador | **Zonas compartidas tocadas:** `frontend/src/lib/format.ts` (F-10), `frontend/src/components/layout/AdminShell.tsx` (F-12), `frontend/src/components/domain/*` (F-1…F-3, F-13…F-15) y `types/contract.ts` (§M6-U.10). Un solo stream a la vez |
 | **N-5** | orquestador | **F-3 (credenciales con usuario) va más allá de los tres puntos de §M6-U.10.** Lo sostiene `PROJECT §U.3` («texto final de ux-ui»; puede variar por la forma de lo tecleado) y no toca la rama `@`. Si se prefiere el cambio mínimo estricto, se omite F-3 y UX-4, y el equipo leerá «Correo o contraseña incorrectos» |
+
+---
+
+## 70. El precio del sellado es del producto — la hoja «Precios del sellado», el rótulo «precio del producto · N piezas» y el aviso «el total cambió» del checkout (v6.0, 2026-10-05 · `API_CONTRACT §M11-SP` v1.83)
+
+> **Versión v6.0 y sección §70 a propósito:** la rama de Skydropx usa v4.2x y §43; la del panel, v5.0 y §60. Al
+> fusionar, ninguna de las tres pisa la numeración de otra.
+
+### 70.0 Fuentes, lo medido y reglas duras
+
+**Fuentes (citadas, no resumidas de memoria):**
+- `HECHOS.md:50` (2026-10-05, «Precio del sellado (responde P-SELLADO-PRECIO / PR #60 y P-SELLADO-REPRECIO)»):
+  *(1)* el automático (mercado + margen) **se queda como respaldo**; si el dueño escribe precio, manda el suyo;
+  *(2)* el precio es **por producto**; *(3)* se edita **sin retirarlo**, en la **hoja de inventario de sellado**, con
+  precio editable, costo, mercado de referencia y **margen calculado (informativo)** al lado; *(4)* **solo el dueño**
+  pone o cambia el precio; el personal da de alta **sin precio**.
+- `/home/user/tcg-skyd/HECHOS.md:59` (2026-10-04, «REGLA GENERAL: los procesos se diseñan LO MÁS AUTOMÁTICOS
+  POSIBLE; lo manual es el último recurso»). ⛔ Fila **no fusionada** en esta rama: se cita desde el árbol de Skydropx.
+- `HECHOS.md:49` (2026-10-04, «se le cobra al cliente el precio que VIO») y `PROJECT §X.2` + criterio **298** (aviso
+  «antes MX$A, ahora MX$B», texto final de ux-ui).
+- `API_CONTRACT §M11-SP` SP.1–SP.6, SP.8 (F-SP-1…F-SP-6) y SP.11 (P-SP-1…P-SP-3 con sus defaults).
+
+**Lo que medí (lectura de ficheros en `/home/user/tcg-sellado`, 2026-10-05; sin Bash, sha NO MEDIDO por mí):**
+
+| Medición | Resultado |
+|---|---|
+| Capas de M11 | `M11View.tsx:86-101`: capa 1 = inventario (`SealedTab`, `:87-94`) y cola filtrada (`:97-101`); capa 2 `:104`; capa 3 `:107-115`. El contrato pone la hoja **entre** inventario y cola |
+| Editor de hoy en el panel | `VariantDrawer.tsx:544-567` monta `SealedFinalPrice` **por pieza** (`layout="panel"`), con `updateInventoryItem({ listPriceCents })` (`SealedFinalPrice.tsx:152-156`). «A mano» se deduce de `listPriceCents != null` (`:132`, `:204`) |
+| Editor de hoy en la cola | `PendingPublishQueue.tsx:308-337` monta el mismo componente (`layout="queue"`); el enlace de la fila sin precio va a la cola pendiente de **M2** (`:329-336`) |
+| ⚠️ Identidad del producto en las filas | `InventoryItemDTO` (`types/contract.ts:2606-2643`) y `PendingPublishRowDTO` (`:3936-3970`) **no traen `sealedProductId`**; §M11-SP.1 solo les añade `sealedPriceOrigin` y `sealedProductPriceCents`. Sin el id, ni el panel ni la cola pueden llamar a `PUT …/sealed-products/:id/sale-price`, ni distinguir pieza ligada de pieza sin producto (las dos pueden ser `automatic`) ⇒ solicitud **A-1** |
+| ⚠️ La cola y el precio del dueño | La cola es `in_stock ∧ (sin ubicación ∨ sin precio)` y la auto-publicación se intenta en (a) conversión, (b) ubicación y (c) «cuando el precio se vuelve resoluble (barrido de precios u override de M2)» (`API_CONTRACT.md:12492-12497`). SP.2 dice «⛔ No publica». Una pieza **con ubicación y sin precio** que recibe precio del dueño **deja de cumplir el predicado y no se publica**: queda en caja, con precio, sin pantalla que la señale ⇒ **A-2**. *De lectura del contrato; en código NO MEDIDO* |
+| Checkouts | `CheckoutView.tsx:202-204` y `GuestCheckoutView.tsx:209-224` abren el modal con la sesión al primer clic; el `amountLabel` sale de la cotización (`CheckoutView.tsx:406-408`, `GuestCheckoutView.tsx:494-496`). `CheckoutSessionResponse`/`GuestCheckoutSessionResponse` traen `breakdown` pero **no líneas** (`types/contract.ts:1111-1129`, `:5715-5740`) ⇒ las líneas cambiadas se sacan de **re-cotizar** (§70.4) |
+| Alta del personal | `SealedAddFlow.tsx:76` `canManualMarket = super_admin \|\| vault_operator`; el campo de mercado manual (`:388-396`) y su envío (`:410`). El cuerpo **no** manda `listPriceCents` (medido: `Grep` en el fichero = 0) |
+| Detalle de pieza | `ItemDetailModal.tsx:64-66` exige precio a mano para publicar sellado (`sealedNeedsPrice`); input `:259-272`; texto `admin.m1.publish.priceRequiredSealed` (`es.json:1475`); `ManualPriceBadge` (`:197`) decide por `listPriceCents` |
+| Componente de tabla | `components/ui/DataTable.tsx`: una línea por celda, sin editor; colapsa a bloques `< md` (`:63-76`) |
+| Unidad del margen de la presentación | `SealedSpreadsDTO` = **% sobre mercado**, rango `[0, 1000]` (`types/contract.ts:4663-4665`). La unidad de `appliedSpreadPct` de la hoja **no está escrita** en el contrato (`API_CONTRACT.md:29659`) ⇒ asumo la misma; **A-4** |
+| Tokens | `--color-danger` = `--color-accent` = `#b31217` (`globals.css:40`, `:68`): pérdida y aviso se distinguen por **texto**, como dice §10 |
+
+**Reglas duras de esta sección:**
+1. **Un editor.** El precio del producto se edita con **un** componente (`SealedProductPriceEditor`, §70.2 (d)), montado en
+   la hoja, en el panel y en la cola. ⛔ Ninguna segunda forma de escribir `ownerSalePriceCents`.
+2. **El precio que se escribe es antes de IVA** (P-SP-3, default). Cada sitio lo rotula «antes de IVA» y pone al lado
+   **lo que ve el cliente** (`displayPriceCents`), que **calcula el servidor** (⛔ la UI no deriva `P`).
+3. **El margen es información, nunca decisión** (SP.5). No colorea la fila, no bloquea, no sugiere precio.
+4. **Automático primero** (`HECHOS skyd:59`): sin precio del dueño vende el automático; la hoja **marca** lo que el sistema
+   no puede resolver solo (sin precio, precios propios heredados distintos) para que el dueño escriba solo ahí. Tras un
+   `409`, la hoja **se recarga sola**; el dueño solo vuelve a confirmar.
+5. **Nadie paga una cifra que no vio** (SP.6): el modal de pago muestra el total **de la sesión**, siempre.
+
+### 70.1 Dónde vive cada pieza
+
+| Pieza | Sitio | Quién la ve | Quién edita |
+|---|---|---|---|
+| Hoja «Precios del sellado» | `/admin/m11`, capa 1, **entre** «Inventario de sellado» y «Listas para publicar» (`M11View.tsx:95`), `id="precios-sellado"` con `scroll-mt` | `vault_operator+` | el dueño (`canEdit`) |
+| Bloque «Precio del producto» | panel de la presentación (`VariantDrawer`), **una vez** encima de la lista de piezas | `vault_operator+` | el dueño |
+| Rótulo de la pieza | cada fila de pieza del panel y cada fila de sellado de «Listas para publicar» | `vault_operator+` | — (solo lectura; el editor del bloque/de la fila es el mismo de la hoja) |
+| Aviso «el total cambió» | aside de `CheckoutView` y `GuestCheckoutView`, encima de «Pagar» | cliente / invitado | — |
+
+### 70.2 La hoja «Precios del sellado» (`GET /admin/inventory/sealed-price-sheet`)
+
+#### (a) Anatomía (escritorio, `≥ lg`)
+
+```
+Precios del sellado                                                                    h2
+Un precio por producto: todas sus piezas se venden igual. Si no pones precio, se vende   text-sm muted
+al automático (mercado + tu margen). Escribe el tuyo solo donde quieras mandar tú.
+[Set ▾ Todos]  [🔍 Buscar producto      ]  ( ) Solo con existencias  ( ) Incluir sin existencias
+▌7 piezas de sellado no están ligadas a un producto: no salen en esta hoja …     ← Banner info (si unlinkedCount > 0)
+
+PRODUCTO              PIEZAS  COSTO           TU PRECIO        AUTOMÁTICO       SE VENDE A        LO VE EL    MERCADO       MARGEN
+                              promedio        antes de IVA     antes de IVA     antes de IVA      CLIENTE
+[img] Surging Sparks    7     MX$900.00       MX$1,250.00      MX$1,180.00      MX$1,250.00       MX$1,450.00  MX$1,020.00   MX$350.00
+      ETB · Elite        3 en caja            [✎ Cambiar]      margen de la     tuyo                           al 3 oct      28 %
+      Trainer Box        3 publicadas  MX$850–MX$950            presentación                       
+                         1 apartada    1 sin costo              +16 %
+                                                                                  ⚠ 2 piezas cobran su precio propio (MX$1,100–MX$1,300), no este.
+[img] Prismatic ...     2     —               —  sin fijar     —  sin mercado      Sin precio:        —            —             —
+                               sin costo      [✎ Poner precio]                     no se vende                                  sin precio
+                               registrado
+Mostrando 1–50 de 132                                                                    [Anterior] [Siguiente]
+Solo el dueño cambia estos precios. Quedan en bitácora a su nombre.                      (mono 11 px)
+```
+
+- **Tabla propia** con el aspecto de `DataTable` (§7.7: reglas, cabeceras `eyebrow`, cifras `tabular` alineadas a la
+  derecha), porque las celdas llevan dos o tres líneas y un editor. ⛔ No se fuerza `DataTable` (una línea por celda).
+- **`md`–`lg`:** la tabla vive en `overflow-x-auto` con la columna «Producto» `sticky left-0` (fondo `bg`). **`< md`:**
+  cada producto es un bloque (patrón de `DataTable.tsx:63-76`): cabecera con imagen y nombre, luego pares «rótulo:
+  valor» en el orden de las columnas, y el editor a todo el ancho al final del bloque.
+- **Orden de columnas fijo** (lo que se decide, de izquierda a derecha: qué es → cuánto hay → cuánto costó → lo que yo
+  digo → lo que diría el sistema → lo que manda → lo que paga el cliente → contra qué se compara → cuánto queda).
+
+#### (b) Celdas
+
+| Columna | Contenido | Vacío / casos |
+|---|---|---|
+| **Producto** | `imageUrl` 40 × 40 (`CardImage`, `object-contain`), `name` (`lang="en"`, `text-sm font-medium`), debajo `set.name` · presentación (`status.sealedSubtype.*`) en `text-xs muted` | sin imagen ⇒ el marcador de `CardImage`. `active=false` ⇒ `Badge` neutro «Retirado del catálogo» (sigue editable: SP.2 paso 1) |
+| **Piezas** | total `inStock + listed + reserved` (mono, `tabular`); debajo, una línea por estado **distinto de cero**: «3 en caja», «3 publicadas», «1 apartada» | total 0 (solo con `scope=all`) ⇒ «0» + «sin existencias» |
+| **Costo** | `avgCents` (rótulo de cabecera «promedio»); debajo «MX$850.00–MX$950.00» si `minCents ≠ maxCents`; debajo, en `text-accent`, «{n} sin costo» si `withoutCost > 0` | `avgCents null` ⇒ «—» + «sin costo registrado». **0 es un costo válido**: se pinta «MX$0.00» (contrato SP.5) |
+| **Tu precio** (antes de IVA) | `ownerPriceCents` + el botón del editor (solo `canEdit`) | `null` ⇒ «—» + «sin fijar» (`text-muted`) |
+| **Automático** (antes de IVA) | `automaticPriceCents`; debajo el porqué: `subtype_spread` ⇒ «margen de la presentación +{pct} %», `global_spread` ⇒ «margen general +{pct} %» (`appliedSpreadPct`, A-4) | `null` ⇒ «—» + «sin mercado» |
+| **Se vende a** (antes de IVA) | `effectivePriceCents` (`font-medium`) + origen: `product` ⇒ «tuyo», `automatic` ⇒ «automático» | `pending` ⇒ **«Sin precio: no se vende»** en `text-accent`, ⛔ nunca «MX$0.00» (§7.3) |
+| **Lo ve el cliente** | `displayPriceCents` | `null` ⇒ «—». Cabecera con ayuda (icono `Info`, `title` + `sr-only`, patrón de `ManualPriceBadge.tsx:33-38`): «Tu precio más el IVA que se traslada según «Configuración»». ⛔ La celda no dice «con IVA» ni «sin IVA»: eso sería deducirlo comparando cifras |
+| **Mercado** | `market.referenceMxnCents`; debajo «al {fecha}» (`capturedDate`, formato corto del idioma) | `null` ⇒ «—». Se rotula **«Mercado»** y es **referencia**, ⛔ nunca precio de venta |
+| **Margen** | `margin.cents` y debajo `margin.bps` como porcentaje con un decimal (`Intl.NumberFormat` `percent`, `bps/10000`) | `null` ⇒ «—» + motivo: sin `effective` ⇒ «sin precio»; si no ⇒ «sin costo». **Negativo** ⇒ «−MX$50.00» y «−4.0 % · pérdida» en `text-danger`: el signo y la palabra son el canal, el color es el tercero (§10) |
+
+**Precios propios heredados (`legacyPiecePrices`, una línea a lo ancho bajo la fila, solo si `count > 0`):**
+- `shadowed = true` ⇒ `text-xs muted`: «{count} piezas tenían precio propio (MX$min–MX$max); ya no cuenta: manda el tuyo.»
+- `shadowed = false` ⇒ `text-xs` en `text-accent` con icono `AlertTriangle`: «{count} piezas cobran su precio propio
+  (MX$min–MX$max), no el de esta fila.» y, **solo si `canEdit`**, «Pon tu precio para que todas cobren lo mismo.»
+  Es la única fila que la hoja **señala** sin que haya error: es justo lo que el relleno de `M-71` dejó para el dueño
+  (contrato SP.7) y lo que el sistema no puede resolver solo.
+- `min = max` ⇒ una sola cifra.
+
+**Personal (`canEdit = false`):** ninguna celda cambia salvo «Tu precio», que pierde el botón; el pie dice «Solo el
+dueño cambia estos precios.» Costo y margen **se ven** (P-SP-2, default «sí»). ⛔ Sin botones deshabilitados: lo que no
+se puede hacer no se pinta (§8).
+
+#### (c) Filtros, página y estados
+
+- **Set:** `Select` con los sets (misma fuente que el selector de `SealedTab`), «Todos» por defecto ⇒ sin `setId`.
+- **Buscar:** `Input` con lupa, `q` con espera de 300 ms; vacía la página a 1.
+- **Existencias:** `RadioGroup` de dos opciones, «Solo con existencias» (`on_hand`, por defecto) / «Incluir sin
+  existencias» (`all`). ⛔ No es un checkbox «mostrar todo»: el valor es una unión del contrato.
+- **Página:** 50 por página; «Mostrando {from}–{to} de {total}» + «Anterior»/«Siguiente» (`Button` `secondary` `sm`).
+- **`queryKey`:** `['sealed-price-sheet', { setId, q, scope, page }]`; se invalida junto con las de
+  `SEALED_FINAL_PRICE_INVALIDATES` (`sealed-final-price.ts:20`) tras cualquier precio de sellado, y desde
+  `invalidateAggregates` de `M11View.tsx:56-62`.
+
+| Estado | Qué se pinta |
+|---|---|
+| Cargando | 5 filas skeleton (`Skeleton`), cabecera ya visible |
+| Error | `QueryState` con «Reintentar» |
+| Vacío, `on_hand`, sin filtros | `EmptyState` «No hay sellado en existencia ligado a un producto.» + enlace «Incluir sin existencias» |
+| Vacío con filtros | «Ningún producto coincide.» + «Quitar filtros» |
+| `unlinkedCount > 0` | `Banner` info `role="note"` arriba de la tabla: «{n} piezas de sellado no están ligadas a un producto: no salen en esta hoja y su precio se pone pieza por pieza, en el detalle de su presentación.» (se pinta con cualquier filtro: es una cuenta global) |
+
+#### (d) El editor — `SealedProductPriceEditor` (inline, el mismo en los tres sitios)
+
+Al pulsar «Poner precio» / «Cambiar», la celda «Tu precio» se convierte en:
+
+```
+Tu precio, antes de IVA (MXN)
+[MX$ 1,250.00     ]
+Se aplica a sus 7 piezas. Margen con este precio: MX$350.00 · 28.0 %
+[Guardar]  [Cancelar]
+```
+
+- **Prellenado:** `ownerPriceCents` si existe; si no, **vacío** (⛔ prellenado con el automático: el campo es para decidir
+  un número, §39.2 (b)). Validación y teclado **idénticos a §39.2 (b)** (`parseFinalPrice`, `MAX_LIST_PRICE_CENTS`,
+  `Enter` abre la confirmación, `Esc` cancela y devuelve el foco al botón). Igual al actual ⇒ «Guardar» deshabilitado.
+- **«Se aplica a sus {n} piezas»** con `n = inStock + listed + reserved` de la fila. `n = 0` ⇒ «Todavía no tiene piezas:
+  se aplicará a las que entren.»
+- **Margen en vivo (D-UX-2):** con un número válido y `cost.avgCents != null`, «Margen con este precio: {cents} · {pct}»,
+  con la fórmula **del contrato** (`cents = precio − avg`, `bps = round(cents·10000/precio)`), en un helper puro
+  `marginPreview(priceCents, avgCents)` con candado contra el ejemplo de SP-10. Es lo que el dueño pidió ver «al lado»
+  mientras decide; tras guardar, la fila muestra el del servidor. ⛔ **No** se previsualiza «lo que ve el cliente»:
+  `P` depende de los diales de IVA y su derivación es del servidor.
+- **Una fila editando a la vez** en cada lista.
+
+**Confirmación** (`Modal`, §7.6, `role="alertdialog"`, foco inicial en «Cancelar»):
+- Título: «¿Cambiar el precio de {name}?»
+- «Ahora: {owner} (tuyo)» · o, sin precio del dueño, «Ahora: sin precio tuyo; se vende a {effective} ({origen})» · o
+  «Ahora: sin precio».
+- «Nuevo: {price} para todas sus piezas, antes de IVA.»
+- Efecto (`text-sm`): «Cambia al momento en la tienda para sus {inStock + listed} piezas en caja y publicadas. Las
+  {reserved} apartadas en un pedido en curso conservan el precio con que se apartaron.» (la segunda frase solo si
+  `reserved > 0`). Si `legacyPiecePrices.count > 0 ∧ !shadowed`: «Las {count} que tenían precio propio dejan de usarlo
+  y cobran este.»
+- Nota `text-xs muted`: «No se retira nada de la tienda. Queda en bitácora a tu nombre.»
+- Botones: `secondary` «Cancelar» · `primary` «Guardar {price}».
+
+**Verbo:** `PUT /admin/inventory/sealed-products/:id/sale-price` con `{ priceCents, expectedPriceCents }`, donde
+`expectedPriceCents` es el `ownerPriceCents` **de la fila que se pintó** al abrir el editor (⛔ releído al enviar: F-SP-2).
+
+**Después de `200`:** la fila se sustituye por la respuesta (`SealedPriceSheetRowDTO`) y se invalidan las claves de
+(c). Toast success: «{name}: {price} para sus {n} piezas.» Y, comparando `pieces` de antes y de la respuesta:
+- `listed` subió en `k` ⇒ segunda línea «Se pusieron a la venta solas: {k}.» (lo que ocurrirá si se acepta **A-2**);
+- `inStock > 0` en la respuesta ⇒ «{m} siguen en caja, sin publicar.» con enlace «Ver «Listas para publicar»» (ancla de
+  la cola en M11). ⛔ No afirma por qué siguen en caja: depende de A-2.
+
+**Errores** (en el editor, `Banner` danger `role="alert"`, el editor sigue abierto **con lo tecleado**):
+
+| Respuesta | Texto | Acción |
+|---|---|---|
+| `409 CONFLICT { currentPriceCents }` | «Alguien cambió este precio mientras lo editabas: ahora es {current} (o «ya no tiene precio tuyo»). No se guardó nada. Ya recargué la fila: revisa y vuelve a guardar si sigue siendo tu precio.» | **Automática**: se invalida la hoja al recibir el `409`; el `expected` pasa a ser el nuevo `ownerPriceCents` cuando llega. Sin botón «Recargar» |
+| `403 FORBIDDEN` | «Solo el dueño puede cambiar el precio del sellado. No se guardó nada.» | se invalida la hoja (llega `canEdit:false` y el editor desaparece) |
+| `404 NOT_FOUND` | «Este producto ya no existe. No se guardó nada.» | «Recargar» |
+| `VALIDATION_ERROR` | `admin.sealedFinalPrice.errors.validation` (§39.4) | — |
+| Otro / red | `common.errorGeneric` | «Reintentar» |
+
+### 70.3 «Precio del producto · N piezas» y el alta sin precio
+
+#### (a) Panel de la presentación (`VariantDrawer`, sellado)
+
+La lista de piezas (`VariantDrawer.tsx:544-567`) deja de tener un editor **por pieza** para las ligadas. Encima de la
+lista, **una vez**, el bloque:
+
+```
+Precio del producto · 7 piezas
+MX$1,250.00 · tuyo · antes de IVA
+[✎ Cambiar precio del producto]                      ← solo canSetSealedPrice
+Lo pone el dueño en «Precios del sellado».            ← personal, en lugar del botón (enlace a #precios-sellado)
+```
+
+- Cifra: `sealedProductPriceCents` (tuyo); si es `null`, la de la pieza con `sealedPriceOrigin = 'automatic'`
+  (`resolvedSalePriceCents`) + «automático»; si ninguna tiene precio, «Sin precio: no se vende».
+- `N`: piezas del **producto** (A-1). Sin ese dato, «Precio del producto · todas sus piezas» (cede la cifra, nunca el
+  texto, §22.13d). ⛔ No se cuenta la lista del panel: el panel es un grupo **por condición** y el producto no.
+- El botón monta `SealedProductPriceEditor` (§70.2 (d)).
+
+Cada **fila de pieza** ligada muestra solo lectura, en el sitio del precio de hoy (`ml-auto`, `text-xs`):
+
+| `sealedPriceOrigin` | Rótulo |
+|---|---|
+| `product` | «{price} · precio del producto» |
+| `piece` | «{price} · precio propio antiguo» + `title`/`sr-only`: «Esta pieza cobra un precio que se le puso antes. En cuanto pongas el precio del producto, cobra ese.» |
+| `automatic` | «{price} · automático» |
+| `pending` | «— · sin precio» (`text-accent`) |
+| ausente (servidor anterior) | el rótulo de hoy de `SealedFinalPrice` en lectura |
+
+**Pieza sin producto** (`sealedProductId = null`): conserva el `SealedFinalPrice` por pieza de §39.2, **solo para el
+dueño**; el personal la ve en lectura con «Sin producto: su precio lo pone el dueño.» Raw/graded: **sin cambio**
+(P-PRE-1).
+
+#### (b) «Listas para publicar» (filas de sellado)
+
+- Celda «Precio de venta» (`PendingPublishQueue.tsx:308-337`): el rótulo de la tabla de (a) y, para el dueño en pieza
+  ligada, el botón «Poner precio del producto» / «Cambiar precio del producto» que abre el **mismo** editor, con
+  «Se aplica a sus {n} piezas» (A-1; sin `n`, «a todas sus piezas»).
+- Fila ligada sin precio: el enlace a la cola pendiente de M2 (`:329-336`) se sustituye por «Ponle precio en «Precios
+  del sellado»» (enlace a `/admin/m11#precios-sellado`; el SP.2 cierra esa entrada de la cola, así que M2 ya no es el
+  sitio). Pieza sin producto: el enlace de hoy se queda.
+- Frase de motivo `reason.sealedNoPrice` (§39.3 (b)) cambia a: «Sin mercado ni precio del dueño: se pone en «Precios
+  del sellado».»
+- **Tras guardar desde la cola:** ver A-2. Con A-2, la fila con ubicación sale sola de la cola **publicada** y el toast
+  lo dice («Se pusieron a la venta solas: {k}»). Sin A-2, **fallback** (solo si el arquitecto lo rechaza): la
+  confirmación gana una casilla **marcada por defecto** «Publicar también las {k} piezas de esta cola que ya tienen
+  ubicación», que tras el `200` llama a `bulkPublishItems` con esos ids (verbo de `VariantDrawer.tsx:420-432`) y reporta
+  el resultado por folio. Desmarcarla es el camino manual (REGLA GENERAL).
+
+#### (c) Alta y detalle sin precio de sellado para el personal (`422 SEALED_PRICE_IS_PER_PRODUCT`)
+
+- **`SealedAddFlow`:** `canManualMarket` (`:76`) pasa a `canSetSealedPrice(me)` (P-SP-1, default). Para el personal, sin
+  mercado, en lugar del campo (`:388-396`) una línea `text-xs muted`: «Este producto no trae precio de mercado. Se da de
+  alta igual y queda sin precio hasta que el dueño se lo ponga en «Precios del sellado».» El texto `pendingIfEmpty`
+  (`:428-430`) cambia según rol (tabla §70.5). ⛔ El cuerpo del personal nunca lleva `manualMarketMxnCents` ni
+  `listPriceCents`.
+- **`ItemDetailModal`** (sellado **ligado**): sin input de precio (`:259-272` no se pinta), `sealedNeedsPrice`
+  (`:64-66`) deja de bloquear «Publicar» (el precio lo resuelve el servidor); la fila «Precio de venta» (`:225-228`)
+  dice «Lo fija el producto» + enlace «Ver en «Precios del sellado»». Si el servidor responde `422 PRICE_PENDING`: «No
+  se publicó: el producto no tiene precio. Lo pone el dueño en «Precios del sellado».» Sellado **sin producto**: input
+  solo con `canSetSealedPrice`; el personal lee «Sin producto: su precio lo pone el dueño.» `ManualPriceBadge` (`:197`)
+  en sellado ligado solo si `sealedPriceOrigin === 'piece'`.
+- **Si llega el `422 SEALED_PRICE_IS_PER_PRODUCT`** (no debería: la pantalla no ofrece el campo), en cualquier escritor:
+  «El precio del sellado es del producto, no de la pieza. No se guardó nada.» + enlace «Ir a «Precios del sellado»».
+  El `403` del sellado sin producto: «Solo el dueño pone precio al sellado.» Ambos `role="alert"`, junto al botón que
+  disparó la acción; ⛔ solo toast.
+
+### 70.4 💰 «El total cambió» — el modal de pago enseña la sesión y pide un segundo clic
+
+**El flujo (igual en `CheckoutView` y `GuestCheckoutView`):**
+1. Al pulsar «Pagar {amount}», la vista guarda **lo que se ve**: `shownTotalCents` (el total del botón:
+   `query.data.breakdown` en cuenta, `activeBreakdown` en invitado) y `shownLines` (`inventoryItemId → unitPriceCents`).
+2. Llega la sesión. **Si `session.breakdown.totalCents === shownTotalCents`** ⇒ como hoy: se abre el modal.
+3. **Si difiere** ⇒ **no** se abre el modal. Se guarda la sesión como `pendingSession`, se re-cotiza (`query.refetch()`)
+   y se pinta el aviso (abajo). El resumen (`AmountBreakdown`) pasa a pintar `pendingSession.breakdown`: lo que se ve
+   es lo que se cobra.
+4. Con la re-cotización: si `requote.breakdown.totalCents === session.breakdown.totalCents`, cada línea con
+   `unitPriceCents ≠ shownLines[id]` gana su nota. Si **no** coincide (el precio volvió a moverse), **ninguna** nota de
+   línea: solo el aviso de total (⛔ no se afirma un desglose que no es el del cobro).
+5. El botón cambia a «Pagar {B}, el total nuevo». **Segundo clic** ⇒ se abre el modal **con `pendingSession`** (⛔ no se
+   crea otra sesión). El botón queda deshabilitado **600 ms** tras aparecer el aviso: un doble clic sobre el primer
+   «Pagar» no puede aceptar el total nuevo.
+6. Si el carrito cambia (`cart.ids`) o el cliente quita una pieza, `pendingSession` y el aviso se descartan; el siguiente
+   «Pagar» vuelve al paso 1 (la reserva propia la resuelve v1.68 como hoy).
+7. **El modal muestra siempre el total de la sesión:** `amountLabel = formatMoneyCents(session.breakdown.totalCents)`
+   (F-SP-5), también cuando no hubo cambio.
+
+**Anatomía (aside, encima del botón; estilo de nota al margen del storefront, `rule-note`):**
+
+```
+▌EL TOTAL CAMBIÓ ANTES DE PAGAR                         ← eyebrow, text-accent
+▌Mientras revisabas tu carrito cambió el precio de una pieza.
+▌Antes: MX$1,450.00 · Ahora: MX$1,566.00               ← mono tabular
+▌No se te ha cobrado nada.
+[ PAGAR MX$1,566.00, EL TOTAL NUEVO ]
+```
+
+En la línea cambiada (izquierda), bajo el precio, `text-xs text-accent` mono: «Cambió de precio: antes MX$1,250.00,
+ahora MX$1,350.00».
+
+- Contenedor `role="alert"` (aparece como respuesta al clic y bloquea el pago): se anuncia solo. El foco **se queda** en
+  el botón, cuyo nombre ya lleva la cifra nueva.
+- **Variante reuso** (`session.reused === true`): «Tu pedido apartado conserva el total con que se apartó. La pantalla
+  mostraba {A}; el total es {B}. No se te ha cobrado nada.» (sin notas de línea: el congelado no se re-cotiza).
+- **Sube o baja, igual:** el aviso y el segundo clic aplican en las dos direcciones (contrato: «si difiere»).
+- ⛔ Sin modal extra ni `confirm()` del navegador: el aviso vive donde está el botón.
+
+> ⚠️ **Lo que esto no cumple, dicho para el dueño:** `HECHOS.md:49` pide cobrar el precio **que vio**. Este aviso cobra el
+> precio **actual** y solo después de enseñarlo (SP.6). Cuando exista el precio firmado de §X, el aviso desaparece.
+
+### 70.5 Textos (ES / EN, paridad en el mismo cambio)
+
+`{price}`, `{current}`, `{before}`, `{after}`, `{amount}`, `{min}`, `{max}`, `{cost}` llegan **formateados** por
+`formatMoneyCents`; `{pct}` por `Intl.NumberFormat` del idioma (§9.3). ⛔ Nunca un número crudo en el ICU.
+
+**`admin.m11.priceSheet.*`** (nuevas)
+
+| Clave | ES | EN |
+|---|---|---|
+| `title` | Precios del sellado | Sealed prices |
+| `subtitle` | Un precio por producto: todas sus piezas se venden igual. Si no pones precio, se vende al automático (mercado + tu margen). Escribe el tuyo solo donde quieras mandar tú. | One price per product: all its items sell at the same price. If you don't set one, it sells at the automatic price (market + your margin). Write your own only where you want to decide. |
+| `filters.set` | Set | Set |
+| `filters.allSets` | Todos | All |
+| `filters.search` | Buscar producto | Search product |
+| `filters.scopeLegend` | Qué productos | Which products |
+| `filters.onHand` | Solo con existencias | In stock only |
+| `filters.all` | Incluir sin existencias | Include out of stock |
+| `col.product` | Producto | Product |
+| `col.pieces` | Piezas | Items |
+| `col.cost` | Costo promedio | Average cost |
+| `col.owner` | Tu precio, antes de IVA | Your price, before VAT |
+| `col.automatic` | Automático, antes de IVA | Automatic, before VAT |
+| `col.effective` | Se vende a, antes de IVA | Sells at, before VAT |
+| `col.display` | Lo ve el cliente | Customer sees |
+| `col.displayHelp` | Tu precio más el IVA que se traslada según «Configuración». | Your price plus the VAT passed on per “Settings”. |
+| `col.market` | Mercado | Market |
+| `col.margin` | Margen | Margin |
+| `pieces.inStock` | {n, plural, one {# en caja} other {# en caja}} | {n, plural, one {# in a box} other {# in boxes}} |
+| `pieces.listed` | {n, plural, one {# publicada} other {# publicadas}} | {n, plural, one {# listed} other {# listed}} |
+| `pieces.reserved` | {n, plural, one {# apartada} other {# apartadas}} | {n, plural, one {# held} other {# held}} |
+| `pieces.none` | sin existencias | out of stock |
+| `cost.range` | {min}–{max} | {min}–{max} |
+| `cost.without` | {n, plural, one {# sin costo} other {# sin costo}} | {n, plural, one {# without cost} other {# without cost}} |
+| `cost.none` | sin costo registrado | no cost recorded |
+| `owner.none` | sin fijar | not set |
+| `automatic.subtype` | margen de la presentación +{pct} | product-type margin +{pct} |
+| `automatic.global` | margen general +{pct} | general margin +{pct} |
+| `automatic.none` | sin mercado | no market |
+| `origin.product` | tuyo | yours |
+| `origin.automatic` | automático | automatic |
+| `origin.pending` | Sin precio: no se vende | No price: not for sale |
+| `market.asOf` | al {date} | as of {date} |
+| `margin.loss` | {pct} · pérdida | {pct} · loss |
+| `margin.noPrice` | sin precio | no price |
+| `margin.noCost` | sin costo | no cost |
+| `inactive` | Retirado del catálogo | Removed from catalog |
+| `legacy.shadowed` | {count, plural, one {# pieza tenía precio propio ({range}); ya no cuenta: manda el tuyo.} other {# piezas tenían precio propio ({range}); ya no cuenta: manda el tuyo.}} | {count, plural, one {# item had its own price ({range}); it no longer counts: yours applies.} other {# items had their own price ({range}); it no longer counts: yours applies.}} |
+| `legacy.active` | {count, plural, one {# pieza cobra su precio propio ({range}), no el de esta fila.} other {# piezas cobran su precio propio ({range}), no el de esta fila.}} | {count, plural, one {# item charges its own price ({range}), not this row's.} other {# items charge their own price ({range}), not this row's.}} |
+| `legacy.fix` | Pon tu precio para que todas cobren lo mismo. | Set your price so they all charge the same. |
+| `unlinked` | {n, plural, one {# pieza de sellado no está ligada a un producto: no sale en esta hoja y su precio se pone pieza por pieza, en el detalle de su presentación.} other {# piezas de sellado no están ligadas a un producto: no salen en esta hoja y su precio se pone pieza por pieza, en el detalle de su presentación.}} | {n, plural, one {# sealed item isn't linked to a product: it's not on this sheet and its price is set item by item, in its product-type detail.} other {# sealed items aren't linked to a product: they're not on this sheet and their price is set item by item, in their product-type detail.}} |
+| `empty` | No hay sellado en existencia ligado a un producto. | No in-stock sealed items linked to a product. |
+| `emptyCta` | Incluir sin existencias | Include out of stock |
+| `emptyFiltered` | Ningún producto coincide. | No product matches. |
+| `clearFilters` | Quitar filtros | Clear filters |
+| `pageInfo` | Mostrando {from}–{to} de {total} | Showing {from}–{to} of {total} |
+| `prev` | Anterior | Previous |
+| `next` | Siguiente | Next |
+| `footOwner` | Solo el dueño cambia estos precios. Quedan en bitácora a su nombre. | Only the owner changes these prices. Logged under their name. |
+
+**`admin.sealedProductPrice.*`** (nuevas — el editor, compartido por hoja, panel y cola)
+
+| Clave | ES | EN |
+|---|---|---|
+| `blockTitle` | Precio del producto · {n, plural, one {# pieza} other {# piezas}} | Product price · {n, plural, one {# item} other {# items}} |
+| `blockTitleNoCount` | Precio del producto · todas sus piezas | Product price · all its items |
+| `beforeVat` | antes de IVA | before VAT |
+| `staffNote` | Lo pone el dueño en «Precios del sellado». | The owner sets it in “Sealed prices”. |
+| `set` | Poner precio | Set price |
+| `change` | Cambiar | Change |
+| `setProduct` | Poner precio del producto | Set product price |
+| `changeProduct` | Cambiar precio del producto | Change product price |
+| `setAria` | Poner precio de {name} | Set price for {name} |
+| `changeAria` | Cambiar precio de {name} | Change price for {name} |
+| `label` | Tu precio, antes de IVA (MXN) | Your price, before VAT (MXN) |
+| `appliesTo` | {n, plural, =0 {Todavía no tiene piezas: se aplicará a las que entren.} one {Se aplica a su # pieza.} other {Se aplica a sus # piezas.}} | {n, plural, =0 {No items yet: it'll apply to those that come in.} one {Applies to its # item.} other {Applies to its # items.}} |
+| `appliesToAll` | Se aplica a todas sus piezas. | Applies to all its items. |
+| `marginPreview` | Margen con este precio: {cost} · {pct} | Margin at this price: {cost} · {pct} |
+| `save` | Guardar | Save |
+| `confirm.title` | ¿Cambiar el precio de {name}? | Change the price of {name}? |
+| `confirm.nowOwner` | Ahora: {price} (tuyo) | Now: {price} (yours) |
+| `confirm.nowAuto` | Ahora: sin precio tuyo; se vende a {price} ({origin}) | Now: no price of yours; sells at {price} ({origin}) |
+| `confirm.nowNone` | Ahora: sin precio | Now: no price |
+| `confirm.new` | Nuevo: {price} para todas sus piezas, antes de IVA. | New: {price} for all its items, before VAT. |
+| `confirm.effect` | {n, plural, =0 {Se aplicará a las piezas que entren.} one {Cambia al momento en la tienda para su # pieza en caja o publicada.} other {Cambia al momento en la tienda para sus # piezas en caja y publicadas.}} | {n, plural, =0 {It'll apply to items that come in.} one {Changes right away in the store for its # boxed or listed item.} other {Changes right away in the store for its # boxed and listed items.}} |
+| `confirm.reserved` | {n, plural, one {La # apartada en un pedido en curso conserva el precio con que se apartó.} other {Las # apartadas en un pedido en curso conservan el precio con que se apartaron.}} | {n, plural, one {The # item held by an order in progress keeps the price it was held at.} other {The # items held by orders in progress keep the price they were held at.}} |
+| `confirm.legacy` | {count, plural, one {La # que tenía precio propio deja de usarlo y cobra este.} other {Las # que tenían precio propio dejan de usarlo y cobran este.}} | {count, plural, one {The # item with its own price stops using it and charges this one.} other {The # items with their own price stop using it and charge this one.}} |
+| `confirm.note` | No se retira nada de la tienda. Queda en bitácora a tu nombre. | Nothing is removed from the store. Logged under your name. |
+| `confirm.save` | Guardar {price} | Save {price} |
+| `confirm.publishToo` | {k, plural, one {Publicar también la # pieza de esta cola que ya tiene ubicación} other {Publicar también las # piezas de esta cola que ya tienen ubicación}} *(solo fallback de A-2)* | {k, plural, one {Also publish the # item in this queue that already has a location} other {Also publish the # items in this queue that already have a location}} |
+| `done.saved` | {name}: {price} para {n, plural, one {su # pieza} other {sus # piezas}}. | {name}: {price} for {n, plural, one {its # item} other {its # items}}. |
+| `done.published` | {k, plural, one {Se puso a la venta sola: #.} other {Se pusieron a la venta solas: #.}} | {k, plural, one {Went on sale by itself: #.} other {Went on sale by themselves: #.}} |
+| `done.stillBoxed` | {m, plural, one {# sigue en caja, sin publicar.} other {# siguen en caja, sin publicar.}} | {m, plural, one {# is still boxed, not listed.} other {# are still boxed, not listed.}} |
+| `done.seeQueue` | Ver «Listas para publicar» | See “Ready to publish” |
+| `errors.conflict` | Alguien cambió este precio mientras lo editabas: ahora es {current}. No se guardó nada. Ya recargué la fila: revisa y vuelve a guardar si sigue siendo tu precio. | Someone changed this price while you were editing: it's now {current}. Nothing was saved. The row is already reloaded: check it and save again if it's still your price. |
+| `errors.conflictNone` | Alguien cambió este precio mientras lo editabas: ya no tiene precio tuyo. No se guardó nada. Ya recargué la fila: revisa y vuelve a guardar. | Someone changed this price while you were editing: it no longer has a price of yours. Nothing was saved. The row is already reloaded: check it and save again. |
+| `errors.forbidden` | Solo el dueño puede cambiar el precio del sellado. No se guardó nada. | Only the owner can change sealed prices. Nothing was saved. |
+| `errors.notFound` | Este producto ya no existe. No se guardó nada. | This product no longer exists. Nothing was saved. |
+| `errors.perProduct` | El precio del sellado es del producto, no de la pieza. No se guardó nada. | Sealed prices belong to the product, not the item. Nothing was saved. |
+| `errors.perProductLink` | Ir a «Precios del sellado» | Go to “Sealed prices” |
+| `errors.ownerOnly` | Solo el dueño pone precio al sellado. | Only the owner sets sealed prices. |
+| `reload` | Recargar | Reload |
+| `piece.product` | {price} · precio del producto | {price} · product price |
+| `piece.legacy` | {price} · precio propio antiguo | {price} · old item price |
+| `piece.legacyHelp` | Esta pieza cobra un precio que se le puso antes. En cuanto pongas el precio del producto, cobra ese. | This item charges a price set on it earlier. Once you set the product price, it charges that. |
+| `piece.automatic` | {price} · automático | {price} · automatic |
+| `piece.pending` | — · sin precio | — · no price |
+| `piece.unlinkedStaff` | Sin producto: su precio lo pone el dueño. | No product: the owner sets its price. |
+
+**Cambian:**
+
+| Namespace · clave | ES nuevo | EN nuevo |
+|---|---|---|
+| `admin.m11.inventory.subtitle` (`es.json:3618`) | Da de alta producto sellado, cambia su formato y publícalo o despublícalo desde el detalle de cada presentación. El precio va en «Precios del sellado». | Add sealed product, change its format, and list or unlist it from each product type's detail. Prices go in “Sealed prices”. |
+| `admin.m11.subtitle` (`es.json:3615`) | Sube producto, revisa sus precios y publícalo. Aquí también actualizas los precios de mercado de toda la colección. | Add product, review its prices and list it. You also refresh market prices for the whole collection here. |
+| `admin.m1.publishQueue.reason.sealedNoPrice` | Sin mercado ni precio del dueño: se pone en «Precios del sellado». | No market and no owner price: it's set in “Sealed prices”. |
+| `admin.m1.publishQueue.sealedPriceLink` *(nueva)* | Ponle precio en «Precios del sellado» | Price it in “Sealed prices” |
+| `admin.m1.detail.sealedPriceByProduct` *(nueva)* | Lo fija el producto | Set by the product |
+| `admin.m1.detail.seeSheet` *(nueva)* | Ver en «Precios del sellado» | See in “Sealed prices” |
+| `admin.m1.publish.sealedPricePending` *(nueva)* | No se publicó: el producto no tiene precio. Lo pone el dueño en «Precios del sellado». | Not listed: the product has no price. The owner sets it in “Sealed prices”. |
+| `admin.m1.publish.priceRequiredSealed` (`es.json:1475`) | Sin producto: el precio de esta pieza lo pone el dueño. *(solo sellado sin producto)* | No product: the owner sets this item's price. |
+| `admin.sealedAdd.manualMarket.staffNoMarket` *(nueva)* | Este producto no trae precio de mercado. Se da de alta igual y queda sin precio hasta que el dueño se lo ponga en «Precios del sellado». | This product has no market price. It's added anyway and stays unpriced until the owner sets it in “Sealed prices”. |
+| `admin.sealedAdd.manualMarket.pendingIfEmpty` (`es.json:4502`) | *(sin cambio para el dueño)* | *(unchanged)* |
+| `admin.sealedAdd.manualMarket.pendingIfEmptyStaff` *(nueva)* | Sin precio de mercado, la aportación en especie no se puede registrar; la compra sí. | Without a market price, an in-kind contribution can't be recorded; a purchase can. |
+
+**`checkout.priceChanged.*`** (nuevas)
+
+| Clave | ES | EN |
+|---|---|---|
+| `eyebrow` | El total cambió antes de pagar | The total changed before paying |
+| `body` | {count, plural, one {Mientras revisabas tu carrito cambió el precio de una pieza.} other {Mientras revisabas tu carrito cambió el precio de # piezas.}} | {count, plural, one {While you were reviewing your cart, the price of one item changed.} other {While you were reviewing your cart, the price of # items changed.}} |
+| `bodyNoLines` | Mientras revisabas tu carrito cambiaron los precios. | While you were reviewing your cart, prices changed. |
+| `totals` | Antes: {before} · Ahora: {after} | Before: {before} · Now: {after} |
+| `notCharged` | No se te ha cobrado nada. | You haven't been charged. |
+| `reused` | Tu pedido apartado conserva el total con que se apartó. La pantalla mostraba {before}; el total es {after}. No se te ha cobrado nada. | Your held order keeps the total it was held at. The screen showed {before}; the total is {after}. You haven't been charged. |
+| `line` | Cambió de precio: antes {before}, ahora {after} | Price changed: was {before}, now {after} |
+| `payNew` | Pagar {amount}, el total nuevo | Pay {amount}, the new total |
+
+### 70.6 Lista de cambios para frontend (fichero:línea leídos el 2026-10-05; re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| SP-F-1 | `src/types/contract.ts` | + `SealedPriceOrigin`, `SealedPriceSheetRowDTO`, `SealedPriceSheetResponse`, código `SEALED_PRICE_IS_PER_PRODUCT`; `InventoryItemDTO` (`:2606-2643`) y `PendingPublishRowDTO` (`:3936-3970`) + `sealedPriceOrigin?`, `sealedProductPriceCents?` y, **cuando A-1 se declare**, `sealedProductId?` y el conteo de piezas (F-SP-6) | 70.0 |
+| SP-F-2 | `src/lib/api.ts` (junto a `:3737-3800`, sellado) | + `getSealedPriceSheet(query)` y `setSealedProductSalePrice(id, { priceCents, expectedPriceCents })` | 70.2 |
+| SP-F-3 | `src/lib/role.tsx` (junto a `:61`) | + `canSetSealedPrice(role)` pura: hoy `role === 'super_admin'` (SP.3; cambia a `isOwner` al fusionar Skydropx) — ⚠️ zona compartida | 70.1 |
+| SP-F-4 | `…/admin/m11/sections/SealedPriceSheet.tsx` **nuevo** | La hoja de §70.2 (filtros, tabla, bloques `< md`, estados, `unlinkedCount`, pie) | 70.2 |
+| SP-F-5 | `…/admin/m11/M11View.tsx:95` | Montar `<SealedPriceSheet />` como `<section id="precios-sellado" className="scroll-mt-…">` entre inventario y cola; `invalidateAggregates` (`:56-62`) + `'sealed-price-sheet'` | 70.1 |
+| SP-F-6 | `…/admin/m1/SealedProductPriceEditor.tsx` **nuevo** | Editor + confirmación + `PUT` + errores de §70.2 (d); props: `product { id, name, ownerPriceCents, effectivePriceCents?, effectiveOrigin?, pieces?, legacy?, avgCostCents? }`, `queueIdsWithLocation?` (solo fallback A-2), `onDone` | 70.2 (d) |
+| SP-F-7 | `…/admin/m1/sealed-final-price.ts:20` | + `'sealed-price-sheet'` en `SEALED_FINAL_PRICE_INVALIDATES`; + `marginPreview(priceCents, avgCents)` pura | 70.2 |
+| SP-F-8 | `…/admin/m1/SealedFinalPrice.tsx:42-47`, `:131-144`, `:152-156`, `:204` | Pieza **ligada** ⇒ lectura de §70.3 (a) por `sealedPriceOrigin` y el editor de SP-F-6; ⛔ nunca `updateInventoryItem` con `listPriceCents` (F-SP-3). Pieza sin producto ⇒ el modo de hoy **solo con `canSetSealedPrice`**; personal en lectura | 70.3 |
+| SP-F-9 | `…/admin/m1/VariantDrawer.tsx:456-457` (cabecera de «Piezas») y `:544-567` | Bloque «Precio del producto» una vez encima de la lista; filas ligadas en lectura | 70.3 (a) |
+| SP-F-10 | `…/admin/m1/PendingPublishQueue.tsx:41-50` (`ReasonLines`), `:308-337` | Rótulo + editor de producto; enlace a `#precios-sellado` en lugar de M2 para ligadas; texto nuevo de `reason.sealedNoPrice` | 70.3 (b) |
+| SP-F-11 | `…/admin/m1/SealedAddFlow.tsx:76`, `:182`, `:388-396`, `:428-430` | `canManualMarket` ⇒ `canSetSealedPrice`; nota del personal; `pendingIfEmptyStaff` | 70.3 (c) |
+| SP-F-12 | `…/admin/m1/ItemDetailModal.tsx:64-66`, `:72`, `:197`, `:225-228`, `:259-272`, `:275-279` | Sellado ligado: sin input, sin `sealedNeedsPrice`, «Lo fija el producto», `PRICE_PENDING` con texto propio; badge por `sealedPriceOrigin`; sin producto: input solo dueño | 70.3 (c) |
+| SP-F-13 | `…/(storefront)/checkout/price-change.ts` **nuevo** | Puras: `diffTotal(shown, session)`, `changedLines(shownLines, requote, sessionTotal)` (devuelve `[]` si el total re-cotizado ≠ el de la sesión) | 70.4 |
+| SP-F-14 | `…/checkout/PriceChangedNotice.tsx` **nuevo** | El aviso (`role="alert"`, variante reuso) | 70.4 |
+| SP-F-15 | `…/checkout/CheckoutView.tsx:196-204`, `:300-302`, `:341`, `:381-391`, `:406-408` | Pasos 1–7 de §70.4: `pendingSession`, nota por línea, resumen de la sesión, botón `payNew` con 600 ms, `amountLabel` = sesión | 70.4 |
+| SP-F-16 | `…/checkout/GuestCheckoutView.tsx:189-224`, `:339-341`, `:388-391`, `:436-452`, `:494-496` | Lo mismo en invitado; `shownTotal` = `activeBreakdown` | 70.4 |
+| SP-F-17 | `frontend/messages/es.json` `:453-` (`checkout`), `:1473-1476`, `:3613-3619` (`admin.m11`), `:4502`, `:4681-` (`admin.sealedFinalPrice`) y bloque `admin` | Claves de §70.5 | 70.5 |
+| SP-F-18 | `frontend/messages/en.json` | Paridad (líneas **NO MEDIDAS**) | 70.5 |
+
+### 70.7 Candados (los que coinciden con §M11-SP.8 llevan su ID)
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-SP-1** = F-SP-1 | Hoja con `canEdit:false` ⇒ cero botones «Poner precio»/«Cambiar» y cero `input`; con `true` ⇒ uno por fila. Las nueve columnas presentes | Decidir el lápiz por el rol del cliente en vez de `canEdit` |
+| **UX-SP-2** = F-SP-2 | El `PUT` lleva `expectedPriceCents` = el `ownerPriceCents` pintado al abrir; `409 {currentPriceCents: 1500}` ⇒ banner con «MX$1,500.00», el input conserva lo tecleado, y la hoja se re-pide **sin** clic | Mandar el `expected` releído al enviar; exigir clic en «Recargar» |
+| **UX-SP-3** | Prellenado: `ownerPriceCents` o vacío; con `ownerPriceCents:null, automaticPriceCents:1180` el input está vacío | Prellenar con el automático |
+| **UX-SP-4** | `effectiveOrigin:'pending'` ⇒ «Sin precio: no se vende»; el DOM de la fila **no** contiene `MX$0.00` | Formatear `null` como 0 |
+| **UX-SP-5** | Margen `{cents:-5000, bps:-400}` ⇒ texto con «−» y «pérdida»; `margin:null` ⇒ «—» + motivo | Solo color |
+| **UX-SP-6** | `legacyPiecePrices {count:2, shadowed:false}` ⇒ línea de aviso (y `legacy.fix` solo con `canEdit`); `shadowed:true` ⇒ línea muted; `count:0` ⇒ nada | Pintar el aviso por `count` sin mirar `shadowed` |
+| **UX-SP-7** | `unlinkedCount:3` ⇒ banner; `0` ⇒ ningún banner | Banner siempre |
+| **UX-SP-8** | `marginPreview(1500, 1100)` ⇒ `{cents:400, bps:2667}` (ejemplo de SP-10); `avgCents null` ⇒ `null` | Margen sobre `P` |
+| **UX-SP-9** = F-SP-3 | `SealedFinalPrice` / bloque del panel / fila de la cola sobre pieza **ligada** ⇒ llama a `setSealedProductSalePrice`, **cero** llamadas a `updateInventoryItem` con `listPriceCents` | Volver a `updateInventoryItem` |
+| **UX-SP-10** = F-SP-4 | `SealedAddFlow` con `vault_operator` y producto sin mercado ⇒ sin campo de mercado manual; el cuerpo del batch **sin** `manualMarketMxnCents`; `ItemDetailModal` sellado ligado ⇒ sin input y el `PATCH` de publicar **sin** `listPriceCents` | Dejar `canManualMarket` con `vault_operator` |
+| **UX-SP-11** = F-SP-5 | Los dos checkouts: sesión con total ≠ el mostrado ⇒ `StripePaymentModal` **cerrado**, aviso visible, botón «Pagar {B}, el total nuevo»; clic tras 600 ms ⇒ modal abierto con `amountLabel` = total de la sesión, **sin** segunda llamada a `createCheckoutSession`; total igual ⇒ modal al primer clic (regresión) | `amountLabel` desde la cotización |
+| **UX-SP-12** | Doble clic (dos clics a < 100 ms) sobre el primer «Pagar» con total cambiado ⇒ modal **cerrado** | Quitar los 600 ms |
+| **UX-SP-13** | Re-cotización con total ≠ sesión ⇒ cero notas de línea, aviso con `bodyNoLines`; igual ⇒ nota solo en las líneas que cambiaron | Notas de línea sin comparar totales |
+| **UX-SP-14** | Con `pendingSession`, quitar una pieza ⇒ aviso y `pendingSession` desaparecen; el siguiente «Pagar» crea sesión | Conservar la sesión vieja |
+| **UX-SP-15** | Cola, fila sellada **ligada** sin precio ⇒ enlace a `/admin/m11#precios-sellado`, **cero** enlaces a `/admin/m2?pendingPrice=` | Dejar el enlace a M2 |
+| **UX-SP-16** | Paridad: cada clave de §70.5 en `es` y `en` | Borrar una en `en.json` |
+
+### 70.8 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **A-1** | arquitecto | **`sealedProductId` y el conteo de piezas del producto en las filas de sellado** de `InventoryItemDTO` (S-2) y `PendingPublishRowDTO`. Medido: no los traen (`types/contract.ts:2606-2643`, `:3936-3970`). Sin el id, el panel y la cola **no pueden** llamar a SP.2 ni distinguir ligada de sin producto; sin el conteo, el rótulo dice «todas sus piezas» sin número. Aditivo. **Bloquea** el editor en panel y cola (no la hoja); mientras no esté, panel y cola pintan el rótulo y el enlace a la hoja |
+| **A-2** | arquitecto (→ backend) | 💰 **Que `PUT …/sale-price` sea un disparo (c) de la auto-publicación** para las piezas `in_stock` **con ubicación** del producto (pipeline completo, como «Actualizar precios»). Hoy, por el contrato, una pieza con ubicación y sin precio que recibe precio del dueño **sale de la cola sin publicarse** (`API_CONTRACT.md:12492-12497` vs SP.2 «⛔ No publica»): la contradicción de criterio 125 / fase 8 («ninguna pieza adquirida se queda invisible»), y la REGLA GENERAL pide que sea automático. *De lectura; en código NO MEDIDO.* Si se rechaza, el fallback de §70.3 (b) (casilla marcada por defecto + `bulk-publish`) cubre la cola y el panel, **no** la hoja |
+| **A-3** | arquitecto | Filtro opcional `?attention=true` en la hoja (productos `pending` o con `legacyPiecePrices` no sombreado): las filas que el sistema no resuelve solo. Sin él, la hoja las marca pero no las agrupa. No bloquea |
+| **A-4** | arquitecto | **Unidad de `appliedSpreadPct`** no escrita (`API_CONTRACT.md:29659`). Este diseño asume **% sobre mercado** como `SealedSpreadsDTO` (`types/contract.ts:4663-4665`). Si es otra, cambia solo el formateo |
+| **N-1** | product-owner | **Consecuencia de P-SP-1 (default «solo el dueño»):** el personal **no podrá registrar una aportación en especie** de un sellado sin mercado (`SealedAddFlow.tsx:425-430`: sin mercado la aportación se bloquea). La compra sí. El texto `pendingIfEmptyStaff` lo dice; si el dueño no lo quiere así, es la alternativa de P-SP-1 |
+| **N-2** | product-owner / orquestador | **`PROJECT §X.2` (default P-POR-3: avisar) contradice `HECHOS.md:49`** («se respeta el precio visto», respondida como «NO avisar ni re-cobrar»). §70.4 sigue a SP.6 del contrato: cobra el **actual** y avisa, como mínimo hasta §X. Que el dueño sepa que hoy verá el aviso |
+| **N-3** | orquestador | **Zonas de otro stream:** `(storefront)/checkout/*` es de «Órdenes y dinero»; `lib/role.tsx`, `types/contract.ts`, `lib/api.ts`, `messages/*` son compartidas. Serializar con las ramas Skydropx y panel (las dos tocan `contract.ts`, `api.ts` y `messages`, contrato SP.9) |
+| **N-4** | frontend | **D-UX-2:** el margen en vivo del editor es la **única** cuenta de dinero que hace el cliente, y es una resta informativa con la fórmula del contrato; su candado es UX-SP-8. ⛔ No se añade ninguna otra (`P`, automático, IVA) |
+
+**Contraste:** ningún color nuevo. Aviso, pérdida y «sin precio» en `text-accent`/`text-danger` (`#b31217`, el mismo
+token) sobre papel, siempre con texto que lleva el significado (§10); rótulos en `text-muted` (verificado AA en §10).
