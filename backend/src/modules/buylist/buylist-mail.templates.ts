@@ -1,6 +1,7 @@
 import { Finish } from '@prisma/client';
 import { envOr } from '../mail/mail-env.util';
 import { MailMessage } from '../mail/mail.port';
+import { supportContact } from '../mail/support-contact';
 import {
   cardLineRows,
   ctaRows,
@@ -41,15 +42,9 @@ import {
 
 type Locale = 'es' | 'en';
 
-// P-21 (rebrand): overridable por env sin redeploy (mismo patrón que `disputes.constants.ts`).
-// Cae en cascada a `DISPUTE_EVIDENCE_CONTACT` (mismo buzón de soporte) y, al final, al default de
-// código. P-21 MIGRACIÓN CERRADA (ago-2026): ese default es ya el buzón VIVO `soporte@tcghunt.mx`
-// (el histórico `@tcgvaultmx.com` está muerto: el vendedor escribiría a nadie). P-21 cierre:
-// `envOr` (no `??`) — env definida pero vacía/blanca sigue la cascada hasta el default.
-const SUPPORT_EMAIL = envOr(
-  process.env.SUPPORT_EMAIL,
-  envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcghunt.mx'),
-);
+// v1.82 · PNL-1 (`D-PNL-2`): el buzón de soporte sale del ÚNICO resolutor, `supportContact()`
+// (`../mail/support-contact.ts`: `SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → soporte@tcghunt.mx`). Antes
+// vivía aquí una cascada local fijada al importar; ⛔ no vuelve (candado DSC-8).
 // P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4).
 const BRAND = 'TCG HUNT';
 
@@ -174,8 +169,8 @@ export function sellItemRejectedTemplate(
   // §31.2 — versalita **en la cadena**: `text-transform` no existe en Outlook.
   const optionsLabel = en ? 'YOUR OPTIONS' : 'TUS OPCIONES';
   const returnOption = en
-    ? `Return: request the return of your card before ${returnDate}. Shipping is at your cost; write to ${SUPPORT_EMAIL} to coordinate it.`
-    : `Devolución: solicita la devolución de tu carta antes del ${returnDate}. El envío corre por tu cuenta; escribe a ${SUPPORT_EMAIL} para coordinarla.`;
+    ? `Return: request the return of your card before ${returnDate}. Shipping is at your cost; write to ${supportContact()} to coordinate it.`
+    : `Devolución: solicita la devolución de tu carta antes del ${returnDate}. El envío corre por tu cuenta; escribe a ${supportContact()} para coordinarla.`;
   const abandonOption = en
     ? `Abandonment: if we don't hear from you by ${abandonDate}, the card will be considered abandoned.`
     : `Abandono: si no recibimos respuesta antes del ${abandonDate}, la carta se considerará abandonada.`;

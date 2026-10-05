@@ -5,6 +5,7 @@ import { OrdersController } from './orders.controller';
 import { AdminOrdersController } from './admin-orders.controller';
 import { GuestCheckoutService } from './guest-checkout.service';
 import { GuestOrdersController } from './guest-orders.controller';
+import { SupportContactController } from './support-contact.controller';
 import { OrderClaimService } from './order-claim.service';
 import { OrderRefundService } from './order-refund.service';
 import { GuestOrderTokensModule } from './guest-order-tokens.module';
@@ -18,7 +19,8 @@ import { CatalogModule } from '../catalog/catalog.module';
   // explícitamente en cada verify (mismo patrón que JwtAuthGuard). No autentica a nadie.
   imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({})],
   providers: [OrdersService, GuestCheckoutService, OrderClaimService, OrderRefundService, RejectAuthenticatedGuard],
-  controllers: [OrdersController, AdminOrdersController, GuestOrdersController],
+  // v1.82 PNL-1: `GET /support/contact` (público, un resolutor del buzón — `mail/support-contact.ts`).
+  controllers: [OrdersController, AdminOrdersController, GuestOrdersController, SupportContactController],
   exports: [OrdersService, GuestCheckoutService],
 })
 export class OrdersModule {}

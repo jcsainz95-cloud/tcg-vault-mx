@@ -609,6 +609,9 @@ export const ErrorCode = {
   // Disputes
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',
   NOT_RAW: 'NOT_RAW',
+  // 410 — v1.82 (§PNL.1, `HECHOS.md:44`): `POST /disputes` ya no crea disputas. `details: { supportContact }`.
+  // Sale ANTES de validar el cuerpo y de leer la pieza (un 403/422 según la pieza sería un oráculo).
+  DISPUTES_DISCONTINUED: 'DISPUTES_DISCONTINUED',
 
   // ── MODO del tipo de cambio (v1.63/v1.63.1 · API_CONTRACT §M2-F · ARCHITECTURE §4.43) ──
   // Las DOS mitades del invariante I-FX4 («no existe manual sin número»), disparadas por la MISMA

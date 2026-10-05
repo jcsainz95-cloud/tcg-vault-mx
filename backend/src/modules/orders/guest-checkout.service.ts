@@ -28,8 +28,8 @@ import {
   GUEST_ORDER_RESERVATION_TTL_MIN,
   GUEST_TRACKING_MAX_AGE_DAYS,
   GuestOrderPublicStatus,
-  SUPPORT_EVIDENCE_CONTACT,
 } from './guest-checkout.constants';
+import { supportContact } from '../mail/support-contact';
 
 /** Snapshot de dirección de un pedido `direct_ship` (el invitado no tiene fila `Address`). */
 export interface GuestAddressSnapshot {
@@ -689,7 +689,8 @@ export class GuestCheckoutService {
           : undefined,
       claim: { available: order.claimedAt == null },
       support: {
-        evidenceContact: SUPPORT_EVIDENCE_CONTACT,
+        // v1.82 · PNL-1: el MISMO resolutor que `GET /support/contact` (§PNL.1, `D-PNL-2`).
+        evidenceContact: supportContact(),
         disputeWindowDays: GUEST_DISPUTE_WINDOW_DAYS,
         disputeDeadlineAt: deliveredAt
           ? new Date(deliveredAt.getTime() + GUEST_DISPUTE_WINDOW_DAYS * DAY_MS)
