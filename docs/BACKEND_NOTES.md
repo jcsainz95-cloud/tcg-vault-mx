@@ -27346,3 +27346,69 @@ otros agentes vivos).
 | · `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` (1) | el conocido **P-INT-CEQ1-VAULTS**; aislado sobre la BD ya usada: **verde 3/3** |
 | · `graded-estimate` (P-INT-GRADED) | verde en esta corrida completa (1/1) |
 | BRJ-13 (b) dentro de la corrida completa | 0/12 y 0/12 mixtas; BRJ-8 (c) 20/20 coherentes |
+
+### 60.6 Errata v1.82.3 §PNL.12 construida (💰) — «Regla C»: las líneas `skip` no cuentan para cerrar la solicitud (2026-10-05, rama `claude/arreglos-panel`, sobre `b06ac1ca`)
+
+**La regla, una vez en cada forma** (`backend/src/modules/buylist/buylist-reject.constants.ts`, bloque final):
+- `SELL_ITEM_COUNTS_FOR_CLOSURE_WHERE = { OR: [{ offerDecision: null }, { offerDecision: { not: 'skip' } }] }` y
+  `readClosureRule(db, sellRequestId)` → `{ countingItems, nonRejectedItemStatuses }` (UN `findMany` filtrado por ese
+  `where`; las `skip` no llegan a memoria) + `closesAsRejectedByWhere(reading)`.
+- Forma pura: `countsForClosure(item)` / `closesAsRejected(items)` (`offerDecision` ausente ⇒ cuenta).
+
+**Los cuatro sitios:**
+| # | Sitio | Qué hace ahora |
+|---|---|---|
+| a | `autoRejectIfAllRejectedTx` (`buylist.service.ts`) | `readClosureRule` en la tx del llamador; 0 líneas que cuentan ⇒ no cierra. Resto igual |
+| b | `rejectRequest` | precondición = Regla C por `readClosureRule`; `422 REQUEST_HAS_NON_REJECTED_ITEMS` con los estados de **las líneas que cuentan**; con 0 que cuentan, `422` con los estados de **todas** (fail-closed, contrato 12.1 b) |
+| c | `deriveRejectedReason` | `'all_items_rejected'` ⇔ `closesAsRejected(items)`. Tipo de `items` = `ClosureRuleItem[]` (`offerDecision` opcional: ausente cuenta, o sea la conducta previa) |
+| d | `adminSellRequestDTO` | **`isRejectable: !isTerminalSellRequestStatus(status) && closesAsRejected(items)`** — en la proyección admin COMPARTIDA (listado, detalle, mesa, mutaciones). No toca `toSellRequestBaseDTO` ⇒ no llega al vendedor (afirmado en SKP-3) |
+
+Sin schema, migración, endpoint ni correo. La `skip` nunca se escribe. Nota para frontend: `isRejectable` sigue la fórmula
+literal del contrato (`isTerminal === false ∧ Regla C`); una fila incoherente de §M5-T (`closedAt` sellado con `status` vivo)
+daría `true` y el `POST …/reject` respondería `409` — la misma situación que ya tiene `isTerminal`.
+
+**Pruebas que cambian por la errata (dueño backend):**
+- Mocks unitarios con `sellRequestItem.count` (la auto-transición) pasan a `findMany` (`buylist.reject`, `offer-cycle-guards`,
+  `m5r-received-approve`, `ronda-c`, `request-reject`); en `request-reject` el `where` afirmado es ahora el `OR` explícito.
+- ⚠️ `test/integration/buylist-pay-verdicts.e2e-spec.ts` **assert 3** y **B1**: montaban por la API la fila de `BL-45`
+  (única `buy` rechazada + `skip` ⇒ viva con el aprobado en `null`). Con la Regla C **la API ya la cierra `rechazada`**: assert 3
+  ahora afirma primero eso (cierre + `pay-spei` ⇒ `409 CONFLICT`, cero pesos) y después reconstruye la fila **atorada** de
+  antes de la errata deshaciendo SOLO el cierre (`status=verificacion, closedAt=null`) para seguir midiendo V-a. Es la única
+  excepción a la norma «nada de sembrar» de ese fichero, y queda escrita en su cabecera. Cuántas filas así hay en producción:
+  **NO MEDIDO** (consulta de §PNL.12.5).
+
+### 60.7 El defecto, medido ANTES del arreglo
+Copia del árbol de trabajo entero (`b06ac1ca` + la prueba nueva), BD `tcg_be_skp`: `buylist-skip-closure.e2e-spec.ts`
+**7/7 rojos** — SKP-1 `requestClosed` false; SKP-2 sigue `verificacion`; SKP-3 `POST …/reject` 422; SKP-4 los `details` traen
+el estado de la `skip`; SKP-5 `isRejectable` undefined; SKP-5b/6b sin la regla.
+
+### 60.8 Pruebas
+| Prueba | Fichero |
+|---|---|
+| SKP-1, SKP-2, SKP-3 (+ SKP-6 antes/después), SKP-4 💰, SKP-5, **SKP-5b** (pre-ciclo, se rechazan las 2 ⇒ cierra), **SKP-6b** (solo `skip` ⇒ `422` fail-closed, `isRejectable:false`) — Postgres real, por HTTP | `backend/test/integration/buylist-skip-closure.e2e-spec.ts` |
+| Regla pura vs lectura `where` (8 casos), candado del `OR` explícito, `deriveRejectedReason` con `skip` | `backend/test/buylist.skip-closure-rule.spec.ts` |
+
+⚠️ **SKP-5 tal como está escrita no muerde la mutación del NULL, y por qué.** Con `{ offerDecision: { not: 'skip' } }`
+(o `{ offerDecision: 'buy' }`) las líneas `null` desaparecen de **las dos** lecturas (las que cuentan y las vivas), y como la
+Regla C exige ≥1 línea que cuenta, el efecto es «el pre-ciclo **nunca** cierra», no «cierra de más». SKP-5 («se rechaza 1 ⇒ no
+cierra») sigue verde bajo la mutación. Lo que muerde es **SKP-5b** (se rechazan las 2 ⇒ debe cerrar, como hoy). Medido además:
+con el Prisma del árbol, `{ not: 'skip' }` **sí descarta los NULL** (SKP-5b rojo 3/3).
+
+### 60.9 Mutaciones (copia del árbol entero, BD `tcg_be_skp`; cada una revertida antes de la siguiente; deterministas, N=3)
+| Mutación | Rojos | N |
+|---|---|---|
+| M1 — (a) cuenta todas las líneas (el `count` de antes) | SKP-1, SKP-2 | 3/3 |
+| M2 — (b) guard de antes (todas las líneas no `rechazada`) | SKP-3, SKP-4 | 3/3 |
+| M3 💰 — Regla C sin «toda línea que cuenta»: solo bloquean las `buy` sin veredicto (`aprobada` deja cerrar) | SKP-4 (`requestClosed` true con una `aprobada`) | 3/3 |
+| M4 — `{ offerDecision: { not: 'skip' } }` en vez del `OR` | SKP-5b | 3/3 |
+| M4b — `{ offerDecision: 'buy' }` | SKP-5b | 3/3 |
+| M5 — (c) sin el filtro `skip` (`every` sobre todas) | SKP-3 (`rejectedReason` null) | 3/3 |
+| M6 — (d) `every(itemStatus==='rechazada')` local | SKP-3 (`isRejectable` false antes) | 3/3 |
+| M7 — la pura diverge del `where` (`countsForClosure` siempre true) | SKP-3 (la igualdad de SKP-6) | 3/3 |
+
+### 60.10 Suites completas (copia del árbol de trabajo entero = `b06ac1ca` + este cambio; load 1–5, 4 CPU)
+| Qué | Resultado |
+|---|---|
+| unitarios completos | **397/397 suites · 6732/6732** |
+| integración completa (antes de adaptar `buylist-pay-verdicts`) | 82/83 · los 2 rojos = assert 3 y B1 (ver 60.6) |
+| integración completa (final) | **82/83 suites · 1636/1639 (2 skipped)**. El rojo: `enum-query-axes` C-EQ-1 `GET /admin/vaults?sort=` = el conocido **P-INT-CEQ1-VAULTS**; aislado **2/3 verde, 1/3 rojo** (N=3) — intermitente, ajeno a buylist |

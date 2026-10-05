@@ -72,7 +72,9 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
         }),
         // v1.24-buylist-request-reject: la auto-transición cuenta ítems no-rechazados restantes;
         // default 1 (≥1 vivo) ⇒ NO auto-rechaza en estos tests item-céntricos.
-        count: jest.fn(async () => 1),
+        // v1.82.3 · §PNL.12 — la auto-transición lee las líneas que CUENTAN (`readClosureRule`, un
+        // `findMany`). ≥1 viva ⇒ NO auto-rechaza (mismo efecto que el `count: 1` de antes).
+        findMany: jest.fn(async () => [{ itemStatus: 'aprobada' }]),
       },
       sellRequest: {
         update: jest.fn(async (args: any) => {

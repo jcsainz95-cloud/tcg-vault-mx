@@ -72,8 +72,12 @@ function buildForItemDecision(nonRejectedRemaining: number) {
         _sum: { approvedPriceCents: null },
         _count: { approvedPriceCents: 0 },
       })),
-      // Regla f: nº de ítems con itemStatus != 'rechazada' que restan tras el reject.
-      count: jest.fn(async () => nonRejectedRemaining),
+      // Regla f → v1.82.3 · §PNL.12 (Regla C): las líneas que CUENTAN tras el reject — la recién
+      // rechazada + `nonRejectedRemaining` vivas. (El filtro `skip` lo pone Postgres; aquí no hay `skip`.)
+      findMany: jest.fn(async () => [
+        { itemStatus: 'rechazada' },
+        ...Array.from({ length: nonRejectedRemaining }, () => ({ itemStatus: 'aprobada' })),
+      ]),
     },
     sellRequest: {
       update: jest.fn(async () => ({})),
@@ -120,9 +124,10 @@ describe('itemDecision(reject) — auto-transición de la SOLICITUD (regla f)', 
   it('todos los ítems rechazados (último ítem no-rechazado) ⇒ solicitud a `rechazada` + `closedAt`', async () => {
     const { svc, prisma } = buildForItemDecision(0); // ∅ ítems no-rechazados restantes.
     await svc.itemDecision('sri-1', 'reject', undefined, 'no es NM: whitening');
-    // Cuenta ítems NO-rechazados en la solicitud (convertida_inventario contaría como vivo).
-    expect(prisma.sellRequestItem.count).toHaveBeenCalledWith({
-      where: { sellRequestId: 'sr-1', itemStatus: { not: 'rechazada' } },
+    // v1.82.3 · §PNL.12 — lee las líneas que CUENTAN, con el `OR` EXPLÍCITO (la columna es nullable).
+    expect(prisma.sellRequestItem.findMany).toHaveBeenCalledWith({
+      where: { sellRequestId: 'sr-1', OR: [{ offerDecision: null }, { offerDecision: { not: 'skip' } }] },
+      select: { itemStatus: true },
     });
     // Transición atómica con la guarda de §M5-T + closedAt sellado (Date).
     // v1.51 (M-46, §4.39c sitio 7): el set terminal es el COMPARTIDO, no un literal del test.
@@ -140,7 +145,7 @@ describe('itemDecision(reject) — auto-transición de la SOLICITUD (regla f)', 
   it('queda ≥1 ítem no-rechazado (p. ej. otro `aprobada` o `convertida_inventario`) ⇒ NO auto-rechaza', async () => {
     const { svc, prisma } = buildForItemDecision(1); // 1 ítem vivo restante.
     await svc.itemDecision('sri-1', 'reject', undefined, 'no es NM: edge nicks');
-    expect(prisma.sellRequestItem.count).toHaveBeenCalled();
+    expect(prisma.sellRequestItem.findMany).toHaveBeenCalled();
     // v1.56: «no transiciona» = cero escrituras de `status`. El recompute del total SÍ corre (y ahora
     // también pasa por `updateMany`), así que afirmar `not.toHaveBeenCalled()` sobre el verbo mediría
     // otra cosa.
@@ -160,7 +165,7 @@ describe('itemDecision(reject) — auto-transición de la SOLICITUD (regla f)', 
       card: { name: 'Pidgey', number: '16', set: { name: 'Base Set' } },
     });
     await svc.itemDecision('sri-1', 'reject', undefined, 'otro motivo');
-    expect(prisma.sellRequestItem.count).not.toHaveBeenCalled();
+    expect(prisma.sellRequestItem.findMany).not.toHaveBeenCalled();
     expect(prisma.sellRequest.updateMany).not.toHaveBeenCalled();
   });
 });
@@ -207,7 +212,8 @@ function buildForRejectRequest(opts: {
       updateMany: jest.fn(async () => ({ count: opts.updateManyCount ?? 1 })),
     },
     sellRequestItem: {
-      findMany: jest.fn(async () => opts.liveItems ?? []),
+      // v1.82.3 · §PNL.12 — la precondición lee las líneas que CUENTAN: una `rechazada` + las vivas.
+      findMany: jest.fn(async () => [{ itemStatus: 'rechazada' }, ...(opts.liveItems ?? [])]),
     },
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
     // v1.24 (endurecimiento §4.18g): precondición + updateMany en un $transaction Serializable;

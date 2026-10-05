@@ -70,6 +70,9 @@ import { runSerializable } from '../../common/serializable-retry';
 import { ITEM_FINAL_STATUSES, isItemFinal, parseRejectItemsBody, rejectItemsBlock } from './buylist-reject-items';
 import {
   deriveRejectedReason,
+  closesAsRejected,
+  closesAsRejectedByWhere,
+  readClosureRule,
   rejectDeadlines,
   SELL_REQUEST_LIVE_ADJUSTMENT_STATES,
   SELL_REQUEST_TERMINAL_STATES,
@@ -2531,6 +2534,11 @@ export class BuylistService implements OnModuleInit {
       // set de estados «sin veredicto» **y** el filtro `buy`), y este proyecto ya borró cinco copias
       // de sets de estado por esa vía. **El servidor manda el número.**
       pendingDecisionItemCount: pendingDecisionItemIds.length,
+      // ⚠️ v1.82.3 · §PNL.12 (d) — **ADMIN-ONLY, DERIVADO**: ¿ofrece M5 «Rechazar solicitud»?
+      // `= (isTerminal === false) ∧ Regla C` — la MISMA función pura que `rejectedReason` (c) y la misma
+      // regla que el guard de `POST …/reject` (b), así que `isRejectable === true ⇒ reject no da 422`.
+      // El front ya no evalúa su copia (`every(itemStatus === 'rechazada')`, sin el filtro `skip`).
+      isRejectable: !isTerminalSellRequestStatus(r.status) && closesAsRejected(r.items ?? []),
       // Identidad del súper-admin que liquidó: back-office legítimo, NUNCA en la vista del cliente.
       paidBy: r.paidBy,
       // SEC-D2: dato INTERNO de cumplimiento (ancla la retención de INE). Solo vista admin.
@@ -7060,11 +7068,11 @@ export class BuylistService implements OnModuleInit {
    * @returns `true` si ESTA llamada cerró la solicitud.
    */
   private async autoRejectIfAllRejectedTx(tx: Prisma.TransactionClient, sellRequestId: string): Promise<boolean> {
-    // ¿Queda algún ítem NO-rechazado en la solicitud? (convertida_inventario cuenta como vivo).
-    const nonRejectedCount = await tx.sellRequestItem.count({
-      where: { sellRequestId, itemStatus: { not: 'rechazada' } },
-    });
-    if (nonRejectedCount > 0) return false; // aún hay ítems no-rechazados → no se auto-rechaza.
+    // ⚠️ v1.82.3 · §PNL.12 (a) — **Regla C**: cierra solo si hay ≥1 línea que CUENTA y todas las que
+    // cuentan están `rechazada` (convertida_inventario cuenta como viva). Las `skip` no cuentan: nada las
+    // rechaza (§M5-V.0), así que contarlas dejaba la solicitud en `verificacion` para siempre. Con 0
+    // líneas que cuentan NO se cierra. La `skip` no se escribe.
+    if (!closesAsRejectedByWhere(await readClosureRule(tx, sellRequestId))) return false;
     // Transición con guardia «no pisar terminal» (patrón updateMany de paySpei). Si la solicitud
     // ya es terminal (pagada/rechazada/abandonada) el updateMany no matchea → no-op.
     // ⚠️ v1.56 · **§M5-T** — el guard pasa a los **DOS** términos (`liveRequestWhere`). Escribe
@@ -7314,17 +7322,26 @@ export class BuylistService implements OnModuleInit {
     const transitioned = await runSerializable(
       this.prisma,
       async (tx) => {
-        // Precondición (idéntica a la regla f): cierra SÓLO si TODOS los ítems ya están `rechazada`.
-        // Cualquier ítem vivo (aprobada/ajustada/convertida_inventario/verificacion/…) bloquea el
-        // cierre → 422 con los status vivos encontrados.
-        const liveItems = await tx.sellRequestItem.findMany({
-          where: { sellRequestId: id, itemStatus: { not: 'rechazada' } },
-          select: { itemStatus: true },
-        });
-        if (liveItems.length > 0) {
-          const nonRejectedItemStatuses = Array.from(
-            new Set(liveItems.map((i) => i.itemStatus)),
-          ) as SellItemStatus[];
+        // Precondición (idéntica a la regla f): **Regla C** (v1.82.3 · §PNL.12 (b)) — cierra SÓLO si hay
+        // ≥1 línea que CUENTA y todas las que cuentan ya están `rechazada`. Cualquier línea que cuenta y
+        // sigue viva (aprobada/ajustada/convertida_inventario/verificacion/…) bloquea → 422 con SUS
+        // estados (los de las `skip` no salen). Con 0 líneas que cuentan: 422 con los estados de TODAS
+        // (fail-closed: no hay nada comprado que rechazar). La `skip` no se escribe.
+        const rule = await readClosureRule(tx, id);
+        if (!closesAsRejectedByWhere(rule)) {
+          const nonRejectedItemStatuses =
+            rule.countingItems > 0
+              ? rule.nonRejectedItemStatuses
+              : (Array.from(
+                  new Set(
+                    (
+                      await tx.sellRequestItem.findMany({
+                        where: { sellRequestId: id },
+                        select: { itemStatus: true },
+                      })
+                    ).map((i) => i.itemStatus),
+                  ),
+                ) as SellItemStatus[]);
           throw BusinessException.validation(
             'REQUEST_HAS_NON_REJECTED_ITEMS',
             'Request still has non-rejected items; reject them per-item before closing the request',
