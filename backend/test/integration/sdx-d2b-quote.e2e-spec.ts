@@ -25,7 +25,12 @@ describe('💰 D2b — cotizar la guía (§M4-SHIP.19.6 + §19.19.4/.5)', () => 
   let fake: FakeShippingProvider;
   let clock: ManualLabelClock;
 
-  const quote = (id: string, json: unknown = {}, token = db.opToken): Promise<R> => h.api('POST', `/admin/shipments/${id}/quote`, { token, json });
+  // El reloj manual avanza 1 ms por cotización: «la vigente» es la de `requestedAt` mayor, y con el reloj congelado dos
+  // cotizaciones empataban (medido: 1 roja en la suite completa sobre una copia, `package.code` 'envelope' ≠ 'box').
+  const quote = (id: string, json: unknown = {}, token = db.opToken): Promise<R> => {
+    clock.advance(1);
+    return h.api('POST', `/admin/shipments/${id}/quote`, { token, json });
+  };
   const getQuote = (id: string, token = db.opToken): Promise<R> => h.api('GET', `/admin/shipments/${id}/quote`, { token });
   const quoteCalls = () => fake.callsOf('quote').length;
   const lastQuoteInput = () => fake.callsOf('quote').slice(-1)[0].input as QuoteInput;
