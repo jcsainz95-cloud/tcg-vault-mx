@@ -311,7 +311,7 @@ describe('UX-GAS-12 · `{ref}` sin artículo: «del pedido», nunca «de el pedi
   const rows: SpendAlertDTO[] = [];
   for (const [code, [kind, facts]] of Object.entries(F) as [SpendAlertDTO['code'], [SpendAlertDTO['kind'], SpendAlertDTO['facts']]][]) {
     rows.push(a({ id: `${code}-o`, code, kind, subject: LUIS, facts }));
-    rows.push(a({ id: `${code}-s`, code, kind, subject: LUIS, order: null, shipment: { id: 's', folio: 'ENV-000047' }, facts }));
+    rows.push(a({ id: `${code}-s`, code, kind, subject: LUIS, order: null, shipment: { id: 's', folio: 'ENV-000047', kind: null }, facts }));
   }
   for (const cause of ['charged_not_found', 'orphan', 'duplicate', 'orphan_auto_cancelled', 'orphan_cancel_unknown', 'zz_other']) {
     rows.push(a({ id: `AG-9-${cause}-o`, code: 'AG-9', kind: 'label_charged_unexplained', facts: { cause, expectedChargeCents: 1, providerReference: 'R' } }));

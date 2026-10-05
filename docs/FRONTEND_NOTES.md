@@ -19604,3 +19604,5 @@ cada una — son deterministas: render sin carreras ni temporizadores; base de l
 | Usuarios | `ownerAccountSelf` nunca | 1 roja |
 | Usuarios | sin `OwnerTag` en la lista | 1 roja |
 | canario (c) | cambiar la excepción anclada por `/\S*24\S*( (horas\|hours))?/g` (deja pasar «MX$24.00») | 1 roja (UX-SDX-28 (c)) |
+
+- 2026-10-05 · G5 (errata v1.80.12.15 §M4-SHIP.19.34.3/§19.33.10): `SpendAlertDTO.shipment.kind` pasa a `AdminShipmentKind | null` (obligatorio, sin `'order_ship'`). Medido con grep: ningún lector del campo en `frontend/src` (`AlertRef` decide por `alert.order`, no por `kind`); `null` ⇒ envíos por folio ya es el comportamiento.

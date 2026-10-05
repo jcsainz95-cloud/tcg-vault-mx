@@ -5901,8 +5901,8 @@ export interface SpendAlertDTO {
   severity: SpendAlertSeverity;
   /** Miembro del personal; ⛔ nunca un cliente. */
   subject: { userId: string; name: string | null } | null;
-  /** 🔒 v1.80.12.10 (S-GAS-2): `kind` elige el enlace (con `order` ⇒ pedido; sin `order` ⇒ envíos por folio). */
-  shipment: { id: string; folio: string; kind?: 'vault_withdrawal' | 'guest_direct_ship' | 'order_ship' } | null;
+  /** 🔒 v1.80.12.15 (G5): `kind` obligatorio, `null` ⇒ sin orden ⇒ envíos por folio; con `order` ⇒ pedido. */
+  shipment: { id: string; folio: string; kind: AdminShipmentKind | null } | null;
   order: { id: string; orderNumber: string | null } | null;
   amountCents: number | null;
   /** Lista blanca por kind (§19.29.6); la pantalla aplica OTRA lista blanca al pintar (UX-GAS-6). */
