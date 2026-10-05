@@ -8,10 +8,11 @@
  * en el tipo. AG-1 dice QUÉ campos se corrigieron, nunca los valores.
  */
 import { SpendAlertKind } from '@prisma/client';
-import { SPEND_ALERT_CODE_OF } from './spend-alerts.service';
+import { SPEND_ALERT_CODE_OF, SpendFactValue } from './spend-alerts.service';
 
 export type MailLocale = 'es' | 'en';
-export type FactValue = string | number | boolean | string[] | null | { [k: string]: unknown };
+/** G2 (§19.33.7): el MISMO tipo que `SpendFacts` del servicio — ⛔ una segunda definición que derive. */
+export type FactValue = SpendFactValue;
 
 /** Lo único que una plantilla sabe de un aviso. */
 export interface SpendAlertMailView {

@@ -66,7 +66,14 @@ const NEVER_MUTED: ReadonlySet<SpendAlertKind> = new Set<SpendAlertKind>(['owner
 /** S-GAS-5: llaves de `facts` que se REESCRIBEN con lo vigente al repetirse el aviso. */
 const REWRITTEN_FACTS = ['cancelledCount', 'unrecoveredCents', 'unknownRefunds'] as const;
 
-export type SpendFacts = Record<string, string | number | boolean | string[] | null>;
+/**
+ * G2 (API_CONTRACT §M4-SHIP.19.33.7): el valor de un hecho. AMPLIADO (aditivo, ⛔ no se aplana) con el objeto persona — AG-21
+ * `previousOwner`/`currentOwner` y AG-22 `target`. ⛔ Sin más formas: un objeto nuevo en `facts` es errata del contrato.
+ * Es el mismo tipo en el DTO (`SpendAlertDTO.facts`, §19.29.9).
+ */
+export type SpendFactValue = string | number | boolean | string[] | null | { userId: string; name: string | null };
+
+export type SpendFacts = Record<string, SpendFactValue>;
 
 export interface RaiseInput {
   kind: SpendAlertKind;

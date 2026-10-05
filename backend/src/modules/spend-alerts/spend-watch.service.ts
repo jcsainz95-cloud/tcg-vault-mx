@@ -1,6 +1,6 @@
 /**
  * spend-watch.service.ts — 💰 el job **`spend-watch`** (API_CONTRACT §19.29.7, §19.30.1 (5), §19.31.10 fila 2b). Cada 5 min (el
- * cron y el registro en `jobs/` son la costura C1, §19.32.9: aquí se prueba llamando a `run()`).
+ * cron y el registro en `jobs/` son la costura C1, §19.33.9: `scheduler.service.ts` y `POST /admin/jobs/spend-watch`).
  *
  *  (0) 🔒 C-20 (b): **la marca del dueño.** `actual` = id del único `User` con `isOwner` que cumple `isOwnerAccount`, o `null`.
  *      Sin fila en `SpendOwnerWatch` ⇒ la inserta (y con `actual = null` crea AG-21 `no_owner`); con fila y `actual ≠
@@ -143,21 +143,26 @@ export class SpendWatchService implements OnApplicationBootstrap {
     return { ownerUserId: actual?.id ?? null, changed: true, alertId };
   }
 
-  /** AG-21 (§19.30.1 (6)) — 🔴, `ag21:<anterior|none>:<actual|none>`, nombres del personal (⛔ correos). */
+  /** AG-21 (§19.30.1 (6)) — 🔴, `ag21:<anterior|none>:<actual|none>:<instante>` (G4), nombres del personal (⛔ correos). */
   private async raiseOwnerChanged(
     tx: Prisma.TransactionClient,
     prev: { id: string; name: string } | null,
     curr: { id: string; name: string } | null,
     now: Date,
   ): Promise<string | null> {
-    const facts = {
+    // G2 (§19.33.7): los dueños son el objeto persona de `SpendFactValue` (⛔ sin cast).
+    const facts: SpendFacts = {
       cause: curr ? 'changed' : 'no_owner',
       previousOwner: prev ? { userId: prev.id, name: prev.name } : null,
       currentOwner: curr ? { userId: curr.id, name: curr.name } : null,
-    } as unknown as SpendFacts; // los dueños son objetos (§19.30.1 (6)); `SpendFacts` (congelado) no los nombra.
+    };
+    // G4 (§19.33.7): cada cambio de la marca es un hecho NUEVO ⇒ la llave lleva el instante de la corrida que lo detecta
+    // (A→B→A→B ⇒ tres avisos). «A lo sumo una vez por cambio» lo sigue dando la fila de `SpendOwnerWatch`, actualizada en la
+    // MISMA tx bajo el candado de `spend-watch`.
+    const dedupKey = `ag21:${prev?.id ?? 'none'}:${curr?.id ?? 'none'}:${now.toISOString()}`;
     const res = await this.alerts.raise(
       tx,
-      { kind: 'owner_account_changed', severity: 'immediate', dedupKey: `ag21:${prev?.id ?? 'none'}:${curr?.id ?? 'none'}`, facts },
+      { kind: 'owner_account_changed', severity: 'immediate', dedupKey, facts },
       now,
     );
     return res?.id ?? null;

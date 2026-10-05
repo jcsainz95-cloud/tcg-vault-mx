@@ -2,8 +2,8 @@
  * sdx-d2g-watch.e2e-spec.ts — 💰 los dos jobs de D2g llamados por `run()` (su registro en `jobs/` es la costura C1, §19.32.9),
  * contra Postgres REAL con el reloj del módulo inyectado y el DOBLE del proveedor (⛔ nunca la red). Propiedad: backend (D2g).
  *
- *  - PS-160 (d) / C-20 (b): paso (0) de `spend-watch` — el dueño cambia de A a B (por SQL) ⇒ UN AG-21 🔴 con correo a A y a B;
- *    segunda corrida ⇒ nada; sin dueño ⇒ AG-21 `no_owner` y `error` en el log.
+ *  - PS-160 (d) / C-20 (b): paso (0) de `spend-watch` — el dueño cambia A→B→A→B (por SQL) ⇒ TRES AG-21 🔴 (G4, §19.33.7: la llave
+ *    lleva el instante), cada uno con correo a A y a B; corrida sin cambio ⇒ nada; sin dueño ⇒ AG-21 `no_owner` y `error` en el log.
  *  - PS-147 (b): AG-8 (b) — cancelación sin cifra: día 2 nada, día 3 🔴 UNA vez (sellado); reembolso entero ⇒ nada.
  *  - PS-149: AG-10 — día 2 nada; día 3 🟡; tras salir ⇒ `resolvedAt`; guía cancelada ⇒ resuelto.
  *  - PS-146 (parte D2g): el saldo por la lectura CACHEADA de `spend-watch` ⇒ `observeBalance` (AG-7), una llamada por 5 min.
@@ -47,27 +47,50 @@ async function provider(v: 'skydropx' | 'off') {
 }
 
 describe('PS-160 (d) / C-20 (b) — `spend-watch` paso (0): la marca del dueño', () => {
-  it('primera corrida con dueña ⇒ fila, sin aviso; cambio A→B por SQL ⇒ UN AG-21 🔴 a A y a B; segunda corrida ⇒ nada', async () => {
+  it('primera corrida con dueña ⇒ fila, sin aviso; A→B→A→B por SQL ⇒ TRES AG-21 🔴 (G4), cada uno a A y a B; corrida sin cambio ⇒ nada', async () => {
+    // ⚠️ v1.80.12.14 (§19.33.7 G4): cada cambio de la marca es un hecho NUEVO ⇒ `dedupKey` = `ag21:<anterior>:<actual>:<instante>`
+    // con el `now` ISO de la corrida que lo detecta. Antes (`ag21:<anterior>:<actual>`) el segundo A→B se fundía con el primero.
     await neutralizeOtherAlerts(w.h);
     w.mail.reset();
     const r0 = await watch.run(w.clock.now());
     expect(r0.owner).toEqual({ ownerUserId: w.owner.id, changed: false, alertId: null });
-    // B = W (súper-admin con correo); el cambio solo se hace «desde el servidor» (aquí, SQL como `set-owner.ts`).
-    await markOwner(w.h, w.w.id);
+    const A = w.owner;
+    const B = w.w; // súper-admin con correo; el cambio solo se hace «desde el servidor» (aquí, SQL como `set-owner.ts`).
+    const steps: Array<[typeof A, typeof A]> = [[A, B], [B, A], [A, B]];
     try {
-      const r1 = await watch.run(w.clock.now());
-      expect(r1.owner.changed).toBe(true);
-      const ag21 = await w.h.prisma.spendAlert.findUniqueOrThrow({ where: { id: r1.owner.alertId! } });
-      expect(ag21).toMatchObject({ kind: 'owner_account_changed', severity: 'immediate', dedupKey: `ag21:${w.owner.id}:${w.w.id}`, mailStatus: 'sent' });
-      expect(ag21.facts).toEqual({ cause: 'changed', previousOwner: { userId: w.owner.id, name: w.owner.name }, currentOwner: { userId: w.w.id, name: w.w.name } });
-      expect(w.mail.sent.map((m) => m.to).sort()).toEqual([w.owner.email, w.w.email].sort());
+      const seen: Array<{ id: string; at: Date; prev: typeof A; curr: typeof A; mailed: Array<string | null> }> = [];
+      for (const [prev, curr] of steps) {
+        w.clock.advance(60_000); // corridas distintas, instantes distintos (en producción, 5 min)
+        await markOwner(w.h, curr.id);
+        const at = w.clock.now();
+        const sentBefore = w.mail.sent.length;
+        const r = await watch.run(at);
+        expect(r.owner.changed).toBe(true);
+        seen.push({ id: r.owner.alertId!, at, prev, curr, mailed: w.mail.sent.slice(sentBefore).map((m) => m.to) });
+      }
+      // Primero la conducta (G4): TRES avisos distintos, cada uno visto una vez. Con la llave sin instante el tercero (A→B otra
+      // vez) se funde con el primero ⇒ 2 ids y `occurrenceCount` 2.
+      expect(new Set(seen.map((x) => x.id)).size).toBe(3);
+      for (const x of seen) {
+        const a = await w.h.prisma.spendAlert.findUniqueOrThrow({ where: { id: x.id } });
+        expect(a).toMatchObject({ kind: 'owner_account_changed', severity: 'immediate', mailStatus: 'sent', occurrenceCount: 1 });
+        expect(a.facts).toEqual({ cause: 'changed', previousOwner: { userId: x.prev.id, name: x.prev.name }, currentOwner: { userId: x.curr.id, name: x.curr.name } });
+        // Individual (⛔ nunca al lote): un correo a la cuenta anterior y uno a la actual, en la corrida que lo detecta.
+        expect(x.mailed.sort()).toEqual([A.email, B.email].sort());
+        // La forma de la llave (§19.33.7 G4): `ag21:<anterior>:<actual>:<instante ISO de la corrida>`.
+        expect(a.dedupKey).toBe(`ag21:${x.prev.id}:${x.curr.id}:${x.at.toISOString()}`);
+      }
       for (const m of w.mail.sent) expect(`${m.subject}${m.text}`).not.toMatch(/@e2e\.local/);
       const n = w.mail.sent.length;
+      expect(n).toBe(6);
+      // La misma situación, otra corrida, sin cambio ⇒ nada (sigue «a lo sumo una vez por cambio»).
+      w.clock.advance(60_000);
       const r2 = await watch.run(w.clock.now());
-      expect(r2.owner).toEqual({ ownerUserId: w.w.id, changed: false, alertId: null });
+      expect(r2.owner).toEqual({ ownerUserId: B.id, changed: false, alertId: null });
       expect(w.mail.sent).toHaveLength(n);
     } finally {
       await markOwner(w.h, w.owner.id);
+      w.clock.advance(60_000);
       await watch.run(w.clock.now()); // vuelve a A (otro AG-21, el de vuelta)
     }
   });

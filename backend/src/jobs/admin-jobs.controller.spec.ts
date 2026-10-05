@@ -115,3 +115,75 @@ describe('AdminJobsController · jobs de Skydropx (D2d)', () => {
   });
 });
 
+
+/**
+ * 💰 C1 (API_CONTRACT §M4-SHIP.19.33.9, PS-172 (b)) — los dos disparos de D2g: `POST /admin/jobs/spend-watch` (sin cuerpo) y
+ * `POST /admin/jobs/spend-digest {day?: 'YYYY-MM-DD'}`. Súper-admin (de la clase), `200` con el resultado de `run`, AUDITAN
+ * `jobs.<name>.run`; `day` fuera de formato ⇒ `400 VALIDATION_ERROR {field:'day'}` sin llamar a `run` ni auditar; sin el
+ * servicio ⇒ `404` (como D2d).
+ */
+describe('AdminJobsController · jobs de avisos al dueño (C1)', () => {
+  const user = { id: 'sa-1', role: Role.super_admin };
+  const stub = {} as never;
+  const watchResult = { owner: { ownerUserId: 'o-1', changed: false, alertId: null }, mail: { sent: 1 } };
+  const digestResult = { day: '2026-10-04', status: 'sent', alertCount: 3 };
+  function make() {
+    const watch = { run: jest.fn(async () => watchResult) };
+    const digest = { run: jest.fn(async () => digestResult) };
+    const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
+    const controller = new AdminJobsController(
+      stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, audit, stub, stub, stub, watch as never, digest as never,
+    );
+    return { controller, watch, digest, audit };
+  }
+
+  it('`spend-watch` corre `run()` (reloj del módulo), responde su resultado y audita `jobs.spend_watch.run`', async () => {
+    const { controller, watch, audit } = make();
+    const res = await controller.runSpendWatch(user);
+    expect(watch.run).toHaveBeenCalledTimes(1);
+    expect(watch.run).toHaveBeenCalledWith();
+    expect(res).toBe(watchResult);
+    const entry = (audit.log as jest.Mock).mock.calls[0][0];
+    expect(entry).toEqual(expect.objectContaining({ action: 'jobs.spend_watch.run', entityType: 'Job', entityId: 'spend-watch', actorUserId: 'sa-1', actorRole: Role.super_admin }));
+    expect(entry.after).toEqual(expect.objectContaining({ owner: watchResult.owner }));
+  });
+
+  it('`spend-digest {day}` pasa el día; sin `day` ⇒ `run({})`; ambos auditan `jobs.spend_digest.run` con el día pedido', async () => {
+    const { controller, digest, audit } = make();
+    expect(await controller.runSpendDigest({ day: '2026-10-01' }, user)).toBe(digestResult);
+    expect(digest.run).toHaveBeenLastCalledWith({ day: '2026-10-01' });
+    await controller.runSpendDigest({}, user);
+    expect(digest.run).toHaveBeenLastCalledWith({});
+    const calls = (audit.log as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(calls.map((c) => [c.action, c.entityType, c.entityId])).toEqual([
+      ['jobs.spend_digest.run', 'Job', 'spend-digest'],
+      ['jobs.spend_digest.run', 'Job', 'spend-digest'],
+    ]);
+    expect(calls[0].after).toEqual({ requestedDay: '2026-10-01', ...digestResult });
+    expect(calls[1].after).toEqual({ requestedDay: null, ...digestResult });
+  });
+
+  it('`day` mal formado ⇒ 400 VALIDATION_ERROR {field:\'day\'}, sin correr ni auditar', async () => {
+    const { controller, digest, audit } = make();
+    for (const day of ['2026-1-01', '01/10/2026', '2026-02-30', 'ayer', '', 20261001, null] as unknown[]) {
+      await expect(controller.runSpendDigest({ day } as never, user)).rejects.toMatchObject({
+        status: 400,
+        code: 'VALIDATION_ERROR',
+        details: { field: 'day' },
+      });
+    }
+    expect(digest.run).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('responden 200 y, sin el servicio, 404 (⛔ nunca un 500)', async () => {
+    for (const m of ['runSpendWatch', 'runSpendDigest'] as const) {
+      expect(Reflect.getMetadata(HTTP_CODE_METADATA, AdminJobsController.prototype[m])).toBe(200);
+    }
+    const audit = { log: jest.fn() } as unknown as AuditService;
+    const bare = new AdminJobsController(stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, stub, audit);
+    await expect(bare.runSpendWatch(user)).rejects.toMatchObject({ status: 404 });
+    await expect(bare.runSpendDigest({}, user)).rejects.toMatchObject({ status: 404 });
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+});

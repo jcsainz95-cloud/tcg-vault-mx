@@ -1,7 +1,7 @@
 /**
  * spend-digest.service.ts — 💰 el job **`spend-digest`**: el resumen de las 08:00 de México (API_CONTRACT §19.29.7, §19.31.8).
- * El cron (`0 8 * * *` con `tz: 'America/Mexico_City'`, o `0 14 * * *` UTC) y `POST /admin/jobs/spend-digest {day?}` son la
- * costura C1 (§19.32.9); aquí se prueba llamando a `run()`.
+ * El cron (`0 8 * * *` con `tz: 'America/Mexico_City'`: la BullMQ instalada admite `tz`, medido en C1) y
+ * `POST /admin/jobs/spend-digest {day?}` son la costura C1 (§19.33.9, `jobs/`).
  *
  *  - `day` = AYER en México (del reloj del módulo). `INSERT SpendDigestRun(day) ON CONFLICT DO NOTHING` ⇒ si no insertó y su
  *    `status ≠ 'failed'`, no-op: **una vez por día**.

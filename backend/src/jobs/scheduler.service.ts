@@ -22,8 +22,13 @@ import { isSchedulerDisabled } from '../config/test-env';
 import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job';
 import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processing.job';
 import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
+import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
+import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 
 const QUEUE_NAME = 'tcg-daily';
+
+/** 💰 C1 (§19.29.7): el resumen diario al dueño sale a las 08:00 de la Ciudad de México (no hay horario de verano desde 2022). */
+const SPEND_DIGEST_TZ = 'America/Mexico_City';
 
 /** Throttle de logs de error de conexión (ioredis reintenta cada ~1-2s; sin esto, spamea). */
 const CONN_ERROR_LOG_INTERVAL_MS = 60_000;
@@ -115,6 +120,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly shipmentTrackingPoll?: ShipmentTrackingPollJob,
     @Optional() private readonly shipmentLabelProcessing?: ShipmentLabelProcessingJob,
     @Optional() private readonly shipmentExtraCharges?: ShipmentExtraChargesJob,
+    // 💰 C1 (API_CONTRACT §M4-SHIP.19.33.9): los dos jobs de avisos al dueño (D2g). `@Optional()` por la misma razón que los de
+    // D2d; en la app los exporta `SpendAlertsModule` (lo asevera `sdx-c1-jobs.e2e-spec.ts` con el AppModule real).
+    @Optional() private readonly spendWatch?: SpendWatchService,
+    @Optional() private readonly spendDigest?: SpendDigestService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -249,6 +258,19 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: los jobs de Skydropx NO están inyectados; shipment-* no quedan programados.');
     }
 
+    // 💰 C1 (§M4-SHIP.19.33.9, §19.29.7): avisos al dueño. `spend-watch` cada 5 min (marca del dueño, correos pendientes, lotes,
+    // saldo, AG-8 (b), AG-10); `spend-digest` a las 08:00 de MÉXICO — `tz` lo admite la BullMQ instalada (5.81.3 pasa `tz` a
+    // cron-parser 4.9.0; medido en BACKEND_NOTES §66), así que no hace falta el `0 14 * * *` UTC. Single-flight: el candado
+    // consultivo de cada servicio (⛔ nada nuevo aquí). Crons por env.
+    const spendWatchCron = this.config.get<string>('SPEND_WATCH_CRON') ?? '*/5 * * * *';
+    const spendDigestCron = this.config.get<string>('SPEND_DIGEST_CRON') ?? '0 8 * * *';
+    if (this.spendWatch && this.spendDigest) {
+      await this.queue.add('spend-watch', {}, this.repeatEvery('spend-watch', spendWatchCron));
+      await this.queue.add('spend-digest', {}, this.repeatTz('spend-digest', spendDigestCron, SPEND_DIGEST_TZ));
+    } else {
+      this.logger.error('Scheduler: los jobs de avisos al dueño NO están inyectados; spend-watch y spend-digest no quedan programados.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -260,63 +282,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
     this.worker = new Worker(
       QUEUE_NAME,
-      async (job) => {
-        switch (job.name) {
-          case 'fx-refresh':
-            return this.fxRefresh.run();
-          case 'price-sync':
-            return this.priceSync.run();
-          case 'set-price-sync':
-            return this.setPriceSync.run();
-          case 'portfolio-snapshot':
-            return this.portfolioSnapshot.run();
-          case 'set-value-snapshot':
-            return this.setValueSnapshot.run();
-          case 'ine-retention':
-            return this.ineRetention.run();
-          case 'buylist-sweep':
-            return this.buylistSweep.run();
-          case 'dispute-deadline':
-            return this.disputeDeadline.run();
-          case 'auth-token-sweep':
-            return this.authTokenSweep.run();
-          // v1.68 (§4-R.4): libera reservas VENCIDAS de las dos rutas (bóveda e invitado) + rama
-          // legada. `guest-order-sweep` se acepta un release como alias (repetible viejo en Redis).
-          case 'order-reservation-sweep':
-          case 'guest-order-sweep':
-            return this.orderReservationSweep.run();
-          // WS-A: metadata del catálogo (sets nuevos, force:false) — cadencia ligera diaria.
-          case 'catalog-metadata-sync':
-            return this.catalogPriceSync.runMetadataImport();
-          // v1.14-price-ingest (WS-A): parent (fan-out por set) y child (ingesta de UN set).
-          case 'price-ingest':
-          case 'price-ingest-1':
-          case 'price-ingest-2':
-            return this.priceIngest.run();
-          case PRICE_INGEST_SET_JOB:
-            return this.priceIngest.runChild(
-              job.data as { setId: string; fx: FxSnapshot },
-            );
-          // v1.19-sealed-tcgcsv (§4.19d): referencia del SELLADO — secuencial AWAITED,
-          // single-flight, fail-closed por dial `sealed_price_source`.
-          case 'sealed-price-ingest':
-            return this.sealedPriceIngest.run();
-          // DECKS-META Fase 2 (§7): refresh semanal. Idempotente (supersede-based) + single-flight
-          // (flag en memoria del servicio). Fail-closed por dial: sin `on` no publica.
-          case 'decks-meta-refresh':
-            return this.decksMetaRefresh.run({});
-          // ⭐💰 D2d (§M4-SHIP.19.10): rastreo (lote), guía en proceso + verificación + huérfanas, cargos extra.
-          case 'shipment-tracking-poll':
-            return this.shipmentTrackingPoll?.run() ?? null;
-          case 'shipment-label-processing':
-            return this.shipmentLabelProcessing?.run() ?? null;
-          case 'shipment-extra-charges':
-            return this.shipmentExtraCharges?.run() ?? null;
-          default:
-            this.logger.warn(`Job desconocido en la cola: ${job.name}`);
-            return null;
-        }
-      },
+      async (job) => this.process(job),
       { connection: this.connection },
     );
     // Fallos NUNCA invisibles: failed (por job, con id/intentos), error (del worker) y
@@ -339,7 +305,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         '+ price-ingest 2×/día (00:00 y 12:00 UTC, dial price_provider) ' +
         '+ sealed-price-ingest diario (21:30 UTC, dial sealed_price_source, seed off) ' +
         '+ catalog-metadata-sync diario (import de sets nuevos, force:false) ' +
-        '+ shipment-tracking-poll / shipment-label-processing / shipment-extra-charges (Skydropx, dial shipping_provider).',
+        '+ shipment-tracking-poll / shipment-label-processing / shipment-extra-charges (Skydropx, dial shipping_provider) ' +
+        '+ spend-watch (cada 5 min) / spend-digest (08:00 America/Mexico_City).',
     );
 
     // Catch-up (auditoría 2026-08-17): si NO hay ingesta de precios reciente (hoy/ayer),
@@ -352,6 +319,74 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(
         `Scheduler: catch-up de price-ingest falló (no fatal): ${(err as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * El enrutado del worker: nombre de job ⇒ servicio. Método (y no un cierre dentro de `setup`) para que la prueba de
+   * integración de C1 (`sdx-c1-jobs.e2e-spec.ts`, PS-172 (c)) recorra el MISMO camino que el cron con el AppModule real, sin
+   * Redis: un `case` que falte se ve allí, no solo en la unitaria con BullMQ mockeado.
+   */
+  async process(job: { name: string; data?: unknown }): Promise<unknown> {
+    switch (job.name) {
+      case 'fx-refresh':
+        return this.fxRefresh.run();
+      case 'price-sync':
+        return this.priceSync.run();
+      case 'set-price-sync':
+        return this.setPriceSync.run();
+      case 'portfolio-snapshot':
+        return this.portfolioSnapshot.run();
+      case 'set-value-snapshot':
+        return this.setValueSnapshot.run();
+      case 'ine-retention':
+        return this.ineRetention.run();
+      case 'buylist-sweep':
+        return this.buylistSweep.run();
+      case 'dispute-deadline':
+        return this.disputeDeadline.run();
+      case 'auth-token-sweep':
+        return this.authTokenSweep.run();
+      // v1.68 (§4-R.4): libera reservas VENCIDAS de las dos rutas (bóveda e invitado) + rama
+      // legada. `guest-order-sweep` se acepta un release como alias (repetible viejo en Redis).
+      case 'order-reservation-sweep':
+      case 'guest-order-sweep':
+        return this.orderReservationSweep.run();
+      // WS-A: metadata del catálogo (sets nuevos, force:false) — cadencia ligera diaria.
+      case 'catalog-metadata-sync':
+        return this.catalogPriceSync.runMetadataImport();
+      // v1.14-price-ingest (WS-A): parent (fan-out por set) y child (ingesta de UN set).
+      case 'price-ingest':
+      case 'price-ingest-1':
+      case 'price-ingest-2':
+        return this.priceIngest.run();
+      case PRICE_INGEST_SET_JOB:
+        return this.priceIngest.runChild(
+          job.data as { setId: string; fx: FxSnapshot },
+        );
+      // v1.19-sealed-tcgcsv (§4.19d): referencia del SELLADO — secuencial AWAITED,
+      // single-flight, fail-closed por dial `sealed_price_source`.
+      case 'sealed-price-ingest':
+        return this.sealedPriceIngest.run();
+      // DECKS-META Fase 2 (§7): refresh semanal. Idempotente (supersede-based) + single-flight
+      // (flag en memoria del servicio). Fail-closed por dial: sin `on` no publica.
+      case 'decks-meta-refresh':
+        return this.decksMetaRefresh.run({});
+      // ⭐💰 D2d (§M4-SHIP.19.10): rastreo (lote), guía en proceso + verificación + huérfanas, cargos extra.
+      case 'shipment-tracking-poll':
+        return this.shipmentTrackingPoll?.run() ?? null;
+      case 'shipment-label-processing':
+        return this.shipmentLabelProcessing?.run() ?? null;
+      case 'shipment-extra-charges':
+        return this.shipmentExtraCharges?.run() ?? null;
+      // 💰 C1 (§M4-SHIP.19.33.9): avisos al dueño. `run()` toma `now` del reloj del módulo; `run({})` = ayer en México.
+      case 'spend-watch':
+        return this.spendWatch?.run() ?? null;
+      case 'spend-digest':
+        return this.spendDigest?.run({}) ?? null;
+      default:
+        this.logger.warn(`Job desconocido en la cola: ${job.name}`);
+        return null;
     }
   }
 
@@ -385,6 +420,16 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     return {
       repeat: { pattern },
       jobId: `${jobId}-cron`,
+      removeOnComplete: true,
+      removeOnFail: 100,
+    };
+  }
+
+  /** Igual que `repeat` (sufijo `-daily`) pero con zona horaria (💰 C1: `spend-digest` a las 08:00 de México, §19.29.7). */
+  private repeatTz(jobId: string, pattern: string, tz: string) {
+    return {
+      repeat: { pattern, tz },
+      jobId: `${jobId}-daily`,
       removeOnComplete: true,
       removeOnFail: 100,
     };

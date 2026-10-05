@@ -4,7 +4,7 @@
  *  - `SpendAlertsService`: `raise`/`resolve`/`observeBalance` (D2c; firmas congeladas) y los únicos otros escritores de la tabla.
  *  - D2g: el despacho del correo (`SpendMailService`), el panel (`SpendAlertsController` + `SpendAlertsPanelService`), AG-22
  *    (`StaffControlAlertsService`), la lectura de saldo cacheada (`ProviderBalanceService`) y los dos jobs (`SpendWatchService`,
- *    `SpendDigestService`; su registro en `jobs/` es la costura C1).
+ *    `SpendDigestService`; su registro en `jobs/` es la costura C1, §19.33.9: cron y disparo manual).
  *
  * Lo importan `shipments` (disparadores D2c/D2d), `admin` (AG-22 de Usuarios) y `settings` (AG-22 de los diales del dueño).
  * `SettingsModule` es `@Global` y este módulo NO lo importa ⇒ sin ciclo de imports (medido al arrancar, `BACKEND_NOTES §65`).

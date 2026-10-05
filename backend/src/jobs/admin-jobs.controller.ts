@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, Optional, Post } from '@nestjs/common';
 import { BusinessException } from '../common/business.exception';
 import { Role } from '@prisma/client';
-import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { Allow, IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../modules/audit/audit.service';
@@ -20,6 +20,18 @@ import { DecksMetaRefreshService } from '../modules/decks-meta/decks-meta-refres
 import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job';
 import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processing.job';
 import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
+import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
+import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
+import { isYmd } from '../modules/spend-alerts/mx-day';
+
+/**
+ * Body opcional del disparo de `spend-digest` (💰 C1, API_CONTRACT §M4-SHIP.19.33.9): `day?: 'YYYY-MM-DD'` re-manda el resumen de
+ * ese día (solo si quedó `failed`); omitirlo = ayer en México. `@Allow()` para que el `ValidationPipe` global (whitelist) NO se
+ * coma el campo: la forma la valida el controlador ⇒ `400 VALIDATION_ERROR {field:'day'}` (la forma del resto de días MX).
+ */
+class SpendDigestDto {
+  @Allow() day?: unknown;
+}
 
 /** Body opcional del disparo de `decks-meta-refresh` (DECKS-META Fase 2, §7): `dryRun?`. */
 class DecksMetaRefreshDto {
@@ -81,6 +93,9 @@ export class AdminJobsController {
     @Optional() private readonly trackingPoll?: ShipmentTrackingPollJob,
     @Optional() private readonly labelProcessing?: ShipmentLabelProcessingJob,
     @Optional() private readonly extraCharges?: ShipmentExtraChargesJob,
+    // 💰 C1 (§M4-SHIP.19.33.9): los dos jobs de avisos al dueño (D2g). `@Optional()` como los de D2d; sin ellos ⇒ `404`.
+    @Optional() private readonly spendWatch?: SpendWatchService,
+    @Optional() private readonly spendDigest?: SpendDigestService,
   ) {}
 
   private need<T>(svc: T | undefined): T {
@@ -138,6 +153,50 @@ export class AdminJobsController {
       entityType: 'Job',
       entityId: 'shipment-extra-charges',
       after: { ...result },
+    });
+    return result;
+  }
+
+  /**
+   * 💰 C1 (§M4-SHIP.19.33.9, §19.29.7) — `spend-watch` a mano: marca del dueño (AG-21), correos pendientes, lotes de la hora y,
+   * con `shipping_provider='skydropx'`, saldo (AG-7), AG-8 (b) y AG-10. Single-flight por el candado del servicio (otra corrida
+   * viva ⇒ `skipped:'already_running'`). ⛔ No compra ni cancela.
+   */
+  @Post('spend-watch')
+  @HttpCode(200)
+  async runSpendWatch(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.spendWatch).run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.spend_watch.run',
+      entityType: 'Job',
+      entityId: 'spend-watch',
+      after: result as unknown as Record<string, unknown>,
+    });
+    return result;
+  }
+
+  /**
+   * 💰 C1 (§M4-SHIP.19.33.9, §19.29.7) — `spend-digest` a mano. `{day?}` (`YYYY-MM-DD`, día de México): re-manda ese día solo si
+   * quedó `failed`; sin `day` = ayer en México (lo que haría el cron). Fuera de formato ⇒ `400 VALIDATION_ERROR {field:'day'}`.
+   */
+  @Post('spend-digest')
+  @HttpCode(200)
+  async runSpendDigest(@Body() dto: SpendDigestDto, @CurrentUser() user: { id: string; role: Role }) {
+    const svc = this.need(this.spendDigest);
+    const day = dto?.day;
+    if (day !== undefined && !isYmd(day)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'day must be YYYY-MM-DD', { field: 'day' });
+    }
+    const result = await svc.run(day !== undefined ? { day } : {});
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.spend_digest.run',
+      entityType: 'Job',
+      entityId: 'spend-digest',
+      after: { requestedDay: day ?? null, ...result },
     });
     return result;
   }
