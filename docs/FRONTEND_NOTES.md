@@ -19344,3 +19344,40 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
   | `enforce` + `script-src-elem 'unsafe-inline'` | CSP-5 | **5/5 rojas** (paso 4: 0 eventos) |
   | `report-only` + M1 (interceptor ignora `details`) | `session-max-age.spec`, `--repeat-each 3` | UX-SMA-2 tienda **3/3 rojas**, panel **3/3 rojas**; UX-SMA-3 y la recarga EN 6/6 verdes (no dependen de la marca) |
 - Copia borrada al terminar (logs incluidos; los números de arriba son el registro).
+
+### 94.7 LIVE-8 · aviso de privacidad en «modo provisional» (errata v1.84.4, API_CONTRACT §14.17 LIVE-E4; ARCHITECTURE §4.63.14; HECHOS 2026-10-05 sesión 6) — medido 2026-10-05 sobre `77188b5f` + este cambio
+- **Por qué:** el dueño sale sin datos fiscales (HECHOS 2026-10-05 sesión 6, riesgo aceptado por él). El aviso se
+  **publica** (200 en ES/EN, también en producción) sin razón social/RFC/domicilio y con la frase fija.
+- **Texto** (`src/content/legal/privacidad.es.ts`): apartado 1 = los tres párrafos de E4-1, literales
+  (`PROVISIONAL_FISCAL_TEXT` exportada); `OWNER_EMAIL = 'soporte@tcghunt.mx'` (exportada) en §1 y §7. Los 13
+  marcadores no fiscales resueltos según la tabla E4-2, sin inventar datos. Única interpretación: en `:166` la
+  frase original decía «…por el tiempo que exigen las leyes fiscales: **[plazo]**»; se sustituyó la cola entera por
+  «**por el plazo que exigen las disposiciones fiscales aplicables**» (poner solo el sustituto tras los dos puntos
+  repetía la idea). `version = 0.2-provisional-2026-10-05`, `updatedAt = 5 de octubre de 2026` (si F2 cae otro
+  día, se ajusta en ese PR). Skydropx NO se añade (E4-2 `:141`: entra con el lote 2, tras F-SKY).
+- **Modelo:** `PendingOwnerDatum = 'razonSocial' | 'rfc' | 'domicilio'` y `LegalDocument.pendingOwnerData`
+  (hoy los tres). `legal-gate.ts`: `provisionalProblems` (a)/(b)/(c) de E4-3; `privacyVisibility` publica solo
+  si no hay marcadores **y** `provisionalProblems = []`. `MARKER_PATTERNS` intacto. `common.footer.legalEntity`
+  intacto (centinela; `resolveLegalEntity` lo oculta).
+- **Puerta:** `publish-check.ts` → `legalPublishProblems(mode, { doc, messages, siteSources })`, pura. Ambos modos:
+  marcadores, coherencia, `updatedAt`, los siete sitios. Solo final: `pendingOwnerData = []` y `legalEntity` real
+  en es/en. `publish-ready.test.ts` la llama con datos reales: `npm run check:legal:provisional`
+  (`LEGAL_PUBLISH_CHECK=provisional`) y `npm run check:legal` (`=1`, final, sin cambio de significado).
+- **Estado medido hoy:** `check:legal:provisional` **ROJO solo por los sitios 3 y 7** (lotes 2/3, tras F-SKY /
+  F-PNL): E4-3 exige los siete en ambos modos y E4-5 dice que 503–505 no los cubre la excepción. Con los siete
+  sitios (fixture, LEG-P4) el modo provisional da `[]`. `check:legal` (final) **ROJO**: sitios 3 y 7, «faltan
+  P-LEG-1…3: razón social (P-LEG-1), RFC (P-LEG-1), domicilio (P-LEG-2)», `legalEntity (es)` y `(en)`.
+- **Pruebas:** `provisional.test.ts` (LEG-P1…P7); `page.test.tsx` (LEG-P1 de la página: 200 en producción, h1,
+  frase fija, sin `mark` ni corchetes); LEG-4 se queda en `page.markers.test.tsx` con el módulo del aviso
+  sustituido por un fixture con marcadores; LEG-2 y F-7 usan `test-fixtures.ts → privacyNoticeWithMarkers()`.
+  `privacyLinkVisible(env, doc = privacyNoticeEs)`: el segundo argumento solo lo usan las pruebas.
+- **E2E:** `privacy-links.spec.ts` ya no condiciona a `LEGAL_DRAFT_PREVIEW` (el aviso se publica siempre) y añade
+  «/es/privacidad 200 con la frase fija, sin corchetes». Se quitó de `csp.spec.ts` el «con marcadores ⇒ 404»: en
+  el árbol ya no hay aviso con marcadores que servir; lo cubren LEG-4/F-7 con fixtures. ⚠️ Devops: si algún job
+  levanta el server con `LEGAL_DRAFT_PREVIEW=1` para esos specs, ya no hace falta (NO MEDIDO en `scripts/`; `grep`
+  en `scripts/` y `.github/` no encontró la variable).
+- **Mutaciones** (deterministas, N=1 cada una, sobre copia del árbol entero): exigir `pendingOwnerData = []` para
+  `published` → 5 rojas (LEG-P1); saltarse `findLegalMarkers` con pendientes (gate + puerta) → 12 rojas (LEG-P2,
+  LEG-2, LEG-4, F-7); quitar (a) → 2 rojas; quitar (b) → 1 roja (LEG-P3); final con reglas del provisional → 2 rojas
+  (LEG-P4); quitar la guarda (c) → 1 roja (LEG-P5); provisional sin LEG-5 → 8 rojas (LEG-P6); otro correo en §7 →
+  2 rojas (LEG-P7). Restaurado: 88/88 (12 saltadas).

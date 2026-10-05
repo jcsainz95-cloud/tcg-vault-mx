@@ -1,4 +1,4 @@
-import { privacyNoticeEs } from '@/content/legal/privacidad.es';
+import { privacyNoticeEs, type LegalDocument } from '@/content/legal/privacidad.es';
 import { legalEnvFromProcess, privacyVisibility, type LegalEnv } from '@/content/legal/legal-gate';
 
 /**
@@ -22,9 +22,13 @@ export function resolveLegalEntity(raw: string | undefined | null): string | nul
 
 /**
  * LIVE-8 · ¿el pie enlaza «Aviso de privacidad»? Solo si la página se sirve (publicada, o borrador
- * en la vista previa). En producción, mientras el texto tenga marcadores (P-LEG-1…3), NO: un enlace
- * a un 404 sería peor que ninguno. Aparece solo, sin cambio de código, cuando el texto queda limpio.
+ * en la vista previa). En producción, mientras el texto tenga marcadores o el modo provisional sea
+ * incoherente (§14.17), NO: un enlace a un 404 sería peor que ninguno. `doc` solo lo cambian las
+ * pruebas (fixtures con marcadores); la app usa siempre el aviso real.
  */
-export function privacyLinkVisible(env: LegalEnv = legalEnvFromProcess()): boolean {
-  return privacyVisibility(privacyNoticeEs, env) !== 'hidden';
+export function privacyLinkVisible(
+  env: LegalEnv = legalEnvFromProcess(),
+  doc: LegalDocument = privacyNoticeEs,
+): boolean {
+  return privacyVisibility(doc, env) !== 'hidden';
 }

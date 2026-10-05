@@ -1,11 +1,11 @@
 /**
- * LIVE-8 · `/privacidad` — LEG-4: con marcadores, 404 en producción; borrador visible y marcado en
- * la vista previa; publicado sin aviso de borrador.
+ * LIVE-8 · `/privacidad` con el aviso REAL — LEG-P1 (§14.17): provisional y coherente ⇒ se publica
+ * también en producción. LEG-4 (con marcadores ⇒ 404) vive en `page.markers.test.tsx`, con fixture.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
-import { privacyNoticeEs } from '@/content/legal/privacidad.es';
+import { PROVISIONAL_FISCAL_TEXT, privacyNoticeEs } from '@/content/legal/privacidad.es';
 import { PrivacyNoticeView } from './PrivacyNoticeView';
 
 const NOT_FOUND = new Error('NEXT_NOT_FOUND');
@@ -21,28 +21,25 @@ afterEach(() => vi.unstubAllEnvs());
 
 const params = (locale: string) => Promise.resolve({ locale });
 
-describe('LEG-4 · la página respeta el candado', () => {
-  it('producción de Vercel con el borrador vigente ⇒ notFound (404)', async () => {
+describe('LEG-P1 · el aviso real (provisional, §14.17) se publica en producción', () => {
+  it('producción de Vercel ⇒ 200 con h1, la frase fija, el contacto y sin aviso de borrador ni corchetes', async () => {
     vi.stubEnv('VERCEL_ENV', 'production');
-    await expect(PrivacyPage({ params: params('es') })).rejects.toBe(NOT_FOUND);
-  });
-
-  it('sin VERCEL_ENV y sin LEGAL_DRAFT_PREVIEW ⇒ notFound', async () => {
-    vi.stubEnv('VERCEL_ENV', '');
-    vi.stubEnv('LEGAL_DRAFT_PREVIEW', '');
-    await expect(PrivacyPage({ params: params('es') })).rejects.toBe(NOT_FOUND);
-  });
-
-  it('vista previa ⇒ borrador con aviso y marcadores resaltados', async () => {
-    vi.stubEnv('VERCEL_ENV', 'preview');
     const ui = await PrivacyPage({ params: params('es') });
     const { container } = renderWithIntl(ui);
     expect(screen.getByRole('heading', { level: 1, name: 'Aviso de privacidad' })).toBeInTheDocument();
-    expect(screen.getByText('Borrador — no publicado')).toBeInTheDocument();
-    const marks = container.querySelectorAll('mark[data-legal-marker]');
-    expect(marks.length).toBeGreaterThan(5);
-    expect([...marks].some((m) => m.textContent?.includes('DATO DEL DUEÑO'))).toBe(true);
+    expect(screen.queryByText('Borrador — no publicado')).toBeNull();
+    expect(container.querySelector('mark')).toBeNull();
+    const text = container.textContent ?? '';
+    expect(text).toContain(PROVISIONAL_FISCAL_TEXT.replace(/\*\*/g, ''));
+    expect(text).toContain('soporte@tcghunt.mx');
+    expect(text).not.toMatch(/[[\]]/);
     expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(10);
+  });
+
+  it('servidor sin VERCEL_ENV (falla hacia lo seguro) ⇒ también se sirve: no hay nada que esconder', async () => {
+    vi.stubEnv('VERCEL_ENV', '');
+    vi.stubEnv('LEGAL_DRAFT_PREVIEW', '');
+    await expect(PrivacyPage({ params: params('en') })).resolves.toBeTruthy();
   });
 });
 

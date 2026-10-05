@@ -11,7 +11,7 @@ import { renderWithIntl } from '@/test/render';
 import { stripComments } from '@/test/strip-comments';
 import es from '../../../messages/es.json';
 import en from '../../../messages/en.json';
-import { privacyNoticeEs } from '@/content/legal/privacidad.es';
+import { privacyNoticeWithMarkers } from '@/content/legal/test-fixtures';
 import { findLegalMarkers } from '@/content/legal/legal-gate';
 import { privacyLinkVisible } from '@/app/[locale]/(storefront)/footer';
 import { PrivacyLinkProvider, PrivacyNoticeLink, PrivacySiteNote } from './PrivacyNoticeLink';
@@ -162,10 +162,12 @@ describe('UX-PRIV-5 · paridad ES/EN de privacy.sites.* (mismas claves, mismas e
 
 describe('F-7 (§80.6) · la decisión viaja del servidor; el cliente no lee VERCEL_ENV', () => {
   it('vista previa con el texto CON marcadores ⇒ la frase enlaza, igual que el pie, aunque el «navegador» no tenga VERCEL_ENV', () => {
-    // El texto de hoy tiene marcadores (faltan P-LEG-1…3): es justo el caso del riesgo.
-    expect(findLegalMarkers(privacyNoticeEs).length).toBeGreaterThan(0);
+    // Un texto con marcadores (fixture: el aviso real ya es provisional sin marcadores, §14.17) es
+    // justo el caso del riesgo.
+    const marked = privacyNoticeWithMarkers();
+    expect(findLegalMarkers(marked).length).toBeGreaterThan(0);
     // Servidor de la vista previa: la decisión del pie.
-    const serverDecision = privacyLinkVisible({ vercelEnv: 'preview', nodeEnv: 'production' });
+    const serverDecision = privacyLinkVisible({ vercelEnv: 'preview', nodeEnv: 'production' }, marked);
     expect(serverDecision).toBe(true);
     // «Navegador»: ninguna variable de Vercel (no se exponen al cliente) y NODE_ENV de producción.
     vi.stubEnv('VERCEL_ENV', '');
@@ -182,7 +184,10 @@ describe('F-7 (§80.6) · la decisión viaja del servidor; el cliente no lee VER
   });
 
   it('producción con marcadores ⇒ ni la frase ni el pie enlazan', () => {
-    const serverDecision = privacyLinkVisible({ vercelEnv: 'production', nodeEnv: 'production' });
+    const serverDecision = privacyLinkVisible(
+      { vercelEnv: 'production', nodeEnv: 'production' },
+      privacyNoticeWithMarkers(),
+    );
     expect(serverDecision).toBe(false);
     renderWithIntl(
       <PrivacyLinkProvider linked={serverDecision}>

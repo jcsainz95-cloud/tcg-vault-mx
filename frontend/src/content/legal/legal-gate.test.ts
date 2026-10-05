@@ -5,9 +5,14 @@
 import { describe, expect, it } from 'vitest';
 import { privacyNoticeEs, type LegalDocument } from './privacidad.es';
 import { findLegalMarkers, privacyVisibility } from './legal-gate';
+import { privacyNoticeWithMarkers } from './test-fixtures';
+
+/** Fixture con marcadores (el aviso real ya no los tiene: modo provisional, §14.17). */
+const MARKED = privacyNoticeWithMarkers();
 
 const CLEAN: LegalDocument = {
   version: '1.0',
+  pendingOwnerData: [],
   updatedAt: '5 de octubre de 2026',
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
@@ -53,8 +58,9 @@ describe('LEG-1 · findLegalMarkers detecta cualquier marcador, esté donde est�
     expect(findLegalMarkers(withText(text, where)).length).toBeGreaterThan(0);
   });
 
-  it('el borrador vigente TIENE marcadores (hoy faltan P-LEG-1…3): por eso no se publica', () => {
-    const found = findLegalMarkers(privacyNoticeEs);
+  it('el aviso vigente (provisional, §14.17) NO tiene marcadores; el fixture del borrador sí', () => {
+    expect(findLegalMarkers(privacyNoticeEs)).toEqual([]);
+    const found = findLegalMarkers(MARKED);
     expect(found.some((m) => m.includes('DATO DEL DUEÑO'))).toBe(true);
     expect(found.some((m) => m.includes('FECHA'))).toBe(true);
   });
@@ -62,22 +68,22 @@ describe('LEG-1 · findLegalMarkers detecta cualquier marcador, esté donde est�
 
 describe('LEG-2 · visibilidad: con marcadores, NUNCA en producción', () => {
   it('producción en Vercel + marcadores ⇒ hidden (404 y sin enlace)', () => {
-    expect(privacyVisibility(privacyNoticeEs, { vercelEnv: 'production', nodeEnv: 'production' })).toBe('hidden');
+    expect(privacyVisibility(MARKED, { vercelEnv: 'production', nodeEnv: 'production' })).toBe('hidden');
   });
 
   it('servidor sin VERCEL_ENV (self-hosted / next start) + marcadores ⇒ hidden (falla hacia lo seguro)', () => {
-    expect(privacyVisibility(privacyNoticeEs, { nodeEnv: 'production' })).toBe('hidden');
+    expect(privacyVisibility(MARKED, { nodeEnv: 'production' })).toBe('hidden');
   });
 
   it('vista previa de Vercel, next dev o LEGAL_DRAFT_PREVIEW=1 ⇒ borrador visible (con marcadores resaltados)', () => {
-    expect(privacyVisibility(privacyNoticeEs, { vercelEnv: 'preview', nodeEnv: 'production' })).toBe('draft');
-    expect(privacyVisibility(privacyNoticeEs, { nodeEnv: 'development' })).toBe('draft');
-    expect(privacyVisibility(privacyNoticeEs, { nodeEnv: 'production', draftPreview: '1' })).toBe('draft');
+    expect(privacyVisibility(MARKED, { vercelEnv: 'preview', nodeEnv: 'production' })).toBe('draft');
+    expect(privacyVisibility(MARKED, { nodeEnv: 'development' })).toBe('draft');
+    expect(privacyVisibility(MARKED, { nodeEnv: 'production', draftPreview: '1' })).toBe('draft');
   });
 
   it('⛔ LEGAL_DRAFT_PREVIEW no abre el borrador en producción de Vercel', () => {
     expect(
-      privacyVisibility(privacyNoticeEs, { vercelEnv: 'production', nodeEnv: 'production', draftPreview: '1' }),
+      privacyVisibility(MARKED, { vercelEnv: 'production', nodeEnv: 'production', draftPreview: '1' }),
     ).toBe('hidden');
   });
 

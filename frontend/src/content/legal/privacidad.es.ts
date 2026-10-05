@@ -1,15 +1,25 @@
 /**
  * LIVE-8 (API_CONTRACT §14 tabla, ARCHITECTURE §4.63.7) — texto del AVISO DE PRIVACIDAD.
  *
- * ⚠️⚠️ HOY ES EL BORRADOR DEL PRODUCT-OWNER (`PROJECT.md §LEG.2`, 2026-10-05), transcrito verbatim
- * (solo se quitaron los `*` de cursiva). NO está validado por el dueño ni por su abogado y le faltan
- * los datos del dueño (P-LEG-1…3: razón social, RFC, domicilio, correo de privacidad; P-LEG-11:
- * plazos; fecha de publicación). Cada hueco va entre corchetes `[…]` y se pinta resaltado.
+ * ⚠️ PROVISIONAL — HECHOS.md fila 2026-10-05 (sesión 6): «Salir en vivo SIN datos fiscales del aviso
+ * de privacidad; se regulariza después» (riesgo legal ACEPTADO por el dueño). Norma: API_CONTRACT
+ * §14.17 (LIVE-E4, errata v1.84.4) y ARCHITECTURE §4.63.14. Base: el borrador del product-owner
+ * (`PROJECT.md §LEG.2`), con los marcadores no fiscales resueltos como dice la tabla E4-2 (quitados o
+ * sustituidos por una frase cierta sin el dato; ⛔ ningún dato inventado). NO está validado por el
+ * abogado.
  *
- * 🔒 Candado: mientras `findLegalMarkers(privacyNoticeEs)` encuentre algo, la página NO se sirve en
- * producción (404) ni se enlaza desde el pie (`legal-gate.ts`), y `npm run check:legal` sale con
- * código 1 (criterio 501 de PROJECT.md: rojo hasta que estén los datos). Cuando el abogado entregue
- * el texto final, se sustituye ESTE fichero entero, verbatim, y se sube `version`/`updatedAt`.
+ * Qué falta (y se regulariza en la casilla «Regularización legal» de §14.10):
+ *  - P-LEG-1…3: razón social, RFC y domicilio del responsable (`pendingOwnerData`; mientras tanto el
+ *    apartado 1 lleva `PROVISIONAL_FISCAL_TEXT`) y el correo de privacidad (hoy `soporte@tcghunt.mx`,
+ *    el buzón que se midió que recibe).
+ *  - P-LEG-11: plazo concreto de conservación de pedidos sin cuenta y solicitudes no cerradas.
+ *  - P-LEG-4: revisión del abogado (las preguntas que eran notas al abogado siguen en P-LEG-10/12/13).
+ *
+ * 🔒 Candados (`legal-gate.ts`, `publish-check.ts`): cualquier marcador ⇒ 404 en producción y sin
+ * enlace; `pendingOwnerData` y la frase fija tienen que ser coherentes. `npm run check:legal:provisional`
+ * es la puerta de hoy; `npm run check:legal` (final) sigue ROJO hasta que lleguen P-LEG-1…3. Al
+ * regularizar: se pone el dato, `pendingOwnerData: []`, se quita la frase fija y se sube
+ * `version`/`updatedAt`.
  *
  * Vive aquí y no en `messages/*.json` (§4.63.7): es largo, se valida palabra por palabra, no pasa
  * por la paridad de traducciones y no choca con las ramas que editan `messages/`.
@@ -27,20 +37,46 @@ export interface LegalSection {
   blocks: LegalBlock[];
 }
 
+/**
+ * §14.17 E4-3 — datos del dueño que el aviso TODAVÍA no publica (unión CERRADA: nada más compila;
+ * `provisionalProblems` lo vuelve a comprobar en tiempo de ejecución). P-LEG-1 = razón social y RFC;
+ * P-LEG-2 = domicilio.
+ */
+export type PendingOwnerDatum = 'razonSocial' | 'rfc' | 'domicilio';
+
 export interface LegalDocument {
   /** Versión del texto (sube con cada cambio de fondo). */
   version: string;
+  /**
+   * Datos fiscales del responsable que faltan (§14.17). `[]` = documento final. Mientras no esté
+   * vacío, el apartado `responsable` DEBE llevar `PROVISIONAL_FISCAL_TEXT` literal; vacío, NO debe.
+   */
+  pendingOwnerData: readonly PendingOwnerDatum[];
   /** Fecha de última actualización que se publica (criterio 500). */
   updatedAt: string;
   title: string;
   sections: LegalSection[];
 }
 
-const OWNER_EMAIL = '[DATO DEL DUEÑO: correo de privacidad]';
+/**
+ * Contacto publicado para todo lo relativo a datos personales (§14.17 E4-1): el buzón que se midió que
+ * recibe (`DEVOPS_NOTES.md:6226-6227`). Se usa en §1 y §7. ⛔ `privacidad@…` no: nadie midió que exista.
+ */
+export const OWNER_EMAIL = 'soporte@tcghunt.mx';
+
+/**
+ * §14.17 E4-1 punto 2 — frase FIJA del modo provisional (copiada literal del contrato). Va en el
+ * apartado `responsable` si y solo si `pendingOwnerData` no está vacío (`provisionalProblems`).
+ */
+export const PROVISIONAL_FISCAL_TEXT =
+  '**Nombre o razón social, RFC y domicilio del responsable:** todavía no están publicados en este aviso. Los ' +
+  'añadiremos aquí en cuanto estén disponibles, con su fecha de actualización. Mientras tanto, puedes dirigir ' +
+  'cualquier solicitud sobre tus datos personales al correo de abajo.';
 
 export const privacyNoticeEs: LegalDocument = {
-  version: '0.1-borrador-po-2026-10-05',
-  updatedAt: '[FECHA DE PUBLICACIÓN]',
+  version: '0.2-provisional-2026-10-05',
+  pendingOwnerData: ['razonSocial', 'rfc', 'domicilio'],
+  updatedAt: '5 de octubre de 2026',
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
     {
@@ -50,11 +86,10 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
-            '**[DATO DEL DUEÑO: razón social o nombre completo de la persona física]** (en adelante, «TCG HUNT»), con RFC ' +
-            '**[DATO DEL DUEÑO: RFC]** y domicilio en **[DATO DEL DUEÑO: calle, número, colonia, CP, municipio/alcaldía, estado, ' +
-            'México]**, es responsable del tratamiento de tus datos personales cuando usas **tcghunt.mx**. TCG HUNT es la marca ' +
-            'comercial que opera **[DATO DEL DUEÑO: razón social]**.',
+            'El responsable del tratamiento de tus datos personales cuando usas **tcghunt.mx** es quien opera la tienda ' +
+            '**TCG HUNT** (en adelante, «TCG HUNT»).',
         },
+        { type: 'p', text: PROVISIONAL_FISCAL_TEXT },
         { type: 'p', text: `Contacto para todo lo relacionado con tus datos: **${OWNER_EMAIL}**.` },
       ],
     },
@@ -79,9 +114,7 @@ export const privacyNoticeEs: LegalDocument = {
           type: 'p',
           text:
             '**Datos financieros y patrimoniales.** La CLABE y los datos de facturación son datos **financieros o ' +
-            'patrimoniales**; los tratamos con tu **consentimiento expreso** [nota para el abogado: definir cómo se recaba — ' +
-            'P-LEG-10]. **No recabamos datos personales sensibles** [nota para el abogado: confirmar si la imagen de la INE ' +
-            '—que incluye fotografía— debe tratarse con algún requisito adicional].',
+            'patrimoniales**; los tratamos con tu **consentimiento expreso**. **No recabamos datos personales sensibles**.',
         },
       ],
     },
@@ -112,15 +145,9 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
-            '[SUPUESTO / default de P-LEG-8:] **Hoy no usamos tus datos para finalidades secundarias** (no enviamos ' +
+            '**Hoy no usamos tus datos para finalidades secundarias** (no enviamos ' +
             'publicidad ni compartimos datos con fines comerciales). Si algún día lo hacemos, actualizaremos este aviso y te ' +
             'daremos un medio para negarte **antes** de usarlos así; negarte nunca afectará tus compras ni tus ventas.',
-        },
-        {
-          type: 'p',
-          text:
-            '[Nota para el abogado: si el dueño decide mandar promociones o usar la navegación para estadística de demanda ' +
-            '—HECHOS.md 2026-10-04 «Rotación nivel siguiente»—, este apartado cambia y necesita el mecanismo de negativa.]',
         },
       ],
     },
@@ -138,7 +165,7 @@ export const privacyNoticeEs: LegalDocument = {
           head: ['Proveedor', 'Qué recibe', 'Para qué'],
           rows: [
             ['**Stripe**', 'Monto y datos del pago que tú capturas en su formulario', 'Procesar el cobro y los reembolsos'],
-            ['**Paqueterías** [y **Skydropx**, cuando opere]', 'Nombre de quien recibe, dirección y teléfono', 'Entregar o recoger el paquete'],
+            ['**Paqueterías**', 'Nombre de quien recibe, dirección y teléfono', 'Entregar o recoger el paquete'],
             ['**Resend**', 'Tu correo y el contenido del aviso', 'Enviarte los correos de la tienda'],
             ['**Cloudflare (R2)**', 'Imagen de tu INE', 'Guardarla en almacenamiento privado'],
             ['**Railway y Vercel**', 'Los datos de la tienda', 'Alojar el servidor, la base de datos y el sitio'],
@@ -148,10 +175,8 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
-            'Algunos de estos proveedores pueden guardar datos **fuera de México** [nota para el abogado: confirmar país y ' +
-            'contratos de cada uno]. Además, entregamos datos a **autoridades** (por ejemplo, el SAT) cuando la ley lo exige. ' +
-            '**No vendemos tus datos.** [Nota para el abogado: decidir cuáles de estos son «remisiones» a encargados y cuáles ' +
-            '«transferencias», y si alguna requiere consentimiento — P-LEG-12.]',
+            'Algunos de estos proveedores pueden guardar datos **fuera de México**. Además, entregamos datos a **autoridades** ' +
+            '(por ejemplo, el SAT) cuando la ley lo exige. **No vendemos tus datos.**',
         },
       ],
     },
@@ -163,8 +188,8 @@ export const privacyNoticeEs: LegalDocument = {
           type: 'list',
           items: [
             '**Imagen de la INE:** la borramos **180 días** después de que se cierre tu última venta con nosotros, si no tienes otra abierta.',
-            '**Datos de tu cuenta:** mientras tengas cuenta. Si pides borrarla, la eliminamos; si ya hiciste operaciones, **anonimizamos** tus datos de contacto y borramos tus direcciones, datos de factura, CLABE e INE, y **conservamos** solo los registros de tus compras y ventas (incluida la dirección de entrega, datos fiscales y la CLABE cifrada de esas operaciones) por el tiempo que exigen las leyes fiscales: **[DATO DEL DUEÑO / CONTADOR: plazo]**.',
-            '**Pedidos sin cuenta y solicitudes que no se cerraron:** **[DATO DEL DUEÑO: plazo — P-LEG-11]**.',
+            '**Datos de tu cuenta:** mientras tengas cuenta. Si pides borrarla, la eliminamos; si ya hiciste operaciones, **anonimizamos** tus datos de contacto y borramos tus direcciones, datos de factura, CLABE e INE, y **conservamos** solo los registros de tus compras y ventas (incluida la dirección de entrega, datos fiscales y la CLABE cifrada de esas operaciones) **por el plazo que exigen las disposiciones fiscales aplicables**.',
+            '**Pedidos sin cuenta y solicitudes que no se cerraron:** los conservamos mientras sean necesarios para atender aclaraciones y cumplir obligaciones legales; publicaremos aquí el plazo concreto.',
           ],
         },
       ],
@@ -191,7 +216,7 @@ export const privacyNoticeEs: LegalDocument = {
           type: 'p',
           text:
             'Te responderemos en un máximo de **20 días hábiles** y, si procede, lo haremos efectivo dentro de los **15 días ' +
-            'hábiles** siguientes. [Nota para el abogado: confirmar plazos contra la ley vigente.]',
+            'hábiles** siguientes.',
         },
         {
           type: 'p',
@@ -203,8 +228,8 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
-            'Si consideras que tu derecho no fue atendido, puedes acudir a la autoridad en materia de protección de datos ' +
-            '**[nota para el abogado: nombrar la autoridad vigente]**.',
+            'Si consideras que tu derecho no fue atendido, puedes acudir a la **autoridad competente en materia de protección ' +
+            'de datos personales**.',
         },
       ],
     },
@@ -221,7 +246,6 @@ export const privacyNoticeEs: LegalDocument = {
             'para prevenir fraudes y para el acceso; se rigen por sus avisos de privacidad. Puedes borrar esta información desde ' +
             'la configuración de tu navegador; si lo haces, se cerrará tu sesión y se vaciará tu carrito.',
         },
-        { type: 'p', text: '[Lista exacta: se completa con la revisión del criterio 509.]' },
       ],
     },
     {
@@ -232,8 +256,7 @@ export const privacyNoticeEs: LegalDocument = {
           type: 'p',
           text:
             'Publicaremos cualquier cambio en **tcghunt.mx/privacidad**, con su fecha de actualización. Si el cambio afecta ' +
-            'finalidades o transferencias que requieran tu consentimiento, te lo pediremos de nuevo. [SUPUESTO: además, aviso ' +
-            'por correo a clientes con cuenta cuando el cambio sea de fondo — P-LEG-13.]',
+            'finalidades o transferencias que requieran tu consentimiento, te lo pediremos de nuevo.',
         },
       ],
     },
@@ -244,9 +267,7 @@ export const privacyNoticeEs: LegalDocument = {
         {
           type: 'p',
           text:
-            'Al crear tu cuenta, comprar o vendernos cartas, reconoces haber leído este aviso. [Nota para el abogado: definir ' +
-            'qué acto constituye aceptación y si se guarda constancia — hoy el sistema no guarda la aceptación del invitado ' +
-            '(guest-checkout.dto.ts:99, sin columna).]',
+            'Al crear tu cuenta, comprar o vendernos cartas, reconoces haber leído este aviso.',
         },
       ],
     },

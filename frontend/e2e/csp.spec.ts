@@ -180,10 +180,6 @@ test.describe('LIVE-3 · CSP con nonce', () => {
   });
 });
 
-test.describe('LIVE-8 · /privacidad con marcadores', () => {
-  test('fuera de la vista previa responde 404 (el borrador no se publica)', async ({ request }) => {
-    test.skip(process.env.LEGAL_DRAFT_PREVIEW === '1', 'el servidor se levantó con el borrador visible');
-    const res = await request.get('/es/privacidad');
-    expect(res.status()).toBe(404);
-  });
-});
+// LIVE-8 · el antiguo «/privacidad con marcadores ⇒ 404» dejó de aplicar al árbol (§14.17: el aviso se
+// publica en modo provisional, sin marcadores). Su sustituto vive en `privacy-links.spec.ts` (200 con
+// la frase fija, sin corchetes); el 404 con marcadores lo cubren LEG-4 y F-7 con fixtures.

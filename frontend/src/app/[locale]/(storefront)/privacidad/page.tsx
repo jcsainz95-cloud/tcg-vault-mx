@@ -9,9 +9,10 @@ import { PrivacyNoticeView } from './PrivacyNoticeView';
  * LIVE-8 · `/privacidad` (ES y EN; el texto es español, con la línea «Legal notice available in
  * Spanish only» en inglés — ARCHITECTURE §4.63.7). Pública, sin sesión.
  *
- * 🔒 Mientras el texto tenga marcadores (datos del dueño P-LEG-1…3, notas para el abogado), en
- * producción responde 404 y el pie no la enlaza (`legal-gate.ts`). En la vista previa de Vercel se
- * ve como borrador, con los huecos resaltados y `noindex`.
+ * 🔒 Si el texto tuviera marcadores o el modo provisional fuera incoherente (§14.17), en producción
+ * respondería 404 y el pie no la enlazaría (`legal-gate.ts`); en la vista previa de Vercel se vería
+ * como borrador, con los huecos resaltados y `noindex`. Hoy se publica en modo provisional: sin
+ * razón social/RFC/domicilio, con la frase fija (HECHOS 2026-10-05 sesión 6).
  */
 export async function generateMetadata({
   params,
