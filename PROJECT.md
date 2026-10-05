@@ -8013,6 +8013,25 @@ la tienda en vivo (criterio 509).
 > Los huecos marcados **[DATO DEL DUEÑO]** solo los puede llenar el dueño. Si el dueño ya tiene un aviso hecho por su
 > abogado, **ese sustituye a este borrador** (P-LEG-4).
 
+> **NOTA 2026-10-05 (sesión 6): se publica en «modo provisional»; el borrador de abajo NO se borra.**
+> **Fuente:** `HECHOS.md` fila 2026-10-05 (sesión 6) «**Salir en vivo SIN datos fiscales del aviso de privacidad; se
+> regulariza después**». Palabras del dueño: «**Por el momento salimos sin datos fiscales nos regularizamos rápido**».
+> La misma fila: «(a) Riesgo legal ACEPTADO por el dueño, no por el equipo. (b) El arquitecto define el modo provisional
+> […] — no se inventan datos. (c) P-LEG-1…3 siguen abiertos como pendiente prioritario tras salir.»
+> **Norma:** `docs/API_CONTRACT.md §14.17` (errata v1.84.4), E4-1 y E4-2:
+> - El apartado **1** se publica con el texto provisional **fijo** de §14.17 E4-1 (responsable = «quien opera la tienda
+>   TCG HUNT»; frase `PROVISIONAL_FISCAL_TEXT` que dice que razón social, RFC y domicilio «todavía no están publicados»;
+>   contacto `soporte@tcghunt.mx`). ⛔ Sin «en trámite», sin «TCG HUNT» como razón social, sin datos inventados.
+> - Los demás **[DATO DEL DUEÑO]**, **[FECHA…]** y notas al abogado de este borrador se resuelven como dice la tabla de
+>   §14.17 E4-2 (se quitan o se sustituyen por una frase cierta sin el dato). El texto de abajo queda como **borrador
+>   de referencia** para la regularización y la revisión del abogado.
+> - **Excepción aceptada por el dueño:** solo la identidad y el domicilio del responsable (razón social, RFC,
+>   domicilio). **No** cubre nada más; P-LEG-11 (plazo de conservación) no es fiscal y va a la regularización
+>   (§14.17 E4-2, fila `:167`).
+> - **Pendiente prioritario tras salir:** P-LEG-1 (razón social y RFC), P-LEG-2 (domicilio), P-LEG-3 (correo de
+>   privacidad; mientras tanto se publica `soporte@tcghunt.mx`, el buzón que se midió que recibe — §14.17 E4-1). Cuando
+>   lleguen, el aviso pasa a modo **final** (`check:legal` final en verde) y se re-miden 500, 501, 506, 507 y 508.
+
 **AVISO DE PRIVACIDAD INTEGRAL — TCG HUNT**
 *Última actualización: [FECHA DE PUBLICACIÓN]*
 
@@ -8135,8 +8154,27 @@ qué acto constituye aceptación y si se guarda constancia — hoy el sistema no
   tenga un valor sin corchetes), en el **aviso**, en los **términos** («TCG HUNT, marca operada por [Razón social]»,
   patrón ya recomendado en §O.5 y decisión 57) y en el **pie de todos los correos**.
 - ⛔ **Nada de esto se publica con marcadores**: ni «[DATO DEL DUEÑO]» ni «[Razón social pendiente]» pueden verse en
-  producción. **Pasar a modo real de Stripe queda condicionado** a que el aviso esté publicado con datos reales
-  (P-LEG-1…3).
+  producción. ~~**Pasar a modo real de Stripe queda condicionado** a que el aviso esté publicado con datos reales
+  (P-LEG-1…3).~~ *(Tachado el 2026-10-05, sesión 6 — ver nota siguiente. La regla de «sin marcadores» **sigue en pie**.)*
+
+> **NOTA 2026-10-05 (sesión 6): el paso a modo real ya NO espera a P-LEG-1…3.**
+> **Fuente:** `HECHOS.md` fila 2026-10-05 (sesión 6) «**Salir en vivo SIN datos fiscales del aviso de privacidad; se
+> regulariza después**»; palabras del dueño: «**Por el momento salimos sin datos fiscales nos regularizamos rápido**»;
+> «(a) Riesgo legal ACEPTADO por el dueño, no por el equipo». Norma: `docs/API_CONTRACT.md §14.17` (errata v1.84.4),
+> tabla **E4-5**.
+> - **Excepción aceptada por el dueño (solo esto):** salir sin razón social, RFC ni domicilio del responsable en el
+>   aviso, en el pie, en los términos y en los correos. El aviso se publica con la frase fija de §14.17 E4-1; el pie
+>   sigue ocultando el centinela `[Razón social pendiente]` (no se pone vacío ni «TCG HUNT»).
+> - **Lo que SIGUE bloqueando el paso a modo real** (no lo cubre la excepción, §14.17 E4-5):
+>   - **Enlaces de 503–505**: el aviso tiene que estar enlazado en **todos** los sitios de esta lista; `check:legal`
+>     nombra como faltantes los **sitios 3 y 7** (§14.17 E4-3) mientras sus lotes no estén construidos. Si no llegan a
+>     tiempo, o se espera, o se le pregunta al dueño **otra** excepción; no se da por cubierta.
+>   - **Enlace «Aviso de privacidad» en el pie de todos los correos (507)**: construible hoy, no construido (lo hace
+>     backend, §14.17 E4-5); se publica en el mismo despliegue que el aviso ya visible, para no enlazar a un 404.
+>   - Lo demás de 500, 501, 502 y 508 lo mide QA como siempre.
+> - **Pendiente prioritario tras salir:** la regularización (P-LEG-1 razón social y RFC, P-LEG-2 domicilio, P-LEG-3
+>   correo de privacidad, más P-LEG-11 plazo de conservación). Al llegar los datos se cambia a modo final y se re-miden
+>   500, 501, 506, 507 y 508 (casilla «Regularización legal» de §14.10 / §14.17 E4-4).
 
 #### LEG.4 Términos actuales vs. decisiones del dueño — contradicciones (medido 2026-10-05; NO se arreglan aquí)
 
@@ -11701,16 +11739,34 @@ baratas…» — §Y.)*
 *(Criterios 500–511 **nuevos el 2026-10-05** — §LEG, lo legal mínimo para cobrar con dinero real. Numerados desde
 500 por encargo, para no chocar con 319–338 (Skydropx) y 400–418 (panel). ⛔ **500–508 bloquean el paso a modo real
 de Stripe** (`HECHOS.md` 2026-09-10).)*
+*(**Nota 2026-10-05, sesión 6:** el bloqueo se mantiene **salvo** en lo que el dueño aceptó salir sin cumplir —
+`HECHOS.md` fila 2026-10-05 «Salir en vivo SIN datos fiscales del aviso de privacidad; se regulariza después»: «Por el
+momento salimos sin datos fiscales nos regularizamos rápido»—. Qué cae en la excepción y qué sigue bloqueando, criterio
+por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501, 506 y 507 abajo. La regularización
+(P-LEG-1…3) es pendiente prioritario tras salir.)*
 500. **El aviso de privacidad existe y se abre sin sesión** *(§LEG.3)*: en un navegador sin sesión, `/es/privacidad`
    y su equivalente en inglés responden con la página del aviso; su título es «Aviso de privacidad» y muestra **fecha
    de última actualización**. Contiene, en este orden o equivalente, los diez apartados de §LEG.2: responsable con
    razón social, RFC y domicilio; datos que se recaban; finalidades primarias; finalidades secundarias; con quién se
    comparten; conservación; derechos ARCO y cómo ejercerlos (correo, requisitos y plazos); cookies y tecnologías
    similares; cambios al aviso; aceptación.
+   *(**Nota 2026-10-05, sesión 6 — excepción aceptada por el dueño:** `HECHOS.md` fila 2026-10-05 «Salir en vivo SIN
+   datos fiscales…»: «Por el momento salimos sin datos fiscales nos regularizamos rápido». En modo provisional
+   (`API_CONTRACT §14.17` E4-1/E4-5) el apartado «responsable» **no** lleva razón social, RFC ni domicilio: lleva la
+   frase fija `PROVISIONAL_FISCAL_TEXT` y el contacto `soporte@tcghunt.mx`. QA verifica que esa frase aparece literal
+   y que **el resto** del criterio se cumple (sin sesión, fecha, diez apartados). Con P-LEG-1…3 cargados, el criterio
+   vuelve a su texto original y se re-mide.)*
 501. **Sin marcadores en producción** *(§LEG.3)*: el texto servido del aviso, de los términos, del pie y de los correos
    **no contiene** «[DATO DEL DUEÑO]», «[FECHA», «[Razón social pendiente]», «[Legal entity pending]» ni ninguna
-   «nota para el abogado». Una prueba automatizada falla si alguno aparece. Mientras falte un dato del dueño, el
-   criterio está **rojo** y no se pasa a modo real.
+   «nota para el abogado». Una prueba automatizada falla si alguno aparece. ~~Mientras falte un dato del dueño, el
+   criterio está **rojo** y no se pasa a modo real.~~
+   *(**Nota 2026-10-05, sesión 6:** la frase tachada queda **sustituida por la excepción del dueño** — `HECHOS.md` fila
+   2026-10-05 «Salir en vivo SIN datos fiscales…»: «Por el momento salimos sin datos fiscales nos regularizamos
+   rápido»; `API_CONTRACT §14.17` E4-5. Lo que **sigue en pie** sin cambio: cero marcadores en aviso, términos, pie y
+   correos (ningún patrón se relaja, §14.17 E4-2); la falta de razón social/RFC/domicilio no se tapa con marcador sino
+   con la frase fija de §14.17 E4-1, y el centinela del pie sigue oculto. Comprobación provisional:
+   `check:legal:provisional` en verde; `check:legal` (final) **debe seguir rojo** nombrando P-LEG-1…3 hasta la
+   regularización, que es pendiente prioritario tras salir.)*
 502. **El aviso describe lo que la tienda recaba de verdad** *(§LEG.1)*: QA recorre registro (correo y Google),
    direcciones, checkout con cuenta, checkout de invitado, datos de factura, formulario de venta con CLABE e INE y
    «avísame cuando vuelva», y comprueba que **cada dato que se pide** en esas pantallas aparece en el apartado de
@@ -11731,11 +11787,22 @@ de Stripe** (`HECHOS.md` 2026-09-10).)*
 506. **Razón social en el pie** *(§LEG.3)*: con la razón social cargada, el pie de la tienda muestra «© {año} {razón
    social}» en español y en inglés; los **términos** y el **aviso** la nombran como «TCG HUNT, marca operada por
    {razón social}». Es **el mismo valor** en las tres superficies (se cambia en un solo sitio y cambia en las tres).
+   *(**Nota 2026-10-05, sesión 6 — excepción aceptada por el dueño, entera:** no hay razón social que mostrar
+   (`HECHOS.md` fila 2026-10-05 «Salir en vivo SIN datos fiscales…»: «Por el momento salimos sin datos fiscales nos
+   regularizamos rápido»; `API_CONTRACT §14.17` E4-5: «No se cumple — Excepción aceptada por el dueño»). Mientras
+   tanto el pie muestra «TCG HUNT · tcghunt.mx · © {año}» y **no** muestra el centinela; ⛔ no se rellena con «TCG HUNT»
+   ni vacío (§14.17 E4-1). Se cumple y se re-mide al llegar P-LEG-1, pendiente prioritario tras salir.)*
 507. **Razón social y aviso en los correos** *(§LEG.3)*: QA dispara al menos un correo de cada familia (verificación de
    correo, restablecer contraseña, confirmación de pedido con cuenta, confirmación de invitado, correo de buylist,
    aviso del centro de avisos) y en **todos** el pie muestra la **razón social** y un enlace **«Aviso de
    privacidad»** a la página del 500, además de lo que ya lleva (marca, sitio, soporte). Es el mismo valor que en el
    506.
+   *(**Nota 2026-10-05, sesión 6 — el criterio se parte en dos** (`API_CONTRACT §14.17` E4-5): (i) **razón social** en
+   el pie de los correos: **excepción aceptada por el dueño** (`HECHOS.md` fila 2026-10-05 «Salir en vivo SIN datos
+   fiscales…»: «Por el momento salimos sin datos fiscales nos regularizamos rápido»); se cumple al llegar P-LEG-1.
+   (ii) **enlace «Aviso de privacidad»** en el pie de **todas** las familias de correo: ⛔ **sigue bloqueando** el paso
+   a modo real — no lo cubre la excepción; lo construye backend y se publica en el mismo despliegue que deja el aviso
+   visible (para no enlazar a un 404).)*
 508. **El correo de privacidad recibe** *(§LEG.2 punto 7)*: un correo enviado desde fuera al buzón de privacidad que
    publica el aviso **llega** a un buzón que el dueño lee (lo confirma el dueño). El buzón del aviso es el **mismo**
    en ES y EN.
