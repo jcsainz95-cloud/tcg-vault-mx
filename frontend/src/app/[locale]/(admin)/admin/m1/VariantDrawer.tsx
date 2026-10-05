@@ -39,7 +39,7 @@ import { ItemDetailModal } from './ItemDetailModal';
 import { SealedFinalPrice } from './SealedFinalPrice';
 import { SealedPiecePriceLabel } from './SealedPiecePriceLabel';
 import { SealedProductPriceBlock } from './SealedProductPriceBlock';
-import { canSetSealedPrice } from '@/lib/sealed-price-role';
+import { canEditSealedPiecePrice, canSetSealedPrice, sealedPieceLinkOf } from '@/lib/sealed-price-role';
 
 /**
  * Drill-down de piezas por VARIANTE — P-17 (DESIGN_SYSTEM §16.4). Panel lateral (sheet 480px en
@@ -417,7 +417,7 @@ function PiecesSection({
   /**
    * §M11-SP.12.7 / 13.5 — en sellado se decide por `sealedProductId` de la fila: `string` ⇒ ligada (precio del
    * PRODUCTO, un bloque encima de la lista), `null` ⇒ sin producto (precio por pieza, antes de IVA, solo el dueño).
-   * Clave ausente ⇒ servidor anterior a §M11-SP: el panel de hoy sin cambio.
+   * Clave ausente ⇒ sin bloque y la pieza en solo lectura (falla cerrado; §13.5.1, `sealedPieceLinkOf`).
    */
   const linkedProducts = useMemo(() => {
     if (!sealed) return [];
@@ -575,7 +575,7 @@ function PiecesSection({
                       </button>
                     )}
                     <StatusBadge domain="inventory" value={piece.status} />
-                    {sealed && typeof piece.sealedProductId === 'string' ? (
+                    {sealedPieceLinkOf(piece) === 'linked' ? (
                       /* §70.3 (a): pieza LIGADA ⇒ solo lectura; el precio es del producto (bloque de arriba). */
                       <span className="ml-auto">
                         <SealedPiecePriceLabel
@@ -601,9 +601,9 @@ function PiecesSection({
                             name: sealed.name,
                             marketRefCents: sealed.marketRefCents,
                           }}
-                          // Sin producto (`null`): solo el dueño (§M11-SP.3). Clave ausente: conducta de antes.
-                          canEdit={piece.sealedProductId === null ? canSetPrice : true}
-                          staffNote={piece.sealedProductId === null}
+                          // §M11-SP.13.5.1: sin producto solo el dueño; clave ausente ⇒ nadie (falla cerrado).
+                          canEdit={canEditSealedPiecePrice(role, piece)}
+                          staffNote={sealedPieceLinkOf(piece) === 'unlinked' && !canSetPrice}
                           editing={sealedEditingId === piece.id}
                           onEditingChange={(open) => setSealedEditingId(open ? piece.id : null)}
                           onDone={(msg) => {

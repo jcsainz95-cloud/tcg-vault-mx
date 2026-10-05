@@ -67,7 +67,16 @@ function row(over: Partial<PendingPublishRowDTO> = {}): PendingPublishRowDTO {
   };
 }
 const sealedRow = (over: Partial<PendingPublishRowDTO> = {}) =>
-  row({ inventoryItemId: 'inv-s1', folio: 'INV-001950', productType: 'sealed', finish: 'normal', sealedProductName: 'Surging Sparks Booster Box', ...over });
+  row({
+    inventoryItemId: 'inv-s1',
+    folio: 'INV-001950',
+    productType: 'sealed',
+    finish: 'normal',
+    sealedProductName: 'Surging Sparks Booster Box',
+    // §M11-SP.13.5.1: pieza SIN producto (`null`); con la clave ausente no hay editor (F-SP-10).
+    sealedProductId: null,
+    ...over,
+  });
 
 function stub(rows: PendingPublishRowDTO[]) {
   vi.spyOn(api, 'getPendingPublish').mockResolvedValue({ data: rows, page: 1, pageSize: 20, total: rows.length });
@@ -288,7 +297,8 @@ describe('§39.2 (c) · el panel de «Sellado» (VariantDrawer)', () => {
 
   async function sealedPiece(over: Partial<InventoryItemDTO>): Promise<InventoryItemDTO> {
     const base = (await fx()).find((i) => i.productType === 'sealed') ?? (await fx())[0];
-    return { ...base, productType: 'sealed', ownerType: 'platform', ...over } as InventoryItemDTO;
+    // §M11-SP.13.5.1: pieza SIN producto (`null`); con la clave ausente no hay editor (F-SP-10).
+    return { ...base, productType: 'sealed', ownerType: 'platform', sealedProductId: null, ...over } as InventoryItemDTO;
   }
 
   it('sellado: rótulo «Antes de IVA», cifra derivada (S-2) y «Mercado» como referencia; reserved en solo lectura', async () => {

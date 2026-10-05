@@ -19167,10 +19167,27 @@ ficheros contra la rama hotfix = 0) para que la fusión no choque; sobre eso va 
 | SP-F-17/18 | `messages/es.json`, `en.json` | Todas las claves de §70.5 salvo `checkout.priceChanged.*` (ver «No construido») |
 | SP-F-19 | `m10/sections/IvaTransferSection.tsx` | La línea fija `delta.sealedOwnerPrice`, también con delta 0 |
 
-**Regla Q-5 (13.5):** en sellado se decide por `productType` primero y luego por `sealedProductId`: `string` ⇒ ligada,
-`null` ⇒ sin producto. **Clave ausente** se trata como «servidor anterior» y conserva la conducta de hoy: 13.5 dice que
-con este servidor no ocurre, pero front y back se publican por separado (Vercel y Railway), y durante la ventana en que
-el front nuevo hable con el back viejo eso es lo que llega.
+**Regla Q-5 (13.5), corregida por §M11-SP.13.5.1 (v1.83.3, C-2 del techlead, 2026-10-05):** en sellado se decide por
+`productType` primero y luego por `sealedProductId`, **siempre por el helper** de `src/lib/sealed-price-role.ts`:
+`sealedPieceLinkOf(row)` ⇒ `'linked'` (`string`) · `'unlinked'` (`null`) · `'unknown'` (clave ausente, u otro
+`productType`); `canEditSealedPiecePrice(role, row) = link === 'unlinked' && canSetSealedPrice(role)` es la única
+puerta del editor por pieza. **Se retiró** el respaldo «clave ausente = servidor anterior ⇒ conducta de hoy»: el
+servidor anterior ya mandaba la clave en el listado (§13.5, BACKEND_NOTES §57.2.6), así que no cubría lo que decía y
+**fallaba abierto** (`canEdit={id === null ? canSetPrice : true}` + default `canEdit = true` ⇒ un `vault_operator` veía
+el editor). Ahora `'unknown'` ⇒ **solo lectura** para todos (ni editor por pieza, ni de producto, ni nota del
+personal). `SealedFinalPrice.canEdit` es obligatorio, sin valor por defecto. `VariantDrawer`, `PendingPublishQueue` e
+`ItemDetailModal` pasan por el helper; ningún componente compara `sealedProductId` con `null` para decidir un permiso
+(quedan `typeof … === 'string'` solo para estrechar el tipo del id al agrupar/montar el editor de producto).
+Pruebas: **F-SP-9** `src/lib/sealed-price-role.test.ts` (2 roles × 5 filas), **F-SP-10**
+`m1/SealedProductPrice.panel-queue.test.tsx` (cola y panel sin la clave, `vault_operator` y `super_admin`), **F-SP-11**
+`m1/SealedFinalPrice.canEdit-required.test.tsx` (`@ts-expect-error`, lo muerde `tsc`). Las fixtures de
+`SealedFinalPrice.test.tsx` pasaron a `sealedProductId: null` explícito (probaban el editor de la pieza sin producto
+apoyándose en la clave ausente).
+
+**Techlead D-6 (2026-10-05):** la cifra del producto (bloque del panel, fila de la cola y la línea «Ahora» del editor)
+sale de **un** cálculo, `m1/sealed-product-price-target.ts → productPriceTargetOf(rows)`: dueño ⇒ `product`; si no, el
+`P` de una pieza `automatic` ⇒ `automatic`; si no, `pending` sin cifra. La cola pintaba antes «Ahora: sin precio tuyo;
+se vende a {P de esa pieza} (tuyo)» con una pieza `piece`/`pending`; ahora «Ahora: sin precio».
 
 ### Desviaciones conscientes (para ux-ui / techlead)
 1. **Aviso tras guardar = nota al margen (`Banner`), no `Toast`.** El `Toast` del proyecto no admite enlaces ni una
@@ -19224,3 +19241,10 @@ pasa de `vault_operator+` a solo dueño, `HECHOS.md:51` (1)) y `SealedFinalPrice
   `vault_operator` (UX-SP-10), M10 `autoPublish:null` sin aviso (UX-SP-19), M11 legado sin mirar `shadowed` (UX-SP-6),
   M12 detalle ligado manda `listPriceCents` (UX-SP-10), M13 línea de M10 solo con delta ≠ 0 (UX-SP-23). Copias
   borradas al terminar.
+- **C-2 / D-6 (2026-10-05, copia del árbol ENTERO en scratchpad `fe-sell2/tree`, `git ls-files -co` sobre `dc5977d3`
+  + este trabajo sin commitear):** `tsc` 0 · lint sin avisos · Vitest completa **218/218 ficheros, 2756/2756** (`--maxWorkers=2`,
+  load ~9 con 4 CPU). Pruebas escritas primero y medidas rojas sobre el código anterior (8 rojas). Mutaciones
+  deterministas (N=1 cada una = medida): **7/7 rojas** — helper con el ternario viejo (F-SP-9 y F-SP-10), ausente ⇒
+  `unlinked` (F-SP-9/10), cola y panel montando con el ternario viejo (F-SP-10, una cada uno), default `canEdit = true`
+  + montaje sin la prop (F-SP-10), `canEdit` opcional (F-SP-11, `tsc` TS2578), «Ahora» con el `P` de la fila (D-6).
+  Copia borrada al terminar.

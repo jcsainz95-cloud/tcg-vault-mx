@@ -281,3 +281,48 @@ describe('UX-SP-21 (D-SP-4) · pieza SIN producto: «antes de IVA» y «En la ti
     expect(screen.getByText('Sin producto: su precio lo pone el dueño.')).toBeInTheDocument();
   });
 });
+
+/**
+ * 💰 F-SP-10 (`API_CONTRACT §M11-SP.13.5.1`, C-2 del techlead) — fila sellada SIN la clave `sealedProductId`: solo
+ * lectura en ambos roles (ni editor por pieza ni de producto); el precio se lee.
+ */
+describe('💰 F-SP-10 · clave `sealedProductId` AUSENTE ⇒ falla cerrado: sin editor, en ambos roles', () => {
+  it.each(['vault_operator', 'super_admin'])('cola, %s ⇒ ningún botón de precio en la fila', async (role) => {
+    roleState.role = role;
+    const row = queueRow({ sealedProductPieces: undefined, sealedPriceOrigin: undefined, sealedProductDisplayPriceCents: undefined });
+    delete (row as Partial<PendingPublishRowDTO>).sealedProductId;
+    stubQueue([row]);
+    renderWithProviders(<PendingPublishQueue productType="sealed" />, 'es');
+    expect(await screen.findByTestId('sealed-final-price-inv-s1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^(Poner|Cambiar) precio/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Guardar/ })).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByTestId(/^sealed-product-block-/)).toBeNull();
+  });
+
+  it.each(['vault_operator', 'super_admin'])('panel, %s ⇒ ningún botón de precio en la pieza', async (role) => {
+    roleState.role = role;
+    const p = piece({ id: 'p-9', folio: 'INV-002009', status: 'in_stock', listPriceCents: 100000, resolvedSalePriceCents: 100000, priceBasis: 'override' });
+    delete (p as Partial<InventoryItemDTO>).sealedProductId;
+    drawer([p]);
+    expect(await screen.findByTestId('sealed-final-price-p-9')).toHaveTextContent('MX$1,000.00');
+    expect(screen.queryByRole('button', { name: /precio de INV-002009/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Guardar/ })).toBeNull();
+    expect(screen.queryAllByTestId(/^sealed-product-block-/)).toHaveLength(0);
+    // Ni la nota del personal: con la clave ausente no se sabe si es «sin producto».
+    expect(screen.queryByText('Sin producto: su precio lo pone el dueño.')).toBeNull();
+  });
+});
+
+describe('Techlead D-6 · cola: la línea «Ahora» no se contradice', () => {
+  it('ligada sin precio del dueño y con precio propio antiguo ⇒ «Ahora: sin precio», ⛔ nunca «(tuyo)»', async () => {
+    stubQueue([queueRow({ sealedPriceOrigin: 'piece', resolvedDisplayPriceCents: 127600, missing: [] })]);
+    renderWithProviders(<PendingPublishQueue productType="sealed" />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Poner precio de Surging Sparks Elite Trainer Box' }));
+    fireEvent.change(await screen.findByLabelText('Tu precio, con IVA (MXN)'), { target: { value: '1500' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Ahora: sin precio');
+    expect(dialog.textContent).not.toContain('se vende a');
+  });
+});

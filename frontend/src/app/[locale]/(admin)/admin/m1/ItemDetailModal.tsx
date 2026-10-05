@@ -25,7 +25,7 @@ import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { asApiError } from '@/lib/api-client';
 import { useRole } from '@/lib/role';
-import { canSetSealedPrice } from '@/lib/sealed-price-role';
+import { canEditSealedPiecePrice, canSetSealedPrice, sealedPieceLinkOf } from '@/lib/sealed-price-role';
 import { Link } from '@/i18n/navigation';
 import { SHEET_ANCHOR_HREF } from './SealedPriceSavedNotice';
 
@@ -69,19 +69,21 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const priceCents = price.trim() === '' ? undefined : Math.round(Number(price) * 100);
   const priceInvalid = price.trim() !== '' && (!Number.isFinite(priceCents!) || priceCents! < 0);
   /**
-   * §M11-SP.13.5/13.6 — se decide por `productType` PRIMERO. Sellado + `sealedProductId` string ⇒ LIGADO: el precio es
-   * del producto (sin input, ⛔ `listPriceCents` en el PATCH, UX-SP-10). Sellado + `null` ⇒ SIN producto: precio por
-   * pieza antes de IVA, solo el dueño (§M11-SP.3).
+   * §M11-SP.13.5.1 — por el helper único (`sealedPieceLinkOf` / `canEditSealedPiecePrice`), que decide por
+   * `productType` PRIMERO. LIGADO ⇒ el precio es del producto (sin input, ⛔ `listPriceCents` en el PATCH, UX-SP-10).
+   * SIN producto ⇒ precio por pieza antes de IVA, solo el dueño (§M11-SP.3). Clave ausente (`'unknown'`) ⇒ sin input
+   * (falla cerrado).
    */
   const isSealed = item?.productType === 'sealed';
-  const sealedLinked = isSealed && typeof item?.sealedProductId === 'string';
-  const sealedUnlinked = isSealed && !sealedLinked;
+  const sealedLink = item ? sealedPieceLinkOf(item) : 'unknown';
+  const sealedLinked = sealedLink === 'linked';
+  const sealedUnlinked = sealedLink === 'unlinked';
   const canSetSealed = canSetSealedPrice(role);
+  const canEditSealedPiece = item ? canEditSealedPiecePrice(role, item) : false;
   // Sin producto, el dueño escribe el precio a mano para publicar (§39); el personal no tiene campo (lo resuelve el
   // servidor o responde `422 PRICE_PENDING`).
-  const sealedNeedsPrice =
-    sealedUnlinked && canSetSealed && priceCents == null && item?.listPriceCents == null;
-  const showPriceInput = !isSealed || (sealedUnlinked && canSetSealed);
+  const sealedNeedsPrice = canEditSealedPiece && priceCents == null && item?.listPriceCents == null;
+  const showPriceInput = !isSealed || canEditSealedPiece;
 
   const publish = useMutation({
     mutationFn: (status: 'listed' | 'in_stock') =>

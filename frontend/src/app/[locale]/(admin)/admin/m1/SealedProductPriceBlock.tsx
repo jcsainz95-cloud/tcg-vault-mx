@@ -8,6 +8,7 @@ import type { InventoryItemDTO } from '@/types/contract';
 import { Link } from '@/i18n/navigation';
 import { SealedProductPriceEditor, type SealedProductPriceSaved } from './SealedProductPriceEditor';
 import { SealedPriceSavedNotice, SHEET_ANCHOR_HREF } from './SealedPriceSavedNotice';
+import { productPriceTargetOf } from './sealed-product-price-target';
 
 /**
  * Bloque «Precio del producto · N piezas» del panel de la presentación (`DESIGN_SYSTEM §70.3 (a)`), **una vez** encima
@@ -42,20 +43,20 @@ export function SealedProductPriceBlock({
   const [saved, setSaved] = useState<SealedProductPriceSaved | null>(null);
   const [seq, setSeq] = useState(0);
 
-  const withExpected = rows.find((r) => r.sealedProductDisplayPriceCents !== undefined);
-  const owner = withExpected?.sealedProductDisplayPriceCents ?? null;
-  const counts = rows.find((r) => r.sealedProductPieces != null)?.sealedProductPieces ?? null;
+  // Techlead D-6: la misma cuenta que la fila de la cola (`productPriceTargetOf`).
+  const target = productPriceTargetOf(rows);
+  const owner = target.ownerDisplayPriceCents;
+  const counts = target.pieces;
   const n = counts ? counts.inStock + counts.listed + counts.reserved : null;
-  const auto = rows.find((r) => r.sealedPriceOrigin === 'automatic' && r.resolvedDisplayPriceCents != null);
 
   const figure =
-    owner != null ? (
+    target.effectiveOrigin === 'product' && owner != null ? (
       <>
         <span className="tabular font-mono">{formatMoneyCents(owner, locale)}</span> · {tSheet('origin.product')} · {t('withVat')}
       </>
-    ) : auto?.resolvedDisplayPriceCents != null ? (
+    ) : target.effectiveOrigin === 'automatic' && target.displayPriceCents != null ? (
       <>
-        <span className="tabular font-mono">{formatMoneyCents(auto.resolvedDisplayPriceCents, locale)}</span> ·{' '}
+        <span className="tabular font-mono">{formatMoneyCents(target.displayPriceCents, locale)}</span> ·{' '}
         {tSheet('origin.automatic')} · {t('withVat')}
       </>
     ) : (
@@ -72,14 +73,14 @@ export function SealedProductPriceBlock({
     <div className="flex flex-col gap-1 border-b border-border pb-3" data-testid={`sealed-product-block-${productId}`}>
       <p className="eyebrow">{n != null ? t('blockTitle', { n }) : t('blockTitleNoCount')}</p>
       <p className="text-sm text-text">{figure}</p>
-      {canSet && withExpected ? (
+      {canSet && target.hasExpected ? (
         <SealedProductPriceEditor
           product={{
             id: productId,
             name,
             ownerDisplayPriceCents: owner,
-            displayPriceCents: owner ?? auto?.resolvedDisplayPriceCents ?? null,
-            effectiveOrigin: owner != null ? 'product' : auto ? 'automatic' : 'pending',
+            displayPriceCents: target.displayPriceCents,
+            effectiveOrigin: target.effectiveOrigin,
             pieces: counts,
           }}
           triggerVariant="product"

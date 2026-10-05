@@ -17,7 +17,8 @@ import { SealedFinalPrice } from './SealedFinalPrice';
 import { SealedPiecePriceLabel } from './SealedPiecePriceLabel';
 import { SealedProductPriceEditor, type SealedProductPriceSaved } from './SealedProductPriceEditor';
 import { SealedPriceSavedNotice, SHEET_ANCHOR_HREF } from './SealedPriceSavedNotice';
-import { canSetSealedPrice } from '@/lib/sealed-price-role';
+import { canEditSealedPiecePrice, canSetSealedPrice, sealedPieceLinkOf } from '@/lib/sealed-price-role';
+import { productPriceTargetOf } from './sealed-product-price-target';
 
 /**
  * Origen traducido (`DESIGN_SYSTEM §39.3 (c)`). ⛔ El valor crudo nunca llega al DOM: un tipo nuevo del servidor
@@ -211,7 +212,6 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
   // §70.3 (b): el aviso del editor del PRODUCTO (cuentas de `autoPublish`), aparte del de la pieza sin producto.
   const [saved, setSaved] = useState<{ value: SealedProductPriceSaved; seq: number } | null>(null);
   const { role } = useRole();
-  const canSetPrice = canSetSealedPrice(role);
 
   function closeDetail() {
     const id = detailId;
@@ -296,138 +296,138 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
               </tr>
             </thead>
             <tbody>
-              {query.data?.data.map((row) => (
-                <tr key={row.inventoryItemId} className="border-b border-border last:border-b-0">
-                  <td className="tabular px-3 py-3 align-top font-mono text-[13px] text-text">
-                    <button
-                      type="button"
-                      ref={(el) => {
-                        folioRefs.current[row.inventoryItemId] = el;
-                      }}
-                      aria-label={t('openPiece', { folio: row.folio })}
-                      className="underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
-                      onClick={() => setDetailId(row.inventoryItemId)}
-                    >
-                      {row.folio}
-                    </button>
-                  </td>
-                  <td className="px-3 py-3 align-top text-sm text-text">
-                    <PieceCell row={row} />
-                  </td>
-                  <td className="px-3 py-3 align-top">
-                    <MissingCell row={row} />
-                  </td>
-                  <td className="px-3 py-3 align-top text-sm">
-                    {row.productType === 'sealed' && typeof row.sealedProductId === 'string' ? (
-                      /* §70.3 (b): pieza LIGADA ⇒ rótulo del precio de la pieza (con IVA) y, para el dueño, el editor
-                         del PRODUCTO. `expected` = `sealedProductDisplayPriceCents` de ESTA fila (§M11-SP.13.7). */
-                      <span className="flex flex-col gap-1">
-                        <SealedPiecePriceLabel
-                          id={row.inventoryItemId}
-                          origin={row.sealedPriceOrigin}
-                          resolvedDisplayPriceCents={row.resolvedDisplayPriceCents}
-                        />
-                        {canSetPrice && row.sealedProductDisplayPriceCents !== undefined ? (
-                          <SealedProductPriceEditor
-                            product={{
-                              id: row.sealedProductId,
-                              name: row.sealedProductName ?? t('sealedUnidentified'),
-                              ownerDisplayPriceCents: row.sealedProductDisplayPriceCents,
-                              displayPriceCents: row.sealedProductDisplayPriceCents ?? row.resolvedDisplayPriceCents ?? null,
-                              effectiveOrigin:
-                                row.sealedProductDisplayPriceCents != null
-                                  ? 'product'
-                                  : row.sealedPriceOrigin === 'automatic'
-                                    ? 'automatic'
-                                    : 'pending',
-                              pieces: row.sealedProductPieces ?? null,
+              {query.data?.data.map((row) => {
+                // §M11-SP.13.5.1 (C-2) y techlead D-6: de quién es el precio y la cifra del producto, un sitio cada uno.
+                const sealedLink = sealedPieceLinkOf(row);
+                const target = productPriceTargetOf([row]);
+                return (
+                  <tr key={row.inventoryItemId} className="border-b border-border last:border-b-0">
+                    <td className="tabular px-3 py-3 align-top font-mono text-[13px] text-text">
+                      <button
+                        type="button"
+                        ref={(el) => {
+                          folioRefs.current[row.inventoryItemId] = el;
+                        }}
+                        aria-label={t('openPiece', { folio: row.folio })}
+                        className="underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                        onClick={() => setDetailId(row.inventoryItemId)}
+                      >
+                        {row.folio}
+                      </button>
+                    </td>
+                    <td className="px-3 py-3 align-top text-sm text-text">
+                      <PieceCell row={row} />
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <MissingCell row={row} />
+                    </td>
+                    <td className="px-3 py-3 align-top text-sm">
+                      {sealedLink === 'linked' && typeof row.sealedProductId === 'string' ? (
+                        /* §70.3 (b): pieza LIGADA ⇒ rótulo del precio de la pieza (con IVA) y, para el dueño, el editor
+                           del PRODUCTO. `expected` = `sealedProductDisplayPriceCents` de ESTA fila (§M11-SP.13.7). */
+                        <span className="flex flex-col gap-1">
+                          <SealedPiecePriceLabel
+                            id={row.inventoryItemId}
+                            origin={row.sealedPriceOrigin}
+                            resolvedDisplayPriceCents={row.resolvedDisplayPriceCents}
+                          />
+                          {canSetSealedPrice(role) && target.hasExpected ? (
+                            <SealedProductPriceEditor
+                              product={{
+                                id: row.sealedProductId,
+                                name: row.sealedProductName ?? t('sealedUnidentified'),
+                                ownerDisplayPriceCents: target.ownerDisplayPriceCents,
+                                displayPriceCents: target.displayPriceCents,
+                                effectiveOrigin: target.effectiveOrigin,
+                                pieces: target.pieces,
+                              }}
+                              triggerVariant="product"
+                              editing={editingId === row.inventoryItemId}
+                              onEditingChange={(open) => setEditingId(open ? row.inventoryItemId : null)}
+                              onDone={(value) => setSaved((prev) => ({ value, seq: (prev?.seq ?? 0) + 1 }))}
+                            />
+                          ) : (
+                            (row.missing ?? []).includes('price') && (
+                              /* UX-SP-15: la ligada sin precio va a la HOJA, ⛔ no a la cola de M2. */
+                              <Link
+                                href={SHEET_ANCHOR_HREF}
+                                className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
+                              >
+                                {t('sealedPriceLink')}
+                              </Link>
+                            )
+                          )}
+                        </span>
+                      ) : row.productType === 'sealed' ? (
+                        /* §39.2 — sellado SIN producto (o clave ausente, en solo lectura): precio por pieza, antes de IVA. */
+                        <span className="flex flex-col gap-1">
+                          <SealedFinalPrice
+                            layout="queue"
+                            piece={{
+                              id: row.inventoryItemId,
+                              folio: row.folio,
+                              // La cola es `in_stock` de plataforma por predicado (§M1 `pending-publish`).
+                              status: 'in_stock',
+                              ownerType: 'platform',
+                              hasLocation: row.locationId != null,
+                              listPriceCents: row.listPriceCents,
+                              resolvedSalePriceCents: row.resolvedSalePriceCents,
+                              resolvedDisplayPriceCents: row.resolvedDisplayPriceCents,
+                              priceBasis: row.priceBasis,
+                              name: row.sealedProductName ?? null,
                             }}
-                            triggerVariant="product"
+                            // §M11-SP.13.5.1: sin producto solo el dueño; clave ausente ⇒ nadie (falla cerrado).
+                            canEdit={canEditSealedPiecePrice(role, row)}
+                            staffNote={sealedLink === 'unlinked' && !canSetSealedPrice(role)}
                             editing={editingId === row.inventoryItemId}
                             onEditingChange={(open) => setEditingId(open ? row.inventoryItemId : null)}
-                            onDone={(value) => setSaved((prev) => ({ value, seq: (prev?.seq ?? 0) + 1 }))}
+                            onDone={setDone}
                           />
-                        ) : (
-                          (row.missing ?? []).includes('price') && (
-                            /* UX-SP-15: la ligada sin precio va a la HOJA, ⛔ no a la cola de M2. */
+                          {row.resolvedSalePriceCents == null && row.pendingPriceEntryId && (
                             <Link
-                              href={SHEET_ANCHOR_HREF}
+                              href={{ pathname: '/admin/m2', query: { pendingPrice: row.pendingPriceEntryId } }}
                               className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
                             >
-                              {t('sealedPriceLink')}
+                              {t('pendingPriceLink')}
                             </Link>
-                          )
-                        )}
-                      </span>
-                    ) : row.productType === 'sealed' ? (
-                      /* §39.2 — sellado SIN producto (o servidor anterior): precio por pieza, antes de IVA. */
-                      <span className="flex flex-col gap-1">
-                        <SealedFinalPrice
-                          layout="queue"
-                          piece={{
-                            id: row.inventoryItemId,
-                            folio: row.folio,
-                            // La cola es `in_stock` de plataforma por predicado (§M1 `pending-publish`).
-                            status: 'in_stock',
-                            ownerType: 'platform',
-                            hasLocation: row.locationId != null,
-                            listPriceCents: row.listPriceCents,
-                            resolvedSalePriceCents: row.resolvedSalePriceCents,
-                            resolvedDisplayPriceCents: row.resolvedDisplayPriceCents,
-                            priceBasis: row.priceBasis,
-                            name: row.sealedProductName ?? null,
-                          }}
-                          // Sin producto (`null`): solo el dueño (§M11-SP.3). Clave ausente: conducta de antes.
-                          canEdit={row.sealedProductId === null ? canSetPrice : true}
-                          staffNote={row.sealedProductId === null}
-                          editing={editingId === row.inventoryItemId}
-                          onEditingChange={(open) => setEditingId(open ? row.inventoryItemId : null)}
-                          onDone={setDone}
-                        />
-                        {row.resolvedSalePriceCents == null && row.pendingPriceEntryId && (
-                          <Link
-                            href={{ pathname: '/admin/m2', query: { pendingPrice: row.pendingPriceEntryId } }}
-                            className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
-                          >
-                            {t('pendingPriceLink')}
-                          </Link>
-                        )}
-                      </span>
-                    ) : row.resolvedSalePriceCents != null ? (
-                      <span className="flex flex-wrap items-baseline gap-1">
-                        <span className="tabular font-mono text-text">
-                          {formatMoneyCents(row.resolvedSalePriceCents, locale)}
-                        </span>{' '}
-                        <span className="text-xs text-muted">· {basisLabel(row)}</span>
-                      </span>
-                    ) : (
-                      /* ⛔ Nunca MX$0.00 para «no resoluble»: cero es un precio (§7.3). «—» + «sin precio». */
-                      <span className="flex flex-col gap-1">
-                        <span className="flex flex-wrap items-baseline gap-1">
-                          <span className="tabular font-mono text-accent">—</span>{' '}
-                          <span className="text-xs text-muted">· {t('basis.none')}</span>
+                          )}
                         </span>
-                        {row.pendingPriceEntryId && (
-                          <Link
-                            href={{ pathname: '/admin/m2', query: { pendingPrice: row.pendingPriceEntryId } }}
-                            className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
-                          >
-                            {t('pendingPriceLink')}
-                          </Link>
-                        )}
+                      ) : row.resolvedSalePriceCents != null ? (
+                        <span className="flex flex-wrap items-baseline gap-1">
+                          <span className="tabular font-mono text-text">
+                            {formatMoneyCents(row.resolvedSalePriceCents, locale)}
+                          </span>{' '}
+                          <span className="text-xs text-muted">· {basisLabel(row)}</span>
+                        </span>
+                      ) : (
+                        /* ⛔ Nunca MX$0.00 para «no resoluble»: cero es un precio (§7.3). «—» + «sin precio». */
+                        <span className="flex flex-col gap-1">
+                          <span className="flex flex-wrap items-baseline gap-1">
+                            <span className="tabular font-mono text-accent">—</span>{' '}
+                            <span className="text-xs text-muted">· {t('basis.none')}</span>
+                          </span>
+                          {row.pendingPriceEntryId && (
+                            <Link
+                              href={{ pathname: '/admin/m2', query: { pendingPrice: row.pendingPriceEntryId } }}
+                              className="text-[11px] text-accent underline-offset-2 hover:text-text hover:underline"
+                            >
+                              {t('pendingPriceLink')}
+                            </Link>
+                          )}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 align-top text-sm text-muted">
+                      <span className="flex flex-col">
+                        <span>{t(originKey(row.acquisitionType))}</span>
+                        <span className="tabular font-mono text-[11px]">
+                          {formatDate(row.createdAt, locale)}
+                        </span>
                       </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 align-top text-sm text-muted">
-                    <span className="flex flex-col">
-                      <span>{t(originKey(row.acquisitionType))}</span>
-                      <span className="tabular font-mono text-[11px]">
-                        {formatDate(row.createdAt, locale)}
-                      </span>
-                    </span>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

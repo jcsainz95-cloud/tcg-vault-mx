@@ -87,7 +87,7 @@ export function SealedFinalPrice({
   editing,
   onEditingChange,
   onDone,
-  canEdit = true,
+  canEdit,
   staffNote = false,
 }: {
   piece: SealedFinalPricePiece;
@@ -96,10 +96,10 @@ export function SealedFinalPrice({
   onEditingChange: (open: boolean) => void;
   onDone: (message: string) => void;
   /**
-   * §M11-SP.3/SP.4 — la pieza SIN producto la precia solo el dueño (`canSetSealedPrice`); el personal la lee. Default
-   * `true` = la conducta de antes de §M11-SP (servidor que aún no manda `sealedProductId`).
+   * §M11-SP.3/SP.4 — la pieza SIN producto la precia solo el dueño; el personal la lee. **Obligatorio, sin valor por
+   * defecto** (C-2): quien monta esto lo decide con `sealedPieceEditMode(...) === 'piece'`, que falla cerrado.
    */
-  canEdit?: boolean;
+  canEdit: boolean;
   /** Personal sobre pieza sin producto: «Sin producto: su precio lo pone el dueño.» (§70.3 (a)). */
   staffNote?: boolean;
 }) {

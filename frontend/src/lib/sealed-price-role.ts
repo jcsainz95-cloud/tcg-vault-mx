@@ -1,4 +1,4 @@
-import type { Role } from '@/types/contract';
+import type { ProductType, Role } from '@/types/contract';
 
 /**
  * §M11-SP.3 — **un predicado** decide quién pone o cambia el precio de venta del sellado (el dueño). Hoy
@@ -11,4 +11,33 @@ import type { Role } from '@/types/contract';
  */
 export function canSetSealedPrice(role: Role): boolean {
   return role === 'super_admin';
+}
+
+/**
+ * §M11-SP.13.5.1 (v1.83.3, C-2 del techlead) — de quién es el precio de una pieza sellada, decidido en UN sitio:
+ * - `productType !== 'sealed'` ⇒ `'unknown'` (raw/graded no montan nada de esto; P-PRE-1).
+ * - sellado con `sealedProductId: string` ⇒ `'linked'` (su precio es del PRODUCTO).
+ * - sellado con `sealedProductId: null` ⇒ `'unlinked'` (precio por pieza, antes de IVA).
+ * - ⛔ clave **ausente** (u otro valor) ⇒ `'unknown'` ⇒ **solo lectura** (falla cerrado). No es «servidor anterior»:
+ *   el servidor anterior ya mandaba la clave en el listado (§M11-SP.13.5); la ausencia de un dato nunca abre un
+ *   permiso (`ARCHITECTURE §4.62.9 (d)`).
+ */
+export type SealedPieceLink = 'linked' | 'unlinked' | 'unknown';
+
+export function sealedPieceLinkOf(row: { productType: ProductType; sealedProductId?: string | null }): SealedPieceLink {
+  if (row.productType !== 'sealed') return 'unknown';
+  if (typeof row.sealedProductId === 'string') return 'linked';
+  if (row.sealedProductId === null) return 'unlinked';
+  return 'unknown';
+}
+
+/**
+ * §M11-SP.13.5.1 — **única** puerta del editor de precio POR PIEZA (`SealedFinalPrice`, D-SP-4): solo la pieza
+ * sellada sin producto, y solo el dueño. `'linked'` ⇒ `false` (editor de producto) · `'unknown'` ⇒ `false`.
+ */
+export function canEditSealedPiecePrice(
+  role: Role,
+  row: { productType: ProductType; sealedProductId?: string | null },
+): boolean {
+  return sealedPieceLinkOf(row) === 'unlinked' && canSetSealedPrice(role);
 }
