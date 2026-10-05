@@ -1508,7 +1508,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // días MX (`YYYY-MM-DD`; fuera de forma ⇒ `400 {field}` sin `allowed`), medidos en `sdx-d2g-panel.e2e-spec.ts`.
     // 💰 **50 → 51 (C2, v1.80.12.14 §19.33.9):** `GET /admin/shipments/departure::date` — el tablero de salida de D2d; una fecha
     // `YYYY-MM-DD` (formato, no tokens), como `?date=` de «Pedidos a preparar» (`picking-list::date`).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(51);
+    // 💰 **51 → 52 (D2f, §19.22.3; ⚠️ PENDIENTE de ratificar por el arquitecto, como G6):**
+    // `GET /admin/shipping/catalogs/consignment-notes::description` — texto libre 3..60 que viaja tal cual a Skydropx (no tokens).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(52);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

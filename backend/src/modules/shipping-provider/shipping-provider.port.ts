@@ -255,6 +255,7 @@ export interface ShippingProviderPort {
   extraCharges(from: Date, to: Date): AsyncIterable<ProviderExtraCharge>;
   packagings?(): Promise<CatalogRow[]>;
   consignmentNote?(code: string): Promise<{ code: string; description: string } | null>;
-  searchConsignmentNotes?(description: string): Promise<{ code: string; description: string }[]>;
+  /** §19.22.3: UNA página; `hasMore` ⇔ `meta.next_page ≠ null` (meta ilegible ⇒ `false`). */
+  searchConsignmentNotes?(description: string): Promise<{ consignmentNotes: { code: string; description: string }[]; hasMore: boolean }>;
   addressTemplates?(): Promise<AddressTemplateSummary[]>;
 }

@@ -525,19 +525,23 @@ export class SkydropxAdapter implements ShippingProviderPort {
     return hit ? { code, description: str(hit.description) ?? '' } : null;
   }
 
-  async searchConsignmentNotes(description: string): Promise<{ code: string; description: string }[]> {
+  /** §19.22.3: solo la PRIMERA página; `hasMore` ⇔ `meta.next_page ≠ null` (meta ilegible ⇒ `false`); filas sin código fuera. */
+  async searchConsignmentNotes(description: string): Promise<{ consignmentNotes: { code: string; description: string }[]; hasMore: boolean }> {
     const res = await this.client.get(
       'consignment_notes',
       `/shipments/consignment_notes?description=${encodeURIComponent(description)}`,
     );
-    const data = asObj(res.json)?.data;
+    const root = asObj(res.json);
+    const data = root?.data;
     const out: { code: string; description: string }[] = [];
     for (const raw of Array.isArray(data) ? data : []) {
       const r = asObj(raw);
       const code = r ? str(r.consignment_note) : null;
       if (r && code) out.push({ code, description: str(r.description) ?? '' });
     }
-    return out;
+    const meta = asObj(root?.meta);
+    const next = meta ? meta.next_page : null;
+    return { consignmentNotes: out, hasMore: next !== null && next !== undefined };
   }
 
   async addressTemplates(): Promise<AddressTemplateSummary[]> {

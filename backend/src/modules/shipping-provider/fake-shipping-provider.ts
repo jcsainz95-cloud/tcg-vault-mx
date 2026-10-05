@@ -468,13 +468,13 @@ export class FakeShippingProvider implements ShippingProviderPort {
     return known[code] ? { code, description: known[code] } : null;
   }
 
-  async searchConsignmentNotes(description: string): Promise<{ code: string; description: string }[]> {
+  async searchConsignmentNotes(description: string): Promise<{ consignmentNotes: { code: string; description: string }[]; hasMore: boolean }> {
     const all = [
       { code: '49101600', description: 'Coleccionables' },
       { code: '60141103', description: 'Naipes' },
     ];
     const q = description.toLowerCase();
-    return all.filter((r) => r.description.toLowerCase().includes(q));
+    return { consignmentNotes: all.filter((r) => r.description.toLowerCase().includes(q)), hasMore: false };
   }
 
   async addressTemplates(): Promise<AddressTemplateSummary[]> {

@@ -43,6 +43,7 @@ import { PasswordAttemptsService } from '../auth/password-attempts.service';
 import { LoginAttemptStoreUnavailableError } from '../auth/login-attempt.store';
 import { ShipmentPrepService } from '../shipments/shipment-prep.service';
 import { ManualRefundService } from '../payments/refunds/manual-refund.service';
+import { DashboardShippingService } from './dashboard-shipping.service';
 import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
   MIN_PASSWORD_LENGTH,
@@ -655,6 +656,10 @@ export class AdminService {
     // 🔒 v1.80.7 (punto 19): la CLABE la borra su módulo dueño (`UsersService.eraseClabe`, `C-CLABE-1`). `@Optional()`
     // por el mismo motivo que los de arriba; `deleteUser` exige que esté.
     @Optional() private readonly users?: UsersService,
+    // 💰 D2f (§19.13, §19.29.9): `workQueue.shipping` y `workQueue.spendControl` — leen DIALES, así que viven en su propio
+    // servicio (este ⛔ tiene el servicio de diales: candado IVA-11 (c-estructural)). `@Optional()` por los unitarios que
+    // construyen a mano; en DI siempre está (`AdminModule` lo provee).
+    @Optional() private readonly dashboardShipping?: DashboardShippingService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -1759,6 +1764,8 @@ export class AdminService {
     // una señal para un humano —«estos N envíos no tienen costo: revísalos»—, ⛔ no una afirmación
     // fiscal.* Un cero silencioso convierte el ingreso de ese envío en **ganancia fantasma**.
     let shippingCostMissingCount = 0;
+    // 💰 D2f (§19.11): el seguro del periodo, INFORMATIVO (ya va dentro del bruto de `shippingCostCents`; ⛔ no se resta aparte).
+    let shippingInsuranceCents = 0;
     for (const s of shipments) {
       // v1.64 (§4.44.j, sitio 2): neteado por la convención de ESTA `ShipmentRequest`. En el retiro
       // de bóveda el «subtotal» del desglose ES la tarifa de envío (`computeShipmentBreakdown`
@@ -1772,9 +1779,22 @@ export class AdminService {
       // yo pague, trátalo como si no hubiera margen»*). El neto es una **RESTA** del crédito
       // CONGELADO al capturar, ⛔ jamás una división por `(1+r)` ni una lectura del dial vivo.
       shippingCostCents += netShippingCostCents(s);
-      if (s.shippingCostCents === 0) shippingCostMissingCount += 1;
+      // 💰 D2f (§19.11): una guía de Skydropx trae su costo de la respuesta del proveedor ⇒ ⛔ no es «costo sin capturar».
+      if (s.shippingCostCents === 0 && s.labelSource !== 'skydropx') shippingCostMissingCount += 1;
+      shippingInsuranceCents += s.insuranceCostCents ?? 0;
       stripeFeesCents += s.processingFeeCents;
     }
+    // 💰 D2f (§19.11, pregunta 89 DECIDIDA, `HECHOS.md:41`): los AJUSTES de costo (cargos extra, lo no devuelto de una
+    // cancelación) cuentan en el mes de su CARGO (`chargedAt`, ⛔ `observedAt`, ⛔ el `pickingAt` del envío), netos (resta
+    // del IVA congelado, ⛔ división), sin filtrar por el estado del envío (el dinero salió igual). Van DENTRO de
+    // `shippingCostCents` y aparte en `shippingAdjustmentsCents` («ajustes de paquetería») para verlos.
+    // ⛔ P-SDX-PNL-1 (huérfanas y duplicados) NO entra: sin respuesta del dueño, nada cambia (§19.33.3).
+    const adjustments = await this.prisma.shipmentCostAdjustment.findMany({
+      where: shipmentRange ? { chargedAt: shipmentRange } : {},
+      select: { amountCents: true, ivaCents: true },
+    });
+    const shippingAdjustmentsCents = adjustments.reduce((acc, a) => acc + a.amountCents - a.ivaCents, 0);
+    shippingCostCents += shippingAdjustmentsCents;
     // ⭐ v1.80 / v1.80.2 (§M4-SHIP, PS-40) — EL DINERO QUE VUELVE resta en el periodo en que SALIÓ: las filas del
     // libro aceptadas por Stripe (`submitted|succeeded`, por `submittedAt`) y las transferencias SPEI `paid` (por
     // `paidAt`; ⛔ `pending` y `cancelled` no restan; la fila Stripe `failed` no resta y su sustituta SPEI no duplica).
@@ -1794,6 +1814,8 @@ export class AdminService {
       stripeFeesCents,
       shippingCostCents,
       shippingCostMissingCount,
+      shippingAdjustmentsCents,
+      shippingInsuranceCents,
       refundsCents: refunds.refundsCents,
       refundedFeesCents: refunds.refundedFeesCents,
       compensationsCents: refunds.compensationsCents,
@@ -1845,8 +1867,11 @@ export class AdminService {
     const now = new Date();
     const summary = await this.prep.summary(role, now);
     const toPrepare = { ship: summary.ship, vault: summary.vault, toReplace: summary.toReplace, toReplaceOverdue: summary.toReplaceOverdue, stuckRefunds: summary.stuckRefunds };
+    // 💰 D2f (§19.13): `shipping` para los dos roles (el operador recibe `lowBalance`, ⛔ nunca la cifra).
+    const shipping = this.dashboardShipping ? await this.dashboardShipping.shipping() : null;
     // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): `refundReviews` — `null` para `vault_operator` (como `manualRefunds`).
-    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null, refundReviews: null };
+    // 💰 D2f (§19.29.9): `spendControl` — `null` para `vault_operator` (GAS-1: la tarjeta no existe).
+    if (!isSuperAdmin) return { toPrepare, manualRefunds: null, operatorRefunds: null, refundReviews: null, shipping, spendControl: null };
     const opWhere = { requestedByRole: Role.vault_operator, status: { not: 'failed' as const } };
     const [manualRefunds, last24h, last30d, reviews] = await Promise.all([
       this.manualRefunds ? this.manualRefunds.pendingSummary() : Promise.resolve(null),
@@ -1859,6 +1884,8 @@ export class AdminService {
       manualRefunds,
       refundReviews: { pending: reviews._count._all, oldestRefundedAt: reviews._min.refundedAt ? reviews._min.refundedAt.toISOString() : null },
       operatorRefunds: { last24hCount: last24h._count._all, last24hCents: last24h._sum.amountCents ?? 0, last30dCents: last30d._sum.amountCents ?? 0 },
+      shipping,
+      spendControl: this.dashboardShipping ? await this.dashboardShipping.spendControl(now) : null,
     };
   }
 
@@ -1990,9 +2017,11 @@ export class AdminService {
       // CSV cuyo orden de columnas no es el del DTO es dos contratos para una cifra.
       return (
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-        'shippingCostMissingCount,refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
+        'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,' +
+        'refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
         `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
-        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
+        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.shippingAdjustmentsCents},${p.shippingInsuranceCents},` +
+        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
       );
     }
     if (report === 'iva') {

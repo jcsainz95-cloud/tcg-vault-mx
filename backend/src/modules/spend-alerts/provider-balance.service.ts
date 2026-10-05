@@ -46,6 +46,19 @@ export class ProviderBalanceService {
     return this.inFlight;
   }
 
+  /**
+   * 💰 D2f (`GET /admin/shipping/balance`, §19.13: «leído en vivo»): lee del proveedor SIN caché, refresca el caché con lo leído
+   * (una cifra, una fuente) y pasa por `observeBalance` (AG-7 (i): «toda lectura de saldo», §19.29.6). A diferencia de `read`,
+   * el fallo SE PROPAGA (el súper-admin pidió la cifra: un `502/503` le dice la verdad; ⛔ un `null` callado no).
+   */
+  async readFresh(): Promise<{ balanceCents: number; currency: 'MXN'; readAt: Date }> {
+    const now = this.clock.now();
+    const res = await this.port.balance();
+    this.cached = { balanceCents: res.balanceCents, readAt: now.getTime() };
+    await this.alerts.observeBalance(res.balanceCents, now);
+    return { balanceCents: res.balanceCents, currency: res.currency, readAt: now };
+  }
+
   /** Solo pruebas / tras un cambio que invalida el caché. */
   invalidate(): void {
     this.cached = null;

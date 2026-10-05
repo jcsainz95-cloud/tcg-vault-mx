@@ -215,6 +215,10 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // 💰 C2 (v1.80.12.14, §19.33.9): el tablero de salida de D2d — `?date=` es una FECHA `YYYY-MM-DD` (formato, ⛔ no tokens), como
   // el `?date=` de «Pedidos a preparar» (`picking-list::date`, arriba). `admin-shipments.controller.ts` → `departure.service.ts`.
   'GET /admin/shipments/departure::date',
+  // 💰 D2f (§19.22.3): la búsqueda de Carta Porte en M10 — `?description=` es TEXTO LIBRE (3..60 tras trim; fuera ⇒ `400
+  // {field:'description'}` sin `allowed`) que viaja tal cual a `GET /shipments/consignment_notes?description=` de Skydropx: ⛔ no
+  // es un dominio de tokens. `admin-shipping.controller.ts` → `shipping-config.ts` (`parseConsignmentDescription`).
+  'GET /admin/shipping/catalogs/consignment-notes::description',
 ];
 
 /**
