@@ -4,7 +4,17 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.21 (2026-10-05) — LA CUENTA DEL DUEÑO Y LA REVISIÓN DE LOS COPYS PROVISIONALES (§43.20 NUEVA;
+> Estado: **v4.22 (2026-10-05) — ERRATA v1.80.12.12: CUATRO TEXTOS Y EL SUBTÍTULO DE «ENVÍOS» (§43.21 NUEVA;
+> `API_CONTRACT §M4-SHIP.19.31`, fila ux-ui de §19.31.11; ux-ui sin Bash, sha NO MEDIDO por mí):** `409 {reason:
+> 'shipment_changed_during_purchase', labelAutoCancelled}` (dice que **sí** se creó una guía y que se pidió cancelarla;
+> ⛔ nunca «No se compró nada») y `409 {reason:'claim_released'}` en «Capturar guía»; «Cancelar guía» sin respuesta de
+> Skydropx (`label_cancel_unknown`) deja de decir «sigue marcada para cancelar» (el sello se revierte, §19.31.6) y se
+> ramifica por **código**, no por `status ≥ 500`; «N avisos apagados» con `mutedCount` (S-GAS-7 cerrada) y «Ningún
+> aviso ese día» que ya no miente cuando solo hubo apagados; **OWN-1 aplica a «Configuración › Envíos»**: subtítulo
+> nuevo que nombra los dos diales del dueño. **FS-56…FS-62**; candados **UX-SDX-35…38**, **UX-GAS-14…15**. **Cero
+> tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.21 sin cambio fuera de §43.21.
+>
+> Estado anterior: **v4.21 (2026-10-05) — LA CUENTA DEL DUEÑO Y LA REVISIÓN DE LOS COPYS PROVISIONALES (§43.20 NUEVA;
 > `API_CONTRACT §M4-SHIP.19.30` v1.80.12.10; `FRONTEND_NOTES §92`; ux-ui sin Bash, sha NO MEDIDO por mí):** cada copy
 > que frontend escribió sin diseño queda **ratificado o corregido** con su clave y ES/EN (§43.20.1); textos de **AG-21**
 > (cuatro variantes) y **AG-22** (uno por `act`); `orphan_cancel_unknown`; avisos **apagados** visibles (filtro
@@ -25873,3 +25883,167 @@ cambian en el mismo commit que sus claves (paridad `i18n-parity`).
 | **S-GAS-8** | arquitecto | **`SpendAlertDTO.muted` no está en el bloque del DTO** (`:27585-27595`); §19.30.2 (5) declara la columna y el filtro, y frontend ya lee `a.muted` (`SpendAlertsView.tsx:185`). Confirmar el campo en el DTO. NO MEDIDO por mí si `types/contract.ts` lo declara. No bloquea |
 | **S-GAS-9** | arquitecto | **AG-22 `facts.keys`: ¿nombres del DTO (camelCase) como el `403`?** El texto los traduce por `admin.m10.ownerOnly.field.*`, que está en camelCase; si llegan en snake_case, todos caen a «un ajuste del dueño». No bloquea |
 | **N-GAS-4** | orquestador | OWN-1 deja las frases AG en la voz del correo al dueño («Puedes comprarla tú»), aunque un súper-admin no dueño también las lea en el panel. Si el dueño prefiere una voz neutra, son ~6 frases |
+
+### 43.21 Errata v1.80.12.12: los dos `reason` nuevos, la cancelación sin respuesta, «N avisos apagados» y el subtítulo de «Envíos» *(v4.22, nueva)*
+
+#### 43.21.0 Fuente, lo leído y lo que cambia el diseño
+
+**Fuentes:** `API_CONTRACT §M4-SHIP.19.31` (v1.80.12.12; `:27997-28232`): §19.31.6 (cancelar cuando `port.cancel` lanza),
+§19.31.7 (a) (los dos `reason`), §19.31.8 S-GAS-7 (`mutedCount`), la fila ux-ui de §19.31.11 (`:28226`); §19.30.2 (1)
+(`:27796-27805`, `OWNER_ONLY_SETTING_KEYS` = las 11 de §19.29.8 + `shipping_label_purchase`). Donde esta subsección choca
+con §43.19 o §43.20, **manda ésta**.
+
+**Lo que leí** (2026-10-05, árbol `/home/user/tcg-skyd`, rama `claude/skydropx-d`; ⛔ sin Bash, sha **NO MEDIDO** por mí):
+`m4/capture/sdx-errors.ts:176-266`; `m4/LabelActions.tsx:365-449`; `m10/sections/ShippingSection.tsx` (`grep` de
+`t(…)`, `ownerOnly`, `isOwner`: `:82`, `:120-150`, `:198-242`, `:422-427`); `spend-alerts/SpendAlertsView.tsx:474-513`
+(+ `grep` de `muted`); `frontend/messages/es.json` `:2054-2075`, `:2629-2660`, `:2692-2707`, `:4498-4517`, `:5450-5463`, y
+las mismas claves en `en.json` por `grep` (**mismas líneas** en todas las que cito); `grep` de `mutedCount`,
+`shipment_changed_during_purchase` y `claim_released` en `frontend/src` ⇒ **0** apariciones (los tipos aún no los traen).
+
+**Medido, que cambia el diseño:**
+1. **`shipment_changed_during_purchase` hoy cae a `error.conflict`** (`sdx-errors.ts:260`), que dice «**No se compró
+   nada**» (`es.json:2060`). Es **falso** para este `reason`: Skydropx **sí** creó la guía y el sistema pidió cancelarla
+   (§19.31.7 (a)). Un texto de dinero que niega un cargo que existió es el peor error posible en esta ventana.
+2. **`claim_released` hoy cae al mismo `error.conflict`**, que manda a «revisar la dirección»: no es la causa (nadie
+   tocó la dirección; se liberó el reclamo).
+3. **«Cancelar guía» sin respuesta** pinta `label.cancel.providerDown` «Skydropx no respondió. **La guía sigue marcada
+   para cancelar**; vuelve a intentarlo.» (`es.json:2706`; `LabelActions.tsx:410`). Desde §19.31.6 (1) el sello **se
+   revierte**: la guía ya **no** está marcada para cancelar. Y la rama es `err.status >= 500`, es decir **por status**
+   (UX-SDX-12 lo prohíbe).
+4. **«N avisos apagados» no se pinta** (`summary.muted` existe en `es.json:5463` pero `SpendAlertsView.tsx` no lo lee) y
+   **«Ningún aviso ese día»** (`:487`, `es.json:5456`) **miente** cuando el día solo tuvo apagados: `byKind` cuenta solo
+   los no silenciados (§19.31.8 S-GAS-7).
+5. **«Configuración › Envíos»** (`es.json:4500`) dice «Solo el súper-admin.» y la sección tiene **dos** diales del dueño:
+   «¿Quién puede comprar guías?» (`shipping_label_purchase`) y el umbral de saldo bajo (`skydropx_low_balance_cents`,
+   `ShippingSection.tsx:422-427`). El resto (escalones de seguro, paqueterías, origen, formato, proveedor, sondeo) sigue
+   siendo de cualquier súper-admin.
+
+**Cero tokens nuevos, cero pares de contraste nuevos** (§43.21.7). Sin reglas nuevas: aplica SK1–SK15, OWN-1, OWN-2 y
+UX-SDX-12 tal como están.
+
+---
+
+#### 43.21.1 «Capturar guía» · los dos `reason` nuevos del `409 CONFLICT`
+
+Se añaden a la tabla de §43.19.2 (`sdx-errors.ts`, rama `CONFLICT` con `op === 'label'`, **por `details.reason`**;
+⛔ nunca por status). Claves bajo `admin.m4.tracking.sdx.error.*`, junto a las de §43.19.2.
+
+| `reason` (detalles) | Clave | ES | EN | Qué hace la ventana |
+|---|---|---|---|---|
+| `shipment_changed_during_purchase` con `labelAutoCancelled: true` | `error.changedDuringPurchase` (nueva) | El envío cambió mientras comprabas la guía (por ejemplo, alguien corrigió la dirección). Skydropx alcanzó a crearla y el sistema pidió cancelarla para recuperar el saldo: no la uses. Lo actualizamos: revísalo y cotiza de nuevo. | The shipment changed while you were buying the label (for example, someone corrected the address). Skydropx had already created it and the system asked to cancel it to get the balance back: don't use it. We've updated the shipment: check it and get a new quote. | `Banner warning`; **mismo efecto que `error.conflict`** (`rereadToAddress`: relee el envío y vuelve a la dirección, desde donde se cotiza de nuevo); «Capturar a mano» presente (pasos 1–3, §43.5a) |
+| `shipment_changed_during_purchase` **sin** `labelAutoCancelled: true` (no debería ocurrir; el contrato siempre lo manda) | `error.changedDuringPurchaseUnsure` (nueva) | El envío cambió mientras comprabas la guía (por ejemplo, alguien corrigió la dirección). Lo actualizamos: revísalo y cotiza de nuevo. Si Skydropx alcanzó a crear una guía, el sistema la detecta y la avisa. | The shipment changed while you were buying the label (for example, someone corrected the address). We've updated the shipment: check it and get a new quote. If Skydropx had already created a label, the system detects it and flags it. | igual que la fila anterior |
+| `claim_released` | `error.claimReleased` (nueva) | Esta compra se liberó mientras se preparaba, antes de llegar a Skydropx: no se compró nada. Cotiza de nuevo para volver a intentarlo. | This purchase was released while it was being prepared, before it reached Skydropx: nothing was bought. Get a new quote to try again. | `Banner warning`; relee el envío y vuelve a **las opciones** con «Cotizar de nuevo» (el efecto que ya usa `providerDownQuote`: `requote: true`); «Capturar a mano» presente |
+
+- *Por qué la primera dice que **sí** hubo guía:* es lo que pasó (§19.31.7 (a): «el sistema **pidió** la
+  cancelación»). Decir «No se compró nada» haría que el operador no entienda un cargo en el saldo, o que la use desde el
+  panel de Skydropx. **«no la uses»** cubre ese caso sin mandarlo al panel. ⛔ La frase **no** promete que el saldo
+  regresó: solo que se **pidió**; si Skydropx no lo confirma, sale `label_cancel_failed` por su camino (§43.19.5).
+- *Por qué la variante «Unsure»:* el texto se decide por el **dato**, no por lo que «siempre» manda el servidor. Sin
+  `labelAutoCancelled: true` no afirmo que hubo guía ni que no la hubo (la misma fórmula que `stalePurchase`).
+- *Por qué `claim_released` no dice quién la liberó:* el `409` no trae quién ni cómo (puede ser «Liberar» de un
+  súper-admin o la revisión del sistema); ⛔ la frase no lo inventa. «antes de llegar a Skydropx» sí es cierto: 7b.2 es
+  previo a la llamada (§19.31.7 (a), «**cero** compra»).
+- ⛔ Ninguna de las tres cae a `error.conflict`. `error.conflict` queda **solo** para `CONFLICT` sin `reason` o con uno
+  desconocido (§43.19.2, sin cambio).
+
+#### 43.21.2 «Cancelar guía» · Skydropx no contestó (`shipment.label_cancel_unknown`)
+
+Diálogo `CancelLabelDialog` (`LabelActions.tsx:365-449`), sus dos variantes. Desde §19.31.6 (1), en la variante con
+persona (`reissue`), un *timeout* / `5xx` / red **revierte** el sello: la guía sigue **viva** hasta que Skydropx confirme,
+y el reintento está a un clic.
+
+| Variante | Clave | ES | EN |
+|---|---|---|---|
+| `reissue` («Cancelar guía y comprar otra») | `admin.m4.label.cancel.unknown` (nueva; **sustituye** `providerDown`) | Skydropx no contestó y no sabemos si canceló la guía {number}. Aquí sigue activa hasta que Skydropx lo confirme: vuelve a intentarlo. No se compró nada. | Skydropx didn't answer and we don't know if it cancelled label {number}. Here it stays active until Skydropx confirms: try again. Nothing was bought. |
+| `retry` («Reintentar cancelación», desde la alerta «Cancelación sin confirmar») | `admin.m4.labelAlert.retryDialog.unknown` (nueva) | Skydropx no contestó otra vez y no sabemos si canceló la guía {number}. Vuelve a intentarlo más tarde. No se compró nada. | Skydropx didn't answer again and we don't know if it cancelled label {number}. Try again later. Nothing was bought. |
+| — | `admin.m4.label.cancel.providerDown` | **se retira** (afirma un sello que ya no existe; sin lectores tras FS-58) | — |
+
+**Cuándo se pinta** (por **código**, UX-SDX-12; sustituye la rama `!err || err.status >= 500` de `LabelActions.tsx:410`):
+- `SHIPPING_PROVIDER_ERROR` o `SHIPPING_PROVIDER_BUSY` (con o sin `details.op:'cancel'`) ⇒ `unknown` de la variante.
+- Sin respuesta legible del **servidor** (`!err`: red, *timeout* del navegador) ⇒ el **mismo** texto: tampoco sabemos.
+- Cualquier otro código ⇒ las ramas de hoy (`SHIPPING_PROVIDER_REJECTED` ⇒ `rejected`, `LABEL_NOT_CANCELLABLE` por
+  `reason`, y si no, `getError(e)`).
+- `{number}` = `trackingNumber` del diálogo (el mismo del título). ⛔ Nunca el `providerShipmentId`.
+- *Por qué la variante `retry` no dice «aquí sigue activa»:* el reintento sobre `cancelado ∧ auto_close` **conserva** el
+  sello (§19.31.6 (3)) y la alerta se queda; si el reintento con persona sobre un `reissue` lo conserva o lo revierte es
+  **NO MEDIDO** por mí. El texto `retry` no afirma ninguno de los dos.
+- *Por qué «No se compró nada»:* cancelar no compra; lo dice porque el botón de al lado es «Cancelar guía **y comprar
+  otra**», y el operador necesita saber que la otra todavía no se compró.
+- `Banner danger role="alert"` como hoy; el diálogo **no** se cierra (el reintento es el mismo botón).
+- *No decidido aquí:* si el `502` de cancelar puede traer `reason:'edge_blocked'` (en compra sí, `sdx-errors.ts:186`):
+  NO MEDIDO. Mientras no se mida, cae a `unknown` (conservador: no afirma que la petición no salió).
+
+#### 43.21.3 «Avisos de gasto › Resumen de un día» · «N avisos apagados» con `mutedCount`
+
+**S-GAS-7 cerrada** por `API_CONTRACT §19.31.8` (`:28174-28177`): `SpendAlertSummaryDTO.mutedCount` = apagados con
+`firstOccurredAt` en el rango; `byKind` **sin** apagados. Sustituye el «⚠ Condicional al dato» de §43.20.5.
+
+| Clave (`admin.spendAlerts.summary.*`) | Veredicto | ES | EN |
+|---|---|---|---|
+| `muted` (`:5463`) | **Corregido**: los apagados **no** están en «Por tipo»; la frase lo dice para que nadie sume dos veces ni busque la fila | Además, {n, plural, one {# aviso apagado} other {# avisos apagados}} ese día: no mandaron correo y no cuentan arriba. Están en la lista marcados «Apagado». | Also, {n, plural, one {# switched-off alert} other {# switched-off alerts}} that day: they sent no email and aren't counted above. They're in the list marked “Switched off”. |
+| `byKindEmpty` (`:5456`) | **Ratificado** solo con `mutedCount` `0` o ausente | Ningún aviso ese día. | No alerts that day. |
+| `byKindEmptyMuted` (nueva) | `byKind` vacío **y** `mutedCount > 0` | Ningún aviso encendido ese día. | No switched-on alerts that day. |
+
+- Dónde: `text-sm text-muted`, **dentro** de la sección «Por tipo», debajo de la tabla (o de `byKindEmptyMuted`), solo con
+  `mutedCount > 0`. `n = mutedCount` tal cual llega: ⛔ la pantalla **no** cuenta filas ni suma (GAS-4).
+- `mutedCount` ausente (servidor anterior a v1.80.12.12) ⇒ ni la línea ni `byKindEmptyMuted`: se pinta como hoy.
+- Es el mismo número que la línea de `AVG-3` (§43.20.10, «Además hubo…»): el panel y el correo dicen lo mismo, y
+  `summary.note` («Es lo mismo que dice el correo del resumen de ese día») sigue siendo verdad.
+
+#### 43.21.4 Decisión · «Configuración › Envíos»: **OWN-1 aplica**, el subtítulo cambia
+
+Sí aplica. OWN-1 dice «el dueño» **solo** donde la regla es del dueño y «súper-admin» donde vale cualquiera; esta sección
+mezcla las dos, así que el subtítulo dice las dos y **nombra** las piezas del dueño (con los mismos nombres que
+`admin.m10.ownerOnly.field.*`, §43.20.1: una fuente para el nombre de cada ajuste).
+
+| Clave | ES (nuevo) | EN (nuevo) |
+|---|---|---|
+| `admin.m10.shipping.subtitle` (`:4500`) | Los cambia cualquier súper-admin, salvo dos que cambia solo el dueño: quién puede comprar guías y el aviso de saldo bajo. Cada cambio queda en la bitácora. | Any super admin can change these, except two that only the owner changes: who can buy labels and the low-balance alert. Every change is logged. |
+
+- *Por qué no «Solo el dueño»* (como `admin.m10.spend.subtitle`): en «Control del gasto» **todos** los diales son del
+  dueño; aquí no. «Solo el dueño» haría creer a un súper-admin no dueño que no puede tocar los escalones de seguro ni las
+  paqueterías, que sí puede.
+- *Por qué no se queda «Solo el súper-admin»:* un súper-admin no dueño ve dos controles deshabilitados sin que el
+  encabezado le diga por qué; y el dueño no sabe que esos dos son suyos.
+- Los dos controles conservan su nota de §43.20.1 (`ownerOnly.note` «Solo el dueño puede cambiar esto.») con `isOwner =
+  false` (`ShippingSection.tsx:120-150`, `:422-427`; ratificado, sin cambio). El subtítulo no sustituye esa nota: la nota
+  está junto al control; el subtítulo dice el reparto de la sección.
+- Solo para mostrar (OWN-2): el `403 OWNER_ONLY_SETTING` se sigue pintando por `keys` como en §43.20.1.
+
+#### 43.21.5 Lista de cambios para frontend (fichero:línea leídos el 2026-10-05 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FS-56 | `messages/es.json` y `en.json` (mismas líneas): tras `:2075` (`error.*` de `admin.m4.tracking.sdx`) + `changedDuringPurchase`, `changedDuringPurchaseUnsure`, `claimReleased`; `:2649-2655` (`labelAlert.retryDialog`) + `unknown`; `:2706` `label.cancel.providerDown` ⇒ **se retira** y entra `label.cancel.unknown`; `:5456` + `byKindEmptyMuted` junto a `byKindEmpty`; `:5463` `summary.muted` (texto nuevo); `:4500` `admin.m10.shipping.subtitle` (texto nuevo) | 43.21.1–.4 |
+| FS-57 | `m4/capture/sdx-errors.ts:244-259` | Dos `case` antes del `return` de `:260`: `shipment_changed_during_purchase` ⇒ `labelAutoCancelled === true` ? `error.changedDuringPurchase` : `error.changedDuringPurchaseUnsure`, `{variant:'warning', effect:{kind:'rereadToAddress'}}`; `claim_released` ⇒ `error.claimReleased`, `{variant:'warning', requote:true}` (la forma exacta del efecto la decide frontend; la conducta es la de §43.21.1) | 43.21.1 |
+| FS-58 | `m4/LabelActions.tsx:406-419` | Sustituir `if (!err \|\| err.status >= 500) return setError(t('providerDown'))` por: `!err` o `err.code ∈ {SHIPPING_PROVIDER_ERROR, SHIPPING_PROVIDER_BUSY}` ⇒ `variant === 'retry' ? tr('unknown', {number: trackingNumber}) : t('unknown', {number: trackingNumber})`; el resto sin cambio | 43.21.2 |
+| FS-59 | `types/contract.ts` (`reason` de `CONFLICT`, `SpendAlertSummaryDTO` en `:5936`) | Los dos `reason` con `labelAutoCancelled?: boolean`; `mutedCount?: number` (opcional en el tipo: un servidor viejo no lo trae). Es la fila frontend de §19.31.11; lo cito porque FS-60 depende de ello | 43.21.1, .3 |
+| FS-60 | `spend-alerts/SpendAlertsView.tsx:484-510` | `byKind` vacío ⇒ `mutedCount > 0` ? `byKindEmptyMuted` : `byKindEmpty`; tras la tabla (o el vacío), `summary.muted` con `n = mutedCount` **solo** si `mutedCount > 0`; ⛔ sin contar filas | 43.21.3 |
+| FS-61 | `lib/mock/spend-alerts.ts:157` y `lib/mock/skydropx.ts` (MSW) | El resumen simulado trae `mutedCount`; los escenarios de `label` con los dos `reason` y de `label/cancel` con `502 {op:'cancel'}` y `503 SHIPPING_PROVIDER_BUSY` | 43.21.1–.3 |
+| FS-62 | Pruebas que fijan los textos viejos (`grep` de «sigue marcada para cancelar», `providerDown`, «Solo el súper-admin. Cada», `summary.muted`) | Cambian en el mismo commit que sus claves (paridad `i18n-parity`) | — |
+| — | `ShippingSection.tsx:120-150`, `:422-427` (notas `ownerOnly` por control) | **Sin cambio** (ratificado) | 43.21.4 |
+
+#### 43.21.6 Candados (Testing Library contra MSW; los que coinciden con el contrato llevan su ID)
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-SDX-35** (PS-170) | `409 {reason:'shipment_changed_during_purchase', labelAutoCancelled:true}` ⇒ el `Banner` contiene «pidió cancelarla» y **no** contiene «No se compró nada»; la ventana relee y vuelve a la dirección. Mismo `409` sin `labelAutoCancelled` ⇒ texto `Unsure`, tampoco «No se compró nada» | Dejar la caída a `error.conflict`; ramificar por status |
+| **UX-SDX-36** (PS-170) | `409 {reason:'claim_released'}` ⇒ «se liberó» y «no se compró nada»; la ventana ofrece «Cotizar de nuevo»; el `Banner` **no** contiene «dirección» | Caer a `error.conflict` |
+| **UX-SDX-37** (PS-170) | «Cancelar guía» (`reissue`) con `502 {code:'SHIPPING_PROVIDER_ERROR', details:{op:'cancel'}}` ⇒ «no sabemos si canceló la guía {number}» y el DOM **no** contiene «sigue marcada para cancelar»; `503 SHIPPING_PROVIDER_BUSY` ⇒ el mismo texto; un `500 INTERNAL` **sin** esos códigos ⇒ **no** pinta ese texto (cae a `getError`); variante `retry` con `502` ⇒ `retryDialog.unknown` y **no** contiene «Aquí sigue activa» | Volver a `err.status >= 500`; dejar `providerDown` |
+| **UX-SDX-38** | Sesión `isOwner=false` en «Configuración › Envíos»: el subtítulo contiene «solo el dueño», «quién puede comprar guías» y «el aviso de saldo bajo», y **no** contiene «Solo el súper-admin.» | Dejar el subtítulo de v4.20 |
+| **UX-GAS-14** (PS-170) | Resumen con `mutedCount: 3` ⇒ «Además, 3 avisos apagados»; `mutedCount: 0` o ausente ⇒ ninguna línea de apagados; la cifra sale del campo (resumen con 5 filas apagadas en la lista y `mutedCount: 3` ⇒ «3») | Contar filas; pintar la línea sin el campo |
+| **UX-GAS-15** | `byKind: []` con `mutedCount: 2` ⇒ «Ningún aviso encendido ese día.» y **no** «Ningún aviso ese día.»; `byKind: []` sin `mutedCount` ⇒ «Ningún aviso ese día.» | Pintar `byKindEmpty` siempre |
+
+#### 43.21.7 Contraste — cero pares nuevos
+
+Los textos nuevos van en `Banner warning` / `Banner danger` (pares de §10 ya verificados) o en `text-sm text-muted` sobre
+superficie (par de §10). ⛔ Sin color nuevo.
+
+#### 43.21.8 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **S-GAS-7** | arquitecto | **Cerrada** por §19.31.8 (`mutedCount`). S-GAS-8 (`muted`) y S-GAS-9 (`keys` en camelCase) también cerradas ahí |
+| **N-SDX-1** | arquitecto | ⛔ NO MEDIDO si el reintento **con persona** desde «Cancelación sin confirmar» sobre una guía `reissue` conserva o revierte el sello con *timeout* (§19.31.6 (1) habla del «verbo `reissue`»; (3) del reintento `auto_close`). El texto `retry` es neutro para no depender de ello; si se aclara, se puede decir más. No bloquea |
+| **N-SDX-2** | arquitecto | ⛔ NO MEDIDO si `label/cancel` puede responder `502 {reason:'edge_blocked'}` (la petición no salió). Hoy cae a «no sabemos» (cierto pero menos preciso). Si existe, un texto propio cabría: «No llegó a Skydropx: la guía sigue activa. Vuelve a intentarlo.» No bloquea |
+| **N-SDX-3** | orquestador | Que la alerta `label_cancel_failed` diga «**Pediste** cancelar» (`es.json:2641`) cuando la cancelación la pidió el sistema (`auto_close`, y ahora la de `shipment_changed_during_purchase`) es un texto de §43.19.5 que no medí contra quién la pidió. Si el DTO de la alerta no distingue quién, conviene «Se pidió cancelar». No lo cambio sin medirlo |
