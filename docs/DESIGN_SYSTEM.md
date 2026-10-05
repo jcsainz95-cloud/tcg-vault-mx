@@ -4,7 +4,15 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.23 (2026-10-05) — ERRATA v1.80.12.15, G3 (`API_CONTRACT §M4-SHIP.19.33.10` y `§19.34.3`; ux-ui sin
+> Estado: **v4.24 (2026-10-05) — ERRATA v1.80.12.16, U-1 y U-2 (§43.22 NUEVA; `API_CONTRACT §M4-SHIP.19.35`, filas
+> U-1/U-2 de §19.35.8; ux-ui sin Bash, sha NO MEDIDO por mí):** tarjeta **«Alertas de envíos»** del tablero para
+> `workQueue.shipping` (los dos roles; cifra grande = `withLabelAlert`; enlace a `/admin/m4?tab=envios&alert=true` con
+> su filtro visible en «Envíos»; `lowBalance` solo pinta con `true`; ⛔ jamás la cifra del saldo; nota «un envío puede
+> tener las dos alertas») y **registro** de la línea de rastreo de los correos `AV-4`/`AV-5` («Rastrear mi paquete en la
+> paquetería: {url}», letra chica, un CTA). **FS-63…FS-67**; candados **UX-SDX-39…44**. **Cero tokens nuevos, cero pares
+> de contraste nuevos.** Lo que sigue es la v4.23 sin cambio fuera de §43.22.
+>
+> Estado anterior: **v4.23 (2026-10-05) — ERRATA v1.80.12.15, G3 (`API_CONTRACT §M4-SHIP.19.33.10` y `§19.34.3`; ux-ui sin
 > Bash, sha NO MEDIDO por mí):** los CTA de los correos `AVG-2` y `AVG-3` (§43.19.12) apuntan a `admin/spend-alerts`
 > **sin `?`** (PS-153); nota en §43.19.12 con cómo queda la experiencia. **Nada cambia en el panel**, cero claves i18n,
 > cero tokens, cero pares de contraste. Lo que sigue es la v4.22 sin cambio fuera de §43.19.12.
@@ -26069,3 +26077,202 @@ superficie (par de §10). ⛔ Sin color nuevo.
 | **N-SDX-1** | arquitecto | ⛔ NO MEDIDO si el reintento **con persona** desde «Cancelación sin confirmar» sobre una guía `reissue` conserva o revierte el sello con *timeout* (§19.31.6 (1) habla del «verbo `reissue`»; (3) del reintento `auto_close`). El texto `retry` es neutro para no depender de ello; si se aclara, se puede decir más. No bloquea |
 | **N-SDX-2** | arquitecto | ⛔ NO MEDIDO si `label/cancel` puede responder `502 {reason:'edge_blocked'}` (la petición no salió). Hoy cae a «no sabemos» (cierto pero menos preciso). Si existe, un texto propio cabría: «No llegó a Skydropx: la guía sigue activa. Vuelve a intentarlo.» No bloquea |
 | **N-SDX-3** | orquestador | Que la alerta `label_cancel_failed` diga «**Pediste** cancelar» (`es.json:2641`) cuando la cancelación la pidió el sistema (`auto_close`, y ahora la de `shipment_changed_during_purchase`) es un texto de §43.19.5 que no medí contra quién la pidió. Si el DTO de la alerta no distingue quién, conviene «Se pidió cancelar». No lo cambio sin medirlo |
+
+---
+
+### 43.22 Errata v1.80.12.16: la tarjeta «Alertas de envíos» del tablero y la línea de rastreo de `AV-4`/`AV-5` *(v4.24, nueva)*
+
+#### 43.22.0 Fuente, lo leído y lo que cambia el diseño
+
+**Fuentes:** `API_CONTRACT §M4-SHIP.19.35` entera (`:28687-28816`), en especial §19.35.4 (liga de rastreo de `AV-4/5`),
+§19.35.5 fila 1 (`withLabelAlert`, la **unión** en `?alert=true`) y fila 4 (`labelProcessing` = `labelPending ≠ null`),
+y las filas U-1, U-2, F-1, F-2 de §19.35.8 (`:28809-28812`); §19.13 (`:24695-24701`: `workQueue.shipping`, el operador
+recibe `lowBalance` pero **no** la cifra, T.11; `null` ⇔ proveedor `off` o sin respuesta); §19.33.6 (`withCarrierAlert`
+= `carrierAlertActive`). Donde esta subsección choca con otra de §43, **manda ésta**.
+
+**Lo que leí** (2026-10-05, árbol `/home/user/tcg-skyd`, rama `claude/skydropx-d`, HEAD dado por el orquestador
+`643dd60c`; ⛔ sin Bash, sha **NO MEDIDO** por mí): `(admin)/admin/AdminDashboard.tsx` entero (342 líneas; tarjetas en
+`:126-335`, `SpendControlCard` `:37-76`, retícula `:99-100`, esqueleto de 8 celdas `:114-122`); `components/ui/StatCard.tsx`
+entero; `m4/ShipmentsQueue.tsx` (`grep`: filtro `folio` `:89-93`, su línea con ✕ `:175-182`); `m4/page.tsx:8` (lee
+`tab` y `folio`, **no** `alert`); `lib/api.ts:1640-1646` (`getAdminShipments` **no** manda `alert`);
+`m10/sections/ShippingSection.tsx` (`grep id=`: solo `#compra-guias` `:145`; la sección `:79` **sin** `id`);
+`messages/es.json:1335-1384` (`admin.dashboard.*`), `:2768-2769` (`folioFilter*`), `en.json:1356-1359`;
+`backend/src/modules/shipments/mail/shipment-notice.templates.ts:140-296`. `Grep withCarrierAlert|labelProcessing|
+withLabelAlert|lowBalance` en `frontend/src` ⇒ lo dice el contrato (0, §19.35.0); **no** lo re-medí.
+
+**Medido, que cambia el diseño:**
+1. **No existe tarjeta de envíos** en el tablero (`AdminDashboard.tsx:126-335`); §43.19.9 la daba por existente («ya están
+   en la tarjeta de envíos»). Se diseña aquí.
+2. **«Envíos»** ya es el rótulo de un enlace de «Cola de trabajo» (`admin.dashboard.shipments`, `es.json:1346`, =
+   `workQueue.shipments`, «envíos vivos», §37.11b: no cambia). Una tarjeta titulada «Envíos» con otra cifra haría dos
+   «Envíos» con números distintos en la misma pantalla ⇒ la tarjeta se titula **«Alertas de envíos»**.
+3. **La pantalla de «Envíos» (M4) no sabe filtrar por alerta**: ni `page.tsx:8` lee `?alert=`, ni `getAdminShipments`
+   lo manda. El enlace de la tarjeta sin eso abriría la lista entera ⇒ FS-65/FS-66 (abajo).
+4. **Los correos `AV-4` y `AV-5` ya llevan la línea** con el texto de `AV-18/19` (`shipment-notice.templates.ts:150-153`
+   `trackLine`, usada en `:228,:242` y `:278,:287`), en letra chica y antes del CTA. **Se ratifica tal cual** (§43.22.6):
+   backend no cambia plantilla ni `copy-guard`.
+
+**Cero tokens nuevos, cero pares de contraste nuevos** (§43.22.9). Reglas que aplican sin cambio: GAS-4 («una cifra,
+una fuente»: la pantalla no suma), SK3, P66-3 (⛔ ningún código «M-n», «AG-n» ni «AV-n» en los textos de pantalla),
+§41.4 (un CTA por correo).
+
+---
+
+#### 43.22.1 La tarjeta — dónde, quién y cuándo existe
+
+`StatCard` (§7.8) en `AdminDashboard.tsx`, **justo después** de «Pedidos por preparar» (`:194-226`) y **antes** de las
+tarjetas solo de súper-admin (`:228`): es trabajo de operador+, va con el resto de su cola.
+
+| Condición | Qué se pinta |
+|---|---|
+| `workQueue.shipping` ausente o `null` (servidor anterior a D2f) | **La tarjeta no existe** (⛔ ni vacía, ni con ceros) — el patrón de `toPrepare` (`:194`) |
+| `workQueue.shipping` presente | La tarjeta, **para los dos roles** (operador y súper-admin) con el **mismo** contenido salvo el enlace «Ver el saldo» (§43.22.3) |
+
+- *Por qué también con el proveedor apagado (`off`):* el servidor manda `shipping` con `lowBalance: null` y las cifras
+  siguen siendo verdad (puede haber guías de Skydropx vivas de antes de apagarlo, con avisos de la paquetería). Esconder
+  la tarjeta escondería trabajo.
+- **Carga y error:** los da el `QueryState` del tablero entero (`:109-123`): una sola consulta, ⛔ sin estado propio por
+  tarjeta. El esqueleto sigue en 8 celdas (no tiene por qué igualar el número de tarjetas; sin cambio).
+
+```
+ALERTAS DE ENVÍOS
+2                                                        ← withLabelAlert; bermellón si > 0
+2 con alerta de guía · 3 con aviso de la paquetería      ← enlace a /admin/m4?tab=envios&alert=true
+Un envío puede tener las dos alertas: en la lista sale una sola vez.     ← solo si las dos > 0
+1 guía en proceso                                        ← solo si labelProcessing > 0
+Queda poco saldo en Skydropx: comprar guías puede fallar hasta que se recargue.   ← solo si lowBalance === true; bermellón
+Ver el saldo                                             ← solo súper-admin, junto a la línea anterior
+```
+
+#### 43.22.2 Las piezas — textos y claves (`admin.dashboard.shippingAlerts.*`)
+
+| Pieza | Cuándo | Clave | ES | EN |
+|---|---|---|---|---|
+| Rótulo | siempre | `title` | Alertas de envíos | Shipping alerts |
+| Cifra grande | `withLabelAlert` es número | — | `withLabelAlert` tal cual; `text-accent` si `> 0` (el patrón de `SpendControlCard` `:47`) | — |
+| Cifra grande | `withLabelAlert` ausente (servidor sin B-3) | — | `—` (⛔ nunca `NaN`, ⛔ nunca `0` inventado) | — |
+| Línea de alertas (enlace) | alguna de las dos `> 0` | `alerts` | {label} con alerta de guía · {carrier} con aviso de la paquetería | {label} with a label alert · {carrier} with a carrier alert |
+| Línea de alertas (enlace) | `withLabelAlert` ausente y `withCarrierAlert > 0` | `alertsCarrierOnly` | {carrier} con aviso de la paquetería | {carrier} with a carrier alert |
+| Sin alertas (texto, ⛔ sin enlace) | las dos `0` (o la ausente y la otra `0`) | `none` | Ningún envío con alerta. | No shipments with alerts. |
+| Nota de la unión | `withLabelAlert > 0` **y** `withCarrierAlert > 0` | `overlap` | Un envío puede tener las dos alertas: en la lista sale una sola vez. | A shipment can have both alerts: it shows up once in the list. |
+| En proceso | `labelProcessing > 0` | `processing` | {n, plural, one {# guía en proceso} other {# guías en proceso}} | {n, plural, one {# label in progress} other {# labels in progress}} |
+| Saldo bajo | `lowBalance === true` | `lowBalance` | Queda poco saldo en Skydropx: comprar guías puede fallar hasta que se recargue. | Skydropx balance is low: buying labels may fail until it's topped up. |
+| Ver el saldo (enlace) | `lowBalance === true` **y** súper-admin | `seeBalance` | Ver el saldo | See the balance |
+
+- `{label}` = `withLabelAlert`, `{carrier}` = `withCarrierAlert`, `{n}` = `labelProcessing`: **tal cual** llegan (GAS-4).
+  ⛔ La pantalla no los suma, ni calcula «envíos con alguna alerta»: ese número no viene en el DTO y la suma lo exageraría
+  (un envío con las dos cuenta dos veces, §19.35.5 fila 1).
+- *Por qué la cifra grande es `withLabelAlert`* y no la suma ni `withCarrierAlert`: es la que tiene **saldo** de por
+  medio (guía comprada sin confirmar, huérfana, cancelación sin confirmar, §43.19.5), igual que «Control del gasto» pone
+  en grande lo inmediato (`unseenImmediate`) y lo demás en la línea. La primera línea **repite** la cifra con su nombre,
+  así que el número grande nunca queda sin rótulo. Bermellón solo para ella: el aviso de la paquetería pide atención al
+  cliente, no saldo.
+- **Nombres:** «alerta de guía» (`labelAlert`, las cuatro de §43.8c) y «aviso de la paquetería» (`carrierAlert`, el
+  `Banner` de §43.8b «Aviso de la paquetería: {estado}») — los **mismos** que ve el operador en la tarjeta del envío,
+  para que lo que cuenta el tablero se encuentre en la lista con la misma palabra. «Guía en proceso» es el rótulo de
+  `labelPending` en §43.8.
+- **`lowBalance`:** `true` ⇒ la línea en `text-accent`; `false` ⇒ nada; **`null` ⇒ nada** (§19.35.8 U-1: proveedor
+  apagado o Skydropx sin respuesta). ⛔ Sin «saldo suficiente» ni «no se pudo leer el saldo» en la tarjeta: el tablero
+  es una cola de trabajo y solo pinta lo que pide acción; el saldo con su lectura y su error vive en «Configuración ›
+  Envíos» (§43.10).
+- ⛔ **Jamás la cifra del saldo**, para ningún rol: ni `MX$`, ni el umbral, ni «te quedan…». El operador no la puede ver
+  (T.11) y la tarjeta es la misma para los dos; el súper-admin la ve a un clic con «Ver el saldo».
+- *Por qué «puede fallar» y no «va a fallar»:* `lowBalance` dice que el saldo está **por debajo del aviso**, no que no
+  alcance para la próxima guía.
+- *Por qué «hasta que se recargue» sin decir quién:* recargar se hace en la cuenta de Skydropx, fuera del panel, y el
+  contrato no dice quién lo hace. ⛔ No se promete «el dueño ya recibió un correo»: el aviso de saldo bajo por correo
+  puede estar apagado (§43.20.5) y la lectura del tablero es la cacheada de 5 min, no la del aviso.
+
+#### 43.22.3 Enlaces
+
+| Enlace | Destino | Quién | Notas |
+|---|---|---|---|
+| Línea de alertas | **`/admin/m4?tab=envios&alert=true`** | los dos roles | Es la **página** de «Envíos» con el filtro de alertas. La API que ésta llama es `GET /admin/shipments?alert=true` (lo que §19.35.8 U-1 escribe como `admin/shipments?alert=true`), que lista la **unión** de las dos alertas (§19.20.2). ⛔ Sin enlace cuando no hay alertas |
+| «Ver el saldo» | **`/admin/m10#envios-skydropx`** | solo súper-admin (`isSuperAdmin`; el operador no entra a Configuración) | El ancla es nueva (FS-67) y va en la `section` de `ShippingSection.tsx:79`, donde vive el `Banner` del saldo (§43.10) |
+| «guía en proceso» | ⛔ sin enlace | — | `GET /admin/shipments` no tiene filtro por `labelPending` (no lo vi en el contrato; NO MEDIDO a fondo) y una guía en proceso no pide acción: se resuelve sola o pasa a alerta, y entonces sí cuenta arriba |
+
+Estilo de los enlaces: el de las demás tarjetas (`underline-offset-2 hover:text-text hover:underline
+focus-visible:shadow-focus focus-visible:outline-none`, `:205-206`). La línea de saldo bajo va en `text-accent` y su
+enlace «Ver el saldo» en la misma línea, separado por « · », con el estilo de enlace normal (hereda el color).
+
+#### 43.22.4 El filtro en «Envíos» (M4) — a dónde llega el enlace
+
+Mismo patrón que el filtro de folio (S-GAS-2, `ShipmentsQueue.tsx:89-93`, `:175-182`): llega por la URL, se ve como una
+línea con su ✕ y se quita con un clic.
+
+| Pieza | Clave (`admin.m4.*`, junto a `folioFilter`) | ES | EN |
+|---|---|---|---|
+| Línea del filtro activo | `alertFilter` | Solo envíos con alerta de guía o aviso de la paquetería | Only shipments with a label alert or a carrier alert |
+| ✕ (`aria-label`) | `alertFilterRemove` | Quitar el filtro de alertas | Remove the alerts filter |
+
+- `?alert=true` ⇒ el filtro empieza activo; cualquier otro valor o ausente ⇒ inactivo. Se combina con el `Select` de
+  estado, la búsqueda y el folio (cada uno se manda tal cual; la intersección la hace el servidor).
+- Lista vacía con el filtro ⇒ el vacío de hoy, `admin.m4.queueEmpty` «Sin envíos con ese filtro.» (sin clave nueva).
+- Quitar el filtro **no** reescribe la URL obligatoriamente (el folio no lo hace); si frontend ya sincroniza `tab` con la
+  URL (`M4View.tsx:45-46`), puede quitar `alert` con el mismo mecanismo. Decisión de frontend.
+- ⛔ La lista **no** recuenta ni muestra «N de M»: el número es el del servidor en el tablero y la lista es la lista.
+
+#### 43.22.5 Accesibilidad
+
+- La línea de alertas es un **enlace** cuyo nombre accesible es el texto entero («2 con alerta de guía · 3 con aviso de la
+  paquetería»): dice qué abre sin depender de la cifra grande.
+- La línea de saldo bajo es **texto** (no `role="alert"`: llega con la carga del tablero, no es un evento); el color no
+  es la única señal — la frase dice «Queda poco saldo».
+- Orden de tabulación: enlace de alertas → «Ver el saldo» (si existe) → siguiente tarjeta.
+
+#### 43.22.6 U-2 · La línea de rastreo de los correos `AV-4` y `AV-5` — **registrada, ratificada tal cual**
+
+Completa §43.12 (`AV-17`), §43.12b (`AV-18`) y §43.12c (`AV-19`). Patrón de §19.35.4: **un** CTA por correo (§41.4),
+el CTA va a **nuestra** página, y la paquetería en **letra chica** con la URL visible.
+
+| Correo | Pieza | ES | EN | Dónde (lo construido, `shipment-notice.templates.ts`) |
+|---|---|---|---|---|
+| `AV-4` «Tu paquete ya tiene guía» | Letra chica (solo con `trackingUrl`) | **«Rastrear mi paquete en la paquetería: {url}»** | “Track my package with the carrier: {url}” | después de la nota «La paquetería puede tardar unas horas…» (`:241-242`) y antes del CTA |
+| `AV-5` «Tu paquete va en camino» | Letra chica (solo con `trackingUrl`) | **«Rastrear mi paquete en la paquetería: {url}»** | “Track my package with the carrier: {url}” | después del dato `Paquetería · Guía` (o de la prosa si no hay dato, `:286-287`) y antes del CTA |
+
+- **Mismo texto que `AV-18`/`AV-19`**, y sale de la **misma** función (`trackLine`, `:150-153`): una fuente para la
+  frase. ⛔ No se copia en otra plantilla.
+- `{url}` = `trackingUrl` **tal cual** la dio Skydropx (`providerTrackingUrlOf`, solo `labelSource='skydropx'`); ⛔ nunca
+  construida con el número de guía (`C-SDX-6`). Sin `trackingUrl` ⇒ **ninguna** línea (ni vacía, ni «—»).
+- Parte de texto (§31.12): la línea va, en el mismo orden, entre el dato/nota y la URL del CTA (`:249`, `:294`: ya así).
+- ⛔ **No es botón** ni segundo CTA: el botón lleva a nuestra página (pedido, `pedido?token=…` o envío, §19.35.1), que ya
+  muestra la guía y los movimientos (§43.11).
+- `AV-17` conserva su texto propio **«Rastreo en la paquetería: {url}»** (§43.12, `:360`): el paquete ya se entregó y la
+  liga es un registro, no una invitación a seguirlo. Sin cambio.
+- **Backend no cambia nada por U-2** (ni plantilla ni registro de `copy-guard`): el texto que ya pinta es el ratificado.
+
+#### 43.22.7 Lista de cambios para frontend (fichero:línea leídos el 2026-10-05 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FS-63 | `messages/es.json` y `en.json`: dentro de `admin.dashboard` (tras `spendControl`, `:1375-1383`) + objeto `shippingAlerts` con `title`, `alerts`, `alertsCarrierOnly`, `none`, `overlap`, `processing`, `lowBalance`, `seeBalance`; junto a `admin.m4.folioFilter*` (`:2768-2769`) + `alertFilter`, `alertFilterRemove` | Paridad `i18n-parity`; `grep -nE '\b(M1?[0-9]\|AG-[0-9]+\|AV-[0-9]+)\b'` sobre las claves nuevas ⇒ 0 (P66-3) | 43.22.2, .4 |
+| FS-64 | `(admin)/admin/AdminDashboard.tsx` tras `:226` | `ShippingAlertsCard` (componente propio, como `SpendControlCard`) con `workQueue.shipping` presente; mismo contenido para los dos roles; «Ver el saldo» con `isSuperAdmin`. Depende de F-1 (tipo) | 43.22.1–.3 |
+| FS-65 | `m4/page.tsx:8` y `M4View` → `ShipmentsQueue` | Leer `alert` de `searchParams` (solo `'true'` activa) y pasarlo como estado inicial, como `folio` | 43.22.4 |
+| FS-66 | `lib/api.ts:1640-1646` (+ `AdminShipmentsFilters`) y `ShipmentsQueue.tsx:89-93`, `:175-182` | `alert?: boolean` ⇒ `query.alert = 'true'` (y en el `queryKey`); línea del filtro con ✕ como la de folio; el MSW/mock filtra por `carrierAlert ≠ null ∨ labelAlert ≠ null` | 43.22.4 |
+| FS-67 | `m10/sections/ShippingSection.tsx:79` | `id="envios-skydropx"` en la `section` (destino de «Ver el saldo») | 43.22.3 |
+| — | Correos `AV-4`/`AV-5` | **Sin cambio** (backend; ratificado) | 43.22.6 |
+
+#### 43.22.8 Candados (Testing Library contra MSW; los que coinciden con el contrato llevan su ID)
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-SDX-39** (F-2) | Operador y súper-admin con `shipping: {lowBalance:false, withCarrierAlert:3, withLabelAlert:2, labelProcessing:1}` ⇒ los dos ven «Alertas de envíos», la cifra `2`, «2 con alerta de guía · 3 con aviso de la paquetería» como **enlace** con `href` `/admin/m4?tab=envios&alert=true`, la nota «sale una sola vez» y «1 guía en proceso». `shipping: null` o ausente ⇒ ningún texto «Alertas de envíos» | Pintar la tarjeta solo para súper-admin; pintarla vacía con `null` |
+| **UX-SDX-40** (F-2) | `lowBalance: null` ⇒ el DOM de la tarjeta **no** contiene «saldo» (ni «poco saldo» ni «no se pudo»); `lowBalance: false` ⇒ tampoco; `lowBalance: true` ⇒ «Queda poco saldo en Skydropx» | Pintar la línea con `lowBalance !== false` (falsy/truthy mal leído) |
+| **UX-SDX-41** (F-2) | Con `lowBalance: true`: el DOM de la tarjeta **no** contiene `MX$` ni `$`; aunque el mock meta `balanceCents: 12345` en `shipping`, «123» no aparece. Súper-admin ⇒ enlace «Ver el saldo» a `/admin/m10#envios-skydropx`; operador ⇒ **sin** ese enlace | Pintar `balanceCents` si llega; dar «Ver el saldo» al operador |
+| **UX-SDX-42** | `withLabelAlert: 2, withCarrierAlert: 0` ⇒ **sin** la nota «sale una sola vez»; las dos `0` ⇒ «Ningún envío con alerta.» y **ningún** enlace a `alert=true`; `withLabelAlert` ausente ⇒ cifra `—`, línea `alertsCarrierOnly`, el DOM no contiene `NaN` | Pintar la nota siempre; sumar las dos cifras en algún sitio (p. ej. `5` con 2 y 3) |
+| **UX-SDX-43** | `/admin/m4?tab=envios&alert=true` ⇒ la petición espiada a `/admin/shipments` lleva `alert=true`; se ve «Solo envíos con alerta…»; su ✕ ⇒ la siguiente petición **sin** `alert` y la línea desaparece. `?alert=1` ⇒ sin filtro | No leer el parámetro; mandarlo siempre |
+| **UX-SDX-44** | Paridad y P66-3: las 10 claves nuevas existen en `es` y `en`; el `grep` de códigos sobre ellas ⇒ 0 | Borrar una en `en.json`; meter «AG-7» en `lowBalance` |
+
+#### 43.22.9 Contraste — cero pares nuevos
+
+Cifra en `text-accent` y en `text-text` sobre superficie, líneas en `text-muted` (`font-mono text-xs`), línea de saldo
+bajo en `text-accent` a `text-xs`: son los pares que ya usan `dataHealth` (`:307`), «Control del gasto» (`:47`) y los
+vencidos de «Pedidos por preparar» (`:217`), verificados en §10. ⛔ Sin color nuevo.
+
+#### 43.22.10 Solicitudes y notas
+
+| # | Para | Qué |
+|---|---|---|
+| **N-SDX-4** | orquestador → backend | **Rótulo del CTA de `AV-4`/`AV-5`.** `shipment-notice.templates.ts:230` y `:280` fijan `VER MI ENVÍO` / `SEE MY SHIPMENT` para todo destino; §41.4 (filas 17/18 = `AV-4`/`AV-5`, `:22419` y la lista `:22620`) pide **según destino** (`orders/<id>` y `pedido?token=…` ⇒ `VER MI PEDIDO`). Con B-1 (§19.35.1) el invitado **gana** CTA a `/pedido`, así que el rótulo falso llega a más correos. `ctaLabelOf` (`:155-157`) ya existe. No es de U-2; lo digo porque está en las mismas líneas. Medido por lectura, sin ejecutar |
+| **N-SDX-5** | orquestador → backend | **`AV-5` con número y sin paquetería** (`:271-276`) escribe «Paquetería:  · Guía: X» (hueco vacío); la regla ✏ del 18 (§41.7) dice `Guía: <n>` y `carrierDato` (`:141-147`) ya lo hace. Mismo caso: los asuntos de `AV-4`/`AV-5` llevan prefijo de marca (`:247`, `:292`), que §41.2 quita. Medido por lectura; si ya está en un encargo de §41, ignorar |
+| **N-SDX-6** | orquestador | §43.19.9 decía que AG-7/11/12 «ya están en la tarjeta de envíos» cuando esa tarjeta no existía (medido: `AdminDashboard.tsx`). Desde esta versión existe (§43.22); la frase de §43.19.9 queda verdadera sin tocarla |
