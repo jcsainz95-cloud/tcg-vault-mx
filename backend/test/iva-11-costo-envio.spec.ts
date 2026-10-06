@@ -134,8 +134,12 @@ describe('⭐⭐ `IVA-11` — el costo de envío se compara NETO contra NETO', (
   });
 
   it('⭐⭐ (c-estructural) POR LO NEGATIVO: el P&L no divide por la tasa ni lee el dial', () => {
+    // 💰 §AN fase B: el cuerpo del P&L se mudó a `admin/pnl-core.ts` (`pnlBuckets`, ARCHITECTURE §4.64.4). El candado lee
+    // LOS DOS ficheros: el servicio sigue sin poder dividir ni leer el dial, y el neteo vive donde vive ahora el bucle.
     const admin = stripComments(
-      readFileSync(join(__dirname, '..', 'src', 'modules', 'admin', 'admin.service.ts'), 'utf8'),
+      ['admin.service.ts', 'pnl-core.ts']
+        .map((f) => readFileSync(join(__dirname, '..', 'src', 'modules', 'admin', f), 'utf8'))
+        .join('\n'),
     );
     // ⛔ Ninguna división del costo por `(1 + …)`.
     expect(admin).not.toMatch(/shippingCostCents\s*\/\s*\(?\s*1\s*\+/);
