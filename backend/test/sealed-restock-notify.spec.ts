@@ -60,6 +60,27 @@ describe('SealedRestockNotifyService', () => {
     expect(updatedIds).not.toContain('s2');
   });
 
+  it('S15-B1: el nombre del producto sale ESCAPADO en el HTML (`<script>`, `"`, `&`) y literal en el texto', async () => {
+    // El nombre viene del catálogo (`card.name`): lo escribe staff o la importación, no el cliente,
+    // pero todo valor dinámico del HTML de un correo se escapa (misma regla que las demás plantillas).
+    const hostil = 'Box <script>alert(1)</script> "X" & Y';
+    const pending = [
+      { id: 's1', email: 'a@b.com', tcgplayerProductId: 100, cardId: 'c1', sealedSubtype: 'box', sealedCondition: 'mint', card: { name: hostil } },
+    ];
+    const available = [{ tcgplayerProductId: 100, cardId: 'c1', sealedSubtype: 'box', sealedCondition: 'mint' }];
+    const { svc, mail } = build({ flag: 'on', pending, available });
+    await svc.run();
+    const msg = (mail.send as jest.Mock).mock.calls[0][0];
+    expect(msg.html).not.toContain('<script>');
+    expect(msg.html).not.toContain('"X"');
+    expect(msg.html).not.toContain('& Y');
+    const escapado = 'Box &lt;script&gt;alert(1)&lt;/script&gt; &quot;X&quot; &amp; Y';
+    expect(msg.html.split(escapado).length - 1).toBe(2); // las dos líneas (ES y EN)
+    // El texto plano y el asunto no son HTML: van literales.
+    expect(msg.text).toContain(hostil);
+    expect(msg.subject).toContain(hostil);
+  });
+
   it('sin suscripciones pendientes → notified 0 (no consulta inventario)', async () => {
     const { svc, prisma } = build({ flag: 'on', pending: [] });
     const res = await svc.run();

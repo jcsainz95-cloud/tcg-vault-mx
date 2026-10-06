@@ -1,11 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
-import { json } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { applyTrustProxy } from './trust-proxy';
+import { applyBodyParsers } from './body-parsers';
 
 /**
  * Orígenes permitidos por CORS (S-M2). Se toma de `APP_BASE_URL` (lista separada por comas
@@ -46,13 +46,9 @@ async function bootstrap() {
   // Prefijo global de la API (API_CONTRACT §0).
   app.setGlobalPrefix('api/v1');
 
-  // Raw body para el webhook de Stripe (firma). Resto de rutas: JSON normal.
-  app.use('/api/v1/webhooks/stripe', json({
-    verify: (req: any, _res, buf) => {
-      req.rawBody = buf;
-    },
-  }));
-  app.use(json());
+  // Parsers de cuerpo: raw body para el webhook de Stripe (firma), texto ≤ 16 KB para `POST /telemetry/csp`
+  // (v1.84 · LIVE-7) y JSON normal para el resto. Una sola fuente con el arnés de integración: `body-parsers.ts`.
+  applyBodyParsers(app);
 
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: false }),

@@ -23,6 +23,7 @@ import { GuestCheckoutView } from './GuestCheckoutView';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { clearUnavailableNotice, pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
 import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
+import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -326,6 +327,11 @@ export function CheckoutView() {
                   {t('viewTerms')}
                 </Link>
               </p>
+              {/* LIVE-8 · sitio 4 (DESIGN_SYSTEM §80.2, criterio 505 ii). */}
+              <PrivacySiteNote
+                site="checkout"
+                className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted"
+              />
               <p className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted">
                 {t('cfdiNotice')}
               </p>

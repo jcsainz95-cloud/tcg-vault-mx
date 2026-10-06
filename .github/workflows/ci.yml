@@ -409,6 +409,19 @@ jobs:
       - uses: actions/checkout@v5
       - name: El arnés E2E no puede saltarse el cobro ni la subida del INE
         run: ./scripts/check-e2e-harness-gaps.sh
+      # M-4 (QA, 2026-10-05): una copia `git archive` (sin .git) pasa su sha con
+      # STACK_EXPECTED_SHA o `up --gate` para con un mensaje que lo nombra. Canario:
+      # 4 mutaciones, todas rojas. Sin red ni stack (la infra son señuelos).
+      - name: El stack nativo sabe qué commit sirve, también en una copia sin .git
+        run: |
+          ./scripts/check-stack-expected-sha.sh
+          ./scripts/check-stack-expected-sha.sh --canary
+      # M-3 (QA, 2026-10-05): el stack nativo exporta NEXT_PUBLIC_UPLOAD_ORIGIN (el
+      # s3-local entra en connect-src de la CSP). Canario: 3 mutaciones, todas rojas.
+      - name: El stack nativo da a la CSP el origen de subida del s3-local
+        run: |
+          ./scripts/check-stack-upload-origin.sh
+          ./scripts/check-stack-upload-origin.sh --canary
 
   # ---------------------------------------------------------------------------
   # ⏳ DISPARADOR DE RETIRO de la medida interina `D-PP-2` (DEVOPS_NOTES §43.2).
@@ -821,6 +834,41 @@ jobs:
         run: ./scripts/check-stack-kill-scope.sh 5
 
   # ---------------------------------------------------------------------------
+  # 💰 LISTO PARA DINERO REAL (API_CONTRACT §14, 2026-10-05) — los candados de
+  # devops de LIVE-3/9/10/11/13 y del arnés local, cada uno con su canario y su
+  # mutación (proporción N/N). Sin red externa, sin producción. DEVOPS_NOTES §85.
+  # ---------------------------------------------------------------------------
+  live-candados:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: LIVE-3 · CSP_MODE y ZAP 10038/10055 se mueven juntas (+ canario)
+        run: |
+          ./scripts/check-csp-zap-parity.sh
+          ./scripts/check-csp-zap-parity-canary.sh
+      - name: LIVE-9 · el vigía de disponibilidad sabe ponerse rojo
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-uptime-watch-canary.sh
+      - name: LIVE-10 · check-candidate-checks exige un DAST full sellado sobre el sha (canario C5)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-candidate-checks-canary.sh
+      - name: LIVE-11 · la sonda de C6 distingue el tope por IP del candado de cuenta
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-edge-xff-probe-canary.sh 3
+      - name: LIVE-13 · el simulacro de restauración sabe decir «NO cuadra»
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-restore-drill-canary.sh
+      - name: E-8 · la sonda de TTFB distingue antes/después y sabe ponerse roja (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-ttfb-probe-canary.sh
+      - name: S3-CLON · el arnés local no reutiliza el almacén de otro clon
+        if: ${{ !cancelled() }}
+        run: |
+          ( cd scripts/s3-local && npm ci --no-audit --no-fund )
+          ./scripts/check-s3-local-clone-canary.sh 3
+
+  # ---------------------------------------------------------------------------
   # Gate final. DEFAULT INVERTIDO (techlead N3, 2026-09-11): antes eran ocho
   # bloques copiados a mano con dos criterios, y un gate nuevo añadido a `needs`
   # SIN su bloque quedaba skipped = verde. Ahora `scripts/check-ci-ok.sh` lee
@@ -831,7 +879,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { escapeHtml, privacyNoticeHtml } from '../buylist/mail-shell';
 
 const JOB = 'sealed-restock-notify';
 
@@ -110,9 +111,14 @@ export class SealedRestockNotifyService {
     const text =
       `El producto "${productName}" que seguías volvió a estar disponible en TCG HUNT.\n` +
       `The product "${productName}" you were watching is back in stock at TCG HUNT.`;
+    // S15-B1: el nombre entra al HTML escapado (el escape del esqueleto de correo, el de las demás
+    // plantillas); el texto plano y el asunto no son HTML y van literales.
+    const safeName = escapeHtml(productName);
     const html =
-      `<p>El producto <strong>${productName}</strong> que seguías volvió a estar disponible en TCG HUNT.</p>` +
-      `<p>The product <strong>${productName}</strong> you were watching is back in stock at TCG HUNT.</p>`;
+      `<p>El producto <strong>${safeName}</strong> que seguías volvió a estar disponible en TCG HUNT.</p>` +
+      `<p>The product <strong>${safeName}</strong> you were watching is back in stock at TCG HUNT.</p>` +
+      // v1.84.4 (`API_CONTRACT §14.17` E4-5, criterio 507): todo correo lleva el enlace al aviso.
+      `<p style="font-size:12px;color:#888">${privacyNoticeHtml('es', 'color:#888;text-decoration:underline')}</p>`;
     await this.mail.send({ to: email, subject, text, html });
   }
 }

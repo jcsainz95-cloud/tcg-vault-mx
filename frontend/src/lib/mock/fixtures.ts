@@ -6821,6 +6821,10 @@ export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
       folio: sealed.folio,
       card: sealed.card,
       productType: 'sealed',
+      // §M11-SP.13.5: en `sealed` la clave viaja SIEMPRE (`string` = ligada, `null` = sin producto). inv-1009 es la
+      // ETB sv06 sin ligar (ver `ppe-sealed-unmapped`) ⇒ `null`. Sin la clave, `sealedPieceLinkOf` da 'unknown' y la
+      // fila queda en solo lectura (13.5.1, falla cerrado) — como lo manda el back (`inventory.service.ts`).
+      sealedProductId: null,
       sealedProductName: sealed.card.name,
       sealedSubtype: sealed.sealedSubtype,
       finish: sealed.finish ?? 'normal',

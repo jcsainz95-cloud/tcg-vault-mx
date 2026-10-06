@@ -87,7 +87,10 @@ for j in "${JOBS[@]}"; do
   if en_needs "$j"; then ok "job \`$j\` está en el needs de ci-ok"; else bad "job \`$j\` NO está en el needs de ci-ok: no se evalúa aquí ⇒ no gatea. Añádelo a needs (exigirá success salvo que lo declares OPCIONAL con motivo)."; fi
 done
 for o in "${!OPCIONALES[@]}"; do
-  printf '%s\n' "${JOBS[@]}" | grep -qx "$o" || bad "OPCIONALES lleva \`$o\`, que ya no es un job de $CI_YML: lista desfasada."
+  # here-string, NO tubería: con pipefail, `printf … | grep -q` da falso rojo cuando grep sale al
+  # primer acierto y printf (stdout de bash con búfer por línea) muere por SIGPIPE (141). Medido
+  # 3/2000 con load≈6–8 (QA: canario 1/6 rojo con load≈11). DEVOPS_NOTES §86.
+  grep -qx "$o" <<<"$(printf '%s\n' "${JOBS[@]}")" || bad "OPCIONALES lleva \`$o\`, que ya no es un job de $CI_YML: lista desfasada."
 done
 if [ "$SOLO_ESTATICO" -eq 1 ]; then
   [ "$FALLOS" -eq 0 ] && { echo; ok "estática OK (${#JOBS[@]} jobs, $(wc -w <<<"$NEEDS_STATIC") en needs, ${#OPCIONALES[@]} opcionales)"; exit 0; }

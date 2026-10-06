@@ -29224,3 +29224,210 @@ marcada cerrada.
 La integración completa **no** se corrió sobre el árbol sin mutar (solo la de `sealed-price`, como pedía el encargo).
 
 **Preguntas al arquitecto:** ninguna nueva.
+
+## 76 · v1.84 «Listo para dinero real» — parte backend de LIVE-1, LIVE-2 y LIVE-7 (2026-10-05, rama `claude/listo-real`, sobre `2fe1cea1`; código en `df6d8dcc` (LIVE-1), `6a227527` (LIVE-2), `659704f7` (LIVE-7))
+
+> *(Fusión `claude/listo-real` + `claude/precio-sellado`, 2026-10-05, agente de fusión: esta sección era la **§57** en la rama `claude/listo-real`; se renumera a **§76** porque §57 ya la publicó `claude/skydropx-d` (Skydropx fase D1, publicada con sellado). Sus autorreferencias se actualizaron; las citas externas «§57» que vienen de `claude/listo-real` apuntan aquí.)*
+
+Contrato: `API_CONTRACT §14.1`, `§14.2`, `§14.7`. ⛔ Sin schema, sin migración, sin código de error nuevo. LIVE-4/5/6
+**no** están aquí (chocan con otras ramas, §14.12).
+
+### 76.1 LIVE-1 · `qs` y dependientes
+- `backend/package.json` → `overrides`: `qs` `^6.15.3` ⇒ **`^6.16.0`**, `multer` `^2.2.0` ⇒ **`^2.4.0`** (primera sin
+  GHSA-3pph). Nota: la línea `package.json:74` que cita el contrato es la del bloque `overrides` (ya existía; `qs` no es
+  dependencia directa). `express` 4.22.2 / `body-parser` 1.20.6 se quedan: con el override ya resuelven `qs@6.16.0`
+  (`npm ls qs` ⇒ todas `deduped` a 6.16.0).
+- Lock regenerado con `npm install --package-lock-only` (sale `concat-stream`/`typedarray`, que `multer` 2.4 ya no usa).
+- **Cierre medido:** `npm audit --omit=dev` ⇒ **2 moderadas**, ambas `@nestjs/core`/`platform-express` (GHSA-36xv, la de
+  SSE que el contrato deja seguir). Antes: 6 (`qs` ×2 advisories, `body-parser`, `express`, `multer`, `@nestjs/*`).
+- ⚠️ `node_modules` del árbol vivo NO se reinstaló (sigue con `qs@6.15.3` hasta el próximo `npm ci`); el lock es la fuente.
+
+### 76.2 LIVE-2 · tope absoluto de sesión (`modules/auth`)
+Decisión del dueño: `HECHOS.md` fila «Listo para dinero real — respuestas del dueño (2026-10-05) a §4.63.9», P-6 «Cada
+7 días»: 7 d panel (personal y dueño), 30 d clientes.
+- `auth/session-max-age.ts`: constantes (⛔ no dial), `sessionMaxAgeSeconds(role)` (`customer` 30 d; cualquier otro 7 d),
+  `SESSION_MAX_AGE_REASON = 'session_max_age'` y `ttlSeconds()` (ver abajo).
+- `issueTokens(user, sid?, sat?)`: el refresh gana el claim **`sat`** (sin él ⇒ `now`: login, Google, registro,
+  cambio de contraseña) y `exp = min(now + JWT_REFRESH_TTL, sat + tope(user.role))`. El access token **no** cambia.
+- `refresh()`: tras typ/tv/usuario/sid, `sat = claim` (o **`iat`** si falta — legado; presente pero no numérico ⇒ 401),
+  `now − sat >= tope(rol de BD)` (**v1.84.1**; era `>`, ver §76.6) ⇒ **`401 UNAUTHENTICATED {details:{reason:'session_max_age'}}`**; luego la caducidad
+  normal (`now >= exp` ⇒ 401 sin `reason`); emite el par con el mismo `sid` y el mismo `sat`.
+- ⭐ **Decisión de implementación que el contrato no escribe (y que SES-1/SES-2 exigen):** como el `exp` del refresh se
+  acota a `sat + tope`, el token **siempre caduca justo en el tope**; si `jsonwebtoken` rechazara la caducidad en
+  `verifyAsync`, el `401` del día 31 / día 8 saldría **sin** `reason` y SES-1/SES-2 serían inalcanzables. Por eso
+  `verifyAsync` va con `ignoreExpiration: true` y la caducidad se comprueba **a mano, después** del tope (misma regla
+  `now >= exp` que `jsonwebtoken`). Firma, algoritmo, typ, tv, usuario y sid se siguen comprobando antes. Un token
+  caducado **nunca** emite par: solo cambia el `reason` del 401. Efecto colateral medido: un refresh caducado ahora
+  hace una lectura de `user` antes de rechazarse (antes se rechazaba sin BD). Un refresh sin `exp` ⇒ 401 (antes
+  `jsonwebtoken` lo aceptaba; nuestros tokens siempre lo llevan).
+- `ttlSeconds()`: como el `exp` va explícito (`jsonwebtoken` prohíbe `exp` + `expiresIn`), el TTL se interpreta igual
+  que `jsonwebtoken`/`ms`; prueba de paridad contra `jsonwebtoken` real (13 formatos). Formato inválido ⇒ lanza (como antes).
+- Frontend: el `reason` solo elige el texto (clave nueva en `auth`, de frontend/ux-ui).
+
+### 76.3 LIVE-7 · salud y telemetría (`modules/health`, `main.ts`)
+- `GET /health` gana `stripeMode` (`stripeModeOf()` en `health.service.ts`): `sk_live_`/`rk_live_` ⇒ `live`,
+  `sk_test_`/`rk_test_` ⇒ `test`, vacía/ausente ⇒ `none`. **Cualquier otro prefijo ⇒ `none`** (el contrato no define un
+  cuarto valor). No degrada. `HealthService` recibe `ConfigService` (2.º parámetro).
+- `POST /api/v1/telemetry/csp` (`telemetry.controller.ts`, en `HealthModule`): `@Public`, `@Throttle 60/min`, `204`
+  siempre. Registra `warn` `CSP_VIOLATION {"effectiveDirective","blockedOrigin","documentPath","disposition"}`, una
+  línea por informe, ≤ 20 por petición; campo fuera de forma ⇒ se omite (nunca crudo). `blocked-uri` no-URL
+  (`inline`, `eval`…) se registra tal cual; `data:`/`blob:` ⇒ solo el esquema.
+- `POST /api/v1/telemetry/client-error`: `@Public`, `@Throttle 30/min`, DTO `ClientErrorReportDto`, `204`; registra
+  `error` `CLIENT_ERROR {"message","path"(sin query/fragmento),"digest"?,"release"?}`. Nada en BD.
+- **Parsers** (`src/body-parsers.ts`, ⭐ una sola fuente para `main.ts` **y** el arnés `test/integration/helpers/e2e-app.ts`,
+  que antes duplicaba la configuración): webhook raw → **CSP: `text()` de cualquier tipo, límite 16 KB** → `json()`.
+  Texto y no JSON a propósito: un JSON roto daría `400` y el contrato pide `204`. **`413` sale sin cuerpo** (el contrato
+  no fija cuerpo y ⛔ no hay código nuevo; el filtro global mapearía 413 a `INTERNAL`). Otro fallo de lectura ⇒ `204`.
+
+### 76.4 Pruebas y mediciones (copia `git archive HEAD` entera + este diff; BD propia)
+- Nuevas: `test/auth.session-max-age.spec.ts` (SES-1…6 + TTL), `test/health.stripe-mode.spec.ts` (HLT-1),
+  `test/telemetry.spec.ts` (TLM-1, TLM-4, forma del log), `test/integration/telemetry.e2e-spec.ts` (HLT-1 HTTP, TLM-1…5,
+  SES-6 HTTP). SES-1…5 se vieron **rojas antes del código (7 rojas / 11)**. Las de LIVE-7 se escribieron junto con el código (no se corrieron antes); su mordida la prueban las mutaciones de abajo.
+- Unitaria completa: **394/394 suites, 6666/6666**; `tsc` y `eslint` limpios. Integración completa: **77/78 suites,
+  1571 verdes, 8 rojas, 2 omitidas** — las 8 son `graded-estimate.e2e-spec.ts` y son **previas** (ver 76.5).
+- Mutaciones (todas restauradas y el árbol comprobado limpio): LIVE-2 quitar paso 3 **3/3 rojo**, tope de cliente para
+  todos **3/3**, `exp` sin tope **3/3**, legado `sat = now` **3/3**, rol del token **3/3**, `sat` en el cuerpo **3/3**;
+  LIVE-7 HLT-1 prefijo crudo **3/3**, TLM-1 URI completa **3/3**, TLM-4 sin `MaxLength` **3/3**, `path` con query **3/3**,
+  TLM-2 sin límite **2/2**, TLM-3 sin `@Throttle` **2/2**, TLM-5 persistir **2/2**; LIVE-1 lock con `qs@6.15.3` ⇒ `npm
+  audit` vuelve a listar `qs` **2/2**. Son deterministas (no hay carrera); la N es de repetición, no de proporción.
+
+### 76.5 Hallazgo previo (no de este encargo): `graded-estimate.e2e-spec.ts` depende del orden
+Corriendo `enum-query-axes → buylist-cycle → replacement-cases → full-refund-vault → graded-estimate` (secuenciador fijo)
+salen **8 rojas** en `graded-estimate` (p. ej. `3) … teja.gradingHighlight` `undefined`) **igual en `HEAD 2fe1cea1` sin
+este diff que con él** (N=1 cada uno); sola, `graded-estimate` da **17/17**. Es contaminación de estado entre suites
+(clase H-2), sin relación con LIVE-*. Queda para quien lleve catálogo/precios.
+
+### 76.6 Errata v1.84.1 · §14.14 E-1 — el tope de sesión con `>=` (SES-7, SES-8) (2026-10-05, sobre `6480d86b`)
+- **Borde:** `refresh()` comparaba `now − sat > tope` (`auth.service.ts`, paso 4 de E-1) y luego `now >= exp`. Como el
+  último refresh lleva `exp = sat + tope`, en el segundo exacto `now = sat + tope` el tope no disparaba y la caducidad sí
+  ⇒ `401` **sin** `reason`. Ahora `now − sat >= tope(rol de BD)`: las dos fronteras coinciden. Un token caducado sigue
+  sin emitir par; solo cambia el `reason`. El orden del código ya era el de E-1 (verificar con `ignoreExpiration:true`
+  → typ/tv/usuario/sid → `sat` → tope → `exp` ausente/no number o `now >= exp` → par); no se movió nada más.
+- **SES-7** (`test/auth.session-max-age.spec.ts`): `customer` (30 d), `super_admin` y `vault_operator` (7 d): un segundo
+  antes del tope ⇒ `200`; en `sat + tope` exacto ⇒ `401 {reason:'session_max_age'}`. Precondición aseverada: el `exp` del
+  token cae justo en el tope. Se vio **roja antes del cambio: 3/3 casos** (`reason: undefined`).
+- **SES-8:** el caso que ya existía («caducado por TTL ⇒ 401 sin reason», sin número) **pasa a llamarse SES-8** y no se
+  duplica (lo pide E-1); gana: ningún par (`issueTokens` y `devices.issue` no se llaman), el segundo exacto `now = exp`
+  ⇒ `401` sin `reason`, y un refresh bien firmado **sin** `exp` ⇒ `401` sin `reason` y sin par. Ya era verde antes del
+  cambio (protege conducta existente, no un defecto); su mordida la da la mutación.
+- **Mutaciones** (copia `git archive HEAD` entera + este diff; deterministas, la N es de repetición): volver a `>` ⇒
+  SES-7 roja **5/5** corridas (3 casos rojos, y solo esos); quitar la comprobación manual de `exp` ⇒ SES-8 roja **3/3**
+  (sus 3 casos). Fuente restaurada y comparada byte a byte con el árbol vivo.
+- **Suites** (misma copia): unitaria **394/394 suites, 6671/6671** (+5 netos: +6 casos, −1 absorbido en SES-8); `tsc` y
+  `eslint` limpios. Integración de auth + telemetría sobre BD propia `tcg_be_live2` (`E2E_STRICT_INFRA=false`, solo
+  esas suites; no es corrida de gate): **7/7 suites, 85/85**.
+
+### 76.7 Errata v1.84.2 · §14.15 E2-3 — `scrubClientText` en `client-error` (TLM-6, TLM-7, TLM-8) (2026-10-05, sobre `5ea58917`)
+- **Dónde:** `scrubClientText(s)` en `modules/health/telemetry-report.ts` (pura, no lanza); `telemetry.controller.ts`
+  la aplica a `message` antes de construir la línea `CLIENT_ERROR`. `path` sigue por `pathWithoutQuery` (ya quitaba
+  query **y** fragmento; ahora hay prueba para el fragmento). `digest`/`release` no se tocan (E2-3).
+- **Reglas, en orden 1 → 2 → 3:** (1) `/(\S)[?#]\S*/g` ⇒ `$1` (`error #418` intacto: `#` con espacio delante);
+  (2) `/([\w.-]*(?:token|code|secret|password|key|signature|sig))=\S+/gi` ⇒ `$1=[redacted]` — el sufijo cubre
+  `access_token`, `refresh_token`, `id_token`, `X-Amz-Signature`, `client_secret`, `apikey`; **solo valor no vacío**
+  (`token=` sin valor no esconde nada); (3) `/eyJ[\w-]+\.[\w-]+\.[\w-]*/g` ⇒ `[jwt]` (firma vacía admitida: `alg:none`).
+  Vacío ⇒ `Error`. Consecuencia del sufijo, conforme al contrato: `monkey=x` también se redacta.
+- ⚠️ **Para el arquitecto (no cambié el contrato):** E2-3 punto 4 dice «el resultado solo puede ser más corto o igual
+  de largo». **No es cierto con la regla 2 tal cual:** un valor de menos de 10 caracteres crece (`sig=a` ⇒
+  `sig=[redacted]`; `'sig=a '×50` = 300 ⇒ 650 sin tope). Como el motivo declarado es «los 300 del DTO siguen valiendo»,
+  el código **recorta a 300 al final** (`CLIENT_MESSAGE_MAX`; recortar solo quita cola, no puede destapar nada) y hay
+  prueba de ello. Si el arquitecto prefiere otra salida (marcador más corto, o aceptar que crezca), es un cambio de una
+  línea.
+- **Pruebas:** `test/telemetry.spec.ts` — TLM-6, TLM-7 (combinada + «#418» sola, byte a byte), TLM-8, fragmento de
+  `path`, tabla regla a regla (14 casos), tope 300, entradas raras; `test/integration/telemetry.e2e-spec.ts` —
+  TLM-6/7/8 por HTTP en una petición. Valores obviamente falsos (`abc123`, `s3cr3t`, `t0k3n`, `fake`); el JWT se arma
+  en ejecución (`alg:none`). ⛔ Ningún nombre en MAYÚSCULAS seguido de `=` en las cadenas de prueba: el generador del
+  manifiesto S-88-1 lo leería como variable de entorno (me pasó con `TOKEN=fake`, cambiado a `ToKeN=fake`).
+- **Roja antes del código** (stub identidad): **17/31** en `telemetry.spec.ts` (TLM-6, TLM-7 ×2, TLM-8 —por el secreto
+  tras el `\n`; su parte «una línea» ya era verde, es candado de lo construido—, 13 de la tabla).
+- **Suites** (copia `git archive HEAD` entera + este diff): unitaria **394/394 suites, 6692/6692**; `tsc` y `eslint`
+  limpios. Integración auth + telemetría + health, BD propia `tcg_be_live3` (`E2E_STRICT_INFRA=false`, no es gate):
+  **7/7 suites, 86/86**.
+- **Mutaciones** (deterministas; la N es de repetición): regla 1 solo para URL absolutas («quitar rutas relativas»)
+  ⇒ unit **3/3** rojas (5 casos: TLM-6, TLM-8, 3 de tabla), integración **2/2**; quitar regla JWT ⇒ unit **3/3** (TLM-7
+  + 1 de tabla), integración **2/2**; solo la regla del cliente (mutación de TLM-7 en el contrato) ⇒ **3/3** (14 casos);
+  controller sin llamar a `scrubClientText` ⇒ **3/3** (TLM-6/7/8); `message` sin escapar ⇒ **3/3** (TLM-8 + la de
+  forma). ⚠️ Con «quitar rutas relativas» **sola**, el oráculo literal de TLM-6 en el contrato (`no contiene abc123`)
+  seguiría verde porque la regla 2 redacta `token=abc123`; muerde por la aserción extra `no contiene 'token'` y por
+  la ruta seguida de ` al cargar`. Fuente restaurada y comparada byte a byte con el árbol vivo.
+
+### 76.8 Gate del techlead sobre `241d4dca` — TD-LIVE-2 construido, TD-LIVE-1/3/4 anotados (2026-10-05, sobre `a047c3cb`)
+- **TD-LIVE-2 (construido, no anotado):** `test/auth.ignore-expiration.lock.spec.ts`. Recorre todo `src/**/*.ts` con
+  el AST de TypeScript (`ts.createSourceFile`; los comentarios no cuentan, la clave entre corchetes sí) y exige
+  **exactamente una** aparición de `ignoreExpiration`, como propiedad del objeto de opciones de una llamada
+  `*.verifyAsync(...)` cuyo método envolvente es `refresh` de la clase `AuthService`. Si alguien necesita otra, la
+  necesidad pasa por revisión: el candado se cambia a propósito, no por accidente.
+- **Canarios en la propia suite** (5): copia al `verifyAsync` de `jwt-auth.guard.ts`, forma
+  `['ignoreExpiration']`, movida a otro método de `AuthService`, constante de opciones suelta, cero apariciones.
+- **Mutación real** (copia `git archive HEAD` entera + este diff, en scratchpad `be-live4`, borrada al terminar):
+  añadir `ignoreExpiration: true,` al `verifyAsync` de `src/common/guards/jwt-auth.guard.ts` ⇒ **rojo 3/3** (N=3,
+  determinista: no depende de reloj ni de orden). Fuente restaurada y comparada con `cmp` contra el árbol vivo.
+- **Anotados en `TECH_DEBT.md` (sección backend):** TD-LIVE-1 (`stripeModeOf` vs regex de `pii-crypto`; toca
+  `common/`, se serializa), TD-LIVE-3 (amplificación de `CSP_VIOLATION`: ≤ 20 líneas × 60 pet/min por IP), TD-LIVE-4
+  (la discrepancia del recorte a 300 de §76.7, para el arquitecto).
+- **Suites** (misma copia entera + este diff): unitaria **395/395 suites, 6699/6699** (antes 394/6692: +1 suite, +7
+  pruebas); `tsc --noEmit` limpio; `eslint` del fichero nuevo limpio. Sin cambios de código de producción.
+
+### 76.9 Errata v1.84.4 · §14.17 E4-5 — enlace «Aviso de privacidad» en el pie de todos los correos (criterio 507) (2026-10-05, sobre `77188b5f`; código en `ec9d3aae`)
+
+**Dónde estaba el pie (medido, `grep` 2026-10-05):** no hay uno, hay **tres** más un correo sin pie:
+- `buylist/mail-shell.ts` → `mailShell()` (lo usan las 7 familias de `*-notice.templates.ts` y `buylist-mail.templates.ts`: buylist, pedido con cuenta, envíos, reembolsos, CLABE, KYC, disputas — 20 de las 27 plantillas);
+- `mail/mail.templates.ts` → `layout()` (verificación, restablecer contraseña, bloqueo de staff);
+- `orders/mail/guest-order.templates.ts` → `layout()` duplicado (confirmación de invitado y reenvío de enlace; BE-43);
+- `catalog/sealed-restock-notify.service.ts` → HTML en línea, sin pie (reposición de sellado).
+
+**Qué se construyó.** Una sola decisión en `mail-shell.ts`: `privacyNoticeUrl()`, `privacyNoticeLabel(locale)`,
+`privacyNoticeHtml(locale, style)`. Los cuatro sitios la llaman; ninguno arma el enlace por su cuenta.
+- **URL:** `<origen>/es/privacidad` en los dos idiomas (literal del contrato; el aviso es un documento en español). Etiqueta: «Aviso de privacidad» / «Privacy notice».
+- **Origen:** `APP_PUBLIC_URL` (vía `appUrl`, la base de los avisos) y, si falta o está en blanco, el **primer** origen de `APP_BASE_URL` (la base de los enlaces de verificación/contraseña/invitado). Es el respaldo que `DEVOPS_NOTES §35.2` pedía; se aplica **solo** a este enlace (los CTA de los avisos no cambian). Esquema no http(s) ⇒ sin `href`.
+- **Sin ningún origen:** el pie dice «Aviso de privacidad: tcghunt.mx/es/privacidad» como **texto**; ⛔ nunca un `href` a medias.
+- **Posición en `mailShell`:** fila de letra chica sobre **papel**, justo encima de la banda de tinta, **no dentro**. §31.6h prohíbe en la banda todo lo que el lector necesite (degrada en modo oscuro), y el candado N2 (`buylist.mail-shell.spec.ts`: «el pie en tinta no lleva `<a `») sigue en verde sin tocarlo. Si ux-ui lo quiere en otro sitio, es un cambio de una línea en `mailShell`.
+
+**Decisiones que el contrato no fijaba (para el arquitecto):**
+1. **El aviso de bloqueo de staff (`passwordLockAlertTemplate`) también lleva el enlace.** Comparte `layout()` con verificación/contraseña y el contrato dice «pie común de todas las familias». Su comentario dice «⛔ sin enlaces» (anti-phishing): el enlace al aviso no es una acción, pero si se prefiere quitarlo ahí, es un parámetro de `layout`.
+2. **El texto plano no lleva el enlace.** El texto de cada plantilla es propio (no hay pie de texto común) y el contrato habla del pie visible. Añadirlo serían 27 + 1 ediciones; no lo hice sin decisión.
+3. **Reposición de sellado:** correo bilingüe ⇒ etiqueta en español.
+
+**Pruebas.** `test/mail.privacy-footer.spec.ts` (64): PRIV-0 censo (las 27 `*Template` de `src/` tienen render; una nueva sin render ⇒ rojo), PRIV-1 cada plantilla ES+EN y la reposición llevan `<a href="<origen>/es/privacidad">` con su etiqueta, una sola vez; PRIV-2 origen y respaldo; PRIV-3 sin origen; PRIV-4 barrido de `src/` (todo fichero con `subject` y marcado HTML llama a `mailShell(` o `privacyNoticeHtml(`). `test/mail-links.frontend-routes.spec.ts`: `linkedPaths` aparta `/privacidad` (no es el CTA) y una prueba nueva mide que la ruta existe en el front.
+
+**Choques previstos al fusionar** (medido con `git merge-tree` contra `origin/claude/skydropx-d` y `origin/claude/arreglos-panel`): **ninguno textual en `backend/`** (`mail-shell.ts` y el spec de rutas se auto-fusionan). **Sí semánticos:** PRIV-0 se pondrá rojo con las plantillas nuevas de esas ramas (`shipmentDeliveredTemplate`, `shipmentAtBranchTemplate`, `shipmentDeliveryAttemptTemplate`; `sellItemsRejectedTemplate`) hasta que quien fusione les añada su render en `RENDERS` — es el candado haciendo su trabajo (igual que SRF-13). Todas usan `mailShell`, así que ya llevan el enlace.
+
+**Medido (copia `git archive ec9d3aae` del árbol ENTERO, 2026-10-05):** unitaria **396/396 suites, 6764/6764** (antes de este cambio, §76.8: 395/6699; además del spec nuevo entraron commits de otras ramas, así que no comparo la diferencia prueba a prueba); `tsc --noEmit` limpio. **Mutaciones** (sobre otra copia, N=1 cada una porque son deterministas): quitar la fila del aviso de `mailShell` ⇒ **47 rojas**; quitarla del `layout` de `mail/` ⇒ **11**; del `layout` de invitado ⇒ **8**; de la reposición ⇒ **2** (PRIV-1 + barrido PRIV-4); quitar el respaldo a `APP_BASE_URL` ⇒ **2** (PRIV-2). Con todo en su sitio, 64/64. **Fusión simulada** (`git merge-tree`): con `arreglos-panel`, PRIV-0 rojo solo por `sellItemsRejectedTemplate`, como se predijo; con `skydropx-d` el spec nuevo no compila en mi copia porque el cliente Prisma generado es el de esta rama (`SpendAlertKind` falta) — **NO MEDIDO** ahí; las otras dos specs de correo dan 291/291.
+
+### 76.10 Choque A de la fusión — PRIV-0 conoce las 4 plantillas que trajo la fusión (2026-10-05, sobre `1eb6bdcd`)
+
+**Medido (`grep`/lectura, 2026-10-05):** `sellItemsRejectedTemplate` (`buylist/buylist-mail.templates.ts`, correo 29, al
+vendedor) arma su HTML con `mailShell`; `shipmentDeliveredTemplate`, `shipmentAtBranchTemplate` y
+`shipmentDeliveryAttemptTemplate` (`shipments/mail/shipment-notice.templates.ts`, AV-17/18/19, al cliente) pasan por
+`carrierNotice`, que llama a `mailShell`. Las cuatro **ya llevaban el pie**; ninguna es interna. No se tocó código de
+producción: solo se añadió su render a `RENDERS` en `test/mail.privacy-footer.spec.ts` (27 → 31 plantillas; 64 → 72 pruebas).
+
+**Medido (copia `git archive 1eb6bdcd` del árbol ENTERO + este diff):** `tsc --noEmit` limpio; unitaria **427 suites, 7548
+pruebas, 1 roja**: SDX-I-8 en `sdx-d2g.units.spec.ts` (choque B, fuera de este cambio). **Mutaciones** (deterministas, N=1
+cada una): quitar el enlace al aviso del HTML de `sellItemsRejectedTemplate` ⇒ **3 rojas** (PRIV-1 ES y EN + CONTROL de
+aparición única); quitar el render de `shipmentAtBranchTemplate` del censo ⇒ **1 roja** (PRIV-0). Restaurado: 72/72.
+
+### 76.11 Errata v1.84.5 · §14.18 E5-1…E5-5 — choque B: los correos solo-staff (AVG-1/2/3) sin el pie de privacidad (2026-10-05, sobre `0d3f6b42`)
+
+**Qué se construyó (E5-2).** `MailShellOptions.audience?: 'customer' | 'staff'` (defecto `'customer'`). Con `'staff'`,
+`mailShell` omite `privacyRow` **y** su `spacerRow(16)`; el resto del esqueleto no cambia. `audience: 'staff'` solo en las
+tres llamadas de `spend-alerts/spend-alert.mail.ts` (AVG-1 `spendAlertImmediateMail`, AVG-2 `spendAlertBatchMail`,
+AVG-3 `spendDigestMail`). ⛔ Ningún otro fichero lo pasa (PRIV-6 lo vigila); ampliar la lista exige errata.
+SDX-I-8 (`sdx-d2g.units.spec.ts`) y PRIV-0…4 **sin cambio de aserciones**; en `mail.privacy-footer.spec.ts` cambió la
+cabecera y entraron **PRIV-5** (AVG-1 🔴 de guías, AVG-2, AVG-3 × ES/EN × con/sin origen: ni `privacidad` ni la etiqueta en
+`html` ni `text`; CONTROL: el `html` lleva `footerDescriptor(l)`) y **PRIV-6** (barrido sin comentarios: `audience:'staff'`
+solo en `spend-alert.mail.ts`, exactamente 3).
+
+**Medido (copia `git archive 0d3f6b42` del árbol ENTERO + este diff, 2026-10-05):** `tsc --noEmit` limpio; `eslint` de los
+3 ficheros limpio; unitaria completa **427/427 suites, 7553/7553** (SDX-I-8 en verde). **Mutaciones** (deterministas, **una
+tirada cada una**, sobre la copia; restauradas y comprobadas con `cmp` contra el árbol, después 119/119):
+| # | Mutación | Rojas reales (privacy-footer + sdx-d2g.units) |
+|---|---|---|
+| MUT-B1 | `mailShell` ignora `audience` | 5: PRIV-5 ×4 + SDX-I-8 |
+| MUT-B2 | defecto `'staff'` (`opts.audience ?? 'staff'`) | 55: PRIV-1 de las **26** plantillas de shell ×2 idiomas + CONTROL + PRIV-3 ×2; las 5 de pie a mano, verdes |
+| MUT-B3 | `audience: 'staff'` en `refundNoticeTemplate` | 6: PRIV-1 `refundNoticeTemplate` ×2 + PRIV-6 + CONTROL + PRIV-3 ×2 |
+| MUT-B4 | quitar `audience` de `spendDigestMail` | 6: PRIV-5 ×4 + PRIV-6 + SDX-I-8 |
+| MUT-B5 | `spendAlertUrl` añade `?token=x` | 1: SDX-I-8 |
+
+**NO MEDIDO:** la integración `test/integration/sdx-d2g-mail.e2e-spec.ts` (canarios SDX-I-8) — necesita BD y crear una base
+propia me fue denegado por permisos en esta corrida. La cierra correrla con `./scripts/stack-native.sh test:integration
+test/integration/sdx-d2g-mail.e2e-spec.ts` (o en CI). Por construcción usa los mismos tres constructores que PRIV-5.

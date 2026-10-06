@@ -1,8 +1,9 @@
 # Baseline del censo de salvaguardas E2E (scripts/check-e2e-skip-census.sh).
 # Formato: clave ocurrencias ficheros. Se regenera SOLO con --update --motivo, en el mismo diff que el cambio.
 # 2026-10-05 · frontend/e2e/sealed-price-sheet.spec.ts (SP-F, rama claude/precio-sellado): mockOnly sobre el servidor falso de la hoja «Precios del sellado»; hueco declarado en la cabecera del spec (el seed real no siembra un SealedProduct con piezas ligadas y costo). Fusión con claude/arreglos-panel: 138 (panel) + 3 = 141, 28 + 1 = 29 ficheros.
+# 2026-10-05 · frontend/e2e/session-max-age.spec.ts (fab9bb13, LIVE-2 pantalla del aviso de sesión caducada, FRONTEND_NOTES §103) +3 realOnly, +1 fichero: 1 llamada real (beforeEach, cubre UX-SMA-2 tienda y panel) + import + mención en el docblock. Legítimo: finge los dos 401 con page.route y necesita el bundle sin mocks (con NEXT_PUBLIC_USE_MOCKS api.ts no llama a fetch y no hay 401 que interceptar); el tope real (30/7 días) lo miden los unitarios/integración de backend. Resto de claves sin cambio (medido vs a86ee970). Re-pase QA B-3 sobre 44943d30
 mockOnly 141 29
 needsSeed 35 10
 harnessLimit 5 3
 skipIfSeedMissing 15 7
-realOnly 19 6
+realOnly 22 7

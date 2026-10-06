@@ -3,6 +3,7 @@ import { StorefrontHeader } from '@/components/layout/StorefrontHeader';
 import { VerifyEmailBanner } from '@/components/domain/VerifyEmailBanner';
 import { PrivateRouteGuard } from '@/components/layout/PrivateRouteGuard';
 import { Link } from '@/i18n/navigation';
+import { PrivacyNoticeLink } from '@/components/legal/PrivacyNoticeLink';
 import { resolveLegalEntity } from './footer';
 
 /*
@@ -63,9 +64,14 @@ function Footer() {
         {`© ${new Date().getFullYear()}`}
         {legalEntity ? ` ${legalEntity}` : ''}
       </p>
-      <Link href="/terminos" className="text-text hover:text-accent">
-        {tn('terms')}
-      </Link>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        <Link href="/terminos" className="text-text hover:text-accent">
+          {tn('terms')}
+        </Link>
+        {/* LIVE-8 · sitio 1 (DESIGN_SYSTEM §80, variante `nav`): solo cuando /privacidad se sirve
+            (sin marcadores en producción); la decisión viene del layout de [locale]. */}
+        <PrivacyNoticeLink variant="nav" className="text-text hover:text-accent" />
+      </div>
     </div>
   );
 }

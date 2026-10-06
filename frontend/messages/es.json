@@ -513,7 +513,6 @@
       "recipientName": "Nombre de quien recibe",
       "errorSummary": "Revisa {count, plural, one {# campo} other {# campos}}.",
       "formIncomplete": "Revisa los datos marcados arriba (por ejemplo el teléfono) para poder pagar.",
-      "acceptTerms": "Acepto los términos y el aviso de privacidad, y entiendo que todas las ventas son finales.",
       "acceptTermsRequired": "Para pagar, acepta los términos.",
       "email": {
         "label": "Correo electrónico",
@@ -1191,6 +1190,7 @@
     "loading": "Procesando…",
     "mockNotice": "Autenticación pendiente de backend: el envío simula el flujo y guarda una sesión local.",
     "inactivityLogout": "Tu sesión se cerró por inactividad.",
+    "sessionMaxAgeLogout": "Tu sesión caducó por seguridad. Vuelve a entrar.",
     "dividerOr": "o",
     "google": {
       "cta": "Continuar con Google",
@@ -6536,5 +6536,22 @@
     "copied": "Copiado",
     "mailSubjectOrder": "Problema con mi pedido {reference}",
     "mailSubjectWithdrawal": "Problema con mi retiro {reference}"
+  },
+  "privacy": {
+    "link": "Aviso de privacidad",
+    "title": "Aviso de privacidad",
+    "updated": "Última actualización:",
+    "spanishOnly": "Legal notice available in Spanish only.",
+    "draftTitle": "Borrador — no publicado",
+    "draftBody": "Este texto es un borrador pendiente de revisión legal y de los datos del responsable. Los huecos resaltados los llena el dueño; mientras existan, esta página no se publica en la tienda.",
+    "opensInNewTab": "(se abre en otra pestaña)",
+    "sites": {
+      "register": "Al crear tu cuenta aceptas los <terms>Términos</terms> y el <privacy>Aviso de privacidad</privacy>.",
+      "googleSignIn": "Si entras con Google por primera vez, creamos tu cuenta y aceptas los <terms>Términos</terms> y el <privacy>Aviso de privacidad</privacy>.",
+      "guestCheckout": "Acepto los <terms>términos</terms> y el <privacy>aviso de privacidad</privacy>, y entiendo que todas las ventas son finales.",
+      "checkout": "Qué hacemos con tus datos: <privacy>Aviso de privacidad</privacy>.",
+      "sellForm": "Tu CLABE la usamos para pagarte por transferencia a tu nombre, y tu INE —si te la pedimos— para verificar tu identidad. Detalles en el <privacy>Aviso de privacidad</privacy>.",
+      "accountIne": "Para qué usamos tu INE y cuándo la borramos: <privacy>Aviso de privacidad</privacy>."
+    }
   }
 }

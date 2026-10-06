@@ -1,3 +1,268 @@
+# VEREDICTO BLUE TEAM — **RELEASE «listo-real» (antes del paso a COBRO REAL)** · SHA **`c62621e6`** (rama `claude/listo-real`) · 2026-10-05
+
+> ## VEREDICTO: ✅ **APROBADO CON CONDICIONES** sobre `c62621e6`
+>
+> - **Publicar `c62621e6` a producción (todavía en modo prueba): APROBADO.** 0 críticas, 0 altas y 0 medias
+>   abiertas en el delta. Nada bloquea la solicitud de fusión `main → production`.
+> - **Poner `sk_live_` todavía NO.** Siguen abiertas tres condiciones de seguridad del tipo «antes de
+>   `sk_live_`» (§5): **CL-1** (CSP en `enforce`, la parte (b) de S5-1 / SEC-HDR-2), **CL-2** (`P-GL-2`: gitleaks
+>   sigue sin vigilar `docs/*.md`, que es la vía por la que se filtraría una clave live) y **CL-3** (los puntos de
+>   seguridad de la lista «Antes» de la guía §85.7, cada uno con su evidencia citada). Ninguna es un defecto de este
+>   release: CL-1 empieza a contar justo cuando este release se publica, y CL-2 es una tarea pequeña de devops.
+>   Cuando las tres estén cerradas, el cambio a cobro real queda aprobado por seguridad **sin otro pase**.
+>
+> **Sobre qué medí.** Código juzgado: `c62621e6`. `git diff c62621e6 79dd65aa --stat` ⇒ **solo**
+> `docs/PENTEST_NOTES.md | 74 +` (medido). `origin/production` = `fe2b58d3` (#75) y es **ancestro** de `c62621e6`
+> (`git merge-base --is-ancestor`, medido). ⚠️ **El delta es más grande de lo que decía el encargo:**
+> `git diff --stat origin/production c62621e6 -- backend/src frontend/src` ⇒ **60 ficheros, +3930/−50**. Además del aviso
+> provisional (§14.17), `audience` (§14.18) y los enlaces de privacidad, entran **LIVE-2** (tope de vida de la sesión,
+> `auth.service.ts`, `session-max-age.ts`), **LIVE-3** (CSP con nonce en **report-only**, `frontend/src/security/csp.ts`,
+> `middleware.ts`), **LIVE-7** (`stripeMode` en `/health`, y **dos endpoints públicos nuevos**: `POST /telemetry/csp` y
+> `POST /telemetry/client-error`). El pentester no menciona la telemetría, así que la revisé yo (§3.3).
+>
+> **Lo que mido yo y lo que me reportan.** Todo lo que lleva fichero:línea o comando lo medí yo en
+> `/home/user/tcg-real` el 2026-10-05. Lo que viene de otros va marcado así: **[pentester]** (Fase 2 en vivo sobre
+> `c62621e6`), **[QA]** (E2E de release sobre `c62621e6`, APROBADO CON CONDICIONES, ninguna de seguridad) y
+> **[orquestador]** (CI `e2e-real.yml` run 37371153265 sobre `c62621e6`, verde, claves de prueba). No lo volví a medir.
+
+---
+
+## 1. Hallazgos del red team: consolidados uno a uno
+
+| Id | Pentester | **Blue team** | Evidencia propia | Dueño | ¿Bloquea? |
+|---|---|---|---|---|---|
+| `RL-DEP-1` | Baja | **CONFIRMO, y la bajo a Info** (no alcanzable) | `npm audit --omit=dev` (backend) ⇒ `{moderate: 2, high: 0, critical: 0}`. Las dos son **la misma**: GHSA-36xv-jgw5-4q75 (`@nestjs/core`, inyección en la salida de **SSE**), con `@nestjs/platform-express` por dependencia. `grep -rn "@Sse\|MessageEvent" backend/src` ⇒ **0**: sin endpoint SSE no hay sumidero. El arreglo es un **salto de versión mayor** (`fixAvailable` 12.1.2, `isSemVerMajor: true`; hoy `"@nestjs/core": "^10.4.4"`, `package.json:37`). Frontend: **0** vulnerabilidades. **C1 (`qs`) queda CERRADA:** `package.json:72-74` `overrides.qs ^6.16.0` y el audit ya no lista `qs`/`body-parser`/`express`/`multer` | devops (+ backend para el salto a Nest 11/12) | **No.** Deuda aceptada (§6) |
+| `RL-INFO-1` (D-SP-2) | Info | **CONFIRMO Info para seguridad, pero corrijo el mitigante.** El chequeo `amount_received === order.totalCents && currency === 'mxn'` (`payments.service.ts:243-268`, leído) protege contra que **alguien manipule** el importe. D-SP-2 es otra cosa: el **pedido mismo** se crea con el precio de la sesión, así que ese chequeo **cuadra** aunque el cliente haya visto otra cifra (`API_CONTRACT.md:36373-36376`: «por dentro el cobro cuadra»). No es explotable por un atacante. Con dinero real, el riesgo es de **consumidor y contracargo** («me cobraron otra cifra»), no de seguridad | — | backend + frontend (F-SP-5); arquitecto | **No** (para seguridad). Bandera al dueño (§7) |
+| `RL-INFO-2` | Info | **CONFIRMO.** `refund-ledger.service.ts:209` `if (actor.role !== 'vault_operator' \|\| planCents <= 0) return;`. Recomendación en §4 | Ver §4 | dueño (decisión), backend | **No** |
+| `RL-INFO-3` | Info, positivo | **CONFIRMO.** `buylist/mail-shell.ts:619,657`: sin `audience`, el pie de privacidad **se pone**. Solo **3** llamadas usan `'staff'`, todas en `spend-alerts/spend-alert.mail.ts:141,183,242` (correos al dueño) | `grep -rn "audience: 'staff'" backend/src` ⇒ 3 | — | — |
+| `RL-INFO-4` | Info, positivo | **CONFIRMO.** `env.validation.ts:47-59`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PII_*` y `JWT_*` son obligatorias fuera de local. La versión de API de la guía (`2024-06-20`) cuadra con `stripe.service.ts:136`. Los 9 eventos de `security/stripe-webhook-events.txt` son exactamente los 9 `case` de `payments.service.ts:159-184` | leído | — | — |
+| `RL-INFO-5` | Info | **CONFIRMO Info.** `orders.service.ts:1999-2000`: `404` si no existe y `403` si es ajeno. Revela si un id existe, pero los ids son UUID (no se pueden adivinar) y el cuerpo va vacío | leído | backend (si se homogeneiza) | **No** |
+
+**Controles que el pentester probó en vivo y que acepto** **[pentester]**: rechazo de webhook falso o reenviado
+(400), `@MoneyOut` que bloquea al operador y lo deja auditado, carrera de `refund-delivered` **12/12 → 409 y 0
+filas** (N=12), IDOR, fuerza bruta de login (5×401 y luego 429) y SSRF. Lo que **no midió** en vivo y él mismo lo
+dice: el doble reembolso en el camino feliz (falta el fixture), la doble compra de Skydropx (el dial está apagado)
+y el reenvío de un webhook **bien firmado** (sin `whsec_`). Esos tres quedan cubiertos por código:
+`PaymentRefund.orderItemId @unique` + `P2002`, el advisory lock + CAS y la idempotencia por `event.id`. Lo registro
+como residuo de `C12` (§6).
+
+---
+
+## 2. La guía de paso a modo real (`DEVOPS_NOTES §85.7`), revisada para seguridad
+
+**Lo que está bien (leído en `DEVOPS_NOTES.md`, §85.7):**
+- Las claves no pasan por nadie: se copian de Stripe y se pegan **directamente** en Railway o Vercel. Ninguna clave
+  live va a GitHub. El paso 8 solo pone una **variable** que no es secreta (`EXPECTED_STRIPE_MODE`). Lo medí:
+  `grep secrets.STRIPE .github/workflows/` ⇒ los workflows solo leen `STRIPE_TEST_*`.
+- `whsec_` y `sk_live_` se piden por separado y en el orden correcto. La guía dice explícitamente que el `whsec_` de
+  live sale del endpoint **live** (paso 2). El de prueba se desactiva en el paso 6, y la reversa reactiva el `whsec_`
+  de prueba.
+- La salud dice el modo **solo por el prefijo de la clave**, sin enseñar ni un carácter de ella
+  (`health.service.ts:26-28`). Además, `stripe-test-key-preflight.sh:185` impide que una `sk_live_` entre en CI.
+- La Fase B (§14.9 B2 y B5) obliga a ver la orden `settled` **y** las entregas live del webhook en `2xx`. Eso
+  detecta el error que más dinero real cuesta: un `whsec_` equivocado. Con él, Stripe cobra y el pedido no se
+  liquida nunca, la reserva caduca y la carta se puede vender dos veces.
+- El reembolso de la Fase B se hace **desde Ventas**, nunca desde el panel de Stripe.
+- Comprobé el repositorio: `git grep` sobre `c62621e6` de `sk_live_…`, `rk_live_…`, `whsec_…` y `pk_live_…` con
+  forma real ⇒ solo **ficción de canarios y specs** (`sk_live_deadbeef`, `sk_live_51ClaveRealDelDueno`,
+  `whsec_9f2b7c1d…`). En el historial (`git log --all -G`) solo aparecen esos mismos canarios.
+
+**Lo que le falta a la guía (dueño: devops; no bloquea por sí solo, se resuelve junto con CL-2/CL-3):**
+1. La lista «Antes» repite el mapa de `API_CONTRACT §14.0`, y a ese mapa **se le cayó `P-GL-2`**. Esta misma
+   bitácora la marcó «**Disparador duro: antes de cualquier `sk_live_`**» (§2.3 y tabla §4 del veredicto «release Stream B
+   "Lo que se rompe con el dinero"» del 2026-09-11, en este mismo fichero). Hay que añadirla a la lista (**CL-2**).
+2. La lista dice «SEC-HDR-2 cerrada», pero no dice en qué consiste cerrarla. Debe decir: **«CSP en `enforce` en
+   producción»** (§14.3 fase 2), no «CSP publicada». Hoy `csp.ts:32` es `'report-only'` (**CL-1**).
+3. Opcional, defensa en profundidad: usar una **clave restringida `rk_live_`** con solo los permisos que usa el
+   backend (Checkout Sessions, PaymentIntents, Refunds), en lugar de la `sk_live_` completa. El código ya la acepta
+   (`health.service.ts:28`, `secrets-preflight.sh:177`). Si se filtran las variables de Railway, esa clave puede
+   hacer mucho menos. Antes hay que medir qué llamadas hace el backend; si no, falla en producción.
+
+---
+
+## 3. Lo que revisé yo (el red team no lo cubrió o lo cubrió solo de pasada)
+
+### 3.1 Los candados de secretos (`check-secret-defaults.sh`, gitleaks y el manifiesto)
+- **gitleaks, medido** con el **mismo binario** que fija CI (`GITLEAKS_VERSION: "8.30.1"`, `security-sast.yml`),
+  descargado en mi scratchpad. Copié `c62621e6` entero (`git archive`). Planté **la misma** `sk_live_` (30
+  alfanuméricos aleatorios) y un `whsec_` (32) en 5 sitios y corrí `gitleaks dir . --config security/gitleaks.toml`.
+  **Solo 2 de 5 sitios dieron hallazgo:** `backend/src/plant.ts` y `NOTA_RAIZ.md` (raíz, que es donde viven
+  `PENDIENTES.md` y `HECHOS.md`). **No dieron hallazgo** `docs/NOTA_PLANT.md`, `security/plant.toml` ni
+  `docker-compose.plant.yml`. Causa: `[allowlist].paths` global de `gitleaks.toml` (`(^|/)docs/.*\.md$`,
+  `security/.*\.(md|toml|yml|yaml)$`, `docker-compose.*\.yml$`). La compensación tampoco cubre ese hueco:
+  `check-secret-defaults.sh:145` salta todos los `*.md`. **`P-GL-2` sigue exactamente como la medí el 2026-09-11.**
+  El repositorio es **público** (`gh api repos/jcsainz95-cloud/tcg-vault-mx` ⇒ `"visibility":"public"`, medido).
+  `docs/` es justo donde los agentes escriben guías y traspasos. ⇒ **CL-2.**
+- **Ruido aparte:** el mismo escaneo dio 3 hallazgos más, y los tres son ficción de pruebas
+  (`auth.refresh-typ.spec.ts:27`, `auth.c7-policy.spec.ts:466`, `inventory.sealed-product-alta.spec.ts:521`). CI escanea
+  solo el **rango** del push, así que no da rojo. El escaneo `dir` completo, en cambio, ya no sale limpio. Es Info
+  para devops (allowlist por valor exacto, como las demás).
+- **Compensación que puede existir y que no medí:** GitHub tiene escaneo de secretos con *push protection* para
+  repos públicos, y Stripe participa en ese programa. Leer si está activo exige permisos de admin: `gh api` devuelve
+  `security_and_analysis: null`. **NO MEDIDO.** Lo puede ver el dueño (§7).
+- Lo que cambia en los candados de secretos, medido con `git diff origin/production c62621e6 -- scripts security`:
+  `check-secret-defaults.sh` **no cambia**. `gitleaks.toml` gana **solo** dos exenciones **por valor exacto y
+  anclado** (`^ref-secret-ses-0123…$` y `^acc-secret-ses-0123…$`, ficción de `auth.session-max-age.spec.ts`). Esa
+  es la forma correcta: no amplía ninguna ruta. `secretos-publicados.sha256` gana **4 huellas**, y eso solo
+  añade: hay más valores publicados que el preflight rechazará en runtime. Ninguno de estos cambios debilita un
+  candado.
+
+### 3.2 La cadena de despliegue tiene acceso a las claves live (latente)
+`deploy.yml` (job `promote-production-*`) instala `@railway/cli@latest` y `vercel@latest` **sin fijar versión**, en
+el mismo job que recibe `RAILWAY_TOKEN` y `VERCEL_TOKEN` (`deploy.yml:~521-572`). Desde el cobro real, con
+`RAILWAY_TOKEN` se pueden leer las variables de Railway, **incluida `sk_live_`**. Hoy es **latente**: según
+`PENDIENTES.md:247`, esos secretos de CD **no están cargados** y Railway y Vercel despliegan solos al recibir el push
+(`HECHOS.md`). Además va contra la regla del proyecto «toda dependencia externa va fijada». ⇒ **`RL-SEC-2`, Baja,
+devops.** Disparador: **antes de cargar `RAILWAY_TOKEN` o `VERCEL_TOKEN`** en GitHub. No hay `pull_request_target`
+en ningún workflow (`grep`, medido).
+
+### 3.3 Código nuevo del delta (telemetría, tope de sesión, CSP)
+- **`POST /telemetry/csp` y `POST /telemetry/client-error`** (`telemetry.controller.ts`, `body-parsers.ts`). Son
+  públicos, con `@Throttle` 60/min y 30/min. Lo único que hacen es escribir log (no tocan la BD). El parser de
+  `/telemetry/csp` es texto acotado a 16 KB y devuelve `413` sin cuerpo. `client-error` escribe campo a campo (sin
+  `...dto`), pasa `message` por `scrubClientText` y `JSON.stringify` evita inyectar líneas en el log. El webhook
+  de Stripe sigue recibiendo su `rawBody` (`body-parsers.ts`, mismo orden que antes). Residuo: el tope cuenta por
+  IP, así que con suplantación de XFF se pueden inundar los logs. Esto depende de **C6** (ya está en la guía) y es Info.
+- **Tope de sesión (LIVE-2, S5-1 parte a)** (`auth.service.ts` diff, `session-max-age.ts`). Es correcto.
+  `ignoreExpiration: true` **solo** en el refresh, y después viene la comprobación manual: primero `now - sat >=
+  tope(rol)` y luego `typeof exp !== 'number' || now >= exp` ⇒ 401. Un token caducado nunca recibe un par nuevo. `sat`
+  va firmado; si `sat` no es numérico ⇒ 401. El rol se lee **de la BD**, así que un cliente ascendido cae al tope
+  de 7 días. El personal tiene **7 días** (`SESSION_MAX_AGE_STAFF_SECONDS`), como decidió el dueño en P-6
+  (`HECHOS.md` fila «Listo para dinero real…»).
+- **CSP (LIVE-3)** (`csp.ts:93-150`, `middleware.ts`). La política está bien hecha: `script-src 'self' 'nonce-…'
+  'strict-dynamic' https:`, sin `unsafe-eval` en producción, `object-src 'none'`, `base-uri 'self'`,
+  `form-action 'self'`, `frame-ancestors 'none'`. La cabecera estática `frame-ancestors 'none'` de
+  `next.config.mjs` **sigue aplicada** mientras dure la fase report-only, porque usa otro nombre de cabecera. **Pero
+  `CSP_MODE = 'report-only'` (`csp.ts:32`):** hoy la CSP **no bloquea** ningún script. ⇒ **CL-1.**
+- `/pedido`: el token se lee una vez y se borra de la URL (`TrackingPageClient.tsx:36-39`), y la página lleva
+  `referrer: 'no-referrer'` (`pedido/page.tsx:15`). Los enlaces nuevos al aviso son internos y fijos
+  (`PRIVACY_HREF = '/privacidad'`); el que va dentro de una frase lleva `rel="noopener noreferrer"`. No encontré fuga.
+
+---
+
+## 4. `RL-INFO-2`: ¿basta con aceptarlo, o hace falta un tope o 2FA antes de cobrar en real?
+
+**Mi recomendación: aceptarlo y registrarlo. NO poner un tope monetario al súper-admin. NO exigir 2FA antes del
+primer peso. Lo que sí debe estar antes es CL-1 (CSP en enforce), más la higiene de cuentas del dueño (§7).
+2FA y re-autenticación para mover dinero quedan como P1 después de salir.** La decisión es del dueño. Este es mi
+razonamiento, con lo que medí:
+
+1. **Con una sesión robada de súper-admin no se puede mandar dinero a la cuenta del atacante desde la app.**
+   `grep -rniE "transfers\.create|payouts\.create" backend/src` ⇒ **0**. La única salida de dinero que ejecuta el
+   backend es `stripe.refunds.create({ payment_intent, amount })` (`stripe.service.ts:285-292`). Ese dinero
+   vuelve **a la tarjeta que pagó**, y Stripe no permite devolver más de lo cobrado. La cubeta SPEI **solo
+   registra**: el dueño hace la transferencia en su banco («Solo marcar si se realizó y quién», `HECHOS.md` D-11).
+   Así que el daño de un reembolso malicioso es pérdida para la tienda, no ganancia directa para el atacante,
+   salvo que el atacante sea **comprador** y se reembolse sus propias compras. En ese caso el daño tiene como
+   límite lo que él mismo pagó.
+2. **Un tope monetario solo cubre esa parte, y no lo más grave.** Con la misma sesión se puede: fijar el precio
+   de un sellado (`sealed-price.service.ts`, `@Roles(super_admin)`) y comprarlo barato; **revelar CLABEs**
+   (`reveal-clabe`) y ver INEs; y cambiar diales. Un tope sobre reembolsos no toca nada de eso.
+3. **Cómo se roba esa sesión hoy, y qué lo para:**
+   - Robo de la **contraseña** (phishing, reutilización): 2FA lo para. Ojo: hay **dos caminos más que valen lo
+     mismo que la contraseña**: el **restablecimiento por correo** y el **inicio con Google** que se vincula por
+     correo verificado a una cuenta existente (`auth.service.ts`, paso 2 «Account-linking por email verificado»).
+     El buzón y la cuenta de Google del dueño **ya funcionan hoy como su segundo factor**. Por eso pido 2FA ahí
+     **ya**, en §7, y no espero a construirlo en la app.
+   - **XSS → robo del token**: los tokens viven en `localStorage` (`frontend/src/lib/api-client.ts:36-52`). Aquí 2FA
+     **no ayuda**, porque el token se roba después del login. Lo que ayuda es la **CSP en enforce** (CL-1) y el
+     tope de 7 días (hecho). Por eso CL-1 sí es condición y 2FA no.
+4. **Lo que recomiendo construir después de salir (P1; dueños: arquitecto → backend + frontend):**
+   (a) TOTP o WebAuthn **obligatorio para `super_admin`**; (b) **re-autenticación** (volver a meter la contraseña o
+   el segundo factor, válida pocos minutos) para `@MoneyOut`, para fijar el precio del sellado y para `reveal-clabe`.
+   (b) también cubre el token robado por XSS, que 2FA solo no cubre. (c) Si el dueño quiere algo antes y barato:
+   un **aviso por correo al dueño en cada reembolso hecho por un súper-admin**. Encaja con lo que ya pidió («Ponme
+   los avisos…», `HECHOS.md` fila 2026-10-04 «Control del dinero que nos cuesta») y le dice si alguien está
+   usando su sesión. **Disparador para que pase a ser condición:** que se dé de alta un **segundo** `super_admin`,
+   o lo que llegue antes entre 30 días de operación con dinero real y el primer incidente de cuenta.
+
+---
+
+## 5. Condiciones ANTES de `sk_live_` (escritas como comprobaciones)
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **CL-1** | **frontend + devops** | **SEC-HDR-2 / S5-1 (b): CSP en `enforce` en producción**, según §14.3 (≥ 72 h en report-only en producción con la Fase A pasada, umbral de TTFB de §14.14 E-8, y `10038`/`10055` en FAIL en el mismo cambio). Si el dueño quiere cobrar en real **antes** de `enforce`, tiene que **aceptarlo él** y quedar escrito en `HECHOS.md`, como hizo con P-1. El equipo no puede aceptarlo por él | `git show <sha-en-production>:frontend/src/security/csp.ts \| grep "CSP_MODE: CspMode = 'enforce'"`; `curl -sI https://tcghunt.mx/es \| grep -i '^content-security-policy:'` con `nonce-` (no la `-Report-Only`); `scripts/check-csp-zap-parity.sh` rc 0 |
+| **CL-2** | **devops** | **`P-GL-2`**: que las reglas `stripe-live-secret-key`, `stripe-live-restricted-key` y `stripe-webhook-secret` (y las de serie de gitleaks para Stripe) **no queden exentas por ruta** en `docs/*.md`, `security/*` ni `docker-compose*.yml`. Forma: sacar esas rutas de `[allowlist].paths` global y eximir **por valor exacto**, o añadir un paso que escanee esas rutas solo con las reglas de Stripe live, sin exenciones. Añadir el caso al canario `sast-gitleaks-canary.sh` | Repetir mi plantación (§3.1) en los 5 sitios ⇒ **5/5** con hallazgo (hoy **2/5**). Mutación: volver a poner `(^|/)docs/.*\.md$` en la allowlist global ⇒ el canario sale rojo |
+| **CL-3** | **devops + dueño** (ejecuta tester-e2e en la ventana autorizada) | Los puntos de seguridad de la lista «Antes» de §85.7, **cada uno con su evidencia citada en la solicitud de fusión**, no con una casilla marcada: **C6** (resultado N/N en el hueco de §85.4, hoy vacío); **DAST `full` sellado** sobre el sha en producción (`check-candidate-checks.sh --exige-dast-full <sha>` rc 0 y su URL); **C3 = 0** (§14.8); **simulacro de restauración** (§85.5, hoy «no hecho») con las claves `PII_*` guardadas fuera de Railway | Los cuatro resultados escritos en `DEVOPS_NOTES §85` con fecha y sha. Si cualquiera falta ⇒ no se pone `sk_live_` |
+
+**No son condición, pero entran en el mismo encargo a devops:** corregir la guía (§2, puntos 1 y 2) y `RL-SEC-2`
+antes de cargar los tokens de CD.
+
+---
+
+## 6. Revisión de lo aceptado antes: ¿hay algo que el cobro real convierta en dinero real en riesgo?
+
+| Id (origen) | Sev. | Estado medido hoy | Con dinero real… | Decisión |
+|---|---|---|---|---|
+| `P-RL-1` → `C6` / `C7` | Media en prod (prov.) | **C7 cerrada**: tope por cuenta `PASSWORD_FREE_ATTEMPTS = 5` (`password-attempts.constants.ts:11`) + `@Throttle 5/min` (`auth.controller.ts:28,40,50`); el pentester midió 5×401 y luego 429 **[pentester]**. **C6 abierta**: la sonda está corregida (§85.4) y no se ha corrido | Sin C6 no se sabe si el tope por IP se puede saltar en el borde de Railway. El tope por cuenta **sí** protege a la cuenta del dueño | **CL-3** |
+| `S5-1` (a)+(b) | Baja | (a) **cerrada** en este delta (§3.3). (b) = SEC-HDR-2 **abierta** | Sin (b), un XSS da una sesión de súper-admin de hasta 7 días | **CL-1** |
+| `P-GL-2` | Baja | **Abierta, re-medida** (§3.1) | Empieza a haber un valor que vale la pena filtrar | **CL-2** |
+| `C12` (pase vivo antes del primer peso) | — | Cubierta en lo esencial: el pase vivo s5 (SPEI/CLABE con CAS 10/10, tope del operador) y esta Fase 2 (carrera 12/12, webhook, IDOR) **[pentester]**, más `e2e-real` verde con claves de prueba **[orquestador]** | Residuo **NO MEDIDO** en vivo: reenvío de un webhook firmado y doble reembolso en el camino feliz. Defensas por código: `@unique` + `P2002`, idempotencia por `event.id` | **Aceptada**. Disparador: el primer `payment_refund` duplicado o un evento procesado dos veces en `AuditLog` |
+| `C13` (pentest de un tercero + programa de divulgación) | — | **Aceptado por el dueño**, no por el equipo: `HECHOS.md` fila 2026-10-05 P-1 «Empiezo sin ella» | — | Sigo recomendándolo (§7). No bloquea porque es decisión del dueño |
+| `C1` (`qs`) | Baja | **Cerrada** (§1, `RL-DEP-1`) | — | Cerrada |
+| `BL-42` caminos 1 y 3 (INE sin ancla de purga) | **Media** | Sigue aceptada, con disparador «primera solicitud ARCO o regla 7» | **No es dinero**: es retención de PII. El cobro real no la empeora, pero el aviso de privacidad **provisional** (sin razón social, `HECHOS.md` fila 2026-10-05 sesión 6) hace que una solicitud ARCO sea más difícil de atender bien | Aceptada sin cambios. Bandera legal en §7 |
+| `SB-B2`, `SB-B5`, `P-SEED-1`, `P-NAME-1`, `P-REDIR-1`, `P-BILL-DoS`, `S-NAT-1` | Baja/Info | Sin cambios en este delta | Ninguno mueve dinero ni abre un camino nuevo con `sk_live_` | Aceptadas sin cambios |
+| `SDX-D-14`, `SDX-D-21` (Altas de diseño, 2026-10-04) | Alta → cerradas | Cerradas en diseño (C-8, C-14; cabecera de la revisión de `0363f7e2`). El pentester revisó Skydropx en este pase y encontró que resiste | El gasto de Skydropx es dinero de la tienda, no de Stripe. El cobro real no lo cambia | — |
+
+**Ninguna crítica ni alta queda abierta.** De lo aceptado, lo que el cobro real convierte en riesgo de dinero real
+está en CL-1, CL-2 y CL-3.
+
+---
+
+## 7. Banderas para el humano (el dueño)
+
+1. **No pongas `sk_live_` hasta que CL-1, CL-2 y CL-3 estén cerradas.** La que más tarda es CL-1: la CSP tiene
+   que pasar ≥ 72 h en producción en modo informe **después** de publicar este release. Si decides cobrar antes,
+   es tu decisión, como la del pentest externo. Pide que quede escrita en `HECHOS.md`.
+2. **Activa hoy 2FA en estas cuentas, porque hoy son tu segundo factor de verdad:** el **correo** con el que entras
+   como súper-admin (con él se restablece tu contraseña) y la **cuenta de Google** con ese correo (con ella se entra
+   directamente como tú), **Stripe**, **Railway**, **Vercel** y **GitHub**. Usa una contraseña de súper-admin única, que
+   **no** sea ninguna de las del repo (`StagingAdmin123!`, `Operador123!` y las de los specs son públicas). **NO MEDIDO**
+   por el equipo: solo lo puedes ver tú.
+3. **GitHub → Settings → Code security:** revisa que estén activos el *Secret scanning* y la *Push protection*. Es
+   la red que queda si una clave live acaba en un documento. **NO MEDIDO** (el proxy no nos deja leerlo).
+4. **Pentest externo (C13):** lo aceptaste para empezar. Te recomiendo contratarlo **en los primeros 30 días** con
+   dinero real. Custodia de cartas de terceros, reembolsos y datos de identidad es el tipo de negocio que justifica
+   que lo mire alguien de fuera.
+5. **D-SP-2:** mientras siga abierta, un cliente puede pagar una cifra distinta de la que vio si cambias un precio
+   mientras está comprando. Con dinero real eso puede acabar en reclamaciones o contracargos. No es un ataque,
+   pero conviene que no cambies precios en horas de venta hasta que se cierre.
+6. **Legal (no es del equipo):** el aviso de privacidad sale **provisional** (sin razón social, RFC ni domicilio)
+   por tu decisión del 2026-10-05, y el texto no lo ha validado un abogado (P-LEG-4). Hay INEs guardadas sin plazo
+   de purga en algunos casos (`BL-42`). Las dos cosas pesan más con clientes que pagan de verdad.
+
+---
+
+## 8. Deuda de seguridad aceptada en este pase (no bloquea)
+
+| Id | Sev. | Dueño | Impacto aceptado | Disparador |
+|---|---|---|---|---|
+| `RL-DEP-1` | Info | devops (+ backend) | GHSA-36xv (SSE de `@nestjs/core`); no se alcanza porque no hay `@Sse` | El primer `@Sse` del backend, que el audit pase a alta o crítica, o el salto planificado a Nest 11+ |
+| `RL-INFO-2` | Info | dueño (decisión), backend | Sin tope monetario para `super_admin`. El daño tiene límite: reembolsos a la tarjeta de origen, sin transferencias salientes | Ver §4: segundo `super_admin`, 30 días con dinero real o primer incidente ⇒ 2FA + re-autenticación |
+| `RL-INFO-5` | Info | backend | 403 frente a 404 revela si un UUID existe | Cuando se toque `getOrder` |
+| `RL-SEC-2` | Baja | devops | `@railway/cli@latest` y `vercel@latest` sin fijar en el job que recibe los tokens de despliegue (latente: los secretos no están cargados) | **Antes** de cargar `RAILWAY_TOKEN`/`VERCEL_TOKEN` en GitHub |
+| Telemetría por IP | Info | devops (C6) | Con XFF suplantable se pueden inundar los logs (sin BD, sin dinero) | Si C6 sale mal |
+| `gitleaks dir` con ruido | Info | devops | 3 falsos positivos de ficción en specs (§3.1). CI no los ve porque escanea el rango | Al cerrar CL-2 (misma edición) |
+
+---
+
+## 9. Ruteo
+
+- **frontend + devops:** CL-1 (cuando se cumplan las 72 h y el TTFB).
+- **devops:** CL-2, la corrección de la guía §85.7 (§2, puntos 1 y 2), `RL-SEC-2` y el ruido de gitleaks; CL-3
+  como instrumento, y la ejecuta tester-e2e en la ventana que autorice el dueño.
+- **dueño:** decidir sobre §4, las banderas de §7 y ejecutar los pasos de §85.7.
+- **arquitecto → backend + frontend (después de salir, P1):** 2FA y re-autenticación para súper-admin (§4.4).
+
+Limpieza: la copia de `c62621e6` usada para gitleaks está borrada del scratchpad. No toqué la BD ni levanté ningún
+servidor.
+
+— SEGURIDAD (blue team), 2026-10-05 · código `c62621e6` · **APROBADO CON CONDICIONES** (publicar: sí; `sk_live_`:
+después de CL-1, CL-2 y CL-3)
+
+---
+
 # VEREDICTO BLUE TEAM — **REVISIÓN DE DISEÑO de la errata v1.80.12.9 (control del gasto §Z y cierres C-14…C-18)** (`API_CONTRACT §M4-SHIP.19.29`; `ARCHITECTURE §4.60 (v)`) · SHA **`0363f7e2`** (rama `claude/skydropx-d`, medido con `git log -1` y `git fetch`: local = remoto) · 2026-10-04
 
 > ## VEREDICTO DE DISEÑO

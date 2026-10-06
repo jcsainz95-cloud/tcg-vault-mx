@@ -34,19 +34,22 @@ backend="$(grep -rhoE --include='*.ts' --exclude='*.spec.ts' --exclude='*.e2e-sp
 seccion="$(awk '/^### 11\.G/{f=1;next} /^### 11\.H/{f=0} f' "$NOTES")"
 
 rc=0
+# Sin `printf … | grep -q` bajo pipefail: grep -q sale al primer acierto, printf (búfer por línea)
+# muere por SIGPIPE (141) y pipefail lo convierte en «no encontrado» ⇒ falso rojo bajo carga
+# (medido 2/2000 con load≈6–8; QA: canario 1/4 rojo con load≈10–13). Here-strings. DEVOPS_NOTES §86.
 [ -n "$backend" ] || { echo "::error::no encontre ningun evento en backend/src: el extractor no lee nada (un candado que no lee no protege)."; exit 1; }
 while IFS= read -r ev; do
   [ -n "$ev" ] || continue
-  if ! printf '%s\n' "$manifest" | grep -qxF "$ev"; then
+  if ! grep -qxF "$ev" <<<"$manifest"; then
     echo "::error::el backend maneja '$ev' pero security/stripe-webhook-events.txt no lo lista: nadie suscribio el endpoint a ese evento."; rc=1
   fi
 done <<<"$backend"
 while IFS= read -r ev; do
   [ -n "$ev" ] || continue
-  if ! printf '%s' "$seccion" | grep -qF "\`$ev\`"; then
+  if ! grep -qF "\`$ev\`" <<<"$seccion"; then
     echo "::error::'$ev' esta en el manifiesto pero no en la lista de DEVOPS_NOTES §11.G (el paso del dueno en el dashboard)."; rc=1
   fi
-  printf '%s\n' "$backend" | grep -qxF "$ev" || echo "::notice::'$ev' esta suscrito en el manifiesto pero el backend aun no lo maneja (esperado si backend no ha aterrizado)."
+  grep -qxF "$ev" <<<"$backend" || echo "::notice::'$ev' esta suscrito en el manifiesto pero el backend aun no lo maneja (esperado si backend no ha aterrizado)."
 done <<<"$manifest"
 [ "$rc" -eq 0 ] && echo "OK: $(printf '%s\n' "$backend" | grep -c .) evento(s) del backend cubiertos por el manifiesto y por §11.G."
 exit "$rc"

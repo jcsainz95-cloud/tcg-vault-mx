@@ -1,3 +1,6 @@
+import { privacyNoticeEs, type LegalDocument } from '@/content/legal/privacidad.es';
+import { legalEnvFromProcess, privacyVisibility, type LegalEnv } from '@/content/legal/legal-gate';
+
 /**
  * Resuelve la razón social del footer de forma data-driven (P-21).
  *
@@ -15,4 +18,17 @@ export function resolveLegalEntity(raw: string | undefined | null): string | nul
   if (value === '') return null;
   if (value.startsWith('[') && value.endsWith(']')) return null;
   return value;
+}
+
+/**
+ * LIVE-8 · ¿el pie enlaza «Aviso de privacidad»? Solo si la página se sirve (publicada, o borrador
+ * en la vista previa). En producción, mientras el texto tenga marcadores o el modo provisional sea
+ * incoherente (§14.17), NO: un enlace a un 404 sería peor que ninguno. `doc` solo lo cambian las
+ * pruebas (fixtures con marcadores); la app usa siempre el aviso real.
+ */
+export function privacyLinkVisible(
+  env: LegalEnv = legalEnvFromProcess(),
+  doc: LegalDocument = privacyNoticeEs,
+): boolean {
+  return privacyVisibility(doc, env) !== 'hidden';
 }

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HealthController } from './health.controller';
 import { HealthService } from './health.service';
 import { healthRedisProvider } from './health-redis.provider';
+import { TelemetryController } from './telemetry.controller';
 
 /**
  * Módulo de salud. PrismaService viene del PrismaModule @Global y ConfigService
@@ -12,7 +13,8 @@ import { healthRedisProvider } from './health-redis.provider';
  * sin `REDIS_URL` el provider resuelve a `null` y el health reporta `skipped`.
  */
 @Module({
-  controllers: [HealthController],
+  // v1.84 (LIVE-7): `POST /telemetry/csp` y `/telemetry/client-error` viven aquí (API_CONTRACT §14.12: `modules/health/*`).
+  controllers: [HealthController, TelemetryController],
   providers: [HealthService, healthRedisProvider],
 })
 export class HealthModule {}

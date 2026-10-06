@@ -11,8 +11,10 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 import { buildPasswordChangeRedirect, homeForRole, passwordRouteForRole, safeNext as safeNextOf } from '@/lib/account-routes';
 import { TOO_MANY_PASSWORD_ATTEMPTS, retryAfterMinutes } from '@/lib/password-attempts';
+import { consumeSessionMaxAgeLogout } from '@/lib/session';
 import type { UserDTO } from '@/types/contract';
 
 export function AuthForm({
@@ -21,8 +23,11 @@ export function AuthForm({
   next,
 }: {
   mode: 'login' | 'register';
-  /** Aviso a mostrar (p. ej. cierre por inactividad). */
-  notice?: 'inactivity';
+  /**
+   * Aviso a mostrar: cierre por inactividad, o tope absoluto de la sesión (LIVE-2, DESIGN_SYSTEM §81).
+   * Solo en `mode === 'login'`.
+   */
+  notice?: 'inactivity' | 'sessionMaxAge';
   /** Destino a preservar tras el login (viene de `?next=` del gate de admin). */
   next?: string;
 }) {
@@ -58,6 +63,30 @@ export function AuthForm({
   const safeNext = safeNextOf(next);
 
   /**
+   * LIVE-2 (DESIGN_SYSTEM §81.2, FRONTEND_NOTES §103). `sessionMaxAgeFromMark`: el interceptor de
+   * refresh dejó la marca de un solo uso (`401` con `reason:'session_max_age'`) y el guard de hoy nos
+   * trajo con `?next=` a secas ⇒ se pinta el aviso y el URL se reescribe a
+   * `?next=…&reason=session_max_age` (el estado vive en el URL, como inactividad: recargar lo repinta).
+   * Así los guards (`components/layout/*`) no cambian. Solo en login; el registro no consume la marca.
+   */
+  const [sessionMaxAgeFromMark, setSessionMaxAgeFromMark] = useState(false);
+  useEffect(() => {
+    if (mode !== 'login') return;
+    if (!consumeSessionMaxAgeLogout() || notice) return;
+    setSessionMaxAgeFromMark(true);
+    router.replace({ pathname: '/login', query: { ...(next ? { next } : {}), reason: 'session_max_age' } });
+    // Una sola vez al montar: la marca es de un solo uso.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /**
+   * §81.2.4: el aviso (y, por §81.2.7, también el de inactividad) desaparece al PRIMER intento —enviar
+   * el formulario o pulsar «Continuar con Google»— y no vuelve en esta visita aunque el intento falle.
+   */
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
+  const activeNotice =
+    mode !== 'login' || noticeDismissed ? undefined : (notice ?? (sessionMaxAgeFromMark ? 'sessionMaxAge' : undefined));
+
+  /**
    * Destino tras la sesión creada (login, registro o Google):
    * - v1.67 (contrato «Contraseña temporal OBLIGATORIA», DESIGN_SYSTEM §33.8 paso 1): con
    *   `user.mustChangePassword` se navega DIRECTO a la página de contraseña del rol
@@ -81,6 +110,7 @@ export function AuthForm({
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setNoticeDismissed(true);
     setErrorCode(null);
     setRateLimited(null);
     setLoading(true);
@@ -144,9 +174,16 @@ export function AuthForm({
           el formulario pega al backend real, así que no debe mostrarse. */}
       <div className="empty:hidden [&>*]:mt-7">
         {config.useMocks && <Banner variant="info">{t('mockNotice')}</Banner>}
-        {notice === 'inactivity' && (
+        {activeNotice === 'inactivity' && (
           <Banner variant="warning" role="status">
             {t('inactivityLogout')}
+          </Banner>
+        )}
+        {/* LIVE-2 · DESIGN_SYSTEM §81.1: el mismo aviso que inactividad con otro texto. ⛔ Nunca
+            `danger` ni `role="alert"`: el usuario no hizo nada mal. */}
+        {activeNotice === 'sessionMaxAge' && (
+          <Banner variant="warning" role="status">
+            {t('sessionMaxAgeLogout')}
           </Banner>
         )}
         {rateLimited && (
@@ -224,6 +261,12 @@ export function AuthForm({
         {loading ? t('loading') : mode === 'login' ? t('loginCta') : t('registerCta')}
       </Button>
 
+      {/* LIVE-8 · sitio 2a (DESIGN_SYSTEM §80.2, criterio 504): bajo «Crear cuenta» y ANTES del
+          divisor, para que se lea antes de «Continuar con Google». */}
+      {mode === 'register' && (
+        <PrivacySiteNote site="register" className="mt-4 text-center text-[13px] leading-[1.6] text-muted" />
+      )}
+
       {mode === 'login' && (
         <Link href="/forgot-password" className="mt-5 text-center text-sm text-accent hover:text-text">
           {t('forgotPassword')}
@@ -236,9 +279,15 @@ export function AuthForm({
         <span className="font-mono text-[11px] text-muted">{t('dividerOr')}</span>
         <span className="h-px flex-1 bg-border-strong" />
       </div>
-      <div className="mt-6">
+      {/* §81.2.4: pulsar Google cuenta como intento (captura: el botón vive dentro del componente). */}
+      <div className="mt-6" onClickCapture={() => setNoticeDismissed(true)}>
         <GoogleSignInButton onSuccess={(_role, user) => redirectAfterAuth(user)} />
       </div>
+      {/* LIVE-8 · sitio 2b (§80.2 nota 2b): «Continuar con Google» desde «Entrar» también CREA cuenta
+          si el correo no existe (`auth.service.ts:527`). */}
+      {mode === 'login' && (
+        <PrivacySiteNote site="googleSignIn" className="mt-4 text-center text-[13px] leading-[1.6] text-muted" />
+      )}
 
       <Link
         href={mode === 'login' ? '/register' : '/login'}

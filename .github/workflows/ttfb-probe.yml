@@ -1,0 +1,161 @@
+# =============================================================================
+# ttfb-probe.yml — TTFB de https://tcghunt.mx/es, antes/después del nonce (E-8)
+# Marketplace TCG con Bóveda (Pokémon, México)  ·  Propiedad: devops
+# =============================================================================
+# Norma: API_CONTRACT §14.14 E-8 y §14.3 (umbral); ARCHITECTURE §4.63.11.
+# Notas: DEVOPS_NOTES §85.10.
+#
+# DOS trabajos:
+#   1) `autoprueba` — SIEMPRE corre el canario (scripts/check-ttfb-probe-canary.sh)
+#      contra un servidor de mentira: sin red externa. Si falla, no se mide.
+#   2) `medicion` — push a `main`, cron diario y a mano: 1 GET de calentamiento +
+#      N=10 GET secuenciales a TTFB_URL (11 GET por corrida, ruta pública, sin
+#      secreto, nada que escriba). p50/p90, etiqueta antes/después, número de
+#      cabeceras CSP. El resultado va como UN COMENTARIO en el issue único con
+#      etiqueta `ttfb` (se crea si no existe). Para la «subida» del umbral se
+#      toma el P90 del último comentario `ETIQUETA=antes` de ESE issue escrito
+#      por `github-actions[bot]` (un comentario de cualquier otra cuenta no
+#      cuenta: el repo es público y cualquiera puede comentar).
+#
+# Run rojo = la sonda dio ALARMA (umbral §14.3 o invariante E-6) o la muestra
+# no fue válida; en los dos casos el comentario se publica igual con la causa.
+#
+# ⚠️ LÍMITES DE GITHUB (declarados): `schedule` solo corre desde la rama por
+# defecto (`main`, medido 2026-10-05 por la API del repo); GitHub retrasa los
+# cron en horas de carga; y los desactiva tras 60 días sin actividad en un repo
+# público (Actions → TTFB Probe → Enable).
+#
+# VARIABLE DE REPOSITORIO opcional (no secreta): TTFB_URL (def. https://tcghunt.mx/es).
+# ⛔ NO es un required check: no gatea merges. El gate de `enforce` lo aplica el
+# commit de frontend citando los dos comentarios (§14.14 E-8).
+# =============================================================================
+
+name: TTFB Probe (E-8)
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 14 * * *"   # diario, 08:17 en Ciudad de México (UTC−6)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/ttfb-probe.sh"
+      - "scripts/check-ttfb-probe-canary.sh"
+      - ".github/workflows/ttfb-probe.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ttfb-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  autoprueba:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Canario de la sonda (¿distingue antes/después y sabe ponerse roja?)
+        run: ./scripts/check-ttfb-probe-canary.sh
+
+  medicion:
+    runs-on: ubuntu-latest
+    needs: autoprueba
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      TTFB_URL: ${{ vars.TTFB_URL || 'https://tcghunt.mx/es' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TITLE: "[ttfb] TTFB de la tienda publicada, antes/después del nonce de la CSP (sonda E-8)"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Issue único con etiqueta ttfb (lo crea si no existe)
+        id: issue
+        run: |
+          set -euo pipefail
+          gh label create ttfb --color 0E8A16 --description "Sonda de TTFB (API_CONTRACT §14.14 E-8)" 2>/dev/null || true
+          NUM="$(gh issue list --state all --label ttfb --limit 50 --json number,title \
+            --jq "map(select(.title == \"${TITLE}\")) | sort_by(.number) | .[0].number // empty")"
+          if [ -z "${NUM}" ]; then
+            printf '%s\n' \
+              "Cada comentario de este issue es UNA corrida de \`scripts/ttfb-probe.sh\` contra la tienda publicada" \
+              "(\`.github/workflows/ttfb-probe.yml\`): 1 GET de calentamiento + 10 GET secuenciales, p50/p90 en ms." \
+              "" \
+              "- \`ETIQUETA=antes\`: ninguna cabecera CSP lleva \`nonce-\`. \`ETIQUETA=despues\`: alguna lo lleva." \
+              "- \`CSP_CABECERAS\`: cuántas \`content-security-policy*\` salieron (E-6 en Vercel)." \
+              "- Umbral (§14.3): con \`despues\`, p90 > 800 ms o subida > 300 ms sobre el p90 de \`antes\` ⇒ ⛔ no se pasa a \`enforce\`." \
+              "" \
+              "Norma: \`docs/API_CONTRACT.md\` §14.14 E-8 · Notas: \`docs/DEVOPS_NOTES.md\` §85.10. No cerrar: el workflow lo reutiliza." \
+              > issue-body.md
+            URLI="$(gh issue create --title "${TITLE}" --body-file issue-body.md --label ttfb)"
+            NUM="${URLI##*/}"
+          fi
+          echo "num=${NUM}" >> "$GITHUB_OUTPUT"
+          echo "Issue ttfb: #${NUM}"
+
+      - name: P90 de la última corrida «antes» (solo comentarios del bot)
+        id: antes
+        env:
+          NUM: ${{ steps.issue.outputs.num }}
+        run: |
+          set -euo pipefail
+          P="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${NUM}/comments" \
+                 --jq '.[] | select(.user.login == "github-actions[bot]") | .body' \
+               | awk '/^ETIQUETA=antes$/{a=1} /^P90_MS=/{p=$0} /^VERDICT=/{if(a && p!="") last=p; a=0; p=""} END{sub(/^P90_MS=/,"",last); print last}')"
+          case "$P" in ''|*[!0-9]*) P="" ;; esac
+          echo "p90=${P}" >> "$GITHUB_OUTPUT"
+          echo "P90 de antes: ${P:-(no hay corrida antes válida todavía)}"
+
+      - name: Medir (11 GET)
+        id: medir
+        continue-on-error: true
+        env:
+          ANTES_P90: ${{ steps.antes.outputs.p90 }}
+        run: |
+          set -o pipefail
+          ARGS=(--url "$TTFB_URL")
+          [ -n "$ANTES_P90" ] && ARGS+=(--antes-p90 "$ANTES_P90")
+          ./scripts/ttfb-probe.sh "${ARGS[@]}" | tee probe-out.txt
+
+      - name: Comentar en el issue
+        if: always() && steps.issue.outputs.num != ''
+        env:
+          NUM: ${{ steps.issue.outputs.num }}
+          EVENTO: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ steps.medir.outcome }}
+        run: |
+          set -euo pipefail
+          {
+            echo "**$(date -u +%FT%TZ)** · evento \`${EVENTO}\` · commit \`${GITHUB_SHA}\` (\`${GITHUB_REF_NAME}\`) · paso medir: \`${OUTCOME}\`"
+            echo ""
+            echo '```'
+            cat probe-out.txt 2>/dev/null || echo '(sin salida — ver el run)'
+            echo '```'
+            echo ""
+            echo "Run: ${RUN_URL}"
+          } > comment.md
+          gh issue comment "${NUM}" --body-file comment.md
+
+      - name: Resumen en el run
+        if: always()
+        run: |
+          {
+            echo '### ttfb-probe (E-8)'
+            echo ''
+            echo '```'
+            cat probe-out.txt 2>/dev/null || echo '(sin salida — ver el paso «Medir»)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Marcar el run en rojo si hubo alarma o la muestra no valió
+        if: steps.medir.outcome == 'failure'
+        run: |
+          echo "::error::ttfb-probe (E-8): ALARMA (umbral §14.3 o invariante E-6) o muestra inválida. Ver el comentario en el issue con etiqueta 'ttfb'."
+          exit 1

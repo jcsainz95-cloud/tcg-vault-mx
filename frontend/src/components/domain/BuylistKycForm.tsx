@@ -19,6 +19,7 @@ import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
 import { BuylistShippingNote } from './BuylistShippingNote';
 import { BuylistMinimumShortfall } from './BuylistMinimumShortfall';
 import { BuylistPickupAddressField } from './BuylistPickupAddressField';
+import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 
 /**
  * Ítem del payload de `POST /buylist/requests` (contrato §6). El modelo es
@@ -535,6 +536,10 @@ export function BuylistKycForm({
           </>
         )}
       </section>
+
+      {/* LIVE-8 · sitio 5 (DESIGN_SYSTEM §80.2, criterio 505 iii): SIEMPRE visible —la CLABE se pide
+          siempre—, fuera de la sección de la INE (que solo aparece cuando se pide). */}
+      <PrivacySiteNote site="sellForm" className="text-xs leading-[1.6] text-muted" />
 
       {/* ZONA DE AVISOS, y es un ANCLA con nombre (`noticeRef`): los desenlaces que no pertenecen a
           un campo concreto viven juntos y aquí es adonde el efecto de P-4 lleva la pantalla. Se

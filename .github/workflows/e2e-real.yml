@@ -13,6 +13,8 @@
 #     - comprar -> orden                 (checkout.spec.ts)
 #     - comprar como INVITADO -> pedido  (guest-checkout.spec.ts)   <- añadido 2026-08-24
 #     - retirar -> envío                 (shipments.spec.ts)
+#     - comprar como INVITADO con CP fuera del catálogo -> paga
+#                                        (address-colonia.spec.ts)  <- añadido 2026-10-05
 #     - vender/buylist -> solicitud      (buylist.spec.ts)
 #
 # LOS TRES FLUJOS DE DINERO (2026-08-24, decisión del dueño — DEVOPS_NOTES §31):
@@ -96,7 +98,7 @@ on:
       smoke_specs:
         description: "Specs de smoke a correr (relativos a frontend/e2e, separados por espacio)"
         type: string
-        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts"
+        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts buylist.spec.ts"
   # Invocable desde deploy.yml como gate previo a producción.
   workflow_call:
     inputs:
@@ -104,7 +106,7 @@ on:
         description: "Specs de smoke a correr (relativos a frontend/e2e, separados por espacio)"
         type: string
         required: false
-        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts"
+        default: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts buylist.spec.ts"
       require_real_stripe:
         description: "Exigir STRIPE_TEST_SECRET_KEY real (sk_test_…). La ruta de PROMOCIÓN a prod lo pone en true."
         type: boolean
@@ -115,7 +117,7 @@ on:
       # de «verde sin gate de dinero» SIN leer logs. Hoy nadie lo consume: cablearlo
       # en deploy.yml es decisión del coordinador con el dueño (DEVOPS_NOTES §33.4).
       money_gate:
-        description: "on = los 3 smokes de dinero se ejecutaron; off = se saltaron por falta de credencial de Stripe."
+        description: "on = los 4 smokes de dinero se ejecutaron; off = se saltaron por falta de credencial de Stripe."
         value: ${{ jobs.e2e-real.outputs.money_gate }}
       skipped_specs:
         description: "Specs de dinero saltados por falta de credencial (vacío si money_gate=on)."
@@ -142,12 +144,15 @@ jobs:
       FRONTEND_URL: http://localhost:3010
       BACKEND_HEALTH: http://localhost:3011/api/v1/health
       # Smoke por defecto (workflow_call/dispatch lo pueden sobreescribir).
-      SMOKE_SPECS: ${{ inputs.smoke_specs || 'checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts' }}
+      SMOKE_SPECS: ${{ inputs.smoke_specs || 'checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts buylist.spec.ts' }}
       # Los specs que EXIGEN proveedor de pago real (abren el modal de Stripe). Fuente
       # única de verdad, leída por scripts/stripe-test-key-preflight.sh. NO es una lista
       # de "tests opcionales": es la lista de tests cuyo resultado depende de que exista
       # credencial. Si aparece un cuarto flujo de dinero, se añade aquí.
-      MONEY_SPECS: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts"
+      # IMPORTANTE-2 (QA, release listo-real sobre c62621e6, 2026-10-05): el cuarto ya
+      # existe — `address-colonia.spec.ts:31`, invitado con un CP FUERA del catálogo que
+      # PAGA (abre el modal de Stripe). Sin credencial, se salta con los otros tres.
+      MONEY_SPECS: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts address-colonia.spec.ts"
       # ---------------------------------------------------------------------
       # INCAPACITACIÓN FRENTE AL PROVEEDOR DE PAGA (ARCHITECTURE §4.38r.6.1)
       #
@@ -644,6 +649,7 @@ jobs:
             echo "  - comprar (checkout.spec.ts)"
             echo "  - comprar como invitado (guest-checkout.spec.ts)"
             echo "  - retirar / envíos (shipments.spec.ts)"
+            echo "  - comprar como invitado con CP fuera del catálogo (address-colonia.spec.ts)"
             echo
             echo "No se ejecutaron. **No están aprobados.** No hay evidencia de que funcionen."
             echo

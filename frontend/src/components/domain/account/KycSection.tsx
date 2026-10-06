@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { PhotoUploader } from '@/components/ui/PhotoUploader';
 import { KycStateBlock } from '@/components/domain/kyc/KycStateBlock';
 import { SaveStatus, SectionError, SectionShell } from './SectionShell';
+import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 
 /** Misma `CLABE_RE` que `BuylistKycForm`. */
 const CLABE_RE = /^\d{18}$/;
@@ -229,6 +230,8 @@ export function KycSection() {
                     <PhotoUploader label={t('ineBack')} purpose="kyc_ine" onUploaded={setIneBack} onCleared={() => setIneBack(null)} />
                   </div>
                   <p className="text-xs text-muted">{tIne('privacy')}</p>
+                  {/* LIVE-8 · sitio 6 (DESIGN_SYSTEM §80.2, criterio 505 iii). */}
+                  <PrivacySiteNote site="accountIne" className="text-xs leading-[1.6] text-muted" />
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                     <Button
                       type="button"

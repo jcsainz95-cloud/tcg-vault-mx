@@ -34,6 +34,8 @@ vi.mock('next-intl/server', () => ({
   getTranslations: async () => (key: string) => key,
 }));
 
+// LIVE-3: el layout lee la petición (nonce) para forzar el render dinámico.
+vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-nonce': 'TESTNONCE' }) }));
 import LocaleLayout from './layout';
 
 /**

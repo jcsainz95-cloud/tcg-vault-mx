@@ -9296,3 +9296,215 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
   reescribe C3 (y la nota de §38.2 (b)) a «junto a «Ventas»» y el código se queda. En ambos casos, candado: prueba del
   sidebar que asevera el grupo y la posición de `admin.modules.manualRefunds` para `super_admin` y su ausencia para
   `operator` (medir antes si ya existe en `AdminSidebar*.test.tsx` — **NO MEDIDO**).
+
+---
+
+## Devops · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-9 / E-8)
+
+### TD-LIVE-8 · ✅ CERRADA en este pase (2026-10-05) · El vigía de caídas buscaba su issue solo por título
+- **Dueño:** devops (`.github/workflows/uptime-watch.yml`).
+- **Qué era:** abrir y cerrar el issue `[caída] …` buscaban por **título exacto**. El repo es público: cualquiera
+  podía abrir un issue con ese título y el vigía, al verlo «ya abierto», no abría el suyo ⇒ **un desconocido
+  suprimía la alerta** (y el correo al dueño).
+- **Cierre:** un único filtro `ISSUE_JQ` (env del job `vigilancia`) para abrir y cerrar: título **y** etiqueta
+  `caida` (etiquetar exige permiso de triage) **y** autor bot de Actions (`app/github-actions` /
+  `github-actions[bot]`, `is_bot`). Se evalúa con el `jq` del runner, no con el `--jq` embebido de `gh`.
+- **Candado:** `scripts/check-uptime-watch-canary.sh` sección «issue propio» (corre en `autoprueba` antes de cada
+  vigilancia y en `live-candados`): intruso sin/con etiqueta, otro bot y bot sin etiqueta ⇒ no cuentan; el del bot
+  entre intrusos ⇒ cuenta; mutaciones «solo título» y «sin autor» ⇒ el canario las distingue. Medido 2026-10-05 en
+  `claude/listo-real`: **21/21**, N=1 (determinista: sin red ni reloj). **NO MEDIDO:** el `gh issue list --json author`
+  real de GitHub (forma de `author.login` del bot); por eso se aceptan los dos nombres.
+
+### TD-LIVE-9 · P3 · Fecha de retiro del `schedule` diario de `ttfb-probe`
+- **Dueño:** devops (`.github/workflows/ttfb-probe.yml`).
+- **Qué es:** la sonda E-8 (`API_CONTRACT §14.14`) existe para dar los dos comentarios **antes/después** que el commit
+  de `CSP_MODE = 'enforce'` cita. Pasado ese commit, una sonda diaria contra producción ya no gatea nada y solo suma
+  ruido (comentarios, carga mínima, correos de run rojo).
+- **Disparador:** **commit que pone `CSP_MODE = 'enforce'`** en `frontend/src/security/csp.ts` **+ 72 h** (la ventana
+  para ver que `enforce` no degrada el TTFB en producción).
+- **Cómo se cierra:** devops quita el bloque `schedule:` de `ttfb-probe.yml` (se conserva `workflow_dispatch` para
+  medir a mano) y cita en el commit el último comentario del issue `ttfb`. Comprobación: `grep -n schedule
+  .github/workflows/ttfb-probe.yml` vacío.
+
+### TD-LIVE-GH60 · P3 · aceptada · GitHub desactiva los `schedule` tras 60 días sin actividad (repo público)
+- **Dueño:** devops (`uptime-watch.yml`, `ttfb-probe.yml`). Ya declarado en sus cabeceras y en `DEVOPS_NOTES §83.2`.
+- **Qué es:** si el repo pasa 60 días sin commits, GitHub **apaga** los cron: el vigía de caídas (LIVE-9) deja de
+  vigilar **sin avisar** salvo por el correo de GitHub que anuncia la desactivación.
+- **Riesgo aceptado:** la tienda se mantiene activamente hoy; la reactivación es un clic (Actions → *Uptime Watch* →
+  *Enable workflow*).
+- **Disparador:** cualquier periodo previsto de > 45 días sin commits a `main`, o el correo de GitHub «scheduled
+  workflow disabled». Dirección si se vuelve real: un monitor externo de disponibilidad (servicio nuevo ⇒ se propone
+  al arquitecto antes) o un commit periódico automatizado.
+
+
+### TD-DO-PIPE-1 · P3 · `… | grep -q` bajo `pipefail` en 10 scripts más (falso rojo posible bajo carga)
+- **Qué:** la clase arreglada en DEVOPS_NOTES §84 (SIGPIPE de quien escribe cuando `grep -q` sale al primer acierto ⇒
+  `pipefail` lo convierte en «no encontrado»). La tienen también, con alguna línea cada uno: `check-db-disk-watch-canary.sh`,
+  `check-e2e-must-run-canary.sh`, `check-gate-parity-canary.sh`, `check-graded-estimate-dials.sh`,
+  `check-secret-absence-wording.sh`, `check-stack-expected-sha.sh`, `check-stack-upload-origin.sh`,
+  `check-stripe-webhook-failclosed.sh`, `edge-xff-probe.sh`, `stripe-test-key-preflight.sh` (inventario hecho con
+  `grep -nE "(printf|echo|cat)[^|]*\|\s*grep -[a-zA-Z]*q"`, 2026-10-05).
+- **NO MEDIDO** si alguno falla de verdad: con una sola línea (un único `write`) no hay carrera; con varias líneas, o con
+  `cat` de un fichero grande, sí puede haberla. QA no ha visto rojos en ellos.
+- **Remedio:** here-string (`grep -q X <<<"$v"`) o `grep -q X file` directo. Barato; se hace en bloque cuando se
+  toque cualquiera de ellos, o antes si uno da un rojo que no se puede reproducir. Dueño: devops.
+---
+
+## Backend · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-1/2/7)
+
+### TD-LIVE-1 · P3 · «¿Es clave live?» decidido en dos sitios
+- **Dueño:** backend.
+- **Qué es:** la misma pregunta —¿`STRIPE_SECRET_KEY` es de modo live?— se responde en dos sitios con dos
+  formas: `backend/src/modules/health/health.service.ts:26-31` (`stripeModeOf`, `startsWith` de
+  `sk_live_`/`rk_live_` tras `trim`) y `backend/src/common/crypto/pii-crypto.service.ts:103` (regex
+  `/^(sk|rk)_live_/` tras `trim`). Medido 2026-10-05 en `a047c3cb`: **hoy coinciden**; el riesgo es que diverjan
+  (p. ej. un prefijo nuevo de Stripe añadido en uno solo) y `/health` diga `live` mientras `pii-crypto` exime el
+  cifrado, o al revés.
+- **Dirección:** `stripeModeOf` pasa a un módulo compartido (en `common/`) y `pii-crypto` lo usa
+  (`stripeModeOf(k) === 'live'`). `common/` es **zona compartida** ⇒ el cambio se serializa con el orquestador.
+- **Disparador:** el próximo cambio que toque cualquiera de los dos sitios.
+- **Cómo se cierra:** un solo `grep -rn "_live_" backend/src` con una sola definición, y una prueba que asevere
+  que `pii-crypto` exige cifrado para `rk_live_…` y para `sk_live_…` (las dos ramas del compartido).
+
+### TD-LIVE-2 · ✅ CERRADA en este pase (2026-10-05) · Nada impedía `ignoreExpiration: true` fuera del refresh
+- **Dueño:** backend (`modules/auth`).
+- **Qué era:** LIVE-2 puso `ignoreExpiration: true` en el `verifyAsync` de `AuthService.refresh()`
+  (`auth.service.ts:573`) porque ahí la caducidad se comprueba a mano después del tope de sesión. Copiado a otro
+  `verifyAsync` (guard de acceso, dispositivo, `reject-authenticated`, `JwtModule`) sería aceptar tokens caducados.
+- **Cierre:** candado estático `backend/test/auth.ignore-expiration.lock.spec.ts` (AST de TypeScript sobre todo
+  `backend/src`, comentarios excluidos, forma `['ignoreExpiration']` incluida): **exactamente una** aparición, como
+  propiedad del objeto de opciones de un `*.verifyAsync(...)` dentro del método `refresh` de `AuthService`.
+  Canarios dentro de la suite (guard de acceso, corchetes, otro método, constante suelta, cero apariciones) y
+  mutación real sobre copia (`ignoreExpiration: true` añadido al `verifyAsync` de `jwt-auth.guard.ts`) ⇒ rojo
+  **3/3** (N=3, determinista). Detalle en `BACKEND_NOTES §57.8`.
+- **Lo que no cubre (aceptado):** opciones armadas por spread desde otro módulo sin nombrar la clave y un
+  `clockTolerance` enorme; ambos exigen escribir algo nuevo y visible en revisión.
+
+### TD-LIVE-3 · P3 · Amplificación de log en `POST /telemetry/csp`
+- **Dueño:** backend (`modules/health`).
+- **Qué es:** `summarizeCspReports` admite hasta `CSP_MAX_REPORTS_PER_REQUEST = 20` informes por petición
+  (`backend/src/modules/health/telemetry-report.ts:18`) y el controller escribe **una línea por informe**
+  (`telemetry.controller.ts:25-26`) con un límite de 60 peticiones/min por IP (`:23`) ⇒ hasta **1 200 líneas/min por
+  IP** desde un endpoint público. Riesgo: llenar/encarecer el log de Railway y tapar líneas útiles. Nota CGNAT: el
+  límite por IP es a la vez **demasiado laxo** para un atacante con varias IP y **demasiado estricto** para muchos
+  clientes legítimos detrás de una misma IP de operador móvil (sus informes se pierden con 429; inocuo, es telemetría).
+- **Dirección:** agregar en **una** línea los informes repetidos de una misma petición (mismos cuatro campos ⇒ una
+  entrada con contador `n`), de modo que una petición produzca ≤ (informes distintos) líneas; valorar con el
+  arquitecto un tope global (no por IP) de líneas CSP por minuto. Cambia la forma de la línea `CSP_VIOLATION`
+  (§14.7) ⇒ pasa por el arquitecto antes.
+- **Disparador:** pasar CSP a `enforce` (más informes reales) o la primera vez que el log de Railway muestre ráfagas
+  de `CSP_VIOLATION` repetidas.
+
+### TD-LIVE-4 · P3 · Discrepancia contrato ↔ código en E2-3: recorte final a 300 de `scrubClientText`
+- **Dueño:** arquitecto decide; backend ejecuta (cambio de una línea).
+- **Qué es:** `API_CONTRACT §14.15 E2-3` punto 4 dice «el resultado solo puede ser más corto o igual de largo». Con
+  la regla 2 tal cual no es cierto: un valor de < 10 caracteres crece (`sig=a` ⇒ `sig=[redacted]`). El código
+  recorta a 300 al final (`CLIENT_MESSAGE_MAX`) para mantener lo que el punto 4 quiere garantizar; está probado.
+  Medido 2026-10-05 en `a047c3cb`: el contrato **sigue** diciendo la frase original (no resuelto aún; el arquitecto
+  trabaja el contrato en paralelo en este pase — **NO MEDIDO** si lo resuelve). Detalle en `BACKEND_NOTES §57.7`.
+- **Cómo se cierra:** el arquitecto elige (a) normar el recorte final a 300 (el código ya lo hace), (b) un marcador
+  más corto, o (c) aceptar que crezca; backend alinea código y prueba si no es (a).
+
+## Arquitecto · 2026-10-05 · gate del techlead sobre `7bca24ce` (rama `claude/listo-real`, fusión)
+
+### TD-LR-CITES-DOCS · P3 · 26 citas en `docs/` apuntan a secciones de listo-real ya renumeradas
+- **Dueños:** arquitecto (`API_CONTRACT`, `ARCHITECTURE`), devops (`DEVOPS_NOTES`) y el dueño de cada entrada de
+  `TECH_DEBT` citada.
+- **Qué es:** al fusionar se renumeraron las secciones de listo-real: `BACKEND_NOTES §57.x → §76.x`;
+  `DEVOPS_NOTES §83.x → §85.x` y `§84 → §86`; `FRONTEND_NOTES §94.x → §103.x`; y las líneas citadas de `HECHOS.md` se
+  movieron. Quedan **26 citas** al sitio viejo (medido por el techlead sobre `7bca24ce`, 2026-10-05; lista en
+  `scratchpad/merge-real/logs/cites-lr.txt`, copiada aquí porque el scratchpad se borra — O-20):
+  - `API_CONTRACT.md` (15): `:19`, `:22`, `:49`, `:31373`, `:31722`, `:31727`, `:31779`, `:31783`, `:31819`,
+    `:31851`, `:31859`, `:31910`, `:31912`, `:31977`, `:32096`.
+  - `ARCHITECTURE.md` (6): `:30`, `:33`, `:27266`, `:27300`, `:27400`, `:27463`.
+  - `DEVOPS_NOTES.md` (1): `:13475`.
+  - `TECH_DEBT.md` (4): `:9141`, `:9152`, `:9190`, `:9215`.
+  - Más el subconjunto de `cites-sell.txt` (misma carpeta) que cita `BACKEND_NOTES §57` queriendo decir **sellado
+    (§75)**. Se **clasifica a mano**: algunas citas a §57 son **correctas**, porque §57 de verdad es Skydropx D1. No
+    se reemplaza en bloque.
+  - Los números de línea son los de `7bca24ce`; si el fichero cambió, se re-localizan por contenido, no por línea.
+  - Fuera de `docs/`, el mismo `cites-lr.txt` lista **25** citas más en código, `scripts/` y `.github/workflows/`
+    (comentarios, cabeceras y un `echo` de `uptime-watch.yml:152`); son de backend, frontend y devops y entran en el
+    mismo pase de cada dueño.
+- **Mitigación vigente:** notas de renumeración al principio de `BACKEND_NOTES §76`, `DEVOPS_NOTES §85` y `§86`, y
+  `FRONTEND_NOTES §103`.
+- **Riesgo:** bajo, sin efecto en conducta ni en dinero; es de **decisión**: un agente que sigue una cita vieja lee
+  otra sección (BACKEND §57 hoy significa tres cosas).
+- **Disparador:** el próximo pase de cada dueño por su documento, o un agente que actúe guiado por una de esas citas.
+- **Comprobación:** `rg` por fichero:línea de la lista anterior (re-medida sobre el sha del pase); cerrada cuando
+  ninguna cita a §57.x/§83.x/§84/§94.x de listo-real queda sin su número nuevo, y las de `cites-sell.txt` quedan
+  clasificadas (corregida o «correcta: Skydropx D1»).
+
+### TD-NOTES-NUMERACIÓN · P2 · Los números de sección de las `*_NOTES` chocan entre ramas en cada fusión
+- **Dueños:** propuesta para el orquestador y el arquitecto (la convención la fija el arquitecto; cada dueño de
+  `*_NOTES` la aplica en su documento).
+- **Qué es:** cada rama abre «la siguiente sección» con el número libre **en su base**; dos ramas vivas toman el mismo
+  número y la fusión obliga a renumerar una. En dos fusiones del mismo día (2026-10-05) pasó **cuatro veces**:
+  `BACKEND_NOTES §57` hoy significa tres cosas y `DEVOPS_NOTES §84` lleva dos renumeraciones. Cada renumeración deja
+  citas viejas (ver `TD-LR-CITES-DOCS`). `RS5-UX-TD9` (`TECH_DEBT.md:9203` sobre `7bca24ce`) ya avisaba de que es una
+  **clase** de fallo: «cualquier renumeración futura repite la clase».
+- **Dirección:** ids de sección que no colisionen entre ramas —p. ej. prefijo de stream + fecha
+  (`§LR-2026-10-05-a`)— o anclas estables por nombre, citadas por id y con el número solo como ayuda; de modo que
+  fusionar no obligue a renumerar. La convención concreta (formato, si se migra lo existente o solo lo nuevo) la
+  decide el arquitecto con el orquestador. **NO decidida aún.**
+- **Disparador:** la próxima rama que abra una sección nueva en alguna `*_NOTES`.
+- **Comprobación:** tras adoptarla, una fusión de dos ramas que abren sección cada una no produce renumeración
+  (`git diff` de la fusión sin cambios de encabezado `## §N` en secciones ajenas).
+
+## Backend · 2026-10-05 · gate de QA sobre `7bca24ce` (rama `claude/listo-real`, MENOR-1 de PRIV-5)
+
+### TD-PRIV-WALK · P3 · `mail.privacy-footer.spec.ts` recorre `src/` tres veces a pelo
+- **Dueño:** backend (`backend/test/`).
+- **Qué es:** el fichero repite tres veces el recorrido recursivo de `backend/src/` (`readdirSync` + `statSync`) con
+  `stripComments(readFileSync(...))` sin anclas: PRIV-0 (`:215-224`), PRIV-4 (`:302-318`) y PRIV-6 (`:387-396` en
+  `c128d0c9`; `:406-416` tras añadir la aserción del espaciador a PRIV-5). La doctrina de
+  `backend/test/helpers/codigo-de-fichero.ts` pide leer código con anclas (`codigoDeTexto` + `anclasEstructurales`)
+  para que un fichero vaciado o mal recortado no deje el barrido midiendo nada en silencio.
+- **Riesgo:** bajo, solo pruebas; triplicación y un barrido que podría quedar vacuo sin avisar (PRIV-4 lleva su
+  CONTROL, PRIV-0 y PRIV-6 dependen de su `expect` final).
+- **Dirección:** un helper `srcTsFiles()` (en `test/helpers/`) que devuelva `{ rel, code }` de cada `.ts` no-spec de
+  `src/`, con el código pasado por `codigoDeTexto(fuente, rel, anclasEstructurales(fuente, rel))`; los tres
+  barridos lo usan.
+- **Disparador:** la próxima prueba que necesite barrer `src/`.
+- **Comprobación:** `rg -n "readdirSync" backend/test/mail.privacy-footer.spec.ts` sin resultados y los tres
+  `describe` verdes sobre el helper.
+
+## Devops · 2026-10-05 · gate del techlead sobre `7bca24ce` (rama `claude/listo-real`)
+
+### TD-GITLEAKS-FICCIÓN · P3 · La allowlist de `security/gitleaks.toml` crece un literal de ficción por rama
+- **Dueños:** devops (`security/gitleaks.toml`) y backend (las pruebas que plantan los literales).
+- **Qué es:** cada rama que añade una prueba con un secreto de ficción (contraseña, token, secreto JWT) hace saltar
+  `generic-api-key` en el SAST del rango de la PR, y se cierra añadiendo 1 o 2 literales anclados por valor exacto a
+  `[allowlist].regexes`. Medido sobre `7c1cd012` (2026-10-05): **8** valores anclados en `[allowlist]`
+  (`A-Strong-Secret-123`, `asB64.length`, `tok-de-prueba-123`, `Otra-STF-98765`, `Rescate-STF34-`,
+  `operator_label_cap_24h_cents`, `ref-secret-ses-…`, `acc-secret-ses-…`) más `SUPER-SECRETO-123` en el
+  `[rules.allowlist]` de su regla; dos de ellos (`asB64.length`, `operator_label_cap_24h_cents`) son falsos positivos
+  por nombre, no ficción. Cada uno es seguro (anclado), pero la lista solo crece y cada rama paga un rojo de SAST y
+  un pase de devops.
+- **Riesgo:** bajo; no abre hueco (anclado `^…$`), es fricción y ruido de revisión en un fichero de seguridad.
+- **Dirección:** que las pruebas construyan esos secretos en tiempo de ejecución (`randomUUID()`, concatenación,
+  `'x'.repeat(n)`) para que no exista un literal que escanear, o un marcador exento acordado (p. ej. un prefijo
+  auto-delator como el de `sk_test_…dummy`, anclado y con su caso en `security/scripts/sast-gitleaks-canary.sh`).
+  Los literales que ya están en el historial se quedan (los ve `gitleaks git .`); solo deja de crecer.
+- **Disparador:** la próxima rama que necesite añadir un literal a la allowlist.
+- **Comprobación:** esa rama no añade líneas a `[allowlist].regexes` (`git diff <base> -- security/gitleaks.toml`
+  vacío en esa sección) y su SAST de rango queda verde.
+
+## Frontend · 2026-10-05 · gates sobre `7bca24ce` (rama `claude/listo-real`)
+
+### TD-LEG5-LOTES · P3 · El reparto por lotes de LEG-5 sobrevive a los lotes: código muerto con aspecto de candado
+- **Dueño:** frontend (`frontend/src/content/legal/privacy-sites.ts`, `privacy-sites.test.ts`).
+- **Qué es:** con los tres lotes de E-9 ya construidos (medido 2026-10-05 sobre `af7e9a16`:
+  `BUILT_LOTES = new Set([1, 2, 3])`), sobran `BUILT_LOTES` y la rama `it.skip(… pendiente del lote …)` de
+  `privacy-sites.test.ts:14-15,29-34`, y el campo `lote` (con su comentario) de `privacy-sites.ts:18-19`. Ninguno
+  puede ya saltar un sitio, pero se leen como si filtraran: es código muerto con aspecto de candado, y la próxima
+  persona que lo toque puede creer que la suite normal deja pasar sitios a propósito.
+- **Nota (MENOR-2 de QA, mismo gate):** el patrón LEG-5 (`uses` de cada sitio) comprueba que el fichero usa el
+  componente, pero **no** que la clave de texto lleve la etiqueta `<privacy>` que el componente convierte en enlace.
+  Hoy eso solo lo caza la unitaria UX-PRIV-5 (`components/legal/PrivacyNoticeLink.test.tsx`).
+- **Riesgo:** bajo; ningún sitio queda sin exigir hoy. Es ruido de lectura en un candado de publicación.
+- **Dirección:** quitar `BUILT_LOTES`, la rama `it.skip` y el campo `lote` (un `it` por sitio, sin condición); y
+  decidir si la presencia de `<privacy>` en la clave pasa a LEG-5 o se queda declarada como cubierta por UX-PRIV-5.
+- **Disparador:** el próximo cambio en `privacy-sites` (`.ts` o `.test.ts`).
+- **Comprobación:** `rg -n "BUILT_LOTES|lote" frontend/src/content/legal/privacy-sites*.ts` sin resultados, la suite
+  normal con 7 casos de sitio verdes y 0 saltados en ese fichero, y `npm run check:legal:provisional` verde.

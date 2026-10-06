@@ -20072,3 +20072,327 @@ pasa de `vault_operator+` a solo dueño, `HECHOS.md:51` (1)) y `SealedFinalPrice
   `unlinked` (F-SP-9/10), cola y panel montando con el ternario viejo (F-SP-10, una cada uno), default `canEdit = true`
   + montaje sin la prop (F-SP-10), `canEdit` opcional (F-SP-11, `tsc` TS2578), «Ahora» con el `P` de la fila (D-6).
   Copia borrada al terminar.
+
+## §103 · **Listo para dinero real — LIVE-3 (CSP con nonce), LIVE-7 (error.tsx + telemetría) y LIVE-8 (`/privacidad` con candado)** (2026-10-05, rama `claude/listo-real`, base `2fe1cea1`; contrato v1.84 §14)
+
+> *(Fusión `claude/listo-real` + `claude/precio-sellado`, 2026-10-05, agente de fusión: esta sección era la **§94** en la rama `claude/listo-real`; se renumera a **§103** porque §94 ya la publicó `claude/skydropx-d` («Alertas de envíos» del tablero; publicada con sellado, que llega a §102). Sus autorreferencias se actualizaron; las citas externas «§94» que vienen de `claude/listo-real` apuntan aquí.)*
+
+> Número §94 elegido para no chocar: `claude/skydropx-d` llega a §93 y `claude/arreglos-panel` a §88
+> (medido con `git show origin/<rama>:docs/FRONTEND_NOTES.md`, 2026-10-05).
+
+### 103.1 LIVE-3 · CSP con nonce (`src/security/csp.ts`, `src/middleware.ts`)
+
+- **Fuente única**: `buildCsp(nonce, env, mode)` en `src/security/csp.ts` escribe la política del §14.3;
+  el middleware la pone en la respuesta **y** en la petición. Next saca el nonce de la cabecera CSP de
+  la petición (`content-security-policy` **o** `-report-only`, `next/dist/server/app-render/app-render.js:108`)
+  y lo pone en todos sus `<script>`; `x-nonce` queda para el layout. next-intl copia `request.headers`
+  a su `NextResponse.next/rewrite`, así que basta fijarlas antes de llamarlo.
+- **Fase**: `CSP_MODE = 'report-only'` (constante en código, §14.3 paso 1). Candado
+  `csp.test.ts › fase vigente` — pasar a `enforce` cambia ese caso en el mismo commit y exige el
+  cambio de devops en `baseline.conf` (10038/10055 a FAIL).
+- **Desviaciones del texto del contrato (deliberadas, con su porqué; van al arquitecto):**
+  1. `upgrade-insecure-requests` **solo en `enforce`**. En Report-Only el navegador la ignora y escribe
+     «directive … is ignored when delivered in a report-only policy» en consola **en cada página**:
+     medido en Chromium, era la única «violación» del recorrido y ensucia el criterio A3 de §14.9
+     («sin violaciones CSP en consola»).
+  2. Con la API en `http:` (stack local) tampoco va: la mejora rompería las llamadas a `localhost:3001`.
+  3. `NEXT_PUBLIC_UPLOAD_ORIGIN` se valida (`http(s)://[*.]host[:puerto]`, sin ruta, sin `;`/comillas);
+     si no casa, cae al comodín de R2. Un valor mal escrito en Vercel no puede abrir ni inyectar directivas.
+- **`[locale]/layout.tsx` lee `headers()`** para forzar render por petición. **Medido: hoy NO es
+  portante** — las páginas ya se renderizaban por petición antes del cambio (`Cache-Control: private,
+  no-store` en `/es` del árbol base; no hay `es.html` en `.next/server/app`), y quitar la línea deja
+  `csp.spec.ts` 8/8 verde (N=1, build `enforce`). Se queda como defensa: si alguien añade
+  `setRequestLocale` para volver estáticas las páginas, el nonce seguiría llegando.
+- **TTFB de `/es` (coste del §14.3)** — medido en LOCAL (`next start`, mocks, mismo host, rondas
+  intercaladas), N=10 por medida: antes p50 33.5/24.3 ms, p90 49.2/34.0 ms; después p50 29.2/26.9 ms,
+  p90 38.8/31.1 ms. Sin diferencia medible, coherente con que ya era dinámico. ⚠️ **La medida que pide
+  el contrato es en la vista previa de Vercel: NO MEDIDA** (las ramas `claude/*` no despliegan,
+  `frontend/vercel.json`). Hay que tomarla antes de `enforce`.
+- **Dos cabeceras CSP en `enforce` — medido, corrige al contrato:** con `next start`, la cabecera del
+  middleware **sustituye** a la estática de `next.config.mjs` (sale una sola `content-security-policy`,
+  la completa), no se «intersecan». No abre nada porque la completa ya lleva `frame-ancestors 'none'`,
+  y `csp.spec.ts › CSP-1` lo vigila. En Vercel: NO MEDIDO.
+- **Mutación `'unsafe-inline'` del contrato (§14.3 «⇒ CSP-5 roja») — medido, no muerde en el
+  navegador:** con nonce presente, CSP3 **ignora** `'unsafe-inline'`; build `enforce` con la mutación ⇒
+  `csp.spec.ts` 8/8 verde (N=1). La cubre el unitario (`csp.test.ts`, rojo). Sí muerde en el
+  navegador: añadir una directiva `script-src-elem 'unsafe-inline'` (por eso el unitario fija la lista
+  EXACTA de directivas — esa mutación sobrevivía antes de añadir el caso).
+- **E2E** `e2e/csp.spec.ts`: CSP-1, CSP-2 (cuatro rutas), CSP-5 (reescribe el HTML con un `<script>`
+  sin nonce: en `report-only` debe haber violación `report`; en `enforce`, además, no se ejecuta) y
+  un recorrido sin violaciones (portada, catálogo, login, registro, checkout, vender). **CSP-3 (pago
+  3DS) y CSP-4 (Google) no están en este spec**: necesitan Stripe y Google reales — son §14.9 fase A.
+- `vitest.config.ts`: `server.deps.inline: ['next-intl']` para que `middleware.test.ts` ejercite el
+  middleware REAL de next-intl (su ESM importa `next/server` sin extensión y Node no lo resuelve).
+
+### 103.2 LIVE-7 · `error.tsx`, `global-error.tsx` y `POST /telemetry/client-error`
+
+- `src/app/report-client-error.ts`: `fetch` directo (no `apiRequest`: ese adjunta el token y puede
+  disparar el refresh; una pantalla de error no toca la sesión), `credentials: 'omit'`, `keepalive`,
+  sin `Authorization`. Topes del contrato en cliente (300/64/200/40). ⛔ La ruta sale sin query ni
+  fragmento, y a las URL dentro del mensaje se les quita la query (`verify-email?token=…`). En mocks
+  no llama. Si falla, calla. `release` = `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` (si Vercel expone las
+  variables de sistema; si no, el campo no viaja — NO MEDIDO en el proyecto de Vercel).
+- `app/[locale]/error.tsx`: reutiliza `common.errorTitle/errorGeneric/retry` (sin claves nuevas);
+  no pinta `error.message`. `app/global-error.tsx`: sin proveedor de i18n, bilingüe y con estilos en
+  línea con los tokens de papel/tinta (`globals.css`). Uno y otro reportan **una vez por error**
+  (ref + deps; la prueba StrictMode es la que hace portante al ref).
+
+### 103.3 LIVE-8 · `/privacidad` — estructura con candado, texto en BORRADOR
+
+- **Texto**: `src/content/legal/privacidad.es.ts` = borrador del product-owner (`PROJECT.md §LEG.2`)
+  transcrito verbatim salvo formato (sin `*` de cursiva; «(SUPUESTO …)» pasa a «[SUPUESTO …]» para que
+  el candado lo vea). **No está validado por el dueño ni por su abogado**, y faltan P-LEG-1…3 (razón
+  social/RFC, domicilio, correo de privacidad), P-LEG-11 (plazos) y la fecha. **No se inventó ninguno.**
+- **Candado** (`src/content/legal/legal-gate.ts`): marcador = cualquier `[…]` o las frases de trabajo
+  («dato del dueño», «nota para el abogado», SUPUESTO, BORRADOR, «fecha de publicación», las dos de
+  razón social pendiente). Con marcadores: producción de Vercel ⇒ **404 y sin enlace en el pie**;
+  servidor sin `VERCEL_ENV` ⇒ igual (falla hacia lo seguro); vista previa, `next dev` o
+  `LEGAL_DRAFT_PREVIEW=1` (fuera de producción) ⇒ borrador visible con aviso «Borrador — no publicado»,
+  marcadores resaltados (`<mark data-legal-marker>`) y `noindex`. Sin marcadores ⇒ publicado.
+- **Puerta de publicación (criterio 501)**: `npm run check:legal` — hoy **ROJO a propósito** (exit 1:
+  el aviso tiene marcadores y `common.footer.legalEntity` sigue siendo «[Razón social pendiente]»). En la
+  suite normal ese caso se salta y lo dice.
+- **Hecho**: página, módulo de contenido, enlace del pie (aparece solo cuando la página se sirve),
+  textos de interfaz en el espacio nuevo `privacy.*` de `messages/*.json` (no se tocó `legal.*`).
+- **Pendiente (no hecho aquí, a propósito)**: los enlaces en registro, checkout de invitado
+  (`GuestCheckoutForm`, zona de choque con skydropx), checkout con cuenta, subida de INE y
+  `pedido/layout.tsx` (zona de choque con panel). Llevarían al mismo 404 mientras haya marcadores, y
+  sus textos (p. ej. la leyenda del registro, default P-LEG-9) no tienen copy de ux-ui todavía.
+
+### 103.4 Errata v1.84.1 (API_CONTRACT §14.3, §14.14 E-4/E-5/E-6) — medido 2026-10-05 sobre `6480d86b` + este cambio
+
+- **E-4 · `style-src`** gana `https://accounts.google.com/gsi/style` con **ruta exacta** (constante
+  `GOOGLE_GSI_STYLE` en `src/security/csp.ts`); no el host entero. `csp.test.ts` fija la lista exacta de
+  `style-src` y un caso nuevo prohíbe el host sin ruta y cualquier otro `https://` en esa directiva (igual
+  en las dos fases y en la vista previa). La lista de **directivas** no cambia. Que GIS pida exactamente
+  esa ruta: NO MEDIDO (fuente del arquitecto, de memoria); lo cierra CSP-4 en la tienda durante
+  Report-Only, sin informe `CSP_VIOLATION` de `style-src`.
+- **E-6 · invariante `frame-ancestors 'none'` APLICADA en las dos fases**, en dos niveles:
+  - Unitario (`src/middleware.test.ts`): compone la CSP aplicada efectiva como la sirve `next start`
+    (la del middleware si pone `content-security-policy`; si no, la estática de `next.config.mjs`) y
+    afirma `frame-ancestors 'none'` en `report-only` y `enforce` para `/es`, `/es/catalog`,
+    `/en/checkout` y `/`. Un caso aparte fija que en `report-only` el middleware **no** pone una
+    aplicada ⇒ la estática es la única red.
+  - E2E (`e2e/csp.spec.ts`, «CSP-1 · invariante»): seis respuestas HTML — cuatro páginas, el 404 de la
+    app dentro del `matcher` (`/es/no-existe-csp`) y un 404 HTML **fuera** del `matcher`
+    (`/no-existe-csp.html`, excluido por el punto: medido, solo lleva la estática). Lee
+    `headersArray()` (no `headers()`, que funde duplicadas) y exige que alguna `content-security-policy`
+    tenga `frame-ancestors 'none'`.
+  - Re-medido con `next start`: en `enforce`, `/es` sirve **una** `content-security-policy` (la
+    completa, sustituye a la estática); `/no-existe-csp.html`, solo la estática.
+- **E-5 · texto de CSP-5**: el comentario del spec dice ahora la mutación que la pone roja
+  (`script-src-elem 'unsafe-inline'`) y que `'unsafe-inline'` dentro de `script-src` la caza el
+  unitario. Sin cambio de conducta; la mutación ya estaba medida en §103.1 (no re-medida en este pase).
+- **Mutaciones (autor: frontend; sobre copia del árbol entero):**
+  | Mutación | Suite | Resultado |
+  |---|---|---|
+  | quitar `frame-ancestors` de `next.config.mjs` (fase `report-only`) | `middleware.test.ts` | rojo 3/3 (2 casos) |
+  | idem, build `next start` | `e2e/csp.spec.ts` | rojo 3/3 en los 7 casos de CSP-1 (21/21 rojos; resto 21/21 verdes) |
+  | quitar `GOOGLE_GSI_STYLE` de `style-src` | `csp.test.ts` | rojo 3/3 (2 casos) |
+  | `GOOGLE_GSI_STYLE` = host sin ruta | `csp.test.ts` | rojo 3/3 (2 casos) |
+- **Suites**: tsc 0; lint sin avisos; vitest 218 ficheros / 2620 pruebas verdes (1 fichero / 3 saltadas:
+  `check:legal`, rojo a propósito, §103.3). `e2e/csp.spec.ts` contra `next start` propio: `report-only`
+  42/42 y `enforce` 42/42 (14 casos × N=3 cada uno).
+
+### 103.5 LIVE-8 · enlaces al aviso de privacidad — lote 1 (§14.14 E-9; DESIGN_SYSTEM §80) — medido 2026-10-05 sobre `9c137657` + este cambio
+
+- **Componente** `src/components/legal/PrivacyNoticeLink.tsx` (§80.1): `PrivacyNoticeLink` con
+  `variant: 'inline' | 'nav'`; `PrivacySiteNote site=…` pinta una frase `privacy.sites.*` con sus
+  etiquetas `<terms>`/`<privacy>` (`t.rich`); `TermsInlineLink` da a «Términos» la misma conducta
+  `inline` (pestaña nueva, subrayado, icono, «(se abre en otra pestaña)» solo para lector).
+  Sin página servida: `inline` pinta el mismo texto en un `<span>` sin foco; `nav` no pinta nada.
+- **F-7 (riesgo de §80.6) — cerrado así:** la decisión es `privacyLinkVisible()` de
+  `(storefront)/footer.ts` (no una copia) y la calcula **el servidor** en `app/[locale]/layout.tsx`, que la
+  pasa con `PrivacyLinkProvider`; los componentes de cliente la leen del contexto. El fichero del
+  componente no lee `process.env` ni importa el módulo legal (el aviso entero no entra al paquete del
+  cliente). Sin proveedor ⇒ sin enlace (falla hacia lo seguro). Sitio 1 (pie de la tienda) migrado a
+  `variant="nav"`, sin cambio visible.
+- **Sitios del lote 1** (choques medidos con `git diff $(git merge-base HEAD origin/<rama>) origin/<rama> -- <f>`
+  contra `claude/skydropx-d` y `claude/arreglos-panel`: **0 líneas** en los cuatro ficheros, ninguno excluido):
+  2a registro y 2b «Entrar» (`AuthForm.tsx`), 4 checkout con cuenta (`CheckoutView.tsx`, tras ventas
+  finales y antes de CFDI), 5 formulario de venta (`BuylistKycForm.tsx`, fuera de la sección INE, siempre
+  visible), 6 INE de «Mi cuenta» (`KycSection.tsx`, bajo `ine.privacy`). `ine.privacy` («cifrada») sin tocar.
+  ⚠ `messages/es.json`/`en.json` sí tienen diff en las dos ramas (zona compartida): aquí solo se añaden
+  claves dentro de `privacy.*`, al final del fichero — en `arreglos-panel` hay un trozo que también toca
+  el final (`@@ -5235,5`), así que es posible un conflicto textual al fusionar (NO MEDIDO con merge de prueba).
+- **Textos**: `privacy.opensInNewTab` y `privacy.sites.{register,googleSignIn,checkout,sellForm,accountIne}`,
+  ES/EN verbatim de §80.3 (comprobado con un script contra el DESIGN_SYSTEM). `guestCheckout` no se añade
+  (lote 2).
+- **LEG-5**: `src/content/legal/privacy-sites.ts` lista los siete sitios con fichero, lote y patrón JSX.
+  Suite normal (`privacy-sites.test.ts`): exige los del lote 1 (los de lote 2/3, saltados con su lote).
+  `npm run check:legal`: exige los siete, un caso por sitio. **Hoy rojo por: marcadores del aviso, razón
+  social, sitio 3 (lote 2) y sitio 7 (lote 3)**; los cinco sitios del lote 1 en verde.
+- **Prueba existente ajustada**: `AuthForm.staff.test.tsx › UX-2` — la firma de enlaces de «Entrar» gana
+  `a:/terminos:Términos (se abre en otra pestaña)` (leyenda 2b). El invariante que vigila (la firma no
+  cambia con lo tecleado ni tras un 401) sigue igual.
+- **Mutaciones (autor: frontend; copia del árbol entero; N=3 cada una, todas rojas 3/3):**
+  | Mutación | Prueba que muerde |
+  |---|---|
+  | el cliente decide leyendo `process.env` (F-7) | `PrivacyNoticeLink.test › F-7 vista previa` (sola, 3/3) y UX-PRIV-1 |
+  | idem, build + `next start` con `LEGAL_DRAFT_PREVIEW=1` | `e2e/privacy-links.spec.ts` 6/6 rojos (2 casos × N=3), en el enlace de la frase |
+  | quitar `target="_blank"` | UX-PRIV-1 (6 casos) |
+  | quitar el texto oculto | UX-PRIV-1 (8 casos) |
+  | sin página ⇒ `<a href=/privacidad>` | UX-PRIV-2 (7 casos) |
+  | `nav` con `target="_blank"` | UX-PRIV-3 |
+  | quitar `underline` | UX-PRIV-4 |
+  | quitar `<privacy>` de `en.json › checkout` | UX-PRIV-5 + render EN |
+  | quitar el sitio 5 | `privacy-sites.test` nombra «sitio 5 · formulario de venta»; `check:legal` también |
+  | quitar la leyenda 2b | `privacy-sites.test` (sitio 2) y `AuthForm.privacy.test` |
+  | leyenda de registro tras Google | `AuthForm.privacy.test › 2a` (el candado estático no ve el orden; esta sí) |
+  | layout con `linked={false}` | `PrivacyNoticeLink.test › layout pasa privacyLinkVisible()` |
+- **Suites**: tsc 0; lint sin avisos; vitest 221 ficheros / 2657 pruebas verdes (12 saltadas: 9 de la puerta
+  `check:legal` fuera de su modo, 2 sitios de lotes 2/3, 1 marcador). E2E contra `next start` propio:
+  sin borrador `privacy-links` + `csp` 48/48 (N=3); con `LEGAL_DRAFT_PREVIEW=1` `privacy-links` 6/6 (N=3,
+  pie enlazando en `/es`) y `csp` 39 verdes + 3 saltadas (el 404 de `/privacidad` no aplica con borrador).
+  La primera versión del spec buscaba el pie en `/es/register`, que vive en `(auth)` y no tiene pie: rojo
+  3/3 del spec, no del código; se corrigió el spec y se re-midió.
+- **No cubierto por render**: el sitio 4 (`CheckoutView`) solo lo vigila el candado estático LEG-5 y el
+  componente; no hay prueba de render de su posición (la vista necesita sesión y carrito). E2E de los
+  sitios 4–6 (rutas con sesión): NO MEDIDO.
+
+### 103.6 LIVE-2 pantalla «Tu sesión caducó por seguridad» (§14.2 + §14.15 E2-4; DESIGN_SYSTEM §81) y CSP-5 por evento del DOM (§14.15 E2-2) — medido 2026-10-05 sobre `5ea58917` + este cambio
+
+**LIVE-2 — mecanismo (sin tocar `components/layout/*`, que cambian `arreglos-panel` y `skydropx-d`):**
+1. `lib/api-client.ts › refreshTokens`: el `401` del refresh ahora **lee el cuerpo**; si
+   `error.details.reason === 'session_max_age'` llama a `markSessionMaxAgeLogout()`. El cierre de sesión no
+   cambia (`null` ⇒ `clearClientSession`). Sin `reason`, otro `reason`, cuerpo ilegible o error de red ⇒ ninguna marca.
+2. `lib/session.ts`: `markSessionMaxAgeLogout` / `consumeSessionMaxAgeLogout` — marca en memoria del módulo
+   (patrón `markIntentionalLogout`), **de un solo uso** y con ventana de 10 s. Solo la pestaña que recibió el
+   `401` la tiene (§81.2.6).
+3. Los guards de hoy (`PrivateRouteGuard.tsx:77`, `AdminShell.tsx:70`) siguen mandando a `/login?next=<ruta>`.
+   `AuthForm` (solo `mode === 'login'`) consume la marca al montar y hace
+   `router.replace({ pathname: '/login', query: { next, reason: 'session_max_age' } })` ⇒ el estado queda en el
+   URL como inactividad (recargar lo repinta, §81.2.5). El registro no consume la marca.
+4. `login/page.tsx`: `reason` ⇒ `notice` por tabla (`inactivity`, `session_max_age` ⇒ `sessionMaxAge`); otro valor ⇒ sin aviso.
+5. `AuthForm`: `Banner variant="warning" role="status"` con `auth.sessionMaxAgeLogout` en la posición del de
+   inactividad. Desaparece al **enviar** o al **pulsar Google** (`onClickCapture` en el contenedor del botón, sin
+   tocar `GoogleSignInButton`) y no vuelve en esa visita. Se aplicó también al de inactividad (§81.2.7, recomendado).
+6. `messages/{es,en}.json`: `auth.sessionMaxAgeLogout` bajo `auth.inactivityLogout`, texto verbatim de §81.3.
+
+- **Consecuencia aceptada:** el URL pasa un instante por `/login?next=<ruta>` antes de reescribirse con `reason`
+  (un `replace`, sin entrada en el historial). §81.6 N-2 (refresh que muere en una página pública sin guard):
+  sin redirección, como hoy; si el usuario entra al login en < 10 s ve el aviso (es verdad), después no.
+
+**CSP-5 — reescrita sobre `securitypolicyviolation`** (`e2e/csp.spec.ts`): oyente en `addInitScript`; `antes` =
+eventos `script-src*` con `blockedURI === 'inline'` en `/es/login` tal cual; luego `/es/login` con
+`<script>window.__csp5 = true;</script>` (en línea, sin `src`, sin nonce) inyectado en el HTML; exige `≥ antes + 1`
+y `disposition` `report`/`enforce` según la fase; en `enforce`, `window.__csp5` sin definir. La consola deja de ser oráculo.
+
+⚠ **Desviación medida de la letra de E2-2 paso 3 (solicitud al arquitecto):** E2-2 dice inyectar el `<script>`
+tras cargar la página. Medido con sondas contra `next start` (Chromium del entorno, N=1 por sonda y fase): un
+`<script>` en línea creado por código (`createElement` + `textContent`, desde `page.evaluate` **y** desde un
+`setTimeout` de la página) **no produce ningún evento y se ejecuta** en `report-only` **y en `enforce`**
+(`'strict-dynamic'` le pasa la confianza). La primera versión así escrita salió roja 3/3 en cada fase **sin
+mutación**. El mismo `<script>` en el HTML (del parser) dispara `script-src-elem inline` con `report` / `enforce`
+(y en `enforce` no se ejecuta). Por eso la inyección es en la respuesta HTML; el oráculo es el evento, como pide E2-2.
+Dato para seguridad (no lo cierra frontend): con esta política, un gadget de DOM-XSS que **cree** scripts en línea
+no queda bloqueado por la CSP en este Chromium (NO MEDIDO en otros motores).
+
+**Pruebas nuevas:** `src/lib/api-client.session-max-age.test.ts` (6), `src/components/domain/AuthForm.sessionMaxAge.test.tsx`
+(16: UX-SMA-1…6 + registro + Google + inactividad), `e2e/session-max-age.spec.ts` (`@real`, 4: tienda `/account`,
+panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, necesita el bundle sin mocks).
+
+**Mediciones (autor: frontend; copia del árbol entero `git archive 5ea58917` + este diff):**
+- tsc 0 · lint sin avisos · vitest **223 ficheros (+1 saltado) / 2677 pruebas verdes** (12 saltadas, las de §103.5).
+- Mutaciones unitarias, N=3 cada una, todas **3/3 rojas** y restauradas (sin mutación: verde): M1 ignorar
+  `details` en el interceptor · M2 marcar todo `401` · M3 quitar la rama de `page.tsx` · M4 no ocultar al enviar ·
+  M5a `danger` · M5b `role="alert"` · M6 borrar la clave de `en.json` · M7 el login no consume la marca ·
+  M8 la marca no se borra al leerla · M9 Google no oculta.
+- E2E contra `next start` propio (`:3417`, bundle sin mocks, API ficticia `127.0.0.1:3999`; carga < 8 al arrancar cada corrida):
+  | Build | Spec | Resultado |
+  |---|---|---|
+  | `report-only` | `csp.spec` + `session-max-age.spec`, `--repeat-each 3` | **54/54 verdes** |
+  | `enforce` (`CSP_MODE` cambiado en la copia) | idem | **54/54 verdes** |
+  | `report-only` + `script-src-elem 'unsafe-inline'` | CSP-5 | **5/5 rojas** (paso 4: 0 eventos) |
+  | `enforce` + `script-src-elem 'unsafe-inline'` | CSP-5 | **5/5 rojas** (paso 4: 0 eventos) |
+  | `report-only` + M1 (interceptor ignora `details`) | `session-max-age.spec`, `--repeat-each 3` | UX-SMA-2 tienda **3/3 rojas**, panel **3/3 rojas**; UX-SMA-3 y la recarga EN 6/6 verdes (no dependen de la marca) |
+- Copia borrada al terminar (logs incluidos; los números de arriba son el registro).
+
+### 103.7 LIVE-8 · aviso de privacidad en «modo provisional» (errata v1.84.4, API_CONTRACT §14.17 LIVE-E4; ARCHITECTURE §4.63.14; HECHOS 2026-10-05 sesión 6) — medido 2026-10-05 sobre `77188b5f` + este cambio
+- **Por qué:** el dueño sale sin datos fiscales (HECHOS 2026-10-05 sesión 6, riesgo aceptado por él). El aviso se
+  **publica** (200 en ES/EN, también en producción) sin razón social/RFC/domicilio y con la frase fija.
+- **Texto** (`src/content/legal/privacidad.es.ts`): apartado 1 = los tres párrafos de E4-1, literales
+  (`PROVISIONAL_FISCAL_TEXT` exportada); `OWNER_EMAIL = 'soporte@tcghunt.mx'` (exportada) en §1 y §7. Los 13
+  marcadores no fiscales resueltos según la tabla E4-2, sin inventar datos. Única interpretación: en `:166` la
+  frase original decía «…por el tiempo que exigen las leyes fiscales: **[plazo]**»; se sustituyó la cola entera por
+  «**por el plazo que exigen las disposiciones fiscales aplicables**» (poner solo el sustituto tras los dos puntos
+  repetía la idea). `version = 0.2-provisional-2026-10-05`, `updatedAt = 5 de octubre de 2026` (si F2 cae otro
+  día, se ajusta en ese PR). Skydropx NO se añade (E4-2 `:141`: entra con el lote 2, tras F-SKY).
+- **Modelo:** `PendingOwnerDatum = 'razonSocial' | 'rfc' | 'domicilio'` y `LegalDocument.pendingOwnerData`
+  (hoy los tres). `legal-gate.ts`: `provisionalProblems` (a)/(b)/(c) de E4-3; `privacyVisibility` publica solo
+  si no hay marcadores **y** `provisionalProblems = []`. `MARKER_PATTERNS` intacto. `common.footer.legalEntity`
+  intacto (centinela; `resolveLegalEntity` lo oculta).
+- **Puerta:** `publish-check.ts` → `legalPublishProblems(mode, { doc, messages, siteSources })`, pura. Ambos modos:
+  marcadores, coherencia, `updatedAt`, los siete sitios. Solo final: `pendingOwnerData = []` y `legalEntity` real
+  en es/en. `publish-ready.test.ts` la llama con datos reales: `npm run check:legal:provisional`
+  (`LEGAL_PUBLISH_CHECK=provisional`) y `npm run check:legal` (`=1`, final, sin cambio de significado).
+- **Estado medido hoy:** `check:legal:provisional` **ROJO solo por los sitios 3 y 7** (lotes 2/3, tras F-SKY /
+  F-PNL): E4-3 exige los siete en ambos modos y E4-5 dice que 503–505 no los cubre la excepción. Con los siete
+  sitios (fixture, LEG-P4) el modo provisional da `[]`. `check:legal` (final) **ROJO**: sitios 3 y 7, «faltan
+  P-LEG-1…3: razón social (P-LEG-1), RFC (P-LEG-1), domicilio (P-LEG-2)», `legalEntity (es)` y `(en)`.
+- **Pruebas:** `provisional.test.ts` (LEG-P1…P7); `page.test.tsx` (LEG-P1 de la página: 200 en producción, h1,
+  frase fija, sin `mark` ni corchetes); LEG-4 se queda en `page.markers.test.tsx` con el módulo del aviso
+  sustituido por un fixture con marcadores; LEG-2 y F-7 usan `test-fixtures.ts → privacyNoticeWithMarkers()`.
+  `privacyLinkVisible(env, doc = privacyNoticeEs)`: el segundo argumento solo lo usan las pruebas.
+- **E2E:** `privacy-links.spec.ts` ya no condiciona a `LEGAL_DRAFT_PREVIEW` (el aviso se publica siempre) y añade
+  «/es/privacidad 200 con la frase fija, sin corchetes». Se quitó de `csp.spec.ts` el «con marcadores ⇒ 404»: en
+  el árbol ya no hay aviso con marcadores que servir; lo cubren LEG-4/F-7 con fixtures. ⚠️ Devops: si algún job
+  levanta el server con `LEGAL_DRAFT_PREVIEW=1` para esos specs, ya no hace falta (NO MEDIDO en `scripts/`; `grep`
+  en `scripts/` y `.github/` no encontró la variable).
+- **Mutaciones** (deterministas, N=1 cada una, sobre copia del árbol entero): exigir `pendingOwnerData = []` para
+  `published` → 5 rojas (LEG-P1); saltarse `findLegalMarkers` con pendientes (gate + puerta) → 12 rojas (LEG-P2,
+  LEG-2, LEG-4, F-7); quitar (a) → 2 rojas; quitar (b) → 1 roja (LEG-P3); final con reglas del provisional → 2 rojas
+  (LEG-P4); quitar la guarda (c) → 1 roja (LEG-P5); provisional sin LEG-5 → 8 rojas (LEG-P6); otro correo en §7 →
+  2 rojas (LEG-P7). Restaurado: 88/88 (12 saltadas).
+
+### 103.8 LIVE-8 · enlaces al aviso — lotes 2 y 3: sitio 3 (casilla del invitado) y sitio 7 (pie de `/pedido`) (§14.14 E-9; §14.17 E4-2/E4-3; DESIGN_SYSTEM §80, F-5/F-6) — medido 2026-10-05 sobre `0d3f6b42` + este cambio
+- **Por qué ahora:** F-SKY y F-PNL ya están en `claude/listo-real` (encargo del orquestador; `check:legal:provisional`
+  rojo solo por los sitios 3 y 7, medido por él en `9dc572c4`).
+- **Sitio 3** (`GuestCheckoutForm.tsx`): la etiqueta de la casilla pinta `<PrivacySiteNote site="guestCheckout" as="span" />`
+  (`<span>` porque dentro de `<label>` no cabe un `<p>`). Clave nueva `privacy.sites.guestCheckout` ES/EN, verbatim de
+  §80.3: la frase de antes **sin cambiar una palabra**, con `<terms>`/`<privacy>` (minúsculas, regla 5 de §80.0). Se
+  retira `checkout.guest.acceptTerms` (ES y EN); `acceptTermsRequired` se queda. El resumen de errores
+  (`labelFor('terms')`) usa `t.markup('guestCheckout', privacyPlainTags)`: texto plano de **la misma clave**.
+  `PrivacySiteNote` gana `as?: 'p' | 'span'` y el tipo `PrivacySite`.
+- **Sitio 7** (`pedido/layout.tsx`): `<PrivacyNoticeLink variant="nav">` tras «Términos y políticas», mismas clases,
+  agrupados en una fila `flex-wrap gap-x-6` (como el pie de la tienda); sin página servida no pinta nada.
+- **Aviso** (`privacidad.es.ts`, E4-2 `:141`): fila **Skydropx** en «5. Con quién compartimos» («Nombre de quien
+  recibe, dirección, teléfono y correo» / «Cotizar y generar la guía de envío con la paquetería»), en el mismo cambio
+  que el lote 2. Lo que recibe se leyó en `backend/src/modules/shipping-provider/skydropx.adapter.ts:111-126`
+  (`name`, `street1`…, `phone`, `email`). `updatedAt` sigue «5 de octubre de 2026» (es hoy) y `version` sigue
+  `0.2-provisional-2026-10-05`: E4-2 fija ese valor y `provisional.test.ts` lo vigila; si el arquitecto quiere subirla
+  por la fila nueva, es una línea. «Si ya opera» (criterio 502): NO MEDIDO por frontend; se siguió E4-2.
+- **LEG-5:** el patrón del sitio 3 pasa de «cualquier uso del componente» a `<PrivacySiteNote site="guestCheckout"`;
+  `privacy-sites.test.ts` exige ya los lotes 1, 2 y 3 (cero sitios saltados). `ALL_SITES_OK` de `provisional.test.ts`
+  gana la línea del sitio 3.
+- **Pruebas nuevas:** `checkout/GuestCheckoutPrivacy.test.tsx` (enlaces dentro de la etiqueta en pestaña nueva; frase
+  ES/EN idéntica a la de antes; sin página ⇒ sin enlace al aviso y frase entera; la casilla se sigue marcando; resumen
+  en texto plano sin enlaces anidados) y `pedido/layout.test.tsx` (tras «Términos», misma fila, mismas clases, misma
+  pestaña, ES/EN; sin página ⇒ nada). `PrivacyNoticeLink.test.tsx`: `guestCheckout` entra en UX-PRIV-1/2/5 y en el
+  caso de «Términos». `provisional.test.ts`: lista de proveedores con Skydropx.
+- **E2E (sin correr en este pase, NO MEDIDO):** `guest-checkout`, `checkout-retry` y `address-colonia` marcaban la casilla
+  por el nombre `checkout.guest.acceptTerms` (clave retirada; el nombre accesible ahora incluye «(se abre en otra
+  pestaña)»); pasan a `page.locator('#guest-terms')`.
+- **Medido (copia del árbol entero, `git archive HEAD` + este cambio):** tsc 0; lint sin avisos; vitest 271 ficheros
+  (+1 saltado) / 3418 pruebas verdes, 10 saltadas (antes 12: los dos sitios de lotes 2/3 ya corren).
+  `check:legal:provisional` **rc 0** (9 verdes, 1 saltada). `check:legal` (final) **rc 1**, rojo solo por «faltan
+  P-LEG-1…3» y `legalEntity` (es/en): los sitios 3 y 7 ya no aparecen.
+- **Mutaciones** (deterministas, N=1 cada una, sobre la copia): sitio 3 sin el componente (texto plano en la
+  etiqueta) ⇒ `check:legal:provisional` rc 1 nombrando «sitio 3 · checkout de invitado…: falta el componente del
+  aviso», y 4 rojas en vitest (LEG-5 + 3 de `GuestCheckoutPrivacy`); sitio 7 sin `PrivacyNoticeLink` ⇒
+  `check:legal:provisional` rc 1 nombrando «sitio 7 · pie del seguimiento del invitado», y 3 rojas en vitest (LEG-5 +
+  2 de `pedido/layout.test`). Restaurado: rc 0.
+
+### 103.9 IMPORTANTE-1 de QA (gate de release sobre `c62621e6`): el mock de la cola manda `sealedProductId` en el sellado — medido 2026-10-05 sobre `2e41f36c` + este cambio
+- **Defecto (del mock, no de la conducta):** la fila sellada `inv-1009` de `mockPendingPublish` (`lib/mock/fixtures.ts`)
+  no traía la clave `sealedProductId`. `sealedPieceLinkOf` la leía `'unknown'` y `canEditSealedPiecePrice` cerraba el
+  lápiz, como manda §M11-SP.13.5.1 (falla cerrado). El back real sí la manda (`inventory.service.ts`, `sealedProductId:
+  item.sealedProductId`).
+- **Valor:** `sealedProductId: null`. §M11-SP.13.5: «`productType = 'sealed'` ⇒ la clave está siempre: `string` =
+  ligada, `null` = sin producto». inv-1009 es la ETB sv06 sin ligar (el mock `ppe-sealed-unmapped` ya la trae con `null`).
+  ⛔ `sealed-price-role.ts` sin tocar.
+- **Medido (copia del árbol entero, `git archive HEAD` + este cambio):** tsc 0; lint sin avisos; vitest 271 ficheros
+  (+1 saltado) / 3418 verdes, 10 saltadas. E2E de mocks (build de producción, `E2E_MOCKS=1`, 1 worker):
+  **antes** (HEAD sin el cambio, `-g "Listas para publicar" --repeat-each=10`) `:103` 0/10 y `:125` 0/10 (rojas en
+  `:121` y `:130`, el lápiz «Poner precio de INV-000109»); **después** (`precios-s5.spec.ts` entero, `--repeat-each=10`)
+  90/90 verdes, 10 saltadas (`:306`, `realOnly`); `:103` 10/10 y `:125` 10/10.

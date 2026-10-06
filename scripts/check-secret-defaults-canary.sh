@@ -295,6 +295,46 @@ caso ROJO  "literal ajeno NO neutralizado por el manifiesto" "PAYOUT_SIGNING_SEC
 caso VERDE "literal ajeno SÍ neutralizado (se inventaría)"   "-"                     m_ajeno_neutralizado
 
 # =============================================================================
+# BLOQUE H — P-GL-2 / CL-2: la FORMA DE VALOR de Stripe live, `*.md` incluidos
+# =============================================================================
+# Seguridad (2026-10-05, §3.1): `check-secret-defaults.sh` se salta todos los
+# `*.md` y gitleaks eximía `docs/` por ruta, así que una `sk_live_` pegada en una
+# guía pasaba los dos. Los valores se construyen por concatenación: este fichero
+# no los lleva escritos de una pieza.
+LIVE_SK="sk_live_51$(printf 'Ab3Cd4Ef5Gh6Ij7Kl8Mn9Op0Qr1St2Uv')"
+LIVE_RK="rk_live_51$(printf 'Zy9Xw8Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe')"
+LIVE_WH="whsec_$(printf 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6')"
+m_live_en_docs() {             # ★ el caso exacto: una guía de docs/ con la clave
+  mkdir -p "$1/docs"
+  printf '%s\n' "Pega en Railway: \`$LIVE_SK\`" > "$1/docs/GUIA.md"
+  regenerar "$1"
+}
+m_rk_live_en_md_raiz() {       # PENDIENTES.md / HECHOS.md viven en la raíz
+  printf '%s\n' "Clave restringida: $LIVE_RK" > "$1/NOTA.md"
+  regenerar "$1"
+}
+m_whsec_en_security_toml() {
+  printf '%s\n' "whsec = \"$LIVE_WH\"" > "$1/security/plant.toml"
+  regenerar "$1"
+}
+m_live_en_comentario_compose() {  # los bloques de NOMBRE no miran comentarios; este sí
+  printf '%s\n' "# STRIPE_SECRET_KEY de prod: $LIVE_SK" >> "$1/docker-compose.yml"
+  regenerar "$1"
+}
+m_ficcion_corta_en_docs() {    # VERDE: la ficción que el repo ya cita (< 24 tras el prefijo)
+  mkdir -p "$1/docs"
+  printf '%s\n' 'Ejemplos: `sk_live_deadbeef`, `sk_live_51ClaveRealDelDueno`, `whsec_9f2b7c1d…`, `rk_live_…`.' > "$1/docs/GUIA.md"
+  regenerar "$1"
+}
+
+printf '\n\033[1mBloque H — forma de valor Stripe live, *.md incluidos (P-GL-2)\033[0m\n'
+caso ROJO  "sk_live_ de forma real en docs/*.md"              "docs/GUIA.md:1 — valor con forma de \`sk_live_"        m_live_en_docs
+caso ROJO  "rk_live_ de forma real en un .md de la raíz"      "NOTA.md:1 — valor con forma de \`rk_live_"             m_rk_live_en_md_raiz
+caso ROJO  "whsec_ de forma real en security/*.toml"          "security/plant.toml:1 — valor con forma de \`whsec_"   m_whsec_en_security_toml
+caso ROJO  "sk_live_ en un COMENTARIO de docker-compose.yml"  "docker-compose.yml"                                    m_live_en_comentario_compose
+caso VERDE "la ficción corta que docs/ ya cita"               "-"                                                     m_ficcion_corta_en_docs
+
+# =============================================================================
 # ★ BLOQUE G — EL CASO QUE SE NOS ESCAPÓ
 # =============================================================================
 # Este canario daba 31/31 en verde mientras el gate de dinero no podía arrancar
@@ -493,11 +533,25 @@ limpio_env() {
       -u STRIPE_TEST_WEBHOOK_SECRET -u SECRETS_ENV -u RAILWAY_ENVIRONMENT "$@"
 }
 
+# La `sk_live_` de estos casos tiene que ser una clave que el preflight tome por
+# REAL, o sea NO publicada. Hasta el 2026-10-05 era el literal
+# `sk_live_51ClaveRealDelDueno`. El veredicto de seguridad de ese día lo citó en
+# docs/SECURITY_NOTES.md, el repo es público, y el generador lo metió en el
+# manifiesto, como debe. Desde entonces `hay_stripe_real` la toma por publicada
+# (no real), y G.1/G.2 pasaban por el motivo equivocado: sin clave real no hay
+# nada que exigir. Medido: con el manifiesto regenerado, G.1 y G.2 en rojo y el
+# resto del canario intacto. Ahora se genera AL VUELO en cada corrida: una clave
+# que no está en ningún fichero no puede llegar al manifiesto, la cite quien la cite.
+SK_LIVE_NO_PUBLICADA="sk_live_51$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"
+if grep -q "^$(printf '%s' "$SK_LIVE_NO_PUBLICADA" | sha256sum | cut -d' ' -f1)  " "$ROOT_DIR/security/secretos-publicados.sha256" 2>/dev/null; then
+  bad "La clave live generada al vuelo aparece en el manifiesto: G.1–G.3 no medirían lo que dicen."
+fi
+
 # G.1 — EL PUNTO CIEGO EXACTO QUE MIDIÓ SEGURIDAD.
 # `whsec_e2e_test_secret` no contiene ninguna palabra de PATRONES_PUBLICOS: la
 # heurística de nombres lo dejaba pasar junto a una `sk_live_`. El manifiesto lo
 # rechaza por identidad.
-if limpio_env STRIPE_SECRET_KEY=sk_live_51ClaveRealDelDueno \
+if limpio_env STRIPE_SECRET_KEY="$SK_LIVE_NO_PUBLICADA" \
               STRIPE_WEBHOOK_SECRET=whsec_e2e_test_secret \
               sh "$PRE" assert >/dev/null 2>&1; then
   bad "sk_live_ + \`whsec_e2e_test_secret\` — PASA. Es el punto ciego que midió seguridad, sin cerrar."
@@ -506,7 +560,7 @@ else
 fi
 
 # G.2 — el mismo caso con un valor publicado que NO tiene prefijo `whsec_`.
-if limpio_env STRIPE_SECRET_KEY=sk_live_51ClaveRealDelDueno \
+if limpio_env STRIPE_SECRET_KEY="$SK_LIVE_NO_PUBLICADA" \
               STRIPE_WEBHOOK_SECRET=e2e_access_secret \
               sh "$PRE" assert >/dev/null 2>&1; then
   bad "sk_live_ + un literal publicado del repo (sin prefijo) — PASA."
@@ -516,7 +570,7 @@ fi
 
 # G.3 — un secreto PROPIO tiene que poder pasar. Un candado que siempre cierra no
 # es un candado: es una avería.
-if limpio_env STRIPE_SECRET_KEY=sk_live_51ClaveRealDelDueno \
+if limpio_env STRIPE_SECRET_KEY="$SK_LIVE_NO_PUBLICADA" \
               STRIPE_WEBHOOK_SECRET=whsec_9f2b7c1d4e5a6b8c9d0e1f2a3b4c \
               sh "$PRE" assert >/dev/null 2>&1; then
   ok "sk_live_ + secreto PROPIO (no publicado) — deja arrancar."

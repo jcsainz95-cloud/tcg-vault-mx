@@ -86,7 +86,14 @@ function routeExists(path: string): boolean {
   return ROUTES.some((r) => matches(r, parts));
 }
 
-/** Extrae de un correo las rutas (post-locale) de todo enlace al origen del front. */
+/**
+ * v1.84.4 (`API_CONTRACT §14.17` E4-5): el pie de TODO correo enlaza el aviso de privacidad. No es el
+ * CTA del aviso, así que `linkedPaths` lo aparta; que su ruta exista lo mide «el pie legal» (abajo) y que
+ * esté en cada familia lo mide `mail.privacy-footer.spec.ts`.
+ */
+const PRIVACY_PATH = '/privacidad';
+
+/** Extrae de un correo las rutas (post-locale) de todo enlace al origen del front (sin el pie legal). */
 function linkedPaths(msg: Omit<MailMessage, 'to'>): string[] {
   const escaped = ORIGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`${escaped}/(es|en)(/[^\\s"'<>]*)?`, 'g');
@@ -94,7 +101,7 @@ function linkedPaths(msg: Omit<MailMessage, 'to'>): string[] {
   for (const body of [msg.html, msg.text ?? '']) {
     for (const m of body.matchAll(re)) out.push((m[2] ?? '/').replace(/&amp;/g, '&'));
   }
-  return out;
+  return out.filter((p) => p !== PRIVACY_PATH);
 }
 
 beforeAll(() => {
@@ -119,6 +126,21 @@ describe('el lector del árbol del front (sanidad: sin esto el candado sería va
     expect(routeExists('boveda/envios')).toBe(false);
     expect(routeExists('orders/abc/extra')).toBe(false);
     expect(routeExists(`account/${DYN}`)).toBe(false);
+  });
+});
+
+describe('el pie legal: el enlace «Aviso de privacidad» apunta a una ruta que existe (§14.17 E4-5)', () => {
+  it('`/privacidad` existe en el front y es la que emite el pie', () => {
+    expect(routeExists(PRIVACY_PATH)).toBe(true);
+    const saved = process.env.APP_PUBLIC_URL;
+    process.env.APP_PUBLIC_URL = ORIGIN;
+    try {
+      const html = kycTpl.kycRejectedTemplate({ reason: 'borrosa' }, 'Ash', 'es').html;
+      expect(html).toContain(`href="${ORIGIN}/es${PRIVACY_PATH}"`);
+    } finally {
+      if (saved === undefined) delete process.env.APP_PUBLIC_URL;
+      else process.env.APP_PUBLIC_URL = saved;
+    }
   });
 });
 

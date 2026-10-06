@@ -18,7 +18,6 @@ import { randomUUID } from 'crypto';
 import { Injectable, INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
-import { json } from 'express';
 import Stripe from 'stripe';
 import { PrismaClient } from '@prisma/client';
 import { AppModule } from '../../../src/app.module';
@@ -28,6 +27,7 @@ import { AllExceptionsFilter } from '../../../src/common/filters/all-exceptions.
 import { StripeService } from '../../../src/modules/payments/stripe.service';
 import { PrismaService } from '../../../src/prisma/prisma.service';
 import { applyTrustProxy } from '../../../src/trust-proxy';
+import { applyBodyParsers } from '../../../src/body-parsers';
 
 /**
  * Secreto del webhook usado para firmar/verificar en la suite.
@@ -321,15 +321,8 @@ export class E2EHarness {
     // v1.80 (C7-18): `trust proxy` también — faltaba, y sin él `X-Forwarded-For` no llegaba a `req.ip`.
     applyTrustProxy(app.getHttpAdapter().getInstance());
     app.setGlobalPrefix('api/v1');
-    app.use(
-      '/api/v1/webhooks/stripe',
-      json({
-        verify: (req: any, _res, buf) => {
-          req.rawBody = buf;
-        },
-      }),
-    );
-    app.use(json());
+    // v1.84 (LIVE-7): los parsers salen de la MISMA función que usa main.ts (webhook raw, CSP ≤ 16 KB, JSON).
+    applyBodyParsers(app);
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: false }));
     app.useGlobalFilters(new AllExceptionsFilter());
 

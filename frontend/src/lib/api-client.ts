@@ -1,5 +1,5 @@
 import { config } from './config';
-import { getStoredUser, patchStoredUser, setStoredUser } from './session';
+import { getStoredUser, markSessionMaxAgeLogout, patchStoredUser, setStoredUser } from './session';
 import { buildPasswordChangeRedirect } from './account-routes';
 import type { ApiError, RefreshResponse } from '@/types/contract';
 
@@ -166,7 +166,15 @@ async function refreshTokens(): Promise<TokenPair | null> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
     });
-    if (!res.ok) return null; // 401 → refresh inválido/expirado
+    if (!res.ok) {
+      // 401 → refresh inválido/expirado. LIVE-2 (contrato v1.84 §14.2; DS §81 F-3): el mismo `401
+      // UNAUTHENTICATED` trae `details.reason: 'session_max_age'` cuando se alcanzó el tope absoluto
+      // de la sesión. El cierre es el de siempre (`null` ⇒ `clearClientSession`); el `reason` solo
+      // elige el texto del login, vía una marca de un solo uso (`session.ts`). Sin `reason` ⇒ nada.
+      const body = (await res.json().catch(() => null)) as { error?: ApiError } | null;
+      if (body?.error?.details?.reason === 'session_max_age') markSessionMaxAgeLogout();
+      return null;
+    }
     const payload = (await res.json().catch(() => null)) as Partial<RefreshResponse> | null;
     if (!payload?.accessToken || !payload?.refreshToken) return null;
     setToken(payload.accessToken);

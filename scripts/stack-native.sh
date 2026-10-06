@@ -259,15 +259,26 @@ export JWT_REFRESH_SECRET  # idem
 # (`scripts/s3-local/`, ver su cabecera para qué SÍ y qué NO reproduce de MinIO).
 # Los mismos valores que `.env.example` y `docker-compose.yml`: credenciales de
 # DESARROLLO LOCAL, jamás un secreto real.
-export S3_ENDPOINT="${S3_ENDPOINT:-http://127.0.0.1:9000}"
+# S3-CLON (2026-10-05): el puerto se declara ANTES que el endpoint y el endpoint
+# lo SIGUE. Antes `S3_ENDPOINT` era un literal `:9000`, así que `S3_LOCAL_PORT=9100`
+# levantaba el almacén en :9100 y el backend seguía firmando contra :9000 — la
+# salida documentada para dos clones a la vez no funcionaba. DEVOPS_NOTES §85.6.
+S3_LOCAL_PORT="${S3_LOCAL_PORT:-9000}"
+S3_LOCAL_HOST="${S3_LOCAL_HOST:-127.0.0.1}"
+export S3_ENDPOINT="${S3_ENDPOINT:-http://$S3_LOCAL_HOST:$S3_LOCAL_PORT}"
 export S3_REGION="${S3_REGION:-us-east-1}"
 export S3_BUCKET="${S3_BUCKET:-tcg-photos}"
 export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-minioadmin}"
 export S3_SECRET_ACCESS_KEY  # generado arriba en .native-stack/secrets.env (S-88-1)
 export S3_FORCE_PATH_STYLE="${S3_FORCE_PATH_STYLE:-true}"
 export S3_PUBLIC_BASE_URL="${S3_PUBLIC_BASE_URL:-$S3_ENDPOINT/$S3_BUCKET}"
-S3_LOCAL_PORT="${S3_LOCAL_PORT:-9000}"
-S3_LOCAL_HOST="${S3_LOCAL_HOST:-127.0.0.1}"
+# M-3 (QA, 2026-10-05): la CSP del frontend (`frontend/src/security/csp.ts`) pone en
+# `connect-src` el origen de `NEXT_PUBLIC_UPLOAD_ORIGIN`; sin ella cae al comodín de R2
+# y en local el PUT prefirmado al s3-local sale como violación. El backend firma contra
+# `S3_ENDPOINT` (`uploads.service.ts`, path-style), así que el origen es el de ese
+# endpoint — y SIGUE a `S3_LOCAL_PORT` como el endpoint. Se exporta: `next build`,
+# `next start` y `next dev` lo heredan. Candado: check-stack-upload-origin.sh.
+export NEXT_PUBLIC_UPLOAD_ORIGIN="${NEXT_PUBLIC_UPLOAD_ORIGIN:-$(printf '%s' "$S3_ENDPOINT" | sed -E 's|^(https?://[^/?#]+).*|\1|')}"
 S3_DIR="$SCRIPT_DIR/s3-local"
 
 # --- Stripe: PASO A TRAVÉS, nunca un valor en el repo (§39.1) ----------------
@@ -357,7 +368,47 @@ ASSERT_HEAD="$SCRIPT_DIR/assert-serving-head.sh"
 # `node_modules`, `dist`, `coverage` y `*.log` los excluye el propio assert.
 BACKEND_SOURCE_ARGS=(--source "$BACKEND_DIR/src" --source "$BACKEND_DIR/prisma" --source "$BACKEND_DIR/package.json")
 
-head_sha() { git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo ""; }
+# M-4 (QA, 2026-10-05): QA mide sobre una copia `git archive` (O-9), que NO trae `.git`.
+# Ahí `git rev-parse HEAD` no da nada, el sha esperado salía vacío y `up --gate` moría
+# con un críptico «--sha necesita valor» de assert-serving-head.sh. Ahora:
+#   · con `.git` en ESTE árbol ⇒ HEAD, como siempre (y si además se pasa
+#     STACK_EXPECTED_SHA y NO coincide con HEAD, se aborta: dos verdades, ninguna);
+#   · sin `.git` ⇒ STACK_EXPECTED_SHA (el sha del que salió la copia: quien la hace
+#     lo sabe, p. ej. `STACK_EXPECTED_SHA=$(git rev-parse HEAD)` antes del archive);
+#   · sin `.git` y sin variable ⇒ vacío, y quien necesita el sha (up --gate,
+#     verify:head) para con un mensaje que dice exactamente esto.
+# `[ -e "$ROOT_DIR/.git" ]` y no solo `git rev-parse`: una copia extraída DENTRO de otro
+# repo devolvería el HEAD del repo de fuera — un sha que no es el de la copia.
+# Candado y canario: scripts/check-stack-expected-sha.sh.
+STACK_EXPECTED_SHA="${STACK_EXPECTED_SHA:-}"
+head_sha() {
+  if [ -e "$ROOT_DIR/.git" ]; then
+    git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo ""
+  else
+    printf '%s\n' "$STACK_EXPECTED_SHA"
+  fi
+}
+# Valida la fuente del sha UNA vez, al arrancar `up --gate` / `verify:head`.
+require_expected_sha() {
+  if [ -n "$STACK_EXPECTED_SHA" ]; then
+    case "$STACK_EXPECTED_SHA" in
+      *[!0-9a-f]*) die "STACK_EXPECTED_SHA='$STACK_EXPECTED_SHA' no es un sha (hex en minúsculas)." ;;
+    esac
+    [ "${#STACK_EXPECTED_SHA}" -ge 7 ] || die "STACK_EXPECTED_SHA='$STACK_EXPECTED_SHA' es demasiado corto (mínimo 7)."
+    if [ -e "$ROOT_DIR/.git" ]; then
+      local h; h="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+      case "$h" in
+        "$STACK_EXPECTED_SHA"*) STACK_EXPECTED_SHA="$h" ;;
+        *) die "STACK_EXPECTED_SHA=$STACK_EXPECTED_SHA pero este árbol tiene .git con HEAD=${h:-?}.
+     Con .git manda HEAD; quita la variable o haz checkout de ese sha." ;;
+      esac
+    fi
+  elif [ -z "$(head_sha)" ]; then
+    die "No sé qué commit es este árbol: no hay .git en $ROOT_DIR (¿copia de \`git archive\`?)
+     y STACK_EXPECTED_SHA está vacía. Sin sha esperado no hay aserto de procedencia (SEC-OPS-1).
+     Remedio:  STACK_EXPECTED_SHA=<sha de la copia> ./scripts/stack-native.sh up --gate"
+  fi
+}
 short_sha() { printf '%s' "${1:0:12}"; }
 
 # Hash de ÁRBOL de un directorio en HEAD. Es la identidad del CONTENIDO, no la del
@@ -370,7 +421,13 @@ head_tree() { git -C "$ROOT_DIR" rev-parse --verify --quiet "HEAD:$1" 2>/dev/nul
 # Ficheros de `backend/` con cambios sin commitear. NO es un fallo (aquí se trabaja
 # con el árbol sucio todo el rato); se REGISTRA en el sello para que el siguiente
 # auditor sepa que «HEAD» no cuenta la historia completa.
-dirty_count() { git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '; }
+# Sin `.git` (copia `git archive`) no se puede saber: «?», no «0» (M-4). Mismo criterio
+# que `assert-serving-head.sh`; «?» nunca casa con "0", así que la equivalencia de árbol
+# (que exige árbol limpio) no se concede a ciegas.
+dirty_count() {
+  [ -e "$ROOT_DIR/.git" ] || { echo "?"; return 0; }
+  git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '
+}
 
 # Instante REAL de arranque del proceso que responde en el puerto, derivado de
 # `process.uptime()` que expone `/health` (health.service.ts). Misma derivación que
@@ -419,11 +476,48 @@ s3_alive() {
   [ -n "$code" ] && [ "$code" != "000" ]
 }
 
+# -----------------------------------------------------------------------------
+# S3-CLON (2026-10-05) — «vivo» no es «mío». Medido: `infra-smoke` y
+# `kyc-ine-links` de la rama `claude/arreglos-panel` daban 403 en el PUT
+# presignado del INE porque el s3-local de :9000 era de OTRO clon (`tcg-skyd`):
+# su log tenía 28 × «403 PUT /tcg-photos/kyc_ine/… — la firma NO coincide».
+# Cada clon genera su `S3_SECRET_ACCESS_KEY` (S-88-1) y `start_s3` reutilizaba
+# cualquier cosa que respondiera en el puerto. Ahora, antes de reutilizar, se
+# FIRMA una petición con MIS credenciales (`s3-local/probe-credentials.js`): si
+# el servidor no la acepta, no se reutiliza — se para con el diagnóstico.
+# Lo vigila `scripts/check-s3-local-clone-canary.sh`.
+# -----------------------------------------------------------------------------
+s3_creds_ok() { # rc 0 acepta mis credenciales · 1 otro secreto · 2 no concluyente
+  S3_LOCAL_HOST="$S3_LOCAL_HOST" S3_LOCAL_PORT="$S3_LOCAL_PORT" S3_BUCKET="$S3_BUCKET" \
+    S3_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID" S3_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY" \
+    S3_REGION="$S3_REGION" node "$S3_DIR/probe-credentials.js" >/dev/null 2>&1
+}
+s3_ajeno_die() {
+  local quien="" pid
+  for pid in $(pids_listening_on "$S3_LOCAL_PORT" 2>/dev/null || true); do
+    quien="$quien pid $pid (cwd $(readlink -f "/proc/$pid/cwd" 2>/dev/null || echo '?'))"
+  done
+  die "El object storage de :$S3_LOCAL_PORT está VIVO pero NO acepta las credenciales de
+     este clon ($ROOT_DIR): firma con OTRO secreto — es de otro clon.${quien:+
+     Lo ocupa:$quien.}
+     Cada clon genera su S3_SECRET_ACCESS_KEY (.native-stack/secrets.env), así que el
+     PUT presignado del INE daría 403 SignatureDoesNotMatch (DEVOPS_NOTES §85.6).
+     NO lo apago: no es mío. Usa un puerto propio para este clon:
+       S3_LOCAL_PORT=<libre, p. ej. 9100> ./scripts/stack-native.sh up --infra
+     y el MISMO S3_LOCAL_PORT en test:integration / up (el endpoint lo sigue)."
+}
+
 start_s3() {
   log "Object storage S3 (scripts/s3-local) en :$S3_LOCAL_PORT"
   if s3_alive; then
-    ok "ya respondía en :$S3_LOCAL_PORT (se reutiliza; NO se borra ningún objeto)."
-    return 0
+    s3_creds_ok
+    case $? in
+      0) ok "ya respondía en :$S3_LOCAL_PORT y ACEPTA las credenciales de este clon (se reutiliza; NO se borra ningún objeto)."
+         return 0 ;;
+      1) s3_ajeno_die ;;
+      *) die "Algo responde en :$S3_LOCAL_PORT pero la sonda de credenciales no concluye
+     (¿no es un s3-local?). No lo reutilizo a ciegas. Usa S3_LOCAL_PORT=<libre>." ;;
+    esac
   fi
   if [ ! -d "$S3_DIR/node_modules" ]; then
     log "  instalando dependencias de s3-local (una vez)"
@@ -900,6 +994,14 @@ verify_head() {
   # `degraded` = respondió y coincide, pero la EVIDENCIA no es de calidad de gate
   # (hoy: frontend en `next dev`, que no se puede fechar). Ver el veredicto abajo.
   local rc=0 degraded=0 expected; expected="${1:-$(head_sha)}"
+  # M-4: sin sha esperado, assert-serving-head.sh moría con «--sha necesita valor».
+  # Aquí se dice qué falta y cómo darlo (require_expected_sha ya lo para antes en
+  # `up --gate` y `verify:head`; esto cubre cualquier otro llamador).
+  if [ -z "$expected" ]; then
+    printf '\n\033[1;31m✖ PROCEDENCIA NO VERIFICABLE: no hay sha esperado (sin .git y sin STACK_EXPECTED_SHA).\033[0m\n' >&2
+    printf '  Remedio: STACK_EXPECTED_SHA=<sha de la copia> o verify:head <sha>.\n' >&2
+    return 1
+  fi
 
   "$ASSERT_HEAD" --url "$BACKEND_HEALTH_URL" --label "backend :$BACKEND_PORT" \
       --stamp "$BACKEND_STAMP" --sha "$expected" "${BACKEND_SOURCE_ARGS[@]}" || rc=1
@@ -1240,6 +1342,9 @@ case "${1:-up}" in
     # `FRONTEND_MODE`). Se conserva esa equivalencia y se hace explícita: quien pide
     # frontend HORNEADO está pidiendo un artefacto de gate, con el mismo listón.
     if [ "$FRONTEND_MODE" = "build" ]; then GATE_MODE=1; fi
+    # M-4: un gate sin sha esperado no puede afirmar procedencia. Se para AQUÍ, antes de
+    # minutos de infra y `next build`, con el remedio exacto (copia sin .git).
+    if [ "${GATE_MODE:-0}" = 1 ]; then require_expected_sha; fi
     [ -d "$BACKEND_DIR" ] || die "No existe $BACKEND_DIR."
     start_infra
     # D-g (techlead): `[ cond ] && cmd` bajo `set -e` sólo es seguro por su POSICIÓN
@@ -1432,6 +1537,13 @@ case "${1:-up}" in
      El smoke de infraestructura exige el PUT presignado del INE; sin almacén, antes se
      SALTABA en silencio y la suite salía verde. Ahora se para aquí, a la vista.
      Levántalo:  ./scripts/stack-native.sh up --infra"
+      # S3-CLON: vivo no basta, tiene que aceptar MIS credenciales (si no, 403 en el PUT).
+      s3_creds_ok
+      case $? in
+        0) : ;;
+        1) s3_ajeno_die ;;
+        *) die "La sonda de credenciales contra :$S3_LOCAL_PORT no concluye. NO corro un gate a ciegas." ;;
+      esac
       ok "E2E_STRICT_INFRA=true: Redis y el PUT presignado del INE NO se pueden saltar."
     else
       warn "E2E_STRICT_INFRA=$E2E_STRICT_INFRA: el smoke de infra PUEDE saltarse Redis y el"
@@ -1527,6 +1639,7 @@ case "${1:-up}" in
       esac
     done
     log "Verificación de procedencia del stack vivo (SEC-OPS-1)"
+    [ -n "$VH_SHA" ] || require_expected_sha
     verify_head "$VH_SHA"
     ;;
   status)

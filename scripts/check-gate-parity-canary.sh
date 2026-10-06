@@ -69,6 +69,11 @@ printf '\n\033[1m== ¿La paridad I-PP5 TUMBA el gate? (canario del §48.1) ==\03
 SANDBOX="$(mktemp -d)"
 trap 'rm -rf "$SANDBOX"' EXIT
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/backend" "$SANDBOX/frontend"
+# M-4 (2026-10-05): `up --gate` exige saber qué commit sirve, y este sandbox no tiene
+# `.git` — es justo la copia sin historia que M-4 cubre. Se le da el sha como lo haría
+# QA (un valor fijo de ficción: aquí no se compara contra ningún HEAD). Sin esto los
+# casos de gate morirían por «No sé qué commit», no por la paridad que se prueba.
+export STACK_EXPECTED_SHA=0000000ca7a71
 
 # -----------------------------------------------------------------------------
 # 1. COPIA NEUTRALIZADA. Se sustituye el CUERPO de las funciones que arrancan

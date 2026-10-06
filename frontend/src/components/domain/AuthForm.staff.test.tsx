@@ -113,6 +113,9 @@ describe('UX-2 = STF-16 · los enlaces no dependen de lo tecleado', () => {
     expect(pristine).toEqual([
       'a:/forgot-password:¿Olvidaste tu contraseña?',
       'google',
+      // LIVE-8 · sitio 2b (DESIGN_SYSTEM §80.2): la leyenda de Google trae «Términos» (pestaña nueva). El
+      // enlace al aviso no aparece aquí porque este render no tiene proveedor ⇒ texto sin enlace.
+      'a:/terminos:Términos (se abre en otra pestaña)',
       'a:/register:¿No tienes cuenta? Regístrate',
     ]);
 

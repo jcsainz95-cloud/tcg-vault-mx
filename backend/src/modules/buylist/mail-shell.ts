@@ -501,6 +501,62 @@ export function appUrl(path: string, locale?: string | null): string | undefined
   return rel ? `${origin}/${l}/${rel}` : `${origin}/${l}`;
 }
 
+/**
+ * ⭐ v1.84.4 (`API_CONTRACT §14.17` E4-5, criterio 507, `PROJECT §LEG.3`) — **el enlace «Aviso de
+ * privacidad» del pie de TODOS los correos, decidido UNA vez.** Lo consumen los pies que existen hoy:
+ * {@link mailShell} (avisos y buylist), el `layout` de `mail/mail.templates.ts` (verificación,
+ * contraseña, bloqueo), el de `orders/mail/guest-order.templates.ts` (invitado) y el correo de
+ * reposición. *Un pie que no lo llame es exactamente el correo que sale sin aviso*: lo vigila
+ * `test/mail.privacy-footer.spec.ts` (render de cada familia + barrido de `src/`).
+ *
+ * **URL:** `<origen público>/es/privacidad`, literal del contrato (el aviso es un documento en español;
+ * el EN lleva la etiqueta traducida y el mismo destino). **Origen:** `APP_PUBLIC_URL` (vía {@link appUrl},
+ * la base de los avisos) y, si falta, el **primer** origen de `APP_BASE_URL` — la base de los enlaces de
+ * verificación/contraseña/invitado (`auth.service.ts`, `guest-order-mail.service.ts`). DEVOPS §35 exige
+ * que sean iguales; el respaldo hace que un correo legal no pierda el enlace porque falte el *override*.
+ * **Sin ninguno ⇒ `undefined`** y el pie dice la dirección como texto (⛔ jamás un `href` a medias).
+ */
+export function privacyNoticeUrl(): string | undefined {
+  const url =
+    appUrl('privacidad', 'es') ??
+    (() => {
+      const base = (process.env.APP_BASE_URL ?? '').split(',')[0].trim().replace(/\/+$/, '');
+      return base ? `${base}/es/privacidad` : undefined;
+    })();
+  return url && isSafeMailUrl(url) ? url : undefined;
+}
+
+/** La etiqueta del enlace (criterio 507: «Aviso de privacidad»). */
+export function privacyNoticeLabel(locale: 'es' | 'en'): string {
+  return locale === 'en' ? 'Privacy notice' : 'Aviso de privacidad';
+}
+
+/**
+ * El fragmento HTML del enlace, ya escapado: `<a href>` si hay origen; si no, la etiqueta y la
+ * dirección pública como texto (`tcghunt.mx/es/privacidad`). `style` lo pone cada pie (colores suyos).
+ */
+export function privacyNoticeHtml(locale: 'es' | 'en', style: string): string {
+  const label = escapeHtml(privacyNoticeLabel(locale));
+  const url = privacyNoticeUrl();
+  return url
+    ? `<a href="${escapeHtml(url)}" style="${style}">${label}</a>`
+    : `${label}: ${escapeHtml(`${BRAND_SITE}/es/privacidad`)}`;
+}
+
+/**
+ * La fila del aviso en el esqueleto de §31: letra chica sobre **papel**, justo encima de la banda de
+ * tinta. ⚠️ **No va DENTRO de la banda a propósito:** §31.6h prohíbe ahí todo lo que el lector
+ * necesite (es la superficie que degrada en modo oscuro) y el aviso es un deber legal, no adorno —
+ * candado N2 de `buylist.mail-shell.spec.ts` («el pie en tinta no lleva `<a `») intacto.
+ */
+function privacyRow(locale: 'es' | 'en'): string {
+  return padded(
+    table(
+      `<tr>${td(PAPER, `font-family:${SANS};font-size:12px;line-height:1.5;${LH};color:${MUTED}`, privacyNoticeHtml(locale, `color:${MUTED};text-decoration:underline`))}</tr>`,
+    ),
+  );
+}
+
 /** Letra chica: sans **13px** (§31.4: «letra chica» es una jerarquía, no un tamaño ilegible). */
 export function smallPrintRow(text: string): string {
   return padded(
@@ -554,6 +610,13 @@ export interface MailShellOptions {
   blocks: string[];
   /** §31.6h — **la única línea variable del pie**; el resto es idéntico en los ocho. */
   footerWhy: string;
+  /**
+   * v1.84.5 (`API_CONTRACT §14.18` E5-1/E5-2) — a quién va el correo. `'staff'` ⇒ **sin** la fila «Aviso de
+   * privacidad» (ni su `spacerRow(16)`): solo para correos cuyos destinatarios salen **por construcción** de cuentas
+   * de personal (hoy, únicamente AVG-1/2/3 de `spend-alert.mail.ts`; PRIV-6 lo vigila). ⛔ El defecto es
+   * `'customer'` a propósito: olvidar el campo deja el enlace legal puesto, nunca lo quita en silencio.
+   */
+  audience?: 'customer' | 'staff';
 }
 
 /**
@@ -591,6 +654,7 @@ export function mailShell(opts: MailShellOptions): string {
     brandRows() +
       opts.blocks.join('') +
       spacerRow(32) +
+      (opts.audience === 'staff' ? '' : privacyRow(opts.locale) + spacerRow(16)) +
       footerRows(footerDescriptor(opts.locale), contacto, opts.footerWhy),
     `width="600" style="width:100%;max-width:600px"`,
   );
