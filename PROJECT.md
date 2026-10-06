@@ -9066,6 +9066,178 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
   «Disputas…» y 2026-10-05 «Términos tras quitar disputas…») y se pueden aplicar ya; T-1/T-2/T-3 esperan P-LEG-6
   (o su default) (criterio 510).
 
+### WSH. Lista de deseos por cuenta y «lista de compra casi segura» del dueño (transversal — NUEVO 2026-10-06, sesión 6 · ⚠️ BORRADOR de product-owner, con preguntas P-WSH abiertas)
+
+> **De dónde sale.** Pendiente **P-WSH** = `PENDIENTES.md` fila **P-WISHLIST**. Palabras del dueño (2026-10-06): *«que
+> cada cuenta tenga su wishlist para que le avisemos cuando se las consiga, y a mí de una lista de compra cuasi
+> segura»*. Reglas que ya dio (`HECHOS.md` fila 81, 2026-10-06, «Lista de deseos (P-WISHLIST) — reglas del dueño»):
+> *«la condición siempre es near mint, el acabado sí lo necesito. Creo aquí necesito también que pongan precio máximo
+> a pagar como porcentaje arriba de mercado 5% 10% 16% porque si la quiero comprar nadie me la venderá abajo. Solo a
+> menos que me salgan baratas»*. **Esas reglas no se re-preguntan.**
+> **Qué existe hoy (medido por el orquestador el 2026-10-06 sobre `claude/buylist-skydropx`, `PENDIENTES.md` fila
+> P-WISHLIST):** solo el «avísame cuando vuelva» **de sellados** (`SealedRestockSubscription`; correo en
+> `catalog/sealed-restock-notify.service.ts`), que sigue **apagado para el cliente** (§K, criterio **64**). No hay
+> lista de deseos de cartas sueltas ni por cuenta (`grep -i wishlist` en `backend/src` y `frontend/src` = 0).
+> Lo que sigue fija el **QUÉ**; el **CÓMO** (tablas, trabajos en segundo plano, forma del contrato) es del arquitecto,
+> y la forma de pantallas y el texto del correo son de ux-ui.
+
+#### WSH.1 Qué se puede desear
+
+- Una **carta suelta** del catálogo **+ un acabado** (Normal, Reverse Holo, Holo, 1st Edition…), elegido de entre los
+  **acabados que esa carta tiene de verdad** (§I, `availableFinishes`). Una misma carta en dos acabados son **dos
+  deseos** distintos.
+- **Condición: siempre Near Mint**; el cliente **no la elige** (`HECHOS.md` fila 81, punto 1).
+- **Un porcentaje máximo** sobre mercado, a elegir entre **5 %, 10 % o 16 %** (`HECHOS.md` fila 81, punto 3). El
+  servidor solo acepta esos tres valores; nunca recibe pesos del cliente (SEC-A1, §I).
+  *(SUPUESTO: la pantalla preselecciona **10 %**; el cliente puede cambiarlo.)*
+- **Cantidad: una pieza** por deseo. *(SUPUESTO: nadie pidió «quiero 3 copias».)*
+- **Solo cuentas.** Un invitado ve el botón y se le invita a entrar o crear cuenta (el dueño dijo «cada cuenta»).
+- **Tope por cuenta: 20 deseos** — *default del orquestador, pregunta P-WSH-4*. Al llegar al tope, el botón explica
+  que hay que quitar uno.
+- **Fuera:** cartas **gradeadas** (el deseo es de una carta NM sin gradear) y cartas en **español, japonés o con sello
+  de torneo** — esos productos salen **después** de cobrar en real (`HECHOS.md` fila 77, 2026-10-06, «CAMBIO de
+  alcance: se sale en vivo SIN español ni sellos…»). *(SUPUESTO: al llegar §IDS se decide si un deseo puede pedir
+  idioma.)*
+- **Sellados:** ver WSH.7 (ya existe su propio «avísame», apagado).
+
+#### WSH.2 Dónde se agrega y se quita
+
+- **En la ficha de la carta:** botón «Agregar a mi lista de deseos» con selector de acabado y de porcentaje. Si ya la
+  tiene en la lista con ese acabado, el botón dice que ya está y permite **cambiar el porcentaje** o **quitarla**.
+- **En «Mi cuenta» → «Mi lista de deseos»:** la lista con, por cada deseo: carta, set y número, acabado, porcentaje,
+  **«tu máximo de hoy»** en pesos (ver WSH.3), si **hay piezas a la venta ahora mismo** (con enlace a la ficha), y la
+  fecha del último aviso que se le mandó. Desde ahí puede **cambiar el porcentaje** y **quitar**.
+- **Se quita sola** cuando esa cuenta **paga** una pieza de esa misma carta y acabado. *(SUPUESTO: evita que le sigan
+  llegando avisos de algo que ya compró.)*
+- Si la cuenta se borra o se anonimiza (§LEG.1), su lista se borra.
+
+#### WSH.3 Cómo el porcentaje se vuelve un precio máximo
+
+- **Fórmula:** máximo = **precio de mercado del acabado** (el mismo que alimenta la curva de §N, en pesos) × (1 + %).
+- **Se calcula al AVISAR, no al guardar.** El mercado cambia todos los días; el máximo que cuenta es el del **día en
+  que entra la pieza**. En «Mi cuenta» se muestra el máximo **de hoy**, marcado como aproximado («se recalcula con el
+  mercado del día en que la consigamos»).
+- **Sin precio de mercado** (la variante está en «precio pendiente», §N.2) **no hay máximo**: no se calcula ni se
+  inventa; la carta sigue en la lista y se muestra «sin precio de mercado por ahora».
+- **⚠️ ¿El máximo lleva IVA dentro o no?** — **pregunta P-WSH-2**, y no es un detalle. La tienda exhibe precios con
+  IVA dentro (§Q). Si el 5 % se leyera **con IVA dentro**, el máximo sin IVA quedaría en mercado × 1.05 / 1.16 ≈
+  **0.905 × mercado**: comprando a mercado **perderías ~9.5 %** (10 % ⇒ pierdes ~5 %; 16 % ⇒ margen 0). Por eso la
+  recomendación es que el % se aplique **antes de IVA**, y que la pantalla le muestre al cliente el máximo **ya con IVA
+  dentro**, para que no haya sorpresa al pagar. *(Cálculo con IVA 16 % y traslación 100 %, §Q.0.)*
+- **El máximo es solo intención** — *default del orquestador, pregunta P-WSH-3*: **no aparta**, no cobra, no pide
+  tarjeta ni depósito, y el cliente puede quitarla cuando quiera.
+
+#### WSH.4 El aviso por correo («ya la tenemos»)
+
+- **Cuándo:** cuando una pieza de esa carta, ese acabado y **Near Mint** queda **a la venta en la tienda** (con precio
+  publicado, no «precio pendiente»), venga de captura de inventario o del buylist.
+- **A quién:** a **todas** las cuentas que la tienen en su lista — sujeto a la regla de precio de **P-WSH-1** (abajo).
+  Solo a cuentas con **correo verificado**. *(SUPUESTO.)* En el idioma de la cuenta.
+- **⚠️ P-WSH-1 — la regla de precio, con su cuenta hecha.** Default del orquestador: **(a) se avisa solo si el precio
+  de la pieza ≤ el máximo del cliente.** Con los diales iniciales de la curva (§N.2: markup **1.60×** hasta $25 de
+  mercado, baja a **1.15×** desde $80, redondeo hacia arriba), el precio normal **sin IVA** queda así frente a los tres
+  máximos (también sin IVA):
+
+  | Mercado | Precio normal sin IVA | Máx. 5 % | Máx. 10 % | Máx. 16 % | ¿Quién recibiría aviso con (a)? |
+  |---|---|---|---|---|---|
+  | $25 | $40 | $26.25 | $27.50 | $29 | **nadie** |
+  | $50 | $70 | $52.50 | $55 | $58 | **nadie** |
+  | $100 | $115 | $105 | $110 | $116 | solo quien eligió **16 %** |
+  | $500 | $575 | $525 | $550 | $580 | solo quien eligió **16 %** |
+  | $101 | $120 | $106.05 | $111.10 | $117.16 | **nadie** (el redondeo hacia arriba la salta) |
+
+  Es decir: con (a), **una carta de menos de ~$95 de mercado nunca dispara aviso**, y arriba de eso solo el 16 %, **y
+  no siempre** (depende del redondeo). Si
+  además el máximo se leyera con IVA dentro (P-WSH-2), **nadie** recibiría aviso nunca. *(Cálculo sobre los diales
+  iniciales documentados en §N.2; **NO MEDIDO** contra los diales vivos de producción — lo cierra leer M2 en
+  producción.)* Alternativa recomendada: **(b) avisar siempre**, diciendo en el correo el precio y si cabe o no en su
+  máximo — ver P-WSH-1.
+- **Una vez por pieza y por cuenta.** Si esa pieza se aparta en un carrito y vuelve a estar libre, **no** se repite.
+  Si llega **otra** pieza de la misma carta, sí hay aviso nuevo.
+- **Sin spam:** varias coincidencias cercanas en el tiempo (p. ej. el dueño captura 200 cartas de golpe) van en **un
+  solo correo**; y **tope de 3 correos por cuenta al día**. Lo que pase del tope va junto en un correo al día
+  siguiente, **si la pieza sigue a la venta**. *(SUPUESTO: «3 al día» y la ventana de agrupado son diales de M10; la
+  ventana la fija el arquitecto.)*
+- **Si el cliente agrega una carta que ya está a la venta**, no se le manda correo por esa pieza (ya la está viendo).
+- **Qué dice el correo** (redacción final de ux-ui, español e inglés): la carta, su acabado y foto; el precio con IVA
+  dentro; su máximo de ese día; **enlace a la ficha**; la frase clara **«no te la apartamos: si varias personas la
+  esperan, se la lleva quien pague primero»**; un enlace **«quitar esta carta de mi lista»** y otro **«dejar de
+  recibir estos avisos»**; y el pie con el enlace al aviso de privacidad (criterio 507).
+- **Dos personas esperan la misma carta:** **todas** reciben el aviso al mismo tiempo; **no** hay turno ni apartado;
+  **el primero que paga se la lleva** (el carrito y el pago funcionan como hoy). A los demás no se les manda «ya se
+  vendió»; su deseo sigue activo para la próxima pieza. *(SUPUESTO.)*
+- **No va en la campana** (§R): no es algo que el cliente tenga que hacer. Es solo correo.
+
+#### WSH.5 ¿Este correo pide consentimiento o enlace para darse de baja?
+
+- **Consentimiento:** el cliente lo **pide él mismo** al agregar la carta (junto al botón se lee «te avisaremos por
+  correo cuando la consigamos»). Es la misma lógica del «avísame» de sellados, que **ya es opt-in** (fuera de alcance
+  de §R). No hace falta una casilla aparte. *(SUPUESTO; lo confirma el abogado.)*
+- **Enlace para dejar de recibir: SÍ, obligatorio en cada correo.** Aunque lo haya pedido, es un correo **sobre
+  productos a la venta**, y debe poder pararlo **sin entrar a su cuenta**: «quitar esta carta» y «dejar de recibir
+  avisos de mi lista» (este segundo **pausa los correos** pero conserva la lista, y se reactiva en «Mi cuenta»).
+  ⚠️ Esto **no** abre el centro de preferencias que §R dejó fuera («Preferencias de aviso del cliente… nadie lo
+  pidió»): es un solo interruptor, solo de estos avisos.
+- **Aviso de privacidad:** la lista de deseos es un dato nuevo y **un uso nuevo**: la lista de compra del dueño
+  **usa lo que la gente quiere para decidir qué comprar**, que es justo el ejemplo de **P-LEG-8**. El aviso (§LEG.1
+  tabla y §LEG.2 puntos 2–4) tiene que decirlo **antes** de encender esto — pregunta **P-WSH-6**. ⛔ product-owner no
+  da asesoría legal: lo revisa el abogado del dueño con el resto de §LEG.
+
+#### WSH.6 La vista del dueño: «Lista de compra casi segura»
+
+- **Quién la ve:** solo el **súper-admin** (lleva márgenes, y el operador no ve finanzas — «Usuarios y roles»).
+  Vive en el back-office junto a Reportes (M9). *(SUPUESTO: el lugar exacto lo decide ux-ui.)*
+- **Qué lista:** cada **carta + acabado** que al menos una cuenta desea y de la que **no hay ninguna pieza a la
+  venta** ahora mismo.
+- **Columnas** (pesos, **sin IVA** en todo lo que es margen — el IVA no es tuyo):
+  1. Carta, set, número, acabado.
+  2. **Cuentas que la esperan** (total) y cuántas en **5 % / 10 % / 16 %**.
+  3. **Precio de mercado hoy.**
+  4. **Tu precio normal de venta hoy** (lo que pondría la curva de §N).
+  5. **Máximo que pagarían:** el más bajo y el más alto entre quienes la esperan.
+  6. **Cuántas pagan tu precio normal** (su máximo ≥ tu precio normal). Estas son las ventas **«casi seguras»**.
+  7. **Margen estimado si la compras a mercado** = precio de venta esperado − mercado (`HECHOS.md` fila 81, punto 4).
+  8. **Margen estimado si te llega por buylist** = precio de venta esperado − lo que el buylist pagaría hoy por ella
+     (curva de compra de §N).
+  - «Precio de venta esperado» = tu precio normal si al menos una cuenta lo paga; si ninguna, el máximo más alto,
+    marcado **«solo si la vendes a su máximo»**. *(SUPUESTO; depende de P-WSH-1.)*
+- **Orden por defecto:** primero las que más cuentas pagan tu precio normal, luego más cuentas esperando, luego mayor
+  margen. Se puede ordenar por cualquier columna.
+- **Sin precio de mercado:** la fila aparece al final con «sin precio de mercado» y sin márgenes.
+- **Exportable** a archivo, con las mismas columnas, igual que los otros exportables del admin.
+- **Privacidad: el dueño ve CONTEOS, no quién.** Ni correo ni nombre en pantalla ni en el archivo. Motivo: para
+  decidir qué comprar basta el conteo, y así la lista no es un dato personal que se pueda filtrar. *(Si algún día
+  quiere escribirle a alguien en particular, es alcance nuevo y toca el aviso de privacidad.)*
+
+#### WSH.7 Cómo convive con el «avísame cuando vuelva» de sellados
+
+- Hoy son **dos cosas distintas**: el «avísame» es de **sellados** que **se agotaron**, y está **construido pero
+  apagado** (§K, criterio 64). La lista de deseos es de **cartas sueltas**, incluso de las que la tienda **nunca ha
+  tenido**.
+- **Default:** la lista de deseos es **solo de cartas sueltas**; el sellado se queda con su «avísame», sin cambio y
+  apagado. Las reglas de `HECHOS.md` fila 81 (Near Mint, acabado, % sobre mercado) son de carta y **no** se le
+  aplican al sellado. Si se enciende, va en la pregunta **P-WSH-5** (el pendiente original sí menciona «cartas
+  sueltas y sellados»).
+
+#### WSH.8 Dependencias
+
+- **P-ANALYTICS-NEGOCIO** (otra rama): sus «sugerencias de recompra» pueden **leer** el conteo de deseos de esta
+  sección. Aquí **no** se diseña: solo se deja dicho que el conteo por carta + acabado es el dato que compartirían.
+- **P-DB-LIMPIEZA:** la lista nace vacía; no hay datos de prueba que limpiar de ella.
+- **§LEG / P-LEG-8:** el aviso de privacidad tiene que cubrir este uso antes de encenderlo (WSH.5).
+
+#### WSH.9 Fuera de alcance de §WSH
+
+- Apartar, cobrar o pedir depósito por un deseo (salvo que el dueño responda distinto a P-WSH-3).
+- Turnos o prioridad entre quienes esperan la misma carta («el primero en la lista se la lleva»).
+- Un precio especial para quien la esperaba (precio por cliente o por pieza): toca la curva de §N, que es LOCKED;
+  solo entra si el dueño lo pide en P-WSH-1.
+- Deseos de cartas gradeadas, en otro idioma o con sello; cantidades mayores a una.
+- Avisos por WhatsApp, SMS o push; aviso de «ya se vendió»; aviso cuando **baja** el precio de una pieza que ya
+  estaba a la venta.
+- Que el dueño vea **quién** desea qué.
+- Listas públicas o compartibles entre clientes.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §Z (control del gasto)** *(2026-10-04)*: avisos por **SMS o WhatsApp**; avisos o correos **al personal**;
   **aprobación previa del dueño guía por guía** como camino normal (el freno es el tope y el interruptor general);
@@ -13262,6 +13434,72 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
    cifrada», T-10), se corrige **el texto** o se enruta el cambio de sistema al arquitecto — nunca se publica la
    promesa sin la conducta.
 
+**Lista de deseos y «lista de compra casi segura» (§WSH — BORRADOR 2026-10-06; los marcados «P-WSH-n» dependen de
+esa respuesta y se re-miden al tenerla)**
+
+800. **Agregar desde la ficha** *(§WSH.1–2)*: un cliente con sesión, en la ficha de una carta, agrega un deseo
+   eligiendo **solo** entre los acabados que esa carta tiene y entre **5 %, 10 % o 16 %**; no hay selector de
+   condición (siempre Near Mint). El deseo aparece en «Mi cuenta → Mi lista de deseos».
+801. **El servidor no se deja engañar** *(§WSH.1)*: una petición con un porcentaje distinto de 5/10/16, con un acabado
+   que la carta no tiene, con un precio en pesos o con una condición, se **rechaza**; nada de eso se guarda.
+802. **Invitado** *(§WSH.1)*: sin sesión, el botón lleva a entrar o crear cuenta; el servidor rechaza crear un deseo
+   sin cuenta.
+803. **Tope por cuenta** *(P-WSH-4, default 20)*: con 20 deseos, el 21.º se rechaza en pantalla y en el servidor con
+   un mensaje que dice cómo liberar lugar; al quitar uno se puede agregar otro.
+804. **Misma carta, dos acabados = dos deseos**; la misma carta con el mismo acabado no se duplica (el segundo intento
+   ofrece cambiar el porcentaje).
+805. **Mi lista de deseos** *(§WSH.2)*: muestra por deseo carta, set, número, acabado, porcentaje, «tu máximo de
+   hoy» marcado como aproximado, si hay piezas a la venta ahora (con enlace), y la fecha del último aviso; permite
+   cambiar porcentaje y quitar. Una cuenta **no** puede ver ni tocar la lista de otra (prueba con dos cuentas).
+806. **Máximo calculado al avisar** *(§WSH.3)*: con un deseo guardado al 10 % y el mercado cambiado después, el máximo
+   que usa el aviso y el que aparece en el correo salen del **mercado del día del aviso**, no del día en que se guardó.
+807. **Sin mercado no hay máximo** *(§WSH.3)*: si la variante está en «precio pendiente», la lista muestra «sin precio
+   de mercado por ahora» y no aparece ningún máximo en pesos ni MX$0.
+808. **IVA del máximo** *(P-WSH-2)*: el máximo se calcula sobre el precio sin IVA (o con IVA, según la respuesta) y la
+   pantalla muestra al cliente la cifra con IVA dentro; QA lo comprueba con una carta de mercado conocido.
+809. **El aviso sale cuando debe** *(§WSH.4)*: al publicar a la venta una pieza Near Mint de esa carta y acabado (por
+   captura de inventario **y** por una pieza de buylist), las cuentas que la desean reciben el correo según la regla
+   de P-WSH-1. Una pieza en «precio pendiente», gradeada o de otro acabado **no** dispara correo.
+810. **Una vez por pieza** *(§WSH.4)*: la misma pieza apartada en un carrito y liberada no genera un segundo correo; una
+   segunda pieza de la misma carta sí genera uno nuevo.
+811. **Agrupado y tope diario** *(§WSH.4)*: al capturar de golpe 5 cartas que una cuenta desea, recibe **un** correo con
+   las 5, no cinco; y una cuenta nunca recibe más de **3** correos de lista de deseos en un día (dial). Lo que pasó del
+   tope llega al día siguiente solo si la pieza sigue a la venta.
+812. **Deseo de algo que ya está a la venta** *(§WSH.4)*: agregar una carta que ya tiene piezas a la venta no manda
+   correo por esas piezas.
+813. **El correo dice lo que tiene que decir** *(§WSH.4–5)*: carta, acabado, foto, precio con IVA dentro, máximo del
+   día, enlace a la ficha que abre la carta correcta, la frase «no te la apartamos; se la lleva quien pague primero»,
+   «quitar esta carta de mi lista», «dejar de recibir estos avisos» y el enlace al aviso de privacidad; en el idioma
+   de la cuenta (español e inglés con paridad). Solo se envía a correos verificados.
+814. **Los enlaces de baja funcionan sin entrar** *(§WSH.5)*: «quitar esta carta» la quita; «dejar de recibir»
+   detiene **todos** los correos de la lista de deseos de esa cuenta y conserva la lista; ninguno de los dos pide
+   contraseña ni sirve para tocar la lista de otra cuenta (un enlace alterado no hace nada). Se reactiva desde «Mi
+   cuenta».
+815. **Nada se aparta** *(§WSH.4, P-WSH-3)*: dos cuentas desean la misma carta; entra una pieza; **ambas** reciben el
+   correo; la primera que paga se la lleva; la segunda ve la carta como no disponible y su deseo sigue activo. Ningún
+   deseo crea apartado, cargo ni retención en Stripe.
+816. **Se quita sola al comprarla** *(§WSH.2)*: cuando la cuenta paga una pieza de esa carta y acabado, el deseo
+   desaparece de su lista y no recibe más avisos por él.
+817. **Borrar la cuenta borra la lista** *(§WSH.2)*: tras el borrado o anonimización del súper-admin, la cuenta no
+   tiene deseos y sus deseos dejan de contar en la lista de compra.
+818. **Lista de compra casi segura — acceso** *(§WSH.6)*: la ve el súper-admin; el operador y un cliente reciben
+   «sin permiso» en pantalla y en el servidor.
+819. **Lista de compra — contenido** *(§WSH.6)*: incluye solo carta + acabado deseados **sin** piezas a la venta; por
+   fila muestra cuentas que la esperan (total y por 5/10/16), mercado de hoy, precio normal de venta de hoy, máximo
+   más bajo y más alto, cuántas pagan el precio normal, margen comprando a mercado y margen comprando por buylist,
+   todo sin IVA. QA comprueba una fila a mano con mercado y diales conocidos.
+820. **Orden y casos sin mercado** *(§WSH.6)*: el orden por defecto es «cuántas pagan tu precio» ↓, luego «cuentas
+   que la esperan» ↓, luego margen ↓; se puede ordenar por cualquier columna; las cartas sin mercado van al final
+   sin márgenes.
+821. **Sin datos personales** *(§WSH.6)*: ni la pantalla ni el archivo exportado contienen correo, nombre ni
+   identificador de cliente; solo conteos.
+822. **Exportable** *(§WSH.6)*: el archivo trae las mismas filas y columnas que la pantalla con el orden activo.
+823. **Sellados sin cambio** *(§WSH.7, salvo P-WSH-5)*: el «avísame cuando vuelva» de sellados sigue como dice el
+   criterio 64; la ficha de un sellado no muestra el botón de lista de deseos.
+824. **Aviso de privacidad al día** *(§WSH.5, P-WSH-6)*: antes de encender la lista de deseos, el aviso menciona el
+   dato (qué cartas quiere el cliente) y su uso (avisarle y decidir qué comprar, sin su nombre); el criterio 502 se
+   amplía a recorrer también el botón de la lista de deseos.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
@@ -17447,3 +17685,35 @@ ese frente:**
   cambio es de fondo** (nuevos usos o nuevos destinatarios); los cambios menores, solo con la fecha en la página.
 - **P-LEG-14 · ¿Publicamos también el aviso en inglés?** La tienda tiene versión en inglés. Default: **sí, traducido,
   y la versión en español es la que vale** si difieren.
+
+## Preguntas — lista de deseos y «lista de compra casi segura» (§WSH, 2026-10-06, sesión 6) — ABIERTAS
+
+> Lo que ya dijiste **no se pregunta** (`HECHOS.md` fila 81, 2026-10-06): siempre Near Mint, el acabado sí se elige, y
+> el máximo es 5 %, 10 % o 16 % sobre mercado. Cada pregunta trae el default (lo que se construye si no contestas) y
+> nuestra recomendación.
+
+- **P-WSH-1 · ¿Cuándo le avisamos al cliente: solo si tu precio cabe en su máximo, o siempre?** Default: **solo si
+  cabe**. Pero hicimos la cuenta con tu curva de precios (§WSH.4, tabla): tu precio normal va **15 % a 60 % sobre
+  mercado**, y el máximo más alto que te dejan es **16 %**. Con «solo si cabe», **una carta de menos de ~$95 de
+  mercado nunca avisaría a nadie**, y arriba solo a quien eligió 16 %, y no siempre. Opciones: **(a)** solo si cabe
+  (el default; avisa muy poco); **(b)** **avisar siempre**, diciendo en el correo el precio y si cabe en su máximo;
+  **(c)** que la pieza que llega para alguien se venda **a su máximo** (precio especial; cambia tu curva de precios,
+  que está cerrada, y es trabajo aparte). **Recomendación: (b).** Tu lista de compra igual te dice cuántos pagan tu
+  precio normal (esas son las «casi seguras»), y si ves que muchos esperan pero ninguno paga tu precio, decides (c)
+  con datos.
+- **P-WSH-2 · ¿El 5/10/16 % es antes o después de IVA?** Si es **con IVA dentro**, comprando a mercado **pierdes**:
+  ~9.5 % en el 5 %, ~5 % en el 10 % y quedas en cero en el 16 %. Default y **recomendación: antes de IVA**; al cliente
+  le mostramos su máximo ya con IVA dentro para que no se sorprenda.
+- **P-WSH-3 · ¿El máximo compromete al cliente (apartar, depósito) o es solo intención?** Default y
+  **recomendación: solo intención**: no se aparta ni se cobra; todos reciben el aviso y se la lleva quien pague
+  primero. Apartar o cobrar por adelantado es otro proyecto (reembolsos, plazos, Stripe).
+- **P-WSH-4 · ¿Cuántas cartas puede tener cada cuenta en su lista?** Default y **recomendación: 20.** Alcanza para un
+  coleccionista que busca piezas concretas y evita listas de 500 cartas que inflan tu lista de compra.
+- **P-WSH-5 · ¿Encendemos también el «avísame cuando vuelva» de sellados?** Ya está construido y apagado (criterio
+  64); tu pedido original mencionaba «cartas sueltas y sellados». Default: **se queda apagado** y la lista de deseos
+  es solo de cartas. **Recomendación:** encenderlo en el mismo despliegue (ya existe y ya pide permiso al cliente) y
+  que tu lista de compra muestre también los sellados más esperados, solo con el conteo (sin %).
+- **P-WSH-6 · Tu lista de compra usa lo que la gente quiere para decidir qué compras.** Es justo el caso que pregunta
+  **P-LEG-8**, y el aviso de privacidad hoy dice que no hacemos usos así. Default y **recomendación:** el aviso lo
+  dice como parte del servicio («usamos tu lista, sin tu nombre, para decidir qué conseguir») y se lo pasas a tu
+  abogado junto con lo demás de §LEG, **antes** de encender la lista de deseos.
