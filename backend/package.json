@@ -24,7 +24,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "seed": "ts-node prisma/seed.ts",
     "mail:preview": "ts-node scripts/render-mail-preview.ts",
-    "seed:synthetic": "ts-node prisma/seed-e2e.ts"
+    "seed:synthetic": "ts-node prisma/seed-e2e.ts",
+    "limpieza:republicar": "node dist/cli/limpieza-republicar.js"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

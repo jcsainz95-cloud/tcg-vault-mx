@@ -29874,11 +29874,11 @@ host, usuario ni contraseña.
 
 | # | Fichero | Qué hace | Usuario |
 |---|---|---|---|
-| A | `20261006_pdblimpieza_1_censo.sql` | Solo lectura (`BEGIN TRANSACTION READ ONLY` … `ROLLBACK`): conteos por tabla, FK reales de `pg_constraint`, G-0…G-4 en modo informe, INE guardadas (R-6), los tres contadores, `max(providerReference)`, ¿M-72? y desglose por `kind` **solo si la columna existe** (`\gset` + `\if`). | `tcg_readonly` (ver ⚠️) |
+| A | `20261006_pdblimpieza_1_censo.sql` | Solo lectura (`BEGIN TRANSACTION READ ONLY` … `ROLLBACK`): conteos por tabla, FK reales de `pg_constraint`, G-0…G-4 en modo informe, INE guardadas (R-6), los tres contadores, `max(providerReference)`, ¿M-72? y desglose por `kind` **solo si la columna existe** (`\gset` + `\if`). | **admin** dentro de `READ ONLY` (ver ⚠️) |
 | B | `20261006_pdblimpieza_2_limpieza.sql` | §7 entero en UNA transacción, `LOCK TABLE … SHARE ROW EXCLUSIVE` + `lock_timeout 5s`, termina en `ROLLBACK;` (el dueño la cambia a `COMMIT;`). Tres líneas `\set` que edita el dueño: `respaldo_manual`, `fuera_de_venta` (P-2), `buylist_piezas` (P-1). | admin |
 | C | `20261006_pdblimpieza_3_folio_pedidos.sql` | Aborta si `Order` tiene filas; si no, `setval('order_number_seq', 1, false)` ⇒ siguiente `TCG-000001`. Solo ese contador. | admin |
-| D | `20261006_pdblimpieza_4_verificacion.sql` | Solo lectura: §8.3 línea a línea (`OK`/`FALLA`) y una última `VERIFICACION: TODO OK` o `HAY FALLAS (n)`. Compara contra el **rastro** de B (conteos de antes y contadores), así que no hay que copiar números a mano. | `tcg_readonly` |
-| E | — | **Vía M1** (sin código nuevo, §4.5 la permite): las piezas restauradas quedan `platform` + `in_stock`, que es exactamente el predicado de la cola «Listas para publicar» (`inventory.service.ts:2098-2100`, `GET /admin/inventory/pending-publish`); el dueño las publica desde ahí con el pipeline de siempre. Lo leí en código; el recorrido en pantalla con piezas restauradas: NO MEDIDO. | app |
+| D | `20261006_pdblimpieza_4_verificacion.sql` | Solo lectura: §8.3 línea a línea (`OK`/`FALLA`/`INFO`) y una última `VERIFICACION: TODO OK` o `HAY FALLAS (n)`. Compara contra el **rastro** de B (conteos de antes y contadores), así que no hay que copiar números a mano. | **admin** dentro de `READ ONLY` |
+| E | `src/cli/limpieza-republicar.ts` → `node dist/cli/limpieza-republicar.js [--apply]` (`npm run limpieza:republicar`) | **Vía preferida de §4.5** (§79.2). ⚠️ La 1.ª versión de esta fila decía «vía M1: las restauradas están en la cola “Listas para publicar”» y era **falsa** (QA-1): la cola solo enseña las que tienen `missing ≠ []` (`inventory.service.ts` `pendingPublish`, «`missing: []` ⇒ NO entra»), así que las que ya tenían precio y cajón quedaban `in_stock` fuera de venta **y** fuera de la cola, sin aviso. | app |
 
 **Decisiones de implementación que la spec no fijaba (o que tuve que ajustar), para que el arquitecto las ratifique:**
 1. **G-4 y `respaldo_manual` se comprueban AL FINAL, no al principio.** §8.2 paso 4 manda correr B «tal cual» para ver
@@ -29894,8 +29894,9 @@ host, usuario ni contraseña.
    existe un rastro, B borra solo la bitácora **anterior** al más reciente; lo posterior es real. Una segunda corrida
    sobre la base limpia no cambia **nada** (foto idéntica, rastro incluido). D comprueba «exactamente 1 rastro y nada
    anterior a él» en vez de «AuditLog = 1 fila», porque la app puede escribir bitácora entre B y D.
-4. **G-7 (añadida):** si ya hay rastro de limpieza y existe algún `Order`, `ShipmentRequest` o `SellRequest`, B se niega.
-   Sin ella, una re-corrida después de salir en vivo borraría pedidos reales.
+4. **G-7 (añadida; ampliada en §79.2 por QA-7):** si ya hay rastro de limpieza y existe **cualquier** fila en las tablas
+   BORRAR (salvo `AuditLog`), B se niega entero. Sin ella, una re-corrida después de salir en vivo borraría pedidos
+   reales — o, tras un job diario, portafolios y avisos reales con un 2.º rastro.
 5. **Cajón de vuelta (§4.3):** «la colocación más antigua» es el `move` más antiguo cuyo destino es un cajón
    `customer_custody`, no un texto de `note`. Si su origen no es `platform_stock`, queda sin cajón.
 6. **`fuera_de_venta`:** `INV-1, INV-2:damaged` (sin sufijo ⇒ `withdrawn`). Cada folio tiene que estar en `T`; un error
@@ -29906,11 +29907,12 @@ host, usuario ni contraseña.
    en `backend/src` = 0. Ningún lector exige la pareja movimiento↔ajuste, así que el movimiento de cierre va sin fila
    de levantamiento.
 
-**⚠️ Para el dueño (va en los encabezados de A y D):** `tcg_readonly` solo lee **seis** tablas (PENDIENTES
-«MEDICIÓN-PROD 2026-09-12»). A y D marcan «SIN PERMISO» en los conteos que no puede leer, pero las guardas de A
-consultan tablas concretas y varias líneas de D también, y fallarían. Para que lea todo, el admin corre:
-`GRANT SELECT ON ALL TABLES IN SCHEMA public TO tcg_readonly; GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO tcg_readonly;`.
-La otra opción es correrlos con el admin: son de solo lectura de todas formas.
+**⚠️ Para el dueño (va en los encabezados de A y D) — corregido en §79.2 (C-2/QA-5):** A y D se corren con el
+**administrador**, dentro de `BEGIN TRANSACTION READ ONLY` (Postgres rechaza cualquier escritura) y terminan en
+`ROLLBACK`. `tcg_readonly` solo lee seis tablas (PENDIENTES «MEDICIÓN-PROD 2026-09-12») y A **muere en la primera
+consulta** que toca otra (medido por QA; la frase «el resto del censo sale igual» de la 1.ª versión era falsa). La
+receta `GRANT SELECT ON ALL TABLES … TO tcg_readonly` de la 1.ª versión **se retiró**: ampliaba esa credencial a
+hashes de contraseña, `AuthToken` e INE.
 
 **Pruebas** (`backend/test/integration/pdb-limpieza.e2e-spec.ts` + `helpers/limpieza-db.ts` + `helpers/limpieza-fixture.ts`):
 - Cada caso trabaja en un **esquema propio** de la BD de `DATABASE_URL`, migrado desde cero y sembrado con la base de
@@ -29950,3 +29952,75 @@ Prisma generado en la copia, 0 apariciones de `buylist_inbound` en el compartido
 | G-1 desactivada | G-1 en rojo |
 | no se quita la reserva | §9.2 en rojo |
 | P-1 «conservar» borra igual | §9.2 en rojo |
+
+### 79.2 · 2.º pase tras los gates sobre `2ba6a316` (QA RECHAZADO, techlead APROBADO CON CONDICIONES) — 2026-10-06
+
+**QA-1 (bloqueante) — E es un comando, no «vía M1».** `limpieza:republicar` (§4.5, vía preferida):
+- Código: `src/cli/limpieza-republicar.ts` (contexto Nest **mínimo**: Config + Prisma + Audit + Settings + Inventory; sin
+  HTTP y **sin `JobsModule`**, así que ni BullMQ ni ningún job corre mientras dura) y la lógica en
+  `src/modules/inventory/limpieza-republicar.ts`. Lee la fila de rastro más reciente (`maintenance.test_data_purge`,
+  `after.piezasRestauradas`) y pasa los ids por `InventoryService.reevaluateForPublication` — el cuerpo único de
+  publicación (guardas + precio + `claimListed`). ⛔ Nunca escribe `listed` por su cuenta.
+- Sin `--apply` = **simulacro**: `InventoryService.previewPublication(ids)`, el MISMO recorrido (`reevaluateMany` →
+  `reevaluateOne(…, dryRun)`) con `derivePublishSalePrice` (no escala a M2) y sin `claimListed`. No hay segunda copia de
+  la regla. `PublishReevaluationResult` gana `detail?` (motivo de `not_publishable`), aditivo.
+- Salida por pieza: **a la venta** (publicada / ya lo estaba) · **en «Listas para publicar»** con lo que le falta
+  (cajón/precio) · **cambió después de la limpieza** (ya no es de plataforma o su estado no es `in_stock`/`listed`: se
+  informa y no se toca) · **SIN RESOLVER** (ni se publica ni la cola la enseña — p. ej. gradeada sin certificado —; el
+  comando sale con **código 2** y dice que se corrige en M1). 0 = bien, 1 = error (p. ej. sin rastro).
+- Cómo lo corre el dueño: en el contenedor de la API, `node dist/cli/limpieza-republicar.js` (el runtime **no** trae
+  npm, `Dockerfile.backend`); o desde una copia del repo con `npm ci && npm run build` y `DATABASE_URL` apuntando a la
+  base. Si `railway ssh`/`railway run` sirven para eso en su cuenta: **NO MEDIDO**.
+- Comprobación del encargo (medida en la prueba): tras B (COMMIT) + `--apply`, **toda** pieza de `piezasRestauradas`
+  está `listed` o en `GET /admin/inventory/pending-publish` con `missing ≠ []`. En el fixture: P1, P3, P7, P12 ⇒
+  `listed`; P2, P4, P5, P11 ⇒ cola con `['location']`.
+
+**Pregunta para el arquitecto (no la decidí):** el encargo pedía que B **no** baje a `in_stock` una pieza que estaba
+`listed` y solo tocó un pedido `failed`/`pending`. El diseño dice lo contrario: §4.3 fija `status = in_stock` para
+**toda** pieza de `T` (salvo P-2), G-6 lo exige y §9.5 lo prueba («ninguna pieza de T queda `listed`»). No lo cambié.
+Con E el resultado práctico es el mismo para las que conservan precio y cajón (vuelven a `listed`), y una cuyo precio
+**ya no** resuelve cae a la cola con su motivo en vez de seguir publicada con un precio que hoy no se sostiene. Si el
+arquitecto quiere la excepción («`listed` + plataforma + sin reserva ⇒ se queda `listed`»), cambian §4.3, G-6, §9.5 y
+el fixture (P12).
+
+**Condiciones del techlead y menores de QA:**
+- **C-1 / QA-2:** los cuatro encabezados mandan `psql "$URL" -v ON_ERROR_STOP=1 -f <fichero>` o `\i <fichero>`, con
+  «⛔ NUNCA lo pegues en la ventana de psql» y, en B, «SI AL FINAL VES ROLLBACK, NO SE APLICÓ NADA». `\set VERBOSITY
+  terse` (sin la línea `CONTEXT` tras el `RAISE`) y `\set QUIET off` justo antes de la última línea, para que la
+  palabra final (`ROLLBACK`/`COMMIT`) se vea. Requisito escrito en cada encabezado: cliente `psql` (meta-comandos `\set`,
+  `\if`, `\gset`); `railway connect` abre psql si el CLI está instalado — **NO MEDIDO**.
+- **C-2 / QA-5:** ver el ⚠️ de arriba. A y D: admin + `READ ONLY`; sin receta `GRANT`.
+- **C-3:** **G-8** al principio de B: toda tabla del esquema (salvo `_prisma_migrations`) tiene que estar en
+  borrar/ajustar/conservar; si no, aborta nombrándola. `MetaDeck`, `MetaDeckList`, `MetaDeckCard`, `MetaFetchRun` ⇒
+  conservar (54/54 modelos clasificados).
+- **C-4 / QA-6:** B corre en `REPEATABLE READ` (una foto; la primera consulta va **después** del `LOCK`, así que la foto
+  ya tiene los candados). D: «mismo conteo» se **exige** solo en `InventoryItem` (lo que B modifica); `User`, `Card`,
+  `PriceReference`, `ConfigSetting` salen como `INFO`. `PortfolioSnapshot` y `SpendAlert` (los escriben jobs diarios):
+  D exige 0 filas **anteriores** al rastro y enseña las posteriores.
+- **C-5:** fixture con **P12**: nacida de la solicitud pagada (buylist, con levantamiento) y en un pedido **fallido** O4
+  que la apartó y soltó (sigue `listed` en A2). Con P-1 «borrar» los conteos de la fórmula de G-5 son ≠ 0 (2
+  movimientos, 1 ajuste) y cuadra. Con HEAD `2ba6a316` esa prueba ya pasaba: la fórmula estaba bien, faltaba el caso.
+- **QA-7:** G-7 ampliada (arriba). D sigue «exactamente 1 rastro».
+- **QA-8:** C, con pedidos y con rastro ⇒ «La limpieza YA se hizo y ya hay N pedido(s) nuevo(s) (el primero, TCG-…): …
+  No hay nada que hacer aquí», sin «corre primero la limpieza».
+- **QA-9:** `\set QUIET on` (sin `INSERT 0 3`/`DELETE 2`/`DO`); estados de pieza y pedido en castellano en las listas de
+  B (función temporal `pg_temp.lz_es`).
+
+**Mediciones** (copia del árbol entero `git archive 2ba6a316` + estos ficheros, scratchpad `be-limpieza2`, Prisma
+generado en la copia, BD propia `tcg_be_limpieza2`):
+- Rojas «hoy» (los cuatro `.sql` de `2ba6a316` + E sin publicar): **16/46**. Verdes después: **46/46**. tsc exit 0;
+  eslint de los 7 ficheros exit 0; unitarias `test/inventory* test/buylist* test/pricing* test/app.module*` 137/137
+  suites, 2637/2637.
+- Concurrencia (C-4, B esperando un candado de fila mientras entra un alta de usuario): sin mutar **5/5** verdes.
+
+| Mutación (en la copia) | Resultado |
+|---|---|
+| B sin `REPEATABLE READ` (`BEGIN;`) | prueba de concurrencia roja **3/3** (G-5 «User n+1≠n») |
+| G-8 con predicado falso | «tabla nueva» roja 1/1 |
+| G-7 como antes (solo Order/Shipment/Sell) | QA-7 roja 1/1 |
+| sin `VERBOSITY terse` | C-1 «lo último es G-1» roja 1/1 |
+| `QUIET off` | QA-9 roja 1/1 |
+| D exige también User/Card/… | C-4 «alta entre B y D» roja 1/1 |
+| C sin la rama de QA-8 | QA-8 roja 1/1 |
+| E `--apply` = simulacro (nunca publica) | 2 pruebas de E rojas 1/1 |
+| E deja entrar al pipeline lo que cambió de estado | «SIN RESOLVER / cambió después» roja 1/1 |

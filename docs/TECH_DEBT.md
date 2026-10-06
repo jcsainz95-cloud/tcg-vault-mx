@@ -9800,3 +9800,44 @@ esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
 - **Disparador:** el COMMIT de la limpieza en producción (desde ese día la deuda tiene víctimas concretas).
 - **Comprobación de cierre:** `rg -n "if \(!lastClosed\) continue" backend/src/jobs/ine-retention.service.ts` vacío y la
   prueba nueva verde; el censo de producción tras la siguiente corrida del job da 0 INE sin ancla vencidas.
+
+### PDB-TD1 · P2 · Las guardas `IF NOT EXISTS (… pg_constraint WHERE conname = …)` de las migraciones no miran el esquema
+- **Dueño:** backend. Origen: condición TD-1 del techlead sobre `2ba6a316` (P-DB-LIMPIEZA).
+- **Dónde (medido 2026-10-06):** 46 `ADD CONSTRAINT` protegidos así, todos en m64–m68:
+  `20261006120000_m64_sdx_c_address` 4 · `20261006130000_m65_sdx_c2_address_revision` 4 ·
+  `20261007120000_m66_sdx_d_skydropx` 22 · `20261008120000_m67_sdx_e_folio` 1 · `20261009120000_m68_gas_1_spend_control` 15
+  (`grep -c "FROM pg_constraint WHERE conname = " backend/prisma/migrations/*/migration.sql`).
+- **Impacto:** en una base con más de un esquema, el segundo esquema migrado se queda **sin** esas FK y CHECK porque
+  «ya existen» en el primero (medido: `ShipmentQuote → ShipmentRequest` sin cascada; BACKEND_NOTES §79). Producción
+  tiene un solo esquema (`public`): hoy no se manifiesta.
+- **Corrección:** ⛔ **no** editar las migraciones aplicadas (cambiaría su checksum en `_prisma_migrations`). Candado
+  para las **nuevas**: un check estático que rechace `pg_constraint WHERE conname =` sin `connamespace`/`conrelid` en
+  migraciones con fecha posterior a m68, y una plantilla con `conrelid = '"Tabla"'::regclass`.
+- **Disparador:** la próxima migración que añada una restricción con guarda, o cualquier entorno multi-esquema.
+- **Comprobación de cierre:** el check existe, corre en CI y su canario (una migración nueva con la guarda sin esquema)
+  falla.
+
+### PDB-TD2 · P3 · El arnés de la limpieza migra desde una copia de `prisma/` parcheada por regex
+- **Dueño:** backend. Origen: condición TD-2 del techlead.
+- **Dónde:** `backend/test/integration/helpers/limpieza-db.ts` (`scopedMigrations`: reemplaza `GUARD` en una copia
+  temporal de las migraciones; `assertConstraintsComplete` comprueba que no falte ninguna restricción).
+- **Impacto:** las pruebas de P-DB-LIMPIEZA no corren las migraciones **byte a byte** como producción; si una migración
+  nueva usa otra forma de guarda, la regex no la ve (la red es `assertConstraintsComplete`, que fallaría ruidosamente).
+- **Corrección:** cuando PDB-TD1 se cierre para las migraciones nuevas, o con una BD por caso en vez de un esquema por
+  caso (sin multi-esquema no hace falta parche).
+- **Disparador:** PDB-TD1 o un falso rojo de `assertConstraintsComplete`.
+- **Comprobación de cierre:** `rg -n "scopedMigrations|GUARD" backend/test/integration/helpers/limpieza-db.ts` vacío y la
+  suite verde.
+
+### PDB-TD3 · P3 · Qué hacer con la suite de la limpieza (y con `limpieza:republicar`) después de la corrida real
+- **Dueño:** backend (decide el arquitecto). Origen: condición TD-3 del techlead.
+- **Dónde:** `backend/test/integration/pdb-limpieza.e2e-spec.ts` (46 casos, ~2.5 min, crea ~40 esquemas),
+  `backend/prisma/data-repair/20261006_pdblimpieza_*`, `backend/src/cli/limpieza-republicar.ts` +
+  `backend/src/modules/inventory/limpieza-republicar.ts`.
+- **Impacto:** tras el COMMIT en producción los guiones son de un solo uso; la suite sigue costando tiempo de CI y se
+  rompe con cada tabla nueva (G-8, a propósito). Borrarla sin más deja guiones en el repo sin prueba.
+- **Corrección (propuesta):** tras la corrida real y la verificación D en verde, mover los cuatro `.sql` a un archivo de
+  histórico, retirar la suite y el comando en el mismo commit, y dejar en BACKEND_NOTES §79 el sha de la última versión
+  probada. Hasta entonces, G-8 obliga a clasificar cada tabla nueva en B (eso es lo que se quiere mientras no se corra).
+- **Disparador:** el COMMIT de la limpieza en producción + D «TODO OK» + E sin «SIN RESOLVER».
+- **Comprobación de cierre:** los ficheros movidos o borrados en un commit que cita esta entrada.

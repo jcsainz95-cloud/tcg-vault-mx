@@ -1,7 +1,7 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · B · LA LIMPIEZA (guion principal)
 --  Fecha: 2026-10-06 · Lo escribió: backend · Lo ejecuta: EL DUEÑO (usuario ADMINISTRADOR de la base)
---  Diseño: docs/specs/LIMPIEZA_DB.md (§2 tablas, §4 inventario, §6 bitácora, §7 orden) · Notas: BACKEND_NOTES «P-DB-LIMPIEZA»
+--  Diseño: docs/specs/LIMPIEZA_DB.md (§2 tablas, §4 inventario, §6 bitácora, §7 orden) · Notas: BACKEND_NOTES §79
 -- =====================================================================================
 --
 --  QUÉ HACE ESTO, EN CASTELLANO
@@ -10,35 +10,59 @@
 --  «Por reponer», colocaciones de bóveda, envíos y todo lo de Skydropx, disputas, solicitudes de venta (buylist),
 --  avisos de gasto, portafolios y la bitácora. NO toca usuarios, catálogo, precios, diales ni tu inventario real.
 --  Las cartas que tocaron las pruebas VUELVEN a ser tuyas: sin dueño cliente, sin apartado, en estado
---  «en inventario» (in_stock). NO las publica: eso lo haces tú desde M1 «Listas para publicar» (así una carta sin
---  precio nunca sale a la venta). Al final deja UNA fila en la bitácora con lo que se hizo.
+--  «en inventario» (in_stock) — también las que estaban a la venta y solo tocaron un pedido fallido.
+--  Este fichero NO las publica (SQL no sabe calcular precios). Las vuelve a poner a la venta el paso E, el comando
+--  `limpieza:republicar` (BACKEND_NOTES §79): publica las que tienen precio y cajón, y deja las demás en M1
+--  «Listas para publicar» con lo que les falta. Al final deja UNA fila en la bitácora con lo que se hizo.
 --
---  CÓMO SE USA (el primer paso no cambia nada)
---  --------------------------------------------
---   PASO 1 · Pega este fichero entero en psql TAL CUAL. Termina en ROLLBACK («deshaz todo»): no escribe nada.
---            Te enseña los pedidos, envíos, solicitudes, las cartas que vuelven (y a qué cajón) y las cartas que
---            nacieron de solicitudes de venta de prueba. Al final se para con un mensaje que te dice qué falta
---            decidir (las tres líneas de abajo). Eso es lo esperado en el ensayo.
---   PASO 2 · Escribe tus respuestas en las TRES líneas «✏️» de abajo (entre las comillas simples).
---   PASO 3 · Vuelve a pegarlo (sigue terminando en ROLLBACK). Esta vez debe llegar hasta el final sin error
---            y enseñarte la tabla «tabla · antes · después · esperado».
+--  QUÉ NECESITAS
+--  -------------
+--  · El cliente `psql` de PostgreSQL (versión 13 o más nueva). Este fichero usa sus meta-comandos \set, \if y \gset,
+--    así que NO sirve en un editor SQL web ni en otra herramienta: tiene que ser psql.
+--  · Railway: si tienes instalado el CLI de Railway, `railway connect` (eligiendo el servicio de Postgres) abre psql
+--    ya conectado a tu base. NO MEDIDO por el equipo: no lo hemos probado en tu cuenta.
+--  · Este fichero, descargado del repositorio, en la carpeta desde la que corres psql.
+--
+--  CÓMO SE CORRE (siempre así; el primer paso no cambia nada)
+--  ----------------------------------------------------------
+--   Desde tu terminal, con la URL de conexión de Railway (Postgres → Connect; pégala en TU terminal, nunca en un chat):
+--       psql "$URL" -v ON_ERROR_STOP=1 -f 20261006_pdblimpieza_2_limpieza.sql
+--   o, si ya estás dentro de psql (p. ej. con `railway connect`):
+--       \i 20261006_pdblimpieza_2_limpieza.sql
+--   ⛔ NUNCA lo pegues en la ventana de psql: si una guarda lo para, psql seguiría con las demás líneas y verías
+--      decenas de errores que tapan el motivo real. Corriéndolo con -f o \i se para en el PRIMER error, y lo último
+--      que ves es el motivo (G-n). Si se paró dentro de psql (\i), sal con \q: al salir se deshace todo.
+--   SI AL FINAL VES ROLLBACK, NO SE APLICÓ NADA. Solo se aplicó si la última palabra que sale es COMMIT.
+--
+--   PASO 1 · Córrelo TAL CUAL. Termina en ROLLBACK («deshaz todo»): no escribe nada. Te enseña los pedidos,
+--            envíos, solicitudes, las cartas que vuelven (y a qué cajón) y las cartas que nacieron de solicitudes de
+--            venta de prueba. Al final se para con un mensaje que dice qué falta decidir (las tres líneas ✏️ de
+--            abajo). Eso es lo esperado en el ensayo.
+--   PASO 2 · Abre el fichero en un editor de texto y escribe tus respuestas en las TRES líneas «✏️» de abajo (entre
+--            las comillas simples). Guarda.
+--   PASO 3 · Córrelo otra vez (sigue terminando en ROLLBACK). Esta vez debe llegar hasta el final sin error,
+--            enseñarte la tabla «tabla · antes · después · esperado» y terminar con la palabra ROLLBACK.
 --   PASO 4 · Si estás de acuerdo: cambia la ÚLTIMA línea del fichero, donde dice  ROLLBACK;  por  COMMIT;
---            y pégalo otra vez. **Copia el «PUNTO PITR» que sale al principio**: es el instante al que
---            restauras si hubiera que deshacerlo (Railway → Postgres → Backups → restaurar a ese instante).
---   PASO 5 · Corre el fichero 3 (folio de pedidos) y luego el 4 (verificación).
+--            guarda y córrelo otra vez. Debe terminar con la palabra COMMIT. **Copia el «PUNTO PITR» que sale al
+--            principio**: es el instante al que restauras si hubiera que deshacerlo (Railway → Postgres → Backups).
+--   PASO 5 · Corre el fichero 3 (folio de pedidos), luego el 4 (verificación) y luego el paso E
+--            (`limpieza:republicar`, primero sin --apply para ver qué hará).
 --
 --  SI ALGO NO CUADRA, SE PARA SOLO: cualquier cosa que el diseño no conoce (una carta de cliente que no vino de un
---  pedido, por ejemplo) aborta TODO con un mensaje G-n y no se escribe nada. No hay estado a medias: o se hace
---  entero o no se hace nada.
+--  pedido, una tabla nueva que el diseño no clasificó…) aborta TODO con un mensaje G-n y no se escribe nada. No hay
+--  estado a medias: o se hace entero o no se hace nada.
 --
---  ⛔ Este fichero NO lleva ni host, ni usuario, ni contraseña. Te conectas con lo tuyo (Railway → Postgres → Connect).
+--  ⛔ Este fichero NO lleva ni host, ni usuario, ni contraseña. Te conectas con lo tuyo.
 --  ⛔ No reinicia NINGÚN contador. El de pedidos (TCG-) lo reinicia el fichero 3, DESPUÉS del COMMIT de éste.
 --     El de envíos (ENV-) y el de inventario (INV-) NO se reinician nunca (por qué: LIMPIEZA_DB.md §5).
 --  Correrlo dos veces no hace daño: la segunda no encuentra nada que cambiar y no cambia nada. Y si ya se hizo y
---  después hubo pedidos reales, se NIEGA a correr (G-7).
+--  después apareció CUALQUIER fila nueva en lo que se borra (un pedido real, un portafolio del job diario…), se NIEGA
+--  a correr (G-7): eso ya es real.
 -- =====================================================================================
 
 \set ON_ERROR_STOP on
+\set QUIET on
+\set VERBOSITY terse
 \pset pager off
 \timing off
 
@@ -46,7 +70,7 @@
 --        Obligatorio para el COMMIT. Ejemplo:  \set respaldo_manual 'manual 2026-10-08 09:15'
 \set respaldo_manual ''
 -- ✏️ 2 · (P-2) Cartas tocadas por las pruebas que YA NO están físicamente. Folios separados por coma; quedan fuera de
---        venta («withdrawn»). Añade «:damaged» si se dañó de verdad. Vacío = todas vuelven a la venta.
+--        venta («withdrawn»). Añade «:damaged» si se dañó de verdad. Vacío = todas vuelven a tu inventario.
 --        Ejemplo:  \set fuera_de_venta 'INV-000123, INV-000456:damaged'
 \set fuera_de_venta ''
 -- ✏️ 3 · (P-1) Cartas que entraron a tu inventario desde solicitudes de venta DE PRUEBA: escribe  borrar  (no existen
@@ -54,12 +78,27 @@
 --        vacío. Ejemplo:  \set buylist_piezas 'conservar'
 \set buylist_piezas ''
 
-BEGIN;
+-- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
+-- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
+-- DESPUÉS de los candados de abajo (por eso no hay ninguna consulta antes del LOCK).
+BEGIN ISOLATION LEVEL REPEATABLE READ;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
 -- Nadie escribe a la mitad: si un job o un webhook tiene estas tablas, en 5 s se rinde sin tocar nada.
 LOCK TABLE "Order", "ShipmentRequest", "SellRequest", "InventoryItem", "PaymentRefund", "ManualRefund" IN SHARE ROW EXCLUSIVE MODE;
+
+-- Estados en castellano para las listas (función temporal: desaparece al cerrar la sesión).
+CREATE FUNCTION pg_temp.lz_es(s text) RETURNS text LANGUAGE sql IMMUTABLE AS $f$
+  SELECT CASE s
+    WHEN 'in_stock' THEN 'en inventario'   WHEN 'listed' THEN 'a la venta'      WHEN 'reserved' THEN 'apartada'
+    WHEN 'in_custody' THEN 'en custodia'   WHEN 'picking' THEN 'en preparación' WHEN 'shipped' THEN 'enviada'
+    WHEN 'delivered' THEN 'entregada'      WHEN 'lost' THEN 'perdida'           WHEN 'damaged' THEN 'dañada'
+    WHEN 'withdrawn' THEN 'retirada'
+    WHEN 'pending' THEN 'pendiente'        WHEN 'settled' THEN 'pagado'         WHEN 'failed' THEN 'fallido'
+    WHEN 'refunded' THEN 'reembolsado'     WHEN 'chargeback' THEN 'contracargo'
+    WHEN 'vault' THEN 'bóveda'             WHEN 'direct_ship' THEN 'envío directo'
+    ELSE s END $f$;
 
 -- ------------------------------------------------------------------------------------
 -- 0 · DÓNDE ESTOY · el PUNTO PITR es now() al empezar la transacción: nada de esto existe antes de ese instante
@@ -97,7 +136,23 @@ UNION ALL
 SELECT t, 'conservar' FROM unnest(ARRAY[
   'User','KycProfile','KycUploadGrant','BillingProfile','Address','AuthToken','CardSet','SealedSetGroup','SealedProduct','Card',
   'CardProduct','PostalCode','ShippingPackage','PriceReference','FxRate','SetValueSnapshot','PendingPriceEntry','ConfigSetting',
-  'VaultLocation','InventoryBatch','ProcessedStripeEvent','SpendDigestRun','SpendOwnerWatch','SealedRestockSubscription']) AS t;
+  'VaultLocation','InventoryBatch','ProcessedStripeEvent','SpendDigestRun','SpendOwnerWatch','SealedRestockSubscription',
+  'MetaDeck','MetaDeckList','MetaDeckCard','MetaFetchRun']) AS t;
+
+-- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
+-- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.
+DO $$
+DECLARE ej text;
+BEGIN
+  SELECT string_agg(t.table_name, ', ' ORDER BY t.table_name) INTO ej
+    FROM information_schema.tables t
+   WHERE t.table_schema = current_schema() AND t.table_type = 'BASE TABLE'
+     AND t.table_name <> '_prisma_migrations'
+     AND t.table_name NOT IN (SELECT tabla FROM lz_conteo);
+  IF ej IS NOT NULL THEN
+    RAISE EXCEPTION 'G-8 · La base tiene tabla(s) que el diseño de la limpieza no clasificó: %. Este fichero es más viejo que tu base: pide que lo actualicen. No se escribió nada.', ej;
+  END IF;
+END $$;
 
 DO $$
 DECLARE r record; c bigint;
@@ -187,10 +242,13 @@ DECLARE n bigint; ej text; p record;
 BEGIN
   SELECT * INTO p FROM lz_param;
 
-  -- G-7 · La limpieza ya se hizo y DESPUÉS hubo actividad de pedidos/envíos/solicitudes: eso ya es real.
-  IF EXISTS (SELECT 1 FROM "AuditLog" WHERE action = 'maintenance.test_data_purge')
-     AND (EXISTS (SELECT 1 FROM "Order") OR EXISTS (SELECT 1 FROM "ShipmentRequest") OR EXISTS (SELECT 1 FROM "SellRequest")) THEN
-    RAISE EXCEPTION 'G-7 · La limpieza YA se hizo (hay rastro «maintenance.test_data_purge» en la bitácora) y después hubo pedidos, envíos o solicitudes. Eso ya no es de prueba: NO se borra. Si de verdad quieres otra limpieza, pregúntalo antes.';
+  -- G-7 · La limpieza ya se hizo y DESPUÉS apareció cualquier fila en lo que se borra (un pedido real, el portafolio o
+  -- un aviso que escribe un job diario…): eso ya es real. Se niega ENTERO: ni borra nada ni escribe otro rastro.
+  SELECT string_agg(tabla || ' (' || antes || ')', ', ' ORDER BY tabla) INTO ej
+    FROM lz_conteo WHERE grupo = 'borrar' AND tabla <> 'AuditLog' AND antes > 0;
+  IF EXISTS (SELECT 1 FROM "AuditLog" WHERE action = 'maintenance.test_data_purge') AND ej IS NOT NULL THEN
+    RAISE EXCEPTION 'G-7 · La limpieza YA se hizo (hay rastro «maintenance.test_data_purge» del %) y después aparecieron filas nuevas en: %. Eso ya es real: NO se borra nada. No hace falta volver a correr este fichero.',
+      (SELECT to_char(max("createdAt"), 'YYYY-MM-DD HH24:MI') FROM "AuditLog" WHERE action = 'maintenance.test_data_purge'), ej;
   END IF;
 
   -- G-1 · Pieza de CLIENTE que no vino de ningún pedido/envío/caso/disputa.
@@ -231,7 +289,7 @@ BEGIN
 END $$;
 
 \echo '=== 2.1 · PEDIDOS que se borran ==='
-SELECT o."orderNumber" AS pedido, o.status::text AS estado, o."fulfillmentMode"::text AS modo, (o."totalCents" / 100.0)::numeric(14,2) AS total_mxn,
+SELECT o."orderNumber" AS pedido, pg_temp.lz_es(o.status::text) AS estado, pg_temp.lz_es(o."fulfillmentMode"::text) AS modo, (o."totalCents" / 100.0)::numeric(14,2) AS total_mxn,
        o."paymentMethodLast4" AS tarjeta, o."createdAt" AS creado
 FROM "Order" o ORDER BY o."createdAt", o.id;
 
@@ -246,7 +304,8 @@ SELECT r.id AS solicitud, r.status::text AS estado, r."createdAt" AS creada, (r.
 FROM "SellRequest" r ORDER BY r."createdAt", r.id;
 
 \echo '=== 2.4 · CARTAS QUE VUELVEN A TU INVENTARIO (y a qué cajón — mueve la carta física si el cajón cambia) ==='
-SELECT p.folio, p.carta, p.dueno_antes AS era_de, p.status_antes::text || ' → ' || p.status_destino AS estado,
+SELECT p.folio, p.carta, CASE p.dueno_antes WHEN 'customer' THEN 'cliente' ELSE 'tienda' END AS era_de,
+       pg_temp.lz_es(p.status_antes::text) || ' → ' || pg_temp.lz_es(p.status_destino) AS estado,
        coalesce(la.label, '(sin cajón)') || ' → ' || coalesce(ld.label, '(sin cajón)') AS cajon,
        CASE WHEN p.excluida THEN 'FUERA DE VENTA (P-2)' WHEN p.loc_antes IS DISTINCT FROM p.loc_destino THEN 'MUEVE LA CARTA' ELSE '' END AS ojo
 FROM lz_plan p
@@ -255,7 +314,7 @@ LEFT JOIN "VaultLocation" ld ON ld.id = p.loc_destino
 ORDER BY p.folio;
 
 \echo '=== 2.5 · (P-1) CARTAS QUE ENTRARON DESDE SOLICITUDES DE VENTA DE PRUEBA ==='
-SELECT b.folio, b.carta, b.status AS estado, (b."acquisitionCostCents" / 100.0)::numeric(14,2) AS costo_mxn, b.en_t AS tocada_por_pedido,
+SELECT b.folio, b.carta, pg_temp.lz_es(b.status) AS estado, (b."acquisitionCostCents" / 100.0)::numeric(14,2) AS costo_mxn, b.en_t AS tocada_por_pedido,
        CASE (SELECT buylist FROM lz_param)
          WHEN 'borrar' THEN 'SE BORRA'
          WHEN 'conservar' THEN 'SE QUEDA (sin vínculo a la solicitud)'
@@ -481,5 +540,7 @@ BEGIN
 END $$;
 
 \echo '=== FIN · Si esto era el ensayo, la línea de abajo deshace todo. Para aplicarlo, cámbiala por COMMIT; ==='
-\echo '=== Recuerda el PUNTO PITR del paso 0. Después: fichero 3 (folio de pedidos) y fichero 4 (verificación). ==='
+\echo '=== Recuerda el PUNTO PITR del paso 0. Después: fichero 3 (folio de pedidos), fichero 4 (verificación) y el paso E. ==='
+\echo '=== La última palabra de abajo dice qué pasó: ROLLBACK = NO se aplicó nada · COMMIT = aplicado. ==='
+\set QUIET off
 ROLLBACK;

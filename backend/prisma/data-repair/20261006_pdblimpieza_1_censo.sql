@@ -1,25 +1,34 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · A · EL CENSO (SOLO LECTURA) — se corre ANTES de todo
---  Fecha: 2026-10-06 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario de SOLO LECTURA (`tcg_readonly`)
---  Diseño: docs/specs/LIMPIEZA_DB.md §8.1 (A) y §8.2 paso 2
+--  Fecha: 2026-10-06 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR de la base
+--  Diseño: docs/specs/LIMPIEZA_DB.md §8.1 (A) y §8.2 paso 2 · Notas: BACKEND_NOTES §79
 -- =====================================================================================
 --
 --  QUÉ HACE: cuenta lo que hay en cada tabla, enseña las llaves (FK) reales de la base, avisa de lo que pararía la
---  limpieza (G-1…G-4), y apunta dónde están los tres contadores (TCG-, ENV-, INV-). NO ESCRIBE NADA: abre una
---  transacción de SOLO LECTURA y termina en ROLLBACK.
+--  limpieza (G-1…G-4), y apunta dónde están los tres contadores (TCG-, ENV-, INV-). NO ESCRIBE NADA.
 --
---  ⚠️ PERMISOS: el usuario `tcg_readonly` que creaste el 2026-09-12 solo puede leer SEIS tablas (PENDIENTES,
---  «MEDICIÓN-PROD 2026-09-12»). Las tablas que no pueda leer salen con «SIN PERMISO» en vez de un número, y el resto
---  del censo sale igual. Para verlas todas, el ADMINISTRADOR le da lectura (solo lectura, nada más) con:
---      GRANT SELECT ON ALL TABLES IN SCHEMA public TO tcg_readonly;
---      GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO tcg_readonly;
---  Si alguna consulta de abajo falla por permisos, córrelo con el administrador: igual NO escribe (solo lectura).
+--  POR QUÉ CON EL ADMINISTRADOR Y NO CON `tcg_readonly`: ese usuario solo puede leer seis tablas, así que este censo
+--  se pararía en la primera consulta que toca otra. Y darle lectura de todo le abriría también contraseñas cifradas,
+--  enlaces de acceso e INE: NO le des más permisos. Este fichero no puede escribir aunque lo corras con el
+--  administrador: todo va dentro de una transacción de SOLO LECTURA (BEGIN TRANSACTION READ ONLY), que Postgres
+--  rechaza si algo intenta escribir, y termina en ROLLBACK.
+--
+--  QUÉ NECESITAS: el cliente `psql` de PostgreSQL (este fichero usa sus meta-comandos \set, \if y \gset; no sirve
+--  un editor SQL web). Con el CLI de Railway, `railway connect` (servicio de Postgres) abre psql conectado a tu base:
+--  NO MEDIDO por el equipo en tu cuenta.
+--
+--  CÓMO SE CORRE (siempre así):
+--       psql "$URL" -v ON_ERROR_STOP=1 -f 20261006_pdblimpieza_1_censo.sql
+--   o, dentro de psql:   \i 20261006_pdblimpieza_1_censo.sql
+--   ⛔ NUNCA lo pegues en la ventana de psql: si algo falla, seguiría con las demás líneas y el motivo se pierde.
 --
 --  Qué mirar: si las guardas G-1, G-2 o G-3 dan algo distinto de 0, PARA y pregunta antes de seguir.
 --  G-4 dice cuántas cartas entraron desde solicitudes de venta de prueba: si es > 0 tienes que contestar P-1.
 -- =====================================================================================
 
 \set ON_ERROR_STOP on
+\set QUIET on
+\set VERBOSITY terse
 \pset pager off
 
 BEGIN TRANSACTION READ ONLY;

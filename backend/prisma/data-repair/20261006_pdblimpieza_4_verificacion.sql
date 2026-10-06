@@ -1,20 +1,37 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · D · LA VERIFICACIÓN (SOLO LECTURA) — se corre DESPUÉS del fichero 2 (COMMIT) y del fichero 3
---  Fecha: 2026-10-06 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario de solo lectura (`tcg_readonly`)
---  Diseño: docs/specs/LIMPIEZA_DB.md §8.3
+--  Fecha: 2026-10-06 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR de la base
+--  Diseño: docs/specs/LIMPIEZA_DB.md §8.3 · Notas: BACKEND_NOTES §79
 -- =====================================================================================
 --
---  QUÉ HACE: comprueba, una por una, que la base quedó como dice el diseño. Cada línea sale «OK» o «FALLA», y la
---  última dice «VERIFICACION: TODO OK» o cuántas fallaron. NO ESCRIBE NADA (transacción de solo lectura + ROLLBACK).
---  Compara contra el RASTRO que dejó el fichero 2 en la bitácora (los conteos de antes y los contadores), así que
---  no hace falta que copies a mano los números del censo.
+--  QUÉ HACE: comprueba, una por una, que la base quedó como dice el diseño. Cada línea sale «OK» o «FALLA» (o
+--  «INFO»: solo para que lo veas, no cuenta), y la última dice «VERIFICACION: TODO OK» o cuántas fallaron.
+--  Compara contra el RASTRO que dejó el fichero 2 en la bitácora (los conteos de antes y los contadores), así que no
+--  hace falta que copies a mano los números del censo.
 --
---  ⚠️ Si sale «SIN PERMISO», el usuario de solo lectura no puede leer esa tabla: ver el encabezado del fichero 1.
+--  POR QUÉ CON EL ADMINISTRADOR Y NO CON `tcg_readonly`: ese usuario solo puede leer seis tablas, y darle lectura de
+--  todo le abriría también contraseñas cifradas, enlaces de acceso e INE. NO le des más permisos. Este fichero no
+--  puede escribir aunque lo corras con el administrador: todo va dentro de una transacción de SOLO LECTURA
+--  (BEGIN TRANSACTION READ ONLY), que Postgres rechaza si algo intenta escribir, y termina en ROLLBACK.
+--
+--  QUÉ NECESITAS: el cliente `psql` de PostgreSQL (este fichero usa sus meta-comandos \set, \if y \gset; no sirve
+--  un editor SQL web). Con el CLI de Railway, `railway connect` (servicio de Postgres) abre psql conectado a tu base:
+--  NO MEDIDO por el equipo en tu cuenta.
+--
+--  CÓMO SE CORRE (siempre así):
+--       psql "$URL" -v ON_ERROR_STOP=1 -f 20261006_pdblimpieza_4_verificacion.sql
+--   o, dentro de psql:   \i 20261006_pdblimpieza_4_verificacion.sql
+--   ⛔ NUNCA lo pegues en la ventana de psql: si algo falla, seguiría con las demás líneas y el motivo se pierde.
+--
+--  Lo que la app escribe entre la limpieza y esta verificación (un cliente que se registra, un precio nuevo, el
+--  portafolio del job diario) es REAL y NO cuenta como falla: sale como INFO.
 --  ⚠️ Córrelo ANTES de abrir la tienda a pedidos reales: un pedido nuevo haría fallar «0 filas en Order» (correcto:
 --     la verificación es de la base recién limpiada).
 -- =====================================================================================
 
 \set ON_ERROR_STOP on
+\set QUIET on
+\set VERBOSITY terse
 \pset pager off
 
 BEGIN TRANSACTION READ ONLY;
@@ -34,10 +51,23 @@ vacias AS (
   FROM unnest(ARRAY[
     'Order','OrderItem','OrderAccessToken','PaymentRefund','ManualRefund','ReplacementCase','VaultPlacement','VaultPlacementItem',
     'ShipmentRequest','ShipmentItem','ShipmentQuote','ShipmentCarrierEvent','ShipmentAddressRevision','ShipmentCostAdjustment',
-    'ShipmentLabelAttempt','ShipmentPaidLabel','Dispute','SellRequest','SellRequestItem','SpendAlert','PortfolioSnapshot']) AS x
+    'ShipmentLabelAttempt','ShipmentPaidLabel','Dispute','SellRequest','SellRequestItem']) AS x
 ),
+-- QA-7 · el portafolio y los avisos de gasto los escriben jobs DIARIOS: lo posterior a la limpieza es real. Se exige 0
+-- solo en lo ANTERIOR al rastro, y lo posterior sale de dato.
+jobs AS (
+  SELECT 'PortfolioSnapshot' AS tabla,
+         (SELECT count(*) FROM "PortfolioSnapshot" x, rastro WHERE x."createdAt" < rastro.t) AS antes_del_rastro,
+         (SELECT count(*) FROM "PortfolioSnapshot" x, rastro WHERE x."createdAt" >= rastro.t) AS despues
+  UNION ALL
+  SELECT 'SpendAlert',
+         (SELECT count(*) FROM "SpendAlert" x, rastro WHERE x."firstOccurredAt" < rastro.t),
+         (SELECT count(*) FROM "SpendAlert" x, rastro WHERE x."firstOccurredAt" >= rastro.t)
+),
+-- C-4 / QA-6 · «mismo conteo» se EXIGE solo en lo que el fichero 2 modifica (InventoryItem). Usuarios, cartas, precios
+-- y diales los sigue escribiendo la app: se enseñan (INFO) y no cuentan como falla.
 iguales AS (
-  SELECT x AS tabla,
+  SELECT x AS tabla, x = 'InventoryItem' AS exige,
          (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I', x), false, true, '')))[1]::text::bigint AS ahora,
          (SELECT (r -> CASE WHEN x = 'InventoryItem' THEN 'conteosDespues' ELSE 'conteosAntes' END ->> x)::bigint FROM rastro) AS rastro
   FROM unnest(ARRAY['User','Card','PriceReference','ConfigSetting','InventoryItem']) AS x
@@ -51,6 +81,11 @@ c AS (
          CASE WHEN filas = '0' THEN 'OK' WHEN filas = 'SIN PERMISO' THEN 'SIN PERMISO' ELSE 'FALLA' END AS resultado,
          filas AS detalle
   FROM vacias
+  UNION ALL
+  SELECT 11, '0 filas anteriores a la limpieza en ' || tabla,
+         CASE WHEN (SELECT count(*) FROM rastro) = 1 AND antes_del_rastro = 0 THEN 'OK' ELSE 'FALLA' END,
+         coalesce(antes_del_rastro::text, 'sin rastro') || ' anteriores · ' || coalesce(despues::text, '?') || ' posteriores (reales, de los jobs)'
+  FROM jobs
   UNION ALL
   SELECT 20, 'AuditLog: exactamente 1 rastro maintenance.test_data_purge',
          CASE WHEN (SELECT count(*) FROM "AuditLog" WHERE action = 'maintenance.test_data_purge') = 1 THEN 'OK' ELSE 'FALLA' END,
@@ -77,8 +112,8 @@ c AS (
          CASE WHEN n = 0 THEN 'OK' ELSE 'FALLA' END, n::text
   FROM (SELECT count(*) AS n FROM "InventoryItem" WHERE "sourceSellRequestItemId" IS NOT NULL) z
   UNION ALL
-  SELECT 40, 'mismo conteo que antes de la limpieza: ' || tabla,
-         CASE WHEN rastro IS NOT NULL AND ahora = rastro THEN 'OK' ELSE 'FALLA' END,
+  SELECT 40, CASE WHEN exige THEN 'mismo conteo que tras la limpieza: ' ELSE 'conteo (la app lo sigue escribiendo): ' END || tabla,
+         CASE WHEN NOT exige THEN 'INFO' WHEN rastro IS NOT NULL AND ahora = rastro THEN 'OK' ELSE 'FALLA' END,
          'ahora ' || coalesce(ahora::text, '?') || ' · rastro ' || coalesce(rastro::text, 'sin rastro')
   FROM iguales
   UNION ALL
@@ -99,8 +134,8 @@ SELECT resultado, comprobacion, detalle FROM (
   SELECT ord, resultado, comprobacion, detalle FROM c
   UNION ALL
   SELECT 99,
-         CASE WHEN count(*) FILTER (WHERE resultado <> 'OK') = 0 THEN 'VERIFICACION: TODO OK'
-              ELSE 'VERIFICACION: HAY FALLAS (' || count(*) FILTER (WHERE resultado <> 'OK') || ')' END,
+         CASE WHEN count(*) FILTER (WHERE resultado NOT IN ('OK', 'INFO')) = 0 THEN 'VERIFICACION: TODO OK'
+              ELSE 'VERIFICACION: HAY FALLAS (' || count(*) FILTER (WHERE resultado NOT IN ('OK', 'INFO')) || ')' END,
          '', ''
   FROM c
 ) z ORDER BY ord, comprobacion;
