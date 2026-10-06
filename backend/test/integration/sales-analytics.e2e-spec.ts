@@ -217,6 +217,27 @@ describe('§AN fase A — cifras por día (Postgres real)', () => {
     ]);
   });
 
+  it('AN-1.2 (§15.3 `TopSealed.setName: string | null`): un sellado SIN producto toma el set de su carta — medido: nunca `null`', async () => {
+    const orderId = 'a1e5a1e5-0000-4000-8000-000000000710';
+    try {
+      await w.h.prisma.order.create({
+        data: { id: orderId, userId: SID.userA, status: 'settled', settledAt: mx('2021-04-22', 12), priceConvention: 'IVA_EXCLUSIVE', subtotalCents: 5000, ivaCents: 800, processingFeeCents: 0, totalCents: 5800, ivaRatePct: 16 },
+      });
+      const inv = await w.h.prisma.inventoryItem.create({
+        data: { folio: 'AN-FIX-SNP-1', cardId: SID.cardS, productType: 'sealed', sealedSubtype: 'box', sealedProductId: null, sealedProductName: 'Caja Suelta AN', acquisitionType: 'compra', status: 'in_custody' } as never,
+      });
+      await w.h.prisma.orderItem.create({ data: { orderId, inventoryItemId: inv.id, cardSnapshot: {}, unitPriceCents: 5000 } });
+      const r = await svc.report({ from: '2021-04-22', to: '2021-04-22' }, mx('2021-04-23', 12));
+      // Sin `SealedProduct` ⇒ nombre congelado y set de la `Card` (InventoryItem.cardId y Card.setId son obligatorios).
+      expect(r.top.sealed).toEqual([{ sealedProductId: null, name: 'Caja Suelta AN', setName: 'Set Dos AN', pieces: 1, netCents: 5000 }]);
+      expect(r.top.sets).toEqual([{ setId: SID.set2, setName: 'Set Dos AN', pieces: 1, netCents: 5000 }]);
+    } finally {
+      await w.h.prisma.orderItem.deleteMany({ where: { orderId } });
+      await w.h.prisma.order.deleteMany({ where: { id: orderId } });
+      await w.h.prisma.inventoryItem.deleteMany({ where: { folio: 'AN-FIX-SNP-1' } });
+    }
+  });
+
   it('AN-B-9: nuevos / recurrentes; el invitado con el correo de una cuenta que ya compró es recurrente', async () => {
     const r = await svc.report(P, NOW_MARCH);
     // Llaves: A (O0 antes) y B (O0b antes) recurrentes; g1 y g2 nuevos. O8 (invitado con el correo de B) = B.

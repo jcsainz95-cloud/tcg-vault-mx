@@ -26,7 +26,11 @@ export interface TopSet {
 export interface TopSealed {
   sealedProductId: string | null;
   name: string;
-  setName: string;
+  /**
+   * AN-1.2 (§15.3): `string | null` en el contrato. ⚠️ Medido: hoy NUNCA es `null` — sin `SealedProduct` el set es el de la
+   * `Card` de la pieza, y `InventoryItem.cardId` y `Card.setId` son obligatorios en el schema. ⛔ No se inventa texto.
+   */
+  setName: string | null;
   pieces: number;
   netCents: number;
 }

@@ -702,16 +702,17 @@ const REGISTRO: readonly AxisRow[] = [
 
   // ==========================================================================================
   // 💰 §AN (API_CONTRACT §15.2) — los ejes de la analítica de ventas: `preset`, `groupBy`, `topSort`, clase **L** (literales
-  // en `sales-period.ts`, ⛔ sin enum homónimo). §15.2 dice «`C-EQ-1` gana las filas», pero la TABLA de §0-Q punto 4 aún no
-  // las tiene (medido con `grep 'reports/sales' API_CONTRACT.md` el 2026-10-06) ⇒ `PENDIENTE-ARQUITECTO`, como el resto.
+  // en `sales-period.ts`, ⛔ sin enum homónimo). Nacieron `PENDIENTE-ARQUITECTO` (v1.85: sin fila en la tabla de §0-Q punto 4)
+  // y pasan a `transcrita` (el default) con AN-1.2: el arquitecto escribió las cinco filas (`API_CONTRACT.md` §0-Q punto 4,
+  // medido con `grep 'reports/sales'` el 2026-10-06; commit `50b5faeb`).
   // `groupBy` va con un periodo FIJO (`from`/`to`): con `last7` y hoy domingo, semana y mes podrían dar las mismas filas.
   // ⚠️ El CSV no declara `?topSort=` (no lleva listas: no sería observable; discrepancia con §15.2 enrutada al arquitecto).
   // ==========================================================================================
-  { route: 'GET /admin/reports/sales', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
-  { route: 'GET /admin/reports/sales', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO', extra: () => 'from=2021-01-20&to=2021-03-10' },
-  { route: 'GET /admin/reports/sales', param: 'topSort', clazz: 'L', allowed: SALES_TOP_SORT_VALUES, valid: 'pieces', alterno: 'net', obs: OBS_SALES, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
-  { route: 'GET /admin/reports/sales/export.csv', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
-  { route: 'GET /admin/reports/sales/export.csv', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO', extra: () => 'from=2021-01-20&to=2021-03-10' },
+  { route: 'GET /admin/reports/sales', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/reports/sales', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES, auth: 'admin', echoValue: false, extra: () => 'from=2021-01-20&to=2021-03-10' },
+  { route: 'GET /admin/reports/sales', param: 'topSort', clazz: 'L', allowed: SALES_TOP_SORT_VALUES, valid: 'pieces', alterno: 'net', obs: OBS_SALES, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/reports/sales/export.csv', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/reports/sales/export.csv', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, extra: () => 'from=2021-01-20&to=2021-03-10' },
 ];
 
 /**
@@ -1359,12 +1360,8 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       'GET /admin/refunds?status=',
       'GET /admin/replacement-cases?source=',
       'GET /admin/replacement-cases?state=',
-      // 💰 §AN (API_CONTRACT §15.2): clase L decidida en §15.2, fila de la TABLA de §0-Q punto 4 pendiente del arquitecto.
-      'GET /admin/reports/sales/export.csv?groupBy=',
-      'GET /admin/reports/sales/export.csv?preset=',
-      'GET /admin/reports/sales?groupBy=',
-      'GET /admin/reports/sales?preset=',
-      'GET /admin/reports/sales?topSort=',
+      // ⛔ Los cinco ejes de `GET /admin/reports/sales*` (§AN) estuvieron aquí en v1.85 y **SALIERON en AN-1.2**: el
+      // arquitecto escribió sus filas en §0-Q punto 4 (`API_CONTRACT §15.12`, commit `50b5faeb`).
       // ⛔ `GET /admin/shipments?alert=` y `?labelSource=` estuvieron aquí en v1.80.12.12 y **SALIERON en v1.80.12.13**
       // (§19.32.1): el arquitecto escribió sus filas en §0-Q punto 4.
       // ⛔ `GET /admin/shipments/picking-list?destination=` estuvo aquí en v1.78 y **SALIÓ en
@@ -1523,8 +1520,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // 💰 §AN (API_CONTRACT §15.2): 59 → **64** y 18 → **23** — `preset`/`groupBy`/`topSort` de `GET /admin/reports/sales` y
     // `preset`/`groupBy` de su CSV, clase L, SIN fila en la tabla de §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO (bajan a 18 cuando
     // el arquitecto escriba las cinco filas).
+    // ⭐ AN-1.2 (`API_CONTRACT §15.12`, `50b5faeb`) — 64 fijo y 23 → **18**: el arquitecto escribió las cinco filas en §0-Q
+    // punto 4. Se pagó una deuda; no salió ningún eje.
     expect(REGISTRO.length).toBe(64);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(23);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que

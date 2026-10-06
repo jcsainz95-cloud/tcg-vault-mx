@@ -29496,6 +29496,11 @@ recibe el servicio `@Optional()` (los dobles que construyen el servicio a mano s
   59 → 64, pendientes 18 → 23; `from`/`to` de las dos rutas en `NO_ENUM_POR_RUTA` (tope 54 → 58). La paridad de clase L lee la tabla
   de §15.2 (la regex quita el `\|` de Markdown).
 - **`preset=custom` sin fechas** ⇒ `400 {field:'from'}` (la tabla de errores de §15.2 no lo lista; se trata como «falta `from`»).
+- ⭐ **AN-1.2 (`50b5faeb`, §15.12):** ratificados `topSort` fuera del CSV y `custom` sin fechas ⇒ `400 {field:'from'}`. Las cinco
+  filas de C-EQ-1 pasan a `transcrita` (pendientes 23 → 18; registro 64). `TopSealed.setName` es `string | null` en el DTO,
+  pero **medido: nunca `null`** — sin `SealedProduct` el set es el de la `Card` de la pieza (`cardId` y `Card.setId` obligatorios);
+  prueba nueva en `sales-analytics.e2e-spec.ts`. Copia `50b5faeb` + cambio: unitaria 428/428 (7777), integración sales + C-EQ-1
+  3/3 suites, 561/561.
 - **CSV:** la fila `total` lleva `to` vacío. Columnas de fase A + fase B (con `shippingResultNetMxn` tras `shippingCostNetMxn`).
 - **`comparison.piecesPerOrder.diff`** se redondea a un decimal (la resta en coma flotante de dos cifras de un decimal no lo es).
 - **`mix.byDestination` / `byBuyer`** se emiten (no necesitan migración); `byProductType` reparte el `netRevenueCents` de cada pedido
