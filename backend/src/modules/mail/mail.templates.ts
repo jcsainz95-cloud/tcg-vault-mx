@@ -71,7 +71,8 @@ function greeting(l: Locale, name: string | null): string {
  *
  * El enlace abre una PÁGINA del front (`/<locale>/verify-email?token=`), que consume el token con un
  * `POST`: ⛔ el correo nunca lleva un GET que actúe. `ctaRows` emite el botón y, debajo, la URL en
- * texto (el respaldo de §31.6g); la frase «copia esta URL» va justo antes del botón.
+ * texto (el respaldo de §31.6g); la letra chica (caducidad y «copia esta URL») va DESPUÉS del botón,
+ * en el mismo orden que restablecer (QA m-3). Rótulos de CTA: `DESIGN_SYSTEM §41.4` filas 7 y 8.
  */
 export function emailVerificationTemplate(link: string, name: string | null, locale?: string | null): MailMessage {
   const l = normalizeLocale(locale);
@@ -85,10 +86,10 @@ export function emailVerificationTemplate(link: string, name: string | null, loc
         proseRow(hi),
         spacerRow(16),
         proseRow(intro),
+        spacerRow(32),
+        ctaRows(link, 'VERIFY MY EMAIL', 'ink'),
         spacerRow(24),
         smallPrintRow("This link expires in 24 hours. If the button doesn't work, copy this URL:"),
-        spacerRow(24),
-        ctaRows(link, 'VERIFY EMAIL', 'ink'),
       ]),
       text: `${hi}\n\nVerify your email for ${BRAND} (link expires in 24 hours):\n${link}\n\nIf you didn't create an account, ignore this message.`,
     };
@@ -101,10 +102,10 @@ export function emailVerificationTemplate(link: string, name: string | null, loc
       proseRow(hi),
       spacerRow(16),
       proseRow(intro),
+      spacerRow(32),
+      ctaRows(link, 'VERIFICAR MI CORREO', 'ink'),
       spacerRow(24),
       smallPrintRow('Este enlace caduca en 24 horas. Si el botón no funciona, copia esta URL:'),
-      spacerRow(24),
-      ctaRows(link, 'VERIFICAR CORREO', 'ink'),
     ]),
     text: `${hi}\n\nVerifica tu correo en ${BRAND} (el enlace caduca en 24 horas):\n${link}\n\nSi no creaste una cuenta, ignora este mensaje.`,
   };
@@ -124,7 +125,7 @@ export function passwordResetTemplate(link: string, name: string | null, locale?
         spacerRow(16),
         proseRow(intro),
         spacerRow(32),
-        ctaRows(link, 'RESET PASSWORD', 'ink'),
+        ctaRows(link, 'RESET MY PASSWORD', 'ink'),
         spacerRow(24),
         smallPrintRow("This link expires in 1 hour. If you didn't request it, ignore this email."),
       ]),
@@ -140,7 +141,7 @@ export function passwordResetTemplate(link: string, name: string | null, locale?
       spacerRow(16),
       proseRow(intro),
       spacerRow(32),
-      ctaRows(link, 'RESTABLECER CONTRASEÑA', 'ink'),
+      ctaRows(link, 'RESTABLECER MI CONTRASEÑA', 'ink'),
       spacerRow(24),
       smallPrintRow('Este enlace caduca en 1 hora. Si no lo solicitaste, ignora este correo.'),
     ]),

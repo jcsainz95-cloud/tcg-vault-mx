@@ -29454,3 +29454,16 @@ Los dos `layout()` y los dos `escapeHtml` locales se borraron (el escape lo hace
   `privacyNoticeHtml(` ya no basta) y **PRIV-7** (nuevo) renderiza todo el censo PRIV-0 + la reposición y exige la firma
   del shell (doctype con `lang`, `brandRows()`, `footerDescriptor(l)`), con un CONTROL de que un HTML a mano con marca y
   aviso no la cumple. `test/mail.greeting-name.spec.ts`: el saludo se busca como celda (`>Hola:</td>`) en vez de `<p>`.
+
+#### 77.1 Condiciones de QA y techlead sobre `7aa2c0ce` (2026-10-06)
+- **Rótulos de CTA (orquestador, `DESIGN_SYSTEM §41.4`), solo en el HTML:** 7 `VERIFICAR MI CORREO`/`VERIFY MY EMAIL`,
+  8 `RESTABLECER MI CONTRASEÑA`/`RESET MY PASSWORD`, 13 y 14 `VER MI PEDIDO`/`SEE MY ORDER` (§41.8, 13≡15). Sustituye la
+  «discrepancia anotada, no aplicada» de §77. Asuntos y texto plano, intactos.
+- **m-3:** en la verificación, la letra chica (caducidad + «copia esta URL») va **después** del botón, como en restablecer.
+- **N3:** el preheader del 14 pasa a una frase propia (`resendPreheader`, 40–90 caracteres; la intro en español medía
+  109). Solo el preheader: la prosa visible y el texto plano no cambian.
+- **Candados:** los seis entran a `MIGRADOS` de `test/buylist.mail-shell.spec.ts` (ML-1…ML-10, N1…N9 sobre ellos; `CON_CTA`
+  excluye 9 y 28, y `urlDe()` da el destino de cada CTA). Nuevos: **I-1** (el único `href` del 9 es `/es/privacidad`,
+  medido con `APP_PUBLIC_URL` puesto) e **I-2** (los plazos «N horas/días» del HTML visible = los del texto plano).
+- **Deuda registrada:** BE-43 (mitad de `mail/` pagada), AV-D2 (11 ficheros de 8 módulos y ciclo `mail/`↔`buylist/`),
+  FX-D9 (disparador = traslado a `common/`), y MAIL-D1…D7 al final de `docs/TECH_DEBT.md`.

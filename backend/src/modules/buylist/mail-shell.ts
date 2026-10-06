@@ -45,12 +45,14 @@
  *   cortesía: sin folio, sin importe, sin plazo y sin enlace de acción.
  *
  * ## Dónde vive esto y por qué
- * El esqueleto es **de los ocho**, pero los correos 7 y 8 están en `mail/mail.templates.ts`, que es
- * de **otro work stream** («Cuentas y acceso») y **no se toca en este pase**. Por eso el fichero vive
- * en `buylist/` y no en `common/`: mover el esqueleto —y absorber el `layout()` duplicado, deuda
- * **BE-43**— es exactamente el **pase 2** de §31.15, y su disparador es que esa zona quede libre.
- * *No se adelanta aquí: un helper compartido colocado en la zona compartida por un stream que no la
- * tiene asignada es la forma educada de pisar a otro.*
+ * El esqueleto nació en `buylist/` porque el pase 1 de §31.15 era de ese stream. Desde P-MAIL-MARCA
+ * (2026-10-06, `7aa2c0ce`) lo consumen también los correos de cuenta (`mail/mail.templates.ts`: 7, 8 y
+ * 9), los de invitado (`orders/mail/guest-order.templates.ts`) y la reposición de sellado
+ * (`catalog/sealed-restock-notify.service.ts`): el `layout()` y el `escapeHtml` duplicados de `mail/`
+ * se borraron (mitad de **BE-43** pagada). ⚠️ Eso deja un **ciclo entre carpetas** —`mail/` importa de
+ * aquí y este fichero importa `mail/mail-env.util` y `mail/support-contact`— que es deuda **AV-D2**: el
+ * traslado a `backend/src/common/` está DECIDIDO (`ARCHITECTURE §4.56.3`) y va en su propio PR,
+ * serializado, porque `common/` es zona compartida.
  */
 
 import { envOr } from '../mail/mail-env.util';
@@ -107,8 +109,8 @@ export const BRAND_SITE = 'tcghunt.mx';
  * S15-B1 — escapa metacaracteres HTML de **todo** valor que entre a una plantilla (el `&` primero).
  * Vive aquí, y no en el llamador, a propósito: los builders de abajo reciben **texto plano** y no
  * aceptan HTML, así que ML-10 (un nombre `"><script>…`) no depende de que ocho plantillas se acuerden
- * de escapar. *La copia de `buylist-mail.templates.ts` importa ésta; la de `mail/` es BE-43 y es del
- * pase 2.*
+ * de escapar. *Es la ÚNICA copia: `buylist-mail.templates.ts` importa ésta, y la de `mail/` (BE-43) se
+ * borró en P-MAIL-MARCA al pasar los correos de cuenta a los builders del esqueleto.*
  */
 export function escapeHtml(value: string): string {
   return value

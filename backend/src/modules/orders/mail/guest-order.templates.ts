@@ -72,7 +72,7 @@ const COPY = {
     eyebrow: 'TU PEDIDO',
     itemsLabel: 'LO QUE COMPRASTE',
     totalLabel: 'TOTAL PAGADO',
-    trackButton: 'VER EL ESTADO DE MI PEDIDO',
+    trackButton: 'VER MI PEDIDO',
     itemsTitle: 'Lo que compraste',
     total: 'Total pagado',
     trackCta: 'Ver el estado de mi pedido',
@@ -88,6 +88,8 @@ const COPY = {
     resendTitle: 'Tu nuevo enlace de seguimiento',
     resendIntro: (n: string) =>
       `Aquí tienes un enlace nuevo para seguir tu pedido ${n}. Los enlaces anteriores dejaron de funcionar.`,
+    // §31.6a/N3: el preheader mide 40–90; la frase entera (`resendIntro`) pasa de 100 en español.
+    resendPreheader: (n: string) => `Enlace nuevo para seguir tu pedido ${n}; los anteriores ya no funcionan.`,
   },
   en: {
     confirmSubject: (n: string) => `${BRAND} — Your order ${n} is confirmed`,
@@ -96,7 +98,7 @@ const COPY = {
     eyebrow: 'YOUR ORDER',
     itemsLabel: 'WHAT YOU BOUGHT',
     totalLabel: 'TOTAL PAID',
-    trackButton: 'TRACK MY ORDER',
+    trackButton: 'SEE MY ORDER',
     itemsTitle: 'What you bought',
     total: 'Total paid',
     trackCta: 'Track my order',
@@ -112,6 +114,7 @@ const COPY = {
     resendTitle: 'Your new tracking link',
     resendIntro: (n: string) =>
       `Here is a new link to track your order ${n}. Previous links no longer work.`,
+    resendPreheader: (n: string) => `New link to track your order ${n}; previous links no longer work.`,
   },
 } as const;
 
@@ -193,7 +196,7 @@ export function guestTrackingLinkTemplate(
   const html = mailShell({
     locale: l,
     title: t.resendTitle,
-    preheader: intro,
+    preheader: t.resendPreheader(params.orderNumber),
     blocks: [
       eyebrowRow(t.eyebrow, params.orderNumber),
       headingRow(t.resendTitle, 22),
