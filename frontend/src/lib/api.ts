@@ -307,6 +307,8 @@ import type {
 import * as m4ship from './mock/m4-ship';
 import * as sdx from './mock/skydropx';
 import * as spendMock from './mock/spend-alerts';
+import * as salesMock from './mock/sales';
+import type { SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
 
@@ -6880,6 +6882,51 @@ export async function getLaunchMetrics(range: FinanceRange = {}): Promise<Launch
     });
   }
   return delay(fx.mockLaunchMetrics);
+}
+
+// ---------- Admin M9 · Ventas del dueño (contrato §15, rev v1.85⟨ventas⟩ + AN-1.1) ----------
+// Los tres endpoints son SOLO super_admin (operador ⇒ 403). El front pide lo que el contrato define y pinta el DTO
+// tal cual (DESIGN_SYSTEM §AN-UX AN-1). ⛔ Ninguna fecha del periodo se resuelve en el navegador (AN-5).
+
+/** Query de §15.2: con `from`/`to` va `preset=custom`; sin ellos, el preset (o nada ⇒ default del servidor). */
+function salesQuery(p: SalesReportParams): Record<string, string | undefined> {
+  const custom = !!(p.from && p.to);
+  return {
+    preset: custom ? 'custom' : p.preset,
+    from: custom ? p.from : undefined,
+    to: custom ? p.to : undefined,
+    groupBy: p.groupBy,
+    topSort: p.topSort,
+  };
+}
+
+/** `GET /admin/reports/sales` — pestaña «Ventas» de Reportes. */
+export async function getSalesReport(params: SalesReportParams = {}): Promise<SalesReportDTO> {
+  if (!config.useMocks) return apiRequest<SalesReportDTO>('/admin/reports/sales', { query: salesQuery(params) });
+  // MOCK: pendiente de backend real (servidor falso `mock/sales.ts`).
+  return mockSdx(() => salesMock.mockSalesReport(params));
+}
+
+/**
+ * `GET /admin/reports/sales/export.csv` (§15.7) con el MISMO periodo y agrupación que la pantalla. ⛔ `topSort` no viaja
+ * (lo más vendido no se exporta). El nombre lo da `Content-Disposition` (`ventas_<from>_<to>_<groupBy>.csv`).
+ */
+export async function exportSalesCsv(params: SalesReportParams = {}): Promise<BlobResponse> {
+  if (!config.useMocks) {
+    return requestBlob('/admin/reports/sales/export.csv', { query: salesQuery({ ...params, topSort: undefined }) });
+  }
+  // MOCK: pendiente de backend real.
+  return mockSdx(() => {
+    const { text, filename } = salesMock.mockSalesCsv(params);
+    return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename };
+  });
+}
+
+/** `GET /admin/reports/sales/today` — tarjeta «Ventas de hoy» del tablero (solo se pide con súper-admin). */
+export async function getSalesToday(): Promise<SalesTodayDTO> {
+  if (!config.useMocks) return apiRequest<SalesTodayDTO>('/admin/reports/sales/today');
+  // MOCK: pendiente de backend real.
+  return mockSdx(() => salesMock.mockSalesToday());
 }
 
 // ============================================================================

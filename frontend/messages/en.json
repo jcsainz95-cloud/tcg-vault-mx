@@ -1373,6 +1373,18 @@
         "processing": "{n, plural, one {# label in progress} other {# labels in progress}}",
         "lowBalance": "Skydropx balance is low: buying labels may fail until it's topped up.",
         "seeBalance": "See the balance"
+      },
+      "salesToday": {
+        "title": "Today's sales",
+        "orders": "{count, plural, one {# order} other {# orders}}",
+        "charged": "{amount} collected",
+        "today": "Today, {date} · in progress",
+        "reference": "{date}, full day: {orders, plural, one {# order} other {# orders}} · {amount}",
+        "noReference": "There were no sales on {date}.",
+        "same": "= Same as {date}",
+        "link": "See sales",
+        "error": "Today's sales couldn't be loaded.",
+        "retry": "Retry"
       }
     },
     "m1": {
@@ -4958,6 +4970,215 @@
         "pnl": "Export P&L (CSV)",
         "iva": "Export VAT (CSV)",
         "inventory": "Export inventory (CSV)"
+      },
+      "tabs": {
+        "sales": "Sales",
+        "activity": "Activity"
+      },
+      "sales": {
+        "period": {
+          "title": "Period",
+          "presetsLabel": "Choose a period",
+          "today": "Today",
+          "yesterday": "Yesterday",
+          "last7": "Last 7 days",
+          "last30": "Last 30 days",
+          "thisMonth": "This month",
+          "lastMonth": "Last month",
+          "custom": "Pick dates…",
+          "from": "From",
+          "to": "To",
+          "apply": "Show"
+        },
+        "range": {
+          "bothRequired": "Pick both dates.",
+          "fromAfterTo": "The start date must come before the end date.",
+          "toFuture": "It can't be later than today.",
+          "tooLong": "One year at most (366 days). Shorten the range.",
+          "invalid": "That period isn't valid. Pick another one."
+        },
+        "groupBy": {
+          "label": "Show by",
+          "day": "Day",
+          "week": "Week",
+          "month": "Month",
+          "weekNote": "Weeks run Monday to Sunday; the first and last may be cut short by the period."
+        },
+        "label": {
+          "oneDayToday": "Today, {date}",
+          "oneDayYesterday": "Yesterday, {date}",
+          "oneDay": "{date}",
+          "range": "{from} to {to} · {days, plural, one {# day} other {# days}} · Central Mexico time",
+          "compareRange": "Compared with: {from} to {to}",
+          "compareDay": "Compared with: {date}"
+        },
+        "summary": {
+          "title": "Period summary"
+        },
+        "card": {
+          "orders": "Orders",
+          "charged": "Collected (incl. VAT)",
+          "chargedHelp": "What customers paid: VAT, shipping and fee included.",
+          "netSales": "Sales excl. VAT",
+          "netSalesHelp": "The same income figure as Finance.",
+          "refunds": "Refunds",
+          "refundsDetail": "{count, plural, one {# refund} other {# refunds}} · {card} by card · {spei} by SPEI",
+          "refundsNet": "{amount} excl. VAT is subtracted",
+          "refundsNone": "No refunds.",
+          "netAfterRefunds": "Sales net of refunds",
+          "netAfterRefundsHelp": "Sales excl. VAT minus refunds made in the period.",
+          "netAfterRefundsNegative": "Negative: refunds in the period exceed sales.",
+          "avgTicket": "Average order",
+          "avgTicketHelp": "Collected ÷ orders: what a customer spends per purchase.",
+          "piecesPerOrder": "Items per order",
+          "pieces": "{count, plural, one {# item sold} other {# items sold}}",
+          "customers": "Customers",
+          "customersSplit": "{new} new · {returning} returning",
+          "customersHelp": "New: their first paid purchase falls in this period. Recognized by email, even if they bought as a guest."
+        },
+        "noData": "no data: there were no orders",
+        "delta": {
+          "up": "went up",
+          "down": "went down",
+          "same": "Same as the previous period",
+          "orders": "{diff, plural, one {# order} other {# orders}}",
+          "piecesPerOrder": "{diff} items per order",
+          "noPrevious": "no sales in the previous period",
+          "noPreviousAlone": "No sales in the previous period",
+          "wasZero": "it was zero before",
+          "before": "Before: {value}"
+        },
+        "chart": {
+          "titleOrders": "Orders by {unit, select, day {day} week {week} other {month}}",
+          "titleCharged": "Collected by {unit, select, day {day} week {week} other {month}}",
+          "metricLabel": "Show",
+          "metricOrders": "Orders",
+          "metricCharged": "Collected",
+          "caption": "The same numbers are in the table below.",
+          "inProgress": "* Today is still in progress.",
+          "tooMany": "With this many days, it reads better by week or month.",
+          "switchToWeek": "Show by week",
+          "summaryOrders": "{metric} from {from} to {to}: {total} in total; the busiest, {best} with {bestValue}; {zero, plural, =0 {no days without orders} one {# day without orders} other {# days without orders}}."
+        },
+        "table": {
+          "title": "By {unit, select, day {day} week {week} other {month}}",
+          "caption": "Sales by {unit, select, day {day} week {week} other {month}}, {from} to {to}",
+          "colsLabel": "Columns",
+          "colsSales": "Sales",
+          "colsMoney": "Shipping, purchases and profit",
+          "colPeriod": "{unit, select, day {Day} week {Week} other {Month}}",
+          "total": "Period total",
+          "inProgress": "in progress",
+          "partialDays": "{days, plural, one {# day} other {# days}}",
+          "shippingCharged": "Shipping charged (excl. VAT)",
+          "shippingCost": "Label cost (excl. VAT)",
+          "shippingAdjustments": "Carrier adjustments",
+          "shippingAdjustmentsHint": "Already included in label cost",
+          "buylistRevenue": "Buylist fee income",
+          "buylistCost": "Buylist label cost",
+          "buylistPaid": "Buylist purchases",
+          "chargebacks": "Chargebacks",
+          "profit": "Profit (Finance rule)",
+          "costMissing": "{count} without cost",
+          "payoutMissing": "{count} without amount",
+          "profitNote": "Profit follows the same rule as Finance; the days add up to Finance's profit for the period.",
+          "costMissingNote": "Some shipments have no label cost recorded: the real cost may be higher.",
+          "payoutMissingNote": "Some paid buylist purchases have no amount recorded: they aren't in the total.",
+          "shippingResult": "Shipping result",
+          "shippingResultMaybeLower": "may be lower: some shipments have no cost",
+          "shippingResultNote": "Shipping result = shipping charged minus label cost (adjustments already included). Positive: what you charged covered the labels; negative: they cost more.",
+          "chargebacksNote": "Chargebacks count on the day they were opened and aren't subtracted from sales.",
+          "tooMany": "With this many days, it reads better by week or month."
+        },
+        "chargebacks": {
+          "undated": "{count, plural, one {# older chargeback has no date: it isn't on any day.} other {# older chargebacks have no date: they aren't on any day.}}"
+        },
+        "top": {
+          "title": "Best sellers",
+          "sortLabel": "Sort by",
+          "sortNet": "Sales excl. VAT",
+          "sortPieces": "Items",
+          "cards": "Cards",
+          "sets": "Sets",
+          "sealed": "Sealed",
+          "colRank": "#",
+          "colCard": "Card",
+          "colSet": "Set",
+          "colSealed": "Product",
+          "colPieces": "Items",
+          "colNet": "Sales excl. VAT",
+          "graded": "Graded",
+          "emptyCards": "No cards sold in this period.",
+          "emptySets": "No sets sold in this period.",
+          "emptySealed": "No sealed products sold in this period.",
+          "note": "Fully refunded orders aren't counted, so the total may be lower than the period's sales."
+        },
+        "when": {
+          "title": "When you sell",
+          "byWeekday": "By day of the week",
+          "byHour": "By hour (Central Mexico)",
+          "asTable": "Show as table",
+          "fewData": "With few orders this doesn't say much yet: a single good day changes everything.",
+          "hourRange": "{from}:00–{from}:59"
+        },
+        "mix": {
+          "title": "How and to whom you sell",
+          "destination": "Where it goes",
+          "directShip": "Home delivery",
+          "vault": "Vault",
+          "buyer": "Who buys",
+          "account": "With an account",
+          "guest": "Guest",
+          "payment": "How they pay",
+          "method": {
+            "card": "Card",
+            "oxxo": "OXXO",
+            "customer_balance": "Bank transfer",
+            "other": "Other ({method})",
+            "none": "No data"
+          },
+          "noneNote": "No data: orders paid before the store recorded the payment method.",
+          "cardOnly": "The store only takes cards today.",
+          "colOrders": "Orders",
+          "colCharged": "Collected",
+          "productType": "What sells",
+          "raw": "Single cards",
+          "graded": "Graded",
+          "sealed": "Sealed",
+          "colPieces": "Items",
+          "colNet": "Sales excl. VAT",
+          "productTypeNote": "Splits the period's sales excl. VAT, including orders later refunded; that's why it adds up to the summary and not to \"Best sellers\"."
+        },
+        "p2": {
+          "shippingCharged": "Shipping charged (excl. VAT)",
+          "shippingCost": "Label cost (excl. VAT)",
+          "includesAdjustments": "Includes carrier adjustments {amount}",
+          "costMissing": "{count, plural, one {# shipment without recorded cost} other {# shipments without recorded cost}}",
+          "buylistPaid": "Buylist purchases",
+          "buylistCount": "{count, plural, one {# paid purchase} other {# paid purchases}}",
+          "payoutMissing": "{count} without a recorded amount",
+          "profit": "Profit (Finance rule)",
+          "profitHelp": "The same profit as Finance.",
+          "shippingResult": "Shipping result",
+          "shippingResultHelp": "Shipping charged minus label cost.",
+          "shippingResultMaybeLower": "May be lower: some shipments have no recorded cost.",
+          "chargebacks": "Chargebacks",
+          "chargebacksCount": "{count, plural, one {# chargeback} other {# chargebacks}}",
+          "chargebacksOutcome": "{open} open · {won} won · {lost} lost",
+          "chargebacksHelp": "Counted on the day they were opened; not subtracted from sales.",
+          "chargebacksUndated": "{count, plural, one {# older one has no date and isn't counted here.} other {# older ones have no date and aren't counted here.}}"
+        },
+        "csv": {
+          "button": "Download CSV",
+          "help": "One row per {unit, select, day {day} week {week} other {month}}, including zero rows, plus a total row. Amounts in pesos with two decimals, no currency sign or thousands separators (MX$1,250.00 = 1250.00), so Excel can add them up. No customer data.",
+          "error": "The CSV couldn't be downloaded. Try again."
+        },
+        "state": {
+          "updating": "Updating…",
+          "empty": "There were no sales in this period.",
+          "error": "Sales couldn't be loaded.",
+          "forbidden": "Only the super-admin can see sales."
+        }
       }
     },
     "vaults": {

@@ -6559,6 +6559,175 @@ export interface LaunchMetricsDTO {
   goals: LaunchGoalsDTO | null;
 }
 
+// ---- §AN · Analítica de ventas del dueño (contrato §15, rev v1.85⟨ventas⟩) ----
+// GET /admin/reports/sales (+ /export.csv, + /today) — solo super_admin (operador ⇒ 403).
+// ⚠️ Los campos de P2 (fase B/C, §15.8) son OPCIONALES en el tipo del front a propósito
+// (DESIGN_SYSTEM §AN-UX.16 FS-AN-4): un servidor en fase A no los manda y la pantalla tiene que
+// poder pintar la AUSENCIA como ausencia (bloque que no existe), nunca como `0`. ⛔ AN-1: el front
+// no deriva ninguna cifra de otras; todo número sale tal cual de aquí.
+
+/** `'YYYY-MM-DD'`, día civil de México (`America/Mexico_City`). */
+export type SalesYmd = string;
+export type SalesPreset = 'today' | 'yesterday' | 'last7' | 'last30' | 'this_month' | 'last_month' | 'custom';
+export type SalesGroupBy = 'day' | 'week' | 'month';
+export type SalesTopSort = 'net' | 'pieces';
+
+export interface SalesRefundsDTO {
+  count: number;
+  amountCents: number;
+  netCents: number;
+  byChannel: { card: { count: number; amountCents: number }; spei: { count: number; amountCents: number } };
+}
+
+/** §15.4 · P2 `shipping` — `buylistRevenueCents`/`buylistCostCents` SOLO con #78 en production (ausentes, no `0`). */
+export interface SalesShippingDTO {
+  chargedNetCents: number;
+  costNetCents: number;
+  costMissingCount: number;
+  adjustmentsCents: number;
+  /** ⭐ AN-1.1 (N-AN-3, §15.11.3, fase B): `chargedNetCents − costNetCents` del MISMO cubo, lo da el SERVIDOR. ⛔ El front no resta. */
+  resultNetCents?: number;
+  buylistRevenueCents?: number;
+  buylistCostCents?: number;
+}
+
+export interface SalesBuylistDTO {
+  paidCount: number;
+  paidNetCents: number;
+  paidWithoutPayoutCount: number;
+}
+
+export interface SalesFiguresDTO {
+  orders: number;
+  chargedCents: number;
+  netSalesCents: number;
+  refunds: SalesRefundsDTO;
+  netSalesAfterRefundsCents: number;
+  pieces: number;
+  /** `null` si `orders = 0` (criterio 604) ⇒ «—». */
+  avgTicketCents: number | null;
+  /** un decimal; `null` si `orders = 0`. */
+  piecesPerOrder: number | null;
+  // ---- P2 (fase B) — opcionales en el front ----
+  shipping?: SalesShippingDTO;
+  buylist?: SalesBuylistDTO;
+  /** 612, regla de Finanzas (§15.8, hereda D-AN-1). */
+  profitCents?: number;
+  /** ⭐ AN-1.1 (N-AN-1, §15.11.1, fase C): abiertos en el cubo; desenlace de HOY. Ausente hasta M-AN-1. */
+  chargebacks?: SalesChargebacksDTO;
+}
+
+export interface SalesMoneyCellDTO {
+  count: number;
+  amountCents: number;
+}
+export interface SalesChargebacksDTO {
+  count: number;
+  amountCents: number;
+  byOutcome: { open: SalesMoneyCellDTO; won: SalesMoneyCellDTO; lost: SalesMoneyCellDTO };
+}
+export interface SalesPieceCellDTO {
+  pieces: number;
+  netCents: number;
+}
+
+/** `pct` entero; `null` si el anterior es 0 o alguno es `null`. */
+export interface SalesDeltaDTO {
+  diff: number | null;
+  pct: number | null;
+}
+
+export interface SalesTopCardDTO {
+  cardId: string;
+  name: string;
+  number: string;
+  setName: string;
+  finish: Finish;
+  productType: ProductType;
+  pieces: number;
+  netCents: number;
+}
+export interface SalesTopSetDTO {
+  setId: string;
+  setName: string;
+  pieces: number;
+  netCents: number;
+}
+export interface SalesTopSealedDTO {
+  sealedProductId: string | null;
+  name: string;
+  setName: string;
+  pieces: number;
+  netCents: number;
+}
+
+export interface SalesMixCellDTO {
+  orders: number;
+  chargedCents: number;
+}
+
+export interface SalesBestDaysDTO {
+  /** 1 = lunes; siempre 7. */
+  byWeekday: Array<{ weekday: 1 | 2 | 3 | 4 | 5 | 6 | 7; orders: number; chargedCents: number }>;
+  /** 0–23, hora de México; siempre 24. */
+  byHour: Array<{ hour: number; orders: number; chargedCents: number }>;
+}
+
+export interface SalesMixDTO {
+  byDestination: { vault: SalesMixCellDTO; direct_ship: SalesMixCellDTO };
+  /** guest ⇔ `guestEmail != null`. */
+  byBuyer: { account: SalesMixCellDTO; guest: SalesMixCellDTO };
+  /** fase C (M-AN-1); `method: null` = «sin dato». Cadena ABIERTA (no enum). Opcional en el front: fase B no la trae. */
+  byPaymentMethod?: Array<{ method: string | null; orders: number; chargedCents: number }>;
+  /** ⭐ AN-1.1 (N-AN-2, §15.11.2, fase B): incluye los `refunded`; Σ = `totals.pieces` / `totals.netSalesCents`. */
+  byProductType?: { raw: SalesPieceCellDTO; graded: SalesPieceCellDTO; sealed: SalesPieceCellDTO };
+}
+
+export type SalesRowDTO = { from: SalesYmd; to: SalesYmd } & SalesFiguresDTO;
+
+export interface SalesReportDTO {
+  period: { preset: SalesPreset; from: SalesYmd; to: SalesYmd; days: number; timezone: 'America/Mexico_City' };
+  previousPeriod: { from: SalesYmd; to: SalesYmd };
+  groupBy: SalesGroupBy;
+  totals: SalesFiguresDTO;
+  previousTotals: SalesFiguresDTO;
+  comparison: {
+    orders: SalesDeltaDTO;
+    chargedCents: SalesDeltaDTO;
+    netSalesCents: SalesDeltaDTO;
+    refundsAmountCents: SalesDeltaDTO;
+    netSalesAfterRefundsCents: SalesDeltaDTO;
+    avgTicketCents: SalesDeltaDTO;
+    piecesPerOrder: SalesDeltaDTO;
+  };
+  /** TODOS los cubos del periodo, en orden, también los de cero. */
+  rows: SalesRowDTO[];
+  top: { sort: SalesTopSort; cards: SalesTopCardDTO[]; sets: SalesTopSetDTO[]; sealed: SalesTopSealedDTO[] };
+  customers: { new: number; returning: number; distinct: number };
+  // ---- P2 (fase B / C) — opcionales en el front ----
+  bestDays?: SalesBestDaysDTO;
+  mix?: SalesMixDTO;
+  /** ⭐ AN-1.1 (fase C): contracargos de TODO el histórico sin `chargebackOpenedAt` (anteriores a M-AN-1). */
+  chargebacksUndatedCount?: number;
+}
+
+/** §15.5 — tarjeta «Ventas de hoy» (criterio 611). */
+export interface SalesTodayDTO {
+  today: { day: SalesYmd; orders: number; chargedCents: number };
+  /** ese día COMPLETO (P-AN-2, default). */
+  sameWeekdayLastWeek: { day: SalesYmd; orders: number; chargedCents: number };
+  comparison: { orders: SalesDeltaDTO; chargedCents: SalesDeltaDTO };
+}
+
+/** Parámetros de `GET /admin/reports/sales` y `/export.csv` (§15.2). */
+export interface SalesReportParams {
+  preset?: SalesPreset;
+  from?: SalesYmd;
+  to?: SalesYmd;
+  groupBy?: SalesGroupBy;
+  topSort?: SalesTopSort;
+}
+
 // ---- Errores (contrato §0) ----
 export interface ApiError {
   code: string;
