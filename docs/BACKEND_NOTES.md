@@ -30059,3 +30059,17 @@ generado en la copia, BD propia `tcg_be_limpieza2`):
   decir nada). Lo que cambia: la prueba ahora etiqueta el paso que falla (`fresh` / `B COMMIT`) con su tiempo y carga, y
   de cada proceso hijo guarda código, señal, error de spawn, duración, carga y las colas de stdout/stderr en el mensaje
   de fallo. No subí timeouts ni la salté. Si vuelve a salir, el propio mensaje dice dónde.
+
+### 79.4 · Condición CS-1 de seguridad sobre `00ec3888` (LZ-S1, media) — 2026-10-06
+- Los cuatro encabezados ya no piden `psql "$URL"` ni `DATABASE_URL='…' node …` (contraseña de admin en el historial y en
+  `ps`). A–D: 1.º `railway connect` + `\i <fichero>`; 2.º `psql "postgresql://USUARIO@HOST:PUERTO/BASE" -v ON_ERROR_STOP=1
+  -f <fichero>` (URL SIN contraseña: psql la pide sin mostrarla). E: (a) consola del contenedor, (b) `railway run
+  --service <API> node dist/cli/limpieza-republicar.js`, (c) a mano con `read -rs DATABASE_URL; export DATABASE_URL` y
+  `unset` al final. Todos: «si la tecleaste o pegaste, CAMBIA la contraseña de Postgres». `railway connect`/`run`: NO MEDIDO.
+- B: «¿QUIERES CONSERVAR LA BITÁCORA?» con `\copy (SELECT * FROM "AuditLog" …) TO 'bitacora-antes-de-limpieza.csv' WITH
+  (FORMAT csv, HEADER)`; una prueba ejecuta esa línea tal cual y comprueba cabecera + todas las filas.
+- LZ-S2 (baja) no se hizo: a TECH_DEBT PDB-TD4 (una caducidad por fecha pondría roja la suite en CI; sin `livemode` en
+  `Order` cualquier otra guarda sería adivinar).
+- Medido (copia entera de `9352915c` + cambios, BD propia): 50/50; tsc y eslint exit 0. Mutaciones 1/1 rojas: volver a
+  poner `psql "$URL"` en el encabezado de C; romper el formato del `\copy`.
+

@@ -21,8 +21,16 @@
 --  NO MEDIDO por el equipo en tu cuenta.
 --
 --  CÓMO SE CORRE (sin editar nada):
---       psql "$URL" -v ON_ERROR_STOP=1 -f 20261006_pdblimpieza_3_folio_pedidos.sql
---   o, dentro de psql:   \i 20261006_pdblimpieza_3_folio_pedidos.sql
+--   1.º (recomendado) · `railway connect` (eligiendo el servicio de Postgres) abre psql ya conectado, SIN que
+--       teclees la URL ni la contraseña. Dentro de psql escribe:
+--         \i 20261006_pdblimpieza_3_folio_pedidos.sql
+--   2.º (sin el CLI de Railway) · psql a mano, SIN dejar la contraseña en el historial del shell ni a la vista en `ps`:
+--       pon la URL SIN la contraseña (postgresql://USUARIO@HOST:PUERTO/BASE, de Railway → Postgres → Connect →
+--       «Public Network») y psql te pide la contraseña sin mostrarla:
+--         psql "postgresql://USUARIO@HOST:PUERTO/BASE" -v ON_ERROR_STOP=1 -f 20261006_pdblimpieza_3_folio_pedidos.sql
+--   ⛔ No escribas la URL con la contraseña dentro (ni `URL=…`, ni `psql "postgresql://usuario:CONTRASEÑA@…"`): se queda
+--      en el historial del shell y la ve cualquiera que liste los procesos. Si ya la tecleaste o pegaste en la terminal
+--      o en un chat, CAMBIA la contraseña de Postgres en Railway cuando termines.
 --   ⛔ NUNCA lo pegues en la ventana de psql: si se negara, seguiría con las demás líneas y el motivo se pierde.
 --   Termina con la palabra COMMIT si se aplicó; si lo último que ves es un ERROR, no se cambió nada.
 --

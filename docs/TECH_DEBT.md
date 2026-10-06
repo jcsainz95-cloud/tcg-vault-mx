@@ -9841,3 +9841,18 @@ esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
   probada. Hasta entonces, G-8 obliga a clasificar cada tabla nueva en B (eso es lo que se quiere mientras no se corra).
 - **Disparador:** el COMMIT de la limpieza en producción + D «TODO OK» + E sin «SIN RESOLVER».
 - **Comprobación de cierre:** los ficheros movidos o borrados en un commit que cita esta entrada.
+
+### PDB-TD4 · P3 · G-7 depende del rastro: antes del primer COMMIT de B, una venta real no se distingue de una de prueba (LZ-S2)
+- **Dueño:** backend. Origen: hallazgo LZ-S2 (BAJA) de seguridad sobre `00ec3888` (`docs/SECURITY_NOTES.md`).
+- **Dónde:** `backend/prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql`, G-7: solo se activa si ya existe el rastro
+  `maintenance.test_data_purge`. `Order` no guarda el modo de Stripe (`grep livemode backend/prisma/schema.prisma` vacío,
+  según seguridad), así que G-1…G-3 no ven la diferencia.
+- **Impacto:** si se pasara a `sk_live_` y se vendiera **antes** de correr B, B borraría ventas reales. Mitigado por el
+  orden del manual (LIMPIEZA_DB §8.2 paso 10) y por PITR.
+- **Por qué no se hizo ahora:** una guarda de caducidad por fecha fija (abortar si `now()` pasa de un día límite) pondría
+  roja la suite de la limpieza en CI en cuanto pase esa fecha, y una «posterior a X» sin marca de modo en `Order` sería
+  adivinar. Lo barato y correcto depende de PDB-TD3 (retirar guiones y suite tras la corrida).
+- **Corrección:** guardar el modo (`livemode` del PaymentIntent) en `Order` y hacer que B aborte si existe algún pedido
+  `livemode = true`; o, si se decide retirar los guiones (PDB-TD3), cerrar esto con su retirada.
+- **Disparador:** cualquier retraso de la limpieza más allá del paso a `sk_live_`, o la decisión de PDB-TD3.
+- **Comprobación de cierre:** prueba con un pedido `livemode = true` ⇒ B aborta y no escribe; o los guiones retirados.

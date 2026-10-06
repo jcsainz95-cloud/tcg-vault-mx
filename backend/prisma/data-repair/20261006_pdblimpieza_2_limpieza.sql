@@ -25,10 +25,16 @@
 --
 --  CÓMO SE CORRE (siempre así; el primer paso no cambia nada)
 --  ----------------------------------------------------------
---   Desde tu terminal, con la URL de conexión de Railway (Postgres → Connect; pégala en TU terminal, nunca en un chat):
---       psql "$URL" -v ON_ERROR_STOP=1 -f 20261006_pdblimpieza_2_limpieza.sql
---   o, si ya estás dentro de psql (p. ej. con `railway connect`):
---       \i 20261006_pdblimpieza_2_limpieza.sql
+--   1.º (recomendado) · `railway connect` (eligiendo el servicio de Postgres) abre psql ya conectado, SIN que
+--       teclees la URL ni la contraseña. Dentro de psql escribe:
+--         \i 20261006_pdblimpieza_2_limpieza.sql
+--   2.º (sin el CLI de Railway) · psql a mano, SIN dejar la contraseña en el historial del shell ni a la vista en `ps`:
+--       pon la URL SIN la contraseña (postgresql://USUARIO@HOST:PUERTO/BASE, de Railway → Postgres → Connect →
+--       «Public Network») y psql te pide la contraseña sin mostrarla:
+--         psql "postgresql://USUARIO@HOST:PUERTO/BASE" -v ON_ERROR_STOP=1 -f 20261006_pdblimpieza_2_limpieza.sql
+--   ⛔ No escribas la URL con la contraseña dentro (ni `URL=…`, ni `psql "postgresql://usuario:CONTRASEÑA@…"`): se queda
+--      en el historial del shell y la ve cualquiera que liste los procesos. Si ya la tecleaste o pegaste en la terminal
+--      o en un chat, CAMBIA la contraseña de Postgres en Railway cuando termines.
 --   ⛔ NUNCA lo pegues en la ventana de psql: si una guarda lo para, psql seguiría con las demás líneas y verías
 --      decenas de errores que tapan el motivo real. Corriéndolo con -f o \i se para en el PRIMER error, y lo último
 --      que ves es el motivo (G-n). Si se paró dentro de psql (\i), sal con \q: al salir se deshace todo.
@@ -48,21 +54,35 @@
 --   PASO 5 · Corre el fichero 3 (folio de pedidos), luego el 4 (verificación) y luego el paso E (abajo).
 --
 --  PASO E · RE-PUBLICAR (NO es psql: es un programa de la app). Primero SIN --apply (simulacro: no escribe y te dice
---  qué haría con cada carta); si te cuadra, otra vez CON --apply. Dos formas, elige una:
---   (a) Dentro del contenedor de la API en Railway (consola/shell del servicio de la API; ahí NO hay npm):
+--  qué haría con cada carta); si te cuadra, otra vez CON --apply. Elige UNA forma, en este orden:
+--   (a) (recomendada) Consola/shell del contenedor de la API en Railway (ahí NO hay npm ni tecleas ninguna URL):
 --         node dist/cli/limpieza-republicar.js
 --         node dist/cli/limpieza-republicar.js --apply
---       Usa la base de la API tal cual (DATABASE_URL del servicio).
---   (b) Desde tu máquina, con el repositorio descargado y Node 24:
+--       Usa la base de la API tal cual (su DATABASE_URL).
+--   (b) (recomendada) Desde tu máquina con el CLI de Railway, que pone la URL por ti (nada que teclear):
 --         cd backend && npm ci && npm run build
---         DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/limpieza-republicar.js
---         DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/limpieza-republicar.js --apply
---       La URL PÚBLICA es la de Railway → Postgres → Connect → «Public Network» (DATABASE_PUBLIC_URL); la interna
---       (*.railway.internal) no se alcanza desde fuera. Con el CLI de Railway también vale
 --         railway run --service <servicio-de-la-API> node dist/cli/limpieza-republicar.js
---       porque el comando, si DATABASE_URL es *.railway.internal y existe DATABASE_PUBLIC_URL, usa la pública solo.
---       Que (a) y `railway run` funcionen así en tu cuenta: NO MEDIDO por el equipo.
+--         railway run --service <servicio-de-la-API> node dist/cli/limpieza-republicar.js --apply
+--       Si la URL que inyecta es la interna (*.railway.internal) y existe DATABASE_PUBLIC_URL, el comando usa la
+--       pública solo.
+--   (c) A mano, solo si no puedes (a) ni (b): mismo build, y la URL PÚBLICA (Railway → Postgres → Connect →
+--       «Public Network») sin que quede en el historial ni en `ps`:
+--         read -rs DATABASE_URL        (introduce la URL y pulsa Enter: no se ve ni se guarda en el historial)
+--         export DATABASE_URL
+--         node dist/cli/limpieza-republicar.js
+--         node dist/cli/limpieza-republicar.js --apply
+--         unset DATABASE_URL
+--       ⛔ Nunca `DATABASE_URL='postgresql://…' node …` en la misma línea: queda en el historial. Si la tecleaste o
+--       pegaste así (o en un chat), CAMBIA la contraseña de Postgres en Railway cuando termines.
+--   Que (a), (b) y `railway connect` funcionen así en tu cuenta: NO MEDIDO por el equipo.
 --   Termina con «Resumen · a la venta: … · SIN RESOLVER: …». Si hay «SIN RESOLVER», corrígelas en M1 y repite.
+--
+--  ¿QUIERES CONSERVAR LA BITÁCORA? Este fichero la BORRA entera (queda solo en el respaldo de Railway). Si quieres una
+--  copia en tu computadora, ANTES del COMMIT abre psql (como arriba) y escribe esta línea; deja el fichero
+--  bitacora-antes-de-limpieza.csv en la carpeta desde la que abriste psql:
+--      \copy (SELECT * FROM "AuditLog" ORDER BY "createdAt", id) TO 'bitacora-antes-de-limpieza.csv' WITH (FORMAT csv, HEADER)
+--  Trae datos de tu operación y de clientes: guárdalo en un sitio privado, no lo subas al repositorio ni lo mandes
+--  por chat.
 --
 --  SI ALGO NO CUADRA, SE PARA SOLO: cualquier cosa que el diseño no conoce (una carta de cliente que no vino de un
 --  pedido, una tabla nueva que el diseño no clasificó…) aborta TODO con un mensaje G-n y no se escribe nada. No hay

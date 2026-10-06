@@ -16,8 +16,8 @@
  *  P-1 «borrar» y «conservar», P-2 (exclusión), bounty ⇒ `apagada`, cajón de vuelta.
  */
 import { spawnSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
-import { loadavg } from 'node:os';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { loadavg, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -99,6 +99,13 @@ const commit = (e: Env, extra: { buylist?: string; fueraDeVenta?: string } = {})
 function expectSame(a: Snapshot, b: Snapshot) {
   expect(b.sequences).toEqual(a.sequences);
   expect(b.tables).toEqual(a.tables);
+}
+
+/** URL para psql (sin `?schema=`), como en el arnés. */
+function libpqUrlForTest(): string {
+  const u = new URL(process.env.DATABASE_URL!);
+  u.search = '';
+  return u.toString();
 }
 
 async function pieces(e: Env) {
@@ -467,9 +474,14 @@ describe('💰 §9.8 / §11 · sin M-72', () => {
 describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qué se ve', () => {
   const ALL = ['censo', 'limpieza', 'folio', 'verificacion'] as const;
 
-  it.each(ALL)('%s: el encabezado manda `psql "$URL" -v ON_ERROR_STOP=1 -f <fichero>` (o \\i), nunca «pegar»; pide el cliente psql y marca `railway connect` como NO MEDIDO', (f) => {
+  it.each(ALL)('%s: el encabezado manda `\\i <fichero>` tras `railway connect` o `psql <URL SIN contraseña> -v ON_ERROR_STOP=1 -f <fichero>`, nunca «pegar»; pide el cliente psql y marca `railway connect` como NO MEDIDO', (f) => {
     const h = header(readRepair(f));
-    expect(h).toContain(`psql "$URL" -v ON_ERROR_STOP=1 -f ${FILES[f]}`);
+    expect(h).toContain(`psql "postgresql://USUARIO@HOST:PUERTO/BASE" -v ON_ERROR_STOP=1 -f ${FILES[f]}`);
+    // CS-1 / LZ-S1 (seguridad): primero `railway connect` (sin teclear URL), nada de URL con contraseña en la línea de órdenes.
+    expect(h.indexOf('1.º (recomendado) · `railway connect`')).toBeGreaterThan(-1);
+    expect(h.indexOf('1.º (recomendado) · `railway connect`')).toBeLessThan(h.indexOf('psql "postgresql://USUARIO@'));
+    expect(h).not.toMatch(/psql "\$URL"|^--\s+URL=|^--\s+DATABASE_URL='/m);
+    expect(h).toMatch(/CAMBIA la contraseña de Postgres/);
     expect(h).toContain(`\\i ${FILES[f]}`);
     expect(h).not.toMatch(/\b(pega|pégalo|pegalo|pegarlo)\b/i);
     expect(h).toMatch(/NUNCA lo pegues/);
@@ -490,9 +502,32 @@ describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qu�
     expect(h.split('\n').filter((l) => l.includes('node dist/cli/limpieza-republicar.js')).length).toBeGreaterThanOrEqual(2);
     expect(h).toMatch(/node dist\/cli\/limpieza-republicar\.js --apply/);
     expect(h).toMatch(/cd backend && npm ci && npm run build/);
-    expect(h).toMatch(/DATABASE_URL='<URL PÚBLICA de Postgres>' node dist\/cli\/limpieza-republicar\.js/);
+    expect(h).toMatch(/railway run --service <servicio-de-la-API> node dist\/cli\/limpieza-republicar\.js/);
+    // CS-1: la URL a mano, solo con `read -rs` + `export` (fuera del historial y de `ps`), y el aviso de rotar la contraseña.
+    expect(h).toMatch(/read -rs DATABASE_URL[^\n]*\n--\s+export DATABASE_URL\n--\s+node dist\/cli\/limpieza-republicar\.js/);
     expect(h).toMatch(/DATABASE_PUBLIC_URL/);
+    expect(h).toMatch(/CAMBIA la contraseña de Postgres/);
     expect(h).not.toMatch(/npm run limpieza:republicar/);
+  });
+
+  it('CS-1 · B dice cómo conservar la bitácora antes de borrarla, y esa línea `\\copy` funciona tal cual (CSV con cabecera y todas las filas)', async () => {
+    const h = header(readRepair('limpieza'));
+    const line = h.split('\n').map((l) => l.replace(/^--\s*/, '')).find((l) => l.startsWith('\\copy (SELECT * FROM "AuditLog"'));
+    expect(line).toBeDefined();
+    expect(h).toMatch(/ANTES del COMMIT/);
+    const e = await fresh();
+    const dir = mkdtempSync(join(tmpdir(), 'lz-bit-'));
+    try {
+      const r = spawnSync('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', libpqUrlForTest(), '-c', line!], {
+        cwd: dir, encoding: 'utf8', env: { ...process.env, PGOPTIONS: `-c search_path=${e.schema}` },
+      });
+      expect({ s: r.status, err: r.stderr }).toEqual({ s: 0, err: '' });
+      const csv = readFileSync(join(dir, 'bitacora-antes-de-limpieza.csv'), 'utf8').trim().split('\n');
+      expect(csv[0]).toMatch(/^id,/);
+      expect(csv.length - 1).toBe(await e.db.auditLog.count());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('M3 · la lista 2.4 marca en «ojo» las perdidas/dañadas que vuelven a inventario (candidatas a P-2), y no las demás', async () => {
