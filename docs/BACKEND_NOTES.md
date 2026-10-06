@@ -29968,9 +29968,10 @@ Prisma generado en la copia, 0 apariciones de `buylist_inbound` en el compartido
   (cajón/precio) · **cambió después de la limpieza** (ya no es de plataforma o su estado no es `in_stock`/`listed`: se
   informa y no se toca) · **SIN RESOLVER** (ni se publica ni la cola la enseña — p. ej. gradeada sin certificado —; el
   comando sale con **código 2** y dice que se corrige en M1). 0 = bien, 1 = error (p. ej. sin rastro).
-- Cómo lo corre el dueño: en el contenedor de la API, `node dist/cli/limpieza-republicar.js` (el runtime **no** trae
-  npm, `Dockerfile.backend`); o desde una copia del repo con `npm ci && npm run build` y `DATABASE_URL` apuntando a la
-  base. Si `railway ssh`/`railway run` sirven para eso en su cuenta: **NO MEDIDO**.
+- Cómo lo corre el dueño (escrito en el encabezado de B, paso E — corregido en §79.3 por E1): (a) en el contenedor de
+  la API, `node dist/cli/limpieza-republicar.js` y luego `--apply` (el runtime **no** trae npm, `Dockerfile.backend`);
+  (b) desde una copia del repo, `cd backend && npm ci && npm run build` y `DATABASE_URL='<URL PÚBLICA>' node
+  dist/cli/limpieza-republicar.js`. Si la consola del contenedor y `railway run` sirven en su cuenta: **NO MEDIDO**.
 - Comprobación del encargo (medida en la prueba): tras B (COMMIT) + `--apply`, **toda** pieza de `piezasRestauradas`
   está `listed` o en `GET /admin/inventory/pending-publish` con `missing ≠ []`. En el fixture: P1, P3, P7, P12 ⇒
   `listed`; P2, P4, P5, P11 ⇒ cola con `['location']`.
@@ -30024,3 +30025,25 @@ generado en la copia, BD propia `tcg_be_limpieza2`):
 | C sin la rama de QA-8 | QA-8 roja 1/1 |
 | E `--apply` = simulacro (nunca publica) | 2 pruebas de E rojas 1/1 |
 | E deja entrar al pipeline lo que cambió de estado | «SIN RESOLVER / cambió después» roja 1/1 |
+
+### 79.3 · 3.er pase tras el re-pase de QA sobre `cfbc1d82` (APROBADO CON CONDICIONES) — 2026-10-06
+
+- **E1:** el encabezado de B ya no dice solo «`limpieza:republicar`» (script npm que no existe en la imagen): da las
+  órdenes exactas — (a) contenedor de la API: `node dist/cli/limpieza-republicar.js` [`--apply`]; (b) máquina con el
+  repo: `cd backend && npm ci && npm run build` + `DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/…`; y
+  `railway run --service <API> node dist/cli/…`. El comando hace el salto de `scripts/geo/import-sepomex.ts`
+  (`resolveDatabaseUrl`): `DATABASE_URL` `*.railway.internal` + `DATABASE_PUBLIC_URL` ⇒ la pública; interna sin pública
+  ⇒ se niega diciendo qué URL poner (`resolveRepublicarDatabaseUrl`, unidad `test/limpieza-republicar.cli.spec.ts`).
+  Ojo: dentro del contenedor, si la API tiene `DATABASE_PUBLIC_URL` en su entorno, también salta a la pública
+  (funciona igual; NO MEDIDO si esa variable está en el servicio de la API).
+- **M1:** contexto Nest con `logger: false` (el aviso `NO_OWNER_ACCOUNT` de `SpendWatchService` y los de
+  `MasterSetService` no salen); el comando solo imprime su reporte y sus propios errores.
+- **M2:** la prueba del comando corre **dos** veces: con ts-node y **compilado** (`tsc -p tsconfig.build.json` a un
+  directorio temporal = lo que `nest build` deja en `dist/`), y exige salida sin `[Nest]`/`NO_OWNER_ACCOUNT`/`ERROR`.
+- **M3:** en la lista 2.4 de B, la columna «ojo» marca «¿EXISTE Y ESTÁ BIEN? era perdida|dañada: si no, ponla en ✏️ 2
+  (P-2)» para las piezas que vuelven a inventario desde `lost`/`damaged`.
+- Medido (copia entera de `cfbc1d82` + cambios, BD propia): integración 49/49, unidad nueva 4/4, tsc y eslint exit 0.
+  Mutaciones 1/1 rojas: logger `['error','warn']` (2 pruebas), sin la marca de M3, sin el salto a la pública (2 de 4
+  unitarias). ⚠️ La suite completa dio **1 roja en 6 corridas completas** (la primera, en la prueba del comando
+  compilado, a los 1.5 s); no se repitió en 5 completas más ni en 6 del bloque E, y **no la diagnostiqué**: el log de
+  esa corrida no guardó el detalle.
