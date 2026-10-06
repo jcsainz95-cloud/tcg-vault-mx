@@ -9,10 +9,13 @@
  * Prisma fuera de aquí: *un lector que olvida el `kind` mete una guía de entrada en la cola de preparación o en el P&L*, y
  * la única forma barata de que no se olvide es que no haya más de un sitio donde recordarlo.
  *
- * ### Esqueleto (B-1). Lo que falta lo pone B-2 AQUÍ, no en el motor
- * B-1 deja las piezas que no dependen de la red ni de la dirección: estados, candados, avisos. B-2 añade aquí las que
- * dependen de la solicitud (dirección del cotizador y de la compra, `chargedOf`, `insuredValueOf`, empaque por regla,
- * recomendada), con la tabla de §BSD.3 como especificación.
+ * ### Esqueleto (B-1) y piezas de B-2
+ * B-1 dejó las piezas que no dependen de la red ni de la dirección: estados, candados, avisos. B-2 (§BSD.3 + errata BSD-1.3
+ * punto 5) añade aquí los ESTADOS por clase (`OPEN_FOR_LABEL_STATUS`, `LABELED_STATUS`, `openForLabelWhere()`), las banderas
+ * de política que el motor lee (`requiresPreparation`, `recommendation`) y el `kind` del DTO admin (`AdminShipmentKind`,
+ * BSD-1.3 punto 2). Las piezas de la solicitud que dependen de la dirección y del dinero (dirección del cotizador y de la
+ * compra, lo cobrado, el valor asegurado, el empaque) viven en `label-inbound.ts`: son DATOS de la solicitud, no una
+ * comparación de `kind`, y así este fichero sigue ligero.
  *
  * Fichero LIGERO a propósito (solo `@prisma/client`): lo importan `shipments/*`, `admin`, `payments`, `spend-alerts` y
  * `buylist` sin ciclo de imports.
@@ -64,6 +67,8 @@ export function isBuylistInbound(row: Pick<LabelSubjectRow, 'kind'>): boolean {
  * | `alertsAfterAddressFix` — AG-1 | sí | ⛔ no (el destino es fijo) |
  * | `inTrackingPoll` — sondeo de rastreo y AV-17/18/19 | sí | ⛔ no (P-BSD-5, ARCHITECTURE §4.BSD (j)) |
  * | `labelNotShippedWatch` — AG-10 | sí | ⛔ no (I-BSD-6) |
+ * | `requiresPreparation` — `preparedAt`, `prep.assertCanAdvance(…,'guia')`, casos abiertos | sí | ⛔ no (la guarda es la de la solicitud, `label-inbound.ts`) |
+ * | `recommendation` — `pickRecommendedRateId` | `shipping_preferred_carriers` y luego la más barata a domicilio | la más barata con `deliveryKind ≠ 'branch'` (P-BSD-4); ⛔ sin puntos de entrega |
  */
 export interface LabelSubject {
   readonly kind: ShipmentKind;
@@ -78,32 +83,86 @@ export interface LabelSubject {
   readonly alertsAfterAddressFix: boolean;
   readonly inTrackingPoll: boolean;
   readonly labelNotShippedWatch: boolean;
+  /** Lo que NO es estado en la guarda «abierta sin guía» (BSD-1.3 punto 5): `preparedAt`, `assertCanAdvance`, casos abiertos. */
+  readonly requiresPreparation: boolean;
+  /** `preferred_then_cheapest_home` (salida, §19.19.4) o `cheapest_home` (entrada, P-BSD-4: sin diales de paquetería ni de puntos). */
+  readonly recommendation: 'preferred_then_cheapest_home' | 'cheapest_home';
+}
+
+/**
+ * ⭐ BSD-1.3 punto 5 — **el estado «abierta sin guía» por clase**. Los CAS por id del motor (`claim`, `persistLabeled`,
+ * `persistProcessing`, `correct`, `applyReissue`, `setTrackingFromProvider`) toman su `status` de aquí vía
+ * `labelSubjectOf(row).openStatus`; ⛔ ningún literal `'picking'` en un `status` del motor fuera de este fichero
+ * (candado BSD-B25 (c), `test/bsd.structural.spec.ts`).
+ */
+export const OPEN_FOR_LABEL_STATUS: Readonly<Record<ShipmentKind, ShipmentStatus>> = {
+  [ShipmentKind.outbound]: 'picking',
+  [ShipmentKind.buylist_inbound]: 'solicitado',
+};
+
+/** El estado tras la guía (`persistLabeled`, `setTrackingFromProvider`): `guia` para las dos clases. */
+export const LABELED_STATUS: Readonly<Record<ShipmentKind, ShipmentStatus>> = {
+  [ShipmentKind.outbound]: 'guia',
+  [ShipmentKind.buylist_inbound]: 'guia',
+};
+
+/**
+ * El predicado «abierta sin guía» para las lecturas MULTI-CLASE (`label-processing.job` `processing#findMany`, `all_kinds`):
+ * `OR[{kind:'outbound', status:'picking'}, {kind:'buylist_inbound', status:'solicitado'}]`. Se ESPARCE en el `where`.
+ */
+export function openForLabelWhere(): { OR: Prisma.ShipmentRequestWhereInput[] } {
+  return {
+    OR: (Object.keys(OPEN_FOR_LABEL_STATUS) as ShipmentKind[]).map((kind) => ({ kind, status: OPEN_FOR_LABEL_STATUS[kind] })),
+  };
+}
+
+/**
+ * ⭐ BSD-1.3 punto 2 — **`AdminShipmentDTO.kind`** (la pregunta «qué clase de envío es»): el derivado de hoy
+ * (`vault_withdrawal` = sin orden, `guest_direct_ship` = orden de envío directo) gana `buylist_inbound`. UNA declaración,
+ * exportada; se llama `AdminShipmentKind` para no chocar con el `ShipmentKind` de Prisma (la columna).
+ */
+export type AdminShipmentKind = 'vault_withdrawal' | 'guest_direct_ship' | 'buylist_inbound';
+/** Las dos clases de SALIDA (la cola de M4, `?kind=`, la hoja de preparación): nunca una fila de entrada. */
+export type OutboundAdminShipmentKind = Exclude<AdminShipmentKind, 'buylist_inbound'>;
+/** El valor del DTO para la fila de entrada (⛔ nadie escribe el literal fuera de aquí, BSD-B25 (a)). */
+export const INBOUND_ADMIN_KIND: AdminShipmentKind = 'buylist_inbound';
+
+/**
+ * `AdminShipmentDTO.kind` de una fila: la de entrada ⇒ `buylist_inbound`; si no, `outbound()` (la derivación de salida de
+ * hoy, que vive en `shipments.service.ts` porque lee `Order.fulfillmentMode` y lanza ante un modo desconocido).
+ */
+export function adminKindOf(row: Pick<LabelSubjectRow, 'kind'>, outbound: () => OutboundAdminShipmentKind): AdminShipmentKind {
+  return isBuylistInbound(row) ? INBOUND_ADMIN_KIND : outbound();
 }
 
 const OUTBOUND_SUBJECT: Omit<LabelSubject, 'sellRequestId'> = {
   kind: ShipmentKind.outbound,
-  openStatus: 'picking',
-  labeledStatus: 'guia',
+  openStatus: OPEN_FOR_LABEL_STATUS[ShipmentKind.outbound],
+  labeledStatus: LABELED_STATUS[ShipmentKind.outbound],
   closedStatus: 'cancelado',
-  reissueStatus: 'picking',
+  reissueStatus: OPEN_FOR_LABEL_STATUS[ShipmentKind.outbound],
   locksSellRequestFirst: false,
   labelNotice: 'AV-4',
   alertsAfterAddressFix: true,
   inTrackingPoll: true,
   labelNotShippedWatch: true,
+  requiresPreparation: true,
+  recommendation: 'preferred_then_cheapest_home',
 };
 
 const INBOUND_SUBJECT: Omit<LabelSubject, 'sellRequestId'> = {
   kind: ShipmentKind.buylist_inbound,
-  openStatus: 'solicitado',
-  labeledStatus: 'guia',
+  openStatus: OPEN_FOR_LABEL_STATUS[ShipmentKind.buylist_inbound],
+  labeledStatus: LABELED_STATUS[ShipmentKind.buylist_inbound],
   closedStatus: 'cancelado',
-  reissueStatus: 'solicitado',
+  reissueStatus: OPEN_FOR_LABEL_STATUS[ShipmentKind.buylist_inbound],
   locksSellRequestFirst: true,
   labelNotice: 'AV-7',
   alertsAfterAddressFix: false,
   inTrackingPoll: false,
   labelNotShippedWatch: false,
+  requiresPreparation: false,
+  recommendation: 'cheapest_home',
 };
 
 /**
@@ -136,3 +195,6 @@ export async function lockSubjectRows(
   }
   await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${shipmentId} FOR UPDATE`;
 }
+
+/** Las dos columnas que deciden la política (se leen ANTES del candado: son inmutables tras crear la fila). */
+export const LABEL_SUBJECT_SELECT = { kind: true, sellRequestId: true } as const satisfies Prisma.ShipmentRequestSelect;

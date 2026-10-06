@@ -66,10 +66,10 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   'src/modules/payments/refunds/refund-review.ts lockShipmentsOfOrder#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/payments/refunds/withdrawal-delivered-refund.service.ts create#sql#1': [K, 'FOR UPDATE por id'],
   // ---------------------------------------------------------------- shipments: rastreo y salida
-  'src/modules/shipments/carrier-status.service.ts applyCarrierStatus#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/carrier-status.service.ts applyCarrierStatus#updateMany#1': [K, 'por id'],
   'src/modules/shipments/carrier-status.service.ts applyCarrierStatus#updateMany#2': [K, 'CAS por id'],
-  'src/modules/shipments/carrier-status.service.ts applyCarrierStatus#updateMany#3': [K, 'por id'],
+  'src/modules/shipments/carrier-status.service.ts applyCarrierStatus#updateMany#3': [K, 'por id (B-2: la guía de entrada solo anota `carrierPolledAt` fuera de `created`)'],
+  'src/modules/shipments/carrier-status.service.ts applyCarrierStatus#updateMany#4': [K, 'por id'],
   'src/modules/shipments/carrier-status.service.ts setTrackingFromProvider#updateMany#1': [K, 'CAS por id (B-2: su `status` es de salida)'],
   'src/modules/shipments/carrier-status.service.ts touchPolled#updateMany#1': [K, 'por id'],
   'src/modules/shipments/carrier-status.service.ts fillLabelUrl#updateMany#1': [K, 'CAS por id'],
@@ -82,43 +82,39 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   'src/modules/shipments/inbound-close.ts closeInboundShipment#sql#1': [K, 'sellRequestId (@unique): LA fila de entrada de la solicitud'],
   'src/modules/shipments/inbound-close.ts closeInboundShipment#updateMany#1': [K, 'CAS por id'],
   'src/modules/shipments/inbound-close.ts closeInboundShipment#updateMany#2': [K, 'CAS por id'],
+  'src/modules/shipments/inbound-sync.ts scrubInboundShipmentPii#updateMany#1': [I, 'BSD-B27 (B-2): la anonimización del vendedor vacía el domicilio de SUS filas de entrada (por sellRequest.userId)'],
   'src/modules/shipments/label-auto-close.ts cancelProviderLabelIfAny#updateMany#1': [K, 'CAS por id'],
-  'src/modules/shipments/label-cancel.service.ts cancel#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/label-cancel.service.ts cancel#updateMany#1': [K, 'CAS por id'],
   'src/modules/shipments/label-cancel.service.ts unseal#updateMany#1': [K, 'CAS por id'],
   'src/modules/shipments/label-cancel.service.ts applyReissue#updateMany#1': [K, 'CAS por id (B-2: `guia → reissueStatus` por kind)'],
   'src/modules/shipments/label-cancel.service.ts applyReissue#updateMany#2': [K, 'CAS por id'],
   'src/modules/shipments/label-cancel.service.ts afterAutoClose#findMany#1': [K, 'ids recién cerrados'],
-  'src/modules/shipments/label-processing.job.ts processing#findMany#1': [A, 'job de proceso: «en proceso» de CUALQUIER fila trae su número (B-2: hoy filtra `status:picking`, la entrada vive en `solicitado`)'],
+  'src/modules/shipments/label-processing.job.ts processing#findMany#1': [A, 'job de proceso: «en proceso» de CUALQUIER fila trae su número (B-2: `openForLabelWhere()`, la entrada vive en `solicitado`)'],
   'src/modules/shipments/label-processing.job.ts inFlight#findMany#1': [A, 'compras en vuelo de la CUENTA (recuperación)'],
   'src/modules/shipments/label-processing.job.ts calibrate#findMany#1': [A, 'calibración de tiempos del proveedor: toda guía comprada cuenta'],
   'src/modules/shipments/label-processing.job.ts purgeQuotes#sql#1': [A, 'purga de cotizaciones vencidas de cualquier fila'],
   'src/modules/shipments/label-purchase.service.ts purchase#sql#1': [K, 'FOR SHARE por id'],
-  'src/modules/shipments/label-purchase.service.ts precheck#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/label-purchase.service.ts precheck#findFirst#1': [A, '`rate_already_purchased`: una tarifa no se compra dos veces en la CUENTA'],
   'src/modules/shipments/label-purchase.service.ts claim#findFirst#1': [A, '«otra compra en vuelo»: una a la vez por CUENTA'],
   'src/modules/shipments/label-purchase.service.ts claim#updateMany#1': [K, 'CAS del reclamo por id (B-2: `status` por kind)'],
   'src/modules/shipments/label-purchase.service.ts markSent#updateMany#1': [K, 'CAS por id'],
   'src/modules/shipments/label-purchase.service.ts undo#updateMany#1': [K, 'CAS por id'],
-  'src/modules/shipments/label-purchase.service.ts persistLabeled#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/label-purchase.service.ts persistLabeled#updateMany#1': [K, 'CAS por id (B-2: `status` por kind)'],
-  'src/modules/shipments/label-purchase.service.ts persistProcessing#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/label-purchase.service.ts persistProcessing#updateMany#1': [K, 'CAS por id (B-2: `status` por kind)'],
   'src/modules/shipments/label-purchase.service.ts takenBy#findFirst#1': [A, '`takenBy`: un providerShipmentId pertenece a UNA fila de cualquier clase'],
-  'src/modules/shipments/label-purchase.service.ts casZero#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/label-purchase.service.ts casZero#updateMany#1': [K, 'CAS por id'],
   'src/modules/shipments/label-purchase.service.ts casZero#updateMany#2': [K, 'CAS por id'],
   'src/modules/shipments/label-purchase.service.ts run#updateMany#1': [K, 'por id'],
-  'src/modules/shipments/label-quote.service.ts guardedRead#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/label-recovery.service.ts knownIdsAmong#findMany#1': [A, 'recuperación: ids del proveedor conocidos en CUALQUIER fila'],
   'src/modules/shipments/label-recovery.service.ts contamination#findFirst#1': [A, 'recuperación: toda cancelación confirmada mueve el saldo de la cuenta'],
   'src/modules/shipments/label-recovery.service.ts release#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/label-recovery.service.ts release#updateMany#1': [K, 'CAS por id'],
   'src/modules/shipments/label-recovery.service.ts autoRelease#updateMany#1': [K, 'CAS por id'],
+  // B-2: los `FOR UPDATE` por id del motor (`precheck`, `persistLabeled`, `persistProcessing`, `casZero`, `guardedRead`,
+  // `cancel`, `correct`, `applyCarrierStatus`) pasaron a `lockSubjectRows` (I-BSD-4: la solicitud antes que la fila de entrada).
   'src/modules/shipments/label-subject.ts lockSubjectRows#sql#1': [K, 'FOR UPDATE por id (I-BSD-4)'],
   'src/modules/shipments/orphan-reconcile.service.ts detectLate#findMany#1': [A, 'huérfanas: un id del proveedor conocido en CUALQUIER fila no es huérfano'],
   'src/modules/shipments/orphan-reconcile.service.ts keepReason#sql#1': [A, 'huérfanas: un número de guía conocido en CUALQUIER fila'],
-  'src/modules/shipments/shipment-address.service.ts correct#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/shipments/shipment-address.service.ts correct#updateMany#1': [K, 'CAS por id (B-2: `status` por kind)'],
   // ---------------------------------------------------------------- shipments: preparación, listas, cola de trabajo
   'src/modules/shipments/shipment-prep.service.ts lockShipment#sql#1': [K, 'FOR UPDATE por id'],
@@ -189,7 +185,8 @@ beforeAll(() => {
 describe('💰 BSD-B23 — censo de lectores de `ShipmentRequest`', () => {
   it('CONTROL: el censo ve los sitios (⛔ un escáner ciego sería verde por omisión)', () => {
     expect(SITES.length).toBeGreaterThanOrEqual(90);
-    expect(SITES.filter((s) => s.method === 'sql').length).toBeGreaterThanOrEqual(20);
+    // B-2: ≥ 12 (eran ≥ 20): ocho `FOR UPDATE` por id del motor se volvieron UNO (`lockSubjectRows`, I-BSD-4).
+    expect(SITES.filter((s) => s.method === 'sql').length).toBeGreaterThanOrEqual(12);
     // y el escáner reconoce el filtro donde está (si no, todo `outbound_only` sería rojo por el instrumento)
     expect(SITES.filter((s) => s.outboundFiltered).length).toBeGreaterThanOrEqual(10);
   });

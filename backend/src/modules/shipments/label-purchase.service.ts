@@ -12,7 +12,7 @@
  * (PS-117, C-2). ⛔ Nunca se reintenta la compra (la cliente solo reintenta `401`/`429`). ⛔ Ninguna prueba compra de
  * verdad (PS-99): el candado de ejecución vive DENTRO del cliente real y la llave de entorno se inyecta (`LABEL_SPEND_KEY`).
  */
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, Role, ShipmentLabelAttempt, ShipmentQuote, ShipmentRequest, ShippingPackage } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -44,6 +44,33 @@ import { checkLabelLimits, LabelLimit } from './label-spend';
 import { LabelOptionsDTO, asRate } from './label-view';
 import { labelSourceOf } from './label-source';
 import { shipmentAddressMissing } from './shipment-address-missing';
+import { LABEL_SUBJECT_SELECT, LabelSubject, labelSubjectOf, lockSubjectRows } from './label-subject';
+import {
+  INBOUND_SELL_REQUEST_GUARD_SELECT,
+  InboundGuardSellRequest,
+  OriginSnapshotDial,
+  assertInboundOpenForLabel,
+  inboundGuideBlock,
+  inboundPurchaseAddresses,
+  rejectDestinationKeys,
+  sellerCarrierLabelOf,
+  storeDestinationOf,
+} from './label-inbound';
+import { writeSellRequestGuide } from '../buylist/sell-request-guide';
+import { InboundGuideNoticeService } from './inbound-guide-notice.service';
+
+/**
+ * ⭐ rev BSD-1 (§BSD.4.7): `writeSellRequestGuide` no casó DESPUÉS del CAS de la fila de entrada ⇒ la tx entera vuelve
+ * (se lanza para que el CAS no se comitee) y decide `casZero`.
+ */
+class InboundGuideNotWritten extends Error {}
+
+/** La guarda de la solicitud dentro de la tx del motor (bajo su candado, I-BSD-4): `null` si la solicitud ya no admite guía. */
+async function openSellRequestOf(tx: Prisma.TransactionClient, sellRequestId: string): Promise<InboundGuardSellRequest | null> {
+  const sr = await tx.sellRequest.findUnique({ where: { id: sellRequestId }, select: INBOUND_SELL_REQUEST_GUARD_SELECT });
+  if (!sr || inboundGuideBlock(sr) !== null || sr.shipmentTrackingNumber !== null) return null;
+  return sr;
+}
 
 /**
  * 🔒 La tercera llave de la puerta (§19.19.7 con §19.31.5), INYECTABLE: las pruebas la sustituyen sin tocar el entorno
@@ -82,6 +109,8 @@ export type LabelOutcome = 'labeled' | 'processing' | 'in_progress' | 'in_flight
 
 /** El cuerpo de `POST …/label` (§19.7): `400 VALIDATION_ERROR {field}`. Campos de costo del cuerpo ⇒ se IGNORAN (SDX-R12). */
 export function parseLabelBody(raw: unknown): LabelBody {
+  // ⭐ rev BSD-1 (§BSD.4.2, criterio 532): ⛔ el destino no viaja en el cuerpo — 400 antes de cualquier red.
+  rejectDestinationKeys(raw);
   const b = (raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   const str = (k: string) => {
     const v = b[k];
@@ -171,6 +200,9 @@ export class ShipmentLabelService {
     @Inject(SHIPMENTS_LABEL_CLOCK) private readonly clock: LabelClock,
     @Inject(LABEL_VERIFY_CONFIG) private readonly cfg: LabelVerifyConfig,
     @Inject(LABEL_SPEND_KEY) private readonly spendKey: LabelSpendKey,
+    // ⭐ rev BSD-1 (§BSD.3, §BSD.8.2): AV-7 con la etiqueta tras la guía de ENTRADA. `@Optional()` por los tests unitarios
+    // legacy que construyen el servicio a mano (sin él, la guía de entrada se compra igual y el aviso no sale: log).
+    @Optional() private readonly inboundNotice?: InboundGuideNoticeService,
   ) {}
 
   // ================================================================ la puerta (§19.19.7, §19.26.6, C-13)
@@ -222,11 +254,14 @@ export class ShipmentLabelService {
   async purchase(shipmentId: string, raw: unknown, actor: LabelActor): Promise<LabelResponse> {
     const body = parseLabelBody(raw);
     await this.assertGate(actor, shipmentId);
-    const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true } });
+    const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true, ...LABEL_SUBJECT_SELECT } });
     if (!exists) throw BusinessException.notFound();
+    // rev BSD-1 (§BSD.3): la política de la fila; la guía de ENTRADA exige además el destino de la tienda completo (I-BSD-5).
+    const subject = labelSubjectOf(exists);
+    if (subject.sellRequestId) storeDestinationOf(await this.settings.get<OriginSnapshotDial>(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT));
 
     // 2–5. Bajo el candado de fila, SOLO LECTURA: guardas, cotización, tarifa, topes (previa), cifras, confirmaciones.
-    const pre = await this.precheck(shipmentId, body, actor);
+    const pre = await this.precheck(shipmentId, body, actor, subject);
     if (pre.kind === 'in_progress') return this.respond(shipmentId, actor, 'in_progress');
     if (pre.kind === 'limited') {
       await this.onLimited(actor, shipmentId, pre.limit, pre.priceCents, pre.usedCents, pre.paidLabels);
@@ -250,7 +285,7 @@ export class ShipmentLabelService {
     // 7. EL RECLAMO, bajo el candado consultivo de la cuenta (una compra en vuelo a la vez) y con los topes que mandan.
     let claimed: Awaited<ReturnType<ShipmentLabelService['claim']>>;
     try {
-      claimed = await this.claim(shipmentId, body, actor, pre.quote, rate, pre.recommended);
+      claimed = await this.claim(shipmentId, body, actor, pre.quote, rate, pre.recommended, subject);
     } catch (e) {
       // §19.28.8 + §19.31.3: candado ocupado ⇒ se relee la fila del PROPIO envío con `FOR SHARE` (espera SOLO a la tx del
       // reclamo que ya escribió esta fila, milisegundos; ⛔ nunca al candado consultivo). Lectura sola, cero escrituras,
@@ -315,6 +350,7 @@ export class ShipmentLabelService {
     shipmentId: string,
     body: LabelBody,
     actor: LabelActor,
+    subject: LabelSubject,
   ): Promise<
     | { kind: 'in_progress' }
     | { kind: 'requote'; packageCode: string; reason: 'expired' | 'address_changed' }
@@ -326,17 +362,24 @@ export class ShipmentLabelService {
     // `Timed out fetching a new connection` con 10 compras simultáneas, PS-73).
     const dials = await this.limitDials();
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${shipmentId} FOR UPDATE`;
+      // rev BSD-1 (I-BSD-4): la guía de entrada toma PRIMERO la solicitud y después la fila.
+      await lockSubjectRows(tx, subject, shipmentId);
       const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id: shipmentId } });
-      // 2. «Ya tiene guía» primero (PS-73: repetir tras `labeled` ⇒ `409 SHIPMENT_ALREADY_LABELED`, aunque ya esté en `guia`),
-      // luego las guardas de §19.6 (las MISMAS funciones), y la compra en curso es `200 in_progress` (doble clic).
-      const labelSource0 = labelSourceOf(row);
-      if (labelSource0 !== null) throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Shipment already has a label', { labelSource: labelSource0 });
-      if (row.status !== 'picking') {
-        throw BusinessException.conflict('SHIPMENT_NOT_IN_PREPARATION', 'Shipment is not in preparation', { status: row.status });
+      if (subject.sellRequestId) {
+        // ⭐ rev BSD-1 (§BSD.3): la guarda de la SOLICITUD (y de la fila) en la misma tx; ⛔ sin `preparedAt` ni casos.
+        const sr = await tx.sellRequest.findUniqueOrThrow({ where: { id: subject.sellRequestId }, select: INBOUND_SELL_REQUEST_GUARD_SELECT });
+        assertInboundOpenForLabel(row, sr, subject.openStatus);
+      } else {
+        // 2. «Ya tiene guía» primero (PS-73: repetir tras `labeled` ⇒ `409 SHIPMENT_ALREADY_LABELED`, aunque ya esté en `guia`),
+        // luego las guardas de §19.6 (las MISMAS funciones), y la compra en curso es `200 in_progress` (doble clic).
+        const labelSource0 = labelSourceOf(row);
+        if (labelSource0 !== null) throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Shipment already has a label', { labelSource: labelSource0 });
+        if (row.status !== subject.openStatus) {
+          throw BusinessException.conflict('SHIPMENT_NOT_IN_PREPARATION', 'Shipment is not in preparation', { status: row.status });
+        }
+        if (row.preparedAt === null) throw BusinessException.conflict('SHIPMENT_NOT_PREPARED', 'Shipment is not prepared');
+        await this.prep.assertCanAdvance(tx, row.id, 'guia');
       }
-      if (row.preparedAt === null) throw BusinessException.conflict('SHIPMENT_NOT_PREPARED', 'Shipment is not prepared');
-      await this.prep.assertCanAdvance(tx, row.id, 'guia');
       if (row.labelProcessingSince !== null) return { kind: 'in_progress' as const };
       const missing = shipmentAddressMissing(row.addressSnapshot);
       if (missing.length > 0) throw new BusinessException('SHIPMENT_ADDRESS_INCOMPLETE', 422, 'Shipment address is incomplete', { missing });
@@ -386,6 +429,7 @@ export class ShipmentLabelService {
     quote: ShipmentQuote,
     rate: ShipmentRateDTO,
     recommended: ShipmentRateDTO | null,
+    subject: LabelSubject,
   ): Promise<
     | { kind: 'claimed'; claim: Claim }
     | { kind: 'in_progress' }
@@ -421,6 +465,15 @@ export class ShipmentLabelService {
           retryAfterSeconds,
         });
       }
+      // ⭐ rev BSD-1 (I-BSD-4, §BSD.3): la guía de entrada toma la solicitud y luego la fila, y re-lee la guarda de la
+      // solicitud bajo su candado (una «Declinar» o un cierre entre el paso 2 y aquí ⇒ el error de la guarda, cero compra).
+      if (subject.locksSellRequestFirst && subject.sellRequestId) {
+        await lockSubjectRows(tx, subject, shipmentId);
+        const row0 = await tx.shipmentRequest.findUniqueOrThrow({ where: { id: shipmentId } });
+        const sr = await tx.sellRequest.findUniqueOrThrow({ where: { id: subject.sellRequestId }, select: INBOUND_SELL_REQUEST_GUARD_SELECT });
+        if (row0.labelProcessingSince !== null) return { kind: 'in_progress' as const };
+        assertInboundOpenForLabel(row0, sr, subject.openStatus);
+      }
       // §19.29.4: los topes que MANDAN, dentro del candado (serializa el paso 7 de toda la cuenta).
       const actorRow = await tx.user.findUnique({ where: { id: actor.id }, select: OWNER_SELECT });
       const exempt = isOwnerAccount(actorRow);
@@ -432,8 +485,9 @@ export class ShipmentLabelService {
       const cas = await tx.shipmentRequest.updateMany({
         where: {
           id: shipmentId,
-          status: 'picking',
-          preparedAt: { not: null },
+          // rev BSD-1 (BSD-1.3 punto 5): el estado «abierta sin guía» de la CLASE; `preparedAt` solo en salida.
+          status: subject.openStatus,
+          ...(subject.requiresPreparation ? { preparedAt: { not: null } } : {}),
           labelSource: null,
           trackingNumber: null,
           labelProcessingSince: null,
@@ -592,13 +646,26 @@ export class ShipmentLabelService {
 
   private async purchaseInput(claim: Claim, providerReference: string): Promise<PurchaseInput> {
     const snap = obj(claim.row.addressSnapshot);
+    const inbound = labelSubjectOf(claim.row).sellRequestId !== null;
     const [templateId, origin, note, format, email] = await Promise.all([
       this.settings.get<string>(SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID),
       this.settings.get<Record<string, string | null> | null>(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT),
       this.settings.get<string>(SettingKey.SHIPPING_CONSIGNMENT_NOTE),
       this.settings.get<'standard' | 'thermal'>(SettingKey.SHIPPING_LABEL_FORMAT),
-      this.shipments.recipientEmailOf(claim.row),
+      // La guía de entrada no tiene cliente: el correo del remitente es el de la TIENDA (§BSD.3), ⛔ nunca el del vendedor.
+      inbound ? Promise.resolve(null) : this.shipments.recipientEmailOf(claim.row),
     ]);
+    const common = {
+      rateId: claim.rate.rateId,
+      printingFormat: format === 'thermal' ? ('thermal' as const) : ('standard' as const),
+      package: { coverageCents: claim.quote.declaredValueCents, consignmentNote: note, packageType: claim.pkg.providerPackageType },
+      idempotencyKey: `label:${claim.row.id}:${claim.rate.rateId}`,
+      notAfter: claim.since.getTime() + this.cfg.purchaseSendDeadlineMs,
+    };
+    if (inbound) {
+      // ⭐ rev BSD-1 (§BSD.3 «Dirección de la compra»): `from` = el vendedor explícito; `to` = la tienda con el folio.
+      return { ...common, ...inboundPurchaseAddresses(claim.row.addressSnapshot, storeDestinationOf(origin as OriginSnapshotDial), providerReference) };
+    }
     const name = String(snap.recipientName ?? '').trim();
     const line2 = typeof snap.line2 === 'string' && snap.line2.trim() !== '' ? ` ${snap.line2.trim()}` : '';
     const references = typeof snap.references === 'string' && snap.references.trim() !== '' ? snap.references.trim() : undefined;
@@ -765,29 +832,37 @@ export class ShipmentLabelService {
     const id = result.providerShipmentId as string;
     const cost = this.costOf(claim, result);
     const urls = providerUrlsFrom(result, this.selection.urlHosts);
+    const subject = labelSubjectOf(claim.row);
+    // ⭐ rev BSD-1 (BSD-1.3 punto 3): el dial del plazo del vendedor se lee FUERA de la tx (una lectura con `this.prisma`
+    // dentro de una tx interactiva agota el pool, ver `precheck`).
+    const shipDeadlineDays = subject.sellRequestId ? await this.settings.getNumber(SettingKey.BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS) : 0;
     const now = this.clock.now();
     let wrote: 'ok' | 'cas0' | 'taken' = 'cas0';
     let takenBy: string | null = null;
     try {
       wrote = await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${claim.row.id} FOR UPDATE`;
+        // rev BSD-1 (I-BSD-4): la guía de entrada toma PRIMERO la solicitud y después la fila.
+        await lockSubjectRows(tx, subject, claim.row.id);
         // Las guardas de §M4-SHIP.6 bajo el candado; si ya no pasan, es la rama `count 0` (§19.28.3 punto 4).
-        try {
-          await this.prep.assertCanAdvance(tx, claim.row.id, 'guia');
-        } catch {
-          return 'cas0' as const;
+        if (subject.requiresPreparation) {
+          try {
+            await this.prep.assertCanAdvance(tx, claim.row.id, 'guia');
+          } catch {
+            return 'cas0' as const;
+          }
         }
+        // ⭐ rev BSD-1 (§BSD.3): la guarda de la SOLICITUD en la misma tx; si ya no admite guía ⇒ `count 0` (decide `casZero`).
+        if (subject.sellRequestId && !(await openSellRequestOf(tx, subject.sellRequestId))) return 'cas0' as const;
         const r = await tx.shipmentRequest.updateMany({
           where: {
             id: claim.row.id,
-            status: 'picking',
-            preparedAt: { not: null },
+            status: subject.openStatus,
+            ...(subject.requiresPreparation ? { preparedAt: { not: null }, replacementCases: { none: { status: 'open' as const } } } : {}),
             labelProcessingSince: claim.since,
             providerShipmentId: null,
-            replacementCases: { none: { status: 'open' } },
           },
           data: {
-            status: 'guia',
+            status: subject.labeledStatus,
             carrier: result.carrierName ?? claim.rate.carrierName,
             trackingNumber: result.trackingNumber,
             trackingNoticeSentAt: null, // §R.4.b: par nuevo ⇒ el aviso de guía se reclama de nuevo
@@ -806,6 +881,13 @@ export class ShipmentLabelService {
           },
         });
         if (r.count !== 1) return 'cas0' as const;
+        if (subject.sellRequestId) {
+          // ⭐ rev BSD-1 (§BSD.4.7, I-BSD-2 con BSD-1.1 C-6): EL escritor de la guía en la solicitud, en ESTA tx y tras el CAS:
+          // el número igual que la fila; la paquetería, el nombre LEGIBLE de la tarifa elegida. `count ≠ 1` ⇒ vuelve todo.
+          const carrierCode = result.carrierName ?? claim.rate.carrierName;
+          const w = await writeSellRequestGuide(tx, subject.sellRequestId, sellerCarrierLabelOf(claim.rate, carrierCode), result.trackingNumber as string, now, 'skydropx', shipDeadlineDays);
+          if (w.count !== 1) throw new InboundGuideNotWritten();
+        }
         await this.recordPaidLabel(tx, claim, id, origin, cost.shippingCostCents, now);
         if (adoption) await this.auditAdoption(tx, actor, claim, id, adoption, now);
         await this.audit(tx, actor, claim.row.id, 'shipment.tracking', {
@@ -824,14 +906,19 @@ export class ShipmentLabelService {
         return 'ok' as const;
       }, TX);
     } catch (e) {
-      takenBy = await this.takenBy(e, id, claim.row.id);
-      if (takenBy === null) throw e;
-      wrote = 'taken';
+      if (e instanceof InboundGuideNotWritten) {
+        wrote = 'cas0';
+      } else {
+        takenBy = await this.takenBy(e, id, claim.row.id);
+        if (takenBy === null) throw e;
+        wrote = 'taken';
+      }
     }
     if (wrote === 'taken') return this.providerIdTaken(claim, actor, id, takenBy as string);
     if (wrote === 'cas0') return this.casZero(claim, actor, result, providerReference, origin, adoption);
-    // Post-commit, best-effort: AV-4 (una vez; T.4.4). ⛔ No puede tumbar la respuesta.
-    await this.shipments.notifyLabelCaptured(claim.row.id);
+    // Post-commit, best-effort: AV-4 (una vez; T.4.4) o, en la guía de entrada, AV-7 con la etiqueta (§BSD.8.2). ⛔ No puede
+    // tumbar la respuesta.
+    await this.notifyLabeled(subject, claim.row.id);
     return this.respond(claim.row.id, actor, 'labeled');
   }
 
@@ -850,10 +937,14 @@ export class ShipmentLabelService {
     let wrote: 'ok' | 'cas0' | 'taken' = 'cas0';
     let takenBy: string | null = null;
     try {
+      const subject = labelSubjectOf(claim.row);
       wrote = await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${claim.row.id} FOR UPDATE`;
+        // rev BSD-1 (I-BSD-4): la guía de entrada toma PRIMERO la solicitud y después la fila.
+        await lockSubjectRows(tx, subject, claim.row.id);
+        // ⭐ rev BSD-1 (§BSD.3): la solicitud cerrada o con guía manual ⇒ `count 0` (la fila ya está `cancelado` por I-BSD-1).
+        if (subject.sellRequestId && !(await openSellRequestOf(tx, subject.sellRequestId))) return 'cas0' as const;
         const r = await tx.shipmentRequest.updateMany({
-          where: { id: claim.row.id, status: 'picking', labelProcessingSince: claim.since, providerShipmentId: null },
+          where: { id: claim.row.id, status: subject.openStatus, labelProcessingSince: claim.since, providerShipmentId: null },
           data: {
             providerShipmentId: id,
             labelSource: 'skydropx',
@@ -933,7 +1024,8 @@ export class ShipmentLabelService {
     const cost = this.costOf(claim, result);
     const urls = providerUrlsFrom(result, this.selection.urlHosts);
     const verdict = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${claim.row.id} FOR UPDATE`;
+      // rev BSD-1 (I-BSD-4): la guía de entrada toma PRIMERO la solicitud y después la fila.
+      await lockSubjectRows(tx, labelSubjectOf(claim.row), claim.row.id);
       const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id: claim.row.id } });
       if (row.providerShipmentId === id) return { kind: 'same' as const, row };
       const sameSince = row.labelProcessingSince !== null && row.labelProcessingSince.getTime() === claim.since.getTime();
@@ -1104,8 +1196,11 @@ export class ShipmentLabelService {
   /** AG-1, AG-5, AG-13 (§19.29.6) cuando un intento obtiene guía (en la tx del hecho). */
   private async afterPaidLabelAlerts(tx: Tx, claim: PersistClaim, chargedCents: number, now: Date): Promise<void> {
     // AG-1: la MISMA persona que RECLAMÓ corrigió la dirección de este envío (⛔ no quien adopta o libera).
+    // ⭐ rev BSD-1 (§BSD.3 «Avisos al obtener guía», PROJECT §BSD.1-bis): ⛔ AG-1 no en la guía de entrada (el destino es fijo).
     const claimer = claim.claimerId;
-    const fixes = await tx.auditLog.findMany({ where: { entityId: claim.row.id, action: 'shipment.address_corrected', actorUserId: claimer }, select: { after: true, createdAt: true } });
+    const fixes = labelSubjectOf(claim.row).alertsAfterAddressFix
+      ? await tx.auditLog.findMany({ where: { entityId: claim.row.id, action: 'shipment.address_corrected', actorUserId: claimer }, select: { after: true, createdAt: true } })
+      : [];
     if (fixes.length > 0) {
       const keys = [...new Set(fixes.flatMap((f) => (Array.isArray(obj(f.after).changedKeys) ? (obj(f.after).changedKeys as string[]) : [])))];
       const severe = keys.some((k) => ['recipientName', 'line1', 'postalCode', 'city', 'state', 'country'].includes(k));
@@ -1204,6 +1299,19 @@ export class ShipmentLabelService {
         createdAt: at ?? this.clock.now(),
       },
     });
+  }
+
+  /**
+   * El aviso tras una guía CON número (post-commit, best-effort): salida ⇒ AV-4 (`notifyLabelCaptured`); guía de entrada ⇒
+   * AV-7 con la etiqueta (`InboundGuideNoticeService`, §BSD.3 «Post-commit»). ⛔ Nunca AV-4 a una fila de entrada.
+   */
+  async notifyLabeled(subject: Pick<LabelSubject, 'labelNotice'>, shipmentId: string): Promise<void> {
+    if (subject.labelNotice === 'AV-7') {
+      if (this.inboundNotice) await this.inboundNotice.notifyLabeled(shipmentId);
+      else this.logger.warn(`buylist inbound guide notice skipped for ${shipmentId}: InboundGuideNoticeService unavailable`);
+      return;
+    }
+    await this.shipments.notifyLabelCaptured(shipmentId);
   }
 
   async respond(shipmentId: string, actor: LabelActor | null, outcome: LabelOutcome): Promise<LabelResponse> {

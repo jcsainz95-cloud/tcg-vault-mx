@@ -16,13 +16,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { BusinessException } from '../../common/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
-import { FakeShippingProvider } from '../shipping-provider/fake-shipping-provider';
-import { downloadLabelPdf } from '../shipping-provider/label-proxy';
-import { ShippingProviderError } from '../shipping-provider/shipping-provider.errors';
 import { SHIPPING_PROVIDER_SELECTION } from '../shipping-provider/shipping-provider.module';
 import { ShippingProviderSelection } from '../shipping-provider/shipping-provider.factory';
 import { LabelActor, ShipmentLabelService } from './label-purchase.service';
 import { labelSourceOf } from './label-source';
+import { downloadLabelPdfVia } from './label-pdf-download';
 
 export interface LabelPdf {
   body: Buffer;
@@ -69,18 +67,8 @@ export class ShipmentLabelPdfService {
     return { body, filename: labelFilenameOf(row.order?.orderNumber, shipmentId) };
   }
 
+  /** UN cuerpo con la ruta del vendedor y el adjunto de AV-7 (`label-pdf-download.ts`). */
   private async download(labelUrl: string, providerShipmentId: string): Promise<Buffer> {
-    const sel = this.selection;
-    if (sel.kind === 'fake') {
-      // ⛔ CERO red: el doble no tiene etiqueta remota (§19.31.5 (3)).
-      if (!(sel.port instanceof FakeShippingProvider)) throw ShippingProviderError.notConfigured(['env']).toBusinessException();
-      return sel.port.labelPdf(providerShipmentId);
-    }
-    if (sel.kind === 'noop' || sel.client === null) throw ShippingProviderError.notConfigured(['env']).toBusinessException();
-    try {
-      return await downloadLabelPdf(labelUrl, { api: sel.client, allowedHosts: sel.urlHosts });
-    } catch (e) {
-      throw e instanceof ShippingProviderError ? e.toBusinessException() : e;
-    }
+    return downloadLabelPdfVia(this.selection, labelUrl, providerShipmentId);
   }
 }

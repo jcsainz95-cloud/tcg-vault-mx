@@ -317,13 +317,17 @@ describe('C-SDX-5 — `cancelProviderLabelIfAny` tiene EXACTAMENTE tres llamador
   });
 });
 
-describe('C-SDX-4 — `guia → picking` lo escribe SOLO `label/cancel`', () => {
-  it('ningún otro `updateMany` con `status: \'picking\'` lleva `guia` en su `where`', () => {
+// 💰 rev BSD-1 (errata BSD-1.3 punto 5): el estado del retroceso sale de la POLÍTICA de la clase (`label-subject.ts`:
+// `reissueStatus` = `picking` en salida, `solicitado` en la guía de entrada; `labeledStatus` = `guia`), ⛔ ya no del literal.
+// El candado reconoce las dos grafías: el literal `'picking'` con `'guia'` en el `where`, o `….reissueStatus` con
+// `….labeledStatus` en el `where`. Sigue habiendo UN solo escritor del retroceso.
+describe('C-SDX-4 — `guia → <abierta>` lo escribe SOLO `label/cancel`', () => {
+  it('ningún otro `updateMany` que devuelve a «abierta sin guía» lleva `guia` en su `where`', () => {
     const offenders: string[] = [];
     for (const p of walk(SRC)) {
       const t = code(readFileSync(p, 'utf8'));
-      for (const m of t.matchAll(/updateMany\(\{\s*where:\s*\{([\s\S]{0,300}?)\},\s*data:\s*\{\s*status:\s*'picking'/g)) {
-        if (/'guia'/.test(m[1]) && !/updateMany\(/.test(m[1])) offenders.push(rel(p));
+      for (const m of t.matchAll(/updateMany\(\{\s*where:\s*\{([\s\S]{0,300}?)\},\s*data:\s*\{\s*status:\s*('picking'|[A-Za-z_.]+\.reissueStatus)/g)) {
+        if (/'guia'|\.labeledStatus\b/.test(m[1]) && !/updateMany\(/.test(m[1])) offenders.push(rel(p));
       }
     }
     expect(offenders).toEqual(['src/modules/shipments/label-cancel.service.ts']);

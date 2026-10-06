@@ -9,6 +9,7 @@
  * 💰 El importe lo calcula el SERVIDOR (`common/money.ts`); `expectedRefundCents` es la CONFIRMACIÓN de lo
  * que el operador vio (CA #16): distinto ⇒ `409 REFUND_PREVIEW_STALE`, cero escrituras.
  */
+import type { OutboundAdminShipmentKind } from './label-subject';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
 import {
@@ -53,7 +54,8 @@ import { OUTBOUND_ONLY } from './label-subject';
 type Tx = Prisma.TransactionClient;
 type Db = Tx | PrismaService;
 
-export type ShipmentKind = 'vault_withdrawal' | 'guest_direct_ship';
+/** ⭐ rev BSD-1 (BSD-1.3 punto 2): la hoja de preparación es solo de SALIDA; el tipo vive en `label-subject.ts`. */
+type ShipmentKind = OutboundAdminShipmentKind;
 
 export interface ReplacementCaseRefDTO {
   id: string;

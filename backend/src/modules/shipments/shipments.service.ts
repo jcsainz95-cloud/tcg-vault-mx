@@ -90,7 +90,8 @@ import {
   toShipmentLabelDTO,
 } from './label-view';
 import { labelSourceOf } from './label-source';
-import { OUTBOUND_ONLY } from './label-subject';
+import { LABEL_SUBJECT_SELECT, OUTBOUND_ONLY, OutboundAdminShipmentKind, adminKindOf, isBuylistInbound, labelSubjectOf } from './label-subject';
+import { OriginSnapshotDial, inboundChargedOf } from './label-inbound';
 
 /** ⭐ v1.80.12 (§M4-SHIP.19.20.1) — el bloque `address` de `AdminShipmentDTO`. */
 export interface ShipmentAddressStateDTO {
@@ -148,8 +149,12 @@ export function parseFolioFilter(raw: unknown): string | undefined {
   return raw;
 }
 
-export const SHIPMENT_KIND_VALUES = ['guest_direct_ship', 'vault_withdrawal'] as const;
-export type ShipmentKind = (typeof SHIPMENT_KIND_VALUES)[number];
+/**
+ * ⭐ rev BSD-1 (BSD-1.3 punto 2): el tipo derivado que vivía aquí como `ShipmentKind` es ahora `AdminShipmentKind`
+ * (`label-subject.ts`, UNA declaración con los tres valores). El filtro `?kind=` sigue con las dos clases de SALIDA: la lista
+ * admin no incluye la guía de entrada (§BSD.4.2).
+ */
+export const SHIPMENT_KIND_VALUES = ['guest_direct_ship', 'vault_withdrawal'] as const satisfies readonly OutboundAdminShipmentKind[];
 
 /**
  * §M4-PREP — dominio de `?destination=` de `GET /admin/shipments/picking-list`.
@@ -233,6 +238,15 @@ export interface ShipPreparationOrderDTO {
  * (lo de hoy) · `vault` (la colocación en el cajón del cliente, `modules/vault/`).
  */
 export type PreparationOrderDTO = ShipPreparationOrderDTO | VaultPreparationOrderDTO;
+
+/** ⭐ rev BSD-1 (§BSD.5): el bloque `inbound` de `AdminShipmentDTO` (solo la guía de entrada). */
+export interface InboundShipmentBlockDTO {
+  sellRequestId: string;
+  sellerName: string;
+  offerShippingFeeCents: number;
+  offerGrossCents: number;
+  destination: { name: string; street1: string; postalCode: string; state: string; city: string; neighborhood: string };
+}
 
 /** El join a `Order` que §M4-PREP necesita: el folio legible y el discriminador de destino. */
 /** ⭐ D2e — el reclamo de un sello de aviso: la condición extra del `WHERE` y lo que escribe (`claimAndNotify`). */
@@ -893,7 +907,13 @@ export class ShipmentsService {
       const charged = s.orderId
         ? await this.prisma.order.findUnique({ where: { id: s.orderId }, select: { subtotalCents: true, shippingFeeCents: true, ivaCents: true, ivaRatePct: true, priceConvention: true } })
         : null;
-      const chargedNet = charged ? netShippingRevenueCents(charged) : shipmentNetRevenueCents(s);
+      // ⭐ rev BSD-1 (§BSD.3 «Lo cobrado»): la guía de entrada mide su margen contra la tarifa congelada de la solicitud.
+      const inboundSr = isBuylistInbound(s) ? labelSubjectOf(s).sellRequestId : null;
+      const chargedNet = charged
+        ? netShippingRevenueCents(charged)
+        : inboundSr
+          ? inboundChargedOf(await this.prisma.sellRequest.findUniqueOrThrow({ where: { id: inboundSr }, select: { offerShippingFeeCents: true, offerGrossCents: true } })).netCents
+          : shipmentNetRevenueCents(s);
       label = toShipmentLabelDTO(s, chosenByName, chargedNet, costAdjustments.reduce((t, a) => t + a.netCents, 0));
     }
     let providerReference: string | null = null;
@@ -1029,6 +1049,16 @@ export class ShipmentsService {
     );
   }
 
+  /**
+   * ⭐ rev BSD-1 (§BSD.4.2, BSD-B24) — las rutas SOLO de salida (`refresh-tracking`, `prep-items`, `prepared`, `PATCH status`,
+   * `POST tracking`) responden `404 NOT_FOUND` con el id de una guía de ENTRADA: para ellas no existe. Inexistente ⇒ sigue al
+   * verbo (que da su propio `404`).
+   */
+  async assertOutboundRoute(id: string): Promise<void> {
+    const head = await this.prisma.shipmentRequest.findUnique({ where: { id }, select: LABEL_SUBJECT_SELECT });
+    if (head && isBuylistInbound(head)) throw BusinessException.notFound();
+  }
+
   async adminGet(id: string, actor?: { id: string; role: Role }, labelOptionsFor?: (actor: { id: string; role: Role }, shipmentId: string) => Promise<LabelOptionsDTO>) {
     const shipment = await this.prisma.shipmentRequest.findUnique({
       where: { id },
@@ -1049,12 +1079,37 @@ export class ShipmentsService {
     const refunds: PaymentRefundDTO[] = refundRows.map((r) => RefundLedgerService.toDto(r, names.get(r.requestedByUserId) ?? null));
     return {
       ...this.withAdminKind(shipment),
+      // ⭐ rev BSD-1 (§BSD.5): `inbound` solo en la guía de ENTRADA (`null` en salida).
+      inbound: await this.inboundOf(shipment),
       ...(await this.adminIdentity(shipment)),
       ...(await this.labelFieldsOf(shipment, actor?.role ?? null)),
       lastLabelRelease: await this.lastLabelReleaseOf(shipment),
       ...(actor && labelOptionsFor ? { labelOptions: await labelOptionsFor(actor, id) } : {}),
       refunds,
       items: shipment.items.map((si) => ({ ...si, prepStatus: si.prepStatus, missingReason: si.missingReason })),
+    };
+  }
+
+  /**
+   * ⭐ rev BSD-1 (§BSD.5) — `AdminShipmentDTO.inbound` de la guía de ENTRADA: la solicitud, el nombre de la cuenta del vendedor
+   * (SUGERENCIA para `recipientName`; ⛔ nunca se escribe solo), la tarifa que se le descuenta, lo que se asegura y el destino
+   * (la tienda, `skydropx_origin_snapshot`, solo lectura). `null` en salida.
+   */
+  private async inboundOf(s: ShipmentRequest): Promise<InboundShipmentBlockDTO | null> {
+    if (!isBuylistInbound(s)) return null;
+    const sellRequestId = labelSubjectOf(s).sellRequestId as string;
+    const sr = await this.prisma.sellRequest.findUniqueOrThrow({
+      where: { id: sellRequestId },
+      select: { offerShippingFeeCents: true, offerGrossCents: true, user: { select: { name: true } } },
+    });
+    const o = ((await this.settings.get<OriginSnapshotDial>(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT)) ?? {}) as NonNullable<OriginSnapshotDial>;
+    const t = (v: string | null | undefined) => (typeof v === 'string' ? v : '');
+    return {
+      sellRequestId,
+      sellerName: sr.user?.name ?? '',
+      offerShippingFeeCents: sr.offerShippingFeeCents ?? 0,
+      offerGrossCents: sr.offerGrossCents ?? 0,
+      destination: { name: t(o.name), street1: t(o.street1), postalCode: t(o.postalCode), state: t(o.areaLevel1), city: t(o.areaLevel2), neighborhood: t(o.areaLevel3) },
     };
   }
 
@@ -1079,13 +1134,15 @@ export class ShipmentsService {
       ...toAdminShipmentRow(s),
       // v1.21.2 (D4): `orderId == null` ⇒ retiro de bóveda; con orden vinculada, el `kind` se
       // resuelve LEYENDO `Order.fulfillmentMode` (nunca asumiendo `direct_ship` por tener orderId).
-      kind:
-        s.orderId == null
-          ? ('vault_withdrawal' as const)
-          : this.kindForFulfillment(order?.fulfillmentMode, s.id),
+      // ⭐ rev BSD-1 (BSD-1.3 punto 2): la guía de ENTRADA del buylist ⇒ `buylist_inbound` (la decide `label-subject.ts`).
+      kind: adminKindOf(s, () =>
+        s.orderId == null ? ('vault_withdrawal' as const) : this.kindForFulfillment(order?.fulfillmentMode, s.id),
+      ),
       orderNumber: order?.orderNumber ?? undefined,
       guestEmail: order?.guestEmail ?? undefined,
       recipientName: snapshot.recipientName ?? undefined,
+      // ⭐ rev BSD-1 (§BSD.5): `null` en las filas de salida (la lista); el detalle lo llena para la guía de entrada.
+      inbound: null as InboundShipmentBlockDTO | null,
     };
   }
 
@@ -1693,7 +1750,10 @@ export class ShipmentsService {
     to: 'enviado' | 'entregado',
     at: { now: Date; deliveredAt?: Date },
   ): Promise<{ shipped: boolean; delivered: boolean }> {
-    const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id }, select: { status: true, userId: true, orderId: true } });
+    const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id }, select: { status: true, userId: true, orderId: true, ...LABEL_SUBJECT_SELECT } });
+    // ⭐ rev BSD-1 (§BSD.4.2, I-BSD-6): para «Salida de hoy» y el rastreo una guía de ENTRADA no existe (⛔ `enviado`/
+    // `entregado` sobre ella: CHECK `shipment_inbound_status`). Los llamadores ya tratan el `404` como rechazo, sin abortar.
+    if (isBuylistInbound(row)) throw BusinessException.notFound();
     let isDirectShip = false;
     if (row.orderId != null) {
       const order = await tx.order.findUnique({ where: { id: row.orderId }, select: { fulfillmentMode: true } });
