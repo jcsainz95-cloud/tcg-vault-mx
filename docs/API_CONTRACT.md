@@ -7311,6 +7311,11 @@
   | `GET /admin/spend-alerts` (§M4-SHIP.19.29.9) | `severity` **(v1.80.12.13)** | `SpendAlertSeverity` | **E** |
   | `GET /admin/spend-alerts` (§M4-SHIP.19.29.9) | `unseen` **(v1.80.12.13)** | `true` (un solo token) — partición computada (`seenAt IS NULL`; se combina con `?muted=`, ⛔ esta fila no cambia su semántica) | **L** |
   | `GET /admin/spend-alerts` (§M4-SHIP.19.29.9) | `muted` **(v1.80.12.13; §19.30.2 (5))** | `true \| false` — canónico en §M4-SHIP.19.30.2 (5); ausente ⇒ los dos | **L** |
+  | `GET /admin/reports/sales` (§15) | `preset` **(AN-1.2)** | `today \| yesterday \| last7 \| last30 \| this_month \| last_month \| custom` — canónico en **§15.2**; default `last7` sin `from`/`to`. Unión pura, ⛔ sin enum en `schema.prisma` | **L** |
+  | `GET /admin/reports/sales` (§15) | `groupBy` **(AN-1.2)** | `day \| week \| month` — canónico en **§15.2**; default `day` | **L** |
+  | `GET /admin/reports/sales` (§15) | `topSort` **(ORDEN, AN-1.2)** | `net \| pieces` — canónico en **§15.2**; default `net` (punto 6) | **L** |
+  | `GET /admin/reports/sales/export.csv` (§15) | `preset` **(AN-1.2)** | el mismo dominio y default que `/sales` — canónico en **§15.2** | **L** |
+  | `GET /admin/reports/sales/export.csv` (§15) | `groupBy` **(AN-1.2)** | el mismo dominio y default que `/sales` — canónico en **§15.2** | **L** |
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
   >
@@ -39685,14 +39690,14 @@ no-store`. `vault_operator` ⇒ **`403 FORBIDDEN`**; sin sesión ⇒ `401`.
 ⛔ La tarjeta **no** sale de `GET /admin/dashboard` (que es `vault_operator+`): el front la pide solo con rol `super_admin`;
 si el operador la pidiera, `403`.
 
-### 15.2 Parámetros (los dos primeros endpoints aceptan los mismos)
+### 15.2 Parámetros (`/sales` acepta los cuatro; `/sales/export.csv`, todos **menos `topSort`** — AN-1.2, §15.12)
 
 | Param | Forma | Clase | Default | Regla |
 |---|---|---|---|---|
 | `preset` | `today \| yesterday \| last7 \| last30 \| this_month \| last_month \| custom` | §0-Q **L** | `last7` (si no vienen `from`/`to`) | Días **de México** (`America/Mexico_City`), resueltos en el servidor. `last7` = hoy y los 6 anteriores; `last30` = hoy y 29 anteriores; `this_month` = día 1 → hoy; `last_month` = mes calendario anterior completo |
 | `from`, `to` | `YYYY-MM-DD` | no-enum (como `parseMxDayFilter`) | — | **Los dos o ninguno.** Con ellos, `preset` debe faltar o ser `custom`. Ambos días **completos** (criterio 600). `to` ≤ hoy MX. `to − from + 1` ≤ **366** |
 | `groupBy` | `day \| week \| month` | §0-Q **L** | `day` | `week` = lunes a domingo; `month` = mes calendario; cubos **recortados** al periodo |
-| `topSort` | `net \| pieces` | §0-Q **L** | `net` | Orden de las listas «lo más vendido» |
+| `topSort` | `net \| pieces` | §0-Q **L** (ORDEN, punto 6) | `net` | Orden de las listas «lo más vendido». ⛔ **Solo `/sales`**: el CSV no lleva listas (§15.7), así que en el CSV **no se declara** (AN-1.2) |
 
 Periodo anterior (criterio 606): los **mismos N días** inmediatamente antes de `from` (también para `last_month`; P-AN-3).
 `today` compara contra `yesterday`. ⚠️ La tarjeta (`/today`) **no** usa esta regla (§15.5).
@@ -39708,8 +39713,10 @@ Periodo anterior (criterio 606): los **mismos N días** inmediatamente antes de 
 | `to` posterior a hoy MX | `{ field: 'to' }` |
 | Más de 366 días | `{ field: 'from' }` |
 | `preset` distinto de `custom` junto con `from`/`to` | `{ field: 'preset', allowed }` |
+| `preset=custom` sin `from` ni `to` (AN-1.2) | `{ field: 'from' }` |
 
-`C-EQ-1` gana las filas `preset`, `groupBy`, `topSort` (clase L, dominio de esta tabla) y `from`/`to` en su lista de no-enums.
+`C-EQ-1` gana las filas de [§0-Q punto 4](#enum-query-filter) (AN-1.2: `preset`, `groupBy`, `topSort` en `/sales`; `preset`,
+`groupBy` en `/sales/export.csv`; ⛔ `topSort` **no** en el CSV) y `from`/`to` en su lista de no-enums.
 
 ### 15.3 Qué pedido, qué día, qué pieza (reglas de conteo — una por cifra)
 
@@ -39756,7 +39763,7 @@ o.ivaRatePct) : unitPriceCents`. ⚠️ Por redondeo por renglón, Σ de estas l
 |---|---|---|
 | `cards` (raw y graded) | `(cardId, productType, finish)`; `finish = OrderItem.finish ?? InventoryItem.finish` ⇒ dos acabados = dos renglones | `cardId, name, number, setName, finish, productType, pieces, netCents` |
 | `sets` (todo tipo) | `SealedProduct.setId` si es sellado con producto; si no, `Card.setId` | `setId, setName, pieces, netCents` |
-| `sealed` | `sealedProductId`; sin producto ⇒ por el nombre congelado `InventoryItem.sealedProductName ?? Card.name` | `sealedProductId \| null, name, setName, pieces, netCents` |
+| `sealed` | `sealedProductId`; sin producto ⇒ por el nombre congelado `InventoryItem.sealedProductName ?? Card.name` | `sealedProductId \| null, name, setName: string \| null, pieces, netCents` (AN-1.2: `setName = null` si no hay set que nombrar; el front pinta «—») |
 
 Nombres del catálogo (`Card`, `CardSet`, `SealedProduct`): ⛔ ningún dato de cliente.
 
@@ -39877,7 +39884,7 @@ sobrescrito en cada evento ⇒ AN-B-20 roja; (m11) `centsToPesosCell` que pierde
 ### 15.7 CSV (`/sales/export.csv`, criterio 610)
 
 `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="ventas_<from>_<to>_<groupBy>.csv"`.
-Una fila por cubo (las de cero también) y una última fila con `from=total`. ⭐ **AN-1.1 (N-AN-4): el dinero va en PESOS con
+Una fila por cubo (las de cero también) y una última fila con `from=total` y `to` **vacío** (AN-1.2). ⭐ **AN-1.1 (N-AN-4): el dinero va en PESOS con
 dos decimales** (`348.00`, `-12.30`; punto decimal, ⛔ sin separador de miles, ⛔ sin `$`), formateado con
 `centsToPesosCell(cents: number): string` en **aritmética entera** (signo + `⌊|n|/100⌋` + `.` + `|n| mod 100` a dos
 dígitos; ⛔ `n / 100` en flotante). Es la misma cifra al centavo que el JSON (criterio 610), que **sigue en centavos**.
@@ -40006,6 +40013,28 @@ Prueba: **AN-B-22** (backend) y **AN-F-5** (front); mutación (m9).
 **Decisión:** **sí**, pesos con dos decimales en el CSV; el JSON **sigue en centavos**. Detalle y columnas renombradas
 (`*Cents` → `*Mxn`) en §15.7. Pesos con dos decimales son la misma cifra al centavo ⇒ criterio 610 intacto.
 Pruebas: **AN-B-10** (reescrita) y **AN-B-23**; mutaciones (m7) y (m11).
+
+### 15.12 Errata AN-1.2 (2026-10-06, arquitecto) — huecos que backend y frontend encontraron al construir §15
+
+Origen: informe de backend relayado por el orquestador (commits `1a2e9165` y siguientes, rama `claude/analitica-ventas`;
+⛔ NO MEDIDO por el arquitecto: sin Bash). Sin schema, migración, enum de Prisma, código de error ni endpoint nuevo.
+
+1. **`topSort` sale del CSV.** El CSV no lleva listas (§15.7), así que el parámetro no cambiaría ni un byte, y `C-EQ-1`
+   exige que todo eje declarado cambie la respuesta. Por qué no se declara «aceptado e ignorado»: sería un eje que el candado
+   no puede ejercitar, justo lo que §0-Q punto 4 prohíbe. `?topSort=` en el CSV es una llave desconocida: §0-Q punto 7, sin
+   `400` (solo `GET /admin/users` las rechaza). Backend ya lo hizo así: **ratificado**.
+2. **Filas de §0-Q punto 4 escritas** (cinco: `preset`/`groupBy`/`topSort` en `/sales`, `preset`/`groupBy` en el CSV). Las
+   cinco `PENDIENTE-ARQUITECTO` de `C-EQ-1` pasan a declaradas (23 ⇒ 18, cifra de backend, NO MEDIDA por el arquitecto).
+3. **Ratificados** (sin cambio de código esperado): `preset=custom` sin `from` ni `to` ⇒ `400 { field: 'from' }` (fila nueva
+   de §15.2; es el primero de los dos que faltan, igual que «solo uno»). La fila `total` del CSV lleva `to` vacío (§15.7).
+   `mix.byDestination` y `mix.byBuyer` **viajan ya**: salen de columnas existentes (§15.8, 621), así que por la norma de
+   fases de §15.4 se emiten en cuanto se construyen; `mix.byPaymentMethod` sigue **ausente** hasta `M-AN-1`.
+4. **`TopSealed.setName: string | null`** (§15.3). Un sellado sin producto puede no tener set que nombrar; ⛔ no se inventa
+   un texto en el servidor (`''`, «Sin set»): el front pinta «—», como con todo `null` de §15.
+5. **No se añade `details.reason`.** Los `400` de §15.2 son defensivos: el front construye `from`/`to` con su selector y
+   puede validar antes las mismas reglas de la tabla de errores (que son públicas y completas). Añadir una llave a `details`
+   ensancha su dominio y obliga a pruebas nuevas por algo que el dueño no verá si el front valida. El front muestra un
+   mensaje genérico de periodo inválido con `details.field`. Si un caso real lo pide, se reabre.
 
 #### E5-5 · Choque A (PRIV-0 y las 4 plantillas de la fusión)
 Las cuatro son **de cliente**, no solo-staff: `sellItemsRejectedTemplate` va al vendedor (`buylist.service.ts:7256-7277`,
