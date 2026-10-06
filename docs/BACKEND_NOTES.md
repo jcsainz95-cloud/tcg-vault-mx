@@ -29432,12 +29432,12 @@ tirada cada una**, sobre la copia; restauradas y comprobadas con `cmp` contra el
 propia me fue denegado por permisos en esta corrida. La cierra correrla con `./scripts/stack-native.sh test:integration
 test/integration/sdx-d2g-mail.e2e-spec.ts` (o en CI). Por construcción usa los mismos tres constructores que PRIV-5.
 
-## 77 · rev BSD-1, paso B-1 (💰) — M-72, `label-subject.ts`, `closeInboundShipment`, `writeSellRequestGuide`, censos BSD-B23/B25 (2026-10-06, rama `claude/buylist-skydropx`, sobre `629c78bd` → `88a7cea8`)
+## 78 · rev BSD-1, paso B-1 (💰) — M-72, `label-subject.ts`, `closeInboundShipment`, `writeSellRequestGuide`, censos BSD-B23/B25 (2026-10-06, rama `claude/buylist-skydropx`, sobre `629c78bd` → `88a7cea8`)
 
 Norma: `API_CONTRACT §BSD` (rev BSD-1 + errata BSD-1.1 §BSD.15). Esto es la **costura** que usan B-2 (`shipments/*`) y
 B-3 (barrido, `buylist.service`). ⛔ Ningún verbo HTTP nuevo, ni PDF, ni correo, ni `decline-accepted`, ni barrido.
 
-### 77.1 Qué hay y dónde (para B-2 / B-3)
+### 78.1 Qué hay y dónde (para B-2 / B-3)
 | Pieza | Fichero | Para quién |
 |---|---|---|
 | `M-72` (una sola migración; ⛔ sin `M-72b`, medido) | `prisma/migrations/20261025120000_m72_bsd_inbound_label/` | todos |
@@ -29459,7 +29459,7 @@ B-3 (barrido, `buylist.service`). ⛔ Ningún verbo HTTP nuevo, ni PDF, ni corre
   `AdminShipmentDTO` **ya tiene** `kind` con ese otro significado ⇒ §BSD.5 «`AdminShipmentDTO` gana `kind: ShipmentKind`»
   choca (para B-2/arquitecto).
 
-### 77.2 `M-72`: contenido, idempotencia, reversa
+### 78.2 `M-72`: contenido, idempotencia, reversa
 Orden de §BSD.1 (1)…(8); DDL igual al de `prisma migrate diff` (nombres de índice/FK de Prisma). Idempotente
 (`IF NOT EXISTS`, constraints quitar-y-poner, `CREATE TYPE` en `DO … duplicate_object`). **Desviación consciente del texto
 del relleno:** `… AND "inboundGuideClockStartedAt" IS NULL` — idéntico en la primera aplicación (columna recién nacida);
@@ -29472,7 +29472,7 @@ comprobación previa de guías vivas). **Medido** (copia del árbol, BD propia `
 - `prisma migrate diff --from-url <bd> --to-schema-datamodel` ⇒ sin diferencias de M-72 (solo un `RENAME INDEX` de
   `PriceReference` que ya estaba).
 
-### 77.3 Censos (B-1 los deja VERDES; lo pendiente es un TRINQUETE con dueño)
+### 78.3 Censos (B-1 los deja VERDES; lo pendiente es un TRINQUETE con dueño)
 - **BSD-B23** `test/bsd.reader-census.spec.ts` + `test/helpers/bsd-census.ts` (AST de TypeScript, llave `fichero
   función#verbo#n`): **100 sitios** clasificados (`outbound_only` / `all_kinds` / `by_key`). B-1 **puso `OUTBOUND_ONLY`** en
   los 18 `outbound_only` (lista admin y su total, picking list, cola de preparación y conteos, salida de hoy ×2, tablero
@@ -29495,7 +29495,7 @@ comprobación previa de guías vivas). **Medido** (copia del árbol, BD propia `
   `enum-values-parity.spec.ts`: solo el ancla humana de `SpendAlertKind` (+`buylist_guide_due`), que es como ese fichero
   pide que se añada un valor.
 
-### 77.4 Mediciones (copia del árbol entero en el scratchpad `be-bsd-b1`, BD propia `tcg_be_bsd_b1`, doble del proveedor)
+### 78.4 Mediciones (copia del árbol entero en el scratchpad `be-bsd-b1`, BD propia `tcg_be_bsd_b1`, doble del proveedor)
 - **Integración BSD-B2/B3** (`bsd-m72-migration.e2e-spec.ts`, 20 pruebas): **10/10 corridas verdes** tras arreglar un
   falso rojo propio (`now()` con µs vs `TIMESTAMP(3)`: ±1 ms, cazado 1/1 al primer intento de mutación; la aserción
   ahora exige UN valor común a las tres y ≤ 1 ms de `now()`).
