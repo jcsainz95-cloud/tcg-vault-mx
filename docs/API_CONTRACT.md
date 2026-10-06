@@ -10,6 +10,24 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata BSD-1.4 — LO QUE ENCONTRARON B-2, B-3, B-4 Y C-9 DE UX-UI (`BACKEND_NOTES §78.5/§78.B3/§78.B4`,
+> `DESIGN_SYSTEM §BSD-UX.11d`) (2026-10-06, arquitecto, `/home/user/tcg-bsdx`; sha NO MEDIDO).** Norma en [§BSD.18](#BSD).
+> Sin schema, migración, enum, código de error ni endpoint nuevo.
+>
+> | Cambia | Construye |
+> |---|---|
+> | Un solo predicado de sello de AV-7 con el número (`guideNoticeSealWhere`), BSD-B40 | B-3 + B-2 |
+> | `@Throttle` 10/min en `GET /buylist/requests/:id/label.pdf`, BSD-B44 | B-2 |
+> | El servidor redacta los montos del cliente en `not_continued` (como `no_offer`), BSD-B41 | B-3 + frontend |
+> | La revisión de domicilio del PATCH de admin se firma con el actor, BSD-B42 | B-3 |
+> | (b) del P&L por `coalesce(guideSentAt, shipmentConfirmedAt)`, BSD-B43 | B-4 |
+> | B16/B18/B31 se repiten contra `POST /admin/shipments/:id/label` antes de fusionar | backend; QA |
+> | Pruebas: B4 por pares + B45; B9 con mutación nueva; B11 partida (+B46); B16 con texto nuevo | B-2 / B-3 |
+>
+> Se ratifica: la tarea de cancelación la abre el llamador (§BSD.4.8 corregido); el `status` del CAS es redundante y se
+> queda; las cascadas del P&L de B-4. C-9: el aviso de M7 sigue sin enlace; el verbo de corrección queda para después del
+> lanzamiento.
+>
 > **Errata BSD-1.3 — LO QUE ENCONTRÓ BACKEND EN B-1 (`BACKEND_NOTES §78`) (2026-10-06, arquitecto, mismo árbol; sha NO
 > MEDIDO).** Norma completa en [§BSD.17](#BSD). Sin cambios de schema, migración ni códigos ⇒ B-1 no se rehace.
 >
@@ -40368,3 +40386,264 @@ rechazar en `aceptada`; ⛔ no se cablea `closeInboundShipment`.**
 - **Quién mete la entrada.** La añade B-4 en la tabla del censo, en el mismo commit que el lector. Si falta, B23 se pone
   rojo, y eso es lo esperado.
 - **Construye:** B-4.
+
+### BSD.18 Errata BSD-1.4 — lo que encontraron B-2, B-3 y B-4, y C-9 de ux-ui (2026-10-06, NORMATIVA, 💰)
+Origen: `BACKEND_NOTES §78.5` (B-2, `8fcd0bc2`), `§78.B3` (B-3, `88df74e6`), `§78.B4` (B-4, `5af161a7`) y
+`DESIGN_SYSTEM §BSD-UX.11d` / C-9 (ux-ui, `8b0e5a0f`). SHAs según el orquestador; el arquitecto leyó el árbol
+`/home/user/tcg-bsdx` el 2026-10-06 sin Bash ⇒ **sha NO MEDIDO**. Manda sobre BSD.0–BSD.17 donde choquen.
+⛔ Sin schema, migración, enum de BD, código de error ni endpoint nuevo. Las cifras de carreras son de backend (autor y N
+citados); el arquitecto no las midió.
+
+**Resumen.**
+| # | Punto | Decisión | Construye |
+|---|---|---|---|
+| 1 | BSD-B4: quitar `P2002` no muerde | **Ratificado**: dos muros. Mutación **por pares** en la carrera y prueba determinista nueva para `P2002` (BSD-B45) | B-2 |
+| 2 | BSD-B9: quitar `status` del CAS no muerde | **Ratificado** como defensa redundante. Cambia la columna «mutación» de B9 | B-2 |
+| 3 | §BSD.4.8: quién abre la tarea si `port.cancel` no dice `ok` | **Ratificado el llamador** (`buylist/inbound-cancel-task.ts`), escritor único de ese caso. Se corrige el texto de §BSD.4.8 | B-2 (comentario) |
+| 4 | AV-7: dos copias del sello | **Cambia**: un solo predicado `guideNoticeSealWhere`, con el número | B-3 + B-2 |
+| 5 | BSD-B11: `payoutNetCents` fuera de `shipments/` | **Ratificado**. La mitad del pago pasa a BSD-B46 | B-3 |
+| 6 | `GET /buylist/requests/:id/label.pdf` con el global 300/min | **Cambia**: `@Throttle` propio, 10/min | B-2 |
+| 7 | BSD-B16 «nunca BSD-M1 y AV-7» | **Cambia el texto**: nunca los dos con la guía viva, y nunca AV-7 sellado sobre una cerrada | — (B-3 ya lo afirma) |
+| 8 | Portal `not_continued` con montos | **Cambia**: el servidor redacta, como en `no_offer` | B-3 + frontend |
+| 9 | B16/B18/B31 con sustituto de compra | **Se exige** repetirlas contra `POST /admin/shipments/:id/label` antes de fusionar el stream | backend; QA las corre |
+| 10 | Revisión de domicilio del PATCH de admin firmada por el vendedor | **Cambia**: se firma con el actor | B-3 |
+| 11 | P&L: retenido con aprobado nulo; `payoutNetCents` nulo | **Ratificado** | — |
+| 12 | P&L: (b) sin `guideSentAt` | **Cambia**: periodo de (b) = `coalesce(guideSentAt, shipmentConfirmedAt)` | B-4 |
+| 13 | P&L: contador «con guía manual» | **Ratificado** | — |
+| 14 | P&L: Skydropx y costo manual a la vez | **Ratificado**: solo (a) | — |
+| 15 | C-9: aviso de M7 sin enlace | **(a) para el lanzamiento**: sin enlace y sin verbo. El verbo de corrección queda como trabajo **posterior** | — (ux-ui ya lo diseñó) |
+
+**1. BSD-B4: dos muros, mutación por pares (ratificado).**
+- **Lo medido (B-2, sobre copia, 10 rondas × 5 por variante):** sin `P2002` ⇒ 0/10 rondas rojas; sin el candado ⇒ 0/10;
+  sin los dos ⇒ 10/10 rojas (`500`). Los dos muros son el candado de la solicitud (`inbound-shipment.service.ts:82`) y el
+  manejo de `P2002` (`:44`). Con uno basta.
+- **Por qué se quedan los dos.** El candado es I-BSD-4 y lo necesitan las demás guardas del paso 2 de §BSD.4.1. El manejo
+  de `P2002` es lo que hace cierto «⛔ nunca `500`» si un día alguien crea la fila por otra vía sin el candado. Quitar
+  cualquiera de los dos no rompe nada hoy. Por eso cada uno necesita su propio canario.
+- **Norma de prueba.**
+  - BSD-B4 (carrera): la mutación es **«quitar los dos»**. Se reporta la proporción con N ≥ 10.
+  - **BSD-B45 (nueva, determinista, N=1):** un doble de Prisma cuyo `create` de la fila de entrada lanza `P2002` y cuya
+    relectura devuelve la fila ⇒ `200 {created:false}`; ⛔ nunca `500`. Mutación: quitar el manejo de `P2002`.
+  - Para el candado no hace falta un canario nuevo: lo cubre el censo B23 (`lockSubjectRows`).
+
+**2. BSD-B9: `status` del CAS de entrada es redundante (ratificado).**
+- **Lo medido (B-2):** quitar `status:'solicitado'` del CAS ⇒ 0/10 rondas rojas.
+- **Por qué no muerde.** En la fila de entrada, `claim` ya toma los candados de I-BSD-4 y relee la guarda **antes** del
+  CAS (`label-purchase.service.ts:470-476`: `lockSubjectRows` y `assertInboundOpenForLabel(row0, sr, openStatus)`). Lo
+  leído bajo candado es lo que el CAS escribe. Contra el doble clic hay además otros tres muros: el candado consultivo
+  (`:443`), «otra compra en vuelo» (`:454-467`) y `labelProcessingSince: null` del CAS (`:493`).
+- **Norma.**
+  - El `status` del CAS (`:489`) **se queda**: es la misma línea para las dos clases y en salida sí es el muro.
+  - BSD-B9 se redefine. **Afirma** lo de siempre: 1 `port.purchase` y 1 guía pagada por ronda, N ≥ 10. **Mutación:**
+    quitar a la vez el candado consultivo y `labelProcessingSince: null` del CAS.
+  - Si backend mide que una de esas dos muerde sola con N ≥ 10, reporta la proporción y esa pasa a ser la mutación.
+  - El cierre de la solicitud entre `precheck` y `claim` lo mide BSD-B16 (punto 7), con su segunda mutación.
+- **Construye:** B-2 (solo pruebas).
+
+**3. La tarea «cancelar guía no usada» cuando `port.cancel` no dice `ok`: el llamador (ratificado).**
+- **Lo medido (lectura).**
+  - El post-commit de `shipments/` (`label-cancel.service.ts:302-313`, `afterAutoClose`) lo comparten los reembolsos y el
+    contracargo, con filas de **salida**. Esas filas no tienen solicitud de venta.
+  - La columna `guideCancellationPendingAt` es de `SellRequest`. Hoy la escribe solo `buylist/` y el barrido:
+    - `inbound-cancel-task.ts:24-27`;
+    - `buylist-sweep.service.ts:623-626` (regla 10) y `:693`;
+    - `buylist.service.ts:5986` y `:5994`.
+  - `shipments/` no la escribe. Solo un comentario la menciona (`inbound-close.ts:20`).
+- **Decisión.** El caso «sellada y Skydropx no confirmó al volver» lo escribe **un solo sitio**:
+  `buylist/inbound-cancel-task.ts` `openGuideTaskIfCancelUnconfirmed`. Lo llaman, post-commit y después de
+  `afterAutoCloseVia`, el barrido (`buylist-sweep.service.ts:701`) y `decline-accepted` (`buylist.service.ts:5994`).
+  - **Por qué no en `shipments/`:** el motor de la guía tendría que conocer la tarea del buylist. Además, un cuerpo
+    compartido con los reembolsos ganaría una rama por `kind`, y BSD-B25 (a) lo prohíbe fuera de `label-subject.ts`.
+  - La regla 10 queda como red tardía con su propio predicado (≥ 1 h).
+- **Texto que se corrige.** En §BSD.4.8, «si `port.cancel` no responde `ok`, el servicio de cancelación escribe
+  `guideCancellationPendingAt`…» pasa a decir: «…**el llamador**, tras `afterAutoCloseVia`, abre la tarea con
+  `openGuideTaskIfCancelUnconfirmed` (misma guarda `IS NULL`)».
+- **Arreglo de comentario.** `inbound-close.ts:80-81` dice «el servicio de cancelación la abre él». B-2 lo corrige.
+- **Prueba.** BSD-B14 (doble que niega la cancelación ⇒ tarea) ya lo fija.
+- **Candado nuevo:** en `backend/src/modules/shipments/` ⛔ ninguna escritura de `guideCancellationPendingAt`. Va como
+  aserción estructural en `test/bsd-b2.structural.spec.ts`. Mutación: escribirla en `afterAutoClose`.
+
+**4. AV-7: UN predicado de sello (cambia).**
+- **Lo medido (lectura).** Hay dos copias del sello:
+  - manual: `buylist.service.ts:4818-4823`, `{id, guideNoticeSentAt:null, status:'aceptada', closedAt:null}`;
+  - entrada: `inbound-guide-notice.service.ts:82-85`, la misma más `shipmentTrackingNumber = row.trackingNumber`.
+  - Difieren en el número. Dos copias de una guarda acaban divergiendo, y ya divergen.
+- **Hueco de la copia manual.** Es razonamiento, NO MEDIDO: lo cierra BSD-B40 (b) en rojo sobre el código de hoy.
+  - El admin captura el número A y en seguida corrige a B. Las dos transacciones comitean.
+  - `writeSellRequestGuide` reinicia el sello al cambiar el par (`sell-request-guide.ts:80`).
+  - Si el post-commit de A corre después, sella y manda el correo con **A**, el número equivocado.
+  - El de B ya no casa. El vendedor se queda con un número que no es el suyo.
+- **Norma.**
+  - `buylist/sell-request-guide.ts` (ya lo importa `shipments/`; ahí vive el reinicio del sello) exporta
+    `guideNoticeSealWhere(sellRequestId: string, trackingNumber: string): Prisma.SellRequestWhereInput` =
+    `{ id, guideNoticeSentAt: null, status: 'aceptada', closedAt: null, shipmentTrackingNumber: trackingNumber }`.
+  - Los dos sellos de AV-7 lo usan.
+  - `claimAndNotifySellRequest` recibe el número que anuncia cuando `sealField = 'guideNoticeSentAt'`. Es un método
+    privado: su firma puede cambiar.
+- **Prueba BSD-B40.**
+  - (a) **Estructural:** en `backend/src`, un `where` sobre `sellRequest` con `guideNoticeSentAt: null` solo aparece en
+    `sell-request-guide.ts`. Mutación: volver a escribirlo en línea en `inbound-guide-notice.service.ts`.
+  - (b) **Manual:** capturar A y luego B (las dos comitean); correr el post-commit de A ⇒ 0 correos; el de B ⇒ 1 correo
+    con B. Mutación: quitar `shipmentTrackingNumber` del predicado.
+  - (c) **Entrada:** solicitud cerrada antes de `notifyLabeled` ⇒ 0 correos. Mutación: quitar `closedAt` del predicado.
+- **Construye.** B-3 escribe la función y cambia `claimAndNotifySellRequest`. B-2 cambia `inbound-guide-notice.service.ts`.
+  Es un solo fichero compartido: el orquestador serializa, o lo encarga a un solo agente.
+
+**5. BSD-B11: el neto se calcula al pagar (ratificado; la prueba se parte).**
+- `payoutNetCents` lo escribe `paySpei` (`buylist/`), que no es de B-2. La compra no lo toca, y B-2 ya lo afirma.
+- BSD-B11 queda así: «la compra de una guía de entrada no cambia la oferta ni ninguna cifra `*Cents` del portal».
+- **BSD-B46 (nueva, B-3):** dos solicitudes (bruto 150 000, tarifa 18 000) con guías de entrada de 15 000 y 25 000 ⇒
+  `payoutNetCents = 132000` en las dos. Mutación: restar `shippingCostCents` de la fila de entrada en el neto de `paySpei`.
+
+**6. `GET /buylist/requests/:id/label.pdf` gana `@Throttle({ default: { ttl: 60_000, limit: 10 } })` (cambia).**
+- **Lo medido (lectura).** La ruta no tiene límite propio (`inbound-shipment.controller.ts:35-44`), así que aplica el
+  global de 300/min (`app.module.ts:46`).
+- **Por qué cambia.** Cada llamada es una descarga a Skydropx de hasta 5 MB hecha por nosotros, por proxy y sin caché.
+  - Con 300/min, una sola cuenta de cliente puede hacer que pidamos 300 PDF por minuto a un tercero. Eso gasta red y
+    puede gastar el límite de peticiones del proveedor, que comparte con las compras del operador.
+  - Precedente: la otra ruta que llama al proveedor por cada clic tiene 6/min (`admin-shipments.controller.ts:131`).
+  - Un vendedor descarga su etiqueta una o dos veces. 10/min sobra.
+- **§BSD.4.4**, última frase: sustituida por esta.
+- La ruta admin `GET /admin/shipments/:id/label.pdf` no cambia: es de personal.
+- **Prueba BSD-B44:** lee los metadatos del throttler del handler, como `test/buylist.quote-throttle.spec.ts` (el guard
+  se salta en `NODE_ENV=test`). Mutación: quitar el decorador.
+- **Construye:** B-2. **devops:** la ruta ya está en el inventario del DAST (§BSD.12.5). Con varias instancias aplica la
+  misma salvedad de almacenamiento en memoria que el global.
+
+**7. BSD-B16: qué se puede garantizar (cambia el texto de la prueba).**
+- **Por qué «nunca BSD-M1 y AV-7» es imposible de cumplir.** Con una guía comprada y avisada, declinar es legal (§BSD.6,
+  BSD-B14): se cancela la guía (`auto_close`) y sale BSD-M1. Los dos correos son legítimos en ese orden.
+- **Lo que BSD-B16 afirma por ronda (N ≥ 10):**
+  - (i) si la solicitud quedó cerrada, su fila de entrada está `cancelado` y no hay guía viva (sin compra, o con
+    `providerCanceledAt` y `providerCancelReason='auto_close'`);
+  - (ii) si salieron BSD-M1 **y** AV-7, la guía terminó sellada `auto_close`. Es decir: nunca los dos con la guía viva.
+- **Que AV-7 no se selle sobre una solicitud ya cerrada** lo fija BSD-B40 (c), que es determinista. ⛔ No se mide por
+  orden de llegada de correos en una carrera.
+- **Mutaciones.**
+  - La de siempre: `decline-accepted` sin `closeInboundShipment`. B-3 midió 7 de 10 rondas malas.
+  - **Segunda:** quitar `assertInboundOpenForLabel` de la relectura de `claim` (`label-purchase.service.ts:475`), con la
+    proporción reportada. Si no muerde, se reporta y BSD-B16 se queda con la primera.
+
+**8. Portal en `not_continued`: el servidor redacta los montos (cambia).**
+- **Lo medido (lectura).** `toCustomerSellRequestDTO` redacta solo `no_offer`: `quotedTotalCents` e ítems a `null`
+  (`buylist.service.ts:452-454`, `:483`). Su porqué está escrito allí mismo (`:434-438`): «la regla vive en el servidor»,
+  porque el correo prohíbe montos y la pantalla debe decir lo mismo. BSD-M1 también prohíbe montos (§BSD.8.1), y
+  `DESIGN_SYSTEM §BSD-UX.4a` pide ocultarlos.
+- **Por qué no rige aquí la excepción de `not_shipped`** («hubo oferta vinculante, derecho al registro»).
+  - En `not_continued` **nosotros** decidimos no comprar, y no se compró ninguna carta.
+  - Una cifra al lado de «decidimos no continuar» se lee como deuda: es el mismo daño que motivó `no_offer`.
+  - La proyección admin no cambia, así que el dato no se pierde.
+- **Norma.** La redacción aplica a `expiredReason ∈ {no_offer, not_continued}` con `status='expirada'`, en lista y
+  detalle del cliente, con los mismos campos y el mismo `null` explícito. Sustituye «Alcance EXACTO: solo `no_offer`» de
+  v1.51.4 (§6).
+- **Prueba BSD-B41:**
+  - con `not_continued`, la lista y el detalle del cliente no traen ninguna clave `*Cents` distinta de `null`, en
+    recorrido recursivo del DTO;
+  - el DTO admin no cambia;
+  - `labelPdfAvailable=false`.
+  - Mutación: quitar `not_continued` del conjunto.
+- **Construye:** B-3. **Frontend:** `hideMoney` gana `not_continued` (BSD-UX.4a). Con `null` no pinta cifra aunque el
+  servidor falle.
+
+**9. B16, B18 y B31 contra la ruta real (se exige).**
+- **Por qué.** El sustituto de compra de B-3 reproduce el reclamo y el CAS, pero no las ventanas de verdad: `precheck`
+  → `claim` → red → `persistLabeled` → post-commit de AV-7. Esas ventanas solo existen en `POST /admin/shipments/:id/label`.
+- **Norma.**
+  - Antes de fusionar el stream, las tres se repiten contra esa ruta, con el doble del proveedor y
+    `SKYDROPX_ALLOW_SPEND` del entorno de prueba.
+  - B16 y B18 con N ≥ 10; B31 con 30 rondas, como la dejó B-3.
+  - Se reporta la proporción y el sha.
+  - El sustituto puede quedarse como prueba rápida adicional, ⛔ pero no cuenta como la medición.
+- **Construye:** backend, el dueño del spec `bsd-b3.e2e-spec.ts`, tras B-2 y B-3 en la rama. **QA** las corre en el gate
+  del stream.
+
+**10. La revisión de domicilio que nace del PATCH de admin se firma con el ACTOR (cambia).**
+- **Lo medido (lectura).**
+  - `adminUpdatePickupAddress` pasa `before.userId` (el vendedor) como `correctedByUserId` (`buylist.service.ts:5179`).
+  - Sobre **la misma fila de entrada**, `PUT /admin/shipments/:id/address` firma con `actor.id`
+    (`shipment-address.service.ts:181`).
+  - La bitácora la escribe el controlador **después** del commit (`admin-buylist.controller.ts:471-481`).
+  - Resultado: una fila con dos convenciones de firma, y una revisión que dice que corrigió el vendedor cuando lo hizo el
+    personal.
+- **SEC-A1 no lo impide.** Su porqué es la **forma del DTO**: no hay campos de domicilio, se elige un `addressId`
+  (`buylist.service.ts:4871-4873`). El candado `buylist.pickup-address.spec.ts:191` (`length === 2`) usa la aridad como
+  proxy de esa regla. El actor sale de `@CurrentUser`, no del cuerpo.
+- **Norma.**
+  - `adminUpdatePickupAddress(id, addressId, actorUserId)`: la revisión lleva `correctedByUserId = actorUserId`.
+  - El PATCH del vendedor sigue firmando con el vendedor.
+  - La anonimización no cambia: borra por la relación con la fila (`inbound-sync.ts:24`), no por quien firma.
+  - El candado de la línea 191 se reescribe **sin perder su intención**:
+    - aridad 3;
+    - `AdminPickupAddressDto` solo admite `addressId` (whitelist);
+    - ningún parámetro del método es un objeto de domicilio.
+- **Prueba BSD-B42:** admin cambia el domicilio con la fila en `solicitado` ⇒ `ShipmentAddressRevision.correctedByUserId`
+  = id del admin; el vendedor ⇒ id del vendedor. Mutación: volver a pasar `before.userId`.
+- **Construye:** B-3. Es modelo fuerte, porque toca un candado.
+
+**11. Retenido con `approvedTotalCents` nulo y `payoutNetCents` nulo (ratificado).**
+- Lo retenido es `brutoConsumado(sr) − payoutNetCents` (`pnl-buylist.ts:47-50`), con la **misma** función que usa
+  `paySpei` para pagar. Con el aprobado poblado es la fórmula de §BSD.16.
+- `payoutNetCents = null` ⇒ retenido 0 (`:48`). Es una fila pre-M-46, sin tarifa descontada.
+- Cuántas hay en producción: NO MEDIDO. Consulta de solo lectura para la solicitud de fusión:
+  `SELECT count(*) FROM "SellRequest" WHERE status='pagada' AND "payoutNetCents" IS NULL;`.
+
+**12. (b) sin `guideSentAt`: periodo = `coalesce(guideSentAt, shipmentConfirmedAt)` (cambia).**
+- **Lo medido (lectura).**
+  - El único escritor de `guideActualCostCents` en `backend/src` es `adminConfirmShipment`. Lo escribe en el mismo
+    `updateMany` que `shipmentConfirmedAt = now` (`buylist.service.ts:5409-5416`), y acepta el costo sin guía
+    (`guideMissing`, `:5451`).
+  - `pnl()` filtra (b) por `guideSentAt` (`admin.service.ts:1872`). Ese costo entra sin periodo y no entra en ningún mes:
+    la suma de los meses no da el total.
+- **Norma.**
+  - (b) usa `coalesce(guideSentAt, shipmentConfirmedAt)`, en Prisma
+    `OR: [{guideSentAt: period}, {guideSentAt: null, shipmentConfirmedAt: period}]`.
+  - Si los dos son nulos, entra sin periodo; con el escritor de hoy no ocurre.
+  - Se elige `shipmentConfirmedAt` porque es el instante en que el costo **se registró**. La fecha en que se gastó no la
+    sabe nadie.
+- **Prueba BSD-B43:**
+  - pagada con costo manual capturado al confirmar, sin `guideSentAt`, confirmada en marzo ⇒ cuenta en el P&L de marzo;
+  - la suma de enero a diciembre es igual a la del P&L sin periodo, para (b).
+  - Mutación: quitar la rama `guideSentAt: null`.
+- **NO MEDIDO en producción.** Las dos consultas de B-4, para la solicitud de fusión:
+  - `SELECT count(*) FROM "SellRequest" WHERE "guideActualCostCents" IS NOT NULL AND "guideSentAt" IS NULL;`
+  - `… AND "shipmentConfirmedAt" IS NULL;`, que debe dar 0. Si no da 0, hubo otro escritor histórico y se avisa al
+    arquitecto.
+- **Construye:** B-4.
+
+**13. Contador «con guía manual» = `guideSentAt ≠ null` ∧ sin guía de Skydropx ∧ sin costo (ratificado).**
+- Lo implementado: `pnl-buylist.ts:72-76`.
+- Una pagada sin guía capturada no tiene una guía nuestra cuyo costo falte. Contarla haría del aviso una métrica de
+  operación, y esa ya existe en `guideMissing`.
+
+**14. Solicitud con guía de Skydropx y costo manual a la vez ⇒ solo (a) (ratificado).**
+- Una guía, una fuente (`pnl-buylist.ts:72-75`).
+- `confirm-shipment` ya rechaza el costo manual con guía viva (`buylist.service.ts:5400-5405`).
+- Una guía de Skydropx con cancelación confirmada vale 0 en (a): lo no devuelto está en «ajustes» (§BSD.16.3).
+- Una re-emisión deja `labelSource` nulo, y una guía manual posterior cuenta entonces por (b). Esto es **inferido**: el CAS
+  del reclamo lo exige nulo (`label-purchase.service.ts:491`). NO MEDIDO en `applyReissue`. Lo cierra que B-4 lea
+  `applyReissue` y, si no lo anula, avise al arquitecto.
+
+**15. C-9 (ux-ui): el aviso `buylistGuideCostMissingCount` en M7 ⇒ (a) sin enlace y sin verbo, para el lanzamiento.**
+- **Lo medido (lectura).** `guideActualCostCents` solo se escribe al confirmar el envío (punto 12). Después,
+  `409 NOT_ACCEPTED`. M5 no tiene ruta por solicitud (§BSD.15 C-2).
+- **Por qué (a).** No hay riesgo de dinero que obligue a (b):
+  - el costo manual es **insumo de reporte** y ⛔ nunca entra en `payoutNetCents` (`buylist.service.ts:5374-5377`);
+  - lo único que se degrada es que la ganancia del P&L sale más alta por las guías manuales sin costo, y el aviso ya lo
+    hace visible con su contador.
+  - Con guía de Skydropx (el camino nuevo) el costo lo da el proveedor y el aviso no cuenta esas solicitudes. El hueco se
+    cierra solo para las próximas.
+- **(b) queda POSTERIOR al lanzamiento.** No se diseña aquí. Si el dueño lo pide, la condición de diseño es que haya **un
+  solo escritor** de `guideActualCostCents`: el verbo nuevo y `confirm-shipment` comparten un cuerpo, con bitácora y con
+  el `400 provider_cost` de §BSD.4.5. Ruta o filtro en M5: `?guideCostMissing=true`, clase L. Lo abre el orquestador como
+  pendiente con fecha.
+- **Construye:** nada. `DESIGN_SYSTEM §BSD-UX.11d` ya lo pinta así.
+
+**Pruebas nuevas o redefinidas de esta errata:**
+- B4: mutación por pares.
+- B9: mutación nueva.
+- B11: partida en dos.
+- B16: texto nuevo y segunda mutación.
+- B40 a B46 nuevas: B40, B41, B42, B43, B44, B45 y B46.
+- Candado nuevo en `bsd-b2.structural`.
+
+Todas sobre copia del árbol entero (O-9); carreras con N ≥ 10 y proporción; deterministas con N=1 dicho como tal.

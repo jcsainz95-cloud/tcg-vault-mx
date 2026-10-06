@@ -4,6 +4,16 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata BSD-1.4** (2026-10-06, arquitecto; sha NO MEDIDO): responde a `BACKEND_NOTES §78.5/§78.B3/§78.B4` y a
+> `DESIGN_SYSTEM` C-9. La norma está en `API_CONTRACT §BSD.18` y el porqué en §4.BSD (n).
+> - El sello de AV-7 pasa a ser un solo predicado, con el número.
+> - La descarga del vendedor tiene límite propio.
+> - En `not_continued`, el servidor no manda montos.
+> - La revisión de domicilio del admin se firma con quien la hizo.
+> - El periodo de (b) del P&L ya no pierde costos.
+> - Las carreras se repiten contra la ruta real.
+> - El resto se ratifica. Sin migración.
+>
 > **Errata BSD-1.3** (2026-10-06, arquitecto; sha NO MEDIDO): respuesta a `BACKEND_NOTES §78`. Norma en `API_CONTRACT §BSD.17`;
 > porqué en §4.BSD (m).
 > - Rechazar ya no puede cerrar una solicitud `aceptada`.
@@ -28678,6 +28688,36 @@ el reporte» y precisó «en muchos casos tendrá margen». Esto sustituye el «
   M5 con el mismo `labelAlertOf`, sin una segunda regla.
 - **Estados por política.** Los literales `'picking'` del motor eran la última costura de salida. Pasan a `label-subject.ts`,
   con un candado que impide que vuelvan.
+
+**(n) Errata BSD-1.4 (lo que encontraron B-2, B-3, B-4 y ux-ui).** Norma en `API_CONTRACT §BSD.18`.
+- **Un muro redundante no es un muro inútil, pero necesita su propio canario.**
+  - BSD-B4 tiene dos muros y BSD-B9 tiene varios.
+  - Una mutación de uno solo no muerde, así que la prueba de carrera muta por pares. El muro que un día quede solo recibe
+    una prueba determinista (B45).
+  - El `status` del CAS se queda porque es la misma línea que en salida sí es el muro.
+- **La tarea del buylist la escribe el buylist.**
+  - `afterAutoClose` de `shipments/` lo comparten los reembolsos.
+  - Meterle la columna de `SellRequest` obligaría a ramificar por `kind` fuera de la política.
+  - El llamador ya era el único escritor, así que se corrige el contrato y no el código.
+- **Una guarda, una función.**
+  - Las dos copias del sello de AV-7 ya divergían.
+  - La copia manual podía anunciar un número ya corregido: es un razonamiento, NO MEDIDO, y BSD-B40 (b) lo mide.
+  - El predicado vive junto al reinicio del sello, en `sell-request-guide.ts`.
+- **La regla de los montos del cliente va en el servidor, como en `no_offer`.**
+  - En `not_continued` no compramos nada, y una cifra junto a «no continuamos» se lee como deuda.
+  - La excepción de `not_shipped` (el registro de una oferta vinculante incumplida por el vendedor) no aplica, porque el
+    que no siguió fuimos nosotros.
+- **Quién corrigió es un hecho, no una convención.**
+  - La misma fila de entrada firmaba con el actor por M4 y con el vendedor por M5.
+  - SEC-A1 protege la forma del cuerpo, no la aridad del método. El candado se reescribe con su intención: el DTO solo
+    lleva `addressId`.
+- **Una suma por meses tiene que dar el total.**
+  - (b) por `guideSentAt` dejaba fuera de todo mes los costos capturados sin guía.
+  - `shipmentConfirmedAt` es el instante del registro, y lo escribe el mismo `updateMany` que el costo.
+- **C-9: sin verbo para el lanzamiento.** El costo manual es solo de reporte y nunca entra al pago. Corregirlo después
+  queda como trabajo posterior, y la condición es un solo escritor de `guideActualCostCents`.
+- **Las carreras se miden contra el código que corre.** Un sustituto fiel del reclamo no tiene las ventanas
+  `precheck → claim` ni el post-commit.
 
 ---
 
