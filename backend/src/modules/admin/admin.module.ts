@@ -16,6 +16,7 @@ import { ShippingProviderModule } from '../shipping-provider/shipping-provider.m
 import { AdminShippingController } from './admin-shipping.controller';
 import { ShippingConfigService } from './shipping-config.service';
 import { DashboardShippingService } from './dashboard-shipping.service';
+import { SalesAnalyticsModule } from '../sales-analytics/sales-analytics.module';
 
 @Module({
   // UploadsModule provee UploadsService para purgar la imagen de INE al borrar un usuario (M6).
@@ -25,7 +26,8 @@ import { DashboardShippingService } from './dashboard-shipping.service';
   // 🔒 D2g (§19.30.2 (3)): `SpendAlertsModule` para AG-22 (actos de un no dueño sobre cuentas de personal).
   // 💰 D2f (§19.13, §19.29.9): M10 «Envíos» (`AdminShippingController`: empaques, catálogos, saldo) con el puerto del
   // proveedor (`ShippingProviderModule`, solo `import`); `SpendAlertsModule` da además la lectura de saldo cacheada del tablero.
-  imports: [PricingModule, UploadsModule, AuthModule, ShipmentsModule, UsersModule, SpendAlertsModule, ShippingProviderModule],
+  // 💰 §AN (API_CONTRACT §15): `SalesAnalyticsModule` para las rutas `admin/reports/sales*`.
+  imports: [PricingModule, UploadsModule, AuthModule, ShipmentsModule, UsersModule, SpendAlertsModule, ShippingProviderModule, SalesAnalyticsModule],
   providers: [AdminService, ShippingConfigService, DashboardShippingService],
   controllers: [
     AdminUsersController,

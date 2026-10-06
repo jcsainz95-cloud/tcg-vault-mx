@@ -133,6 +133,8 @@ import { ADMIN_VAULTS_SORT_VALUES } from '../../src/modules/vault/admin-vaults.s
 import { PORTFOLIO_HISTORY_RANGE_VALUES } from '../../src/modules/vault/vault.service';
 // 💰 D2g (§19.32.1) — los ejes L de `GET /admin/spend-alerts`.
 import { SPEND_ALERT_MUTED_FILTER_VALUES, SPEND_ALERT_UNSEEN_FILTER_VALUES } from '../../src/modules/spend-alerts/spend-alerts-panel.service';
+// 💰 §AN (API_CONTRACT §15.2) — los ejes L de la analítica de ventas.
+import { SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } from '../../src/modules/sales-analytics/sales-period';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -327,6 +329,22 @@ const OBS_BRACKETS: Obs = {
     const b = res.body as unknown as { sale?: unknown[]; buy?: unknown[] };
     return (b?.sale?.length ?? 0) + (b?.buy?.length ?? 0) > 0;
   },
+};
+
+/**
+ * 💰 §AN — `GET /admin/reports/sales`: un INFORME (⛔ sin `data`/`total`). Se observa el cuerpo entero: `preset`/`groupBy`
+ * cambian `period`/`rows`, y `topSort` cambia `top.sort` (el eco del orden aplicado es campo del contrato, §15.4) y el orden
+ * de las listas. Siempre trae `rows` (también los días en cero) ⇒ `hayDatos` = hay filas. Determinista salvo que la llamada
+ * cruce la medianoche de México (el «hoy» del servidor).
+ */
+const OBS_SALES: Obs = {
+  huella: (res) => JSON.stringify(res.body),
+  hayDatos: (res) => (((res.body as unknown as { rows?: unknown[] })?.rows?.length) ?? 0) > 0,
+};
+/** 💰 §AN — `GET /admin/reports/sales/export.csv`: el texto entero (una fila por cubo + `total`, §15.7). */
+const OBS_SALES_CSV: Obs = {
+  huella: (res) => res.text,
+  hayDatos: (res) => res.text.trim().split('\n').length > 1,
 };
 
 /**
@@ -681,6 +699,19 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /vault/master-sets', param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/vaults', param: 'sort', clazz: 'ORDEN', allowed: ADMIN_VAULTS_SORT_VALUES, valid: 'pieces_desc', alterno: 'name_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /vault/portfolio/history', param: 'range', clazz: 'L', allowed: PORTFOLIO_HISTORY_RANGE_VALUES, valid: 'all', alterno: '5d', obs: OBS_HISTORY, auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+
+  // ==========================================================================================
+  // 💰 §AN (API_CONTRACT §15.2) — los ejes de la analítica de ventas: `preset`, `groupBy`, `topSort`, clase **L** (literales
+  // en `sales-period.ts`, ⛔ sin enum homónimo). §15.2 dice «`C-EQ-1` gana las filas», pero la TABLA de §0-Q punto 4 aún no
+  // las tiene (medido con `grep 'reports/sales' API_CONTRACT.md` el 2026-10-06) ⇒ `PENDIENTE-ARQUITECTO`, como el resto.
+  // `groupBy` va con un periodo FIJO (`from`/`to`): con `last7` y hoy domingo, semana y mes podrían dar las mismas filas.
+  // ⚠️ El CSV no declara `?topSort=` (no lleva listas: no sería observable; discrepancia con §15.2 enrutada al arquitecto).
+  // ==========================================================================================
+  { route: 'GET /admin/reports/sales', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/reports/sales', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO', extra: () => 'from=2021-01-20&to=2021-03-10' },
+  { route: 'GET /admin/reports/sales', param: 'topSort', clazz: 'L', allowed: SALES_TOP_SORT_VALUES, valid: 'pieces', alterno: 'net', obs: OBS_SALES, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/reports/sales/export.csv', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/reports/sales/export.csv', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO', extra: () => 'from=2021-01-20&to=2021-03-10' },
 ];
 
 /**
@@ -1328,6 +1359,12 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       'GET /admin/refunds?status=',
       'GET /admin/replacement-cases?source=',
       'GET /admin/replacement-cases?state=',
+      // 💰 §AN (API_CONTRACT §15.2): clase L decidida en §15.2, fila de la TABLA de §0-Q punto 4 pendiente del arquitecto.
+      'GET /admin/reports/sales/export.csv?groupBy=',
+      'GET /admin/reports/sales/export.csv?preset=',
+      'GET /admin/reports/sales?groupBy=',
+      'GET /admin/reports/sales?preset=',
+      'GET /admin/reports/sales?topSort=',
       // ⛔ `GET /admin/shipments?alert=` y `?labelSource=` estuvieron aquí en v1.80.12.12 y **SALIERON en v1.80.12.13**
       // (§19.32.1): el arquitecto escribió sus filas en §0-Q punto 4.
       // ⛔ `GET /admin/shipments/picking-list?destination=` estuvo aquí en v1.78 y **SALIÓ en
@@ -1483,8 +1520,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // los cuatro ejes de `GET /admin/spend-alerts` (`kind`/`severity` E, `unseen`/`muted` L) entran YA `transcrita`.
     // 💰 v1.83 (§M11-SP.5, rama `claude/precio-sellado`): `?scope=` de `GET /admin/inventory/sealed-price-sheet`, clase L,
     // CON fila en §0-Q punto 4 ⇒ `transcrita`: los pendientes siguen en 18. Fusión de ambas ramas: 58 + 1 = **59**.
-    expect(REGISTRO.length).toBe(59);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
+    // 💰 §AN (API_CONTRACT §15.2): 59 → **64** y 18 → **23** — `preset`/`groupBy`/`topSort` de `GET /admin/reports/sales` y
+    // `preset`/`groupBy` de su CSV, clase L, SIN fila en la tabla de §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO (bajan a 18 cuando
+    // el arquitecto escriba las cinco filas).
+    expect(REGISTRO.length).toBe(64);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(23);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
@@ -1533,7 +1573,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `GET /admin/shipping/catalogs/consignment-notes::description` — texto libre 3..60 que viaja tal cual a Skydropx (no tokens).
     // ⭐ **52 → 54 (v1.82 §PNL.3; era «44 → 46» en la rama del panel, renumerado en el merge panel+skydropx):** los
     // dos ejes de `GET /admin/manual-refunds/withdrawal-delivered/preview` (id de línea y entero), declarados por el contrato en §PNL.3; ⚠️ ratificación del arquitecto pendiente (BACKEND_NOTES §58.6).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(54);
+    // 💰 **54 → 58 (§AN, API_CONTRACT §15.2: «`from`/`to` en su lista de no-enums»):** `from`/`to` de
+    // `GET /admin/reports/sales` y de su `/export.csv` — días MX `YYYY-MM-DD` (fuera de forma ⇒ `400 {field}` sin `allowed`).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(58);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`
@@ -1665,6 +1707,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         re: /`sort` default `([a-z_]+)`; también `([a-z_ |]+)`/,
         enunciado: /enum\s+\w*[Ss]ort\w*\s*\{/,
       },
+      // 💰 §AN — los tres ejes L de la analítica de ventas. Línea canónica: la tabla de parámetros de §15.2
+      // («| `preset` | `today \| yesterday \| …` | §0-Q **L** |»). La regex ancla en el NOMBRE del eje y en la clase.
+      { param: 'preset', literal: SALES_PRESET_VALUES, re: /\| `preset` \| `([a-z0-9_ \\|]+)` \| §0-Q \*\*L\*\*/, enunciado: /enum\s+\w*[Pp]reset\w*\s*\{/ },
+      { param: 'groupBy', literal: SALES_GROUP_BY_VALUES, re: /\| `groupBy` \| `([a-z \\|]+)` \| §0-Q \*\*L\*\*/, enunciado: /enum\s+\w*GroupBy\w*\s*\{/ },
+      { param: 'topSort', literal: SALES_TOP_SORT_VALUES, re: /\| `topSort` \| `([a-z \\|]+)` \| §0-Q \*\*L\*\*/, enunciado: /enum\s+\w*TopSort\w*\s*\{/ },
       {
         // ⭐ **§M4-PREP v1.78.1 — `?destination=` de «Pedidos a preparar».** Clase **L**: el canónico
         // es la **línea del propio endpoint**, no §Enums, porque no hay enum que espejar. §M4-PREP:
@@ -1692,7 +1739,8 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         .slice(1)
         .join('|')
         .split('|')
-        .map((v) => v.trim())
+        // Una tabla Markdown escapa la barra (`\|`): el escape es sintaxis de la tabla, no parte del token.
+        .map((v) => v.replace(/\\/g, '').trim())
         .filter((v) => v.length > 0);
       expect([...l.literal].sort()).toEqual(delContrato.sort());
     });

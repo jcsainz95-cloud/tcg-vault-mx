@@ -66,6 +66,26 @@ export const SID = {
   mrO4: id(310),
   sr1: id(400),
   sr2: id(401),
+  // Mayo de 2021 (`seedSalesMay`, horario de verano: UTC−5): AN-B-1/2/8.
+  m1: id(501),
+  m2: id(502),
+  m3: id(503),
+  m4: id(504),
+  m5: id(505),
+  m6: id(506),
+  m7: id(507),
+  m8: id(508),
+  m9: id(509),
+  m10: id(510),
+  m11: id(511),
+  w1: id(601),
+  w2: id(602),
+  w3: id(603),
+  w4: id(604),
+  w5: id(605),
+  w6: id(606),
+  w7: id(607),
+  w8: id(608),
 } as const;
 
 export const EMAIL = {
@@ -127,7 +147,7 @@ interface ItemSpec {
 }
 
 let folio = 0;
-async function mkOrder(
+export async function mkOrder(
   db: PrismaClient,
   o: {
     id: string;
@@ -289,4 +309,38 @@ export async function seedSales(db: PrismaClient): Promise<Record<string, string
   await db.sellRequest.create({ data: { id: SID.sr1, userId: SID.userC, status: 'pagada', paidAt: mx('2021-03-05', 13), payoutNetCents: 40000 } as never });
   await db.sellRequest.create({ data: { id: SID.sr2, userId: SID.userC, status: 'pagada', paidAt: mx('2021-03-06', 13), payoutNetCents: null } as never });
   return items;
+}
+
+/**
+ * Mayo de 2021 (horario de verano en México: UTC−5) — lo que AN-B-1, AN-B-2 y AN-B-8 necesitan sin tocar la fixture de marzo
+ * (la instantánea de AN-B-13 es de marzo). Requiere `seedSales` antes (usuarios, cartas).
+ *
+ * | Pedido | Quién | Cobrado (MX) | Destino | total | Renglones |
+ * |---|---|---|---|---|---|
+ * | M1 | A | 05-10 10:00 | directo | 11600 | X normal 10000 |
+ * | M2 | B | 05-10 11:00 | bóveda  | 23200 | Y normal ×4 a 5000 |
+ * | M3 | invitado g1 | 05-10 12:00 | directo | 5800 | Z raw 5000 |
+ * | M4 / M5 | A | sin cobrar (`failed` / `pending`) | — | — | — |
+ * | M6 | A | 05-11 09:00 | bóveda | 11600 | Z graded 10000 |
+ * | M7 | B | 05-11 10:00 | bóveda | 23200 | Z raw 20000 |
+ * | M11 | A | 05-12 08:00 | bóveda | 928 | W1…W8 a 100 (8 cartas distintas) |
+ * | M8 | A | 05-12 14:59 | bóveda | 11600 | X normal 10000 |
+ * | M9 | A | 05-12 23:59:59.999 | bóveda | 11600 | X normal 10000 |
+ * | M10 | A | 05-13 00:00:00.000 | bóveda | 11600 | X normal 10000 (⛔ fuera de un periodo que termina el 12) |
+ */
+export async function seedSalesMay(db: PrismaClient): Promise<void> {
+  const w = [SID.w1, SID.w2, SID.w3, SID.w4, SID.w5, SID.w6, SID.w7, SID.w8];
+  await db.card.createMany({ data: w.map((cid, i) => ({ id: cid, externalId: `an-fix-w${i + 1}`, setId: SID.set2, name: `Carta W${i + 1}`, number: `W${i + 1}` })) as never });
+  const ex = (subtotal: number) => ({ conv: 'IVA_EXCLUSIVE' as const, subtotal, iva: (subtotal * 16) / 100, fee: 0, total: subtotal + (subtotal * 16) / 100 });
+  await mkOrder(db, { id: SID.m1, userId: SID.userA, status: 'settled', settledAt: mx('2021-05-10', 10), mode: 'direct_ship', ...ex(10000), items: [{ card: SID.cardX, productType: 'raw', unit: 10000, acq: 1 }] });
+  await mkOrder(db, { id: SID.m2, userId: SID.userB, status: 'settled', settledAt: mx('2021-05-10', 11), ...ex(20000), items: [1, 2, 3, 4].map(() => ({ card: SID.cardY, productType: 'raw' as const, unit: 5000, acq: 1 })) });
+  await mkOrder(db, { id: SID.m3, guestEmail: EMAIL.g1, status: 'settled', settledAt: mx('2021-05-10', 12), mode: 'direct_ship', ...ex(5000), items: [{ card: SID.cardZ, productType: 'raw', unit: 5000, acq: 1 }] });
+  await mkOrder(db, { id: SID.m4, userId: SID.userA, status: 'failed', settledAt: null, ...ex(10000), items: [{ card: SID.cardX, productType: 'raw', unit: 10000, acq: 1 }] });
+  await mkOrder(db, { id: SID.m5, userId: SID.userA, status: 'pending', settledAt: null, ...ex(10000), items: [{ card: SID.cardX, productType: 'raw', unit: 10000, acq: 1 }] });
+  await mkOrder(db, { id: SID.m6, userId: SID.userA, status: 'settled', settledAt: mx('2021-05-11', 9), ...ex(10000), items: [{ card: SID.cardZ, productType: 'graded', unit: 10000, acq: 1 }] });
+  await mkOrder(db, { id: SID.m7, userId: SID.userB, status: 'settled', settledAt: mx('2021-05-11', 10), ...ex(20000), items: [{ card: SID.cardZ, productType: 'raw', unit: 20000, acq: 1 }] });
+  await mkOrder(db, { id: SID.m11, userId: SID.userA, status: 'settled', settledAt: mx('2021-05-12', 8), ...ex(800), items: w.map((cid) => ({ card: cid, productType: 'raw' as const, unit: 100, acq: 1 })) });
+  await mkOrder(db, { id: SID.m8, userId: SID.userA, status: 'settled', settledAt: mx('2021-05-12', 14, 59), ...ex(10000), items: [{ card: SID.cardX, productType: 'raw', unit: 10000, acq: 1 }] });
+  await mkOrder(db, { id: SID.m9, userId: SID.userA, status: 'settled', settledAt: new Date(mx('2021-05-13', 0).getTime() - 1), ...ex(10000), items: [{ card: SID.cardX, productType: 'raw', unit: 10000, acq: 1 }] });
+  await mkOrder(db, { id: SID.m10, userId: SID.userA, status: 'settled', settledAt: mx('2021-05-13', 0), ...ex(10000), items: [{ card: SID.cardX, productType: 'raw', unit: 10000, acq: 1 }] });
 }

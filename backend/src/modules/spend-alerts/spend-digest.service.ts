@@ -9,6 +9,8 @@
  *    línea «N avisos apagados»). Cero ⇒ `status='empty'`, **sin correo**.
  *  - Si no ⇒ **un** correo `AVG-3` a cada dueño con `summarizeSpendAlerts` del día (el MISMO cuerpo que `GET …/summary`) y los
  *    🔴 no silenciados en una línea cada uno.
+ *  - 💰 §AN 624: el correo lleva además la línea «Ventas de ayer» (`SalesAnalyticsService.dayFigures`), y se manda también un
+ *    día SIN avisos pero CON pedidos (P-AN-1, default); sin avisos y sin pedidos ⇒ `empty`, como antes.
  *  - `run({ day })` explícito (el re-envío manual de C1) solo re-manda un día `failed`.
  *  - Sin dueño, o el puerto de correo falla ⇒ `status='failed'` (se puede re-mandar).
  */
@@ -24,6 +26,7 @@ import { spendDigestMail } from './spend-alert.mail';
 import { spendAlertTitle } from './spend-alert-text';
 import { SPEND_ALERT_CODE_OF } from './spend-alerts.service';
 import { SpendAlertKind } from '@prisma/client';
+import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.service';
 
 export type SpendDigestStatus = 'sent' | 'empty' | 'failed' | 'skipped';
 
@@ -37,6 +40,8 @@ export class SpendDigestService {
     private readonly prisma: PrismaService,
     @Inject(SPEND_ALERTS_CLOCK) private readonly clock: SpendClock,
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // 💰 §AN 624: la línea de ventas del día. `@Optional` para los dobles de las suites que construyen el servicio a mano.
+    @Optional() private readonly sales?: SalesAnalyticsService,
   ) {}
 
   async run(opts: { day?: string; now?: Date } = {}): Promise<{ day: string; status: SpendDigestStatus; alertCount: number }> {
@@ -65,7 +70,10 @@ export class SpendDigestService {
     if (!claim) return { day, status: 'skipped', alertCount: 0 };
 
     const alertCount = await this.prisma.spendAlert.count({ where: { firstOccurredAt: { gte: range.gte, lt: range.lt } } });
-    if (alertCount === 0) {
+    // 💰 §AN 624 (API_CONTRACT §15.8, P-AN-1 default): la fila del día de la tabla de «Ventas» (la MISMA `dayFigures`). Regla
+    // de envío: se manda si hubo avisos O pedidos; ni uno ni otro ⇒ `empty`, sin correo (como antes).
+    const sales = this.sales ? await this.sales.dayFigures(day) : null;
+    if (alertCount === 0 && (sales?.orders ?? 0) === 0) {
       await this.prisma.spendDigestRun.update({ where: { day: dayDate }, data: { status: 'empty', alertCount: 0 } });
       return { day, status: 'empty', alertCount: 0 };
     }
@@ -85,7 +93,7 @@ export class SpendDigestService {
         const kind = KIND_OF_CODE.get(code);
         return kind ? spendAlertTitle({ kind, facts: {} }, l) : code;
       };
-      for (const r of recipients) await this.mail.send({ to: r.email, ...spendDigestMail(day, summary, immediates, r, titleOfCode) });
+      for (const r of recipients) await this.mail.send({ to: r.email, ...spendDigestMail(day, summary, immediates, r, titleOfCode, sales) });
       await this.prisma.spendDigestRun.update({ where: { day: dayDate }, data: { status: 'sent', alertCount, sentAt: now } });
       return { day, status: 'sent', alertCount };
     } catch (e) {
