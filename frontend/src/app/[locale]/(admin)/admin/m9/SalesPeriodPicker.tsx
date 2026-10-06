@@ -21,7 +21,8 @@ const PRESET_KEY: Record<SalesPreset, string> = {
   custom: 'custom',
 };
 
-export type FieldError = { field: 'from' | 'to'; key: SalesRangeError['key'] };
+/** `invalid` = el genérico para un `400` del servidor (AN-1.2: sin `details.reason`, se coloca por `field`). */
+export type FieldError = { field: 'from' | 'to'; key: SalesRangeError['key'] | 'invalid' };
 
 /**
  * Selector de periodo y agrupación (`§AN-UX.2`). Los presets los resuelve el SERVIDOR (AN-5); el rango a mano se valida

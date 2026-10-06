@@ -17,7 +17,7 @@ import { SalesBarChart } from './SalesBarChart';
 import { SalesDailyTable } from './SalesDailyTable';
 import { SalesTopLists } from './SalesTopLists';
 import { SalesMix, SalesP2Totals, SalesWhen } from './SalesP2';
-import { toReportParams, todayMx, validateRange, writeSalesUrl, type SalesUrlState } from './salesParams';
+import { toReportParams, todayMx, writeSalesUrl, type SalesUrlState } from './salesParams';
 
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -81,11 +81,9 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
   let genericInvalid = false;
   if (err?.status === 400) {
     const field = err.details?.field;
-    if (field === 'from' || field === 'to') {
-      const local = state.from && state.to ? validateRange(state.from, state.to, today) : null;
-      fieldError =
-        local && local.field === field ? local : { field, key: field === 'to' ? 'toFuture' : 'fromAfterTo' };
-    } else genericInvalid = true;
+    // AN-1.2 (§15.12.5): el `400` no trae `reason` ⇒ mensaje GENÉRICO de periodo inválido, colocado por `field`.
+    if (field === 'from' || field === 'to') fieldError = { field, key: 'invalid' };
+    else genericInvalid = true;
   }
   const otherError = query.isError && !forbidden && err?.status !== 400;
   const updating = query.isFetching && query.isPlaceholderData;

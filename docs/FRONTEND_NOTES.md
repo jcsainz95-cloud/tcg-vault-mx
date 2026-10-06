@@ -20424,9 +20424,10 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
   depender de `viewBox`, y no hay librería externa (AN-8). `recharts` ya está en el bundle pero no se usa aquí.
 - **«Igual que el periodo anterior»** no lleva `sr-only` aparte: la palabra «igual» ya está en el texto visible y
   §AN-UX.14 no define clave para ello.
-- **`400` del servidor por `field`:** el texto bajo el campo sale de re-validar el rango enviado; si la validación local
-  no lo explica, `to` ⇒ «No puede ser después de hoy», `from` ⇒ «La fecha de inicio va antes que la de fin».
-  `preset/groupBy/topSort` ⇒ banner `range.invalid`.
+- **`400` del servidor por `field`** (AN-1.2, §15.12.5: sin `details.reason`): mensaje genérico `range.invalid` («Ese
+  periodo no es válido. Elige otro.», clave ya existente de §AN-UX.14) bajo el campo que diga `field`; `preset/groupBy/
+  topSort` ⇒ el mismo texto en banner. Los cuatro casos con texto propio se validan en el navegador antes de pedir.
+- **`SalesTopSealedDTO.setName: string | null`** (AN-1.2, §15.12.4) ⇒ «—» con su `sr-only`.
 - **Reembolsos por canal** en la celda 4: `{card}`/`{spei}` se rellenan con el **monto** de cada canal (el texto de
   §AN-UX.3 admite los dos; el monto dice más).
 - **Candados contra espías de `@/lib/api`**, no MSW (no es dependencia del proyecto y no se instala).

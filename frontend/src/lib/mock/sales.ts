@@ -347,7 +347,7 @@ function topLists(from: string, to: string, sort: SalesTopSort): SalesReportDTO[
           cards.set(k, c);
         } else {
           const k = it.sealedProductId ?? `name:${it.name}`;
-          const s = sealed.get(k) ?? { sealedProductId: it.sealedProductId, name: it.name, setName: it.setName, pieces: 0, netCents: 0 };
+          const s = sealed.get(k) ?? { sealedProductId: it.sealedProductId, name: it.name, setName: it.sealedProductId ? it.setName : null, pieces: 0, netCents: 0 };
           s.pieces += 1;
           s.netCents += it.unitNetCents;
           sealed.set(k, s);

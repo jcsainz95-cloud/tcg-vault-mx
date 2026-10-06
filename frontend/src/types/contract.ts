@@ -6656,7 +6656,8 @@ export interface SalesTopSetDTO {
 export interface SalesTopSealedDTO {
   sealedProductId: string | null;
   name: string;
-  setName: string;
+  /** AN-1.2 (§15.12.4): un sellado sin producto puede no tener set ⇒ `null` ⇒ «—». */
+  setName: string | null;
   pieces: number;
   netCents: number;
 }

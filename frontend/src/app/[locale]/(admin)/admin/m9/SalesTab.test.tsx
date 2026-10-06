@@ -163,7 +163,7 @@ describe('UX-AN-7 · rango a mano: se valida antes de mandar; el `400` va bajo s
     expect(spy.mock.calls.length).toBe(calls);
   });
 
-  it('un `400 {field:"to"}` del servidor se pinta bajo «Hasta»', async () => {
+  it('un `400 {field:"to"}` del servidor: mensaje genérico (AN-1.2, sin `reason`) bajo «Hasta»', async () => {
     const spy = await openCustom();
     spy.mockRejectedValueOnce(new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'x', details: { field: 'to' } }));
     set(es.admin.m9.sales.period.from, '2026-09-01');
@@ -171,7 +171,7 @@ describe('UX-AN-7 · rango a mano: se valida antes de mandar; el `400` va bajo s
     ver();
     const to = screen.getByLabelText(es.admin.m9.sales.period.to);
     await waitFor(() => expect(to).toHaveAttribute('aria-invalid', 'true'));
-    expect(document.getElementById(to.getAttribute('aria-describedby') ?? '')?.textContent).toBe(R.toFuture);
+    expect(document.getElementById(to.getAttribute('aria-describedby') ?? '')?.textContent).toBe(R.invalid);
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ preset: 'custom', from: '2026-09-01', to: '2026-09-05' }));
   });
 });
@@ -199,6 +199,19 @@ describe('UX-AN-9 · dos acabados = dos filas, cada una con su FinishMark', () =
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByLabelText(es.finish.reverse_holo)).toBeInTheDocument();
     expect(within(rows[1]).getByLabelText(es.finish.holofoil)).toBeInTheDocument();
+  });
+});
+
+describe('AN-1.2 · sellado sin set ⇒ «—»', () => {
+  it('`setName: null` pinta «—» con su sr-only, nunca «null»', async () => {
+    serve(report({ top: { ...report().top, sealed: [{ sealedProductId: null, name: 'Lata', setName: null, pieces: 1, netCents: 45000 }] } }));
+    mount();
+    await screen.findByTestId('sales-period-label');
+    fireEvent.click(screen.getByRole('tab', { name: es.admin.m9.sales.top.sealed }));
+    const row = await screen.findByTestId('sales-top-sealed');
+    expect(row.textContent).toContain('Lata · —');
+    expect(row.textContent).toContain(es.admin.m9.sales.noData);
+    expect(row.textContent).not.toContain('null');
   });
 });
 

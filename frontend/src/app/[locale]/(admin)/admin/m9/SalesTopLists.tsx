@@ -9,6 +9,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { Badge } from '@/components/ui/Badge';
 import { Segmented } from './SalesBarChart';
+import { NoData } from './SalesSummary';
 import type { SalesTopTab } from './salesParams';
 
 const TABS: SalesTopTab[] = ['cards', 'sets', 'sealed'];
@@ -172,7 +173,7 @@ export function SalesTopLists({
                   <tr key={s.sealedProductId ?? `name:${s.name}`} data-testid="sales-top-sealed" className="border-b border-border">
                     <td className="tabular py-3 text-sm text-muted">{i + 1}</td>
                     <td className="py-3 text-sm" lang="en">
-                      {s.name} · {s.setName}
+                      {s.name} · {s.setName ?? <NoData />}
                     </td>
                     {nums(s.pieces, s.netCents)}
                   </tr>
