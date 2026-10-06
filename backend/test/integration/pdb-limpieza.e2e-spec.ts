@@ -17,6 +17,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
+import { loadavg } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -737,27 +738,49 @@ describe('💰🔒 QA-1 · E · `limpieza:republicar` — ninguna pieza restaura
       ['ts-node', (args) => ['-r', 'ts-node/register', join(BACKEND_DIR, 'src', 'cli', 'limpieza-republicar.ts'), ...args]],
       ['compilado (dist/cli/limpieza-republicar.js)', (args) => [join(distDir, 'cli', 'limpieza-republicar.js'), ...args]],
     ];
-    it.each(runners)('%s: simulacro ⇒ sale 0 y no escribe; --apply ⇒ sale 0 y publica; sin ruido de Nest', async (_name, argvOf) => {
-      const e = await fresh();
-      commit(e);
-      const cli = (args: string[]) =>
-        spawnSync(process.execPath, argvOf(args), {
+    it.each(runners)('%s: simulacro ⇒ sale 0 y no escribe; --apply ⇒ sale 0 y publica; sin ruido de Nest', async (name, argvOf) => {
+      // Diagnóstico permanente (O-3, la intermitente 1/6 del 2026-10-06 sin reproducir en 19 corridas): cada paso y cada
+      // proceso hijo deja en el mensaje de fallo su código, señal, error de spawn, duración, carga y las colas de su salida.
+      const t0 = Date.now();
+      const step = async <T>(label: string, f: () => T | Promise<T>): Promise<T> => {
+        try {
+          return await f();
+        } catch (err) {
+          throw new Error(`[${name}] paso «${label}» falló a los ${Date.now() - t0} ms (carga ${loadavg().map((x) => x.toFixed(2)).join(' ')}): ${(err as Error).message}`);
+        }
+      };
+      const e = await step('fresh', () => fresh());
+      await step('B COMMIT', () => commit(e));
+      const cli = (args: string[]) => {
+        const t = Date.now();
+        const r = spawnSync(process.execPath, argvOf(args), {
           cwd: BACKEND_DIR,
           encoding: 'utf8',
           env: { ...process.env, DATABASE_URL: schemaUrl(e.schema), DATABASE_PUBLIC_URL: '', TS_NODE_TRANSPILE_ONLY: '1', REDIS_URL: '' },
           timeout: 120_000,
         });
+        return {
+          args: args.join(' ') || '(simulacro)',
+          status: r.status,
+          signal: r.signal,
+          spawnError: r.error?.message ?? null,
+          ms: Date.now() - t,
+          load: loadavg().map((x) => x.toFixed(2)).join(' '),
+          stdout: (r.stdout ?? '').slice(-1500),
+          stderr: (r.stderr ?? '').slice(-1500),
+        };
+      };
       const before = await snapshot(admin, e.schema);
       const dry = cli([]);
-      expect({ s: dry.status, err: dry.stderr.slice(0, 500) }).toMatchObject({ s: 0 });
+      expect(dry).toMatchObject({ status: 0, spawnError: null });
       expect(dry.stdout).toMatch(/SIMULACRO/);
       expect(dry.stdout).toContain(e.fx.piece.P3.folio);
       expectSame(before, await snapshot(admin, e.schema));
       const wet = cli(['--apply']);
-      expect({ s: wet.status, err: wet.stderr.slice(0, 500) }).toMatchObject({ s: 0 });
+      expect(wet).toMatchObject({ status: 0, spawnError: null });
       expect(wet.stdout).toMatch(/a la venta: 4/);
-      for (const out of [dry.stdout + dry.stderr, wet.stdout + wet.stderr]) {
-        expect(out).not.toMatch(/\[Nest\]|NO_OWNER_ACCOUNT|ERROR/);
+      for (const out of [dry, wet]) {
+        expect({ args: out.args, ruido: /\[Nest\]|NO_OWNER_ACCOUNT|ERROR/.test(out.stdout + out.stderr), out }).toMatchObject({ ruido: false });
       }
       expect((await e.db.inventoryItem.findUniqueOrThrow({ where: { id: e.fx.piece.P3.id } })).status).toBe('listed');
     });

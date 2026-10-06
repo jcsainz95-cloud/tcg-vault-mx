@@ -30047,3 +30047,15 @@ generado en la copia, BD propia `tcg_be_limpieza2`):
   unitarias). ⚠️ La suite completa dio **1 roja en 6 corridas completas** (la primera, en la prueba del comando
   compilado, a los 1.5 s); no se repitió en 5 completas más ni en 6 del bloque E, y **no la diagnostiqué**: el log de
   esa corrida no guardó el detalle.
+- **Diagnóstico de esa intermitente (4.º pase, 2026-10-06) — causa NO encontrada, dicho así:** 0 rojas en 19 corridas
+  nuevas guardando el log entero y la carga: 10 completas con caché de jest fría (carga 0.7–2.1), 3 completas en árbol
+  recién creado + Prisma recién generado (las condiciones exactas de la que falló) y 6 del bloque E con 4 bucles de CPU
+  propios (carga 5–6.4, la de aquella corrida era ~4–6). Descartado por construcción: compilación concurrente de
+  `dist/` (cada corrida compila a su propio `.lz-dist-<RUN>`, nunca al `dist/` real; un solo `tsc` por proceso de jest),
+  BD o puerto compartidos (esquema propio por caso, BD propia, el comando no abre puerto), orden (jest `maxWorkers: 1`,
+  orden fijo). Por la duración (1573 ms frente a 3.6–5.7 s de una pasada sana) el fallo ocurrió ANTES de que el comando
+  hiciera su trabajo: en `fresh()`/B o en el arranque del proceso hijo. Hipótesis compatible y NO MEDIDA: `spawnSync`
+  con error de arranque (con `stdout/stderr` nulos la aserción vieja, `dry.stderr.slice`, reventaba con `TypeError` sin
+  decir nada). Lo que cambia: la prueba ahora etiqueta el paso que falla (`fresh` / `B COMMIT`) con su tiempo y carga, y
+  de cada proceso hijo guarda código, señal, error de spawn, duración, carga y las colas de stdout/stderr en el mensaje
+  de fallo. No subí timeouts ni la salté. Si vuelve a salir, el propio mensaje dice dónde.
