@@ -9066,7 +9066,181 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
   «Disputas…» y 2026-10-05 «Términos tras quitar disputas…») y se pueden aplicar ya; T-1/T-2/T-3 esperan P-LEG-6
   (o su default) (criterio 510).
 
+### IDS. Idioma español y cartas con sello en el inventario (transversal — NUEVO 2026-10-06, sesión 6 · ⚠️ BORRADOR de product-owner, con preguntas P-IDS abiertas · ⛔ requisito para cobrar en real)
+
+> **Fuentes que mandan (citadas por fila; O-17):**
+> - `HECHOS.md` fila **2026-10-06** «**Idiomas del inventario (P-INV-IDIOMA) y sellos (P-INV-SELLO) — respuestas del
+>   dueño…**» (`HECHOS.md:75`): sin captura manual («recuerda que no queremos cosas manuales, ¿cómo podríamos
+>   capturar esos valores?»); el español y el japonés «son de los mismos sets, versión de otro país: Japón y México»;
+>   las cartas con sello «solo cambia que tienen un logo distinto, te las dan cuando juegas torneo oficial»; se
+>   necesita **antes de salir** (cobro real).
+> - `HECHOS.md` fila **2026-10-06** «**Alcance para salir en vivo: español + cartas con sello; japonés después…**»
+>   (`HECHOS.md:76`): «podemos salir con español y sellos». (c) Precio del español: «regla automática ES = EN × X % con
+>   dial; X lo mide el dueño (10 cartas, Collectr o Cardmarket); hasta tenerlo, una pieza ES no se publica (falla
+>   cerrado)». (d) Precio del sello: «el propio del producto en TCGCSV […] sin multiplicador».
+> - `HECHOS.md` fila **2026-10-04** «**REGLA GENERAL: los procesos se diseñan LO MÁS AUTOMÁTICOS POSIBLE…**»
+>   (`HECHOS.md:59`): lo manual es respaldo, nunca el camino normal.
+> - `PENDIENTES.md` filas **P-INV-IDIOMA** (`:27`) y **P-INV-SELLO** (`:28`). ⚠️ La comprobación de P-INV-IDIOMA
+>   todavía nombra el japonés; la fila 2026-10-06 «Alcance para salir en vivo…» lo saca de esta entrega. Manda HECHOS.
+> - Investigaciones medidas el **2026-10-06** (solo lectura, GETs públicos): `IDIOMAS.md` y `SELLOS.md` del scratchpad
+>   de la sesión 6 (`…/scratchpad/investigacion/`). ⚠️ **No están en git** (medido: viven en `/tmp/claude-0/…`); lo que
+>   esta sección usa de ellas va resumido abajo para que el documento se sostenga solo.
+>
+> **Lo medido que sostiene la sección (de las investigaciones, 2026-10-06):**
+> - **Español = mismo producto que el inglés.** En Cardmarket la carta española y la inglesa son **el mismo
+>   producto** (Tropius me05: `idProduct` 895789 en los dos idiomas). TCGdex en español apunta también al mismo
+>   producto de TCGplayer. **Ninguna fuente abierta da un precio propio del español**; TCGplayer/TCGCSV no tienen
+>   categoría en español. ⇒ El precio del español solo puede salir de una **regla sobre el inglés**.
+> - **X no está medido.** Cardmarket bloquea las lecturas automáticas (HTTP 403) y su API no acepta altas.
+> - **Japonés:** los sets japoneses **no** coinciden 1:1 con los ingleses (numeración distinta: Mega Charizard X ex
+>   110/080 en JP vs 125/094 en EN) ⇒ necesita **catálogo propio** (TCGCSV categoría 85). Por eso va después.
+> - **Sello:** en TCGplayer/TCGCSV la carta con sello es **otro producto, con su propio precio** (Prize Pack: grupo
+>   `22880`, 891 productos; liga y campeonatos: grupo `1539`; prerelease/Staff/«Stamped»: grupos de promos de la era).
+>   pokemontcg.io (nuestro catálogo de hoy) **no las tiene**. Relación de precio sello/base, N = 102 pares: mediana
+>   **×2.15**, de **×0.81** (percentil 10) a **×11.1** (percentil 90), y **17 %** valen *menos* que la normal ⇒ ningún
+>   multiplicador sirve.
+> - **Empate automático con la carta base (Prize Pack):** por nombre + número completo, **818 de 849 (96 %)** tienen
+>   pareja única; los ambiguos tienen causa conocida (energías básicas iguales en dos sets; reediciones). **NO MEDIDO:**
+>   la tasa de empate de liga/campeonato (`1539`) y de prerelease/Staff (cuelgan de la **promo**, no de una carta de
+>   set; que esas promos estén en nuestro catálogo tampoco está medido).
+>
+> ⛔ **El «cómo» es del arquitecto** (si el sello es un tipo de producto nuevo o reutiliza «promo», campos, migración,
+> contrato). Aquí solo va **qué** tiene que pasar y **cómo se comprueba**.
+
+#### IDS.1 Español: qué es una pieza en español
+
+- [ ] Toda pieza de inventario tiene un **idioma**: **Inglés** (lo de hoy) o **Español**. Al capturar, el idioma por
+      defecto es **Inglés**; elegir Español es una opción explícita del operador.
+- [ ] Una pieza en español es **la misma carta del mismo set** (mismo nombre, número, set y acabado) que la inglesa,
+      con la etiqueta de idioma. **No** hay catálogo aparte para el español (Cardmarket la trata como el mismo
+      producto; ver lo medido arriba).
+- [ ] **Todo lo existente queda en Inglés y sin sello, sin cambiar nada**: ni precios, ni lo publicado, ni los
+      pedidos, ni las solicitudes de venta, ni el portafolio de los clientes. Este cambio **solo añade**.
+
+#### IDS.2 Precio del español: automático, con dial, y falla cerrado
+
+- [ ] **Regla:** valor de referencia del español = **valor de mercado del inglés** (misma carta, mismo acabado) ×
+      **X %**. A partir de ahí la pieza en español se precia **igual que cualquier carta** (curva de §N, piso, redondeo,
+      IVA dentro de §Q). *(SUPUESTO: X se aplica al **valor de mercado**, no al precio final — P-IDS-2.)*
+- [ ] **X es un dial** que el dueño cambia en **Configuración**, sin tocar código ni desplegar. Lo edita el mismo rol
+      que hoy edita la curva de precios (§N.3). Cada cambio queda en la **bitácora** (quién, cuándo, valor anterior y
+      nuevo). *(SUPUESTO: bitácora como en los demás diales de dinero.)*
+- [ ] **X arranca vacío.** No se pone ningún valor de fábrica: **X no está medido** y cualquier número sería inventado.
+      Lo mide el dueño con **10 cartas** (Collectr o Cardmarket, comparando el «desde» en Español y en Inglés), según
+      `HECHOS.md` fila 2026-10-06 «Alcance para salir en vivo…» (c).
+- [ ] ⛔ **Falla cerrado:** mientras X esté vacío, **ninguna pieza en español se publica**: queda en «precio pendiente»
+      con el motivo **«falta el % del español»**, visible para el dueño en la cola de precio pendiente. **Nunca** se
+      publica ni se cobra con el precio del inglés por error. Lo mismo si falta el valor de mercado del inglés de esa
+      carta y acabado.
+- [ ] **Automático de punta a punta:** cuando el mercado del inglés cambia en el barrido diario, o cuando el dueño
+      cambia X, el precio de las piezas en español se recalcula solo. Nadie teclea precios de español.
+- [ ] El dial rechaza **0**, negativos y texto. Su tope superior lo decide el dueño (P-IDS-3).
+- [ ] *(SUPUESTO — P-IDS-4)* Mientras X esté vacío, **no** se permite fijar a mano el precio de una pieza en español
+      (el respaldo manual de «precio pendiente» no aplica a este motivo); con X ya puesto, el respaldo manual existente
+      aplica igual que en inglés.
+
+#### IDS.3 Cartas con sello de torneo oficial
+
+- [ ] Una carta con sello es **la misma carta con el logo de un torneo oficial**: Prize Pack / Play! Pokémon, liga,
+      campeonato, Staff, prerelease. Se captura como **«versión con sello» de su carta base**.
+- [ ] **El precio es el propio de ese producto** en la fuente que ya usamos (TCGCSV/TCGplayer), por su acabado, con el
+      mismo barrido diario y la misma conversión a pesos que el resto; luego la curva de §N y el IVA de §Q como
+      cualquier carta. ⛔ **Nunca un multiplicador** sobre la carta base (la investigación midió de ×0.8 a ×11).
+- [ ] ⛔ Si el producto con sello **no tiene precio de mercado**, la pieza queda en «precio pendiente» y **no se
+      publica**. **Nunca** toma el precio de la carta base.
+- [ ] **El empate con la carta base es automático.** La tienda busca sola, en la fuente, las versiones con sello y
+      las cuelga de su carta base cuando el empate es **único**.
+- [ ] ⛔ **Cuando el empate no es único (o no hay pareja), no se adivina:** la versión con sello **no se cuelga**, **no
+      se ofrece** para captura y **no se publica**; aparece en un **reporte «Sellos por revisar»** con el producto, el
+      motivo (ambiguo / sin pareja) y los candidatos encontrados. Qué puede hacer el operador con ese reporte: P-IDS-8.
+- [ ] En la captura, el operador elige la carta base y, si existe, la **versión con sello** concreta (puede haber
+      varias: p. ej. Prize Pack normal y Prize Pack Cosmos Holo, o prerelease y Staff), cada una con su precio.
+- [ ] *(SUPUESTO — P-IDS-7)* **Español + sello a la vez no se permite** en esta entrega: no hay fuente con precio de
+      una carta con sello en español. Toda carta con sello es en **Inglés**.
+
+#### IDS.4 En la tienda, el carrito y el cobro
+
+- [ ] El cliente ve el **idioma** y, si la tiene, el **sello** (con su tipo: Prize Pack, Liga, Campeonato, Staff,
+      Prerelease, según lo nombre la fuente) en: la teja del catálogo, la **ficha**, el **carrito**, el **checkout**, el
+      **pedido** (cliente y admin) y el **correo de confirmación**. En la tienda en español y en la de inglés.
+- [ ] La misma carta y acabado en **inglés**, en **español** o **con sello** son **opciones distintas**, cada una con su
+      precio y su existencia. Comprar una no descuenta existencia de otra.
+- [ ] **Filtros:** por **idioma** (Inglés / Español) y **«con sello»**, combinables con los filtros de hoy. Sin filtro,
+      se ve todo. *(SUPUESTO: por defecto se muestran todos los idiomas.)*
+- [ ] 💰 **El cobro es el precio mostrado de la opción elegida**, calculado en el servidor (nunca el que manda el
+      navegador). Si entre el carrito y el pago una pieza en español o con sello **pierde su precio** (p. ej. el dueño
+      vacía X o el producto con sello se queda sin precio de mercado), el checkout **la rechaza** con un mensaje claro y
+      **no cobra**; jamás la cobra al precio del inglés o de la carta base.
+- [ ] Imagen y nombre que se muestran del español y del sello: P-IDS-5 y P-IDS-6.
+
+#### IDS.5 Operación: preparar el pedido, reportes y export
+
+- [ ] La **hoja de «Pedidos por preparar»** (§S) y el detalle del pedido en admin dicen **idioma y sello** de cada línea,
+      para que el operador saque **la pieza física correcta** del estante.
+- [ ] **Export `.xlsx` del inventario** (`GET /admin/inventory/export.xlsx`): cada fila trae **Idioma** y **Sello**
+      (tipo de sello, o vacío si no tiene). Las piezas existentes salen como «Inglés» y sin sello. *(SUPUESTO: las dos
+      columnas van **al final**, para no mover las columnas que el dueño ya usa; el arquitecto lo confirma. Aviso en la
+      solicitud de fusión: la forma de la hoja cambia.)*
+- [ ] *(SUPUESTO — confirmar)* Donde hoy el sistema usa el **valor de mercado de una pieza** fuera de la venta (valor
+      del portafolio en la bóveda; lo que se paga si una pieza de un retiro no se repone, `HECHOS` 2026-09-29 D-2), una
+      pieza en español usa **su** valor (inglés × X %) y una con sello usa **el de su producto**; nunca el de la carta
+      inglesa sin sello.
+
+#### IDS.6 Fuera de alcance de §IDS (escrito como tal)
+
+- **Japonés.** Va **después** de salir en vivo (`HECHOS.md` fila 2026-10-06 «Alcance para salir en vivo…» (b)): sus
+  sets no coinciden con los ingleses y necesita **catálogo propio** (TCGCSV categoría 85). No aparece en captura,
+  filtros ni export en esta entrega.
+- **Buylist** (lo que los clientes le venden a la tienda): sigue **solo con cartas en inglés y sin sello**. El
+  cotizador no ofrece idioma ni sello, y una pieza que entra por buylist nace **Inglés, sin sello**.
+- **Precio capturado a mano como camino normal** para español o sello (`HECHOS.md` fila 2026-10-04 «REGLA GENERAL…»).
+  El respaldo manual existente no se elimina, pero no es el camino.
+- Precio del español por **fuente propia** (CardTrader, Cardmarket): no hay fuente abierta hoy; se reabre si el dueño
+  decide pagar o abrir una cuenta.
+- Imagen o nombre **en español** desde otra fuente, si el dueño elige la recomendación de P-IDS-5.
+- Otros idiomas (francés, alemán, coreano…).
+
+#### IDS.7 Preguntas al dueño (P-IDS) — cada una con recomendación
+
+1. **P-IDS-1 · ¿Un solo porcentaje o uno por rango de precio?** Cuando midas tus 10 cartas, puede salir que el
+   español vale casi lo mismo en las baratas y bastante menos en las caras (o al revés). **Recomendación:** arrancar
+   con **un solo porcentaje**. Si tus 10 cartas muestran que la diferencia cambia mucho con el precio, se pasa a
+   porcentajes por rango **con transición suave** (como la curva de precios, sin saltos). Para decidirlo, mide cartas
+   de precios variados (baratas, medias y caras).
+2. **P-IDS-2 · ¿El porcentaje se aplica al valor de mercado o al precio final?** Ejemplo: si el inglés vale $100 de
+   mercado y X = 70 %, ¿la carta en español se trata como una carta de **$70 de mercado** (y luego lleva el margen,
+   el piso y el redondeo de siempre), o se toma **el precio de venta del inglés** y se le quita el 30 %?
+   **Recomendación:** al **valor de mercado**. Así el piso de MX$25 y el margen siguen protegiendo las cartas baratas
+   y no se vende nada por debajo de lo que hoy vendes.
+3. **P-IDS-3 · ¿Hasta cuánto puede valer el dial?** ¿Puede el español valer **más** que el inglés? **Recomendación:**
+   aceptar de **1 % a 200 %** (el tope solo protege de un error al teclear, p. ej. 700 en vez de 70).
+4. **P-IDS-4 · Mientras no hayas medido X, ¿quieres poder poner a mano el precio de alguna carta en español?**
+   **Recomendación:** **no**. Las piezas en español esperan a X; así no se cuela un precio a mano como costumbre.
+5. **P-IDS-5 · Imagen y nombre de la carta en español.** Hoy la ficha usa la imagen del catálogo, que es la de la
+   carta en inglés. **Recomendación:** para salir, **la misma imagen y nombre del inglés**, con la etiqueta
+   **«Español»** bien visible en la ficha, el carrito y el pedido. La imagen en español (existe en una fuente
+   gratuita) queda para después.
+6. **P-IDS-6 · Imagen de la carta con sello.** Nuestro catálogo no tiene la imagen con sello. **Recomendación:** usar la
+   imagen del producto con sello que da la fuente de precios cuando exista; si no, la de la carta base con la
+   etiqueta **«Con sello»**. *(Que esa imagen exista para las Prize Pack: NO MEDIDO; lo mide el arquitecto.)*
+7. **P-IDS-7 · ¿Tienes cartas con sello en español?** **Recomendación:** en esta entrega, **no** se manejan (no hay
+   precio automático para ellas); si las tienes, quedan fuera hasta encontrar fuente.
+8. **P-IDS-8 · ¿Qué se hace con el reporte «Sellos por revisar»?** **Recomendación:** que el **súper-admin** pueda
+   **elegir la carta base entre los candidatos que encontró el sistema** (nunca teclear un precio: el precio sigue
+   saliendo de la fuente). Es un respaldo manual de **identidad**, no de precio. Si prefieres que esas cartas
+   simplemente no se vendan hasta que la fuente las aclare, también es válido.
+9. **P-IDS-9 · «Valor de mercado» y «valor si se gradea» en la ficha.** **Recomendación:** en una carta en **español**,
+   **no** mostrar «valor de mercado» (es un cálculo nuestro, no un dato del mercado) ni el estimado de PSA (es de la
+   carta en inglés). En una carta **con sello**, sí mostrar su valor de mercado (es real, de su producto), pero **no**
+   el estimado de PSA (es de la carta sin sello).
+10. **P-IDS-10 · ¿Qué sellos tienes hoy en mano?** No cambia el diseño, pero ordena el trabajo: el empate automático
+    de **Prize Pack** está medido (96 %); el de **liga, campeonato, Staff y prerelease no**. **Recomendación:** salir con
+    todos los tipos; los que no empaten solos caen al reporte (P-IDS-8) en vez de bloquear la salida.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §IDS (español y sellos)** *(2026-10-06)*: **japonés** (después de salir; catálogo propio); **buylist** con
+  español o sello (sigue solo inglés sin sello); **precio a mano** como camino normal para español o sello; precio
+  del español por **fuente propia** (CardTrader/Cardmarket); **español + sello** a la vez (P-IDS-7); otros idiomas.
 - **De §Z (control del gasto)** *(2026-10-04)*: avisos por **SMS o WhatsApp**; avisos o correos **al personal**;
   **aprobación previa del dueño guía por guía** como camino normal (el freno es el tope y el interruptor general);
   **bloqueo automático de cuentas** del personal por un aviso; **conciliación automática** del saldo de Skydropx
@@ -13261,6 +13435,82 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
    solo añade páginas, enlaces y textos. Si el texto del aviso promete algo que el sistema no hace (p. ej. «INE
    cifrada», T-10), se corrige **el texto** o se enruta el cambio de sistema al arquitecto — nunca se publica la
    promesa sin la conducta.
+
+*(Criterios 512–531 **nuevos el 2026-10-06** — §IDS, español y cartas con sello. ⛔ **Bloquean el paso a modo real de
+Stripe** (`HECHOS.md` fila 2026-10-06 «Idiomas del inventario…» (4): «lo necesita antes de salir»; y fila 2026-10-06
+«Alcance para salir en vivo…» (a)). Numerados desde 512, el siguiente libre tras 511: medido el 2026-10-06 por el
+product-owner en los `PROJECT.md` de `/home/user/*` (0 usos de 512–599); **NO MEDIDO** contra ramas remotas.)*
+512. **Lo existente no cambia — por ausencia** *(§IDS.1)*: sobre una copia de los datos de producción, se toma una foto
+   **antes** y **después** del despliegue de: precio publicado de cada pieza, estado de publicación, totales y líneas
+   de cada pedido, solicitudes de venta y portafolio. **Diferencia = 0** en todo lo que ya existía. Toda pieza
+   existente sale como **Inglés, sin sello**. Las pruebas de precio, buylist y checkout de hoy siguen verdes sin
+   tocarlas.
+513. **Capturar una pieza en español** *(§IDS.1)*: en la captura de inventario, el idioma por defecto es Inglés;
+   el operador elige Español y guarda. La pieza queda con la **misma carta, set, número y acabado** que la inglesa y
+   con idioma Español, visible en el detalle de admin. Una pieza capturada sin tocar el idioma queda en Inglés.
+514. 💰 **Español sin dial = no se publica** *(§IDS.2, falla cerrado)*: con X vacío, se captura una pieza en español de
+   una carta que **sí** tiene precio en inglés. Resultado: queda en «precio pendiente» con motivo «falta el % del
+   español»; **no** aparece en el catálogo, la búsqueda, la ficha ni la API pública; intentar agregarla al carrito o
+   pagarla (incluso forjando la petición) se **rechaza**. En ningún punto aparece el precio del inglés como precio
+   de esa pieza.
+515. 💰 **Precio del español = regla** *(§IDS.2; forma exacta según P-IDS-2)*: con X = 70 %, el precio publicado de una
+   pieza en español es **idéntico** al que la tienda daría hoy a una carta inglesa cuyo valor de mercado fuera el del
+   inglés × 0.70 (misma curva, piso, redondeo e IVA dentro). Se comprueba con al menos tres cartas: una que cae en el
+   piso, una del tramo medio y una cara.
+516. 💰 **El español sigue al mercado solo** *(§IDS.2)*: tras un barrido diario en que cambia el valor de mercado del
+   inglés de una carta, el precio de su pieza en español cambia en el **mismo** barrido conforme al 515, sin que nadie
+   intervenga. Si el inglés se queda sin valor de mercado, la pieza en español pasa a «precio pendiente» y se
+   despublica.
+517. **El dial X en Configuración** *(§IDS.2)*: el dueño cambia X en Configuración (sin código ni despliegue); al
+   guardar, **todas** las piezas en español se recalculan y la tienda muestra los precios nuevos. Rechaza 0,
+   negativos, texto y valores por encima del tope de P-IDS-3. Vaciarlo devuelve todas las piezas en español al 514.
+   El cambio queda en la bitácora con quién, cuándo, valor anterior y nuevo. Un usuario sin el rol que edita la
+   curva de precios **no** puede cambiarlo (la petición forjada se rechaza).
+518. 💰 **Carrito y cobro del español** *(§IDS.4)*: un cliente agrega una pieza en español; el carrito y el checkout
+   dicen «Español» y su precio; **el cobro en Stripe es la suma de los precios mostrados** y el precio lo calcula el
+   servidor (un precio alterado en la petición se ignora). El pedido (cliente y admin), el correo de confirmación y
+   la hoja de «Pedidos por preparar» dicen «Español» en esa línea.
+519. 💰 **Pierde el precio entre el carrito y el pago** *(§IDS.4)*: con una pieza en español en el carrito, el dueño
+   vacía X; con una pieza con sello en el carrito, su producto se queda sin valor de mercado. En ambos casos el
+   checkout **rechaza** la línea con mensaje claro y **no cobra**; nunca cobra el precio del inglés ni el de la carta
+   base.
+520. **Opciones distintas, existencias separadas** *(§IDS.4)*: con piezas de la misma carta y acabado en inglés, en
+   español y con sello, la ficha muestra **tres opciones**, cada una con su precio y su existencia. Comprar la
+   española descuenta solo la española; las otras dos quedan igual.
+521. **Ficha y filtros** *(§IDS.4)*: la ficha y la teja muestran idioma y sello (con su tipo). El filtro de idioma
+   (Inglés / Español) y el de «con sello» devuelven exactamente las piezas que corresponden, combinados entre sí y con
+   los filtros de hoy, en la tienda en español y en inglés. Sin filtros se ven todas.
+522. **Empate automático del sello** *(§IDS.3)*: sin intervención de nadie, la versión con sello de una carta con
+   empate único queda colgada de su carta base y disponible para captura. Caso de prueba: **Pikachu ex 057/191** con
+   sello (producto TCGplayer `648703`) cuelga de la Pikachu ex 057/191 de Surging Sparks (`590025`).
+523. ⛔ **Empate dudoso = no se adivina** *(§IDS.3)*: una versión con sello cuyo empate es ambiguo o sin pareja **no** se
+   cuelga, **no** se ofrece en la captura y **no** se publica; aparece en el reporte «Sellos por revisar» con motivo y
+   candidatos. Caso de prueba: una **energía básica** de Prize Pack (números 009–016, iguales en dos sets).
+524. 💰 **Precio propio del sello** *(§IDS.3)*: el precio publicado de una pieza con sello sale del valor de mercado
+   de **su** producto y acabado (misma curva, piso, redondeo e IVA), y es **distinto** del de la carta base cuando sus
+   mercados difieren (Pikachu ex 057/191: fuente medida el 2026-10-06 en US$26.39 con sello vs US$4.69 sin sello).
+   No existe ningún multiplicador sobre la carta base: cambiar el mercado de la carta base **no** mueve el precio de
+   la pieza con sello.
+525. ⛔ **Sello sin precio = no se publica** *(§IDS.3)*: si el producto con sello no tiene valor de mercado, la pieza
+   queda en «precio pendiente» y no se publica; **nunca** toma el precio de la carta base.
+526. 💰 **Carrito y cobro del sello** *(§IDS.4)*: igual que el 518 para una pieza con sello: carrito, checkout, cobro en
+   Stripe = precio mostrado calculado en el servidor, y pedido, correo y hoja de preparar dicen el sello y su tipo.
+527. **Export `.xlsx` con idioma y sello** *(§IDS.5)*: el export del inventario trae, en **todas** las filas, las
+   columnas **Idioma** y **Sello**; una pieza existente sale «Inglés» y sin sello; una española, «Español»; una con
+   sello, su tipo. Las demás columnas no cambian de nombre, orden ni valor.
+528. **Buylist sin cambios — por ausencia** *(§IDS.6)*: el cotizador y la solicitud de venta no ofrecen idioma ni
+   sello; las ofertas de buylist no cambian de precio (mismas pruebas verdes); una pieza que entra por buylist nace
+   **Inglés, sin sello**.
+529. **Sin japonés — por ausencia** *(§IDS.6)*: no hay opción «Japonés» en la captura, los filtros, la ficha ni el
+   export.
+530. **Sin precio a mano como camino normal** *(§IDS.2, §IDS.6; `HECHOS.md` fila 2026-10-04 «REGLA GENERAL…»)*: en la
+   captura de una pieza en español o con sello **no hay campo para teclear el precio**; el precio aparece solo. Con X
+   vacío no se puede fijar a mano el precio de una pieza en español (salvo que el dueño decida otra cosa en
+   P-IDS-4).
+531. 💰 **Otros usos del valor de la pieza** *(§IDS.5, SUPUESTO por confirmar)*: el valor de portafolio en la bóveda de
+   una pieza en español es el del inglés × X %, y el de una con sello es el de su producto; lo mismo para lo que se
+   paga si una pieza de un retiro no se repone (`HECHOS` 2026-09-29 D-2). Nunca se usa el valor de la carta inglesa
+   sin sello para esas piezas.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
