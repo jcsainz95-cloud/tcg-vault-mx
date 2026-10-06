@@ -14489,7 +14489,7 @@ excepción nueva en `.trivyignore`.
 **Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
 externa va fijada». Lo dejo propuesto, no lo cambio.
 
-## §90 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
+## §91 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
 
 **Causa (medida el 2026-10-06 sobre `production` `a884a2ec`).** Ninguna PR cambió dependencias. Se publicó un
 aviso sobre la versión que ya estaba en el lockfile: `sharp@0.35.4`, GHSA-wq5f-xc86-pv6w / CVE-2026-96889
