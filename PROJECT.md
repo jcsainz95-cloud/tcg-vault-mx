@@ -8937,11 +8937,17 @@ Para darte el servicio, compartimos datos con proveedores que los tratan **por c
 | Proveedor | Qué recibe | Para qué |
 |---|---|---|
 | **Stripe** | Monto y datos del pago que tú capturas en su formulario | Procesar el cobro y los reembolsos |
-| **Paqueterías** [y **Skydropx**, cuando opere] | Nombre de quien recibe, dirección y teléfono | Entregar o recoger el paquete |
+| **Paqueterías** | Nombre, dirección y teléfono de quien recibe; si nos vendes cartas, también tu nombre, dirección y teléfono como remitente | Entregar o recoger el paquete |
+| **Skydropx** | Nombre, dirección, teléfono y correo de quien recibe; si nos vendes cartas, también tu nombre, dirección y teléfono como remitente | Cotizar y generar la guía de envío con la paquetería |
 | **Resend** | Tu correo y el contenido del aviso | Enviarte los correos de la tienda |
 | **Cloudflare (R2)** | Imagen de tu INE | Guardarla en almacenamiento privado |
 | **Railway y Vercel** | Los datos de la tienda | Alojar el servidor, la base de datos y el sitio |
 | **Google** | Lo necesario para el acceso con Google | Iniciar sesión, si eliges esa opción |
+[*Nota de product-owner, 2026-10-06: filas de Paqueterías y Skydropx ampliadas al **remitente** porque la guía de
+ENTRADA del buylist (§BSD) manda a Skydropx y a la paquetería el nombre, la dirección y el teléfono del vendedor
+(`docs/SECURITY_NOTES.md` §BSD-S5.1). El correo de origen de esa guía es el de la tienda, no el del vendedor (medido
+por seguridad), por eso el correo solo figura para quien recibe. Skydropx queda en fila propia, como ya está en la
+tienda (`privacidad.es.ts:169`).*]
 Algunos de estos proveedores pueden guardar datos **fuera de México** [*nota para el abogado: confirmar país y
 contratos de cada uno*]. Además, entregamos datos a **autoridades** (por ejemplo, el SAT) cuando la ley lo exige.
 **No vendemos tus datos.** [*Nota para el abogado: decidir cuáles de estos son «remisiones» a encargados y cuáles
