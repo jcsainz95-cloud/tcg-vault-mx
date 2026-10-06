@@ -14,6 +14,9 @@
  *    `buylist_inbound` con guía (M-72) — sin M-72, ese folio lo ocupa un retiro cancelado para que `ENV-000003` siga
  *    siendo el de O2.
  *  - Piezas reales fuera de toda prueba: P8 (perdida en M1), P9 (publicada), P10 (con ajuste de levantamiento).
+ *  - C-5 / QA-1 (2.º pase): P12 nació de la solicitud PAGADA (buylist, con ajuste de levantamiento) y está en un pedido
+ *    FALLIDO O4 que la apartó y la soltó: sigue `listed` en A2 con precio. Es a la vez «pieza de buylist en T» (P-1
+ *    «borrar» con conteos ≠ 0) y el caso E2E-LST-0002 de QA (B la baja a `in_stock`; E tiene que devolverla a la venta).
  *  - Aviso de gasto, portafolio, bitácora, y lo que se CONSERVA (precio, dial, KYC con INE, eventos de Stripe…).
  */
 import { PrismaClient } from '@prisma/client';
@@ -26,14 +29,14 @@ export interface Fixture {
   buyer: string;
   seller: string;
   loc: { A1: string; A2: string; C1: string; C2: string };
-  piece: Record<'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8' | 'P9' | 'P10' | 'P11', { id: string; folio: string }>;
-  orders: { O1: string; O2: string; O3: string };
+  piece: Record<'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8' | 'P9' | 'P10' | 'P11' | 'P12', { id: string; folio: string }>;
+  orders: { O1: string; O2: string; O3: string; O4: string };
   directShipFolio: string;
   bounty: { completed: string; open: string; sellOnly: string };
 }
 
 /** Las piezas que la limpieza tiene que restaurar (el conjunto `T` de §4.1). */
-export const T_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P7', 'P11'] as const;
+export const T_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P7', 'P11', 'P12'] as const;
 
 export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Promise<Fixture> {
   const run = Math.random().toString(36).slice(2, 8);
@@ -47,7 +50,7 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   const card = async (k: string) =>
     db.card.create({ data: { externalId: `lz-${run}-${k}`, setId: set.id, name: k === 'G' ? 'Cinccino ex' : `Carta ${k}`, number: k } });
   const cards: Record<string, string> = {};
-  for (const k of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']) cards[k] = (await card(k)).id;
+  for (const k of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']) cards[k] = (await card(k)).id;
   await db.priceReference.create({
     data: { cardId: cards.A, productType: 'raw', gradeKey: 'raw:NM', source: 'manual', priceMxnCents: 12345, capturedDate: d(-1) } as any,
   });
@@ -173,6 +176,16 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   await db.sellRequestItem.update({ where: { id: sri.id }, data: { inventoryItemId: P6row.id } });
   await mv(P6row.id, { reason: 'buylist_convert', toStatus: 'in_stock', createdAt: d(-4) });
   const P6 = { id: P6row.id, folio: P6folio };
+  // P12 (C-5): segunda línea de la solicitud pagada, convertida, con un levantamiento; entra a T por el pedido fallido O4.
+  const sri2 = await db.sellRequestItem.create({ data: { sellRequestId: paidReq.id, cardId: cards.L, productType: 'raw', rawCondition: 'NM' } });
+  const P12folio = await nextFolio();
+  const P12row = await db.inventoryItem.create({
+    data: { folio: P12folio, cardId: cards.L, productType: 'raw', rawCondition: 'NM', acquisitionType: 'buylist', acquisitionCostCents: 450, listPriceCents: 1100, status: 'listed', locationId: A2, sourceSellRequestItemId: sri2.id },
+  });
+  await db.sellRequestItem.update({ where: { id: sri2.id }, data: { inventoryItemId: P12row.id } });
+  await mv(P12row.id, { reason: 'buylist_convert', toStatus: 'in_stock', createdAt: d(-4) });
+  await db.inventoryAdjustment.create({ data: { inventoryItemId: P12row.id, reason: 'encontrada', fromStatus: 'in_stock', toStatus: 'in_stock', note: 'levantamiento' } as any });
+  const P12 = { id: P12row.id, folio: P12folio };
   const accReq = await db.sellRequest.create({ data: { userId: seller.id, status: 'aceptada', acceptedAt: d(4), createdAt: d(2) } });
   await db.sellRequestItem.create({ data: { sellRequestId: accReq.id, cardId: cards.F, productType: 'raw', rawCondition: 'NM' } });
   if (opts.m72) {
@@ -248,6 +261,13 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   await db.orderAccessToken.create({ data: { orderId: O3.id, tokenHash: `h-${run}`, expiresAt: d(30) } });
   await db.inventoryItem.update({ where: { id: P3.id }, data: { status: 'reserved', reservedByOrderId: O3.id, reservedUntil: d(3) } });
 
+  // ---- O4 (C-5 / QA-1): pedido FALLIDO que apartó P12 y la soltó (`reserved → listed`); la pieza sigue a la venta.
+  const O4 = await db.order.create({
+    data: { userId: buyer.id, orderNumber: await nextOrder(), fulfillmentMode: 'vault', status: 'failed', createdAt: d(6), ...money },
+  });
+  await db.orderItem.create({ data: { orderId: O4.id, inventoryItemId: P12.id, cardSnapshot: snap, unitPriceCents: 1100 } });
+  await mv(P12.id, { reason: 'sale', fromStatus: 'listed', toStatus: 'reserved', note: `${O4.orderNumber} · apartado`, createdAt: d(6) });
+
   // ---- Piezas reales: P8 perdida en M1 (no es de prueba), P10 con levantamiento
   await mv(P8.id, { reason: 'lost', fromStatus: 'in_stock', toStatus: 'lost', note: 'M1 · no se encontró', createdAt: d(4) });
   await mv(P10.id, { reason: 'adjustment', fromStatus: 'damaged', toStatus: 'in_stock', note: 'levantamiento', createdAt: d(4) });
@@ -274,8 +294,8 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
     buyer: buyer.id,
     seller: seller.id,
     loc: { A1, A2, C1, C2 },
-    piece: { P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11 },
-    orders: { O1: O1.id, O2: O2.id, O3: O3.id },
+    piece: { P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12 },
+    orders: { O1: O1.id, O2: O2.id, O3: O3.id, O4: O4.id },
     directShipFolio: SR3.folio,
     bounty: { completed: bCompleted.id, open: bOpen.id, sellOnly: bSell.id },
   };

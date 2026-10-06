@@ -10,7 +10,7 @@
  * ⛔ Requiere el binario `psql` (cliente de PostgreSQL) en el PATH. Si falta, la prueba FALLA con ese mensaje
  * (no se salta): una prueba de dinero que se salta a sí misma es la clase que este repo ya tuvo que censar.
  */
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -64,6 +64,53 @@ export function psql(schema: string, sql: string): PsqlResult {
   });
   if (r.error) throw new Error(`P-DB-LIMPIEZA: no pude ejecutar psql (${r.error.message}). Instala el cliente de PostgreSQL.`);
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+/**
+ * C-1 (techlead, 2.º pase): como lo corre el dueño según el encabezado — `psql "$URL" -v ON_ERROR_STOP=1 -f fichero.sql` —
+ * con stdout y stderr MEZCLADOS en el orden en que salen (lo que ve en la terminal). El texto va a un fichero temporal.
+ */
+export function psqlFile(schema: string, sql: string): PsqlResult & { out: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'lz-f-'));
+  const file = join(dir, 'guion.sql');
+  writeFileSync(file, sql);
+  try {
+    const r = spawnSync('sh', ['-c', 'psql -X -v ON_ERROR_STOP=1 -d "$LZ_URL" -f "$LZ_FILE" 2>&1'], {
+      encoding: 'utf8',
+      env: { ...process.env, LZ_URL: libpqUrl(), LZ_FILE: file, PGOPTIONS: `-c search_path=${schema}` },
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (r.error) throw new Error(`P-DB-LIMPIEZA: no pude ejecutar psql (${r.error.message}).`);
+    return { status: r.status, stdout: r.stdout, stderr: '', out: r.stdout };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Corre `sql` en psql en SEGUNDO PLANO (para medir concurrencia): devuelve la promesa de su salida. */
+export function psqlAsync(schema: string, sql: string): Promise<PsqlResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', libpqUrl()], {
+      env: { ...process.env, PGOPTIONS: `-c search_path=${schema}` },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (b) => (stdout += b));
+    child.stderr.on('data', (b) => (stderr += b));
+    child.on('error', reject);
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+    child.stdin.end(sql);
+  });
+}
+
+/** El bloque de comentarios del principio de un guion (lo que el dueño lee antes de correrlo). */
+export function header(sql: string): string {
+  const out: string[] = [];
+  for (const line of sql.split('\n')) {
+    if (!line.startsWith('--')) break;
+    out.push(line);
+  }
+  return out.join('\n');
 }
 
 /**
