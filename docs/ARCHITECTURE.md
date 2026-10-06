@@ -4,6 +4,9 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata BSD-1.5** (2026-10-06, arquitecto; sha NO MEDIDO): responde a `BACKEND_NOTES §78.B5`. La norma está en
+> `API_CONTRACT §BSD.19` y el porqué en §4.BSD (o). Solo cambian dos pruebas de backend (B9 y B16); lo demás se ratifica.
+>
 > **Errata BSD-1.4** (2026-10-06, arquitecto; sha NO MEDIDO): responde a `BACKEND_NOTES §78.5/§78.B3/§78.B4` y a
 > `DESIGN_SYSTEM` C-9. La norma está en `API_CONTRACT §BSD.18` y el porqué en §4.BSD (n).
 > - El sello de AV-7 pasa a ser un solo predicado, con el número.
@@ -28718,6 +28721,25 @@ el reporte» y precisó «en muchos casos tendrá margen». Esto sustituye el «
   queda como trabajo posterior, y la condición es un solo escritor de `guideActualCostCents`.
 - **Las carreras se miden contra el código que corre.** Un sustituto fiel del reclamo no tiene las ventanas
   `precheck → claim` ni el post-commit.
+
+**(o) Errata BSD-1.5 (lo que §BSD.18 no aguantó).** Norma en `API_CONTRACT §BSD.19`.
+- **Contar los muros antes de fijar una mutación.**
+  - §BSD.18 listó dos muros de B9 y había tres por encima de la compra: candado consultivo, relectura `in_progress` bajo
+    I-BSD-4 y `labelProcessingSince: null` del CAS.
+  - Cualquiera de los tres basta solo, porque la relectura y el CAS van con la fila tomada.
+  - Debajo hay más: el libro de intentos con sus únicos y `markSent` (a). Cuál mordió en la mutación está NO MEDIDO, y no
+    hace falta para lanzar: no cambia ninguna norma, y `markSent` (a) ya tiene canario propio.
+  - La prueba tiene que afirmar lo que la mutación rompe. Si muerde por `5xx`, «nunca `5xx`» va escrito en B9.
+- **Una guarda redundante en dinero puede no ser redundante en el mensaje.**
+  - En B16, quitar la guarda de `claim` no compra nada, porque el CAS de `status` frena. Pero el operador recibe «el envío
+    cambió» en vez de «la solicitud ya no admite guía».
+  - El código de error es lo que esa guarda aporta, y es lo que se fija.
+- **La regla gana al mecanismo.** «Los mismos campos» era cómo se redactaba `no_offer`, y «ninguna cifra» es por qué.
+  - En `not_continued` hubo oferta, así que cumplir la regla obliga a quitar la oferta entera: su prosa lleva los montos.
+  - Perder las fechas del stepper es aceptable, porque un paso sin dato no se pinta.
+  - Recuperarlas sería un cambio de contrato aparte, con la regla de cuál fuente manda.
+- **Un término redundante hoy es el muro de mañana** si representa el hecho y no su consecuencia. `closedAt` es «cerrada».
+  `status` es lo que hoy acompaña a ese hecho.
 
 ---
 

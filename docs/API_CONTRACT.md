@@ -10,6 +10,13 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata BSD-1.5 — LO QUE §BSD.18 NO AGUANTÓ (`BACKEND_NOTES §78.B5`) (2026-10-06, arquitecto; sha NO MEDIDO).**
+> Norma en [§BSD.19](#BSD). Sin schema, migración, enum, código de error, campo de DTO ni endpoint nuevo.
+> - B9 muta los **tres** muros y afirma que nunca hay `5xx`. B16 fija `409 GUIDE_NOT_ALLOWED` en el modo «Declinar entre
+>   `precheck` y `claim`». Solo cambian pruebas de backend.
+> - `not_continued`: se ratifica `offer: null` y toda `*Cents` de cliente `null`. Los pasos sin fecha no se pintan.
+> - Se ratifican `closedAt` en el sello de AV-7 (defensa en profundidad) y B43 por diferencia.
+>
 > **Errata BSD-1.4 — LO QUE ENCONTRARON B-2, B-3, B-4 Y C-9 DE UX-UI (`BACKEND_NOTES §78.5/§78.B3/§78.B4`,
 > `DESIGN_SYSTEM §BSD-UX.11d`) (2026-10-06, arquitecto, `/home/user/tcg-bsdx`; sha NO MEDIDO).** Norma en [§BSD.18](#BSD).
 > Sin schema, migración, enum, código de error ni endpoint nuevo.
@@ -40647,3 +40654,125 @@ citados); el arquitecto no las midió.
 - Candado nuevo en `bsd-b2.structural`.
 
 Todas sobre copia del árbol entero (O-9); carreras con N ≥ 10 y proporción; deterministas con N=1 dicho como tal.
+
+### BSD.19 Errata BSD-1.5 — lo que §BSD.18 no aguantó (2026-10-06, NORMATIVA, 💰)
+Origen: `BACKEND_NOTES §78.B5`, «Lo que el contrato no aguantó» (código `d04cb905`, pruebas `220e5df3`, según la nota). El
+arquitecto leyó el árbol `/home/user/tcg-bsdx` sin Bash ⇒ **sha NO MEDIDO**. Las proporciones son de backend (autor y N
+citados); el arquitecto no midió ninguna. Manda sobre §BSD.18 donde choquen.
+⛔ Sin schema, migración, enum, código de error, campo de DTO ni endpoint nuevo.
+
+| # | Punto | Decisión | Construye |
+|---|---|---|---|
+| 1 | B9: la mutación de §BSD.18.2 no muerde | **Cambia**: la mutación son los **tres** muros. B9 afirma además el conjunto de respuestas. El muro de abajo queda identificado por lectura; no bloquea el lanzamiento | backend (solo prueba) |
+| 2 | B16: la segunda mutación no muerde | **Cambia**: el modo «Declinar entre `precheck` y `claim`» afirma `409 GUIDE_NOT_ALLOWED`; ese es el canario de la guarda | backend (solo prueba) |
+| 3 | Punto 8 «los mismos campos» frente a B41 | **Ratificada la forma de backend**: toda `*Cents` de cliente `null` y `offer: null`. El paso sin fecha no se pinta. Sin campo nuevo | nada (frontend verifica) |
+| 4 | B40 (c): `closedAt` redundante con `status` | **Se mantiene** como defensa en profundidad, con su canario de estado a mano declarado como tal | nada |
+| 5 | B43: la suma por diferencia | **Ratificado** | nada |
+
+**1. BSD-B9: la mutación son los tres muros (cambia).**
+- **Lo medido (backend, ruta real, `§78.B5`):**
+  - quitar el candado consultivo y `labelProcessingSince: null` del CAS ⇒ **0/30** rondas malas (3 × 10);
+  - quitar además la comprobación `in_progress` de la relectura de `claim` ⇒ **10/10** rondas rojas (N=10), pero por `5xx`
+    (2 por ronda). Seguía habiendo **1** `port.purchase` y **1** guía pagada por ronda.
+- **Los tres muros (lectura, `backend/src/modules/shipments/label-purchase.service.ts`):**
+  - `:443` el candado consultivo `pg_try_advisory_xact_lock`;
+  - `:471-474` la relectura bajo I-BSD-4 (`lockSubjectRows`) que devuelve `in_progress` si `labelProcessingSince` ya está puesto;
+  - `:493` `labelProcessingSince: null` en el `where` del CAS.
+  - Por qué cualquiera basta: la relectura y el CAS se evalúan con la fila tomada (`FOR UPDATE` de `lockSubjectRows`, y el
+    `UPDATE` de Postgres reevalúa su `WHERE` tras esperar la fila), así que no dependen del reloj ni del orden de llegada. El
+    0/30 de backend lo confirma para la relectura sola.
+- **El muro de abajo: identificado por lectura, cuál mordió NO MEDIDO.** Con los tres quitados, el segundo reclamo pasa el
+  CAS y **sobrescribe** `labelProcessingSince` con su propio `since`. Los candidatos que siguen deteniendo la compra doble:
+  - (i) el índice único `ShipmentLabelAttempt(shipmentRequestId, since)` (`migrations/20261009120000_m68_gas_1_spend_control/migration.sql:174`).
+    Si los dos reclamos comparten `since` (reloj de prueba fijo o el mismo milisegundo), el `create` de `:523` lanza
+    `P2002` sin manejo ⇒ `500`. Encaja con «2 `5xx` por ronda»;
+  - (ii) `markSent` (a) (`:606-610`): el reclamo sigue siendo ESTE (`labelProcessingSince = claim.since`). El reclamo
+    sobrescrito sale `released` ⇒ `409 claim_released`, cero compra. Ya tiene canario determinista:
+    `test/integration/sdx-d2c-cierre.e2e-spec.ts:448`;
+  - (iii) los únicos de `(shipmentRequestId, attemptNo)` y `providerReference` (`migration.sql:173,175`) en `markSent` (b)-(c).
+    `P2002` ahí lo atrapa `:637-641` ⇒ `undo` y `busy` (`5xx`).
+- **¿Hay riesgo de compra doble? Con el código de hoy, no (lectura).** Hace falta quitar los tres muros, que son tres líneas
+  independientes. Con los tres quitados sí queda una ventana (razonamiento, NO MEDIDO):
+  - `since` distintos, y el primer reclamo completa `markSent` antes de que el segundo sobrescriba la fila;
+  - entonces salen dos `port.purchase` con la misma `idempotencyKey` `label:<id>:<rateId>` (`:662`). Si Skydropx la respeta
+    está NO MEDIDO;
+  - aun así, la guía de más no queda silenciosa: `persistLabeled` exige `labelProcessingSince = claim.since` (`:861`) y la
+    que pierde pasa por `casZero` ⇒ `stale` ⇒ `ShipmentPaidLabel` con `origin:'orphan'` y bitácora `shipment.label_orphan`
+    (`:1030-1042`). El dinero se ve.
+- **Por qué no es condición del lanzamiento.** Por encima del muro de abajo hay tres muros deterministas, cada uno suficiente.
+  Además (ii) ya tiene canario propio. Saber cuál de (i)-(iii) mordió en la corrida mutada no cambia ninguna norma. Si
+  backend lo aísla un día, lo anota en sus notas, sin encargo.
+- **Norma.**
+  - BSD-B9 **muta los tres a la vez** (`:443`, `:474` y `:493`). Se reporta la proporción con N ≥ 10 y **por qué** muerde.
+  - BSD-B9 afirma, además de «1 `port.purchase` y 1 guía pagada por ronda», que **toda** respuesta es `200 labeled`,
+    `200 in_progress`, `409 CONFLICT {reason:'purchase_in_flight'}` o `409 SHIPMENT_ALREADY_LABELED` (un clic que llega
+    después de `persistLabeled`, `label-inbound.ts:325`); ⛔ ningún `5xx`. Así el rojo de la mutación es una
+    aserción escrita, no un efecto lateral.
+  - El censo de B23 (`lockSubjectRows`) sigue cubriendo el candado de I-BSD-4.
+- **Construye:** backend (`bsd-b2-inbound.e2e-spec.ts`), solo prueba.
+
+**2. BSD-B16: la guarda de la relectura de `claim` se fija por su código (cambia).**
+- **Lo medido (backend, `§78.B5`):** quitar `assertInboundOpenForLabel` de `:475` ⇒ **0/36** rondas malas (3 × 12). Lo
+  único que cambia, en 9/9 rondas del modo «Declinar entre `precheck` y `claim`» (N=9, backend), es el código:
+  `409 GUIDE_NOT_ALLOWED` pasa a `409 CONFLICT` (el CAS da 0).
+- **Por qué no muerde en dinero.** `closeInboundShipment` ya dejó la fila en `cancelado`, y el CAS exige
+  `status = subject.openStatus` (`:489`). Es la misma redundancia que §BSD.18.2 ratificó para B9.
+- **Por qué sí se fija el código.** El contrato promete el error de la guarda (comentario de `:468-469`; §BSD.3, `409
+  GUIDE_NOT_ALLOWED` con `reason`). Con `409 CONFLICT` sin `reason`, el operador lee «el envío cambió, recarga» en vez de
+  «la solicitud ya no admite guía». Además, `claim` registra con `logger.error` un «CAS 0 sin rama» (`:518-519`) para un
+  caso que sí tiene rama. Hoy la única prueba de esa guarda en `claim` sería esa.
+- **Norma.**
+  - En el modo «Declinar entre `precheck` y `claim`» (la barrera del doble del proveedor descrita en `§78.B5` punto 5),
+    BSD-B16 afirma `409` con `error.code = 'GUIDE_NOT_ALLOWED'`. ⛔ No se fija `details.reason`, porque `closed` y
+    `status` son los dos correctos según qué cierre ganó.
+  - Segunda mutación: la misma de §BSD.18.7. Se reporta su proporción en ese modo con N ≥ 10.
+  - La primera mutación (sin `closeInboundShipment`) no cambia.
+- **Construye:** backend (`bsd-b3`/`bsd-b5` e2e), solo prueba.
+
+**3. Portal en `not_continued`: forma del DTO (ratificada la de backend).**
+- **El choque.** «Con los mismos campos» (§BSD.18.8) describía el **mecanismo** de `no_offer`, que es `null` explícito con
+  la clave presente. BSD-B41 describe el **resultado**: ninguna `*Cents` distinta de `null`. En `no_offer` coincidían
+  porque nunca hubo oferta. En `not_continued` sí la hubo. Gana B41, que es la intención del punto: ninguna cifra.
+- **La forma vigente** (`buylist.service.ts:463-470`, `:466`, `:2239`, `:2244`):
+  - `quotedTotalCents = null`;
+  - en `items[]` (lista y detalle): `quotedPriceCents`, `approvedPriceCents`, `offeredPriceCents` y `marketMxnCents` viajan
+    `null` explícito;
+  - en el detalle, `offer: null`. Su `terms.rule` lleva los montos ya escritos en prosa, así que no se puede redactar
+    por dentro. ⛔ No se cambia el tipo de `SellOfferPublicDTO` para admitir cifras nulas: obligaría a todo consumidor
+    de una oferta viva a tratar un `null` que en `ofertada` no puede ocurrir;
+  - en `no_offer`, `marketMxnCents` y `approvedPriceCents` de las líneas pasan a `null` explícito. Es la misma regla para
+    los dos cierres.
+- **El stepper sin fechas de oferta: se acepta, sin campo nuevo.**
+  - `PipelineStepper` ya decide que un paso sin sello no pinta nada (`frontend/src/components/ui/PipelineStepper.tsx:29-32`).
+    Con `offer: null`, «ofertada» y «aceptada» salen sin fecha, y el resto del historial queda igual.
+  - `ResolvedNotice` cae a `noLongerActive` (`SellRequestDetailView.tsx:559-566`). Al lado de «decidimos no continuar» es
+    más fiel que «aceptaste el …».
+  - Si un día se quieren las fechas, el camino es el precedente de `lastOfferCancelledAt`: «viaja el cuándo y nada más»
+    (`buylist.service.ts:2230-2233`). Serían `offerSentAt`/`acceptedAt` en la raíz del detalle de cliente, como cambio de
+    contrato aparte. ⛔ No en esta errata: dos fuentes para la misma fecha (`offer.sentAt` y la raíz) necesitan una regla
+    de cuál manda.
+- **Construye:** nada en backend. **Frontend:** confirma con una prueba que el detalle en `not_continued` pinta sin
+  `offer` (sin cifra, sin «aceptaste el …», sin fallo). Si ya existe, no hace nada.
+
+**4. BSD-B40 (c): `closedAt` en `guideNoticeSealWhere` se mantiene (ratificado como defensa en profundidad).**
+- **Lo medido (backend, `§78.B5`):** ningún cierre de hoy deja `status='aceptada'` con `closedAt` sellado. Para todo estado
+  alcanzable, el término es redundante con `status`.
+- **Por qué se queda.**
+  - `closedAt` es el hecho «cerrada», y `status` es una de sus consecuencias. Un cierre futuro que selle `closedAt` sin
+    mover `status`, o un estado nuevo abierto con `closedAt`, deja a `closedAt` como el único muro contra un AV-7 sobre
+    una solicitud cerrada.
+  - No cuesta nada: es un término en un predicado que ya existe una sola vez (`sell-request-guide.ts`).
+- **Norma.** El canario de estado a mano se queda. La prueba dice en su título que fija **el predicado** sobre un estado
+  no alcanzable hoy, no una ruta. La variante con `decline-accepted` real se queda como prueba de conducta, sin
+  pretender que muerda `closedAt`.
+
+**5. BSD-B43: la suma por meses (ratificado).**
+- En unitaria: exacta (Σ de los 12 meses = P&L sin periodo, para (b)).
+- En integración (BD compartida): **por diferencia**. Σ de los 12 meses de un año propio = Δ del P&L sin periodo antes y
+  después de crear las filas de la prueba.
+- Es válido porque la integración corre en serie (`backend/package.json:20`, `--runInBand`). Si un día corre en
+  paralelo, la diferencia deja de ser exacta y se mide contra el P&L del año propio entero.
+- La mutación (quitar la rama `guideSentAt: null`) muerde en las dos (backend, N=1 cada una).
+
+**Pruebas que cambian en esta errata:** B9 (mutación de tres muros y conjunto de respuestas) y B16 (código del modo 2).
+Nada más se construye.
