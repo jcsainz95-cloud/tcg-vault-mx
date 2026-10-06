@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata BSD-1.2** (2026-10-06, arquitecto; sha NO MEDIDO): Q-BSD-1 respondida.
+> - En `pnl()`, la guía de entrada **resta** (neto) y la tarifa **retenida** al vendedor **suma**, como reducción del costo de
+>   compra.
+> - Se reporta el margen de la guía por solicitud pagada.
+> - Norma en `API_CONTRACT §BSD.16`; porqué en §4.BSD (l). DV-BSD-1 queda cerrada.
+> - Bloque nuevo B-4. Sin migración; B-1 sin cambio.
+>
 > **Errata BSD-1.1** (2026-10-06, arquitecto; sha NO MEDIDO): respuesta a `DESIGN_SYSTEM §BSD-UX` — norma en `API_CONTRACT
 > §BSD.15`, porqué en §4.BSD (k). Sin migración; B-1 sin cambio salvo la aserción de I-BSD-2 (nombre legible de paquetería).
 >
@@ -28634,6 +28641,20 @@ Cambiar la tarifa fija: fuera.
 Además, la copia del nombre de paquetería en la solicitud pasa a ser el **nombre legible**, porque es la que lee el
 vendedor; la del motor sigue siendo el código. I-BSD-2 conserva un solo escritor, ahora con la regla de esa traducción.
 
+**(l) Errata BSD-1.2: la guía resta, la tarifa retenida suma y el margen se ve.** El dueño respondió Q-BSD-1 «que reste en
+el reporte» y precisó «en muchos casos tendrá margen». Esto sustituye el «informativo» de (h).
+- **Lo medido.** El costo de lo vendido del buylist es el **bruto** de la línea (`buylist.service.ts:7519-7530`, sumado en
+  `admin.service.ts:1742-1744`). `pnl()` no lee lo pagado al vendedor.
+- **Consecuencia.** Hoy la tarifa retenida no reduce ningún costo. Acreditarla no es doble cuenta. Lo que sí sería un error
+  es dejarla fuera mientras la guía resta.
+- **Cómo se presenta la tarifa.** Contablemente es una **reducción del costo de compra**, no un ingreso: no hay venta y no
+  causa IVA trasladado. Va como renglón propio y no repartida por carta, porque `:7526-7528` decide que el costo de una pieza
+  no dependa del paquete en que llegó.
+- **Cómo se mide el margen.** Por **solicitud pagada**, no como resta de los dos totales del mes. Los dos renglones viven en
+  periodos distintos, y una guía de una solicitud que nunca se pagó cuesta sin retener nada.
+- **Cancelaciones.** Lo no devuelto sigue en «ajustes de paquetería», como en P-SDX-PNL-1 (A). Una guía cancelada con
+  confirmación sale del renglón de guías, así que no hay doble cuenta.
+
 ---
 
 ## 5. Decisiones transversales
@@ -29403,6 +29424,7 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **⭐ BSD-1.2: `DV-BSD-1` CERRADA por diseño** (`API_CONTRACT §BSD.16` punto 4; construye B-4). Texto original:
 > **rev BSD-1 — `DV-BSD-1` (abierta, 💰, informativa; medida 2026-10-06 por Grep sobre `/home/user/tcg-bsdx`, sha NO
 > MEDIDO):** `schema.prisma:2237-2240` dice de `SellRequest.guideActualCostCents` «`null` ⇒ M7 usa la tarifa congelada y lo
 > DECLARA», y el criterio 536 dice «con guía manual sin costo capturado, el reporte usa la tarifa **como hoy**». **Ningún

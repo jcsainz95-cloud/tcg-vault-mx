@@ -10,6 +10,13 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata BSD-1.2 — 💰 Q-BSD-1 RESPONDIDA: LA GUÍA DE ENTRADA RESTA EN LA GANANCIA, LA TARIFA RETENIDA SUMA Y SE VE EL MARGEN
+> (2026-10-06, arquitecto, mismo árbol; sha NO MEDIDO).** Origen: `HECHOS.md` fila 2026-10-06 «Q-BSD-1: el costo real de la
+> guía de ENTRADA del buylist RESTA…» («que reste en el reporte») y precisión del dueño del mismo día, relayada por el
+> orquestador: «pero en muchos casos tendrá margen». Norma: [§BSD.16](#BSD). ⛔ Sin schema, migración, enum, código de error
+> ni endpoint ⇒ **B-1 no cambia**. Bloque nuevo **B-4** (`admin.service.ts` `pnl()` + CSV), disjunto de B-2/B-3. Retira el
+> campo informativo `buylistInboundLabelCostCents` y cierra DV-BSD-1.
+>
 > **Errata BSD-1.1 — CONTRADICCIONES QUE ENCONTRÓ UX-UI AL ESCRIBIR `DESIGN_SYSTEM §BSD-UX` (2026-10-06, arquitecto, mismo
 > árbol y rama; sha NO MEDIDO).** Norma: [§BSD.15](#BSD). ⛔ Sin schema, sin migración, sin enum, sin código de error ⇒
 > **B-1 no cambia** (salvo una aserción de I-BSD-2, §BSD.15 C-6). Cambian DTO y textos: B-2 (C-1, C-6) y B-3 (C-2, C-3,
@@ -39991,9 +39998,7 @@ guideDueInDays: number | null;          // solo con guideDueSoon: ceil((guideDue
 // GET /admin/dashboard — ⭐ BSD-1.1 C-3: campo HERMANO (⛔ `workQueue.buylist` sigue siendo un número)
 workQueue.buylistGuideDueSoon: number;  // solicitudes con guideDueSoon = true
 
-// P&L de M7 (Q-BSD-1, valor por defecto): campo INFORMATIVO al final del objeto y columna al final del CSV (mismo orden)
-buylistInboundLabelCostCents: number;   // Σ neto (shippingCostCents − shippingCostIvaCents) de filas de entrada con guía de
-                                        // Skydropx, por `labelPurchasedAt` en el periodo. ⛔ NO entra en profitCents.
+// P&L de M7 — ⛔ RETIRADO por BSD-1.2: ~~buylistInboundLabelCostCents (informativo)~~. Ver §BSD.16.
 ```
 ⚠️ El sumador de envíos del P&L (`admin.service.ts:1749-1754`, `status IN (picking,guia,enviado,entregado)` y, sin periodo,
 **sin** filtro de fecha) pasa a `OUTBOUND_ONLY`: sin eso, una guía de entrada en `guia` entraría como costo de envío de
@@ -40198,3 +40203,61 @@ Manda sobre BSD.0–BSD.14 donde choquen. ⛔ Sin schema, migración, enum ni c�
 - **C-8 · «en N días».** El servidor manda `AdminBuylistDTO.guideDueInDays` (`ceil((guideDueAt − now)/24 h)`, mínimo 0, solo
   con `guideDueSoon`; si no, `null`). Con `null` el front ⛔ no pinta la frase ni la calcula. Prueba: BSD-F6 gana «sin
   `guideDueInDays` no hay frase»; BSD-B20 gana el valor 2 el día 5. **Construye:** B-3 + frontend.
+
+### BSD.16 Errata BSD-1.2 — guía y tarifa del buylist en `pnl()` (2026-10-06, NORMATIVA, 💰)
+Manda sobre §BSD.5 (campo informativo, retirado), §BSD.14 Q-BSD-1 (respondida: resta) y BSD-B24 («el P&L no cambia» pasa a
+«el renglón `shippingCostCents` de **venta** no cambia»). ⛔ Sin schema ni migración.
+
+**0. Cómo entra hoy (medido por lectura, 2026-10-06, `/home/user/tcg-bsdx`, sha NO MEDIDO).**
+- Costo de lo vendido = `Σ inventoryItem.acquisitionCostCents` de las órdenes liquidadas (`admin.service.ts:1742-1744`).
+- Para una pieza del buylist, `acquisitionCostCents = offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents` = el
+  **BRUTO** de la línea, y a propósito «el envío NO entra al costo de la pieza» (`buylist.service.ts:7519-7530`).
+- `pnl()` **no** lee `payoutNetCents`, `offerShippingFeeCents` ni `guideActualCostCents` (Grep: los únicos lectores de
+  `SellRequest` en `admin.service.ts` son el tablero, `:2255`, `approvedTotalCents` como **volumen**, ⛔ fuera de `profitCents`).
+- ⇒ **Hoy la tarifa retenida NO reduce ningún costo en el P&L**: el costo de la carta se registra bruto aunque al vendedor se
+  le pagó bruto − tarifa. Acreditarla **no** es doble cuenta; dejarla fuera mientras la guía resta **sí** sería un error
+  (contaría un gasto sin el cobro que lo financia).
+
+**1. Qué es la tarifa, contablemente, y cómo se presenta.** Es una **reducción del costo de compra** (un descuento sobre el
+precio que se paga al vendedor), ⛔ **no un ingreso por venta**: no hay venta ni cliente, y no causa IVA trasladado. Pero
+**no se reparte al costo de cada carta**: `buylist.service.ts:7526-7528` decide —con razón— que dos piezas iguales tengan el
+mismo costo llegue cada una en el paquete que llegue. Por eso entra como **un renglón propio que reduce costo**, con signo
+positivo en la ganancia y presentado dentro del bloque de **costo de compras**, nunca en ingresos.
+
+**2. Campos nuevos** (al final del objeto y, en el mismo orden, al final del CSV):
+| Campo | Efecto en `profitCents` | Qué suma | Periodo |
+|---|---|---|---|
+| `buylistShippingFeeRetainedCents` | **suma** (reduce costo de compra) | por cada solicitud `pagada`: lo retenido **de verdad** = `approvedTotalCents − payoutNetCents` (cubre el `max(0, …)` de `payoutNetCents`: si el bruto aprobado fue menor que la tarifa, se retuvo el bruto). ⛔ Nunca `offerShippingFeeCents` a secas ni el dial | `paidAt` |
+| `buylistGuideCostCents` | **resta** | (a) **Skydropx:** cada fila `kind='buylist_inbound'` con `labelSource='skydropx'` y `providerCancelConfirmedAt IS NULL`: **neto** `shippingCostCents − shippingCostIvaCents` (BSD-1.1 C-5). (b) **Manual:** cada solicitud con `guideActualCostCents ≠ null` **sin** guía de Skydropx de entrada: `guideActualCostCents` tal cual (⛔ sin IVA acreditable: nadie lo capturó; lado conservador) | (a) `labelPurchasedAt`; (b) `guideSentAt` |
+| `buylistGuideMarginCents` | — (**informativo**, ya está dentro de los dos de arriba) | sobre las solicitudes **pagadas en el periodo**: `Σ (retenido − costo de su guía)`, con el costo de (a) o (b) de **esa** solicitud. Puede ser negativo | `paidAt` |
+| `buylistGuideCostMissingCount` | — (informativo) | solicitudes pagadas en el periodo con guía **manual** y `guideActualCostCents = null` (su margen se calcula con costo 0 y **se cuenta aquí** para que no pase por margen limpio) | `paidAt` |
+
+`profitCents = (los términos de hoy) + buylistShippingFeeRetainedCents − buylistGuideCostCents`. ⛔ `shippingCostCents` (envío
+de **venta**) no cambia y sigue `OUTBOUND_ONLY`.
+**Por qué el margen se mide por solicitud pagada y no como resta de los dos renglones:** los dos renglones viven en periodos
+distintos (la guía cuando se compra, la tarifa cuando se paga) y una guía de una solicitud que nunca se pagó cuesta sin
+retener nada. Restar los totales de un mes mezclaría solicitudes distintas; el margen por solicitud no. La ficha de M5 ya
+muestra el margen de cada una (`marginCents` de la tarifa elegida y `costCents`, §BSD.5).
+
+**3. Coherencia con P-SDX-PNL-1 (A)** (`HECHOS.md` 2026-10-05 «Guías cobradas de más…: como costo de envío») **y con las
+cancelaciones.** Una guía de entrada **cancelada con confirmación** sale de (a); lo que Skydropx no devolvió ya entra como
+`ShipmentCostAdjustment` en «ajustes de paquetería» (sin filtro de `kind`) ⇒ ⛔ sin doble conteo. Cancelación **sin**
+confirmar sigue en (a) (el dinero salió). Huérfanas y duplicadas de cualquier `kind`: a «ajustes de paquetería» cuando se
+construya (A), no aquí. Re-emitir pone el costo de la fila a 0 (`applyReissue`) y la guía nueva lo vuelve a escribir.
+
+**4. DV-BSD-1 queda cerrada**: el costo manual capturado resta; sin captura, cuenta en `buylistGuideCostMissingCount`.
+Product-owner anota junto al criterio 536 que «como hoy» se sustituye por esto.
+
+**5. Pruebas que deben fallar** (B-4; deterministas, N=1 dicho como tal; copia del árbol entero):
+| ID | Afirma | Mutación |
+|---|---|---|
+| **BSD-B32** | Guía de entrada bruto 25 000 con IVA 3 448 ⇒ `buylistGuideCostCents = 21 552` y `profitCents` baja 21 552; cancelada con confirmación y ajuste de 1 000 ⇒ (a) 0 y «ajustes» 1 000; `shippingCostCents` de venta igual | (i) quitar el término de `profitCents`; (ii) sumar también las confirmadas (doble conteo) |
+| **BSD-B33** | Pagada bruto 150 000, tarifa 18 000 ⇒ retenido 18 000 en el mes de `paidAt` y `profitCents` sube 18 000; otra con bruto 10 000 < tarifa ⇒ retenido 10 000 | usar `offerShippingFeeCents` ⇒ la segunda da 18 000 |
+| **BSD-B34** | Margen: pagada con tarifa 18 000 y guía neta 12 931 ⇒ +5 069; otra con guía neta 21 552 ⇒ −3 552; `buylistGuideMarginCents = 1 517`; manual sin costo ⇒ contador +1 | calcular el margen como `retenido total − costo total del mes` ⇒ con una guía de una solicitud no pagada en el periodo, la cifra cambia |
+| **BSD-B35** | Doble cuenta, por ausencia: el `acquisitionCostCents` de una pieza del buylist sigue siendo el bruto (`buylist.service.ts:7529-7530` sin tocar) y la ganancia de una venta de esa pieza no cambia por BSD-1.2 | restar la tarifa del `acquisitionCostCents` al convertir ⇒ la tarifa entra dos veces |
+| **BSD-B36** | CSV: los cuatro campos al final, en el orden del objeto | cambiar el orden |
+
+**6. Construye:** **B-4** (backend fuerte, 💰): `admin/admin.service.ts` (`pnl()` y su CSV). ⛔ No toca `shipments/`, `jobs/` ni
+`buylist/`. Va en paralelo con B-2/B-3 tras B-1 (necesita `kind`). **frontend:** las filas en M7 (retenido y costo dentro de
+«costo de compras»; margen y contador como nota). **ux-ui:** etiquetas, p. ej. «Tarifa de envío retenida a vendedores»,
+«Guías de compra», «Margen de guías de compra», «Guías manuales sin costo».
