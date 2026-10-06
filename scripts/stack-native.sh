@@ -574,10 +574,21 @@ start_infra() {
   fi
 
   log "Redis"
+  # REDIS-MISCONF (2026-10-06, DEVOPS_NOTES §90): un redis-server arrancado SIN `--dir` toma
+  # como `dir` el cwd de quien lo lanzó. Lo lanzó un gate desde su scratchpad; al borrarse el
+  # scratchpad (O-20) el BGSAVE falló y, con `stop-writes-on-bgsave-error yes`, Redis rechazó
+  # TODA escritura (MISCONF) y tumbó las suites Redis de todos los árboles. `dir` es config
+  # protegida en Redis 7 (no se cambia en caliente), así que: arranque desde `/` y sin
+  # snapshots (`--save ""`: Redis local es efímero de pruebas), y si ya está arriba en MISCONF,
+  # se cura con `CONFIG SET save ""` (reversible, no reinicia, no pierde claves).
   if redis-cli ping >/dev/null 2>&1; then
     ok "ya respondía PONG."
+    if redis-cli INFO persistence 2>/dev/null | grep -q '^rdb_last_bgsave_status:err'; then
+      warn "Redis con rdb_last_bgsave_status:err (dir='$(redis-cli CONFIG GET dir 2>/dev/null | sed -n 2p)'): desactivo snapshots para salir de MISCONF."
+      redis-cli CONFIG SET save "" >/dev/null || die "No pude desactivar los snapshots de Redis (MISCONF)."
+    fi
   else
-    redis-server --daemonize yes || die "No pude arrancar redis-server."
+    ( cd / && redis-server --daemonize yes --save "" ) || die "No pude arrancar redis-server."
     for i in $(seq 1 20); do redis-cli ping >/dev/null 2>&1 && break; sleep 1; done
     redis-cli ping >/dev/null 2>&1 || die "Redis no respondió tras 20s."
     ok "arriba."
