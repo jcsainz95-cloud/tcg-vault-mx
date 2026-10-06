@@ -61,6 +61,7 @@ import type {
   VaultLocationDTO,
   VaultZone,
   AdminBuylistDTO,
+  OpenInboundShipmentRes,
   AdminSellerRef,
   RejectedSellItemDTO,
   AdminOrderDTO,
@@ -2724,6 +2725,19 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
  * `isTerminal`. **Exige sesión del dueño**: una solicitud ajena responde `404` (no `403`, para
  * no confirmar que existe), así que la pantalla trata el 404 como «no encontrada» sin más.
  */
+/**
+ * 💰 rev BSD-1 (§BSD.4.4) — **la etiqueta del vendedor** (`GET /buylist/requests/:id/label.pdf`, el dueño). Proxy: la sesión
+ * viaja en la cabecera (`requestBlob`) y la pantalla guarda un `blob:` — ⛔ nunca la URL de Skydropx. Errores tal cual:
+ * `404 NOT_FOUND` / `404 LABEL_NOT_AVAILABLE`, `409 SHIPPING_PROVIDER_NOT_CONFIGURED`, `502 SHIPPING_PROVIDER_ERROR`.
+ */
+export async function fetchSellRequestLabelPdf(id: string): Promise<BlobResponse> {
+  if (!config.useMocks) return requestBlob(`/buylist/requests/${id}/label.pdf`);
+  const req = fx.mockSellRequests.find((r) => r.sellRequestId === id);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  if (req.labelPdfAvailable !== true) throw new ApiClientError(404, { code: 'LABEL_NOT_AVAILABLE', message: 'No label' });
+  return delay({ blob: new Blob(['%PDF-1.4 MOCK'], { type: 'application/pdf' }), filename: `guia-${id.slice(0, 8)}.pdf` });
+}
+
 export async function getSellRequest(id: string): Promise<SellRequestDetailDTO> {
   if (!config.useMocks) return apiRequest<SellRequestDetailDTO>(`/buylist/requests/${id}`);
   // MOCK: el servidor falso proyecta lo que el backend real deriva (`isTerminal`) y adjunta la
@@ -4767,6 +4781,11 @@ export interface AdminBuylistFilters {
   maxCents?: number;
   page?: number;
   pageSize?: number;
+  /**
+   * 💰 rev BSD-1 (errata BSD-1.3 punto 4): solo las solicitudes cuya guía de ENTRADA tiene `labelAlert ≠ null` (clase L,
+   * se intersecta con los demás). Solo `true` filtra; ausente ⇒ no viaja.
+   */
+  inboundLabelAlert?: boolean;
 }
 
 /**
@@ -4794,6 +4813,7 @@ export async function getAdminBuylist(
         maxCents: filters.maxCents,
         page: filters.page,
         pageSize: filters.pageSize,
+        inboundLabelAlert: filters.inboundLabelAlert === true ? 'true' : undefined,
       },
     });
   }
@@ -4809,6 +4829,8 @@ export async function getAdminBuylist(
   // derivar—, no contra una lista de estados vivos. Se intersecta con `status`, igual que el real.
   if (filters.live !== undefined) data = data.filter((r) => r.isTerminal !== filters.live);
   if (filters.userId) data = data.filter((r) => r.userId === filters.userId);
+  // MOCK: `?inboundLabelAlert=true` — el veredicto ya viene en la fila (`inboundShipment.labelAlert`), como en el real.
+  if (filters.inboundLabelAlert === true) data = data.filter((r) => !!r.inboundShipment?.labelAlert);
   const q = filters.q?.trim().toLowerCase();
   if (q) {
     data = data.filter(
@@ -5253,6 +5275,61 @@ export async function declineBuylistRequest(id: string, input: { reason?: string
   }
   req.status = 'expirada';
   req.expiredReason = 'no_offer';
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
+}
+
+/**
+ * 💰 rev BSD-1 (§BSD.5) — **detalle admin de una solicitud** (`GET /admin/buylist/:id`, operador+). Es la única fuente de
+ * `inboundLabelOptions` (por actor; la lista no lo trae) y de la ficha de una `aceptada` en M5.
+ */
+export async function getAdminBuylistRequest(id: string): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}`);
+  const req = mockFindBuylistRequest(id);
+  // MOCK: sin Skydropx en el servidor falso ⇒ `provider:'off'` (la ficha ofrece solo la captura a mano).
+  return delay({
+    ...fx.mockAdminBuylistDTO({ ...req, seller: req.seller ?? mockSellerFor(req.userId) }),
+    inboundLabelOptions: req.inboundLabelOptions ?? { provider: 'off', purchase: 'disabled', canPurchase: false },
+  });
+}
+
+/**
+ * 💰 rev BSD-1 (§BSD.4.1) — **abrir (o recuperar) la guía de ENTRADA** (`POST /admin/buylist/:id/inbound-shipment`,
+ * operador+, sin cuerpo, idempotente). Devuelve la fila de `ShipmentRequest` (`kind='buylist_inbound'`) que la ventana
+ * «Capturar guía» abre con `GET /admin/shipments/:id`. ⛔ No gasta: la compra es `POST /admin/shipments/:id/label`.
+ * Errores: `404 FEATURE_DISABLED`, `409 GUIDE_NOT_ALLOWED {status, reason}`, `409 SHIPMENT_ALREADY_LABELED
+ * {labelSource:'manual'}`, `422 PICKUP_ADDRESS_MISSING`.
+ */
+export async function openBuylistInboundShipment(id: string): Promise<OpenInboundShipmentRes> {
+  if (!config.useMocks) return apiRequest<OpenInboundShipmentRes>(`/admin/buylist/${id}/inbound-shipment`, { method: 'POST', body: {} });
+  // MOCK: el servidor falso no tiene Skydropx (ver `getAdminBuylistRequest`).
+  mockFindBuylistRequest(id);
+  throw new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'Skydropx is off (mock)' });
+}
+
+/**
+ * 💰 rev BSD-1 (§BSD.6) — **«Declinar» en «Aceptada»** (`POST /admin/buylist/:id/decline-accepted`, operador+). `reason`
+ * OBLIGATORIO (3–500 tras `trim`, interno: va a la bitácora, ⛔ nunca al vendedor). ⇒ `expirada` + `not_continued` y
+ * correo BSD-M1. ⛔ Sin `200` idempotente (segundo intento ⇒ `409 DECLINE_NOT_ALLOWED {status, reason}`). ⛔ Esta
+ * función NO reintenta: ante `5xx`/red la pantalla RELEE la solicitud (§BSD-UX.6b).
+ */
+export async function declineAcceptedBuylistRequest(id: string, input: { reason: string }): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/decline-accepted`, { method: 'POST', body: { reason: input.reason.trim() } });
+  }
+  const req = mockFindBuylistRequest(id);
+  const reason = input.reason.trim();
+  if (reason.length < 3 || reason.length > 500) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'reason', details: { field: 'reason' } });
+  }
+  if (req.status !== 'aceptada' || req.sellerShippedDeclaredAt) {
+    throw new ApiClientError(409, {
+      code: 'DECLINE_NOT_ALLOWED',
+      message: 'Sell request cannot be declined in its current state',
+      details: { status: req.status, reason: req.status !== 'aceptada' ? 'status' : 'seller_declared_shipped' },
+    });
+  }
+  req.status = 'expirada';
+  req.expiredReason = 'not_continued';
   return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 

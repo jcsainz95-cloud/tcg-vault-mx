@@ -1379,6 +1379,9 @@ export type MockSellRequestRow = Omit<SellRequestDTO, 'isTerminal'> & {
   offerAcceptedAt?: string | null;
   /** v1.51.3 (D36/D37): snapshot de la dirección de ORIGEN. */
   pickupAddress?: PickupAddressSnapshotDTO | null;
+  /** 💰 rev BSD-1: la guía del vendedor (`SellRequest.shipmentCarrier/shipmentTrackingNumber`), que viaja en `offer`. */
+  offerCarrier?: string | null;
+  offerTrackingNumber?: string | null;
 };
 
 /**
@@ -1417,6 +1420,8 @@ export function mockSellRequestDTO(row: MockSellRequestRow): SellRequestDTO {
     offerAcceptDeadlineAt: _offerAcceptDeadlineAt,
     offerAcceptedAt: _offerAcceptedAt,
     pickupAddress: _pickupAddress,
+    offerCarrier: _offerCarrier,
+    offerTrackingNumber: _offerTrackingNumber,
     ...dto
   } = row;
   return { ...dto, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
@@ -1463,8 +1468,8 @@ export function mockSellOffer(
     acceptedAt: row.offerAcceptedAt ?? null,
     shipDeadlineAt: null,
     sellerShippedDeclaredAt: null,
-    carrier: null,
-    trackingNumber: null,
+    carrier: row.offerCarrier ?? null,
+    trackingNumber: row.offerTrackingNumber ?? null,
     terms: mockOfferTerms(locale),
     lines: row.items,
   };
@@ -1742,6 +1747,53 @@ export const mockSellRequests: MockSellRequestRow[] = [
       { id: 'sri-off-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 84000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 84000 },
       { id: 'sri-off-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 18000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 18000 },
       { id: 'sri-off-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 3000, itemStatus: 'cotizada', offerDecision: 'skip', offeredPriceCents: null },
+    ],
+  },
+  /**
+   * 💰 rev BSD-1 (§BSD-UX.4b) — `aceptada` con guía de ENTRADA de Skydropx viva: `labelPdfAvailable = true` (lo DERIVA el
+   * servidor; aquí es columna de la fila falsa). El portal pinta «Tu guía» y «Ventas» su enlace de descarga.
+   */
+  {
+    sellRequestId: 'sr-3004',
+    status: 'aceptada',
+    quotedTotalCents: 84000,
+    ineRequired: false,
+    createdAt: '2026-09-28T14:00:00Z',
+    offerState: 'sent',
+    offerSentAt: '2026-09-29T18:00:00Z',
+    offerGrossCents: 84000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 66000,
+    offerAcceptDeadlineAt: '2026-10-02T18:00:00Z',
+    offerAcceptedAt: '2026-09-30T10:00:00Z',
+    offerCarrier: 'Paquetexpress',
+    offerTrackingNumber: 'PQX123456789',
+    labelPdfAvailable: true,
+    items: [
+      { id: 'sri-lbl-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 84000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 84000 },
+    ],
+  },
+  /**
+   * 💰 rev BSD-1 (§BSD-UX.4a) — `expirada` + `not_continued`: «decidimos no continuar». ⚠️ El servidor falso deja los
+   * montos de la OFERTA a propósito (peor caso): la pantalla los oculta igual (segundo cinturón de BSD-1.4 punto 8).
+   */
+  {
+    sellRequestId: 'sr-3005',
+    status: 'expirada',
+    expiredReason: 'not_continued',
+    quotedTotalCents: 84000,
+    ineRequired: false,
+    createdAt: '2026-09-20T14:00:00Z',
+    offerState: 'sent',
+    offerSentAt: '2026-09-21T18:00:00Z',
+    offerGrossCents: 84000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 66000,
+    offerAcceptDeadlineAt: '2026-09-24T18:00:00Z',
+    offerAcceptedAt: '2026-09-22T10:00:00Z',
+    labelPdfAvailable: false,
+    items: [
+      { id: 'sri-nc-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 84000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 84000 },
     ],
   },
 ];
@@ -4469,7 +4521,13 @@ export const mockPnl: PnlDTO = {
   refundsCents: 35_000,
   refundedFeesCents: 1_400,
   compensationsCents: 12_000,
-  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800 - 35_000 - 1_400 - 12_000,
+  // 💰 rev BSD-1 (§BSD.16.2): tarifa retenida (suma) y guías para recibir cartas (resta); margen y contador informativos.
+  // El margen NO es la resta de los dos (se miden en días distintos): 1 517 con 18 000 y 21 552 (BSD-B34 / UX-BSD-13).
+  buylistShippingFeeRetainedCents: 18_000,
+  buylistGuideCostCents: 21_552,
+  buylistGuideMarginCents: 1_517,
+  buylistGuideCostMissingCount: 1,
+  profitCents: 1_250_000 + 52_500 - 640_000 + 18_000 - 21_552 - 48_300 - 31_800 - 35_000 - 1_400 - 12_000,
 };
 
 // v1.28 (P-24): breakdown por tipo — campos top-level = Σ del breakdown (invariante del contrato).

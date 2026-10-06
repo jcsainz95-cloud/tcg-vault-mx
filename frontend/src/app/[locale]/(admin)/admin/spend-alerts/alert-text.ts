@@ -161,6 +161,12 @@ export function alertText(t: T, a: SpendAlertDTO, ctx: AlertTextCtx): string {
       const settings = joinAnd(t, labels.length ? labels : [ctx.ownerSetting('other')]);
       return t(`kind.AG-22.act.${key}`, { person: who, target, owner: tp ? name : t('kind.AG-22.targetNone'), settings });
     }
+    case 'AG-23': {
+      // 💰 rev BSD-1 (DESIGN_SYSTEM §BSD-UX.3): SOLO `facts = {sellRequestId, closesAt, offerGrossCents}` (GAS-4); ⛔ PII del
+      // vendedor (GAS-2). La fecha de cierre la manda el servidor: ⛔ «lleva N días» / «en N días» (BX5).
+      const closesAt = str(f.closesAt);
+      return t('kind.AG-23.text', { folio: str(f.sellRequestId) ?? none, closesAt: closesAt ? ctx.dateTime(closesAt) : none, gross: m(f.offerGrossCents) });
+    }
     default:
       return t('kind.generic.text');
   }
@@ -188,6 +194,8 @@ export const FACT_MONEY = [
   'marginCents',
   'recommendedPriceCents',
   'overRecommendedCents',
+  // 💰 rev BSD-1 (AG-23): el valor de las cartas en la oferta.
+  'offerGrossCents',
 ] as const;
 export const FACT_INT = ['revisionCount', 'cancelledCount', 'unknownRefunds', 'daysSincePurchase', 'pct'] as const;
 export const FACT_WHITELIST = [
@@ -202,4 +210,7 @@ export const FACT_WHITELIST = [
   'cause',
   'status',
   'providerReference',
+  // 💰 rev BSD-1 (AG-23, UX-GAS-6): las tres claves de su `facts` y ninguna otra.
+  'sellRequestId',
+  'closesAt',
 ] as const;

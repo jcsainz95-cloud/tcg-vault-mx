@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
 import { useBuylistSteps } from '@/lib/pipelines';
+import { SellerLabelLink } from './requests/[id]/SellerLabelBlock';
 
 export interface MyRequestsSectionProps {
   /** `false` durante SSR/hidratación (patrón useSession): no consultar ni pintar gating aún. */
@@ -79,7 +80,7 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
               <EmptyState title={t('noRequests')} action={emptyAction} />
             ) : (
               requests.data!.map((r) => {
-                const hasPendingItems = r.items.some((it) => it.quotedPriceCents == null);
+
                 // F5: `ajustada` es item-level (no request-level) → se detecta por ítem.
                 const adjustedItems = r.items.filter((it) => it.itemStatus === 'ajustada');
                 const hasAdjustedItems = adjustedItems.length > 0;
@@ -87,6 +88,12 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
                   (s, it) => s + (it.approvedPriceCents ?? 0),
                   0,
                 );
+                // 💰 rev BSD-1 (errata BSD-1.4 punto 8, §BSD-UX.4a): en `no_offer` y `not_continued` el servidor manda los
+                // montos a `null` — sin esto la lista pintaba «MX$0.00» (y «pendiente» en cada carta) junto a un cierre.
+                const hideMoney =
+                  r.status === 'expirada' && (r.expiredReason === 'no_offer' || r.expiredReason === 'not_continued');
+                // Con los montos redactados no hay «precio pendiente»: hay un cierre (BSD-1.4 punto 8).
+                const hasPendingItems = !hideMoney && r.items.some((it) => it.quotedPriceCents == null);
                 const responding =
                   respondMutation.isPending && respondMutation.variables?.id === r.sellRequestId;
                 return (
@@ -104,9 +111,11 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
                           reason={r.expiredReason}
                         />
                       </span>
-                      <span className="tabular text-sm font-medium text-text">
-                        {formatMoneyCents(r.quotedTotalCents, locale)}
-                      </span>
+                      {!hideMoney && r.quotedTotalCents != null && (
+                        <span className="tabular text-sm font-medium text-text">
+                          {formatMoneyCents(r.quotedTotalCents, locale)}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mt-5">
@@ -134,7 +143,7 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
                           <span className="flex items-center gap-4">
                             {/* Ajustada: el precio vigente es el ajustado (approvedPriceCents),
                                 con el original tachado para que el cliente compare. */}
-                            {it.itemStatus === 'ajustada' && it.approvedPriceCents != null ? (
+                            {hideMoney ? null : it.itemStatus === 'ajustada' && it.approvedPriceCents != null ? (
                               <span className="flex items-center gap-2">
                                 {it.quotedPriceCents != null && (
                                   <span className="tabular text-[11px] text-muted line-through">
@@ -217,6 +226,9 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
                         oferta, pero no puede ser SOLO eso: quien borró el correo, o entra desde
                         la app, tiene que poder llegar a su oferta —y a los tres montos— sin
                         depender de una bandeja de entrada. */}
+                    {/* 💰 rev BSD-1 (§BSD-UX.4b punto 2): la descarga sin entrar ⇔ `labelPdfAvailable === true` (BSD-1.1 C-1:
+                        viaja también en la LISTA). ⛔ Nunca por el número de guía. */}
+                    {r.labelPdfAvailable === true && <SellerLabelLink sellRequestId={r.sellRequestId} />}
                     <Link
                       href={`/buylist/requests/${r.sellRequestId}`}
                       className="mt-4 inline-block border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"

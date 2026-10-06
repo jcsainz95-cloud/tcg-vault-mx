@@ -1003,7 +1003,21 @@
       "notFoundBody": "Revisa el enlace del correo, o entra con la cuenta con la que creaste la solicitud.",
       "loginTitle": "Entra con tu cuenta para ver tu oferta",
       "loginBody": "Entrarás con tu cuenta: esta oferta no se acepta desde un enlace del correo.",
-      "viewRequestCta": "Ver esta solicitud"
+      "viewRequestCta": "Ver esta solicitud",
+      "closedNotContinued": "Tras una revisión adicional, decidimos no continuar con esta venta. La solicitud queda cerrada y no se compró ninguna carta.",
+      "pickupLockedInProgress": "Estamos generando tu guía con esta dirección: ya no se puede cambiar. Si está mal, escríbenos a {email}.",
+      "label": {
+        "title": "Tu guía",
+        "body": "Ya pagamos tu guía con {carrier}. Imprímela, pégala en tu paquete y llévalo a una sucursal de {carrier}.",
+        "bodyNoCarrier": "Ya pagamos tu guía. Imprímela, pégala en tu paquete y llévalo a una sucursal de la paquetería que dice la guía.",
+        "tracking": "Número de guía: {tracking}",
+        "download": "Descargar mi guía (PDF)",
+        "downloading": "Descargando…",
+        "alsoInEmail": "También va adjunta en el correo que te mandamos.",
+        "downloadShort": "Descargar guía (PDF)",
+        "errorUnavailable": "Esta guía ya no está disponible para descargar. Si la cambiamos, te mandamos la nueva por correo.",
+        "errorTemporary": "No pudimos traer tu guía en este momento. Vuelve a intentarlo en unos minutos; también va adjunta en el correo que te mandamos."
+      }
     },
     "adjust": {
       "title": "Ajuste de precio propuesto",
@@ -1373,7 +1387,9 @@
         "processing": "{n, plural, one {# guía en proceso} other {# guías en proceso}}",
         "lowBalance": "Queda poco saldo en Skydropx: comprar guías puede fallar hasta que se recargue.",
         "seeBalance": "Ver el saldo"
-      }
+      },
+      "buylistGuideDue": "{n, plural, one {# solicitud aceptada sin guía se cierra sola pronto} other {# solicitudes aceptadas sin guía se cierran solas pronto}}",
+      "buylistInboundLabelAlert": "{n, plural, one {# solicitud de venta con alerta en su guía} other {# solicitudes de venta con alerta en su guía}}"
     },
     "m1": {
       "title": "Inventario",
@@ -2128,6 +2144,51 @@
             "not_calibrated": "Aún no podemos comprobar solos que una guía no se creó.",
             "duplicate": "Skydropx creó dos guías para esta misma compra.",
             "none": "Todavía estamos terminando la comprobación."
+          },
+          "inbound": {
+            "title": "Guía del vendedor a la tienda",
+            "ref": "Solicitud de venta {sellRequestId} · Envío {folio}",
+            "originTitle": "Sale de · el vendedor",
+            "sender": "Quién envía",
+            "senderMissing": "Falta quién envía",
+            "senderHint": "Nombre de quien entrega el paquete. Va en la etiqueta.",
+            "senderSuggestion": "Sugerencia: {sellerName} (el nombre de su cuenta).",
+            "useSuggestion": "Usar este nombre",
+            "scopeNote": "Esto corrige solo el origen de esta guía. La dirección guardada en la cuenta del vendedor y la de su solicitud no cambian.",
+            "resyncNote": "Si el vendedor cambia su dirección antes de que compres la guía, esta corrección se sustituye por la suya.",
+            "senderRequired": "Escribe quién envía.",
+            "destinationTitle": "Llega a · la tienda",
+            "destinationName": "Nombre",
+            "destinationNote": "Es la dirección de la tienda en «Configuración › Envíos». Esta guía siempre llega ahí: no se cambia aquí.",
+            "feeDeducted": "Se le descuenta al vendedor: {fee} (la tarifa fija de su oferta).",
+            "boxValue": "Lo que va en la caja vale {value}: lo que le vamos a pagar por las cartas.",
+            "marginNegative": "Margen: −{abs} — esta guía cuesta más de lo que se le descuenta",
+            "pickupYes": "Ofrece recolección (no se agenda: el vendedor lo lleva a sucursal)",
+            "pickupNo": "Sin recolección: el vendedor lo lleva a una sucursal de {carrierLabel}",
+            "deliveryHome": "Entrega en la tienda",
+            "deliveryBranch": "No entrega en la tienda: habría que ir a recogerlo a una sucursal",
+            "showBranch": "Ver también {count, plural, one {# opción que no entrega} other {# opciones que no entregan}} en la tienda",
+            "hideBranch": "Ocultar las opciones que no entregan en la tienda",
+            "noRecommended": "Ninguna opción entrega en la tienda. Elige una sabiendo que habrá que ir a recogerla, o captura la guía a mano.",
+            "confirmNegative": "Margen negativo: −{abs}. Esta guía cuesta más que la tarifa que se le descuenta al vendedor. Si compras, lo confirmas.",
+            "confirmBranch": "Esta opción no entrega en la tienda: alguien tendrá que ir a recogerlo a una sucursal. Si compras, lo confirmas.",
+            "sentToSeller": "Le mandamos al vendedor su guía en PDF; desde ahora corre su plazo para enviarla.",
+            "processingNote": "Cuando llegue el número, le mandamos su guía al vendedor y empieza su plazo. Mientras, la solicitud no se cierra sola.",
+            "bought": "Guía comprada para la solicitud {id}: {carrier} · {tracking}. Le mandamos su guía al vendedor.",
+            "manualIntro": "Para una guía que ya compraste en el panel de Skydropx o con otra paquetería. Al vendedor le llega por correo igual que hoy.",
+            "reissueBody": "Se cancela en Skydropx y el saldo regresa; si Skydropx no devuelve todo, la diferencia queda como ajuste. La solicitud vuelve a «sin guía»: el plazo del vendedor se detiene y la cuenta para el cierre automático empieza de nuevo hoy. Cuando compres la nueva, al vendedor le llega con la nota de que sustituye a la anterior.",
+            "reissueNotAccepted": "La solicitud ya no está aceptada ({status}): la guía no se cambia desde aquí.",
+            "reissueSellerShipped": "El vendedor ya dijo que mandó el paquete: esta guía ya no se cambia.",
+            "error": {
+              "featureDisabled": "La compra de guías con Skydropx está apagada. No se abrió nada: captura la guía a mano.",
+              "notAccepted": "Esta solicitud ya no está aceptada ({status}). No se abrió ni se cobró nada.",
+              "sellerShipped": "El vendedor ya dijo que mandó el paquete: ya no se genera guía. No se cobró nada.",
+              "manualExists": "Esta solicitud ya tiene una guía capturada a mano. No se cobró nada.",
+              "noPickupAddress": "Esta solicitud no guardó la dirección del vendedor (es de antes de que se guardara) y Skydropx no cotiza sin ella. Captura la guía a mano.",
+              "senderMissingQuote": "Falta quién envía y Skydropx no cotiza sin ese dato. Escríbelo (puedes usar el nombre de su cuenta) y guarda. No se cotizó nada.",
+              "storeAddressMissing": "Falta la dirección de la tienda en «Configuración › Envíos», y es el destino de esta guía. No se cotizó nada: complétala ahí o captura la guía a mano.",
+              "destinationRejected": "El servidor rechazó la petición porque llevaba un destino: el de esta guía es siempre la tienda. No se cotizó ni se cobró nada. Recarga la página."
+            }
           }
         }
       },
@@ -3009,7 +3070,7 @@
         "reasonTooLong": "El motivo no puede pasar de 500 caracteres.",
         "readOnlyByStatus": {
           "ofertada": "La oferta ya salió y el vendedor la tiene. Para cambiarla o cerrarla, usa «Cancelar la oferta» en la solicitud.",
-          "aceptada": "El vendedor aceptó: la solicitud ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, con su motivo.",
+          "aceptada": "El vendedor aceptó. Genera su guía para que mande las cartas; si ya no quieres comprarlas, puedes declinarla mientras no diga que ya las mandó.",
           "en_transito": "El paquete viene en camino. Cuando llegue, pulsa «Recibida: empezar revisión» y rechaza ahí las cartas que vengan mal.",
           "review": "Está en revisión: aprueba o rechaza cada carta en la solicitud, o marca varias y «Rechazar seleccionadas».",
           "done": "Esta solicitud ya no tiene nada que decidir aquí."
@@ -3106,7 +3167,7 @@
         "goVerifying": "Ir a «Verificando»",
         "verifyFailed": "La marcamos como recibida, pero no se pudo abrir la revisión. Pulsa «Iniciar verificación»."
       },
-      "acceptedNote": "Aceptada: ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo.",
+      "acceptedNote": "Aceptada. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo.",
       "notBought": {
         "tag": "NO COMPRADA",
         "note": "Se marcó como no comprada al ofertar: no se aprueba ni se rechaza."
@@ -3132,6 +3193,47 @@
           "closed": "Esta solicitud ya está cerrada: sus cartas ya no se tocan. No se guardó nada.",
           "notFound": "Alguna carta ya no es de esta solicitud. Actualizamos la lista. No se guardó nada."
         }
+      },
+      "inbound": {
+        "generate": "Generar guía con Skydropx",
+        "summary": "Guía de Skydropx: {carrier} · {tracking}",
+        "cost": "Costo de la guía: {cost}",
+        "processing": "Guía en proceso: el número llega solo. Mientras, la solicitud no se cierra sola.",
+        "costFromProvider": "El costo de esta guía lo dio Skydropx ({cost}): no se captura aquí.",
+        "alreadySkydropx": "Esta solicitud ya tiene una guía comprada en Skydropx. No se guardó la guía a mano: para cambiarla, cancélala y compra otra.",
+        "inProgress": "Hay una compra de guía en curso para esta solicitud. No se guardó nada; espera a que termine.",
+        "preparing": "Preparando la guía…",
+        "alertFilter": "Solo solicitudes con alerta en su guía de entrada",
+        "openLabel": "Abrir guía"
+      },
+      "declineAccepted": {
+        "action": "Declinar",
+        "title": "Declinar esta solicitud aceptada",
+        "body": "Se cierra la solicitud y al vendedor le llega el correo de «no continuamos», el mismo que si se cerrara sola. No se puede reabrir; si quiere vender, tendrá que cotizar de nuevo. No cuenta en su contra.",
+        "bodySdx": "Su guía de Skydropx ({carrier} · {tracking}) se cancela sola y el saldo regresa, si la paquetería todavía no la movió; si no se puede, queda en «Guías por cancelar».",
+        "bodyManual": "Tiene una guía capturada a mano ({carrier} · {tracking}): queda en «Guías por cancelar» para que la canceles.",
+        "bodyInProgress": "Hay una compra de guía en curso: si termina, la guía se cancela sola.",
+        "reasonLabel": "Motivo (interno, obligatorio)",
+        "reasonHint": "De 3 a 500 caracteres. Queda en la bitácora; el vendedor no lo verá.",
+        "reasonTooShort": "Escribe el motivo (3 caracteres o más) para poder declinar.",
+        "confirm": "Declinar y avisarle",
+        "back": "Volver",
+        "done": "Solicitud {id} declinada: quedó cerrada y al vendedor le llega el correo de «no continuamos».",
+        "error": {
+          "status": "Esta solicitud ya no está aceptada ({status}). No se declinó; abajo ves cómo quedó.",
+          "sellerShipped": "El vendedor ya dijo que mandó el paquete: ya no se declina. Recíbelo y, si hace falta, rechaza las cartas al revisarlas.",
+          "shipmentConfirmed": "El envío ya está confirmado: ya no se declina. Recíbelo y revisa las cartas.",
+          "reason": "Escribe el motivo: de 3 a 500 caracteres. No se declinó.",
+          "forbidden": "Tu cuenta no puede declinar solicitudes.",
+          "unknown": "No sabemos si se declinó: el servidor no respondió. Revisamos la solicitud…",
+          "notDone": "No se declinó: el servidor no respondió. Vuelve a intentarlo."
+        }
+      },
+      "guideDue": {
+        "line": "Sin guía: se cierra sola el {datetime} si para entonces no tiene guía.",
+        "tag": "Se cierra sola",
+        "note": "Al cerrarse, al vendedor le llega el correo de «no continuamos» y no cuenta en su contra. Para evitarlo, genera su guía o declínala tú.",
+        "inDays": "{n, plural, =0 {hoy} one {en # día} other {en # días}}"
       }
     },
     "m2": {
@@ -4837,7 +4939,9 @@
         "groups": {
           "deadlines": "Plazos (días hábiles)",
           "amounts": "Montos (MX$)",
-          "alerts": "Alertas y sugerencias"
+          "alerts": "Alertas y sugerencias",
+          "buylistGuideClose": "Cierre sin guía (días naturales)",
+          "buylistGuideCloseNote": "Cuentan sábados y domingos. A diferencia del resto del grupo, aplican también a las solicitudes en curso: se leen cada día."
         },
         "labels": {
           "buylistOfferIssueDeadlineBusinessDays": "Plazo para mandar la oferta",
@@ -4849,7 +4953,9 @@
           "buylistOperatorOfferCapCents": "Oferta máxima sin autorización",
           "buylistShipmentConfirmAlertBusinessDays": "Alerta de envío sin confirmar",
           "buylistOfferReissueAlertCount": "Alerta por ofertas canceladas",
-          "buylistVariantPositionCap": "Tope de copias por variante (sugerencia)"
+          "buylistVariantPositionCap": "Tope de copias por variante (sugerencia)",
+          "buylistGuideCloseCalendarDays": "Cierre de una aceptada sin guía",
+          "buylistGuideWarnDaysBeforeClose": "Aviso antes del cierre sin guía"
         },
         "help": {
           "buylistOfferIssueDeadlineBusinessDays": "Días hábiles que tenemos para ofertar. Si se vencen, la solicitud se cierra y el vendedor recibe el correo de «no procederemos».",
@@ -4861,7 +4967,9 @@
           "buylistOperatorOfferCapCents": "Arriba de este bruto, la oferta la autoriza el súper-admin antes de salir. El monto exacto sale sin autorización.",
           "buylistShipmentConfirmAlertBusinessDays": "Días hábiles tras «ya lo mandé» para marcar la solicitud en alerta. No vence nada.",
           "buylistOfferReissueAlertCount": "A partir de cuántas cancelaciones de una oferta ya enviada se marca la solicitud en alerta. No bloquea ni sale en correos.",
-          "buylistVariantPositionCap": "Con esta cantidad, la mesa sugiere «no comprar» en cartas sin bounty. Nunca bloquea."
+          "buylistVariantPositionCap": "Con esta cantidad, la mesa sugiere «no comprar» en cartas sin bounty. Nunca bloquea.",
+          "buylistGuideCloseCalendarDays": "Días naturales desde que el vendedor aceptó (o desde que se canceló su guía para cambiarla). Si para entonces no tiene guía, se cierra sola y le llega el correo de «no continuamos». No cuenta en su contra.",
+          "buylistGuideWarnDaysBeforeClose": "Cuántos días naturales antes del cierre se marca la solicitud y te llega un correo. 0 = sin aviso. Si pones tantos días como el cierre o más, el aviso sale al día siguiente de aceptar."
         },
         "rule": {
           "buylistOfferIssueDeadlineBusinessDays": "Número entero, 1 o más.",
@@ -4873,7 +4981,9 @@
           "buylistOperatorOfferCapCents": "En pesos, 0 o más.",
           "buylistShipmentConfirmAlertBusinessDays": "Número entero, 1 o más.",
           "buylistOfferReissueAlertCount": "Número entero, 1 o más.",
-          "buylistVariantPositionCap": "Número entero, 1 o más."
+          "buylistVariantPositionCap": "Número entero, 1 o más.",
+          "buylistGuideCloseCalendarDays": "Número entero, de 1 a 60.",
+          "buylistGuideWarnDaysBeforeClose": "Número entero, de 0 a 30."
         },
         "checkFields": "Revisa los campos marcados. No se guardó nada.",
         "cross": "La guía que se descuenta ({fee}) más el mínimo que recibe el vendedor ({net}) no puede pasar del mínimo para cotizar ({min}). No se guardó nada.",
@@ -4892,7 +5002,7 @@
       },
       "pnl": {
         "title": "Estado de resultados (P&L)",
-        "formula": "Ingresos + ingreso por envío − costo de lo vendido − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.",
+        "formula": "Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para recibir cartas de vendedores − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.",
         "income": "Ingresos (ventas)",
         "shippingRevenue": "Ingreso por envío (cobrado)",
         "cogs": "Costo de lo vendido",
@@ -4906,7 +5016,13 @@
         "refundedFees": "Comisión de plataforma devuelta",
         "compensations": "Compensaciones por carta perdida",
         "signAdds": "suma",
-        "signSubtracts": "resta"
+        "signSubtracts": "resta",
+        "buylistFeeRetained": "Tarifa de envío descontada a vendedores",
+        "buylistGuideCost": "Guías para recibir cartas de vendedores",
+        "buylistGuideMargin": "Margen de las guías de vendedores",
+        "buylistGuideMarginHelp": "Lo descontado menos lo que costó la guía, en las solicitudes pagadas en este periodo. Las guías de Skydropx cuentan sin IVA; las hechas a mano, con el costo que capturaste. Ya está dentro de los dos renglones de arriba y no se suma otra vez. No siempre coincide con restarlos: la guía cuenta el día que se compra y el descuento, el día que se paga.",
+        "buylistGuideMarginNegative": "En este periodo las guías costaron más de lo que se descontó a los vendedores.",
+        "buylistGuideCostMissing": "{count, plural, one {# solicitud pagada usó una guía hecha a mano sin costo capturado: su guía cuenta como si hubiera costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.} other {# solicitudes pagadas usaron una guía hecha a mano sin costo capturado: sus guías cuentan como si hubieran costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.}}"
       },
       "values": {
         "title": "Valor de inventario y custodia",
@@ -5819,7 +5935,10 @@
         "cancelKind": "Cómo se canceló",
         "cause": "Causa",
         "status": "Estado de la paquetería",
-        "providerReference": "Folio en Skydropx"
+        "providerReference": "Folio en Skydropx",
+        "sellRequestId": "Solicitud de venta",
+        "closesAt": "Se cierra",
+        "offerGrossCents": "Valor de las cartas en la oferta"
       },
       "noData": "sin dato",
       "ref": {
@@ -5947,6 +6066,10 @@
         "generic": {
           "title": "Aviso {code}",
           "text": "Abre el aviso para ver los datos."
+        },
+        "AG-23": {
+          "title": "Solicitud de venta sin guía",
+          "text": "La solicitud de venta {folio} sigue aceptada y sin guía: se cierra sola el {closesAt} si para entonces no tiene guía. Valor de sus cartas en la oferta: {gross}."
         }
       },
       "prev": "Anterior",
@@ -5997,7 +6120,8 @@
     "sellRequestExpiry": {
       "not_shipped": "Sin envío",
       "no_offer": "No procedió",
-      "unknown": "Expirada"
+      "unknown": "Expirada",
+      "not_continued": "No continuó"
     },
     "sellItem": {
       "cotizada": "Cotizada",

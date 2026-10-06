@@ -21,6 +21,7 @@ import {
   type LabelPendingDTO,
 } from '@/types/contract';
 import { TAG } from './prep-shared';
+import { useSellStatusLabel } from './capture/sell-status';
 
 /**
  * Las piezas de la guía de Skydropx que comparten la tarjeta de «Preparar» y la fila de «Envíos»
@@ -36,6 +37,8 @@ function useInvalidateShipments() {
     void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
     void qc.invalidateQueries({ queryKey: PICKING_SUMMARY_KEY });
     void qc.invalidateQueries({ queryKey: ['departure-board'] });
+    // 💰 rev BSD-1: la guía de ENTRADA se ve en M5 (ficha y lista).
+    void qc.invalidateQueries({ queryKey: ['admin-buylist'] });
   };
 }
 
@@ -369,6 +372,7 @@ export function CancelLabelDialog({
   trackingNumber,
   onClose,
   onDone,
+  inbound = false,
 }: {
   open: boolean;
   variant: 'reissue' | 'retry';
@@ -376,8 +380,11 @@ export function CancelLabelDialog({
   trackingNumber: string;
   onClose: () => void;
   onDone: (msg: string) => void;
+  /** 💰 rev BSD-1 (§BSD-UX.6a, §BSD.4.6): la guía de ENTRADA (re-emitir re-ancla el cierre de la solicitud). */
+  inbound?: boolean;
 }) {
   const t = useTranslations('admin.m4.label.cancel');
+  const sellStatus = useSellStatusLabel();
   const tr = useTranslations('admin.m4.labelAlert.retryDialog');
   const tCarrier = useTranslations('admin.m4.carrierStatus');
   const tStatus = useTranslations('status.shipment');
@@ -399,6 +406,9 @@ export function CancelLabelDialog({
     onSuccess: (res) => {
       invalidate();
       if (variant === 'retry') onDone(res.outcome === 'cancelled' ? tr('done') : tr('already'));
+      // 💰 rev BSD-1: `done` dice «el envío volvió a preparado» (salida); en entrada la ficha de M5 se relee y lo muestra
+      // (vuelve «Generar guía»). Sin copy propio diseñado ⇒ sin frase (ver FRONTEND_NOTES §BSD).
+      else if (inbound) onDone(res.outcome === 'cancelled' ? '' : t('already'));
       else onDone(res.outcome === 'cancelled' ? t('done') : t('already'));
       onClose();
     },
@@ -412,6 +422,11 @@ export function CancelLabelDialog({
         return setError([t('rejected'), typeof d.providerMessage === 'string' && d.providerMessage ? tSdx('error.providerSays', { message: d.providerMessage }) : ''].filter(Boolean).join(' '));
       }
       if (err.code === 'LABEL_NOT_CANCELLABLE') {
+        // 💰 §BSD.4.6: las dos guardas de la SOLICITUD sobre la fila de entrada.
+        if (d.reason === 'sell_request_status') {
+          return setError(tSdx('inbound.reissueNotAccepted', { status: sellStatus(d.status) }));
+        }
+        if (d.reason === 'seller_declared_shipped') return setError(tSdx('inbound.reissueSellerShipped'));
         if (d.reason === 'already_picked_up') return setError(t('pickedUp', { status: carrier(d.carrierStatus) }));
         if (d.reason === 'status') return setError(t('status', { status: status(d.status) }));
         if (d.reason === 'not_provider') return setError(t('notProvider'));
@@ -436,7 +451,7 @@ export function CancelLabelDialog({
       }
     >
       <div className="flex flex-col gap-3">
-        <p className="text-sm text-text">{variant === 'retry' ? tr('body') : t('body')}</p>
+        <p className="text-sm text-text">{variant === 'retry' ? tr('body') : inbound ? tSdx('inbound.reissueBody') : t('body')}</p>
         <Textarea label={t('reason')} hint={t('reasonHint')} value={reason} onChange={(e) => setReason(e.target.value)} />
         {error && (
           <Banner variant="danger" role="alert">

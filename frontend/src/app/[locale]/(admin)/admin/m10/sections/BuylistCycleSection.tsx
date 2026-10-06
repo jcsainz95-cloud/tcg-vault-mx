@@ -24,7 +24,9 @@ type CycleKey =
   | 'buylistOperatorOfferCapCents'
   | 'buylistShipmentConfirmAlertBusinessDays'
   | 'buylistOfferReissueAlertCount'
-  | 'buylistVariantPositionCap';
+  | 'buylistVariantPositionCap'
+  | 'buylistGuideCloseCalendarDays'
+  | 'buylistGuideWarnDaysBeforeClose';
 
 interface CycleDial {
   key: CycleKey & keyof SettingsDTO;
@@ -35,13 +37,25 @@ interface CycleDial {
  * Los DIEZ diales del ciclo de venta (DESIGN_SYSTEM §60.7 b · contrato §E2E-ADM.3 / §M10), en el orden del ciclo y
  * en tres subgrupos. ⚠️ La lista es la de la tabla de §M10 — el candado M10-BL-1 la copia de ahí, no de aquí.
  */
-export const BUYLIST_CYCLE_GROUPS: { group: 'deadlines' | 'amounts' | 'alerts'; dials: CycleDial[] }[] = [
+export const BUYLIST_CYCLE_GROUPS: { group: 'deadlines' | 'buylistGuideClose' | 'amounts' | 'alerts'; dials: CycleDial[] }[] = [
   {
     group: 'deadlines',
     dials: [
       { key: 'buylistOfferIssueDeadlineBusinessDays', kind: 'int' },
       { key: 'buylistOfferAcceptDeadlineBusinessDays', kind: 'int' },
       { key: 'buylistShipDeadlineBusinessDays', kind: 'int' },
+    ],
+  },
+  /**
+   * 💰 rev BSD-1 (§BSD.9, DESIGN_SYSTEM §BSD-UX.6e): subgrupo PROPIO después de «Plazos (días hábiles)» — no dentro: estos
+   * son días NATURALES y aplican también a las solicitudes en curso (el subtítulo del grupo dice lo contrario para los
+   * demás; la nota del subgrupo lo corrige). `PUT` solo con las claves tocadas (M10-BL-2), como los demás.
+   */
+  {
+    group: 'buylistGuideClose',
+    dials: [
+      { key: 'buylistGuideCloseCalendarDays', kind: 'int' },
+      { key: 'buylistGuideWarnDaysBeforeClose', kind: 'int' },
     ],
   },
   {
@@ -172,6 +186,11 @@ export function BuylistCycleSection() {
             {BUYLIST_CYCLE_GROUPS.map((g) => (
               <div key={g.group} className="flex flex-col gap-3">
                 <h3 className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">{t(`groups.${g.group}`)}</h3>
+                {g.group === 'buylistGuideClose' && (
+                  <p className="text-sm text-muted" data-testid="m10-cycle-guide-close-note">
+                    {t('groups.buylistGuideCloseNote')}
+                  </p>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {g.dials.map((dial) => {
                     const bad = fieldErrors.has(dial.key);

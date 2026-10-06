@@ -188,16 +188,20 @@ describe('UX-GAS-11 (Configuración) · AG-21 y AG-22 «Siempre encendido»; la 
       'Correo inmediato; la guía de más que cancelamos solos va en el resumen diario',
     );
     expect(alerts.textContent).not.toMatch(/según el caso/);
+    // 💰 rev BSD-1 (BSD-1.1 C-7, §BSD-UX.3): AG-23 se apaga como los trece, con «Correo inmediato».
+    expect(within(alerts).getByRole('checkbox', { name: /^AG-23 · Solicitud de venta sin guía/ }).closest('label')).toHaveTextContent('Correo inmediato');
     for (const box of within(alerts).getAllByRole('checkbox')) if (!(box as HTMLInputElement).disabled) fireEvent.click(box);
     // Las dos siguen marcadas (deshabilitadas: el clic no las cambia).
     expect(within(alerts).getByRole('checkbox', { name: /^AG-21 ·/ })).toBeChecked();
     fireEvent.click(save());
-    const dialog = await screen.findByRole('dialog', { name: '¿Apagar 13 avisos?' });
+    // 💰 rev BSD-1: los trece + AG-23 (BSD-1.1 C-7) = 14 apagables.
+    const dialog = await screen.findByRole('dialog', { name: '¿Apagar 14 avisos?' });
     expect(dialog).toHaveTextContent('seguirán apareciendo en «Avisos de gasto» marcados «Apagado»');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sí, apagarlos' }));
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     const sent = put.mock.calls[0][0].spendAlertsDisabled ?? [];
-    expect(sent).toHaveLength(13);
+    expect(sent).toHaveLength(14);
+    expect(sent).toContain('AG-23');
     expect(sent).not.toContain('AG-21');
     expect(sent).not.toContain('AG-22');
   });

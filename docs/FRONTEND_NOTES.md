@@ -20396,3 +20396,49 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
   **antes** (HEAD sin el cambio, `-g "Listas para publicar" --repeat-each=10`) `:103` 0/10 y `:125` 0/10 (rojas en
   `:121` y `:130`, el lápiz «Poner precio de INV-000109»); **después** (`precios-s5.spec.ts` entero, `--repeat-each=10`)
   90/90 verdes, 10 saltadas (`:306`, `realOnly`); `:103` 10/10 y `:125` 10/10.
+
+## §104 · 💰 **BSD — buylist con guía Skydropx de entrada** (2026-10-06, rama `claude/buylist-skydropx`, commiteado sobre `d04cb905`; `DESIGN_SYSTEM §BSD-UX.0–.11` · `API_CONTRACT §BSD` rev BSD-1 + erratas 1.1–1.4 · `PROJECT §BSD`, criterios 532–550)
+
+**Qué se construyó (todo con datos del servidor; la pantalla no calcula ni decide, BX5):**
+
+| Superficie | Fichero | Qué |
+|---|---|---|
+| Portal del vendedor | `(storefront)/buylist/requests/[id]/SellRequestDetailView.tsx`, `SellerLabelBlock.tsx`, `seller-label.ts` | `not_continued` ⇒ frase espejo de BSD-M1, sin bloque de oferta y sin montos (`hideMoney` gana el motivo; BSD-1.4 p. 8: el servidor ya redacta y esto es el segundo cinturón). «Tu guía» ⇔ `labelPdfAvailable === true`; descarga por `requestBlob` (Bearer, no cookie) ⇒ `blob:`; `404` (los dos códigos, sin oráculo) ⇒ `errorUnavailable` + relectura; resto ⇒ `errorTemporary` |
+| «Ventas» | `(storefront)/buylist/MyRequestsSection.tsx` | enlace «Descargar guía (PDF)» ⇔ `labelPdfAvailable`; con `no_offer`/`not_continued` ni total ni precios ni «pendiente» (antes la lista pintaba `MX$0.00` con el `null` de `no_offer`: defecto previo corregido de paso) |
+| Insignia | `lib/status-map.ts` | fila `expirada_not_continued` neutral, `soft`, sin icono («No continuó») |
+| Ventana de captura, modo entrada | `m4/CaptureLabelDialog.tsx` (+ `capture/AddressStep.tsx`, `QuoteViews.tsx`, `sdx-errors.ts`, `sell-status.ts`) | la MISMA ventana (SK1) con `CaptureTarget.sellRequestId`: título/ref propios; paso 1 con origen editable («Quién envía», sugerencia `sellerName` que SOLO rellena, BX7) y destino `<dl>` sin controles (BX4); banda `feeDeducted` = `charged.grossCents`; textos de recolección/entrega/margen de entrada; `noRecommended`; errores de §BSD-UX.5d en `inboundErrorView` (también lo usa M5); paso 4 solo «Descargar PDF» + `sentToSeller`; «Capturar a mano» = `POST /admin/buylist/:id/guide` sin costo |
+| Re-emitir | `m4/LabelActions.tsx` (`CancelLabelDialog inbound`) | cuerpo `reissueBody`, `409 LABEL_NOT_CANCELLABLE {sell_request_status|seller_declared_shipped}`; invalida también `['admin-buylist']` |
+| M5 ficha `aceptada` | `m5/AcceptedRequestPanel.tsx`, `DeclineAcceptedDialog.tsx`, `GuideDueMark.tsx`, `BuylistShipmentActions.tsx`, `M5View.tsx` | detalle `GET /admin/buylist/:id` (única fuente de `inboundLabelOptions`, por actor); «Generar guía con Skydropx» ⇒ `POST …/inbound-shipment` ⇒ ventana; guía viva (resumen, costo C-5 tal cual, PDF, re-emitir), en proceso, `labelAlert` con el `LabelAlertBlock` de M4 + «Abrir guía»; captura a mano oculta con guía viva/en curso y sin campo de costo con guía de Skydropx (`costFromProvider`); «Declinar» ⇔ `declineAcceptedAllowed === true`; marca ⇔ `guideDueSoon`/`guideDueAt`/`guideDueInDays`; filtro `?inboundLabelAlert=true` |
+| Tablero | `AdminDashboard.tsx` | `workQueue.buylistGuideDueSoon` y `buylistInboundLabelAlert` (hermanos; `> 0` o nada) |
+| M10 | `m10/sections/BuylistCycleSection.tsx` | subgrupo «Cierre sin guía (días naturales)» con su nota, después de «Plazos» |
+| AG-23 | `spend-alerts/alert-text.ts`, `[id]/SpendAlertDetailView.tsx`, `m10/sections/SpendControlSection.tsx`, `types/contract.ts` | tipo/código, texto con los tres `facts` (lista blanca), `closesAt` como fecha, apagable (C-7) con «Correo inmediato» |
+| M7 | `m7/M7View.tsx` | §BSD-UX.11: los dos renglones con signo bajo «Costo de lo vendido», el margen como nota (⛔ `pnl-line`), aviso de guías manuales sin costo sin enlace |
+
+**Decisiones de implementación:**
+- La ventana NO se movió a `components/`: M5 la importa desde `../m4/` (mismo route group `(admin)`). Moverla era zona compartida y no aportaba conducta.
+- Claves en el espacio REAL del catálogo (§BSD-UX.6e pedía re-medirlo): diales en `admin.m10.buylistCycle.{groups,labels,help,rule}` (el diseño decía `admin.m10.dials.{…,hints,rules}`); datos de AG-23 en `admin.spendAlerts.fact.*` (el diseño decía `field.*`, que aquí son los campos de domicilio de AG-1); `admin.spendAlerts.mail.AG-23.*` no se creó (el correo es del backend y `mail.*` es el estado del correo). `{bruto}` del texto ES de AG-23 va como `{gross}` en los dos idiomas (ICU exige el mismo argumento).
+- Estado de la SOLICITUD en los `409` del modo entrada: `useSellStatusLabel` (`expirada` ⇒ «Expirada», pantalla del operador).
+- Mocks: `getAdminBuylistRequest` responde `provider:'off'` y `openBuylistInboundShipment` lanza `404 FEATURE_DISABLED` (`// MOCK`: el servidor falso no tiene Skydropx); fixtures de portal `sr-3004` (aceptada con guía viva) y `sr-3005` (`not_continued`, con montos a propósito: peor caso); `mockPnl` gana los cuatro campos.
+
+**Copy SIN diseño (frontend lo puso para no dejar el dato del contrato sin pintar; pendiente de ux-ui):** `admin.m5.guideDue.inDays` («en N días», contrato BSD-1.1 C-8 / BSD-F6), `admin.m5.inbound.alertFilter`, `admin.m5.inbound.openLabel`, `admin.m5.inbound.preparing` («Preparando la guía…», citado en §BSD-UX.5 pero sin clave en .8), `admin.dashboard.buylistInboundLabelAlert` (BSD-1.3 p. 4). Tras re-emitir una guía de ENTRADA no se pinta la frase `admin.m4.label.cancel.done` («volvió a preparado» es de salida); no hay frase propia.
+
+**Huecos medidos (2026-10-06):** §BSD-UX.4c — el portal NO tiene pantalla para que el vendedor cambie su dirección (`grep -rn "pickup-address" frontend/src` ⇒ solo un comentario en `lib/error-audience.ts`): la clave `buylist.offer.pickupLockedInProgress` existe con paridad pero no tiene superficie. El cierre del stepper con la versalita «No continuó» + fecha (§25.2d) sigue pendiente como para los demás motivos (`PipelineStepper.tsx:45`).
+
+**Candados (vitest, cada uno rojo sobre la base `20cda136` sin este trabajo: 10/10 ficheros, 161/175 pruebas rojas; las 14 verdes son los casos «no se pinta nada»)** y su canario, medido sobre copia del árbol (N=1, deterministas):
+
+| Candado | Fichero | Mutación | Muerde |
+|---|---|---|---|
+| UX-BSD-3 | `SellRequestDetailView.bsd.test.tsx` | dejar la oferta visible en `not_continued` | sí |
+| UX-BSD-4 | ídem + `MyRequestsSection.bsd.test.tsx` | decidir «Tu guía» por `offer.trackingNumber` | sí |
+| UX-BSD-5 | `CaptureLabelDialog.inbound.test.tsx` | «Usar este nombre» guarda solo · destino como `input readOnly` | sí · sí |
+| UX-BSD-6 | ídem | preseleccionar la primera fila | sí |
+| UX-BSD-7 | `M5View.bsd.test.tsx` | «Declinar» por `status` · reintentar el `POST` ante `5xx` | sí · sí |
+| UX-BSD-8 | ídem + `AdminDashboard.bsd.test.tsx` | marca con el reloj de la pantalla · tablero pinta con `0` | sí · sí |
+| UX-BSD-9 | `lib/i18n-bsd.test.ts` | renombrar una clave en `en.json` | sí |
+| UX-BSD-10 | `M5View.bsd.test.tsx`, `M5View.pnl.test.tsx`, `i18n-bsd.test.ts` | (copia vieja) | — |
+| UX-BSD-11…16 | `m7/M7View.bsd.test.tsx`, `i18n-bsd.test.ts` | margen = tarifa − guía en el cliente | sí |
+| AG-23 / M10 / insignia | `alert-text.bsd.test.ts`, `BuylistCycleSection.bsd.test.tsx`, `status-map.bsd.test.ts` | — | — |
+
+Pruebas previas que cambiaron porque el diseño cambió (no se debilitaron: se actualizó el valor esperado al texto/estructura nuevos): `M5View.pnl.test.tsx` (nota `aceptada`; casillas medidas en la FICHA porque la página gana una), `BuylistDecisionDesk.test.tsx` (nota `aceptada`), `SpendAlerts.v421.test.tsx` y `SpendControlSection.test.tsx` (+AG-23: 14 apagables), `i18n-pnl.test.ts` (fórmula), `M7View.pnl.test.tsx` y `M7View.test.tsx` (diez renglones, ganancia del fixture).
+
+**E2E (Playwright, mocks):** `e2e/buylist-bsd.spec.ts` (portal `not_continued` + descarga en portal y «Ventas»), más `buylist-offer`, `buylist` y `m5-transitions` por los fixtures nuevos: 41/41 verdes, N=1 por caso.
