@@ -4,6 +4,9 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata BSD-1.1** (2026-10-06, arquitecto; sha NO MEDIDO): respuesta a `DESIGN_SYSTEM §BSD-UX` — norma en `API_CONTRACT
+> §BSD.15`, porqué en §4.BSD (k). Sin migración; B-1 sin cambio salvo la aserción de I-BSD-2 (nombre legible de paquetería).
+>
 > **Rev BSD-1 — 💰 BUYLIST: GUÍA SKYDROPX DE ENTRADA, «DECLINAR» EN «ACEPTADA» Y CIERRE A 7 DÍAS NATURALES** (2026-10-06,
 > arquitecto, rama `claude/buylist-skydropx`, HEAD dado por el orquestador `3c7726b8`; ⛔ sha NO MEDIDO: sin Bash). Norma en
 > `API_CONTRACT §BSD` (cabecera «Rev BSD-1»); porqué en **§4.BSD**; migración **`M-72` provisional** en §11; desviación
@@ -28621,6 +28624,15 @@ encuentra los envíos por `userId`, **no** la vería. Se norma que la encuentre 
 **(j) Lo que no se hizo y por qué.** «En tránsito» por escaneo (P-BSD-5: después de cobrar en real) ⇒ las filas de entrada
 **no** entran al sondeo de rastreo, y con eso tampoco a AV-17/18/19. Recolección a domicilio: fuera (§BSD.6 de PROJECT).
 Cambiar la tarifa fija: fuera.
+
+**(k) Errata BSD-1.1 (ux-ui).** Fueron cuatro fallos míos de forma, no de fondo:
+- Puse `labelPdfAvailable` dentro de `offer`, que solo viaja en el detalle. Pasa a ser un campo plano.
+- Colgué un campo de `workQueue.buylist`, que es un número. Pasa a ser un campo hermano.
+- Pedí un enlace a una ficha de M5 que no existe. El CTA va a `/admin/m5` y el folio va en el cuerpo.
+- Dejé que el cliente calculara «en N días». Ahora lo manda el servidor: *una fecha derivada de dos maneras son dos fechas*.
+
+Además, la copia del nombre de paquetería en la solicitud pasa a ser el **nombre legible**, porque es la que lee el
+vendedor; la del motor sigue siendo el código. I-BSD-2 conserva un solo escritor, ahora con la regla de esa traducción.
 
 ---
 

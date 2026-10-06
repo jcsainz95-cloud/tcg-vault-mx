@@ -10,6 +10,20 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata BSD-1.1 — CONTRADICCIONES QUE ENCONTRÓ UX-UI AL ESCRIBIR `DESIGN_SYSTEM §BSD-UX` (2026-10-06, arquitecto, mismo
+> árbol y rama; sha NO MEDIDO).** Norma: [§BSD.15](#BSD). ⛔ Sin schema, sin migración, sin enum, sin código de error ⇒
+> **B-1 no cambia** (salvo una aserción de I-BSD-2, §BSD.15 C-6). Cambian DTO y textos: B-2 (C-1, C-6) y B-3 (C-2, C-3,
+> C-7, C-8).
+> | # | Decisión |
+> |---|---|
+> | C-1 | `labelPdfAvailable: boolean` **plano** en el `SellRequestDTO` del cliente (lista y detalle); se retira `guide.labelPdfAvailable` |
+> | C-2 | AG-23: CTA a `/admin/m5` **sin `?`** (PS-153) y folio corto en el cuerpo |
+> | C-3 | `workQueue.buylistGuideDueSoon: number`, hermano de los demás; `workQueue.buylist` sigue siendo número |
+> | C-5 | `costCents` = **bruto pagado**: IVA **y** seguro incluidos; `costIvaCents` y `insuranceCostCents` son desglose, ⛔ no se suman |
+> | C-6 | `SellRequest.shipmentCarrier` de una guía de Skydropx = **nombre legible** (`carrierLabel`, si falta `carrierName`) |
+> | C-7 | AG-23 se puede silenciar en M10 con el mismo mecanismo por tipo que los demás avisos; arranca **encendido** |
+> | C-8 | El servidor manda `guideDueInDays`; sin él el front no pinta «en N días» |
+>
 > **Rev BSD-1 — 💰 BUYLIST: GUÍA SKYDROPX DE ENTRADA, «DECLINAR» EN «ACEPTADA» Y CIERRE A LOS 7 DÍAS NATURALES (2026-10-06,
 > arquitecto, árbol `/home/user/tcg-bsdx`, rama `claude/buylist-skydropx`, HEAD dado por el orquestador `3c7726b8`; ⛔ sha NO
 > MEDIDO por el arquitecto: sin Bash).** Se apoya en **v1.84.5**. ⛔ **La línea «Versión de API» de arriba NO se toca en esta
@@ -39967,12 +39981,15 @@ guideDueSoon: boolean;                  // DERIVADO: ahora ≥ guideDueAt − wa
 declineAcceptedAllowed: boolean;        // DERIVADO con la MISMA función que la guarda de §BSD.6
 // ⛔ Ninguno se persiste. `inboundGuideClockStartedAt` NO viaja (admin-only interno).
 
-// SellRequestDTO del CLIENTE
-guide.labelPdfAvailable: boolean;       // true ⇔ guía viva de entrada con número ∧ status='aceptada'
+// SellRequestDTO del CLIENTE (lista Y detalle) — ⭐ BSD-1.1 C-1: plano, ⛔ ya no `guide.labelPdfAvailable`
+labelPdfAvailable: boolean;             // true ⇔ guía viva de entrada con número ∧ status='aceptada'
 expiredReason: SellRequestExpiryReason | null;   // ahora puede valer 'not_continued'
 
-// GET /admin/dashboard
-workQueue.buylist.guideDueSoon: number; // solicitudes con guideDueSoon = true
+// AdminBuylistDTO — ⭐ BSD-1.1 C-8
+guideDueInDays: number | null;          // solo con guideDueSoon: ceil((guideDueAt − now) / 24 h), mínimo 0; si no, null
+
+// GET /admin/dashboard — ⭐ BSD-1.1 C-3: campo HERMANO (⛔ `workQueue.buylist` sigue siendo un número)
+workQueue.buylistGuideDueSoon: number;  // solicitudes con guideDueSoon = true
 
 // P&L de M7 (Q-BSD-1, valor por defecto): campo INFORMATIVO al final del objeto y columna al final del CSV (mismo orden)
 buylistInboundLabelCostCents: number;   // Σ neto (shippingCostCents − shippingCostIvaCents) de filas de entrada con guía de
@@ -40150,3 +40167,34 @@ Frontend (vitest + Playwright con mocks; `@real` contra el stack con el doble):
   una cancelación sí entran por `ShipmentCostAdjustment` como hoy (fila 2026-10-05 «Guías cobradas de más…: como costo de
   envío»).
 - **Q-BSD-2 (ux-ui):** el texto «esta guía sustituye a la anterior» en AV-7 tras re-emitir. **Por defecto:** sí.
+
+### BSD.15 Errata BSD-1.1 — respuesta a `DESIGN_SYSTEM §BSD-UX` (2026-10-06, NORMATIVA)
+Manda sobre BSD.0–BSD.14 donde choquen. ⛔ Sin schema, migración, enum ni código de error.
+- **C-1 · `labelPdfAvailable`.** La guía del cliente viaja en `offer` (`SellOfferPublicDTO`, §11) y `offer` solo va en el
+  detalle; el portal necesita el botón también en la lista. ⇒ **campo plano** `labelPdfAvailable: boolean` en el
+  `SellRequestDTO` del cliente, en **lista y detalle**, con la misma regla (guía viva de entrada con número ∧ `aceptada`).
+  `guide.labelPdfAvailable` queda **retirado**. La lista lo calcula con un `select` de la fila de entrada (⛔ sin N+1). Prueba:
+  BSD-B22 gana «la lista y el detalle traen el mismo valor»; BSD-F7 lee el campo plano. **Construye:** B-2 + frontend.
+- **C-2 · Enlace de AG-23.** M5 no tiene ruta por solicitud y PS-153 prohíbe `?` en los enlaces de los correos de avisos.
+  ⇒ CTA a **`<origen>/<locale>/admin/m5`** (sin query ni fragmento) y el **folio corto** de la solicitud en el cuerpo para
+  buscarla. Texto con la **fecha de cierre** (`facts.closesAt`), ⛔ nunca «lleva N días aceptada» (el ancla puede ser el
+  despliegue o una re-emisión, y `facts` no trae la aceptación). Ruta por solicitud en M5: fuera de BSD (si se crea, una
+  errata cambia el CTA). **Construye:** B-3 + ux-ui (texto ya alineado).
+- **C-3 · Tablero.** `workQueue.buylist` es un número (§10 Dashboard, `"buylist": 0`; `AdminDashboard.tsx:237`). ⇒
+  **`workQueue.buylistGuideDueSoon: number`**, hermano de `buylistPendingAuthorization` y compañía; ⛔ `workQueue.buylist`
+  no cambia. **Construye:** B-3 + frontend.
+- **C-5 · `costCents`.** `inboundShipment.costCents` = `ShipmentRequest.shippingCostCents` = **bruto pagado a Skydropx, con
+  IVA y con seguro** (`costOf`: total + seguro). `costIvaCents` y `insuranceCostCents` son **desglose dentro** de esa cifra;
+  ⛔ la pantalla no los suma. El P&L informativo usa el neto (`costCents − costIvaCents`). Sin cambio de código.
+- **C-6 · Nombre de paquetería.** En la guía de Skydropx, `writeSellRequestGuide` recibe como `carrier` el **nombre legible**
+  de la tarifa elegida (`carrierLabel`; si viene vacío, `carrierName`). Lo lee el vendedor (portal, AV-7, «llévalo a una
+  sucursal de …»). La fila de entrada conserva `carrier` = `carrierName` como hoy (lo lee el motor). ⇒ **I-BSD-2 se
+  reescribe:** `SellRequest.shipmentTrackingNumber = ShipmentRequest.trackingNumber` ∧ `SellRequest.shipmentCarrier =
+  labelOf(chosenRateJson)`. ⚠️ **Afecta a B-1 solo si ya escribió la aserción de I-BSD-2 con igualdad de `carrier`**: se
+  cambia a la de arriba; la firma de `writeSellRequestGuide` no cambia. **Construye:** B-2 (el llamador).
+- **C-7 · Apagar AG-23.** Sí: entra al mismo silenciado por tipo de los avisos (`ARCHITECTURE`/contrato §19.30.2 (5); la fila
+  se crea `muted`, sin correo). **Por defecto encendido** (P-BSD-1). Silenciarlo **no** quita la marca de M5 ni el contador
+  del tablero (son derivados). **Construye:** B-3 + frontend (M10).
+- **C-8 · «en N días».** El servidor manda `AdminBuylistDTO.guideDueInDays` (`ceil((guideDueAt − now)/24 h)`, mínimo 0, solo
+  con `guideDueSoon`; si no, `null`). Con `null` el front ⛔ no pinta la frase ni la calcula. Prueba: BSD-F6 gana «sin
+  `guideDueInDays` no hay frase»; BSD-B20 gana el valor 2 el día 5. **Construye:** B-3 + frontend.
