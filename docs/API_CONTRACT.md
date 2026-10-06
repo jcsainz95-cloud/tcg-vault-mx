@@ -10,6 +10,19 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2 (2026-10-06, arquitecto, árbol `/home/user/tcg-ventas`,
+> rama `claude/analitica-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash).** Norma
+> entera: **[§15](#AN)**. Porqué: `ARCHITECTURE §4.64`. ⛔ Numeración NO MEDIDA contra #78 y otras ramas vivas.
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | AN-1 | Endpoints | `GET /admin/reports/sales`, `…/sales/export.csv`, `…/sales/today`; `super_admin` (clase de M9) | Aditivo | backend + frontend |
+> | AN-2 | 💰 Pedido cobrado | Día México de `settledAt`, **cualquier estado actual**; reembolso en su propio día. Choca con `pnl()` (D-AN-1): 602 pasa a identidad con el término D-2/D-3 | No (M7 intacto) | backend |
+> | AN-3 | 💰 612/622 | `pnl-core`: el cuerpo de `pnl()` partido por cubos; paridad bit a bit de M7 | No (refactor con candado) | backend |
+> | AN-4 | 621 | Migración aditiva **`M-AN-1`** `Order.paymentMethodType` | Sí (dato nuevo al liquidar) | backend |
+> | AN-5 | 622 buylist | Condicionado a #78 en `production` | — | backend |
+> | AN-6 | 624 | El resumen de las 08:00 lleva la línea de ventas de ayer y se manda también con ventas sin avisos (P-AN-1) | Sí | backend |
+>
 > **Errata v1.84.5 — CHOQUE B: PIE DE PRIVACIDAD (E4-5) vs. ENLACES DE LOS CORREOS DE GASTO (SDX-I-8) (2026-10-05,
 > arquitecto, árbol `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `1eb6bdcd`; ⛔ sha NO
 > MEDIDO por el arquitecto: sin Bash).** Origen: el orquestador midió 2 rojas tras la fusión
@@ -34847,6 +34860,8 @@ la decisión, pero las tres son condición de aceptación)*:
 > **Estado v1.3: YA EXISTE en backend** (`AdminReportsController` + `AdminService.launchMetrics/exportCsv`). No requiere backend nuevo; falta **consumo de frontend** (M9 es `ModuleTodo` en UI).
 - `GET /api/v1/admin/reports/launch-metrics` — `?from=&to=` → métricas de lanzamiento vs metas N/X/Y/Z. Shape real: `{ users, salesSettled, buylistPaid, withdrawalsNoDispute, goals: { N, X, Y, Z } | null }`. Cuando **no hay metas fijadas**, `goals` debe ser **`null`** (el objeto completo), **no** un objeto con campos nulos como `{ N: null, X: null, Y: null, Z: null }`. Solo cuando el humano fija las metas, `goals` pasa a ser el objeto `{ N, X, Y, Z }`. Cada métrica respeta el rango por su fecha de realización (alta de usuario / `settledAt` / `paidAt` / `deliveredAt`).
 - `GET /api/v1/admin/reports/export.csv` — `?report=pnl|iva|inventory&from=&to=` → CSV (comparte el `exportCsv` de M7; `report` default `pnl`).
+- **(NUEVO v1.85⟨ventas⟩)** `GET /api/v1/admin/reports/sales`, `GET /api/v1/admin/reports/sales/export.csv`,
+  `GET /api/v1/admin/reports/sales/today` — analítica de ventas del dueño. Norma entera en **[§15](#AN)**.
 - `GET /api/v1/admin/reports/pricing-brackets` — **(NUEVO v2.0, P-48)** instrumentación de la curva: agrega las ventas
   y compras **consumadas** por eje × `MarketBracket` (escala **FIJA**, §Enums) para contestar «**¿qué tan rápido rota
   cada bracket y con qué margen?**» — el dato que faltaba para **calibrar la curva con realidad en vez de con
@@ -39646,6 +39661,245 @@ MEDIDO): `mailShell` emite **siempre** `privacyRow` (`backend/src/modules/buylis
 | MUT-B3 | `audience: 'staff'` en una plantilla de cliente (p. ej. `refundNoticeTemplate`) | PRIV-1 `refundNoticeTemplate` [es/en] y PRIV-6 |
 | MUT-B4 | Quitar `audience: 'staff'` de **una** de las tres llamadas de `spend-alert.mail.ts` (p. ej. la de `spendDigestMail`) | SDX-I-8 unitaria (el digest es `mails[3]`), PRIV-5 y PRIV-6 (cuenta ≠ 3) |
 | MUT-B5 (ya existía) | `spendAlertUrl` añade `?token=x` | SDX-I-8 unitaria y e2e — confirma que la regla sigue entera |
+
+---
+
+## <a id="AN"></a>15. ANALÍTICA DE VENTAS DEL DUEÑO (rev v1.85⟨ventas⟩, 2026-10-06, **NORMATIVA**, 💰 lee dinero)
+
+Norma de `PROJECT §AN` (criterios **600–613** P1 y **620–624** P2; alcance completo por P-ANA-4 relayada por el orquestador
+el 2026-10-06) y `HECHOS.md:80`. Porqué, mediciones con `fichero:línea` y fases: `ARCHITECTURE §4.64`. ⛔ Nada de aquí
+cambia una cifra de M7 ni de las métricas de lanzamiento (criterio 613). ⛔ Sin script, cookie ni servicio de terceros.
+
+### 15.1 Endpoints
+
+Los tres viven en `AdminReportsController` (`admin/reports`, `@Roles(Role.super_admin)` de clase). Todos `Cache-Control:
+no-store`. `vault_operator` ⇒ **`403 FORBIDDEN`**; sin sesión ⇒ `401`.
+
+| Método y ruta | Para | Respuesta |
+|---|---|---|
+| `GET /api/v1/admin/reports/sales` | Pestaña «Ventas» de Reportes (M9) | `200 SalesReportDTO` |
+| `GET /api/v1/admin/reports/sales/export.csv` | Exportar la tabla por día/semana/mes | `200 text/csv` (§15.7) |
+| `GET /api/v1/admin/reports/sales/today` | Tarjeta «Ventas de hoy» del tablero | `200 SalesTodayDTO` |
+
+⛔ La tarjeta **no** sale de `GET /admin/dashboard` (que es `vault_operator+`): el front la pide solo con rol `super_admin`;
+si el operador la pidiera, `403`.
+
+### 15.2 Parámetros (los dos primeros endpoints aceptan los mismos)
+
+| Param | Forma | Clase | Default | Regla |
+|---|---|---|---|---|
+| `preset` | `today \| yesterday \| last7 \| last30 \| this_month \| last_month \| custom` | §0-Q **L** | `last7` (si no vienen `from`/`to`) | Días **de México** (`America/Mexico_City`), resueltos en el servidor. `last7` = hoy y los 6 anteriores; `last30` = hoy y 29 anteriores; `this_month` = día 1 → hoy; `last_month` = mes calendario anterior completo |
+| `from`, `to` | `YYYY-MM-DD` | no-enum (como `parseMxDayFilter`) | — | **Los dos o ninguno.** Con ellos, `preset` debe faltar o ser `custom`. Ambos días **completos** (criterio 600). `to` ≤ hoy MX. `to − from + 1` ≤ **366** |
+| `groupBy` | `day \| week \| month` | §0-Q **L** | `day` | `week` = lunes a domingo; `month` = mes calendario; cubos **recortados** al periodo |
+| `topSort` | `net \| pieces` | §0-Q **L** | `net` | Orden de las listas «lo más vendido» |
+
+Periodo anterior (criterio 606): los **mismos N días** inmediatamente antes de `from` (también para `last_month`; P-AN-3).
+`today` compara contra `yesterday`. ⚠️ La tarjeta (`/today`) **no** usa esta regla (§15.5).
+
+**Errores** (todos `400 VALIDATION_ERROR`, ⛔ sin `details.value`, §0-Q punto 2):
+
+| Caso | `details` |
+|---|---|
+| `preset`/`groupBy`/`topSort` fuera de dominio (vacío o solo espacios = ausente) | `{ field, allowed }` |
+| `from` o `to` mal formado o día imposible | `{ field }` |
+| Solo uno de `from`/`to` | `{ field: <el que falta> }` |
+| `from` > `to` | `{ field: 'from' }` |
+| `to` posterior a hoy MX | `{ field: 'to' }` |
+| Más de 366 días | `{ field: 'from' }` |
+| `preset` distinto de `custom` junto con `from`/`to` | `{ field: 'preset', allowed }` |
+
+`C-EQ-1` gana las filas `preset`, `groupBy`, `topSort` (clase L, dominio de esta tabla) y `from`/`to` en su lista de no-enums.
+
+### 15.3 Qué pedido, qué día, qué pieza (reglas de conteo — una por cifra)
+
+- **R-1 · El día.** Todo instante se asigna a su día civil en `America/Mexico_City` (`toMexicoCityDateKey`). Un periodo
+  `from…to` es el semiabierto `[mxDayStart(from), mxDayStart(nextYmd(to)))` (`spend-alerts/mx-day.ts`). ⛔ Nunca `range()`
+  de `admin.service.ts` (D-AN-2).
+- **R-2 · Pedido cobrado.** `Order` con `settledAt` en el periodo, **cualquiera que sea su `status` hoy** (`settled`,
+  `refunded`, `chargeback`). Cuenta en el día de su `settledAt`, **y ahí se queda**. Envío, bóveda e invitado cuentan igual.
+  Pendientes, fallidos y carritos sin pagar no tienen `settledAt` ⇒ no cuentan (criterio 601).
+- **R-3 · Reembolso.** El mismo conjunto que M7 (`refundsInPeriod`): `PaymentRefund` `status ∈ {submitted, succeeded}` en el
+  día de su `submittedAt` (canal **tarjeta**) y `ManualRefund` `status = 'paid'` en el día de su `paidAt` (canal **SPEI**).
+  Un `PaymentRefund` `failed` no cuenta y su sustituto SPEI cuenta una vez. Un reembolso **nunca** mueve el día de su pedido.
+- **R-4 · Pieza.** Un `OrderItem` = una pieza (un sellado: una por unidad, porque cada unidad es su `InventoryItem`).
+
+| Cifra (DTO) | Definición exacta | Fuente |
+|---|---|---|
+| `orders` | nº de pedidos R-2 | `Order` |
+| `chargedCents` | Σ `Order.totalCents` de R-2 (con IVA, envío y comisión: el monto del `PaymentIntent`) | `Order.totalCents` |
+| `netSalesCents` | Σ `netRevenueCents(o)` de R-2 — **el mismo helper que M7** (`common/money.ts`) | `subtotalCents`, `ivaRatePct`, `priceConvention` |
+| `refunds.count` | nº de filas R-3 | `PaymentRefund`, `ManualRefund` |
+| `refunds.amountCents` | Σ `amountCents` de R-3 (lo que salió hacia el cliente) | ídem |
+| `refunds.netCents` | Σ por fila de lo que M7 llama `refundsCents`: `merchandiseCents − merchandiseIvaCents + shippingCents − shippingIvaCents` (SPEI: sin envío). ⛔ Sin comisión ni compensación (M7 las lleva en líneas aparte) | ídem |
+| `refunds.byChannel` | `{ card: {count, amountCents}, spei: {count, amountCents} }` | ídem |
+| `netSalesAfterRefundsCents` | `netSalesCents − refunds.netCents` **del mismo cubo** | calculado |
+| `pieces` | nº de `OrderItem` de los pedidos R-2 | `OrderItem` |
+| `avgTicketCents` | `round(chargedCents / orders)` (mitad hacia arriba); **`null` si `orders = 0`** (criterio 604) | calculado |
+| `piecesPerOrder` | `round(pieces × 10 / orders) / 10` (un decimal); **`null` si `orders = 0`** | calculado |
+
+⛔ Ni `NaN`, ni `Infinity`, ni `0` en lugar de `null`. El front pinta `null` como «—».
+
+**Clientes nuevos y recurrentes (criterio 608).** Llave del cliente: si el pedido tiene `userId` y su `User.email` no es
+nulo ⇒ `lower(trim(User.email))`; si no ⇒ `guestEmail` (ya normalizado); si ninguno ⇒ `'user:' + userId`. *(SUPUESTO de
+PROJECT: mismo correo = mismo cliente.)* **Nuevo** = ninguna orden con `settledAt` **anterior** a `from` comparte su llave
+(cualquier estado, R-2); **recurrente** = alguna sí. `new + returning = distinct`. ⚠️ Una cuenta borrada tiene correo
+anonimizado ⇒ cuenta como cliente distinto (aceptado: es la intención del borrado).
+
+**Lo más vendido (criterio 607).** Sobre los `OrderItem` de pedidos R-2 **excepto** los de pedidos con `status = 'refunded'`
+hoy (reembolso completo; *SUPUESTO de PROJECT*). Hasta **10** por lista, orden por `topSort` y desempate estable por el otro
+criterio y luego por nombre. Venta sin IVA por renglón: `ivaIsIncluded(o.priceConvention) ? taxBaseCentsOf(unitPriceCents,
+o.ivaRatePct) : unitPriceCents`. ⚠️ Por redondeo por renglón, Σ de estas listas **no** tiene que cuadrar al centavo con
+`netSalesCents` (y además excluye los reembolsados): son para ordenar, no para cuadrar.
+
+| Lista | Agrupa por | Campos |
+|---|---|---|
+| `cards` (raw y graded) | `(cardId, productType, finish)`; `finish = OrderItem.finish ?? InventoryItem.finish` ⇒ dos acabados = dos renglones | `cardId, name, number, setName, finish, productType, pieces, netCents` |
+| `sets` (todo tipo) | `SealedProduct.setId` si es sellado con producto; si no, `Card.setId` | `setId, setName, pieces, netCents` |
+| `sealed` | `sealedProductId`; sin producto ⇒ por el nombre congelado `InventoryItem.sealedProductName ?? Card.name` | `sealedProductId \| null, name, setName, pieces, netCents` |
+
+Nombres del catálogo (`Card`, `CardSet`, `SealedProduct`): ⛔ ningún dato de cliente.
+
+### 15.4 `SalesReportDTO`
+
+```ts
+type Ymd = string; // 'YYYY-MM-DD', día de México
+interface SalesFigures {
+  orders: number; chargedCents: number; netSalesCents: number;
+  refunds: { count: number; amountCents: number; netCents: number;
+             byChannel: { card: { count: number; amountCents: number }; spei: { count: number; amountCents: number } } };
+  netSalesAfterRefundsCents: number; pieces: number;
+  avgTicketCents: number | null; piecesPerOrder: number | null;
+  // ---- P2 (fase B) ----
+  shipping: { chargedNetCents: number; costNetCents: number; costMissingCount: number; adjustmentsCents: number;
+              buylistRevenueCents?: number; buylistCostCents?: number };   // las dos `buylist*` SOLO con #78 en production (§15.8)
+  buylist: { paidCount: number; paidNetCents: number; paidWithoutPayoutCount: number };
+  profitCents: number;                                                      // 612, regla de Finanzas (§15.8)
+}
+interface Delta { diff: number | null; pct: number | null }   // pct entero; null si el anterior es 0 o alguno es null
+interface SalesReportDTO {
+  period: { preset: 'today'|'yesterday'|'last7'|'last30'|'this_month'|'last_month'|'custom';
+            from: Ymd; to: Ymd; days: number; timezone: 'America/Mexico_City' };
+  previousPeriod: { from: Ymd; to: Ymd };
+  groupBy: 'day' | 'week' | 'month';
+  totals: SalesFigures;
+  previousTotals: SalesFigures;
+  comparison: { orders: Delta; chargedCents: Delta; netSalesCents: Delta; refundsAmountCents: Delta;
+                netSalesAfterRefundsCents: Delta; avgTicketCents: Delta; piecesPerOrder: Delta };
+  rows: Array<{ from: Ymd; to: Ymd } & SalesFigures>;   // TODOS los cubos del periodo, en orden, también los de cero
+  top: { sort: 'net' | 'pieces'; cards: TopCard[]; sets: TopSet[]; sealed: TopSealed[] };
+  customers: { new: number; returning: number; distinct: number };
+  // ---- P2 (fase B / C) ----
+  bestDays: { byWeekday: Array<{ weekday: 1|2|3|4|5|6|7; orders: number; chargedCents: number }>;   // 1 = lunes; siempre 7
+              byHour:    Array<{ hour: number; orders: number; chargedCents: number }> };           // 0–23 MX; siempre 24
+  mix: { byDestination: { vault: MixCell; direct_ship: MixCell };
+         byBuyer: { account: MixCell; guest: MixCell };                                // guest ⇔ guestEmail != null
+         byPaymentMethod: Array<{ method: string | null; orders: number; chargedCents: number }> };   // fase C; null = «sin dato»
+}
+interface MixCell { orders: number; chargedCents: number }
+```
+
+**Invariantes (cada una es prueba, §15.6):** Σ `rows[*].X` = `totals.X` para toda cifra aditiva; `totals` no cambia con
+`groupBy`; `Delta.diff = totals − previousTotals`; `pct = round(diff / previous × 100)` (mitad lejos de cero); Σ `byWeekday`,
+Σ `byHour`, Σ de cada mezcla = `totals.orders` y `totals.chargedCents`; `avgTicketCents`/`piecesPerOrder` de `totals` se
+calculan **sobre los totales**, ⛔ no promediando filas.
+
+### 15.5 `SalesTodayDTO` (criterio 611)
+
+```ts
+interface SalesTodayDTO {
+  today: { day: Ymd; orders: number; chargedCents: number };              // = la fila de hoy de `report(preset=today)`
+  sameWeekdayLastWeek: { day: Ymd; orders: number; chargedCents: number }; // ese día COMPLETO (P-AN-2)
+  comparison: { orders: Delta; chargedCents: Delta };
+}
+```
+El front rotula el periodo (criterio 286: «Hoy, {fecha}» y «{día} {fecha}») y enlaza a la pestaña «Ventas».
+
+### 15.6 Pruebas que deben existir (backend `AN-B-*`, frontend `AN-F-*`). Todas deterministas (N=1 vale, dicho así), salvo donde se diga.
+
+| ID | Qué mide | Criterio |
+|---|---|---|
+| AN-B-1 | Pedido con `settledAt` 23:30 MX y otro 00:10 MX del día siguiente ⇒ cada uno en su fila; `today` incluye uno de hace 1 min (reloj inyectado); `from=1,to=3` incluye 3-23:59:59.999 MX | 600 |
+| AN-B-2 | Mismo día: envío pagado, bóveda pagada, invitado pagado, uno `failed`, uno `pending` ⇒ `orders = 3`; `116.00 + 232.00` ⇒ `chargedCents = 34800` | 601, 602 |
+| AN-B-3 💰 | **Cuadre con M7.** Para un periodo con fixture mixta (`IVA_EXCLUSIVE` e `IVA_INCLUSIVE`, envío directo, reembolsos parciales): `Σ rows.netSalesCents = pnl(iso(mxDayStart(from)), iso(mxDayStart(nextYmd(to)) − 1 ms)).incomeCents + Σ netRevenueCents(o: settledAt ∈ periodo ∧ status ∈ {refunded, chargeback})`, **al centavo**. Sin pedidos así, el segundo término es 0 y la igualdad es la literal de 602. Y `Σ rows.refunds.netCents = pnl.refundsCents` | 602 |
+| AN-B-4 💰 | Cobrado lunes, reembolso total miércoles ⇒ lunes intacto (1 pedido, su cobrado y su venta); miércoles `refunds.count=1`, `netSalesAfterRefundsCents` baja exactamente `refunds.netCents`; un reembolso de **una** carta deja el pedido contado; Σ del periodo resta una sola vez | 603 |
+| AN-B-5 | 100/200/300 y 1/2/3 piezas ⇒ `avgTicketCents=20000`, `piecesPerOrder=2`; 0 pedidos ⇒ ambos `null` (y `JSON` sin `NaN`) | 604 |
+| AN-B-6 | 7 días con ventas en 2 ⇒ 7 filas; `week` y `month` suman sus días; `totals` idéntico en los tres `groupBy`; semana recortada en los bordes | 605 |
+| AN-B-7 | 3 vs 1 ⇒ `diff=2, pct=200`; anterior 0 ⇒ `pct=null` | 606 |
+| AN-B-8 | Listas en orden por `net` y por `pieces`; máx 10; pedido `refunded` fuera; dos acabados = dos renglones | 607 |
+| AN-B-9 | Nuevo / recurrente / invitado con el correo de una cuenta que ya compró ⇒ recurrente; `new+returning=distinct` | 608 |
+| AN-B-10 | CSV = `rows` celda a celda (mismos enteros) + fila `total`; regex del CSV **no** contiene `@`, ni nombres ni `orderNumber` de la fixture (CONTROL: la fixture sí los tiene) | 610 |
+| AN-B-11 | `/today` = fila de hoy del informe; `sameWeekdayLastWeek.day = hoy − 7` | 611 |
+| AN-B-12 | `vault_operator` ⇒ `403` en los tres; `super_admin` ⇒ `200` | 613 |
+| AN-B-13 💰 | **Paridad de M7 tras `pnl-core`:** `pnl()`, `ivaReport()`, `exportCsv('pnl')` y `launchMetrics()` dan **exactamente** lo mismo antes y después sobre la misma fixture (instantánea guardada antes del refactor) | 613 |
+| AN-B-14 | Los `400` de §15.2, uno por fila, con `field`/`allowed` y **sin** `value` | §0-Q |
+| AN-B-15 💰 (fase B) | Σ `rows.profitCents` = `pnl().profitCents` y Σ `rows.shipping.chargedNetCents`/`costNetCents`/`adjustmentsCents` = `pnl().shippingRevenueCents`/`shippingCostCents`/`shippingAdjustmentsCents`, mismo periodo, al centavo | 612, 622 |
+| AN-B-16 (fase B) | `byWeekday` (7) y `byHour` (24, hora MX) suman los totales | 620 |
+| AN-B-17 (fase B) | `buylist.paidNetCents` por día = Σ `payoutNetCents` de `pagada` por `paidAt` MX; una fila `pagada` con `payoutNetCents = null` suma a `paidWithoutPayoutCount`, ⛔ no a 0 silencioso | 623 |
+| AN-B-18 (fase B) | El resumen de las 08:00 trae la línea de ayer con `orders`, `chargedCents`, `avgTicketCents` **iguales** a la fila de ayer (misma función `dayFigures`); sin avisos y con pedidos ⇒ se manda; sin ambos ⇒ `empty` sin correo | 624 |
+| AN-B-19 (fase C) | Las mezclas suman los totales; pedido anterior a `M-AN-1` ⇒ `method: null` | 621 |
+| AN-F-1 | Pestaña «Ventas» en M9: «—» con `null`; diferencia en unidades **antes** que el %; «sin ventas en el periodo anterior» sin % | 604, 606 |
+| AN-F-2 | Una barra por fila, mismo valor, barras de cero visibles | 609 |
+| AN-F-3 | La tarjeta no se monta ni pide `/today` con rol `vault_operator` | 613 |
+| AN-F-4 | La tienda no carga script ni cookie nuevos (criterio 509 sigue verde sin tocar el aviso) | 613 |
+
+**Mutaciones que tienen que morder** (en copia del árbol **entero**, O-9): (m1) R-2 con `status: 'settled'` ⇒ AN-B-4 roja;
+(m2) `lte` en lugar del semiabierto ⇒ AN-B-1 roja; (m3) `subtotalCents` en vez de `netRevenueCents` ⇒ AN-B-3 roja (fixture
+`IVA_INCLUSIVE`); (m4) `avgTicketCents = 0` con 0 pedidos ⇒ AN-B-5 roja; (m5) quitar el recorte de semana ⇒ AN-B-6 roja;
+(m6) `pnl-core` que salta el término de ajustes ⇒ AN-B-13 y AN-B-15 rojas.
+
+### 15.7 CSV (`/sales/export.csv`, criterio 610)
+
+`Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="ventas_<from>_<to>_<groupBy>.csv"`.
+Una fila por cubo (las de cero también) y una última fila con `from=total`. Columnas, **en este orden** (enteros en
+centavos; `null` = celda vacía):
+
+`from,to,orders,chargedCents,netSalesCents,refundsCount,refundsAmountCents,refundsNetCents,netSalesAfterRefundsCents,pieces,avgTicketCents,piecesPerOrder,shippingChargedNetCents,shippingCostNetCents,shippingCostMissingCount,buylistPaidCount,buylistPaidNetCents,profitCents`
+
+Las columnas de fase B se añaden **al final** cuando la fase B entra (aditivo, como el CSV de inventario). ⛔ Sin nombres,
+correos, direcciones, teléfonos, `orderNumber`, `userId` ni ninguna lista de «lo más vendido».
+
+### 15.8 P2 — cómo sale cada cifra, y de qué depende
+
+- **612 · `profitCents`, 622 · `shipping.*`:** de `pnlBuckets` (`ARCHITECTURE §4.64.4`), el cuerpo de `pnl()` **partido**,
+  cada componente en el día de **su** fecha (la misma que M7 usa: órdenes por `settledAt`, envíos por `pickingAt`, ajustes por
+  `chargedAt`, reembolsos por `submittedAt`/`paidAt`). Σ días = `pnl()` del periodo por construcción. ⚠️ **Hereda D-AN-1**:
+  la ganancia sigue la regla de Finanzas de hoy; el front la rotula «Ganancia (regla de Finanzas)». Se alinea sola cuando
+  §W 277/278 cambie `pnl-core`.
+- **622 · `buylistRevenueCents` / `buylistCostCents`:** ⛔ **condicionado a que #78 (`M-72`) esté en `production`**. Se
+  añaden como lo que #78 meta en `pnlBuckets`, con su misma fecha; hasta entonces las claves **no viajan** (ausentes, no `0`).
+- **623 · `buylist.*`:** `SellRequest` `status = 'pagada'`, día de `paidAt`; `paidNetCents = Σ payoutNetCents`. No depende de #78.
+- **620 · `bestDays`:** de los mismos pedidos R-2, día de la semana y hora de `settledAt` en México.
+- **621 · `mix`:** destino (`fulfillmentMode`) e invitado/cuenta (`guestEmail != null`) salen de lo que ya se guarda.
+  **Método de pago: no se guarda hoy** ⇒ migración **`M-AN-1`** (aditiva, sin relleno): `Order.paymentMethodType String?`
+  = `charge.payment_method_details.type` de Stripe (`card`, `oxxo`, …; cadena abierta, ⛔ no enum), capturado al liquidar en
+  **las dos** ramas (hoy solo `direct_ship` lee el cargo). Fallo de la lectura ⇒ `null`, ⛔ nunca bloquea la liquidación.
+  El front traduce los valores conocidos y pinta el resto como «Otro» y `null` como «Sin dato».
+- **624 · resumen de las 08:00:** `spend-digest` añade una línea `Ventas de ayer: {orders} pedidos · {chargedCents} · ticket
+  {avgTicketCents|—}` desde `SalesAnalyticsService.dayFigures(ayer)`. **Regla de envío nueva** (P-AN-1, default): se manda si
+  `alertCount > 0` **o** `orders > 0`; si ninguno ⇒ `empty`, sin correo (como hoy). Destinatarios **sin cambio** (solo el
+  dueño). El correo sigue siendo solo-staff (§14.18).
+
+### 15.9 Preguntas al dueño (cada una con default; ninguna bloquea)
+
+- **P-AN-1** — ¿El correo de las 08:00 debe llegar también los días **sin avisos** pero **con ventas**? Default: **sí**; sin
+  avisos y sin ventas, no llega (como hoy).
+- **P-AN-2** — La tarjeta «Ventas de hoy» compara contra el mismo día de la semana pasada **completo**. ¿O prefieres «hasta
+  esta misma hora»? Default: **completo**.
+- **P-AN-3** — «Mes pasado» se compara contra los mismos días inmediatamente anteriores (como dice §AN.2). ¿O contra el mes
+  calendario anterior? Default: **como dice §AN.2**.
+- **Medición pendiente (no pregunta):** qué métodos de pago tiene encendidos la cuenta de Stripe (panel de Stripe →
+  métodos de pago). Si solo hay tarjeta, 621 por método no dice nada nuevo hasta que se encienda otro.
+
+### 15.10 Zonas compartidas y quién construye
+
+| Pieza | Rol | Zona compartida |
+|---|---|---|
+| `sales-analytics/` (nuevo), rutas en `admin.controller.ts`, `admin/pnl-core.ts` (fase B, 💰) | backend | — |
+| `spend-digest.service.ts`, `spend-alert.mail.ts` (fase B) | backend | — |
+| `M-AN-1` + `payments.service.ts`/`stripe.service.ts` (fase C) | backend | `backend/prisma/` ⇒ serializar |
+| Pestaña «Ventas» (`admin/m9`), tarjeta (`admin/AdminDashboard.tsx`) | frontend | `frontend/src/lib/api.ts`, `frontend/src/types/contract.ts` |
+| Textos y gráfica de barras | ux-ui (`DESIGN_SYSTEM`) | — |
+| Notas junto a 602 (identidad con D-2/D-3), 612 (hereda D-AN-1), 624 (regla de envío) | product-owner | `PROJECT.md` |
 
 Backend reporta cada mutación con sus rojas reales y el sha de la copia; la e2e (`sdx-d2g-mail`) con N=1 basta para
 MUT-B1/B5 (render determinista), dicho como tal.

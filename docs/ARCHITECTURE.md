@@ -4,6 +4,11 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2** (2026-10-06, arquitecto, rama `claude/analitica-ventas`
+> en `/home/user/tcg-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT`
+> gana **§15** ([#AN](API_CONTRACT.md#AN)); porqué en **§4.64**; desviaciones `D-AN-1…3` en §9. Tres endpoints nuevos en M9
+> (`super_admin`), sin tabla nueva; una columna aditiva (`M-AN-1`, solo para 621); 622 del buylist condicionada a #78.
+>
 > **Rev v1.80.12.17 — 💰 ERRATA TRAS EL GATE DE QA SOBRE `31af0883`** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado
 > por el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.17**; norma en `API_CONTRACT §M4-SHIP.19.36`;
 > porqué en **§4.60 (ac)**. M7 pinta «ajustes de paquetería» y seguro (criterio 238) y las tres restas de v1.80.7; la línea de
@@ -28544,6 +28549,145 @@ AVG-1/2/3 es una página `admin/…`»). Se decide la opción (1): los correos s
 
 ---
 
+### 4.64 ANALÍTICA DE VENTAS DEL DUEÑO — `PROJECT §AN`, P1 + P2 (v1.85⟨ventas⟩, 2026-10-06, NORMATIVO, 💰 **LEE DINERO**)
+
+> **Origen:** `PROJECT §AN` (criterios **600–613** y **620–624**) y `HECHOS.md:80` («Analítica de ventas del dueño (§AN) —
+> respuestas a P-ANA-1..3», 2026-10-06). **P-ANA-4**: el orquestador relayó el 2026-10-06 la palabra del dueño «Mete de una
+> vez el scope completo» ⇒ se diseñan P1 **y** P2 (la fila en `HECHOS.md` la escribe el orquestador; ⛔ NO MEDIDA por el
+> arquitecto). Árbol `/home/user/tcg-ventas`, rama `claude/analitica-ventas` (base `production` sin `M-72`, según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma entera: `API_CONTRACT §15` ([#AN](API_CONTRACT.md#AN)).
+> **Numeración:** `v1.85⟨ventas⟩` / `§4.64` / contrato `§15` — ⛔ NO MEDIDO si el PR #78 (`M-72`) u otra rama viva usa esos
+> números; lo comprueba el orquestador antes de fusionar (si chocan, se renumera sin cambiar contenido).
+
+#### 4.64.1 Lo medido (2026-10-06, lectura de código en este árbol)
+
+| Hecho | Dónde |
+|---|---|
+| M7 `pnl()` cuenta ingreso de órdenes **`status: 'settled'`** acotadas por `settledAt` | `backend/src/modules/admin/admin.service.ts:1722-1745` |
+| Lo devuelto resta en el periodo en que salió: `PaymentRefund` `submitted\|succeeded` por `submittedAt`, `ManualRefund` `paid` por `paidAt` | `admin.service.ts:1836-1861` (`refundsInPeriod`) |
+| Un reembolso **total** mueve la orden `settled → refunded` (sella `refundedAt`, **no** toca `settledAt`) | `payments/refunds/refund-ledger.service.ts:338-341`; `payments/payments.service.ts:735-738` |
+| Un contracargo mueve la orden a `chargeback`; ganarlo vuelve a `settled` **conservando** `settledAt` | `payments.service.ts:924-931`, `:1074-1081` |
+| `settledAt` solo se escribe al liquidar (las dos ramas) | `payments.service.ts:293`, `:455` |
+| Precedente de «pedido que alguna vez se cobró»: `status IN (settled, refunded, chargeback)` por `settledAt` | `admin.service.ts:1997` (`ivaReport`); `payments/refunds/origin.ts:76` (`settledAt: { not: null }`) |
+| `range()` de admin interpreta `YYYY-MM-DD` como medianoche **UTC** y usa `lte` ⇒ el último día se pierde y el corte no es México | `admin.service.ts:478-497`; el front manda la fecha cruda (`frontend/src/app/[locale]/(admin)/admin/m9/M9View.tsx:37-41`) |
+| Ya existe el corte por día de México, semiabierto `[00:00 MX, 00:00 MX del día siguiente)` | `backend/src/modules/spend-alerts/mx-day.ts:42-99` (`mxDayStart`, `nextYmd`, `prevYmd`, `mxDaysRange`, `parseMxDayFilter`); `common/business-days.ts:151` (`toMexicoCityDateKey`) |
+| Ingreso neto por fila y por convención (no agregable en SQL sin duplicar la regla) | `common/money.ts:891-901` (`netRevenueCents`), `:931-943` (`netShippingRevenueCents`); el tablero ya suma en memoria por eso (`admin.service.ts:2223-2240`) |
+| Lo que pagó el cliente = `Order.totalCents` (es el monto del `PaymentIntent`) | `orders/orders.service.ts:1109` |
+| Una pieza = un `OrderItem` (sin cantidad) | `backend/prisma/schema.prisma:1441-1470` |
+| Invitado ⇔ `guestEmail != null` (inmutable, sobrevive al reclamo) | `schema.prisma:1352-1354` |
+| Índices de `Order`: `userId`, `status`, `guestEmail` — **ninguno** sobre `settledAt` | `schema.prisma:1435-1438` |
+| M9 es `super_admin` a nivel de clase | `admin/admin.controller.ts:548-551` (`@Roles(Role.super_admin)`); M7 igual, `:489-491`; el tablero es `vault_operator + super_admin`, `:592-594` |
+| **Métodos de pago:** el checkout crea el `PaymentIntent` con `automatic_payment_methods: { enabled: true }` y el front monta `<PaymentElement>` ⇒ **los métodos son los que estén encendidos en el panel de Stripe**; el código no fija ninguno | `payments/stripe.service.ts:185-191`; `frontend/src/components/domain/StripePaymentModal.tsx:111`. ⛔ **NO MEDIDO** qué métodos tiene encendidos la cuenta (es configuración del panel de Stripe; lo cierra el dueño mirando *Settings → Payment methods*, o una lectura de solo lectura de la API) |
+| Del método solo se guarda marca + últimos 4, y **solo** en `direct_ship` | `payments.service.ts:439-441`, `:456`; columnas `schema.prisma:1372-1373` |
+| Buylist: lo que salió por SPEI está sellado en `SellRequest.payoutNetCents` al pasar a `pagada` (con `paidAt`) | `schema.prisma:2242-2245`, `:2117` |
+| Resumen de las 08:00: `spend-digest`, **solo al dueño**, y **sin correo si no hubo avisos** | `spend-alerts/spend-digest.service.ts:67-71`, `:73`, `:88`; `spend-mail.service.ts:53-55` |
+
+#### 4.64.2 La decisión de fondo: qué es «un pedido cobrado», y por qué choca con `pnl()` de hoy
+
+**Regla AN (una sola, para todas las cifras de §AN):** un pedido cuenta en el día México de su **`settledAt`**, **sea cual
+sea su estado actual** (`settled`, `refunded` o `chargeback`). Lo que pase después (reembolso, contracargo) **no** reescribe
+ese día; el reembolso cuenta **en su propio día** (P-ANA-1, `HECHOS.md:80` (1)). Es el predicado que ya usa `ivaReport`
+(`admin.service.ts:1997`).
+
+**El choque, medido:** `pnl()` filtra `status: 'settled'` (`admin.service.ts:1725`). Un pedido cobrado el lunes y
+reembolsado completo el miércoles pasa a `refunded` ⇒ **desaparece del ingreso del lunes** en M7 **y además** el miércoles
+resta su reembolso (`refundsInPeriod`). Es exactamente el defecto **D-2** que `PROJECT §W.3 (d)` (criterio **278**) manda
+corregir; con contracargo, **D-3** (criterio **277**). Ninguno está construido en esta base (no hay §W en este documento ni
+en el código medido).
+
+Consecuencia: **los criterios 602 («venta sin IVA = ingreso de M7, al centavo») y 603 («el lunes queda intacto») no pueden
+ser los dos verdes contra el `pnl()` de hoy**, y 613 prohíbe cambiar las cifras de M7 en este stream. Se elige:
+
+- **Manda 603** (palabra literal del dueño en `HECHOS.md:80` (1), y es lo que §W.3 (d) ya norma para M7). AN usa la Regla AN.
+- **602 se reformula como identidad exacta, medible hoy** (`API_CONTRACT §15.6` AN-B-3):
+  `Σ netSalesCents(AN) = pnl.incomeCents + Σ netRevenueCents(o)` sobre los pedidos con `settledAt` en el periodo y
+  `status ∈ {refunded, chargeback}`. Ese segundo término **es** la doble resta D-2/D-3, con nombre. Cuando no hay tales
+  pedidos, la igualdad es la literal de 602.
+- **Cierre:** cuando §W 277/278 entre, M7 adopta el mismo predicado (sale del mismo `pnl-core`, §4.64.4) y el término se
+  hace cero **por construcción**. ⇒ `PENDIENTE`: product-owner anota junto al 602 que su igualdad literal depende de 278.
+
+#### 4.64.3 Por qué así (decisiones y alternativas descartadas)
+
+| Decisión | Alternativa descartada y por qué |
+|---|---|
+| **Sin tabla nueva ni vista materializada.** Una consulta acotada por periodo + agregación en memoria con los **mismos** helpers de `money.ts` | Agregar en SQL (`date_trunc … AT TIME ZONE`) duplicaría `netRevenueCents` dentro de una expresión: dos fuentes para la regla del IVA (lo que el tablero ya evitó, `admin.service.ts:2223-2228`) |
+| **El día lo corta el servidor**, con `mx-day.ts` (semiabierto, ⛔ `lte`) | Reusar `range()` de admin: arrastra D-1 (UTC + último día perdido). ⛔ No se arregla `range()` aquí: cambiaría M7/M9 (criterio 613); es §W 275 |
+| **Presets resueltos en el servidor** (`today`, `yesterday`…) | Que el navegador calcule «hoy»: un navegador fuera de México corta otro día |
+| Endpoints **en `AdminReportsController`** (M9) ⇒ hereda `@Roles(Role.super_admin)` de clase | Meterlo en `GET /admin/dashboard` (es `vault_operator+`): obligaría a un `null` por rol y un olvido filtra dinero al operador. La tarjeta del tablero llama a **su propio** endpoint de M9 |
+| **Módulo nuevo `backend/src/modules/sales-analytics/`** (servicio + funciones puras), importado por `admin` (controlador) y `spend-alerts` (624) | Ponerlo en `AdminService`: `spend-alerts` tendría que importar `AdminModule` entero (riesgo de ciclo de módulos) |
+| **`pnl-core.ts`**: el cuerpo de `pnl()` se parte en `pnlBuckets(db, range, keyOf)`; `pnl()` = un solo cubo | Llamar `pnl()` una vez por día: N×5 consultas (366 días ⇒ ~1 800) y dos cuerpos que «deben» dar lo mismo |
+| Semana **lunes a domingo**, cubos **recortados** al periodo | Semana ISO completa: el total del periodo cambiaría al agrupar (criterio 605) |
+| `to` no puede ser posterior a hoy MX; tramo máximo **366 días** | Días futuros en la tabla «con cero» serían información falsa; sin tope, una petición barre la tabla entera |
+
+#### 4.64.4 Forma interna (firmas; ⛔ no es código)
+
+```
+// backend/src/modules/sales-analytics/sales-period.ts — puro
+resolvePeriod(q: { preset?, from?, to?, groupBy? }, now: Date)
+  → { from: Ymd, to: Ymd, days: number, prev: { from: Ymd, to: Ymd }, groupBy, buckets: Bucket[] }
+bucketKeyOf(instant: Date, groupBy, period) → Ymd   // inicio del cubo recortado; usa toMexicoCityDateKey
+// backend/src/modules/sales-analytics/sales-figures.ts — puro
+salesFiguresOf(orders: OrderLite[], refunds: RefundLite[]) → SalesFigures   // una definición por cifra (§15.4)
+// backend/src/modules/admin/pnl-core.ts — 💰 extraído de admin.service.ts:1722-1861 SIN cambiar una cifra
+pnlBuckets(db, range: {gte, lt}, keyOf: (d: Date) => string) → Map<string, PnlComponents>
+refundsInPeriod(db, range)                                   // movido tal cual
+// AdminService.pnl(from, to) = pnlBuckets(db, range(from,to) as hoy, () => 'all').get('all')
+// backend/src/modules/sales-analytics/sales-analytics.service.ts
+report(q, now) → SalesReportDTO;  csv(q, now) → string;  today(now) → SalesTodayDTO;  dayFigures(day: Ymd) → SalesFigures
+```
+
+⚠️ `pnlBuckets` debe aceptar **también** el filtro `lte` que hoy produce `range()` (para que `pnl()` dé bit a bit lo mismo,
+criterio 613). Para AN se le pasa el semiabierto de `mx-day.ts`.
+
+#### 4.64.5 Fases dentro del stream (para el orquestador)
+
+| Fase | Criterios | Toca | Zona compartida |
+|---|---|---|---|
+| **A** | 600–611, 613 | `sales-analytics/` (nuevo), `admin.controller.ts` (rutas en `AdminReportsController`), front `admin/m9` (pestaña) y `AdminDashboard.tsx` (tarjeta) | `frontend/src/lib/api.ts`, `frontend/src/types/contract.ts` |
+| **B** | 612, 620, 622 (salida), 623, 624 | `admin/pnl-core.ts` (💰 refactor de M7 con candado de paridad), `spend-alerts/spend-digest.service.ts` + `spend-alert.mail.ts` | — |
+| **C** | 621 (método de pago) | `schema.prisma` + migración **`M-AN-1`** (número lo asigna el orquestador; `M-72` es #78), `payments.service.ts`, `stripe.service.ts` | `backend/prisma/` ⇒ se serializa |
+| **C′** | 622 (columnas del buylist) | Solo si **#78 (`M-72`) está en `production`**: AN lee las mismas componentes que #78 añada a `pnlBuckets` | — |
+
+Modelo: todo esto lee dinero y la fase B toca el cuerpo de M7 ⇒ **modelo fuerte** para el plano y las pruebas; la fase A
+de frontend sin dinero puede bajar al barato con las pruebas ya escritas (CLAUDE.md «Reparto de modelos»).
+
+#### 4.64.6 Rendimiento (lo que se sabe y lo que no)
+
+- Por petición: ~10 consultas fijas, **sin N+1**: órdenes de periodo **y** periodo anterior en una sola consulta
+  (`settledAt ∈ [prev.from, to]`, columnas enumeradas), renglones de los pedidos del periodo, 2 de reembolsos, 1 de clientes
+  previos, ~4 de `pnlBuckets`, 1 de buylist.
+- **Sin índice nuevo en P1/P2.** `Order` no tiene índice sobre `settledAt` (`schema.prisma:1435-1438`) ⇒ barrido de `Order`.
+  Volumen hoy: ⛔ **NO MEDIDO** (toda venta es de prueba, `PROJECT §AN` cita `HECHOS.md` fila 16). **Disparador** para añadir
+  `@@index([settledAt])` (migración aditiva): `EXPLAIN ANALYZE` del informe de 366 días > 300 ms en producción, o > 50 000
+  filas en `Order`. Se mide, no se supone.
+- Memoria: acotada por las órdenes de 2×366 días (con columnas enumeradas, ⛔ sin `include` de piezas para las cifras).
+
+#### 4.64.7 Lo que el PROJECT no aguantó (para product-owner y el dueño)
+
+1. **602 vs 603** contra el `pnl()` de hoy (§4.64.2). Decidido: manda 603; 602 queda como identidad con el término D-2/D-3.
+2. **612 (ganancia por día)**: hoy **no** sale de `pnl()` sin cálculo nuevo (`pnl()` devuelve un solo agregado,
+   `admin.service.ts:1815-1828`). Con el alcance completo del dueño se **incluye** en la fase B vía `pnl-core` (misma fórmula
+   partida, no una fórmula nueva) — pero **hereda D-2/D-3**: la ganancia del lunes **sí baja** si el miércoles se reembolsa
+   completo, a diferencia de la venta. La pantalla lo rotula «Ganancia (regla de Finanzas)». Se alinea sola con 277/278.
+3. **621 por método de pago**: el dato **no se guarda** hoy (solo marca/4 últimos y solo en envío directo). Requiere `M-AN-1`;
+   los pedidos anteriores salen como «sin dato». Si la cuenta de Stripe solo tiene tarjeta encendida (NO MEDIDO), la mezcla
+   será 100 % tarjeta y la parte útil es destino e invitado/cuenta.
+4. **622**: el lado de **salida** (envío cobrado vs guías de pedidos y retiros) es construible hoy y cuadra con M7 por
+   construcción. El «tarifa congelada» que menciona §AN.3 es del **buylist** (`schema.prisma:2237-2240`), cuyo costo no está en
+   el `pnl()` de esta base (el contrato §M7 lo declara desde v1.51.1, `API_CONTRACT.md:34752-34766`, y el código no lo tiene,
+   `admin.service.ts:1815-1828`) ⇒ esas columnas quedan **condicionadas a #78 en `production`**.
+5. **623** «cuadra con el flujo SPEI de §W.3 (e)»: ese flujo (criterio 279) no existe en esta base. AN cuadra contra la fuente
+   (`payoutNetCents` por `paidAt`); cuando 279 se construya, debe leer el mismo helper.
+6. **624**: hoy el resumen **no se manda** si no hubo avisos (`spend-digest.service.ts:67-71`). Para que «la línea de ventas
+   de ayer» exista hace falta cambiar esa regla: **default del arquitecto** = se manda si hubo avisos **o** hubo pedidos ayer;
+   ni uno ni otro ⇒ sin correo, como hoy. Es pregunta al dueño con default (`API_CONTRACT §15.9` P-AN-1).
+7. **«Tarjeta: contra el mismo día de la semana pasada»**: se compara contra **ese día completo** (SUPUESTO; alternativa:
+   «hasta la misma hora»). Pregunta P-AN-2 con default.
+8. **«Contra el periodo anterior del mismo largo»** para «Mes pasado»: se compara contra los N días inmediatamente anteriores
+   (literal del PROJECT), no contra el mes calendario anterior. P-AN-3 con default.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist; ⭐ v1.80.2: y los **reembolsos manuales** de casos «Por reponer» que no caben en el cobro de Stripe, tabla `ManualRefund`, §4.57 (m)). Ninguna vista de usuario muestra saldo. El sistema **nunca** transfiere solo: todo SPEI lo ejecuta el súper-admin fuera y lo registra.
@@ -29311,6 +29455,19 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **v1.85⟨ventas⟩ — medidas el 2026-10-06 por lectura en `/home/user/tcg-ventas` (sha NO MEDIDO; §4.64.1). Ninguna se
+> corrige en el stream de analítica (criterio 613); se enrutan a §W.**
+> - **`D-AN-1` (💰, abierta, = D-2/D-3 de `PROJECT §W`):** `pnl()` cuenta ingreso solo de `status: 'settled'`
+>   (`admin.service.ts:1725`) y resta los reembolsos en su día (`:1836-1861`) ⇒ un reembolso total o un contracargo
+>   **borra la venta de su día y además resta** (doble resta). Cierre: §W criterios 277/278, adoptando la Regla AN en
+>   `pnl-core` (§4.64.2). Comprobación: AN-B-3 con el término de diferencia = 0.
+> - **`D-AN-2` (abierta, = D-1 de §W, criterio 275):** `range()` (`admin.service.ts:478-497`) toma `YYYY-MM-DD` como
+>   medianoche UTC con `lte`; M9/M7 mandan la fecha cruda (`M9View.tsx:37-41`) ⇒ el último día se pierde y el corte no es
+>   México. AN no usa `range()`.
+> - **`D-AN-3` (abierta, = D-7 de §W, criterio 287):** el contrato §M7 declara `buylistShippingRevenueCents/CostCents/Basis`
+>   en `pnl` (`API_CONTRACT.md:34752-34766`); el código no los devuelve (`admin.service.ts:1815-1828`). #78 (`M-72`), según el
+>   orquestador; ⛔ contenido de #78 NO MEDIDO.
+>
 > **v1.83 — `D-SP-1` (abierta, temporal; se cierra al fusionar con Skydropx):** «solo el dueño fija el precio del
 > sellado» (`HECHOS.md:50` (4)) se construye como `role === 'super_admin'`; un súper-admin del personal también puede.
 > Cierre: el cuerpo de `canSetSealedSalePrice` (backend) y `canSetSealedPrice` (frontend) pasa a `isOwnerAccount` /
