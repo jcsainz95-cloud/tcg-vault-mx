@@ -22,6 +22,7 @@
 > | AN-4 | 621 | Migración aditiva **`M-AN-1`** `Order.paymentMethodType` | Sí (dato nuevo al liquidar) | backend |
 > | AN-5 | 622 buylist | Condicionado a #78 en `production` | — | backend |
 > | AN-6 | 624 | El resumen de las 08:00 lleva la línea de ventas de ayer y se manda también con ventas sin avisos (P-AN-1) | Sí | backend |
+> | AN-7 | ⭐ **Errata AN-1.1** (2026-10-06, N-AN-1…4 de ux-ui) | `chargebacks` por cubo (fase C, `M-AN-1` + `chargebackOpenedAt`/`chargebackAmountCents`); `mix.byProductType` (fase B); `shipping.resultNetCents` (fase B); **CSV en pesos** con 2 decimales, JSON en centavos (fase A). [§15.11](#AN) | Sí (dos columnas nuevas al recibir el contracargo; CSV) | backend + frontend |
 >
 > **Errata v1.84.5 — CHOQUE B: PIE DE PRIVACIDAD (E4-5) vs. ENLACES DE LOS CORREOS DE GASTO (SDX-I-8) (2026-10-05,
 > arquitecto, árbol `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `1eb6bdcd`; ⛔ sha NO
@@ -39771,10 +39772,15 @@ interface SalesFigures {
   avgTicketCents: number | null; piecesPerOrder: number | null;
   // ---- P2 (fase B) ----
   shipping: { chargedNetCents: number; costNetCents: number; costMissingCount: number; adjustmentsCents: number;
+              resultNetCents: number;                                       // ⭐ AN-1.1 (N-AN-3) = chargedNetCents − costNetCents, MISMO cubo (§15.11.3)
               buylistRevenueCents?: number; buylistCostCents?: number };   // las dos `buylist*` SOLO con #78 en production (§15.8)
   buylist: { paidCount: number; paidNetCents: number; paidWithoutPayoutCount: number };
   profitCents: number;                                                      // 612, regla de Finanzas (§15.8)
+  // ---- P2 (fase C, con M-AN-1) ---- ⭐ AN-1.1 (N-AN-1, §15.11.1)
+  chargebacks: { count: number; amountCents: number;                        // abiertos en el cubo (día MX de `chargebackOpenedAt`)
+                 byOutcome: { open: MoneyCell; won: MoneyCell; lost: MoneyCell } };   // desenlace de HOY; Σ = count / amountCents
 }
+interface MoneyCell { count: number; amountCents: number }
 interface Delta { diff: number | null; pct: number | null }   // pct entero; null si el anterior es 0 o alguno es null
 interface SalesReportDTO {
   period: { preset: 'today'|'yesterday'|'last7'|'last30'|'this_month'|'last_month'|'custom';
@@ -39793,15 +39799,26 @@ interface SalesReportDTO {
               byHour:    Array<{ hour: number; orders: number; chargedCents: number }> };           // 0–23 MX; siempre 24
   mix: { byDestination: { vault: MixCell; direct_ship: MixCell };
          byBuyer: { account: MixCell; guest: MixCell };                                // guest ⇔ guestEmail != null
-         byPaymentMethod: Array<{ method: string | null; orders: number; chargedCents: number }> };   // fase C; null = «sin dato»
+         byPaymentMethod: Array<{ method: string | null; orders: number; chargedCents: number }>;    // fase C; null = «sin dato»
+         byProductType: { raw: PieceCell; graded: PieceCell; sealed: PieceCell } };   // ⭐ AN-1.1 (N-AN-2), fase B, §15.11.2
+  chargebacksUndatedCount: number;   // ⭐ AN-1.1 (fase C): contracargos de TODO el histórico sin `chargebackOpenedAt` (anteriores a M-AN-1)
 }
 interface MixCell { orders: number; chargedCents: number }
+interface PieceCell { pieces: number; netCents: number }   // netCents = venta sin IVA repartida por renglón (§15.11.2)
 ```
+
+⚠️ **AN-1.1 — fases y claves ausentes (norma para TODAS las claves P2, también las de v1.85).** Una clave de una fase que
+el servidor aún no construye **no viaja** (ausente, ⛔ no `0`; es lo que `DESIGN_SYSTEM §AN-UX` ya asume con «servidor en
+fase A»): `shipping.resultNetCents` y `mix.byProductType` llegan con la fase B;
+`chargebacks` y `chargebacksUndatedCount` con la fase C (necesitan `M-AN-1`). El front pinta solo si la clave llega.
 
 **Invariantes (cada una es prueba, §15.6):** Σ `rows[*].X` = `totals.X` para toda cifra aditiva; `totals` no cambia con
 `groupBy`; `Delta.diff = totals − previousTotals`; `pct = round(diff / previous × 100)` (mitad lejos de cero); Σ `byWeekday`,
 Σ `byHour`, Σ de cada mezcla = `totals.orders` y `totals.chargedCents`; `avgTicketCents`/`piecesPerOrder` de `totals` se
-calculan **sobre los totales**, ⛔ no promediando filas.
+calculan **sobre los totales**, ⛔ no promediando filas. ⭐ AN-1.1: Σ `mix.byProductType.*.pieces` = `totals.pieces` y
+Σ `.netCents` = `totals.netSalesCents` (al centavo); en cada fila y en `totals`, `shipping.resultNetCents =
+shipping.chargedNetCents − shipping.costNetCents`; Σ `chargebacks.byOutcome.*` = `chargebacks` (count y amountCents);
+`chargebacks.*` es aditivo (Σ filas = totales).
 
 ### 15.5 `SalesTodayDTO` (criterio 611)
 
@@ -39827,7 +39844,7 @@ El front rotula el periodo (criterio 286: «Hoy, {fecha}» y «{día} {fecha}»)
 | AN-B-7 | 3 vs 1 ⇒ `diff=2, pct=200`; anterior 0 ⇒ `pct=null` | 606 |
 | AN-B-8 | Listas en orden por `net` y por `pieces`; máx 10; pedido `refunded` fuera; dos acabados = dos renglones | 607 |
 | AN-B-9 | Nuevo / recurrente / invitado con el correo de una cuenta que ya compró ⇒ recurrente; `new+returning=distinct` | 608 |
-| AN-B-10 | CSV = `rows` celda a celda (mismos enteros) + fila `total`; regex del CSV **no** contiene `@`, ni nombres ni `orderNumber` de la fixture (CONTROL: la fixture sí los tiene) | 610 |
+| AN-B-10 | ⭐ (reescrita en AN-1.1) CSV = `rows` celda a celda + fila `total`: cada celda de dinero casa `^-?\d+\.\d{2}$` y `Number(celda.replace('.', ''))` = el entero en centavos de `rows` (⛔ comparar flotantes); conteos y `piecesPerOrder` como en el JSON; regex del CSV **no** contiene `@`, ni nombres ni `orderNumber` de la fixture (CONTROL: la fixture sí los tiene) | 610 |
 | AN-B-11 | `/today` = fila de hoy del informe; `sameWeekdayLastWeek.day = hoy − 7` | 611 |
 | AN-B-12 | `vault_operator` ⇒ `403` en los tres; `super_admin` ⇒ `200` | 613 |
 | AN-B-13 💰 | **Paridad de M7 tras `pnl-core`:** `pnl()`, `ivaReport()`, `exportCsv('pnl')` y `launchMetrics()` dan **exactamente** lo mismo antes y después sobre la misma fixture (instantánea guardada antes del refactor) | 613 |
@@ -39837,6 +39854,11 @@ El front rotula el periodo (criterio 286: «Hoy, {fecha}» y «{día} {fecha}»)
 | AN-B-17 (fase B) | `buylist.paidNetCents` por día = Σ `payoutNetCents` de `pagada` por `paidAt` MX; una fila `pagada` con `payoutNetCents = null` suma a `paidWithoutPayoutCount`, ⛔ no a 0 silencioso | 623 |
 | AN-B-18 (fase B) | El resumen de las 08:00 trae la línea de ayer con `orders`, `chargedCents`, `avgTicketCents` **iguales** a la fila de ayer (misma función `dayFigures`); sin avisos y con pedidos ⇒ se manda; sin ambos ⇒ `empty` sin correo | 624 |
 | AN-B-19 (fase C) | Las mezclas suman los totales; pedido anterior a `M-AN-1` ⇒ `method: null` | 621 |
+| AN-B-20 💰 (fase C, AN-1.1) | **Contracargos.** Fixture: pedido A cobrado el lunes, `charge.dispute.created` con `created` = miércoles 23:30 MX y `amount = 34800`; pedido B disputa el jueves y se **gana**; pedido C disputa el jueves y se **pierde**; pedido D en `chargeback` **sin** `chargebackOpenedAt` (legado). ⇒ lunes intacto (`orders`, `chargedCents`, `netSalesCents` de A siguen ahí: R-2); miércoles `chargebacks = {1, 34800}`, `byOutcome.open = {1, 34800}`; jueves `byOutcome.won.count = 1`, `lost.count = 1`; D en `chargebacksUndatedCount = 1` y en **ningún** cubo; un segundo `charge.dispute.created` del mismo cargo **no** mueve `chargebackOpenedAt` ni `chargebackAmountCents`; `netSalesAfterRefundsCents` **no** cambia por un contracargo | §AN.3 |
+| AN-B-21 💰 (fase B, AN-1.1) | **Mezcla por tipo.** Fixture `IVA_INCLUSIVE` con un pedido de 3 renglones (raw 100.00, graded 100.00, sealed 100.00 ⇒ `subtotalCents = 30000`, `netRevenueCents = 25862`) y un pedido `refunded` ⇒ Σ `byProductType.*.netCents = totals.netSalesCents` **al centavo** (aquí 25862 = 8621 + 8621 + 8620, los dos centavos de residuo a los dos renglones de menor `OrderItem.id`; CONTROL: Σ de `taxBaseCentsOf` por renglón daría 25863 ⇒ el reparto por renglón suelto **no** cuadra); Σ `.pieces = totals.pieces`; el pedido `refunded` **sí** cuenta (a diferencia de `top`) | §AN.3 |
+| AN-B-22 💰 (fase B, AN-1.1) | **Resultado del envío.** Fixture con un `ShipmentCostAdjustment` cargado en el periodo (para que m9 muerda). En cada fila y en `totals`: `resultNetCents = chargedNetCents − costNetCents`; un día con costo de guía mayor que lo cobrado ⇒ negativo; con un envío de costo sin capturar, `costMissingCount = 1` y `resultNetCents` se emite igual (⛔ `null`) | 622 |
+| AN-B-23 (AN-1.1) | `centsToPesosCell`: `0 ⇒ "0.00"`, `5 ⇒ "0.05"`, `34800 ⇒ "348.00"`, `-1230 ⇒ "-12.30"`, `-5 ⇒ "-0.05"`, `123456789 ⇒ "1234567.89"`; ⛔ sin separador de miles ni `$` | 610 |
+| AN-F-5 (AN-1.1) | «Resultado del envío» pinta `shipping.resultNetCents` tal cual (prueba con un DTO cuyo valor **no** es la resta de las otras dos ⇒ se pinta el del DTO); columnas de contracargos y tabla por tipo **no** se montan si su clave no viene | 622, §AN.3 |
 | AN-F-1 | Pestaña «Ventas» en M9: «—» con `null`; diferencia en unidades **antes** que el %; «sin ventas en el periodo anterior» sin % | 604, 606 |
 | AN-F-2 | Una barra por fila, mismo valor, barras de cero visibles | 609 |
 | AN-F-3 | La tarjeta no se monta ni pide `/today` con rol `vault_operator` | 613 |
@@ -39846,17 +39868,31 @@ El front rotula el periodo (criterio 286: «Hoy, {fecha}» y «{día} {fecha}»)
 (m2) `lte` en lugar del semiabierto ⇒ AN-B-1 roja; (m3) `subtotalCents` en vez de `netRevenueCents` ⇒ AN-B-3 roja (fixture
 `IVA_INCLUSIVE`); (m4) `avgTicketCents = 0` con 0 pedidos ⇒ AN-B-5 roja; (m5) quitar el recorte de semana ⇒ AN-B-6 roja;
 (m6) `pnl-core` que salta el término de ajustes ⇒ AN-B-13 y AN-B-15 rojas.
+⭐ AN-1.1: (m7) el CSV emite centavos ⇒ AN-B-10 roja; (m8) `byProductType` con `taxBaseCentsOf` por renglón en vez del
+reparto ⇒ AN-B-21 roja; (m9) `resultNetCents = chargedNetCents − costNetCents − adjustmentsCents` (ajustes restados dos
+veces: ya van dentro de `costNetCents`, `admin.service.ts:1801-1802`) ⇒ AN-B-22 roja; (m10) `chargebackOpenedAt`
+sobrescrito en cada evento ⇒ AN-B-20 roja; (m11) `centsToPesosCell` que pierde el signo cuando `|n| < 100`
+(`-5 ⇒ "0.05"`, el caso de `Math.trunc(-5 / 100) = -0`) ⇒ AN-B-23 roja.
 
 ### 15.7 CSV (`/sales/export.csv`, criterio 610)
 
 `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="ventas_<from>_<to>_<groupBy>.csv"`.
-Una fila por cubo (las de cero también) y una última fila con `from=total`. Columnas, **en este orden** (enteros en
-centavos; `null` = celda vacía):
+Una fila por cubo (las de cero también) y una última fila con `from=total`. ⭐ **AN-1.1 (N-AN-4): el dinero va en PESOS con
+dos decimales** (`348.00`, `-12.30`; punto decimal, ⛔ sin separador de miles, ⛔ sin `$`), formateado con
+`centsToPesosCell(cents: number): string` en **aritmética entera** (signo + `⌊|n|/100⌋` + `.` + `|n| mod 100` a dos
+dígitos; ⛔ `n / 100` en flotante). Es la misma cifra al centavo que el JSON (criterio 610), que **sigue en centavos**.
+Conteos: enteros; `piecesPerOrder`: un decimal como en el JSON; `null` = celda vacía. Columnas, **en este orden**:
 
-`from,to,orders,chargedCents,netSalesCents,refundsCount,refundsAmountCents,refundsNetCents,netSalesAfterRefundsCents,pieces,avgTicketCents,piecesPerOrder,shippingChargedNetCents,shippingCostNetCents,shippingCostMissingCount,buylistPaidCount,buylistPaidNetCents,profitCents`
+- Fase A: `from,to,orders,chargedMxn,netSalesMxn,refundsCount,refundsAmountMxn,refundsNetMxn,netSalesAfterRefundsMxn,pieces,avgTicketMxn,piecesPerOrder`
+- Fase B (se añaden al final cuando entra): `,shippingChargedNetMxn,shippingCostNetMxn,shippingResultNetMxn,shippingCostMissingCount,buylistPaidCount,buylistPaidNetMxn,profitMxn`
+- Fase C (al final, con `M-AN-1`): `,chargebacksCount,chargebacksAmountMxn`
 
-Las columnas de fase B se añaden **al final** cuando la fase B entra (aditivo, como el CSV de inventario). ⛔ Sin nombres,
-correos, direcciones, teléfonos, `orderNumber`, `userId` ni ninguna lista de «lo más vendido».
+⛔ Sin nombres, correos, direcciones, teléfonos, `orderNumber`, `userId` ni ninguna lista de «lo más vendido»; tampoco
+`mix.*` (son del periodo, no de cada cubo). ⚠️ El texto de ayuda `sales.csv.help` de `DESIGN_SYSTEM §AN-UX` que explica
+«centavos» queda obsoleto ⇒ ux-ui lo reescribe («montos en pesos, con dos decimales»).
+⚠️ **NO MEDIDO** con qué configuración regional abre el dueño Excel: con México (punto decimal, coma de lista) abre en
+columnas sin pasos; con una regional de coma decimal, Excel tomaría `348.00` como texto. Comprobación: el dueño abre el
+primer CSV y confirma que suma una columna.
 
 ### 15.8 P2 — cómo sale cada cifra, y de qué depende
 
@@ -39864,7 +39900,8 @@ correos, direcciones, teléfonos, `orderNumber`, `userId` ni ninguna lista de «
   cada componente en el día de **su** fecha (la misma que M7 usa: órdenes por `settledAt`, envíos por `pickingAt`, ajustes por
   `chargedAt`, reembolsos por `submittedAt`/`paidAt`). Σ días = `pnl()` del periodo por construcción. ⚠️ **Hereda D-AN-1**:
   la ganancia sigue la regla de Finanzas de hoy; el front la rotula «Ganancia (regla de Finanzas)». Se alinea sola cuando
-  §W 277/278 cambie `pnl-core`.
+  §W 277/278 cambie `pnl-core`. ⭐ AN-1.1: `shipping.resultNetCents` = cobrado neto − costo neto del mismo cubo (§15.11.3).
+- ⭐ **AN-1.1 · §AN.3 contracargos** (fase C, §15.11.1) y **mezcla por tipo de producto** (fase B, §15.11.2).
 - **622 · `buylistRevenueCents` / `buylistCostCents`:** ⛔ **condicionado a que #78 (`M-72`) esté en `production`**. Se
   añaden como lo que #78 meta en `pnlBuckets`, con su misma fecha; hasta entonces las claves **no viajan** (ausentes, no `0`).
 - **623 · `buylist.*`:** `SellRequest` `status = 'pagada'`, día de `paidAt`; `paidNetCents = Σ payoutNetCents`. No depende de #78.
@@ -39896,13 +39933,79 @@ correos, direcciones, teléfonos, `orderNumber`, `userId` ni ninguna lista de «
 |---|---|---|
 | `sales-analytics/` (nuevo), rutas en `admin.controller.ts`, `admin/pnl-core.ts` (fase B, 💰) | backend | — |
 | `spend-digest.service.ts`, `spend-alert.mail.ts` (fase B) | backend | — |
-| `M-AN-1` + `payments.service.ts`/`stripe.service.ts` (fase C) | backend | `backend/prisma/` ⇒ serializar |
+| `M-AN-1` + `payments.service.ts`/`stripe.service.ts` (fase C; ⭐ AN-1.1: `M-AN-1` lleva también las dos columnas de contracargo, §15.11.1) | backend | `backend/prisma/` ⇒ serializar |
 | Pestaña «Ventas» (`admin/m9`), tarjeta (`admin/AdminDashboard.tsx`) | frontend | `frontend/src/lib/api.ts`, `frontend/src/types/contract.ts` |
 | Textos y gráfica de barras | ux-ui (`DESIGN_SYSTEM`) | — |
 | Notas junto a 602 (identidad con D-2/D-3), 612 (hereda D-AN-1), 624 (regla de envío) | product-owner | `PROJECT.md` |
 
 Backend reporta cada mutación con sus rojas reales y el sha de la copia; la e2e (`sdx-d2g-mail`) con N=1 basta para
 MUT-B1/B5 (render determinista), dicho como tal.
+
+### 15.11 Errata AN-1.1 (2026-10-06, arquitecto) — huecos del DTO frente a `PROJECT §AN.3` (N-AN-1…4 de `DESIGN_SYSTEM §AN-UX`)
+
+Origen: ux-ui (`DESIGN_SYSTEM §AN-UX`, tabla de pedidos N-AN-1…4; commit `5b7ec485` según el orquestador, ⛔ NO MEDIDO por
+el arquitecto: sin Bash). `PROJECT.md:9152-9153` (§AN.3) pide **contracargos por día** y **mezcla por tipo de producto**, y
+`PROJECT.md:9148-9149` pide «¿me sale el envío?»; los criterios 620–624 no los nombran, pero §AN.3 es alcance (P-ANA-4,
+alcance completo). Todo aditivo; ⛔ ninguna cifra existente de §15 cambia de valor; ⛔ M7 intacto (criterio 613).
+
+#### 15.11.1 N-AN-1 — Contracargos por día (fase **C**, migración)
+
+**Lo medido:** hoy **no se guarda cuándo** se abrió un contracargo ni **por cuánto**. `onChargeDispute` solo escribe
+`status: 'chargeback'` y `chargebackNeedsManual` (`payments.service.ts:924-931` envío directo, `:1027-1030` bóveda); el cierre
+escribe `disputeOutcome` `'won'|'lost'` sin fecha (`:1074-1091`; columna `schema.prisma:1400-1402`). `ProcessedStripeEvent`
+guarda `type` y `processedAt` pero **no** la orden (`schema.prisma:2494-2498`) ⇒ no se puede reconstruir. `Dispute`
+(`schema.prisma:2346-2366`) es la disputa de **condición** del cliente, ⛔ no el contracargo de Stripe.
+
+**Decisión:** `M-AN-1` (ya prevista para 621, misma migración, aditiva, **sin relleno**) añade a `Order`:
+- `chargebackOpenedAt DateTime?` = `new Date(dispute.created × 1000)` (la hora de Stripe, ⛔ la de proceso del webhook: un
+  reintento llegaría otro día).
+- `chargebackAmountCents Int?` = `dispute.amount` (centavos de la moneda del cargo; los `PaymentIntent` son MXN).
+
+Las dos se escriben en `onChargeDispute`, **en la misma `tx` que ya pone `status: 'chargeback'`**, en **las dos** ramas, y
+**solo si son `null`** (la primera disputa manda; una segunda `charge.dispute.created` del mismo cargo no las mueve).
+Leer del objeto del evento no puede fallar ⇒ ⛔ ningún camino nuevo que bloquee el contracargo. Firma interna:
+`onChargeDisputeDirectShip(order, dispute)` / `onChargeDisputeVault(order, dispute)`.
+
+**Reglas de conteo:** un contracargo cuenta en el día MX de `chargebackOpenedAt` (R-1), **una vez**, con su desenlace
+**de hoy** (como R-2 con el estado del pedido): `lost` si `disputeOutcome = 'lost'`; si no, `open` si
+`status = 'chargeback'`; si no, `won` (`disputeOutcome = 'won'`). ⛔ **No toca ninguna cifra de venta**: el pedido sigue
+contado en su día de `settledAt` y `netSalesAfterRefundsCents` no lo resta (restarlo es `PROJECT §W.3 (c)`, criterio 277, no
+construido; la cuota de disputa tampoco: ⛔ NO MEDIDO cómo la reporta Stripe, `PROJECT.md:7850-7855`). Pedidos con
+`status = 'chargeback'` o `disputeOutcome ≠ null` y `chargebackOpenedAt = null` (anteriores a `M-AN-1`): **ningún** cubo;
+cuentan en `chargebacksUndatedCount` (todo el histórico, ⛔ no del periodo) para que el front diga «N contracargos anteriores
+sin fecha». ⛔ Relleno con `settledAt` u otra fecha: sería inventar el hecho.
+Prueba: **AN-B-20**; mutación (m10).
+
+#### 15.11.2 N-AN-2 — Mezcla por tipo de producto (fase **B**, sin migración)
+
+**Fuente:** `OrderItem.inventoryItemId → InventoryItem.productType` (`schema.prisma:1445`, `:999`; enum `raw|graded|sealed`
+`schema.prisma:42-46`); una pieza = un `OrderItem` (R-4). Es el mismo join que ya hace `top` (§15.3).
+
+**Regla:** sobre **todos** los pedidos R-2 del periodo (⚠️ a diferencia de `top`, **incluye** los `refunded`: la mezcla
+reparte `totals`, no ordena). `pieces` = nº de renglones por tipo. `netCents`: el `netRevenueCents(o)` **de cada pedido**
+(`common/money.ts:891-901`) se **reparte** entre sus renglones en proporción a `unitPriceCents` por resto mayor
+(`⌊N·wᵢ/W⌋`, y los centavos sobrantes uno a uno a los mayores restos; empate ⇒ `OrderItem.id` ascendente; `W = 0` ⇒ pesos
+iguales). Así Σ por pedido = su `netRevenueCents` **exacto** y Σ de la mezcla = `totals.netSalesCents` al centavo. ⛔ No
+`taxBaseCentsOf` por renglón (el de `top`): con `IVA_INCLUSIVE` no cuadra (AN-B-21 lo prueba). Función pura:
+`allocateByWeight(totalCents: number, weights: Array<{ id: string; w: number }>) → Map<id, number>` en
+`sales-analytics/sales-figures.ts`. Solo en `mix` (del periodo); ⛔ ni en `rows` ni en el CSV.
+Prueba: **AN-B-21**; mutación (m8).
+
+#### 15.11.3 N-AN-3 — «¿Me sale el envío?» (fase **B**, sin migración)
+
+**Decisión:** el servidor da la diferencia. `shipping.resultNetCents = shipping.chargedNetCents − shipping.costNetCents`, del
+**mismo** cubo de `pnlBuckets`. Los ajustes de paquetería **ya van dentro** de `costNetCents`
+(`admin.service.ts:1801-1802`) ⇒ ⛔ no se restan otra vez; el seguro también va dentro (`:1767-1773`). Puede ser negativo.
+Con `costMissingCount > 0` **se emite igual** (⛔ `null`): es una **cota superior** (un costo sin capturar cuenta como 0,
+`admin.service.ts:1760-1766`) y el front la acompaña del aviso que ya pinta para `costMissingCount`. No neta el envío
+reembolsado (vive en `refunds.netCents`, como en M7). El front pinta el valor del DTO, ⛔ no resta (AN-1 de diseño).
+Prueba: **AN-B-22** (backend) y **AN-F-5** (front); mutación (m9).
+
+#### 15.11.4 N-AN-4 — CSV en pesos (fase **A**)
+
+**Decisión:** **sí**, pesos con dos decimales en el CSV; el JSON **sigue en centavos**. Detalle y columnas renombradas
+(`*Cents` → `*Mxn`) en §15.7. Pesos con dos decimales son la misma cifra al centavo ⇒ criterio 610 intacto.
+Pruebas: **AN-B-10** (reescrita) y **AN-B-23**; mutaciones (m7) y (m11).
 
 #### E5-5 · Choque A (PRIV-0 y las 4 plantillas de la fusión)
 Las cuatro son **de cliente**, no solo-staff: `sellItemsRejectedTemplate` va al vendedor (`buylist.service.ts:7256-7277`,

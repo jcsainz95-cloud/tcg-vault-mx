@@ -28645,7 +28645,7 @@ criterio 613). Para AN se le pasa el semiabierto de `mx-day.ts`.
 |---|---|---|---|
 | **A** | 600–611, 613 | `sales-analytics/` (nuevo), `admin.controller.ts` (rutas en `AdminReportsController`), front `admin/m9` (pestaña) y `AdminDashboard.tsx` (tarjeta) | `frontend/src/lib/api.ts`, `frontend/src/types/contract.ts` |
 | **B** | 612, 620, 622 (salida), 623, 624 | `admin/pnl-core.ts` (💰 refactor de M7 con candado de paridad), `spend-alerts/spend-digest.service.ts` + `spend-alert.mail.ts` | — |
-| **C** | 621 (método de pago) | `schema.prisma` + migración **`M-AN-1`** (número lo asigna el orquestador; `M-72` es #78), `payments.service.ts`, `stripe.service.ts` | `backend/prisma/` ⇒ se serializa |
+| **C** | 621 (método de pago) y ⭐ AN-1.1 contracargos por día (§4.64.8) | `schema.prisma` + migración **`M-AN-1`** (número lo asigna el orquestador; `M-72` es #78), `payments.service.ts`, `stripe.service.ts` | `backend/prisma/` ⇒ se serializa |
 | **C′** | 622 (columnas del buylist) | Solo si **#78 (`M-72`) está en `production`**: AN lee las mismas componentes que #78 añada a `pnlBuckets` | — |
 
 Modelo: todo esto lee dinero y la fase B toca el cuerpo de M7 ⇒ **modelo fuerte** para el plano y las pruebas; la fase A
@@ -28685,6 +28685,21 @@ de frontend sin dinero puede bajar al barato con las pruebas ya escritas (CLAUDE
    «hasta la misma hora»). Pregunta P-AN-2 con default.
 8. **«Contra el periodo anterior del mismo largo»** para «Mes pasado»: se compara contra los N días inmediatamente anteriores
    (literal del PROJECT), no contra el mes calendario anterior. P-AN-3 con default.
+
+#### 4.64.8 Errata AN-1.1 (2026-10-06) — los cuatro huecos que encontró ux-ui (N-AN-1…4)
+
+Norma: `API_CONTRACT §15.11`. Lo que cambia en la forma y por qué:
+
+| # | Decisión | Fase | Por qué así | Descartado |
+|---|---|---|---|---|
+| N-AN-1 | `Order.chargebackOpenedAt`, `chargebackAmountCents` en **`M-AN-1`** (misma migración que 621, aditiva, sin relleno); escritas una vez en `onChargeDispute`; cubo por `chargebackOpenedAt`, desenlace de hoy | C | Hoy no existe la fecha del contracargo (`payments.service.ts:924-931`, `:1027-1030`, `:1074-1091`) ni manera de reconstruirla (`ProcessedStripeEvent` no guarda la orden, `schema.prisma:2494-2498`). Una sola migración para la fase C = una sola serialización de `backend/prisma/` | Fechar por `settledAt` (inventa el día); leer la API de Stripe al pedir el informe (red en una lectura, y el 403/latencia rompería la pestaña); tabla `Chargeback` propia (es la línea de §W.3 (c) / 277, con cuota y estado: otro stream) |
+| N-AN-2 | `mix.byProductType` con el `netRevenueCents` de cada pedido **repartido** por resto mayor entre sus renglones | B | Σ mezcla = `totals.netSalesCents` al centavo, una sola regla del IVA (`money.ts:891-901`); el residuo lo absorbe el reparto, ⛔ la cifra autoritativa (R3) | `taxBaseCentsOf` por renglón (lo de `top`): con `IVA_INCLUSIVE` no cuadra (ej. 3×100.00 ⇒ 25863 vs 25862) |
+| N-AN-3 | `shipping.resultNetCents` en el DTO | B | La pantalla no calcula (regla AN-1 de diseño); el servidor ya tiene las dos cifras del mismo cubo. Ajustes y seguro ya van dentro del costo (`admin.service.ts:1767-1773`, `:1801-1802`) | Restar en el front (segunda fuente); `null` con costos sin capturar (escondería la cifra; basta el aviso de `costMissingCount`) |
+| N-AN-4 | CSV en **pesos con 2 decimales** (aritmética entera), JSON en centavos | A | El CSV es para el dueño en Excel; pesos con dos decimales son la misma cifra al centavo (610) | Centavos (exacto pero ilegible en Excel); `$` o separador de miles (Excel lo lee como texto) |
+
+Rendimiento (§4.64.6): +1 consulta en la fase C (pedidos con `chargebackOpenedAt` en el periodo, columnas enumeradas) +1
+`count` de no fechados; la mezcla por tipo reusa los renglones que ya trae `top`. Sin índice nuevo (mismo disparador que
+`settledAt`). ⚠️ **NO MEDIDO** con qué regional abre el dueño Excel (`API_CONTRACT §15.7`).
 
 ---
 
