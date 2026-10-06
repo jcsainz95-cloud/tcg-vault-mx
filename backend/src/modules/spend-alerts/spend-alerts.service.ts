@@ -48,6 +48,9 @@ export const SPEND_ALERT_CODE_OF: Readonly<Record<SpendAlertKind, string>> = {
   stuck_refund: 'AG-20',
   owner_account_changed: 'AG-21',
   staff_control_by_non_owner: 'AG-22',
+  // rev BSD-1 (M-72, API_CONTRACT §BSD.7 regla 9): «esta solicitud aceptada se cierra sola en N días si no tiene guía».
+  // Solo el código (B-1: el enum lo exige). Disparador, textos y correo: B-3 (§BSD.7.2, §BSD.8.3).
+  buylist_guide_due: 'AG-23',
 };
 
 /** Avisos «sobre una persona» (Z.0.5): el dueño queda fuera. */

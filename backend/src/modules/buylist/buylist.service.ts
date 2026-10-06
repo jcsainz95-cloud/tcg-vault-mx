@@ -122,6 +122,7 @@ import {
   InventoryPositionPort,
   VariantPositionRef,
 } from '../inventory/inventory-position.port';
+import { writeSellRequestGuide } from './sell-request-guide';
 
 /**
  * v2.0 (§4.36.6) — caps de la vitrina pública de bounties. `SHOWCASE` es el del contrato (50, sin
@@ -4992,7 +4993,6 @@ export class BuylistService implements OnModuleInit {
         where: { id },
         select: {
           status: true,
-          shipDeadlineAt: true,
           shipmentCarrier: true,
           shipmentTrackingNumber: true,
           guideCancellationPendingAt: true,
@@ -5015,56 +5015,12 @@ export class BuylistService implements OnModuleInit {
         );
       }
       // ⭐ v1.74 (§R.4.b) — **el ciclo del aviso `AV-7` se reinicia por VALOR, no por evento**, y se
-      // limpia **en la MISMA escritura** que cambia la etiqueta. `adminGuide` es re-capturable a
-      // propósito, así que sin esto una corrección de número mandaría un segundo correo idéntico —y
-      // un correo con un número de guía que ya no existe es peor que no haber mandado ninguno.
-      //
-      // ⭐⭐ **2026-09-14 — y la comparación la hace el MOTOR, no una lectura previa.** Esto era
-      // `labelChanged = before.shipmentCarrier !== carrier.trim() || …` calculado sobre el
-      // `findUnique` de arriba: un *comprobar-y-actuar*. **Medido con `N = 25` tiradas de `8`
-      // capturas simultáneas del MISMO número sobre una solicitud nueva: 6/25 mandaban 2 correos.**
-      // La transacción **no** lo salvaba: serializa las escrituras por el candado de fila, pero cada
-      // una sigue decidiendo con el valor que leyó **antes** de esperar, y el sello se reclama
-      // POST-COMMIT ⇒ el `guideNoticeSentAt: null` de la segunda aterriza **después** de que la
-      // primera reclamara, y vuelve a haber derecho a avisar. *(El pase anterior midió `5/5 verde`
-      // aquí y escribió que 5/5 no demuestra nada: tenía razón — con p≈0.24, cinco verdes seguidos
-      // salen el 25 % de las veces.)*
-      //
-      // La forma correcta es bajar la comparación al `WHERE`: bajo `READ COMMITTED` Postgres
-      // **re-evalúa la cualificación sobre la versión ya actualizada** de la fila (`EvalPlanQual`)
-      // ⇒ solo la petición que de verdad dejó la etiqueta distinta obtiene `count === 1`.
-      // ⚠️ Las ramas `: null` son obligatorias: Prisma traduce `{ not: v }` a `col <> v`, y en SQL
-      // `NULL <> 'x'` NO casa — y la primera captura tiene las dos columnas en `NULL`.
-      const labelWhere: Prisma.SellRequestWhereInput = {
-        OR: [
-          { shipmentCarrier: null },
-          { shipmentCarrier: { not: carrier.trim() } },
-          { shipmentTrackingNumber: null },
-          { shipmentTrackingNumber: { not: trackingNumber.trim() } },
-        ],
-      };
-      const data = {
-        shipmentCarrier: carrier.trim(),
-        shipmentTrackingNumber: trackingNumber.trim(),
-        guideSentAt: now,
-        // Solo se congela si NO había fecha: re-capturar corrige el número, no mueve el plazo.
-        ...(before.shipDeadlineAt == null ? { shipDeadlineAt: addBusinessDays(now, days) } : {}),
-      };
-      // La guarda de negocio es del MOTOR (patrón `count===1`), no un `if` sobre la lectura de
-      // arriba; y el reinicio del ciclo del aviso viaja DENTRO de ella, condicionado al valor viejo.
-      let guard = await tx.sellRequest.updateMany({
-        where: { id, status: 'aceptada', closedAt: null, ...labelWhere },
-        data: { ...data, guideNoticeSentAt: null },
-      });
-      if (guard.count !== 1) {
-        // No casó: o la etiqueta ya era ésta (re-captura idempotente ⇒ ⛔ NO se toca el sello), o la
-        // solicitud no admite guía. Lo segundo lo distingue este segundo intento sin la cláusula de
-        // etiqueta: si tampoco casa, es `409`.
-        guard = await tx.sellRequest.updateMany({
-          where: { id, status: 'aceptada', closedAt: null },
-          data,
-        });
-      }
+      // limpia **en la MISMA escritura** que cambia la etiqueta (2026-09-14: la comparación la hace el
+      // MOTOR en el `WHERE`, no una lectura previa — medido 6/25 con dos correos cuando era un `if`).
+      // 💰 rev BSD-1 (§BSD.4.7): el cuerpo vive en `writeSellRequestGuide`, extraído de aquí SIN cambiar
+      // su conducta, porque la compra de la guía de entrada (`persistLabeled`) lo usa también: UN
+      // escritor del par paquetería/número de la solicitud (I-BSD-2). Toda la explicación, allí.
+      const guard = await writeSellRequestGuide(tx, id, carrier, trackingNumber, now, 'manual', days);
       if (guard.count !== 1) {
         const current = await tx.sellRequest.findUnique({
           where: { id },

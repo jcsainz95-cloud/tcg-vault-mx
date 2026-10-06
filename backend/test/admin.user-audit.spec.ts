@@ -244,7 +244,7 @@ describe('Listados admin — filtro ?userId= (F2)', () => {
     };
     const svc = new ShipmentsService(prisma as any, {} as any, {} as any);
     await svc.adminList(undefined, 1, 20, 'user-7');
-    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ userId: 'user-7' });
+    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ kind: 'outbound', userId: 'user-7' }); // rev BSD-1: + OUTBOUND_ONLY (censo BSD-B23)
   });
 
   it('disputes.adminList añade where.userId', async () => {

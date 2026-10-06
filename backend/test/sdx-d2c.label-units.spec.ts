@@ -295,11 +295,19 @@ describe('PS-117 / C-2 — `.purchase(` tiene UN llamador en shipments/ y `.prot
 
 // ================================================================ C-SDX-5 / C-SDX-4 / PS-117 (ampliada) — censos de la cancelación y la verificación
 
-describe('C-SDX-5 — `cancelProviderLabelIfAny` tiene EXACTAMENTE dos llamadores (los escritores automáticos de `cancelado`)', () => {
+// 💰 rev BSD-1 (API_CONTRACT §BSD.4.8): `closeInboundShipment` (shipments/inbound-close.ts) es el TERCER llamador — el
+// contrato manda que el cierre de la guía de ENTRADA use «el mismo cuerpo que usan los reembolsos y el contracargo». Su
+// post-commit (`afterAutoCloseVia`) es del LLAMADOR de `closeInboundShipment` (regla 2/8 del barrido, `decline-accepted`:
+// B-3), no del fichero, por eso no entra en la segunda prueba.
+describe('C-SDX-5 — `cancelProviderLabelIfAny` tiene EXACTAMENTE tres llamadores (los escritores automáticos de `cancelado`)', () => {
   const files = walk(SRC).map((p) => ({ path: rel(p), text: code(readFileSync(p, 'utf8')) }));
-  it('full-refund.service.ts (cierre por reembolso total) y payments.service.ts (contracargo)', () => {
+  it('full-refund.service.ts (cierre por reembolso total), payments.service.ts (contracargo) e inbound-close.ts (guía de entrada, rev BSD-1)', () => {
     const callers = files.filter((f) => /cancelProviderLabelIfAny\(tx,/.test(f.text)).map((f) => f.path).sort();
-    expect(callers).toEqual(['src/modules/payments/payments.service.ts', 'src/modules/payments/refunds/full-refund.service.ts']);
+    expect(callers).toEqual([
+      'src/modules/payments/payments.service.ts',
+      'src/modules/payments/refunds/full-refund.service.ts',
+      'src/modules/shipments/inbound-close.ts',
+    ]);
   });
   it('cada uno con su post-commit (`afterAutoCloseVia`) en el mismo fichero', () => {
     for (const p of ['src/modules/payments/payments.service.ts', 'src/modules/payments/refunds/full-refund.service.ts']) {

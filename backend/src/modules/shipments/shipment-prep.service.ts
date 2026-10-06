@@ -48,6 +48,7 @@ import { customerDisplayName } from '../vault/customer-display-name';
 import { LocationView, lastNameOf, locationViewOf, nullIfBlank, preparationCardOf, PreparationCardDTO } from './preparation-view';
 import { REPLACEMENT_CASE_DUE_MS } from '../vault/replacement-case.rules';
 import { countUnseenImmediate } from '../spend-alerts/spend-control';
+import { OUTBOUND_ONLY } from './label-subject';
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | PrismaService;
@@ -894,9 +895,9 @@ export class ShipmentPrepService {
    */
   async summary(role: Role, now = new Date()) {
     const [ship, vault, oldest, stuck, toReplace, oldestCase, overdue, manual, unseenImmediate] = await Promise.all([
-      this.prisma.shipmentRequest.count({ where: { status: 'picking', preparedAt: null } }),
+      this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: 'picking', preparedAt: null } }),
       this.prisma.vaultPlacement.count({ where: { status: 'pending' } }),
-      this.prisma.shipmentRequest.findFirst({ where: { status: 'picking', preparedAt: null }, orderBy: { requestedAt: 'asc' }, select: { requestedAt: true } }),
+      this.prisma.shipmentRequest.findFirst({ where: { ...OUTBOUND_ONLY, status: 'picking', preparedAt: null }, orderBy: { requestedAt: 'asc' }, select: { requestedAt: true } }),
       this.ledger.stuckRefundsCount(now),
       this.prisma.replacementCase.count({ where: { status: 'open' } }),
       this.prisma.replacementCase.findFirst({ where: { status: 'open' }, orderBy: { openedAt: 'asc' }, select: { openedAt: true } }),

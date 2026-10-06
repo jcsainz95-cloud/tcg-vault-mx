@@ -193,7 +193,7 @@ describe('GET /shipments — un envío de invitado (userId=null) no es de nadie 
     const { svc, prisma } = buildRead({ id: 'shp-guest', userId: null, orderId: 'order-1', items: [] });
     const res = await svc.listMine('user-1');
     expect(res.data).toEqual([]);
-    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ userId: 'user-1' });
+    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ kind: 'outbound', userId: 'user-1' }); // rev BSD-1: + OUTBOUND_ONLY (censo BSD-B23)
     // Nunca una consulta del tipo "userId distinto de".
     expect(JSON.stringify(prisma.shipmentRequest.findMany.mock.calls[0][0].where)).not.toContain('not');
   });

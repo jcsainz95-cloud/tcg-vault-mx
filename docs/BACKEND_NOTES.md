@@ -29431,3 +29431,66 @@ tirada cada una**, sobre la copia; restauradas y comprobadas con `cmp` contra el
 **NO MEDIDO:** la integración `test/integration/sdx-d2g-mail.e2e-spec.ts` (canarios SDX-I-8) — necesita BD y crear una base
 propia me fue denegado por permisos en esta corrida. La cierra correrla con `./scripts/stack-native.sh test:integration
 test/integration/sdx-d2g-mail.e2e-spec.ts` (o en CI). Por construcción usa los mismos tres constructores que PRIV-5.
+
+## 77 · rev BSD-1, paso B-1 (💰) — M-72, `label-subject.ts`, `closeInboundShipment`, `writeSellRequestGuide`, censos BSD-B23/B25 (2026-10-06, rama `claude/buylist-skydropx`, sobre `629c78bd` → `88a7cea8`)
+
+Norma: `API_CONTRACT §BSD` (rev BSD-1 + errata BSD-1.1 §BSD.15). Esto es la **costura** que usan B-2 (`shipments/*`) y
+B-3 (barrido, `buylist.service`). ⛔ Ningún verbo HTTP nuevo, ni PDF, ni correo, ni `decline-accepted`, ni barrido.
+
+### 77.1 Qué hay y dónde (para B-2 / B-3)
+| Pieza | Fichero | Para quién |
+|---|---|---|
+| `M-72` (una sola migración; ⛔ sin `M-72b`, medido) | `prisma/migrations/20261025120000_m72_bsd_inbound_label/` | todos |
+| `ShipmentKind`, `ShipmentRequest.kind/sellRequestId/sellRequest`, `SellRequest.inboundGuideClockStartedAt/inboundShipment`, `not_continued`, `buylist_guide_due` | `prisma/schema.prisma` | todos |
+| `labelSubjectOf`, `isBuylistInbound`, `OUTBOUND_ONLY`, `INBOUND_ONLY`, `outboundOnlySql(alias?)`, `BUYLIST_INBOUND_KIND`, `lockSubjectRows` (I-BSD-4) | `src/modules/shipments/label-subject.ts` | B-2 añade AQUÍ dirección/`chargedOf`/`insuredValueOf`/empaque/recomendada (§BSD.3) |
+| `closeInboundShipment(tx, srId, 'close'\|'shipped', now?)` ⇒ `{shipmentId, outcome, liveSkydropxGuide, rowCancelled}`; `needsGuideCancelTask(sr, res)` | `src/modules/shipments/inbound-close.ts` | B-3 (regla 2/8, `decline-accepted`, `confirm-shipment`) |
+| `writeSellRequestGuide(tx, srId, carrier, trackingNumber, now, source, shipDeadlineBusinessDays)` ⇒ `{count}` | `src/modules/buylist/sell-request-guide.ts` | `adminGuide` (ya) y `persistLabeled` de entrada (B-2) |
+| `SPEND_ALERT_CODE_OF.buylist_guide_due = 'AG-23'` (solo el código; el enum lo exige) | `spend-alerts.service.ts` | B-3 pone disparador y textos |
+
+- ⚠️ **`writeSellRequestGuide` tiene un 7.º parámetro** que §BSD.4.7 no lista: `shipDeadlineBusinessDays` (el dial lo lee
+  el llamador fuera de la tx, como hacía `adminGuide`; el fichero no arrastra `SettingsService`). No toca HTTP ni DTO.
+- ⭐ **BSD-1.1 C-6:** el `carrier` que `persistLabeled` pase debe ser el **nombre legible** (`carrierLabel` o, vacío,
+  `carrierName`); el número es el mismo en las dos filas. La firma no cambia.
+- `closeInboundShipment` toma `SellRequest FOR UPDATE` **él mismo** antes de la fila de entrada (no espera si el llamador
+  ya la tiene): el orden I-BSD-4 no depende de que el llamador se acuerde. `afterAutoCloseVia` post-commit es del
+  llamador (cuando `outcome === 'sealed'`).
+- ⚠️ El nombre `ShipmentKind` ya existía como **tipo TS** en `shipments.service.ts` / `shipment-prep.service.ts`
+  (`'vault_withdrawal' | 'guest_direct_ship'`, derivado). No chocan mientras ningún fichero importe los dos. Y el
+  `AdminShipmentDTO` **ya tiene** `kind` con ese otro significado ⇒ §BSD.5 «`AdminShipmentDTO` gana `kind: ShipmentKind`»
+  choca (para B-2/arquitecto).
+
+### 77.2 `M-72`: contenido, idempotencia, reversa
+Orden de §BSD.1 (1)…(8); DDL igual al de `prisma migrate diff` (nombres de índice/FK de Prisma). Idempotente
+(`IF NOT EXISTS`, constraints quitar-y-poner, `CREATE TYPE` en `DO … duplicate_object`). **Desviación consciente del texto
+del relleno:** `… AND "inboundGuideClockStartedAt" IS NULL` — idéntico en la primera aplicación (columna recién nacida);
+en una re-aplicación evita RE-ANCLAR a un `now()` posterior. Reversa documentada en la cabecera del SQL (con la
+comprobación previa de guías vivas). **Medido** (copia del árbol, BD propia `tcg_be_bsd_b1`):
+- `stack-native.sh up --infra` ⇒ «All migrations have been successfully applied», M-72 la más reciente ⇒ los `ADD VALUE`
+  caben en la misma migración (precedente M-70).
+- Re-aplicar el fichero con `psql -v ON_ERROR_STOP=1` ⇒ exit 0, solo `NOTICE … skipping`; definiciones de los dos CHECK y
+  la FK **idénticas** antes/después (`pg_get_constraintdef`).
+- `prisma migrate diff --from-url <bd> --to-schema-datamodel` ⇒ sin diferencias de M-72 (solo un `RENAME INDEX` de
+  `PriceReference` que ya estaba).
+
+### 77.3 Censos (B-1 los deja VERDES; lo pendiente es un TRINQUETE con dueño)
+- **BSD-B23** `test/bsd.reader-census.spec.ts` + `test/helpers/bsd-census.ts` (AST de TypeScript, llave `fichero
+  función#verbo#n`): **100 sitios** clasificados (`outbound_only` / `all_kinds` / `by_key`). B-1 **puso `OUTBOUND_ONLY`** en
+  los 18 `outbound_only` (lista admin y su total, picking list, cola de preparación y conteos, salida de hoy ×2, tablero
+  ×2, métrica de lanzamiento, P&L, reportes de reembolsos, AG-10, sondeo, lista de cliente, `?alert=true` ×2 y su conteo
+  de tablero). Hoy es conducta nula (no hay filas de entrada); B-2 no tiene que tocarlos.
+  ⚠️ **Para B-2:** `label-processing.job.ts processing#findMany#1` es `all_kinds` pero filtra `status:'picking'` ⇒ no
+  vería una fila de entrada «en proceso» (vive en `solicitado`). Y los CAS por id de `claim`/`persistLabeled`/
+  `persistProcessing`/`correct`/`applyReissue`/`setTrackingFromProvider` llevan `status` de salida.
+- **BSD-B25** `test/bsd.structural.spec.ts`: (a) `kind` solo en `label-subject.ts` — verde; (b) censo de escrituras de
+  `status` de `SellRequest` (18 sitios) con **`PENDIENTE`** = trinquete: el sitio pendiente debe SEGUIR sin
+  `closeInboundShipment` (si alguien lo cablea sin sacarlo de la lista, rojo; si lo saca sin cablearlo, rojo):
+  - `closeWithGuideTask` (regla 2) y `adminConfirmShipment` ⇒ **B-3**;
+  - `autoRejectIfAllRejectedTx` y `rejectRequest` ⇒ **ARQUITECTO**: su `where` es `liveRequestWhere()` (⊇ `aceptada`) y
+    escriben `rechazada`. La decisión `reject` por carta **no exige recepción** (`assertRequestReceived` solo frena
+    `approve`), así que rechazar todas las líneas de una `aceptada` la cierra **sin** pasar por I-BSD-1 — un escritor que
+    §BSD.2 no lista. (NO MEDIDO por HTTP; leído en `buylist.service.ts`.)
+- Pruebas existentes ajustadas por conducta nueva normada: `sdx-d2c.label-units.spec.ts` (C-SDX-5: `cancelProviderLabelIfAny`
+  pasa de 2 a **3** llamadores, el tercero `inbound-close.ts`, §BSD.4.8), y tres `toEqual` de `where` que ganan
+  `kind:'outbound'` (`shipments.guest-direct-ship`, `admin.user-audit`, `shipments.client-tracking`).
+  `enum-values-parity.spec.ts`: solo el ancla humana de `SpendAlertKind` (+`buylist_guide_due`), que es como ese fichero
+  pide que se añada un valor.

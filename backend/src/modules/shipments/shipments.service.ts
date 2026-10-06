@@ -90,6 +90,7 @@ import {
   toShipmentLabelDTO,
 } from './label-view';
 import { labelSourceOf } from './label-source';
+import { OUTBOUND_ONLY } from './label-subject';
 
 /** ⭐ v1.80.12 (§M4-SHIP.19.20.1) — el bloque `address` de `AdminShipmentDTO`. */
 export interface ShipmentAddressStateDTO {
@@ -704,7 +705,9 @@ export class ShipmentsService {
   async listMine(userId: string) {
     if (!userId) throw BusinessException.notFound();
     const rows = await this.prisma.shipmentRequest.findMany({
-      where: { userId },
+      // rev BSD-1 (censo BSD-B23): redundante con el CHECK `shipment_kind_link` (la fila de entrada lleva `userId` nulo), y
+      // a propósito: «Mis envíos» del vendedor nunca muestra su guía de entrada aunque alguien relaje el CHECK.
+      where: { ...OUTBOUND_ONLY, userId },
       orderBy: { requestedAt: 'desc' },
       include: CLIENT_SHIPMENT_INCLUDE,
     });
@@ -742,7 +745,9 @@ export class ShipmentsService {
     actorRole?: Role,
     filters: { labelSource?: string; alert?: string; folio?: string } = {},
   ) {
-    const where: Prisma.ShipmentRequestWhereInput = {};
+    // rev BSD-1 (censo BSD-B23): la lista admin de envíos NO incluye la guía de ENTRADA del buylist (§BSD.4.2); sin esto,
+    // `?kind=vault_withdrawal` (= `orderId` nulo) la devolvería.
+    const where: Prisma.ShipmentRequestWhereInput = { ...OUTBOUND_ONLY };
     const and: Prisma.ShipmentRequestWhereInput[] = [];
     // ⭐ v1.80 (§M4-SHIP.10) — `?q=` (gramática de §M3: trim, vacío ≡ ausente, ≤ 200 ⇒ 400): contains
     // insensible OR sobre `Order.orderNumber`, `Order.guestEmail`, `User.name`/`User.email` (del retiro Y de la
@@ -1172,7 +1177,7 @@ export class ShipmentsService {
       destination,
       PREPARATION_DESTINATION_VALUES,
     );
-    const where: Prisma.ShipmentRequestWhereInput = { status: 'picking' };
+    const where: Prisma.ShipmentRequestWhereInput = { ...OUTBOUND_ONLY, status: 'picking' }; // rev BSD-1 (censo BSD-B23)
     const dia = ShipmentsService.parseDayFilter(date);
     if (dia) where.requestedAt = dia;
     const shipments = await this.prisma.shipmentRequest.findMany({

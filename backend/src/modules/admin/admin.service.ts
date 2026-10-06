@@ -52,6 +52,7 @@ import {
   isValidEmailFormat,
   normalizeEmail,
 } from '../../common/validation/credentials';
+import { OUTBOUND_ONLY } from '../shipments/label-subject';
 
 /**
  * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
@@ -1748,6 +1749,8 @@ export class AdminService {
     const shipmentRange = range(from, to);
     const shipments = await this.prisma.shipmentRequest.findMany({
       where: {
+        // 💰 rev BSD-1 (§BSD.5, censo BSD-B23): sin esto una guía de ENTRADA en `guia` entraría como costo de envío de venta.
+        ...OUTBOUND_ONLY,
         status: { in: ['picking', 'guia', 'enviado', 'entregado'] },
         ...(shipmentRange ? { pickingAt: shipmentRange } : {}),
       },
@@ -2064,7 +2067,7 @@ export class AdminService {
       this.prisma.order.count({ where: { status: 'settled', ...(r ? { settledAt: r } : {}) } }),
       this.prisma.sellRequest.count({ where: { status: 'pagada', ...(r ? { paidAt: r } : {}) } }),
       this.prisma.shipmentRequest.count({
-        where: { status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
+        where: { ...OUTBOUND_ONLY, status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
       }),
     ]);
     // Metas N/X/Y/Z: solo se fijan cuando el humano las define. Mientras no haya
@@ -2238,7 +2241,8 @@ export class AdminService {
             priceConvention: true,
           },
         }),
-        this.prisma.shipmentRequest.count({ where: { status: { in: ['solicitado', 'picking', 'guia'] } } }),
+        // rev BSD-1 (censo BSD-B23): el tablero cuenta envíos; la guía de ENTRADA se ve en M5.
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: { in: ['solicitado', 'picking', 'guia'] } } }),
         // v1.51 (M-46, §4.39c **SITIO 5**) — la cola de trabajo se define POR EXCLUSIÓN, no con una
         // lista de estados vivos. Codificaba `['cotizada','recibida','verificacion','aprobada']`, así
         // que M-46 la habría dejado **SUBCONTANDO el pipeline**: `ofertada`, `aceptada` y
@@ -2276,7 +2280,7 @@ export class AdminService {
         this.prisma.user.count({ where: { role: 'customer' } }),
         this.prisma.order.count({ where: { status: 'settled' } }),
         this.prisma.sellRequest.count({ where: { status: 'pagada' } }),
-        this.prisma.shipmentRequest.count({ where: { status: 'entregado' } }),
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: 'entregado' } }),
       ]);
 
     const periodFrom = period.gte?.toISOString();
