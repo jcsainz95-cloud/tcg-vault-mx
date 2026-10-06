@@ -4,6 +4,8 @@ import { ctaRows, isSafeMailUrl } from '../src/modules/buylist/mail-shell';
 import { offerTermsCopy, sellOfferTemplate } from '../src/modules/buylist/buylist-mail.templates';
 import * as accountTemplates from '../src/modules/mail/mail.templates';
 import { MailMessage } from '../src/modules/mail/mail.port';
+import * as guestTemplates from '../src/modules/orders/mail/guest-order.templates';
+import { SealedRestockNotifyService } from '../src/modules/catalog/sealed-restock-notify.service';
 import { codigoDeFichero } from './helpers/codigo-de-fichero';
 
 /**
@@ -31,15 +33,15 @@ const ANCLAS_PLANTILLAS = [
  * CONDUCTA**, no parecido: qué queda en pantalla cuando se quitan las imágenes (ML-1), qué cadenas
  * salen por el cable (ML-2) y de dónde sale el texto que obliga (ML-3).
  *
- * ⚠️ **Qué cubre este pase y qué no.** El pase 1 de §31.15 está **completo del lado de buylist**: el
- * esqueleto compartido y **los seis correos 1–6**. Los **7 y 8** viven en `mail/mail.templates.ts`,
- * son de **otro work stream** («Cuentas y acceso», deuda BE-43) y **este pase no los toca**. Por eso
- * los candados siguen divididos en dos:
- * - los que valen **para los ocho** —ML-1 (por ablación), ML-2 (lo prohibido), ML-9 y ML-10— se corren
- *   sobre **todas** las plantillas, migradas o no;
- * - los que describen **el esqueleto nuevo** —ML-4…ML-8 y los candados N1…N8 de abajo— se corren sobre
- *   `MIGRADOS`, que ahora **son los seis de buylist**. *Un candado que se apaga solo cuando el correo
- *   migra no es un candado: es un recordatorio.*
+ * ⚠️ **Qué cubre este fichero.** El pase 1 de §31.15 montó el esqueleto y **los correos 1–6** (y el 29)
+ * de buylist. P-MAIL-MARCA (2026-10-06, `7aa2c0ce`) pasó al esqueleto los seis que quedaban con HTML a
+ * mano (`DESIGN_SYSTEM §41.1`: **7, 8, 9, 13, 14 y 28**) y desde QA I-2 **también están en `MIGRADOS`**.
+ * Los candados siguen divididos en dos listas, aunque hoy coincidan:
+ * - los que valen **para todo correo** —ML-1 (por ablación), ML-2 (lo prohibido), ML-9 y ML-10— se
+ *   corren sobre `TODOS_LOS_CORREOS`;
+ * - los que describen **el esqueleto** —ML-4…ML-8 y los candados N1…N9 de abajo— se corren sobre
+ *   `MIGRADOS`. *Un candado que se apaga solo cuando el correo migra no es un candado: es un
+ *   recordatorio.*
  *
  * ⭐ **Los ocho correos, pero DIEZ renders.** Dos de ellos tienen dos variantes que son el mismo correo
  * con otra acción —el recordatorio (aceptar / enviar, §25.4.3) y la expiración (no respondió / no
@@ -129,9 +131,44 @@ function expirada(kind: 'no_response' | 'not_shipped'): Render {
 }
 
 /**
- * Los correos que YA hablan el idioma de §31. ⭐ **Son los SEIS de buylist**: el pase que montó el
- * correo 1 dejó la constante escrita para que creciera, y esto es que creció. Los dos que faltan
- * (`mail/`) son de otro work stream y por eso **no** están aquí — pero sí en `TODOS_LOS_CORREOS`.
+ * La reposición de sellado (28) no es una `*Template`: se arma dentro del servicio (deuda D-2 de
+ * P-MAIL-MARCA). Se captura el envío. ⭐ Es SÍNCRONO a propósito: todo lo que hay antes del `await` de
+ * `sendRestockEmail` corre al llamarla, así que el mensaje ya está capturado al volver. `name` entra
+ * como **nombre del producto**, que es el único texto variable del correo (lo que ML-10 tiene que ver).
+ */
+function reposicion(nombreProducto: string): MailMessage {
+  let capturado: MailMessage | undefined;
+  const send = (m: MailMessage) => {
+    capturado = m;
+    return Promise.resolve();
+  };
+  const svc = new SealedRestockNotifyService({} as never, {} as never, { send } as never);
+  void (svc as unknown as { sendRestockEmail(e: string, n: string): Promise<void> }).sendRestockEmail(
+    'a@example.test',
+    nombreProducto,
+  );
+  if (!capturado) throw new Error('sendRestockEmail no envió de forma síncrona');
+  return capturado;
+}
+
+/** Destinos de los CTA de los correos que no van al portal de buylist (ML-5, N9). */
+const VERIFICAR_URL = 'https://tcghunt.mx/es/verify-email?token=t';
+const RESTABLECER_URL = 'https://tcghunt.mx/es/reset-password?token=t';
+const SEGUIMIENTO_URL = 'https://tcghunt.mx/es/pedido/seguimiento?token=t';
+const PEDIDO = 'TCG-000123';
+const URL_DE: Record<string, string> = {
+  '7 · verificar correo': VERIFICAR_URL,
+  '8 · restablecer contraseña': RESTABLECER_URL,
+  '13 · pedido de invitado': SEGUIMIENTO_URL,
+  '14 · enlace de invitado': SEGUIMIENTO_URL,
+};
+/** La URL del CTA de un correo migrado: la suya si la tiene, si no el portal de buylist. */
+const urlDe = (correo: string): string => URL_DE[correo] ?? PORTAL;
+
+/**
+ * Los correos que YA hablan el idioma de §31. El pase que montó el correo 1 dejó la constante escrita
+ * para que creciera, y esto es que creció: **los de buylist (1–6, 29)** y, desde P-MAIL-MARCA + QA I-2,
+ * **los seis de `DESIGN_SYSTEM §41.1` que tenían HTML a mano** (7, 8, 9, 13, 14, 28).
  */
 const MIGRADOS: Record<string, Render> = {
   '1 · oferta': (locale, name) => oferta(locale, {}, name),
@@ -196,23 +233,48 @@ const MIGRADOS: Record<string, Render> = {
   '5b · vencida (no envió)': expirada('not_shipped'),
   '6 · solicitud cerrada': (locale, name = NOMBRE) =>
     buylistTemplates.sellRequestNotPursuedTemplate({ folio: FOLIO, portalUrl: PORTAL }, name, locale),
+  // P-MAIL-MARCA (QA I-2): los seis de `DESIGN_SYSTEM §41.1` que tenían HTML a mano. ⭐ `name` va al texto
+  // variable que controla un tercero en cada uno, para que ML-10 lo vea entrar escapado.
+  '7 · verificar correo': (locale, name = NOMBRE) =>
+    accountTemplates.emailVerificationTemplate(VERIFICAR_URL, name, locale),
+  '8 · restablecer contraseña': (locale, name = NOMBRE) =>
+    accountTemplates.passwordResetTemplate(RESTABLECER_URL, name, locale),
+  '9 · candado del staff': (locale, name = NOMBRE) => accountTemplates.passwordLockAlertTemplate(name, locale),
+  // 13: el texto variable es el nombre de la carta (viene del catálogo; ML-10 la quiere hostil igual).
+  '13 · pedido de invitado': (locale, name = 'Charizard VMAX') => ({
+    to: '',
+    ...guestTemplates.guestOrderConfirmationTemplate(
+      {
+        orderNumber: PEDIDO,
+        items: [
+          { name, setName: 'Darkness Ablaze', number: '020/189' },
+          { name: 'Snorlax V', setName: 'Sword & Shield', number: '141/202' },
+        ],
+        totalCents: 102000,
+        trackingUrl: SEGUIMIENTO_URL,
+      },
+      locale,
+    ),
+  }),
+  // 14: el único texto interpolado es el número de pedido; ML-10 lo prueba hostil ahí.
+  '14 · enlace de invitado': (locale, name) => ({
+    to: '',
+    ...guestTemplates.guestTrackingLinkTemplate({ orderNumber: name ?? PEDIDO, trackingUrl: SEGUIMIENTO_URL }, locale),
+  }),
+  // 28: bilingüe en un solo cuerpo (§41.10 lo parte por idioma — deuda abierta); `locale` no cambia nada.
+  '28 · reposición de sellado': (_locale, name = 'Caja de refuerzos Surging Sparks') => reposicion(name),
 };
 
-/** Los ocho (en diez renders), migrados o no: sobre esta lista corren ML-1, ML-2, ML-9 y ML-10. */
+/** Todos los correos que este fichero barre: sobre esta lista corren ML-1, ML-2, ML-9 y ML-10. */
 const TODOS_LOS_CORREOS: Record<string, Render> = {
   ...MIGRADOS,
-  // ⚠️ 7 y 8 viven en `mail/mail.templates.ts`, de **otro work stream**. Aquí solo se LEEN: este spec
-  // no los toca ni los migra (pase 2 de §31.15, con BE-43). Pero la marca y los cinco prohibidos son
-  // de **todo correo que salga del producto**, así que entran al barrido igual.
-  '7 · verificar correo': (locale, name = NOMBRE) =>
-    accountTemplates.emailVerificationTemplate('https://tcghunt.mx/es/verify?token=t', name, locale),
-  '8 · restablecer contraseña': (locale, name = NOMBRE) =>
-    accountTemplates.passwordResetTemplate('https://tcghunt.mx/es/reset?token=t', name, locale),
 };
 
 /** Los que llevan botón. El correo 4 no lleva: §31.7 le asigna «el de coordinación» y §31 no lo define. */
 // v1.82: el 29 (§60.6) tampoco lleva botón — la acción es escribir a soporte, que va en el cuerpo.
-const CON_CTA = Object.keys(MIGRADOS).filter((k) => !k.startsWith('4 ·') && !k.startsWith('29'));
+// §41.4: el 9 no lleva por diseño (anti-phishing) y el 28, hoy, tampoco (su CTA de §41.10 es deuda abierta).
+const SIN_CTA = ['4 ·', '29', '9 ·', '28 ·'];
+const CON_CTA = Object.keys(MIGRADOS).filter((k) => !SIN_CTA.some((p) => k.startsWith(p)));
 
 // =================================================================================================
 // ML-1 ⭐⭐ — LA MARCA, MEDIDA POR ABLACIÓN
@@ -411,8 +473,8 @@ describe('⚠️ ML-5 — la URL de destino aparece TAMBIÉN como texto, en las 
     for (const locale of LOCALES) {
       it(`${correo} [${locale}]: la URL vive también fuera del href, en el HTML y en el texto`, () => {
         const msg = MIGRADOS[correo](locale);
-        expect(msg.html.replace(/<[^>]*>/g, ' ')).toContain(PORTAL);
-        expect(msg.text).toContain(PORTAL);
+        expect(msg.html.replace(/<[^>]*>/g, ' ')).toContain(urlDe(correo));
+        expect(msg.text).toContain(urlDe(correo));
       });
     }
   }
@@ -1069,9 +1131,9 @@ describe('⭐ N9 — `ctaRows` acota el esquema del href: allowlist http(s), no 
     expect(isSafeMailUrl('https://tcghunt.mx/es')).toBe(true);
   });
 
-  it('CONTROL: los seis correos migrados siguen emitiendo su href (no se rompió nada)', () => {
+  it('CONTROL: los correos migrados con CTA siguen emitiendo su href (no se rompió nada)', () => {
     for (const correo of CON_CTA) {
-      expect(MIGRADOS[correo]('es').html).toContain(`<a href="${PORTAL}"`);
+      expect(MIGRADOS[correo]('es').html).toContain(`<a href="${urlDe(correo)}"`);
     }
   });
 });
@@ -1146,13 +1208,11 @@ describe('🔴 N9 — §31.5(c): ninguna celda que pinte una regla comparte fila
       it(`${correo} [${locale}]: cada regla es la ÚNICA celda de su fila`, () => {
         const html = TODOS_LOS_CORREOS[correo](locale).html;
         const reglas = [...html.matchAll(REGLA)];
-        // ⚠️ El control de que el barrido encuentra algo se exige SOLO a los migrados, y la primera
-        // versión de este test lo exigía a los ocho: salió rojo en el 7 y el 8 **con razón y sin
-        // defecto** — no tienen ni una regla porque **no usan el esqueleto de §31** (viven en
-        // `mail/mail.templates.ts`, otro work stream, deuda BE-43). El invariante de arriba sí se
-        // les aplica —se cumple en vacío— y **empezará a morder solo** el día que se migren, que es
-        // exactamente la propiedad que se quiere. *Un control que confunde «no aplica» con «está
-        // mal» enseña a ignorar el rojo.*
+        // ⚠️ El control de que el barrido encuentra algo se exige SOLO a los migrados. La primera
+        // versión lo exigía a todos y salió rojo en el 7 y el 8 **con razón y sin defecto**: entonces
+        // no usaban el esqueleto y no tenían ni una regla. Desde P-MAIL-MARCA están migrados y el
+        // control ya les muerde. *Un control que confunde «no aplica» con «está mal» enseña a ignorar
+        // el rojo.*
         if (correo in MIGRADOS) expect(reglas.length).toBeGreaterThan(0);
         for (const m of reglas) {
           const celdas = celdasDirectas(filaDe(html, m.index!));
@@ -1177,5 +1237,94 @@ describe('🔴 N9 — §31.5(c): ninguna celda que pinte una regla comparte fila
     const relMira = filaMira.indexOf('<img');
     expect(filaMira.indexOf('#AEACA7')).toBeLessThan(relMira); // la de la izquierda
     expect(filaMira.lastIndexOf('#AEACA7')).toBeGreaterThan(relMira); // la de la derecha
+  });
+});
+
+// =================================================================================================
+// P-MAIL-MARCA · QA I-1 — EL AVISO DE BLOQUEO NO LLEVA MÁS ENLACE QUE EL AVISO DE PRIVACIDAD
+// =================================================================================================
+/**
+ * El 9 es **sin enlaces por diseño** (anti-phishing, `DESIGN_SYSTEM §41.4`, `mail.templates.ts`): un
+ * «pulsa aquí para desbloquear» en un correo de intentos fallidos es exactamente la forma de un
+ * phishing. Al pasar al esqueleto ganó la fila «Aviso de privacidad» (E5-1), y **solo** esa.
+ * ⭐ Se mide **con origen configurado**: sin `APP_PUBLIC_URL`, `ctaRows` y el aviso degradan a texto y
+ * el candado saldría verde en vacío. Mutación M-A de QA: añadir un CTA a `…/api/v1/auth/unlock?token=x`
+ * ⇒ dos `href` ⇒ rojo.
+ */
+describe('⭐ I-1 — el aviso de bloqueo (9): su ÚNICO href es /privacidad', () => {
+  const ENV = ['APP_PUBLIC_URL', 'APP_BASE_URL'] as const;
+  const guardado: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of ENV) guardado[k] = process.env[k];
+    process.env.APP_PUBLIC_URL = 'https://tcghunt.mx';
+  });
+  afterEach(() => {
+    for (const k of ENV) {
+      if (guardado[k] === undefined) delete process.env[k];
+      else process.env[k] = guardado[k];
+    }
+  });
+
+  for (const locale of LOCALES) {
+    it(`[${locale}] exactamente un href, y apunta al aviso de privacidad`, () => {
+      const msg = accountTemplates.passwordLockAlertTemplate(NOMBRE, locale);
+      const hrefs = [...msg.html.matchAll(/href="([^"]*)"/gi)].map((m) => m[1]);
+      expect(hrefs).toEqual(['https://tcghunt.mx/es/privacidad']);
+      // Y la parte de texto tampoco lleva URL alguna.
+      expect(msg.text).not.toMatch(/https?:\/\//);
+    });
+  }
+});
+
+// =================================================================================================
+// P-MAIL-MARCA · QA I-2 — LA CADUCIDAD DICE LO MISMO EN EL HTML QUE EN EL TEXTO PLANO
+// =================================================================================================
+/**
+ * Los seis llevan el mismo hecho en dos partes del mensaje, y la caducidad es la cifra que **obliga**
+ * (un enlace muerto antes de lo dicho es un usuario bloqueado). El HTML se rehizo en P-MAIL-MARCA y el
+ * texto plano no se tocó: si alguien cambia el plazo en una mitad, la otra miente. Se compara el
+ * **conjunto** de plazos («N horas/días/minutos») del texto VISIBLE del HTML con el del texto plano.
+ * Mutación M-C de QA: «48 horas» solo en el HTML ⇒ rojo.
+ */
+describe('⭐ I-2 — paridad HTML↔texto de la caducidad en los seis de §41.1', () => {
+  const SEIS = [
+    '7 · verificar correo',
+    '8 · restablecer contraseña',
+    '9 · candado del staff',
+    '13 · pedido de invitado',
+    '14 · enlace de invitado',
+    '28 · reposición de sellado',
+  ];
+  /** Los que SÍ caducan: el control de que el extractor encuentra algo (si no, la paridad es vacía). */
+  const CADUCAN = new Set(['7 · verificar correo', '8 · restablecer contraseña', '13 · pedido de invitado', '14 · enlace de invitado']);
+  const visible = (html: string) =>
+    html
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<head[\s\S]*?<\/head>/gi, '')
+      .replace(/<div style="display:none[\s\S]*?<\/div>/gi, '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ');
+  const plazos = (texto: string) =>
+    [...new Set((texto.match(/\b\d+\s+(?:horas?|hours?|días?|days?|minutos?|minutes?)(?![\p{L}])/giu) ?? []).map((x) => x.toLowerCase().replace(/\s+/g, ' ')))].sort();
+
+  it('los seis están en MIGRADOS (no se barre una lista que no existe)', () => {
+    for (const correo of SEIS) expect(Object.keys(MIGRADOS)).toContain(correo);
+  });
+
+  for (const correo of SEIS) {
+    for (const locale of LOCALES) {
+      it(`${correo} [${locale}]: los plazos del HTML visible son los del texto plano`, () => {
+        const msg = MIGRADOS[correo](locale);
+        const enHtml = plazos(visible(msg.html));
+        expect(enHtml).toEqual(plazos(msg.text));
+        if (CADUCAN.has(correo)) expect(enHtml.length).toBeGreaterThan(0);
+      });
+    }
+  }
+
+  it('CONTROL: el extractor ve la diferencia (la forma exacta de M-C)', () => {
+    expect(plazos('caduca en 48 horas')).not.toEqual(plazos('caduca en 24 horas'));
+    expect(plazos('expires in 1 hour and 90 days')).toEqual(['1 hour', '90 days']);
   });
 });
