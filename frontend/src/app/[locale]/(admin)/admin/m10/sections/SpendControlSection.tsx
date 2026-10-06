@@ -78,6 +78,8 @@ const SEVERITY: Record<string, 'immediate' | 'digest' | 'byAmount' | 'sevAG1' | 
   'AG-13': 'digest',
   'AG-21': 'immediate',
   'AG-22': 'sevAG22',
+  // 💰 rev BSD-1 (§BSD-UX.3): correo inmediato, solo al dueño.
+  'AG-23': 'immediate',
 };
 
 const toText = (f: Field, v: number | undefined) => (v === undefined ? '' : FIELDS[f].kind === 'pesos' ? (v / 100).toFixed(2) : String(v));

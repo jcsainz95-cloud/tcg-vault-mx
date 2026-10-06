@@ -21,6 +21,7 @@ import { ShippingProviderError } from '../shipping-provider/shipping-provider.er
 import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
 import { ShipmentCarrierService } from './carrier-status.service';
 import { TRACKING_POLL_BATCH } from './label-verify.constants';
+import { OUTBOUND_ONLY } from './label-subject';
 
 export interface TrackingPollResult {
   skipped?: 'provider_off' | 'not_configured' | 'running';
@@ -66,6 +67,8 @@ export class ShipmentTrackingPollJob {
       const minutes = await this.settings.getNumber(SettingKey.SHIPPING_TRACKING_POLL_MINUTES);
       const rows = await this.prisma.shipmentRequest.findMany({
         where: {
+          // rev BSD-1 (I-BSD-6, censo BSD-B23): la guía de ENTRADA no entra al sondeo (P-BSD-5) ⇒ tampoco a AV-17/18/19.
+          ...OUTBOUND_ONLY,
           labelSource: 'skydropx',
           status: { in: ['guia', 'enviado'] },
           providerCanceledAt: null,

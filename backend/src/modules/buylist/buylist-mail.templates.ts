@@ -1222,6 +1222,84 @@ export function sellRequestNotPursuedTemplate(
 }
 
 /**
+ * 💰 rev BSD-1 · **BSD-M1 — «Decidimos no continuar con esta venta»** (API_CONTRACT §BSD.8.1, DESIGN_SYSTEM §BSD-UX.1).
+ *
+ * El MISMO correo para los dos caminos que cierran una `aceptada` sin culpa: el cierre automático a los N días naturales
+ * sin guía (regla 8 del barrido) y «Declinar» del operador (`POST …/decline-accepted`). Al vendedor no le corresponde saber
+ * cuál fue (mismo criterio que el correo 4 entre la regla 7 y `decline`).
+ *
+ * Esqueleto del correo 6 (§31.3): eyebrow con folio · titular 22px · saludo · tres párrafos · CTA TINTA al portal · URL de
+ * respaldo · letra chica. Pie VENTA y `audience` por defecto (`customer`: lleva el aviso de privacidad).
+ *
+ * ⛔ **Prohibido** (§BSD.8.1 y BX3, candado BSD-B21): guía, paquetería, número, plazo, días, demora, el motivo interno, montos,
+ * dirección, teléfono, CLABE. Por eso la plantilla **no recibe** ninguno de esos datos: su firma es `{ folio, portalUrl }`.
+ * «Por favor, no nos envíes tus cartas» es una INSTRUCCIÓN (el vendedor aceptó y puede tener una guía en la mano), no una
+ * afirmación sobre una guía.
+ * Uno por solicitud: lo garantiza la transición terminal `count === 1` de quien lo manda (⛔ sin sello propio).
+ */
+export function sellRequestNotContinuedTemplate(
+  params: { folio: string; portalUrl?: string },
+  name: string,
+  locale?: string | null,
+): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const n = (name ?? '').trim();
+  const greeting = en ? (n ? `Hi ${n},` : 'Hi,') : n ? `Hola ${n}:` : 'Hola:';
+  const subject = en ? "We won't be continuing with your sell request" : 'No continuaremos con tu solicitud de venta';
+  const eyebrow = en ? 'REQUEST CLOSED' : 'SOLICITUD CERRADA';
+  const title = en ? "We've decided not to continue with this sale" : 'Decidimos no continuar con esta venta';
+  const p1 = en
+    ? `After an additional review, we've decided not to continue with the sale process for your request ${params.folio}.`
+    : `Tras una revisión adicional, decidimos no continuar con el proceso de venta de tu solicitud ${params.folio}.`;
+  const p2First = en ? 'The request is closed and no card was purchased.' : 'La solicitud queda cerrada y no se compró ninguna carta.';
+  const p2 = en ? `${p2First} Please don't send us your cards.` : `${p2First} Por favor, no nos envíes tus cartas.`;
+  const p3 = en
+    ? "Thank you for considering us. If you'd like to sell in the future, you can get a new quote whenever you like."
+    : 'Gracias por considerarnos. Si más adelante quieres vender, puedes cotizar de nuevo cuando quieras.';
+  const cta = en ? 'VIEW MY REQUEST' : 'VER MI SOLICITUD';
+  const small = en
+    ? `If you had already sent them, write to us at ${supportContact()}.`
+    : `Si ya las habías enviado, escríbenos a ${supportContact()}.`;
+
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(greeting),
+    spacerRow(16),
+    proseRow(p1),
+    spacerRow(16),
+    proseRow(p2),
+    spacerRow(16),
+    proseRow(p3),
+    spacerRow(32),
+    // §41.4 — TINTA: el rótulo nombra el destino (el portal), no «cotizar de nuevo».
+    ...(params.portalUrl ? [ctaRows(params.portalUrl, cta, 'ink'), spacerRow(16), monoRow(params.portalUrl)] : []),
+    spacerRow(16),
+    smallPrintRow(small),
+  ];
+
+  return {
+    to: '',
+    subject,
+    html: mailShell({
+      locale: l,
+      title,
+      // §31.6a — el preheader es la primera frase de `p2` (§BSD-UX.1).
+      preheader: p2First,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
+    // §31.12 — el texto plano dice LO MISMO, en el orden de §BSD-UX.1.
+    text:
+      `${greeting}\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${p1}\n\n${p2}\n\n${p3}\n` +
+      (params.portalUrl ? `\n${params.portalUrl}\n` : '') +
+      `\n${small}\n\n${BRAND}`,
+  };
+}
+
+/**
  * v1.51.13 · **BL-21** (ARCHITECTURE §4.39n.1) — **la URL del CTA de los correos del ciclo, en UN
  * solo sitio.**
  *

@@ -56,7 +56,7 @@ export function SpendAlertDetailView({ id }: { id: string }) {
     if (v === null || v === undefined) return none;
     if ((FACT_MONEY as readonly string[]).includes(key)) return typeof v === 'number' ? formatMoneyCents(v, locale) : none;
     if ((FACT_INT as readonly string[]).includes(key)) return typeof v === 'number' ? (key === 'pct' ? `${v} %` : String(v)) : none;
-    if (key === 'correctionAt') return typeof v === 'string' ? formatDateTimeMx(v, locale) : none;
+    if (key === 'correctionAt' || key === 'closesAt') return typeof v === 'string' ? formatDateTimeMx(v, locale) : none;
     if (key === 'changedKeys') return joinAnd(t, (Array.isArray(v) ? v : []).map((k) => (t.has(`field.${k}`) ? t(`field.${k}`) : k)));
     if (key === 'actors') return Array.isArray(v) ? v.join(', ') : none;
     if (key === 'kind') return typeof v === 'string' && t.has(`chargeKind.${v}`) ? t(`chargeKind.${v}`) : t('chargeKind.other');

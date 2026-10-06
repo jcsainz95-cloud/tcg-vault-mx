@@ -14488,3 +14488,23 @@ excepción nueva en `.trivyignore`.
 
 **Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
 externa va fijada». Lo dejo propuesto, no lo cambio.
+
+## §90 · Redis local en MISCONF: `dir` en un scratchpad borrado (2026-10-06, rama `claude/buylist-skydropx`)
+
+**Síntoma (B-2/B-3/B-4, 2026-10-06):** `auth-password-attempts-redis` y `reset-admin-password-lock` rojas en todos
+los árboles con `MISCONF ... unable to persist to disk`.
+
+**Causa medida (devops, 2026-10-06):** `redis-server` (pid 20394, arrancado `--daemonize yes` sin `--dir`) tenía
+`dir`/cwd = `scratchpad/qa-mail-7aa2/new (deleted)` (`ls -l /proc/<pid>/cwd`). Al borrarse ese scratchpad (O-20)
+el BGSAVE no puede crear el RDB → `rdb_last_bgsave_status:err` → con `stop-writes-on-bgsave-error yes` rechaza toda
+escritura. No era el disco (88 %, 4.8 GB libres). `CONFIG SET dir` falla: `can't set protected config` (Redis 7).
+
+**Arreglo en caliente:** `redis-cli CONFIG SET save ""` (sin snapshots; el Redis local es efímero de pruebas,
+DBSIZE 0). Reversible con `CONFIG SET save "3600 1 300 100 60 10000"`. No reinicia ni pierde claves.
+Antes: 3/3 corridas rojas (31/31 fallan). Después: 5/5 verdes (31/31). N y logs del agente devops.
+
+**Candado en tooling (`scripts/stack-native.sh` `start_infra`):** Redis se arranca desde `/` con `--save ""`; y si
+ya está arriba con `rdb_last_bgsave_status:err`, aplica el mismo `CONFIG SET save ""` y avisa.
+Rollback: revertir el commit.
+
+**Para los gates:** no arranquéis `redis-server` a mano desde vuestro scratchpad; usad `stack-native.sh up --infra`.

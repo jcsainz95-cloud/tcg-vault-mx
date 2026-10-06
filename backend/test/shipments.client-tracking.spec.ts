@@ -78,7 +78,7 @@ describe('ShipmentsService — ClientShipmentDTO enriquecido (v1.17)', () => {
       replacement: null,
     });
     // Scoping por usuario.
-    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ userId: 'u1' });
+    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where).toEqual({ kind: 'outbound', userId: 'u1' }); // rev BSD-1: + OUTBOUND_ONLY (censo BSD-B23)
   });
 
   it('getMine hace scoping por ownerUserId (404 si no es del usuario)', async () => {

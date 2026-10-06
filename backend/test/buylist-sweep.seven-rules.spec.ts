@@ -47,6 +47,11 @@ function build(rows: Rows, opts: { mailFails?: boolean; noOfferExpiry?: unknown 
     return value === cond;
   };
   const prisma: any = {
+    // rev BSD-1 (B-3): `closeWithGuideTask` corre en UNA transacción con los candados de I-BSD-4 y llama a
+    // `closeInboundShipment` (sin fila de entrada aquí ⇒ `$queryRaw` vacío); la regla 10 lee `shipmentRequest`.
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    $queryRaw: jest.fn(async () => []),
+    shipmentRequest: { findMany: jest.fn(async () => []) },
     sellRequest: {
       // Responde por REGLA (según el `status` pedido), no por orden de llamada.
       findMany: jest.fn(async ({ where }: any) => {
@@ -545,12 +550,21 @@ describe('El job es UNO: mismo barrido, mismo cron', () => {
       shipmentsExpired: 0,
       remindersSent: 0,
       notPursued: 0,
+      // rev BSD-1 (§BSD.7.6): el retorno gana tres cifras (⛔ las de hoy no cambian de nombre).
+      guideWarned: 0,
+      notContinued: 0,
+      cancelTasksOpened: 0,
     });
     expect(mail.send).not.toHaveBeenCalled();
   });
 
   it('sin `MAIL_PORT` las transiciones IGUAL ocurren (el correo es best-effort)', async () => {
     const prisma: any = {
+      // rev BSD-1 (B-3): `closeWithGuideTask` corre en UNA transacción con los candados de I-BSD-4 y llama a
+      // `closeInboundShipment` (sin fila de entrada aquí ⇒ `$queryRaw` vacío); la regla 10 lee `shipmentRequest`.
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
+      $queryRaw: jest.fn(async () => []),
+      shipmentRequest: { findMany: jest.fn(async () => []) },
       sellRequest: {
         findMany: jest.fn(async ({ where }: any) =>
           (typeof where?.status === 'string' ? where.status : where?.status?.in?.[0]) === 'ofertada'

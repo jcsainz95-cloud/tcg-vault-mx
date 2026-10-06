@@ -158,7 +158,9 @@ export class FakeShippingProvider implements ShippingProviderPort {
   async quote(input: QuoteInput): Promise<QuoteResult> {
     this.calls.push({ op: 'quote', input });
     const p = input.parcel;
-    const key = `${input.to.postalCode}|${p.lengthCm}x${p.widthCm}x${p.heightCm}|${p.weightKg}`;
+    // La «ruta» incluye el ORIGEN: con la guía de entrada (rev BSD-1) el origen es el vendedor y el destino siempre la tienda.
+    const fromKey = 'address' in input.from ? `cp:${input.from.address.postalCode}` : '';
+    const key = `${fromKey ? `${fromKey}>` : ''}${input.to.postalCode}|${p.lengthCm}x${p.widthCm}x${p.heightCm}|${p.weightKg}`;
     let entry = this.reuseQuotations ? this.quotations.get(key) : undefined;
     if (!entry) {
       this.seq += 1;

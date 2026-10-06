@@ -27,13 +27,16 @@ const ES_LINES = [
   'Ingresos (ventas)',
   'Ingreso por envío (cobrado)',
   'Costo de lo vendido',
+  // ✏ rev BSD-1 (§BSD-UX.11a): los dos renglones de la tarifa y las guías de vendedores, justo debajo del costo de compras.
+  'Tarifa de envío descontada a vendedores',
+  'Guías para recibir cartas de vendedores',
   'Comisiones Stripe',
   'Costo de envío (paquetería, neto)',
   'Reembolsos (mercancía y envío, sin IVA)',
   'Comisión de plataforma devuelta',
   'Compensaciones por carta perdida',
 ];
-const ES_SIGNS = ['+', '+', '−', '−', '−', '−', '−', '−'];
+const ES_SIGNS = ['+', '+', '−', '+', '−', '−', '−', '−', '−', '−'];
 
 /** Altera el fixture compartido solo durante `fn` (mismo patrón que la prueba de `shippingCostMissingCount`). */
 async function withPnl(patch: Partial<PnlDTO>, fn: () => Promise<void>) {
@@ -62,17 +65,18 @@ describe('F-3 · el fixture `mockPnl` (N-PNL-1, §19.36.1)', () => {
     expect(mockPnl.shippingInsuranceCents).toBeLessThan(mockPnl.shippingCostCents);
     expect(mockPnl.shippingAdjustmentsCents + mockPnl.shippingInsuranceCents).toBeLessThan(mockPnl.shippingCostCents);
     expect(mockPnl.profitCents).toBe(
-      mockPnl.incomeCents + mockPnl.shippingRevenueCents - mockPnl.cogsCents - mockPnl.stripeFeesCents -
+      mockPnl.incomeCents + mockPnl.shippingRevenueCents - mockPnl.cogsCents +
+        mockPnl.buylistShippingFeeRetainedCents - mockPnl.buylistGuideCostCents - mockPnl.stripeFeesCents -
         mockPnl.shippingCostCents - mockPnl.refundsCents - mockPnl.refundedFeesCents - mockPnl.compensationsCents,
     );
   });
 });
 
 describe('F-3 · M7 estado de resultados (§43.23)', () => {
-  it('UX-PNL-1 (a): ocho renglones con signo, en orden, y Σ(signo × monto) = ganancia pintada = profitCents', async () => {
+  it('UX-PNL-1 (a) ✏ UX-BSD-11: diez renglones con signo, en orden, y Σ(signo × monto) = ganancia pintada = profitCents', async () => {
     const profit = await renderPnl();
     const lines = screen.getAllByTestId('pnl-line');
-    expect(lines).toHaveLength(8);
+    expect(lines).toHaveLength(10);
     lines.forEach((line, i) => {
       expect(line).toHaveTextContent(ES_LINES[i]);
       expect(line.getAttribute('data-sign')).toBe(ES_SIGNS[i]);
@@ -84,9 +88,12 @@ describe('F-3 · M7 estado de resultados (§43.23)', () => {
     expect(cents(profit.textContent)).toBe(mockPnl.profitCents);
     expect(suma).toBe(cents(profit.textContent));
     // Los tres renglones nuevos llevan su cifra del servidor, tal cual.
-    expect(within(lines[5]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(mockPnl.refundsCents, 'es'));
-    expect(within(lines[6]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(mockPnl.refundedFeesCents, 'es'));
-    expect(within(lines[7]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(mockPnl.compensationsCents, 'es'));
+    expect(within(lines[7]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(mockPnl.refundsCents, 'es'));
+    expect(within(lines[8]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(mockPnl.refundedFeesCents, 'es'));
+    expect(within(lines[9]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(mockPnl.compensationsCents, 'es'));
+    // UX-BSD-11: el 4.º `+` = tarifa descontada, el 5.º `−` = guías, con la cifra del servidor tal cual.
+    expect(within(lines[3]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(mockPnl.buylistShippingFeeRetainedCents, 'es'));
+    expect(within(lines[4]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(mockPnl.buylistGuideCostCents, 'es'));
   });
 
   it('UX-PNL-2 (b): los «Incluye…» con su monto, sin signo, sin rojo, entre «Costo de envío» y «Reembolsos»', async () => {
@@ -104,8 +111,8 @@ describe('F-3 · M7 estado de resultados (§43.23)', () => {
       expect(el.className).not.toMatch(/text-danger/);
     }
     const lines = screen.getAllByTestId('pnl-line');
-    const shippingCost = lines[4];
-    const refunds = lines[5];
+    const shippingCost = lines[6];
+    const refunds = lines[7];
     for (const el of included) {
       expect(shippingCost.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(el.compareDocumentPosition(refunds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -142,8 +149,8 @@ describe('F-3 · M7 estado de resultados (§43.23)', () => {
     await withPnl({ refundsCents: 0, refundedFeesCents: 0, compensationsCents: 0 }, async () => {
       await renderPnl();
       const lines = screen.getAllByTestId('pnl-line');
-      expect(lines).toHaveLength(8);
-      for (const i of [5, 6, 7]) {
+      expect(lines).toHaveLength(10);
+      for (const i of [7, 8, 9]) {
         expect(lines[i]).toHaveTextContent(ES_LINES[i]);
         expect(within(lines[i]).getByTestId('pnl-amount')).toHaveTextContent(formatMoneyCents(0, 'es'));
       }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import {
+  captureBuylistGuide,
   correctShipmentAddress,
   getAdminShipment,
   listShippingPackages,
@@ -53,6 +54,7 @@ import {
 import { BuyView, OptionsView } from './capture/QuoteViews';
 import { isUnknownOutcome, purchaseInFlightText, sdxErrorView, type SdxErrorView } from './capture/sdx-errors';
 import { openLabelPdf } from './capture/label-pdf';
+import { useSellStatusLabel } from './capture/sell-status';
 
 /** Lo que la ventana necesita de cualquiera de las dos superficies que la abren (§37.3a, SK1). */
 export interface CaptureTarget {
@@ -64,6 +66,12 @@ export interface CaptureTarget {
   folio?: string | null;
   /** El número de pedido; `null` ⇔ retiro de bóveda (la cabecera dice «Retiro de bóveda · Envío ENV-…»). */
   orderNumber?: string | null;
+  /**
+   * 💰 rev BSD-1 (DESIGN_SYSTEM §BSD-UX.5, SK1) — presente ⇔ **modo entrada**: la guía del VENDEDOR a la tienda de esa
+   * solicitud de venta (M5). La misma ventana; cambian el título, el paso 1 (origen editable, destino de solo lectura), la
+   * banda de tarifa, los errores propios, el paso 4 y «Capturar a mano» (que es el de M5: `POST /admin/buylist/:id/guide`).
+   */
+  sellRequestId?: string | null;
 }
 
 /** Lo que la página anuncia al guardar (`M4View.tsx` Banner de éxito, FS-4). */
@@ -123,7 +131,11 @@ export function CaptureLabelDialog({
   const qc = useQueryClient();
   const money = useCallback((c: number) => formatMoneyCents(c, locale), [locale]);
   const statusLabel = (s: unknown) => (typeof s === 'string' && tStatus.has(s) ? tStatus(s) : String(s ?? '—'));
-  const errCtx = (op: 'quote' | 'label') => ({ op, isSuperAdmin, money, statusLabel });
+  const tm5 = useTranslations('admin.m5');
+  const sellStatusLabel = useSellStatusLabel();
+  const inboundSr = target?.sellRequestId ?? null;
+  const isInbound = !!inboundSr;
+  const errCtx = (op: 'quote' | 'label') => ({ op, isSuperAdmin, money, statusLabel, inbound: isInbound, sellStatusLabel });
 
   const id = target?.id ?? '';
   const stepRef = useRef<HTMLParagraphElement>(null);
@@ -190,6 +202,8 @@ export function CaptureLabelDialog({
     void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
     void qc.invalidateQueries({ queryKey: PICKING_SUMMARY_KEY });
     void qc.invalidateQueries({ queryKey: ['departure-board'] });
+    // 💰 rev BSD-1: la ficha de M5 (lista y detalle) relee la guía de entrada.
+    void qc.invalidateQueries({ queryKey: ['admin-buylist'] });
   }, [qc]);
 
   const sdxOn = shipment?.labelOptions?.provider === 'skydropx';
@@ -222,7 +236,7 @@ export function CaptureLabelDialog({
           return;
         }
         if (s.labelSource === 'skydropx') {
-          setErr({ ...sdxErrorView(new ApiClientError(409, { code: 'SHIPMENT_ALREADY_LABELED', message: '', details: { labelSource: 'skydropx' } }), t, errCtx('quote')) });
+          setErr({ ...sdxErrorView(new ApiClientError(409, { code: 'SHIPMENT_ALREADY_LABELED', message: '', details: { labelSource: 'skydropx' } }), t, { ...errCtx('quote'), inbound: false }) });
           setFatal(true);
           return;
         }
@@ -641,7 +655,8 @@ export function CaptureLabelDialog({
         const field = (typeof d.field === 'string' ? d.field : 'other') as string;
         const key = { recipientName: 'recipient', line1: 'line1', postalCode: 'postalCode', references: 'references' }[field] ?? 'other';
         const target: AddressField = (ADDRESS_FIELDS as readonly string[]).includes(field) ? (field as AddressField) : 'recipientName';
-        setFieldErrors({ [target]: t(`address.invalid.${key}`) });
+        // 💰 §BSD-UX.5a: en modo entrada el nombre es el de QUIEN ENVÍA.
+        setFieldErrors({ [target]: isInbound && field === 'recipientName' ? t('inbound.senderRequired') : t(`address.invalid.${key}`) });
         setPendingFocus(target);
       } else if (ae.status === 403) {
         setAddrBanner({ text: t('address.forbidden'), variant: 'danger' });
@@ -666,10 +681,15 @@ export function CaptureLabelDialog({
   const [manualError, setManualError] = useState<{ text: string; link?: { href: string; label: string } } | null>(null);
   const shippingCostCents = pesosToCents(shippingCostValue);
   const shippingCostInvalid = shippingCostValue.trim() !== '' && (shippingCostCents === null || shippingCostCents < 0);
-  const canSubmitManual = carrierValue.trim() !== '' && trackingNumberValue.trim() !== '' && !shippingCostInvalid;
+  const canSubmitManual = carrierValue.trim() !== '' && trackingNumberValue.trim() !== '' && (isInbound || !shippingCostInvalid);
 
   const manualMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
+      // 💰 §BSD-UX.5c: en modo entrada «Capturar a mano» es el de M5 (`POST /admin/buylist/:id/guide`, sin costo).
+      if (inboundSr) {
+        await captureBuylistGuide(inboundSr, { carrier: carrierValue.trim(), trackingNumber: trackingNumberValue.trim() });
+        return;
+      }
       const body: ShipmentTrackingRequest = { carrier: carrierValue.trim(), trackingNumber: trackingNumberValue.trim() };
       if (shippingCostCents !== null) body.shippingCostCents = shippingCostCents;
       return saveShipmentTracking(id, body);
@@ -682,6 +702,17 @@ export function CaptureLabelDialog({
     onError: (e) => {
       // §37.6 + §43.6: cada 409 con su copy y su remedio; ⛔ ninguno cae a «Algo salió mal».
       const err = asApiError(e);
+      if (inboundSr) {
+        // 💰 §BSD-UX.6a: los dos `409` propios de la captura a mano sobre una solicitud con guía de entrada.
+        if (err?.status === 409 && err.code === 'SHIPMENT_ALREADY_LABELED' && err.details?.labelSource === 'skydropx') {
+          setManualError({ text: tm5('inbound.alreadySkydropx') });
+        } else if (err?.status === 409 && err.code === 'LABEL_IN_PROGRESS') {
+          setManualError({ text: tm5('inbound.inProgress') });
+        } else {
+          setManualError({ text: getError(e) });
+        }
+        return;
+      }
       if (err?.status === 409 && err.code === 'SHIPMENT_NOT_PREPARED') {
         setManualError({ text: tm4('tracking.notPrepared'), link: { href: '/admin/m4', label: tm4('tracking.goToPrepare') } });
       } else if (err?.status === 409 && err.code === 'SHIPMENT_HAS_OPEN_REPLACEMENTS') {
@@ -727,7 +758,8 @@ export function CaptureLabelDialog({
   const phoneMissing = missing.includes('phone');
   // «Ver opciones» con `complete=false` solo si NO sabemos qué falta: el servidor lo dirá con su `422`.
   const canSeeOptions = !phoneMissing && (shipment?.address?.complete !== false || !missingKnown);
-  const canCorrect = shipment?.status === 'picking' && !shipment?.labelSource && !shipment?.labelPending;
+  // 💰 rev BSD-1 (BSD-1.3 punto 5): la fila de ENTRADA está abierta en `solicitado` (la de salida, en `picking`).
+  const canCorrect = shipment?.status === (isInbound ? 'solicitado' : 'picking') && !shipment?.labelSource && !shipment?.labelPending;
   const rate = quote?.rates.find((r) => r.rateId === selected) ?? null;
   const warnNegative = !!rate && (rate.marginCents < 0 || forceWarn.negative);
   const warnBranch = !!rate && (rate.deliveryKind === 'branch' || forceWarn.branch);
@@ -905,14 +937,19 @@ export function CaptureLabelDialog({
             <Button variant="link" className="self-start" onClick={backToSkydropx}>
               {t('backToSkydropx')}
             </Button>
-            <p className="text-sm text-muted">{t('manualIntro')}</p>
+            <p className="text-sm text-muted">{isInbound ? t('inbound.manualIntro') : t('manualIntro')}</p>
           </div>
         )}
-        <Input label={tm4('tracking.carrierLabel')} type="text" value={carrierValue} onChange={(e) => setCarrierValue(e.target.value)} />
+        <Input
+          label={isInbound ? tm5('shipment.carrier') : tm4('tracking.carrierLabel')}
+          type="text"
+          value={carrierValue}
+          onChange={(e) => setCarrierValue(e.target.value)}
+        />
         {/* §60.9 e (rama panel, llevado aquí en el merge panel+skydropx): en el teléfono — sin autocorrección ni mayúsculas
             inventadas; 16 px (Input `text-base`) para que iOS no haga zoom. */}
         <Input
-          label={tm4('tracking.numberLabel')}
+          label={isInbound ? tm5('shipment.trackingNumber') : tm4('tracking.numberLabel')}
           type="text"
           inputMode="text"
           autoCapitalize="characters"
@@ -922,6 +959,8 @@ export function CaptureLabelDialog({
           onChange={(e) => setTrackingNumberValue(e.target.value)}
           data-testid="m4-tracking-number"
         />
+        {/* 💰 §BSD-UX.5c: la captura de M5 no lleva costo (⛔ el formulario de M4, que va a otra ruta). */}
+        {!isInbound && (
         <Input
           label={tm4('tracking.shippingCostLabel')}
           hint={tm4('tracking.shippingCostHint')}
@@ -933,7 +972,8 @@ export function CaptureLabelDialog({
           value={shippingCostValue}
           onChange={(e) => setShippingCostValue(e.target.value)}
         />
-        {!shippingCostInvalid && shippingCostCents !== null && <p className="text-xs text-muted">= {money(shippingCostCents)}</p>}
+        )}
+        {!isInbound && !shippingCostInvalid && shippingCostCents !== null && <p className="text-xs text-muted">= {money(shippingCostCents)}</p>}
         {manualError && (
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>
             <p>{manualError.text}</p>
@@ -957,7 +997,31 @@ export function CaptureLabelDialog({
               </Banner>
             )}
             {!addrEdit && phoneMissing && <PhoneMissingBanner />}
-            {addrEdit ? (
+            {isInbound ? (
+              <>
+                {/* 💰 §BSD-UX.5a: dos bloques; el ORIGEN (el vendedor) arriba porque es lo único que se revisa. */}
+                <section aria-labelledby={`${formId}-origin`} className="flex flex-col gap-3" data-testid="sdx-inbound-origin">
+                  <h3 id={`${formId}-origin`} className={`${TAG} text-text`}>
+                    {t('inbound.originTitle')}
+                  </h3>
+                  {addrEdit ? (
+                    <AddressForm
+                      ref={formRef}
+                      formId={formId}
+                      saved={shipment.addressSnapshot ?? ({} as never)}
+                      draft={draft}
+                      onPatch={onPatch}
+                      fieldErrors={fieldErrors}
+                      neighborhoodMissing={missing.includes('neighborhood')}
+                      inbound={{ sellerName: shipment.inbound?.sellerName ?? '' }}
+                    />
+                  ) : (
+                    <AddressReadView shipment={shipment} inbound />
+                  )}
+                </section>
+                <InboundDestination dest={shipment.inbound?.destination ?? null} />
+              </>
+            ) : addrEdit ? (
               <AddressForm
                 ref={formRef}
                 formId={formId}
@@ -998,6 +1062,7 @@ export function CaptureLabelDialog({
               }}
               pickReasonId={pickReasonId}
               limit={opts?.limit ?? null}
+              inbound={isInbound}
             />
           ) : null)}
         {step === 3 && rate && quote && opts && (
@@ -1009,6 +1074,7 @@ export function CaptureLabelDialog({
             options={opts}
             blockedText={buyHidden ? '' : purchaseBlocked}
             isSuperAdmin={isSuperAdmin}
+            inbound={isInbound}
           />
         )}
         {step === 3 && wait && (
@@ -1033,6 +1099,7 @@ export function CaptureLabelDialog({
             copied={copied}
             setCopied={setCopied}
             found={found}
+            inbound={isInbound}
           />
         )}
         {step === 4 && stage && stage !== 'labeled' && (
@@ -1044,6 +1111,7 @@ export function CaptureLabelDialog({
             providerError={stage === 'processing' ? providerError : null}
             conflict={pendingConflict}
             releaseVia={releaseVia}
+            inbound={isInbound}
           />
         )}
         {errorBanner}
@@ -1052,10 +1120,15 @@ export function CaptureLabelDialog({
   }
 
   return (
-    <Modal open={target !== null} onClose={guardedClose} title={tm4('tracking.title')} footer={footer}>
+    <Modal open={target !== null} onClose={guardedClose} title={isInbound ? t('inbound.title') : tm4('tracking.title')} footer={footer}>
       <div className="flex flex-col gap-3">
         {target &&
-          (target.folio ? (
+          (isInbound ? (
+            // 💰 §BSD-UX.5: «Solicitud de venta {id} · Envío {folio}».
+            <p className="text-sm text-muted" data-testid="sdx-dialog-ref">
+              {t('inbound.ref', { sellRequestId: inboundSr ?? '', folio: target.folio ?? '—' })}
+            </p>
+          ) : target.folio ? (
             // 🔒 §43.19.7: «{pedido} · Envío ENV-000045»; retiro ⇒ «Retiro de bóveda · Envío ENV-000045». ⛔ Sin uuid.
             <p className="text-sm text-muted" data-testid="sdx-dialog-ref">
               <span className={target.orderNumber ? 'tabular font-medium text-text' : 'font-medium text-text'}>
@@ -1093,6 +1166,7 @@ function LabelView({
   copied,
   setCopied,
   found,
+  inbound = false,
 }: {
   label: ShipmentLabelDTO;
   shipmentId: string;
@@ -1102,7 +1176,9 @@ function LabelView({
   copied: boolean;
   setCopied: (b: boolean) => void;
   found: boolean;
+  inbound?: boolean;
 }) {
+  const ti = useTranslations('admin.m4.tracking.sdx.inbound');
   const tv = useTranslations('admin.m4.tracking.sdx.verify');
   const t = useTranslations('admin.m4.tracking.sdx.label');
   const tq = useTranslations('admin.m4.label');
@@ -1141,7 +1217,8 @@ function LabelView({
       <p className="tabular text-sm text-text">{t('charged', { amount: formatMoneyCents(label.cost.grossCents, locale) })}</p>
       {label.labelAvailable ? (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => pdf('print')}>{t('print')}</Button>
+          {/* 💰 §BSD-UX.5c: en entrada la etiqueta la imprime el VENDEDOR ⇒ solo «Descargar PDF» (⛔ «Imprimir»). */}
+          {!inbound && <Button onClick={() => pdf('print')}>{t('print')}</Button>}
           <Button variant="secondary" onClick={() => pdf('download')}>
             {t('download')}
           </Button>
@@ -1156,7 +1233,7 @@ function LabelView({
           <span className="sr-only"> {t('newTab')}</span>
         </a>
       )}
-      <p className="text-sm text-muted">{t('emailSent')}</p>
+      <p className="text-sm text-muted">{inbound ? ti('sentToSeller') : t('emailSent')}</p>
     </div>
   );
 }
@@ -1210,6 +1287,7 @@ function PendingView({
   providerError,
   conflict,
   releaseVia,
+  inbound = false,
 }: {
   stage: Stage;
   info: LabelPendingDTO | null;
@@ -1218,6 +1296,7 @@ function PendingView({
   providerError: { code: string | null; message: string | null } | null;
   conflict: string | null;
   releaseVia: LabelReleaseVia | null;
+  inbound?: boolean;
 }) {
   const t = useTranslations('admin.m4.tracking.sdx');
   const locale = useLocale() as AppLocale;
@@ -1287,7 +1366,47 @@ function PendingView({
         </Banner>
       )}
       <p className="text-sm text-text">{stage === 'in_progress' ? t('processing.inProgress') : t('processing.body')}</p>
+      {inbound && (
+        <p className="text-sm text-text" data-testid="sdx-inbound-processing-note">
+          {t('inbound.processingNote')}
+        </p>
+      )}
       <p className="text-sm text-muted">{timedOut ? t('processing.timeout') : t('processing.checking')}</p>
     </div>
+  );
+}
+
+/**
+ * 💰 rev BSD-1 (§BSD-UX.5a (2), BX4) — **«Llega a · la tienda»**: el destino de la guía de entrada es SIEMPRE la tienda
+ * (`skydropx_origin_snapshot`, I-BSD-5). Se pinta como TEXTO: ⛔ ningún `input`, `select`, `textarea` ni botón (UX-BSD-5 lo
+ * mide por ausencia). Campo vacío ⇒ «Sin dato» (SK8); la cotización lo dirá con su error (`origin_snapshot`).
+ */
+function InboundDestination({ dest }: { dest: { name: string; street1: string; postalCode: string; state: string; city: string; neighborhood: string } | null }) {
+  const t = useTranslations('admin.m4.tracking.sdx');
+  const headingId = useId();
+  const v = (x: string | undefined) => (typeof x === 'string' && x.trim() !== '' ? x.trim() : null);
+  const rows: { label: string; value: string | null; tabular?: boolean }[] = [
+    { label: t('inbound.destinationName'), value: v(dest?.name) },
+    { label: t('address.line1'), value: v(dest?.street1) },
+    { label: t('address.neighborhood'), value: v(dest?.neighborhood) },
+    { label: t('address.postalCode'), value: v(dest?.postalCode), tabular: true },
+    { label: t('address.city'), value: v(dest?.city) },
+    { label: t('address.state'), value: v(dest?.state) },
+  ];
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-3" data-testid="sdx-inbound-destination">
+      <h3 id={headingId} className={`${TAG} text-text`}>
+        {t('inbound.destinationTitle')}
+      </h3>
+      <dl className="grid grid-cols-[minmax(0,10rem)_1fr] gap-x-3 gap-y-1">
+        {rows.map((r) => (
+          <div key={r.label} className="contents">
+            <dt className="text-sm text-muted">{r.label}</dt>
+            <dd className={`text-sm ${r.value === null ? 'text-accent' : 'text-text'}${r.tabular ? ' tabular' : ''}`}>{r.value ?? t('address.noData')}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-sm text-muted">{t('inbound.destinationNote')}</p>
+    </section>
   );
 }

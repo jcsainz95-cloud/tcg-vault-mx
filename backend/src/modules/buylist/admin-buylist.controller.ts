@@ -17,7 +17,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { parseAdminListFilters } from '../../common/admin-list-filters';
-import { BuylistService } from './buylist.service';
+import { BuylistService, parseDeclineAcceptedBody } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
 import {
   AdminPickupAddressDto,
@@ -76,6 +76,8 @@ export class AdminBuylistController {
     // con un error — la cola parecía filtrada y no lo estaba. Sin él, la alerta anti-bucle obliga a
     // paginar la cola entera para encontrar las tres filas que importan (lección de **P-5**).
     @Query('offerReissueAlert') offerReissueAlert?: string,
+    // 💰 rev BSD-1.3 punto 4 — las guías de ENTRADA atascadas (clase L, se intersecta; solo `true` filtra).
+    @Query('inboundLabelAlert') inboundLabelAlert?: string,
   ) {
     const f = parseAdminListFilters({ page, pageSize, q, from, to, minCents, maxCents });
     return this.buylist.adminList(status, f.page, f.pageSize, userId, {
@@ -94,6 +96,8 @@ export class AdminBuylistController {
       // éste lo trata como «sin filtro», igual que `awaitingGuide`.
       offerReissueAlert:
         offerReissueAlert === 'true' ? true : offerReissueAlert === 'false' ? false : undefined,
+      inboundLabelAlert:
+        inboundLabelAlert === 'true' ? true : inboundLabelAlert === 'false' ? false : undefined,
     });
   }
 
@@ -188,8 +192,9 @@ export class AdminBuylistController {
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.buylist.adminGet(id);
+  get(@Param('id') id: string, @CurrentUser() user?: { id: string; role: Role }) {
+    // 💰 rev BSD-1: el actor solo decide `inboundShipment.labelAlert.canRelease` (súper-admin).
+    return this.buylist.adminGet(id, user);
   }
 
   /**
@@ -463,7 +468,8 @@ export class AdminBuylistController {
     @Body() dto: AdminPickupAddressDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const { auditAddressIds, ...res } = await this.buylist.adminUpdatePickupAddress(id, dto.addressId);
+    // ⭐ BSD-1.4 punto 10: el actor sale de `@CurrentUser`, ⛔ nunca del cuerpo (SEC-A1: el DTO solo admite `addressId`).
+    const { auditAddressIds, ...res } = await this.buylist.adminUpdatePickupAddress(id, dto.addressId, user.id);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
@@ -492,6 +498,32 @@ export class AdminBuylistController {
       entityType: 'SellRequest',
       entityId: id,
       after: { reason: dto.reason },
+    });
+    return res;
+  }
+
+  /**
+   * 💰 rev BSD-1 · **«Declinar» en «Aceptada»** (API_CONTRACT §BSD.6). `vault_operator`/`super_admin`; ⛔ no `@MoneyOut` (no
+   * saca dinero: a lo sumo devuelve saldo de Skydropx al cancelar la guía). `{ reason }` OBLIGATORIO, 3–500 tras `trim`
+   * (`400 VALIDATION_ERROR {field:'reason'}`), INTERNO: va a la bitácora y ⛔ nunca al correo ni a un DTO de cliente.
+   * Se audita DESPUÉS del éxito (un `409` no deja bitácora de un cierre que no ocurrió).
+   */
+  @Post(':id/decline-accepted')
+  @HttpCode(HttpStatus.OK)
+  async declineAccepted(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const { reason } = parseDeclineAcceptedBody(body);
+    const res = await this.buylist.adminDeclineAccepted(id, user);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.request.decline_accepted',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: { reason, expiredReason: 'not_continued' },
     });
     return res;
   }

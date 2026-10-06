@@ -126,6 +126,9 @@ const RENDERS: Record<string, Render> = {
     buylistTpl.sellRequestExpiredTemplate({ kind: 'no_response', folio: 'BL-1', closedAt: AT, portalUrl: PORTAL }, 'Ana', l),
   sellRequestNotPursuedTemplate: (l) =>
     buylistTpl.sellRequestNotPursuedTemplate({ folio: 'BL-1', portalUrl: PORTAL }, 'Ana', l),
+  // 💰 rev BSD-1 (§BSD.8.1): BSD-M1 «no continuamos» (vendedor ⇒ `customer`, con el aviso de privacidad).
+  sellRequestNotContinuedTemplate: (l) =>
+    buylistTpl.sellRequestNotContinuedTemplate({ folio: 'BL-1', portalUrl: PORTAL }, 'Ana', l),
   sellGuideTemplate: (l) =>
     buylistNoticeTpl.sellGuideTemplate(
       { folio: 'BL-1', carrier: 'Estafeta', trackingNumber: '123', shipDeadlineAt: AT, portalUrl: PORTAL },

@@ -20,6 +20,7 @@ import { ProviderBalanceService } from '../spend-alerts/provider-balance.service
 import { spendControlOf, SpendControlDTO } from '../spend-alerts/spend-control';
 import { ShippingWorkQueueDTO } from '../shipments/shipping-work-queue';
 import { ShippingWorkQueueService } from '../shipments/shipping-work-queue.service';
+import { buylistWorkQueueOf } from '../buylist/inbound-view';
 
 @Injectable()
 export class DashboardShippingService {
@@ -37,6 +38,19 @@ export class DashboardShippingService {
       this.settings.getNumber(SettingKey.SKYDROPX_LOW_BALANCE_CENTS),
     ]);
     return this.workQueue.shipping({ provider: provider ?? null, thresholdCents, readBalance: () => this.balance.read() });
+  }
+
+  /**
+   * 💰 rev BSD-1 (BSD-1.1 C-3, BSD-1.3 punto 4) — `workQueue.buylistGuideDueSoon` y `workQueue.buylistInboundLabelAlert`, HERMANOS
+   * de `workQueue.buylist` (que sigue siendo un número). Los diales del cierre sin guía se leen aquí porque `AdminService` ⛔ no
+   * tiene el servicio de diales (IVA-11); la regla es la de M5 (`buylistWorkQueueOf`, `inbound-view.ts`). Para los dos roles.
+   */
+  async buylistQueue(now: Date): Promise<{ buylistGuideDueSoon: number; buylistInboundLabelAlert: number }> {
+    const [closeDays, warnDays] = await Promise.all([
+      this.settings.getNumber(SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS),
+      this.settings.getNumber(SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE),
+    ]);
+    return buylistWorkQueueOf(this.prisma, { closeDays, warnDays }, now);
   }
 
   /** `workQueue.spendControl` — SOLO súper-admin (el llamador pone `null` al operador). */

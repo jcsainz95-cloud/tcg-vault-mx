@@ -26,8 +26,21 @@ export type ProviderCarrierStatus = (typeof CARRIER_STATUSES)[number];
 
 // ── Cotizar (§19.19.4) ────────────────────────────────────────────────────────────────────────────────────────
 
+/** Una dirección por ÁREAS (lo que la cotización de Skydropx necesita de un extremo). */
+export interface QuoteAreaAddress {
+  countryCode: 'MX';
+  postalCode: string;
+  state: string;
+  city: string;
+  neighborhood: string;
+}
+
 export interface QuoteInput {
-  from: { templateId: string };
+  /**
+   * Salida: la plantilla de origen de la tienda. ⭐ rev BSD-1 (§BSD.3, guía de ENTRADA del buylist): el origen es el VENDEDOR,
+   * explícito por áreas (`address`). ⚠️ NO MEDIDO que Skydropx lo acepte (§BSD.13 NM-1).
+   */
+  from: { templateId: string } | { address: QuoteAreaAddress };
   to: { countryCode: 'MX'; postalCode: string; state: string; city: string; neighborhood: string };
   /** `weightKg` entero ≥ 1 (§19.19.6). `coverageCents` = el escalón de seguro (§19.19.5), nunca omitido. */
   parcel: { lengthCm: number; widthCm: number; heightCm: number; weightKg: number; coverageCents: number };
@@ -93,15 +106,45 @@ export interface OriginSnapshot {
   reference: string;
 }
 
+/**
+ * ⭐ rev BSD-1 (§BSD.3 «Dirección de la compra»): un extremo EXPLÍCITO (sin plantilla) — el vendedor como origen de la guía de
+ * entrada. ⚠️ NO MEDIDO que Skydropx lo acepte (§BSD.13 NM-2).
+ */
+export interface PurchasePartyAddress {
+  street1: string;
+  name: string;
+  company: string;
+  phone: string;
+  email: string;
+  furtherInformation?: string;
+  postalCode: string;
+  areaLevel1: string;
+  areaLevel2: string;
+  areaLevel3: string;
+}
+
 export interface PurchaseInput {
   rateId: string;
   printingFormat: 'standard' | 'thermal';
-  from: { templateId: string; snapshot: OriginSnapshot | null };
+  from: { templateId: string; snapshot: OriginSnapshot | null } | { address: PurchasePartyAddress };
   /**
    * T.11 + SEC-SDX-7: SOLO esto. `furtherInformation` = `Address.references` (≤ 70). 🔒💰 v1.80.12.8 (§19.28.11): gana
    * `reference` = «Pedido <folio>-<NN>» — NUESTRO folio, ⛔ nunca datos del cliente (lo arma el servicio).
    */
-  to: { street1: string; name: string; company: string; phone: string; email: string; reference: string; furtherInformation?: string };
+  to: {
+    street1: string;
+    name: string;
+    company: string;
+    phone: string;
+    email: string;
+    reference: string;
+    furtherInformation?: string;
+    /** ⭐ rev BSD-1: solo la guía de entrada (destino = la tienda, `skydropx_origin_snapshot`); en salida viajan por la cotización. */
+    postalCode?: string;
+    areaLevel1?: string;
+    areaLevel2?: string;
+    areaLevel3?: string;
+  };
   package: { coverageCents: number; consignmentNote: string; packageType: string };
   /** `label:<shipmentId>:<rateId>` — que Skydropx lo respete es NO MEDIDO (§19.19.18). */
   idempotencyKey: string;

@@ -20,6 +20,7 @@
 import { Prisma } from '@prisma/client';
 import { CARRIER_ALERT_STATUSES, carrierAlertActive, labelAlertOf } from './label-view';
 import { ORPHAN_ALERT_TTL_MS } from './label-verify.constants';
+import { OUTBOUND_ONLY } from './label-subject';
 
 type Db = Pick<Prisma.TransactionClient, 'shipmentRequest'>;
 type AlertDb = Pick<Prisma.TransactionClient, 'shipmentRequest' | 'auditLog'>;
@@ -50,7 +51,7 @@ export interface ShippingWorkQueueDeps {
 /** Los envíos con `carrierAlert ≠ null` (§19.3): superconjunto ancho en SQL y, fila a fila, `carrierAlertActive`. */
 export async function carrierAlertShipmentIds(db: Db): Promise<string[]> {
   const rows = await db.shipmentRequest.findMany({
-    where: { carrierStatus: { in: [...CARRIER_ALERT_STATUSES, 'canceled'] } },
+    where: { ...OUTBOUND_ONLY, carrierStatus: { in: [...CARRIER_ALERT_STATUSES, 'canceled'] } },
     select: { id: true, status: true, labelSource: true, carrierStatus: true, providerCanceledAt: true },
   });
   return rows.filter((r) => carrierAlertActive(r)).map((r) => r.id);
@@ -74,6 +75,8 @@ export async function labelAlertShipmentIds(db: AlertDb, now: Date, tUnknownMs: 
   for (const o of orphans) if (o.entityId && !orphanSince.has(o.entityId)) orphanSince.set(o.entityId, o.createdAt);
   const candidates = await db.shipmentRequest.findMany({
     where: {
+      // rev BSD-1 (censo BSD-B23): alimenta `?alert=true` de la lista admin y el tablero de M4, que son de envíos.
+      ...OUTBOUND_ONLY,
       OR: [
         { status: 'cancelado', labelSource: 'skydropx', providerCanceledAt: null },
         { providerShipmentId: { not: null }, providerCanceledAt: { not: null }, providerCancelConfirmedAt: null },
@@ -105,7 +108,7 @@ export async function shippingWorkQueueOf(db: AlertDb, deps: ShippingWorkQueueDe
   const [withCarrierAlert, withLabelAlert, labelProcessing, balanceCents] = await Promise.all([
     countCarrierAlerts(db),
     countLabelAlerts(db, deps.now, deps.tUnknownMs),
-    db.shipmentRequest.count({ where: { labelProcessingSince: { not: null } } }),
+    db.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, labelProcessingSince: { not: null } } }),
     deps.provider === 'skydropx' ? deps.readBalance() : Promise.resolve(null),
   ]);
   return { lowBalance: balanceCents === null ? null : balanceCents < deps.thresholdCents, withCarrierAlert, withLabelAlert, labelProcessing };

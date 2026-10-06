@@ -75,7 +75,8 @@ describe('BuylistService.listMine — shape SellRequestDTO', () => {
     // frontend crashea en runtime). Este assert lo fija a nivel de test.
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        include: { items: { include: { card: true } } },
+        // 💰 rev BSD-1.1 C-1: + la fila de entrada (para `labelPdfAvailable`) en el MISMO `findMany`.
+        include: { items: { include: { card: true } }, inboundShipment: { select: expect.objectContaining({ providerShipmentId: true }) } },
       }),
     );
 
@@ -111,6 +112,8 @@ describe('BuylistService.adminList — shape AdminBuylistDTO', () => {
           // v1.51 · BL-15 (D12): el `select` gana `phone` — el teléfono viaja EN LA FILA para poder
           // llamar desde la solicitud. Mismo régimen PII que el correo; PROHIBIDO en el buscador `q`.
           user: { select: { id: true, name: true, email: true, phone: true } },
+          // 💰 rev BSD-1 (§BSD.5): la fila de entrada en el MISMO `findMany` (⛔ N+1).
+          inboundShipment: { select: expect.objectContaining({ id: true, status: true, labelProcessingSince: true }) },
         },
       }),
     );

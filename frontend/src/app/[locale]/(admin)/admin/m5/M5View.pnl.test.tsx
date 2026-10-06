@@ -110,7 +110,8 @@ describe('BRJ-UI-1 · «Rechazar seleccionadas» manda los `itemIds` exactos, si
   it('fuera de `verificacion` no hay barra ni casillas', async () => {
     await render('aceptada', THREE_BUY_ONE_SKIP());
     expect(screen.queryByTestId('m5-bulk-bar-sr-pnl')).not.toBeInTheDocument();
-    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    // 💰 rev BSD-1: la página gana UNA casilla global (filtro «solo con alerta en su guía de entrada»); en la FICHA, cero.
+    expect(within(screen.getByTestId('m5-request-sr-pnl')).queryAllByRole('checkbox')).toHaveLength(0);
   });
 });
 
@@ -187,12 +188,13 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
   });
 });
 
-describe('§60.5 b · la fila `aceptada` dice dónde está la acción', () => {
-  it('«Aceptada: ya no se cancela…» bajo sus acciones, y ningún «Cancelar»', async () => {
+describe('§60.5 b · ✏ §BSD-UX.6a · la fila `aceptada` dice dónde está la acción', () => {
+  it('«Aceptada. Si al llegar…» bajo sus acciones (UX-BSD-10: ⛔ «ya no se cancela»), y ningún «Cancelar»', async () => {
     await render('aceptada', [item('it-a', 'Alakazam', 'buy')]);
     expect(screen.getByTestId('m5-accepted-note-sr-pnl')).toHaveTextContent(
-      'Aceptada: ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo.',
+      'Aceptada. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo.',
     );
+    expect(document.body.textContent).not.toContain('ya no se cancela');
     expect(screen.queryByRole('button', { name: /Cancelar/ })).not.toBeInTheDocument();
   });
 });
