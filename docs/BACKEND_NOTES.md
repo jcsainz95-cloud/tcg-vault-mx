@@ -29467,3 +29467,76 @@ Los dos `layout()` y los dos `escapeHtml` locales se borraron (el escape lo hace
   medido con `APP_PUBLIC_URL` puesto) e **I-2** (los plazos «N horas/días» del HTML visible = los del texto plano).
 - **Deuda registrada:** BE-43 (mitad de `mail/` pagada), AV-D2 (11 ficheros de 8 módulos y ciclo `mail/`↔`buylist/`),
   FX-D9 (disparador = traslado a `common/`), y MAIL-D1…D7 al final de `docs/TECH_DEBT.md`.
+
+## 77 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
+
+Norma: `API_CONTRACT §15` + errata AN-1.1 (`edffe544`), `ARCHITECTURE §4.64`, `PROJECT §AN` (600–613, 620, 622 de salida, 623, 624).
+⛔ Fase C (`M-AN-1`: método de pago, contracargos por día) **no** construida: sus claves **no viajan** (`mix.byPaymentMethod`,
+`chargebacks`, `chargebacksUndatedCount`), y tampoco `shipping.buylistRevenueCents/CostCents` (#78).
+
+### 77.1 Lo que hay
+| Pieza | Dónde |
+|---|---|
+| `GET /admin/reports/sales`, `/sales/export.csv`, `/sales/today` (`AdminReportsController`, `super_admin` de clase, `no-store`) | `admin/admin.controller.ts` |
+| Periodo, presets, cubos recortados, validación §15.2 | `sales-analytics/sales-period.ts` (puro) |
+| Una definición por cifra, `Delta`, `allocateByWeight`, `centsToPesosCell` | `sales-analytics/sales-figures.ts` (puro) |
+| `report` / `csv` / `today` / `dayFigures` (un solo cuerpo: `bucketFigures`) | `sales-analytics/sales-analytics.service.ts` |
+| M7 partido en cubos: `pnlBuckets`, `refundRowsInPeriod`, `refundsInPeriod` | `admin/pnl-core.ts`; `AdminService.pnl()` = un cubo con el `range()` de siempre |
+| Línea «Ventas de ayer» + envío con pedidos sin avisos (P-AN-1 default) | `spend-alerts/spend-digest.service.ts`, `spend-alert.mail.ts` (`salesDigestLine`) |
+
+`SalesAnalyticsModule` lo importan `AdminModule` y `SpendAlertsModule`; él no importa ninguno (sin ciclo). `SpendDigestService`
+recibe el servicio `@Optional()` (los dobles que construyen el servicio a mano siguen valiendo; sin él, la regla es la de antes).
+
+### 77.2 Decisiones de implementación que otros roles necesitan
+- **`?topSort=` NO está en `/sales/export.csv`.** §15.2 dice que los dos primeros endpoints aceptan los mismos parámetros, pero el CSV
+  no lleva listas (§15.7) ⇒ el orden no cambia un byte, y `C-EQ-1` exige que todo eje declarado sea observable («filtra») y prohíbe
+  excepciones de `filtra`. Se omitió; un `?topSort=` en el CSV se ignora como cualquier parámetro desconocido. ⇒ **arquitecto**.
+- **C-EQ-1:** `preset`/`groupBy`/`topSort` (×`sales`) y `preset`/`groupBy` (×CSV) van al registro como **`PENDIENTE-ARQUITECTO`**: §15.2
+  los declara clase L pero la **tabla de §0-Q punto 4** no tiene sus filas (medido con `grep 'reports/sales'`). Trinquetes: registro
+  59 → 64, pendientes 18 → 23; `from`/`to` de las dos rutas en `NO_ENUM_POR_RUTA` (tope 54 → 58). La paridad de clase L lee la tabla
+  de §15.2 (la regex quita el `\|` de Markdown).
+- **`preset=custom` sin fechas** ⇒ `400 {field:'from'}` (la tabla de errores de §15.2 no lo lista; se trata como «falta `from`»).
+- **CSV:** la fila `total` lleva `to` vacío. Columnas de fase A + fase B (con `shippingResultNetMxn` tras `shippingCostNetMxn`).
+- **`comparison.piecesPerOrder.diff`** se redondea a un decimal (la resta en coma flotante de dos cifras de un decimal no lo es).
+- **`mix.byDestination` / `byBuyer`** se emiten (no necesitan migración); `byProductType` reparte el `netRevenueCents` de cada pedido
+  entre sus renglones por `unitPriceCents` (resto mayor, desempate por `OrderItem.id`) e **incluye** los `refunded`.
+- **Rendimiento:** dos pasadas de `bucketFigures` (periodo y anterior) ⇒ ~14 consultas por informe; el arquitecto sugería una sola
+  consulta de órdenes para los dos periodos (§4.64.6, no normativo). Sin índice nuevo; el disparador de `@@index([settledAt])` sigue
+  siendo el de §4.64.6 (NO MEDIDO el volumen de producción).
+- **`PnlComponents` es `type`, no `interface`**: el tipo de `pnl()` sigue siendo asignable a `Record<string, number>` como antes
+  (`sdx-d2f.units.spec.ts` lo usa así).
+
+### 77.3 Pruebas (fixture `test/integration/helpers/sales-db.ts`: ventana propia feb–may 2021, ids fijos, comprueba que esté vacía)
+- `test/sales-analytics.units.spec.ts` (37): presets en día MX, AN-B-14 (11 filas de error, sin `value`), AN-B-6 puro, AN-B-5, AN-B-7,
+  AN-B-21 puro (25862 = 8621 + 8621 + 8620; CONTROL 3 × `taxBaseCentsOf` = 25863), AN-B-23.
+- `test/integration/sales-analytics.e2e-spec.ts` (19, Postgres real): AN-B-1, 2, 3 (68001 = 53000 + 15001), 4, 6, 7, 8, 9, 10 (pesos,
+  sin datos de cliente con CONTROL), 11, 12 (403/200/401, `no-store`), 14 por HTTP, 15 (profit 11009, envío 25000/10000/2000), 16,
+  17, 18 (envía con pedidos sin avisos; `empty` sin ninguno), 21 (con `refunded`, y el ejemplo del contrato), 22.
+- `test/integration/sales-analytics-pnl-parity.e2e-spec.ts` — **AN-B-13**: instantánea `fixtures/an-b-13-pnl-snapshot.json`
+  (`pnl`, `ivaReport`, `exportCsv('pnl')`, `launchMetrics`, 6 rangos) escrita con el código **anterior** al refactor
+  (`AN_PARITY_WRITE=1`, commit `d644be0d`); ⛔ no se regenera para hacer pasar nada.
+- Candados estructurales `IVA-9`/`IVA-11` leen ahora `admin.service.ts` **y** `pnl-core.ts` (el bucle del P&L se mudó).
+
+### 77.4 Medido (2026-10-06, copia `git archive 1a2e9165` del árbol ENTERO en el scratchpad `be-ventas`, `node_modules` propio con `prisma generate` dentro, BD propia `tcg_be_ventas`)
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` | limpio |
+| Unitaria completa | **428/428 suites, 7777/7777** |
+| Integración completa (`--runInBand`) | **109/109 suites, 2154 verdes + 2 skipped** de 2156 (incluye `enum-query-axes` 539/539) |
+| AN-B-13 antes del refactor (escribe la instantánea) / después | 2/2 · 2/2 |
+
+**Mutaciones** (deterministas ⇒ N=1 cada una, dicho así; aplicadas y revertidas sobre la copia; `src` de la copia comparado con el vivo
+al terminar: idéntico):
+| # | Mutación | Rojas reales |
+|---|---|---|
+| m1 | R-2 con `status: 'settled'` | AN-B-4, y además AN-B-1, 3, 7, 8, 9, 16, 21 (8 rojas) |
+| m2 | `lte` en lugar del semiabierto | AN-B-1, AN-B-8, AN-B-11 |
+| m3 | `subtotalCents` en vez de `netRevenueCents` | AN-B-3, AN-B-4, AN-B-21 ×2 |
+| m4 | `avgTicketCents = 0` con 0 pedidos | AN-B-5 |
+| m5 | sin recorte de semana/mes | AN-B-6 (integración) + 2 unitarias de cubos |
+| m6 | `pnl-core` salta los ajustes | AN-B-13 (instantánea y CONTROL), AN-B-15, AN-B-22 |
+| m7 | CSV en centavos | AN-B-10 |
+| m8 | `byProductType` con `taxBaseCentsOf` por renglón | AN-B-21 (el ejemplo del contrato) |
+| m9 | `resultNetCents` resta otra vez los ajustes | AN-B-15, AN-B-22 |
+| m11 | `centsToPesosCell` con `Math.trunc` (pierde el signo con \|n\| < 100) | AN-B-23 (`-5 ⇒ "-0.05"`) |
+| m10 | (fase C) | no aplica: fase C no construida |
