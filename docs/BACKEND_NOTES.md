@@ -29494,3 +29494,20 @@ comprobación previa de guías vivas). **Medido** (copia del árbol, BD propia `
   `kind:'outbound'` (`shipments.guest-direct-ship`, `admin.user-audit`, `shipments.client-tracking`).
   `enum-values-parity.spec.ts`: solo el ancla humana de `SpendAlertKind` (+`buylist_guide_due`), que es como ese fichero
   pide que se añada un valor.
+
+### 77.4 Mediciones (copia del árbol entero en el scratchpad `be-bsd-b1`, BD propia `tcg_be_bsd_b1`, doble del proveedor)
+- **Integración BSD-B2/B3** (`bsd-m72-migration.e2e-spec.ts`, 20 pruebas): **10/10 corridas verdes** tras arreglar un
+  falso rojo propio (`now()` con µs vs `TIMESTAMP(3)`: ±1 ms, cazado 1/1 al primer intento de mutación; la aserción
+  ahora exige UN valor común a las tres y ≤ 1 ms de `now()`).
+- **Integración completa** (antes de ese arreglo): 106/108 suites, 2093/2109 pruebas. Las 2 suites rojas
+  (`auth-password-attempts-redis`, `reset-admin-password-lock`) mueren con `MISCONF Redis … unable to persist to disk`:
+  el Redis compartido tiene `dir` VACÍO (`redis-cli config get dir`) y `rdb_last_bgsave_status:err` ⇒ niega escrituras.
+  Infra (devops), no B-1: no tocan `ShipmentRequest`/`SellRequest`. ⛔ No toqué la configuración del Redis compartido.
+- **Unitaria completa** (árbol = `3abbf642` + el arreglo de abajo): tsc exit 0, `npm run lint` exit 0, **430/430 suites, 7593/7593
+  pruebas**.
+- **Mutaciones** (deterministas, N=1 cada una, sobre copia): 13/13 unitarias en rojo (M1 schema sin `not_continued` ⇒
+  paridad; M2/M3 sin `OUTBOUND_ONLY` en lista admin / P&L ⇒ B23; M4 lector nuevo ⇒ B23; M5 `kind:'outbound'` a mano ⇒
+  B25a; M6 cablear sin sacar de PENDIENTE ⇒ trinquete; M7 sacar de PENDIENTE sin cablear ⇒ B25b; M8 escritor nuevo ⇒
+  B25b; M9 candado ShR antes que SR; M10 `shipped` cancela guía; M11 sin guarda skydropx; M12 plazo movido; M13 tarea
+  incondicional) y 3/3 de integración (CHECK `shipment_kind_link` borrado en la BD ⇒ 9 rojas; relleno quitado del SQL ⇒
+  suite roja; relleno sin `status='aceptada'` ⇒ rojo).

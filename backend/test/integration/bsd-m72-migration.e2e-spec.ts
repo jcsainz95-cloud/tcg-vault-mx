@@ -185,7 +185,11 @@ describe('💰 M-72 (rev BSD-1) contra Postgres real', () => {
           select: { id: true, inboundGuideClockStartedAt: true },
         });
         const anchor = new Map(rows.map((r) => [r.id, r.inboundGuideClockStartedAt]));
-        for (const id of [a20.id, a1.id, a0.id]) expect(anchor.get(id)?.getTime()).toBe(new Date(now).getTime());
+        // UN solo valor para las tres (el `now()` de la transacción). La columna es TIMESTAMP(3) y `now()` lleva µs: Postgres
+        // REDONDEA al guardar y el driver TRUNCA al leer `now()` ⇒ ±1 ms (medido: 1/1 corrida con 1 ms de diferencia).
+        const fixed = [a20.id, a1.id, a0.id].map((id) => anchor.get(id)?.getTime());
+        expect(new Set(fixed).size).toBe(1);
+        expect(Math.abs((fixed[0] as number) - new Date(now).getTime())).toBeLessThanOrEqual(1);
         for (const id of [withGuide.id, closed.id, quoted.id]) expect(anchor.get(id)).toBeNull();
 
         // idempotente: una ancla ya puesta (otra fecha) NO se mueve al re-aplicar
