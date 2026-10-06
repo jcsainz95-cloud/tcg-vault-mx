@@ -46,6 +46,16 @@ describe('UX-AN-1 (AN-F-1) · `null` es «—», nunca MX$0.00/NaN/Infinity', ()
   });
 });
 
+describe('AN-1 · el ticket y las piezas por pedido son los del DTO (⛔ calcularlos en el navegador)', () => {
+  it('con un DTO cuyo ticket NO es cobrado ÷ pedidos, se pinta el del DTO', async () => {
+    // 987654 / 3 = 329218: el DTO dice otra cosa a propósito.
+    serve(report({ totals: { ...report().totals, avgTicketCents: 111111, piecesPerOrder: 1.5 } }));
+    mount();
+    expect((await screen.findByTestId('sales-card-avgTicketCents')).textContent).toBe('MX$1,111.11');
+    expect(screen.getByTestId('sales-card-piecesPerOrder').textContent).toBe('1.5');
+  });
+});
+
 describe('UX-AN-2 (AN-F-1) · unidades ANTES que el %; sin anterior, sin %', () => {
   it('3 vs 1 ⇒ «+2 pedidos» antes que «+200 %»', async () => {
     serve(report());
