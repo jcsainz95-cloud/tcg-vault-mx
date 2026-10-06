@@ -29306,6 +29306,12 @@ Riesgos técnicos:
 - **Consistencia de titularidad**: transiciones `pending→settled` y reversión por contracargo deben ser transaccionales con `InventoryMovement`.
 - **CFDI/PAC**: el MVP **registra** datos e IVA cobrado y ofrece **solicitud de factura por correo** (sin PAC); el timbrado real (PAC) es **fase 2** (bandera fiscal de PROJECT).
 - **Concurrencia de venta**: un `InventoryItem` es pieza única; el checkout debe **reservar** (`status=reserved`) para evitar doble compra.
+- **Limpieza de datos de prueba antes de modo real (`P-DB-LIMPIEZA`, 2026-10-06):** diseño completo en
+  `docs/specs/LIMPIEZA_DB.md`. Tres reglas que valen fuera de ese guion: (1) **`setval`/`nextval` no se deshacen con
+  `ROLLBACK`** ⇒ ningún ensayo en seco puede tocar secuencias; (2) **el folio `ENV-` no se reinicia nunca** mientras
+  existan en Skydropx guías con nuestra referencia: `detectLate` las atribuiría como huérfanas a un intento nuevo
+  (`orphan-reconcile.service.ts:64-121`); (3) **`INV-` no se reinicia** con piezas vivas (`folio @unique`). Ninguna
+  pieza se pasa a `listed` por SQL: la publicación pasa por el pipeline de precio de la app.
 
 ---
 
