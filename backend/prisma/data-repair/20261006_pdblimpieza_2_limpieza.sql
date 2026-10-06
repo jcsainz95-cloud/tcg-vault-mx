@@ -11,8 +11,8 @@
 --  avisos de gasto, portafolios y la bitácora. NO toca usuarios, catálogo, precios, diales ni tu inventario real.
 --  Las cartas que tocaron las pruebas VUELVEN a ser tuyas: sin dueño cliente, sin apartado, en estado
 --  «en inventario» (in_stock) — también las que estaban a la venta y solo tocaron un pedido fallido.
---  Este fichero NO las publica (SQL no sabe calcular precios). Las vuelve a poner a la venta el paso E, el comando
---  `limpieza:republicar` (BACKEND_NOTES §79): publica las que tienen precio y cajón, y deja las demás en M1
+--  Este fichero NO las publica (SQL no sabe calcular precios). Las vuelve a poner a la venta el paso E (el comando
+--  `limpieza:republicar`, BACKEND_NOTES §79): publica las que tienen precio y cajón, y deja las demás en M1
 --  «Listas para publicar» con lo que les falta. Al final deja UNA fila en la bitácora con lo que se hizo.
 --
 --  QUÉ NECESITAS
@@ -45,8 +45,24 @@
 --   PASO 4 · Si estás de acuerdo: cambia la ÚLTIMA línea del fichero, donde dice  ROLLBACK;  por  COMMIT;
 --            guarda y córrelo otra vez. Debe terminar con la palabra COMMIT. **Copia el «PUNTO PITR» que sale al
 --            principio**: es el instante al que restauras si hubiera que deshacerlo (Railway → Postgres → Backups).
---   PASO 5 · Corre el fichero 3 (folio de pedidos), luego el 4 (verificación) y luego el paso E
---            (`limpieza:republicar`, primero sin --apply para ver qué hará).
+--   PASO 5 · Corre el fichero 3 (folio de pedidos), luego el 4 (verificación) y luego el paso E (abajo).
+--
+--  PASO E · RE-PUBLICAR (NO es psql: es un programa de la app). Primero SIN --apply (simulacro: no escribe y te dice
+--  qué haría con cada carta); si te cuadra, otra vez CON --apply. Dos formas, elige una:
+--   (a) Dentro del contenedor de la API en Railway (consola/shell del servicio de la API; ahí NO hay npm):
+--         node dist/cli/limpieza-republicar.js
+--         node dist/cli/limpieza-republicar.js --apply
+--       Usa la base de la API tal cual (DATABASE_URL del servicio).
+--   (b) Desde tu máquina, con el repositorio descargado y Node 24:
+--         cd backend && npm ci && npm run build
+--         DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/limpieza-republicar.js
+--         DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/limpieza-republicar.js --apply
+--       La URL PÚBLICA es la de Railway → Postgres → Connect → «Public Network» (DATABASE_PUBLIC_URL); la interna
+--       (*.railway.internal) no se alcanza desde fuera. Con el CLI de Railway también vale
+--         railway run --service <servicio-de-la-API> node dist/cli/limpieza-republicar.js
+--       porque el comando, si DATABASE_URL es *.railway.internal y existe DATABASE_PUBLIC_URL, usa la pública solo.
+--       Que (a) y `railway run` funcionen así en tu cuenta: NO MEDIDO por el equipo.
+--   Termina con «Resumen · a la venta: … · SIN RESOLVER: …». Si hay «SIN RESOLVER», corrígelas en M1 y repite.
 --
 --  SI ALGO NO CUADRA, SE PARA SOLO: cualquier cosa que el diseño no conoce (una carta de cliente que no vino de un
 --  pedido, una tabla nueva que el diseño no clasificó…) aborta TODO con un mensaje G-n y no se escribe nada. No hay
@@ -307,7 +323,11 @@ FROM "SellRequest" r ORDER BY r."createdAt", r.id;
 SELECT p.folio, p.carta, CASE p.dueno_antes WHEN 'customer' THEN 'cliente' ELSE 'tienda' END AS era_de,
        pg_temp.lz_es(p.status_antes::text) || ' → ' || pg_temp.lz_es(p.status_destino) AS estado,
        coalesce(la.label, '(sin cajón)') || ' → ' || coalesce(ld.label, '(sin cajón)') AS cajon,
-       CASE WHEN p.excluida THEN 'FUERA DE VENTA (P-2)' WHEN p.loc_antes IS DISTINCT FROM p.loc_destino THEN 'MUEVE LA CARTA' ELSE '' END AS ojo
+       concat_ws(' · ',
+         CASE WHEN p.excluida THEN 'FUERA DE VENTA (P-2)' END,
+         CASE WHEN NOT p.excluida AND p.status_antes::text IN ('lost', 'damaged')
+              THEN '¿EXISTE Y ESTÁ BIEN? era ' || pg_temp.lz_es(p.status_antes::text) || ': si no, ponla en ✏️ 2 (P-2)' END,
+         CASE WHEN p.loc_antes IS DISTINCT FROM p.loc_destino THEN 'MUEVE LA CARTA' END) AS ojo
 FROM lz_plan p
 LEFT JOIN "VaultLocation" la ON la.id = p.loc_antes
 LEFT JOIN "VaultLocation" ld ON ld.id = p.loc_destino

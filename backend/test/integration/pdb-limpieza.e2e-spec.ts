@@ -16,6 +16,7 @@
  *  P-1 «borrar» y «conservar», P-2 (exclusión), bounty ⇒ `apagada`, cajón de vuelta.
  */
 import { spawnSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -483,6 +484,26 @@ describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qu�
     expect(h).not.toMatch(/eso lo haces tú desde M1/);
   });
 
+  it('E1 · B dice la orden EXACTA del paso E y dónde: `node dist/cli/limpieza-republicar.js` (sin npm en el contenedor) y, fuera de Railway, con la URL PÚBLICA', () => {
+    const h = header(readRepair('limpieza'));
+    expect(h.split('\n').filter((l) => l.includes('node dist/cli/limpieza-republicar.js')).length).toBeGreaterThanOrEqual(2);
+    expect(h).toMatch(/node dist\/cli\/limpieza-republicar\.js --apply/);
+    expect(h).toMatch(/cd backend && npm ci && npm run build/);
+    expect(h).toMatch(/DATABASE_URL='<URL PÚBLICA de Postgres>' node dist\/cli\/limpieza-republicar\.js/);
+    expect(h).toMatch(/DATABASE_PUBLIC_URL/);
+    expect(h).not.toMatch(/npm run limpieza:republicar/);
+  });
+
+  it('M3 · la lista 2.4 marca en «ojo» las perdidas/dañadas que vuelven a inventario (candidatas a P-2), y no las demás', async () => {
+    const e = await fresh();
+    const r = ok(psql(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar' })));
+    const row = (k: keyof Fixture['piece']) => r.stdout.split('\n').find((l) => l.trimStart().startsWith(e.fx.piece[k].folio + ' ')) ?? '';
+    expect(row('P5')).toMatch(/¿EXISTE Y ESTÁ BIEN\? era perdida/);
+    expect(row('P4')).toMatch(/era dañada/);
+    expect(row('P7')).toMatch(/era dañada/);
+    for (const k of ['P1', 'P2', 'P3', 'P11', 'P12'] as const) expect({ k, ojo: /EXISTE Y ESTÁ BIEN/.test(row(k)) }).toEqual({ k, ojo: false });
+  });
+
   it.each(['censo', 'verificacion'] as const)('C-2 · %s: se corre con el ADMINISTRADOR en READ ONLY; ninguna receta GRANT; sin la frase falsa «el resto del censo sale igual»', (f) => {
     const sql = readRepair(f);
     expect(sql).not.toMatch(/GRANT/i);
@@ -695,25 +716,50 @@ describe('💰🔒 QA-1 · E · `limpieza:republicar` — ninguna pieza restaura
     await expect(republicarPiezasRestauradas({ prisma, inventory }, { apply: false })).rejects.toThrow(/rastro/);
   });
 
-  it('el COMANDO como lo corre el dueño (proceso aparte, DATABASE_URL del entorno): simulacro ⇒ sale 0 y no escribe; --apply ⇒ sale 0 y publica', async () => {
-    const e = await fresh();
-    commit(e);
-    const cli = (args: string[]) =>
-      spawnSync(process.execPath, ['-r', 'ts-node/register', join(BACKEND_DIR, 'src', 'cli', 'limpieza-republicar.ts'), ...args], {
-        cwd: BACKEND_DIR,
-        encoding: 'utf8',
-        env: { ...process.env, DATABASE_URL: schemaUrl(e.schema), TS_NODE_TRANSPILE_ONLY: '1', REDIS_URL: '' },
-        timeout: 120_000,
-      });
-    const before = await snapshot(admin, e.schema);
-    const dry = cli([]);
-    expect({ s: dry.status, err: dry.stderr.slice(0, 500) }).toMatchObject({ s: 0 });
-    expect(dry.stdout).toMatch(/SIMULACRO/);
-    expect(dry.stdout).toContain(e.fx.piece.P3.folio);
-    expectSame(before, await snapshot(admin, e.schema));
-    const wet = cli(['--apply']);
-    expect({ s: wet.status, err: wet.stderr.slice(0, 500) }).toMatchObject({ s: 0 });
-    expect(wet.stdout).toMatch(/a la venta: 4/);
-    expect((await e.db.inventoryItem.findUniqueOrThrow({ where: { id: e.fx.piece.P3.id } })).status).toBe('listed');
+  /**
+   * M2 (QA re-pase): el comando se prueba DOS veces — con ts-node y COMPILADO (`tsc -p tsconfig.build.json`, el mismo
+   * árbol que `nest build` deja en `dist/`), que es lo que el dueño corre (`node dist/cli/limpieza-republicar.js`).
+   * M1: la salida no lleva el ruido de arranque de Nest (`[Nest]`, `NO_OWNER_ACCOUNT`).
+   */
+  describe('el COMANDO como lo corre el dueño (proceso aparte, DATABASE_URL del entorno)', () => {
+    const distDir = join(BACKEND_DIR, `.lz-dist-${RUN}`);
+    beforeAll(() => {
+      const r = spawnSync(
+        process.execPath,
+        [join(BACKEND_DIR, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', 'tsconfig.build.json', '--outDir', distDir, '--incremental', 'false', '--declaration', 'false', '--sourceMap', 'false'],
+        { cwd: BACKEND_DIR, encoding: 'utf8', timeout: 600_000 },
+      );
+      if (r.status !== 0) throw new Error(`no compila (tsc ${r.status}):\n${r.stdout}\n${r.stderr}`);
+    }, 620_000);
+    afterAll(() => rmSync(distDir, { recursive: true, force: true }));
+
+    const runners: [string, (args: string[]) => string[]][] = [
+      ['ts-node', (args) => ['-r', 'ts-node/register', join(BACKEND_DIR, 'src', 'cli', 'limpieza-republicar.ts'), ...args]],
+      ['compilado (dist/cli/limpieza-republicar.js)', (args) => [join(distDir, 'cli', 'limpieza-republicar.js'), ...args]],
+    ];
+    it.each(runners)('%s: simulacro ⇒ sale 0 y no escribe; --apply ⇒ sale 0 y publica; sin ruido de Nest', async (_name, argvOf) => {
+      const e = await fresh();
+      commit(e);
+      const cli = (args: string[]) =>
+        spawnSync(process.execPath, argvOf(args), {
+          cwd: BACKEND_DIR,
+          encoding: 'utf8',
+          env: { ...process.env, DATABASE_URL: schemaUrl(e.schema), DATABASE_PUBLIC_URL: '', TS_NODE_TRANSPILE_ONLY: '1', REDIS_URL: '' },
+          timeout: 120_000,
+        });
+      const before = await snapshot(admin, e.schema);
+      const dry = cli([]);
+      expect({ s: dry.status, err: dry.stderr.slice(0, 500) }).toMatchObject({ s: 0 });
+      expect(dry.stdout).toMatch(/SIMULACRO/);
+      expect(dry.stdout).toContain(e.fx.piece.P3.folio);
+      expectSame(before, await snapshot(admin, e.schema));
+      const wet = cli(['--apply']);
+      expect({ s: wet.status, err: wet.stderr.slice(0, 500) }).toMatchObject({ s: 0 });
+      expect(wet.stdout).toMatch(/a la venta: 4/);
+      for (const out of [dry.stdout + dry.stderr, wet.stdout + wet.stderr]) {
+        expect(out).not.toMatch(/\[Nest\]|NO_OWNER_ACCOUNT|ERROR/);
+      }
+      expect((await e.db.inventoryItem.findUniqueOrThrow({ where: { id: e.fx.piece.P3.id } })).status).toBe('listed');
+    });
   });
 });
