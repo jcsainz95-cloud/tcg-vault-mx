@@ -13379,6 +13379,13 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
    tabla por día es **igual al centavo** al ingreso que M7 reporta para el mismo periodo; «Cobrado (con IVA)» es la
    suma de lo que pagaron los clientes (con IVA, envío y comisión). Ejemplo: dos pedidos de MX$116.00 y MX$232.00
    cobrados ⇒ Cobrado **MX$348.00**.
+   > **Nota 2026-10-06 (diseño del arquitecto, `API_CONTRACT §15` AN-2 / AN-B-3; `ARCHITECTURE §4.64`, D-AN-1):**
+   > con el `pnl()` de hoy, **602 y 603 no pueden estar en verde a la vez**: `pnl()` solo suma pedidos que **siguen**
+   > liquidados, así que un reembolso total haría la resta dos veces (§W, criterios 277/278, **no construidos**). Se
+   > mantiene **603** (palabra del dueño). Por eso **602 se verifica como IDENTIDAD exacta, al centavo**: *venta sin
+   > IVA del periodo = ingreso de `pnl()` del periodo + venta sin IVA de los pedidos cobrados en el periodo que hoy
+   > están reembolsados o en contracargo*. Sin pedidos así, el segundo término es 0 y vale la redacción literal de
+   > arriba. La diferencia se vuelve cero sola cuando se construya §W 277/278. M7 no cambia.
 603. 💰 **Reembolsos, una sola vez y en su día** *(§AN.1; §W.3 (d); default de P-ANA-1)*: un pedido cobrado el lunes y
    reembolsado completo el miércoles deja el lunes **intacto** (1 pedido, su cobrado) y el miércoles muestra
    **1 reembolso** por su monto y la venta neta de reembolsos del miércoles baja en la parte sin IVA. El reembolso de
@@ -13410,6 +13417,11 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
 612. **Ganancia por día — CONDICIONAL** *(AN.2 punto 9)*: **si** entra en P1, la ganancia de cada día suma **al
    centavo** la ganancia de M7 para el mismo periodo. Si el arquitecto la manda a P2, este criterio no se verifica en
    la primera entrega y así lo dice el informe de QA.
+   > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-3 y §15.8; D-AN-1):** **entra en P1**. Se calcula partiendo
+   > `pnl()` en cubos por día, así que la suma de los días es la de M7 por construcción. ⚠️ **Hereda la doble resta
+   > de hoy**: la ganancia del lunes **baja** si el miércoles hay un reembolso total de un pedido del lunes. Se rotula
+   > «Ganancia (regla de Finanzas)» y se alinea sola cuando §W 277/278 se construya. QA verifica la suma contra M7,
+   > ⛔ no que el lunes quede intacto (eso es 603, que es de la venta, no de la ganancia).
 613. **Quién lo ve, y lo que NO cambia** *(§AN.4, §AN.5; por ausencia)*: un **operador** no ve la pestaña ni la
    tarjeta y su petición directa es rechazada; el súper-admin sí. Las cifras de **M7** y las **métricas de
    lanzamiento** de M9 dan lo mismo que antes; la tienda **no** carga ningún script, cookie ni herramienta nueva de
@@ -13421,10 +13433,19 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
    total del periodo.
 621. **Mezcla**: pedidos y cobrado por método de pago (los que el checkout acepte), por destino (envío/bóveda) y por
    invitado/con cuenta; cada mezcla suma el total.
+   > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-4):** el **método de pago no se guarda hoy**; necesita una
+   > migración aditiva (**`M-AN-1`**, sin relleno) y va en una **fase posterior** a P1. Los pedidos anteriores a esa
+   > migración salen como «método desconocido». Destino e invitado/con cuenta ya se pueden calcular con lo guardado.
 622. 💰 **Envíos**: por día, envío cobrado vs. costo de guías, con el mismo costo que M7 (real o tarifa, §T.7).
+   > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-5 y §15.8):** **sin** las columnas de guías de **entrada del
+   > buylist** hasta que el **PR #78** esté publicado en `production`; hasta entonces esas cifras **no aparecen** (ni
+   > como cero).
 623. 💰 **Compras del buylist por día**: neto pagado por día, que cuadra con el flujo SPEI de buylist de §W.3 (e).
 624. **Resumen diario**: el correo de las 08:00 de §Z trae una línea con pedidos, cobrado y ticket de ayer, iguales a
    la fila de ayer de la tabla.
+   > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-6; default de P-AN-1):** **hoy el resumen de las 08:00 no se
+   > manda si no hubo avisos**. Con el default de P-AN-1 se manda **también si ayer hubo ventas**; sin avisos y sin
+   > ventas, no llega (como hoy). Destinatarios sin cambio (solo el dueño).
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -17630,3 +17651,14 @@ ese frente:**
   (pedidos, dinero, ticket, día por día, contra el periodo anterior, lo más vendido, nuevos vs. recurrentes, CSV y la
   tarjeta del tablero); lo de P2 (mejores días, cómo pagan, envíos, compras del buylist, resumen por correo) cobra
   sentido cuando haya ventas reales. Si una de P2 te urge, dime cuál. §AN.2, §AN.3.
+
+*Preguntas del arquitecto (2026-10-06, `API_CONTRACT §15`), con su default:*
+
+- **P-AN-1 · ¿El correo de las 08:00 debe llegar también los días sin avisos pero con ventas?** Default: **sí**; sin
+  avisos y sin ventas, no llega (como hoy). Criterio 624.
+- **P-AN-2 · La tarjeta «Ventas de hoy» compara contra el mismo día de la semana pasada completo. ¿O prefieres «hasta
+  esta misma hora»?** Default: **completo**. Criterio 611.
+- **P-AN-3 · «Mes pasado» se compara contra los mismos días inmediatamente anteriores (como dice §AN.2). ¿O contra el
+  mes calendario anterior?** Default: **como dice §AN.2** (mismos días inmediatamente anteriores). Criterio 606.
+- *Medición pendiente (no es pregunta):* qué métodos de pago tiene encendidos la cuenta de Stripe. Si solo hay
+  tarjeta, la mezcla por método de 621 no dice nada nuevo hasta que se encienda otro.
