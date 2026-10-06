@@ -9779,3 +9779,24 @@ esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
 - **Corrección:** que el camino de entrada no exija la plantilla de salida (o que el arquitecto ratifique que sí).
 - **Disparador:** un entorno nuevo sin la plantilla de salida, o la respuesta del arquitecto.
 - **Comprobación de cierre:** prueba de cotización de entrada sin el dial ⇒ no 409 `origin`.
+
+## Backend · 2026-10-06 · P-DB-LIMPIEZA (limpieza de la base antes de cobrar en real)
+
+### PDB-R6 · P2 · La INE de un vendedor sin solicitudes de venta ya no se purga nunca
+- **Dueño:** backend (+ seguridad, por ser retención de un documento de identidad). Origen: riesgo R-6 de
+  `docs/specs/LIMPIEZA_DB.md` §12; el encargo pidió anotarlo, **no** arreglarlo en esta rama.
+- **Dónde:** `backend/src/jobs/ine-retention.service.ts:64-70` (medido 2026-10-06 sobre `a49a3a6c`): la purga ancla
+  el plazo a la última `SellRequest` cerrada del usuario; si no tiene **ninguna**, `if (!lastClosed) continue;` (`:70`)
+  y la INE se queda indefinidamente.
+- **Impacto:** la limpieza (`prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql`) borra **todas** las solicitudes de
+  venta (eran de prueba, `HECHOS.md:79`) y **conserva** `KycProfile` (es del usuario). Desde ese momento, la INE de cada
+  vendedor de prueba (`ineFrontKey`/`ineBackKey` y sus objetos en el bucket) ya no tiene ancla y el job no la toca.
+  Cuántas hay: el censo `…_1_censo.sql` lo imprime (fila «R-6 · expedientes con INE guardada»); en producción NO MEDIDO
+  (el 2026-09-12 era **1**, PENDIENTES «MEDICIÓN-PROD 2026-09-12»). Lo mismo le pasa, fuera de la limpieza, a cualquier
+  usuario que subió INE y nunca llegó a abrir una solicitud.
+- **Corrección:** anclar la retención también cuando el usuario no tiene solicitudes (p. ej. a
+  `KycProfile.reviewedAt ?? updatedAt`), con su prueba: usuario con INE y sin solicitudes, más viejo que
+  `INE_RETENTION_DAYS` ⇒ purgado; más nuevo ⇒ intacto; y el canario (volver a `continue`) en rojo.
+- **Disparador:** el COMMIT de la limpieza en producción (desde ese día la deuda tiene víctimas concretas).
+- **Comprobación de cierre:** `rg -n "if \(!lastClosed\) continue" backend/src/jobs/ine-retention.service.ts` vacío y la
+  prueba nueva verde; el censo de producción tras la siguiente corrida del job da 0 INE sin ancla vencidas.

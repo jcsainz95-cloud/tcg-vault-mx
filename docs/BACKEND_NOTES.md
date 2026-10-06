@@ -29864,3 +29864,89 @@ generado en la copia, ⛔ no en el compartido — 0 apariciones de `buylist_inbo
 `409 GUIDE_NOT_ALLOWED` (4 corridas × 3); tsc exit 0; eslint de las dos pruebas exit 0; **unitaria completa 436/436 suites,
 7906/7906 pruebas**; **integración `bsd-*` 5/5 suites, 93/93 pruebas**. El HEAD avanzó a `30a64b5a` durante la medición,
 solo con `frontend/` y `docs/FRONTEND_NOTES.md` (`git diff --stat 2ae42e77 30a64b5a -- backend` vacío).
+
+## 79 · P-DB-LIMPIEZA — guiones de limpieza de la base antes de cobrar en real (2026-10-06, rama `claude/limpieza-db`, sobre `a49a3a6c` = diseño `af571497` + M-72)
+
+Diseño: `docs/specs/LIMPIEZA_DB.md`. Lo corre **el dueño** en Railway; aquí solo hay ficheros y pruebas. Ninguno lleva
+host, usuario ni contraseña.
+
+**Artefactos** (`backend/prisma/data-repair/`, patrón del precedente `20260912_p79d_*`):
+
+| # | Fichero | Qué hace | Usuario |
+|---|---|---|---|
+| A | `20261006_pdblimpieza_1_censo.sql` | Solo lectura (`BEGIN TRANSACTION READ ONLY` … `ROLLBACK`): conteos por tabla, FK reales de `pg_constraint`, G-0…G-4 en modo informe, INE guardadas (R-6), los tres contadores, `max(providerReference)`, ¿M-72? y desglose por `kind` **solo si la columna existe** (`\gset` + `\if`). | `tcg_readonly` (ver ⚠️) |
+| B | `20261006_pdblimpieza_2_limpieza.sql` | §7 entero en UNA transacción, `LOCK TABLE … SHARE ROW EXCLUSIVE` + `lock_timeout 5s`, termina en `ROLLBACK;` (el dueño la cambia a `COMMIT;`). Tres líneas `\set` que edita el dueño: `respaldo_manual`, `fuera_de_venta` (P-2), `buylist_piezas` (P-1). | admin |
+| C | `20261006_pdblimpieza_3_folio_pedidos.sql` | Aborta si `Order` tiene filas; si no, `setval('order_number_seq', 1, false)` ⇒ siguiente `TCG-000001`. Solo ese contador. | admin |
+| D | `20261006_pdblimpieza_4_verificacion.sql` | Solo lectura: §8.3 línea a línea (`OK`/`FALLA`) y una última `VERIFICACION: TODO OK` o `HAY FALLAS (n)`. Compara contra el **rastro** de B (conteos de antes y contadores), así que no hay que copiar números a mano. | `tcg_readonly` |
+| E | — | **Vía M1** (sin código nuevo, §4.5 la permite): las piezas restauradas quedan `platform` + `in_stock`, que es exactamente el predicado de la cola «Listas para publicar» (`inventory.service.ts:2098-2100`, `GET /admin/inventory/pending-publish`); el dueño las publica desde ahí con el pipeline de siempre. Lo leí en código; el recorrido en pantalla con piezas restauradas: NO MEDIDO. | app |
+
+**Decisiones de implementación que la spec no fijaba (o que tuve que ajustar), para que el arquitecto las ratifique:**
+1. **G-4 y `respaldo_manual` se comprueban AL FINAL, no al principio.** §8.2 paso 4 manda correr B «tal cual» para ver
+   las listas (incluida la de P-1, §10 «el ensayo te las lista»), pero §8.1 dice que con `respaldo_manual` vacío aborta.
+   Si abortara al principio, el ensayo no enseñaría nada. B corre entero, imprime todo y, si falta una decisión, el
+   último bloque lanza «Falta tu decisión; no se escribió nada» con lo que falta. Con P-1 sin contestar, el paso 12 no
+   toca nada. G-1, G-2, G-3, una respuesta de P-1 mal escrita y un folio de exclusión que no está en `T` sí abortan al
+   principio.
+2. **G-4 mira TODAS las piezas con `sourceSellRequestItemId`, no solo las de `T`.** Todas las solicitudes se borran
+   (`HECHOS.md:79` (2)), así que cualquier vínculo quedaría colgando, y §8.3 exige 0 en toda la tabla. La letra de §4.2
+   decía «alguna pieza de T».
+3. **Idempotencia y bitácora.** El rastro solo se escribe si la corrida cambió algo (suma de `lz_cambio` > 0). Si ya
+   existe un rastro, B borra solo la bitácora **anterior** al más reciente; lo posterior es real. Una segunda corrida
+   sobre la base limpia no cambia **nada** (foto idéntica, rastro incluido). D comprueba «exactamente 1 rastro y nada
+   anterior a él» en vez de «AuditLog = 1 fila», porque la app puede escribir bitácora entre B y D.
+4. **G-7 (añadida):** si ya hay rastro de limpieza y existe algún `Order`, `ShipmentRequest` o `SellRequest`, B se niega.
+   Sin ella, una re-corrida después de salir en vivo borraría pedidos reales.
+5. **Cajón de vuelta (§4.3):** «la colocación más antigua» es el `move` más antiguo cuyo destino es un cajón
+   `customer_custody`, no un texto de `note`. Si su origen no es `platform_stock`, queda sin cajón.
+6. **`fuera_de_venta`:** `INV-1, INV-2:damaged` (sin sufijo ⇒ `withdrawn`). Cada folio tiene que estar en `T`; un error
+   tipográfico aborta.
+7. **El rastro lleva además** `folio` junto a cada id restaurado, `secuencias` (lo que D compara) y `bountiesAjustados`.
+   Sin PII.
+8. **Lectores de `InventoryAdjustment` (§4.4, NO MEDIDO en la spec):** `rg "inventoryAdjustment\.(find|count|group|aggregate)"`
+   en `backend/src` = 0. Ningún lector exige la pareja movimiento↔ajuste, así que el movimiento de cierre va sin fila
+   de levantamiento.
+
+**⚠️ Para el dueño (va en los encabezados de A y D):** `tcg_readonly` solo lee **seis** tablas (PENDIENTES
+«MEDICIÓN-PROD 2026-09-12»). A y D marcan «SIN PERMISO» en los conteos que no puede leer, pero las guardas de A
+consultan tablas concretas y varias líneas de D también, y fallarían. Para que lea todo, el admin corre:
+`GRANT SELECT ON ALL TABLES IN SCHEMA public TO tcg_readonly; GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO tcg_readonly;`.
+La otra opción es correrlos con el admin: son de solo lectura de todas formas.
+
+**Pruebas** (`backend/test/integration/pdb-limpieza.e2e-spec.ts` + `helpers/limpieza-db.ts` + `helpers/limpieza-fixture.ts`):
+- Cada caso trabaja en un **esquema propio** de la BD de `DATABASE_URL`, migrado desde cero y sembrado con la base de
+  §9: tres pedidos (bóveda colocado, directo con guía Skydropx `ENV-000003` y todo lo suyo, invitado con token que
+  aparta), un retiro con caso reembolsado y SPEI re-emitido dos veces, un caso de bóveda repuesto, una disputa
+  cerrada, una solicitud pagada con pieza convertida y bounty completado, una aceptada con envío `buylist_inbound` con
+  guía, Cinccino dañada en preparación con reembolso parcial, piezas reales con movimientos de M1 antes y después del
+  corte, un aviso de gasto, un portafolio y bitácora. Los guiones se pasan por **`psql`** tal cual (texto del fichero
+  por stdin), como los corre el dueño. Requiere el binario `psql` en el PATH; si falta, la prueba **falla** (no se
+  salta). Que el runner de CI lo traiga: NO MEDIDO.
+- 25 casos: §9.1 (ensayo con y sin variables: foto de **contenido** de todas las tablas + las tres secuencias,
+  idénticas), §9.2, §4.4, §2.2 (`deriveBountyState` ⇒ `apagada`), §9.3, §9.5, P-1 borrar/conservar, P-2, §9.4 (G-1,
+  G-2, G-3, G-4 ×2, respaldo vacío, folio de exclusión erróneo, G-7), A y D de solo lectura (D sobre la base sin
+  limpiar marca FALLA en cada línea), §9.6 ×2, §9.7 ×2 (N = 3 esquemas cada una) y §9.8 (estático: B no nombra
+  columnas de M-72; dinámico: esquema con M-72 quitada, A/B/C/D corren y D da TODO OK).
+- **Hallazgo de entorno (medido):** 46 `ADD CONSTRAINT` de las migraciones van tras `IF NOT EXISTS (SELECT 1 FROM
+  pg_constraint WHERE conname = …)`, y esa consulta **no mira el esquema**. Un segundo esquema en la misma base se queda
+  sin esas FK y CHECK (medido: `ShipmentQuote/ShipmentCarrierEvent/ShipmentAddressRevision → ShipmentRequest` sin
+  trigger de cascada, y B falló en G-5 con «ShipmentQuote 1≠0»). En producción no pasa (un solo esquema). El arnés migra
+  desde una copia de `prisma/` con esas guardas acotadas a `current_schema()`, y `assertConstraintsComplete` verifica
+  que cada `ADD CONSTRAINT` de las migraciones esté en el esquema. **Las migraciones no se tocaron.**
+
+**Mediciones** (copia del árbol entero `git archive a49a3a6c` + estos ficheros, scratchpad `be-limpieza`; cliente de
+Prisma generado en la copia, 0 apariciones de `buylist_inbound` en el compartido; BD propia `tcg_be_limpieza`):
+- Rojas antes: **25/25** (los cuatro guiones no existían: `ENOENT`). Verdes después: **25/25**. tsc exit 0; eslint de
+  los tres ficheros exit 0; `check-e2e-skip-census.sh` y `check-e2e-harness-gaps.sh` exit 0.
+- Mutaciones (en la copia, nunca en el árbol vivo):
+
+| Mutación | Resultado |
+|---|---|
+| C también reinicia `ENV-` (`setval('shipment_folio_seq',1,false)`) | **3/3** corridas en rojo, y en cada una «sin reiniciar ENV-» dio `1/1` huérfanas en los **3/3** esquemas (9/9). Sin mutar: `0/0` en 3/3 |
+| B hace `setval` de `ENV-` (el ensayo movería un contador) | las 2 pruebas §9.1 en rojo |
+| el rastro se escribe siempre (sin la condición de cambio) | §9.3 en rojo |
+| cajón: la colocación MÁS RECIENTE en vez de la más antigua | §9.2 en rojo |
+| la última línea de B pasa a `COMMIT;` | §9.1 en rojo |
+| D: «0 filas» siempre OK | en la 1.ª versión **sobrevivió** (otras líneas ya daban FALLA); prueba reforzada para exigir FALLA línea por línea ⇒ en rojo |
+| G-1 desactivada | G-1 en rojo |
+| no se quita la reserva | §9.2 en rojo |
+| P-1 «conservar» borra igual | §9.2 en rojo |
