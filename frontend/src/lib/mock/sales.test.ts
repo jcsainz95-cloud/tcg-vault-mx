@@ -18,6 +18,7 @@ const add = (xs: SalesFiguresDTO[], f: (x: SalesFiguresDTO) => number) => xs.red
 
 describe('mock §15 · invariantes', () => {
   it('Σ filas = totales; totales iguales en day/week/month; ticket sobre totales', () => {
+    window.localStorage.setItem('tcg.salesPhase', 'C');
     const day = mockSalesReport({ preset: 'last30' }, NOW);
     const week = mockSalesReport({ preset: 'last30', groupBy: 'week' }, NOW);
     const month = mockSalesReport({ preset: 'last30', groupBy: 'month' }, NOW);
@@ -105,7 +106,21 @@ describe('mock §15.7 · CSV en pesos (AN-1.1)', () => {
     expect(mockCentsToPesosCell(5)).toBe('0.05');
     expect(mockCentsToPesosCell(123456789)).toBe('1234567.89');
   });
+  it('fase por defecto = B (lo que el servidor construye): sin contracargos ni método de pago', () => {
+    const r = mockSalesReport({}, NOW);
+    expect(r.totals.shipping?.resultNetCents).toBeDefined();
+    expect('chargebacks' in r.totals).toBe(false);
+    expect(r.mix?.byPaymentMethod).toBeUndefined();
+    expect(mockSalesCsv({}, NOW).text.split('\n')[0].endsWith(',profitMxn')).toBe(true);
+  });
+  it('piecesPerOrder como el servidor: String(v), sin forzar «.0»', () => {
+    const lines = mockSalesCsv({ preset: 'last30' }, NOW).text.trim().split('\n').slice(1);
+    const ppo = lines.map((l) => l.split(',')[11]).filter((v) => v !== '');
+    expect(ppo.length).toBeGreaterThan(0);
+    for (const v of ppo) expect(v).toBe(String(Number(v)));
+  });
   it('cabecera *Mxn, una fila por cubo + total, nombre del fichero', () => {
+    window.localStorage.setItem('tcg.salesPhase', 'C');
     const { text, filename } = mockSalesCsv({ preset: 'last7' }, NOW);
     const lines = text.trim().split('\n');
     expect(lines[0].startsWith('from,to,orders,chargedMxn,netSalesMxn,')).toBe(true);

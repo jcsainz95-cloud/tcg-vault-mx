@@ -6903,7 +6903,7 @@ function salesQuery(p: SalesReportParams): Record<string, string | undefined> {
 /** `GET /admin/reports/sales` — pestaña «Ventas» de Reportes. */
 export async function getSalesReport(params: SalesReportParams = {}): Promise<SalesReportDTO> {
   if (!config.useMocks) return apiRequest<SalesReportDTO>('/admin/reports/sales', { query: salesQuery(params) });
-  // MOCK: pendiente de backend real (servidor falso `mock/sales.ts`).
+  // Modo demo: servidor falso `mock/sales.ts`.
   return mockSdx(() => salesMock.mockSalesReport(params));
 }
 
@@ -6915,7 +6915,6 @@ export async function exportSalesCsv(params: SalesReportParams = {}): Promise<Bl
   if (!config.useMocks) {
     return requestBlob('/admin/reports/sales/export.csv', { query: salesQuery({ ...params, topSort: undefined }) });
   }
-  // MOCK: pendiente de backend real.
   return mockSdx(() => {
     const { text, filename } = salesMock.mockSalesCsv(params);
     return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename };
@@ -6925,7 +6924,6 @@ export async function exportSalesCsv(params: SalesReportParams = {}): Promise<Bl
 /** `GET /admin/reports/sales/today` — tarjeta «Ventas de hoy» del tablero (solo se pide con súper-admin). */
 export async function getSalesToday(): Promise<SalesTodayDTO> {
   if (!config.useMocks) return apiRequest<SalesTodayDTO>('/admin/reports/sales/today');
-  // MOCK: pendiente de backend real.
   return mockSdx(() => salesMock.mockSalesToday());
 }
 

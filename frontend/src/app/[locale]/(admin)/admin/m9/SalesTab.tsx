@@ -30,11 +30,13 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Lo que exporta el CSV: el periodo y la agrupación QUE SE VEN (UX-AN-14), ⛔ nunca otro. */
+/**
+ * Lo que exporta el CSV: el periodo y la agrupación QUE SE VEN (UX-AN-14), ⛔ nunca otro. Siempre con las fechas que
+ * trajo el DTO (`period.from/to`), también para un preset: mandar `preset` haría que el servidor lo re-resolviera al
+ * exportar, y pasada la medianoche de México «Hoy» ya sería otro día que el de la pantalla (QA, gate de 76dd1ee9).
+ */
 function shownParams(d: SalesReportDTO): SalesReportParams {
-  return d.period.preset === 'custom'
-    ? { preset: 'custom', from: d.period.from, to: d.period.to, groupBy: d.groupBy }
-    : { preset: d.period.preset, groupBy: d.groupBy };
+  return { preset: 'custom', from: d.period.from, to: d.period.to, groupBy: d.groupBy };
 }
 
 /**
@@ -60,12 +62,11 @@ export function SalesTab({ initial }: { initial: SalesUrlState }) {
   if (query.data && !query.isPlaceholderData) lastGood.current = query.data;
   const shown = query.data ?? lastGood.current;
 
+  // TD-AN-9: el efecto (URL) fuera del updater de `setState`, que React puede llamar dos veces.
   function update(patch: Partial<SalesUrlState>) {
-    setState((s) => {
-      const next = { ...s, ...patch };
-      writeSalesUrl(next);
-      return next;
-    });
+    const next = { ...state, ...patch };
+    setState(next);
+    writeSalesUrl(next);
   }
 
   const csv = useMutation({

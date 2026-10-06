@@ -22,6 +22,8 @@ function serve(...responses: Array<SalesReportDTO | Error | Promise<SalesReportD
     if (r instanceof Error) spy.mockRejectedValueOnce(r);
     else spy.mockImplementationOnce(() => (r instanceof Promise ? r : Promise.resolve(r)));
   }
+  // TD-AN-11: una petición que la prueba no previó falla en voz alta, no cae al servidor falso.
+  spy.mockRejectedValue(new Error('llamada no esperada'));
   return spy;
 }
 
@@ -242,7 +244,7 @@ describe('UX-AN-13 · P2 se pinta solo si llega (⛔ `?? 0`)', () => {
 });
 
 describe('UX-AN-14 · el CSV lleva el mismo periodo y agrupación que la pantalla', () => {
-  it('con «Mes pasado» por semana', async () => {
+  it('con «Mes pasado» por semana: manda las FECHAS del DTO, no el preset (el servidor no lo re-resuelve al exportar)', async () => {
     const shown = report({ period: { ...report().period, preset: 'last_month', from: '2026-09-01', to: '2026-09-30', days: 30 }, groupBy: 'week' });
     serve(shown);
     const csv = vi.spyOn(api, 'exportSalesCsv').mockResolvedValue({ blob: new Blob(['x']), filename: 'ventas.csv' });
@@ -251,7 +253,7 @@ describe('UX-AN-14 · el CSV lleva el mismo periodo y agrupación que la pantall
     mount();
     fireEvent.click(await screen.findByTestId('sales-csv'));
     await waitFor(() => expect(csv).toHaveBeenCalled());
-    expect(csv.mock.calls[0][0]).toEqual({ preset: 'last_month', groupBy: 'week' });
+    expect(csv.mock.calls[0][0]).toEqual({ preset: 'custom', from: '2026-09-01', to: '2026-09-30', groupBy: 'week' });
   });
 });
 

@@ -12,7 +12,9 @@ import { flatten, P66_3_CODE_RE } from './i18n-p66-3.testkit';
  * Determinista (N=1).
  */
 const DS = readFileSync(resolve(__dirname, '../../../docs/DESIGN_SYSTEM.md'), 'utf8');
-const section = DS.slice(DS.indexOf('### AN-UX.14'), DS.indexOf('### AN-UX.15'));
+const START = DS.indexOf('### AN-UX.14');
+const END = DS.indexOf('### AN-UX.15');
+const section = DS.slice(START, END);
 const ROWS = [...section.matchAll(/^\| `([^`]+)` \| (.*) \| (.*) \|$/gm)].map((m) => ({
   key: m[1].startsWith('sales.') ? `admin.m9.${m[1]}` : m[1],
   es: m[2],
@@ -22,6 +24,12 @@ const ES = flatten(es);
 const EN = flatten(en);
 
 describe('UX-AN-15 · paridad ES/EN con la tabla de §AN-UX.14', () => {
+  it('TD-AN-10: los dos encabezados existen y van en orden, y cada fila de clave de la tabla se parseó', () => {
+    expect(START).toBeGreaterThanOrEqual(0);
+    expect(END).toBeGreaterThan(START);
+    // Toda fila que empieza por «| `» es una clave: si alguna no casa con el patrón de 3 columnas, se perdería en silencio.
+    expect(section.match(/^\| `/gm)?.length).toBe(ROWS.length);
+  });
   it('la tabla se leyó (control: ve algo)', () => {
     expect(ROWS.length).toBeGreaterThan(150);
     expect(ROWS.some((r) => r.key === 'admin.dashboard.salesToday.title')).toBe(true);

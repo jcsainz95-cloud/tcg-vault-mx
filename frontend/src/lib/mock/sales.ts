@@ -1,6 +1,6 @@
 /**
  * MOCK · SERVIDOR FALSO de la analítica de ventas del dueño (`docs/API_CONTRACT.md §15`, rev v1.85⟨ventas⟩).
- * // MOCK: pendiente de backend real (`modules/sales-analytics/` se está construyendo en paralelo).
+ * Sirve el modo demo (`NEXT_PUBLIC_USE_MOCKS`) y las e2e de mocks; el servidor real es `backend/src/modules/sales-analytics/`.
  *
  * Replica la conducta OBSERVABLE del contrato:
  * - `403 FORBIDDEN` para quien no sea `super_admin` (§15.1, criterio 613).
@@ -15,7 +15,7 @@
  *
  * Datos: pedidos sintéticos DETERMINISTAS por día (hash del `YYYY-MM-DD`), así la misma URL da la misma pantalla.
  * Fase del servidor (para ver la pantalla con y sin P2): `localStorage['tcg.salesPhase'] = 'A' | 'B' | 'C'`
- * (default `'C'`, todo). Ningún dato de cliente sale de aquí: las llaves de cliente son internas.
+ * (default `'B'`, lo que el servidor construye hoy: sin contracargos ni método de pago, que esperan a M-AN-1). Ningún dato de cliente sale de aquí: las llaves de cliente son internas.
  */
 import type {
   SalesBestDaysDTO,
@@ -438,9 +438,9 @@ function mixOf(from: string, to: string, withMethod: boolean): SalesMixDTO {
 
 type Phase = 'A' | 'B' | 'C';
 export function mockSalesPhase(): Phase {
-  if (typeof window === 'undefined') return 'C';
+  if (typeof window === 'undefined') return 'B';
   const v = window.localStorage.getItem('tcg.salesPhase');
-  return v === 'A' || v === 'B' ? v : 'C';
+  return v === 'A' || v === 'C' ? v : 'B';
 }
 
 /** Una clave de una fase que el servidor aún no construye NO viaja (ausente, ⛔ no `0`; §15.4 AN-1.1). */
@@ -599,7 +599,8 @@ export function mockSalesCsv(params: SalesReportParams, now: Date = new Date()):
     const cells: string[] = [
       from, to, n(f.orders), mxn(f.chargedCents), mxn(f.netSalesCents), n(f.refunds.count), mxn(f.refunds.amountCents),
       mxn(f.refunds.netCents), mxn(f.netSalesAfterRefundsCents), n(f.pieces), mxn(f.avgTicketCents),
-      f.piecesPerOrder === null ? '' : f.piecesPerOrder.toFixed(1),
+      // Como el servidor: `String(v)` (un decimal «como en el JSON»; 2 ⇒ «2», no «2.0»).
+      f.piecesPerOrder === null ? '' : String(f.piecesPerOrder),
     ];
     if (phase !== 'A') {
       cells.push(

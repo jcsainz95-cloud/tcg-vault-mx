@@ -20414,7 +20414,7 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
   ausencia se pinta como ausencia.
 - Servidor falso: `lib/mock/sales.ts` (MOCK: pendiente de backend real). Cumple las invariantes de §15.4/AN-1.1 (lo
   prueba `lib/mock/sales.test.ts`), 403 al operador, los 400 de §15.2 sin `value`, CSV en pesos con `*Mxn`. Fase del
-  servidor para la demo: `localStorage['tcg.salesPhase'] = 'A'|'B'|'C'` (default `C`).
+  servidor para la demo: `localStorage['tcg.salesPhase'] = 'A'|'B'|'C'` (default `B`, lo que el servidor construye hoy).
 
 **Decisiones.**
 - **AN-1 por construcción:** ningún componente suma, promedia, resta ni reordena. Lo único «calculado» en pantalla es
@@ -20428,6 +20428,9 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
   periodo no es válido. Elige otro.», clave ya existente de §AN-UX.14) bajo el campo que diga `field`; `preset/groupBy/
   topSort` ⇒ el mismo texto en banner. Los cuatro casos con texto propio se validan en el navegador antes de pedir.
 - **`SalesTopSealedDTO.setName: string | null`** (AN-1.2, §15.12.4) ⇒ «—» con su `sr-only`.
+- **El CSV se pide con las fechas del DTO** (`preset=custom&from=period.from&to=period.to`), también para un preset:
+  mandar el preset dejaría que el servidor lo re-resolviera al exportar (pasada la medianoche de México, «Hoy» sería
+  otro día). Gate QA de `76dd1ee9`.
 - **Reembolsos por canal** en la celda 4: `{card}`/`{spei}` se rellenan con el **monto** de cada canal (el texto de
   §AN-UX.3 admite los dos; el monto dice más).
 - **Candados contra espías de `@/lib/api`**, no MSW (no es dependencia del proyecto y no se instala).
