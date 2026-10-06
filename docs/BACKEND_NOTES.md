@@ -29547,3 +29547,56 @@ comprobación previa de guías vivas). **Medido** (copia del árbol, BD propia `
   B25b; M9 candado ShR antes que SR; M10 `shipped` cancela guía; M11 sin guarda skydropx; M12 plazo movido; M13 tarea
   incondicional) y 3/3 de integración (CHECK `shipment_kind_link` borrado en la BD ⇒ 9 rojas; relleno quitado del SQL ⇒
   suite roja; relleno sin `status='aceptada'` ⇒ rojo).
+
+### 78.B4 · B-4 (💰) — la guía y la tarifa del buylist en `pnl()` y su CSV (errata BSD-1.2 + BSD-1.3 punto 6) (2026-10-06)
+Norma: `API_CONTRACT §BSD.16` y `§BSD.17` punto 6; porqué en `ARCHITECTURE §4.BSD (l)`. ⛔ Sin schema, migración ni endpoint.
+
+| Pieza | Dónde |
+|---|---|
+| Las reglas por fila (puras): `retainedShippingFeeCents`, `skydropxInboundGuideCostCents`, `isSkydropxInbound`, `guideCostOfRequest` | `src/modules/admin/pnl-buylist.ts` |
+| Las tres lecturas y las sumas: `pnlBuylistGuides(period)`; `pnl()` suma retenido y resta guías en `profitCents`; CSV | `src/modules/admin/admin.service.ts` |
+| Censo BSD-B23: clase nueva **`inbound_only`** (debe llevar `INBOUND_ONLY`; `INBOUND_ONLY` solo en esa clase); entrada `admin.service.ts pnlBuylistGuides#findMany#1` | `test/bsd.reader-census.spec.ts`, `test/helpers/bsd-census.ts` (`ReaderSite.inboundFiltered`) |
+
+**La fórmula implementada** (cada renglón con su fecha; los cuatro van AL FINAL del objeto y del CSV, en este orden):
+- `buylistShippingFeeRetainedCents` (**suma**) = Σ sobre `status='pagada'` por `paidAt` de `brutoConsumado(sr) − payoutNetCents`.
+- `buylistGuideCostCents` (**resta**) = (a) Σ sobre `ShipmentRequest` `INBOUND_ONLY ∧ labelSource='skydropx'` por
+  `labelPurchasedAt` de `shippingCostCents − shippingCostIvaCents` (0 si `providerCancelConfirmedAt` no es nulo) + (b) Σ sobre
+  `SellRequest` con `guideActualCostCents ≠ null` por `guideSentAt`, cuya fila de entrada NO es de Skydropx, de `guideActualCostCents`.
+- `buylistGuideMarginCents` (informativo) = Σ sobre las pagadas del periodo de (retenido − costo de **su** guía, por (a) o (b)).
+- `buylistGuideCostMissingCount` (informativo) = pagadas del periodo con guía manual entregada (`guideSentAt`) y sin costo.
+- `profitCents` = lo de antes `+ buylistShippingFeeRetainedCents − buylistGuideCostCents`. `shippingCostCents` (venta) no cambia.
+
+**Lecturas que el contrato deja abiertas (para el arquitecto; implementado como se dice aquí):**
+1. **Retenido con `approvedTotalCents` nulo.** `approvedTotalCents − payoutNetCents` no está definido si el aprobado es nulo, y
+   `paySpei` paga con la cascada `brutoConsumado` (aprobado ?? ofertado ?? cotizado). Uso esa misma cascada: con el aprobado
+   poblado es literalmente la fórmula del contrato. `payoutNetCents = null` (fila pre-M-46, no se le descontó tarifa) ⇒ 0.
+2. **«Con guía manual»** del contador = `guideSentAt ≠ null` y sin fila de entrada de Skydropx. Una pagada sin guía (p. ej.
+   pre-M-46) no tiene costo que capturar y no se cuenta.
+3. **(b) sin `guideSentAt`.** `adminConfirmShipment` acepta `guideActualCostCents` aunque no haya guía (`guideMissing` en su
+   bitácora). Ese costo no tiene fecha de (b): entra en el P&L sin periodo y en ninguno con periodo. NO MEDIDO si pasa en
+   producción. Consulta de solo lectura: `SELECT count(*) FROM "SellRequest" WHERE "guideActualCostCents" IS NOT NULL AND
+   "guideSentAt" IS NULL;`.
+4. **Solicitud con fila de entrada de Skydropx Y `guideActualCostCents`**: cuenta solo por (a); (b) no la suma (una guía, una
+   fuente). En el margen, una guía de Skydropx con cancelación confirmada cuesta 0 (lo no devuelto está en «ajustes»).
+
+**Dobles de prueba.** Los dobles legacy del P&L responden `shipmentRequest.findMany` igual a cualquier `where`, así que la
+lectura de entrada habría recibido los envíos de venta. `test/helpers/pnl-buylist-doubles.ts` (`withPnlBuylistDoubles`) le da
+al servicio un proxy: la lectura `INBOUND_ONLY` responde `[]` y `sellRequest.findMany` responde `[]` si falta. El `jest.fn` del
+test queda intacto (sus `mock.calls`, `toHaveBeenCalledTimes` y `mockResolvedValue` posteriores ven solo las lecturas de venta).
+Lo adoptan 7 suites: `admin.pnl-shipping`, `admin.pnl-iva-neutral`, `admin.period`, `iva-10-tablero`, `iva-11-costo-envio`,
+`sdx-d2f.units` y `buylist.m5v-items-not-decided`. Las dos primeras ganan además los cuatro campos en su forma y su CSV (valen 0).
+
+**Mediciones** (copia del árbol ENTERO = `ff7e839f` + solo los ficheros de B-4, scratchpad `be-bsd-b4`; cliente de Prisma
+generado en la copia, ⛔ no en el `node_modules` compartido; BD propia `tcg_be_bsd_b4`):
+- **Primero en rojo:** `test/bsd.b4-pnl.spec.ts` sobre `ff7e839f` sin el código ⇒ la suite no compila (los cuatro campos no
+  existen). BSD-B35 es «por ausencia»: verde antes y después, y su mutación la pone roja.
+- tsc exit 0 · `npm run lint` exit 0 · **unitaria completa 431/431 suites, 7799/7799 pruebas**.
+- **Integración completa:** 105/109 suites, 2081/2114. Rojas: `iva-price-convention` (la cabecera del CSV, que esta errata
+  cambia; corregida y repetida: verde junto con `bsd-b4-pnl`, 44/44), `auth-password-attempts-redis` y
+  `reset-admin-password-lock` (`MISCONF` del Redis compartido, conocido) e `infra-smoke` (PUT de S3 404: no hay almacén para la
+  copia). Las tres últimas no tocan el P&L.
+- **Mutaciones** (deterministas, N=1 cada una, sobre una segunda copia): 10/10 unitarias en rojo — M1 sin la guía en
+  `profitCents` ⇒ B32; M2 contar las canceladas con confirmación ⇒ B32+B34; M3 retenido = `offerShippingFeeCents` ⇒ B33;
+  M4 margen = retenido total − costo total ⇒ B34 (y B36); M5 restar la tarifa del `acquisitionCostCents` al convertir ⇒ B35;
+  M6 orden del CSV ⇒ B36; M7 sin `INBOUND_ONLY` ⇒ B23 (y B32/B34/B36); M8 (b) sin excluir Skydropx ⇒ B32; M9 contador sin
+  exigir guía ⇒ B34; M10 los cuatro antes de `profitCents` ⇒ B36. 5/5 de integración en rojo (M2, M3, M4, M6, M8).

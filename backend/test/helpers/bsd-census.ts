@@ -83,6 +83,8 @@ export interface ReaderSite {
    * nombra una variable cuya inicialización, en la misma función, lo contiene.
    */
   readonly outboundFiltered: boolean;
+  /** Lo mismo para `inbound_only` (BSD-1.3 punto 6): `INBOUND_ONLY` en el argumento o en la variable que nombra. */
+  readonly inboundFiltered: boolean;
 }
 
 export function shipmentReaderSites(backendRoot: string): ReaderSite[] {
@@ -102,7 +104,20 @@ export function shipmentReaderSites(backendRoot: string): ReaderSite[] {
         const scope = outermostFunction(node);
         if (scope) filtered = idents.some((id) => initializersOf(scope, id).some((t) => /\bOUTBOUND_ONLY\b/.test(t)));
       }
-      out.push({ key: `${rel} ${k}#${n}`, file: rel, line: sf.getLineAndCharacterOfPosition(node.getStart()).line + 1, method, text, outboundFiltered: filtered });
+      let inbound = /\bINBOUND_ONLY\b/.test(text);
+      if (!inbound) {
+        const scope = outermostFunction(node);
+        if (scope) inbound = idents.some((id) => initializersOf(scope, id).some((t) => /\bINBOUND_ONLY\b/.test(t)));
+      }
+      out.push({
+        key: `${rel} ${k}#${n}`,
+        file: rel,
+        line: sf.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+        method,
+        text,
+        outboundFiltered: filtered,
+        inboundFiltered: inbound,
+      });
     };
     const visit = (n: ts.Node): void => {
       if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
@@ -140,6 +155,8 @@ export interface StatusWriteSite {
   readonly writes: true | 'opaque';
   /** El texto (código, sin comentarios) de la función con nombre que contiene la escritura. */
   readonly fnText: string;
+  /** B-3 (BSD-1.3 punto 1): el texto del argumento `where` de la escritura (sin espacios repetidos), o `null` si no es literal. */
+  readonly whereText: string | null;
 }
 
 /** ¿El nodo `data` pone `status`? `true` si hay una propiedad `status`; `'opaque'` si esparce un identificador; si no, `false`. */
@@ -173,9 +190,11 @@ export function sellRequestStatusWriteSites(backendRoot: string): StatusWriteSit
         if (['update', 'updateMany', 'upsert'].includes(verb) && ts.isPropertyAccessExpression(obj) && obj.name.text === 'sellRequest') {
           const arg = n.arguments[0];
           let writes: true | 'opaque' | false = 'opaque';
+          let whereText: string | null = null;
           if (arg && ts.isObjectLiteralExpression(arg)) {
             writes = false;
             for (const p of arg.properties) {
+              if (ts.isPropertyAssignment(p) && p.name.getText() === 'where') whereText = stripComments(p.initializer.getText()).replace(/\s+/g, ' ');
               if (ts.isPropertyAssignment(p) && ['data', 'update', 'create'].includes(p.name.getText())) {
                 const s = ts.isIdentifier(p.initializer) ? 'opaque' : statusIn(p.initializer);
                 if (s === true || (s === 'opaque' && writes === false)) writes = s;
@@ -194,6 +213,7 @@ export function sellRequestStatusWriteSites(backendRoot: string): StatusWriteSit
               line: sf.getLineAndCharacterOfPosition(n.getStart()).line + 1,
               writes,
               fnText: stripComments(enc.node ? enc.node.getText() : ''),
+              whereText,
             });
           }
         }

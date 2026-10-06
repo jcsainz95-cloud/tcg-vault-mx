@@ -12,6 +12,7 @@
  * todo SQL con `"ShipmentRequest"`) está en `CENSUS` con UNA clase:
  *  - `outbound_only` — solo envíos de venta/retiro: el sitio DEBE llevar `OUTBOUND_ONLY` (o `outboundOnlySql()`), en el
  *    argumento o en la variable que el argumento nombra;
+ *  - `inbound_only` — solo guías de ENTRADA del buylist (BSD-1.3 punto 6): el sitio DEBE llevar `INBOUND_ONLY`;
  *  - `all_kinds` — ve las dos clases A PROPÓSITO (propiedades de CUENTA del motor de Skydropx: candado, `rate_already_
  *    purchased`, `takenBy`, recuperación, huérfanas, job de proceso…), con su porqué;
  *  - `by_key` — llega por llave (`id`, `orderId`, `stripePaymentIntentId`, `providerShipmentId`, `sellRequestId`,
@@ -24,8 +25,10 @@
 import { join } from 'node:path';
 import { ReaderSite, shipmentReaderSites } from './helpers/bsd-census';
 
-type Clase = 'outbound_only' | 'all_kinds' | 'by_key';
+type Clase = 'outbound_only' | 'inbound_only' | 'all_kinds' | 'by_key';
 const O = 'outbound_only' as const;
+/** BSD-1.3 punto 6: SOLO guías de ENTRADA del buylist; el sitio DEBE llevar `INBOUND_ONLY`. */
+const I = 'inbound_only' as const;
 const A = 'all_kinds' as const;
 const K = 'by_key' as const;
 
@@ -34,9 +37,18 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   // ---------------------------------------------------------------- admin
   'src/modules/admin/admin.service.ts deleteUser#count#1': [K, 'userId: la fila de entrada lleva userId NULL (CHECK); el vendedor cuenta por sellRequest.count'],
   'src/modules/admin/admin.service.ts pnl#findMany#1': [O, 'P&L de M7 (§BSD.5): una guía de entrada en `guia` NO es costo de envío de venta'],
+  'src/modules/admin/admin.service.ts pnlBuylistGuides#findMany#1': [I, 'P&L de M7 (§BSD.16 (a), BSD-1.3 punto 6): costo de las guías de Skydropx de ENTRADA'],
   'src/modules/admin/admin.service.ts launchMetrics#count#1': [O, 'métrica de lanzamiento: envíos entregados'],
   'src/modules/admin/admin.service.ts dashboard#count#1': [O, 'tablero: envíos por atender'],
   'src/modules/admin/admin.service.ts dashboard#count#2': [O, 'tablero: envíos entregados'],
+  // ---------------------------------------------------------------- buylist (B-3, rev BSD-1)
+  'src/jobs/buylist-sweep.service.ts closeWithGuideTask#sql#1': [K, 'FOR UPDATE por sellRequestId (I-BSD-4: la fila de entrada de la solicitud que el barrido cierra)'],
+  'src/jobs/buylist-sweep.service.ts reconcileInboundCancellations#findMany#1': [I, 'regla 10 del barrido (§BSD.7.5): cancelaciones sin confirmar de guías de ENTRADA'],
+  'src/modules/buylist/buylist.service.ts adminGuide#sql#1': [K, 'FOR UPDATE por sellRequestId (I-BSD-4: la captura a mano frente a la guía de entrada)'],
+  'src/modules/buylist/buylist.service.ts updatePickupAddress#sql#1': [K, 'FOR UPDATE por sellRequestId (I-BSD-4: el vendedor cambia el origen)'],
+  'src/modules/buylist/buylist.service.ts adminUpdatePickupAddress#sql#1': [K, 'FOR UPDATE por sellRequestId (I-BSD-4: el admin corrige el origen)'],
+  'src/modules/buylist/inbound-address-sync.ts resyncInboundAddress#updateMany#1': [K, 'CAS por id + versión (la fila de entrada de la solicitud, §BSD.4.5)'],
+  'src/modules/buylist/inbound-view.ts inboundLabelAlertSellRequestIds#findMany#1': [I, 'M5 `?inboundLabelAlert=true` y `workQueue.buylistInboundLabelAlert` (BSD-1.3 punto 4)'],
   // ---------------------------------------------------------------- orders / payments
   'src/modules/orders/order-refund.service.ts requestFullRefund#sql#1': [K, 'FOR UPDATE por id de los retiros de la orden'],
   'src/modules/orders/orders.service.ts resolveChargebackInventory#findFirst#1': [K, 'orderId (la fila de entrada no tiene orden)'],
@@ -152,6 +164,12 @@ const MINIMO_OUTBOUND_ONLY = [
   'src/modules/shipments/tracking-poll.job.ts run#findMany#1', // sondeo de rastreo
   'src/modules/shipments/shipments.service.ts listMine#findMany#1', // lista de cliente
 ];
+/** BSD-1.3 punto 6: el lector de guías de entrada de `pnl()` es `inbound_only`. */
+const MINIMO_INBOUND_ONLY = [
+  'src/modules/admin/admin.service.ts pnlBuylistGuides#findMany#1',
+  // BSD-1.3 punto 4 (B-3): el lector del contador `workQueue.buylistInboundLabelAlert` y del filtro de M5.
+  'src/modules/buylist/inbound-view.ts inboundLabelAlertSellRequestIds#findMany#1',
+];
 /** El mínimo `all_kinds` del contrato. */
 const MINIMO_ALL_KINDS = [
   'src/modules/shipments/label-purchase.service.ts claim#findFirst#1', // candado de cuenta («otra compra en vuelo»)
@@ -194,6 +212,19 @@ describe('💰 BSD-B23 — censo de lectores de `ShipmentRequest`', () => {
   it('todo `outbound_only` lleva `OUTBOUND_ONLY` (en el argumento o en la variable que nombra)', () => {
     const sinFiltro = SITES.filter((s) => CENSUS[s.key]?.[0] === O && !s.outboundFiltered).map((s) => `${s.key} (línea ${s.line})`);
     expect(sinFiltro).toEqual([]);
+  });
+
+  it('todo `inbound_only` lleva `INBOUND_ONLY` y ninguno lleva `OUTBOUND_ONLY` (BSD-1.3 punto 6)', () => {
+    const mal = SITES.filter((s) => CENSUS[s.key]?.[0] === I && (!s.inboundFiltered || s.outboundFiltered)).map((s) => `${s.key} (línea ${s.line})`);
+    expect(mal).toEqual([]);
+  });
+
+  it('`INBOUND_ONLY` solo aparece en sitios `inbound_only` (si lo lleva otro, su clase es otra: corrígela)', () => {
+    expect(SITES.filter((s) => s.inboundFiltered && CENSUS[s.key]?.[0] !== I).map((s) => s.key)).toEqual([]);
+  });
+
+  it('el mínimo de BSD-1.3 punto 6: el lector de guías de entrada de `pnl()` ⇒ `inbound_only`', () => {
+    expect(MINIMO_INBOUND_ONLY.filter((k) => CENSUS[k]?.[0] !== I)).toEqual([]);
   });
 
   it('ningún `all_kinds` ni `by_key` lleva `OUTBOUND_ONLY` (si lo lleva, su clase es otra: corrígela)', () => {
