@@ -10,9 +10,9 @@
  * | BSD-B41 | `not_continued`: lista y detalle del cliente sin ninguna clave `*Cents` distinta de `null` (recorrido recursivo); `labelPdfAvailable=false`; el DTO admin no cambia | quitar `not_continued` del conjunto |
  * | BSD-B46 | dos solicitudes (bruto 150 000, tarifa 18 000) con guías de entrada de 15 000 y 25 000 ⇒ `paySpei` deja `payoutNetCents = 132000` en las dos | restar `shippingCostCents` de la fila de entrada en el neto de `paySpei` |
  * | Punto 14 | re-emitir deja la fila de entrada con `labelSource` nulo; una guía MANUAL posterior cuenta por (b) y no por (a); el margen usa la manual | — (medición) |
- * | BSD-B16 (ruta real) | declinar ∥ `POST /admin/shipments/:id/label`, N = 12 rondas en 4 modos: (i) cerrada ⇒ fila `cancelado` y sin guía viva; (ii) BSD-M1 y AV-7 ⇒ guía sellada `auto_close` | `decline-accepted` sin `closeInboundShipment`; sin `assertInboundOpenForLabel` en la relectura de `claim` |
- * | BSD-B18 (ruta real) | regla 8 ∥ compra, N = 10 rondas con BARRERA: el reclamo que gana el candado de la solicitud la excluye del cierre | regla 8 sin los candados de `closeWithGuideTask` |
- * | BSD-B31 (ruta real) | declinar ∥ compra ∥ barrido, N = 30 rondas: cero `40P01` y nunca cerrada con guía viva | orden de candados invertido en `decline-accepted` |
+ * | BSD-B16 (ruta real) | declinar ∥ `POST /admin/shipments/:id/label`, N = 12 rondas en 4 modos: (i) cerrada ⇒ fila `cancelado` y sin guía viva; (ii) BSD-M1 y AV-7 ⇒ guía sellada `auto_close` | `decline-accepted` sin `closeInboundShipment` (36/36 rondas malas). La segunda del contrato —sin `assertInboundOpenForLabel` en la relectura de `claim`— NO muerde (0/36): el CAS de `claim` exige `status='solicitado'` y el cierre ya pasó la fila a `cancelado` |
+ * | BSD-B18 (ruta real) | regla 8 ∥ compra, N = 10 rondas con BARRERA: el reclamo que gana el candado de la solicitud la excluye del cierre | regla 8 sin los candados de `closeWithGuideTask` (30/30 rondas malas) |
+ * | BSD-B31 (ruta real) | declinar ∥ compra ∥ barrido, N = 30 rondas: cero `40P01` y nunca cerrada con guía viva | orden de candados invertido en `decline-accepted` (roja 3/3 corridas; 5/90 rondas con `40P01`) |
  *
  * Las tres carreras se repiten aquí contra la RUTA REAL (§BSD.18 punto 9): `precheck` → `claim` → red → `persistLabeled` →
  * post-commit de AV-7. El sustituto de `bsd-b3.e2e-spec.ts` se queda como prueba rápida y ⛔ no cuenta como la medición.
@@ -427,9 +427,10 @@ describe('💰 BSD-1.4 — errata de B-2/B-3/B-4 (§BSD.18)', () => {
           fake.onBalance = null;
           dec = await (inside as unknown as Promise<R>);
         } else {
-          // A la vez, con desfase al azar.
-          const j = () => new Promise((ok) => setTimeout(ok, Math.floor(Math.random() * 25)));
-          [dec, compra] = await Promise.all([j().then(() => decline(s.sr.id)), j().then(() => buy(s.id, buyBody(s.q, s.rate)))]);
+          // A la vez, con desfase al azar. La compra por la ruta real tarda decenas de ms (precheck, saldo, reclamo, red,
+          // persistencia): «Declinar» sale con 0–150 ms de retraso para caer antes, durante o después de la compra.
+          const j = (ms: number) => new Promise((ok) => setTimeout(ok, Math.floor(Math.random() * ms)));
+          [dec, compra] = await Promise.all([j(150).then(() => decline(s.sr.id)), j(10).then(() => buy(s.id, buyBody(s.q, s.rate)))]);
         }
         const key = `${modo}:${errCode(dec)}:${errCode(compra)}${compra.body?.outcome ? `/${compra.body.outcome}` : ''}`;
         desenlaces[key] = (desenlaces[key] ?? 0) + 1;
@@ -497,16 +498,20 @@ describe('💰 BSD-1.4 — errata de B-2/B-3/B-4 (§BSD.18)', () => {
         errores.push(String(m));
       });
       const malas: string[] = [];
+      const desenlaces: Record<string, number> = {};
       try {
         for (let i = 0; i < 30; i++) {
           const s = await readyInbound({ acceptedAt: new Date(PAST_NOW.getTime() - 8 * DAY) });
           bandeja = [];
-          const j = () => new Promise((ok) => setTimeout(ok, Math.floor(Math.random() * 25)));
+          // Desfases como en B16: la compra sale casi en seguida; «Declinar» y el barrido caen antes, durante o después.
+          const j = (ms: number) => new Promise((ok) => setTimeout(ok, Math.floor(Math.random() * ms)));
           const [d, b, w] = await Promise.allSettled([
-            j().then(() => decline(s.sr.id)),
-            j().then(() => buy(s.id, buyBody(s.q, s.rate))),
-            j().then(() => sweep.run(PAST_NOW)),
+            j(150).then(() => decline(s.sr.id)),
+            j(10).then(() => buy(s.id, buyBody(s.q, s.rate))),
+            j(150).then(() => sweep.run(PAST_NOW)),
           ]);
+          const key = `${d.status === 'fulfilled' ? errCode(d.value) : 'throw'}:${b.status === 'fulfilled' ? `${errCode(b.value)}${b.value.body?.outcome ? `/${b.value.body.outcome}` : ''}` : 'throw'}:${(await sr(s.sr.id)).expiredReason ?? 'abierta'}`;
+          desenlaces[key] = (desenlaces[key] ?? 0) + 1;
           const textos = [
             d.status === 'fulfilled' ? JSON.stringify(d.value.body ?? '') : String(d.reason),
             b.status === 'fulfilled' ? JSON.stringify(b.value.body ?? '') : String(b.reason),
@@ -520,6 +525,8 @@ describe('💰 BSD-1.4 — errata de B-2/B-3/B-4 (§BSD.18)', () => {
       } finally {
         spy.mockRestore();
       }
+      // eslint-disable-next-line no-console
+      console.log(`BSD-B31 (ruta real) desenlaces decline:compra:cierre ⇒ n: ${JSON.stringify(desenlaces)}`);
       expect(malas).toEqual([]);
     }, 300_000);
   });

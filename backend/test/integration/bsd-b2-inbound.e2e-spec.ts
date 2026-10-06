@@ -11,7 +11,7 @@
  * | BSD-B6 | claves de destino ⇒ 400 con 0 llamadas; la compra lleva `address_to.postal_code` = la tienda | quitar la lista de claves |
  * | BSD-B7 | sin dial / sin llave ⇒ `canPurchase=false`, 404 / 409, 0 `port.purchase` | saltar `assertGate` |
  * | BSD-B8 | compra con número: fila, libros, solicitud (paquetería LEGIBLE, número, plazo), UN AV-7 con PDF, CERO AV-4 | sin `writeSellRequestGuide`; AV-4 |
- * | BSD-B9 | doble clic y dos personas, N ≥ 10 rondas ⇒ 1 `port.purchase` y 1 guía pagada por ronda | errata BSD-1.4 punto 2: quitar A LA VEZ el candado consultivo y `labelProcessingSince: null` del CAS (proporciones en BACKEND_NOTES §78.B5) |
+ * | BSD-B9 | doble clic y dos personas, N ≥ 10 rondas ⇒ 1 `port.purchase` y 1 guía pagada por ronda | errata BSD-1.4 punto 2: quitar A LA VEZ el candado consultivo y `labelProcessingSince: null` del CAS — MEDIDO: NO muerde (0/30 rondas); en la fila de entrada hay un tercer muro, la relectura `in_progress` de `claim` bajo I-BSD-4. Quitando los tres: 10/10 rondas con `5xx` (BACKEND_NOTES §78.B5; decisión del arquitecto) |
  * | BSD-B10 | «en proceso» ⇒ sin plazo ni correo; el job trae el número ⇒ plazo + UN AV-7 | plazo en `persistProcessing`; `status:'picking'` en el job |
  * | BSD-B11 | errata BSD-1.4 punto 5: la compra de una guía de entrada no cambia la oferta ni ninguna cifra `*Cents` del portal (el neto se calcula al PAGAR: BSD-B46, `bsd-b5.e2e-spec.ts`) | — |
  * | BSD-B12 | TG-1 cuenta la guía de entrada (403 + AG-3); ⛔ AG-1 tras corregir el origen; ⛔ AG-10 a 3 días | sin filtro `kind` en spend-watch |
