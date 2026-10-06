@@ -29739,3 +29739,94 @@ del proveedor, `SKYDROPX_ALLOW_SPEND` vacía, cliente Prisma generado en la copi
   (llave por día), B29 ×2, B30, B37, B38, B39, B14 ×2, §BSD.4.5. **B31** (orden de candados invertido en `decline-accepted`):
   con 10 rondas por corrida el interbloqueo salió en 5 de 30 rondas y la prueba lo cazó en 2 de 3 corridas ⇒ la prueba pasó a
   30 rondas; el original, 0 `40P01` en todas las corridas medidas.
+
+### 78.B5 · Errata BSD-1.4 (💰) — los puntos de backend de `API_CONTRACT §BSD.18` (2026-10-06, rama `claude/buylist-skydropx`, sobre `01c1e5d9`; código en `d04cb905`, pruebas ajustadas en `220e5df3`)
+
+Norma: `API_CONTRACT §BSD.18` (15 puntos) y su porqué en `ARCHITECTURE §4.BSD (n)`. ⛔ Sin schema, migración, enum, código de
+error ni endpoint nuevo. Un solo agente backend hizo todos los puntos, en serie.
+
+| Punto | Qué cambió | Dónde | Prueba (primero en rojo) |
+|---|---|---|---|
+| 1 BSD-B4/B45 | — (código igual). B4: mutación por pares; B45 nueva | `test/bsd-b5.units.spec.ts` | B45 verde sobre el código (el manejo existe); su mutación, roja |
+| 2 BSD-B9 | — (solo texto de la prueba) | `bsd-b2-inbound.e2e-spec.ts` | ver «Lo que el contrato no aguantó» |
+| 3 un escritor de la tarea | comentario de `inbound-close.ts` (y cabecera de `inbound-cancel-task.ts`); candado «`shipments/` no menciona `guideCancellationPendingAt`» | `test/bsd-b2.structural.spec.ts` | — (hoy 0 menciones, medido) |
+| 4 AV-7 | `guideNoticeSealWhere(id, trackingNumber)` en `buylist/sell-request-guide.ts`; `claimAndNotifySellRequest(id, {field, trackingNumber} \| null, build)`; `notifyLabeled` lo usa con `sr.shipmentTrackingNumber` | `sell-request-guide.ts`, `buylist.service.ts`, `inbound-guide-notice.service.ts` | **B40 (b) ROJA sobre `01c1e5d9`**: el post-commit de A tardío mandaba 1 correo con **A** después de corregir a B (el hueco era real; el arquitecto lo tenía NO MEDIDO). B40 (a) estructural (AST), B40 (c) |
+| 5 BSD-B11/B46 | — (código igual). B11 retitulada; B46 nueva | `bsd-b2-inbound`, `bsd-b5.e2e-spec.ts` | B46 verde (el código ya era correcto); su mutación, roja |
+| 6 `@Throttle` | `@Throttle({default:{ttl:60_000,limit:10}})` en `GET /buylist/requests/:id/label.pdf` | `inbound-shipment.controller.ts` | B44 ROJA sobre el código previo |
+| 7 BSD-B16 | texto: «nunca BSD-M1 y AV-7 con la guía VIVA» | `bsd-b3`, `bsd-b5` | ver punto 9 |
+| 8 `not_continued` | `MONEY_REDACTED_EXPIRY = {no_offer, not_continued}`; `isMoneyRedactedClosure` (antes `isNoOfferClosure`) | `buylist.service.ts` | B41 ROJA sobre el código previo (34 claves `*Cents` no nulas) |
+| 10 firma con actor | `adminUpdatePickupAddress(id, addressId, actorUserId)`; el controlador pasa `user.id` | `buylist.service.ts`, `admin-buylist.controller.ts` | B42 (la prueba de admin de `bsd-b3` §BSD.4.5 pasa a esperar `operator.id`); candado SEC-A1 reescrito |
+| 12 (b) del P&L | `OR: [{guideSentAt: P}, {guideSentAt: null, shipmentConfirmedAt: P}]` | `admin.service.ts` `pnlBuylistGuides` | B43 unitaria ROJA sobre el código previo (2 de 3); B43 de integración |
+| 14 re-emisión | — (sin defecto) | `bsd-b5.e2e-spec.ts` «Punto 14» | medición, abajo |
+
+**Decisiones que otro rol tiene que conocer.**
+- ⚠️ **Frontend (punto 8): en `not_continued` la redacción alcanza MÁS que en `no_offer`.** En `no_offer` las demás cifras ya eran
+  nulas por construcción (nunca hubo oferta); en `not_continued` sí la hubo, y BSD-B41 exige que **ninguna** clave `*Cents` del DTO
+  de cliente sea distinta de `null`. Implementado: en las líneas (`items[]`, lista y detalle) `quotedPriceCents`,
+  `approvedPriceCents`, `offeredPriceCents` y `marketMxnCents` viajan `null` explícito; y en el detalle **`offer` viaja `null`**
+  (sus cifras son `number` en `SellOfferPublicDTO` y su `terms.rule` lleva los montos ya escritos en prosa, así que no se podía
+  redactar dentro). Consecuencia en el portal: con `not_continued` el stepper ya no tiene `offer.sentAt`/`offer.acceptedAt`, y
+  `ClosingMessage` no pinta «aceptaste el …». La regla es UNA para los dos cierres: en `no_offer` cambia solo que
+  `marketMxnCents`/`approvedPriceCents` de las líneas pasan a `null` explícito. Unitaria completa sin rojos por esto.
+- **Punto 10, el candado SEC-A1 reescrito** (`test/buylist.pickup-address.spec.ts`, el que era `length === 2`). La intención —«el
+  admin ELIGE una fila de la libreta; ningún domicilio entra al método»— se conserva con tres aserciones en vez de un proxy:
+  aridad **3**; los tres parámetros son `string` en el FUENTE (AST de TypeScript); el cuerpo pasa por el MISMO `ValidationPipe`
+  de `main.ts` (`whitelist`) y solo sobrevive `addressId`. Mutaciones (N=1 cada una): un 4.º parámetro objeto ⇒ rojo por
+  aridad (lo que mordía el viejo); el actor como `string | {line1}` con aridad 3 ⇒ rojo por el AST (el viejo `=== 2` tampoco lo
+  veía); `line1` en `AdminPickupAddressDto` ⇒ rojo por el pipe. Y BSD-B42 (integración) con «firmar con `before.userId`» ⇒ rojo.
+- **Punto 4:** `claimAndNotifySellRequest` ya no sella si la captura no trae número (inalcanzable: el DTO lo exige). El sello de
+  la entrada compara ahora con `sr.shipmentTrackingNumber` (el número que el correo ANUNCIA); antes, `row.trackingNumber` —
+  iguales por la comprobación de la línea anterior.
+- **B40 (c), segunda variante:** ningún cierre de hoy deja `status='aceptada'` con `closedAt` sellado (todos mueven `status`),
+  así que `closedAt` del predicado es redundante con `status` para todo estado alcanzable. Su canario usa ese estado a mano
+  (la única forma de que el predicado sea el último muro); con un cierre REAL (`decline-accepted`) la prueba también está y
+  pasa, pero ahí frenan antes `labelPdfAvailableOf` y `status`.
+- **Punto 14 (medido, no inferido):** `applyReissue` (`shipments/label-cancel.service.ts:207-226`) deja la fila de entrada con
+  `labelSource=null`, `labelPurchasedAt=null`, `shippingCostCents=0` y `status='solicitado'`. Medido por HTTP en «Punto 14»: guía
+  de Skydropx ⇒ (a) +neto; re-emitir ⇒ (a) vuelve a +0 (lo no devuelto va a «ajustes»); captura manual + `confirm-shipment` con
+  9 000 ⇒ (b) +9 000; pagar ⇒ retenido +18 000 y margen +9 000; contador de faltantes +0. ⇒ «una guía, una fuente» se cumple;
+  **sin defecto**, nada que avisar al arquitecto.
+
+**Lo que el contrato no aguantó (medido; para el arquitecto).**
+1. **BSD-B9 — la mutación nueva tampoco muerde.** «Quitar a la vez el candado consultivo y `labelProcessingSince: null` del
+   CAS» ⇒ **0/30 rondas malas** (3 corridas × 10, ruta real). En la fila de ENTRADA hay un tercer muro que §BSD.18 punto 2 no
+   lista: `claim` toma I-BSD-4 (`lockSubjectRows`) y relee la fila; con `labelProcessingSince` puesto devuelve `in_progress`
+   (`label-purchase.service.ts`, la línea antes de `assertInboundOpenForLabel`). Quitando los TRES ⇒ 10/10 rondas rojas, pero
+   por `5xx` (2 por ronda): seguía habiendo **1 `port.purchase` y 1 guía pagada** por ronda (hay al menos un cuarto muro
+   aguas abajo, no lo aislé). Ninguna de las dos del contrato muerde sola (si las dos juntas no muerden, sola tampoco: no lo
+   repetí por separado). Propuesta: la mutación de B9 son los tres; decisión del arquitecto.
+2. **BSD-B16, segunda mutación** («quitar `assertInboundOpenForLabel` de la relectura de `claim`») ⇒ **NO muerde: 0/36 rondas
+   malas** (3 corridas × 12). El cierre (`closeInboundShipment`) ya pasó la fila a `cancelado` y el CAS de `claim` exige
+   `status='solicitado'`: cero compra. Lo único que cambia, 9/9 rondas del modo «Declinar entre `precheck` y `claim`», es el
+   código: `409 GUIDE_NOT_ALLOWED` ⇒ `409 CONFLICT` (CAS 0). BSD-B16 se queda con la primera mutación, como dice la norma. Si
+   el arquitecto quiere un canario para la guarda, es afirmar ese código en el modo 2 (§BSD.3: «el error de la guarda»).
+3. **Punto 8: «con los mismos campos» y BSD-B41 («ninguna `*Cents` distinta de `null`, recursivo») no caben juntos** en
+   `not_continued`: con solo `quotedTotalCents`/`quotedPriceCents` la prueba queda roja (`offer.*`, `offeredPriceCents`…).
+   Implementé lo que exige la prueba (ver «Decisiones», primera viñeta, `offer: null`). Si el arquitecto prefiere `offer` con
+   cifras `null`, cambia el tipo de `SellOfferPublicDTO`.
+4. **BSD-B43, «la suma de enero a diciembre es igual a la del P&L sin periodo»:** en la BD compartida el P&L sin periodo
+   incluye filas de otras suites. En integración se afirma por DIFERENCIA (Σ de los 12 meses de un año propio = Δ del P&L sin
+   periodo); en la unitaria, exacta.
+5. **Punto 9 — carreras contra la ruta real.** La barrera de B18 se reproduce con la ruta: el doble del proveedor deja un gancho
+   en la lectura del saldo (entre `precheck` y `claim`); ahí la prueba toma la FILA de entrada y el `claim` se queda esperando
+   con la SOLICITUD tomada — el instante exacto que forzaba el sustituto de B-3.
+
+**Mediciones** (copias del árbol ENTERO por `git archive` en el scratchpad `be-bsd-b5`; cliente de Prisma generado en la copia, ⛔
+no en el `node_modules` compartido — comprobado: 0 apariciones de `buylist_inbound` en el compartido antes y después; BD propia
+`tcg_be_bsd_b5`; doble del proveedor; `SKYDROPX_ALLOW_SPEND` vacía):
+- **Carreras, ruta real, originales:** BSD-B16 **72/72** rondas sin defecto (6 corridas × 12); BSD-B18 **60/60** (6 × 10);
+  BSD-B31 **180/180** sin `40P01` ni cerrada con guía viva (6 × 30). Tres corridas con desfases de 0–25 ms y tres con
+  «Declinar»/barrido a 0–150 ms (la compra por la ruta tarda decenas de ms: con 25 ms «Declinar» ganaba siempre).
+- **Carreras, mutadas:** B16 sin `closeInboundShipment` en `decline-accepted` ⇒ **36/36** rondas malas (3 × 12; 1 de ellas
+  con la guía VIVA); B16 sin la guarda en `claim` ⇒ **0/36** (no muerde); B18 regla 8 sin los candados de `closeWithGuideTask`
+  ⇒ **30/30** (3 × 10); B31 orden invertido en `decline-accepted` ⇒ prueba roja **3/3** corridas, **5/90** rondas con `40P01`
+  (llega como `5xx BUSY_TRY_AGAIN`; una ronda además cerrada con reclamo vivo); B4 sin candado ∧ sin `P2002` ⇒ **10/10** rondas
+  rojas; solo sin candado ⇒ 0/10; solo sin `P2002` ⇒ 0/10 (repite lo de B-2).
+- **Deterministas (N=1 cada una, sobre copia):** B44 (sin `@Throttle`), B45 (sin manejo de `P2002`), B40 (a) ×2 (sello en
+  línea), B40 (b) (sin el número), B40 (c) (sin `closedAt`), B41 (sin `not_continued`), B42 (firma con el vendedor), B43
+  unitaria e integración (sin la rama `guideSentAt: null`), B46 (restar la guía en `paySpei`), punto 3 (escribir la columna en
+  `afterAutoClose`), SEC-A1 ×3 ⇒ **todas rojas**.
+- **Sobre `220e5df3` (copia del árbol entero por `git archive`, BD `tcg_be_bsd_b5` recién recreada):** tsc exit 0;
+  `eslint src test scripts` exit 0; **unitaria completa 436/436 suites, 7906/7906 pruebas**; **integración completa 112/112
+  suites, 2182/2182 pruebas** (con `E2E_STRICT_INFRA=false`: corrida de construcción, ⛔ no de gate). Sin rojos de Redis `MISCONF`
+  en esta corrida (devops lo arregló en `1377a688`).
