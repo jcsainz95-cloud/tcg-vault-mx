@@ -503,11 +503,11 @@ export function appUrl(path: string, locale?: string | null): string | undefined
 
 /**
  * ⭐ v1.84.4 (`API_CONTRACT §14.17` E4-5, criterio 507, `PROJECT §LEG.3`) — **el enlace «Aviso de
- * privacidad» del pie de TODOS los correos, decidido UNA vez.** Lo consumen los pies que existen hoy:
- * {@link mailShell} (avisos y buylist), el `layout` de `mail/mail.templates.ts` (verificación,
- * contraseña, bloqueo), el de `orders/mail/guest-order.templates.ts` (invitado) y el correo de
- * reposición. *Un pie que no lo llame es exactamente el correo que sale sin aviso*: lo vigila
- * `test/mail.privacy-footer.spec.ts` (render de cada familia + barrido de `src/`).
+ * privacidad» del pie de TODOS los correos, decidido UNA vez.** Desde P-MAIL-MARCA (2026-10-06) lo
+ * consume un solo pie, el de {@link mailShell}: las plantillas de cuenta (`mail/mail.templates.ts`),
+ * las de invitado y el correo de reposición dejaron su `layout` a mano y van sobre el esqueleto.
+ * *Un correo que no pase por el shell es exactamente el correo que sale sin marca o sin aviso*: lo
+ * vigila `test/mail.privacy-footer.spec.ts` (PRIV-1 render, PRIV-4 barrido de `src/`, PRIV-7 firma del shell).
  *
  * **URL:** `<origen público>/es/privacidad`, literal del contrato (el aviso es un documento en español;
  * el EN lleva la etiqueta traducida y el mismo destino). **Origen:** `APP_PUBLIC_URL` (vía {@link appUrl},

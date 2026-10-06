@@ -25,6 +25,8 @@ describe('greetingName()', () => {
   });
 });
 
+// P-MAIL-MARCA (2026-10-06): las plantillas de cuenta van sobre `mailShell`; el saludo es una celda
+// `proseRow` entera (`>Hola:</td>`), que es lo que antes era el párrafo entero (`<p>Hola:</p>`).
 describe('plantillas de cuenta — saludo con y sin nombre', () => {
   const LINK = 'https://app.tcghunt.mx/es/x?token=T';
 
@@ -33,11 +35,11 @@ describe('plantillas de cuenta — saludo con y sin nombre', () => {
     ['passwordReset', passwordResetTemplate],
   ] as const)('%s ES: null ⇒ «Hola:» en html y text; nombre ⇒ «Hola Ana:»', (_n, tpl) => {
     const sin = tpl(LINK, null, 'es');
-    expect(sin.html).toContain('<p>Hola:</p>');
+    expect(sin.html).toContain('>Hola:</td>');
     expect(sin.text.startsWith('Hola:\n')).toBe(true);
     expect(sin.html).not.toMatch(/Hola\s+:/);
     const con = tpl(LINK, 'Ana', 'es');
-    expect(con.html).toContain('<p>Hola Ana:</p>');
+    expect(con.html).toContain('>Hola Ana:</td>');
     expect(con.text.startsWith('Hola Ana:\n')).toBe(true);
   });
 
@@ -46,10 +48,10 @@ describe('plantillas de cuenta — saludo con y sin nombre', () => {
     ['passwordReset', passwordResetTemplate],
   ] as const)('%s EN: null ⇒ «Hi,»; nombre ⇒ «Hi Bob,»', (_n, tpl) => {
     const sin = tpl(LINK, null, 'en');
-    expect(sin.html).toContain('<p>Hi,</p>');
+    expect(sin.html).toContain('>Hi,</td>');
     expect(sin.text.startsWith('Hi,\n')).toBe(true);
     const con = tpl(LINK, 'Bob', 'en');
-    expect(con.html).toContain('<p>Hi Bob,</p>');
+    expect(con.html).toContain('>Hi Bob,</td>');
     expect(con.text.startsWith('Hi Bob,\n')).toBe(true);
   });
 
@@ -75,7 +77,7 @@ describe('MailService — aplica greetingName() según nameSource', () => {
     );
     const msg = send.mock.calls[0][0];
     expect(msg.to).toBe('jcsainz95@x.com');
-    expect(msg.html).toContain('<p>Hola:</p>');
+    expect(msg.html).toContain('>Hola:</td>');
     expect(msg.html).not.toContain('jcsainz95');
     expect(msg.text).not.toContain('jcsainz95');
   });
@@ -83,12 +85,12 @@ describe('MailService — aplica greetingName() según nameSource', () => {
   it('google ⇒ saluda con nombre (reset)', async () => {
     const send = mkSend();
     await svc(send).sendPasswordReset({ email: 'a@x.com', name: 'Ana', nameSource: 'google', locale: 'en' }, LINK);
-    expect(send.mock.calls[0][0].html).toContain('<p>Hi Ana,</p>');
+    expect(send.mock.calls[0][0].html).toContain('>Hi Ana,</td>');
   });
 
   it('sin nameSource (compatibilidad) ⇒ saluda con nombre, como antes', async () => {
     const send = mkSend();
     await svc(send).sendEmailVerification({ email: 'a@x.com', name: 'Ana', locale: 'es' }, LINK);
-    expect(send.mock.calls[0][0].html).toContain('<p>Hola Ana:</p>');
+    expect(send.mock.calls[0][0].html).toContain('>Hola Ana:</td>');
   });
 });

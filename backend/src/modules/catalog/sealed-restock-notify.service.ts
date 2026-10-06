@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
-import { escapeHtml, privacyNoticeHtml } from '../buylist/mail-shell';
+import { headingRow, mailShell, proseRow, spacerRow } from '../buylist/mail-shell';
 
 const JOB = 'sealed-restock-notify';
 
@@ -104,21 +104,31 @@ export class SealedRestockNotifyService {
     return notified;
   }
 
-  /** Correo bilingüe mínimo de reposición (recipiente puede ser invitado; sin locale de User). */
+  /**
+   * Correo bilingüe mínimo de reposición (recipiente puede ser invitado; sin locale de User).
+   * P-MAIL-MARCA (2026-10-06): el HTML va sobre el esqueleto de marca `mailShell` (`DESIGN_SYSTEM §31`)
+   * con `locale: 'es'` (el correo es bilingüe y el aviso de privacidad es un documento en español) y la
+   * `audience` por defecto `'customer'` (criterio 507). Sin CTA: el correo no lleva enlace de acción.
+   */
   private async sendRestockEmail(email: string, productName: string): Promise<void> {
     const subject = `¡Volvió a existencia! · Back in stock: ${productName}`;
     // P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4).
-    const text =
-      `El producto "${productName}" que seguías volvió a estar disponible en TCG HUNT.\n` +
-      `The product "${productName}" you were watching is back in stock at TCG HUNT.`;
-    // S15-B1: el nombre entra al HTML escapado (el escape del esqueleto de correo, el de las demás
-    // plantillas); el texto plano y el asunto no son HTML y van literales.
-    const safeName = escapeHtml(productName);
-    const html =
-      `<p>El producto <strong>${safeName}</strong> que seguías volvió a estar disponible en TCG HUNT.</p>` +
-      `<p>The product <strong>${safeName}</strong> you were watching is back in stock at TCG HUNT.</p>` +
-      // v1.84.4 (`API_CONTRACT §14.17` E4-5, criterio 507): todo correo lleva el enlace al aviso.
-      `<p style="font-size:12px;color:#888">${privacyNoticeHtml('es', 'color:#888;text-decoration:underline')}</p>`;
+    const es = `El producto "${productName}" que seguías volvió a estar disponible en TCG HUNT.`;
+    const en = `The product "${productName}" you were watching is back in stock at TCG HUNT.`;
+    const text = `${es}\n${en}`;
+    // S15-B1: el nombre entra al HTML como TEXTO PLANO y lo escapa `proseRow` (el escape del esqueleto
+    // de correo); el texto plano y el asunto no son HTML y van literales. ⛔ El nombre va SOLO en las dos
+    // líneas de prosa: ni en el titular ni en el preheader.
+    const title = '¡Volvió a existencia! · Back in stock';
+    const html = mailShell({
+      locale: 'es',
+      title,
+      preheader: `${title} — TCG HUNT`,
+      blocks: [headingRow(title, 22), spacerRow(24), proseRow(es), spacerRow(16), proseRow(en)],
+      footerWhy:
+        'Recibes este correo porque pediste que te avisáramos cuando volviera este producto. · ' +
+        'You are receiving this email because you asked to be notified when this product was back.',
+    });
     await this.mail.send({ to: email, subject, text, html });
   }
 }

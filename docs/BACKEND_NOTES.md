@@ -29431,3 +29431,26 @@ tirada cada una**, sobre la copia; restauradas y comprobadas con `cmp` contra el
 **NO MEDIDO:** la integración `test/integration/sdx-d2g-mail.e2e-spec.ts` (canarios SDX-I-8) — necesita BD y crear una base
 propia me fue denegado por permisos en esta corrida. La cierra correrla con `./scripts/stack-native.sh test:integration
 test/integration/sdx-d2g-mail.e2e-spec.ts` (o en CI). Por construcción usa los mismos tres constructores que PRIV-5.
+
+### 77. P-MAIL-MARCA — los 6 correos a clientes que iban con HTML a mano, sobre `mailShell` (2026-10-06, sobre `36091259`)
+
+**Qué cambió.** `guestOrderConfirmationTemplate`, `guestTrackingLinkTemplate` (`orders/mail/guest-order.templates.ts`),
+`emailVerificationTemplate`, `passwordResetTemplate`, `passwordLockAlertTemplate` (`mail/mail.templates.ts`) y el correo
+de reposición de sellado (`catalog/sealed-restock-notify.service.ts`) se renderizan con `mailShell`: bloque de marca,
+retícula, pie en tinta y la fila «Aviso de privacidad» (criterio 507), `audience` por defecto `'customer'` en los seis.
+Los dos `layout()` y los dos `escapeHtml` locales se borraron (el escape lo hacen los builders del shell, S15-B1).
+- **Sin cambio:** asuntos y versión de texto plano (comparados byte a byte contra `36091259`: 11/11 iguales), enlaces
+  (siguen siendo páginas del front; el botón lo emite `ctaRows`, con la URL en texto debajo), caducidades y avisos.
+- **Lo nuevo (todo de §31):** eyebrow (`SEGURIDAD DE LA CUENTA`/`ACCOUNT SECURITY` en los de cuenta, §31.9 filas 7–8;
+  `TU PEDIDO · <número>` en los de invitado, igual que AV-2), rótulos y botón en mayúsculas (§31.2), línea «por qué
+  recibes esto» del pie, preheader. Los `<strong>` del número de pedido y del nombre del producto desaparecen (los
+  builders reciben texto plano); en la reposición el nombre va entre comillas, como ya iba en el texto plano.
+- **Razón documentada para NO usar el shell:** ninguna. §31.15 (DESIGN_SYSTEM) planeaba este paso («pase 2»); BE-43 /
+  §4.56.3 hablaban de quién podía tocar `mail/`, no de excluirlo. `passwordLockAlertTemplate` («sin enlaces»): el shell
+  no añade ninguna acción; su único `href` sigue siendo el aviso de privacidad, que E5-1 exige (correo mixto ⇒ de cliente).
+- **Discrepancia anotada, no aplicada:** §31.7 nombra los botones 7/8 «Verificar mi correo»/«Restablecer mi contraseña»;
+  se conservó el texto vigente («VERIFICAR CORREO», «RESTABLECER CONTRASEÑA»). Decisión de ux-ui/PO si se cambia.
+- **Candado:** `test/mail.privacy-footer.spec.ts` — PRIV-4 ahora exige `mailShell(` (un pie a mano con
+  `privacyNoticeHtml(` ya no basta) y **PRIV-7** (nuevo) renderiza todo el censo PRIV-0 + la reposición y exige la firma
+  del shell (doctype con `lang`, `brandRows()`, `footerDescriptor(l)`), con un CONTROL de que un HTML a mano con marca y
+  aviso no la cumple. `test/mail.greeting-name.spec.ts`: el saludo se busca como celda (`>Hola:</td>`) en vez de `<p>`.
