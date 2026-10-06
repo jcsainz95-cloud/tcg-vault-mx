@@ -6,14 +6,14 @@
  *
  * | ID | Qué afirma | Mutación |
  * |---|---|---|
- * | BSD-B4 | `inbound-shipment`: copia, `userId` nulo, montos 0, idempotente, guardas en orden; N ≥ 10 rondas × 5 simultáneas ⇒ 1 fila | sin el candado de la solicitud y sin `P2002` ⇒ `500` |
+ * | BSD-B4 | `inbound-shipment`: copia, `userId` nulo, montos 0, idempotente, guardas en orden; N ≥ 10 rondas × 5 simultáneas ⇒ 1 fila | **por pares** (errata BSD-1.4 punto 1): quitar A LA VEZ el candado de la solicitud y el manejo de `P2002` ⇒ `500`. Cada muro solo no muerde (0/10); el de `P2002` tiene su canario determinista, BSD-B45 (`test/bsd-b5.units.spec.ts`) |
  * | BSD-B5 | `quote`: `from` = vendedor, `to` = tienda; cobertura por `offerGrossCents`; margen = tarifa − neto; recomendada = la más barata a domicilio; sin `recipientName` ⇒ 422 con 0 llamadas | `to` desde el snapshot; recomendada de salida |
  * | BSD-B6 | claves de destino ⇒ 400 con 0 llamadas; la compra lleva `address_to.postal_code` = la tienda | quitar la lista de claves |
  * | BSD-B7 | sin dial / sin llave ⇒ `canPurchase=false`, 404 / 409, 0 `port.purchase` | saltar `assertGate` |
  * | BSD-B8 | compra con número: fila, libros, solicitud (paquetería LEGIBLE, número, plazo), UN AV-7 con PDF, CERO AV-4 | sin `writeSellRequestGuide`; AV-4 |
- * | BSD-B9 | doble clic y dos personas, N ≥ 10 rondas ⇒ 1 `port.purchase` y 1 guía pagada por ronda | (ver BACKEND_NOTES §78.5) |
+ * | BSD-B9 | doble clic y dos personas, N ≥ 10 rondas ⇒ 1 `port.purchase` y 1 guía pagada por ronda | errata BSD-1.4 punto 2: quitar A LA VEZ el candado consultivo y `labelProcessingSince: null` del CAS (proporciones en BACKEND_NOTES §78.B5) |
  * | BSD-B10 | «en proceso» ⇒ sin plazo ni correo; el job trae el número ⇒ plazo + UN AV-7 | plazo en `persistProcessing`; `status:'picking'` en el job |
- * | BSD-B11 | dinero de la oferta intacto tras comprar (oferta y portal sin cambio) | — |
+ * | BSD-B11 | errata BSD-1.4 punto 5: la compra de una guía de entrada no cambia la oferta ni ninguna cifra `*Cents` del portal (el neto se calcula al PAGAR: BSD-B46, `bsd-b5.e2e-spec.ts`) | — |
  * | BSD-B12 | TG-1 cuenta la guía de entrada (403 + AG-3); ⛔ AG-1 tras corregir el origen; ⛔ AG-10 a 3 días | sin filtro `kind` en spend-watch |
  * | BSD-B22 | `GET /buylist/requests/:id/label.pdf`: dueño 200 PDF; otro 404 NOT_FOUND; manual/cancelada/cerrada 404 LABEL_NOT_AVAILABLE; ningún DTO de cliente trae `labelUrl` | saltar la comprobación de dueño |
  * | BSD-B24 | rutas solo-salida ⇒ 404; fuera de la lista admin y de `GET /shipments` del vendedor | quitar el 404 de `PATCH :id/status` |
@@ -476,8 +476,8 @@ describe('💰 B-2 — la guía de ENTRADA del buylist sobre el mismo motor (§B
 
   // ================================================================ BSD-B11
 
-  describe('BSD-B11 — la compra no toca el dinero de la oferta', () => {
-    it('dos solicitudes (bruto 1 500, tarifa 180) con guías de distinto costo ⇒ oferta y portal sin cambio (neto 1 320 en las dos)', async () => {
+  describe('BSD-B11 — la compra de una guía de entrada no cambia la oferta ni ninguna cifra `*Cents` del portal', () => {
+    it('dos solicitudes (bruto 1 500, tarifa 180) con guías de distinto costo ⇒ oferta y portal sin cambio; `payoutNetCents` sigue nulo (lo escribe `paySpei`: BSD-B46)', async () => {
       /** Toda cifra `*Cents` del DTO de cliente, por ruta (para comparar antes/después de comprar la guía). */
       const cents = (v: unknown, path = '', out: Record<string, unknown> = {}): Record<string, unknown> => {
         if (Array.isArray(v)) v.forEach((x, i) => cents(x, `${path}[${i}]`, out));

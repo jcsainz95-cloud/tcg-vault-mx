@@ -7,6 +7,8 @@
  * admitan las filas que el P&L supone. BSD-B32/B33/B34/B36 con las cifras del contrato, en UN periodo propio de la corrida
  * (un mes de un año lejano, distinto por corrida) y por DIFERENCIA contra la lectura previa: la BD compartida puede tener
  * otras filas y no estorban. Determinista: N=1, dicho como tal (no hay carrera ni reloj).
+ * BSD-B43 (errata BSD-1.4 punto 12): el periodo de (b) es `coalesce(guideSentAt, shipmentConfirmedAt)`, en un año propio
+ * (Y + 1) y por diferencia; la suma de los doce meses es la diferencia del P&L SIN periodo.
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
@@ -168,6 +170,37 @@ describe('💰 BSD-B32…B36 — guía y tarifa del buylist en el P&L (Postgres 
 
   it('profitCents = lo de antes + retenido − guías (y − el ajuste, que ya restaba)', () => {
     expect(delta('profitCents')).toBe(46000 - (12931 + 21552 + 8621 + 15000) - 1000);
+  });
+
+  it('BSD-B43 (errata BSD-1.4 punto 12) — (b) por `coalesce(guideSentAt, shipmentConfirmedAt)`: confirmada en marzo sin guía ⇒ marzo; Σ meses = total', async () => {
+    // Un año PROPIO (Y + 1): no toca las cifras de las pruebas de arriba (marzo de Y). Por DIFERENCIA (BD compartida).
+    const Y2 = Y + 1;
+    const at = (m: number, d: number) => new Date(Date.UTC(Y2, m - 1, d, 12));
+    const pnlOf = async (from?: Date, to?: Date) => {
+      const q = from && to ? `?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}` : '';
+      const r = await h.api('GET', `/admin/finance/pnl${q}`, { token });
+      expect(r.status).toBe(200);
+      return ((r.body?.data ?? r.body) as Record<string, number>).buylistGuideCostCents;
+    };
+    const months = async () => {
+      const out: number[] = [];
+      for (let m = 1; m <= 12; m++) out.push(await pnlOf(new Date(Date.UTC(Y2, m - 1, 1)), new Date(Date.UTC(Y2, m, 1) - 1)));
+      return out;
+    };
+    const m0 = await months();
+    const t0 = await pnlOf();
+    // Pagadas con costo manual capturado AL CONFIRMAR y SIN `guideSentAt` (lo que `adminConfirmShipment` acepta: `guideMissing`).
+    await paidReq(150000, 18000, { guideSentAt: null, shipmentCarrier: null, shipmentTrackingNumber: null, shipmentConfirmedAt: at(3, 20), paidAt: at(3, 25), closedAt: at(3, 25), guideActualCostCents: 9000 });
+    await paidReq(150000, 18000, { guideSentAt: null, shipmentCarrier: null, shipmentTrackingNumber: null, shipmentConfirmedAt: at(7, 1), paidAt: at(7, 2), closedAt: at(7, 2), guideActualCostCents: 4100 });
+    // Con `guideSentAt` manda `guideSentAt` (enero), aunque se confirmara en febrero.
+    await paidReq(150000, 18000, { guideSentAt: at(1, 5), shipmentConfirmedAt: at(2, 5), paidAt: at(2, 6), closedAt: at(2, 6), guideActualCostCents: 7000 });
+    const m1 = await months();
+    const t1 = await pnlOf();
+    const dm = m1.map((v, i) => v - m0[i]);
+    expect(dm[2]).toBe(9000); // marzo
+    expect([dm[0], dm[1], dm[6]]).toEqual([7000, 0, 4100]);
+    expect(t1 - t0).toBe(9000 + 4100 + 7000);
+    expect(dm.reduce((a, b) => a + b, 0)).toBe(t1 - t0); // ningún costo se queda sin mes
   });
 
   it('BSD-B36 — CSV por HTTP: los cuatro al final, en el orden del objeto, con las mismas cifras', async () => {

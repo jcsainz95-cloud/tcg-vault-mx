@@ -39,6 +39,8 @@ interface Req {
   payoutNetCents: number | null;
   paidAt: Date | null;
   guideSentAt: Date | null;
+  /** BSD-1.4 punto 12: el periodo de (b) es `coalesce(guideSentAt, shipmentConfirmedAt)`. */
+  shipmentConfirmedAt?: Date | null;
   guideActualCostCents: number | null;
   inbound: Inbound | null;
 }
@@ -82,6 +84,28 @@ function inPeriod(d: Date | null, f: any): boolean {
   return true;
 }
 
+/**
+ * Las fechas del `where` de una lectura de `SellRequest`, como las evalúa Prisma: `campo: periodo`, `campo: null` (IS NULL) y
+ * un `OR` de ramas (BSD-1.4 punto 12: `OR: [{guideSentAt: P}, {guideSentAt: null, shipmentConfirmedAt: P}]`). Un `where` que
+ * el doble no sepa leer FALLA aquí (⛔ no se ignora: un filtro ignorado es un periodo que no filtra).
+ */
+const DATE_KEYS = ['paidAt', 'guideSentAt', 'shipmentConfirmedAt'] as const;
+function datesMatch(r: Req, where: any): boolean {
+  for (const k of DATE_KEYS) {
+    if (!(k in where)) continue;
+    const v = (r as any)[k] ?? null;
+    if (where[k] === null ? v !== null : !inPeriod(v, where[k])) return false;
+  }
+  if (where.OR) {
+    for (const branch of where.OR) {
+      const unknown = Object.keys(branch).filter((k) => !(DATE_KEYS as readonly string[]).includes(k));
+      if (unknown.length > 0) throw new Error(`doble: rama OR con claves que no modela: ${unknown.join(',')}`);
+    }
+    return where.OR.some((branch: any) => datesMatch(r, branch));
+  }
+  return true;
+}
+
 interface Fx {
   requests?: Req[];
   orders?: any[];
@@ -109,7 +133,7 @@ function build(fx: Fx) {
         requests
           .filter((r) => (where.status ? r.status === where.status : true))
           .filter((r) => (where.guideActualCostCents ? r.guideActualCostCents != null : true))
-          .filter((r) => inPeriod(r.paidAt, where.paidAt) && inPeriod(r.guideSentAt, where.guideSentAt))
+          .filter((r) => datesMatch(r, where))
           .map((r) => ({ ...r, inboundShipment: r.inbound })),
       ),
     },
@@ -309,5 +333,46 @@ describe('💰 BSD-B36 — CSV: los cuatro campos al final, en el orden del obje
     expect(row.split(',')).toEqual(['pnl', ...Object.values(p).map(String)]);
     // cifras distintas entre sí: un cambio de orden no puede pasar por casualidad
     expect(row.split(',').slice(-4)).toEqual(['36000', String(12931 + 8621), String(5069 + 18000), '1']);
+  });
+});
+
+describe('💰 BSD-B43 — (b) cuenta por `coalesce(guideSentAt, shipmentConfirmedAt)` (errata BSD-1.4 punto 12; N=1, determinista)', () => {
+  const Y = 2031;
+  const month = (m: number): [string, string] => {
+    const from = new Date(Date.UTC(Y, m - 1, 1));
+    const to = new Date(Date.UTC(Y, m, 1) - 1);
+    return [from.toISOString(), to.toISOString()];
+  };
+  /** Pagada con costo manual capturado al CONFIRMAR, SIN `guideSentAt` (`adminConfirmShipment` lo acepta: `guideMissing`). */
+  const confirmedNoGuide = (id: string, cost: number, confirmedAt: Date) =>
+    paid(id, 150000, 18000, { guideSentAt: null, shipmentConfirmedAt: confirmedAt, guideActualCostCents: cost, paidAt: confirmedAt });
+
+  it('confirmada en marzo sin `guideSentAt` ⇒ su costo cuenta en el P&L de marzo (y no en febrero)', async () => {
+    const svc = build({ requests: [confirmedNoGuide('x', 9000, new Date(Date.UTC(Y, 2, 20, 12)))] });
+    expect((await svc.pnl(...month(3))).buylistGuideCostCents).toBe(9000);
+    expect((await svc.pnl(...month(2))).buylistGuideCostCents).toBe(0);
+  });
+
+  it('con `guideSentAt` manda `guideSentAt` (la guía de enero confirmada en marzo cuenta en enero)', async () => {
+    const r = paid('g', 150000, 18000, { guideSentAt: new Date(Date.UTC(Y, 0, 10)), shipmentConfirmedAt: new Date(Date.UTC(Y, 2, 20)), guideActualCostCents: 7000 });
+    const svc = build({ requests: [r] });
+    expect([(await svc.pnl(...month(1))).buylistGuideCostCents, (await svc.pnl(...month(3))).buylistGuideCostCents]).toEqual([7000, 0]);
+  });
+
+  it('la suma de enero a diciembre de (b) es la del P&L SIN periodo (ningún costo se queda sin mes)', async () => {
+    const at = (m: number, d: number) => new Date(Date.UTC(Y, m - 1, d, 12));
+    const requests = [
+      confirmedNoGuide('a', 9000, at(3, 20)),
+      confirmedNoGuide('b', 4100, at(7, 1)),
+      confirmedNoGuide('c', 1300, at(12, 31)),
+      paid('d', 150000, 18000, { guideSentAt: at(1, 5), shipmentConfirmedAt: at(2, 5), guideActualCostCents: 7000 }),
+      unpaid('e', null, { guideSentAt: at(5, 5), guideActualCostCents: 2500 }),
+    ];
+    const svc = build({ requests });
+    let sum = 0;
+    for (let m = 1; m <= 12; m++) sum += (await svc.pnl(...month(m))).buylistGuideCostCents;
+    const total = (await svc.pnl()).buylistGuideCostCents;
+    expect(total).toBe(9000 + 4100 + 1300 + 7000 + 2500);
+    expect(sum).toBe(total);
   });
 });

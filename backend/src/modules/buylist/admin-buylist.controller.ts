@@ -468,7 +468,8 @@ export class AdminBuylistController {
     @Body() dto: AdminPickupAddressDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const { auditAddressIds, ...res } = await this.buylist.adminUpdatePickupAddress(id, dto.addressId);
+    // ⭐ BSD-1.4 punto 10: el actor sale de `@CurrentUser`, ⛔ nunca del cuerpo (SEC-A1: el DTO solo admite `addressId`).
+    const { auditAddressIds, ...res } = await this.buylist.adminUpdatePickupAddress(id, dto.addressId, user.id);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

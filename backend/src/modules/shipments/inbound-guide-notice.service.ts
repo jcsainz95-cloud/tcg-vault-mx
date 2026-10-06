@@ -4,9 +4,9 @@
  * su número (en la respuesta de la compra, `persistLabeled`, o en el job de «en proceso», `setTrackingFromProvider`).
  *
  *  - ⛔ AV-4 no (la fila de entrada no tiene cliente); el aviso es el AV-7 de la solicitud, con el MISMO sello
- *    (`SellRequest.guideNoticeSentAt`), reclamado por `UPDATE … WHERE guideNoticeSentAt IS NULL` (`count === 1` ⇒ se manda;
- *    `0` ⇒ otra corrida ganó). Es el mecanismo de `claimAndNotifySellRequest` (buylist), repetido aquí porque aquel es
- *    privado del servicio de buylist; el sello y su reinicio por valor (`writeSellRequestGuide`) son los mismos.
+ *    (`SellRequest.guideNoticeSentAt`), reclamado por `UPDATE … WHERE <guideNoticeSealWhere>` (`count === 1` ⇒ se manda;
+ *    `0` ⇒ otra corrida ganó, o la solicitud se cerró, o su número ya es otro). El predicado es UNO, compartido con la
+ *    captura a mano (`buylist/sell-request-guide.ts`, errata BSD-1.4 punto 4); su reinicio por valor es `writeSellRequestGuide`.
  *  - El PDF se descarga POST-COMMIT con el MISMO cuerpo que la descarga del vendedor (`downloadLabelPdfVia`, ≤ 5 MB). Si
  *    falla, el correo **sale igual sin adjunto** (variante S0) y queda el log `buylist.guide_mail_without_pdf`; ⛔ no se
  *    reintenta el correo (el sello ya se reclamó).
@@ -21,6 +21,7 @@ import { SHIPPING_PROVIDER_SELECTION } from '../shipping-provider/shipping-provi
 import { ShippingProviderSelection } from '../shipping-provider/shipping-provider.factory';
 import { sellGuideTemplate } from '../buylist/buylist-notice.templates';
 import { buylistPortalUrl } from '../buylist/buylist-mail.templates';
+import { guideNoticeSealWhere } from '../buylist/sell-request-guide';
 import { providerTrackingUrlOf } from './customer-timeline';
 import { labelPdfAvailableOf, sellerLabelFilenameOf } from './label-inbound';
 import { downloadLabelPdfVia } from './label-pdf-download';
@@ -76,11 +77,10 @@ export class InboundGuideNoticeService {
         this.logger.warn(`buylist inbound guide mail skipped for ${sr.id}: no recipient email`);
         return;
       }
-      // EL sello de AV-7 (una vez por par paquetería/número; `writeSellRequestGuide` lo limpia solo si el par cambia). La
-      // solicitud sigue `aceptada` y abierta EN EL `WHERE` (la misma guarda que el sello de `claimAndNotifySellRequest`, B-3):
-      // si «Declinar» o la regla 8 ganaron entre el commit de la guía y aquí, ⛔ no se avisa de una guía ya cancelada.
+      // EL sello de AV-7 — errata BSD-1.4 punto 4: el MISMO predicado que la captura a mano (`guideNoticeSealWhere`): una vez
+      // por par, solicitud `aceptada` y abierta, y el número que se anuncia sigue siendo el de la solicitud.
       const sealed = await this.prisma.sellRequest.updateMany({
-        where: { id: sr.id, status: 'aceptada', closedAt: null, guideNoticeSentAt: null, shipmentTrackingNumber: row.trackingNumber },
+        where: guideNoticeSealWhere(sr.id, sr.shipmentTrackingNumber),
         data: { guideNoticeSentAt: new Date() },
       });
       if (sealed.count !== 1) return;

@@ -77,8 +77,11 @@ export async function closeInboundShipment(
  *  - la guía es **manual**: hay número en la solicitud y NO había guía viva de Skydropx en la fila de entrada (con guía de
  *    entrada viva el número de la solicitud ES el de Skydropx, I-BSD-2); o
  *  - el resultado es `'live'` (el paquete ya se movió: no se puede cancelar sola y alguien tiene que mirarla).
- * Con guía de Skydropx `'sealed'` NO hay tarea: el post-commit la cancela y, si `port.cancel` falla, el servicio de
- * cancelación la abre él (§BSD.4.8). Con guía manual: **bit a bit como hoy** (criterio 549).
+ * Con guía de Skydropx `'sealed'` NO hay tarea aquí: el post-commit la cancela y, si `port.cancel` no responde `ok`, la
+ * abre **el llamador**, tras `afterAutoCloseVia`, con `openGuideTaskIfCancelUnconfirmed` (`buylist/inbound-cancel-task.ts`,
+ * el ÚNICO escritor de ese caso; misma guarda `IS NULL`) — errata BSD-1.4 punto 3 (`API_CONTRACT §BSD.18`). ⛔ `shipments/`
+ * no escribe `guideCancellationPendingAt` (candado en `test/bsd-b2.structural.spec.ts`). Con guía manual: **bit a bit
+ * como hoy** (criterio 549).
  */
 export function needsGuideCancelTask(
   sellRequest: { readonly shipmentTrackingNumber: string | null; readonly guideCancellationDoneAt?: Date | null },

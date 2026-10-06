@@ -123,7 +123,7 @@ import {
   InventoryPositionPort,
   VariantPositionRef,
 } from '../inventory/inventory-position.port';
-import { writeSellRequestGuide } from './sell-request-guide';
+import { guideNoticeSealWhere, writeSellRequestGuide } from './sell-request-guide';
 // 💰 rev BSD-1 (API_CONTRACT §BSD): la costura de B-1 (`closeInboundShipment`, I-BSD-1), el post-commit de la cancelación
 // automática de la guía, el reloj del cierre sin guía y la vista de la guía de entrada en M5.
 import { ModuleRef } from '@nestjs/core';
@@ -449,8 +449,24 @@ function lastOfferCancelledAtOf(r: SellRequestBaseRow & SellRequestCycleRow): Da
  * filtros `minCents`/`maxCents` de §M5. **El dato no se pierde; deja de salir por una puerta donde
  * solo puede hacer daño.**
  */
-function isNoOfferClosure(r: { status: SellRequestStatus } & SellRequestCycleRow): boolean {
-  return r.status === 'expirada' && (r.expiredReason ?? null) === SellRequestExpiryReason.no_offer;
+/**
+ * ⭐ Errata BSD-1.4 punto 8 (`API_CONTRACT §BSD.18`): el conjunto que redacta es `expiredReason ∈ {no_offer, not_continued}`
+ * con `status='expirada'` (sustituye «Alcance EXACTO: solo `no_offer`» de arriba). En `not_continued` **nosotros** decidimos
+ * no comprar y no se compró ninguna carta: una cifra junto a «decidimos no continuar» se lee como deuda — el mismo daño que
+ * motivó `no_offer` — y BSD-M1 también prohíbe montos (§BSD.8.1). La excepción de `not_shipped` (hubo oferta vinculante y el
+ * vendedor la incumplió: derecho al registro) NO aplica. La proyección admin no cambia.
+ *
+ * ⚠️ En `not_continued` SÍ hubo oferta, así que la redacción alcanza más claves que en `no_offer` (donde ya eran nulas por
+ * construcción): toda cifra `*Cents` del DTO de cliente viaja `null` (BSD-B41, recorrido recursivo) y `offer` viaja `null`
+ * (su `terms.rule` lleva los montos ya escritos en prosa). Ver `redactedItemMoney` (líneas) y `getMine` (`offer`).
+ */
+const MONEY_REDACTED_EXPIRY: readonly SellRequestExpiryReason[] = [SellRequestExpiryReason.no_offer, SellRequestExpiryReason.not_continued];
+
+/** BSD-1.4 punto 8: las cifras de una LÍNEA en un cierre redactado — todas `null` explícito (la clave viaja, el valor no). */
+const redactedItemMoney = { quotedPriceCents: null, approvedPriceCents: null, offeredPriceCents: null, marketMxnCents: null } as const;
+
+function isMoneyRedactedClosure(r: { status: SellRequestStatus } & SellRequestCycleRow): boolean {
+  return r.status === 'expirada' && r.expiredReason != null && MONEY_REDACTED_EXPIRY.includes(r.expiredReason);
 }
 
 /**
@@ -480,7 +496,7 @@ function isNoOfferClosure(r: { status: SellRequestStatus } & SellRequestCycleRow
  * `offerIssueDeadlineAt` (un SLA nuestro que a propósito no se comunica).
  */
 function toCustomerSellRequestDTO(r: SellRequestBaseRow & SellRequestCycleRow) {
-  const redactMoney = isNoOfferClosure(r);
+  const redactMoney = isMoneyRedactedClosure(r);
   return {
     ...toSellRequestBaseDTO(r),
     // ⚠️ La redacción va DESPUÉS del spread: es la última palabra sobre esta cifra.
@@ -2116,6 +2132,8 @@ export class BuylistService implements OnModuleInit {
       inventoryItemId: i.inventoryItemId ?? undefined,
       ...rejection,
       ...offer,
+      // La redacción va AL FINAL: es la última palabra sobre estas cifras (`offer` trae `offeredPriceCents`).
+      ...(opts?.redactQuotedPrice === true ? redactedItemMoney : {}),
     };
   }
 
@@ -2133,7 +2151,7 @@ export class BuylistService implements OnModuleInit {
     const data = rows.map((r) => {
       // ⚠️ v1.51.4 (§6) — la redacción `no_offer` aplica **también en la LISTA**: las dos son
       // proyección de cliente, y dejar la cifra aquí reproduciría el daño **una pantalla antes**.
-      const redactMoney = isNoOfferClosure(r);
+      const redactMoney = isMoneyRedactedClosure(r);
       return {
         sellRequestId: r.id,
         status: r.status,
@@ -2184,7 +2202,7 @@ export class BuylistService implements OnModuleInit {
     // ellos. `terms.rule` (el único que sí los necesita) sale de `offerPublicDTO`, que los tiene
     // congelados en la fila: *no se interpola dinero donde no hay dinero que interpolar.*
     const conditionLabel = offerTermsCopy(req.user?.locale ?? null).perLineConditionLabel;
-    const redactMoney = isNoOfferClosure(req);
+    const redactMoney = isMoneyRedactedClosure(req);
     return {
       ...toCustomerSellRequestDTO(req),
       // 💰 rev BSD-1.1 C-1: el MISMO valor que la lista (`labelPdfAvailableOf`).
@@ -2222,7 +2240,8 @@ export class BuylistService implements OnModuleInit {
       // v1.51 (§6) — LA OFERTA COMO LA VE EL VENDEDOR. `null` salvo con `offerState='sent'`: una
       // oferta que espera autorización **no existe para él** (D13/D24), y una cancelada se limpió.
       // ⚠️ NUNCA lleva `offerState` ni ninguna cifra interna de la mesa.
-      offer: this.offerPublicDTO({ ...req, locale: req.user?.locale ?? null }, req.items),
+      // ⭐ BSD-1.4 punto 8: en un cierre redactado la oferta NO viaja (sus cifras y su `terms.rule`, que las lleva en prosa).
+      offer: redactMoney ? null : this.offerPublicDTO({ ...req, locale: req.user?.locale ?? null }, req.items),
     };
   }
 
@@ -4778,7 +4797,7 @@ export class BuylistService implements OnModuleInit {
    * derecho a avisar exactamente así, con su motivo escrito: *«dos corridas concurrentes tampoco
    * pueden mandarlo dos veces»*.
    *
-   * - `sealField === null` ⇒ el aviso **no estrena columna** porque su «una sola vez» ya la da el
+   * - `seal === null` ⇒ el aviso **no estrena columna** porque su «una sola vez» ya la da el
    *   MOTOR (`AV-8`: `stepWhere('receive')` + `count === 1`; `AV-9`: el corto-circuito idempotente de
    *   `pay-spei`). ⛔ **Un sello por evento, jamás una marca global.**
    * - **Destinatario (§R.5):** `SellRequest.userId` es `NOT NULL` ⇒ **siempre** `user.email`; no hay
@@ -4791,7 +4810,11 @@ export class BuylistService implements OnModuleInit {
    */
   private async claimAndNotifySellRequest(
     id: string,
-    sealField: 'guideNoticeSentAt' | null,
+    /**
+     * ⭐ Errata BSD-1.4 punto 4 (AV-7): el sello `guideNoticeSentAt` lleva el NÚMERO que el correo anuncia, y su predicado es
+     * `guideNoticeSealWhere` (`sell-request-guide.ts`), el MISMO que el AV-7 de la guía de entrada. `null` ⇒ sin sello.
+     */
+    seal: { field: 'guideNoticeSentAt'; trackingNumber: string } | null,
     build: (user: {
       name: string | null;
       email: string;
@@ -4814,14 +4837,15 @@ export class BuylistService implements OnModuleInit {
         this.logger.warn(`buylist notice mail skipped for ${id}: no recipient email`);
         return;
       }
-      if (sealField) {
+      if (seal) {
         const sealed = await this.prisma.sellRequest.updateMany({
-          // 💰 rev BSD-1: AV-7 («tu guía») solo a una solicitud que SIGUE aceptada y abierta. Si «Declinar» o la regla 8 la
-          // cerraron entre la compra de la guía y este post-commit, el vendedor recibe BSD-M1 y ⛔ no una guía que ya se canceló.
-          where: { id, [sealField]: null, ...(sealField === 'guideNoticeSentAt' ? { status: 'aceptada' as const, closedAt: null } : {}) },
-          data: { [sealField]: new Date() },
+          // 💰 rev BSD-1 + BSD-1.4 punto 4: AV-7 («tu guía») solo a una solicitud que SIGUE aceptada y abierta Y cuyo número
+          // sigue siendo el que este correo anuncia. Si se cerró entre la guía y este post-commit, el vendedor recibe BSD-M1 y
+          // ⛔ no una guía cancelada; si el número se corrigió (A ⇒ B), el post-commit de A no casa y ⛔ no anuncia A.
+          where: guideNoticeSealWhere(id, seal.trackingNumber),
+          data: { [seal.field]: new Date() },
         });
-        if (sealed.count !== 1) return; // otra corrida ganó: NO se manda un segundo correo.
+        if (sealed.count !== 1) return; // otra corrida ganó (o cerrada, o número corregido): NO se manda.
       }
       const msg = build({ name: user.name, email: user.email, locale: user.locale });
       if (!msg) return;
@@ -5086,7 +5110,13 @@ export class BuylistService implements OnModuleInit {
    * misma solicitud**. ⛔ **Prohibido el atajo de acumular (`+=`)**: convertiría *«el costo de la
    * etiqueta»* en *«la suma de los costos»* **sin cambiarle el nombre**.
    */
-  async adminUpdatePickupAddress(id: string, addressId: string) {
+  /**
+   * ⭐ Errata BSD-1.4 punto 10 (`API_CONTRACT §BSD.18`): `actorUserId` = el ADMIN que corrige (`@CurrentUser`, ⛔ nunca del
+   * cuerpo). La `ShipmentAddressRevision` de la fila de entrada se firma con él — la misma convención que
+   * `PUT /admin/shipments/:id/address` sobre esa misma fila. SEC-A1 sigue intacto: la regla es la FORMA del DTO (solo
+   * `addressId`) y ningún parámetro es un objeto de domicilio (candado reescrito en `test/buylist.pickup-address.spec.ts`).
+   */
+  async adminUpdatePickupAddress(id: string, addressId: string, actorUserId: string) {
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
       // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud, después su fila de entrada.
@@ -5173,10 +5203,9 @@ export class BuylistService implements OnModuleInit {
           },
         );
       }
-      // 💰 rev BSD-1 (§BSD.4.5): como la del vendedor — la fila de entrada en `solicitado` toma la copia nueva. La revisión
-      // se firma con el VENDEDOR (la dirección es una fila de SU libreta; ⛔ la firma de este método no gana parámetros, SEC-A1);
-      // quién la eligió queda en la bitácora `buylist.pickup_address.admin_update`.
-      await resyncInboundAddress(tx, id, snapshot, before.userId, now);
+      // 💰 rev BSD-1 (§BSD.4.5): como la del vendedor — la fila de entrada en `solicitado` toma la copia nueva. ⭐ BSD-1.4
+      // punto 10: la revisión la firma el ACTOR (quien la corrigió), no el vendedor dueño de la libreta (BSD-B42).
+      await resyncInboundAddress(tx, id, snapshot, actorUserId, now);
       const after = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -5329,7 +5358,9 @@ export class BuylistService implements OnModuleInit {
     // transacción de negocio: meterlo dentro haría que un fallo del correo pudiera revertir la
     // captura de una etiqueta que ya se pagó. *El aviso cuelga del hecho; el hecho no cuelga del
     // aviso.*
-    await this.claimAndNotifySellRequest(id, 'guideNoticeSentAt', (user) =>
+    // ⛔ Sin número no hay nada que anunciar ni que sellar (el DTO lo exige: inalcanzable hoy).
+    if (!res.shipmentTrackingNumber) return res;
+    await this.claimAndNotifySellRequest(id, { field: 'guideNoticeSentAt', trackingNumber: res.shipmentTrackingNumber }, (user) =>
       res.shipmentCarrier && res.shipmentTrackingNumber
         ? sellGuideTemplate(
             {

@@ -13,11 +13,31 @@
  * cambia: el nombre legible lo pasa el llamador (`persistLabeled`, B-2).
  *
  * Fichero LIGERO a propósito (solo Prisma y `business-days`): lo importa `shipments/` sin arrastrar `buylist.service`.
+ * Aquí vive también el predicado del sello de AV-7 (`guideNoticeSealWhere`, errata BSD-1.4 punto 4).
  */
 import { Prisma } from '@prisma/client';
 import { addBusinessDays } from '../../common/business-days';
 
 export type SellRequestGuideSource = 'manual' | 'skydropx';
+
+/**
+ * ⭐ Errata BSD-1.4 punto 4 (`API_CONTRACT §BSD.18`, AV-7): **EL predicado del sello `guideNoticeSentAt`, uno solo.** Lo usan
+ * los dos sellos de AV-7 — la captura a mano (`BuylistService.claimAndNotifySellRequest`) y la guía de entrada de Skydropx
+ * (`InboundGuideNoticeService.notifyLabeled`) — y vive aquí, junto al reinicio del sello por valor (`writeSellRequestGuide`),
+ * porque los dos lados de la misma regla tienen que leerse juntos.
+ *
+ *  - `guideNoticeSentAt: null` — una vez por par paquetería/número (el reinicio lo hace `writeSellRequestGuide`).
+ *  - `status: 'aceptada'` ∧ `closedAt: null` — si «Declinar» o la regla 8 cerraron entre la guía y el post-commit, el vendedor
+ *    recibe BSD-M1 y ⛔ no una guía que ya se canceló.
+ *  - **`shipmentTrackingNumber: trackingNumber`** — el número que el correo VA A ANUNCIAR sigue siendo el de la solicitud.
+ *    Sin él (la copia manual de antes), capturar A, corregir a B y que el post-commit de A corra el último sellaba y
+ *    mandaba A, el número equivocado, y el de B ya no casaba (BSD-B40 (b), medido en rojo sobre el código previo).
+ *
+ * ⛔ Ningún otro `where` sobre `sellRequest` con `guideNoticeSentAt: null` en `backend/src` (candado BSD-B40 (a)).
+ */
+export function guideNoticeSealWhere(sellRequestId: string, trackingNumber: string): Prisma.SellRequestWhereInput {
+  return { id: sellRequestId, guideNoticeSentAt: null, status: 'aceptada', closedAt: null, shipmentTrackingNumber: trackingNumber };
+}
 
 export interface SellRequestGuideWrite {
   /** `1` ⇔ la solicitud admitía la guía y quedó escrita (o ya era ésta). `0` ⇒ no admite guía: el llamador decide. */

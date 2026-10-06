@@ -9,7 +9,7 @@
  * |---|---|
  * | BSD-B14 | Declinar y regla 2 con guía de entrada «creada»: `cancel` llamado, libro `auto_close`, SIN tarea; el doble niega ⇒ tarea con el número |
  * | BSD-B15 | `decline-accepted`: 400/éxito/409×3/403, bitácora con motivo, UN BSD-M1 sin el motivo |
- * | BSD-B16 | Declinar ∥ comprar, N = 10 rondas: nunca cerrada con guía viva; nunca BSD-M1 y AV-7 a la vez |
+ * | BSD-B16 | Declinar ∥ comprar, N = 10 rondas: nunca cerrada con guía viva; nunca BSD-M1 y AV-7 con la guía VIVA (texto de la errata BSD-1.4 punto 7) |
  * | BSD-B17 | Regla 8 con reloj: 6 d 23 h abierta; 7 d cerrada cruzando fin de semana; dial 10; guía manual, Skydropx, reclamo, «en proceso» |
  * | BSD-B3 (mitad) | Ancladas por el relleno: a +0 no cierra, a +7 d cierra las tres |
  * | BSD-B18 | Regla 8 ∥ comprar, N = 10 rondas, con BARRERA de candado de fila (orden forzado, no tirada de dados) |
@@ -21,11 +21,12 @@
  * | BSD-B37/B38 | Rechazar en `aceptada` ⇒ `422 REQUEST_NOT_RECEIVED {remedy:'decline_accepted'}`, y la guarda vive en el `WHERE` |
  * | BSD-B39 (mitad B-3) | Reclamo de entrada viejo ⇒ `labelAlert` en la ficha, el filtro y el contador; la lista de M4 no la trae |
  * | §BSD.4.5 | Captura a mano con guía viva de entrada ⇒ `409 SHIPMENT_ALREADY_LABELED`; con reclamo ⇒ `409 LABEL_IN_PROGRESS` |
+ * | BSD-B42 (BSD-1.4 p. 10) | `PATCH …/pickup-address`: la revisión de la fila de entrada la firma el VENDEDOR en su ruta y el ADMIN (actor) en la de admin |
  *
- * ⚠️ «Comprar» (B16/B18/B31) es un SUSTITUTO FIEL AL CONTRATO del motor de B-2 (§BSD.3/§BSD.4.7: reclamo con I-BSD-4 y CAS
- * `status='solicitado'`, persistencia con `writeSellRequestGuide` y `casZero` rama (3)), porque la compra de la guía de entrada
- * la construye B-2 en paralelo. Lo que estas pruebas miden es el lado de B-3 (candados, predicados, I-BSD-1); cuando B-2
- * entregue, se repiten contra `POST /admin/shipments/:id/label` (anotado en `BACKEND_NOTES §78.B3`).
+ * ⚠️ «Comprar» (B16/B18/B31) es aquí un SUSTITUTO FIEL AL CONTRATO del motor de B-2 (§BSD.3/§BSD.4.7: reclamo con I-BSD-4 y
+ * CAS `status='solicitado'`, persistencia con `writeSellRequestGuide` y `casZero` rama (3)). Se queda como prueba RÁPIDA
+ * adicional; ⛔ no cuenta como la medición (errata BSD-1.4 punto 9): las tres se repiten contra `POST /admin/shipments/:id/label`
+ * en `bsd-b5.e2e-spec.ts`, con las proporciones (original y mutado) en `BACKEND_NOTES §78.B5`.
  */
 import { randomBytes } from 'crypto';
 import { Role } from '@prisma/client';
@@ -457,7 +458,7 @@ describe('💰 BSD-B17 — regla 8: días NATURALES, y lo que NO se cierra', () 
 });
 
 // =================================================================================================================== B18
-describe('💰 BSD-B18 — regla 8 ∥ comprar, con BARRERA (N = 10 rondas)', () => {
+describe('💰 BSD-B18 — regla 8 ∥ comprar, con BARRERA (N = 10 rondas; sustituto rápido — la medición es la de `bsd-b5`)', () => {
   it('el reclamo que gana el candado de la solicitud EXCLUYE la fila del cierre: 10/10 rondas sin cerrada-con-compra', async () => {
     const malas: string[] = [];
     for (let i = 0; i < 10; i++) {
@@ -491,8 +492,8 @@ describe('💰 BSD-B18 — regla 8 ∥ comprar, con BARRERA (N = 10 rondas)', ()
 });
 
 // =================================================================================================================== B16
-describe('💰 BSD-B16 — declinar ∥ comprar (N = 10 rondas)', () => {
-  it('por ronda: cerrada SIN guía viva, o con guía y abierta; nunca BSD-M1 y AV-7 a la vez', async () => {
+describe('💰 BSD-B16 — declinar ∥ comprar (N = 10 rondas; sustituto rápido — la medición es la de `bsd-b5`)', () => {
+  it('por ronda: cerrada SIN guía viva, o con guía y abierta; nunca BSD-M1 y AV-7 con la guía viva', async () => {
     const malas: string[] = [];
     const orden: Record<string, number> = {};
     for (let i = 0; i < 10; i++) {
@@ -531,7 +532,7 @@ describe('💰 BSD-B16 — declinar ∥ comprar (N = 10 rondas)', () => {
 });
 
 // =================================================================================================================== B31
-describe('💰 BSD-B31 — declinar ∥ comprar ∥ barrido (N = 30 rondas): cero interbloqueos', () => {
+describe('💰 BSD-B31 — declinar ∥ comprar ∥ barrido (N = 30 rondas): cero interbloqueos (sustituto rápido — la medición es la de `bsd-b5`)', () => {
   it('ningún `40P01` (deadlock) en ninguna de las tres ramas', async () => {
     const logger = (sweep as unknown as { logger: { error: (m: string) => void } }).logger;
     const errores: string[] = [];
@@ -813,7 +814,7 @@ describe('💰 §BSD.4.5 — el domicilio de origen y la fila de entrada', () =>
     expect((await shr(row.id)).addressVersion).toBe(0);
   });
 
-  it('admin: con guía de Skydropx viva ⇒ 409 SHIPMENT_ALREADY_LABELED; con reclamo ⇒ 409 LABEL_IN_PROGRESS; sin nada ⇒ 200 y re-sincroniza', async () => {
+  it('admin: con guía de Skydropx viva ⇒ 409 SHIPMENT_ALREADY_LABELED; con reclamo ⇒ 409 LABEL_IN_PROGRESS; sin nada ⇒ 200 y re-sincroniza (BSD-B42: firma el ADMIN)', async () => {
     const { sr: a, s: sa } = await accepted();
     const g = await liveSkydropxGuide(a.id);
     const ra = await h.api('PATCH', `/admin/buylist/${a.id}/pickup-address`, { token: operator.token, json: { addressId: (await addr(sa.id)).id } });
@@ -829,6 +830,10 @@ describe('💰 §BSD.4.5 — el domicilio de origen y la fila de entrada', () =>
     const after = await shr(rowC.id);
     expect(after.addressVersion).toBe(1);
     expect((after.addressSnapshot as { line1: string }).line1).toBe('Calle Admin 1');
-    expect((await h.prisma.shipmentAddressRevision.findFirstOrThrow({ where: { shipmentRequestId: rowC.id } })).correctedByUserId).toBe(sc.id);
+    // 💰 BSD-B42 (errata BSD-1.4 punto 10): la revisión que nace del PATCH de ADMIN se firma con el ACTOR (la misma
+    // convención que `PUT /admin/shipments/:id/address` sobre esta misma fila), no con el vendedor.
+    expect((await h.prisma.shipmentAddressRevision.findFirstOrThrow({ where: { shipmentRequestId: rowC.id } })).correctedByUserId).toBe(operator.id);
+    expect(after.addressCorrectedByUserId).toBe(operator.id);
+    expect(sc.id).not.toBe(operator.id);
   });
 });

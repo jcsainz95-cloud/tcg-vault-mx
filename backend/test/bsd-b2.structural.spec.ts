@@ -7,6 +7,12 @@
  * `setTrackingFromProvider` de la misma lista de CAS) no aparece el literal `'picking'` fuera de `label-subject.ts`: el estado
  * «abierta sin guía» es `OPEN_FOR_LABEL_STATUS[kind]` / `labelSubjectOf(row).openStatus` / `openForLabelWhere()`.
  * Mutación: devolver `status: 'picking'` al job de «en proceso» ⇒ rojo aquí (y BSD-B10, de integración, también).
+ *
+ * ⭐ Errata BSD-1.4 punto 3 (`API_CONTRACT §BSD.18`): **un solo escritor de la tarea «cancelar guía no usada» tras una
+ * cancelación automática sin confirmar** = `buylist/inbound-cancel-task.ts`. En `src/modules/shipments/` ⛔ no aparece
+ * `guideCancellationPendingAt` en código (comentarios fuera). Es MÁS estricto que «ninguna escritura»: hoy `shipments/` ni
+ * siquiera la lee (medido 2026-10-06, `grep` sin comentarios ⇒ 0), así que una lectura nueva también avisa y se decide
+ * a ojos abiertos. Mutación: escribirla en `afterAutoClose` (`label-cancel.service.ts`) ⇒ rojo.
  */
 import { join } from 'node:path';
 import { sourcesWithoutComments } from './helpers/bsd-census';
@@ -27,6 +33,23 @@ describe('💰 BSD-B25 (c) — ningún literal `picking` en un estado del motor 
   it('ningún fichero del motor (salvo `label-subject.ts`) escribe `picking`', () => {
     const offenders = sourcesWithoutComments(BACKEND)
       .filter((s) => ENGINE.test(norm(s.file)) && norm(s.file) !== SUBJECT_FILE && PICKING.test(s.code))
+      .map((s) => s.file);
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('💰 BSD-1.4 punto 3 — `shipments/` no escribe `guideCancellationPendingAt` (un escritor: `inbound-cancel-task.ts`)', () => {
+  const FIELD = /\bguideCancellationPendingAt\b/;
+  const SHIPMENTS = /^src\/modules\/shipments\//;
+  it('CONTROL: el candado ve `shipments/` (≥ 20 ficheros) y ve el campo donde SÍ vive (`buylist/inbound-cancel-task.ts`)', () => {
+    const all = sourcesWithoutComments(BACKEND);
+    expect(all.filter((s) => SHIPMENTS.test(norm(s.file))).length).toBeGreaterThanOrEqual(20);
+    expect(FIELD.test(all.find((s) => norm(s.file) === 'src/modules/buylist/inbound-cancel-task.ts')?.code ?? '')).toBe(true);
+  });
+
+  it('ningún fichero de `src/modules/shipments/` menciona `guideCancellationPendingAt` en código', () => {
+    const offenders = sourcesWithoutComments(BACKEND)
+      .filter((s) => SHIPMENTS.test(norm(s.file)) && FIELD.test(s.code))
       .map((s) => s.file);
     expect(offenders).toEqual([]);
   });

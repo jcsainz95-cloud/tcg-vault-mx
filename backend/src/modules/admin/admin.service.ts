@@ -1851,11 +1851,12 @@ export class AdminService {
    *  - `buylistShippingFeeRetainedCents` (suma a la ganancia): lo retenido de las solicitudes `pagada`, por `paidAt`.
    *  - `buylistGuideCostCents` (resta): (a) guías de Skydropx de ENTRADA por `labelPurchasedAt`, netas, ⛔ las de
    *    cancelación confirmada (lo no devuelto ya está en «ajustes de paquetería»); (b) guías MANUALES con costo
-   *    capturado, por `guideSentAt`, de solicitudes SIN guía de Skydropx de entrada.
+   *    capturado, por `coalesce(guideSentAt, shipmentConfirmedAt)`, de solicitudes SIN guía de Skydropx de entrada.
    *  - `buylistGuideMarginCents` (informativo): Σ (retenido − costo de SU guía) de las pagadas en el periodo. Se mide
    *    POR SOLICITUD y no como resta de los dos renglones: viven en periodos distintos, y una guía de una solicitud que
    *    nunca se pagó cuesta sin retener nada.
    *  - `buylistGuideCostMissingCount` (informativo): pagadas en el periodo con guía manual sin costo capturado.
+   *  - (b) va por `coalesce(guideSentAt, shipmentConfirmedAt)` (errata BSD-1.4 punto 12).
    * Censo BSD-B23 (BSD-1.3 punto 6): el lector de (a) es `inbound_only`; las lecturas de `SellRequest` quedan fuera.
    */
   private async pnlBuylistGuides(period?: Prisma.DateTimeFilter) {
@@ -1868,8 +1869,15 @@ export class AdminService {
         select: inboundRow.select,
       }),
       // (b) — la fila de entrada viaja para descartar las de Skydropx con la MISMA regla (`isSkydropxInbound`).
+      // ⭐ Errata BSD-1.4 punto 12 (`API_CONTRACT §BSD.18`): periodo = `coalesce(guideSentAt, shipmentConfirmedAt)`.
+      // `adminConfirmShipment` (el único escritor de `guideActualCostCents`) acepta el costo SIN guía (`guideMissing`) y lo
+      // escribe en el mismo `updateMany` que `shipmentConfirmedAt`: sin la segunda rama ese costo no entraba en ningún mes
+      // y la suma de los meses no daba el total (BSD-B43). Los dos nulos ⇒ solo en el P&L sin periodo (hoy no ocurre).
       this.prisma.sellRequest.findMany({
-        where: { guideActualCostCents: { not: null }, ...(period ? { guideSentAt: period } : {}) },
+        where: {
+          guideActualCostCents: { not: null },
+          ...(period ? { OR: [{ guideSentAt: period }, { guideSentAt: null, shipmentConfirmedAt: period }] } : {}),
+        },
         select: { guideActualCostCents: true, inboundShipment: { select: { labelSource: true } } },
       }),
       this.prisma.sellRequest.findMany({

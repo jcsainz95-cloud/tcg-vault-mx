@@ -7,9 +7,10 @@
  * `port.cancel`): si al volver la fila sigue con `providerCanceledAt` y sin `providerCancelConfirmedAt`, Skydropx no dijo `ok`
  * (o no se pudo llamar) y alguien tiene que mirarla. Sin esto la tarea esperaría a la regla 10 (1 h).
  *
- * ⚠️ §BSD.4.8 asigna esta escritura al «servicio de cancelación» (`shipments/`, B-2). Aquí la hace el LLAMADOR, con la misma
- * guarda (`guideCancellationPendingAt IS NULL ∧ guideCancellationDoneAt IS NULL`): si B-2 también la escribe, la segunda no
- * casa (idempotente). Decisión anotada en `BACKEND_NOTES §78.B3`.
+ * ⭐ Errata BSD-1.4 punto 3 (`API_CONTRACT §BSD.18`, ratificado): éste es el **ÚNICO escritor** del caso «sellada y Skydropx
+ * no confirmó al volver», con la guarda `guideCancellationPendingAt IS NULL ∧ guideCancellationDoneAt IS NULL`. ⛔ `shipments/`
+ * no escribe `guideCancellationPendingAt` (su post-commit lo comparten reembolsos y contracargo, filas de salida sin
+ * solicitud): candado en `test/bsd-b2.structural.spec.ts`. La regla 10 del barrido queda como red tardía (≥ 1 h).
  */
 import { Prisma } from '@prisma/client';
 

@@ -6,6 +6,11 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { Role } from '@prisma/client';
+import { ValidationPipe } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import * as ts from 'typescript';
+import { AdminPickupAddressDto } from '../src/modules/buylist/dto/buylist.dto';
 
 /**
  * v1.51.4 — **BL-13 (`PATCH …/pickup-address`)**, **D31 (`awaitingGuide`)** y **BL-15 (el teléfono en
@@ -118,7 +123,7 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
       guideSentAt: new Date('2026-09-02T00:00:00Z'),
       shipDeadlineAt: new Date('2026-09-07T00:00:00Z'),
     });
-    const res = await svc.adminUpdatePickupAddress('sr-1', 'addr-buena');
+    const res = await svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1');
 
     expect((res.pickupAddress as Record<string, unknown>).line1).toBe('Av. Correcta 456');
     // La solicitud vuelve a un estado QUE YA EXISTE Y YA SE VIGILA: `aceptada` sin guía.
@@ -142,7 +147,7 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
       guideCancellationPendingAt: new Date('2026-09-03T00:00:00Z'),
       guideCancellationDoneAt: new Date('2026-09-04T00:00:00Z'),
     });
-    await svc.adminUpdatePickupAddress('sr-1', 'addr-buena');
+    await svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1');
     expect(request.guideCancellationDoneAt).toBeNull();
     expect(request.guideCancellationDoneBy).toBeNull();
     expect(request.guideCancellationPendingAt).toBeInstanceOf(Date);
@@ -150,7 +155,7 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
 
   it('SIN guía emitida: solo re-congela el snapshot, sin tocar la guía ni abrir tarea', async () => {
     const { svc, request } = build({ guideSentAt: null });
-    await svc.adminUpdatePickupAddress('sr-1', 'addr-buena');
+    await svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1');
     expect((request.pickupAddressSnapshot as Record<string, unknown>).line1).toBe('Av. Correcta 456');
     expect(request.guideCancellationPendingAt).toBeNull();
   });
@@ -162,7 +167,7 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
       guideSentAt: new Date('2026-09-02T00:00:00Z'),
       sellerShippedDeclaredAt: new Date('2026-09-04T00:00:00Z'),
     });
-    await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).rejects.toMatchObject({
+    await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1')).rejects.toMatchObject({
       code: 'PICKUP_ADDRESS_LOCKED',
       status: 409,
     });
@@ -175,7 +180,7 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
     ['la solicitud está cerrada', { closedAt: new Date('2026-09-05T00:00:00Z') }],
   ])('%s ⇒ `409 PICKUP_ADDRESS_LOCKED`', async (_t, over) => {
     const { svc, request } = build({ guideSentAt: new Date('2026-09-02T00:00:00Z'), ...over });
-    await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).rejects.toMatchObject({
+    await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1')).rejects.toMatchObject({
       code: 'PICKUP_ADDRESS_LOCKED',
     });
     expect((request.pickupAddressSnapshot as Record<string, unknown>).line1).toBe('Calle Vieja 1');
@@ -183,14 +188,46 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
 
   it('⚠️ `guideSentAt` NO es precondición: es JUSTO la ventana que esta ruta existe para cubrir', async () => {
     const { svc } = build({ guideSentAt: new Date('2026-09-02T00:00:00Z') });
-    await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).resolves.toBeDefined();
+    await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1')).resolves.toBeDefined();
   });
 
-  it('⚠️ SEC-A1: se ELIGE una fila de la libreta, no se escribe un domicilio', async () => {
-    // La firma no admite campos de domicilio: la defensa es la FORMA, no una validación.
-    expect(BuylistService.prototype.adminUpdatePickupAddress.length).toBe(2);
+  /**
+   * ⚠️ SEC-A1 — **la defensa es la FORMA**: el admin ELIGE una fila de la libreta del vendedor (`addressId`); ⛔ no puede
+   * escribir un domicilio. Hasta la errata BSD-1.4 este candado era `length === 2`: la aridad como PROXY de «ningún campo
+   * de domicilio entra al método». El punto 10 de la errata (`API_CONTRACT §BSD.18`) añade el ACTOR (`@CurrentUser`, no el
+   * cuerpo) para firmar la revisión de domicilio de la fila de entrada, y el proxy deja de servir. Se reescribe la REGLA,
+   * no el número — lo que antes vigilaba la aridad lo vigilan ahora tres cosas que sí la dicen:
+   *  1. aridad 3 (un 4.º parámetro sigue siendo rojo, como lo era un 3.º);
+   *  2. ningún parámetro es un objeto: los tres son `string` en el FUENTE (AST). Esto caza lo que la aridad nunca vio:
+   *     cambiar un `string` por un objeto de domicilio sin cambiar el número de parámetros;
+   *  3. el DTO del cuerpo solo admite `addressId`: con el `ValidationPipe` de `main.ts` (`whitelist`) cualquier clave de
+   *     domicilio se cae antes de llegar al servicio.
+   * Mutaciones medidas (BACKEND_NOTES §78.B5, N=1 cada una): 4.º parámetro objeto ⇒ rojo en (1), lo que mordía el
+   * candado viejo; el actor como `string | {line1}` (aridad 3, el viejo `=== 2` tampoco lo habría visto) ⇒ rojo en (2);
+   * `line1` en el DTO ⇒ rojo en (3).
+   */
+  it('⚠️ SEC-A1: se ELIGE una fila de la libreta, no se escribe un domicilio (aridad 3, todo `string`, DTO solo `addressId`)', async () => {
+    expect(BuylistService.prototype.adminUpdatePickupAddress.length).toBe(3);
+    const src = readFileSync(join(__dirname, '../src/modules/buylist/buylist.service.ts'), 'utf8');
+    const file = ts.createSourceFile('buylist.service.ts', src, ts.ScriptTarget.Latest, true);
+    const params: string[] = [];
+    const visit = (n: ts.Node): void => {
+      if (ts.isMethodDeclaration(n) && n.name.getText(file) === 'adminUpdatePickupAddress') {
+        for (const p of n.parameters) params.push(`${p.name.getText(file)}:${p.type ? ts.SyntaxKind[p.type.kind] : 'implicit'}`);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(file);
+    expect(params).toEqual(['id:StringKeyword', 'addressId:StringKeyword', 'actorUserId:StringKeyword']);
+    // El cuerpo, por el MISMO pipe que `main.ts`: solo `addressId` sobrevive.
+    const pipe = new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: false });
+    const body = await pipe.transform(
+      { addressId: 'addr-buena', line1: 'Calle Falsa 1', postalCode: '01000', pickupAddressSnapshot: { line1: 'x' } },
+      { type: 'body', metatype: AdminPickupAddressDto },
+    );
+    expect(Object.keys(body)).toEqual(['addressId']);
     const { svc, prisma } = build();
-    await svc.adminUpdatePickupAddress('sr-1', 'addr-buena');
+    await svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1');
     // Y se resuelve contra la libreta, no contra un pedido ni el KYC.
     expect(prisma.address.findUnique).toHaveBeenCalledWith({ where: { id: 'addr-buena' } });
   });
@@ -198,11 +235,11 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
   it('una dirección INEXISTENTE y una AJENA dan la MISMA respuesta (no es un oráculo)', async () => {
     const inexistente = build();
     await expect(
-      inexistente.svc.adminUpdatePickupAddress('sr-1', 'addr-fantasma'),
+      inexistente.svc.adminUpdatePickupAddress('sr-1', 'addr-fantasma', 'admin-1'),
     ).rejects.toMatchObject({ code: 'PICKUP_ADDRESS_NOT_FOUND' });
 
     const ajena = build({ addressOwner: 'otro-usuario' });
-    await expect(ajena.svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).rejects.toMatchObject({
+    await expect(ajena.svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1')).rejects.toMatchObject({
       code: 'PICKUP_ADDRESS_NOT_FOUND',
     });
     // Ni el snapshot ni la guía se tocaron en ninguno de los dos casos.
@@ -211,14 +248,14 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
 
   it('el teléfono del snapshot es el DEL DOMICILIO, no el del usuario', async () => {
     const { svc, request } = build();
-    await svc.adminUpdatePickupAddress('sr-1', 'addr-buena');
+    await svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1');
     // Se parecen y no son el mismo dato: éste va impreso en la etiqueta.
     expect((request.pickupAddressSnapshot as Record<string, unknown>).phone).toBe('+52 55 9999 0000');
   });
 
   it('⚠️ la bitácora recibe SOLO los ids, jamás el domicilio', async () => {
     const { svc } = build();
-    const res = await svc.adminUpdatePickupAddress('sr-1', 'addr-buena');
+    const res = await svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1');
     expect(res.auditAddressIds).toEqual({ before: 'addr-vieja', after: 'addr-buena' });
     // Un domicilio en la bitácora es PII que nadie va a purgar.
     expect(JSON.stringify(res.auditAddressIds)).not.toMatch(/Calle|Av\.|06000/);
@@ -273,7 +310,7 @@ describe('⚠️⚠️ BL-36 — «no se toca una terminal», ahora DICHO en las
         shipmentConfirmedAt: null,
         sellerShippedDeclaredAt: null,
       });
-      await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).rejects.toMatchObject({
+      await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1')).rejects.toMatchObject({
         code: 'PICKUP_ADDRESS_LOCKED',
         status: 409,
         // Cero vocabulario nuevo: `details.status` ya viajaba, y es justo el campo que explica el
@@ -301,7 +338,7 @@ describe('⚠️⚠️ BL-36 — «no se toca una terminal», ahora DICHO en las
     // La discrepancia de P1, por el otro lado. Son DOS ejes y hacen falta LOS DOS: una guarda que se
     // apoye en el invariante que el bug rompió no guarda nada.
     const admin = build({ status: 'aceptada', closedAt: new Date('2026-09-05T00:00:00Z') });
-    await expect(admin.svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).rejects.toMatchObject({
+    await expect(admin.svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1')).rejects.toMatchObject({
       code: 'PICKUP_ADDRESS_LOCKED',
     });
     const cliente = build({ status: 'aceptada', closedAt: new Date('2026-09-05T00:00:00Z') });
@@ -321,7 +358,7 @@ describe('⚠️⚠️ BL-36 — «no se toca una terminal», ahora DICHO en las
   it('el camino feliz sigue: sobre una solicitud VIVA las dos rutas re-congelan el snapshot', async () => {
     // *Sin este assert, todos los anteriores los pasa una guarda que rechaza siempre.*
     const admin = build({ status: 'aceptada', guideSentAt: new Date('2026-09-02T00:00:00Z') });
-    await expect(admin.svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).resolves.toBeDefined();
+    await expect(admin.svc.adminUpdatePickupAddress('sr-1', 'addr-buena', 'admin-1')).resolves.toBeDefined();
     expect((admin.request.pickupAddressSnapshot as Record<string, unknown>).line1).toBe(
       'Av. Correcta 456',
     );
