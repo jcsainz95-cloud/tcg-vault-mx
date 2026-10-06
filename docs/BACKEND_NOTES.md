@@ -29830,3 +29830,37 @@ no en el `node_modules` compartido — comprobado: 0 apariciones de `buylist_inb
   `eslint src test scripts` exit 0; **unitaria completa 436/436 suites, 7906/7906 pruebas**; **integración completa 112/112
   suites, 2182/2182 pruebas** (con `E2E_STRICT_INFRA=false`: corrida de construcción, ⛔ no de gate). Sin rojos de Redis `MISCONF`
   en esta corrida (devops lo arregló en `1377a688`).
+
+### 78.B6 · Errata BSD-1.5 (💰, solo pruebas) — B9 y B16 de `API_CONTRACT §BSD.19` (2026-10-06, rama `claude/buylist-skydropx`, sobre `2ae42e77`)
+
+Norma: `API_CONTRACT §BSD.19` puntos 1 y 2; porqué en `ARCHITECTURE §4.BSD (o)`. ⛔ Sin cambio en `src/`.
+
+| Prueba | Qué cambió | Mutación (medida) |
+|---|---|---|
+| BSD-B9 (`bsd-b2-inbound.e2e-spec.ts`) | afirma PRIMERO que toda respuesta de los 3 clics es `200 labeled`, `200 in_progress`, `409 CONFLICT {purchase_in_flight}` o `409 SHIPMENT_ALREADY_LABELED` (⛔ `5xx`, ⛔ nada más); luego, como antes, 1 `port.purchase` / 1 guía pagada / `guia` por ronda (el conteo de `5xx` sale del `tally`: ya lo cubre el conjunto) | quitar a la vez `:443` (candado consultivo), `:474` (relectura `in_progress`) y `:493` (`labelProcessingSince: null` del CAS) ⇒ **30/30 rondas rojas** (3 corridas × 10), **3/3 corridas** rojas en `expect(fuera)` (`:459`), con 2 `500 INTERNAL` por ronda; el `tally` de dinero sale `1/1/guia` en las 30 ⇒ el rojo es la aserción nueva, no un efecto lateral |
+| BSD-B16 (`bsd-b5.e2e-spec.ts`, ruta real) | en el modo 2 («Declinar entre `precheck` y `claim`») la compra debe dar `409` con `error.code = 'GUIDE_NOT_ALLOWED'`; ⛔ sin fijar `details.reason` | quitar `assertInboundOpenForLabel` de la relectura de `claim` (`:475`) ⇒ **12/12 rondas del modo 2 rojas** (4 corridas × 3), todas `409 CONFLICT`; ningún otro defecto en esas corridas |
+
+**El muro de abajo de B9 (medido, no por lectura).** Con los tres muros quitados, los **60/60** `500` de las tres corridas
+mutadas vienen del candidato (i): `P2002` «Unique constraint failed on the fields: (`shipmentRequestId`,`since`)» en
+`tx.shipmentLabelAttempt.create()` (`label-purchase.service.ts:523`, sin manejo ⇒ `AllExceptionsFilter` ⇒ `500`). Los dos
+reclamos que pasan el CAS comparten `since` porque la prueba usa el reloj manual (un `clock.advance(1)` por ronda). Cuarta
+mutación de diagnóstico (además de los tres muros, `since` distinto por reclamo): **20/20** respuestas fuera del conjunto en
+1 corrida × 10 rondas, todas `409 CONFLICT {reason:'claim_released'}`, cero `5xx`, y el dinero sigue `1/1/guia` en las 10 ⇒
+detrás de (i) muerde (ii), `markSent` (a) (`:606-610`). (iii) no apareció. ⇒ **Ningún 500 alcanzable sin mutación** en lo
+medido: sobre el código original B9 dio 0 respuestas fuera del conjunto en 30 rondas (3 corridas × 10, incluida la de la
+suite `bsd-*` entera). El `P2002` de `:523` solo se alcanza si los tres muros caen a la vez.
+
+**Medición pedida por el orquestador — B40 (b) depende de la integración.** Mutación: quitar
+`shipmentTrackingNumber: trackingNumber` de `guideNoticeSealWhere` (`buylist/sell-request-guide.ts:39`). En
+`bsd-b5.e2e-spec.ts -t BSD-B40`: **3/3 corridas** rojas, y la ÚNICA roja es «(b) manual: capturar A y corregir a B…» (el
+post-commit tardío de A manda 1 correo; esperado 0, `:232`). «(c) Declinar», «(c) `closedAt`» y «CONTROL» siguen verdes.
+Sin la mutación, las 4 verdes. Confirma lo que el orquestador midió en la unitaria (18/18 verdes con la mutación, medición
+suya): el candado del número vive en esta prueba de integración.
+
+**Mediciones** (copia del árbol ENTERO por `git archive 2ae42e77` + las dos pruebas, scratchpad `be-bsd-b6`; cliente de Prisma
+generado en la copia, ⛔ no en el compartido — 0 apariciones de `buylist_inbound` en el compartido después; BD propia
+`tcg_be_bsd_b6`; doble del proveedor; `SKYDROPX_ALLOW_SPEND` sin poner; integración con `jest --runInBand` directo, pool 5/10,
+`E2E_STRICT_INFRA=false`, corrida de construcción, ⛔ no de gate): B16 original **12/12** rondas del modo 2 con
+`409 GUIDE_NOT_ALLOWED` (4 corridas × 3); tsc exit 0; eslint de las dos pruebas exit 0; **unitaria completa 436/436 suites,
+7906/7906 pruebas**; **integración `bsd-*` 5/5 suites, 93/93 pruebas**. El HEAD avanzó a `30a64b5a` durante la medición,
+solo con `frontend/` y `docs/FRONTEND_NOTES.md` (`git diff --stat 2ae42e77 30a64b5a -- backend` vacío).

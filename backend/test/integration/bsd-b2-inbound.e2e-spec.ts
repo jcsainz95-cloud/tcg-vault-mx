@@ -11,7 +11,7 @@
  * | BSD-B6 | claves de destino ⇒ 400 con 0 llamadas; la compra lleva `address_to.postal_code` = la tienda | quitar la lista de claves |
  * | BSD-B7 | sin dial / sin llave ⇒ `canPurchase=false`, 404 / 409, 0 `port.purchase` | saltar `assertGate` |
  * | BSD-B8 | compra con número: fila, libros, solicitud (paquetería LEGIBLE, número, plazo), UN AV-7 con PDF, CERO AV-4 | sin `writeSellRequestGuide`; AV-4 |
- * | BSD-B9 | doble clic y dos personas, N ≥ 10 rondas ⇒ 1 `port.purchase` y 1 guía pagada por ronda | errata BSD-1.4 punto 2: quitar A LA VEZ el candado consultivo y `labelProcessingSince: null` del CAS — MEDIDO: NO muerde (0/30 rondas); en la fila de entrada hay un tercer muro, la relectura `in_progress` de `claim` bajo I-BSD-4. Quitando los tres: 10/10 rondas con `5xx` (BACKEND_NOTES §78.B5; decisión del arquitecto) |
+ * | BSD-B9 | doble clic y dos personas, N ≥ 10 rondas ⇒ toda respuesta es `200 labeled`/`200 in_progress`/`409 CONFLICT {purchase_in_flight}`/`409 SHIPMENT_ALREADY_LABELED` (⛔ `5xx`), y 1 `port.purchase` y 1 guía pagada por ronda | errata BSD-1.5 punto 1 (§BSD.19): quitar A LA VEZ los TRES muros de `label-purchase.service.ts` — el candado consultivo, la relectura `in_progress` de `claim` bajo I-BSD-4 y `labelProcessingSince: null` del CAS ⇒ roja por el CONJUNTO de respuestas (proporción y muro de abajo: BACKEND_NOTES §78.B6) |
  * | BSD-B10 | «en proceso» ⇒ sin plazo ni correo; el job trae el número ⇒ plazo + UN AV-7 | plazo en `persistProcessing`; `status:'picking'` en el job |
  * | BSD-B11 | errata BSD-1.4 punto 5: la compra de una guía de entrada no cambia la oferta ni ninguna cifra `*Cents` del portal (el neto se calcula al PAGAR: BSD-B46, `bsd-b5.e2e-spec.ts`) | — |
  * | BSD-B12 | TG-1 cuenta la guía de entrada (403 + AG-3); ⛔ AG-1 tras corregir el origen; ⛔ AG-10 a 3 días | sin filtro `kind` en spend-watch |
@@ -420,8 +420,21 @@ describe('💰 B-2 — la guía de ENTRADA del buylist sobre el mismo motor (§B
   // ================================================================ BSD-B9
 
   describe('BSD-B9 — doble clic y dos personas', () => {
-    it(`${N} rondas: 2 clics del operador + 1 del súper-admin a la vez ⇒ UNA \`port.purchase\` y UNA guía pagada por ronda`, async () => {
+    /**
+     * Errata BSD-1.5 punto 1 (§BSD.19): el conjunto de respuestas ADMITIDAS de un clic concurrente. ⛔ Ningún `5xx` ni nada
+     * fuera de esta lista. `409 SHIPMENT_ALREADY_LABELED` es el clic que llega después de `persistLabeled`
+     * (`label-inbound.ts`, `assertInboundOpenForLabel`). Devuelve la etiqueta de la respuesta, o `null` si está admitida.
+     */
+    const fueraDelConjunto = (r: R): string | null => {
+      if (r.status === 200 && (r.body?.outcome === 'labeled' || r.body?.outcome === 'in_progress')) return null;
+      if (r.status === 409 && r.body?.error?.code === 'CONFLICT' && r.body?.error?.details?.reason === 'purchase_in_flight') return null;
+      if (r.status === 409 && r.body?.error?.code === 'SHIPMENT_ALREADY_LABELED') return null;
+      return `${r.status}:${r.body?.error?.code ?? r.body?.outcome ?? '?'}${r.body?.error?.details?.reason ? `:${r.body.error.details.reason}` : ''}`;
+    };
+
+    it(`${N} rondas: 2 clics del operador + 1 del súper-admin a la vez ⇒ toda respuesta admitida (⛔ 5xx) y UNA \`port.purchase\` y UNA guía pagada por ronda`, async () => {
       const tally: string[] = [];
+      const fuera: string[] = [];
       for (let i = 0; i < N; i++) {
         const s = await readyInbound();
         fake.calls.length = 0;
@@ -432,12 +445,19 @@ describe('💰 B-2 — la guía de ENTRADA del buylist sobre el mismo motor (§B
           h.api('POST', `/admin/shipments/${s.id}/label`, { token: db.opToken, json: body }),
           h.api('POST', `/admin/shipments/${s.id}/label`, { token: db.adminToken, json: body }),
         ]);
-        const five = rs.filter((r) => r.status >= 500).length;
+        for (const r of rs) {
+          const x = fueraDelConjunto(r);
+          if (x !== null) fuera.push(`ronda ${i}: ${x}`);
+        }
         const paid = await h.prisma.shipmentPaidLabel.count({ where: { shipmentRequestId: s.id } });
-        tally.push(`${purchases(s.id).length}/${paid}/${five}/${(await row(s.id)).status}`);
+        tally.push(`${purchases(s.id).length}/${paid}/${(await row(s.id)).status}`);
         await h.prisma.shipmentRequest.updateMany({ where: { id: s.id, labelProcessingSince: { not: null }, providerShipmentId: null }, data: { labelProcessingSince: null } });
       }
-      expect(tally).toEqual(Array.from({ length: N }, () => '1/1/0/guia'));
+      // eslint-disable-next-line no-console
+      console.log(`BSD-B9 compras/pagadas/estado por ronda: ${JSON.stringify(tally)} · fuera del conjunto: ${JSON.stringify(fuera)}`);
+      // PRIMERO el conjunto (la aserción que la mutación de los tres muros pone roja, §BSD.19.1); luego el dinero.
+      expect(fuera).toEqual([]);
+      expect(tally).toEqual(Array.from({ length: N }, () => '1/1/guia'));
     });
   });
 

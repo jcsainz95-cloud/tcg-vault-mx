@@ -10,7 +10,7 @@
  * | BSD-B41 | `not_continued`: lista y detalle del cliente sin ninguna clave `*Cents` distinta de `null` (recorrido recursivo); `labelPdfAvailable=false`; el DTO admin no cambia | quitar `not_continued` del conjunto |
  * | BSD-B46 | dos solicitudes (bruto 150 000, tarifa 18 000) con guías de entrada de 15 000 y 25 000 ⇒ `paySpei` deja `payoutNetCents = 132000` en las dos | restar `shippingCostCents` de la fila de entrada en el neto de `paySpei` |
  * | Punto 14 | re-emitir deja la fila de entrada con `labelSource` nulo; una guía MANUAL posterior cuenta por (b) y no por (a); el margen usa la manual | — (medición) |
- * | BSD-B16 (ruta real) | declinar ∥ `POST /admin/shipments/:id/label`, N = 12 rondas en 4 modos: (i) cerrada ⇒ fila `cancelado` y sin guía viva; (ii) BSD-M1 y AV-7 ⇒ guía sellada `auto_close` | `decline-accepted` sin `closeInboundShipment` (36/36 rondas malas). La segunda del contrato —sin `assertInboundOpenForLabel` en la relectura de `claim`— NO muerde (0/36): el CAS de `claim` exige `status='solicitado'` y el cierre ya pasó la fila a `cancelado` |
+ * | BSD-B16 (ruta real) | declinar ∥ `POST /admin/shipments/:id/label`, N = 12 rondas en 4 modos: (i) cerrada ⇒ fila `cancelado` y sin guía viva; (ii) BSD-M1 y AV-7 ⇒ guía sellada `auto_close`; (iii) errata BSD-1.5 punto 2: en el modo «Declinar entre `precheck` y `claim`» la compra da `409 GUIDE_NOT_ALLOWED` (sin fijar `reason`) | `decline-accepted` sin `closeInboundShipment` (36/36 rondas malas). Sin `assertInboundOpenForLabel` en la relectura de `claim` ⇒ roja por (iii): `409 CONFLICT` (el CAS da 0; en dinero no muerde, el CAS exige `status='solicitado'`). Proporciones: BACKEND_NOTES §78.B5/§78.B6 |
  * | BSD-B18 (ruta real) | regla 8 ∥ compra, N = 10 rondas con BARRERA: el reclamo que gana el candado de la solicitud la excluye del cierre | regla 8 sin los candados de `closeWithGuideTask` (30/30 rondas malas) |
  * | BSD-B31 (ruta real) | declinar ∥ compra ∥ barrido, N = 30 rondas: cero `40P01` y nunca cerrada con guía viva | orden de candados invertido en `decline-accepted` (roja 3/3 corridas; 5/90 rondas con `40P01`) |
  *
@@ -414,7 +414,8 @@ describe('💰 BSD-1.4 — errata de B-2/B-3/B-4 (§BSD.18)', () => {
           dec = await decline(s.sr.id);
           compra = await buy(s.id, buyBody(s.q, s.rate));
         } else if (modo === 2) {
-          // Declinar ENTRE `precheck` y `claim` (la ventana que mide la relectura de la guarda en `claim`).
+          // Declinar ENTRE `precheck` y `claim` (la ventana que mide la relectura de la guarda en `claim`): determinista,
+          // «Declinar» COMITEA dentro del gancho de la lectura del saldo, antes de que `claim` abra su transacción.
           let first = true;
           let inside: Promise<R> | null = null;
           fake.onBalance = async () => {
@@ -435,6 +436,10 @@ describe('💰 BSD-1.4 — errata de B-2/B-3/B-4 (§BSD.18)', () => {
         const key = `${modo}:${errCode(dec)}:${errCode(compra)}${compra.body?.outcome ? `/${compra.body.outcome}` : ''}`;
         desenlaces[key] = (desenlaces[key] ?? 0) + 1;
         if (dec.status >= 500 || compra.status >= 500) malas.push(`ronda ${i} (${modo}): 5xx ${key}`);
+        // Errata BSD-1.5 punto 2 (§BSD.19): en el modo 2 la compra choca con la guarda RELEÍDA en `claim` ⇒ su error,
+        // `409 GUIDE_NOT_ALLOWED`. ⛔ Sin fijar `details.reason` (`closed` y `status` son correctos según qué cierre ganó).
+        // Es el canario de `assertInboundOpenForLabel` en la relectura: sin ella sale `409 CONFLICT` (el CAS da 0).
+        if (modo === 2 && errCode(compra) !== '409:GUIDE_NOT_ALLOWED') malas.push(`ronda ${i} (2): la compra dio ${errCode(compra)}, no 409:GUIDE_NOT_ALLOWED`);
         if (dec.status === 200 && (await sr(s.sr.id)).status !== 'expirada') malas.push(`ronda ${i} (${modo}): 200 sin cierre`);
         malas.push(...(await roundDefects(`ronda ${i} (${modo})`, s.sr.id, s.id, s.seller.email as string)));
       }
