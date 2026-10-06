@@ -19,8 +19,9 @@ describe('M7View · Finanzas (P&L)', () => {
     expect(screen.getByText('Ganancia del periodo')).toBeInTheDocument();
 
     // Ganancia mock (§M4-SHIP.19.36.1) = 1250000 + 52500 − 640000 − 48300 − 31800 − 35000 − 1400 − 12000
-    // = 534000 cts = MX$5,340.00 (`profitCents` del fixture, pintado tal cual).
-    expect(await screen.findByText('MX$5,340.00')).toBeInTheDocument();
+    // = 534000 cts + 18000 (tarifa descontada) − 21552 (guías de vendedores, rev BSD-1) = 530448 cts = MX$5,304.48
+    // (`profitCents` del fixture, pintado tal cual).
+    expect(await screen.findByText('MX$5,304.48')).toBeInTheDocument();
   });
 
   it('muestra valor de inventario, custodia e IVA acumulado', async () => {

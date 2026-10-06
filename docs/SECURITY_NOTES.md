@@ -83,6 +83,129 @@ este release.
   pero suma un argumento a la 2FA de `super_admin`, que §4 de abajo deja como P1 **después** de salir a cobro real (no
   cambio esa decisión).
 
+# VEREDICTO BLUE TEAM — **RELEASE «Buylist con guía Skydropx de entrada» (BSD)** · SHA **`64877aad`** (rama `claude/buylist-skydropx`) · 2026-10-06
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `64877aad` (con un aceptado y dos pendientes no bloqueantes)
+>
+> - **0 críticas · 0 altas · 0 medias** abiertas en el delta. Nada de seguridad bloquea fusionar `claude/buylist-skydropx`
+>   a `main` ni la solicitud `main → production` **en modo prueba**.
+> - **`BSD-RT-1` (baja) se ACEPTA documentado** (§BSD-S3, A-BSD-1), no se arregla antes de fusionar. **`BSD-RT-2` (info) es
+>   PENDIENTE de devops, no condición del release** (§BSD-S4, P-BSD-SEC-1).
+> - **CL-1 / CL-2 / CL-3** (pase «listo-real», más abajo) **siguen abiertas sin cambio**: son condiciones para `sk_live_`,
+>   no para este release. Este pase no las cierra ni les añade nada.
+>
+> **Sobre qué medí.** Código juzgado: `64877aad`. Después solo hay `e48cd3ac` y `daff8008`, ambos **solo**
+> `docs/PENTEST_NOTES.md` (`git log --oneline` medido). Delta del stream: `git diff a884a2ec..64877aad -- backend/src` ⇒ 48
+> ficheros de producción, +3361/−279 (medido); `a884a2ec` es el lado `production` del merge `ccde6d14`, así que ese merge
+> **no** entra en el delta. Sin cambios en `package.json`/`package-lock.json` ni en `.github/` o `security/`; solo
+> `scripts/stack-native.sh` (Redis local `--save ""`, sin efecto en despliegue).
+> **Lo medido por mí** lleva fichero:línea o comando (lectura de código y `grep`/`git` en `/home/user/tcg-bsdx`, 2026-10-06).
+> **[pentester]** = Fase en vivo del red team sobre `64877aad` (`:3299`, adaptador `fake`), no la repetí. No levanté stack ni
+> corrí suites: todo lo que el red team ya midió en vivo (IDOR, authz, carreras, CHECK) lo crucé contra el código, no lo re-medí.
+
+## BSD-S1. Hallazgos del red team, consolidados
+
+| Id | Sev. RT | Validación blue team | Decisión |
+|---|---|---|---|
+| `BSD-RT-1` throttle `label.pdf` por IP | Baja | **Real.** `inbound-shipment.controller.ts:42` usa `@Throttle` sin guard propio ⇒ el tracker es `req.ip` (con `trust proxy` bien puesto, `src/trust-proxy.ts:15`, así que NO es «todos comparten la IP del balanceador»). Severidad **Baja confirmada**. Matiz que añado: rotar IP también **burla el objetivo de coste** (una cuenta con guía viva puede pedir >10 descargas/min a Skydropx y escribir una fila `AuditLog buylist.label_downloaded` por descarga, `inbound-shipment.service.ts:166`); queda acotado por el global 300/min/IP, por los ≤ 5 MB/10 s del proxy y porque solo sirve guías propias. | **ACEPTADO** (A-BSD-1) |
+| `BSD-RT-2` DAST sin las rutas nuevas | Info | **Real, y más que info en lo documental:** `API_CONTRACT.md:40517` dice «la ruta ya está en el inventario del DAST (§BSD.12.5)», pero `security/` **no tiene** inventario de rutas y `grep -rln "label.pdf\|inbound-shipment\|decline-accepted\|buylist" security/` ⇒ 0 (medido). La afirmación del contrato no es cierta hoy. No es una vulnerabilidad: los controles de esas rutas están cubiertos por candados (BSD-B44, B27, censo B23) y por el ataque en vivo del red team. | **PENDIENTE devops** (P-BSD-SEC-1) |
+
+Coincido con el resto del pase del red team; lo que crucé contra código y resiste: IDOR del PDF (`findFirst {id, userId}`,
+mismo 404), cabeceras/nombre saneado, destino no manipulable, rutas de salida 404 con id de entrada, CAS de
+`decline-accepted`, redacción del portal `not_continued`, CSV sin texto libre.
+
+## BSD-S2. Lo que revisé yo (fuera del alcance del red team)
+
+1. **SSRF en la descarga del PDF — sin hallazgo.** La URL **sí** viene del proveedor (`ShipmentRequest.labelUrl`), y los tres
+   llamadores (admin, vendedor, adjunto AV-7) pasan por **un** cuerpo: `label-pdf-download.ts:17-29` ⇒ `downloadLabelPdf`
+   (`shipping-provider/label-proxy.ts`, **sin cambios** en el delta): `assertProviderUrl` contra `SKYDROPX_URL_HOSTS` en el
+   primer salto y en cada `Location`, `redirect:'manual'`, ≤ 3 saltos, `Bearer` solo hacia el host de la API, `application/pdf`,
+   ≤ 5 MB, 10 s. Con `fake`, cero red. El vendedor nunca ve `labelUrl`.
+2. **Adjunto por Resend — sin hallazgo.** `mail.port.ts`: `contentType` es el literal `'application/pdf'`, a lo sumo un adjunto,
+   tamaño acotado por el proxy (5 MB, muy por debajo del límite de Resend); `filename` = `sellerLabelFilenameOf` (solo
+   `[A-Za-z0-9]`). `resend-mail.adapter.ts` solo añade la clave si hay adjunto. AV-7 va **solo** a `sr.user.email`, salta
+   cuentas anonimizadas y sella una vez (`inbound-guide-notice.service.ts:66-77`).
+3. **PII del vendedor.**
+   - *Fila de entrada:* `addressSnapshot` copiado de `pickupAddressSnapshot` sin `addressId` (`inbound-shipment.service.ts:116`).
+     Bitácora sin PII (`:121-130`, solo `shipmentId`).
+   - *Hacia Skydropx:* `from` = domicilio, nombre y teléfono del vendedor; **el correo es el de la tienda**
+     (`label-inbound.ts:171`), como manda ARCHITECTURE §4.BSD (i). Minimización correcta.
+   - *Correos:* BSD-M1 sin motivo ni domicilio; AV-7 lleva el PDF (que sí trae el domicilio del propio vendedor) **solo** a él.
+     AG-23 al dueño solo con `sellRequestId`, fecha y monto.
+   - *Logs:* revisé todos los `logger.*` añadidos en el delta (`git diff … | grep logger`): ids, códigos y nombres de clase de
+     error; **ningún** domicilio, nombre, teléfono, correo, token ni secreto de Skydropx. `skydropx.adapter.ts` no añade logs.
+   - *Borrado de cuenta (BSD-B27):* cableado **dentro** de la tx de `deleteUser` (`admin.service.ts:1679`), en la rama de borrado
+     suave, que es la única que alcanza a un vendedor (tener una `SellRequest` cuenta como transacción, `:1624`). Prueba de
+     integración `test/integration/bsd-b2-inbound.e2e-spec.ts:729` y cableado en `test/admin.user-management.spec.ts:109`.
+     **Matiz (info, I-BSD-1):** el mismo domicilio **sigue** en `SellRequest.pickupAddressSnapshot`, que por política deliberada
+     de ARCHITECTURE §4.39 (a)/(b) no se purga al borrar la cuenta (registro de dónde salió una mercancía que pagamos), y en
+     Skydropx como encargado. B27 cumple su norma; no anonimiza el domicilio de la base. No es defecto del stream: es la
+     política de retención ya aceptada, y su revisión alcanza a los tres snapshots a la vez.
+4. **Secretos de Skydropx — sin hallazgo.** `SKYDROPX_CLIENT_SECRET` se sigue leyendo solo en la fábrica; el delta no toca
+   `shipping-provider.factory.ts`, `spend-gate.ts` ni `label-proxy.ts` (`git diff --stat … -- modules/shipping-provider/` ⇒
+   solo `port`, `adapter`, `fake`).
+5. **`SKYDROPX_ALLOW_SPEND` / PS-99 — intactos.** La guía de entrada **no** abre una vía de compra nueva: el único llamador de
+   `port.purchase` sigue siendo `label-purchase.service.ts:339` (grep medido), detrás del reclamo, del tope de 24 h del operador
+   (`claimed.kind==='limited'`, `:305`) y de la puerta de dos llaves + candado de ejecución. Los candados de devops
+   (`scripts/check-skydropx-spend-lock.sh` y su canario) no cambian en el delta. El red team corrió todo con `fake`.
+6. **Authz de las rutas nuevas — sin hallazgo.** `POST …/inbound-shipment` y `POST …/decline-accepted`: `@Roles(vault_operator,
+   super_admin)` de clase (`inbound-shipment.controller.ts:24`, `admin-buylist.controller.ts:42`); ninguna gasta (la compra sigue
+   en `POST /admin/shipments/:id/label`, con sus topes). `GET …/label.pdf`: rol + propiedad por `userId`.
+7. **Inyección — sin hallazgo.** Los `$queryRaw` nuevos son plantillas etiquetadas con parámetros (`inbound-close.ts:50-51`, barrido).
+   `outboundOnlySql(alias)` (`label-subject.ts:41-42`) interpola `alias` en `Prisma.raw`, pero **no tiene llamadores** fuera de su
+   definición (grep medido): endurecimiento opcional, no hallazgo.
+8. **El barrido frente a carreras — sin hallazgo por código.** Regla 8 relee bajo `SELECT … FOR UPDATE` de la `SellRequest` y luego
+   de la fila de entrada (mismo orden I-BSD-4 que `decline-accepted` y la compra) y cierra por el **mismo** `closeInboundShipment`;
+   una compra en vuelo cae en la rama `in_flight`/«pagada pero cancelado» (§19.18.3) que ya usa el auto-cierre por reembolso.
+   Regla 10 abre la tarea con `updateMany … IS NULL` (idempotente). Una regla que falla no tumba las demás (`isolated`). La
+   carrera declinar∥comprar la midió el red team en vivo (**[pentester]**, 0/12 fuga, N=2×12) por el mismo cuerpo de cierre; la
+   variante barrido∥compra **no la medí** (NO MEDIDO): comparte cuerpo y candados, por eso no la elevo.
+9. **Dependencias.** `npm audit --omit=dev` (backend, 2026-10-06) ⇒ 0 altas/críticas, 2 moderadas `@nestjs/core` /
+   `@nestjs/platform-express`: es `RL-DEP-1`, ya registrado; el delta no toca el lockfile.
+
+## BSD-S3. Deuda de seguridad aceptada en este pase (no bloquea)
+
+- **A-BSD-1 · `BSD-RT-1` · Baja.** Throttle de `GET /buylist/requests/:id/label.pdf` por IP. **Por qué se acepta:** sin impacto de
+  confidencialidad ni integridad; el daño es disponibilidad para vendedores tras un NAT compartido y una cota de coste algo más
+  laxa frente a quien rote IP con su propia guía; volumen esperado de 1–2 descargas por vendedor. **Disparador:** (a) la primera
+  queja/registro de `429` legítimo en esa ruta, (b) escalar a más de una instancia del backend, o (c) antes de `sk_live_` si para
+  entonces no se hizo — lo que llegue antes. **Arreglo propuesto (backend):** llave por **actor**, con el patrón ya existente
+  `ActorThrottlerGuard` (`modules/admin/actor-throttler.guard.ts`). ⛔ No por `:id` de solicitud: el throttle corre **antes** del
+  chequeo de propiedad, y un tercero podría agotar el cubo de la solicitud de otro vendedor. **Comprobación:** prueba que dos
+  cuentas desde la misma IP tienen cupos independientes, y mutación que vuelve a `req.ip` y la pone roja.
+- **I-BSD-1 · Info.** Domicilio del vendedor retenido en `SellRequest.pickupAddressSnapshot` tras borrar la cuenta (§BSD-S2.3).
+  Política existente. **Disparador:** cualquier revisión de la política de retención de domicilios (alcanza a los tres snapshots).
+
+## BSD-S4. Pendientes (no condición del release)
+
+- **P-BSD-SEC-1 · devops · `BSD-RT-2`.** Meter `GET /buylist/requests/:id/label.pdf` en el recorrido **autenticado** del DAST
+  (cuenta de cliente con una guía `fake` sembrada) y valorar sondas dirigidas a los dos POST admin nuevos. **Por qué no es
+  condición:** no es una vulnerabilidad, el CI de SAST/DAST sigue en pie y los controles los cubren candados de prueba y el
+  ataque en vivo. **Disparador:** antes de cerrar el próximo release, o antes de `sk_live_`, lo que llegue antes.
+  **Comprobación:** `grep -rn "label.pdf" security/` ≥ 1 y un informe de ZAP donde la URL aparezca con `200`.
+  **Y arquitecto:** errata de `API_CONTRACT.md:40517` («la ruta ya está en el inventario del DAST»), que hoy es falsa.
+
+## BSD-S5. Banderas para el humano (el dueño)
+
+1. **Aviso de privacidad y la guía de entrada.** La fila de Skydropx dice «Nombre de quien **recibe**, dirección, teléfono y
+   correo» (`frontend/src/content/legal/privacidad.es.ts:169`). Con este release, el domicilio, nombre y teléfono del
+   **vendedor** (como remitente) viajan a Skydropx. Es el punto 6 de §BSD.12 (product-owner, «NO MEDIDO si ya lo dice»): **medido,
+   no lo dice con precisión**. No bloquea la seguridad del release (el aviso sigue en borrador, con los datos P-LEG pendientes),
+   pero conviene que el product-owner ajuste la fila («nombre, dirección y teléfono de quien envía o recibe») antes de publicar el
+   aviso o de comprar guías de entrada con vendedores reales — lo que llegue antes. Validación legal recomendada.
+2. **Primera guía de entrada real.** Las tres «NO MEDIDO» de §BSD.13 (que Skydropx acepte el origen explícito) se miden con dinero
+   real del saldo Skydropx en producción. Desde seguridad no hay objeción, siempre por la puerta de dos llaves existente.
+3. **Sin cambio:** pentest de tercero + bug bounty antes de operar con dinero real, y CL-1/CL-2/CL-3 antes de `sk_live_`.
+
+## BSD-S6. Ruteo
+
+| Qué | Rol dueño | Cuándo |
+|---|---|---|
+| A-BSD-1 (throttle por actor) | backend | por disparador (§BSD-S3) |
+| P-BSD-SEC-1 (DAST con la ruta) | devops | próximo release o antes de `sk_live_` |
+| Errata `API_CONTRACT.md:40517` | arquitecto | con P-BSD-SEC-1 |
+| Fila de Skydropx en `/privacidad` | product-owner (texto) → frontend | antes de publicar el aviso o de guías de entrada reales |
+
 ---
 
 # VEREDICTO BLUE TEAM — **RELEASE «listo-real» (antes del paso a COBRO REAL)** · SHA **`c62621e6`** (rama `claude/listo-real`) · 2026-10-05

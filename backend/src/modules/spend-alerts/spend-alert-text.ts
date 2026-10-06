@@ -8,7 +8,7 @@
  * en el tipo. AG-1 dice QUÉ campos se corrigieron, nunca los valores.
  */
 import { SpendAlertKind } from '@prisma/client';
-import { SPEND_ALERT_CODE_OF, SpendFactValue } from './spend-alerts.service';
+import { SPEND_ALERT_CODE_OF, SpendFactValue, dayMx } from './spend-alerts.service';
 
 export type MailLocale = 'es' | 'en';
 /** G2 (§19.33.7): el MISMO tipo que `SpendFacts` del servicio — ⛔ una segunda definición que derive. */
@@ -91,7 +91,21 @@ const TITLES: Record<string, [string, string]> = {
   'AG-12': ['Incidencia de la paquetería', 'Carrier issue'],
   'AG-13': ['Guía cara o con margen negativo', 'Expensive label or negative margin'],
   'AG-22': ['Cambios de otro súper-admin', 'Changes by another super admin'],
+  // 💰 rev BSD-1 (§BSD.8.3, DESIGN_SYSTEM §BSD-UX.3).
+  'AG-23': ['Solicitud de venta sin guía', 'Sell request without a label'],
 };
+
+/**
+ * 💰 rev BSD-1 (AG-23) — «el {closesAt}»: día y hora en `America/Mexico_City` («12 de octubre a las 08:00» / «October 12 at
+ * 08:00»). `null` con un `closesAt` ilegible (el texto lo omite en vez de inventar una fecha).
+ */
+export function mailDateTimeMx(iso: FactValue | undefined, l: MailLocale): string | null {
+  if (typeof iso !== 'string') return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return l === 'en' ? `${mailDay(dayMx(d), l)} at ${mailTime(d)}` : `${mailDay(dayMx(d), l)} a las ${mailTime(d)}`;
+}
+
 
 /** El título del aviso (asunto sin marca, titular). */
 export function spendAlertTitle(v: Pick<SpendAlertMailView, 'kind' | 'facts'>, l: MailLocale): string {
@@ -337,6 +351,15 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
         default:
           return en ? `${who} made a change to a staff account.` : `${who} hizo un cambio en una cuenta del personal.`;
       }
+    }
+    case 'AG-23': {
+      // 💰 rev BSD-1 (§BSD-UX.3, BSD-1.1 C-2): ⛔ nunca «lleva N días aceptada» (el ancla puede ser el despliegue o una
+      // re-emisión): solo CUÁNDO se cierra. `{folio}` = `sellRequestId` (el que M5 pinta y busca). ⛔ Sin PII del vendedor.
+      const folio = str(f.sellRequestId) ?? '';
+      const closes = mailDateTimeMx(f.closesAt, l) ?? (en ? 'its closing date' : 'su fecha de cierre');
+      return en
+        ? `Sell request ${folio} is still accepted and has no label: it closes on its own on ${closes} if it still has no label by then. Value of its cards in the offer: ${m(f.offerGrossCents)}.`
+        : `La solicitud de venta ${folio} sigue aceptada y sin guía: se cierra sola el ${closes} si para entonces no tiene guía. Valor de sus cartas en la oferta: ${m(f.offerGrossCents)}.`;
     }
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;

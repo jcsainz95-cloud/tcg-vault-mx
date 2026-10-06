@@ -136,7 +136,8 @@ describe('itemDecision(reject) — auto-transición de la SOLICITUD (regla f)', 
     // o sea una solicitud cuyo dinero YA SALIÓ.
     expect(statusWrites(prisma.sellRequest.updateMany)).toEqual([
       {
-        where: { id: 'sr-1', ...LEGAL_T },
+        // rev BSD-1.3 punto 1: y ⛔ `aceptada` en el `WHERE` (clase `excludes_aceptada` de BSD-B25 (b)).
+        where: { id: 'sr-1', ...LEGAL_T, NOT: { status: 'aceptada' } },
         data: { status: 'rechazada', closedAt: expect.any(Date) },
       },
     ]);
@@ -242,7 +243,8 @@ describe('rejectRequest — cierre explícito (regla g)', () => {
     // v1.56 (§M5-T): `POST …/reject` es EL PRECEDENTE de la invariante y su guard llevaba un solo
     // término. Ahora lleva los dos, como todo verbo que escribe `status`.
     expect(prisma.sellRequest.updateMany).toHaveBeenCalledWith({
-      where: { id: 'sr-1', ...LEGAL_T },
+      // rev BSD-1.3 punto 1: y ⛔ `aceptada` en el `WHERE` (clase `excludes_aceptada` de BSD-B25 (b)).
+      where: { id: 'sr-1', ...LEGAL_T, NOT: { status: 'aceptada' } },
       data: { status: 'rechazada', closedAt: expect.any(Date) },
     });
   });

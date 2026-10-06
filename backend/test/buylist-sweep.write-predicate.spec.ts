@@ -65,8 +65,16 @@ function build(rows: Row[], opts: { afterRead?: (state: Map<string, Row>) => voi
   let fired = false;
 
   const prisma: any = {
+    // rev BSD-1 (B-3): `closeWithGuideTask` corre en UNA transacción con los candados de I-BSD-4 y llama a
+    // `closeInboundShipment` (sin fila de entrada aquí ⇒ `$queryRaw` vacío); la regla 10 lee `shipmentRequest`.
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    $queryRaw: jest.fn(async () => []),
+    shipmentRequest: { findMany: jest.fn(async () => []) },
     sellRequest: {
       findMany: jest.fn(async ({ where }: any) => {
+        // rev BSD-1: las reglas 8 y 9 (predicado compuesto `AND`, con la fila de entrada) tienen sus pruebas propias
+        // (`bsd.b3-*.spec.ts` e integración); este fake evalúa predicados planos de las reglas 1–7.
+        if ('AND' in where) return [];
         reads.push({ where });
         const out = [...state.values()]
           .filter((r) => Object.entries(where).every(([k, cond]) => matches(r[k], cond)))

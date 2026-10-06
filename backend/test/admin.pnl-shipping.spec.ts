@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { withM61Defaults } from './helpers/m61-mock-defaults';
+import { withPnlBuylistDoubles } from './helpers/pnl-buylist-doubles';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
@@ -50,7 +51,7 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       },
     };
     service = new AdminService(
-      withM61Defaults(prisma) as unknown as PrismaService,
+      withPnlBuylistDoubles(withM61Defaults(prisma)) as unknown as PrismaService,
       {} as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,
@@ -79,6 +80,11 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       refundedFeesCents: 0,
       compensationsCents: 0,
       profitCents: 100000 + 35000 - 30000 - 5600 - 9000,
+      // 💰 §BSD.16 (BSD-1.2): los cuatro del buylist, al final; sin solicitudes ni guías de entrada ⇒ 0.
+      buylistShippingFeeRetainedCents: 0,
+      buylistGuideCostCents: 0,
+      buylistGuideMarginCents: 0,
+      buylistGuideCostMissingCount: 0,
     });
     // No debe existir la clave vieja.
     expect(p).not.toHaveProperty('shippingCents');
@@ -99,8 +105,9 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
     const [header, row] = csv.trim().split('\n');
     expect(header).toBe(
       'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-        'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents',
+        'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+        'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount',
     );
-    expect(row).toBe(`pnl,100000,35000,30000,5600,9000,1,0,0,0,0,0,${100000 + 35000 - 30000 - 5600 - 9000}`);
+    expect(row).toBe(`pnl,100000,35000,30000,5600,9000,1,0,0,0,0,0,${100000 + 35000 - 30000 - 5600 - 9000},0,0,0,0`);
   });
 });

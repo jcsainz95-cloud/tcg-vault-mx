@@ -4,7 +4,15 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v6.1 (2026-10-05) — EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO CON IVA (§70 ajustada a la errata
+> Estado (rama `claude/buylist-skydropx`): **vBSD-1 (2026-10-06) — BUYLIST CON GUÍA SKYDROPX DE ENTRADA (§BSD-UX NUEVA,
+> al final del documento; `API_CONTRACT §BSD` rev BSD-1, `PROJECT §BSD`, criterios 532–550; `HECHOS.md:78-80`; ux-ui sin
+> Bash, sha NO MEDIDO por mí).** El correo «no continuamos» (BSD-M1) es/en; AV-7 con la etiqueta en PDF, sin adjunto y
+> «sustituye a la anterior»; AG-23 al dueño; el portal para `not_continued` y la descarga de la etiqueta; la ventana de
+> «Capturar guía» en modo entrada; «Declinar» en «Aceptada»; la marca «se cierra sola» en M5 y el tablero; los dos diales
+> de M10. Cero tokens nuevos, cero pares de contraste nuevos. Lo que sigue es la v6.1 sin más cambio que lo marcado en
+> §BSD-UX.0.
+>
+> Estado anterior: **v6.1 (2026-10-05) — EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO CON IVA (§70 ajustada a la errata
 > `API_CONTRACT` v1.83.1 §M11-SP.12, `ARCHITECTURE §4.62.8`; `HECHOS.md:51` «Precio del sellado — respuestas a
 > P-SP-1/2/3», punto (3) «yo lo voy a meter con iva»; rama `claude/precio-sellado` — ux-ui sin Bash, sha NO MEDIDO por
 > mí).** Resumen en **§70.0-bis**. La regla dura 2 se invierte (lo que se escribe es lo que paga el cliente); la hoja
@@ -28405,6 +28413,842 @@ Espacio **`auth.*`** (`es.json:1183`, `en.json:1183`). La clave sigue el patrón
 `pathname: '/login'` en todo el árbol). El contrato pide «el mismo flujo de hoy», así que este diseño **no añade** una redirección nueva ahí: el usuario verá la tienda deslogueada sin aviso. Si se quiere avisar también en ese caso, haría falta decidirlo (p. ej. un aviso en la tienda); no se diseña sin pedido |
 
 ---
+
+## BSD-UX. 💰 Buylist con guía Skydropx de entrada — «no continuamos», AV-7 con la etiqueta, AG-23, el portal, la ventana en modo entrada, «Declinar» en «Aceptada» y la marca del cierre (vBSD-1, 2026-10-06 · `API_CONTRACT §BSD` rev BSD-1 · `PROJECT §BSD`, criterios 532–550)
+
+### BSD-UX.0 Fuente, lo leído, reglas duras y qué cambia de diseños previos
+
+**Fuentes, en este orden** (no se re-preguntan): `HECHOS.md:78` (2026-10-06, «Buylist: una solicitud ACEPTADA sin guía
+capturada en 7 días se CANCELA sola»; punto (d), palabras del dueño: *«pon que simplemente tras una revisión adicional
+decidimos no continuar con ese proceso de venta, algo así súper profesional»*); `HECHOS.md:79` (P-BUYLIST-SDX: la guía la
+paga la tienda y al vendedor se le descuenta la tarifa fija de siempre); `HECHOS.md:80` (respuestas a P-BSD-1…5: aviso del
+**día 5** en panel **y** correo al dueño; las abiertas cuentan **desde el despliegue**; **PDF adjunto** y **descargable en
+«Mi cuenta»**; preseleccionada **la más barata que entregue en la dirección de la tienda**; «en tránsito» automático
+**después**). Norma: `API_CONTRACT §BSD` (`API_CONTRACT.md:39713-40152`), en especial §BSD.5 (DTOs), §BSD.6 («Declinar»),
+§BSD.7 (barrido), §BSD.8 (correos), §BSD.9 (diales) y §BSD.11 (BSD-B21, BSD-F1…F9). `PROJECT.md:9085-9262`.
+
+**Lo que leí antes de redactar** (lectura de ficheros en `/home/user/tcg-bsdx`, 2026-10-06; ⛔ sin Bash, sha **NO MEDIDO**
+por mí):
+
+| Medición | Resultado |
+|---|---|
+| Plantilla de AV-7 hoy | `backend/src/modules/buylist/buylist-notice.templates.ts:94-161` (`sellGuideTemplate`): titular «Tu guía prepagada ya está lista», `monoRow` «Paquetería: … · Guía: …», `deadlineRow`, letra chica «Si ya lo depositaste…», CTA **bermellón** `IR A MI SOLICITUD`. Asunto todavía con prefijo `TCG HUNT —` (`:137`; §41.2 lo quita) |
+| Correos de cierre hoy | `buylist-mail.templates.ts:1069-1133` (5a/5b) y `:1152-1222` (6, «no procederemos»): eyebrow `SOLICITUD CERRADA`, CTA tinta `COTIZAR DE NUEVO` que apunta al **portal** (`portalUrl`) |
+| El folio de los correos de VENTA | `folio: req.id` (`buylist.service.ts:4525`, `:4634`, `:5107`) — el id entero. **BSD-M1 usa el mismo** (no se inventa un «folio corto» que ningún otro correo del ciclo usa) |
+| Insignia de `expirada` | `frontend/src/lib/status-map.ts:76-99`: se resuelve por `expiredReason` (`expirada_no_offer` neutral, `expirada_not_shipped` danger, fallback `expirada` neutral «Expirada»); rótulos en `status.sellRequestExpiry.*` (`es.json:5997-6001`) |
+| Cierre del portal | `SellRequestDetailView.tsx:558-570` (`closedNotShipped`, `closedNoOffer`, fallback `noLongerActive`); `:226` oculta el dinero **solo** con `no_offer` |
+| Dónde ve el vendedor su guía hoy | **En ningún sitio del portal**: `SellRequestDetailView.tsx` no lee `offer.carrier` ni `offer.trackingNumber` (`Grep 'tracking\|carrier'`) — solo el correo AV-7 |
+| M5 «Aceptada» hoy | `es.json:3012` `admin.m5.…readOnlyByStatus.aceptada` y `:3109` `admin.m5.acceptedNote`: **«ya no se cancela»**; captura manual en `admin.m5.shipment.*` (`:3018-3041`, paquetería + número) |
+| Ruta de una solicitud en M5 | Solo `frontend/src/app/[locale]/(admin)/admin/m5/page.tsx`; `M5View.tsx` no lee parámetros de URL (`Grep 'searchParams\|useSearchParams'` ⇒ 0); se localiza con el buscador (`jumpToRequest`, `:721`) |
+| Tablero | `AdminDashboard.tsx:237`: `workQueue.buylist` se usa como **número** (`count={…}`), igual que en el contrato (`API_CONTRACT.md:36081`) |
+| Ventana de captura | claves `admin.m4.tracking.sdx.*` (`es.json:1844-…`); diseño en §43.1–§43.5, §43.19 |
+| Diales del ciclo en M10 | §60 (b) F-9 (`DESIGN_SYSTEM.md`, tabla de diez diales) con el subtítulo **«Aplican a solicitudes nuevas: las que están en curso conservan los plazos…»** |
+
+**Cero tokens nuevos, cero pares de contraste nuevos, cero componentes nuevos** salvo el **modo entrada** de
+`CaptureLabelDialog` (una rama del mismo diálogo, SK1) y el bloque «Tu guía» del portal (composición de `Button` +
+`Banner` + texto).
+
+**Reglas duras de esta sección (se revisan en el PR):**
+
+| # | Regla | De dónde sale |
+|---|---|---|
+| **BX1** | **Un hecho, un correo.** El cierre automático y «Declinar» mandan **el mismo** BSD-M1, palabra por palabra. Ninguna superficie de cliente distingue el camino; la diferencia (`declinedBy`, motivo) vive solo en bitácora | §BSD.8.1, `PROJECT §BSD.4`, misma doctrina que §25.8 «declinar ahora» |
+| **BX2** | **Sin culpa.** `not_continued` se pinta **neutral** (⛔ `danger`, ⛔ icono de alerta), ⛔ «expirada», ⛔ «venció», ⛔ «no enviaste», ⛔ «plazo» en ninguna superficie del vendedor | `HECHOS.md:78` (b), `PROJECT §BSD.3.3`, BSD-F7 |
+| **BX3** | **Lo prohibido en BSD-M1** (asunto, preheader, HTML y texto): `guía\|guia\|plazo\|demora\|label\|deadline\|delay`, la paquetería, el número, días, el motivo interno, montos, dirección, teléfono, CLABE | §BSD.8.1, BSD-B21 |
+| **BX4** | **El destino no es un campo.** En modo entrada la tienda se pinta como **texto** (⛔ ningún `input`, `select` ni botón «Corregir» sobre ella) | I-BSD-5, criterio 532, BSD-F2 |
+| **BX5** | **La pantalla no calcula ni decide** (SK3 extendida): `guideDueAt`, `guideDueSoon`, `declineAcceptedAllowed`, `labelPdfAvailable`, tarifa, margen y valor asegurado llegan del servidor. ⛔ «N días» con un reloj propio (ver BSD-UX.6c) | §BSD.5 «⛔ Ninguno se persiste», BSD-F5/F6 |
+| **BX6** | **El motivo de «Declinar» es interno** y así se rotula; ⛔ nunca viaja a una superficie de cliente | §BSD.6 |
+| **BX7** | **El nombre sugerido no se escribe solo.** `sellerName` es una sugerencia que el operador **guarda con su clic** | §BSD.5 («⛔ nunca se escribe solo»), BSD-F2 |
+
+**Qué cambia de diseños previos** (cada fila, marcada ✏ en su sitio de abajo):
+
+| Diseño previo | Antes | Ahora | Por qué |
+|---|---|---|---|
+| §25.8 / `admin.m5.…readOnlyByStatus.aceptada` y `admin.m5.acceptedNote` | «Aceptada: ya no se cancela» | Se quita «ya no se cancela» (BSD-UX.6a) | `PROJECT §BSD.2.6`: «Declinar» existe en «Aceptada» |
+| §23.1d / `status-map.ts` | dos motivos de `expirada` + fallback | **tres** motivos: + `expirada_not_continued` neutral «No continuó» | BX2 |
+| §25.5f (cierre terminal del portal) | `not_shipped`, `no_offer` | + fila `not_continued`, **sin montos** (como `no_offer`) | BSD-UX.4a |
+| §25.4.5 (correo 4: ⛔ «después de revisar tu solicitud») | — | **No cambia el correo 4.** BSD-M1 sí dice «tras una revisión adicional»: es la frase **dictada por el dueño** (`HECHOS.md:78` (d)) y, como el texto es idéntico en los dos caminos (BX1), no delata cuál fue | Decisión del dueño |
+| §41.1 inventario de correos | 30 renders | + **BSD-M1** (VENTA, CTA **tinta**) y AV-7 (#10) gana tres variantes. ML-17 suma BSD-M1 a «tinta» | BSD-UX.1, .2 |
+| §43 (ventana «Capturar guía») | solo salida | + **modo entrada** (BSD-UX.5); SK7 y SK10 tienen su versión de entrada | §BSD.3, `PROJECT §BSD.1` |
+| §43.19.11–.12 (avisos AG, `AVG-1`) | AG-1…AG-22 | + **AG-23**; su `AVG-1` lleva CTA a «Solicitudes de venta», no a «Ver el aviso» | BSD-UX.3, C-2 |
+| §60 (b) F-9 (diales del ciclo en M10) | subtítulo «Aplican a solicitudes nuevas…» | los dos diales nuevos van en un subgrupo propio que dice que **aplican también a las en curso** | BSD-UX.6e |
+| §43.23.1 (P&L de M7: orden y número de renglones) | **ocho** renglones con signo, en el orden del objeto del servidor | **diez**: «+ Tarifa de envío descontada a vendedores» y «− Guías para recibir cartas de vendedores» van **justo debajo de «Costo de lo vendido»** (no al final, aunque en el objeto vengan al final); margen y aviso, **fuera** de la fórmula | BSD-UX.11; §BSD.16.1 y .6 («dentro de costo de compras; margen y contador como nota») |
+| §43.23.3 `admin.m7.pnl.formula` | ocho términos | diez términos (BSD-UX.11c); sigue nombrando a Stripe y a los «ajustes de paquetería» | BSD-UX.11 |
+| §43.23.6 UX-PNL-1 y UX-PNL-4 | «ocho `pnl-line`»; tres renglones en `0` siguen visibles | «**diez** `pnl-line`»; los dos nuevos también se pintan con `0` | BSD-UX.11, UX-BSD-11 |
+
+---
+
+### BSD-UX.1 BSD-M1 — «Decidimos no continuar con esta venta» (vendedor; cierre automático y «Declinar»)
+
+Plantilla nueva `sellRequestNotContinuedTemplate` (`buylist-mail.templates.ts`, §BSD.8.1) sobre `mailShell`, esqueleto de
+§31.3, familia **VENTA** (pie §41.6: «Recibes este correo porque tienes una solicitud de venta con nosotros.»), saludo por
+`greetingLine()` (§41.3), un idioma por correo (`User.locale`). **Mismo esqueleto que el correo 6** («no procederemos»):
+eyebrow, titular 22px, saludo, tres párrafos, CTA tinta, URL de respaldo, letra chica. ⛔ Sin montos, sin caja de términos,
+sin fecha límite.
+
+| Pieza | Clave (constante de la plantilla) | ES | EN |
+|---|---|---|---|
+| Asunto | `notContinued.subject` | No continuaremos con tu solicitud de venta | We won't be continuing with your sell request |
+| Preheader (§31.6a; = primera frase de `p2`) | `notContinued.preheader` | La solicitud queda cerrada y no se compró ninguna carta. *(55 car.)* | The request is closed and no card was purchased. *(48 car.)* |
+| Eyebrow | `notContinued.eyebrow` | `SOLICITUD CERRADA · <folio>` | `REQUEST CLOSED · <folio>` |
+| Titular (serif 22px) | `notContinued.title` | Decidimos no continuar con esta venta | We've decided not to continue with this sale |
+| Saludo | `greetingLine()` | Hola Ana: · Hola: | Hi Ana, · Hi, |
+| `p1` | `notContinued.p1` | Tras una revisión adicional, decidimos no continuar con el proceso de venta de tu solicitud {folio}. | After an additional review, we've decided not to continue with the sale process for your request {folio}. |
+| `p2` | `notContinued.p2` | La solicitud queda cerrada y no se compró ninguna carta. Por favor, no nos envíes tus cartas. | The request is closed and no card was purchased. Please don't send us your cards. |
+| `p3` | `notContinued.p3` | Gracias por considerarnos. Si más adelante quieres vender, puedes cotizar de nuevo cuando quieras. | Thank you for considering us. If you'd like to sell in the future, you can get a new quote whenever you like. |
+| CTA (**tinta**, §41.4) | `notContinued.cta` | `VER MI SOLICITUD` → `buylistPortalUrl(id, locale)` | `VIEW MY REQUEST` |
+| URL de respaldo (§31.6g) | — | la misma URL en mono 12px | idem |
+| Letra chica (tras el CTA) | `notContinued.small` | Si ya las habías enviado, escríbenos a {soporte}. | If you had already sent them, write to us at {support}. |
+
+- **`p1` es la frase del dueño**, completada solo con el sujeto («de tu solicitud {folio}») para que el vendedor sepa de
+  cuál se trata. «Súper profesional» se resuelve con tres cosas: primera persona del plural (decidimos), ninguna
+  justificación y ninguna disculpa que invente una causa (§25.4.5 fila 6: «perdón por la demora» delataría justo lo que
+  el dueño no quiere decir).
+- **`p2` reutiliza la frase dictada para 5a/5b** («La solicitud queda cerrada y no se compró ninguna carta», §31.10b): el
+  mismo hecho, la misma frase. **«Por favor, no nos envíes tus cartas»** es una **instrucción**, no una afirmación sobre una
+  guía: el vendedor **aceptó**, y con «Declinar» puede tener una guía en la mano (manual o de Skydropx, que se cancela sola).
+  Sin esa frase, el riesgo de 5b (cartas de una solicitud cerrada llegando a la bodega) vuelve. ⛔ No nombra la guía (BX3).
+- **`p3` — ¿vuelve a cotizar? Sí, como invitación en prosa, no como botón.** El CTA va al portal (§BSD.8.1) y su rótulo
+  **nombra ese destino** (§41.4: el rótulo dice a dónde lleva). El portal cerrado ya tiene «Cotizar de nuevo»
+  (`buylist.offer.quoteAgainCta`), así que la puerta abierta queda a un clic. *Por qué no `COTIZAR DE NUEVO` como en 5/6:*
+  esos dos apuntan hoy al portal con un rótulo que no lo dice (`buylist-mail.templates.ts:1096`, `:1184`); no repito el
+  desajuste en un correo nuevo. Si el dueño prefiere el rótulo de 5/6, cambian **cuerpo y CTA juntos** (§31.10b (a)).
+- **Letra chica:** el vendedor puede haber mandado el paquete **sin** pulsar «ya lo mandé» (que es lo que impide
+  «Declinar»). La frase le da salida sin acusarlo; `{soporte}` = `supportEmail()` (E-3 de §41.13). ⛔ No promete qué pasará
+  con las cartas.
+- **Palabras revisadas contra BX3** en las cuatro cadenas y en el preheader, ES y EN: ninguna contiene `guía`, `guia`,
+  `plazo`, `demora`, `label`, `deadline`, `delay`, «días», ni cifra alguna (ojo: «available», que no se usa, contendría
+  `lable`, no `label`).
+- **Parte de texto** (§31.12), en este orden: saludo · `EYEBROW · folio` · titular · `p1` · `p2` · `p3` · URL · letra chica ·
+  `TCG HUNT`.
+- **Accesibilidad del correo:** `html lang` = locale; un solo CTA; titular como texto vivo.
+
+### BSD-UX.2 AV-7 con la etiqueta — tres variantes y la línea «sustituye a la anterior»
+
+Mismo productor, mismo sello (`guideNoticeSentAt`), misma plantilla `sellGuideTemplate` con un parámetro de variante
+(§BSD.8.2). **La variante manual no cambia** (contrato: «Guía manual: sin cambio»). Q-BSD-2: **sí** lleva la línea de
+sustitución por defecto.
+
+| Variante | Cuándo | Adjunto |
+|---|---|---|
+| **M** (manual) | guía capturada a mano (`adminGuide`) | — (sin cambio) |
+| **S** | guía de entrada de Skydropx con número **y** el PDF descargado (≤ 5 MB) | `guia-<8 primeros del folio>.pdf`, `application/pdf` (el mismo nombre que la descarga del portal, §BSD.4.4) |
+| **S0** | guía de Skydropx y la descarga del PDF **falló** | ninguno; el cuerpo manda a «Mi cuenta» |
+| **+R** | S o S0 cuando la solicitud **ya tuvo otra guía de entrada cancelada por re-emisión** | (el de S, si lo hay) |
+
+Orden de bloques (§31.3), con lo nuevo en **negrita**: eyebrow `TU SOLICITUD DE VENTA · <folio>` · titular · saludo ·
+**[+R] línea de sustitución** · intro · regla · `monoRow` paquetería y guía · **[S/S0] sucursal** · **[S/S0, si hay liga]
+rastreo** · fecha límite (`deadlineRow`, sin cambio) · letra chica «Si ya lo depositaste…» · **[S] letra chica de volver a
+descargar** · CTA bermellón `IR A MI SOLICITUD` (sin cambio, §41.4 fila 10) + URL.
+
+| Pieza | Clave (constante) | ES | EN | Variante |
+|---|---|---|---|---|
+| Asunto | `guide.subject` (✅ §41.2 fila 10) | Tu guía prepagada | Your prepaid label | M, S, S0 |
+| Asunto | `guide.subjectReplaced` ⭐ | Tu nueva guía prepagada | Your new prepaid label | +R |
+| Titular | `guide.title` (✅) | Tu guía prepagada ya está lista | Your prepaid label is ready | M, S, S0 |
+| Titular | `guide.titleReplaced` ⭐ | Tu nueva guía prepagada ya está lista | Your new prepaid label is ready | +R |
+| Línea de sustitución (prosa en tinta, el **primer** párrafo tras el saludo) | `guide.replaced` ⭐ | Esta guía sustituye a la que te enviamos antes: no uses la anterior. | This label replaces the one we sent you before: don't use the old one. | +R |
+| Intro | `guide.intro` (✅) | La guía ya está pagada por nosotros. Entrega el paquete en la paquetería de abajo. | We already paid for the label. Drop the package off with the carrier below. | M |
+| Intro | `guide.sdx.intro` ⭐ | Ya pagamos tu guía; su costo es la tarifa fija de tu oferta, que se descuenta de tu pago. Va adjunta a este correo en PDF: imprímela y pégala en tu paquete. | We've already paid for your label; its cost is the fixed fee in your offer, deducted from your payment. It's attached to this email as a PDF: print it and stick it on your package. | S |
+| Intro | `guide.sdx.introNoPdf` ⭐ | Ya pagamos tu guía; su costo es la tarifa fija de tu oferta, que se descuenta de tu pago. No pudimos adjuntarla a este correo: descárgala en PDF desde tu solicitud, en «Mi cuenta», imprímela y pégala en tu paquete. | We've already paid for your label; its cost is the fixed fee in your offer, deducted from your payment. We couldn't attach it to this email: download the PDF from your request in “My account”, print it and stick it on your package. | S0 |
+| Dato (`monoRow`) | `guide.dato` (✅) | Paquetería: {carrier} · Guía: {trackingNumber} | Carrier: {carrier} · Tracking: {trackingNumber} | todas |
+| Sucursal | `guide.sdx.dropoff` ⭐ | Lleva el paquete a una sucursal de {carrier}: la paquetería no pasa a recogerlo. | Take the package to a {carrier} branch: the carrier won't pick it up. | S, S0 |
+| Rastreo (solo con `trackingUrl ≠ null`, en prosa con su URL; ⛔ segundo botón) | `guide.sdx.tracking` ⭐ | Puedes seguir tu paquete en la página de {carrier}: {trackingUrl} | You can follow your package on {carrier}'s website: {trackingUrl} | S, S0 |
+| Fecha límite | (✅ `deadlineRow`) | Tienes hasta el {fecha} para depositarlo. | You have until {date} to drop it off. | todas |
+| Letra chica | `guide.alreadySent` (✅) | Si ya lo depositaste, avísanos desde tu cuenta y detenemos el reloj. | If you already dropped it off, tell us from your account and we stop the clock. | todas |
+| Letra chica | `guide.sdx.redownload` ⭐ | Si pierdes el PDF, vuelve a descargarlo desde tu solicitud, en «Mi cuenta». | If you lose the PDF, download it again from your request in “My account”. | S |
+| Preheader | (✅) `{title}. {dato}` | — | — | M, S, S0 |
+| Preheader | `guide.replaced` | (la línea de sustitución, 66 car.) | (69 car.) | +R |
+
+- **Por qué la intro de Skydropx nombra el descuento** (y la manual no se toca): §25.4.7 (D43) — *donde aparezca «ponemos
+  la guía», viaja «y se descuenta»*. La intro de hoy («ya está pagada por nosotros») se lee como «gratis»; en la variante
+  nueva no repito el defecto. ⛔ **Sin cifra**: la tarifa ya está en la oferta (§41.7 fila 10: AV-7 no lleva montos). La
+  manual queda igual porque el contrato lo manda; **alinearla es decisión de product-owner** (BSD-UX.10, P-1).
+- **«la paquetería no pasa a recogerlo»** es cierto por construcción: el sistema no tiene verbo de recolección
+  (`PROJECT §BSD.6`, §43.3c «no se agenda desde aquí»). ⛔ No se afirma nada de lo que diga `pickup` en la tarifa (NM-4).
+- **La línea +R va arriba y en prosa**, no en letra chica: es la frase que impide que el vendedor imprima la guía
+  cancelada. Por eso también ocupa el preheader (es lo que se lee en la bandeja). ⛔ Sin el número de la guía anterior
+  (sería un segundo número que teclear por error).
+- **S0 no se reintenta** (§BSD.8.2): el sello ya se reclamó. La frase manda a «Mi cuenta», donde el botón de BSD-UX.4b
+  la sirve por proxy.
+- ⛔ **Los cinco prohibidos** (§31.0 regla 2) siguen: ni la dirección de la tienda ni la del vendedor (la lleva la
+  etiqueta, no el correo).
+- `{carrier}` es el nombre que lee una persona («99minutos», «Paquetexpress»), ⛔ nunca un código: ver C-6.
+
+### BSD-UX.3 AG-23 al dueño — «Solicitud de venta sin guía»
+
+Aviso nuevo de control del gasto (`SpendAlertKind = 'buylist_guide_due'`, código **AG-23**), inmediato, **solo al
+dueño** (§BSD.7.2). Textos en el mismo espacio que AG-1…AG-22 (§43.19.11). Datos: **solo** `facts = { sellRequestId,
+closesAt, offerGrossCents }` (GAS-4; ⛔ PII del vendedor, GAS-2).
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.spendAlerts.kind.AG-23.title` | Solicitud de venta sin guía | Sell request without a label |
+| `admin.spendAlerts.kind.AG-23.text` | La solicitud de venta {folio} sigue aceptada y sin guía: se cierra sola el {closesAt} si para entonces no tiene guía. Valor de sus cartas en la oferta: {gross}. | Sell request {folio} is still accepted and has no label: it closes on its own on {closesAt} if it still has no label by then. Value of its cards in the offer: {gross}. |
+| `admin.spendAlerts.fact.sellRequestId` | Solicitud de venta | Sell request |
+| `admin.spendAlerts.fact.closesAt` | Se cierra | Closes |
+| `admin.spendAlerts.fact.offerGrossCents` | Valor de las cartas en la oferta | Value of the cards in the offer |
+
+✏ vBSD-1.1 (2026-10-06, medido por frontend en `messages/es.json:5939-5941` y `:6070-6072`, releído por ux-ui): los datos
+del aviso viven en **`admin.spendAlerts.fact.*`** (⛔ `field.*`: ese espacio es el de los campos de domicilio de AG-1), y el
+argumento del monto es **`{gross}` en los dos idiomas** (ICU exige el mismo nombre en `es` y `en`; `{bruto}` era un error
+mío). `{folio}` = `sellRequestId` (el que M5 pinta y busca, `M5View.tsx:1179`); `{closesAt}` = fecha y hora en
+`America/Mexico_City`; `{gross}` = `formatMoneyCents` / `mailMoney` (`MX$`). En M10 «Avisos encendidos» (§43.19.10a (3)),
+si el contrato lo admite en `spendAlertsDisabled`, la casilla es **«AG-23 · Solicitud de venta sin guía»** con gravedad
+**«Correo inmediato»** (NO MEDIDO si es apagable: C-7). La lista blanca de `facts` del detalle (UX-GAS-6) gana esas tres
+claves y ninguna otra.
+
+**Correo `AVG-1` para AG-23** (§43.19.12, pie **GASTO**, saludo por `greetingName()`):
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto | Solicitud de venta sin guía: se cierra sola el {fecha corta} — p. ej. «…el 12 de octubre» | Sell request without a label: closes on its own on {short date} — e.g. “…on October 12” |
+| Titular (serif) | Solicitud de venta sin guía | Sell request without a label |
+| Cuerpo | el `text` de arriba | idem EN |
+| Filas (mono, etiqueta–valor) | Solicitud de venta · Valor de las cartas en la oferta · Se cierra | Sell request · Value of the cards in the offer · Closes |
+| Remedio (prosa; constante de plantilla del **backend**, ⛔ clave de `messages/*.json`: `admin.spendAlerts.mail.*` en frontend es el estado del correo) | Para que no se cierre, genera su guía con Skydropx (o captúrala a mano) en «Solicitudes de venta»: búscala por su folio. Si ya no la quieres comprar, puedes declinarla ahí mismo; al vendedor le llega el mismo correo en los dos casos. | To keep it from closing, generate its label with Skydropx (or enter one by hand) in “Sell requests”: search for it by its ID. If you no longer want to buy it, you can decline it right there; the seller gets the same email either way. |
+| CTA (**bermellón**: no actuar pierde la compra; constante del backend) | `IR A SOLICITUDES DE VENTA` → `appUrl('admin/m5')` | `GO TO SELL REQUESTS` |
+| Frenar | ⛔ no lleva (no es gasto que frenar) | — |
+
+- ✏ **Cambia el encargo, no el contrato:** el encargo decía «lleva 5 días aceptada sin guía; se cierra sola en 2 días».
+  **«Lleva 5 días aceptada» no se puede escribir**: el reloj se ancla en `coalesce(inboundGuideClockStartedAt, acceptedAt)`
+  y ese ancla puede ser **el despliegue** (P-BSD-2: la del 15-sep lleva 21 días aceptada) o **una re-emisión**; además
+  `facts` no trae la fecha de aceptación. Lo que sí es cierto y está en `facts` es **cuándo se cierra**; eso dice el
+  contrato (§BSD.8.3) y eso dice el texto. «En 2 días» tampoco: es una cuenta con reloj (BX5); la fecha la sustituye.
+- ✏ **CTA distinto del resto de `AVG-1`** (que lleva `VER EL AVISO`): el dueño tiene que **actuar en M5**, no leer el aviso.
+  El contrato pide «enlace a la ficha de M5», pero **M5 no tiene ruta por solicitud** y PS-153 prohíbe `?` en estos correos
+  ⇒ va a la lista y el folio va en el cuerpo para el buscador. Ver C-2.
+- La fila del aviso en `/admin/spend-alerts` es historial: queda aunque la solicitud ya tenga guía o se haya cerrado. La
+  marca **viva** es la de M5 y el tablero (BSD-UX.6c), que desaparece sola.
+
+### BSD-UX.4 Portal del vendedor — el cierre «no continuamos» y la descarga de la etiqueta
+
+#### BSD-UX.4a `expiredReason = 'not_continued'`
+
+| Superficie | Clave | ES | EN |
+|---|---|---|---|
+| Insignia (lista «Mis ventas», portal, M5, «Cerradas») — fila nueva `expirada_not_continued` en `status-map.ts`: tono **neutral**, forma `soft`, **sin icono** | `status.sellRequestExpiry.not_continued` | No continuó | Not continued |
+| Frase de cierre del portal (`SellRequestDetailView`, junto a `closedNotShipped`/`closedNoOffer`) | `buylist.offer.closedNotContinued` | Tras una revisión adicional, decidimos no continuar con esta venta. La solicitud queda cerrada y no se compró ninguna carta. | After an additional review, we've decided not to continue with this sale. The request is closed and no card was purchased. |
+| CTA | `buylist.offer.quoteAgainCta` (existe) | Cotizar de nuevo | Get a new quote |
+
+- **Espejo del correo** (§25.5): la pantalla dice lo mismo que BSD-M1, con sus palabras (BX1).
+- **Sin dinero**: igual que `no_offer` (§25.5f), con `not_continued` se **ocultan los tres montos** y las cartas se listan
+  **sin importe** (✏ `SellRequestDetailView.tsx:226`: la condición de `hideMoney` gana `not_continued`). *Una oferta
+  aceptada con «Se te depositan MX$…» al lado de «decidimos no continuar» se lee como una deuda.*
+- ⛔ Ni bloque «Tu guía», ni dirección con «Cambiar», ni «ya lo mandé» (la solicitud está cerrada; `labelPdfAvailable` es
+  `false` fuera de `aceptada`).
+- El cierre del stepper (§25.2d) pinta la versalita **«No continuó»** + la fecha de `closedAt`.
+- ⛔ BX2: ni «Expirada» (el fallback `status.sellRequestExpiry.unknown` **no** puede alcanzar a `not_continued`: por eso la
+  fila refinada es obligatoria), ni «venció», ni «plazo», ni nada que hable del vendedor.
+- «No continuó» y no «No continuamos»: la misma insignia la lee el operador en M5, y en primera persona sonaría a que lo
+  dice él. Paralela a «No procedió».
+
+#### BSD-UX.4b «Tu guía» — la descarga de la etiqueta en «Mi cuenta»
+
+Se pinta **solo** con `labelPdfAvailable = true` (BX5; dónde vive el campo: C-1). Dos sitios, el mismo verbo:
+
+1. **El portal de la solicitud** (`/buylist/requests/[id]`, al que se llega desde «Mi cuenta › Compras y ventas ›
+   Ventas», §33.3): un bloque propio **encima de «Tus cartas»**, bajo la línea `acceptedOn`.
+2. **El renglón de la solicitud en «Ventas»** (`/orders?tab=ventas`): un enlace de texto, para no tener que entrar.
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Eyebrow del bloque | `buylist.offer.label.title` | Tu guía | Your label |
+| Cuerpo (con `offer.carrier`) | `buylist.offer.label.body` | Ya pagamos tu guía con {carrier}. Imprímela, pégala en tu paquete y llévalo a una sucursal de {carrier}. | We've already paid for your label with {carrier}. Print it, stick it on your package and take it to a {carrier} branch. |
+| Cuerpo (sin `carrier`) | `buylist.offer.label.bodyNoCarrier` | Ya pagamos tu guía. Imprímela, pégala en tu paquete y llévalo a una sucursal de la paquetería que dice la guía. | We've already paid for your label. Print it, stick it on your package and take it to a branch of the carrier shown on it. |
+| Número (mono, seleccionable; solo con `offer.trackingNumber`) | `buylist.offer.label.tracking` | Número de guía: {tracking} | Tracking number: {tracking} |
+| Botón (`primary`, es la única acción del bloque) | `buylist.offer.label.download` | Descargar mi guía (PDF) | Download my label (PDF) |
+| En curso (`loading`) | `buylist.offer.label.downloading` | Descargando… | Downloading… |
+| Nota (`text-sm text-muted`) | `buylist.offer.label.alsoInEmail` | También va adjunta en el correo que te mandamos. | It's also attached to the email we sent you. |
+| Enlace del renglón en «Ventas» | `buylist.offer.label.downloadShort` | Descargar guía (PDF) | Download label (PDF) |
+| `404 LABEL_NOT_AVAILABLE` **y** `404 NOT_FOUND` (mismo texto: sin oráculo, §25.5g-e) | `buylist.offer.label.errorUnavailable` | Esta guía ya no está disponible para descargar. Si la cambiamos, te mandamos la nueva por correo. | This label is no longer available to download. If we changed it, we've emailed you the new one. |
+| `502`, `409 SHIPPING_PROVIDER_NOT_CONFIGURED`, red | `buylist.offer.label.errorTemporary` | No pudimos traer tu guía en este momento. Vuelve a intentarlo en unos minutos; también va adjunta en el correo que te mandamos. | We couldn't get your label right now. Try again in a few minutes; it's also attached to the email we sent you. |
+
+- Descarga sobre `GET /api/v1/buylist/requests/:id/label.pdf` (proxy; ⛔ nunca un enlace a la URL de Skydropx). Cómo se
+  pasa la sesión a la descarga lo decide frontend (mismo NO MEDIDO que §43.5).
+- El error se pinta bajo el botón en `role="alert"`; el botón vuelve a estar activo (reintentar es un clic). Tras
+  `errorUnavailable`, se relee la solicitud: si `labelPdfAvailable` pasó a `false`, el bloque desaparece.
+- ⛔ Sin la dirección de la tienda en el bloque (la lleva la etiqueta; criterio 114 ya se cumplió al aceptar, pero el
+  bloque no la necesita).
+- Con guía **manual**, `labelPdfAvailable = false` ⇒ nada nuevo (como hoy).
+
+#### BSD-UX.4c El cambio de dirección del vendedor durante la compra
+
+✏ **vBSD-1.1 (2026-10-06): sin superficie hasta que se construya §25.5e; la clave se retira de `messages/*.json`.**
+
+**Lo medido.** Frontend (FRONTEND_NOTES §104, «Huecos medidos 2026-10-06»): `grep -rn "pickup-address" frontend/src` solo
+da un comentario. Releído por ux-ui en `/home/user/tcg-bsdx/frontend/src`: ni `pickup-address` ni `pickupLocked` aparecen
+en ningún componente del portal; solo `error-audience.ts`, `api.ts` (alta de la solicitud) y la prueba de paridad
+`lib/i18n-bsd.test.ts:17`. El endpoint del cliente **existe en el contrato** (`PATCH /buylist/requests/:id/pickup-address`,
+`API_CONTRACT.md:12667`).
+
+**No es una pantalla nueva:** la superficie ya está diseñada desde v1.51 — §25.5e (línea «(e) La dirección de origen, con su
+ventana de corrección»): «Cambiar» junto a la dirección en el portal mientras `guideSentAt === null`, y «Ya imprimimos la
+guía con esta dirección.» cuando ya hay guía. **Lo que falta es construirla** (hueco previo a BSD, no lo abre este
+diseño). Hasta entonces el `409 PICKUP_ADDRESS_LOCKED {reason:'label_in_progress'}` (§BSD.4.5) no tiene dónde pintarse.
+
+**Decisión:**
+- ✏ **Frontend retira `buylist.offer.pickupLockedInProgress`** de `es.json`/`en.json` y de `i18n-bsd.test.ts:17`. Una clave
+  sin superficie es copy que nadie lee ni prueba en contexto; mantenerla da paridad verde sobre nada.
+- El texto queda **aquí, dormido**, para el día que se construya §25.5e. Ese encargo (frontend, stream «Catálogo y
+  precios», portal del buylist) lo vuelve a crear con esta misma clave y estos textos:
+
+| Clave (se crea con §25.5e, ⛔ antes) | ES | EN |
+|---|---|---|
+| `buylist.offer.pickupLockedInProgress` | Estamos generando tu guía con esta dirección: ya no se puede cambiar. Si está mal, escríbenos a {email}. | We're generating your label with this address: it can't be changed now. If it's wrong, write to us at {email}. |
+
+- Dónde iría, para que el encargo de §25.5e no tenga que decidirlo: bajo la dirección, en `role="alert"`, tras el `409`
+  del `PATCH`; se relee la solicitud y «Cambiar» desaparece si el servidor ya no lo permite.
+- **Efecto sobre BSD-UX.5a:** `resyncNote` («Si el vendedor cambia su dirección antes de que compres la guía…») describe
+  una conducta del servidor que hoy **solo** se dispara si alguien llama al `PATCH` del cliente directamente, sin pantalla.
+  Se mantiene: es verdad del contrato, protege al operador si la llamada ocurre y será la conducta normal cuando exista
+  §25.5e. Solicitud al orquestador en BSD-UX.10 (N-5).
+
+### BSD-UX.5 La ventana de captura en **modo entrada** (`CaptureLabelDialog`, la misma)
+
+**Una ventana, dos sentidos** (SK1): M5 abre **el mismo** diálogo de §43 con `kind = 'buylist_inbound'`. Pasos, pie,
+cierre, «Capturar a mano», SK2–SK6, SK8 y SK9 **sin cambio**. Lo que cambia está en esta tabla y en las subsecciones;
+todo lo no nombrado se pinta como §43.1–§43.5 y §43.19. *Si el diálogo se mueve a `frontend/src/components/` para
+abrirlo desde M5, es zona compartida (§BSD.12.4).*
+
+**Apertura** (BSD-F1): en la ficha de M5 de una `aceptada` sin guía y con `inboundLabelOptions.provider = 'skydropx'`,
+botón **«Generar guía con Skydropx»** ⇒ `POST /admin/buylist/:id/inbound-shipment` (región de estado **«Preparando la
+guía…»**) ⇒ con `shipment.id`, `GET /admin/shipments/:id` ⇒ la ventana, en el paso que diga §43.1.
+
+| Pieza | Clave (`admin.m4.tracking.sdx.inbound.*`) | ES | EN |
+|---|---|---|---|
+| Título del `Modal` | `title` | Guía del vendedor a la tienda | Seller-to-store label |
+| Referencia (línea de §43.1 punto 2) | `ref` | Solicitud de venta {sellRequestId} · Envío {folio} | Sell request {sellRequestId} · Shipment {folio} |
+| Nombres de paso | (sin cambio) | Dirección · Opciones · Comprar · Guía | idem |
+
+#### BSD-UX.5a Paso 1 — origen editable, destino de solo lectura
+
+El cuerpo del paso tiene **dos bloques** (`<section>` con `aria-labelledby`), el origen arriba porque es lo único que se
+revisa:
+
+**(1) «Sale de · el vendedor»** — el modo leer/corregir de §43.2 **entero**, sobre `addressSnapshot` de la fila de entrada,
+con estos cambios:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Encabezado del bloque (`h3`, versalita) | `originTitle` | Sale de · el vendedor | From · the seller |
+| Rótulo de `recipientName` (modo leer y campo) | `sender` | Quién envía | Sender |
+| Ausencia (SK8, `text-accent`) | `senderMissing` | Falta quién envía | Sender missing |
+| Ayuda del campo | `senderHint` | Nombre de quien entrega el paquete. Va en la etiqueta. | Name of the person dropping off the package. It goes on the label. |
+| Sugerencia (con el campo vacío y `inbound.sellerName ≠ ''`; `text-sm text-text`, unida por `aria-describedby`) | `senderSuggestion` | Sugerencia: {sellerName} (el nombre de su cuenta). | Suggestion: {sellerName} (their account name). |
+| Botón fantasma junto a la sugerencia | `useSuggestion` | Usar este nombre | Use this name |
+| Frase de alcance (sustituye a la de §43.2b en este modo) | `scopeNote` | Esto corrige solo el origen de esta guía. La dirección guardada en la cuenta del vendedor y la de su solicitud no cambian. | This only corrects where this label starts from. The address saved on the seller's account and the one on their request don't change. |
+| Segunda línea (`text-sm text-muted`; `auditNote` de §43.2b sigue debajo) | `resyncNote` | Si el vendedor cambia su dirección antes de que compres la guía, esta corrección se sustituye por la suya. | If the seller changes their address before you buy the label, this correction is replaced by theirs. |
+| `400 VALIDATION_ERROR {field:'recipientName'}` | `senderRequired` | Escribe quién envía. | Enter who is sending it. |
+
+- **BX7:** «Usar este nombre» **solo rellena el campo** (y pone el foco en él); se guarda con «Guardar dirección» como
+  cualquier corrección (queda en bitácora a nombre del operador). ⛔ Nunca se manda sin ese clic; ⛔ la sugerencia no
+  aparece si el campo ya tiene texto.
+- Con `missing = ['recipientName']` la ventana abre en modo corregir con el foco en «Quién envía» (como §43.2a con
+  `missing`). El `422 SHIPMENT_ADDRESS_INCOMPLETE {missing:['recipientName']}` de cotizar cae aquí (tabla de BSD-UX.5d).
+- **Teléfono:** la línea «Teléfono: {phone}. No se corrige aquí.» de §43.2b, sin cambio (P-ADR-1); es el del vendedor.
+- *Por qué `resyncNote`:* §BSD.4.5 — si el vendedor cambia su dirección con la fila en `solicitado`, el servidor reemplaza
+  el snapshot (y la corrección del operador). Sin la frase, el operador vería desaparecer su cambio sin saber por qué.
+
+**(2) «Llega a · la tienda»** — **texto, nunca campos** (BX4), de `inbound.destination`:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Encabezado (`h3`, versalita) | `destinationTitle` | Llega a · la tienda | To · the store |
+| `<dl>` (etiqueta `text-sm text-muted`, valor `text-sm text-text`) | etiquetas de §43.2a | Nombre (`name`) · Calle y número (`street1`) · Colonia (`neighborhood`) · CP (`postalCode`, `tabular`) · Municipio o alcaldía (`city`) · Estado (`state`) | Name · Street and number · Neighborhood · Postal code · Municipality · State |
+| Nota (`text-sm text-muted`) | `destinationNote` | Es la dirección de la tienda en «Configuración › Envíos». Esta guía siempre llega ahí: no se cambia aquí. | It's the store address from “Settings › Shipping”. This label always goes there: it isn't changed here. |
+| Etiqueta nueva | `destinationName` | Nombre | Name |
+
+- ⛔ Ni `input`, ni `readonly input`, ni «Corregir» sobre este bloque (BSD-F2 lo mide por ausencia de controles).
+- `inbound.destination` ausente o con campos vacíos ⇒ «Sin dato» por campo (SK8); la cotización lo dirá con su error
+  (`missing:['origin_snapshot']`, BSD-UX.5d).
+
+#### BSD-UX.5b Paso 2 — la banda de tarifa y margen, y las opciones en sentido inverso
+
+**Cabecera de la cotización** (§43.3b): cambian dos líneas, el resto (empaque, seguro, vigencia) igual. Todo del DTO (BX5).
+
+| Línea | Clave | ES | EN | Fuente |
+|---|---|---|---|---|
+| ✏ sustituye a «Cobrado al cliente…» | `feeDeducted` | Se le descuenta al vendedor: {fee} (la tarifa fija de su oferta). | Deducted from the seller: {fee} (the fixed fee in their offer). | `charged.grossCents` (= `offerShippingFeeCents`, §BSD.3 «lo cobrado»: es la cifra contra la que el servidor calcula el margen) |
+| ✏ sustituye a «Lo que va en la caja vale…» | `boxValue` | Lo que va en la caja vale {valor}: lo que le vamos a pagar por las cartas. | What's in the box is worth {value}: what we'll pay for the cards. | `insurance.insuredValueCents` |
+
+La **banda** es esa primera línea, en `text-base text-text` y **encima** de las demás (es la referencia contra la que se lee
+cada fila). En cada fila (§43.3c plano 3) el margen se lee contra ella:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Margen | (`margin` de §43.3c) | Margen: {margen} | Margin: {margin} |
+| Margen negativo (`text-accent`) | `marginNegative` | Margen: −{abs} — esta guía cuesta más de lo que se le descuenta | Margin: −{abs} — this label costs more than what's deducted from them |
+| Recolección (origen = vendedor), `pickup = true` | `pickupYes` | Ofrece recolección (no se agenda: el vendedor lo lleva a sucursal) | Offers pickup (not scheduled: the seller takes it to a branch) |
+| `pickup = false` (en entrada `dropoff` es siempre `null`) | `pickupNo` | Sin recolección: el vendedor lo lleva a una sucursal de {carrierLabel} | No pickup: the seller takes it to a {carrierLabel} branch |
+| Entrega (destino = tienda), `deliveryKind = 'home'` | `deliveryHome` | Entrega en la tienda | Delivers to the store |
+| `'branch'` (`text-accent`) | `deliveryBranch` | No entrega en la tienda: habría que ir a recogerlo a una sucursal | Doesn't deliver to the store: someone would have to collect it at a branch |
+| Plegado (§43.3d) | `showBranch` / `hideBranch` | Ver también {count, plural, one {# opción que no entrega} other {# opciones que no entregan}} en la tienda · Ocultar las opciones que no entregan en la tienda | Also show {count, plural, one {# option that doesn't deliver} other {# options that don't deliver}} to the store · Hide the options that don't deliver to the store |
+| Sin recomendada (`recommendedRateId = null`), bajo la lista, `text-sm text-text` | `noRecommended` | Ninguna opción entrega en la tienda. Elige una sabiendo que habrá que ir a recogerla, o captura la guía a mano. | No option delivers to the store. Pick one knowing it will have to be collected, or enter the label by hand. |
+
+- **Preseleccionada:** `recommendedRateId` (la más barata que entrega en la tienda, P-BSD-4); la pantalla **no** la elige
+  (BSD-F3). El chip «Recomendada» es el de §43.3c.
+- Días, plan, «Promoción», excluidas, cero opciones y «Cambiar empaque»: §43.3 sin cambio.
+
+#### BSD-UX.5c Pasos 3 y 4
+
+**Paso 3** (§43.4): desglose, frase de dinero (SK2) y botón **sin cambio** (el saldo es el mismo). Cambian las dos
+confirmaciones en línea:
+
+| Clave | ES | EN |
+|---|---|---|
+| `confirmNegative` | Margen negativo: −{abs}. Esta guía cuesta más que la tarifa que se le descuenta al vendedor. Si compras, lo confirmas. | Negative margin: −{abs}. This label costs more than the fee deducted from the seller. If you buy, you confirm it. |
+| `confirmBranch` | Esta opción no entrega en la tienda: alguien tendrá que ir a recogerlo a una sucursal. Si compras, lo confirmas. | This option doesn't deliver to the store: someone will have to collect it at a branch. If you buy, you confirm it. |
+
+**Paso 4** (§43.5): «Guía comprada», paquetería, número con «Copiar», «Se cobraron…», liga de rastreo: sin cambio. Cambian:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| ✏ sustituye a «Le mandamos al cliente el correo con su guía.» | `sentToSeller` | Le mandamos al vendedor su guía en PDF; desde ahora corre su plazo para enviarla. | We've emailed the seller their label as a PDF; their time to ship it starts now. |
+| Acciones | — | ✏ **solo «Descargar PDF»** (secundaria) + «Listo» (primaria). ⛔ «Imprimir etiqueta»: la imprime el vendedor | — |
+| «Guía en proceso» (nota bajo el texto de §43.5) | `processingNote` | Cuando llegue el número, le mandamos su guía al vendedor y empieza su plazo. Mientras, la solicitud no se cierra sola. | When the number arrives, we'll email the seller their label and their time starts. Meanwhile, the request won't close on its own. |
+| `Banner` de éxito en M5 | `bought` | Guía comprada para la solicitud {id}: {carrier} · {tracking}. Le mandamos su guía al vendedor. | Label bought for request {id}: {carrier} · {tracking}. We've emailed the seller their label. |
+
+*(La palabra «plazo» sí puede ir aquí: es pantalla del operador, no BSD-M1.)*
+
+**«Capturar a mano» en modo entrada:** el formulario es **el de M5** (`admin.m5.shipment.carrier` / `trackingNumber`,
+`POST /admin/buylist/:id/guide`), ⛔ no el de M4 (que lleva costo y va a otra ruta). Intro:
+
+| Clave | ES | EN |
+|---|---|---|
+| `manualIntro` | Para una guía que ya compraste en el panel de Skydropx o con otra paquetería. Al vendedor le llega por correo igual que hoy. | For a label you already bought in the Skydropx panel or with another carrier. The seller gets it by email, same as today. |
+
+«Volver a Skydropx» igual que §43.1. La fila de entrada que quede en `solicitado` no estorba (§BSD.4.5).
+
+#### BSD-UX.5d Errores propios del modo entrada (SK6: dicen qué no se escribió, qué no se cobró y el remedio)
+
+| Respuesta | Dónde | Clave (`…sdx.inbound.error.*`) | ES | EN | Después |
+|---|---|---|---|---|---|
+| `POST inbound-shipment` ⇒ `404 FEATURE_DISABLED` | M5, bajo el botón | `featureDisabled` | La compra de guías con Skydropx está apagada. No se abrió nada: captura la guía a mano. | Buying labels with Skydropx is switched off. Nothing was opened: enter the label by hand. | el botón desaparece |
+| `409 GUIDE_NOT_ALLOWED {reason:'status'\|'closed'}` | M5 / ventana | `notAccepted` | Esta solicitud ya no está aceptada ({estado}). No se abrió ni se cobró nada. | This request is no longer accepted ({status}). Nothing was opened or charged. | relee la ficha |
+| `409 GUIDE_NOT_ALLOWED {reason:'seller_declared_shipped'}` | M5 / ventana | `sellerShipped` | El vendedor ya dijo que mandó el paquete: ya no se genera guía. No se cobró nada. | The seller already said they shipped the package: no label is generated now. Nothing was charged. | «Cerrar» |
+| ✏ vBSD-1.1 · `409 GUIDE_NOT_ALLOWED {reason:'shipment_confirmed'}` | M5 / ventana | `shipmentConfirmed` | El envío de esta solicitud ya está confirmado: ya no se genera guía. No se abrió ni se cobró nada. Cuando llegue el paquete, recíbelo y revisa las cartas. | This request's shipment is already confirmed: no label is generated now. Nothing was opened or charged. When the package arrives, receive it and review the cards. | «Cerrar» y relee la ficha |
+| `409 SHIPMENT_ALREADY_LABELED {labelSource:'manual'}` | M5 / ventana | `manualExists` | Esta solicitud ya tiene una guía capturada a mano. No se cobró nada. | This request already has a label entered by hand. Nothing was charged. | «Cerrar» |
+| `422 PICKUP_ADDRESS_MISSING` | M5, bajo el botón | `noPickupAddress` | Esta solicitud no guardó la dirección del vendedor (es de antes de que se guardara) y Skydropx no cotiza sin ella. Captura la guía a mano. | This request didn't save the seller's address (it's from before addresses were saved) and Skydropx can't quote without it. Enter the label by hand. | «Capturar la guía» a mano queda a la vista |
+| `422 SHIPMENT_ADDRESS_INCOMPLETE {missing:['recipientName']}` | ventana, paso 1 | `senderMissingQuote` | Falta quién envía y Skydropx no cotiza sin ese dato. Escríbelo (puedes usar el nombre de su cuenta) y guarda. No se cotizó nada. | The sender is missing and Skydropx can't quote without it. Enter it (you can use their account name) and save. Nothing was quoted. | modo corregir, foco en «Quién envía» |
+| `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['origin_snapshot']}` | ventana | `storeAddressMissing` | Falta la dirección de la tienda en «Configuración › Envíos», y es el destino de esta guía. No se cotizó nada: complétala ahí o captura la guía a mano. | The store address is missing in “Settings › Shipping”, and it's this label's destination. Nothing was quoted: complete it there or enter the label by hand. | «Capturar a mano» primaria |
+| `400 VALIDATION_ERROR {reason:'destination_not_editable'}` | ventana | `destinationRejected` | El servidor rechazó la petición porque llevaba un destino: el de esta guía es siempre la tienda. No se cotizó ni se cobró nada. Recarga la página. | The server rejected the request because it carried a destination: this label always goes to the store. Nothing was quoted or charged. Reload the page. | (no debería ocurrir: es el canario de BSD-B6 visto desde la pantalla) |
+| `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['insurance_tier']}` | ventana | (el de §43.7, sin cambio) | — | — | — |
+
+**`GUIDE_NOT_ALLOWED` por motivo (vBSD-1.1, 2026-10-06).** Los cuatro motivos los emite `inboundGuideBlock`
+(`backend/src/modules/shipments/label-inbound.ts:47-60`, leído por ux-ui), en este orden: `status` → `closed` →
+`seller_declared_shipped` → `shipment_confirmed`. La pantalla elige el texto **por `details.reason`**, ⛔ por `status`:
+
+| `reason` | Clave |
+|---|---|
+| `status`, `closed` | `notAccepted` (con `{status}` = la insignia de la solicitud) |
+| `seller_declared_shipped` | `sellerShipped` |
+| `shipment_confirmed` | `shipmentConfirmed` |
+| otro / ausente | `notAccepted` (red de seguridad) |
+
+- ✏ **Frontend:** `m4/capture/sdx-errors.ts:94-96` gana la rama `shipment_confirmed` antes del `return` de `notAccepted`.
+  Hoy cae a «ya no está aceptada (Aceptada)», que **se contradice sola**: con este motivo la solicitud sigue en `aceptada`
+  (el guardia de `status` va primero).
+- *Por qué el remedio es «recíbelo»:* `confirm-shipment` es lo que marca que el paquete ya viene (D20); en el flujo normal
+  mueve la solicitud a `en_transito` y quien contesta es `status`. Este motivo solo se ve con una fila que tiene
+  `shipmentConfirmedAt` y sigue `aceptada` (NO MEDIDO si hoy existe alguna; lo cerraría un conteo en la base). Por eso el
+  texto no promete nada sobre la guía: dice qué no pasó y cuál es el siguiente paso real.
+- Mismo hecho («el envío … ya está confirmado») y mismo remedio («recíbelo y revisa las cartas») que
+  `admin.m5.declineAccepted.error.shipmentConfirmed` (BSD-UX.6b): el operador lee lo mismo en los dos sitios.
+
+### BSD-UX.6 M5, «Declinar», la marca del cierre, el tablero y los diales
+
+#### BSD-UX.6a La ficha de una solicitud `aceptada` en M5
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| ✏ Nota de estado (sustituye a «…ya no se cancela…») | `admin.m5.…readOnlyByStatus.aceptada` | El vendedor aceptó. Genera su guía para que mande las cartas; si ya no quieres comprarlas, puedes declinarla mientras no diga que ya las mandó. | The seller accepted. Generate their label so they can send the cards; if you no longer want to buy them, you can decline it as long as they haven't said they sent them. |
+| ✏ Nota corta (sustituye a «Aceptada: ya no se cancela. …») | `admin.m5.acceptedNote` | Aceptada. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo. | Accepted. If a card arrives in bad condition, you reject it during review, stating the reason. |
+| Botón (`primary`), BSD-F1 | `admin.m5.inbound.generate` | Generar guía con Skydropx | Generate label with Skydropx |
+| Guía de Skydropx viva (línea `text-sm`) | `admin.m5.inbound.summary` | Guía de Skydropx: {carrier} · {tracking} | Skydropx label: {carrier} · {tracking} |
+| Costo (línea `tabular`) | `admin.m5.inbound.cost` | Costo de la guía: {cost} | Label cost: {cost} |
+| En proceso | `admin.m5.inbound.processing` | Guía en proceso: el número llega solo. Mientras, la solicitud no se cierra sola. | Label in progress: the number arrives on its own. Meanwhile, the request won't close on its own. |
+| ✏ Confirmar envío con guía de Skydropx (sustituye al campo «Costo real de la etiqueta (opcional)») | `admin.m5.inbound.costFromProvider` | El costo de esta guía lo dio Skydropx ({cost}): no se captura aquí. | Skydropx provided this label's cost ({cost}): it isn't entered here. |
+| Captura a mano con guía de Skydropx viva ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'skydropx'}` | `admin.m5.inbound.alreadySkydropx` | Esta solicitud ya tiene una guía comprada en Skydropx. No se guardó la guía a mano: para cambiarla, cancélala y compra otra. | This request already has a label bought in Skydropx. The manual label wasn't saved: to change it, cancel it and buy another. |
+| `409 LABEL_IN_PROGRESS` | `admin.m5.inbound.inProgress` | Hay una compra de guía en curso para esta solicitud. No se guardó nada; espera a que termine. | A label purchase is in progress for this request. Nothing was saved; wait for it to finish. |
+| ✏ vBSD-1.1 · Región de estado (`role="status"`) mientras corre el `POST …/inbound-shipment` (ya citada en BSD-UX.5 «Apertura»; le faltaba clave) — **ratificada** | `admin.m5.inbound.preparing` | Preparando la guía… | Preparing the label… |
+| ✏ vBSD-1.1 · Botón fantasma junto a «Guía en proceso» y bajo la alerta de la guía (abre **la ventana**, no el PDF) | `admin.m5.inbound.openLabel` | Abrir la ventana de la guía | Open the label window |
+| ✏ vBSD-1.1 · Casilla de la lista de M5 (filtra por `inboundLabelAlert=true`) | `admin.m5.inbound.alertFilter` | Solo solicitudes con alerta en su guía | Only requests with a label alert |
+
+- **`openLabel` cambia** («Abrir guía» ⇒ «Abrir la ventana de la guía»): junto a «Descargar PDF», «Abrir guía» se lee como
+  «abrir el PDF». El botón abre `CaptureLabelDialog` sobre la fila de entrada existente; el nombre dice eso.
+- **`alertFilter` cambia** («…con alerta en su guía de entrada» ⇒ «…con alerta en su guía»): «de entrada» es vocabulario
+  del contrato, no del operador; en M5 la única guía que tiene una solicitud es la del vendedor. Mismas palabras que la
+  línea del tablero (abajo), para que el operador reconozca a dónde lo mandó. La casilla queda como está construida
+  (`label` envolviendo un `checkbox`, 44 px, `M5View.tsx:761-772`): ⛔ sin «✕» de quitar, la casilla ya se desmarca.
+- **`preparing`** se ratifica tal cual.
+
+- **Acciones con guía de Skydropx:** «Descargar PDF» (`GET /admin/shipments/:id/label.pdf`) y **«Cancelar guía y comprar
+  otra»** con el diálogo de §43.8, cuyo cuerpo en modo entrada es:
+  `admin.m4.tracking.sdx.inbound.reissueBody` — ES **«Se cancela en Skydropx y el saldo regresa; si Skydropx no devuelve
+  todo, la diferencia queda como ajuste. La solicitud vuelve a «sin guía»: el plazo del vendedor se detiene y la cuenta
+  para el cierre automático empieza de nuevo hoy. Cuando compres la nueva, al vendedor le llega con la nota de que
+  sustituye a la anterior.»** / EN “It's cancelled in Skydropx and the balance comes back; if Skydropx doesn't return all of
+  it, the difference is recorded as an adjustment. The request goes back to “no label”: the seller's time stops and the
+  count toward automatic closing starts again today. When you buy the new one, the seller gets it with a note that it
+  replaces the previous one.” `409 LABEL_NOT_CANCELLABLE`: `{reason:'sell_request_status'}` ⇒ **«La solicitud ya no está
+  aceptada ({estado}): la guía no se cambia desde aquí.»** / “The request is no longer accepted ({status}): the label isn't
+  changed from here.” (`…inbound.reissueNotAccepted`); `{reason:'seller_declared_shipped'}` ⇒ **«El vendedor ya dijo que
+  mandó el paquete: esta guía ya no se cambia.»** / “The seller already said they shipped the package: this label can't be
+  changed now.” (`…inbound.reissueSellerShipped`).
+- ✏ **vBSD-1.1 — tras re-emitir SÍ lleva frase** (hoy no pinta ninguna: `LabelActions.tsx:409-411` devuelve `''` en
+  entrada). La de salida (`admin.m4.label.cancel.done`, «El envío volvió a «preparado»») ⛔ no sirve: aquí no hay envío
+  preparado, y lo que el operador necesita saber es que **la cuenta del cierre empezó de nuevo**, que no se ve en la ficha
+  salvo por la fecha. `Banner success` en M5, el mismo sitio que `bought`:
+
+  | Resultado del `POST …/cancel` | Clave | ES | EN |
+  |---|---|---|---|
+  | `outcome = 'cancelled'` | `admin.m4.tracking.sdx.inbound.reissueDone` | Guía cancelada. La solicitud {id} volvió a «sin guía» y la cuenta para su cierre automático empieza de nuevo hoy. Ya puedes generar la nueva; al vendedor le llegará con la nota de que sustituye a la anterior. | Label cancelled. Request {id} is back to “no label” and the count toward automatic closing starts again today. You can now generate the new one; the seller will get it with a note that it replaces the previous one. |
+  | cualquier otro `outcome` (como hoy en `LabelActions.tsx:411`) | `admin.m4.label.cancel.already` (existe, sin cambio) | Esa guía ya estaba cancelada. No se hizo nada. | — |
+
+  `{id}` = `sellRequestId` (el mismo de `bought`). Lo compone el panel de M5, que conoce la solicitud (el diálogo no):
+  p. ej., `CancelLabelDialog` sigue devolviendo `''` en entrada y `AcceptedRequestPanel` pinta `reissueDone` cuando el
+  resultado es `''`. Cómo se cablea lo decide frontend. «Ya puedes generar la nueva» y ⛔ «con Skydropx»: si el proveedor
+  se apagó entre medias, el camino que queda es la captura a mano y la frase sigue siendo cierta.
+- **Captura a mano**: el formulario de hoy (`admin.m5.shipment.*`) sigue, como **secundario** del botón de Skydropx cuando
+  hay Skydropx, o como único camino si no. Con guía de Skydropx viva o reclamo vivo **no se pinta**.
+- `costCents` se pinta tal cual llega (con o sin IVA: C-5).
+
+#### BSD-UX.6b El diálogo «Declinar» en «Aceptada»
+
+Botón **`secondary`** (⛔ `destructive`: §25.8, contestarle al vendedor no destruye nada suyo) en la ficha, **solo** con
+`declineAcceptedAllowed = true` (BSD-F5: ⛔ por `status`). Abre `Dialog` §7.6:
+
+```
+Declinar esta solicitud aceptada
+Se cierra la solicitud y al vendedor le llega el correo de «no continuamos»,
+el mismo que si se cerrara sola. No se puede reabrir; si quiere vender,
+tendrá que cotizar de nuevo. No cuenta en su contra.
+[una línea según su guía, si tiene]
+Motivo (interno, obligatorio)  [                                    ]
+De 3 a 500 caracteres. Queda en la bitácora; el vendedor no lo verá.
+                                     [ Volver ]  [ Declinar y avisarle ]
+```
+
+| Pieza | Clave (`admin.m5.declineAccepted.*`) | ES | EN |
+|---|---|---|---|
+| Botón | `action` | Declinar | Decline |
+| Título | `title` | Declinar esta solicitud aceptada | Decline this accepted request |
+| Cuerpo | `body` | Se cierra la solicitud y al vendedor le llega el correo de «no continuamos», el mismo que si se cerrara sola. No se puede reabrir; si quiere vender, tendrá que cotizar de nuevo. No cuenta en su contra. | The request closes and the seller gets the “not continuing” email, the same one as if it closed on its own. It can't be reopened; if they want to sell, they'll need a new quote. It doesn't count against them. |
+| Con guía de Skydropx viva | `bodySdx` | Su guía de Skydropx ({carrier} · {tracking}) se cancela sola y el saldo regresa, si la paquetería todavía no la movió; si no se puede, queda en «Guías por cancelar». | Their Skydropx label ({carrier} · {tracking}) is cancelled automatically and the balance comes back, if the carrier hasn't moved it yet; if that's not possible, it goes to “Labels to cancel”. |
+| Con guía manual | `bodyManual` | Tiene una guía capturada a mano ({carrier} · {tracking}): queda en «Guías por cancelar» para que la canceles. | They have a label entered by hand ({carrier} · {tracking}): it goes to “Labels to cancel” for you to cancel it. |
+| Con compra en curso (`labelProcessing`) | `bodyInProgress` | Hay una compra de guía en curso: si termina, la guía se cancela sola. | A label purchase is in progress: if it completes, the label is cancelled automatically. |
+| Campo (`Textarea`, obligatorio, `aria-required`) | `reasonLabel` | Motivo (interno, obligatorio) | Reason (internal, required) |
+| Ayuda | `reasonHint` | De 3 a 500 caracteres. Queda en la bitácora; el vendedor no lo verá. | 3 to 500 characters. It's logged; the seller won't see it. |
+| Razón del botón apagado (`aria-describedby`) | `reasonTooShort` | Escribe el motivo (3 caracteres o más) para poder declinar. | Write the reason (3 characters or more) to decline. |
+| Más de 500 | (`admin.m5.reasonTooLong`, existe) | El motivo no puede pasar de 500 caracteres. | — |
+| Confirmar (`primary`) / salir | `confirm` / `back` | Declinar y avisarle / Volver | Decline and notify them / Back |
+| Hecho (`Banner success` en la ficha) | `done` | Solicitud {id} declinada: quedó cerrada y al vendedor le llega el correo de «no continuamos». | Request {id} declined: it's closed and the seller gets the “not continuing” email. |
+| `409 DECLINE_NOT_ALLOWED {reason:'status'}` | `error.status` | Esta solicitud ya no está aceptada ({estado}). No se declinó; abajo ves cómo quedó. | This request is no longer accepted ({status}). It wasn't declined; you can see below how it stands. |
+| `{reason:'seller_declared_shipped'}` | `error.sellerShipped` | El vendedor ya dijo que mandó el paquete: ya no se declina. Recíbelo y, si hace falta, rechaza las cartas al revisarlas. | The seller already said they shipped the package: it can't be declined now. Receive it and, if needed, reject the cards during review. |
+| `{reason:'shipment_confirmed'}` | `error.shipmentConfirmed` | El envío ya está confirmado: ya no se declina. Recíbelo y revisa las cartas. | The shipment is already confirmed: it can't be declined now. Receive it and review the cards. |
+| `400 VALIDATION_ERROR {field:'reason'}` | `error.reason` | Escribe el motivo: de 3 a 500 caracteres. No se declinó. | Write the reason: 3 to 500 characters. It wasn't declined. |
+| `403` | `error.forbidden` | Tu cuenta no puede declinar solicitudes. | Your account can't decline requests. |
+| `5xx` / red | `error.unknown` | No sabemos si se declinó: el servidor no respondió. Revisamos la solicitud… | We don't know whether it was declined: the server didn't respond. Checking the request… |
+
+- **Foco inicial en «Motivo»** (es lo único que falta para confirmar); Esc y «Volver» cierran sin escribir nada. Orden de
+  tabulación: Motivo → Volver → Declinar y avisarle.
+- **El botón de confirmar está deshabilitado** mientras `trim().length < 3` **o** `> 500`, con su razón visible y unida
+  (§15.9: ⛔ un botón apagado y mudo). La cuenta de 3 es formato del control, no regla de negocio: el `400` del servidor
+  sigue mandando.
+- Solo **una** de las tres líneas de guía (Skydropx viva > en curso > manual), según `inboundShipment` y la guía de la
+  solicitud. ⛔ Ninguna cifra del costo de la guía en el diálogo (no es una decisión de dinero; el saldo regresa solo).
+- **`5xx`/red ⇒ relectura** (`GET /admin/buylist/:id`, mismo patrón que SK5): si ya es `expirada`/`not_continued` ⇒ el
+  `done`; si sigue `aceptada` ⇒ «No se declinó: el servidor no respondió. Vuelve a intentarlo.» / “It wasn't declined: the
+  server didn't respond. Try again.” (`error.notDone`). ⛔ Un reintento a ciegas: el segundo `POST` daría `409`, no un
+  segundo correo, pero la pantalla no debe adivinar.
+- `409` ⇒ cierra el diálogo, relee la ficha y pinta el texto en `Banner warning` sobre ella.
+
+#### BSD-UX.6c La marca «se cierra sola» — M5 y tablero
+
+**En la ficha** (aceptada sin guía, `guideDueAt ≠ null`), bajo la nota de estado:
+
+| Pieza | Clave (`admin.m5.guideDue.*`) | ES | EN | Estilo |
+|---|---|---|---|---|
+| Línea, siempre que haya `guideDueAt` | `line` | Sin guía: se cierra sola el {fecha y hora} si para entonces no tiene guía. | No label: it closes on its own on {date and time} if it still has none by then. | `text-sm text-muted`; con `guideDueSoon` pasa a `text-text` y la fecha a `text-accent` (§31.6f llevado a pantalla: la frase porta, el color acompaña) |
+| Versalita (solo `guideDueSoon = true`) | `tag` | Se cierra sola | Closes on its own | `TAG text-accent` (como «Caduca hoy» de §25.8) |
+| Nota (solo `guideDueSoon = true`) | `note` | Al cerrarse, al vendedor le llega el correo de «no continuamos» y no cuenta en su contra. Para evitarlo, genera su guía o declínala tú. | When it closes, the seller gets the “not continuing” email and it doesn't count against them. To avoid it, generate their label or decline it yourself. | `text-sm text-text` |
+
+**En las filas de M5** (pestaña «Con el vendedor», §25.8a; y en cualquier lista de M5 que pinte la solicitud): la versalita
+`tag` junto a la insignia `ACEPTADA`, ⇔ `guideDueSoon`. *La pestaña agrupa; la versalita precisa* (§25.8a (b)).
+
+**En el tablero** (`AdminDashboard`, tarjeta «Cola de trabajo», bajo el `QueueLink` de Buylist): una línea-enlace a
+`/admin/m5`, **solo con el contador > 0**:
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.dashboard.buylistGuideDue` | {n, plural, one {# solicitud aceptada sin guía se cierra sola pronto} other {# solicitudes aceptadas sin guía se cierran solas pronto}} | {n, plural, one {# accepted request without a label closes on its own soon} other {# accepted requests without a label close on their own soon}} |
+
+`text-sm text-accent` (es un pendiente con reloj, como `toPrepare.overdue`); el número del contador lo da el servidor
+(nombre del campo: C-3). ⛔ Con 0, nada (ni «0 solicitudes»).
+
+✏ **vBSD-1.1 — segunda línea del tablero: guías de entrada con alerta** (`workQueue.buylistInboundLabelAlert`, contrato
+BSD-1.3 punto 4; construida en `AdminDashboard.tsx:251-259`). **Ratificada** tal como la puso frontend; misma forma que
+`buylistGuideDue` (enlace a `/admin/m5`, `text-sm text-accent`, solo con contador > 0, ⛔ con 0 nada):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.dashboard.buylistInboundLabelAlert` | {n, plural, one {# solicitud de venta con alerta en su guía} other {# solicitudes de venta con alerta en su guía}} | {n, plural, one {# sell request with a label alert} other {# sell requests with a label alert}} |
+
+Va **debajo** de `buylistGuideDue` (el cierre pierde la compra; la alerta, no todavía). El enlace lleva a la lista de M5
+sin filtro (M5 no lee la URL, C-2); al llegar, la casilla `alertFilter` (BSD-UX.6a) dice las mismas palabras.
+
+✏ **vBSD-1.1 — «en N días», ahora que el servidor lo manda** (C-8 resuelto por el contrato, `API_CONTRACT.md:40234-40236`:
+`guideDueInDays = ceil((guideDueAt − now) / 24 h)`, mínimo 0, solo con `guideDueSoon`; si no, `null`). Va **dentro de la
+versalita**, tras « · », y solo si llega número (`GuideDueMark.tsx:25-29`, construido así):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m5.guideDue.inDays` | {n, plural, =0 {en cualquier momento} one {en menos de 24 h} other {en # días}} | {n, plural, =0 {any moment now} one {in under 24 h} other {in # days}} |
+
+Se lee «SE CIERRA SOLA · EN 2 DÍAS». Cambia lo que puso frontend en dos ramas, porque la cuenta es un **techo** (`ceil`):
+- `=0` ⛔ «hoy»: con `ceil` y mínimo 0, `0` significa que `guideDueAt` **ya pasó** y el barrido aún no corre. «Hoy» sería
+  falso si pasó ayer a las 23:50; «en cualquier momento» es lo que de verdad ocurre.
+- `one` ⛔ «en 1 día»: `1` cubre de 1 minuto a 24 h. «En 1 día» con 3 horas por delante tranquiliza de más.
+- `other` se queda «en # días»: `2` = entre 24 y 48 h; la fecha exacta está en la línea de al lado, que manda.
+
+- **Fecha siempre; el «N» la acompaña, ⛔ la sustituye** (BX5): la línea `line` con `guideDueAt` sigue en la ficha. El
+  «N» va solo en la versalita (ficha y filas). La pantalla no resta nada: con `guideDueInDays = null` no hay frase.
+- ⛔ La marca **no** se deriva en el cliente (BSD-F6): solo `guideDueSoon` la enciende; la línea neutra solo mira si
+  `guideDueAt` existe.
+
+#### BSD-UX.6d «Guías por cancelar» y «Cerradas»
+
+- La columna «Por qué se cerró» (§25.8, `admin.m5.queues.pendingGuide.why`) pinta la insignia por motivo: con
+  `not_continued` sale **«No continuó»** (BSD-UX.4a). Sin texto nuevo.
+- «Cerradas» (§25.8a (d)): suma `NO CONTINUÓ` a las insignias que la fila puede llevar. Sin cambio de pestaña.
+
+#### BSD-UX.6e Los dos diales nuevos en M10
+
+✏ En el grupo «Ciclo de venta (solicitudes de venta)» de §60 (b), un **subgrupo nuevo** (`h3`) **después de «Plazos (días
+hábiles)»** — no dentro, porque estos son **naturales** y aplican **también a las en curso** (el subtítulo del grupo dice
+lo contrario para los demás):
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Subgrupo (`h3`) | `admin.m10.buylistCycle.groups.buylistGuideClose` | Cierre sin guía (días naturales) | Closing without a label (calendar days) |
+| Nota del subgrupo (`text-sm text-muted`) | `admin.m10.buylistCycle.groups.buylistGuideCloseNote` | Cuentan sábados y domingos. A diferencia del resto del grupo, aplican también a las solicitudes en curso: se leen cada día. | Saturdays and Sundays count. Unlike the rest of the group, they also apply to requests in progress: they're read every day. |
+| `buylistGuideCloseCalendarDays` — rótulo | `admin.m10.buylistCycle.labels.buylistGuideCloseCalendarDays` | Cierre de una aceptada sin guía | Closing an accepted request without a label |
+| ayuda | `admin.m10.buylistCycle.help.buylistGuideCloseCalendarDays` | Días naturales desde que el vendedor aceptó (o desde que se canceló su guía para cambiarla). Si para entonces no tiene guía, se cierra sola y le llega el correo de «no continuamos». No cuenta en su contra. | Calendar days since the seller accepted (or since their label was cancelled to replace it). If it still has no label by then, it closes on its own and they get the “not continuing” email. It doesn't count against them. |
+| regla (error del `422`) | `admin.m10.buylistCycle.rule.buylistGuideCloseCalendarDays` | Número entero, de 1 a 60. | Whole number, 1 to 60. |
+| `buylistGuideWarnDaysBeforeClose` — rótulo | `admin.m10.buylistCycle.labels.buylistGuideWarnDaysBeforeClose` | Aviso antes del cierre sin guía | Alert before closing without a label |
+| ayuda | `admin.m10.buylistCycle.help.buylistGuideWarnDaysBeforeClose` | Cuántos días naturales antes del cierre se marca la solicitud y te llega un correo. 0 = sin aviso. Si pones tantos días como el cierre o más, el aviso sale al día siguiente de aceptar. | How many calendar days before closing the request is flagged and you get an email. 0 = no alert. If you set as many days as the closing or more, the alert goes out the day after accepting. |
+| regla | `admin.m10.buylistCycle.rule.buylistGuideWarnDaysBeforeClose` | Número entero, de 0 a 30. | Whole number, 0 to 30. |
+
+`kind: 'int'`; `PUT` solo con las claves tocadas (M10-BL-2). ✏ *vBSD-1.1: nombres re-medidos por frontend y releídos por
+ux-ui en `messages/es.json:4936-4986` — el espacio real es `admin.m10.buylistCycle.{groups, labels, help, rule}`
+(⛔ `admin.m10.dials.{…, hints, rules}`, que era una suposición mía). Textos sin cambio.*
+
+### BSD-UX.7 Accesibilidad y contraste
+
+- **Ventana:** los dos bloques del paso 1 son `<section aria-labelledby>`; el destino es una `<dl>` sin controles, así que
+  el orden de tabulación del paso 1 es el de §43.2 sin paradas nuevas; «Usar este nombre» va **después** del campo
+  «Quién envía» en el orden de tabulación y devuelve el foco al campo.
+- **Portal:** el bloque «Tu guía» es una `<section aria-labelledby>` con el eyebrow como encabezado; el botón dice «(PDF)»
+  en su nombre accesible; el error, `role="alert"`; la descarga en curso, `aria-busy` en el botón.
+- **Marca de M5:** la versalita «Se cierra sola» **y** la frase con la fecha son el portador; el bermellón acompaña
+  (§2.4). En el tablero, la línea es un enlace con texto completo (⛔ un número solo).
+- **Diálogo «Declinar»:** `role="dialog"`, `aria-modal`, título como `aria-labelledby`; el campo con `aria-required` y
+  `aria-invalid` tras el `400`.
+- **Contraste — cero pares nuevos.** Bermellón sobre papel (~6.2:1) para la versalita, la fecha y la línea del tablero;
+  tinta y `text-muted` sobre papel/superficie (§10); insignia neutral `soft` (la misma de «No procedió»). Correos: los
+  pares de §31.11 / §41.12. ⛔ Ni verde ni amarillo para «se cierra sola»: lo dice la palabra.
+
+### BSD-UX.8 Inventario de claves (paridad ES/EN en el mismo commit)
+
+| Espacio | Nuevas / cambian | § |
+|---|---|---|
+| `status.sellRequestExpiry` | **nueva** `not_continued` | 4a |
+| `buylist.offer` | **nuevas** `closedNotContinued`, `label.{title, body, bodyNoCarrier, tracking, download, downloading, alsoInEmail, downloadShort, errorUnavailable, errorTemporary}`. ✏ vBSD-1.1: **se retira** `pickupLockedInProgress` (sin superficie hasta §25.5e; texto dormido en 4c) | 4a–4c |
+| `admin.m4.tracking.sdx.inbound` | **nuevas** `title`, `ref`, `originTitle`, `sender`, `senderMissing`, `senderHint`, `senderSuggestion`, `useSuggestion`, `scopeNote`, `resyncNote`, `senderRequired`, `destinationTitle`, `destinationName`, `destinationNote`, `feeDeducted`, `boxValue`, `marginNegative`, `pickupYes`, `pickupNo`, `deliveryHome`, `deliveryBranch`, `showBranch`, `hideBranch`, `noRecommended`, `confirmNegative`, `confirmBranch`, `sentToSeller`, `processingNote`, `bought`, `manualIntro`, `reissueBody`, `reissueNotAccepted`, `reissueSellerShipped`, ✏ vBSD-1.1 **`reissueDone`**, `error.{featureDisabled, notAccepted, sellerShipped, ✏ shipmentConfirmed, manualExists, noPickupAddress, senderMissingQuote, storeAddressMissing, destinationRejected}` | 5, 5d, 6a |
+| `admin.m5` | **cambian** `desk.readOnlyByStatus.aceptada`, `acceptedNote`; **nuevas** `inbound.{generate, summary, cost, processing, costFromProvider, alreadySkydropx, inProgress, preparing, openLabel, alertFilter}`, `declineAccepted.{action, title, body, bodySdx, bodyManual, bodyInProgress, reasonLabel, reasonHint, reasonTooShort, confirm, back, done, error.{status, sellerShipped, shipmentConfirmed, reason, forbidden, unknown, notDone}}`, `guideDue.{line, tag, note, inDays}`. ✏ vBSD-1.1: `preparing` ratificada; `openLabel`, `alertFilter` e `inDays` **cambian de texto** (6a, 6c) | 6a–6c |
+| `admin.dashboard` | **nuevas** `buylistGuideDue`, ✏ `buylistInboundLabelAlert` (ratificada) | 6c |
+| `admin.m10.buylistCycle` (✏ era `admin.m10.dials`) | **nuevas** `groups.buylistGuideClose`, `groups.buylistGuideCloseNote`, `labels/help/rule.buylistGuideCloseCalendarDays`, `labels/help/rule.buylistGuideWarnDaysBeforeClose` | 6e |
+| `admin.spendAlerts` | **nuevas** `kind.AG-23.{title, text}` (argumento `{gross}` en es y en), ✏ `fact.{sellRequestId, closesAt, offerGrossCents}` (era `field.*`). ⛔ `mail.AG-23.*`: no existe en frontend; remedio y CTA son constantes del backend (fila de abajo) | 3 |
+| `admin.m7.pnl` | **cambia** `formula`; **nuevas** `buylistFeeRetained`, `buylistGuideCost`, `buylistGuideMargin`, `buylistGuideMarginHelp`, `buylistGuideMarginNegative`, `buylistGuideCostMissing` | 11 |
+| Backend (constantes de plantilla, no `messages/*.json`) | `notContinued.*` (BSD-M1); `guide.{subjectReplaced, titleReplaced, replaced}`, `guide.sdx.{intro, introNoPdf, dropoff, tracking, redownload}` (AV-7); asunto, remedio y CTA de `AVG-1`/AG-23 en `modules/spend-alerts/` | 1–3 |
+
+### BSD-UX.9 Candados sugeridos (los escriben frontend y backend; ux-ui dice qué deben morder)
+
+| Id | Contrato | Qué afirma | Mutación que lo pone rojo |
+|---|---|---|---|
+| UX-BSD-1 | BSD-B21 | BSD-M1 ES y EN: asunto, preheader, HTML y texto **iguales** a las cadenas de BSD-UX.1; CTA tinta con `href` al portal; ninguna de las palabras de BX3 | meter «guía» en `p2`; CTA bermellón |
+| UX-BSD-2 | BSD-B8/B26 | AV-7: S lleva un adjunto `application/pdf` y `guide.sdx.intro`; S0 ninguno y `introNoPdf`; +R ⇒ asunto `subjectReplaced`, `guide.replaced` como primer párrafo y en el preheader; M byte a byte como hoy | mandar `intro` manual en S; +R sin la línea |
+| UX-BSD-3 | BSD-F7 | Portal con `expirada`+`not_continued`: texto `closedNotContinued`, insignia «No continuó» neutral, **cero** importes `MX$` en el DOM, `/expir\|venc\|plazo\|no enviaste/i` ⇒ 0 | mapear a `closedNotShipped`; dejar `hideMoney` solo en `no_offer` |
+| UX-BSD-4 | BSD-F7 | «Tu guía» y el enlace de «Ventas» existen ⇔ `labelPdfAvailable`; `404` ⇒ `errorUnavailable`, `502` ⇒ `errorTemporary` | leer `offer.trackingNumber` en vez del booleano |
+| UX-BSD-5 | BSD-F2 | Modo entrada: el bloque destino no contiene `input`, `select`, `textarea` ni botón; «Usar este nombre» rellena el campo y **0** `PUT …/address` hasta «Guardar dirección» | guardar al pulsar la sugerencia; pintar el destino como `input readonly` |
+| UX-BSD-6 | BSD-F3 | Cabecera con `feeDeducted` = `charged.grossCents` del fixture; preseleccionada = `recommendedRateId` aunque no sea la primera; `recommendedRateId:null` ⇒ ninguna marcada y `noRecommended` | preseleccionar la primera fila |
+| UX-BSD-7 | BSD-F5 | «Declinar» oculto con `declineAcceptedAllowed:false` aunque `status='aceptada'`; motivo `"  ab "` ⇒ botón apagado con razón; `"abc"` ⇒ `POST` con `{reason:'abc'}`; `5xx` ⇒ `GET` de relectura y **0** segundo `POST` | leer `status`; reintentar solo |
+| UX-BSD-8 | BSD-F6 | Con `guideDueSoon:true` ⇒ versalita y nota; con `false` y `guideDueAt` ⇒ solo la línea neutra; con el reloj falso movido 6 días la marca **no** cambia sin datos nuevos del servidor; tablero con contador 0 ⇒ ningún nodo | derivar `guideDueSoon` de `guideDueAt` en el cliente |
+| UX-BSD-9 | BSD-F8 | Paridad de todas las claves de BSD-UX.8 | borrar una de `en.json` |
+| UX-BSD-10 | — | M5 `aceptada`: el DOM no contiene «ya no se cancela» / «can no longer be cancelled» | dejar la copia vieja |
+| UX-BSD-11 | §BSD.16.2 | P&L con los cuatro campos ≠ 0: **diez** `pnl-line` en el orden de BSD-UX.11a (el 4.º `data-sign="+"` = `buylistShippingFeeRetainedCents`, el 5.º `"−"` = `buylistGuideCostCents`); Σ (signo × monto) = `profitCents` del fixture (UX-PNL-1 con diez). Con los dos en `0`: los dos renglones **siguen** con «MX$0.00» | quitar el renglón de la guía; darle `"−"` a la tarifa; pintarlos al final de la lista; esconderlos en `0` |
+| UX-BSD-12 | §BSD.16.2 | El margen **no** es parte de la fórmula: su nodo (`data-testid="pnl-buylist-margin"`) no es `pnl-line` ni `pnl-included`, no lleva `data-sign` ni «suma»/«resta», y no entra en la Σ de UX-BSD-11 | pintar el margen con `PnlLine` |
+| UX-BSD-13 | BX5 / GAS-4 | Fixture con tarifa 18 000, guía 21 552 y margen **1 517** ⇒ se pinta MX$15.17 (⛔ −35.52). Margen −3 552 ⇒ monto `formatMoneyCents(−3552)` tal cual, `text-danger`, y la frase `buylistGuideMarginNegative` en el DOM; margen ≥ 0 ⇒ ni la frase ni `text-danger` | calcular el margen como tarifa − guía en el cliente; `Math.abs` del margen; pintar el negativo sin la frase |
+| UX-BSD-14 | criterio 202(c) | `buylistGuideCostMissingCount = 0` ⇒ ningún nodo `pnl-buylist-guide-missing`; `= 2` ⇒ `Banner` `warning` con `role="status"` y el plural de 2; **cero** `<a>` y cero `button` dentro | pintarlo con `??` o con `!= null`; meterle un enlace |
+| UX-BSD-15 | criterio 202(c) | Tarifa 0, margen 0 y contador 0 ⇒ el bloque del margen **no** existe; tarifa > 0 y margen 0 ⇒ existe y dice «MX$0.00» | condicionar solo a `margen !== 0` |
+| UX-BSD-16 | paridad, P66-3, §29.4b | Las 6 claves nuevas de `admin.m7.pnl` en `es` y `en`; `formula` sigue con «Stripe» (ES y EN) y «ajustes de paquetería» (ES), y gana «descontada a vendedores» (ES) / «deducted from sellers» (EN); `/buylist\|M-?\d\|AG-\d\|AV-\d/i` sobre las claves nuevas ⇒ 0 | borrar una en `en.json`; escribir «buylist» en un rótulo |
+| UX-BSD-17 (✏ vBSD-1.1) | BSD-F6, §BSD.10 | `guideDueInDays` 0 ⇒ «en cualquier momento», 1 ⇒ «en menos de 24 h», 3 ⇒ «en 3 días», `null` ⇒ ningún « · » en la versalita; `GUIDE_NOT_ALLOWED {status:'aceptada', reason:'shipment_confirmed'}` ⇒ texto `shipmentConfirmed` y ⛔ «ya no está aceptada»; re-emitir en entrada con `outcome:'cancelled'` ⇒ `Banner` con `reissueDone` (⛔ «preparado») | volver a `=0 {hoy}`; quitar la rama `shipment_confirmed` de `sdx-errors.ts`; devolver `''` sin frase |
+| ML-30 (backend) | BSD-B20 | `AVG-1` de AG-23: asunto con la fecha corta de `closesAt`, CTA `IR A SOLICITUDES DE VENTA` → `/admin/m5` sin `?`, sin línea de «Frenar», sin PII del vendedor (fixture canaria de §41) | CTA a `spend-alerts`; interpolar el nombre del vendedor |
+
+### BSD-UX.10 Solicitudes y notas (ninguna bloquea el diseño; las del arquitecto **no las resuelvo yo**)
+
+| # | Para | Qué |
+|---|---|---|
+| **C-1** | arquitecto | **`guide.labelPdfAvailable` no tiene dónde vivir.** §BSD.5 lo pone en «`SellRequestDTO` del CLIENTE» como `guide.labelPdfAvailable`, pero ese DTO **no tiene objeto `guide`**: la guía del vendedor viaja en `offer` (`SellOfferPublicDTO.carrier/trackingNumber`, `API_CONTRACT.md:37180-37189`; `frontend/src/types/contract.ts:3033-3072`). Y `offer` solo va en el **detalle**; el enlace del renglón de «Ventas» (BSD-UX.4b punto 2) necesita el dato en la **lista**. Propuesta: `labelPdfAvailable: boolean` **plano** en `SellRequestDTO` (lista y detalle). El diseño asume eso; si va en `offer`, el enlace del renglón se cae y queda solo el portal |
+| **C-2** | arquitecto | **AG-23 «enlace a la ficha de M5» no es posible hoy:** M5 no tiene ruta por solicitud (solo `admin/m5/page.tsx`, sin lectura de URL) y PS-153 prohíbe `?` en los enlaces de estos correos. Default del diseño: CTA a `admin/m5` + folio en el cuerpo. Si se quiere el salto directo, hace falta una ruta `admin/m5/<sellRequestId>` (o permitir un parámetro) |
+| **C-3** | arquitecto | **`workQueue.buylist.guideDueSoon` choca con `workQueue.buylist: number`** (`API_CONTRACT.md:36081`, leído como número en `AdminDashboard.tsx:231-237`). Convertirlo en objeto rompe el contador de hoy. Propuesta: campo hermano `workQueue.buylistGuideDueSoon: number` |
+| **C-5** | arquitecto | `inboundShipment.costCents`: ¿con o sin IVA, con o sin seguro? Hace falta para rotular «Costo de la guía» en M5 sin afirmar de más. Mientras: se pinta tal cual, sin «con IVA» |
+| **C-6** | arquitecto / backend | Qué cadena guarda `writeSellRequestGuide` en `SellRequest.shipmentCarrier` para una guía de Skydropx: el correo y el portal dicen «llévalo a una sucursal de {carrier}», así que tiene que ser el nombre legible (`carrierLabel`), ⛔ un código. NO MEDIDO |
+| **C-7** | arquitecto | Si AG-23 entra en `spendAlertsDisabled` (apagable en M10) o es siempre encendido como AG-21/AG-22. El dial `warn = 0` ya lo apaga; el diseño pinta la casilla solo si el contrato la admite |
+| **C-8** | arquitecto (opcional) | ✏ **Resuelta** por el contrato (`API_CONTRACT.md:40234-40236`, `guideDueInDays`). Texto en BSD-UX.6c (vBSD-1.1): el «N» acompaña a la fecha, no la sustituye |
+| **P-1** | product-owner | La intro de AV-7 **manual** («La guía ya está pagada por nosotros…») no dice que se descuenta (regla D43, §25.4.7); la de Skydropx sí. El contrato dice «manual: sin cambio». ¿Se alinea la manual? Default: no se toca |
+| **P-2** | product-owner / dueño | BSD-M1 dice «Tras una revisión adicional» porque lo dictó el dueño, aunque §25.4.5 lo prohíbe en el correo 4. Queda así; el correo 4 no cambia |
+| **N-1** | orquestador | Encargo vs. contrato en AG-23: «lleva 5 días aceptada» no se escribe (el ancla puede ser el despliegue o una re-emisión; `facts` no trae la aceptación). El texto dice la fecha de cierre, como §BSD.8.3 |
+| **N-2** | orquestador | Zonas compartidas que toca el diseño: `frontend/src/components/` (si `CaptureLabelDialog` se mueve), `frontend/src/lib/status-map.ts`, `frontend/src/types/contract.ts`, `messages/*.json`. Un solo stream a la vez (`CLAUDE.md`) |
+| **N-3** | devops | La descarga del vendedor (`GET /buylist/requests/:id/label.pdf`) aparece en dos superficies (portal y «Ventas»): las dos al inventario de rutas del DAST como una sola ruta (§BSD.12.5) |
+| **C-9** | arquitecto / product-owner | **El aviso «guías hechas a mano sin costo» no tiene a dónde llevar.** El costo de una guía manual solo se captura al **confirmar el envío** (`POST /admin/buylist/:id/confirm-shipment`, `409 NOT_ACCEPTED` fuera de `aceptada`, `API_CONTRACT.md:33523-33548`) o al marcar una guía **cancelada** (`…/guide/cancellation-done`). Las solicitudes que cuenta `buylistGuideCostMissingCount` ya están **pagadas**: ningún verbo del contrato deja capturarles el costo, y M5 no tiene ruta por solicitud (C-2). Por eso el aviso de BSD-UX.11d **no lleva enlace** y dice la verdad: hoy no se puede corregir. Si el dueño quiere corregirlas, hace falta un verbo nuevo (p. ej. capturar o corregir `guideActualCostCents` en una solicitud pagada, con bitácora) y, para el enlace, una ruta o filtro en M5. ⛔ No lo resuelvo yo |
+| **N-5** | orquestador | ✏ vBSD-1.1: **§25.5e («Cambiar» la dirección de recolección en el portal) está diseñada y no construida** (medido por frontend, FRONTEND_NOTES §104; releído por ux-ui). Es hueco previo a BSD. Si se encarga, va a frontend en el stream del portal del buylist y recrea `buylist.offer.pickupLockedInProgress` con el texto dormido de BSD-UX.4c. Hasta entonces 4c no tiene superficie |
+| **N-4** | orquestador | BSD-UX.11 toca zonas compartidas: `frontend/src/types/contract.ts` (el `PnlDTO` gana los cuatro campos), `frontend/src/lib/mock/fixtures.ts` (`mockPnl`) y `messages/*.json`. Mismo stream que N-2 |
+
+### BSD-UX.11 💰 M7 — la tarifa descontada y las guías para recibir cartas en el estado de resultados (§BSD.16, errata BSD-1.2)
+
+**Fuentes** (no se re-preguntan): `HECHOS.md:81` (2026-10-06, «Q-BSD-1: el costo real de la guía de ENTRADA del buylist
+RESTA en la ganancia del reporte», palabras del dueño «que reste en el reporte»); la precisión «pero en muchos casos tendrá
+margen» la relaya el orquestador (`API_CONTRACT.md:25-28`), no está en `HECHOS.md` (de memoria del orquestador, no medido
+por mí). Norma: `API_CONTRACT §BSD.16` (`API_CONTRACT.md:40220-40276`) y errata BSD-1.3 punto 6 (sin efecto en pantalla:
+es la clase del censo del lector). Reglas de cálculo: `backend/src/modules/admin/pnl-buylist.ts` (entero); campos y CSV:
+`admin.service.ts:1826-1844` y `:2103-2107`. Pantalla de hoy: `(admin)/admin/m7/M7View.tsx` entero (263 líneas; `PnlLine`
+`:33-45`, `PnlIncluded` `:51-58`, renglones `:128-143`, aviso `shippingCostMissing` `:157-163`). Lectura del 2026-10-06 en
+`/home/user/tcg-bsdx`; ⛔ sin Bash, sha **NO MEDIDO** por mí (el encargo dice `88df74e6`).
+
+**Lo que manda de §43.23 y no cambia:** la ganancia es `profitCents` del servidor (GAS-4, ⛔ nunca la suma de lo pintado);
+los renglones con signo **son la fórmula** y se pintan siempre, también en `0`; signo visible `aria-hidden` + «suma»/«resta»
+`sr-only`; los montos con `formatMoneyCents` tal cual llegan; ⛔ códigos «M-n/AG-n/AV-n» en los textos (P66-3). **Cero
+tokens, pares de contraste o componentes nuevos:** se reusan `PnlLine` y `Banner`; el bloque del margen es texto.
+
+**En palabras del dueño (así se explica en la pantalla):** cuando le compramos cartas a alguien, le **descontamos** una
+tarifa fija por el envío, y nosotros **pagamos** la guía con la que nos manda el paquete. Lo descontado **suma** a la
+ganancia; lo que costaron las guías **resta**. La diferencia, solicitud por solicitud, es el **margen**: casi siempre a
+favor; si una guía salió más cara que lo descontado, en contra.
+
+#### BSD-UX.11a Dónde van y con qué signo
+
+```
+ESTADO DE RESULTADOS (P&L)
+Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para … ← pnl.formula
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ +  Ingresos (ventas)                                             MX$12,000.00 │
+│ +  Ingreso por envío (cobrado)                                      MX$900.00 │
+│ −  Costo de lo vendido                                            MX$7,000.00 │
+│ +  Tarifa de envío descontada a vendedores                          MX$540.00 │  ⭐ suma (text-text)
+│ −  Guías para recibir cartas de vendedores                          MX$495.17 │  ⭐ resta (text-danger)
+│ −  Comisiones Stripe                                                MX$420.00 │
+│ −  Costo de envío (paquetería, neto)                                MX$780.00 │
+│      Incluye ajustes de paquetería                                  MX$120.00 │
+│ −  Reembolsos (mercancía y envío, sin IVA)                          MX$500.00 │
+│ −  Comisión de plataforma devuelta                                   MX$30.00 │
+│ −  Compensaciones por carta perdida                                 MX$250.00 │
+│ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│ Margen de las guías de vendedores                                    MX$44.83 │  ⭐ nota, sin signo, text-xs
+│ Lo descontado menos lo que costó la guía, en las solicitudes pagadas…         │  ⭐ buylistGuideMarginHelp
+│ [aviso: N envíos liquidados no tienen costo de paquetería capturado…]         │  ← sin cambio
+│ [aviso: N solicitudes pagadas usaron guía hecha a mano sin costo…]            │  ⭐ solo si > 0
+│ ════════════════════════════════════════════════════════════════════════════ │
+│ ↗ Ganancia del periodo                                            MX$3,964.83 │  ← profitCents, tal cual
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Renglón | Campo | Signo | Cuándo se pinta | Componente |
+|---|---|---|---|---|
+| Tarifa de envío descontada a vendedores | `buylistShippingFeeRetainedCents` | **`+`** (monto `text-text`, signo `text-muted`, como «Ingresos») | **siempre**, también con `0` | `PnlLine sign="+"` |
+| Guías para recibir cartas de vendedores | `buylistGuideCostCents` | **`−`** (signo y monto `text-danger`) | **siempre**, también con `0` | `PnlLine sign="−"` |
+| Margen de las guías de vendedores | `buylistGuideMarginCents` | **ninguno** (no es parte de la fórmula: ya está dentro de los dos de arriba) | si `buylistShippingFeeRetainedCents > 0` **o** `buylistGuideMarginCents !== 0` | bloque propio (11b) |
+| Aviso de guías hechas a mano sin costo | `buylistGuideCostMissingCount` | — | **solo si `> 0`** | `Banner warning` (11d) |
+
+- **Orden:** los dos renglones nuevos van **justo debajo de «Costo de lo vendido»** y antes de «Comisiones Stripe», aunque
+  en el objeto del servidor vengan al final. *Por qué:* el contrato dice que la tarifa es un **descuento sobre lo que se le
+  paga al vendedor** y se presenta «dentro del bloque de costo de compras, nunca en ingresos» (§BSD.16.1); el renglón de
+  compras que hoy existe es «Costo de lo vendido». Así el dueño lee de corrido «lo que pagué por cartas, lo que me
+  descontaron de envío, lo que me costaron las guías». ✏ Corrige la regla de orden de §43.23.1 solo para estos dos.
+- **Cada uno es su propio renglón con signo** (hijo propio del `divide-y`, como «Comisiones Stripe»): ⛔ no son «Incluye…»
+  de «Costo de lo vendido», porque **no** están dentro de esa cifra (BSD-B35: el costo de cada carta sigue siendo el bruto).
+- *Por qué los dos se pintan con `0`:* son parte de la fórmula escrita encima (misma razón que §43.23.1). Un «+ MX$0.00»
+  en un mes sin compras es un dato.
+- **Montos tal cual llegan**, ⛔ la pantalla no niega, suma ni compara. Que la tarifa del mes menos las guías del mes **no**
+  dé el margen es correcto (se miden en días distintos); la ayuda lo dice (11b) y la pantalla ⛔ no lo «arregla».
+- **El CSV no cambia de diseño:** sus cuatro columnas nuevas son los nombres de los campos, al final y en el orden del
+  objeto (BSD-B36). Nada que rotular.
+
+#### BSD-UX.11b El margen — una nota, no un renglón
+
+Debajo del último renglón con signo, **fuera** del `divide-y`, separado por una línea punteada (`border-t border-dashed
+border-border`, `pt-2`), antes de los avisos:
+
+| Propiedad | Valor |
+|---|---|
+| Enganche | `data-testid="pnl-buylist-margin"`; ⛔ `pnl-line`, ⛔ `pnl-included`, ⛔ `data-sign` |
+| Línea 1 | rótulo `buylistGuideMargin` a la izquierda (`text-xs text-muted`), monto a la derecha (`text-xs tabular font-medium`) |
+| Color del monto | `≥ 0` ⇒ `text-text`; `< 0` ⇒ `text-danger`. ⛔ `text-success`: es una nota, no un logro, y no compite con la ganancia |
+| Línea 2 | `buylistGuideMarginHelp` (`text-xs text-muted`), siempre que el bloque se pinte |
+| Línea 3 (solo `< 0`) | `buylistGuideMarginNegative` (`text-xs text-danger`): el color nunca es la única señal |
+| Signo del número | el que dé `formatMoneyCents` sobre el valor negativo del servidor. ⛔ `Math.abs`, ⛔ anteponer `+` |
+| Lector de pantalla | se oye «Margen de las guías de vendedores, MX$44.83» y la ayuda; ⛔ «suma»/«resta» |
+
+- *Por qué no es tooltip:* M7 no tiene componente de tooltip (`Glob components/ui/*ooltip*` ⇒ 0), un tooltip no se ve en el
+  teléfono y añadiría una parada de tabulación por renglón. La ayuda va escrita, corta y siempre visible.
+- *Por qué la condición y no `> 0`:* un margen de **MX$0.00** con tarifa descontada es un dato (salimos tablas); sin
+  tarifa y sin margen el bloque sería un indicador vacío (criterio 202(c)). La condición no calcula nada: solo decide si
+  pintar.
+
+#### BSD-UX.11c Textos y claves (`admin.m7.pnl.*`)
+
+| Clave | ES | EN | Estado |
+|---|---|---|---|
+| `formula` | **Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para recibir cartas de vendedores − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.** | **Income + shipping revenue − cost of goods sold + shipping fee deducted from sellers − labels for receiving cards from sellers − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.** | **cambia el valor** |
+| `buylistFeeRetained` | Tarifa de envío descontada a vendedores | Shipping fee deducted from sellers | nueva |
+| `buylistGuideCost` | Guías para recibir cartas de vendedores | Labels for receiving cards from sellers | nueva |
+| `buylistGuideMargin` | Margen de las guías de vendedores | Margin on seller labels | nueva |
+| `buylistGuideMarginHelp` | Lo descontado menos lo que costó la guía, en las solicitudes pagadas en este periodo. Las guías de Skydropx cuentan sin IVA; las hechas a mano, con el costo que capturaste. Ya está dentro de los dos renglones de arriba y no se suma otra vez. No siempre coincide con restarlos: la guía cuenta el día que se compra y el descuento, el día que se paga. | The amount deducted minus what the label cost, for requests paid in this period. Skydropx labels count without VAT; manual ones, at the cost you entered. It's already included in the two lines above and isn't added again. It doesn't always match subtracting them: the label counts on the day it's bought and the deduction on the day the seller is paid. | nueva |
+| `buylistGuideMarginNegative` | En este periodo las guías costaron más de lo que se descontó a los vendedores. | In this period, the labels cost more than what was deducted from sellers. | nueva |
+| `buylistGuideCostMissing` | `{count, plural, one {# solicitud pagada usó una guía hecha a mano sin costo capturado: su guía cuenta como si hubiera costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.} other {# solicitudes pagadas usaron una guía hecha a mano sin costo capturado: sus guías cuentan como si hubieran costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.}}` | `{count, plural, one {# paid request used a manual label with no cost entered: its label counts as if it cost MX$0 and its margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.} other {# paid requests used a manual label with no cost entered: their labels count as if they cost MX$0 and their margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.}}` | nueva |
+
+- *Por qué «descontada» y no «retenida»:* es la palabra que el dueño y el vendedor ya usan (`HECHOS.md:79`: «al vendedor se
+  le descuenta la tarifa fija»). *Por qué «guías para recibir cartas de vendedores» y no «guías de entrada» ni «de
+  compra»:* «entrada» es jerga interna y «guías de compra» se lee como «guías que compramos», que son todas. ⛔ La palabra
+  «buylist» en ningún texto de pantalla: el menú dice «Solicitudes de venta» / “Sell requests” (`es.json:1297`).
+- *Por qué el rótulo de la guía no dice «(sin IVA)»:* las de Skydropx cuentan sin IVA, pero las hechas a mano cuentan
+  **tal cual se capturaron** (§BSD.16.2 (b)); «sin IVA» en el rótulo afirmaría de más. Lo dice la ayuda.
+- **Fórmula:** el `+` de la tarifa es `+` normal; los `−`, U+2212 (como hoy). Sigue nombrando a Stripe (candado §29.4b,
+  `i18n-parity.test.ts`) y a los «ajustes de paquetería» (criterio 238).
+
+#### BSD-UX.11d El aviso de guías hechas a mano sin costo
+
+`Banner variant="warning" role="status"` envuelto en `data-testid="pnl-buylist-guide-missing"`, **debajo** del aviso de
+costo de paquetería que ya existe (`M7View.tsx:157-163`) y antes de la ganancia; **solo si
+`buylistGuideCostMissingCount > 0`** (⛔ `??`, ⛔ `!= null`). Mismo aspecto que el aviso de hoy.
+
+- **Sin enlace.** Medido: las solicitudes que cuenta ya están pagadas, y el contrato solo deja capturar el costo de una guía
+  manual al confirmar el envío (`409 NOT_ACCEPTED` después) o al marcarla cancelada; además M5 no tiene ruta por solicitud.
+  Un enlace llevaría a una pantalla donde **no se puede hacer** lo que el aviso pide. Por eso el texto dice dónde se
+  captura **para las próximas** y que estas ya no se corrigen. Solicitud al arquitecto en **C-9**. Si el contrato gana el
+  verbo y la ruta, el aviso gana un enlace `IR A SOLICITUDES DE VENTA` y se cambia la última frase; hasta entonces, no.
+- Las solicitudes con guía de **Skydropx** nunca cuentan aquí: su costo lo da Skydropx (`pnl-buylist.ts:72-74`).
+
+#### BSD-UX.11e Accesibilidad y contraste
+
+- Los dos renglones nuevos heredan de `PnlLine` el signo visible `aria-hidden` y el «suma»/«resta» `sr-only`: se oye
+  «suma, Tarifa de envío descontada a vendedores, MX$540.00» y «resta, Guías para recibir cartas de vendedores, MX$495.17».
+- El margen y el aviso no tienen texto de signo; el aviso es `role="status"` (no interrumpe). Sin elementos interactivos
+  nuevos: el orden de tabulación de M7 no cambia.
+- Móvil (≤ 390 px): los rótulos largos se parten en dos líneas, el monto arriba a la derecha; ⛔ truncar con «…».
+- **Contraste — cero pares nuevos:** `text-text`, `text-muted` y `text-danger` sobre `bg-surface`, los mismos que ya usa la
+  tarjeta (§43.23.7, verificados en §10 en claro y oscuro); el `Banner warning` es el del aviso de hoy.
 
 ## AN-UX. Analítica de ventas del dueño — pestaña «Ventas» de Reportes (M9) y tarjeta «Ventas de hoy» del tablero (v7.0, 2026-10-06 · `API_CONTRACT §15` rev v1.85⟨ventas⟩ · `PROJECT §AN`, criterios 600–613 P1 y 620–624 P2)
 

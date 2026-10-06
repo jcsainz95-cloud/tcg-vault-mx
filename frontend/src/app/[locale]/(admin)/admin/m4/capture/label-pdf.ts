@@ -7,11 +7,11 @@ import { fetchShipmentLabelPdf } from '@/lib/api';
  * `blob:` tras `fetch`»): la sesión de este cliente es un Bearer en `localStorage`, no una cookie, así que
  * un enlace directo saldría sin credenciales y respondería `401`.
  *
- * `print` abre el PDF en otra pestaña para el diálogo de impresión del navegador; `download` lo guarda como
- * `guia-<ref>.pdf`. Lanza el error del servidor tal cual (`404 LABEL_NOT_AVAILABLE`, `502`…).
+ * `print` abre el PDF en otra pestaña para el diálogo de impresión del navegador; `download` lo guarda con el nombre
+ * del `Content-Disposition` del servidor (respaldo: `guia-<ref>.pdf`). Lanza el error del servidor tal cual (`404 LABEL_NOT_AVAILABLE`, `502`…).
  */
 export async function openLabelPdf(shipmentId: string, ref: string, mode: 'print' | 'download'): Promise<void> {
-  const { blob } = await fetchShipmentLabelPdf(shipmentId);
+  const { blob, filename } = await fetchShipmentLabelPdf(shipmentId);
   if (typeof window === 'undefined' || typeof URL.createObjectURL !== 'function') return;
   const url = URL.createObjectURL(blob);
   if (mode === 'print') {
@@ -19,7 +19,9 @@ export async function openLabelPdf(shipmentId: string, ref: string, mode: 'print
   } else {
     const a = document.createElement('a');
     a.href = url;
-    a.download = `guia-${ref}.pdf`;
+    // El nombre lo da el SERVIDOR (`Content-Disposition`, p. ej. `sellerLabelFilenameOf` en la guía de entrada); `ref` es
+    // solo el respaldo si la cabecera no llega (BSD-TL-D8).
+    a.download = filename ?? `guia-${ref}.pdf`;
     document.body.appendChild(a);
     a.click();
     a.remove();

@@ -74,9 +74,9 @@ export const PROVISIONAL_FISCAL_TEXT =
   'cualquier solicitud sobre tus datos personales al correo de abajo.';
 
 export const privacyNoticeEs: LegalDocument = {
-  version: '0.2-provisional-2026-10-05',
+  version: '0.3-provisional-2026-10-06',
   pendingOwnerData: ['razonSocial', 'rfc', 'domicilio'],
-  updatedAt: '5 de octubre de 2026',
+  updatedAt: '6 de octubre de 2026',
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
     {
@@ -165,8 +165,8 @@ export const privacyNoticeEs: LegalDocument = {
           head: ['Proveedor', 'Qué recibe', 'Para qué'],
           rows: [
             ['**Stripe**', 'Monto y datos del pago que tú capturas en su formulario', 'Procesar el cobro y los reembolsos'],
-            ['**Paqueterías**', 'Nombre de quien recibe, dirección y teléfono', 'Entregar o recoger el paquete'],
-            ['**Skydropx**', 'Nombre de quien recibe, dirección, teléfono y correo', 'Cotizar y generar la guía de envío con la paquetería'],
+            ['**Paqueterías**', 'Nombre, dirección y teléfono de quien recibe; si nos vendes cartas, también tu nombre, dirección y teléfono como remitente', 'Entregar o recoger el paquete'],
+            ['**Skydropx**', 'Nombre, dirección, teléfono y correo de quien recibe; si nos vendes cartas, también tu nombre, dirección y teléfono como remitente', 'Cotizar y generar la guía de envío con la paquetería'],
             ['**Resend**', 'Tu correo y el contenido del aviso', 'Enviarte los correos de la tienda'],
             ['**Cloudflare (R2)**', 'Imagen de tu INE', 'Guardarla en almacenamiento privado'],
             ['**Railway y Vercel**', 'Los datos de la tienda', 'Alojar el servidor, la base de datos y el sitio'],

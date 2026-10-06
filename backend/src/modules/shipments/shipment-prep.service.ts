@@ -9,6 +9,7 @@
  * 💰 El importe lo calcula el SERVIDOR (`common/money.ts`); `expectedRefundCents` es la CONFIRMACIÓN de lo
  * que el operador vio (CA #16): distinto ⇒ `409 REFUND_PREVIEW_STALE`, cero escrituras.
  */
+import type { OutboundAdminShipmentKind } from './label-subject';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
 import {
@@ -48,11 +49,13 @@ import { customerDisplayName } from '../vault/customer-display-name';
 import { LocationView, lastNameOf, locationViewOf, nullIfBlank, preparationCardOf, PreparationCardDTO } from './preparation-view';
 import { REPLACEMENT_CASE_DUE_MS } from '../vault/replacement-case.rules';
 import { countUnseenImmediate } from '../spend-alerts/spend-control';
+import { OUTBOUND_ONLY } from './label-subject';
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | PrismaService;
 
-export type ShipmentKind = 'vault_withdrawal' | 'guest_direct_ship';
+/** ⭐ rev BSD-1 (BSD-1.3 punto 2): la hoja de preparación es solo de SALIDA; el tipo vive en `label-subject.ts`. */
+type ShipmentKind = OutboundAdminShipmentKind;
 
 export interface ReplacementCaseRefDTO {
   id: string;
@@ -894,9 +897,9 @@ export class ShipmentPrepService {
    */
   async summary(role: Role, now = new Date()) {
     const [ship, vault, oldest, stuck, toReplace, oldestCase, overdue, manual, unseenImmediate] = await Promise.all([
-      this.prisma.shipmentRequest.count({ where: { status: 'picking', preparedAt: null } }),
+      this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: 'picking', preparedAt: null } }),
       this.prisma.vaultPlacement.count({ where: { status: 'pending' } }),
-      this.prisma.shipmentRequest.findFirst({ where: { status: 'picking', preparedAt: null }, orderBy: { requestedAt: 'asc' }, select: { requestedAt: true } }),
+      this.prisma.shipmentRequest.findFirst({ where: { ...OUTBOUND_ONLY, status: 'picking', preparedAt: null }, orderBy: { requestedAt: 'asc' }, select: { requestedAt: true } }),
       this.ledger.stuckRefundsCount(now),
       this.prisma.replacementCase.count({ where: { status: 'open' } }),
       this.prisma.replacementCase.findFirst({ where: { status: 'open' }, orderBy: { openedAt: 'asc' }, select: { openedAt: true } }),

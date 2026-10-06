@@ -121,7 +121,11 @@ export type SellRequestStatus =
  * ⚠️ DESIGN_SYSTEM §23.1d: `expirada` es el ÚNICO enum del sistema que se pinta por su MOTIVO
  * y no por su valor — `not_shipped` acusa al vendedor, `no_offer` nos acusa a nosotros.
  */
-export type SellRequestExpiryReason = 'no_offer' | 'not_shipped';
+/**
+ * 💰 rev BSD-1 (§BSD.1, `M-72`): + `not_continued` — «decidimos no continuar» (cierre automático a N días naturales sin
+ * guía, o «Declinar» en `aceptada`). ⛔ Sin culpa: se pinta NEUTRAL y sin montos (DESIGN_SYSTEM §BSD-UX.4a, BX2).
+ */
+export type SellRequestExpiryReason = 'no_offer' | 'not_shipped' | 'not_continued';
 export type SellItemStatus =
   | 'cotizada'
   | 'precio_pendiente'
@@ -1311,7 +1315,21 @@ export interface AddressSnapshotDTO {
 }
 
 /** Tipo de envío en la cola de M4 (contrato §M4 v1.21.2: se deriva de `Order.fulfillmentMode`). */
-export type AdminShipmentKind = 'vault_withdrawal' | 'guest_direct_ship';
+/** 💰 rev BSD-1 (errata BSD-1.3 punto 2): + `buylist_inbound` — la guía de ENTRADA del buylist (vendedor → tienda). */
+export type AdminShipmentKind = 'vault_withdrawal' | 'guest_direct_ship' | 'buylist_inbound';
+
+/**
+ * 💰 rev BSD-1 (§BSD.5) — `AdminShipmentDTO.inbound`: solo en la guía de ENTRADA (`null` en salida). `sellerName` es una
+ * SUGERENCIA para «Quién envía» (⛔ nunca se escribe sola, BX7); `destination` = la tienda (`skydropx_origin_snapshot`),
+ * de SOLO LECTURA (BX4).
+ */
+export interface InboundShipmentBlockDTO {
+  sellRequestId: string;
+  sellerName: string;
+  offerShippingFeeCents: number;
+  offerGrossCents: number;
+  destination: { name: string; street1: string; postalCode: string; state: string; city: string; neighborhood: string };
+}
 
 export interface AdminShipmentDTO {
   id: string;
@@ -1323,6 +1341,8 @@ export interface AdminShipmentDTO {
    * serializa siempre.
    */
   kind?: AdminShipmentKind;
+  /** 💰 rev BSD-1 (§BSD.5): solo `kind='buylist_inbound'`; `null`/ausente en salida (o servidor anterior). */
+  inbound?: InboundShipmentBlockDTO | null;
   orderId?: string | null;
   orderNumber?: string;
   guestEmail?: string;
@@ -2950,8 +2970,13 @@ export interface SellItemDTO {
   marketMxnCents?: number | null;
   priceBasis?: PriceBasis;
   marketBracket?: MarketBracket | null;
-  quotedPriceCents?: number;
-  approvedPriceCents?: number;
+  /**
+   * 💰 rev BSD-1 (errata BSD-1.4 punto 8): en la proyección de CLIENTE de un cierre `expirada` + `no_offer`/`not_continued`
+   * las cuatro cifras de la línea (`quotedPriceCents`, `approvedPriceCents`, `offeredPriceCents`, `marketMxnCents`) llegan
+   * `null` EXPLÍCITO. El tipo lo dice para que ningún consumidor las lea sin guarda.
+   */
+  quotedPriceCents?: number | null;
+  approvedPriceCents?: number | null;
   itemStatus: SellItemStatus;
   inventoryItemId?: string;
   // v1.18-buylist-rejects (contrato §11): poblados SOLO si itemStatus="rechazada"; en
@@ -3065,7 +3090,14 @@ export interface SellRequestDTO {
   isTerminal: boolean;
   /** v1.51.1 (D33): por qué expiró; `null`/ausente si no está `expirada`. Ver §23.1d. */
   expiredReason?: SellRequestExpiryReason | null;
-  quotedTotalCents: number;
+  /**
+   * 💰 rev BSD-1 (errata BSD-1.1 C-1): campo PLANO, en LISTA y DETALLE. `true` ⇔ guía viva de entrada de Skydropx con
+   * número ∧ `status='aceptada'`. ⛔ La pantalla no lo deduce de `offer.trackingNumber` (UX-BSD-4). Opcional en el tipo
+   * (servidor anterior): ausente se lee como `false`.
+   */
+  labelPdfAvailable?: boolean;
+  /** `null` EXPLÍCITO en un cierre `expirada` + `no_offer`/`not_continued` (v1.51.4 §6 + errata BSD-1.4 punto 8). */
+  quotedTotalCents: number | null;
   ineRequired: boolean;
   items: SellItemDTO[];
   createdAt?: string;
@@ -3182,6 +3214,10 @@ export interface DashboardDTO {
      * La tarjeta lee `withLabelAlert` con `Number.isFinite`: un servidor con D2f y sin B-3 no lo manda (§43.22.2 ⇒ «—»).
      */
     shipping?: { lowBalance: boolean | null; withCarrierAlert: number; withLabelAlert: number; labelProcessing: number } | null;
+    /** 💰 rev BSD-1 (BSD-1.1 C-3): hermano de `buylist` (que sigue siendo un número). Solicitudes con `guideDueSoon`. */
+    buylistGuideDueSoon?: number;
+    /** 💰 rev BSD-1 (BSD-1.3 punto 4): solicitudes cuya guía de entrada tiene `labelAlert ≠ null`. */
+    buylistInboundLabelAlert?: number;
   };
   inventoryValueCents?: number;
   custodyValueCents?: number;
@@ -4815,7 +4851,46 @@ export interface AdminBuylistDTO {
   sellerShippedDeclaredAt?: string | null;
   /** Costo REAL de la etiqueta. ⚠️ **NO participa en lo que se le deposita al vendedor.** */
   guideActualCostCents?: number | null;
+  // ---- 💰 rev BSD-1 (§BSD.5 + BSD-1.1 C-8 + BSD-1.3 punto 4) · la guía de ENTRADA. Todo DERIVADO por el servidor
+  // (⛔ la pantalla no calcula ni decide, BX5). Opcionales en el tipo: servidor anterior ⇒ ausentes ⇒ fail-closed.
+  inboundShipment?: AdminInboundShipmentDTO | null;
+  /** Solo en el DETALLE (`GET /admin/buylist/:id`): es por actor. `null` si el servidor no pudo calcularlo. */
+  inboundLabelOptions?: LabelOptionsDTO | null;
+  /** Ancla + close días × 24 h, solo `aceptada` sin guía; si no, `null`. */
+  guideDueAt?: string | null;
+  /** `now ≥ guideDueAt − warn días`. ⛔ El cliente no lo deriva de `guideDueAt` (BSD-F6). */
+  guideDueSoon?: boolean;
+  /** Solo con `guideDueSoon`: `ceil((guideDueAt − now)/24 h)`, mínimo 0; si no, `null` (C-8). */
+  guideDueInDays?: number | null;
+  /** La MISMA regla que la guarda de `decline-accepted` (§BSD.6). ⛔ La pantalla no mira `status` (BSD-F5). */
+  declineAcceptedAllowed?: boolean;
   items: SellItemDTO[];
+}
+
+/** 💰 rev BSD-1 (§BSD.5 + BSD-1.1 C-5 + BSD-1.3 punto 4): `AdminBuylistDTO.inboundShipment`. ⛔ `labelUrl` nunca. */
+export interface AdminInboundShipmentDTO {
+  id: string;
+  folio: string;
+  status: 'solicitado' | 'guia' | 'cancelado';
+  labelSource: ShipmentLabelSource | null;
+  labelProcessing: boolean;
+  carrier: string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  /** C-5: BRUTO pagado a Skydropx (con IVA y seguro); `costIvaCents`/`insuranceCostCents` son desglose DENTRO (⛔ no se suman). */
+  costCents: number;
+  costIvaCents: number;
+  insuranceCostCents: number;
+  providerCanceledAt: string | null;
+  cancelConfirmed: boolean;
+  /** BSD-1.3 punto 4: el MISMO `labelAlertOf` de M4. */
+  labelAlert?: LabelAlertDTO | null;
+}
+
+/** 💰 rev BSD-1 (§BSD.4.1): `POST /admin/buylist/:id/inbound-shipment` (idempotente). */
+export interface OpenInboundShipmentRes {
+  created: boolean;
+  shipment: AdminShipmentDTO;
 }
 
 // v1.18-buylist-rejects (contrato §M5/§11): fila de GET /admin/buylist/rejected-items
@@ -5970,6 +6045,10 @@ export interface SettingsDTO {
   buylistShipmentConfirmAlertBusinessDays?: number;
   buylistOfferReissueAlertCount?: number;
   buylistVariantPositionCap?: number;
+  /** 💰 rev BSD-1 (§BSD.9): días NATURALES sin guía hasta el cierre de una `aceptada` (1..60, default 7). Aplica a las en curso. */
+  buylistGuideCloseCalendarDays?: number;
+  /** 💰 rev BSD-1 (§BSD.9): días naturales antes del cierre para AG-23 y `guideDueSoon` (0..30, default 2; 0 = sin aviso). */
+  buylistGuideWarnDaysBeforeClose?: number;
   fxBufferPct: number;
   fxManualOverrideRate?: number;
   pricingProviderRaw: string;
@@ -6110,7 +6189,9 @@ export type SpendAlertKind =
   | 'psa_credits'
   | 'stuck_refund'
   | 'owner_account_changed'
-  | 'staff_control_by_non_owner';
+  | 'staff_control_by_non_owner'
+  /** 💰 rev BSD-1 (§BSD.7.2): AG-23 «Solicitud de venta sin guía» — solo al dueño, `facts` sin PII. */
+  | 'buylist_guide_due';
 /** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
 export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {
   label_after_address_fix: 'AG-1',
@@ -6135,13 +6216,18 @@ export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = 
   stuck_refund: 'AG-20',
   owner_account_changed: 'AG-21',
   staff_control_by_non_owner: 'AG-22',
+  buylist_guide_due: 'AG-23',
 };
 export type SpendAlertCode =
   | 'AG-1' | 'AG-2' | 'AG-3' | 'AG-4' | 'AG-5' | 'AG-6' | 'AG-7' | 'AG-8' | 'AG-9' | 'AG-10' | 'AG-11'
-  | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22';
+  | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22'
+  | 'AG-23';
 /** Los trece con disparador en D2 (§19.29.8 validador de `spend_alerts_disabled`): los únicos que se apagan. */
 export const SPEND_ALERT_SWITCHABLE_CODES: readonly SpendAlertCode[] = [
   'AG-1', 'AG-2', 'AG-3', 'AG-4', 'AG-5', 'AG-6', 'AG-7', 'AG-8', 'AG-9', 'AG-10', 'AG-11', 'AG-12', 'AG-13',
+  // 💰 rev BSD-1 (BSD-1.1 C-7): AG-23 se apaga como los demás (backend `SPEND_ALERT_CODES`); la marca de M5 y el contador
+  // del tablero NO se apagan con él (son derivados).
+  'AG-23',
 ];
 export type SpendAlertSeverity = 'immediate' | 'digest';
 export type SpendAlertMailStatus =
@@ -6499,6 +6585,15 @@ export interface PnlDTO {
   compensationsCents: number;
   /** Ganancia del periodo calculada por el SERVIDOR. ⛔ El cliente nunca la recalcula (GAS-4). */
   profitCents: number;
+  // ---- 💰 rev BSD-1 (errata BSD-1.2, §BSD.16.2; BSD-1.4 punto 12) · la guía y la tarifa del buylist ----
+  /** SUMA a `profitCents`: lo retenido de verdad a los vendedores en las solicitudes `pagada` del periodo (`paidAt`). */
+  buylistShippingFeeRetainedCents: number;
+  /** RESTA: guías de entrada de Skydropx (netas de IVA) + guías manuales con costo capturado. */
+  buylistGuideCostCents: number;
+  /** Informativo (ya está dentro de los dos de arriba): Σ (retenido − costo de SU guía) de las pagadas. Puede ser < 0. */
+  buylistGuideMarginCents: number;
+  /** Informativo: pagadas en el periodo con guía manual y sin costo capturado. */
+  buylistGuideCostMissingCount: number;
 }
 
 // GET /admin/finance/inventory-value → valor de inventario (a referencia y a costo) + pendientes.

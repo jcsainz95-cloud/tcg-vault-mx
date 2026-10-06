@@ -1572,9 +1572,12 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `GET /admin/shipping/catalogs/consignment-notes::description` — texto libre 3..60 que viaja tal cual a Skydropx (no tokens).
     // ⭐ **52 → 54 (v1.82 §PNL.3; era «44 → 46» en la rama del panel, renumerado en el merge panel+skydropx):** los
     // dos ejes de `GET /admin/manual-refunds/withdrawal-delivered/preview` (id de línea y entero), declarados por el contrato en §PNL.3; ⚠️ ratificación del arquitecto pendiente (BACKEND_NOTES §58.6).
-    // 💰 **54 → 58 (§AN, API_CONTRACT §15.2: «`from`/`to` en su lista de no-enums»):** `from`/`to` de
-    // `GET /admin/reports/sales` y de su `/export.csv` — días MX `YYYY-MM-DD` (fuera de forma ⇒ `400 {field}` sin `allowed`).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(58);
+    // 💰 **54 → 55 (rev BSD-1.3 punto 4, B-3):** `GET /admin/buylist::inboundLabelAlert` — bandera booleana declarada por el contrato
+    // (§BSD.17 punto 4, «clase L»), hermana de `offerReissueAlert`.
+    // 💰 **55 → 59 (§AN, API_CONTRACT §15.2: «`from`/`to` en su lista de no-enums»; era «54 → 58» en la rama de la analítica,
+    // renumerado en la fusión analítica + #78):** `from`/`to` de `GET /admin/reports/sales` y de su `/export.csv` — días MX
+    // `YYYY-MM-DD` (fuera de forma ⇒ `400 {field}` sin `allowed`).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(59);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

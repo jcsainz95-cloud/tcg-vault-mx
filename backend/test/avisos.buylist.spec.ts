@@ -45,7 +45,10 @@ function buildHarness(opts: {
   };
   const prisma: any = {
     ...client,
-    $transaction: jest.fn().mockImplementation(async (cb: any) => cb(client)),
+    $transaction: jest.fn().mockImplementation(async (cb: any) =>
+      // rev BSD-1 (B-3): los candados de I-BSD-4 de `adminGuide` (`FOR UPDATE`) corren en la tx; sin fila de entrada.
+      cb({ ...client, $queryRaw: jest.fn(async () => []) }),
+    ),
   };
   const settings: any = { getNumber: jest.fn().mockResolvedValue(3) };
   const mail: MailPort | undefined =

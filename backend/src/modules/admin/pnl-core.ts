@@ -12,6 +12,14 @@
  *   | envío (ingreso, costo, seguro, fee) | `ShipmentRequest.pickingAt`              |
  *   | ajustes de paquetería              | `ShipmentCostAdjustment.chargedAt`       |
  *   | reembolsos tarjeta / SPEI          | `PaymentRefund.submittedAt` / `ManualRefund.paidAt` |
+ *   | buylist: tarifa retenida, margen,  | `SellRequest.paidAt` (solicitudes `pagada`) — §BSD.16 |
+ *   |   guías manuales sin costo         |                                          |
+ *   | buylist: guía de Skydropx (entrada)| `ShipmentRequest.labelPurchasedAt` (`INBOUND_ONLY`) — §BSD.16 (a) |
+ *   | buylist: guía manual con costo     | `coalesce(SellRequest.guideSentAt, shipmentConfirmedAt)` — §BSD.18 (b) |
+ *
+ * 💰 Fusión con #78 (rev BSD-1, B-4): las cuatro filas del buylist que #78 metió en `pnl()` viven aquí, cada una en el cubo
+ * de la fecha con la que #78 la acota; las reglas por fila siguen en `pnl-buylist.ts` (una sola regla para M7 y el cubo).
+ * El envío de VENTA sigue `OUTBOUND_ONLY` (censo BSD-B23): una guía de entrada en `guia` no es costo de envío de venta.
  *
  * ⇒ Σ cubos = `pnl()` del periodo **por construcción** (todas las cifras son sumas de enteros; `profitCents` es lineal).
  * `AdminService.pnl(from, to)` = `pnlBuckets(db, range(from, to), () => 'all')` — un solo cubo, bit a bit lo de antes
@@ -30,6 +38,8 @@ import {
   netShippingRevenueCents,
   shipmentNetRevenueCents,
 } from '../../common/money';
+import { INBOUND_ONLY, OUTBOUND_ONLY } from '../shipments/label-subject';
+import { guideCostOfRequest, isSkydropxInbound, retainedShippingFeeCents, skydropxInboundGuideCostCents } from './pnl-buylist';
 
 /**
  * Las cifras de M7 `GET /admin/finance/pnl` (mismo orden de claves que el DTO de hoy). `type` y no `interface`: el tipo de
@@ -48,6 +58,11 @@ export type PnlComponents = {
   refundedFeesCents: number;
   compensationsCents: number;
   profitCents: number;
+  // 💰 §BSD.16 (#78): AL FINAL del objeto, en el orden del DTO y del CSV de M7.
+  buylistShippingFeeRetainedCents: number;
+  buylistGuideCostCents: number;
+  buylistGuideMarginCents: number;
+  buylistGuideCostMissingCount: number;
 };
 
 /** Un cubo sin movimientos. */
@@ -65,10 +80,14 @@ export function zeroPnl(): PnlComponents {
     refundedFeesCents: 0,
     compensationsCents: 0,
     profitCents: 0,
+    buylistShippingFeeRetainedCents: 0,
+    buylistGuideCostCents: 0,
+    buylistGuideMarginCents: 0,
+    buylistGuideCostMissingCount: 0,
   };
 }
 
-type Db = Pick<PrismaService, 'order' | 'shipmentRequest' | 'shipmentCostAdjustment' | 'paymentRefund' | 'manualRefund'>;
+type Db = Pick<PrismaService, 'order' | 'shipmentRequest' | 'shipmentCostAdjustment' | 'paymentRefund' | 'manualRefund' | 'sellRequest'>;
 
 /** Una fila de dinero devuelto, con la fecha que la pone en su periodo. */
 export interface RefundRow {
@@ -187,6 +206,8 @@ export async function pnlBuckets(
   // cliente) y COSTO (lo que la plataforma paga al carrier) del MISMO conjunto de envíos, para que caigan en el mismo lapso.
   const shipments = await db.shipmentRequest.findMany({
     where: {
+      // 💰 rev BSD-1 (§BSD.5, censo BSD-B23): sin esto una guía de ENTRADA en `guia` entraría como costo de envío de venta.
+      ...OUTBOUND_ONLY,
       status: { in: ['picking', 'guia', 'enviado', 'entregado'] },
       ...(range ? { pickingAt: range } : {}),
     },
@@ -226,11 +247,71 @@ export async function pnlBuckets(
     b.compensationsCents += r.compensationCents;
   }
 
-  // ⛔ `profitCents` conserva sus términos y resta lo devuelto; se calcula por cubo (lineal ⇒ Σ cubos = total).
+  // 💰 rev BSD-1, errata BSD-1.2 (§BSD.16): la tarifa retenida a los vendedores SUMA y la guía de entrada RESTA, cada fila
+  // en el cubo de SU fecha. ⛔ `shippingCostCents` (envío de VENTA) no cambia: su sumador sigue `OUTBOUND_ONLY`.
+  const buylist = await buylistRowsInPeriod(db, range);
+  for (const g of buylist.skydropxGuides) at(g.labelPurchasedAt).buylistGuideCostCents += skydropxInboundGuideCostCents(g);
+  for (const sr of buylist.manualGuides) {
+    if (!isSkydropxInbound(sr.inboundShipment)) at(sr.guideSentAt ?? sr.shipmentConfirmedAt).buylistGuideCostCents += sr.guideActualCostCents ?? 0;
+  }
+  for (const sr of buylist.paid) {
+    const b = at(sr.paidAt);
+    const retained = retainedShippingFeeCents(sr);
+    const guide = guideCostOfRequest(sr);
+    b.buylistShippingFeeRetainedCents += retained;
+    // Margen POR SOLICITUD, en el cubo de su pago (⛔ resta de los dos renglones: viven en periodos distintos).
+    b.buylistGuideMarginCents += retained - guide.costCents;
+    if (guide.missing) b.buylistGuideCostMissingCount += 1;
+  }
+
+  // ⛔ `profitCents` conserva sus términos, resta lo devuelto y suma/resta el buylist; por cubo (lineal ⇒ Σ cubos = total).
   for (const b of out.values()) {
     b.profitCents =
       b.incomeCents + b.shippingRevenueCents - b.cogsCents - b.stripeFeesCents - b.shippingCostCents -
-      b.refundsCents - b.refundedFeesCents - b.compensationsCents;
+      b.refundsCents - b.refundedFeesCents - b.compensationsCents +
+      b.buylistShippingFeeRetainedCents - b.buylistGuideCostCents;
   }
   return out;
+}
+
+/**
+ * 💰 rev BSD-1, errata BSD-1.2 (API_CONTRACT §BSD.16, ARCHITECTURE §4.BSD (l)) — las tres lecturas de los renglones del
+ * buylist (el cuerpo que #78 tenía en `AdminService.pnlBuylistGuides`), con la fecha de cada fila para su cubo:
+ *  - (a) guías de Skydropx de ENTRADA por `labelPurchasedAt` (`INBOUND_ONLY`, censo BSD-B23 / BSD-1.3 punto 6);
+ *  - (b) guías MANUALES con costo capturado por `coalesce(guideSentAt, shipmentConfirmedAt)` (errata BSD-1.4 punto 12:
+ *    `adminConfirmShipment` acepta el costo SIN guía y lo escribe con `shipmentConfirmedAt`; sin la segunda rama ese costo
+ *    no entraba en ningún mes — BSD-B43). Los dos nulos ⇒ solo en el P&L sin periodo;
+ *  - las solicitudes `pagada` por `paidAt` (tarifa retenida, margen por solicitud y guías manuales sin costo).
+ */
+export async function buylistRowsInPeriod(db: Db, period?: Prisma.DateTimeFilter) {
+  const inboundRow = { select: { labelSource: true, providerCancelConfirmedAt: true, shippingCostCents: true, shippingCostIvaCents: true } } as const;
+  const [skydropxGuides, manualGuides, paid] = await Promise.all([
+    // (a) — `inbound_only`. La cancelación confirmada la decide `skydropxInboundGuideCostCents` (la misma regla del margen).
+    db.shipmentRequest.findMany({
+      where: { ...INBOUND_ONLY, labelSource: 'skydropx', ...(period ? { labelPurchasedAt: period } : {}) },
+      select: { ...inboundRow.select, labelPurchasedAt: true },
+    }),
+    // (b) — la fila de entrada viaja para descartar las de Skydropx con la MISMA regla (`isSkydropxInbound`).
+    db.sellRequest.findMany({
+      where: {
+        guideActualCostCents: { not: null },
+        ...(period ? { OR: [{ guideSentAt: period }, { guideSentAt: null, shipmentConfirmedAt: period }] } : {}),
+      },
+      select: { guideActualCostCents: true, guideSentAt: true, shipmentConfirmedAt: true, inboundShipment: { select: { labelSource: true } } },
+    }),
+    db.sellRequest.findMany({
+      where: { status: 'pagada', ...(period ? { paidAt: period } : {}) },
+      select: {
+        paidAt: true,
+        approvedTotalCents: true,
+        offerGrossCents: true,
+        quotedTotalCents: true,
+        payoutNetCents: true,
+        guideSentAt: true,
+        guideActualCostCents: true,
+        inboundShipment: inboundRow,
+      },
+    }),
+  ]);
+  return { skydropxGuides, manualGuides, paid };
 }

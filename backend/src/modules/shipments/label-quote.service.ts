@@ -33,6 +33,18 @@ import { neutralizeOutboundAddress } from './folio-neutralize';
 import { ExcludedRatesDTO, ShipmentQuoteDTO, ShipmentRateDTO } from './label-dto';
 import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
 import { VaultService } from '../vault/vault.service';
+import { LABEL_SUBJECT_SELECT, LabelSubject, AdminShipmentKind, INBOUND_ADMIN_KIND, isBuylistInbound, labelSubjectOf, lockSubjectRows } from './label-subject';
+import {
+  INBOUND_SELL_REQUEST_GUARD_SELECT,
+  OriginSnapshotDial,
+  assertInboundOpenForLabel,
+  inboundChargedOf,
+  inboundInsuredValueCents,
+  inboundPackageLines,
+  inboundQuoteAddresses,
+  rejectDestinationKeys,
+  storeDestinationOf,
+} from './label-inbound';
 
 /** R4 / §19.6: una cotización vale 24 h desde la PRIMERA vez que nuestro sistema vio su `providerQuotationId`. */
 export const QUOTE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -49,6 +61,8 @@ export interface QuoteBody {
 
 /** El cuerpo de `POST …/quote` (§19.19.4): `{ packageCode?, force? }`. ⛔ `declaredValueCents` no existe: si viene, se ignora. */
 export function parseQuoteBody(raw: unknown): QuoteBody {
+  // ⭐ rev BSD-1 (§BSD.4.2, criterio 532): el destino de una guía no se edita por el cuerpo — antes de cualquier red.
+  rejectDestinationKeys(raw);
   const body = (raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   const pc = body.packageCode;
   if (pc !== undefined && pc !== null && (typeof pc !== 'string' || pc.trim().length === 0 || pc.length > 64)) {
@@ -150,10 +164,12 @@ export function packageCodeByRule(lines: readonly PickedLine[], boxMinCards: num
 /** Lo que la tx de las guardas devuelve (la foto del envío bajo el candado). */
 interface GuardedShipment {
   row: ShipmentRequest;
-  kind: 'vault_withdrawal' | 'guest_direct_ship';
+  kind: AdminShipmentKind;
   lines: PickedLine[];
   charged: ChargedShipping;
   customerUserId: string | null;
+  /** ⭐ rev BSD-1 (§BSD.3 «Valor a asegurar»): solo la guía de entrada, ya resuelto (`offerGrossCents`). */
+  inboundInsuredValueCents?: number;
 }
 
 @Injectable()
@@ -177,11 +193,17 @@ export class ShipmentQuoteService {
     await this.assertProviderOn();
     const packages = await this.prisma.shippingPackage.findMany({ orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] });
     await this.assertProviderConfigured(packages);
-    const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true } });
+    const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true, ...LABEL_SUBJECT_SELECT } });
     if (!exists) throw BusinessException.notFound();
+    // rev BSD-1 (§BSD.3): la política de la fila (salida o guía de ENTRADA del buylist). `kind`/`sellRequestId` son inmutables.
+    const subject = labelSubjectOf(exists);
 
     // 2–3. Candado de fila y las guardas, en el orden del contrato; la dirección bajo el mismo candado.
-    const g = await this.guardedRead(shipmentId);
+    const g = await this.guardedRead(shipmentId, subject);
+    // ⭐ rev BSD-1 (§BSD.3, I-BSD-5): el destino de la guía de entrada es SIEMPRE la tienda; incompleta ⇒ 409, antes de la red.
+    const store = subject.sellRequestId
+      ? storeDestinationOf(await this.settings.get<OriginSnapshotDial>(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT))
+      : null;
 
     // 4. Empaque: el pedido explícito o la regla.
     const rule = await this.settings.getNumber(SettingKey.SHIPPING_PACKAGE_RULE_BOX_MIN_CARDS);
@@ -229,18 +251,22 @@ export class ShipmentQuoteService {
     }
 
     // La llamada de red, FUERA de la tx. ⛔ El destino viaja neutralizado (C-23), el snapshot no cambia.
+    // ⭐ rev BSD-1 (§BSD.3): en la guía de entrada `from` = el VENDEDOR (neutralizado) y `to` = la tienda.
     const snap = asObj(g.row.addressSnapshot);
-    const input: QuoteInput = {
-      from: { templateId: (await this.settings.get<string>(SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID)) as string },
-      to: neutralizeOutboundAddress({
-        countryCode: 'MX' as const,
-        postalCode: String(snap.postalCode ?? ''),
-        state: String(snap.state ?? ''),
-        city: String(snap.city ?? ''),
-        neighborhood: String(snap.neighborhood ?? ''),
-      }),
-      parcel: { lengthCm: pkg.lengthCm, widthCm: pkg.widthCm, heightCm: pkg.heightCm, weightKg: pkg.weightKg, coverageCents: coverage.coverageCents },
-    };
+    const parcel = { lengthCm: pkg.lengthCm, widthCm: pkg.widthCm, heightCm: pkg.heightCm, weightKg: pkg.weightKg, coverageCents: coverage.coverageCents };
+    const input: QuoteInput = store
+      ? { ...inboundQuoteAddresses(g.row.addressSnapshot, store), parcel }
+      : {
+          from: { templateId: (await this.settings.get<string>(SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID)) as string },
+          to: neutralizeOutboundAddress({
+            countryCode: 'MX' as const,
+            postalCode: String(snap.postalCode ?? ''),
+            state: String(snap.state ?? ''),
+            city: String(snap.city ?? ''),
+            neighborhood: String(snap.neighborhood ?? ''),
+          }),
+          parcel,
+        };
     let result;
     try {
       result = await this.selection.port.quote(input);
@@ -248,10 +274,15 @@ export class ShipmentQuoteService {
       throw e instanceof ShippingProviderError ? e.toBusinessException() : e;
     }
 
-    const [preferred, dropoffs] = await Promise.all([
-      this.settings.get<string[]>(SettingKey.SHIPPING_PREFERRED_CARRIERS),
-      this.settings.get<Record<string, { name: string; address: string }>>(SettingKey.SHIPPING_DROPOFF_POINTS),
-    ]);
+    // ⭐ rev BSD-1 (§BSD.3 «Recomendada», P-BSD-4): la guía de entrada recomienda la más barata a domicilio (la tienda) y
+    // ⛔ no lleva puntos de entrega (los del dial son de salida).
+    const [preferred, dropoffs] =
+      subject.recommendation === 'cheapest_home'
+        ? [[] as string[], {} as Record<string, { name: string; address: string }>]
+        : await Promise.all([
+            this.settings.get<string[]>(SettingKey.SHIPPING_PREFERRED_CARRIERS),
+            this.settings.get<Record<string, { name: string; address: string }>>(SettingKey.SHIPPING_DROPOFF_POINTS),
+          ]);
     const normalized = toRateDtos(result.rates, {
       chargedNetCents: g.charged.netCents,
       tierCostCents: coverage.costCents,
@@ -335,11 +366,15 @@ export class ShipmentQuoteService {
     if (missing.length > 0) throw ShippingProviderError.notConfigured(missing).toBusinessException();
   }
 
-  /** §19.6 paso 2–3 bajo `SELECT … FOR UPDATE`. Devuelve la foto con la que se cotiza. */
-  private async guardedRead(shipmentId: string): Promise<GuardedShipment> {
+  /**
+   * §19.6 paso 2–3 bajo `SELECT … FOR UPDATE`. Devuelve la foto con la que se cotiza. ⭐ rev BSD-1 (I-BSD-4): la guía de
+   * entrada toma PRIMERO la solicitud y después la fila (`lockSubjectRows`).
+   */
+  private async guardedRead(shipmentId: string, subject: LabelSubject): Promise<GuardedShipment> {
     return this.prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${shipmentId} FOR UPDATE`;
+        await lockSubjectRows(tx, subject, shipmentId);
+        if (subject.sellRequestId) return this.inboundGuardedRead(tx, shipmentId, subject);
         const shipRow = (await this.prep.loadRow(tx, shipmentId))!;
         await this.assertQuotable(tx, shipRow);
         const view = await this.prep.buildView(tx, shipRow);
@@ -365,12 +400,43 @@ export class ShipmentQuoteService {
   }
 
   /**
+   * ⭐ rev BSD-1 (§BSD.3) — la foto de la guía de ENTRADA bajo los dos candados: la guarda de la solicitud y de la fila, y lo
+   * que la solicitud aporta (líneas `buy` para el empaque, la tarifa congelada como «lo cobrado», `offerGrossCents` asegurado).
+   */
+  private async inboundGuardedRead(tx: Prisma.TransactionClient, shipmentId: string, subject: LabelSubject): Promise<GuardedShipment> {
+    const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id: shipmentId } });
+    const sr = await tx.sellRequest.findUniqueOrThrow({
+      where: { id: subject.sellRequestId as string },
+      select: {
+        ...INBOUND_SELL_REQUEST_GUARD_SELECT,
+        offerShippingFeeCents: true,
+        offerGrossCents: true,
+        items: { select: { id: true, offerDecision: true, productType: true, offeredPriceCents: true } },
+      },
+    });
+    assertInboundOpenForLabel(row, sr, subject.openStatus);
+    if (row.labelProcessingSince !== null) {
+      throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A label purchase is in progress for this shipment');
+    }
+    const missing = shipmentAddressMissing(row.addressSnapshot);
+    if (missing.length > 0) throw new BusinessException('SHIPMENT_ADDRESS_INCOMPLETE', 422, 'Shipment address is incomplete', { missing });
+    return {
+      row,
+      kind: INBOUND_ADMIN_KIND,
+      lines: inboundPackageLines(sr.items),
+      charged: inboundChargedOf(sr),
+      customerUserId: null,
+      inboundInsuredValueCents: inboundInsuredValueCents(sr),
+    };
+  }
+
+  /**
    * Las guardas de §19.6 paso 2 + paso 3, en el orden del contrato: estado ⇒ preparado ⇒ las de §M4-SHIP.6 (casos,
    * orden, origen; ⛔ **las mismas funciones**: `prep.assertCanAdvance`) ⇒ ya tiene guía ⇒ compra en curso ⇒ dirección.
    * Las usa también `label` (D2c, paso 2).
    */
   async assertQuotable(tx: Prisma.TransactionClient, row: ShipmentRequest): Promise<void> {
-    if (row.status !== 'picking') {
+    if (row.status !== labelSubjectOf(row).openStatus) {
       throw BusinessException.conflict('SHIPMENT_NOT_IN_PREPARATION', 'Shipment is not in preparation', { status: row.status });
     }
     if (row.preparedAt === null) throw BusinessException.conflict('SHIPMENT_NOT_PREPARED', 'Shipment is not prepared');
@@ -388,8 +454,15 @@ export class ShipmentQuoteService {
     }
   }
 
-  /** Lo cobrado por el envío: directo ⇒ la orden (`netShippingRevenueCents`); retiro ⇒ la fila (`shipmentNetRevenueCents`). */
+  /**
+   * Lo cobrado por el envío: directo ⇒ la orden (`netShippingRevenueCents`); retiro ⇒ la fila (`shipmentNetRevenueCents`);
+   * ⭐ rev BSD-1 guía de entrada ⇒ la tarifa congelada de la solicitud (`inboundChargedOf`, §BSD.3 «Lo cobrado»).
+   */
   async chargedOf(row: ShipmentRequest, db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<ChargedShipping> {
+    const sellRequestId = isBuylistInbound(row) ? labelSubjectOf(row).sellRequestId : null;
+    if (sellRequestId) {
+      return inboundChargedOf(await db.sellRequest.findUniqueOrThrow({ where: { id: sellRequestId }, select: { offerShippingFeeCents: true, offerGrossCents: true } }));
+    }
     if (row.orderId) {
       const o = await db.order.findUniqueOrThrow({
         where: { id: row.orderId },
@@ -405,6 +478,8 @@ export class ShipmentQuoteService {
    * `marketValueOf(pieza)` (la valuación de «Mi bóveda», UN cuerpo) y, sin mercado, lo pagado (`resolveOrigin`).
    */
   private async insuredValueOf(g: GuardedShipment): Promise<number> {
+    // ⭐ rev BSD-1 (§BSD.3): la guía de entrada asegura lo que vamos a pagar por las cartas (`offerGrossCents`).
+    if (g.inboundInsuredValueCents !== undefined) return g.inboundInsuredValueCents;
     if (g.kind === 'guest_direct_ship') return g.lines.reduce((s, l) => s + (l.paidCents ?? 0), 0);
     if (g.lines.length === 0) return 0;
     // `VaultModule` importa `ShipmentsModule`: la valuación se toma del contenedor (sin ciclo de MÓDULOS Nest).

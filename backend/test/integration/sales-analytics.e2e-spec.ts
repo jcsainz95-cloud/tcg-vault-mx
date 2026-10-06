@@ -270,11 +270,32 @@ describe('§AN fase B — ganancia, envíos, buylist, mejores días, mezcla (Pos
     expect(sum(r.rows, (f) => f.shipping.adjustmentsCents)).toBe(pnl.shippingAdjustmentsCents);
     // A mano: envío O2 neto 10000 + retiro S9 15000; guía S2 8000 + ajuste 2000 (sáb).
     expect(r.totals.shipping).toEqual({ chargedNetCents: 25000, costNetCents: 10000, costMissingCount: 1, adjustmentsCents: 2000, resultNetCents: 15000 });
-    expect(r.totals.profitCents).toBe(11009);
+    // 💰 Fusión con #78 (§BSD.16): 11 009 de la venta + 18 000 retenidos (SR1) − 15 000 (guía manual SR1) − 21 552 (guía de
+    // Skydropx de entrada SR3, neta) − 7 000 (guía manual SR4 confirmada sin guía) = −14 543.
+    expect(r.totals.profitCents).toBe(11009 + 18000 - 15000 - 21552 - 7000);
     expect(r.rows.find((x) => x.from === '2021-03-06')!.shipping.adjustmentsCents).toBe(2000);
     // ⛔ Las claves de #78 no viajan (ausentes, no 0).
     expect(r.totals.shipping).not.toHaveProperty('buylistRevenueCents');
     expect(r.totals.shipping).not.toHaveProperty('buylistCostCents');
+  });
+
+  it('AN-B-15 por día 💰 (fusión con #78): cada fila = pnl() de SU día, también con el buylist (cada renglón en su fecha)', async () => {
+    // Σ filas = total no ve un renglón puesto en el día equivocado DENTRO del periodo; esto sí: la fila de cada día contra M7
+    // acotado a ese mismo día. La fixture pone cada renglón del buylist en un día distinto (`helpers/sales-db.ts`).
+    const r = await svc.report(P, NOW_MARCH);
+    const days: Array<[string, number]> = [];
+    for (const row of r.rows) {
+      const p = await admin.pnl(mxDayStart(row.from).toISOString(), new Date(mxDayStart(nextYmd(row.from)).getTime() - 1).toISOString());
+      expect({ day: row.from, profit: row.profitCents }).toEqual({ day: row.from, profit: p.profitCents });
+      days.push([row.from, p.buylistShippingFeeRetainedCents - p.buylistGuideCostCents]);
+    }
+    // CONTROL: el buylist mueve cuatro días distintos (si no, esta prueba no distinguiría un cubo mal fechado).
+    expect(days.filter(([, v]) => v !== 0)).toEqual([
+      ['2021-03-02', -15000],
+      ['2021-03-04', -21552],
+      ['2021-03-05', 18000],
+      ['2021-03-07', -7000],
+    ]);
   });
 
   it('AN-B-22 💰: resultNet = cobrado − costo del MISMO cubo; negativo si la guía cuesta más; con costo sin capturar se emite', async () => {

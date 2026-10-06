@@ -25,6 +25,7 @@ import { dayMx } from '../spend-alerts/spend-alerts.service';
 import { ShipmentsService } from './shipments.service';
 import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
 import { asRate } from './label-view';
+import { OUTBOUND_ONLY } from './label-subject';
 
 const TX = { maxWait: 10_000, timeout: 30_000 } as const;
 const MAX_IDS = 200;
@@ -119,7 +120,8 @@ export class ShipmentDepartureService {
     const end = mxDayEndExclusive(date);
     const [rows, manualPending, preferred, dropoffs] = await Promise.all([
       this.prisma.shipmentRequest.findMany({
-        where: { status: 'guia', labelSource: 'skydropx', providerShipmentId: { not: null }, trackingNumber: { not: null }, labelPurchasedAt: { lt: end } },
+        // rev BSD-1 (censo BSD-B23): la salida de hoy es de envíos; la guía de ENTRADA la lleva el vendedor a la sucursal.
+        where: { ...OUTBOUND_ONLY, status: 'guia', labelSource: 'skydropx', providerShipmentId: { not: null }, trackingNumber: { not: null }, labelPurchasedAt: { lt: end } },
         orderBy: [{ labelPurchasedAt: 'asc' }, { id: 'asc' }],
         select: {
           id: true,
@@ -136,7 +138,7 @@ export class ShipmentDepartureService {
       }),
       // T.10: la guía manual no entra a los grupos; se cuenta (incluye la heredada con número y `labelSource` nulo).
       this.prisma.shipmentRequest.count({
-        where: { status: 'guia', OR: [{ labelSource: 'manual' }, { labelSource: null, trackingNumber: { not: null } }] },
+        where: { ...OUTBOUND_ONLY, status: 'guia', OR: [{ labelSource: 'manual' }, { labelSource: null, trackingNumber: { not: null } }] },
       }),
       this.settings.get<string[]>(SettingKey.SHIPPING_PREFERRED_CARRIERS),
       this.settings.get<Record<string, { name: string; address: string }> | null>(SettingKey.SHIPPING_DROPOFF_POINTS),

@@ -25,6 +25,15 @@
  * Además: un retiro de bóveda (S9, `enviado`, picking 03-04, sin costo capturado) con un SPEI `withdrawal_delivered` pagado
  * el sáb 03-06, un `ShipmentRequest` `solicitado` que no cuenta, un `PaymentRefund` `failed` del vie 03-05 (no cuenta), dos
  * `SellRequest` `pagada` (03-05 con `payoutNetCents = 40000`, 03-06 con `null`) y tres usuarios dados de alta el 2021-02-10.
+ *
+ * 💰 Buylist en el P&L (fusión con #78, §BSD.16) — cada renglón en un día DISTINTO para que un cubo mal fechado se vea:
+ *  - SR1 `pagada` 03-05 (bruto 58 000, neto 40 000 ⇒ retenido 18 000) con guía MANUAL entregada el mar 03-02 y costo
+ *    capturado 15 000 ⇒ costo 15 000 el 03-02 (`guideSentAt`), retenido 18 000 y margen 3 000 el 03-05 (`paidAt`).
+ *  - SR2 `pagada` 03-06 sin `payoutNetCents` (retenido 0) con guía manual entregada el 03-03 SIN costo ⇒ «sin capturar» 1 el 03-06.
+ *  - SR3 `aceptada` (nunca pagada) con guía de Skydropx de ENTRADA comprada el jue 03-04 (bruto 25 000, IVA 3 448) ⇒
+ *    costo neto 21 552 el 03-04 (`labelPurchasedAt`).
+ *  - SR4 `recibida` con costo manual 7 000 confirmado SIN guía (`guideSentAt` nulo, `shipmentConfirmedAt` dom 03-07) ⇒
+ *    costo 7 000 el 03-07 (rama `coalesce`, errata BSD-1.4 punto 12).
  * (Invitado ⇒ siempre `direct_ship`: CHECK `Order_guest_is_direct_ship_chk`.)
  */
 import type { PrismaClient } from '@prisma/client';
@@ -66,6 +75,9 @@ export const SID = {
   mrO4: id(310),
   sr1: id(400),
   sr2: id(401),
+  sr3: id(402),
+  sr4: id(403),
+  srIn: id(404),
   // Mayo de 2021 (`seedSalesMay`, horario de verano: UTC−5): AN-B-1/2/8.
   m1: id(501),
   m2: id(502),
@@ -114,6 +126,9 @@ export async function assertWindowEmpty(db: PrismaClient): Promise<void> {
     db.paymentRefund.count({ where: { submittedAt: w, NOT: { id: { startsWith: P } } } }),
     db.manualRefund.count({ where: { paidAt: w, NOT: { id: { startsWith: P } } } }),
     db.sellRequest.count({ where: { paidAt: w, NOT: { id: { startsWith: P } } } }),
+    // 💰 §BSD.16: las otras dos fechas del buylist en el P&L (guía de entrada y guía manual).
+    db.shipmentRequest.count({ where: { labelPurchasedAt: w, NOT: { id: { startsWith: P } } } }),
+    db.sellRequest.count({ where: { OR: [{ guideSentAt: w }, { shipmentConfirmedAt: w }], NOT: { id: { startsWith: P } } } }),
     db.user.count({ where: { createdAt: w, role: 'customer', NOT: { id: { startsWith: P } } } }),
   ]);
   if (counts.some((c) => c > 0)) throw new Error(`sales-db: la ventana 2021 no está vacía (${counts.join(',')})`);
@@ -307,8 +322,44 @@ export async function seedSales(db: PrismaClient): Promise<Record<string, string
     data: { id: SID.mrO4, idempotencyKey: 'an-fix-mr-w', source: 'withdrawal_delivered', status: 'paid', customerUserId: SID.userA, shipmentItemId: line.id, deliveredReason: 'arrived_damaged', deliveredNote: 'nota de prueba', amountCents: 6000, merchandiseCents: 5000, merchandiseIvaCents: 800, processingFeeCents: 0, compensationCents: 1000, createdByUserId: SID.userC, paidAt: mx('2021-03-06', 15), paidByUserId: SID.userC },
   });
 
-  await db.sellRequest.create({ data: { id: SID.sr1, userId: SID.userC, status: 'pagada', paidAt: mx('2021-03-05', 13), payoutNetCents: 40000 } as never });
-  await db.sellRequest.create({ data: { id: SID.sr2, userId: SID.userC, status: 'pagada', paidAt: mx('2021-03-06', 13), payoutNetCents: null } as never });
+  await db.sellRequest.create({
+    data: { id: SID.sr1, userId: SID.userC, status: 'pagada', paidAt: mx('2021-03-05', 13), payoutNetCents: 40000, quotedTotalCents: 58000, offerGrossCents: 58000, approvedTotalCents: 58000, offerShippingFeeCents: 18000, guideSentAt: mx('2021-03-02', 16), guideActualCostCents: 15000 } as never,
+  });
+  await db.sellRequest.create({ data: { id: SID.sr2, userId: SID.userC, status: 'pagada', paidAt: mx('2021-03-06', 13), payoutNetCents: null, guideSentAt: mx('2021-03-03', 16) } as never });
+  await db.sellRequest.create({
+    data: { id: SID.sr3, userId: SID.userC, status: 'aceptada', acceptedAt: mx('2021-03-03', 9), quotedTotalCents: 150000, offerGrossCents: 150000, offerShippingFeeCents: 18000 } as never,
+  });
+  // Guía de Skydropx de ENTRADA de SR3 (CHECK `shipment_kind_link`: `sellRequestId` sí, `userId`/`orderId` nulos).
+  await db.shipmentRequest.create({
+    data: {
+      id: SID.srIn,
+      kind: 'buylist_inbound',
+      sellRequestId: SID.sr3,
+      userId: null,
+      orderId: null,
+      status: 'guia',
+      addressSnapshot: addr,
+      shippingFeeCents: 0,
+      priceConvention: 'IVA_INCLUSIVE',
+      labelSource: 'skydropx',
+      providerShipmentId: 'an-fix-prov-in',
+      providerRateId: 'an-fix-rate-in',
+      chosenRateJson: {},
+      rateChosenByUserId: SID.userC,
+      rateChosenAt: mx('2021-03-04', 9),
+      labelPurchasedAt: mx('2021-03-04', 10),
+      packageCode: '4G',
+      declaredValueCents: 150000,
+      insuredValueCents: 0,
+      carrier: 'DHL',
+      trackingNumber: 'AN-FIX-SDX-IN',
+      shippingCostCents: 25000,
+      shippingCostIvaCents: 3448,
+    } as never,
+  });
+  await db.sellRequest.create({
+    data: { id: SID.sr4, userId: SID.userC, status: 'recibida', quotedTotalCents: 30000, offerGrossCents: 30000, offerShippingFeeCents: 18000, guideSentAt: null, shipmentConfirmedAt: mx('2021-03-07', 11), guideActualCostCents: 7000 } as never,
+  });
   return items;
 }
 

@@ -722,13 +722,17 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       // 💰 D2f (§19.11): + `shippingAdjustmentsCents`, `shippingInsuranceCents` tras `shippingCostMissingCount` (orden del objeto).
       expect(csv.text.trim().split('\n')[0]).toBe(
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
-          'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents',
+          'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+          // 💰 §BSD.16 (BSD-1.2): los cuatro del buylist, AL FINAL y en el orden del objeto.
+          'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount',
       );
       expect(fila).toBe(
         `pnl,${json.body.incomeCents},${json.body.shippingRevenueCents},${json.body.cogsCents},` +
           `${json.body.stripeFeesCents},${json.body.shippingCostCents},` +
           `${json.body.shippingCostMissingCount},${json.body.shippingAdjustmentsCents},${json.body.shippingInsuranceCents},` +
-          `${json.body.refundsCents},${json.body.refundedFeesCents},${json.body.compensationsCents},${json.body.profitCents}`,
+          `${json.body.refundsCents},${json.body.refundedFeesCents},${json.body.compensationsCents},${json.body.profitCents},` +
+          `${json.body.buylistShippingFeeRetainedCents},${json.body.buylistGuideCostCents},${json.body.buylistGuideMarginCents},` +
+          `${json.body.buylistGuideCostMissingCount}`,
       );
     });
 

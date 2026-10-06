@@ -48,6 +48,8 @@ import {
   isValidEmailFormat,
   normalizeEmail,
 } from '../../common/validation/credentials';
+import { OUTBOUND_ONLY } from '../shipments/label-subject';
+import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
 
 /**
  * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
@@ -1667,6 +1669,9 @@ export class AdminService {
       await tx.shipmentAddressRevision.deleteMany({
         where: { shipmentRequest: { OR: [{ userId: id }, { order: { userId: id } }] } },
       });
+      // 💰 rev BSD-1 (BSD-B27): las guías de ENTRADA de sus solicitudes de venta nacen con `userId` NULO (CHECK
+      // `shipment_kind_link`) ⇒ el borrado de arriba no las alcanza: su domicilio y sus revisiones se vacían aquí (un cuerpo, de B-2).
+      await scrubInboundShipmentPii(tx, id);
       await tx.user.update({
         where: { id },
         data: {
@@ -1719,7 +1724,8 @@ export class AdminService {
     // 💰 §AN fase B (API_CONTRACT §15.8, ARCHITECTURE §4.64.4): el cuerpo vive en `pnl-core.ts` (`pnlBuckets`), partido en
     // cubos para la analítica de ventas. M7 = UN cubo con el MISMO `range()` de hoy (`{gte, lte}`, D-AN-2 sin cambio,
     // criterio 613). La paridad bit a bit la fija AN-B-13 (`sales-analytics-pnl-parity.e2e-spec.ts`, instantánea tomada
-    // antes del refactor).
+    // antes del refactor). 💰 Desde la fusión con #78 el cubo trae además las cuatro filas del buylist (§BSD.16, B-4) al final
+    // del objeto: la instantánea de AN-B-13 se re-tomó con el `pnl()` de #78 (sin partir) — sigue siendo «antes = después».
     const buckets = await pnlBuckets(this.prisma, range(from, to), () => 'all');
     return buckets.get('all') ?? zeroPnl();
   }
@@ -1887,10 +1893,13 @@ export class AdminService {
       return (
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
         'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,' +
-        'refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
+        'refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+        // 💰 §BSD.16: los cuatro del buylist, al final y en el orden del objeto.
+        'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\n' +
         `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
         `${p.shippingCostCents},${p.shippingCostMissingCount},${p.shippingAdjustmentsCents},${p.shippingInsuranceCents},` +
-        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
+        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents},` +
+        `${p.buylistShippingFeeRetainedCents},${p.buylistGuideCostCents},${p.buylistGuideMarginCents},${p.buylistGuideCostMissingCount}\n`
       );
     }
     if (report === 'iva') {
@@ -1928,7 +1937,7 @@ export class AdminService {
       this.prisma.order.count({ where: { status: 'settled', ...(r ? { settledAt: r } : {}) } }),
       this.prisma.sellRequest.count({ where: { status: 'pagada', ...(r ? { paidAt: r } : {}) } }),
       this.prisma.shipmentRequest.count({
-        where: { status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
+        where: { ...OUTBOUND_ONLY, status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
       }),
     ]);
     // Metas N/X/Y/Z: solo se fijan cuando el humano las define. Mientras no haya
@@ -2102,7 +2111,8 @@ export class AdminService {
             priceConvention: true,
           },
         }),
-        this.prisma.shipmentRequest.count({ where: { status: { in: ['solicitado', 'picking', 'guia'] } } }),
+        // rev BSD-1 (censo BSD-B23): el tablero cuenta envíos; la guía de ENTRADA se ve en M5.
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: { in: ['solicitado', 'picking', 'guia'] } } }),
         // v1.51 (M-46, §4.39c **SITIO 5**) — la cola de trabajo se define POR EXCLUSIÓN, no con una
         // lista de estados vivos. Codificaba `['cotizada','recibida','verificacion','aprobada']`, así
         // que M-46 la habría dejado **SUBCONTANDO el pipeline**: `ofertada`, `aceptada` y
@@ -2140,7 +2150,7 @@ export class AdminService {
         this.prisma.user.count({ where: { role: 'customer' } }),
         this.prisma.order.count({ where: { status: 'settled' } }),
         this.prisma.sellRequest.count({ where: { status: 'pagada' } }),
-        this.prisma.shipmentRequest.count({ where: { status: 'entregado' } }),
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: 'entregado' } }),
       ]);
 
     const periodFrom = period.gte?.toISOString();
@@ -2200,6 +2210,8 @@ export class AdminService {
         buylist: buylistQueue,
         disputes: disputesQueue,
         pendingPrices,
+        // 💰 rev BSD-1 (C-3, BSD-1.3 p. 4): los dos contadores del buylist con guía de entrada (para los dos roles).
+        ...(this.dashboardShipping ? await this.dashboardShipping.buylistQueue(new Date()) : {}),
         ...(await this.workQueueAdditions(role)),
       },
       buylistPeriod: { count: buylistPeriodCount, amountCents: buylistPeriodAgg._sum.approvedTotalCents ?? 0 },

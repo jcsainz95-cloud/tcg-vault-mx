@@ -11,6 +11,10 @@
  * REGENERÓ con el código ANTERIOR a `pnl-core` (`d644be0d`, `admin.service.ts` sin partir) sobre la fixture nueva, y el
  * código actual la iguala: sigue siendo «antes = después», no «después = después».
  *
+ * 💰 Fusión con #78 (2026-10-06): la fixture ganó los renglones del buylist (§BSD.16) y la instantánea se REGENERÓ con el
+ * `pnl()` de #78 SIN partir (`origin/claude/buylist-skydropx` `f5ef59b7`, `admin.service.ts` con `pnlBuylistGuides`) sobre la
+ * fixture nueva; el código fusionado (`pnlBuckets` con el buylist por cubo) la iguala: sigue siendo «antes = después».
+ *
  * Rangos: los que M7/M9 reciben de verdad — fechas crudas `YYYY-MM-DD` (D-AN-2: `range()` las toma como medianoche UTC con
  * `lte`), instantes ISO y un rango que cubre toda la ventana. ⛔ Sin el «sin rango»: barrería las filas de otras suites.
  * Determinista (Postgres real, fixture fija): N=1 por corrida, dicho así.
@@ -80,5 +84,10 @@ describe('AN-B-13 💰 — M7 da lo mismo antes y después de pnl-core (Postgres
     expect(p.shippingCostMissingCount).toBe(1);
     // TD-AN-5: el seguro informativo (pnl-core `shippingInsuranceCents`) se mueve; con 0 en la fixture, quitar su línea pasaba.
     expect(p.shippingInsuranceCents).toBe(580);
+    // 💰 Fusión con #78: los cuatro renglones del buylist (§BSD.16) se mueven, para que la instantánea los cubra.
+    expect(p.buylistShippingFeeRetainedCents).toBe(18000);
+    expect(p.buylistGuideCostCents).toBe(15000 + 21552 + 7000);
+    expect(p.buylistGuideMarginCents).toBe(18000 - 15000);
+    expect(p.buylistGuideCostMissingCount).toBe(1);
   });
 });

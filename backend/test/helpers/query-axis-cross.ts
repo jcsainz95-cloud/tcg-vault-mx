@@ -121,6 +121,8 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/audit-log::action',
   'GET /admin/audit-log::entityType',
   'GET /admin/buylist::awaitingGuide',
+  // 💰 rev BSD-1.3 punto 4 (B-3): bandera `true` de las guías de entrada atascadas (clase L del contrato, como `offerReissueAlert`).
+  'GET /admin/buylist::inboundLabelAlert',
   'GET /admin/buylist::live',
   'GET /admin/buylist::offerReissueAlert',
   'GET /admin/buylist/pending-shipment-confirmation::onlyAlerts',
