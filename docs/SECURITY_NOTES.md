@@ -1,3 +1,112 @@
+# VEREDICTO BLUE TEAM — **P-DB-LIMPIEZA «Limpieza de la base antes de cobrar en real»** · SHA **`00ec3888`** (rama `claude/limpieza-db`) · 2026-10-06
+
+> ## VEREDICTO: ⚠️ **APROBADO CON CONDICIONES** sobre `00ec3888`
+>
+> - **0 críticas · 0 altas** abiertas. **1 media** (LZ-S1, la URL con contraseña en el historial del shell) y **3 bajas**.
+>   Nada bloquea que el dueño corra la limpieza; las condiciones son de **procedimiento** (encabezados/manual) y se
+>   cumplen sin tocar la lógica de los guiones.
+> - **Condiciones (mínimo para considerarla cerrada):**
+>   **CS-1 (backend, encabezados de B y §79):** la vía recomendada para A–D es `railway connect` (no se teclea la URL) y para
+>   E la (a) contenedor o `railway run`; si el dueño usa `psql "$URL"` / `DATABASE_URL='…'`, el encabezado le dice cómo no
+>   dejarla en el historial (`read -rs URL; export URL` o espacio inicial con `HISTCONTROL=ignorespace`) y no la escribe literal.
+>   **CS-2 (dueño, banderas):** rotar la contraseña de Postgres en Railway al terminar si la URL pública se tecleó o pegó
+>   en algún sitio; y el respaldo manual **tomado de verdad** antes del COMMIT (la guarda solo comprueba que el texto no
+>   esté vacío, LZ-S3).
+> - **Sobre qué medí.** Lectura de los 4 guiones, el comando E y su módulo, la prueba y la spec en `/home/user/tcg-limpieza`
+>   a `00ec3888` (`git log -1` medido). Medición en vivo **mía**: el comando E en una copia (`git archive 00ec3888`, cliente
+>   Prisma generado **en la copia**, no en ningún árbol vivo) con `DATABASE_URL` que lleva la contraseña canario `S3cr3tPw`,
+>   **6/6 caminos de error** sin la contraseña en stdout+stderr (host inalcanzable, URL inválida para `URL`, URL inválida
+>   para Prisma, salto interna→pública inalcanzable, autenticación fallida, DNS inexistente): `grep -c S3cr3tPw` = 0 en los 6.
+>   **NO MEDIDO por mí:** la suite `pdb-limpieza.e2e-spec.ts` contra Postgres (no tuve credencial de la BD local; me apoyo en
+>   el pase de QA sobre este sha). Sin pentest específico de este cambio (no hay superficie HTTP nueva, LZ-6).
+
+## LZ-1. Credenciales (URL con contraseña)
+
+- **El comando no imprime la URL.** `backend/src/cli/limpieza-republicar.ts:38-58`: los tres errores propios son texto
+  fijo; el salto a `DATABASE_PUBLIC_URL` imprime solo `(DATABASE_URL era la red interna de Railway: uso DATABASE_PUBLIC_URL)`
+  (`:76`). Los errores de Prisma muestran **host:puerto y usuario**, nunca la contraseña (medido 6/6, arriba). Logger de
+  Nest apagado (`logger: false`, `:77`). ✅ Confirma lo que midió QA.
+- **El rastro no guarda credenciales:** `ejecutadoCon: current_user` (nombre del rol) y nada de host/URL
+  (`20261006_pdblimpieza_2_limpieza.sql:512-531`). Los guiones no llevan host, usuario ni contraseña (encabezados). ✅
+- **Salida de B/D sin PII:** se listan folios, números de pedido, totales, `paymentMethodLast4` y guías; ni correos, ni
+  nombres de cliente, ni direcciones, ni INE (grep medido). ✅
+- **LZ-S1 · MEDIA · la URL pública con contraseña de ADMIN acaba en texto claro en el historial del shell.** El encabezado
+  de B pide `psql "$URL" …` (para lo cual el dueño hace antes `URL='postgresql://…'`) y, para E, literalmente
+  `DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/limpieza-republicar.js` (`…_2_limpieza.sql:57-59`; §79.3).
+  Ambos dejan la contraseña del **administrador de producción** en `~/.bash_history`/`~/.zsh_history`, y la vía `psql "$URL"`
+  además la pone en `argv` (visible en `ps` del equipo mientras corre). El endpoint público de Railway es alcanzable desde
+  internet: quien lea ese historial (respaldo del portátil, sincronización de shell, pantalla compartida) tiene la base.
+  **No es explotable desde fuera por sí solo** ⇒ media, no alta. Dueño: **backend** (texto de encabezados, CS-1) + **dueño**
+  (rotación, CS-2). `railway connect` y `railway run` no exponen la URL en el historial; `railway run` sí carga **todos** los
+  secretos del servicio de la API en un proceso local (aceptable: es el dueño en su equipo).
+
+## LZ-2. La bitácora se borra (decisión del dueño, `HECHOS.md:79`)
+
+- **El rastro conserva lo necesario:** conteos antes/después por tabla, piezas restauradas/excluidas/buylist (ids y
+  folios), bounties ajustados, las tres secuencias, `respaldoManual`, `puntoPitr` (UTC) y `ejecutadoCon`
+  (`…_2_limpieza.sql:512-531`); sin PII. Se inserta **en la misma transacción** tras G-5/G-6 y solo si hubo cambios. ✅
+- **LZ-S3 · BAJA · la guarda de respaldo es declarativa.** `respaldo_manual` vacío ⇒ aborta (`…_2_limpieza.sql:547-559`, y
+  prueba «respaldo_manual vacío»), pero SQL no puede verificar que el respaldo exista: un texto cualquiera la pasa. La red real
+  es PITR (cobertura desde `2026-10-05 22:32:25`, `HECHOS.md:74`) y **nunca se ha ensayado una restauración** (D-3/P-3). Dueño:
+  el **dueño** (procedimiento). Bandera abajo.
+- **Qué evidencia de seguridad se pierde (para decidir con los ojos abiertos):** toda la bitácora previa — quién cambió cada
+  dial (`settings.controller.ts` historial), acciones de `super_admin`/operador (reembolsos, SPEI, ajustes, cambios de rol,
+  desbloqueos de cuenta), rastros de compras de guía en Skydropx, y cualquier huella de un acceso indebido durante el periodo
+  de pruebas. Desde la base viva **ya no se podrá investigar** nada anterior al COMMIT; solo restaurando el respaldo/PITR en
+  una base aparte, mientras dure su retención (**NO MEDIDO**: retención de Railway). Si el dueño quiere conservarla fuera de
+  la base, la opción es exportar `AuditLog` a un fichero **antes** de B (no lo pide el diseño; decisión suya).
+
+## LZ-3. A y D de solo lectura; ninguna credencial ampliada
+
+- A y D abren `BEGIN TRANSACTION READ ONLY` y terminan en `ROLLBACK` (`…_1_censo.sql:34,111`; `…_4_verificacion.sql:37,143`);
+  sin `INSERT/UPDATE/DELETE/setval/nextval` (grep medido). Postgres rechaza toda escritura no temporal y `nextval` en una
+  transacción READ ONLY, así que corren con el admin sin poder escribir. Prueba «A … sin cambiar nada» y «D … y no escribe». ✅
+- **La receta `GRANT … TO tcg_readonly` se retiró:** no aparece en ningún guion, ni en migraciones, ni en los ficheros que
+  tocaron los commits de P-DB-LIMPIEZA (`git log --grep LIMPIEZA` → ningún `prisma/migrations/`); BACKEND_NOTES §79 lo dice
+  (`docs/BACKEND_NOTES.md:29914`). `tcg_readonly` sigue con sus seis tablas, sin acceso a hashes, `AuthToken` ni INE. ✅
+
+## LZ-4. Guardas contra borrar lo real y contra la base equivocada
+
+- **G-7** (`…_2_limpieza.sql:261-268`): con rastro previo y cualquier fila en una tabla BORRAR ⇒ aborta sin escribir; **C**
+  replica la idea (`…_3_folio_pedidos.sql:46-53`). **G-8** (`:158-171`): tabla no clasificada ⇒ aborta. G-1…G-6 + REPEATABLE
+  READ + `LOCK … SHARE ROW EXCLUSIVE` + `lock_timeout 5s`. Todas con prueba que muerde (spec `:270-319`, `:549-617`). ✅
+- **LZ-S2 · BAJA · G-7 depende del rastro.** Antes del primer COMMIT no hay rastro, y G-1…G-3 no distinguen un pedido real de
+  uno de prueba (no hay marca de modo Stripe en `Order`: `grep livemode schema.prisma` vacío). Si alguien cambiara a
+  `sk_live_` y vendiera **antes** de correr B, B borraría ventas reales. Mitigado por el orden del manual (§8.2 paso 10:
+  `sk_live_` solo después) y por PITR. Recomendación (backend, no bloqueante): una guarda de caducidad (abortar si existe
+  un `Order` posterior a una fecha fija, o si `now()` pasa de una fecha límite) y retirar los guiones tras la corrida (PDB-TD3).
+- **Base equivocada — LZ-S4 · BAJA:** nada compara la identidad de la base (B solo **imprime** `current_database()`/usuario,
+  paso 0). Riesgo acotado: **no hay staging, solo producción** (`HECHOS.md:17`), así que la única base Railway es la buena;
+  correrlo por error contra una local solo vacía datos de desarrollo. El comando E sin `DATABASE_URL` se niega antes de
+  cargar `.env` (`cli/limpieza-republicar.ts:41`), y sin rastro en la base apuntada se niega (`modules/inventory/limpieza-republicar.ts:93-101`). Aceptable.
+
+## LZ-5. INE de vendedores de prueba sin purga (PDB-R6)
+
+- **Real y con dueño:** `TECH_DEBT.md` `PDB-R6` (P2, dueño backend + seguridad, disparador «el COMMIT de la limpieza en
+  producción», comprobación de cierre definida). El 2026-09-12 había **1** expediente con INE en producción; hoy **NO MEDIDO**
+  (lo imprime el censo A, fila R-6).
+- **Riesgo aceptado como deuda, no bloqueante:** son INE de **cuentas de prueba** del propio equipo/dueño, el bucket es privado
+  y el acceso a la INE ya está restringido por rol. Pero es un documento de identidad oficial retenido **sin plazo**, y el mismo
+  hueco afecta a cualquier usuario real que suba INE y nunca abra una solicitud. **Disparador firme:** se cierra antes de
+  abrir el buylist a vendedores reales con `sk_live_`. Si el censo A muestra INE de personas ajenas al equipo, sube a **alta**.
+
+## LZ-6. Exposición como endpoint
+
+- Ningún controlador importa `limpieza-republicar` ni `LimpiezaRepublicarModule` (`git grep` en `backend/src` medido: solo el
+  CLI). `previewPublication` solo la llama el comando. El campo nuevo `detail` de `PublishReevaluationResult` no llega a ninguna
+  respuesta HTTP (`buylist.service.ts:8086-8091` y `sealed-price.service.ts:391-398` solo leen `missing`/`outcome`). El script
+  `npm run limpieza:republicar` es local. Los SQL viven en `prisma/data-repair/`, que no se ejecuta en el arranque. ✅
+
+## LZ-7. Banderas para el humano
+
+1. **Simulacro de restauración (D-3/P-3) antes del COMMIT:** la única marcha atrás es PITR y nadie la ha probado.
+2. **Respaldo manual de verdad** (Railway → Backups) y anotar el punto PITR; la guarda no puede comprobarlo (LZ-S3).
+3. **Pérdida de la bitácora** (LZ-2): si quieres poder investigar el periodo de pruebas sin restaurar, exporta `AuditLog` antes.
+4. **Rotar la contraseña de Postgres** tras la operación si tecleaste/pegaste la URL (LZ-S1).
+5. **No pasar a `sk_live_` antes** de COMMIT de B + C + D + E (LZ-S2); y PDB-R6 cerrado antes de abrir el buylist real.
+
+---
+
 # VEREDICTO BLUE TEAM — **RELEASE «Buylist con guía Skydropx de entrada» (BSD)** · SHA **`64877aad`** (rama `claude/buylist-skydropx`) · 2026-10-06
 
 > ## VEREDICTO: ✅ **APROBADO** sobre `64877aad` (con un aceptado y dos pendientes no bloqueantes)
