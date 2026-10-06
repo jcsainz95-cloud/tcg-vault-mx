@@ -14457,3 +14457,34 @@ Resultados:
 
 **Rollback:** revertir el commit. Así vuelve el falso rojo en cualquier diff que borre la última zona sin formato
 de un archivo.
+
+## §89 · `trivy-fs`, `npm-audit` y `trivy-image` en rojo en `production` `36091259`: dos avisos nuevos en transitivas (2026-10-06, rama `claude/fix-trivy-runtime`)
+
+**Causa (medida el 2026-10-06 con Trivy 0.75.0, la última release; el workflow la instala por apt sin fijar
+versión, y el sha256 del tarball se verificó contra `trivy_0.75.0_checksums.txt`).** Ninguna PR cambió
+dependencias: se publicaron dos avisos sobre versiones que ya estaban en los lockfiles.
+
+| Paquete | Aviso | Severidad | Ruta | Arreglado en |
+|---|---|---|---|---|
+| `proxy-addr@2.0.7` | CVE-2026-90711 / GHSA-jqcg-44mw-7w3h | CRITICAL (CVSS 9.1) | backend, transitiva (`express` → `proxy-addr ~2.0.7`) | 2.0.8 |
+| `source-map-js@1.2.1` | CVE-2026-93749 / GHSA-68fv-2mgg-jv7q | HIGH (CVSS 7.5) | frontend, transitiva (`postcss` → `source-map-js ^1.2.1`) | 1.2.2 |
+
+**Arreglo.** `npm update proxy-addr --package-lock-only` en `backend/` y `npm update source-map-js
+--package-lock-only` en `frontend/`. Los rangos de los padres ya admiten la versión corregida, así que no hace falta
+`overrides` ni tocar `package.json`. Solo cambia la entrada de cada paquete en su lockfile. No hay ninguna
+excepción nueva en `.trivyignore`.
+
+**Antes → después, con la misma invocación:**
+- `./security/scripts/trivy-fs.sh`: rc=1 (1 CRITICAL en backend y 1 HIGH en frontend) → rc=0.
+- `AUDIT_LEVEL=high ./security/scripts/audit-npm.sh`: rc=1 (backend con 1 critical, frontend con 1 high) → rc=0.
+  Quedan 2 moderate en el backend (`@nestjs/core` GHSA-36xv-jgw5-4q75), que están por debajo del umbral.
+- Capa npm de la imagen backend: `trivy rootfs` sobre `npm ci --include=dev` del lockfile, con
+  `.trivyignore` + `.trivyignore-image`. Da rc=1 (`proxy-addr` CRITICAL) → rc=0. Base `node:24-alpine`
+  (alpine 3.24.2) escaneada en remoto, solo paquetes de SO: 0 HIGH/CRITICAL, así que el rojo de la imagen viene de
+  npm y no de la base. El `docker build` completo sigue **NO MEDIDO** aquí, porque `apk` está bloqueado por la
+  política de salida (§80.3).
+
+**Rollback:** revertir el commit. Los tres gates vuelven a ponerse en rojo.
+
+**Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
+externa va fijada». Lo dejo propuesto, no lo cambio.
