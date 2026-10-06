@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev BSD-1 — 💰 BUYLIST: GUÍA SKYDROPX DE ENTRADA, «DECLINAR» EN «ACEPTADA» Y CIERRE A 7 DÍAS NATURALES** (2026-10-06,
+> arquitecto, rama `claude/buylist-skydropx`, HEAD dado por el orquestador `3c7726b8`; ⛔ sha NO MEDIDO: sin Bash). Norma en
+> `API_CONTRACT §BSD` (cabecera «Rev BSD-1»); porqué en **§4.BSD**; migración **`M-72` provisional** en §11; desviación
+> **DV-BSD-1** en §9. La guía de entrada es una `ShipmentRequest` con `kind='buylist_inbound'` (un solo motor de compra);
+> `SellRequestExpiryReason` gana `not_continued`; regla 8 (cierre), 9 (aviso AG-23) y 10 (reconciliación) del barrido.
+> Numeración propia (BSD) para no chocar con `claude/idiomas-sellos` ni `claude/correos-marca` (NO MEDIDAS).
+>
 > **Rev v1.80.12.17 — 💰 ERRATA TRAS EL GATE DE QA SOBRE `31af0883`** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado
 > por el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.17**; norma en `API_CONTRACT §M4-SHIP.19.36`;
 > porqué en **§4.60 (ac)**. M7 pinta «ajustes de paquetería» y seguro (criterio 238) y las tres restas de v1.80.7; la línea de
@@ -28542,6 +28549,79 @@ AVG-1/2/3 es una página `admin/…`»). Se decide la opción (1): los correos s
   cliente: llevan el pie. «Solo-staff» se decide por la **consulta de destinatarios**, no por el tema del correo.
 - **Choque A:** las 4 plantillas de la fusión son de cliente (§14.18 E5-5); no hay decisión.
 
+### 4.BSD BUYLIST CON GUÍA SKYDROPX DE ENTRADA — una sola máquina de compra, una fila más, y un cierre que no culpa (rev BSD-1, 2026-10-06, NORMATIVO, 💰 **DINERO + PII + TERCERO**)
+
+Norma entera: `API_CONTRACT §BSD`. Aquí, el porqué. Origen: `PROJECT.md §BSD` (criterios 532–550) y las filas de `HECHOS.md`
+del 2026-10-06 sobre el buylist (cierre sin guía a 7 días naturales; Skydropx de entrada antes de cobrar en real; respuestas a
+P-BSD-1…5 = las recomendaciones del product-owner). Lectura del árbol `/home/user/tcg-bsdx` (sha NO MEDIDO, sin Bash).
+
+**(a) Por qué la guía de entrada es una `ShipmentRequest` y no una tabla nueva ni columnas en `SellRequest`.** Las propiedades
+que protegen el dinero de Skydropx **son de cuenta, no de envío**: una compra en vuelo a la vez (candado consultivo y la
+consulta de `labelProcessingSince` sobre **toda** la tabla, `label-purchase.service.ts:399-423`), una tarifa no se compra dos
+veces (`:349-353`), un `providerShipmentId` pertenece a una sola fila (`@unique`), el folio `ENV-` sale de **una** secuencia y
+la adopción de una compra sin respuesta busca **ese** folio, el tope de MX$2,500 por persona suma **un** libro de intentos y
+TG-2 cuenta **un** libro de guías pagadas. Con una segunda tabla, cada una de esas propiedades tendría que re-demostrarse
+**entre dos tablas** —«otra compra en vuelo» tendría que mirar las dos, la unicidad del id también, la adopción por folio
+también—, y un olvido en cualquiera es dinero pagado dos veces o una guía huérfana: **dos fuentes para un hecho** en la
+zona donde más cuesta. Con una fila más de la misma tabla, esas propiedades valen **por construcción** y el encargo («no
+inventes un segundo camino de compra») se cumple en la letra. *Descartado:* columnas Skydropx en `SellRequest` (≈ 25
+columnas duplicadas y el motor partido en dos); una tabla polimórfica «sujeto de guía» (reescribir el motor entero, que ya
+pasó tres veredictos, para ganar lo mismo).
+
+**(b) El precio de (a), dicho entero, y sus candados.** `ShipmentRequest` tiene ~50 lectores (Grep del 2026-10-06 de
+`shipmentRequest.find*/count` y SQL crudo en `backend/src`) escritos pensando en envíos de **venta**. Un lector que olvide el
+`kind` mete una guía de entrada en la cola de preparación, en el tablero o en el P&L. Tres muros: (1) **CHECK** que obliga a
+la fila de entrada a `userId`, `orderId` y PaymentIntent nulos y montos en 0 ⇒ ninguna lista de cliente (filtran por
+`userId` positivo) ni ningún sumador de ingresos puede verla aunque se equivoque; (2) **censo** BSD-B23 que clasifica cada
+sitio (`outbound_only` / `all_kinds` / `by_key`) y se pone rojo con un sitio nuevo sin clasificar — el mismo patrón que los
+censos de proyecciones de este proyecto; (3) la política por `kind` vive en **un** fichero (`label-subject.ts`, BSD-B25).
+*Segunda copia aceptada a ojos abiertos (I-BSD-2):* el par paquetería/número vive en la fila de entrada (lo lee el motor) y
+en la solicitud (lo ve el vendedor y ancla su plazo, criterio 123). Se acepta porque **un solo escritor** los pone en **una**
+transacción (`writeSellRequestGuide`, extraído de `adminGuide`), y porque mover el plazo del vendedor a la fila de entrada
+obligaría a reescribir el ciclo de §4.39, que no es de este alcance.
+
+**(c) Por qué `not_continued` es un TERCER valor de `expiredReason`, contra la nota D39.** D39 dijo «no gana un tercer
+valor» porque para el vendedor «decidimos» y «dejamos vencer» eran **el mismo hecho**: los dos ocurrían **antes** de ofertar
+y el correo 4 dice exactamente eso. Aquí ofertamos y el vendedor **aceptó**: el correo 4 («nunca te ofertamos») sería falso, y
+`not_shipped` le imputaría un incumplimiento que el dueño quiere expresamente que no le impute (`HECHOS.md` 2026-10-06 (b)).
+El enum viaja al cliente y gobierna su copy; por eso el hecho nuevo **necesita** valor propio. La distinción
+«a mano / solo» sigue en `declinedBy`, como en D39.
+
+**(d) El reloj: ancla re-anclable y fecha derivada.** No se congela una fecha límite: el criterio 543 exige que cambiar el
+dial de 7 a 10 salve a una solicitud de 8 días, y eso solo es cierto si la fecha se **deriva** del dial vivo. Patrón D38
+(`offerIssueClockStartedAt ?? createdAt`): `inboundGuideClockStartedAt ?? acceptedAt`. Dos escritores, nombrados: `M-72`
+(P-BSD-2, las abiertas cuentan desde el despliegue) y la re-emisión (es corrección nuestra; *el vendedor no paga por una
+corrección nuestra*, D38). **Días naturales** = resta de milisegundos; sin calendario de festivos, así que esta regla no
+hereda el fail-closed de calendario de las otras (no lo necesita), pero un ancla nula **no** cierra.
+
+**(e) Por qué el relleno de `M-72` no es «relleno peligroso».** Toca solo filas vivas `aceptada` sin guía, escribe solo una
+columna nueva y **aplaza** un efecto; no mueve estado, dinero ni correo. Lo peligroso sería **no** hacerlo: la primera pasada
+del barrido cerraría con correo la del 15-sep y todas las viejas. Su reversa conjunta exige revertir **primero** el código.
+
+**(f) Orden de candados SR → ShR (I-BSD-4).** Hasta hoy ninguna transacción tomaba las dos filas. Ahora cinco caminos sí
+(declinar, regla 8, regla 2, reclamo/respuesta de compra, re-emisión). Un orden único es la única forma barata de no
+interbloquear; BSD-B31 lo mide con carreras N ≥ 10. El candado consultivo de cuenta no cambia (nunca espera).
+
+**(g) El aviso del día 5 reutiliza la tubería de avisos al dueño (AG-23).** Ya existe todo lo que pide P-BSD-1: correo solo
+al dueño (`audience:'staff'`), deduplicación por llave única, silenciado por dial, vista en el panel. Un correo propio sería
+un segundo buzón con su propio sello. La marca de M5/tablero es **derivada** (sin columna).
+
+**(h) Dinero.** Al vendedor se le sigue descontando la tarifa congelada (D16/D25/D31); el neto no se toca (BSD-B11). El costo
+real queda en la fila de entrada desde la respuesta de Skydropx (como en salida, §4.60). **Qué es margen:** `tarifa −
+costo neto`, el mismo cálculo que en salida (la tarifa descontada no lleva IVA trasladado) — interpretación marcada en el
+contrato. **P&L:** el informe de hoy **no** cuenta ni la tarifa descontada ni el costo de guía del buylist (DV-BSD-1), y el
+costo de lo vendido usa el **bruto** ofertado; meter el costo de la guía en la ganancia sin acreditar la tarifa la
+subestimaría. Por eso, por defecto, línea **informativa** (Q-BSD-1 al dueño). Lo que sí entra como hoy: cargos extra y lo no
+devuelto de una cancelación (`ShipmentCostAdjustment`, sin filtro de `kind`: el dinero salió igual).
+
+**(i) PII.** La fila de entrada guarda el domicilio del vendedor con `userId = null`: la anonimización de cuenta, que hoy
+encuentra los envíos por `userId`, **no** la vería. Se norma que la encuentre por `SellRequest.userId` (BSD-B27). El correo del
+**origen** que viaja a Skydropx es el de la **tienda**, no el del vendedor (minimización; además evita que Skydropx le escriba).
+
+**(j) Lo que no se hizo y por qué.** «En tránsito» por escaneo (P-BSD-5: después de cobrar en real) ⇒ las filas de entrada
+**no** entran al sondeo de rastreo, y con eso tampoco a AV-17/18/19. Recolección a domicilio: fuera (§BSD.6 de PROJECT).
+Cambiar la tarifa fija: fuera.
+
 ---
 
 ## 5. Decisiones transversales
@@ -29310,6 +29390,18 @@ Riesgos técnicos:
 ---
 
 ## 9. Desviaciones detectadas
+
+> **rev BSD-1 — `DV-BSD-1` (abierta, 💰, informativa; medida 2026-10-06 por Grep sobre `/home/user/tcg-bsdx`, sha NO
+> MEDIDO):** `schema.prisma:2237-2240` dice de `SellRequest.guideActualCostCents` «`null` ⇒ M7 usa la tarifa congelada y lo
+> DECLARA», y el criterio 536 dice «con guía manual sin costo capturado, el reporte usa la tarifa **como hoy**». **Ningún
+> lector de M7 lo usa:** `guideActualCostCents` aparece solo en `buylist.service.ts`, `buylist.dto.ts`,
+> `admin-buylist.controller.ts` (backend) y en M5 / `api.ts` / `contract.ts` (frontend); `admin.service.ts` `pnl()` no lo lee
+> ni lee la tarifa del buylist. Consecuencia: el «como hoy» del 536 no describe nada construido. Enrutado: orquestador →
+> product-owner (decidir con Q-BSD-1 qué cuenta el P&L del buylist). ⛔ El arquitecto no lo corrige.
+>
+> **rev BSD-1 — `DV-BSD-2` (cerrada por diseño):** la copia `pickupAddressSnapshot` no lleva `recipientName` ni `references`
+> aunque la libreta sí (medido por product-owner, `PROJECT.md §BSD.0`). §BSD.4.5 la completa hacia adelante; las viejas se
+> completan en la ventana.
 
 > **v1.83 — `D-SP-1` (abierta, temporal; se cierra al fusionar con Skydropx):** «solo el dueño fija el precio del
 > sellado» (`HECHOS.md:50` (4)) se construye como `role === 'super_admin'`; un súper-admin del personal también puede.
@@ -31945,6 +32037,18 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### rev BSD-1 (**M-72 provisional**: guía de entrada del buylist — **DDL ADITIVO + 1 enum nuevo + 2 valores de enum + 3 columnas + 2 CHECK + FK + 2 índices + relleno ACOTADO de una columna nueva**, §4.BSD)
+- **Carpeta:** `prisma/migrations/20261025120000_m72_bsd_inbound_label/` (posterior a `M-71` `20261021120000`, medido con
+  `Glob` el 2026-10-06 en `/home/user/tcg-bsdx`: el último es `m71`; `M-69` sigue libre como colchón de Skydropx). ⚠️ Las
+  ramas `claude/idiomas-sellos` y `claude/correos-marca` **no se midieron** (sin Bash): si alguna ya tomó `M-72`, se renumera
+  **ésta** y su fecha de carpeta.
+- **Contenido, orden, CHECKs, relleno y reversa:** `API_CONTRACT §BSD.1` (forma normativa entera).
+- **Relleno:** `inboundGuideClockStartedAt = now()` solo para `aceptada` ∧ `closedAt IS NULL` ∧ `guideSentAt IS NULL`
+  (P-BSD-2). Antes de desplegar se cuenta (NM-6) y la cifra va a la solicitud de fusión.
+- **Enums en la misma tx:** `ADD VALUE` sin uso en la migración; si Postgres lo rechaza, `M-72b` (precedente `M-70`).
+- **Reversa:** documentada en el contrato; **primero el código**. ⛔ Con guías de entrada vivas no se revierte sin
+  cancelarlas.
 
 ### v1.83-precio-sellado (**M-71**: precio del dueño por producto sellado — **DDL ADITIVO + 1 CHECK + relleno que no mueve precios efectivos**, §4.62)
 

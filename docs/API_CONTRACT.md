@@ -10,6 +10,37 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev BSD-1 — 💰 BUYLIST: GUÍA SKYDROPX DE ENTRADA, «DECLINAR» EN «ACEPTADA» Y CIERRE A LOS 7 DÍAS NATURALES (2026-10-06,
+> arquitecto, árbol `/home/user/tcg-bsdx`, rama `claude/buylist-skydropx`, HEAD dado por el orquestador `3c7726b8`; ⛔ sha NO
+> MEDIDO por el arquitecto: sin Bash).** Se apoya en **v1.84.5**. ⛔ **La línea «Versión de API» de arriba NO se toca en esta
+> rama** (hay otras ramas abiertas que también la editan: `claude/idiomas-sellos`, `claude/correos-marca`); la fusión la
+> consolida. Numeración propia para no chocar: rev **BSD-1**, sección **[§BSD](#BSD)** del contrato, `ARCHITECTURE §4.BSD`,
+> migración **`M-72` provisional** (se renumera **ésta** si otra rama ya la tomó). Norma entera: **[§BSD](#BSD)**. Origen:
+> `PROJECT.md §BSD` (criterios 532–550) y `HECHOS.md` filas 2026-10-06 «Buylist: una solicitud ACEPTADA sin guía capturada en
+> 7 días se CANCELA sola», «Buylist con Skydropx de entrada (P-BUYLIST-SDX)…» y «Respuestas a P-BSD-1…5…» (las cinco con la
+> recomendación del product-owner).
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | 💰 | Construye |
+> |---|---|---|---|---|---|
+> | **BSD-A** | Dónde vive la guía de entrada | **Una fila de `ShipmentRequest` con `kind = 'buylist_inbound'`** ligada 1:1 a la `SellRequest` (`sellRequestId @unique`). Así la compra, el candado de cuenta, el folio, la adopción, la verificación sin respuesta, la cancelación, TG-1/TG-2 y los libros **son los mismos**, sin un segundo camino de compra. Precio: un **censo** de lectores de `ShipmentRequest` (candado BSD-B23) | Sí (aditivo) | 💰 | backend |
+> | **BSD-B** | Dirección | Origen = **copia** de `pickupAddressSnapshot` en `ShipmentRequest.addressSnapshot` (corregible con el verbo de siempre, con su bitácora y versión). Destino = la dirección de la tienda (`skydropx_origin_snapshot`), **sin entrada** en ningún cuerpo | Sí | 💰 | backend + frontend |
+> | **BSD-C** | Al comprar | La guía se escribe en la `ShipmentRequest` **y**, en la misma transacción, en la `SellRequest` con el mismo cuerpo que la captura a mano: arranca el plazo del vendedor (3 días hábiles) y sale **AV-7 con la etiqueta en PDF adjunta**. ⛔ No sale AV-4 | Sí | 💰 | backend |
+> | **BSD-D** | Dinero | Al vendedor se le sigue descontando la **tarifa congelada**; el costo real queda en la fila de entrada y se ve en la ficha y en una línea **informativa** del P&L | No (neto) | 💰 | backend + frontend |
+> | **BSD-E** | «Declinar» en «Aceptada» | Verbo nuevo **`POST /admin/buylist/:id/decline-accepted`** (operador+, motivo 3–500 interno). `expirada` con **`expiredReason = 'not_continued'`** (valor NUEVO) + `declinedBy`. Cancela sola la guía de Skydropx | Sí | 💰 | backend + frontend |
+> | **BSD-F** | Cierre a 7 días naturales | Regla **8** del barrido: `aceptada` sin guía (ni compra en vuelo) con `coalesce(inboundGuideClockStartedAt, acceptedAt) + 7×24 h ≤ ahora` ⇒ `expirada`/`not_continued`, `declinedBy = null`. Dial en días naturales | Sí | — | backend |
+> | **BSD-G** | Aviso del día 5 | Regla **9**: aviso **AG-23** (`buylist_guide_due`) por la tubería de avisos al dueño (panel + correo, una vez por ancla); marca derivada `guideDueSoon` en M5 y en el tablero | Sí | — | backend + frontend |
+> | **BSD-H** | Las ya abiertas | `M-72` pone `inboundGuideClockStartedAt = now()` a las `aceptada` abiertas sin guía: cuentan **desde el despliegue** | Sí (relleno acotado) | — | backend |
+> | **BSD-I** | Etiqueta del vendedor | PDF adjunto en AV-7 **y** `GET /api/v1/buylist/requests/:id/label.pdf` (dueño de la solicitud) | Sí | — | backend + frontend |
+>
+> - ⛔ **Cero códigos de error nuevos** (se reutilizan con `details.reason` nuevos, §BSD.10). Enums: **`ShipmentKind`** (nuevo),
+>   `SellRequestExpiryReason` **+ `not_continued`**, `SpendAlertKind` **+ `buylist_guide_due`** (AG-23).
+> - **Pruebas que deben fallar:** `BSD-B1…B31` (backend) y `BSD-F1…F9` (frontend), §BSD.11. Carreras con **N ≥ 10** y
+>   proporción: B4, B9, B16, B18, B31.
+> - **Preguntas al dueño:** ninguna bloquea (§BSD.14, todas con valor por defecto). **NO MEDIDO:** §BSD.13.
+>
+> *(separador ⟨listo-real⟩ — rama `claude/buylist-skydropx`, 2026-10-06: lo que sigue es la cabecera tal como estaba en
+> `3c7726b8`, vigente entera salvo lo que toca BSD-1.)*
+>
 > **Errata v1.84.5 — CHOQUE B: PIE DE PRIVACIDAD (E4-5) vs. ENLACES DE LOS CORREOS DE GASTO (SDX-I-8) (2026-10-05,
 > arquitecto, árbol `/home/user/tcg-real`, rama `claude/listo-real`, HEAD dado por el orquestador `1eb6bdcd`; ⛔ sha NO
 > MEDIDO por el arquitecto: sin Bash).** Origen: el orquestador midió 2 rojas tras la fusión
@@ -7812,6 +7843,18 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
   operador con el dial en `super_admin_only`; auditado) · `409 SHIPPING_PROVIDER_NOT_CONFIGURED` gana `missing` ∋
   `'insurance_tier'` (con `insuredValueCents`, `maxCoverageCents`) y `'allow_spend'` · `502 SHIPPING_PROVIDER_ERROR` gana
   `reason:'edge_blocked'` (`403` del borde de Skydropx, sin reintento).
+- 💰 **rev BSD-1 — guía de entrada del buylist (⛔ NINGÚN código nuevo; emisores y `details` nuevos, norma en
+  [§BSD.10](#BSD)):** `409 GUIDE_NOT_ALLOWED` gana `details.reason: 'status'|'closed'|'seller_declared_shipped'|
+  'shipment_confirmed'` (crear la fila de entrada, cotizar o comprar sobre una solicitud que ya no admite guía) ·
+  `409 SHIPMENT_ALREADY_LABELED {labelSource, shipmentId?}` también desde `POST /admin/buylist/:id/guide`, `PATCH
+  /admin/buylist/:id/pickup-address` y `POST /admin/buylist/:id/inbound-shipment` · `409 LABEL_IN_PROGRESS` también desde
+  esas tres · `409 DECLINE_NOT_ALLOWED` gana emisor `POST /admin/buylist/:id/decline-accepted` y `details.reason:
+  'status'|'seller_declared_shipped'|'shipment_confirmed'` · `409 LABEL_NOT_CANCELLABLE` gana `reason:
+  'seller_declared_shipped'|'sell_request_status'` (re-emitir una guía de entrada) · `409 PICKUP_ADDRESS_LOCKED` gana
+  `reason:'label_in_progress'` · `409 SHIPPING_PROVIDER_NOT_CONFIGURED` gana `missing ∋ 'origin_snapshot'` (guía de entrada
+  sin la dirección local de la tienda) · `400 VALIDATION_ERROR {field, reason:'destination_not_editable'}` (claves `to`,
+  `destination`, `addressTo`, `address_to` en los cuerpos de `quote`, `label` y `address`) y `{field:'guideActualCostCents',
+  reason:'provider_cost'}` · `404 LABEL_NOT_AVAILABLE` gana emisor `GET /buylist/requests/:id/label.pdf`.
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
 - **`422 ITEM_NOT_OFFERED` (v1.51.20 — NUEVO; DINERO Y PROPIEDAD AJENA):** en `PATCH /admin/buylist/items/:itemId/decision`
   **dentro del ciclo de oferta** (`offerSentAt IS NOT NULL`), se manda **`decision:"approve"`** sobre una línea cuyo
@@ -8071,6 +8114,7 @@ ManualRefundStatus  = pending | paid | cancelled  // v1.80.2 (M-61, §M4-SHIP.15
 MovementReason      = alta | move | sale | settle | chargeback_return | withdrawal | lost | damaged | buylist_convert | adjustment | replacement | refund_return | refund_release  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12 (3)): `refund_release` = pieza `reserved → listed` porque la orden NUNCA liquidada que la apartaba se reembolsó entera (⛔ distinto de `refund_return`: aquélla vuelve del cliente congelada). Motivo de un `InventoryMovement` (historial de la pieza, §M1 «Movimientos», `reason: MovementReason` en los DTOs de historial y de `chargeback-inventory`). Clase E (espeja `schema.prisma:396-414`). `adjustment` = v1.20 (M-24, levantamiento físico); `replacement` = v1.80.1 (M-61, §M4-SHIP.15.2, traspaso de una reposición); `refund_return` = v1.80.4 (M-61, §M4-SHIP.18.4, la carta vuelve a la plataforma por reembolso total). Solo DTO de lectura, ⛔ sin filtro de query ⇒ banda 3 universal. ⚠️ v1.80.7.1: sin línea canónica hasta hoy (IMP-2 de QA).
 ShippedRefundReason = not_arrived | arrived_damaged  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12): por qué se reembolsó entero un pedido YA ENVIADO. ⚠️ CLASE R — NO SE DERIVA: «solo sería porque no llegó o estaban en mala condición» (`PROJECT §S.11.4`, `HECHOS.md` 2026-10-02 SSL-R1). Literal `['not_arrived','arrived_damaged']` con esta cita al lado + test de lista exacta y de subconjunto del enum de Prisma. Dominio del cuerpo de M3 `refund` (`shippedReason`) y de `POST /admin/orders/:id/shipped-refund-reason` (`reason`); fuera ⇒ `400 VALIDATION_ERROR {field, allowed}`. Hoy coincide con el enum entero — por la regla, no por derivación.
 ShipmentActiveStage = solicitado | picking | guia | enviado  // v1.17: subconjunto "activo" de ShipmentStatus expuesto en HoldingDTO.shipmentState. `entregado` NUNCA aparece (el item ya es InventoryStatus.withdrawn y sale de holdings); `cancelado` libera el item ⇒ shipmentState=null.
+ShipmentKind        = outbound | buylist_inbound  // 💰 rev BSD-1 (M-72, §BSD.1): QUÉ es una fila de `ShipmentRequest`. `outbound` = todo lo de hoy (retiro de bóveda y envío directo; el `orderId` sigue distinguiéndolos); `buylist_inbound` = la guía de ENTRADA de una solicitud de venta aceptada (vendedor → tienda). Clase E (espeja `schema.prisma`). Solo DTO (`AdminShipmentDTO.kind`), ⛔ sin filtro de query ⇒ banda 3 universal. ⛔ Ningún lector de clientes ni de la cola de preparación ve `buylist_inbound` (censo BSD-B23).
 ShipmentLabelSource = manual | skydropx  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2): quién emitió la guía; `manual` = capturada a mano (T.10), `skydropx` = comprada por §19.7. Clase E (espeja `schema.prisma:429-432`). Filtro `?labelSource=` de `GET /admin/shipments` (§19, «filtros nuevos») ⇒ tres bandas. ⚠️ v1.80.12.11: la declaración vivía solo en el bloque prisma de §19.2 y faltaba esta línea (banda 3 roja tras D2a) — añadida sin cambio de dominio.
 CarrierStatus       = created | picked_up | in_transit | last_mile | delivery_attempt | delivered_to_branch | delivered | exception | in_return | canceled | destroyed | retained  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2/.19.3): estado CRUDO que reporta Skydropx (referencia §5, NO MEDIDO contra la API, §19.19.10). Clase E (espeja `schema.prisma:436-449` y `CARRIER_STATUSES` del puerto, `shipping-provider.port.ts:11-24`). ⛔ Ningún valor nuevo en `ShipmentStatus`; el mapeo vive solo en `applyCarrierStatus`. Valor desconocido ⇒ ~~evento no aplicado (§19.19.10)~~ ⭐ v1.80.12.14 (§19.33.2): se aplica como `exception` con `detail` «Estado no reconocido: …» (dominio SIN cambio). Solo DTO (`carrierStatus`, `carrierAlert.status`); `?alert=true` es clase L ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
 ShippingIvaSource   = provider | computed | manual  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2, T.7 / criterio 238): de dónde salió la línea de IVA del costo de envío; `provider` es lo normal, `computed` = 16/116 (§19.11), `manual` = captura de hoy. Clase E (espeja `schema.prisma:452-456`). Lo usan `ShipmentRequest.shippingIvaSource` y `ShipmentCostAdjustment.ivaSource`. Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
@@ -8078,7 +8122,7 @@ ShipmentCostAdjustmentKind = overweight | extended_zone | return | other  // v1.
 LabelAttemptOutcome = pending | labeled | not_charged | released_unverified  // v1.80.12.9 (M-68, §M4-SHIP.19.29.2): resultado de un reclamo de compra (`ShipmentLabelAttempt.outcome`). Clase E (espeja `schema.prisma:1752-1757`). Interno: ningún DTO ni filtro lo expone ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida tras D2c (§19.29.2 decía «los cinco» y son seis), sin cambio de dominio.
 PaidLabelOrigin     = response | adopted | orphan | duplicate  // v1.80.12.9 (M-68, §19.29.2): de dónde salió una guía que Skydropx nos cobró (`ShipmentPaidLabel.origin`). Clase E (espeja `schema.prisma:1760-1765`). Interno ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 LabelCancelKind     = reissue | auto_close | orphan_auto | orphan_manual  // v1.80.12.9 (M-68, §19.29.2): cómo se canceló una guía pagada (`ShipmentPaidLabel.cancelKind`; `facts.cancelKind` de AG-8). Clase E (espeja `schema.prisma:1768-1773`). Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
-SpendAlertKind      = label_after_address_fix | label_cap_warning | label_cap_blocked | label_reissue_loop | label_charge_drift | carrier_extra_charge | provider_balance_low | cancel_refund_missing | label_charged_unexplained | label_not_shipped | parcel_returned | parcel_problem | label_costly_choice | operator_refund_cap | super_admin_money_out | shrinkage | chargeback | buylist_manual_price | psa_credits | stuck_refund | owner_account_changed | staff_control_by_non_owner  // v1.80.12.9 (M-68, §19.29.2) AG-1…AG-20 en ese orden (AG-14…AG-20 reservados, sin disparador) + v1.80.12.10 (§19.30.1 (6), §19.30.2 (3)) AG-21 y AG-22. Clase E (espeja `schema.prisma:1776-1799`). Filtro `?kind=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio (22 valores).
+SpendAlertKind      = label_after_address_fix | label_cap_warning | label_cap_blocked | label_reissue_loop | label_charge_drift | carrier_extra_charge | provider_balance_low | cancel_refund_missing | label_charged_unexplained | label_not_shipped | parcel_returned | parcel_problem | label_costly_choice | operator_refund_cap | super_admin_money_out | shrinkage | chargeback | buylist_manual_price | psa_credits | stuck_refund | owner_account_changed | staff_control_by_non_owner | buylist_guide_due  // rev BSD-1 (M-72, §BSD.7 regla 9): + `buylist_guide_due` = AG-23, «esta solicitud aceptada se cierra sola en N días si no tiene guía» (23 valores). v1.80.12.9 (M-68, §19.29.2) AG-1…AG-20 en ese orden (AG-14…AG-20 reservados, sin disparador) + v1.80.12.10 (§19.30.1 (6), §19.30.2 (3)) AG-21 y AG-22. Clase E (espeja `schema.prisma:1776-1799`). Filtro `?kind=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio (22 valores).
 SpendAlertSeverity  = immediate | digest  // v1.80.12.9 (M-68, §19.29.2): 🔴 inmediato / 🟡 resumen (Z.2). Clase E (espeja `schema.prisma:1802-1805`). Filtro `?severity=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 SpendAlertMailStatus = not_applicable | pending | sending | sent | batched | batch_sent | failed | failed_unknown | no_recipient  // v1.80.12.9 (M-68, §19.29.5): estado del correo de un aviso (outbox). Clase E (espeja `schema.prisma:1808-1818`). Solo DTO (`SpendAlertDTO.mail.status`) ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 SellRequestStatus   = cotizada | ofertada | aceptada | en_transito | recibida | verificacion | aprobada | pagada
@@ -8114,7 +8158,12 @@ SellOfferState      = pending_authorization | sent | cancelled
                     //   precondición de POST /admin/buylist/:id/offer exige `cotizada`), NUNCA `offerState`. La
                     //   lectura ingenua «cancelled ⇒ disponible» RESUCITARÍA UNA SOLICITUD TERMINAL.
                     // ⚠️ ADMIN-ONLY: NUNCA viaja en un DTO de cliente. NO gatea el pipeline físico (eso es `status`).
-SellRequestExpiryReason = no_offer | not_shipped
+SellRequestExpiryReason = no_offer | not_shipped | not_continued
+                    // 💰 rev BSD-1 (M-72, §BSD.1, ARCHITECTURE §4.BSD (c)) — + `not_continued`: la solicitud ACEPTADA la
+                    //   cerró LA TIENDA, a mano («Declinar», `declinedBy` poblado) o sola a los N días naturales sin guía
+                    //   (barrido regla 8, `declinedBy = null`). ⛔ NO cuenta contra el vendedor (no es `not_shipped`) y su
+                    //   copy de cliente es «no continuamos con la venta». ⚠️ Revoca para ESTE caso la nota D39 «no gana un
+                    //   tercer valor»: el correo 4 afirma que nunca ofertamos, y aquí ofertamos y el vendedor aceptó.
                     // ⚠️ v1.51.1 (M-46, D33, ARCHITECTURE §4.39a) — POR QUÉ expiró una solicitud. Es un ATRIBUTO del
                     // terminal, NO un quinto estado: los TERMINALES SIGUEN SIENDO CUATRO (criterio 113 intacto).
                     //   no_offer     → NADIE le ofertó en `buylistOfferIssueDeadlineBusinessDays` días hábiles desde
@@ -12446,7 +12495,8 @@ Err:
 > - **Antes de que la oferta exista**, la pantalla del cliente **no muestra guía, dirección ni instrucciones de
 >   envío**, y **no ofrece** ninguna vía para avisar «ya lo mandé» ni para marcarse en tránsito (criterio 114).
 > **⚠️ v1.51.1 — DOS ADICIONES Y UNA RETIRADA en la proyección de cliente:**
-> - **`expiredReason: SellRequestExpiryReason | null`** (D33) — `no_offer` \| `not_shipped`; `null` si no está
+> - **`expiredReason: SellRequestExpiryReason | null`** (D33) — `no_offer` \| `not_shipped` \| **`not_continued`** (rev
+>   BSD-1, [§BSD](#BSD): la tienda no continuó una venta ya aceptada; copy sin culpa, ⛔ ni «expirada» ni «no enviaste»); `null` si no está
 >   `expirada`. **Se le muestra al vendedor** porque es **su** solicitud y es **el mismo hecho que ya le dijo el
 >   correo**: ocultarlo obligaría al front a adivinar qué mensaje pintar, y adivinar aquí significa **acusar de
 >   incumplimiento a alguien a quien nunca le ofertamos**. El front lo mapea a dos copys distintos
@@ -33287,6 +33337,9 @@ Res `200`: la `SellRequest` actualizada (mismo shape que `GET /admin/buylist/:id
 `expiredReason="no_offer"`, `closedAt` y `declinedBy` sellados).
 Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND`, **`409 DECLINE_NOT_ALLOWED`** (`details: { status, offerState }`),
 `400 VALIDATION_ERROR`.
+> 💰 **rev BSD-1 (2026-10-06):** este verbo **sigue siendo solo para `cotizada`** y no cambia en nada. Declinar una
+> **`aceptada`** es **otro** verbo, con otro desenlace y otro correo: [`POST /admin/buylist/:id/decline-accepted`
+> (§BSD.6)](#BSD). *Dos puertas, dos hechos*, como aquí con `ofertada`.
 
 ##### `GET /api/v1/admin/buylist/offers/pending-authorization` — cola de autorización (criterio 143/147)
 Query: `?page=&pageSize=` (`pageSize` ≤ 100). Res `200`: `{ data: PendingOfferAuthorizationRowDTO[], page, pageSize, total }` (§11).
@@ -39656,3 +39709,444 @@ Las cuatro son **de cliente**, no solo-staff: `sellItemsRejectedTemplate` va al 
 del centro de avisos al cliente (`shipments.service.ts:1004,1010,1023`). Llevan el pie; no necesitan decisión. Nota: en el
 árbol leído por el arquitecto (sha NO MEDIDO) `RENDERS` **ya las contiene** (`mail.privacy-footer.spec.ts:101,157-162`);
 el orquestador re-mide antes de enrutar.
+
+## <a id="BSD"></a>BSD. 💰 BUYLIST: GUÍA SKYDROPX DE ENTRADA, «DECLINAR» EN «ACEPTADA» Y CIERRE A LOS 7 DÍAS NATURALES (rev BSD-1, 2026-10-06, **NORMATIVA**)
+
+> **Fuentes que mandan** (no se re-preguntan): `PROJECT.md §BSD` (líneas 9085–9262) y criterios **532–550**; `HECHOS.md`
+> filas 2026-10-06 «Buylist: una solicitud ACEPTADA sin guía capturada en 7 días se CANCELA sola», «Buylist con Skydropx de
+> entrada (P-BUYLIST-SDX) — ANTES de cobrar en real; quién paga la guía» y «Respuestas a P-BSD-1…5…: me parecen bien todas
+> tus recomendaciones de buylist» (⇒ P-BSD-1 aviso el **día 5** en panel **y** correo al dueño; P-BSD-2 las abiertas cuentan
+> **desde el despliegue**; P-BSD-3 **PDF adjunto** y **descargable en «Mi cuenta»**; P-BSD-4 preseleccionada **la más barata
+> que entregue en la dirección de la tienda**; P-BSD-5 «en tránsito» automático **después** de cobrar en real ⇒ **fuera**
+> de BSD-1). Skydropx: filas 2026-09-29 «todo paquete va ASEGURADO», «la paquetería la ELIGE EL OPERADOR», «LIGA DE
+> RASTREO si Skydropx la da»; 2026-10-04 «Carta Porte: código SAT 49101600…», «Skydropx vive dentro de la ventana
+> «Capturar guía»…», «Poder corregir todo», «comprar y cancelar guías lo puede hacer TAMBIÉN EL PERSONAL», «REGLA
+> GENERAL: … LO MÁS AUTOMÁTICOS POSIBLE», «Control del gasto — límites aceptados…». Porqué de cada decisión:
+> `ARCHITECTURE §4.BSD`.
+>
+> **Lectura del árbol** (arquitecto, `/home/user/tcg-bsdx`, 2026-10-06, sha NO MEDIDO): el motor de compra
+> (`shipments/label-purchase.service.ts`, `label-quote.service.ts`, `label-cancel.service.ts`, `label-auto-close.ts`,
+> `shipment-address.service.ts`) está **entero** escrito sobre filas de `ShipmentRequest`: candado de fila, CAS del reclamo
+> (`label-purchase.service.ts:432-456`), candado consultivo de cuenta y «otra compra en vuelo» (`:399-423`, consulta
+> `ShipmentRequest.labelProcessingSince`), `rate_already_purchased` (`:349-353`), `providerShipmentId @unique`, folio
+> `ENV-` por `DEFAULT` de BD, libros `ShipmentLabelAttempt`/`ShipmentPaidLabel`, TG-1/TG-2 (`checkLabelLimits`). Por eso
+> la guía de entrada **es una fila de `ShipmentRequest`** (BSD.1) y no una tabla nueva.
+
+### BSD.0 Glosario de esta sección
+- **Solicitud** = `SellRequest`. **Fila de entrada** = la `ShipmentRequest` con `kind='buylist_inbound'` de esa solicitud.
+- **Guía viva de entrada** = fila de entrada con `labelSource='skydropx'`, `providerShipmentId ≠ null` y
+  `providerCanceledAt = null`. **Reclamo vivo** = `labelProcessingSince ≠ null` (compra «en vuelo» o «en proceso»).
+- **Ancla** del cierre = `coalesce(SellRequest.inboundGuideClockStartedAt, SellRequest.acceptedAt)`.
+- **Sin guía** (para el cierre) = `guideSentAt IS NULL` **y** sin reclamo vivo **y** sin `providerShipmentId` sin cancelar
+  en la fila de entrada.
+
+### BSD.1 Modelo de datos — `M-72` (provisional; aditiva)
+
+```prisma
+enum ShipmentKind { outbound  buylist_inbound }          // NUEVO (clase E)
+enum SellRequestExpiryReason { no_offer  not_shipped  not_continued }   // + not_continued
+enum SpendAlertKind { …(22 de hoy)…  buylist_guide_due }  // + AG-23
+
+model ShipmentRequest {
+  …(todo lo de hoy, sin cambio)…
+  kind          ShipmentKind @default(outbound)   // NOT NULL; las filas existentes quedan `outbound` por el DEFAULT (sin UPDATE)
+  sellRequestId String?      @unique              // solo `buylist_inbound`; FK → SellRequest(id) ON DELETE RESTRICT
+  sellRequest   SellRequest? @relation(fields: [sellRequestId], references: [id], onDelete: Restrict)
+  @@index([kind, status])
+}
+
+model SellRequest {
+  …(todo lo de hoy, sin cambio)…
+  // Ancla RE-ANCLABLE del cierre a N días naturales sin guía (§BSD.7 regla 8): `coalesce(esto, acceptedAt)`.
+  // La escriben SOLO: M-72 (las abiertas al desplegar, P-BSD-2) y la re-emisión de una guía de entrada (§BSD.4.6).
+  // ⛔ Nunca la aceptación (para eso está `acceptedAt`). Admin-only: ⛔ fuera de todo DTO de cliente.
+  inboundGuideClockStartedAt DateTime?
+  inboundShipment            ShipmentRequest?   // back-relation de `sellRequestId`
+}
+```
+
+**CHECKs (SQL crudo en la migración; comparan `::text`):**
+1. `shipment_kind_link`: `("kind"::text = 'outbound' AND "sellRequestId" IS NULL) OR ("kind"::text = 'buylist_inbound'
+   AND "sellRequestId" IS NOT NULL AND "orderId" IS NULL AND "userId" IS NULL AND "stripePaymentIntentId" IS NULL AND
+   "shippingFeeCents" = 0 AND "ivaCents" = 0 AND "processingFeeCents" = 0 AND "totalCents" = 0)`.
+   *Por qué `userId` nulo:* la lista de cliente `GET /shipments` filtra por `userId` de forma positiva (`schema.prisma:1535-1540`),
+   así que una fila de entrada **no puede** aparecer en «Mis envíos» del vendedor aunque un lector olvide el `kind`.
+   *Por qué todos los montos a 0:* ningún sumador de ingresos del P&L puede leer ingreso fantasma de una fila de entrada.
+2. `shipment_inbound_status`: `"kind"::text = 'outbound' OR "status"::text IN ('solicitado','guia','cancelado')`.
+
+**Relleno (P-BSD-2), único, acotado, en la misma migración:**
+```sql
+UPDATE "SellRequest" SET "inboundGuideClockStartedAt" = now()
+ WHERE "status" = 'aceptada' AND "closedAt" IS NULL AND "guideSentAt" IS NULL;
+```
+⛔ No cambia estado, dinero ni correo de nadie: solo **aplaza** el cierre de las abiertas a «despliegue + 7 días». Sin él,
+la primera pasada del barrido cerraría la del 15-sep (y todas las viejas) con correo. `now()` es el instante de la
+transacción de la migración ⇒ un solo valor para todas.
+
+**Orden en el fichero** (`prisma/migrations/20261025120000_m72_bsd_inbound_label/migration.sql`, fecha posterior a `M-71`
+`20261021120000`): (1) `CREATE TYPE "ShipmentKind"`; (2) `ALTER TABLE "ShipmentRequest" ADD COLUMN "kind" … NOT NULL DEFAULT
+'outbound', ADD COLUMN "sellRequestId" TEXT`; (3) índice único + FK + índice `(kind,status)`; (4) los dos CHECK; (5)
+`ALTER TABLE "SellRequest" ADD COLUMN "inboundGuideClockStartedAt" TIMESTAMP(3)`; (6) el relleno; (7) `ALTER TYPE
+"SellRequestExpiryReason" ADD VALUE 'not_continued'`; (8) `ALTER TYPE "SpendAlertKind" ADD VALUE 'buylist_guide_due'`.
+⚠️ (7) y (8) **no se usan** en la misma migración (Postgres no deja usar un valor añadido en la transacción que lo añade);
+si Prisma/Postgres rechaza `ADD VALUE` en la transacción, van a **`M-72b`** (mismo precedente que `M-70`).
+
+**Reversa** (`down.sql` documentado, no automático; **primero se revierte el código**, después esto):
+```sql
+-- 0. Comprobación previa: SELECT count(*) FROM "ShipmentRequest" WHERE "kind" = 'buylist_inbound';
+--    > 0 con guías vivas ⇒ NO revertir sin cancelarlas antes (dinero en Skydropx).
+DELETE FROM "ShipmentRequest" WHERE "kind" = 'buylist_inbound' AND "providerShipmentId" IS NULL;  -- solo las sin guía
+ALTER TABLE "ShipmentRequest" DROP CONSTRAINT "shipment_inbound_status", DROP CONSTRAINT "shipment_kind_link";
+ALTER TABLE "ShipmentRequest" DROP CONSTRAINT "ShipmentRequest_sellRequestId_fkey";
+DROP INDEX "ShipmentRequest_sellRequestId_key"; DROP INDEX "ShipmentRequest_kind_status_idx";
+ALTER TABLE "ShipmentRequest" DROP COLUMN "sellRequestId", DROP COLUMN "kind"; DROP TYPE "ShipmentKind";
+ALTER TABLE "SellRequest" DROP COLUMN "inboundGuideClockStartedAt";
+-- Los valores de enum NO se quitan (Postgres no tiene DROP VALUE). Antes de revertir el código:
+-- SELECT count(*) FROM "SellRequest" WHERE "expiredReason" = 'not_continued';  > 0 ⇒ el código viejo los LEE como un
+-- valor desconocido: no se revierte el código sin decidir qué hacer con ellos (se quedan; el cliente viejo pinta «expirada»).
+```
+
+### BSD.2 Invariantes (cada una con su candado en §BSD.11)
+- **I-BSD-1** Fila de entrada en `solicitado` ⇒ su solicitud está `aceptada` ∧ `closedAt IS NULL`. Toda transición que
+  saca una solicitud de `aceptada` llama, **en la misma transacción**, a `closeInboundShipment(tx, sellRequestId, mode)`
+  (§BSD.4.8). Escritores medidos hoy: regla 2 del barrido (`buylist-sweep.service.ts:153-183`), `adminConfirmShipment`
+  (`buylist.service.ts:5150-5207`); nuevos: regla 8 y `decline-accepted`.
+- **I-BSD-2** Guía viva de entrada con número ⇒ `SellRequest.shipmentCarrier = ShipmentRequest.carrier` ∧
+  `SellRequest.shipmentTrackingNumber = ShipmentRequest.trackingNumber`. Las escribe **una** función en **una** transacción
+  (`writeSellRequestGuide`, §BSD.4.7). *Es una copia deliberada con escritor único* — la de la solicitud es lo que el
+  vendedor ve y lo que ancla su plazo; la de la fila de entrada es lo que el motor de Skydropx lee — ARCHITECTURE §4.BSD (b).
+- **I-BSD-3** Una solicitud tiene **a lo sumo una** fila de entrada (`sellRequestId @unique`); la re-emisión reutiliza la
+  misma fila (como en salida).
+- **I-BSD-4** **Orden de candados:** toda transacción que toque solicitud **y** fila de entrada toma **primero** la
+  `SellRequest` (`SELECT id FROM "SellRequest" WHERE id=$1 FOR UPDATE`, o el `UPDATE` que la bloquea) y **después** la
+  `ShipmentRequest`. Aplica a: crear fila, cotizar, reclamar, escribir respuesta (`persistLabeled`/`persistProcessing`/
+  `casZero`), re-emitir, corregir origen, `decline-accepted`, reglas 2/8 del barrido, `adminGuide`, `adminConfirmShipment`,
+  `PATCH …/pickup-address` (cliente y admin). ⛔ El candado consultivo de cuenta (`pg_try_advisory_xact_lock`) sigue siendo
+  la primera sentencia del reclamo y **nunca espera**.
+- **I-BSD-5** El destino de una guía de entrada es **siempre** `skydropx_origin_snapshot`. ⛔ Ningún cuerpo de petición lo
+  lleva; el servidor lo arma al cotizar y al comprar.
+- **I-BSD-6** Ninguna fila de entrada dispara AV-4, AV-17, AV-18, AV-19, AG-1 ni AG-10, ni entra al sondeo de rastreo.
+
+### BSD.3 El motor compartido: qué cambia en cada sitio (⛔ ningún sitio nuevo de compra)
+
+El motor elige su conducta por **`row.kind`** a través de **una** política, `labelSubjectOf(row)` (nuevo
+`shipments/label-subject.ts`), con estas piezas. ⛔ Ningún sitio compara `kind` a mano fuera de ese fichero (candado BSD-B25).
+
+| Sitio (hoy) | `outbound` (sin cambio) | `buylist_inbound` |
+|---|---|---|
+| Candado (`precheck`, `guardedRead`, `persist*`, `casZero`, `cancel`, `correct`) | `ShipmentRequest FOR UPDATE` | `SellRequest FOR UPDATE` y luego `ShipmentRequest FOR UPDATE` (I-BSD-4) |
+| Estado «abierta sin guía» en guardas y CAS (`assertQuotable` `label-quote.service.ts:372-389`; `precheck` `label-purchase.service.ts:335-340`; CAS del reclamo `:432-441`; `persistLabeled` `:780-788`; `persistProcessing` `:856`; `correct` `shipment-address.service.ts:136-144`) | `status='picking'` ∧ `preparedAt ≠ null` ∧ `prep.assertCanAdvance(…,'guia')` (∧ sin caso abierto en `persistLabeled`) | `status='solicitado'` ∧ guarda de la solicitud **en la misma tx**: `status='aceptada'` ∧ `closedAt IS NULL` ∧ `shipmentTrackingNumber IS NULL` ∧ `sellerShippedDeclaredAt IS NULL` ∧ `shipmentConfirmedAt IS NULL`. Falla ⇒ `409 GUIDE_NOT_ALLOWED {status, reason}`; con guía manual ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'manual'}` |
+| Estado tras la guía (`persistLabeled`) | `guia` | `guia` |
+| Estado «cerrado» que reconoce `casZero` (rama (3), `:952-981`) | `cancelado` | `cancelado` (lo escribe `closeInboundShipment`, I-BSD-1) — **misma rama, sin cambio de código** |
+| Re-emisión aceptada (`applyReissue`, `label-cancel.service.ts:177-198`) | `guia → picking` | `guia → solicitado` **y** §BSD.4.6 sobre la solicitud |
+| Dirección del cotizador (`label-quote.service.ts:233-243`) | `from = {templateId}`; `to` = snapshot (cliente) | `from` = snapshot (**vendedor**, neutralizado con `neutralizeOutboundAddress`); `to` = `skydropx_origin_snapshot` (`postalCode`, `areaLevel1` = estado, `areaLevel2` = ciudad, `areaLevel3` = colonia). Sin snapshot completo ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['origin_snapshot']}` |
+| Dirección de la compra (`purchaseInput`, `:593-637`) | `from = {templateId, snapshot}`; `to` = cliente | `from` = vendedor explícito (`street1`, `name` = `recipientName`, `company` = `recipientName`, `phone`, `email` = **el de la tienda** (`skydropx_origin_snapshot.email`; ⛔ nunca el del vendedor), `furtherInformation` = `references`, + CP/estado/ciudad/colonia); `to` = tienda con `reference = referenceTextOf(providerReference)` (**el folio va en `address_to.reference` igual que hoy**) y `furtherInformation` = `skydropx_origin_snapshot.reference` |
+| Lo cobrado (`chargedOf`, `:392-401`) | orden o fila | `{ grossCents: offerShippingFeeCents, netCents: offerShippingFeeCents }` (la tarifa descontada no lleva IVA trasladado: es un descuento al precio de compra). ⇒ `marginCents = tarifa − netCostCents` (⚠️ **interpretación marcada** de «margen = tarifa − costo de la guía», PROJECT §BSD.1.2: costo **neto**, mismo cálculo que en salida) |
+| Valor a asegurar (`insuredValueOf`, `:407-421`) | lo que va en la caja | **`offerGrossCents`** (lo que vamos a pagar por las cartas; supuesto aceptado por el dueño). Sin escalón que lo cubra ⇒ `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['insurance_tier'], insuredValueCents, maxCoverageCents}` (como hoy) ⇒ la ventana lleva a «Capturar a mano» |
+| Empaque por regla (`packageCodeByRule`) | líneas `picked` | líneas `offerDecision='buy'`; `productType ∈ {sealed, graded}` cuenta como «sellado» para la regla. Mismo dial `shipping_package_rule_box_min_cards` |
+| Recomendada (`pickRecommendedRateId`) | 99minutos primero (`shipping_preferred_carriers`) | **la más barata con `deliveryKind ≠ 'branch'`** (entrega en la dirección de la tienda; P-BSD-4). Ninguna así ⇒ `recommendedRateId = null`. `dropoff` = `null` (los puntos de entrega del dial son de salida) |
+| Avisos al obtener guía (`afterPaidLabelAlerts`) | AG-1, AG-5, AG-13 | AG-5 y AG-13 **sí** (mismo saldo); ⛔ **AG-1 no** (PROJECT §BSD.1-bis: el destino es fijo) |
+| Post-commit tras guía con número (`persistLabeled`, `:834`) | `notifyLabelCaptured` (AV-4) | ⛔ AV-4 no; **AV-7** a vendedor con PDF (§BSD.8.2) por `claimAndNotifySellRequest(…,'guideNoticeSentAt',…)` |
+| TG-1 / TG-2 / candado de cuenta / `rate_already_purchased` / libros / folio / adopción / verificación sin respuesta / «Liberar» | — | **iguales, sin rama** (todos consultan `ShipmentRequest` o sus libros sin mirar `kind`) |
+
+### BSD.4 Endpoints
+
+#### BSD.4.1 NUEVO `POST /api/v1/admin/buylist/:id/inbound-shipment` — abrir (o recuperar) la fila de entrada
+`vault_operator` / `super_admin` (⛔ no `@MoneyOut`: no gasta). Sin cuerpo (`{}`; cualquier clave ⇒ `400 VALIDATION_ERROR
+{field}`). **Idempotente.**
+1. Dial `shipping_provider ≠ 'skydropx'` ⇒ `404 FEATURE_DISABLED` (como `quote`).
+2. Tx con candado de la solicitud (I-BSD-4). Guardas en este orden: no existe ⇒ `404`; `status ≠ 'aceptada'` o `closedAt ≠
+   null` ⇒ `409 GUIDE_NOT_ALLOWED {status, reason:'status'|'closed'}`; `sellerShippedDeclaredAt ≠ null` ⇒ `409
+   GUIDE_NOT_ALLOWED {reason:'seller_declared_shipped'}`; guía manual (`shipmentTrackingNumber ≠ null` sin fila de entrada
+   con `labelSource='skydropx'`) ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'manual'}`; `pickupAddressSnapshot = null`
+   (legada) ⇒ `422 PICKUP_ADDRESS_MISSING` (código existente; la ventana ofrece «Capturar a mano»).
+3. Ya existe la fila ⇒ `200 { created: false, shipment: AdminShipmentDTO }`. Si no, crea: `kind='buylist_inbound'`,
+   `sellRequestId`, `userId=null`, `orderId=null`, `status='solicitado'`, montos a `0`, `priceConvention` = la vigente para
+   filas nuevas, y **`addressSnapshot`** = copia de `pickupAddressSnapshot` con **exactamente** estas claves:
+   `recipientName` (si la copia lo trae; si no, **ausente** ⇒ la ventana lo pide), `line1`, `line2`, `neighborhood`, `city`,
+   `state`, `postalCode`, `country`, `phone`, `references` (si lo trae). ⛔ Sin `addressId` (doctrina del snapshot, §5.2 de
+   ARCHITECTURE). Bitácora `buylist.inbound_shipment_opened` (`entityType:'SellRequest'`, sin PII). `200 { created: true,
+   shipment }`.
+4. Dos llamadas a la vez ⇒ el `@unique` gana: `P2002` ⇒ relee ⇒ `200 created:false`. ⛔ Nunca `500`.
+
+#### BSD.4.2 REUTILIZADOS sobre la fila de entrada (ruta y forma **sin cambio**; conducta por §BSD.3)
+| Ruta | Para la fila de entrada |
+|---|---|
+| `GET /admin/shipments/:id` | Sí. `AdminShipmentDTO` gana `kind` e `inbound` (§BSD.5) |
+| `PUT /admin/shipments/:id/address` | Sí: corrige el **origen** (vendedor). `CORRECTABLE_SNAPSHOT_KEYS` sin cambio (⛔ `phone` no, P-ADR-1). Guardas por §BSD.3. ⛔ La libreta del vendedor y `pickupAddressSnapshot` **no** cambian. ⛔ No dispara AG-1 |
+| `POST /admin/shipments/:id/quote`, `GET …/quote` | Sí (§BSD.3) |
+| `POST /admin/shipments/:id/label` | Sí. Misma puerta: `shipping_provider`, `shipping_label_purchase`, rol, **`SKYDROPX_ALLOW_SPEND`**. Mismos topes y libros |
+| `POST /admin/shipments/:id/label/cancel` | Sí: re-emitir (§BSD.4.6) y reintentar una cancelación automática fallida (rama `retry` de hoy, `label-cancel.service.ts:82-83`) |
+| `POST /admin/shipments/:id/label/release` | Sí, igual (`@MoneyOut`, súper-admin) |
+| `GET /admin/shipments/:id/label.pdf` | Sí |
+| `GET /admin/shipments`, `picking-list*`, `departure`, `POST departed`, `POST :id/refresh-tracking`, `PATCH :id/prep-items/…`, `POST/DELETE :id/prepared`, `PATCH :id/status`, `POST :id/tracking` | ⛔ **No.** La lista no la incluye; las rutas por id responden **`404 NOT_FOUND`** (para esas rutas una fila de entrada no existe) |
+
+**Cuerpos de `quote`, `label` y `address`:** las claves `to`, `destination`, `addressTo` y `address_to` ⇒ `400
+VALIDATION_ERROR {field:<clave>, reason:'destination_not_editable'}` **antes** de cualquier red (criterio 532). Vale para
+las dos clases de fila (en salida ningún cliente legítimo las manda: no cambia su conducta).
+
+#### BSD.4.3 NUEVO `POST /api/v1/admin/buylist/:id/decline-accepted` — ver §BSD.6.
+
+#### BSD.4.4 NUEVO `GET /api/v1/buylist/requests/:id/label.pdf` — la etiqueta para el vendedor (P-BSD-3)
+`customer` dueño de la solicitud. Guardas: ajena o inexistente ⇒ `404 NOT_FOUND` (misma respuesta, anti-IDOR); sin guía viva
+de entrada con número, o guía manual (`{labelSource:'manual'}`), o solicitud fuera de `aceptada` ⇒ `404 LABEL_NOT_AVAILABLE`.
+Sirve **por proxy** con el mismo `ShipmentLabelPdfService.download` (⛔ nunca redirige a `labelUrl`); `kind='noop'` ⇒ `409
+SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['env']}`; fallo de descarga ⇒ `502 SHIPPING_PROVIDER_ERROR {op:'label_download'}`.
+`Content-Type: application/pdf`, `Content-Disposition: attachment; filename="guia-<8 primeros del folio de la solicitud>.pdf"`.
+Bitácora `buylist.label_downloaded` (actor = vendedor). Límite: el mismo `@Throttle` que use la ruta admin `label.pdf`; si
+no tiene, el global (NO MEDIDO cuál: backend lo cita en sus notas).
+
+#### BSD.4.5 CAMBIOS en verbos del buylist existentes
+- **`POST /admin/buylist/:id/guide`** (captura a mano): con guía viva de entrada ⇒ `409 SHIPMENT_ALREADY_LABELED
+  {labelSource:'skydropx', shipmentId}`; con reclamo vivo ⇒ `409 LABEL_IN_PROGRESS`. Lo demás **igual** (criterio 539/549).
+  Una fila de entrada en `solicitado` sin reclamo **no** estorba (queda inerte; la compra la rechaza por §BSD.3).
+- **`PATCH /buylist/requests/:id/pickup-address`** (vendedor): con reclamo vivo ⇒ `409 PICKUP_ADDRESS_LOCKED
+  {reason:'label_in_progress'}`. Si hay fila de entrada en `solicitado`, **en la misma tx** su `addressSnapshot` se
+  reemplaza por la copia nueva (§BSD.4.1 paso 3), `addressVersion += 1` (invalida cotizaciones) y una
+  `ShipmentAddressRevision` con `correctedByUserId` = vendedor.
+- **`PATCH /admin/buylist/:id/pickup-address`**: con guía viva de entrada ⇒ `409 SHIPMENT_ALREADY_LABELED
+  {labelSource:'skydropx', shipmentId}` (primero se re-emite); con reclamo vivo ⇒ `409 LABEL_IN_PROGRESS`; si no, como el
+  del vendedor (re-sincroniza la fila de entrada).
+- **Copia al crear la solicitud** (`buylist.service.ts`, el armado de `pickupAddressSnapshot` que midió product-owner en
+  `:4691-4705`): **gana** `recipientName` y `references` de la libreta. Solo hacia adelante; ⛔ sin relleno de las viejas.
+- **`POST /admin/buylist/:id/confirm-shipment`**: llama a `closeInboundShipment(tx, id, 'shipped')` (fila en `solicitado` ⇒
+  `cancelado`; en `guia` no se toca). Con guía de Skydropx, `guideActualCostCents` en el cuerpo ⇒ `400 VALIDATION_ERROR
+  {field:'guideActualCostCents', reason:'provider_cost'}` (⛔ dos fuentes para un costo).
+
+#### BSD.4.6 Re-emitir una guía de entrada (`POST /admin/shipments/:id/label/cancel` sobre la fila de entrada)
+Guardas añadidas, bajo los dos candados: solicitud fuera de `aceptada` ⇒ `409 LABEL_NOT_CANCELLABLE
+{reason:'sell_request_status', status}`; `sellerShippedDeclaredAt ≠ null` ⇒ `409 LABEL_NOT_CANCELLABLE
+{reason:'seller_declared_shipped'}`. Aceptada por Skydropx ⇒ en la tx de `applyReissue`: fila `guia → solicitado` (como hoy
+con `picking`) **y** la solicitud: `shipmentCarrier`, `shipmentTrackingNumber`, `guideSentAt`, `shipDeadlineAt`,
+`guideNoticeSentAt`, `shipReminderSentAt` ⇒ `null`; `inboundGuideClockStartedAt = now()`. *Precedente:* la corrección de
+domicilio por el admin ya devuelve la solicitud a «sin guía» (`buylist.service.ts:4906-4909`). La guía nueva vuelve a
+congelar el plazo y vuelve a mandar AV-7 (con la línea «sustituye a la anterior», §BSD.8.2). TG-2 cuenta igual que en
+salida.
+
+#### BSD.4.7 `writeSellRequestGuide(tx, sellRequestId, carrier, trackingNumber, now, source)` — UN cuerpo
+Se **extrae** de `adminGuide` (`buylist.service.ts:4987-5098`, la parte de la transacción) sin cambiar su conducta: guarda
+`status='aceptada' ∧ closedAt IS NULL` en el `WHERE`, `guideSentAt = now`, `shipDeadlineAt` solo si era `null`
+(`addBusinessDays(now, buylist_ship_deadline_business_days)`), reinicio de `guideNoticeSentAt` por valor en el `WHERE`.
+Llamadores: `adminGuide` (manual) y `persistLabeled` de la fila de entrada (en su tx, tras el CAS). Con `source='skydropx'`
+la guarda añade `shipmentTrackingNumber IS NULL`. `count ≠ 1` en `persistLabeled` ⇒ la tx entera vuelve (`'cas0'`) y
+decide `casZero` (la solicitud cerrada tiene su fila en `cancelado` por I-BSD-1 ⇒ rama (3): guía cancelada sola).
+
+#### BSD.4.8 `closeInboundShipment(tx, sellRequestId, mode: 'close' | 'shipped')` — UN cuerpo
+Toma el candado de la fila de entrada (si existe). `mode='close'`: `solicitado|guia ⇒ cancelado` y
+`cancelProviderLabelIfAny(tx, id, 'auto_close')` (`label-auto-close.ts:31-53`, **el mismo cuerpo** que usan los reembolsos
+y el contracargo); devuelve `'none'|'in_flight'|'sealed'|'live'`. `mode='shipped'`: solo `solicitado ⇒ cancelado` (con
+`in_flight` resuelto por `casZero`). El llamador escribe `guideCancellationPendingAt = now` **solo si** la guía es manual
+(número en la solicitud sin guía de entrada) **o** el resultado es `'live'`. Post-commit: `afterAutoCloseVia(moduleRef,
+[id])`; si `port.cancel` no responde `ok`, el servicio de cancelación escribe `guideCancellationPendingAt` en la solicitud
+(`updateMany … WHERE guideCancellationPendingAt IS NULL AND guideCancellationDoneAt IS NULL`) — la tarea «cancelar guía no
+usada» de hoy (criterio 139), con el número a la vista y un botón «Reintentar en Skydropx» (§BSD.4.2, rama `retry`).
+
+### BSD.5 DTOs (deltas; lo no nombrado no cambia)
+```ts
+// AdminShipmentDTO (§M4-SHIP / §11)
+kind: ShipmentKind;
+inbound: null | {                       // solo kind='buylist_inbound'
+  sellRequestId: string;
+  sellerName: string;                   // nombre de la cuenta: SUGERENCIA para recipientName, ⛔ nunca se escribe solo
+  offerShippingFeeCents: number;        // la tarifa congelada que se le descuenta
+  offerGrossCents: number;              // lo que se asegura
+  destination: { name: string; street1: string; postalCode: string; state: string; city: string; neighborhood: string };
+};                                      // (destino = skydropx_origin_snapshot; solo lectura)
+
+// AdminBuylistDTO (GET /admin/buylist/:id y filas de GET /admin/buylist)
+inboundShipment: null | {
+  id: string; folio: string; status: 'solicitado' | 'guia' | 'cancelado';
+  labelSource: ShipmentLabelSource | null; labelProcessing: boolean;
+  carrier: string | null; trackingNumber: string | null; trackingUrl: string | null;
+  costCents: number; costIvaCents: number; insuranceCostCents: number;   // 0 sin guía
+  providerCanceledAt: string | null; cancelConfirmed: boolean;
+};                                      // ⛔ labelUrl nunca
+inboundLabelOptions: LabelOptionsDTO;   // la de §19.19.7 calculada para el actor (TG-2 de la fila si existe)
+guideDueAt: string | null;              // DERIVADO: ancla + close días × 24 h, solo `aceptada` sin guía; si no, null
+guideDueSoon: boolean;                  // DERIVADO: ahora ≥ guideDueAt − warn días × 24 h
+declineAcceptedAllowed: boolean;        // DERIVADO con la MISMA función que la guarda de §BSD.6
+// ⛔ Ninguno se persiste. `inboundGuideClockStartedAt` NO viaja (admin-only interno).
+
+// SellRequestDTO del CLIENTE
+guide.labelPdfAvailable: boolean;       // true ⇔ guía viva de entrada con número ∧ status='aceptada'
+expiredReason: SellRequestExpiryReason | null;   // ahora puede valer 'not_continued'
+
+// GET /admin/dashboard
+workQueue.buylist.guideDueSoon: number; // solicitudes con guideDueSoon = true
+
+// P&L de M7 (Q-BSD-1, valor por defecto): campo INFORMATIVO al final del objeto y columna al final del CSV (mismo orden)
+buylistInboundLabelCostCents: number;   // Σ neto (shippingCostCents − shippingCostIvaCents) de filas de entrada con guía de
+                                        // Skydropx, por `labelPurchasedAt` en el periodo. ⛔ NO entra en profitCents.
+```
+⚠️ El sumador de envíos del P&L (`admin.service.ts:1749-1754`, `status IN (picking,guia,enviado,entregado)` y, sin periodo,
+**sin** filtro de fecha) pasa a `OUTBOUND_ONLY`: sin eso, una guía de entrada en `guia` entraría como costo de envío de
+venta (BSD-B23/B24).
+
+### BSD.6 `POST /api/v1/admin/buylist/:id/decline-accepted` — «Declinar» en «Aceptada»
+`vault_operator` / `super_admin`. ⛔ **No `@MoneyOut`**: no saca dinero a nadie; a lo sumo **devuelve** saldo de Skydropx al
+cancelar una guía. Mismo criterio que D39 (*le pone firma a lo que el barrido haría solo*).
+Req: `{ reason: string }` **obligatorio**, 3–500 tras `trim` (⇒ `400 VALIDATION_ERROR {field:'reason'}`), **interno**: va a
+`AuditLog` (`buylist.request.decline_accepted`), ⛔ nunca al correo ni a un DTO de cliente.
+Tx (I-BSD-4):
+```
+legal ⇔ status = 'aceptada' ∧ closedAt IS NULL ∧ sellerShippedDeclaredAt IS NULL ∧ shipmentConfirmedAt IS NULL
+updateMany(WHERE legal) ⇒ status='expirada', expiredReason='not_continued', closedAt=now, declinedBy=actor
+count ≠ 1 ⇒ 409 DECLINE_NOT_ALLOWED { status, reason: 'status'|'seller_declared_shipped'|'shipment_confirmed' }
+closeInboundShipment(tx, id, 'close')  ⇒  guideCancellationPendingAt según §BSD.4.8
+```
+Post-commit: `afterAutoCloseVia`, después **correo BSD-M1** (best-effort). ⛔ Sin `200` idempotente (segundo intento ⇒
+`409`). Res `200`: `AdminBuylistDTO`. Err: `400`, `403` (cliente), `404`, `409 DECLINE_NOT_ALLOWED`.
+**No cuenta contra el vendedor** (§BSD.7.4).
+
+### BSD.7 El barrido (`jobs/buylist-sweep.service.ts`, mismo job, mismo cron `'0 8 * * *'`, ⛔ sin servicio nuevo)
+1. **Regla 8 — cierre a N días naturales sin guía.** Diales `buylist_guide_close_calendar_days` (7) y nada más. Predicado
+   (B-1: el **mismo** en la lectura y en la escritura):
+   `status='aceptada' ∧ closedAt IS NULL ∧ guideSentAt IS NULL ∧ shipmentTrackingNumber IS NULL ∧
+   sellerShippedDeclaredAt IS NULL ∧ shipmentConfirmedAt IS NULL ∧ ancla IS NOT NULL ∧ ancla + días×24 h ≤ now ∧
+   (sin fila de entrada ∨ (fila.labelProcessingSince IS NULL ∧ (fila.providerShipmentId IS NULL ∨ fila.providerCanceledAt IS NOT NULL)))`.
+   Escritura: `expirada`, `not_continued`, `closedAt=now`, `declinedBy=null`; `closeInboundShipment(tx,'close')`; post-commit
+   **BSD-M1**. ⛔ **Días naturales**: `now − ancla` en milisegundos, ⛔ nunca `business-days` (sábado y domingo cuentan;
+   sin calendario de festivos ⇒ esta regla no tiene el fail-closed de calendario). Ancla nula ⇒ ⛔ no se cierra (fail-closed).
+2. **Regla 9 — aviso al dueño (AG-23).** Dial `buylist_guide_warn_days_before_close` (2; `0` = sin aviso; efectivo =
+   `min(dial, close − 1)`). Mismo predicado que la 8 pero con `ancla + (close − warn)×24 h ≤ now < ancla + close×24 h`.
+   Efecto: `spendAlerts.raise({ kind:'buylist_guide_due', severity:'immediate', dedupKey:'ag23:<sellRequestId>:<ancla
+   ISO>', facts:{ sellRequestId, closesAt, offerGrossCents } })` — ⛔ sin PII del vendedor en `facts`. La llave lo hace
+   **uno por ancla** (re-emitir re-ancla ⇒ puede volver a avisar). Correo **solo al dueño** por la tubería de avisos de hoy
+   (`audience:'staff'`, §14.18); ⛔ el personal no recibe correo. La marca de M5 y del tablero es **derivada**
+   (`guideDueSoon`, §BSD.5) y desaparece sola al haber guía.
+3. **Regla 2 (cambio acotado).** Su transición llama a `closeInboundShipment(tx,'close')`; `closeWithGuideTask`
+   (`buylist-sweep.service.ts:483-505`) abre la tarea **solo** con guía manual o resultado `'live'`. Con guía manual: **bit a
+   bit como hoy** (criterio 549).
+4. **No culpa al vendedor:** `not_continued` ⛔ entra en ninguna cifra, lista ni filtro de conducta (hoy solo `not_shipped`
+   alimenta «aceptó y no mandó»); no impone espera para crear otra solicitud; su compromiso deja de contar para los topes
+   como cualquier cerrada (`closedAt`).
+5. **Regla 10 — reconciliación de cancelaciones.** Fila de entrada `cancelado` con `providerCanceledAt ≤ now − 1 h` y
+   `providerCancelConfirmedAt IS NULL`, y solicitud con `guideCancellationPendingAt IS NULL` ⇒ se abre la tarea (cubre un
+   proceso que murió entre el commit y el `cancel`).
+6. **Orden dentro de `run()`:** reglas 1, 2, recordatorios, 5, 6, 7, **9, 8, 10** (el aviso antes del cierre en la misma
+   pasada no importa: si ya toca cerrar, la 9 no casa). El retorno gana `guideWarned`, `notContinued`, `cancelTasksOpened`
+   (⛔ las cifras de hoy no cambian de nombre).
+
+### BSD.8 Correos
+1. **BSD-M1 «no continuamos» (vendedor; cierre automático y «Declinar»; el MISMO correo).** Plantilla nueva
+   `sellRequestNotContinuedTemplate` en `buylist-mail.templates.ts`, con `mailShell` (`audience` por defecto `'customer'`: lleva
+   el pie de privacidad). Contenido: saludo, «tras una revisión adicional decidimos no continuar con este proceso de venta»
+   (redacción final **ux-ui**, es/en), folio corto, CTA «Ver mi solicitud» (`buylistPortalUrl`). ⛔ Prohibido: guía,
+   paquetería, número, plazo, días, demora, el motivo interno, montos, dirección, teléfono, CLABE. Uno por solicitud (lo
+   garantiza la transición terminal `count === 1`; ⛔ sin columna de sello nueva).
+2. **AV-7 con etiqueta (vendedor).** Mismo productor y mismo sello (`guideNoticeSentAt`). Con guía de entrada de Skydropx:
+   (a) **adjunta el PDF** (descargado post-commit con el mismo `download`; ≤ 5 MB por `downloadLabelPdf`); (b) dice a qué
+   **paquetería** llevar el paquete y que **se entrega en sucursal** (sin recolección, PROJECT §BSD.6); (c) número, fecha
+   límite y liga de rastreo si Skydropx la dio; (d) enlace a «Mi cuenta» para volver a descargarla; (e) si la solicitud ya
+   tuvo otra guía de entrada cancelada por re-emisión: línea «esta guía sustituye a la que te enviamos antes; no uses la
+   anterior». Descarga fallida ⇒ el correo **sale igual sin adjunto** con la indicación de descargarla en «Mi cuenta» y log
+   `buylist.guide_mail_without_pdf` (⛔ no se reintenta el correo; el sello ya se reclamó). Guía manual: **sin cambio**.
+   **`MailMessage` gana `attachments?: { filename: string; content: Buffer; contentType: 'application/pdf' }[]`** (a lo
+   sumo uno); `ResendMailAdapter` lo pasa; `NoopMailAdapter` lo ignora; el doble de pruebas lo registra.
+3. **AG-23 al dueño.** Por `spend-alert.mail.ts` (correo inmediato de avisos): «La solicitud de venta <folio corto> se
+   cierra sola el <fecha> si no tiene guía», monto bruto ofertado y enlace a la ficha de M5. Textos **ux-ui**, es/en.
+   ⛔ Nada de PII del vendedor.
+
+### BSD.9 Diales (M10, editables sin desplegar, auditados; `super_admin`)
+| Clave | Tipo | Default | Valida | Lee |
+|---|---|---|---|---|
+| `buylist_guide_close_calendar_days` | entero | `7` | 1..60 | regla 8, `guideDueAt` |
+| `buylist_guide_warn_days_before_close` | entero | `2` | 0..30 (efectivo `min(v, close−1)`) | regla 9, `guideDueSoon` |
+Nombres públicos en M10: `buylistGuideCloseCalendarDays`, `buylistGuideWarnDaysBeforeClose`. Claves **nuevas** ⇒ basta el
+default de `settings.constants.ts` (§11.0 de ARCHITECTURE no aplica: no hay base sembrada con otro valor).
+
+### BSD.10 Errores — ⛔ ningún código nuevo
+Ver la viñeta «rev BSD-1» de §0. Orden de guardas de cada verbo: el escrito en §BSD.4 y §BSD.6.
+
+### BSD.11 Pruebas que deben fallar hoy (las escribe el modelo fuerte; las hace pasar quien construye)
+Toda prueba usa el **doble** del proveedor; ⛔ ninguna compra real (PS-99, criterio 306). Mutaciones: sobre **copia del árbol
+entero** (O-9); deterministas con N=1 dicho como tal; carreras con **N ≥ 10** y **proporción** reportada.
+
+| ID | Qué afirma | Mutación que la pone roja |
+|---|---|---|
+| **BSD-B1** | Paridad de enums (`ShipmentKind`, `SellRequestExpiryReason`, `SpendAlertKind`) schema ↔ contrato ↔ `enum-values.ts` ↔ `frontend/src/types/contract.ts` (la suite de paridad existente, sin editarla) | quitar `not_continued` del schema |
+| **BSD-B2** | CHECKs: entrada con `orderId`, `userId` o `shippingFeeCents>0` ⇒ rechazo; salida con `sellRequestId` ⇒ rechazo; entrada en `picking` ⇒ rechazo | borrar `shipment_kind_link` |
+| **BSD-B3** | Relleno: fixture con 3 `aceptada` sin guía (una aceptada hace 20 días), 1 con guía, 1 `cotizada` ⇒ solo las 3 reciben ancla; barrido a +0 cierra 0, a +7 d cierra las 3 | quitar el `UPDATE` ⇒ la de 20 días se cierra a +0 |
+| **BSD-B4** | `inbound-shipment`: copia campo por campo (sin `addressId`), `userId` nulo, montos 0; idempotente; guardas en orden; **N ≥ 10 rondas** de 5 llamadas simultáneas ⇒ 1 fila por ronda | quitar el manejo de `P2002` ⇒ `500` en alguna ronda |
+| **BSD-B5** | `quote` de entrada: `from` = vendedor neutralizado, `to` = `skydropx_origin_snapshot`; cobertura por `offerGrossCents` (1 500 ⇒ escalón 2 500); `marginCents = 18000 − netCost`; recomendada = la más barata no-sucursal; SAT 49101600; sin `recipientName` ⇒ `422 SHIPMENT_ADDRESS_INCOMPLETE {missing:['recipientName']}` con **0** llamadas al doble | `to` desde el snapshot ⇒ rojo; recomendada de salida ⇒ rojo |
+| **BSD-B6** | Claves de destino en `quote`/`label`/`address` ⇒ `400 destination_not_editable` y **0** llamadas al doble; la compra lleva `to.postalCode = origin.postalCode` | quitar la lista de claves |
+| **BSD-B7** | Sin dial o sin llave: `inboundLabelOptions.canPurchase=false`; `POST label` ⇒ `404 FEATURE_DISABLED` / `409 {missing:['allow_spend']}`, **0** `port.purchase` | saltar `assertGate` para `buylist_inbound` |
+| **BSD-B8** | Compra con número: fila con costo/IVA/seguro, `ShipmentPaidLabel` `response`, intento `labeled`; solicitud con carrier/número, `guideSentAt`, `shipDeadlineAt = addBusinessDays(now,3)`; **un** AV-7 con adjunto PDF; **cero** AV-4 | no llamar `writeSellRequestGuide` ⇒ rojo; mandar AV-4 ⇒ rojo |
+| **BSD-B9** | Doble clic y dos personas, **N ≥ 10 rondas** ⇒ 1 `port.purchase` y 1 guía pagada por ronda | quitar `status:'solicitado'` del CAS de entrada |
+| **BSD-B10** | «En proceso» (sin número) ⇒ sin `guideSentAt` ni correo; el job de proceso trae el número ⇒ plazo + **un** AV-7 | arrancar el plazo en `persistProcessing` |
+| **BSD-B11** | Dinero: dos solicitudes (bruto 1 500, tarifa 180) con guías de 150 y 250 ⇒ `payoutNetCents = 132000` en las dos; oferta y portal sin cambio | restar `shippingCostCents` del neto |
+| **BSD-B12** | TG-1 (2 400 gastados + 150 de entrada ⇒ `403 LABEL_PURCHASE_LIMIT {limit:'daily_spend'}` + AG-3); TG-2 operador sí, dueño no; AG-7 posible; **sin** AG-1 tras corregir origen y comprar; **sin** AG-10 a 3 días | quitar el filtro `kind` de `spend-watch` ⇒ AG-10 sale |
+| **BSD-B13** | Captura a mano: las pruebas de §P **sin editar** en verde; con guía viva de entrada ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'skydropx'}`; con reclamo ⇒ `409 LABEL_IN_PROGRESS`; 0 llamadas al doble | quitar la guarda en `adminGuide` |
+| **BSD-B14** | Declinar y regla 2 con guía de entrada «creada»: `cancel` llamado, libro `auto_close`, **sin** tarea; doble que niega la cancelación ⇒ tarea con el número | tarea incondicional en `closeWithGuideTask` |
+| **BSD-B15** | `decline-accepted`: motivo < 3 ⇒ `400`; éxito ⇒ `expirada`/`not_continued`/`declinedBy`/`closedAt`, bitácora con motivo, **un** BSD-M1 sin el motivo; segundo ⇒ `409`; cliente ⇒ `403`; con «ya lo mandé» ⇒ `409 {reason:'seller_declared_shipped'}`; `en_transito` ⇒ `409 {reason:'status'}` | quitar `sellerShippedDeclaredAt` del `WHERE` |
+| **BSD-B16** | Declinar ∥ comprar, **N ≥ 10 rondas** ⇒ por ronda: o cerrada sin guía viva (sin compra, o compra cancelada `auto_close`), o con guía y abierta; nunca BSD-M1 **y** AV-7 | `decline-accepted` sin `closeInboundShipment` |
+| **BSD-B17** | Regla 8 con reloj falso: 6 d 23 h abierta; 7 d cerrada aunque cruce fin de semana; dial 10 ⇒ 8 d abierta; guía manual día 6, Skydropx día 6, reclamo vivo día 7, «en proceso» día 7 ⇒ ninguna se cierra | `businessDaysSince` en vez de naturales; quitar la exclusión del reclamo |
+| **BSD-B18** | Regla 8 ∥ comprar, **N ≥ 10 rondas** ⇒ nunca solicitud cerrada con guía viva sin cancelar | regla 8 sin candado de la fila de entrada |
+| **BSD-B19** | Sin culpa: `not_continued`, `declinedBy=null`; DTO de cliente lo trae; el vendedor crea otra solicitud enseguida; ninguna cifra de conducta lo cuenta | escribir `not_shipped` en la regla 8 |
+| **BSD-B20** | Regla 9: día 5 ⇒ **un** AG-23 y **un** correo al dueño aunque el barrido corra 3 veces; personal sin correo; `guideDueSoon` true; tras guía false | `dedupKey` con la fecha del día |
+| **BSD-B21** | BSD-M1 es/en: `mailShell`, pie de privacidad; ⛔ contiene número de guía, paquetería, motivo, `line1`, teléfono, CLABE, ni las palabras `guía\|guia\|plazo\|demora\|label\|deadline\|delay` | meter la paquetería en el texto |
+| **BSD-B22** | `GET /buylist/requests/:id/label.pdf`: dueño ⇒ `200 application/pdf`; otro ⇒ `404 NOT_FOUND`; manual / cancelada / cerrada ⇒ `404 LABEL_NOT_AVAILABLE`; barrido: ningún DTO de cliente trae `labelUrl` | saltar la comprobación de dueño |
+| **BSD-B23** | **Censo de lectores** de `ShipmentRequest` (`findMany\|findFirst\|findFirstOrThrow\|count\|aggregate\|groupBy\|updateMany` y SQL con `"ShipmentRequest"`) en `backend/src`: cada sitio clasificado en una tabla del propio test como `outbound_only` (debe contener el helper `OUTBOUND_ONLY` / `kind:'outbound'`), `all_kinds` (con su porqué) o `by_key` (id, `orderId`, `stripePaymentIntentId`, `providerShipmentId`); un sitio nuevo sin clasificar ⇒ rojo. Mínimo `outbound_only`: lista admin, cola de preparación y sus conteos, salida de hoy, tablero, P&L (`admin.service.ts:1749`), reportes de reembolsos, `spend-watch` (AG-10), sondeo de rastreo, lista de cliente. `all_kinds`: candado de cuenta, `rate_already_purchased`, `takenBy`, job de proceso, recuperación, huérfanas, cargos extra | quitar `OUTBOUND_ONLY` de la lista admin ⇒ rojo (CONTROL: el censo ve > 0 sitios) |
+| **BSD-B24** | Rutas solo-salida con id de entrada ⇒ `404`; la fila no sale en la lista admin, en el tablero ni en `GET /shipments` del vendedor; el P&L no cambia con una guía de entrada | quitar el `404` en `PATCH :id/status` |
+| **BSD-B25** | Estructural: (a) `kind` solo se compara en `label-subject.ts`; (b) todo `updateMany` sobre `SellRequest` con `status:'aceptada'` en el `WHERE` y otro `status` en `data` llama a `closeInboundShipment` en la misma función | quitar la llamada de `adminConfirmShipment` |
+| **BSD-B26** | Re-emitir: fila `solicitado`, solicitud sin guía y re-anclada; con «ya lo mandé» ⇒ `409 {reason:'seller_declared_shipped'}`; la compra nueva manda AV-7 con «sustituye a la anterior» | no limpiar `shipDeadlineAt` |
+| **BSD-B27** | Anonimización de la cuenta del vendedor borra el `addressSnapshot` de su fila de entrada y sus `ShipmentAddressRevision` | saltar la fila de entrada en `deleteUser` |
+| **BSD-B28** | Cambio de domicilio del vendedor con fila en `solicitado` ⇒ snapshot reemplazado, versión +1, la cotización deja de ser vigente; admin con guía viva ⇒ `409 SHIPMENT_ALREADY_LABELED` | no subir `addressVersion` |
+| **BSD-B29** | `confirm-shipment` con guía de Skydropx y `guideActualCostCents` ⇒ `400 provider_cost`; fila `solicitado` ⇒ `cancelado` | no llamar `closeInboundShipment('shipped')` |
+| **BSD-B30** | Regla 10 abre la tarea pasada 1 h sin confirmación | quitar la regla |
+| **BSD-B31** | Declinar ∥ comprar ∥ barrido, **N ≥ 10 rondas**: **cero** errores `40P01` (interbloqueo) | invertir el orden de candados en `decline-accepted` |
+
+Frontend (vitest + Playwright con mocks; `@real` contra el stack con el doble):
+| ID | Qué afirma | Mutación |
+|---|---|---|
+| **BSD-F1** | «Generar guía con Skydropx» solo en `aceptada` sin guía y con `inboundLabelOptions.provider='skydropx'`; abre la ventana tras `POST inbound-shipment` | mostrarlo en `en_transito` |
+| **BSD-F2** | La ventana de entrada es `CaptureLabelDialog` (la misma): origen editable precargado; destino **texto de solo lectura** (⛔ ningún `input`); `recipientName` ausente ⇒ campo vacío con la sugerencia `sellerName` que hay que guardar explícitamente | pintar el destino como `input` |
+| **BSD-F3** | Banda superior: tarifa que se le descuenta y margen por fila; preseleccionada = `recommendedRateId` | usar la primera fila |
+| **BSD-F4** | Sin `canPurchase`: no hay «Comprar guía»; sí «Capturar a mano» | ignorar `canPurchase` |
+| **BSD-F5** | «Declinar»: motivo < 3 deshabilita; confirmación; oculto si `declineAcceptedAllowed=false` | leer `status` en vez de `declineAcceptedAllowed` |
+| **BSD-F6** | M5 y tablero: marca «se cierra sola en N días» con `guideDueSoon`; contador `workQueue.buylist.guideDueSoon` | derivar la marca en el cliente |
+| **BSD-F7** | Portal del vendedor: `not_continued` ⇒ copy de «no continuamos», ⛔ «expirada», ⛔ «no enviaste»; descarga de etiqueta solo con `labelPdfAvailable` | mapear `not_continued` a la copy de `not_shipped` |
+| **BSD-F8** | Paridad i18n es/en de las claves nuevas | borrar una clave en `en.json` |
+| **BSD-F9** | E2E criterio 550: (i) aceptada ⇒ generar ⇒ elegir ⇒ comprar ⇒ AV-7 ⇒ confirmar envío ⇒ recibida ⇒ pagada con el neto; (ii) declinar ⇒ un correo ⇒ cerrada; (iii) reloj adelantado: día 5 aviso ⇒ día 7 cerrada ⇒ un correo ⇒ portal sin culpa | — (es el recorrido de QA) |
+
+### BSD.12 Reparto y orden
+1. **B-1 (backend, fuerte, primero; zona compartida `backend/prisma` + `common/`):** `M-72` + schema + paridad de enums;
+   extraer `writeSellRequestGuide` y escribir `closeInboundShipment` + `label-subject.ts` (esqueleto); el **censo BSD-B23** con
+   la tabla completa (rojo hasta clasificar). Escribe BSD-B1…B3, B23, B25 en rojo.
+2. **En paralelo tras B-1** (ficheros disjuntos): **B-2** (backend fuerte) `shipments/*` — política de §BSD.3, `inbound-shipment`,
+   descarga del vendedor, `MailMessage.attachments`; pruebas B4–B13, B22, B24, B26–B28. **B-3** (backend fuerte)
+   `jobs/buylist-sweep.service.ts`, `buylist.service.ts` (`decline-accepted`, cambios de §BSD.4.5), `buylist-mail.templates.ts`,
+   AG-23 en `spend-alerts/`; pruebas B14–B21, B29–B31. Costura: `closeInboundShipment` y `writeSellRequestGuide` (de B-1).
+3. **ux-ui (en paralelo con B-1):** textos BSD-M1 es/en; AV-7 con etiqueta (variantes con/sin adjunto, «sustituye a la
+   anterior», «llévalo a una sucursal de <paquetería>»); AG-23; portal del vendedor para `not_continued` y botón de
+   descarga; la ventana en modo entrada (banda de tarifa/margen, destino de solo lectura, sugerencia del nombre); diálogo
+   «Declinar»; marca de M5 y del tablero.
+4. **frontend (tras el contrato; con mocks desde ya, `@real` tras B-2/B-3):** `CaptureLabelDialog` en modo entrada (si se
+   reutiliza desde M5, se mueve a `frontend/src/components/` — zona compartida: un solo stream a la vez), botones de M5,
+   portal del vendedor, M10 diales, tablero, `types/contract.ts`, `lib/api.ts`, `messages/*.json`. Pruebas BSD-F1…F9.
+5. **devops:** la ruta nueva de cliente `GET /buylist/requests/:id/label.pdf` entra al inventario de rutas del DAST.
+6. **product-owner (nota, sin bloquear):** acotación de «margen» (neto) en §BSD.1.2; P&L informativo (§BSD.14 Q-BSD-1);
+   que `/privacidad` mencione que la dirección del **vendedor** viaja a Skydropx (NO MEDIDO si ya lo dice).
+💰 Todo B-1/B-2/B-3 es modelo fuerte (toca `buylist` y la compra de guías). Tres veredictos.
+
+### BSD.13 NO MEDIDO (y cómo se mide)
+| # | Qué | Cómo se cierra |
+|---|---|---|
+| NM-1 | Que Skydropx cotice con `address_from` **explícito** (sin plantilla) y con `address_to` = la tienda | Sonda **solo de cotización** (no gasta) con el CP de un vendedor real y el 14210; resultado redactado en `docs/specs/` |
+| NM-2 | Que la compra acepte `address_from` explícito con nombre/teléfono del vendedor | Una compra **en sandbox** (`sb-pro`), nunca en producción sin permiso guía por guía del dueño (`HECHOS.md` 2026-10-04 «Carta Porte…») |
+| NM-3 | Que el folio vuelva en el listado de Skydropx en `address_to.reference` también para estas guías (hoy NO MEDIDO para las de salida, M-PRD-7) | Primera compra real |
+| NM-4 | Qué significa `pickup` en la tarifa para el **origen** (si el vendedor debe ir a sucursal) | La misma sonda NM-1 leyendo la respuesta cruda redactada |
+| NM-5 | Que el SDK `resend` instalado acepte `attachments` y su tope | Leer `node_modules/resend` de la versión fijada + un correo de prueba a una cuenta del equipo |
+| NM-6 | Cuántas `aceptada` sin guía hay hoy (y la del 15-sep entre ellas) y cuántas copias de domicilio no tienen colonia o nombre | Consulta de solo lectura antes del despliegue, con el resultado en la solicitud de fusión: `SELECT count(*) … WHERE status='aceptada' AND "closedAt" IS NULL AND "guideSentAt" IS NULL;` y `… "pickupAddressSnapshot"->>'neighborhood' IS NULL` |
+| NM-7 | Números de migración, versión y sección de `claude/idiomas-sellos` y `claude/correos-marca` | El orquestador: `git show origin/<rama>:backend/prisma/migrations` y la cabecera de su `API_CONTRACT.md` |
+| NM-8 | Que cancelar devuelva **todo** (seguro incluido) (§T.14) | Primera cancelación real; lo registra `unrefundedCents` |
+| NM-9 | Huso del cron `'0 8 * * *'` | Leer la configuración del scheduler; solo mueve la hora de la pasada |
+| NM-10 | Si `/privacidad` ya cubre el domicilio del vendedor enviado a Skydropx | Lectura del texto publicado |
+
+### BSD.14 Preguntas (ninguna bloquea; todas con valor por defecto)
+- **Q-BSD-1 (dueño, vía product-owner):** ¿la guía de entrada **resta** en la ganancia del P&L? Hoy el P&L no cuenta ni la
+  tarifa descontada ni el costo de la guía del buylist (ARCHITECTURE §4.BSD (h), desviación DV-BSD-1). **Por defecto:** línea
+  **informativa** `buylistInboundLabelCostCents` en el P&L, ⛔ fuera de `profitCents`; los cargos extra y lo no devuelto de
+  una cancelación sí entran por `ShipmentCostAdjustment` como hoy (fila 2026-10-05 «Guías cobradas de más…: como costo de
+  envío»).
+- **Q-BSD-2 (ux-ui):** el texto «esta guía sustituye a la anterior» en AV-7 tras re-emitir. **Por defecto:** sí.
