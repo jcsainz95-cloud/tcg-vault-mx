@@ -14488,3 +14488,29 @@ excepción nueva en `.trivyignore`.
 
 **Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
 externa va fijada». Lo dejo propuesto, no lo cambio.
+
+## §90 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
+
+**Causa (medida el 2026-10-06 sobre `production` `a884a2ec`).** Ninguna PR cambió dependencias. Se publicó un
+aviso sobre la versión que ya estaba en el lockfile: `sharp@0.35.4`, GHSA-wq5f-xc86-pv6w / CVE-2026-96889
+(vulnerabilidad en la dependencia `librsvg`), severidad **high**, corregido en 0.35.5. `sharp` es dependencia
+**directa** del frontend (`"sharp": "^0.35.4"`, la usa `next/image`). El backend no se toca: sigue con las 2
+moderate ya registradas (RL-DEP-1).
+
+**Arreglo.** Igual que en §89: `npm update sharp --package-lock-only` en `frontend/`. El rango `^0.35.4` ya admite
+0.35.5, así que no hace falta tocar `package.json` ni añadir `overrides`. En el lockfile cambian 27 entradas, todas
+de la familia `sharp`: `sharp` 0.35.4 → 0.35.5, los binarios `@img/sharp-*` 0.35.4 → 0.35.5 y
+`@img/sharp-libvips-*` 1.3.3 → 1.3.4. Ninguna otra entrada cambia (comprobado con un diff de `packages`,
+entrada por entrada). El lockfile se generó en una copia del frontend en el scratchpad, no en el
+`node_modules` compartido.
+
+**Antes → después, con la misma invocación:**
+- `npm audit --omit=dev --audit-level=high` en `frontend/`: rc=1 (`sharp <0.35.5`, 1 high) → rc=0 (`found 0
+  vulnerabilities`).
+- `AUDIT_LEVEL=high ./security/scripts/audit-npm.sh`: rc=1 → rc=0.
+- `npm ci` del lockfile nuevo: rc=0. `sharp.versions.sharp` = 0.35.5 (vips 8.18.7, rsvg 2.63.2), y codifica un
+  PNG de prueba.
+- `next build` del frontend en esa copia: rc=0.
+- `trivy-fs`: **NO MEDIDO** aquí, porque `trivy` no está instalado en este entorno. Lo medirá el CI de la PR.
+
+**Rollback:** revertir el commit. `npm-audit` vuelve a ponerse en rojo.
