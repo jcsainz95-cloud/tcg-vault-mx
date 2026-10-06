@@ -29431,3 +29431,39 @@ tirada cada una**, sobre la copia; restauradas y comprobadas con `cmp` contra el
 **NO MEDIDO:** la integración `test/integration/sdx-d2g-mail.e2e-spec.ts` (canarios SDX-I-8) — necesita BD y crear una base
 propia me fue denegado por permisos en esta corrida. La cierra correrla con `./scripts/stack-native.sh test:integration
 test/integration/sdx-d2g-mail.e2e-spec.ts` (o en CI). Por construcción usa los mismos tres constructores que PRIV-5.
+
+### 77. P-MAIL-MARCA — los 6 correos a clientes que iban con HTML a mano, sobre `mailShell` (2026-10-06, sobre `36091259`)
+
+**Qué cambió.** `guestOrderConfirmationTemplate`, `guestTrackingLinkTemplate` (`orders/mail/guest-order.templates.ts`),
+`emailVerificationTemplate`, `passwordResetTemplate`, `passwordLockAlertTemplate` (`mail/mail.templates.ts`) y el correo
+de reposición de sellado (`catalog/sealed-restock-notify.service.ts`) se renderizan con `mailShell`: bloque de marca,
+retícula, pie en tinta y la fila «Aviso de privacidad» (criterio 507), `audience` por defecto `'customer'` en los seis.
+Los dos `layout()` y los dos `escapeHtml` locales se borraron (el escape lo hacen los builders del shell, S15-B1).
+- **Sin cambio:** asuntos y versión de texto plano (comparados byte a byte contra `36091259`: 11/11 iguales), enlaces
+  (siguen siendo páginas del front; el botón lo emite `ctaRows`, con la URL en texto debajo), caducidades y avisos.
+- **Lo nuevo (todo de §31):** eyebrow (`SEGURIDAD DE LA CUENTA`/`ACCOUNT SECURITY` en los de cuenta, §31.9 filas 7–8;
+  `TU PEDIDO · <número>` en los de invitado, igual que AV-2), rótulos y botón en mayúsculas (§31.2), línea «por qué
+  recibes esto» del pie, preheader. Los `<strong>` del número de pedido y del nombre del producto desaparecen (los
+  builders reciben texto plano); en la reposición el nombre va entre comillas, como ya iba en el texto plano.
+- **Razón documentada para NO usar el shell:** ninguna. §31.15 (DESIGN_SYSTEM) planeaba este paso («pase 2»); BE-43 /
+  §4.56.3 hablaban de quién podía tocar `mail/`, no de excluirlo. `passwordLockAlertTemplate` («sin enlaces»): el shell
+  no añade ninguna acción; su único `href` sigue siendo el aviso de privacidad, que E5-1 exige (correo mixto ⇒ de cliente).
+- **Discrepancia anotada, no aplicada:** §31.7 nombra los botones 7/8 «Verificar mi correo»/«Restablecer mi contraseña»;
+  se conservó el texto vigente («VERIFICAR CORREO», «RESTABLECER CONTRASEÑA»). Decisión de ux-ui/PO si se cambia.
+- **Candado:** `test/mail.privacy-footer.spec.ts` — PRIV-4 ahora exige `mailShell(` (un pie a mano con
+  `privacyNoticeHtml(` ya no basta) y **PRIV-7** (nuevo) renderiza todo el censo PRIV-0 + la reposición y exige la firma
+  del shell (doctype con `lang`, `brandRows()`, `footerDescriptor(l)`), con un CONTROL de que un HTML a mano con marca y
+  aviso no la cumple. `test/mail.greeting-name.spec.ts`: el saludo se busca como celda (`>Hola:</td>`) en vez de `<p>`.
+
+#### 77.1 Condiciones de QA y techlead sobre `7aa2c0ce` (2026-10-06)
+- **Rótulos de CTA (orquestador, `DESIGN_SYSTEM §41.4`), solo en el HTML:** 7 `VERIFICAR MI CORREO`/`VERIFY MY EMAIL`,
+  8 `RESTABLECER MI CONTRASEÑA`/`RESET MY PASSWORD`, 13 y 14 `VER MI PEDIDO`/`SEE MY ORDER` (§41.8, 13≡15). Sustituye la
+  «discrepancia anotada, no aplicada» de §77. Asuntos y texto plano, intactos.
+- **m-3:** en la verificación, la letra chica (caducidad + «copia esta URL») va **después** del botón, como en restablecer.
+- **N3:** el preheader del 14 pasa a una frase propia (`resendPreheader`, 40–90 caracteres; la intro en español medía
+  109). Solo el preheader: la prosa visible y el texto plano no cambian.
+- **Candados:** los seis entran a `MIGRADOS` de `test/buylist.mail-shell.spec.ts` (ML-1…ML-10, N1…N9 sobre ellos; `CON_CTA`
+  excluye 9 y 28, y `urlDe()` da el destino de cada CTA). Nuevos: **I-1** (el único `href` del 9 es `/es/privacidad`,
+  medido con `APP_PUBLIC_URL` puesto) e **I-2** (los plazos «N horas/días» del HTML visible = los del texto plano).
+- **Deuda registrada:** BE-43 (mitad de `mail/` pagada), AV-D2 (11 ficheros de 8 módulos y ciclo `mail/`↔`buylist/`),
+  FX-D9 (disparador = traslado a `common/`), y MAIL-D1…D7 al final de `docs/TECH_DEBT.md`.

@@ -1771,6 +1771,13 @@ aparece, con la bandera SÍ).
 - **Disparador (aceptado):** cuando el stream **«Cuentas y acceso»** toque `mail/`: absorber
   `sellItemRejectedTemplate` en `mail.templates.ts`/`MailService` (helpers a fuente única) y evaluar cola de
   reintentos para transaccionales de negocio. Dueño: **backend**. Aceptada por arquitecto en el contrato v1.18.
+- **Pagada la mitad de `mail/` (backend, 2026-10-06, `7aa2c0ce` · P-MAIL-MARCA):** `mail/mail.templates.ts`
+  ya no tiene `layout()` ni `escapeHtml` propios — verificación, restablecer y aviso de bloqueo se renderizan
+  con los builders de `buylist/mail-shell.ts` (escape S15-B1 en el esqueleto, fuente única). Medido
+  2026-10-06: `grep -rn "function escapeHtml" backend/src` ⇒ **una** definición (`buylist/mail-shell.ts`).
+  **Sigue abierto:** (a) el esqueleto vive en `buylist/` y no en `common/` (es **AV-D2**, traslado decidido en
+  `ARCHITECTURE §4.56.3`, PR propio); (b) las plantillas de `buylist` siguen fuera de `MailService` y el envío
+  sigue **best-effort sin reintentos**. La comprobación de cierre de esta ficha pasa a ser la de AV-D2 más (b).
 
 ### Nota al arquitecto (NO backend) · `AdminBuylistDTO §M5` podría exponer `userName` — CERRADA (v1.18)
 - **Qué:** el flujo admin de buylist (§M5) hacía un **fetch por-fila** del nombre del usuario. Si el contrato
@@ -6411,9 +6418,12 @@ aparece, con la bandera SÍ).
 - **Cura:** las dos por `ConfigService`, leídas en el mismo momento del ciclo de vida. ⚠️ Exige que el
   esqueleto deje de ser un módulo de funciones puras y pase a inyectarse, que es **exactamente** lo que
   el pase 2 hace al absorberlo en `MailService`.
-- **Disparador:** **el pase 2 de §31.15** (los correos 7 y 8 + BE-43), que ya toca ese fichero para
-  moverlo. ⛔ No antes: convertir el esqueleto en servicio ahora obligaría a inyectarlo en seis
-  plantillas que son funciones puras.
+- **Disparador:** ~~el pase 2 de §31.15 (los correos 7 y 8 + BE-43)~~ — **actualizado 2026-10-06
+  (backend):** los correos 7 y 8 pasaron al esqueleto en P-MAIL-MARCA (`7aa2c0ce`) **sin mover el
+  fichero**, así que ese pase ya no es el que lo toca. El disparador pasa a ser **el traslado de
+  `mail-shell.ts` a `backend/src/common/`** (`ARCHITECTURE §4.56.3`, AV-D2), que es el PR que abre el
+  fichero para moverlo. ⛔ No antes: convertir el esqueleto en servicio ahora obligaría a inyectarlo en
+  las plantillas, que son funciones puras.
 
 #### FX-D10 · El **día inhábil** de la SIE no se distingue de una rotura de formato (techlead, v1.63.3)
 - **Dueño:** **backend** (`fx.service.ts`, `parseBanxicoRate`). **Severidad:** Baja. **No bloqueante.**
@@ -7618,6 +7628,18 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Comprobación de cierre:** `mail-shell.ts` (o su sucesor) vive en `backend/src/common/`, los cinco
   ficheros de plantillas lo importan desde ahí, y **BE-43** se cierra con él (el `layout()` duplicado
   de `mail/mail.templates.ts` desaparece en el mismo pase).
+- **Recuento re-medido (backend, 2026-10-06, sobre P-MAIL-MARCA `7aa2c0ce`):** fuera de `buylist/`,
+  `grep -rln "mail-shell'" backend/src` da **11 ficheros de 8 módulos**: `admin/mail/kyc-notice.templates.ts`,
+  `catalog/sealed-restock-notify.service.ts`, `disputes/mail/dispute-notice.templates.ts`,
+  `mail/mail.templates.ts`, `orders/mail/{guest-order,order-notice}.templates.ts`,
+  `payments/refunds/mail/refund-notice.templates.ts`, `shipments/{guest-mail-link.ts,shipments.service.ts,
+  mail/shipment-notice.templates.ts}` y `spend-alerts/spend-alert.mail.ts` (más los 2 de `buylist/`).
+  ⚠️ **Y ahora hay un ciclo entre carpetas:** `mail/mail.templates.ts` → `buylist/mail-shell.ts`, y
+  `buylist/mail-shell.ts` → `mail/mail-env.util` + `mail/support-contact`. No es un ciclo de módulos Nest
+  (son imports de funciones puras, sin `@Module`), pero sí de carpetas, y es un motivo más para el
+  traslado. **El destino ya está decidido:** `backend/src/common/mail-shell.ts` (`ARCHITECTURE §4.56.3`);
+  va en su propio PR, serializado, porque `common/` es zona compartida. La comprobación de cierre suma:
+  ningún import `mail/` → `buylist/` ni `buylist/` → `mail/` por causa del esqueleto.
 
 ---
 
@@ -9508,3 +9530,91 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 - **Disparador:** el próximo cambio en `privacy-sites` (`.ts` o `.test.ts`).
 - **Comprobación:** `rg -n "BUILT_LOTES|lote" frontend/src/content/legal/privacy-sites*.ts` sin resultados, la suite
   normal con 7 casos de sitio verdes y 0 saltados en ese fichero, y `npm run check:legal:provisional` verde.
+
+## Backend · 2026-10-06 · gates de QA y techlead sobre `7aa2c0ce` (rama `claude/correos-marca`, P-MAIL-MARCA)
+
+Deuda que deja el pase de los seis correos con HTML a mano a `mailShell` (`DESIGN_SYSTEM §41.1`: 7, 8, 9, 13, 14 y 28).
+Fichero:línea medidos el 2026-10-06 sobre el árbol de esta rama con las condiciones C-1/C-2/I-1/I-2/m-3 aplicadas.
+Ninguna es bloqueante: **asuntos y texto plano no cambiaron** (comparados contra `36091259`) y los candados del
+esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
+
+### MAIL-D1 · P3 · La confirmación del invitado (13) y la del pedido con cuenta (15) se escriben dos veces (techlead D-1)
+- **Dueño:** backend (`orders/mail/guest-order.templates.ts:130-185` y `orders/mail/order-notice.templates.ts:104-169`).
+- **Qué es:** son **el mismo hecho** (§41.8, «13 ≡ 15») y cada plantilla arma su propia lista de bloques: eyebrow,
+  titular, prosa, regla, `LO QUE COMPRASTE`, líneas, total, letra chica y CTA están copiados, y las cadenas
+  compartidas (`finalSale`, titular, intro, rótulos) viven en **dos** sitios (`guest-order.templates.ts:83-84,109-110`
+  frente a `order-notice.templates.ts:110-121`). Hoy coinciden; el día que una cambie, el invitado y el registrado
+  leerán dos versiones del mismo pedido.
+- **Dirección:** un constructor común de bloques (`confirmationBlocks(params, extras)`) que reciba lo único que puede
+  diferir según §41.8 —el destino del CTA y las notas solo-invitado (`trackNote`, `claimCta`)— y un candado ML-20
+  (§41.14) que compare el orden de bloques de los dos.
+- **Disparador:** el siguiente cambio de copy o de orden en cualquiera de las dos (p. ej. MAIL-D5).
+- **Comprobación:** `finalSale`/titular/intro definidos una sola vez (`rg -n "Ventas finales" backend/src` ⇒ 1) y
+  ML-20 verde.
+
+### MAIL-D2 · P3 · La reposición de sellado (28) se arma dentro del servicio (techlead D-2)
+- **Dueño:** backend (`catalog/sealed-restock-notify.service.ts:113-134`, método privado `sendRestockEmail`).
+- **Qué es:** asunto, cuerpo y pie se construyen dentro de un método privado del job, no en una plantilla. Las
+  pruebas tienen que instanciar el servicio con dobles y llamar al privado por un cast
+  (`test/buylist.mail-shell.spec.ts` → `reposicion()`, `test/mail.privacy-footer.spec.ts` → `restockHtml()`).
+- **Dirección:** §41.10 — `catalog/mail/restock.templates.ts` con una `restockTemplate(params, locale)` pura; el
+  servicio solo decide destinatario e idioma y envía. Va con MAIL-D7.
+- **Disparador:** MAIL-D7 (es el mismo diff).
+- **Comprobación:** `rg -n "mailShell\(" backend/src/modules/catalog/*.service.ts` vacío y las pruebas importan la
+  plantilla sin cast.
+
+### MAIL-D3 · P3 · `const BRAND = 'TCG HUNT'` local en nueve plantillas, con `BRAND_TEXT` ya exportado (techlead D-3)
+- **Dueño:** backend.
+- **Medido:** `rg -n "const BRAND =" backend/src` ⇒ 9: `mail/mail.templates.ts:25`,
+  `orders/mail/guest-order.templates.ts:33`, `orders/mail/order-notice.templates.ts:45`,
+  `admin/mail/kyc-notice.templates.ts:54`, `shipments/mail/shipment-notice.templates.ts:64`,
+  `disputes/mail/dispute-notice.templates.ts:41`, `buylist/buylist-mail.templates.ts:49`,
+  `buylist/buylist-notice.templates.ts:49`, `payments/refunds/mail/refund-notice.templates.ts:33`. El esqueleto exporta
+  `BRAND_TEXT` (`buylist/mail-shell.ts`) y la reposición escribe la marca literal en su copy.
+- **Riesgo:** bajo; la marca es estable (P-21) y un cambio se haría con búsqueda. Son nueve fuentes para un hecho.
+- **Dirección:** importar `BRAND_TEXT` del esqueleto en las nueve.
+- **Disparador:** el traslado de `mail-shell.ts` a `common/` (AV-D2, `ARCHITECTURE §4.56.3`), que ya reescribe esos
+  imports.
+- **Comprobación:** `rg -n "const BRAND =" backend/src` vacío.
+
+### MAIL-D4 · P3 · Los correos de cuenta escriben la estructura del HTML una vez por idioma (techlead D-4)
+- **Dueño:** backend (`mail/mail.templates.ts:77-195`).
+- **Qué es:** `emailVerificationTemplate`, `passwordResetTemplate` y `passwordLockAlertTemplate` tienen una rama
+  `if (l === 'en')` con **su propia lista de bloques** (espaciados, orden, letra chica) y otra para español. Nada
+  impide que el orden o el espaciado diverjan entre idiomas: el arreglo de m-3 (letra chica después del botón) hubo
+  que aplicarlo **en las dos ramas**. Las plantillas de buylist, avisos e invitado ya usan un `COPY[l]` con una sola
+  estructura. *(Lectura del backend del título «estilos distintos por idioma» del techlead; si se refería a otra cosa,
+  se corrige esta ficha.)*
+- **Dirección:** `COPY[l]` con las cadenas y **una** lista de bloques por plantilla.
+- **Disparador:** el próximo cambio de estructura o copy de un correo de cuenta (p. ej. MAIL-D5).
+- **Comprobación:** `rg -n "if \(l === 'en'\) \{" backend/src/modules/mail/mail.templates.ts` vacío y los renders es/en
+  con la misma secuencia de bloques.
+
+### MAIL-D5 · P3 · §41.6 — los pies de 7, 8, 9 y 28 no son los de su familia (QA m-2)
+- **Dueño:** backend (`mail/mail.templates.ts:42-46` `accountFooterWhy`; `catalog/sealed-restock-notify.service.ts:128-130`).
+- **Qué es:** §41.6 fija **una línea por familia**: CUENTA·alta (7), CUENTA·contraseña (8), CUENTA·equipo (9) y
+  AVISO (28). Hoy los tres de cuenta comparten «…porque esta dirección está ligada a una cuenta de TCG HUNT», y el 28
+  dice «…cuando volviera este producto» (bilingüe en una línea) en vez del texto de §41.6. Cambio de copy: **fuera
+  del alcance de las condiciones de `7aa2c0ce`** por encargo.
+- **Disparador:** el pase de copy de §41 (§41.13) o MAIL-D4.
+- **Comprobación:** el pie de cada uno contiene literalmente su fila de §41.6, con un candado por familia.
+
+### MAIL-D6 · P3 · §41.8 — el 13 aún no tiene el esqueleto común con el 15 (QA m-2)
+- **Dueño:** backend (`orders/mail/guest-order.templates.ts:154,164`; `orders/mail/order-notice.templates.ts:133`).
+- **Qué es:** §41.8 pide (3) **una `cardLineRows` por carta** (nombre / `set · #número`, celda de importe vacía) y hoy
+  las dos plantillas pintan cada carta con `proseRow`; y (5) la letra chica **«Ventas finales…» antes del CTA**, y
+  en el 13 va después (`:164`), mezclada con `trackNote`/`claimCta`/`invoice`. Además la línea CFDI en los dos es
+  pregunta de producto (§41.15 P-3). El rótulo `VER MI PEDIDO`/`SEE MY ORDER` (§41.4) sí quedó aplicado.
+- **Disparador:** MAIL-D1 (el mismo diff).
+- **Comprobación:** ML-20 de §41.14 verde (mismo orden de bloques en 13 y 15) y `cardLineRows(` en las dos.
+
+### MAIL-D7 · P3 · §41.10 — la reposición (28) sigue bilingüe, sin enlace al producto y sin la nota de «una sola vez» (QA m-2)
+- **Dueño:** backend (`catalog/sealed-restock-notify.service.ts:113-134`); **depende del arquitecto** para el idioma.
+- **Qué es:** §41.10 pide un solo idioma (cuenta ⇒ `User.locale`; invitado ⇒ el idioma de suscripción, **dato que hoy
+  no existe** — solicitud A-1 de §41.15 al arquitecto; mientras tanto español), CTA tinta `VER EL PRODUCTO` /
+  `SEE THE PRODUCT` a `appUrl('sellado/<inventoryItemId>')` (el job tiene que seleccionar el `id` de la pieza) con
+  respaldo `appUrl('sellado')`, y la letra chica «Te avisamos una sola vez por producto.». Hoy: cuerpo bilingüe en
+  `locale: 'es'`, sin CTA y sin esa nota.
+- **Disparador:** respuesta del arquitecto a A-1, o el pase de §41.13.
+- **Comprobación:** la plantilla de MAIL-D2 renderiza un idioma, ML-5 la incluye en `CON_CTA` y la ruta está en
+  `test/mail-links.frontend-routes.spec.ts`.

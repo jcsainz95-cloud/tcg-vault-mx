@@ -10,7 +10,7 @@ import * as refundTpl from '../src/modules/payments/refunds/mail/refund-notice.t
 import * as shipmentTpl from '../src/modules/shipments/mail/shipment-notice.templates';
 import * as disputeTpl from '../src/modules/disputes/mail/dispute-notice.templates';
 import * as kycTpl from '../src/modules/admin/mail/kyc-notice.templates';
-import { footerDescriptor, privacyNoticeUrl, spacerRow } from '../src/modules/buylist/mail-shell';
+import { brandRows, footerDescriptor, privacyNoticeUrl, spacerRow } from '../src/modules/buylist/mail-shell';
 import { spendAlertBatchMail, spendAlertImmediateMail, spendDigestMail } from '../src/modules/spend-alerts/spend-alert.mail';
 import { SpendAlertMailView } from '../src/modules/spend-alerts/spend-alert-text';
 import { SealedRestockNotifyService } from '../src/modules/catalog/sealed-restock-notify.service';
@@ -27,12 +27,15 @@ import { stripComments } from './helpers/strip-comments';
  *          `RENDERS`, PRIV-0 se pone rojo.
  * PRIV-2 — el origen: `APP_PUBLIC_URL`; si falta, el primer origen de `APP_BASE_URL` (lista de CORS).
  * PRIV-3 — sin ningún origen: el correo sale con la dirección como texto y ⛔ sin `href` a medias.
- * PRIV-4 — barrido de `src/`: todo fichero que arma HTML de correo pasa por `mailShell(` o
- *          `privacyNoticeHtml(` (un pie nuevo escrito a mano queda cubierto sin tocar este fichero).
+ * PRIV-4 — barrido de `src/`: todo fichero que arma HTML de correo pasa por `mailShell(` (P-MAIL-MARCA,
+ *          2026-10-06: ya no basta con `privacyNoticeHtml(` — un pie a mano es un correo sin marca).
 
  * PRIV-5 — (v1.84.5) los tres correos solo-staff de `spend-alert.mail.ts` NO llevan el aviso (con y sin origen),
  *          pero sí el pie en tinta (CONTROL: «no hay pie de privacidad» no es «no hay nada»).
  * PRIV-6 — (v1.84.5) barrido: `audience: 'staff'` aparece SOLO en `spend-alert.mail.ts`, exactamente 3 veces.
+ * PRIV-7 — (P-MAIL-MARCA, 2026-10-06) render: todo correo a clientes (las del censo PRIV-0 + la reposición)
+ *          sale del esqueleto de marca `mailShell`: documento completo, bloque de marca de `brandRows()` y
+ *          pie en tinta con `footerDescriptor(l)`. Un correo con HTML a mano ⇒ rojo, aunque lleve el aviso.
  */
 
 const ORIGIN = 'https://tienda.example.test';
@@ -294,8 +297,8 @@ describe('PRIV-3 — sin origen configurado el correo sale igual, sin href a med
   }
 });
 
-describe('PRIV-4 — barrido: todo HTML de correo en `src/` pasa por el pie común', () => {
-  it('los ficheros que arman HTML de correo llaman a `mailShell(` o a `privacyNoticeHtml(`', () => {
+describe('PRIV-4 — barrido: todo HTML de correo en `src/` pasa por el esqueleto `mailShell`', () => {
+  it('los ficheros que arman HTML de correo llaman a `mailShell(` (un pie a mano ya no basta)', () => {
     const SRC = join(__dirname, '..', 'src');
     const offenders: string[] = [];
     const checked: string[] = [];
@@ -308,21 +311,25 @@ describe('PRIV-4 — barrido: todo HTML de correo en `src/` pasa por el pie com�
         }
         if (!p.endsWith('.ts') || p.endsWith('.spec.ts')) continue;
         const src = stripComments(readFileSync(p, 'utf8'));
-        // «Arma HTML de correo»: lleva `subject` y emite marcado HTML en un literal de plantilla.
-        if (!/\bsubject\b/.test(src) || !/`[^`]*<(p|div|table|tr|td|h[1-6])\b/.test(src)) continue;
+        // «Arma HTML de correo»: lleva `subject` y, o emite marcado HTML en un literal de plantilla, o
+        // compone con el esqueleto / el pie de privacidad.
+        if (!/\bsubject\b/.test(src)) continue;
+        if (!/`[^`]*<(p|div|table|tr|td|h[1-6])\b/.test(src) && !/\b(mailShell|privacyNoticeHtml)\(/.test(src)) continue;
         const rel = relative(SRC, p);
         if (rel === join('modules', 'buylist', 'mail-shell.ts')) continue; // lo define
         checked.push(rel);
-        if (!/\bmailShell\(|\bprivacyNoticeHtml\(/.test(src)) offenders.push(rel);
+        if (!/\bmailShell\(/.test(src)) offenders.push(rel);
       }
     };
     walk(SRC);
-    // CONTROL: el barrido ve los pies a mano (si no los viera, no mediría nada).
+    // CONTROL: el barrido ve los seis correos de P-MAIL-MARCA (los que iban a mano) y uno que ya iba al
+    // esqueleto (si no los viera, no mediría nada).
     expect(checked).toEqual(
       expect.arrayContaining([
         join('modules', 'mail', 'mail.templates.ts'),
         join('modules', 'orders', 'mail', 'guest-order.templates.ts'),
         join('modules', 'catalog', 'sealed-restock-notify.service.ts'),
+        join('modules', 'orders', 'mail', 'order-notice.templates.ts'),
       ]),
     );
     expect(offenders).toEqual([]);
@@ -386,7 +393,7 @@ describe('PRIV-5 — (v1.84.5 §14.18) los correos solo-staff (AVG-1/2/3) no lle
     // Sin este control, la aserción de arriba pasaría también si el recorte del final no encontrara nada.
     env(ORIGIN, undefined);
     for (const l of LOCALES) {
-      const html = RENDERS.orderSettledTemplate(l).html; // cliente vía `mailShell` (las de cuenta no usan el shell)
+      const html = RENDERS.orderSettledTemplate(l).html; // cliente vía `mailShell`
       expect(tailAfterLastSpacer32(html)).toContain(spacerRow(16));
     }
   });
@@ -415,5 +422,35 @@ describe('PRIV-6 — (v1.84.5 §14.18 E5-2.3) `audience: \'staff\'` solo donde e
     };
     walk(SRC);
     expect(hits).toEqual({ [join('modules', 'spend-alerts', 'spend-alert.mail.ts')]: 3 });
+  });
+});
+
+describe('PRIV-7 — (P-MAIL-MARCA) todo correo a clientes sale del esqueleto de marca `mailShell`', () => {
+  /** La firma del shell: documento completo con su `lang`, el bloque de marca y el pie en tinta. */
+  function expectShell(html: string, l: Locale): void {
+    expect(html.startsWith(`<!DOCTYPE html><html lang="${l}" dir="ltr">`)).toBe(true);
+    expect(html).toContain(brandRows());
+    expect(html).toContain(footerDescriptor(l));
+    expect(html.endsWith('</body></html>')).toBe(true);
+  }
+
+  for (const [name, render] of Object.entries(RENDERS)) {
+    for (const l of LOCALES) {
+      it(`${name} [${l}]`, () => {
+        env(ORIGIN, undefined);
+        expectShell(render(l).html, l);
+      });
+    }
+  }
+
+  it('reposición de sellado (bilingüe, `lang="es"`)', async () => {
+    env(ORIGIN, undefined);
+    expectShell(await restockHtml(), 'es');
+  });
+
+  it('CONTROL: la firma NO la cumple un HTML a mano que sí lleva marca y aviso de privacidad', () => {
+    env(ORIGIN, undefined);
+    const aMano = `<div style="font-family:Arial"><h2>TCG HUNT</h2><p>Hola</p><p><a href="${PRIV_URL}">${LABEL.es}</a></p></div>`;
+    expect(() => expectShell(aMano, 'es')).toThrow();
   });
 });
