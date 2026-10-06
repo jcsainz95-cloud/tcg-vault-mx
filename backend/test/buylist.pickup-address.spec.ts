@@ -97,6 +97,9 @@ function build(opts: Opts = {}) {
       ),
     },
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
+    // rev BSD-1 (B-3): candados de I-BSD-4 (`FOR UPDATE`) y re-sincronía de la fila de entrada (aquí no hay ⇒ null).
+    $queryRaw: jest.fn(async () => []),
+    shipmentRequest: { findUnique: jest.fn(async () => null) },
   };
   const svc = new BuylistService(
     prisma as PrismaService,

@@ -53,6 +53,7 @@ import {
   sellOfferCancelledTemplate,
   sellOfferTemplate,
   sellRequestNotPursuedTemplate,
+  sellRequestNotContinuedTemplate,
   buylistPortalUrl,
 } from './buylist-mail.templates';
 // v1.74 (§R.3) — los TRES avisos nuevos del ciclo: la guía al vendedor, el acuse de recibido y el
@@ -123,6 +124,25 @@ import {
   VariantPositionRef,
 } from '../inventory/inventory-position.port';
 import { writeSellRequestGuide } from './sell-request-guide';
+// 💰 rev BSD-1 (API_CONTRACT §BSD): la costura de B-1 (`closeInboundShipment`, I-BSD-1), el post-commit de la cancelación
+// automática de la guía, el reloj del cierre sin guía y la vista de la guía de entrada en M5.
+import { ModuleRef } from '@nestjs/core';
+import { closeInboundShipment, needsGuideCancelTask } from '../shipments/inbound-close';
+import { afterAutoCloseVia } from '../shipments/label-auto-close';
+import { GuideClockDials, guideDueFieldsOf } from './guide-clock';
+import { openGuideTaskIfCancelUnconfirmed } from './inbound-cancel-task';
+import { resyncInboundAddress } from './inbound-address-sync';
+import { INBOUND_LABEL_SELECT, labelPdfAvailableOf } from '../shipments/label-inbound';
+import { ShipmentLabelService } from '../shipments/label-purchase.service';
+import type { LabelOptionsDTO } from '../shipments/label-view';
+import {
+  INBOUND_SHIPMENT_SELECT,
+  InboundShipmentRow,
+  buylistWorkQueueOf,
+  inboundLabelAlertSellRequestIds,
+  inboundOrphanSince,
+  toAdminInboundShipmentDTO,
+} from './inbound-view';
 
 /**
  * v2.0 (§4.36.6) — caps de la vitrina pública de bounties. `SHOWCASE` es el del contrato (50, sin
@@ -237,6 +257,49 @@ type SellRequestCycleRow = Partial<{
  */
 const VERDICT_ITEM_SELECT = { id: true, offerDecision: true, itemStatus: true } as const;
 
+/** Los diales que la proyección admin necesita, izados UNA vez por request (BL-29) — + los dos del cierre sin guía (BSD-1). */
+type AdminCycleDials = { offerIssueDays: number; reissueAlertCount: number; guide: GuideClockDials };
+
+/**
+ * 💰 rev BSD-1 (§BSD.5) — lo que TODA relectura que alimenta `adminSellRequestDTO` incluye: sus líneas (§M5-V.5) y su fila de
+ * entrada (`inboundShipment`, `guideDueAt`, `declineAcceptedAllowed`). Una sola constante para las ocho relecturas: con un
+ * `include` a mano, la que se olvidara de la fila de entrada respondería `inboundShipment: null` sobre una guía viva.
+ */
+const ADMIN_DTO_INCLUDE = {
+  items: { select: VERDICT_ITEM_SELECT },
+  inboundShipment: { select: INBOUND_SHIPMENT_SELECT },
+} as const;
+
+/**
+ * 💰 rev BSD-1 (§BSD.6) — **cuándo se puede «Declinar» una `aceptada`**: la guarda del `WHERE` de `decline-accepted` Y el
+ * derivado `declineAcceptedAllowed` del DTO salen de ESTE objeto (⛔ dos copias de la regla). Por eso es un objeto de
+ * igualdades y no una función: el `WHERE` lo esparce, el DTO lo compara campo a campo.
+ */
+const DECLINE_ACCEPTED_LEGAL = {
+  status: 'aceptada',
+  closedAt: null,
+  sellerShippedDeclaredAt: null,
+  shipmentConfirmedAt: null,
+} as const satisfies Prisma.SellRequestWhereInput;
+
+function declineAcceptedAllowedOf(r: Partial<Record<keyof typeof DECLINE_ACCEPTED_LEGAL, unknown>>): boolean {
+  return (Object.keys(DECLINE_ACCEPTED_LEGAL) as (keyof typeof DECLINE_ACCEPTED_LEGAL)[]).every(
+    (k) => (r[k] ?? null) === DECLINE_ACCEPTED_LEGAL[k],
+  );
+}
+
+/** El `reason` que nombra `409 DECLINE_NOT_ALLOWED` (§BSD.6), leído de la fila RELEÍDA. */
+function declineAcceptedBlockOf(r: {
+  status: SellRequestStatus;
+  closedAt: Date | null;
+  sellerShippedDeclaredAt: Date | null;
+  shipmentConfirmedAt: Date | null;
+}): 'status' | 'seller_declared_shipped' | 'shipment_confirmed' {
+  if (r.status !== 'aceptada' || r.closedAt != null) return 'status';
+  if (r.sellerShippedDeclaredAt != null) return 'seller_declared_shipped';
+  return 'shipment_confirmed';
+}
+
 /**
  * ⚠️ v1.61 · §M5-V — **el contrato de entrada de `adminSellRequestDTO`: la fila TRAE sus líneas.**
  *
@@ -246,7 +309,11 @@ const VERDICT_ITEM_SELECT = { id: true, offerDecision: true, itemStatus: true } 
  * Con el campo requerido, **el compilador para la mutación antes de que llegue a producción.**
  */
 type VerdictItemRow = { id: string; offerDecision: BuyDecision | null; itemStatus: SellItemStatus };
-type VerdictItemsPayload = Prisma.SellRequestGetPayload<object> & { items: VerdictItemRow[] };
+type VerdictItemsPayload = Prisma.SellRequestGetPayload<object> & {
+  items: VerdictItemRow[];
+  // 💰 rev BSD-1: la fila de entrada viaja con `ADMIN_DTO_INCLUDE` (opcional en el TIPO solo por los mocks unitarios).
+  inboundShipment?: InboundShipmentRow | null;
+};
 
 /**
  * S49-M1 — **la proyección de `SellRequest` hacia una respuesta HTTP, en UN solo sitio.**
@@ -655,6 +722,19 @@ class ConvertCasMiss extends Error {
   }
 }
 
+/**
+ * 💰 rev BSD-1 (§BSD.6) — el cuerpo de `POST …/decline-accepted`: `{ reason: string }` 3–500 tras `trim`; si no,
+ * `400 VALIDATION_ERROR {field:'reason'}`. Se valida ANTES de cualquier lectura (forma ⇒ 400 primero).
+ */
+export function parseDeclineAcceptedBody(raw: unknown): { reason: string } {
+  const b = (raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const r = typeof b.reason === 'string' ? b.reason.trim() : '';
+  if (r.length < 3 || r.length > 500) {
+    throw BusinessException.badRequest('VALIDATION_ERROR', 'reason must be 3..500 characters', { field: 'reason' });
+  }
+  return { reason: r };
+}
+
 @Injectable()
 export class BuylistService implements OnModuleInit {
   private readonly logger = new Logger(BuylistService.name);
@@ -682,6 +762,10 @@ export class BuylistService implements OnModuleInit {
     // la pieza **queda en `pending-publish`**, que es la red. (Contraste deliberado con el de
     // posición, justo encima, que **NO** es best-effort porque allí **no hay red**.)
     @Optional() @Inject(INVENTORY_PUBLISH_PORT) private readonly inventoryPublish?: InventoryPublishPort,
+    // 💰 rev BSD-1 (§BSD.4.8): el post-commit de la cancelación automática de la guía de entrada (`afterAutoCloseVia`, por
+    // token, sin importar `ShipmentsModule`). `@Optional()` por los unitarios que construyen a mano: sin él la guía queda
+    // SELLADA para cancelarse y la regla 10 del barrido abre la tarea a la hora.
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   /**
@@ -2043,7 +2127,8 @@ export class BuylistService implements OnModuleInit {
     const rows = await this.prisma.sellRequest.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      include: { items: { include: { card: true } } },
+      // 💰 rev BSD-1.1 C-1: la fila de entrada en el MISMO `findMany` (⛔ N+1) para `labelPdfAvailable`.
+      include: { items: { include: { card: true } }, inboundShipment: { select: INBOUND_LABEL_SELECT } },
     });
     const data = rows.map((r) => {
       // ⚠️ v1.51.4 (§6) — la redacción `no_offer` aplica **también en la LISTA**: las dos son
@@ -2059,6 +2144,8 @@ export class BuylistService implements OnModuleInit {
         quotedTotalCents: redactMoney ? null : r.quotedTotalCents,
         ineRequired: r.ineRequired,
         createdAt: r.createdAt,
+        // 💰 rev BSD-1.1 C-1: campo PLANO, la MISMA regla que el detalle y que la guarda de `…/label.pdf` (`labelPdfAvailableOf`).
+        labelPdfAvailable: labelPdfAvailableOf(r, r.inboundShipment),
         // ⚠️ La LISTA no lleva `offer`, ni `expiredReason`, ni `pickupAddress`, ni
         // `lastOfferCancelledAt` (§6, tabla de alcance de v1.51.8): pertenecen a la ficha de UNA
         // solicitud. La lista muestra ESTADOS y dice qué fila sigue viva. Por eso `itemDTO` va aquí
@@ -2075,7 +2162,12 @@ export class BuylistService implements OnModuleInit {
       // v1.51 (§6): el `locale` del dueño alimenta `offer.terms`, que **renderiza el backend** con
       // la MISMA fuente que el correo — para que la pantalla y el correo no puedan decir cosas
       // distintas.
-      include: { items: { include: { card: true } }, user: { select: { locale: true } } },
+      include: {
+        items: { include: { card: true } },
+        user: { select: { locale: true } },
+        // 💰 rev BSD-1.1 C-1: para `labelPdfAvailable` (⛔ `labelUrl` no se lee).
+        inboundShipment: { select: INBOUND_LABEL_SELECT },
+      },
     });
     if (!req || req.userId !== userId) throw BusinessException.notFound();
     // v1.18-buylist-rejects (§6): los items del detalle del PROPIO cliente se proyectan como
@@ -2095,6 +2187,8 @@ export class BuylistService implements OnModuleInit {
     const redactMoney = isNoOfferClosure(req);
     return {
       ...toCustomerSellRequestDTO(req),
+      // 💰 rev BSD-1.1 C-1: el MISMO valor que la lista (`labelPdfAvailableOf`).
+      labelPdfAvailable: labelPdfAvailableOf(req, req.inboundShipment),
       sellRequestId: req.id,
       // ⚠️ v1.51.3 (D36/D37) — **la dirección de ORIGEN, y se le muestra DESDE EL PRINCIPIO**, no
       // desde la aceptación, por dos razones: **(1) es SU dato** —lo capturó él— y **(2) es lo que
@@ -2293,6 +2387,11 @@ export class BuylistService implements OnModuleInit {
        * Combinable con el resto (se **intersecta**), igual que `awaitingGuide`.
        */
       offerReissueAlert?: boolean;
+      /**
+       * 💰 rev BSD-1.3 punto 4 — `true` ⇒ solo las solicitudes cuya guía de ENTRADA está atascada (`inboundShipment.labelAlert
+       * ≠ null`: en vuelo, en proceso, cancelación sin confirmar o guía viva sobre una cerrada). Clase L: se intersecta.
+       */
+      inboundLabelAlert?: boolean;
     },
   ) {
     const where: Prisma.SellRequestWhereInput = {};
@@ -2402,6 +2501,13 @@ export class BuylistService implements OnModuleInit {
         { offerReissueCount: { gte: dials.reissueAlertCount } },
       ];
     }
+    // 💰 rev BSD-1.3 punto 4 — el filtro de las guías de entrada atascadas: los ids salen del MISMO cuerpo que cuenta el
+    // tablero (`inboundLabelAlertSellRequestIds`, veredicto de `labelAlertOf`). Solo `true` filtra (tri-estado como los demás).
+    const now = new Date();
+    if (filters?.inboundLabelAlert === true) {
+      const ids = await inboundLabelAlertSellRequestIds(this.prisma, now);
+      where.AND = [...((where.AND as Prisma.SellRequestWhereInput[]) ?? []), { id: { in: ids } }];
+    }
     // v1.7-admin-users: filtro opcional por SellRequest.userId (simetría con /admin/orders).
     if (userId) where.userId = userId;
     // v1.25-buylist-orders-pagination (§M5): `q` contains case-insensitive OR sobre folio
@@ -2436,10 +2542,18 @@ export class BuylistService implements OnModuleInit {
         include: {
           items: { include: { card: true } },
           user: { select: { id: true, name: true, email: true, phone: true } },
+          // 💰 rev BSD-1 (§BSD.5): la fila de entrada en el MISMO `findMany` (⛔ N+1).
+          inboundShipment: { select: INBOUND_SHIPMENT_SELECT },
         },
       }),
       this.prisma.sellRequest.count({ where }),
     ]);
+    // 💰 rev BSD-1: las huérfanas recientes de las filas de entrada de ESTA página, en UNA lectura (para `labelAlert`).
+    const orphanSince = await inboundOrphanSince(
+      this.prisma,
+      rows.flatMap((r) => (r.inboundShipment ? [r.inboundShipment.id] : [])),
+      now,
+    );
     // Los diales se izan UNA vez por request (no por fila): son los mismos para todas.
     const data = rows.map((r) => ({
       // ⚠️ v1.51.20 · **BL-29** — la fila del listado sale de **LA MISMA proyección** que el detalle
@@ -2447,7 +2561,13 @@ export class BuylistService implements OnModuleInit {
       // claves, y por eso arrastraba el mismo agujero que `adminGet`: **ninguno de los veintiún
       // campos del ciclo salía**. *Dos proyecciones de la misma entidad divergen; la pregunta no es
       // si, es cuándo* — es literalmente la forma que tomó S49-M2 en `AdminOrderSummaryDTO`.
-      ...this.adminSellRequestDTO(r, dials),
+      // ⚠️ La lista NO recibe actor (BL-17: la fila del listado es propiedad de la FILA) ⇒ `labelAlert.canRelease` va `false`
+      // aquí; el detalle (`adminGet`) lo calcula para el actor. Quién TIENE alerta no depende del rol.
+      ...this.adminSellRequestDTO(r, dials, {
+        actorRole: null,
+        orphanSince: r.inboundShipment ? (orphanSince.get(r.inboundShipment.id) ?? null) : null,
+        now,
+      }),
       seller: this.sellerRef(r.user),
       items: r.items.map((i) => this.itemDTO(i)),
       // ⚠️ **LO QUE ESTA COLA NO GANA, y es deliberado: `pickupAddress`.** Un LISTADO paginado de
@@ -2466,12 +2586,40 @@ export class BuylistService implements OnModuleInit {
    * es el mismo dial para todas las filas por definición: *un umbral que cambiara entre la fila 3 y
    * la 4 de la misma pantalla sería un bug, no una feature.*
    */
-  private async adminCycleDials(): Promise<{ offerIssueDays: number; reissueAlertCount: number }> {
-    const [offerIssueDays, reissueAlertCount] = await Promise.all([
+  private async adminCycleDials(): Promise<AdminCycleDials> {
+    const [offerIssueDays, reissueAlertCount, closeDays, warnDays] = await Promise.all([
       this.settings.getNumber(SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS),
       this.settings.getNumber(SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT),
+      // 💰 rev BSD-1 (§BSD.9): los del cierre sin guía, para `guideDueAt`/`guideDueSoon`/`guideDueInDays` (la MISMA lectura
+      // que el barrido).
+      this.settings.getNumber(SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS),
+      this.settings.getNumber(SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE),
     ]);
-    return { offerIssueDays, reissueAlertCount };
+    return { offerIssueDays, reissueAlertCount, guide: { closeDays, warnDays } };
+  }
+
+  /**
+   * 💰 rev BSD-1 (§BSD.5) — `inboundLabelOptions`: `ShipmentLabelService.labelOptionsFor` resuelto por `ModuleRef` con
+   * `strict: false` (`BuylistModule` no importa `ShipmentsModule`). Sin el servicio (unitarios) ⇒ `null`: la ventana no ofrece
+   * «Comprar guía» (fail-closed). Sin fila de entrada todavía, el límite de recompras no aplica (`''` no tiene guías pagadas).
+   */
+  private async inboundLabelOptionsFor(actor: { id: string; role: Role }, shipmentId: string | null): Promise<LabelOptionsDTO | null> {
+    try {
+      const labels = this.moduleRef?.get(ShipmentLabelService, { strict: false });
+      return labels ? await labels.labelOptionsFor(actor, shipmentId ?? '') : null;
+    } catch (e) {
+      this.logger.error(`inboundLabelOptions no disponible: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
+  /**
+   * 💰 rev BSD-1 (BSD-1.1 C-3, BSD-1.3 punto 4) — los dos contadores hermanos de `workQueue` para el tablero
+   * (`buylistGuideDueSoon`, `buylistInboundLabelAlert`), con los MISMOS diales y la MISMA regla que el DTO. Lectura pura.
+   */
+  async workQueueCounts(now: Date = new Date()): Promise<{ buylistGuideDueSoon: number; buylistInboundLabelAlert: number }> {
+    const { guide } = await this.adminCycleDials();
+    return buylistWorkQueueOf(this.prisma, guide, now);
   }
 
   /**
@@ -2508,8 +2656,13 @@ export class BuylistService implements OnModuleInit {
     r: SellRequestBaseRow &
       SellRequestCycleRow & { createdAt: Date } & {
         items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[];
+        // 💰 rev BSD-1 — viaja con `ADMIN_DTO_INCLUDE`; `undefined` solo en mocks unitarios (⇒ sin fila de entrada).
+        inboundShipment?: InboundShipmentRow | null;
+        inboundGuideClockStartedAt?: Date | null;
       },
-    dials: { offerIssueDays: number; reissueAlertCount: number },
+    dials: AdminCycleDials,
+    // 💰 rev BSD-1 — `labelAlert` de la fila de entrada: el rol del actor (solo decide `canRelease`) y su huérfana reciente.
+    bsd: { actorRole?: Role | null; orphanSince?: Date | null; now?: Date } = {},
   ) {
     const reissueCount = r.offerReissueCount ?? 0;
     // ⚠️ v1.61 · §M5-V — el `?? []` es **solo por los mocks de las suites unitarias**, que construyen
@@ -2539,7 +2692,9 @@ export class BuylistService implements OnModuleInit {
       // `= (isTerminal === false) ∧ Regla C` — la MISMA función pura que `rejectedReason` (c) y la misma
       // regla que el guard de `POST …/reject` (b), así que `isRejectable === true ⇒ reject no da 422`.
       // El front ya no evalúa su copia (`every(itemStatus === 'rechazada')`, sin el filtro `skip`).
-      isRejectable: !isTerminalSellRequestStatus(r.status) && closesAsRejected(r.items ?? []),
+      // 💰 rev BSD-1.3 punto 1: en `aceptada` NO se rechaza (las cartas no han llegado): `POST …/reject` da `422
+      // REQUEST_NOT_RECEIVED {remedy:'decline_accepted'}` ⇒ el derivado tiene que decir `false` (cierre: «Declinar»).
+      isRejectable: !isTerminalSellRequestStatus(r.status) && r.status !== 'aceptada' && closesAsRejected(r.items ?? []),
       // Identidad del súper-admin que liquidó: back-office legítimo, NUNCA en la vista del cliente.
       paidBy: r.paidBy,
       // SEC-D2: dato INTERNO de cumplimiento (ancla la retención de INE). Solo vista admin.
@@ -2591,6 +2746,52 @@ export class BuylistService implements OnModuleInit {
       // Lo que SALIÓ por SPEI, sellado en la MISMA transacción que `pagada`. Fuente de la caja de M7,
       // distinta del acumulado de COMPROMISO que gobierna el tope mensual (que se mide en BRUTOS).
       payoutNetCents: r.payoutNetCents ?? null,
+      ...this.adminInboundFields(r, dials, bsd),
+    };
+  }
+
+  /**
+   * 💰 rev BSD-1 (§BSD.5, BSD-1.1 C-8, BSD-1.3 punto 4) — los campos de la guía de ENTRADA en `AdminBuylistDTO`, todos
+   * DERIVADOS (⛔ ninguno se persiste; `inboundGuideClockStartedAt` NO viaja):
+   *  - `inboundShipment` (con `labelAlert` por el MISMO `labelAlertOf` de M4);
+   *  - `guideDueAt` / `guideDueSoon` / `guideDueInDays` — el reloj del cierre sin guía (`guide-clock.ts`, la MISMA regla
+   *    que el barrido): el front ⛔ no calcula «en N días»;
+   *  - `declineAcceptedAllowed` — con `DECLINE_ACCEPTED_LEGAL`, el MISMO objeto que la guarda de `decline-accepted`.
+   * `inboundLabelOptions` (§BSD.5) va solo en el DETALLE (`adminGet`): es por actor (`inboundLabelOptionsFor`).
+   */
+  private adminInboundFields(
+    r: SellRequestCycleRow & {
+      status: SellRequestStatus;
+      closedAt: Date | null;
+      inboundShipment?: InboundShipmentRow | null;
+      inboundGuideClockStartedAt?: Date | null;
+    },
+    dials: AdminCycleDials,
+    bsd: { actorRole?: Role | null; orphanSince?: Date | null; now?: Date },
+  ) {
+    const now = bsd.now ?? new Date();
+    const inbound = r.inboundShipment ?? null;
+    const due = guideDueFieldsOf(
+      {
+        status: r.status,
+        closedAt: r.closedAt ?? null,
+        guideSentAt: r.guideSentAt ?? null,
+        shipmentTrackingNumber: r.shipmentTrackingNumber ?? null,
+        sellerShippedDeclaredAt: r.sellerShippedDeclaredAt ?? null,
+        shipmentConfirmedAt: r.shipmentConfirmedAt ?? null,
+        inboundGuideClockStartedAt: r.inboundGuideClockStartedAt ?? null,
+        acceptedAt: r.acceptedAt ?? null,
+      },
+      inbound,
+      now,
+      dials.guide,
+    );
+    return {
+      inboundShipment: toAdminInboundShipmentDTO(inbound, now, bsd.actorRole ?? null, { orphanSince: bsd.orphanSince ?? null }),
+      guideDueAt: due.guideDueAt,
+      guideDueSoon: due.guideDueSoon,
+      guideDueInDays: due.guideDueInDays,
+      declineAcceptedAllowed: declineAcceptedAllowedOf(r),
     };
   }
 
@@ -2620,16 +2821,20 @@ export class BuylistService implements OnModuleInit {
       : undefined;
   }
 
-  async adminGet(id: string) {
+  async adminGet(id: string, actor?: { id: string; role: Role }) {
     const req = await this.prisma.sellRequest.findUnique({
       where: { id },
       include: {
         items: { include: { card: true } },
         // v1.18-buylist-rejects: mismo `seller: AdminSellerRef` que el listado (§M5).
         user: { select: { id: true, name: true, email: true, phone: true } },
+        // 💰 rev BSD-1 (§BSD.5): la fila de entrada (`inboundShipment`, `guideDueAt`, `labelAlert`).
+        inboundShipment: { select: INBOUND_SHIPMENT_SELECT },
       },
     });
     if (!req) throw BusinessException.notFound();
+    const now = new Date();
+    const orphan = req.inboundShipment ? await inboundOrphanSince(this.prisma, [req.inboundShipment.id], now) : new Map<string, Date>();
     // ⭐ Robustez PII (deuda M11 · MISMA clase que PR #43 en `getUser`/`getKyc`, pero en el DETALLE de
     // solicitud que aquel commit no tocó): `clabeSnapshotEnc` es el blob AES-256-GCM de la CLABE del
     // vendedor; se descifra SOLO para ENMASCARARLO (`****4567`) en la vista admin. Si el snapshot
@@ -2663,7 +2868,15 @@ export class BuylistService implements OnModuleInit {
     // S49-M1: la cabecera pasa por la MISMA lista blanca que `receive`/`verify`/`pay-spei` — antes
     // era un rest-destructuring (lista NEGRA de un solo campo).
     return {
-      ...this.adminSellRequestDTO(req, await this.adminCycleDials()),
+      ...this.adminSellRequestDTO(req, await this.adminCycleDials(), {
+        actorRole: actor?.role ?? null,
+        orphanSince: req.inboundShipment ? (orphan.get(req.inboundShipment.id) ?? null) : null,
+        now,
+      }),
+      // 💰 rev BSD-1 (§BSD.5): lo que la ventana necesita para no ofrecer un botón que dará 403/404 — calculado PARA EL ACTOR
+      // por el MISMO `labelOptionsFor` del motor (TG-2 de la fila de entrada si existe). Solo en el DETALLE (la lista no
+      // recibe actor, BL-17).
+      ...(actor ? { inboundLabelOptions: await this.inboundLabelOptionsFor(actor, req.inboundShipment?.id ?? null) } : {}),
       seller: this.sellerRef(req.user),
       // ⚠️ v1.51.3 (D36/D37) — **la dirección de ORIGEN, en el DETALLE y NO en el listado.** Es la
       // que el operador teclea a mano en el portal de la paquetería para comprar la etiqueta (D19).
@@ -4211,7 +4424,7 @@ export class BuylistService implements OnModuleInit {
       // PROJECTION-EXEMPT: se proyecta con `toAdminSellRequestDTO` fuera de la tx (la lista blanca
       // que excluye `clabeSnapshotEnc`).
       const after = await tx.sellRequest.findUnique(
-        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+        { where: { id }, include: ADMIN_DTO_INCLUDE },
       );
       return { before, after, wasSent };
     });
@@ -4603,7 +4816,9 @@ export class BuylistService implements OnModuleInit {
       }
       if (sealField) {
         const sealed = await this.prisma.sellRequest.updateMany({
-          where: { id, [sealField]: null },
+          // 💰 rev BSD-1: AV-7 («tu guía») solo a una solicitud que SIGUE aceptada y abierta. Si «Declinar» o la regla 8 la
+          // cerraron entre la compra de la guía y este post-commit, el vendedor recibe BSD-M1 y ⛔ no una guía que ya se canceló.
+          where: { id, [sealField]: null, ...(sealField === 'guideNoticeSentAt' ? { status: 'aceptada' as const, closedAt: null } : {}) },
           data: { [sealField]: new Date() },
         });
         if (sealed.count !== 1) return; // otra corrida ganó: NO se manda un segundo correo.
@@ -4690,6 +4905,9 @@ export class BuylistService implements OnModuleInit {
       );
     }
     return {
+      // 💰 rev BSD-1 (§BSD.4.5 «copia al crear»): gana QUIÉN recibe y las referencias de la libreta — la guía de ENTRADA las
+      // necesita (`recipientName` es obligatorio para cotizarla). Solo hacia adelante: ⛔ sin relleno de las viejas.
+      ...(addr.recipientName ? { recipientName: addr.recipientName } : {}),
       line1: addr.line1,
       ...(addr.line2 ? { line2: addr.line2 } : {}),
       ...(addr.neighborhood ? { neighborhood: addr.neighborhood } : {}),
@@ -4700,6 +4918,7 @@ export class BuylistService implements OnModuleInit {
       // ⚠️ El teléfono de la ETIQUETA es el del domicilio, **no `User.phone`** (que es el nuestro,
       // para llamarle). Se parecen y no son el mismo dato.
       phone: addr.phone,
+      ...(addr.references ? { references: addr.references } : {}),
       capturedAt: new Date().toISOString(),
       // Trazabilidad de QUÉ fila se copió, sin que sea una FK viva.
       addressId: addr.id,
@@ -4743,7 +4962,11 @@ export class BuylistService implements OnModuleInit {
    * `buylist.pickup_address.update` con el id anterior y el nuevo, jamás el domicilio.
    */
   async updatePickupAddress(userId: string, id: string, addressId: string) {
+    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud, después su fila de entrada (la compra de la guía toma el mismo orden).
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE "sellRequestId" = ${id} FOR UPDATE`;
       const before = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -4752,10 +4975,17 @@ export class BuylistService implements OnModuleInit {
           closedAt: true,
           guideSentAt: true,
           pickupAddressSnapshot: true,
+          inboundShipment: { select: { labelProcessingSince: true } },
         },
       });
       // Anti-IDOR: ajena o inexistente ⇒ MISMA respuesta (no se confirma existencia).
       if (!before || before.userId !== userId) throw BusinessException.notFound();
+      // 💰 rev BSD-1 (§BSD.4.5): con una compra de guía de entrada EN CURSO el origen no se mueve bajo sus pies.
+      if (before.inboundShipment?.labelProcessingSince != null) {
+        throw BusinessException.conflict('PICKUP_ADDRESS_LOCKED', 'A label purchase is in progress for this sell request', {
+          reason: 'label_in_progress',
+        });
+      }
       // La dirección se resuelve contra la libreta DEL PROPIO usuario autenticado.
       const snapshot = await this.resolvePickupAddressSnapshot(userId, addressId);
       const guard = await tx.sellRequest.updateMany({
@@ -4781,6 +5011,8 @@ export class BuylistService implements OnModuleInit {
           { status: before.status, guideSentAt: before.guideSentAt },
         );
       }
+      // 💰 rev BSD-1 (§BSD.4.5): la fila de entrada en `solicitado` toma la copia nueva (versión +1, revisión del vendedor).
+      await resyncInboundAddress(tx, id, snapshot, userId, now);
       const after = await tx.sellRequest.findUnique({
         where: { id },
         select: { id: true, pickupAddressSnapshot: true },
@@ -4857,6 +5089,9 @@ export class BuylistService implements OnModuleInit {
   async adminUpdatePickupAddress(id: string, addressId: string) {
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud, después su fila de entrada.
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE "sellRequestId" = ${id} FOR UPDATE`;
       const before = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -4867,9 +5102,24 @@ export class BuylistService implements OnModuleInit {
           shipmentConfirmedAt: true,
           sellerShippedDeclaredAt: true,
           pickupAddressSnapshot: true,
+          inboundShipment: {
+            select: { id: true, labelSource: true, providerShipmentId: true, providerCanceledAt: true, labelProcessingSince: true },
+          },
         },
       });
       if (!before) throw BusinessException.notFound();
+      // 💰 rev BSD-1 (§BSD.4.5): con guía de Skydropx VIVA primero se re-emite (`POST /admin/shipments/:id/label/cancel`); con
+      // una compra en curso, se espera. Corregir el papel no corrige una guía pagada en Skydropx.
+      const inb = before.inboundShipment;
+      if (inb && inb.labelSource === 'skydropx' && inb.providerShipmentId != null && inb.providerCanceledAt == null) {
+        throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Reissue the Skydropx label before correcting the pickup address', {
+          labelSource: 'skydropx',
+          shipmentId: inb.id,
+        });
+      }
+      if (inb && inb.labelProcessingSince != null) {
+        throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A Skydropx label purchase is in progress for this sell request');
+      }
       // La dirección se resuelve contra la libreta DEL VENDEDOR de esta solicitud, no del actor.
       const snapshot = await this.resolvePickupAddressSnapshot(before.userId, addressId);
       const hadGuide = before.guideSentAt != null;
@@ -4923,6 +5173,10 @@ export class BuylistService implements OnModuleInit {
           },
         );
       }
+      // 💰 rev BSD-1 (§BSD.4.5): como la del vendedor — la fila de entrada en `solicitado` toma la copia nueva. La revisión
+      // se firma con el VENDEDOR (la dirección es una fila de SU libreta; ⛔ la firma de este método no gana parámetros, SEC-A1);
+      // quién la eligió queda en la bitácora `buylist.pickup_address.admin_update`.
+      await resyncInboundAddress(tx, id, snapshot, before.userId, now);
       const after = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -4989,6 +5243,10 @@ export class BuylistService implements OnModuleInit {
     const days = await this.settings.getNumber(SettingKey.BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS);
     const now = new Date();
     const res = await this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud y después su fila de entrada — el mismo orden que la compra de la guía
+      // de entrada, que también escribe el par paquetería/número por `writeSellRequestGuide`.
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE "sellRequestId" = ${id} FOR UPDATE`;
       const before = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -4997,9 +5255,24 @@ export class BuylistService implements OnModuleInit {
           shipmentTrackingNumber: true,
           guideCancellationPendingAt: true,
           guideCancellationDoneAt: true,
+          inboundShipment: {
+            select: { id: true, labelSource: true, providerShipmentId: true, providerCanceledAt: true, labelProcessingSince: true },
+          },
         },
       });
       if (!before) throw BusinessException.notFound();
+      // 💰 rev BSD-1 (§BSD.4.5, criterios 539/549): la captura a mano NO pisa una guía de Skydropx viva (primero se re-emite
+      // o se cancela) ni una compra en curso. Una fila de entrada en `solicitado` sin reclamo NO estorba (queda inerte).
+      const inbound = before.inboundShipment;
+      if (inbound && inbound.labelSource === 'skydropx' && inbound.providerShipmentId != null && inbound.providerCanceledAt == null) {
+        throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'This sell request already has a Skydropx label', {
+          labelSource: 'skydropx',
+          shipmentId: inbound.id,
+        });
+      }
+      if (inbound && inbound.labelProcessingSince != null) {
+        throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A Skydropx label purchase is in progress for this sell request');
+      }
       if (
         before.guideCancellationPendingAt != null &&
         before.guideCancellationDoneAt == null
@@ -5110,11 +5383,26 @@ export class BuylistService implements OnModuleInit {
   ) {
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud, después su fila de entrada.
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
       const before = await tx.sellRequest.findUnique({
         where: { id },
-        select: { status: true, guideSentAt: true },
+        select: {
+          status: true,
+          guideSentAt: true,
+          inboundShipment: { select: { labelSource: true, providerShipmentId: true, providerCanceledAt: true } },
+        },
       });
       if (!before) throw BusinessException.notFound();
+      // 💰 rev BSD-1 (§BSD.4.5): con guía de Skydropx VIVA el costo lo da el proveedor (`shippingCostCents` de la fila de
+      // entrada) ⇒ ⛔ dos fuentes para un costo. Antes de cualquier escritura.
+      const inb = before.inboundShipment;
+      if (guideActualCostCents != null && inb && inb.labelSource === 'skydropx' && inb.providerShipmentId != null && inb.providerCanceledAt == null) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', 'The label cost of a Skydropx label comes from the provider', {
+          field: 'guideActualCostCents',
+          reason: 'provider_cost',
+        });
+      }
       const guard = await tx.sellRequest.updateMany({
         // Regla dura (criterio 114): **solo** `aceptada`. No existe secuencia que llegue a
         // `en_transito` sin pasar por `ofertada` y `aceptada`, y la guarda va en el `where`.
@@ -5138,6 +5426,9 @@ export class BuylistService implements OnModuleInit {
           { status: current?.status },
         );
       }
+      // 💰 rev BSD-1 (I-BSD-1, §BSD.4.5): la fila de entrada en `solicitado` (sin guía) queda `cancelado`; una en `guia` NO
+      // se toca (es la guía con la que viaja el paquete). Una compra en vuelo la resuelve `casZero` (fila ya `cancelado`).
+      await closeInboundShipment(tx, id, 'shipped', now);
       const after = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -5542,7 +5833,7 @@ export class BuylistService implements OnModuleInit {
       },
     });
     const after = await this.prisma.sellRequest.findUnique(
-      { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+      { where: { id }, include: ADMIN_DTO_INCLUDE },
     );
     if (!after) throw BusinessException.notFound();
     if (guard.count !== 1) {
@@ -5629,7 +5920,7 @@ export class BuylistService implements OnModuleInit {
       }
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
       const after = await tx.sellRequest.findUnique(
-        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+        { where: { id }, include: ADMIN_DTO_INCLUDE },
       );
       return { before, after };
     });
@@ -5642,6 +5933,98 @@ export class BuylistService implements OnModuleInit {
     // vieja los dos salían ausentes: el cliente de la API no podía distinguir «lo decidimos» de «se
     // nos venció», que es la pregunta entera que D39 vino a contestar.
     return this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials);
+  }
+
+  /**
+   * 💰 rev BSD-1 · **`POST /admin/buylist/:id/decline-accepted` — «Declinar» en «Aceptada»** (API_CONTRACT §BSD.6).
+   *
+   * Le pone firma a lo que la regla 8 del barrido haría sola (mismo criterio que D39): `expirada` + `not_continued` +
+   * `closedAt` + `declinedBy = actor`. ⛔ No es `@MoneyOut`: no saca dinero; a lo sumo DEVUELVE saldo de Skydropx.
+   *
+   * Orden (I-BSD-4): el `updateMany` toma la solicitud; `closeInboundShipment` toma DESPUÉS la fila de entrada, la pasa a
+   * `cancelado` y sella la guía viva de Skydropx para cancelarla post-commit. La tarea «cancelar guía no usada» SOLO con guía
+   * manual o `live` (`needsGuideCancelTask`, §BSD.4.8). Post-commit: `afterAutoCloseVia` y después **BSD-M1** (best-effort).
+   * ⛔ Sin `200` idempotente: un segundo intento ⇒ `409 DECLINE_NOT_ALLOWED`. **No cuenta contra el vendedor** (§BSD.7.4).
+   *
+   * `reason` (3–500 tras `trim`) es INTERNO: lo audita el controlador (`buylist.request.decline_accepted`); ⛔ nunca al correo
+   * ni a un DTO de cliente — por eso este método NO lo recibe.
+   */
+  async adminDeclineAccepted(id: string, actor: { id: string; role: Role }) {
+    const now = new Date();
+    const dials = await this.adminCycleDials();
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const exists = await tx.sellRequest.findUnique({ where: { id }, select: { id: true } });
+      if (!exists) throw BusinessException.notFound();
+      const guard = await tx.sellRequest.updateMany({
+        // La guarda del MOTOR (⛔ un `if` sobre una lectura): el MISMO objeto que deriva `declineAcceptedAllowed`.
+        where: { id, ...DECLINE_ACCEPTED_LEGAL },
+        data: {
+          status: 'expirada',
+          expiredReason: SellRequestExpiryReason.not_continued,
+          closedAt: now,
+          declinedBy: actor.id,
+        },
+      });
+      if (guard.count !== 1) {
+        const current = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true, closedAt: true, sellerShippedDeclaredAt: true, shipmentConfirmedAt: true },
+        });
+        throw BusinessException.conflict('DECLINE_NOT_ALLOWED', 'Only an accepted sell request with no shipment signal can be declined', {
+          status: current?.status,
+          reason: current ? declineAcceptedBlockOf(current) : 'status',
+        });
+      }
+      // I-BSD-1: la fila de entrada sale con la solicitud, EN ESTA transacción.
+      const inbound = await closeInboundShipment(tx, id, 'close', now);
+      // Leída bajo el candado (el `updateMany` de arriba lo tomó): la etiqueta que hay que cancelar es ésta.
+      const sr = await tx.sellRequest.findUnique({
+        where: { id },
+        select: { shipmentTrackingNumber: true, guideCancellationDoneAt: true },
+      });
+      if (sr && needsGuideCancelTask(sr, inbound)) {
+        await tx.sellRequest.updateMany({ where: { id }, data: { guideCancellationPendingAt: now } });
+      }
+      const user = (await tx.sellRequest.findUnique({ where: { id }, select: { user: { select: { name: true, email: true, locale: true } } } }))?.user;
+      return { inbound, user };
+    });
+    if (outcome.inbound.outcome === 'sealed' && outcome.inbound.shipmentId) {
+      await afterAutoCloseVia(this.moduleRef, [outcome.inbound.shipmentId]);
+      // BSD-B14: Skydropx no confirmó la cancelación ⇒ la tarea con el número, ya (no a la hora de la regla 10).
+      await openGuideTaskIfCancelUnconfirmed(this.prisma, id, outcome.inbound.shipmentId, now);
+    }
+    // BSD-M1 — el MISMO correo que el cierre automático (regla 8). Uno por solicitud: lo garantiza el `count === 1`.
+    await this.sendNotContinuedMail(id, outcome.user);
+    // La respuesta se lee DESPUÉS del post-commit: así trae la tarea si Skydropx no confirmó la cancelación.
+    // PROJECTION-EXEMPT: fila cruda; se proyecta con la lista blanca admin.
+    const after = await this.prisma.sellRequest.findUnique({ where: { id }, include: ADMIN_DTO_INCLUDE });
+    if (!after) throw BusinessException.notFound();
+    return this.adminSellRequestDTO(after as VerdictItemsPayload, dials, { actorRole: actor.role, now });
+  }
+
+  /** **BSD-M1 — «no continuamos».** Best-effort post-commit; su fallo no revierte el cierre. */
+  private async sendNotContinuedMail(
+    id: string,
+    user: { name: string; email: string | null; locale: string | null } | null | undefined,
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(
+          `buylist decline-accepted mail skipped for ${id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`,
+        );
+        return;
+      }
+      const msg = sellRequestNotContinuedTemplate(
+        { folio: id, portalUrl: buylistPortalUrl(id, user.locale) },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist decline-accepted mail failed for ${id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /** **CORREO 4 — «no procederemos».** Best-effort post-commit; su fallo no revierte el cierre. */
@@ -5789,7 +6172,7 @@ export class BuylistService implements OnModuleInit {
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
       // `updateMany` no devuelve filas ⇒ la relectura es la única forma de responder lo ya escrito.
       return tx.sellRequest.findUnique(
-        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+        { where: { id }, include: ADMIN_DTO_INCLUDE },
       );
     });
     if (!row) throw BusinessException.notFound();
@@ -5831,7 +6214,7 @@ export class BuylistService implements OnModuleInit {
       });
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
       return tx.sellRequest.findUnique(
-        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+        { where: { id }, include: ADMIN_DTO_INCLUDE },
       );
     });
     if (!row) throw BusinessException.notFound();
@@ -6320,6 +6703,8 @@ export class BuylistService implements OnModuleInit {
       where: { id: sellRequestId },
       select: { status: true },
     });
+    // 💰 rev BSD-1.3 punto 1: la guarda del `where` excluye `aceptada` (la solicitud se aceptó entre la lectura y aquí).
+    if (current?.status === 'aceptada') throw this.rejectOnAcceptedError(sellRequestId);
     // Mismo eje que el `where` del rechazo (`notTerminalWhere`: estado), para que la relectura diga lo que chocó.
     if (current != null && !isTerminalSellRequestStatus(current.status)) {
       const fresh = await db.sellRequestItem.findUnique({ where: { id: itemId }, select: { itemStatus: true } });
@@ -6521,6 +6906,9 @@ export class BuylistService implements OnModuleInit {
     parent: { id: string; receivedAt: Date | null },
     status: SellRequestStatus,
   ): void {
+    // 💰 rev BSD-1.3 punto 1 — en `aceptada` las cartas NO han llegado: rechazarlas mandaría el correo de cartas rechazadas,
+    // con su motivo y los relojes de devolución, sobre cartas que nunca recibimos. Cerrar una `aceptada` es «Declinar».
+    if (decision === 'reject' && status === 'aceptada') throw this.rejectOnAcceptedError(parent.id);
     if (decision !== 'approve' || parent.receivedAt != null) return;
     throw BusinessException.validation(
       'REQUEST_NOT_RECEIVED',
@@ -6528,6 +6916,19 @@ export class BuylistService implements OnModuleInit {
       // Nombra la SOLICITUD, no la línea, porque el remedio es sobre la solicitud: `POST …/receive`.
       // *El error nombra la palanca.*
       { sellRequestId: parent.id, status },
+    );
+  }
+
+  /**
+   * 💰 rev BSD-1.3 punto 1 — `422 REQUEST_NOT_RECEIVED {sellRequestId, status:'aceptada', remedy:'decline_accepted'}`: el
+   * código ya existe; lo nuevo es `remedy`, que nombra la palanca (§BSD.6). UN cuerpo para los tres sitios (aviso de la
+   * decisión por carta, aviso de `POST …/reject` y la relectura cuando la guarda del `WHERE` no casó).
+   */
+  private rejectOnAcceptedError(sellRequestId: string): BusinessException {
+    return BusinessException.validation(
+      'REQUEST_NOT_RECEIVED',
+      'This sell request is accepted and its cards have not arrived: decline it instead of rejecting',
+      { sellRequestId, status: 'aceptada', remedy: 'decline_accepted' },
     );
   }
 
@@ -7036,7 +7437,9 @@ export class BuylistService implements OnModuleInit {
     // fabrica (`closedAt` sellado ∧ `status` no terminal) **auto-rechazaba una solicitud ya
     // pagada** — reescribiendo a `rechazada` una fila cuyo dinero ya salió.
     const res = await tx.sellRequest.updateMany({
-      where: { id: sellRequestId, ...this.liveRequestWhere() },
+      // 💰 rev BSD-1.3 punto 1 — ⛔ `aceptada` en el `WHERE` (censo BSD-B25 (b), clase `excludes_aceptada`): rechazar todas las
+      // líneas de una `aceptada` NO la cierra `rechazada` (eso la sacaría de `aceptada` sin I-BSD-1). Ni por carrera.
+      where: { id: sellRequestId, ...this.liveRequestWhere(), NOT: { status: 'aceptada' } },
       data: { status: 'rechazada', closedAt: new Date() },
     });
     return res.count === 1;
@@ -7067,7 +7470,11 @@ export class BuylistService implements OnModuleInit {
     const guard = await db.sellRequestItem.updateMany({
       where: {
         id: itemId,
-        sellRequest: this.notTerminalWhere(),
+        // 💰 rev BSD-1.3 punto 1: ni en terminal ni en `aceptada` (las cartas no han llegado). En el `WHERE`, no solo en el aviso
+        // de `itemDecision`: una aceptación del vendedor entre la lectura y aquí no puede dejar una carta rechazada (con correo
+        // y relojes de devolución) sobre una solicitud cuyas cartas nunca recibimos.
+        // (Misma lista que `notTerminalWhere()` — la constante única — más `aceptada`.)
+        sellRequest: { status: { notIn: [...SELL_REQUEST_TERMINAL_STATES, 'aceptada'] } },
         // 💰 v1.82.1 · §PNL.10.2.3 (E-2) — **SIEMPRE**, venga o no `expectedItemStatus`: una carta que ya es
         // inventario (o ya se pagó) no se rechaza. Sin este término, el `PATCH {reject}` sin `if` la dejaba
         // `rechazada` con su pieza `in_stock` y fuera del total que se le paga al vendedor (medido 1/1, §59.5).
@@ -7271,6 +7678,8 @@ export class BuylistService implements OnModuleInit {
         { status: req.status },
       );
     }
+    // 💰 rev BSD-1.3 punto 1 — el AVISO previo; la guarda REAL es el `WHERE` de abajo (`NOT: { status: 'aceptada' }`).
+    if (req.status === 'aceptada') throw this.rejectOnAcceptedError(id);
     // v1.24 (endurecimiento §4.18g): el guard de precondición (leer ítems vivos) y el sellado del
     // estado (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón que
     // `createRequest`/SEC-A2), para que "todos los ítems rechazados" y "solicitud rechazada" no
@@ -7316,7 +7725,8 @@ export class BuylistService implements OnModuleInit {
         // fila sana los dos términos excluyen exactamente lo mismo, así que el `count === 0` llega a
         // la misma rama que hoy. Lo único nuevo es que la fila INCOHERENTE cae en el `409`.
         const res = await tx.sellRequest.updateMany({
-          where: { id, ...this.liveRequestWhere() },
+          // 💰 rev BSD-1.3 punto 1 — ⛔ `aceptada` en el `WHERE` (clase `excludes_aceptada` del censo BSD-B25 (b)).
+          where: { id, ...this.liveRequestWhere(), NOT: { status: 'aceptada' } },
           data: { status: 'rechazada', closedAt: new Date() },
         });
         // count===0 ⇒ una transición concurrente cerró la solicitud entre la lectura inicial y el
@@ -7327,6 +7737,8 @@ export class BuylistService implements OnModuleInit {
         if (res.count === 0) {
           const current = await tx.sellRequest.findUnique({ where: { id }, select: { status: true } });
           if (current?.status === 'rechazada') return false;
+          // 💰 rev BSD-1.3 punto 1: la guarda del `WHERE` la dejó en `aceptada` (se aceptó entre el aviso y aquí).
+          if (current?.status === 'aceptada') throw this.rejectOnAcceptedError(id);
           throw BusinessException.conflict(
             'CONFLICT',
             'Request is already in a terminal state and cannot be rejected',
@@ -7670,7 +8082,7 @@ export class BuylistService implements OnModuleInit {
     // respuesta**: V-b se evalúa sobre ellas y el DTO publica `pendingDecisionItemCount`.
     const req = await this.prisma.sellRequest.findUnique({
       where: { id },
-      include: { items: { select: VERDICT_ITEM_SELECT } },
+      include: ADMIN_DTO_INCLUDE,
     });
     if (!req) throw BusinessException.notFound();
     // SEC-M5: idempotencia — si ya está pagada, no se hace un segundo asiento; se
@@ -7941,7 +8353,7 @@ export class BuylistService implements OnModuleInit {
         await this.countBountyAcquisitionsTx(tx, id, paidBy);
         const row = await tx.sellRequest.findUnique({
           where: { id },
-          include: { items: { select: VERDICT_ITEM_SELECT } },
+          include: ADMIN_DTO_INCLUDE,
         });
         // S49-M1: se proyecta DENTRO de la tx, para que el snapshot cifrado no sobreviva ni como
         // variable local del método (`paid` es lo que se devuelve tal cual al controller).
@@ -7952,7 +8364,7 @@ export class BuylistService implements OnModuleInit {
     if (!paid) {
       const current = await this.prisma.sellRequest.findUnique({
         where: { id },
-        include: { items: { select: VERDICT_ITEM_SELECT } },
+        include: ADMIN_DTO_INCLUDE,
       });
       // S49-M1: mismo motivo que la salida idempotente de arriba (fila cruda con la CLABE cifrada).
       if (current?.status === 'pagada') return this.adminSellRequestDTO(current, dials);

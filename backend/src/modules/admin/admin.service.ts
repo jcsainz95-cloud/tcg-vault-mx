@@ -53,6 +53,7 @@ import {
   normalizeEmail,
 } from '../../common/validation/credentials';
 import { INBOUND_ONLY, OUTBOUND_ONLY } from '../shipments/label-subject';
+import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
 import { guideCostOfRequest, isSkydropxInbound, retainedShippingFeeCents, skydropxInboundGuideCostCents } from './pnl-buylist';
 
 /**
@@ -1673,6 +1674,9 @@ export class AdminService {
       await tx.shipmentAddressRevision.deleteMany({
         where: { shipmentRequest: { OR: [{ userId: id }, { order: { userId: id } }] } },
       });
+      // 💰 rev BSD-1 (BSD-B27): las guías de ENTRADA de sus solicitudes de venta nacen con `userId` NULO (CHECK
+      // `shipment_kind_link`) ⇒ el borrado de arriba no las alcanza: su domicilio y sus revisiones se vacían aquí (un cuerpo, de B-2).
+      await scrubInboundShipmentPii(tx, id);
       await tx.user.update({
         where: { id },
         data: {
@@ -2411,6 +2415,8 @@ export class AdminService {
         buylist: buylistQueue,
         disputes: disputesQueue,
         pendingPrices,
+        // 💰 rev BSD-1 (C-3, BSD-1.3 p. 4): los dos contadores del buylist con guía de entrada (para los dos roles).
+        ...(this.dashboardShipping ? await this.dashboardShipping.buylistQueue(new Date()) : {}),
         ...(await this.workQueueAdditions(role)),
       },
       buylistPeriod: { count: buylistPeriodCount, amountCents: buylistPeriodAgg._sum.approvedTotalCents ?? 0 },

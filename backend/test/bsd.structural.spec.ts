@@ -29,9 +29,15 @@ import { sellRequestStatusWriteSites, sourcesWithoutComments, StatusWriteSite } 
 const BACKEND = join(__dirname, '..');
 const SUBJECT_FILE = 'src/modules/shipments/label-subject.ts';
 
-type Clase = 'leaves_aceptada' | 'not_from_aceptada' | 'no_status';
+type Clase = 'leaves_aceptada' | 'not_from_aceptada' | 'no_status' | 'excludes_aceptada';
 const L = 'leaves_aceptada' as const;
 const N = 'not_from_aceptada' as const;
+/**
+ * BSD-1.3 punto 1 (B-3): su `where` admitiría `aceptada` por construcción (`liveRequestWhere()`) y por eso lleva la exclusión
+ * EXPLÍCITA `NOT: { status: 'aceptada' }` en el propio `where` — la prueba lo lee del AST. ⛔ Sin `closeInboundShipment`: en
+ * `aceptada` no se rechaza (`422 REQUEST_NOT_RECEIVED {remedy:'decline_accepted'}`), se declina.
+ */
+const E = 'excludes_aceptada' as const;
 /** `data` OPACO (una variable) que, leído a mano, NO pone `status`. */
 const S = 'no_status' as const;
 
@@ -39,31 +45,30 @@ const WRITERS: Record<string, readonly [Clase, string]> = {
   'src/jobs/buylist-sweep.service.ts expireUnansweredAdjustments#updateMany#1': [N, 'where = ajuste vivo (verificacion|aprobada)'],
   'src/jobs/buylist-sweep.service.ts abandonUnreturned#updateMany#1': [N, 'where = recibida|verificacion|aprobada'],
   'src/jobs/buylist-sweep.service.ts expireUnofferedRequests#updateMany#1': [N, "where status='cotizada'"],
-  'src/jobs/buylist-sweep.service.ts closeWithGuideTask#updateMany#1': [L, 'reglas 1 (ofertada) y 2 (aceptada ⇒ expirada/not_shipped)'],
+  'src/jobs/buylist-sweep.service.ts closeWithGuideTask#updateMany#1': [L, 'reglas 1 (ofertada), 2 (aceptada ⇒ expirada/not_shipped) y 8 (aceptada ⇒ expirada/not_continued)'],
   'src/modules/buylist/buylist.service.ts adminOffer#updateMany#1': [N, "where status='cotizada'"],
   'src/modules/buylist/buylist.service.ts adminOfferAuthorize#updateMany#1': [N, "where status='cotizada'"],
   'src/modules/buylist/buylist.service.ts adminOfferCancel#updateMany#1': [N, 'where status ∈ cotizada|ofertada'],
   'src/modules/buylist/buylist.service.ts offerResponse#updateMany#1': [N, "where status='ofertada' (ENTRA a aceptada, no sale)"],
   'src/modules/buylist/buylist.service.ts adminConfirmShipment#updateMany#1': [L, "aceptada ⇒ en_transito (closeInboundShipment 'shipped')"],
   'src/modules/buylist/buylist.service.ts adminDecline#updateMany#1': [N, "where status='cotizada'"],
+  'src/modules/buylist/buylist.service.ts adminDeclineAccepted#updateMany#1': [L, "aceptada ⇒ expirada/not_continued (decline-accepted, §BSD.6)"],
   'src/modules/buylist/buylist.service.ts receive#updateMany#1': [N, 'stepWhere(receive) = en_transito|recibida'],
   'src/modules/buylist/buylist.service.ts verify#updateMany#1': [N, 'stepWhere(verify) = recibida|verificacion'],
-  'src/modules/buylist/buylist.service.ts autoRejectIfAllRejectedTx#updateMany#1': [L, 'liveRequestWhere() ⊇ aceptada ⇒ rechazada'],
-  'src/modules/buylist/buylist.service.ts rejectRequest#updateMany#1': [L, 'liveRequestWhere() ⊇ aceptada ⇒ rechazada'],
+  'src/modules/buylist/buylist.service.ts autoRejectIfAllRejectedTx#updateMany#1': [E, 'liveRequestWhere() ∧ NOT aceptada ⇒ rechazada (BSD-1.3 punto 1)'],
+  'src/modules/buylist/buylist.service.ts rejectRequest#updateMany#1': [E, 'liveRequestWhere() ∧ NOT aceptada ⇒ rechazada (BSD-1.3 punto 1)'],
   'src/modules/buylist/buylist.service.ts paySpei#updateMany#1': [N, "where status='aprobada'"],
   'src/modules/buylist/buylist.service.ts respond#updateMany#1': [N, 'data opaco (rechazada|aprobada); where = ajuste vivo (verificacion|aprobada)'],
   'src/modules/buylist/sell-request-guide.ts writeSellRequestGuide#updateMany#1': [S, 'data = par/guideSentAt/plazo (+ sello): sin status'],
   'src/modules/buylist/sell-request-guide.ts writeSellRequestGuide#updateMany#2': [S, 'data = par/guideSentAt/plazo: sin status'],
 };
 
-/** El trinquete (ver cabecera). Dueño y razón. Vaciarla es el objetivo de B-3 y del arquitecto. */
-const PENDIENTE: Record<string, string> = {
-  'src/jobs/buylist-sweep.service.ts closeWithGuideTask#updateMany#1': 'B-3 — §BSD.7.3 regla 2 (y la tarea solo con guía manual o `live`)',
-  'src/modules/buylist/buylist.service.ts adminConfirmShipment#updateMany#1': "B-3 — §BSD.4.5 `closeInboundShipment(tx, id, 'shipped')`",
-  'src/modules/buylist/buylist.service.ts autoRejectIfAllRejectedTx#updateMany#1':
-    'ARQUITECTO — escritor NO listado en I-BSD-1: rechazar por carta TODAS las líneas de una `aceptada` (la decisión `reject` no exige recepción) la cierra `rechazada`',
-  'src/modules/buylist/buylist.service.ts rejectRequest#updateMany#1': 'ARQUITECTO — escritor NO listado en I-BSD-1: `POST …/reject` sobre una `aceptada` con todas sus líneas rechazadas',
-};
+/**
+ * El trinquete (ver cabecera). Dueño y razón. **Vacío desde B-3:** la regla 2 (y la 8) y `adminConfirmShipment` llaman a
+ * `closeInboundShipment`; `autoRejectIfAllRejectedTx` y `rejectRequest` pasaron a `excludes_aceptada` (BSD-1.3 punto 1). Un
+ * sitio que vuelva aquí necesita dueño y razón.
+ */
+const PENDIENTE: Record<string, string> = {};
 
 const CALLS_CLOSE = /\bcloseInboundShipment\(/;
 
@@ -117,6 +122,17 @@ describe('💰 BSD-B25 (b) — I-BSD-1: salir de `aceptada` llama a `closeInboun
   it('TRINQUETE: lo que está en PENDIENTE sigue sin cablear (si ya lo cableaste, sácalo de PENDIENTE)', () => {
     const yaCumplen = WRITES.filter((w) => w.key in PENDIENTE && CALLS_CLOSE.test(w.fnText)).map((w) => w.key);
     expect(yaCumplen).toEqual([]);
+  });
+
+  it('BSD-1.3 punto 1: todo `excludes_aceptada` excluye `aceptada` EN SU `where` (AST) y no llama a `closeInboundShipment`', () => {
+    const sitios = WRITES.filter((w) => WRITERS[w.key]?.[0] === E);
+    expect(sitios.map((w) => w.key).sort()).toEqual([
+      'src/modules/buylist/buylist.service.ts autoRejectIfAllRejectedTx#updateMany#1',
+      'src/modules/buylist/buylist.service.ts rejectRequest#updateMany#1',
+    ]);
+    const EXCLUYE = /\bNOT: \{ status: 'aceptada' \}/;
+    expect(sitios.filter((w) => !w.whereText || !EXCLUYE.test(w.whereText)).map((w) => `${w.key}: ${w.whereText}`)).toEqual([]);
+    expect(sitios.filter((w) => CALLS_CLOSE.test(w.fnText)).map((w) => w.key)).toEqual([]);
   });
 
   it('PENDIENTE solo contiene sitios vivos y `leaves_aceptada`, con su dueño', () => {

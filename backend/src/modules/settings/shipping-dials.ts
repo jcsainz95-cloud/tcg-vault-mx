@@ -178,8 +178,12 @@ export function validateInsuranceTiers(v: unknown): string | null {
  * y su candado lean UNA lista). Medidas «ESTIMADO» del plan del panel (el dueño las corrige en M10); códigos medidos
  * (PROD §5.2). ⚠️ Que ampm acepte `5H4` al COMPRAR es NO MEDIDO (PROD §4.5).
  */
-/** §19.29.8 — los códigos de aviso de gasto que `spend_alerts_disabled` puede apagar (`'AG-1'…'AG-13'` en D2). */
-export const SPEND_ALERT_CODES = Array.from({ length: 13 }, (_, i) => `AG-${i + 1}`);
+/**
+ * §19.29.8 — los códigos de aviso de gasto que `spend_alerts_disabled` puede apagar (`'AG-1'…'AG-13'` en D2).
+ * 💰 rev BSD-1 (API_CONTRACT §BSD.15 C-7): + `'AG-23'` (solicitud de venta sin guía) — se apaga como los demás (la fila nace
+ * `muted`, sin correo); la marca de M5 y el contador del tablero son derivados y NO se apagan.
+ */
+export const SPEND_ALERT_CODES = [...Array.from({ length: 13 }, (_, i) => `AG-${i + 1}`), 'AG-23'];
 
 /** `spend_alerts_disabled`: `string[]` sin repetidos ⊆ `SPEND_ALERT_CODES`. Seed `[]` (todos encendidos, `PROJECT §Z.0.1`). */
 export function validateSpendAlertsDisabled(v: unknown): string | null {

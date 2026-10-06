@@ -143,6 +143,8 @@ describe('⚠️ BL-21 — el correo en inglés lleva el botón a la pantalla en
         }),
       },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
+      // rev BSD-1 (B-3): los candados de I-BSD-4 de `adminGuide` (`FOR UPDATE`); sin fila de entrada.
+      $queryRaw: jest.fn(async () => []),
     };
     const pricing = {
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
@@ -356,6 +358,8 @@ describe('⚠️ BL-22 — LAS ESCRITURAS NO DEGRADAN', () => {
         }),
       },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
+      // rev BSD-1 (B-3): los candados de I-BSD-4 de `adminGuide` (`FOR UPDATE`); sin fila de entrada.
+      $queryRaw: jest.fn(async () => []),
     };
     // ⚠️ Un dial ABSURDO no basta para forzar el fallo; lo que lo fuerza es una FECHA fuera de
     // cobertura. Se usa `now` en 2019 (fuera de `MX_HOLIDAYS`) al congelar.
