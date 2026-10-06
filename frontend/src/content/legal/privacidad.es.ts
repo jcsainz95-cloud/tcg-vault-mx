@@ -74,9 +74,9 @@ export const PROVISIONAL_FISCAL_TEXT =
   'cualquier solicitud sobre tus datos personales al correo de abajo.';
 
 export const privacyNoticeEs: LegalDocument = {
-  version: '0.2-provisional-2026-10-05',
+  version: '0.3-provisional-2026-10-06',
   pendingOwnerData: ['razonSocial', 'rfc', 'domicilio'],
-  updatedAt: '5 de octubre de 2026',
+  updatedAt: '6 de octubre de 2026',
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
     {
