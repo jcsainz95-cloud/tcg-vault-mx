@@ -29545,3 +29545,27 @@ al terminar: idéntico):
 | m9 | `resultNetCents` resta otra vez los ajustes | AN-B-15, AN-B-22 |
 | m11 | `centsToPesosCell` con `Math.trunc` (pierde el signo con \|n\| < 100) | AN-B-23 (`-5 ⇒ "-0.05"`) |
 | m10 | (fase C) | no aplica: fase C no construida |
+
+### 80.5 Arreglos tras los gates de QA y techlead sobre `76dd1ee9` (2026-10-06)
+
+- **C-1 (bloqueante) — el resumen de las 08:00 ya no deja la fila en `sending`.** `spend-digest.service.ts`: TODO lo que
+  corre después de reservar el día (`count` de avisos, línea de ventas, envío) va dentro del `try`; cualquier fallo ⇒
+  `failed` (re-enviable por cron o `{day}`). La línea de ventas es un **extra** (`salesLine()`: si `dayFigures` lanza, se
+  registra y devuelve `'failed'`). **Decisión** para la regla «avisos O pedidos ⇒ se manda»:
+  - con avisos ⇒ el resumen de gasto **sale sin la línea**;
+  - sin avisos ⇒ no se sabe si hubo pedidos ⇒ **no se manda** y la fila pasa a `failed` (⛔ nunca `empty`, que cerraría
+    el día en silencio). El re-envío lo recoge con la línea sana.
+  Prueba **AN-B-18b** (`test/integration/sales-analytics.e2e-spec.ts`, doble = `jest.spyOn(SalesAnalyticsService.dayFigures)`
+  que lanza): roja sobre `76dd1ee9` (estado final `sending`), verde con el arreglo. Mutaciones: llamada fuera del `try` ⇒
+  rojo; quitar el `failed` del caso sin avisos ⇒ rojo (sale `empty`).
+- **QA menor (no-store en 401/403): NO aplicado.** El proyecto pone `Cache-Control: no-store` con `@Header` en el handler
+  (≈25 rutas: `admin.controller.ts`, `admin-shipments.controller.ts`, `guest-orders.controller.ts`, …) y **ninguna** lo
+  lleva en sus 401/403 (los lanza el guard antes del handler; ni el filtro de excepciones ni `main.ts` ponen
+  `Cache-Control`, medido con `grep -rn Cache-Control src/common src/main.ts` ⇒ vacío). Hacerlo solo aquí sería
+  incoherente; si se quiere, es un cambio transversal (filtro global) para el arquitecto.
+- **TD-AN-5/6/7 cerradas en código** (ver `docs/TECH_DEBT.md`, sección «Backend · 2026-10-06 · gates … `76dd1ee9`»):
+  válvula `AN_PARITY_WRITE` cerrada en CI; seguro `580` en la fixture (S2) con la instantánea AN-B-13 **regenerada con el
+  código de `d644be0d`** (antes de `pnl-core`; solo cambian los 8 campos `shippingInsuranceCents`); `total.pnl` lanza si
+  `pnlBuckets` trae una llave fuera de los cubos; R-2 con `status in (settled, refunded, chargeback)` explícito.
+  Pruebas: `test/sales-analytics.pnl-keys.spec.ts` (TD-AN-6/7, rojas 2/3 sobre `76dd1ee9`), CONTROL de AN-B-13
+  (`shippingInsuranceCents = 580`; quitar la línea del seguro en `pnl-core` ⇒ AN-B-13 2/2 rojas).

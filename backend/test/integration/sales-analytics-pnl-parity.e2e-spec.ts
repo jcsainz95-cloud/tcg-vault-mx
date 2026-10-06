@@ -5,7 +5,11 @@
  *
  * La instantánea `fixtures/an-b-13-pnl-snapshot.json` se ESCRIBIÓ con el código ANTERIOR al refactor (commit propio,
  * previo al de `pnl-core`: `AN_PARITY_WRITE=1`) y ⛔ no se regenera para hacer pasar esto. Si M7 cambia a propósito
- * (§W 277/278), se regenera EN EL MISMO commit que lo cambia y se dice por qué.
+ * (§W 277/278), se regenera EN EL MISMO commit que lo cambia y se dice por qué. ⛔ Con `CI` definido, `AN_PARITY_WRITE=1` falla.
+ *
+ * TD-AN-5 (2026-10-06): la fixture ganó `insuranceCostCents: 580` en S2 (el seguro tenía 0 ⇒ hueco). La instantánea se
+ * REGENERÓ con el código ANTERIOR a `pnl-core` (`d644be0d`, `admin.service.ts` sin partir) sobre la fixture nueva, y el
+ * código actual la iguala: sigue siendo «antes = después», no «después = después».
  *
  * Rangos: los que M7/M9 reciben de verdad — fechas crudas `YYYY-MM-DD` (D-AN-2: `range()` las toma como medianoche UTC con
  * `lte`), instantes ISO y un rango que cubre toda la ventana. ⛔ Sin el «sin rango»: barrería las filas de otras suites.
@@ -59,6 +63,8 @@ describe('AN-B-13 💰 — M7 da lo mismo antes y después de pnl-core (Postgres
   it('instantánea idéntica (pnl, ivaReport, exportCsv pnl, launchMetrics) en 6 rangos', async () => {
     const now = await measure();
     if (process.env.AN_PARITY_WRITE === '1') {
+      // TD-AN-5: la válvula NO se abre en CI — una instantánea reescrita por la propia corrida que la compara no prueba nada.
+      if (process.env.CI) throw new Error('AN-B-13: AN_PARITY_WRITE=1 con CI definido — la instantánea solo se escribe a mano, en local');
       mkdirSync(join(__dirname, 'fixtures'), { recursive: true });
       writeFileSync(SNAPSHOT, `${JSON.stringify(now, null, 2)}\n`);
     }
@@ -72,5 +78,7 @@ describe('AN-B-13 💰 — M7 da lo mismo antes y después de pnl-core (Postgres
     expect(p.shippingAdjustmentsCents).toBe(2000);
     expect(p.refundsCents).toBeGreaterThan(0);
     expect(p.shippingCostMissingCount).toBe(1);
+    // TD-AN-5: el seguro informativo (pnl-core `shippingInsuranceCents`) se mueve; con 0 en la fixture, quitar su línea pasaba.
+    expect(p.shippingInsuranceCents).toBe(580);
   });
 });

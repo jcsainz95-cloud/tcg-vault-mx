@@ -268,8 +268,9 @@ export async function seedSales(db: PrismaClient): Promise<Record<string, string
 
   const addr = { street: 'Calle Fixture 1', city: 'CDMX', postalCode: '01000' };
   // El envío del directo O2: tarifa dentro de la orden (`shippingFeeCents = 0` aquí, D-IVA-5), costo de guía capturado.
+  // TD-AN-5: con seguro de 5.80 (informativo, YA va dentro de `shippingCostCents`) para que AN-B-13 lo cubra.
   await db.shipmentRequest.create({
-    data: { id: SID.s2, orderId: SID.o2, addressSnapshot: addr, status: 'picking', pickingAt: mx('2021-03-02', 9), shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, shippingCostCents: 9280, shippingCostIvaCents: 1280, priceConvention: 'IVA_INCLUSIVE' } as never,
+    data: { id: SID.s2, orderId: SID.o2, addressSnapshot: addr, status: 'picking', pickingAt: mx('2021-03-02', 9), shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, shippingCostCents: 9280, shippingCostIvaCents: 1280, insuranceCostCents: 580, priceConvention: 'IVA_INCLUSIVE' } as never,
   });
   // Un retiro de bóveda de A (cobro propio), sin costo capturado ⇒ cuenta en `shippingCostMissingCount`.
   await db.shipmentRequest.create({

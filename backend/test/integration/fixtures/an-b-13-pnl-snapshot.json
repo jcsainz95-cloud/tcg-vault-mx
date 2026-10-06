@@ -8,7 +8,7 @@
       "shippingCostCents": 10000,
       "shippingCostMissingCount": 1,
       "shippingAdjustmentsCents": 2000,
-      "shippingInsuranceCents": 0,
+      "shippingInsuranceCents": 580,
       "refundsCents": 20921,
       "refundedFeesCents": 2270,
       "compensationsCents": 1000,
@@ -69,7 +69,7 @@
         }
       ]
     },
-    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents\npnl,69000,25000,36000,4650,10000,1,2000,0,20921,2270,1000,19159\n",
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents\npnl,69000,25000,36000,4650,10000,1,2000,580,20921,2270,1000,19159\n",
     "launch": {
       "users": 3,
       "salesSettled": 6,
@@ -87,7 +87,7 @@
       "shippingCostCents": 10000,
       "shippingCostMissingCount": 1,
       "shippingAdjustmentsCents": 2000,
-      "shippingInsuranceCents": 0,
+      "shippingInsuranceCents": 580,
       "refundsCents": 20921,
       "refundedFeesCents": 2270,
       "compensationsCents": 1000,
@@ -130,7 +130,7 @@
         }
       ]
     },
-    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents\npnl,50000,25000,28000,3600,10000,1,2000,0,20921,2270,1000,9209\n",
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents\npnl,50000,25000,28000,3600,10000,1,2000,580,20921,2270,1000,9209\n",
     "launch": {
       "users": 0,
       "salesSettled": 3,
@@ -178,7 +178,7 @@
       "shippingCostCents": 10000,
       "shippingCostMissingCount": 1,
       "shippingAdjustmentsCents": 2000,
-      "shippingInsuranceCents": 0,
+      "shippingInsuranceCents": 580,
       "refundsCents": 20921,
       "refundedFeesCents": 2270,
       "compensationsCents": 1000,
@@ -227,7 +227,7 @@
         }
       ]
     },
-    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents\npnl,53000,25000,29000,3800,10000,1,2000,0,20921,2270,1000,11009\n",
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents\npnl,53000,25000,29000,3800,10000,1,2000,580,20921,2270,1000,11009\n",
     "launch": {
       "users": 0,
       "salesSettled": 4,
@@ -245,7 +245,7 @@
       "shippingCostCents": 8000,
       "shippingCostMissingCount": 0,
       "shippingAdjustmentsCents": 0,
-      "shippingInsuranceCents": 0,
+      "shippingInsuranceCents": 580,
       "refundsCents": 0,
       "refundedFeesCents": 0,
       "compensationsCents": 0,
@@ -264,7 +264,7 @@
         }
       ]
     },
-    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents\npnl,20000,0,12000,900,8000,0,0,0,0,0,0,-900\n",
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents\npnl,20000,0,12000,900,8000,0,0,580,0,0,0,-900\n",
     "launch": {
       "users": 0,
       "salesSettled": 1,

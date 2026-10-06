@@ -15,7 +15,7 @@
  * construcción (hereda D-AN-1: «Ganancia (regla de Finanzas)»).
  */
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ivaIsIncluded, netRevenueCents, taxBaseCentsOf } from '../../common/money';
 import { pnlBuckets, refundRowsInPeriod, zeroPnl, PnlComponents } from '../admin/pnl-core';
@@ -106,6 +106,9 @@ const sumPnl = (parts: Iterable<PnlComponents>): PnlComponents => {
   return t;
 };
 
+/** R-2 (§15.3): los estados de un pedido cobrado. */
+const SOLD_STATUSES: OrderStatus[] = ['settled', 'refunded', 'chargeback'];
+
 const round1 = (x: number | null) => (x === null ? null : Math.round(x * 10) / 10);
 
 @Injectable()
@@ -113,7 +116,12 @@ export class SalesAnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
   private async ordersIn(range: { gte: Date; lt: Date }): Promise<OrderRow[]> {
-    const rows = await this.prisma.order.findMany({ where: { settledAt: range }, select: ORDER_SELECT });
+    // TD-AN-7: R-2 dice «cualquier estado de hoy» — los tres que un pedido COBRADO puede tener. Explícito: un `settledAt`
+    // escrito en un `pending`/`failed` (hoy no ocurre) no se cuela como venta.
+    const rows = await this.prisma.order.findMany({
+      where: { settledAt: range, status: { in: SOLD_STATUSES } },
+      select: ORDER_SELECT,
+    });
     return rows.map((o) => ({
       id: o.id,
       settledAt: o.settledAt as Date,
@@ -165,6 +173,9 @@ export class SalesAnalyticsService {
       addBuylist(total, s.payoutNetCents ?? null);
     }
     for (const b of buckets) accs.get(b.from)!.pnl = pnl.get(b.from) ?? zeroPnl();
+    // TD-AN-6: la misma comprobación que `accOf` — una llave de `pnlBuckets` fuera de los cubos es un defecto nuestro, y el
+    // total la sumaría sin que ninguna fila la tuviera (Σ filas ≠ total). ⛔ No se descarta en silencio: se dice.
+    for (const k of pnl.keys()) if (!accs.has(k)) throw new Error(`sales-analytics: llave de pnl fuera de los cubos (${k})`);
     total.pnl = sumPnl(pnl.values());
     return {
       rows: buckets.map((b) => ({ from: b.from, to: b.to, ...finish(accs.get(b.from)!) })),
