@@ -153,3 +153,21 @@ describe('UX-BSD-4 · «Tu guía» ⇔ `labelPdfAvailable`', () => {
     else expect(get).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('M-2 (gate QA) · en un cierre SIN guía no se habla de la guía', () => {
+  const PICKUP = { line1: 'Calle 1', neighborhood: 'Centro', city: 'Guadalajara', state: 'Jalisco', postalCode: '44100', country: 'MX' as const, phone: '3300000000', capturedAt: '2026-09-20T14:00:00.000Z' };
+  it.each(['not_continued', 'no_offer'] as const)('`%s` ⇒ ni el bloque de la dirección de origen ni «va impresa en la guía»', async (reason) => {
+    vi.spyOn(api, 'getSellRequest').mockResolvedValue(
+      detail({ status: 'expirada', isTerminal: true, expiredReason: reason, labelPdfAvailable: false, offer: null, pickupAddress: PICKUP }),
+    );
+    renderWithProviders(<SellRequestDetailView sellRequestId="sr-nc" />);
+    await screen.findByText('Cotizar de nuevo');
+    expect(screen.queryByTestId('seller-pickup-address')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/impresa en la guía/);
+  });
+  it('CONTROL · `aceptada` sí la muestra con su frase', async () => {
+    vi.spyOn(api, 'getSellRequest').mockResolvedValue(detail({ pickupAddress: PICKUP }));
+    renderWithProviders(<SellRequestDetailView sellRequestId="sr-nc" />);
+    expect(await screen.findByTestId('seller-pickup-address')).toHaveTextContent('impresa en la guía');
+  });
+});

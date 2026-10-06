@@ -236,6 +236,8 @@ function Detail({
   const notContinued = data.status === 'expirada' && data.expiredReason === 'not_continued';
   const hideMoney = data.status === 'expirada' && (data.expiredReason === 'no_offer' || notContinued);
   const showOffer = !!offer && !notContinued;
+  /** Los dos cierres en que nunca hubo ni habrá guía (los mismos que redactan el dinero). */
+  const closedWithoutGuide = hideMoney;
 
   /**
    * ⚠️ **Las acciones NO se apagan por el reloj del navegador, y es deliberado.**
@@ -483,8 +485,10 @@ function Detail({
       {/* §23.5d/e — SU propia dirección de origen: es su dato y es lo que vamos a IMPRIMIR, así
           que tiene que poder verificarla ANTES de que compremos la etiqueta. No es NUESTRA
           dirección (esa sigue oculta hasta la aceptación, criterio 114). */}
-      {data.pickupAddress && (
-        <section className="gutter mt-10">
+      {/* M-2 (gate QA): en un cierre SIN guía (`no_offer`, `not_continued`) nunca habrá etiqueta: ni «va impresa en la guía»
+          ni el bloque, que ya no le sirve al vendedor para nada. */}
+      {data.pickupAddress && !closedWithoutGuide && (
+        <section className="gutter mt-10" data-testid="seller-pickup-address">
           <h2 className="eyebrow">{tb('request.address.label')}</h2>
           <address className="mt-2 not-italic text-sm leading-[1.7] text-text">
             {[

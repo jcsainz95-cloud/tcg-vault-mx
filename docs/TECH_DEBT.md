@@ -9720,8 +9720,31 @@ esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
 - **Comprobación de cierre:** `rg -n "assertOutboundRoute" backend/src/modules/shipments/admin-shipments.controller.ts`
   ⇒ 0 (decorador) o censo verde con canario.
 
-### BSD-TL-D8 · (frontend) · HUECO RESERVADO
-> La escribe **frontend** (dueño). Backend no la redacta.
+### BSD-TL-D8 · P3 · La ventana «Capturar guía» en modo entrada: booleano `inbound` repartido, M5 colgado de `m4/` y un concepto del buylist en `m4/capture/`
+- **Dueño:** frontend.
+- **Dónde** (re-medido por frontend el 2026-10-06 sobre el árbol de trabajo encima de `04cb1186`):
+  - `frontend/src/app/[locale]/(admin)/admin/m4/CaptureLabelDialog.tsx`: **1412 líneas**; el modo entrada viaja como
+    booleano `inbound` a seis subcomponentes: `OptionsView` (`:1065`), `BuyView` (`:1077`), `LabelView` (`:1102`, prop
+    `:1169`/`:1179`), `PendingView` (`:1114`, prop `:1290`/`:1299`), `AddressForm` (`:1016`, objeto `{sellerName}`),
+    `AddressReadView` (`m4/capture/AddressStep.tsx:328`); además `RateLines` (`m4/capture/QuoteViews.tsx:23`) y
+    `CancelLabelDialog` (`m4/LabelActions.tsx:375`/`:384`).
+  - `frontend/src/app/[locale]/(admin)/admin/m5/AcceptedRequestPanel.tsx:14-18` importa cinco módulos internos de
+    `../m4/` (`CaptureLabelDialog`, `LabelActions`, `capture/label-pdf`, `capture/sdx-errors`, `capture/sell-status`);
+    `m5/DeclineAcceptedDialog.tsx:13` también `capture/sell-status`.
+  - `frontend/src/app/[locale]/(admin)/admin/m4/capture/sell-status.ts`: el rótulo del estado de una SOLICITUD DE VENTA
+    (concepto del buylist) vive en la carpeta de la ventana de M4.
+- **Impacto:** cada pantalla nueva que abra la ventana añade otro booleano por subcomponente (y otro `if` por texto);
+  el acoplamiento `m5 → m4` hace que mover o partir M4 rompa M5 sin que lo diga el árbol de carpetas.
+- **Corrección:** mover la ventana y sus piezas a `frontend/src/components/shipping-label/` (zona compartida: cuando un
+  stream tenga esa zona); un **objeto de modo** (`{ kind: 'outbound' } | { kind: 'inbound', sellRequestId, sellerName }`)
+  en vez del booleano; `sell-status.ts` a `frontend/src/lib/` (o junto al buylist).
+- **Disparador:** la próxima pantalla que use la ventana, o el próximo stream con `frontend/src/components/`.
+- **Comprobación de cierre:** `rg -n "from '\.\./m4/" frontend/src/app/[locale]/(admin)/admin/m5` ⇒ 0;
+  `rg -n "inbound(=|\?:|: boolean)" frontend/src/components/shipping-label` ⇒ 0; vitest de la ventana verde.
+- **Ya cerrado en esta misma vuelta (no es deuda):** el nombre del PDF de la guía de entrada se reimplementaba en M5
+  con `r.id.slice(0, 8)`. Ahora `m4/capture/label-pdf.ts` guarda con el `Content-Disposition` del servidor
+  (`sellerLabelFilenameOf` / el de la ruta admin) y `ref` es solo respaldo; M5 pasa el folio de la fila de entrada
+  (`m5/AcceptedRequestPanel.tsx`). Candado `m4/capture/label-pdf.test.ts` (mutación «nombre propio» muerde, N=1).
 
 ### BSD-TL-D9 · P3 · La regla 10 repite el escritor «ÚNICO» de la tarea y la política de errores del barrido es mixta
 - **Dueño:** backend.

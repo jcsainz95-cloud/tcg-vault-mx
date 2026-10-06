@@ -10,7 +10,7 @@ import type { AppLocale } from '@/i18n/routing';
 import type { AdminBuylistDTO } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
-import { useErrorMessage } from '@/components/ui/QueryState';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { CaptureLabelDialog, type CaptureSaved, type CaptureTarget } from '../m4/CaptureLabelDialog';
 import { CancelLabelDialog, LabelAlertBlock } from '../m4/LabelActions';
 import { openLabelPdf } from '../m4/capture/label-pdf';
@@ -113,7 +113,7 @@ export function AcceptedRequestPanel({
 
   function onSaved(s: CaptureSaved) {
     refresh();
-    if (s.kind === 'skydropx') onNotice({ variant: 'success', requestId: r.id, text: t('bought', { id: r.id, carrier: s.carrier, tracking: s.number }) });
+    if (s.kind === 'skydropx') onNotice({ variant: 'success', requestId: r.id, text: tSdx('inbound.bought', { id: r.id, carrier: s.carrier, tracking: s.number }) });
   }
 
   function onDeclined(o: DeclineAcceptedOutcome) {
@@ -125,6 +125,16 @@ export function AcceptedRequestPanel({
   return (
     <section className="flex flex-col gap-3" data-testid={`m5-accepted-panel-${r.id}`}>
       <GuideDueBlock req={r} />
+
+      {/* M-4 (gate QA): sin el DETALLE no sabemos `inboundLabelOptions` y «Generar guía» no puede ofrecerse. ⛔ Que desaparezca
+          mudo: se dice con el error de siempre (`QueryState`: el texto del código o `common.errorGeneric`) y «Reintentar». */}
+      {detail.isError && (
+        <div data-testid={`m5-accepted-detail-error-${r.id}`}>
+          <QueryState isLoading={false} isError error={detail.error} onRetry={() => void detail.refetch()}>
+            {null}
+          </QueryState>
+        </div>
+      )}
 
       {/* La guía de Skydropx de entrada: viva, en proceso o con alerta. */}
       {sdx && (
@@ -138,7 +148,7 @@ export function AcceptedRequestPanel({
               variant="secondary"
               onClick={() => {
                 setPdfError(null);
-                openLabelPdf(sdx.id, r.id.slice(0, 8), 'download').catch((e) =>
+                openLabelPdf(sdx.id, sdx.folio, 'download').catch((e) =>
                   setPdfError(asApiError(e)?.code === 'LABEL_NOT_AVAILABLE' ? tLabel('notAvailable') : tSdx('label.printError')),
                 );
               }}
