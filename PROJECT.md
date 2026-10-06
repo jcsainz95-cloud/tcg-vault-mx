@@ -9066,6 +9066,110 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
   «Disputas…» y 2026-10-05 «Términos tras quitar disputas…») y se pueden aplicar ya; T-1/T-2/T-3 esperan P-LEG-6
   (o su default) (criterio 510).
 
+### AN. Analítica de ventas para el dueño — pedidos por día, venta en pesos, ticket promedio y lo que más se vende (transversal — NUEVO 2026-10-06 · ⚠️ BORRADOR de product-owner, con preguntas P-ANA abiertas)
+
+> **Fuente:** palabras del dueño (2026-10-06, textual): *«también quiero analítica para business owner cuántos
+> pedidos tuve por día, ticket, volumen de venta en dinero, eso lo tenemos en algún lado, analytics como para un
+> business owner, qué más agregas»*.
+>
+> **Lo que existe hoy** *(medido por el orquestador el 2026-10-06, NO re-medido por product-owner: no tengo Bash)*:
+> **M7** da el P&L de un periodo (ventas, costo, ganancia, IVA, CSV; `backend/src/modules/admin/admin.service.ts:1728`
+> `pnl`) y **M9** da «métricas de lanzamiento» (clientes nuevos, órdenes liquidadas, solicitudes de buylist pagadas y
+> envíos entregados en un periodo; `admin.service.ts:2146` `launchMetrics`). **No hay nada por día, ni ticket
+> promedio, ni gráficas.** Respuesta corta a «¿lo tenemos en algún lado?»: **el total del periodo sí (M7/M9); el día
+> a día, el ticket y lo más vendido, no.**
+>
+> **Letra y numeración:** §T…§Z y §LEG ya existen, por eso esta es **§AN**. **Criterios: bloque 600–624**
+> (medido el 2026-10-06 sobre este `PROJECT.md`: los bloques ocupados son hasta el **338**, **400–418** y
+> **500–511**; los huecos 339–399 y 512+ se dejan para que §Z y §LEG crezcan). **NO MEDIDO** si otra rama viva
+> usa el bloque 600 o la letra AN — lo comprueba el orquestador antes de fusionar.
+>
+> **Cómo encaja con lo que ya está anotado (no se duplica):**
+> - **§W (Finanzas)** — esta sección **usa** sus reglas, no las redefine: el día se corta en hora del centro de
+>   México y el último día cuenta entero (§W.2, criterio 275; default de P-FIN-1 **aceptado**, `HECHOS.md` fila
+>   2026-10-04 «Portada: se cobra el precio que el cliente VIO…»: *«Las demás preguntas P-FIN… quedan con su
+>   default»*), un reembolso total **no resta dos veces** (§W.3 (d)) y los contracargos cuentan como dice §W.3 (c).
+>   ⇒ **La zona horaria NO se le vuelve a preguntar al dueño.**
+> - **P-ANALYTICS-OPS** (visitas, de dónde llega la gente, carritos abandonados): **fuera de §AN**. Necesita medir
+>   lo que hace el visitante —hoy no se guarda— y toca el aviso de privacidad (criterio 509). §AN **solo** usa lo que
+>   la tienda ya guarda.
+> - **P-ANALYTICS-NEGOCIO** y `HECHOS.md` fila 2026-10-04 «Rotación nivel siguiente» (qué rota, qué se estanca, qué
+>   comprar, qué rematar): **fuera de §AN**. §AN dice **qué se vendió**; aquella dice **qué hacer con el
+>   inventario**. El «lo más vendido» de §AN es su primer ladrillo, no su sustituto.
+> - **P-WISHLIST**: fuera de §AN.
+> - **P-DB-LIMPIEZA**: mientras no se limpien los pedidos de prueba, **estas cifras los incluyen** (toda venta hasta
+>   hoy es de prueba, `HECHOS.md` fila 16). §AN no filtra «de prueba»: la limpieza lo resuelve una vez.
+>
+> 💰 Lee dinero (no lo mueve): sus cifras deben **cuadrar al centavo con M7**. El *cómo* (consultas, tablas,
+> endpoints) es del arquitecto y no se escribe aquí.
+
+#### AN.1 Qué significa cada número (una sola definición por cifra)
+
+| Cifra | Qué es, en llano | De dónde sale |
+|---|---|---|
+| **Pedidos** | Pedidos **pagados** (cobro confirmado) en el día. No cuentan los pagos fallidos ni los carritos que no se pagaron. Cuentan igual los de **envío** y los de **bóveda**, y los de **invitado**. | Pedidos liquidados (lo mismo que M9 llama «órdenes liquidadas») |
+| **Cobrado (con IVA)** | Lo que pagaron los clientes ese día: total del pedido, con IVA, envío y comisión de plataforma. | Pedidos liquidados |
+| **Venta sin IVA** | La **misma cifra de ingreso que M7**, partida por día. ⛔ No se inventa una fórmula nueva: si M7 cambia (§W), esta cambia con ella. | P&L de M7 (criterio 191: ingreso NETO, el IVA no es ingreso) |
+| **Reembolsos** | Cuántos reembolsos se hicieron y por cuánto (totales y de una carta, por tarjeta o SPEI). Se cuentan **en el día en que se hicieron** *(default de P-ANA-1)*. | Reembolsos registrados (§S.11, §V.2) |
+| **Venta neta de reembolsos** | Venta sin IVA − la parte sin IVA de los reembolsos del día. | Las dos de arriba |
+| **Ticket promedio** | Cobrado (con IVA) ÷ pedidos. Es «lo que deja un cliente por compra» *(default de P-ANA-2)*. | Calculado |
+| **Piezas por pedido** | Piezas vendidas ÷ pedidos. Un sellado cuenta como una pieza por unidad. | Renglones de los pedidos |
+| **Clientes nuevos / recurrentes** | **Nuevo**: su **primer** pedido pagado cae en el periodo. **Recurrente**: ya había comprado antes. Un invitado se reconoce por su **correo** *(SUPUESTO: mismo correo = mismo cliente, tenga o no cuenta)*. | Pedidos liquidados |
+
+#### AN.2 P1 — la primera versión, pequeña y útil aunque haya pocas ventas
+
+1. **Elegir periodo**: Hoy, Ayer, Últimos 7 días, Últimos 30 días, Este mes, Mes pasado y un rango a mano; y **ver
+   por día, por semana o por mes** *(SUPUESTO: la semana va de lunes a domingo)*.
+2. **Los números grandes del periodo**: pedidos, cobrado (con IVA), venta sin IVA, reembolsos (cuántos y cuánto),
+   venta neta de reembolsos, ticket promedio y piezas por pedido.
+3. **Contra el periodo anterior** del mismo largo (p. ej. «últimos 7 días» contra los 7 de antes): cada número grande
+   muestra la diferencia **en unidades** («+2 pedidos», «+MX$850») y en %. Con pocas ventas el porcentaje engaña
+   («+200 %» por pasar de 1 a 3 pedidos), por eso **la diferencia en unidades siempre va primero**; si el periodo
+   anterior fue cero, dice «sin ventas en el periodo anterior», sin porcentaje.
+4. **Tabla día por día** con **todos los días del periodo, también los de cero** (con pocas ventas, ver los días
+   vacíos es parte de la información), y una **gráfica de barras** sencilla de pedidos y de cobrado por día (o por
+   semana/mes según lo elegido).
+5. **Lo más vendido del periodo** (hasta 10 por lista): **cartas** (nombre, set y acabado), **sets** y **sellados**,
+   ordenables por **venta sin IVA** o por **piezas**. Una pieza cuyo pedido se reembolsó **completo** no cuenta como
+   vendida *(SUPUESTO)*.
+6. **Clientes nuevos vs. recurrentes** del periodo (cuántos de cada uno).
+7. **Exportar a CSV** la tabla por día (cuadra al centavo con la pantalla, §W.2). Sin datos personales.
+8. **Tarjeta en el tablero, «Ventas de hoy»**: pedidos y cobrado de hoy, contra el mismo día de la semana pasada, con
+   un enlace a la pantalla completa.
+9. **Ganancia por día** — entra en P1 **solo si** el arquitecto confirma que el P&L de M7 ya se puede pedir por día
+   sin un cálculo nuevo; si no, pasa a P2. Es la misma ganancia de M7, partida por día.
+
+#### AN.3 P2 — después (cuando haya ventas reales que comparar)
+
+- **Mejores días**: qué día de la semana y qué franja horaria vende más (con pocas ventas no dice nada; por eso P2).
+- **Cómo pagan y a dónde va**: mezcla por **método de pago** *(NO MEDIDO por product-owner qué métodos acepta hoy el
+  checkout de Stripe —tarjeta y si hay otros—; lo mide el arquitecto; si solo hay tarjeta, esta parte se reduce a
+  «destino»)*, por **destino** (envío a domicilio vs. bóveda) y **invitado vs. con cuenta**.
+- **Envíos**: cuánto se cobró de envío vs. cuánto costaron las guías (real de Skydropx o tarifa), por día — «¿me
+  sale el envío?». Sale de M7 (§T.7).
+- **Compras del buylist por día**: cuánto pagaste comprando (neto pagado), reutilizando el flujo SPEI de buylist por
+  periodo de §W.3 (e). Al lado de lo vendido, para ver si compras más de lo que vendes.
+- **Contracargos** por día (como los cuenta §W.3 (c)).
+- **Mezcla por tipo de producto**: sueltas vs. gradeadas vs. sellado, en piezas y en dinero.
+- **Ventas de ayer en el resumen diario por correo** que ya existe en §Z (08:00 hora del centro de México): una línea
+  con pedidos, cobrado y ticket de ayer.
+
+#### AN.4 Dónde se ve y quién lo ve
+
+- **Una pestaña «Ventas» dentro de Reportes (M9)** *(default de P-ANA-3)*, junto a las métricas de lanzamiento que
+  ya están ahí, más la tarjeta «Ventas de hoy» del tablero (AN.2 punto 8).
+- **Solo el súper-admin** (igual que M7/M9 hoy; regla de oro del back-office: el operador no ve dinero). *(El
+  permiso exacto de M9 hoy: NO MEDIDO por product-owner; lo confirma el arquitecto, como en §W.6.)*
+
+#### AN.5 Fuera de alcance de §AN
+
+- Visitas, de dónde llega la gente, conversión y carritos abandonados ⇒ **P-ANALYTICS-OPS**.
+- Rotación, inventario estancado, qué comprar y qué rematar ⇒ **P-ANALYTICS-NEGOCIO**.
+- Lista de deseos ⇒ **P-WISHLIST**.
+- Herramientas de terceros (Google Analytics u otras), cookies nuevas o rastreo del visitante: §AN no añade ninguna.
+- Pronósticos, metas nuevas (las de lanzamiento ya viven en M9) y reportes para el contador (son de §W.4).
+- Separar pedidos «de prueba» de los reales: lo resuelve **P-DB-LIMPIEZA**.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §Z (control del gasto)** *(2026-10-04)*: avisos por **SMS o WhatsApp**; avisos o correos **al personal**;
   **aprobación previa del dueño guía por guía** como camino normal (el freno es el tope y el interruptor general);
@@ -13262,6 +13366,66 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
    cifrada», T-10), se corrige **el texto** o se enruta el cambio de sistema al arquitecto — nunca se publica la
    promesa sin la conducta.
 
+> **§AN — Analítica de ventas para el dueño (2026-10-06, BORRADOR).** Bloque **600–624**. Los **600–613** son la
+> **P1** (se verifican en la primera entrega; el **612** es condicional, ver su texto). Los **620–624** son **P2**:
+> quedan escritos para que no se pierdan, pero **QA no los verifica** hasta que el dueño los pida.
+
+600. **El día es el día de México** *(§AN.1; §W.2, criterio 275)*: con un pedido pagado a las **23:30** y otro a las
+   **00:10** del día siguiente (hora del centro de México), la tabla por día pone cada uno en **su** día; «Hoy» incluye
+   un pedido pagado hace un minuto; un rango «1 al 3» incluye el día 3 completo.
+601. **Qué pedido cuenta** *(§AN.1)*: con un pedido pagado de envío, uno pagado a bóveda, uno de invitado, un pago
+   **fallido** y un carrito **sin pagar** en el mismo día, la cifra «Pedidos» de ese día es **3**.
+602. 💰 **Cobrado y venta sin IVA cuadran con M7** *(§AN.1)*: para cualquier periodo, la suma de «Venta sin IVA» de la
+   tabla por día es **igual al centavo** al ingreso que M7 reporta para el mismo periodo; «Cobrado (con IVA)» es la
+   suma de lo que pagaron los clientes (con IVA, envío y comisión). Ejemplo: dos pedidos de MX$116.00 y MX$232.00
+   cobrados ⇒ Cobrado **MX$348.00**.
+603. 💰 **Reembolsos, una sola vez y en su día** *(§AN.1; §W.3 (d); default de P-ANA-1)*: un pedido cobrado el lunes y
+   reembolsado completo el miércoles deja el lunes **intacto** (1 pedido, su cobrado) y el miércoles muestra
+   **1 reembolso** por su monto y la venta neta de reembolsos del miércoles baja en la parte sin IVA. El reembolso de
+   **una carta** cuenta como reembolso y el pedido **sigue** contado. ⛔ Ningún reembolso resta dos veces, y la suma
+   del periodo cuadra con M7.
+604. **Ticket promedio y piezas por pedido** *(§AN.1; default de P-ANA-2)*: con pedidos cobrados de MX$100, MX$200 y
+   MX$300 y 1, 2 y 3 piezas ⇒ ticket **MX$200.00** y **2.0** piezas por pedido. Con **0 pedidos**, ambos muestran
+   «—»: ⛔ nunca MX$0, `NaN` ni `Infinity`.
+605. **Tabla por día completa, y agrupada** *(AN.2 puntos 1 y 4)*: un periodo de 7 días con ventas solo en 2 muestra
+   **7 filas** (las vacías en cero). Agrupado por semana (lunes a domingo) o por mes, cada total es la suma exacta de
+   sus días y el total del periodo no cambia al cambiar la agrupación.
+606. **Contra el periodo anterior** *(AN.2 punto 3)*: «últimos 7 días» con 3 pedidos contra 1 en los 7 anteriores
+   muestra **«+2 pedidos»** y **+200 %**, en ese orden; con 0 pedidos en el anterior dice «sin ventas en el periodo
+   anterior» y **no** muestra porcentaje.
+607. **Lo más vendido** *(AN.2 punto 5)*: con ventas conocidas, las listas de **cartas** (nombre, set y acabado),
+   **sets** y **sellados** salen en el orden correcto por venta sin IVA y, al cambiar, por piezas; muestran **hasta
+   10**; una carta de un pedido **reembolsado completo** no aparece contada; dos acabados de la misma carta son
+   **dos** renglones.
+608. **Nuevos vs. recurrentes** *(§AN.1)*: un cliente cuya primera compra es de este periodo cuenta como **nuevo**;
+   uno que ya compró en un periodo anterior, como **recurrente**; un invitado que compra con el correo de un cliente
+   con cuenta que ya compró antes cuenta como **recurrente**. Nuevos + recurrentes = clientes distintos que
+   compraron en el periodo.
+609. **La gráfica dice lo mismo que la tabla** *(AN.2 punto 4)*: cada barra corresponde a su fila (mismo día, mismo
+   valor); los días en cero aparecen como barra vacía, no se saltan.
+610. **CSV** *(AN.2 punto 7; §W.2)*: el CSV del periodo trae una fila por día (o semana/mes) con las cifras de AN.1 y
+   **cuadra al centavo** con la pantalla; **no** trae nombres, correos ni direcciones de clientes.
+611. **Tarjeta «Ventas de hoy» en el tablero** *(AN.2 punto 8)*: muestra pedidos y cobrado de hoy, contra el mismo día
+   de la semana pasada, con su periodo rotulado (criterio 286), y lleva a la pestaña «Ventas».
+612. **Ganancia por día — CONDICIONAL** *(AN.2 punto 9)*: **si** entra en P1, la ganancia de cada día suma **al
+   centavo** la ganancia de M7 para el mismo periodo. Si el arquitecto la manda a P2, este criterio no se verifica en
+   la primera entrega y así lo dice el informe de QA.
+613. **Quién lo ve, y lo que NO cambia** *(§AN.4, §AN.5; por ausencia)*: un **operador** no ve la pestaña ni la
+   tarjeta y su petición directa es rechazada; el súper-admin sí. Las cifras de **M7** y las **métricas de
+   lanzamiento** de M9 dan lo mismo que antes; la tienda **no** carga ningún script, cookie ni herramienta nueva de
+   analítica (criterio 509 sigue verde sin tocar el aviso de privacidad).
+
+*P2 — no se verifican hasta que el dueño los pida (§AN.3):*
+
+620. **Mejores días**: ventas por día de la semana y por franja horaria (hora de México) del periodo, que suman el
+   total del periodo.
+621. **Mezcla**: pedidos y cobrado por método de pago (los que el checkout acepte), por destino (envío/bóveda) y por
+   invitado/con cuenta; cada mezcla suma el total.
+622. 💰 **Envíos**: por día, envío cobrado vs. costo de guías, con el mismo costo que M7 (real o tarifa, §T.7).
+623. 💰 **Compras del buylist por día**: neto pagado por día, que cuadra con el flujo SPEI de buylist de §W.3 (e).
+624. **Resumen diario**: el correo de las 08:00 de §Z trae una línea con pedidos, cobrado y ticket de ayer, iguales a
+   la fila de ayer de la tabla.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
@@ -17447,3 +17611,22 @@ ese frente:**
   cambio es de fondo** (nuevos usos o nuevos destinatarios); los cambios menores, solo con la fecha en la página.
 - **P-LEG-14 · ¿Publicamos también el aviso en inglés?** La tienda tiene versión en inglés. Default: **sí, traducido,
   y la versión en español es la que vale** si difieren.
+
+## Preguntas — analítica de ventas para el dueño (§AN, 2026-10-06) — ABIERTAS, cada una con su recomendación
+
+> Si no contestas, se construye con la recomendación. Ninguna bloquea al arquitecto. **No se pregunta** la zona
+> horaria: ya quedó en hora del centro de México (default de P-FIN-1 aceptado, `HECHOS.md` fila 2026-10-04
+> «Portada: se cobra el precio que el cliente VIO…»).
+
+- **P-ANA-1 · Si reembolsas el miércoles un pedido del lunes, ¿dónde se resta?** Recomendación: **el miércoles**
+  (el día en que sale el dinero). Así un día que ya cerraste no cambia después y cuadra con lo que ves en Stripe y en
+  el banco. La alternativa (restarlo al lunes) cambia cifras viejas cada vez que hay un reembolso. §AN.1, criterio 603.
+- **P-ANA-2 · El ticket promedio, ¿con todo lo que pagó el cliente (IVA, envío y comisión) o solo la mercancía sin
+  IVA?** Recomendación: **lo que pagó el cliente**, que es el número que se compara con otras tiendas y con lo que
+  ves en Stripe. La venta sin IVA sigue a la vista al lado. §AN.1, criterio 604.
+- **P-ANA-3 · ¿Lo pongo como pestaña «Ventas» dentro de Reportes, más una tarjeta «Ventas de hoy» en el tablero?**
+  Recomendación: **sí**. Alternativa: una sección nueva en el menú. §AN.4.
+- **P-ANA-4 · ¿Te sirve la primera versión (P1) así, o quieres adelantar algo de P2?** Recomendación: **P1 como está**
+  (pedidos, dinero, ticket, día por día, contra el periodo anterior, lo más vendido, nuevos vs. recurrentes, CSV y la
+  tarjeta del tablero); lo de P2 (mejores días, cómo pagan, envíos, compras del buylist, resumen por correo) cobra
+  sentido cuando haya ventas reales. Si una de P2 te urge, dime cuál. §AN.2, §AN.3.
