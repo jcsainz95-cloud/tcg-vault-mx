@@ -10,6 +10,18 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata BSD-1.3 — LO QUE ENCONTRÓ BACKEND EN B-1 (`BACKEND_NOTES §78`) (2026-10-06, arquitecto, mismo árbol; sha NO
+> MEDIDO).** Norma completa en [§BSD.17](#BSD). Sin cambios de schema, migración ni códigos ⇒ B-1 no se rehace.
+>
+> | # | Decisión | Construye |
+> |---|---|---|
+> | 1 | `rejectRequest` y `autoRejectIfAllRejectedTx` **no pueden cerrar una `aceptada`**: `422 REQUEST_NOT_RECEIVED {remedy:'decline_accepted'}`, con la guarda en el `WHERE`. ⛔ No se cablea `closeInboundShipment` en ellos | B-3 |
+> | 2 | El enum de Prisma `ShipmentKind` y la columna `kind` se quedan. `AdminShipmentDTO.kind` (derivado) gana `'buylist_inbound'`; se retira el campo nuevo. El tipo TS derivado pasa a llamarse `AdminShipmentKind` | B-2 + frontend |
+> | 3 | Se ratifica el 7.º parámetro `shipDeadlineBusinessDays` de `writeSellRequestGuide` | — |
+> | 4 | Las guías de entrada atascadas se ven en M5 (`inboundShipment.labelAlert`, `?inboundLabelAlert=true`) y en el tablero (`workQueue.buylistInboundLabelAlert`), con el mismo `labelAlertOf` | B-2 + B-3 + frontend |
+> | 5 | `OPEN_FOR_LABEL_STATUS`/`openForLabelWhere()` en `label-subject.ts`. El job de proceso y los CAS toman su `status` de ahí. Candado BSD-B25 (c) | B-2 |
+> | 6 | El lector de guías de entrada de `pnl()` se clasifica `inbound_only`, una clase nueva del censo | B-4 |
+>
 > **Errata BSD-1.2 — 💰 Q-BSD-1 RESPONDIDA: LA GUÍA DE ENTRADA RESTA EN LA GANANCIA, LA TARIFA RETENIDA SUMA Y SE VE EL MARGEN
 > (2026-10-06, arquitecto, mismo árbol; sha NO MEDIDO).** Origen: `HECHOS.md` fila 2026-10-06 «Q-BSD-1: el costo real de la
 > guía de ENTRADA del buylist RESTA…» («que reste en el reporte») y precisión del dueño del mismo día, relayada por el
@@ -8135,7 +8147,7 @@ ManualRefundStatus  = pending | paid | cancelled  // v1.80.2 (M-61, §M4-SHIP.15
 MovementReason      = alta | move | sale | settle | chargeback_return | withdrawal | lost | damaged | buylist_convert | adjustment | replacement | refund_return | refund_release  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12 (3)): `refund_release` = pieza `reserved → listed` porque la orden NUNCA liquidada que la apartaba se reembolsó entera (⛔ distinto de `refund_return`: aquélla vuelve del cliente congelada). Motivo de un `InventoryMovement` (historial de la pieza, §M1 «Movimientos», `reason: MovementReason` en los DTOs de historial y de `chargeback-inventory`). Clase E (espeja `schema.prisma:396-414`). `adjustment` = v1.20 (M-24, levantamiento físico); `replacement` = v1.80.1 (M-61, §M4-SHIP.15.2, traspaso de una reposición); `refund_return` = v1.80.4 (M-61, §M4-SHIP.18.4, la carta vuelve a la plataforma por reembolso total). Solo DTO de lectura, ⛔ sin filtro de query ⇒ banda 3 universal. ⚠️ v1.80.7.1: sin línea canónica hasta hoy (IMP-2 de QA).
 ShippedRefundReason = not_arrived | arrived_damaged  // 💰 v1.80.8.6 (M-62, §M4-SHIP.18.12): por qué se reembolsó entero un pedido YA ENVIADO. ⚠️ CLASE R — NO SE DERIVA: «solo sería porque no llegó o estaban en mala condición» (`PROJECT §S.11.4`, `HECHOS.md` 2026-10-02 SSL-R1). Literal `['not_arrived','arrived_damaged']` con esta cita al lado + test de lista exacta y de subconjunto del enum de Prisma. Dominio del cuerpo de M3 `refund` (`shippedReason`) y de `POST /admin/orders/:id/shipped-refund-reason` (`reason`); fuera ⇒ `400 VALIDATION_ERROR {field, allowed}`. Hoy coincide con el enum entero — por la regla, no por derivación.
 ShipmentActiveStage = solicitado | picking | guia | enviado  // v1.17: subconjunto "activo" de ShipmentStatus expuesto en HoldingDTO.shipmentState. `entregado` NUNCA aparece (el item ya es InventoryStatus.withdrawn y sale de holdings); `cancelado` libera el item ⇒ shipmentState=null.
-ShipmentKind        = outbound | buylist_inbound  // 💰 rev BSD-1 (M-72, §BSD.1): QUÉ es una fila de `ShipmentRequest`. `outbound` = todo lo de hoy (retiro de bóveda y envío directo; el `orderId` sigue distinguiéndolos); `buylist_inbound` = la guía de ENTRADA de una solicitud de venta aceptada (vendedor → tienda). Clase E (espeja `schema.prisma`). Solo DTO (`AdminShipmentDTO.kind`), ⛔ sin filtro de query ⇒ banda 3 universal. ⛔ Ningún lector de clientes ni de la cola de preparación ve `buylist_inbound` (censo BSD-B23).
+ShipmentKind        = outbound | buylist_inbound  // 💰 rev BSD-1 (M-72, §BSD.1): QUÉ es una fila de `ShipmentRequest`. `outbound` = todo lo de hoy (retiro de bóveda y envío directo; el `orderId` sigue distinguiéndolos); `buylist_inbound` = la guía de ENTRADA de una solicitud de venta aceptada (vendedor → tienda). Clase E (espeja `schema.prisma`). ⭐ BSD-1.3: **interno** (columna); el DTO lo expone a través del `AdminShipmentDTO.kind` derivado (`AdminShipmentKind`, + `buylist_inbound`), ⛔ sin filtro de query ⇒ banda 3 universal. ⛔ Ningún lector de clientes ni de la cola de preparación ve `buylist_inbound` (censo BSD-B23).
 ShipmentLabelSource = manual | skydropx  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2): quién emitió la guía; `manual` = capturada a mano (T.10), `skydropx` = comprada por §19.7. Clase E (espeja `schema.prisma:429-432`). Filtro `?labelSource=` de `GET /admin/shipments` (§19, «filtros nuevos») ⇒ tres bandas. ⚠️ v1.80.12.11: la declaración vivía solo en el bloque prisma de §19.2 y faltaba esta línea (banda 3 roja tras D2a) — añadida sin cambio de dominio.
 CarrierStatus       = created | picked_up | in_transit | last_mile | delivery_attempt | delivered_to_branch | delivered | exception | in_return | canceled | destroyed | retained  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2/.19.3): estado CRUDO que reporta Skydropx (referencia §5, NO MEDIDO contra la API, §19.19.10). Clase E (espeja `schema.prisma:436-449` y `CARRIER_STATUSES` del puerto, `shipping-provider.port.ts:11-24`). ⛔ Ningún valor nuevo en `ShipmentStatus`; el mapeo vive solo en `applyCarrierStatus`. Valor desconocido ⇒ ~~evento no aplicado (§19.19.10)~~ ⭐ v1.80.12.14 (§19.33.2): se aplica como `exception` con `detail` «Estado no reconocido: …» (dominio SIN cambio). Solo DTO (`carrierStatus`, `carrierAlert.status`); `?alert=true` es clase L ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
 ShippingIvaSource   = provider | computed | manual  // v1.81 (M-SDX-D = M-66, §M4-SHIP.19.2, T.7 / criterio 238): de dónde salió la línea de IVA del costo de envío; `provider` es lo normal, `computed` = 16/116 (§19.11), `manual` = captura de hoy. Clase E (espeja `schema.prisma:452-456`). Lo usan `ShipmentRequest.shippingIvaSource` y `ShipmentCostAdjustment.ivaSource`. Solo DTO ⇒ banda 3 universal. ⚠️ v1.80.12.11: línea añadida tras D2a, sin cambio de dominio.
@@ -39965,7 +39977,8 @@ usada» de hoy (criterio 139), con el número a la vista y un botón «Reintenta
 ### BSD.5 DTOs (deltas; lo no nombrado no cambia)
 ```ts
 // AdminShipmentDTO (§M4-SHIP / §11)
-kind: ShipmentKind;
+// ⛔ BSD-1.3 punto 2: ~~kind: ShipmentKind;~~ ⇒ el `kind` derivado de hoy gana un valor:
+kind: 'vault_withdrawal' | 'guest_direct_ship' | 'buylist_inbound';   // tipo TS `AdminShipmentKind`
 inbound: null | {                       // solo kind='buylist_inbound'
   sellRequestId: string;
   sellerName: string;                   // nombre de la cuenta: SUGERENCIA para recipientName, ⛔ nunca se escribe solo
@@ -40261,3 +40274,97 @@ Product-owner anota junto al criterio 536 que «como hoy» se sustituye por esto
 `buylist/`. Va en paralelo con B-2/B-3 tras B-1 (necesita `kind`). **frontend:** las filas en M7 (retenido y costo dentro de
 «costo de compras»; margen y contador como nota). **ux-ui:** etiquetas, p. ej. «Tarifa de envío retenida a vendedores»,
 «Guías de compra», «Margen de guías de compra», «Guías manuales sin costo».
+
+### BSD.17 Errata BSD-1.3 — lo que encontró backend en B-1 (2026-10-06, NORMATIVA, 💰)
+Origen: `BACKEND_NOTES §78` (B-1 en `3abbf642`/`0487f145`; rama en `ccde6d14` según el orquestador; sha NO MEDIDO por el
+arquitecto). Manda sobre BSD.0–BSD.16 donde choquen. ⛔ Sin schema, migración, enum de BD ni código de error nuevo.
+
+**1. Dos escritores que sacaban una `aceptada` sin I-BSD-1 (`rejectRequest`, `autoRejectIfAllRejectedTx`) ⇒ se IMPIDE
+rechazar en `aceptada`; ⛔ no se cablea `closeInboundShipment`.**
+- **Por qué impedir.** Rechazar es para cartas que **llegaron** en mala condición (`HECHOS.md` 2026-10-04 «Solicitud de
+  venta aceptada: no se cancela; se rechazan las cartas que llegaron en mala condición…»). En `aceptada` las cartas todavía
+  no llegaron. Rechazarlas mandaría el correo de cartas rechazadas, con su motivo y los relojes de devolución de 7 y 30 días,
+  sobre cartas que **nunca recibimos**. Cerrar una `aceptada` es «Declinar» (§BSD.6), con su correo sin culpa y su
+  cancelación de guía. Cablear `closeInboundShipment` dejaría vivo un desenlace equivocado.
+- **Norma.** En la solicitud `status = 'aceptada'`:
+  - la decisión `reject` de una carta (los verbos que pasan por `assertRequestReceived`) responde
+    `422 REQUEST_NOT_RECEIVED {sellRequestId, status:'aceptada', remedy:'decline_accepted'}`;
+  - el verbo de rechazo de la solicitud entera responde lo mismo.
+  - La guarda va en el **`WHERE`** de las dos escrituras (`liveRequestWhere()` ∧ `status ≠ 'aceptada'`), además del aviso
+    previo. Así, `autoRejectIfAllRejectedTx` no puede alcanzar una `aceptada` ni por carrera.
+  - El resto de estados no cambia, `approve` incluido.
+  - El código ya existe; solo se añade `remedy` a sus `details`.
+- **Censo BSD-B25 (b).** Los dos sitios salen de `PENDIENTE` con la clase nueva **`excludes_aceptada`**: su `WHERE` debe
+  excluir `aceptada`, y la prueba lo afirma leyendo el AST.
+- **Pruebas.**
+  - **BSD-B37:** en una `aceptada`, rechazar la última carta viva da `422`, la solicitud sigue `aceptada`, no hay correo y la
+    fila de entrada sigue en `solicitado`. Mutación: quitar `status ≠ 'aceptada'` del `WHERE`.
+  - **BSD-B38:** el verbo de solicitud entera da el mismo `422`. Mutación: igual.
+- **NO MEDIDO.** Si hoy hay en producción cartas rechazadas en solicitudes sin recepción. Consulta de solo lectura para la
+  solicitud de fusión: `SELECT count(*) FROM "SellRequestItem" i JOIN "SellRequest" r ON r.id=i."sellRequestId" WHERE
+  i."rejectedAt" IS NOT NULL AND r."receivedAt" IS NULL AND r."offerSentAt" IS NOT NULL;`.
+- **Construye:** B-3, que es dueño de `buylist.service.ts`. **Frontend:** M5 no ofrece «Rechazar» en `aceptada`; ofrece
+  «Declinar».
+
+**2. Nombres definitivos.**
+- **BD.** El enum de Prisma **`ShipmentKind {outbound, buylist_inbound}`** y la columna `ShipmentRequest.kind` se quedan
+  como los dejó `M-72`. No se toca la migración.
+- **DTO.** `AdminShipmentDTO` **no gana un campo nuevo.** Su `kind` de hoy, derivado
+  (`'vault_withdrawal' | 'guest_direct_ship'`), gana un tercer valor: **`AdminShipmentDTO.kind = 'vault_withdrawal' |
+  'guest_direct_ship' | 'buylist_inbound'`**. Es la misma pregunta («qué clase de envío es éste») y un solo campo la
+  contesta. Se retira la línea `kind: ShipmentKind;` de §BSD.5.
+- **TS.** El tipo derivado que hoy se llama `ShipmentKind` en `shipments.service.ts` y `shipment-prep.service.ts` se
+  renombra **`AdminShipmentKind`**, para que no choque con el `ShipmentKind` que genera Prisma. Una sola declaración,
+  exportada.
+- **Frontend.** `types/contract.ts` replica `AdminShipmentKind` con los tres valores. Los `switch` exhaustivos de M4 se
+  ponen rojos a propósito y se completan.
+- **Construye:** B-2, que es dueño de `shipments/*`, más frontend.
+
+**3. `writeSellRequestGuide(…, shipDeadlineBusinessDays)` ⇒ RATIFICADO.**
+- El 7.º parámetro lo lee el llamador **fuera** de la tx, como hacía `adminGuide`, y el fichero no depende de
+  `SettingsService`.
+- `persistLabeled` de entrada lo lee igual, antes de abrir su tx. Una lectura con `this.prisma` dentro de una tx
+  interactiva agota el pool (`label-purchase.service.ts:324-327`).
+- §BSD.4.7 queda con 7 parámetros.
+
+**4. Guías de entrada atascadas: se ven en M5 y en el tablero.**
+- **Qué cuenta como atascada.** En vuelo, en proceso, cancelación sin confirmar y guía viva sobre una solicitud cerrada.
+- **Ficha y lista de M5.** `AdminBuylistDTO.inboundShipment` gana `labelAlert: LabelAlertDTO | null`, calculado con el
+  **mismo** `labelAlertOf` de M4 (un solo cuerpo, ⛔ nunca una copia).
+- **Filtro.** `GET /admin/buylist` gana `?inboundLabelAlert=true` (clase L, se intersecta con los demás).
+- **Tablero.** Gana el campo hermano `workQueue.buylistInboundLabelAlert: number`.
+- **Remedios.** El enlace «Abrir guía» lleva a la ventana (`GET /admin/shipments/:id` de la fila de entrada). Desde ahí
+  funcionan **Liberar** (`@MoneyOut`, súper-admin) y **Reintentar cancelación** (§BSD.4.2), sin rutas nuevas.
+- **Avisos al dueño.** AG-5, 6, 7, 8 y 9 siguen siendo de **todas** las clases (`all_kinds`), y AG-10 sigue fuera.
+- **Censo B23.** El lector del contador nuevo es **`inbound_only`**: es la clase nueva, que debe llevar `INBOUND_ONLY`.
+- **Pruebas.** **BSD-B39:** fila de entrada con un reclamo en vuelo más viejo que el umbral de M4 da `labelAlert ≠ null`,
+  la ficha y el filtro la traen y el tablero cuenta 1; la lista de M4 no la trae. Mutación: calcular `labelAlert` con una
+  copia de la regla (B25 (a) la caza) o quitar el filtro.
+- **Construye:** B-2 (exporta `labelAlertOf` para la fila de entrada) y B-3 (DTO, filtro, tablero). **Frontend:** marca en
+  M5 y contador en el tablero.
+
+**5. Para B-2: los estados de salida que sobran en el motor.**
+- **Estados permitidos por clase.** `label-subject.ts` gana **`OPEN_FOR_LABEL_STATUS`**
+  (`outbound: 'picking'`, `buylist_inbound: 'solicitado'`) y **`LABELED_STATUS`** (`'guia'` para las dos).
+- **Predicado para lecturas multi-clase.** Gana también `openForLabelWhere()`, que vale
+  `OR[{kind:'outbound', status:'picking'}, {kind:'buylist_inbound', status:'solicitado'}]`.
+- **Qué lo usa.**
+  - `label-processing.job` (`processing#findMany`, `all_kinds`) cambia `status:'picking'` por `openForLabelWhere()`.
+  - Los CAS por id (`claim`, `persistLabeled`, `persistProcessing`, `correct`, `applyReissue`, `setTrackingFromProvider`)
+    toman su `status` de `labelSubjectOf(row)`. Hoy son `'picking'`.
+  - `applyReissue` vuelve a `OPEN_FOR_LABEL_STATUS[kind]`.
+  - Lo que no es estado (`preparedAt`, casos abiertos, `assertCanAdvance`) **solo** aplica a `outbound`, por la misma
+    política.
+- **Candado BSD-B25 (c), nuevo.** En `shipments/label-*.ts`, `shipment-address.service.ts` y `label-processing.job.ts` no
+  aparece el literal `'picking'` en un `status` fuera de `label-subject.ts`. Mutación: devolver `status:'picking'` al job;
+  con eso, **BSD-B10** («en proceso» que el job completa) también se pone roja.
+- **Construye:** B-2.
+
+**6. Para B-4: el lector nuevo de `pnl()` entra al censo.**
+- **(a) Guías de Skydropx de entrada:** `inbound_only` (con `INBOUND_ONLY`).
+- **Sumador de envíos de venta:** sigue `outbound_only`.
+- **Lecturas de `SellRequest` en `pnl()`** (lo retenido y las guías manuales): no son de `ShipmentRequest` y quedan fuera
+  de B23. B-4 las nombra en BSD-B33/B34.
+- **Quién mete la entrada.** La añade B-4 en la tabla del censo, en el mismo commit que el lector. Si falta, B23 se pone
+  rojo, y eso es lo esperado.
+- **Construye:** B-4.

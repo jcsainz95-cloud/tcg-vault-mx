@@ -4,6 +4,16 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata BSD-1.3** (2026-10-06, arquitecto; sha NO MEDIDO): respuesta a `BACKEND_NOTES §78`. Norma en `API_CONTRACT §BSD.17`;
+> porqué en §4.BSD (m).
+> - Rechazar ya no puede cerrar una solicitud `aceptada`.
+> - `AdminShipmentDTO.kind` gana `buylist_inbound`.
+> - Se ratifica el 7.º parámetro de `writeSellRequestGuide`.
+> - Las guías de entrada atascadas se ven en M5 y en el tablero.
+> - Los estados del motor pasan a la política de `label-subject.ts`.
+> - Hay una clase de censo nueva, `inbound_only`.
+> - Sin migración; B-1 no se rehace.
+>
 > **Errata BSD-1.2** (2026-10-06, arquitecto; sha NO MEDIDO): Q-BSD-1 respondida.
 > - En `pnl()`, la guía de entrada **resta** (neto) y la tarifa **retenida** al vendedor **suma**, como reducción del costo de
 >   compra.
@@ -28654,6 +28664,20 @@ el reporte» y precisó «en muchos casos tendrá margen». Esto sustituye el «
   periodos distintos, y una guía de una solicitud que nunca se pagó cuesta sin retener nada.
 - **Cancelaciones.** Lo no devuelto sigue en «ajustes de paquetería», como en P-SDX-PNL-1 (A). Una guía cancelada con
   confirmación sale del renglón de guías, así que no hay doble cuenta.
+
+**(m) Errata BSD-1.3 (lo que encontró B-1).**
+- **Prohibir en vez de cablear.** `rejectRequest` y `autoRejectIfAllRejectedTx` podían cerrar una `aceptada`. Cablearles
+  `closeInboundShipment` arreglaría la fila de entrada y dejaría el **desenlace** equivocado: correo de cartas rechazadas y
+  relojes de devolución sobre cartas que no llegaron. Contradice la fila de `HECHOS.md` del 2026-10-04 sobre rechazar solo
+  lo que llegó mal. La puerta correcta es «Declinar». La guarda va en el `WHERE`, para que la vía automática tampoco llegue
+  por carrera.
+- **Un campo, no dos.** `AdminShipmentDTO.kind` ya contestaba «qué clase de envío es». Un segundo campo con el mismo nombre
+  conceptual serían dos respuestas a una pregunta, así que gana un valor. Prisma conserva su enum y el tipo TS derivado
+  cambia de nombre.
+- **Atascos visibles en M5.** Al marcar `outbound_only` las alertas de M4, las de entrada quedaban sin pantalla. Se ven en
+  M5 con el mismo `labelAlertOf`, sin una segunda regla.
+- **Estados por política.** Los literales `'picking'` del motor eran la última costura de salida. Pasan a `label-subject.ts`,
+  con un candado que impide que vuelvan.
 
 ---
 
