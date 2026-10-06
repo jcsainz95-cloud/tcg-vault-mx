@@ -83,7 +83,6 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
 
                 // F5: `ajustada` es item-level (no request-level) → se detecta por ítem.
                 const adjustedItems = r.items.filter((it) => it.itemStatus === 'ajustada');
-                const hasAdjustedItems = adjustedItems.length > 0;
                 const adjustedTotalCents = adjustedItems.reduce(
                   (s, it) => s + (it.approvedPriceCents ?? 0),
                   0,
@@ -94,6 +93,8 @@ export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyReq
                   r.status === 'expirada' && (r.expiredReason === 'no_offer' || r.expiredReason === 'not_continued');
                 // Con los montos redactados no hay «precio pendiente»: hay un cierre (BSD-1.4 punto 8).
                 const hasPendingItems = !hideMoney && r.items.some((it) => it.quotedPriceCents == null);
+                // Un cierre redactado no ofrece responder un ajuste (sus cifras llegan `null`, BSD-1.4 punto 8).
+                const hasAdjustedItems = !hideMoney && adjustedItems.length > 0;
                 const responding =
                   respondMutation.isPending && respondMutation.variables?.id === r.sellRequestId;
                 return (

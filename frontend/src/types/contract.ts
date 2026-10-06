@@ -2970,8 +2970,13 @@ export interface SellItemDTO {
   marketMxnCents?: number | null;
   priceBasis?: PriceBasis;
   marketBracket?: MarketBracket | null;
-  quotedPriceCents?: number;
-  approvedPriceCents?: number;
+  /**
+   * 💰 rev BSD-1 (errata BSD-1.4 punto 8): en la proyección de CLIENTE de un cierre `expirada` + `no_offer`/`not_continued`
+   * las cuatro cifras de la línea (`quotedPriceCents`, `approvedPriceCents`, `offeredPriceCents`, `marketMxnCents`) llegan
+   * `null` EXPLÍCITO. El tipo lo dice para que ningún consumidor las lea sin guarda.
+   */
+  quotedPriceCents?: number | null;
+  approvedPriceCents?: number | null;
   itemStatus: SellItemStatus;
   inventoryItemId?: string;
   // v1.18-buylist-rejects (contrato §11): poblados SOLO si itemStatus="rechazada"; en
@@ -3091,7 +3096,8 @@ export interface SellRequestDTO {
    * (servidor anterior): ausente se lee como `false`.
    */
   labelPdfAvailable?: boolean;
-  quotedTotalCents: number;
+  /** `null` EXPLÍCITO en un cierre `expirada` + `no_offer`/`not_continued` (v1.51.4 §6 + errata BSD-1.4 punto 8). */
+  quotedTotalCents: number | null;
   ineRequired: boolean;
   items: SellItemDTO[];
   createdAt?: string;

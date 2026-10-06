@@ -1424,7 +1424,22 @@ export function mockSellRequestDTO(row: MockSellRequestRow): SellRequestDTO {
     offerTrackingNumber: _offerTrackingNumber,
     ...dto
   } = row;
+  // 💰 Espejo de `toCustomerSellRequestDTO` (v1.51.4 §6 + errata BSD-1.4 punto 8): en `expirada` + `no_offer`/`not_continued`
+  // el total y las cuatro cifras de cada línea viajan `null` EXPLÍCITO (la clave viaja, el valor no).
+  if (mockMoneyRedacted(row)) {
+    return {
+      ...dto,
+      isTerminal: true,
+      quotedTotalCents: null,
+      items: dto.items.map((i) => ({ ...i, quotedPriceCents: null, approvedPriceCents: null, offeredPriceCents: null, marketMxnCents: null })),
+    };
+  }
   return { ...dto, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
+}
+
+/** BSD-1.4 punto 8: el conjunto que redacta el servidor (`MONEY_REDACTED_EXPIRY`). */
+function mockMoneyRedacted(row: Pick<MockSellRequestRow, 'status' | 'expiredReason'>): boolean {
+  return row.status === 'expirada' && (row.expiredReason === 'no_offer' || row.expiredReason === 'not_continued');
 }
 
 /**
@@ -1486,7 +1501,8 @@ export function mockSellRequestDetailDTO(
 ): SellRequestDetailDTO {
   return {
     ...mockSellRequestDTO(row),
-    offer: mockSellOffer(row, locale),
+    // BSD-1.4 punto 8: en un cierre redactado la oferta NO viaja (sus cifras y su `terms`, que las lleva en prosa).
+    offer: mockMoneyRedacted(row) ? null : mockSellOffer(row, locale),
     pickupAddress: row.pickupAddress ?? null,
     lastOfferCancelledAt: null,
   };
@@ -1774,8 +1790,9 @@ export const mockSellRequests: MockSellRequestRow[] = [
     ],
   },
   /**
-   * 💰 rev BSD-1 (§BSD-UX.4a) — `expirada` + `not_continued`: «decidimos no continuar». ⚠️ El servidor falso deja los
-   * montos de la OFERTA a propósito (peor caso): la pantalla los oculta igual (segundo cinturón de BSD-1.4 punto 8).
+   * 💰 rev BSD-1 (§BSD-UX.4a) — `expirada` + `not_continued`: «decidimos no continuar». La fila guarda la oferta; la
+   * PROYECCIÓN la redacta como el servidor real (BSD-1.4 punto 8: `offer: null` y cifras `null`). El peor caso —un servidor
+   * que no redacta— lo cubre `SellRequestDetailView.bsd.test.tsx`.
    */
   {
     sellRequestId: 'sr-3005',

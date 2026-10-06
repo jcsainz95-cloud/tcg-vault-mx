@@ -5508,7 +5508,7 @@ export async function getAdminRejectedBuylistItems(
         card: it.card,
         productType: it.productType,
         finish: it.finish,
-        quotedPriceCents: it.quotedPriceCents,
+        quotedPriceCents: it.quotedPriceCents ?? undefined,
         reason: it.rejectionReason ?? null,
         rejectedAt: it.rejectedAt ?? null,
         returnDeadlineAt: it.returnDeadlineAt ?? null,
