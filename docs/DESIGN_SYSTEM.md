@@ -28439,9 +28439,10 @@ entero; `components/domain/DateRangePresets.tsx` entero (presets `week|month|qua
 4. **No existe modo oscuro.** El encargo pide contraste «en claro/oscuro»; el sistema es **tema único claro** (§2.3,
    §10, §11.1: «No hay bloque `.dark`»). Todo se verifica sobre **papel** y **pozo** (AN-UX.13). Si algún día hay tema
    oscuro, esta sección necesita su tabla; hoy no hay nada que medir.
-5. **Dos cifras que pide §AN.3 no vienen en el DTO:** **contracargos por día** y **mezcla por tipo de producto**
-   (sueltas / gradeadas / sellado). Se dejan diseñadas con la regla «se pintan solo si el campo llega» y se piden al
-   arquitecto (AN-UX.15, N-AN-1 y N-AN-2). ⛔ El front no las deriva de otras cifras.
+5. ~~Dos cifras que pide §AN.3 no vienen en el DTO~~ — **resuelto por la errata AN-1.1** (`API_CONTRACT §15.11`,
+   2026-10-06): `chargebacks` por cubo + `chargebacksUndatedCount` (fase C), `mix.byProductType` y
+   `shipping.resultNetCents` (fase B), y el **CSV en pesos** con dos decimales (fase A). Siguen bajo la regla «se pintan
+   solo si la clave llega». ⛔ El front no las deriva de otras cifras.
 
 **Reglas duras (se revisan en el PR):**
 - **AN-1 · Una cifra, una fuente (GAS-4).** Todo número sale **tal cual** del DTO. ⛔ El front no suma filas, no
@@ -28675,9 +28676,10 @@ las dos vistas comparten la columna del día.
 | Envío cobrado (sin IVA) | `shipping.chargedNetCents` | — |
 | Costo de guías (sin IVA) | `shipping.costNetCents` | si `shipping.costMissingCount > 0`: «MX$300.00 ⚠ 2 sin costo» (icono `aria-hidden` + texto) |
 | Ajustes de paquetería | `shipping.adjustmentsCents` | encabezado `title`: «Ya van dentro del costo de guías» (mismo nombre que §43.23) |
+| Resultado del envío | `shipping.resultNetCents` (AN-1.1) | **tal cual del DTO** (⛔ restar las dos columnas de al lado). Con signo siempre: «+MX$120.00» / «−MX$80.00» / «MX$0.00», en **tinta** (⛔ verde/rojo, AN-6). Si `costMissingCount > 0` en la fila: tras la cifra «⚠» (`aria-hidden`) + `sr-only` «puede ser menor: hay envíos sin costo». Solo si la clave viene |
 | Ingreso por tarifa de buylist / Costo de guías de buylist | `shipping.buylistRevenueCents` / `buylistCostCents` | **solo si la clave viene** (§15.8: ausente hasta #78); ⛔ nunca «MX$0.00» inventado |
 | Compras del buylist | `buylist.paidCount` · `buylist.paidNetCents` («2 · MX$1,800.00») | si `paidWithoutPayoutCount > 0`: «⚠ 1 sin monto» |
-| Contracargos | (campo pedido, N-AN-1) | **la columna no existe** hasta que el campo llegue |
+| Contracargos | `chargebacks.count` · `chargebacks.amountCents` (AN-1.1, fase C) — «1 · MX$400.00»; con 0: «0» | **la columna no existe** si la clave no viene. Cuenta el día en que **se abrió**; ⛔ no se resta de ninguna venta |
 | Ganancia (regla de Finanzas) | `profitCents` | negativa en tinta con «−» |
 
 - Si la vista P2 se abre y los campos P2 **no** vienen (servidor en fase A), el conmutador **no se muestra** (⛔ ni una
@@ -28685,7 +28687,10 @@ las dos vistas comparten la columna del día.
 - Debajo de la vista P2, `text-xs muted`, siempre: «La ganancia sigue la misma regla que Finanzas; cada día suma la
   ganancia de Finanzas del periodo.» Y, solo si alguna fila tiene envíos sin costo: «⚠ Hay envíos sin costo de guía
   capturado: el costo real puede ser mayor.» y si alguna tiene compras sin monto: «⚠ Hay compras del buylist pagadas
-  sin monto registrado: no están en la suma.»
+  sin monto registrado: no están en la suma.» Con la columna «Resultado del envío»: «Resultado del envío = envío cobrado
+  menos costo de guías (los ajustes ya van dentro). Positivo: lo cobrado cubrió las guías; negativo: costaron más.» Con
+  la columna «Contracargos»: «Los contracargos cuentan el día en que se abrieron y no se restan de la venta.» y, solo si
+  `chargebacksUndatedCount > 0`: «⚠ {n} contracargos anteriores sin fecha: no aparecen en ningún día.»
 - **Etiqueta del día:** «lun 6 oct» (con día de la semana: ayuda a leer patrones); semana «29 sep – 5 oct» y, si está
   cortada (menos de 7 días), «· 3 días»; mes «oct 2026» y, si cortado, «· del 1 al 6».
 - **Fila de cero** (`orders = 0` y `refunds.count = 0`): todo en `text-muted`. Sigue siendo una fila con sus ceros.
@@ -28765,7 +28770,12 @@ porcentaje escrito (AN-1).
 - Bajo «Cómo paga», si hay fila `null`: «Sin dato: pedidos pagados antes de que la tienda guardara el método de pago.»
   Si la única fila no-`null` es «Tarjeta»: «Hoy la tienda solo cobra con tarjeta.» ⚠ **NO MEDIDO** qué métodos tiene
   encendidos Stripe (§15.9): el texto sale del dato, no de una suposición.
-- «Mezcla por tipo de producto» (sueltas / gradeadas / sellado): **no se pinta** hasta N-AN-2.
+- **Cuarta tabla «Qué se vende»** (`mix.byProductType`, AN-1.1 fase B; **solo si la clave viene**). Columnas distintas
+  a las otras tres: concepto · **piezas** · **venta sin IVA** (`PieceCell.pieces` / `.netCents`, tal cual). Filas en
+  orden fijo: Cartas sueltas (`raw`) · Gradeadas (`graded`) · Sellado (`sealed`); las de 0 se pintan con sus ceros
+  (`text-muted`). Barra decorativa: piezas ÷ `totals.pieces`. Nota `text-xs muted` siempre: «Reparte la venta sin IVA
+  del periodo, también la de pedidos que luego se reembolsaron; por eso suma lo mismo que el resumen y no lo mismo que
+  “Lo más vendido”.» (⛔ el front no suma las filas para comprobarlo, AN-1.)
 
 #### AN-UX.8c Totales P2 del periodo
 
@@ -28776,10 +28786,18 @@ Segunda retícula de `StatCard`, debajo de la tabla y antes de «Lo más vendido
 | Envío cobrado (sin IVA) | `totals.shipping.chargedNetCents` | — |
 | Costo de guías (sin IVA) | `totals.shipping.costNetCents` | «Incluye ajustes de paquetería {adj}» si `> 0`; «⚠ {n} envíos sin costo capturado» si `> 0` |
 | Compras del buylist | `totals.buylist.paidNetCents` | «{n} compras pagadas»; «⚠ {m} sin monto registrado» si `> 0` |
+| Resultado del envío | `totals.shipping.resultNetCents` (AN-1.1) | «Envío cobrado menos costo de guías.»; si `costMissingCount > 0`: «⚠ Puede ser menor: hay envíos sin costo capturado.» |
 | Ganancia (regla de Finanzas) | `totals.profitCents` | «La misma ganancia que Finanzas.» |
+| Contracargos | `totals.chargebacks.count` (cifra) y `amountCents` (2.ª línea) | «{open} abiertos · {won} ganados · {lost} perdidos» (de `byOutcome`, tal cual); «Cuentan el día en que se abrieron; no se restan de la venta.»; si `chargebacksUndatedCount > 0`: «⚠ {n} anteriores sin fecha, fuera de este conteo.» |
 
-- *Por qué no hay celda «¿me sale el envío?» con la diferencia:* el DTO no la trae y restarla en el navegador sería una
-  segunda fuente (AN-1). Las dos cifras quedan **una al lado de la otra** y se pide la diferencia (N-AN-3).
+- **Resultado del envío** (celda y columna): ⛔ el front **no resta** cobrado − costo; pinta `resultNetCents` (prueba
+  `AN-F-5`: con un DTO cuyo valor no es la resta, se ve el del DTO). Signo siempre visible (`+` / `−` U+2212), **tinta**
+  en los dos sentidos: perder en un envío no es error de la pantalla, y verde/rojo opinaría (igual que los deltas,
+  AN-UX.3). Con costos sin capturar la cifra es un **tope** (un costo faltante cuenta como 0, §15.11.3): por eso el aviso
+  dice «puede ser menor», ⛔ «es incorrecta».
+- **Contracargos** (fase C): cada celda/columna se monta solo si `chargebacks` llega; el aviso de «sin fecha» solo si
+  `chargebacksUndatedCount` llega **y** es `> 0` (es del histórico entero, no del periodo: ⛔ compararlo con el periodo
+  anterior ni ponerlo en la tabla por día).
 - Sin comparación contra el periodo anterior (`comparison` no trae estas cifras).
 
 #### AN-UX.8d Resumen diario por correo (criterio 624; lo construye backend)
@@ -28799,8 +28817,10 @@ Línea nueva en el resumen de las 08:00 (patrón §41 / §43.19.12), con el dine
 Botón `secondary` `sm` con icono `DownloadCloud` en la cabecera de la tabla: «Descargar CSV». Pide
 `/sales/export.csv` con **el mismo** `preset`/`from`/`to`/`groupBy` que la pantalla (⛔ nunca otro periodo), `loading`
 mientras baja, y guarda con el nombre que da `Content-Disposition` (`ventas_<from>_<to>_<groupBy>.csv`). Debajo,
-`text-xs muted`: «Una fila por {día|semana|mes}, también las de cero, y una de total. Los montos vienen en centavos
-(MX$1,250.00 = 125000) para que cuadren exactos. Sin datos de clientes.» Error ⇒ `Banner` danger `role="alert"` bajo el
+`text-xs muted`: «Una fila por {día|semana|mes}, también las de cero, y una de total. Montos en pesos con dos
+decimales, sin signo de pesos ni comas de miles (MX$1,250.00 = 1250.00), para que Excel los sume. Sin datos de
+clientes.» (AN-1.1, `API_CONTRACT §15.7`: el CSV va en pesos; el JSON sigue en centavos — ⛔ ninguna mención de
+«centavos» al dueño.) Error ⇒ `Banner` danger `role="alert"` bajo el
 botón (§8.3, ⛔ solo toast). «Lo más vendido» **no** se exporta (§15.7).
 
 ---
@@ -28998,6 +29018,11 @@ Plurales con ICU (§9.4). Fechas con `Intl.DateTimeFormat` en `timeZone: 'Americ
 | `sales.table.profitNote` | La ganancia sigue la misma regla que Finanzas; cada día suma la ganancia de Finanzas del periodo. | Profit follows the same rule as Finance; the days add up to Finance's profit for the period. |
 | `sales.table.costMissingNote` | Hay envíos sin costo de guía capturado: el costo real puede ser mayor. | Some shipments have no label cost recorded: the real cost may be higher. |
 | `sales.table.payoutMissingNote` | Hay compras del buylist pagadas sin monto registrado: no están en la suma. | Some paid buylist purchases have no amount recorded: they aren't in the total. |
+| `sales.table.shippingResult` | Resultado del envío | Shipping result |
+| `sales.table.shippingResultMaybeLower` | puede ser menor: hay envíos sin costo | may be lower: some shipments have no cost |
+| `sales.table.shippingResultNote` | Resultado del envío = envío cobrado menos costo de guías (los ajustes ya van dentro). Positivo: lo cobrado cubrió las guías; negativo: costaron más. | Shipping result = shipping charged minus label cost (adjustments already included). Positive: what you charged covered the labels; negative: they cost more. |
+| `sales.table.chargebacksNote` | Los contracargos cuentan el día en que se abrieron y no se restan de la venta. | Chargebacks count on the day they were opened and aren't subtracted from sales. |
+| `sales.chargebacks.undated` | {count, plural, one {# contracargo anterior sin fecha: no aparece en ningún día.} other {# contracargos anteriores sin fecha: no aparecen en ningún día.}} | {count, plural, one {# older chargeback has no date: it isn't on any day.} other {# older chargebacks have no date: they aren't on any day.}} |
 | `sales.table.tooMany` | Con tantos días, se lee mejor por semana o por mes. | With this many days, it reads better by week or month. |
 | `sales.top.title` | Lo más vendido | Best sellers |
 | `sales.top.sortLabel` | Ordenar por | Sort by |
@@ -29040,6 +29065,13 @@ Plurales con ICU (§9.4). Fechas con `Intl.DateTimeFormat` en `timeZone: 'Americ
 | `sales.mix.cardOnly` | Hoy la tienda solo cobra con tarjeta. | The store only takes cards today. |
 | `sales.mix.colOrders` | Pedidos | Orders |
 | `sales.mix.colCharged` | Cobrado | Collected |
+| `sales.mix.productType` | Qué se vende | What sells |
+| `sales.mix.raw` | Cartas sueltas | Single cards |
+| `sales.mix.graded` | Gradeadas | Graded |
+| `sales.mix.sealed` | Sellado | Sealed |
+| `sales.mix.colPieces` | Piezas | Items |
+| `sales.mix.colNet` | Venta sin IVA | Sales excl. VAT |
+| `sales.mix.productTypeNote` | Reparte la venta sin IVA del periodo, también la de pedidos que luego se reembolsaron; por eso suma lo mismo que el resumen y no lo mismo que «Lo más vendido». | Splits the period's sales excl. VAT, including orders later refunded; that's why it adds up to the summary and not to "Best sellers". |
 | `sales.p2.shippingCharged` | Envío cobrado (sin IVA) | Shipping charged (excl. VAT) |
 | `sales.p2.shippingCost` | Costo de guías (sin IVA) | Label cost (excl. VAT) |
 | `sales.p2.includesAdjustments` | Incluye ajustes de paquetería {amount} | Includes carrier adjustments {amount} |
@@ -29049,8 +29081,16 @@ Plurales con ICU (§9.4). Fechas con `Intl.DateTimeFormat` en `timeZone: 'Americ
 | `sales.p2.payoutMissing` | {count} sin monto registrado | {count} without a recorded amount |
 | `sales.p2.profit` | Ganancia (regla de Finanzas) | Profit (Finance rule) |
 | `sales.p2.profitHelp` | La misma ganancia que Finanzas. | The same profit as Finance. |
+| `sales.p2.shippingResult` | Resultado del envío | Shipping result |
+| `sales.p2.shippingResultHelp` | Envío cobrado menos costo de guías. | Shipping charged minus label cost. |
+| `sales.p2.shippingResultMaybeLower` | Puede ser menor: hay envíos sin costo capturado. | May be lower: some shipments have no recorded cost. |
+| `sales.p2.chargebacks` | Contracargos | Chargebacks |
+| `sales.p2.chargebacksCount` | {count, plural, one {# contracargo} other {# contracargos}} | {count, plural, one {# chargeback} other {# chargebacks}} |
+| `sales.p2.chargebacksOutcome` | {open, plural, one {# abierto} other {# abiertos}} · {won, plural, one {# ganado} other {# ganados}} · {lost, plural, one {# perdido} other {# perdidos}} | {open} open · {won} won · {lost} lost |
+| `sales.p2.chargebacksHelp` | Cuentan el día en que se abrieron; no se restan de la venta. | Counted on the day they were opened; not subtracted from sales. |
+| `sales.p2.chargebacksUndated` | {count, plural, one {# anterior sin fecha, fuera de este conteo.} other {# anteriores sin fecha, fuera de este conteo.}} | {count, plural, one {# older one has no date and isn't counted here.} other {# older ones have no date and aren't counted here.}} |
 | `sales.csv.button` | Descargar CSV | Download CSV |
-| `sales.csv.help` | Una fila por {unit, select, day {día} week {semana} other {mes}}, también las de cero, y una de total. Los montos vienen en centavos (MX$1,250.00 = 125000) para que cuadren exactos. Sin datos de clientes. | One row per {unit, select, day {day} week {week} other {month}}, including zero rows, plus a total row. Amounts are in cents (MX$1,250.00 = 125000) so they add up exactly. No customer data. |
+| `sales.csv.help` | Una fila por {unit, select, day {día} week {semana} other {mes}}, también las de cero, y una de total. Montos en pesos con dos decimales, sin signo de pesos ni comas de miles (MX$1,250.00 = 1250.00), para que Excel los sume. Sin datos de clientes. | One row per {unit, select, day {day} week {week} other {month}}, including zero rows, plus a total row. Amounts in pesos with two decimals, no currency sign or thousands separators (MX$1,250.00 = 1250.00), so Excel can add them up. No customer data. |
 | `sales.csv.error` | No se pudo descargar el CSV. Intenta de nuevo. | The CSV couldn't be downloaded. Try again. |
 | `sales.state.updating` | Actualizando… | Updating… |
 | `sales.state.empty` | No hubo ventas en este periodo. | There were no sales in this period. |
@@ -29100,6 +29140,9 @@ Enganche sugerido (decisión de frontend): `data-testid="sales-card-<campo>"`, `
 | **UX-AN-15** | Paridad: todas las claves de AN-UX.14 existen en `es` y `en`; `grep -nE '\b(M-?1?[0-9]\|AN-[0-9]+\|P-AN)\b'` sobre `admin.m9.sales.*` y `admin.dashboard.salesToday.*` ⇒ 0 (P66-3); las claves previas de `admin.m9.*` sin cambio (`AdminPageTitles.test.tsx:236-242` verde) | Borrar una en `en.json`; meter «AN-1» en un texto |
 | **UX-AN-16** (`AN-F-4`) | La pestaña no inyecta `<script>` externo ni cookie nueva (el candado del criterio 509 sigue verde sin tocar el aviso) | Cargar una librería de gráficas desde CDN |
 | **UX-AN-17** | Deltas: ningún delta tiene clase `text-success`/`text-danger`/`text-accent`; cada uno tiene `sr-only` «subió»/«bajó»/«igual» | Colorear por signo |
+| **UX-AN-18** (`AN-F-5`) | Fixture con `shipping.resultNetCents` que **no** es `chargedNetCents − costNetCents` ⇒ celda y columna pintan el del DTO; negativo con «−» U+2212 y positivo con «+»; ninguna con `text-success`/`text-danger`; con `costMissingCount > 0` aparece «Puede ser menor» | Restar en el cliente; colorear por signo |
+| **UX-AN-19** (`AN-F-5`) | Sin `mix.byProductType` / `chargebacks` / `chargebacksUndatedCount` ⇒ no existen la tabla «Qué se vende», la columna/celda «Contracargos» ni el aviso «sin fecha»; con `chargebacksUndatedCount = 0` tampoco hay aviso; con `3` el aviso dice 3 | `?? 0` y montar igual; aviso con `0` |
+| **UX-AN-20** | El DOM de la pestaña y `messages/{es,en}.json` bajo `admin.m9.sales.csv.*` no contienen «centavo»/«cents» | Restaurar el texto viejo de `sales.csv.help` |
 
 ---
 
@@ -29117,12 +29160,16 @@ Enganche sugerido (decisión de frontend): `data-testid="sales-card-<campo>"`, `
 
 ### AN-UX.17 Solicitudes y notas a otros roles
 
+> **N-AN-1…4 cerradas** por la errata **AN-1.1** (`API_CONTRACT §15.11`, 2026-10-06; commit `edffe544` según el
+> orquestador, NO MEDIDO por ux-ui: sin Bash). Diseño de cada una ya incorporado en AN-UX.5, AN-UX.8b, AN-UX.8c, AN-UX.9
+> y AN-UX.14. Las filas siguientes quedan como registro.
+
 | # | Para | Qué |
 |---|---|---|
-| **N-AN-1** | arquitecto | **Contracargos por día** (§AN.3, «como los cuenta §W.3 (c)») **no** están en `SalesFigures` (§15.4). Diseño listo: columna «Contracargos» en la vista P2 de la tabla y celda en AN-UX.8c, pintadas solo si el campo llega. Propuesta: `chargebacks: { count, amountCents }` por cubo |
-| **N-AN-2** | arquitecto | **Mezcla por tipo de producto** (sueltas / gradeadas / sellado, en piezas y dinero; §AN.3) **no** está en `mix`. Propuesta: `mix.byProductType: { raw, graded, sealed: { pieces, netCents } }`. Se pintaría como cuarta tabla de AN-UX.8b |
-| **N-AN-3** | arquitecto | «¿Me sale el envío?»: el DTO trae cobrado y costo, no la diferencia, y el front no resta (AN-1). Si se quiere la respuesta directa, un `shipping.resultNetCents` por cubo (con su regla para `costMissingCount > 0`). Mientras tanto, las dos cifras van lado a lado |
-| **N-AN-4** | arquitecto (informativo) | El CSV en centavos es exacto pero raro para el dueño en Excel; la pantalla lo explica (`sales.csv.help`). Si se prefiere pesos con dos decimales, es un cambio de §15.7, no de diseño |
+| **N-AN-1** ✔ AN-1.1 | arquitecto | **Contracargos por día** (§AN.3, «como los cuenta §W.3 (c)») **no** están en `SalesFigures` (§15.4). Diseño listo: columna «Contracargos» en la vista P2 de la tabla y celda en AN-UX.8c, pintadas solo si el campo llega. Propuesta: `chargebacks: { count, amountCents }` por cubo |
+| **N-AN-2** ✔ AN-1.1 | arquitecto | **Mezcla por tipo de producto** (sueltas / gradeadas / sellado, en piezas y dinero; §AN.3) **no** está en `mix`. Propuesta: `mix.byProductType: { raw, graded, sealed: { pieces, netCents } }`. Se pintaría como cuarta tabla de AN-UX.8b |
+| **N-AN-3** ✔ AN-1.1 | arquitecto | «¿Me sale el envío?»: el DTO trae cobrado y costo, no la diferencia, y el front no resta (AN-1). Si se quiere la respuesta directa, un `shipping.resultNetCents` por cubo (con su regla para `costMissingCount > 0`). Mientras tanto, las dos cifras van lado a lado |
+| **N-AN-4** ✔ AN-1.1 | arquitecto (informativo) | El CSV en centavos es exacto pero raro para el dueño en Excel; la pantalla lo explica (`sales.csv.help`). Si se prefiere pesos con dos decimales, es un cambio de §15.7, no de diseño |
 | **N-AN-5** | product-owner (informativo) | La tarjeta existente «Ventas del periodo» dice «Bruto» para la misma suma que aquí se llama «Cobrado (con IVA)». No se toca aquí; si el dueño quiere un solo nombre, errata aparte |
 | **N-AN-6** | orquestador | Zonas compartidas que toca frontend: `lib/api.ts`, `types/contract.ts`, `messages/*.json` (§15.10). Un solo stream a la vez |
 | **N-AN-7** | orquestador | P-AN-2 aplicada con su default (día completo). Si el dueño elige «hasta esta misma hora», cambian solo dos textos de la tarjeta (`today`, `reference`) |
