@@ -1005,7 +1005,6 @@
       "loginBody": "You will sign in with your account: this offer is not accepted from an email link.",
       "viewRequestCta": "View this request",
       "closedNotContinued": "After an additional review, we've decided not to continue with this sale. The request is closed and no card was purchased.",
-      "pickupLockedInProgress": "We're generating your label with this address: it can't be changed now. If it's wrong, write to us at {email}.",
       "label": {
         "title": "Your label",
         "body": "We've already paid for your label with {carrier}. Print it, stick it on your package and take it to a {carrier} branch.",
@@ -2187,8 +2186,10 @@
               "noPickupAddress": "This request didn't save the seller's address (it's from before addresses were saved) and Skydropx can't quote without it. Enter the label by hand.",
               "senderMissingQuote": "The sender is missing and Skydropx can't quote without it. Enter it (you can use their account name) and save. Nothing was quoted.",
               "storeAddressMissing": "The store address is missing in “Settings › Shipping”, and it's this label's destination. Nothing was quoted: complete it there or enter the label by hand.",
-              "destinationRejected": "The server rejected the request because it carried a destination: this label always goes to the store. Nothing was quoted or charged. Reload the page."
-            }
+              "destinationRejected": "The server rejected the request because it carried a destination: this label always goes to the store. Nothing was quoted or charged. Reload the page.",
+              "shipmentConfirmed": "This request's shipment is already confirmed: no label is generated now. Nothing was opened or charged. When the package arrives, receive it and review the cards."
+            },
+            "reissueDone": "Label cancelled. Request {id} is back to “no label” and the count toward automatic closing starts again today. You can now generate the new one; the seller will get it with a note that it replaces the previous one."
           }
         }
       },
@@ -3203,8 +3204,8 @@
         "alreadySkydropx": "This request already has a label bought in Skydropx. The manual label wasn't saved: to change it, cancel it and buy another.",
         "inProgress": "A label purchase is in progress for this request. Nothing was saved; wait for it to finish.",
         "preparing": "Preparing the label…",
-        "alertFilter": "Only requests with an alert on their inbound label",
-        "openLabel": "Open label"
+        "alertFilter": "Only requests with a label alert",
+        "openLabel": "Open the label window"
       },
       "declineAccepted": {
         "action": "Decline",
@@ -3233,7 +3234,7 @@
         "line": "No label: it closes on its own on {datetime} if it still has none by then.",
         "tag": "Closes on its own",
         "note": "When it closes, the seller gets the “not continuing” email and it doesn't count against them. To avoid it, generate their label or decline it yourself.",
-        "inDays": "{n, plural, =0 {today} one {in # day} other {in # days}}"
+        "inDays": "{n, plural, =0 {any moment now} one {in under 24 h} other {in # days}}"
       }
     },
     "m2": {

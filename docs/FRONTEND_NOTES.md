@@ -20442,3 +20442,10 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
 Pruebas previas que cambiaron porque el diseño cambió (no se debilitaron: se actualizó el valor esperado al texto/estructura nuevos): `M5View.pnl.test.tsx` (nota `aceptada`; casillas medidas en la FICHA porque la página gana una), `BuylistDecisionDesk.test.tsx` (nota `aceptada`), `SpendAlerts.v421.test.tsx` y `SpendControlSection.test.tsx` (+AG-23: 14 apagables), `i18n-pnl.test.ts` (fórmula), `M7View.pnl.test.tsx` y `M7View.test.tsx` (diez renglones, ganancia del fixture).
 
 **E2E (Playwright, mocks):** `e2e/buylist-bsd.spec.ts` (portal `not_continued` + descarga en portal y «Ventas»), más `buylist-offer`, `buylist` y `m5-transitions` por los fixtures nuevos: 41/41 verdes, N=1 por caso.
+
+### §104.1 · ✏ vBSD-1.1 (DESIGN_SYSTEM §BSD-UX, commit `9bedf764`) — 2026-10-06
+- `GUIDE_NOT_ALLOWED {reason:'shipment_confirmed'}` ⇒ `admin.m4.tracking.sdx.inbound.error.shipmentConfirmed` (rama propia en `sdx-errors.ts` antes del `notAccepted`, que queda como red de seguridad para `status`/`closed`/otro).
+- Textos de `admin.m5.inbound.openLabel` y `alertFilter` cambian; `admin.m5.guideDue.inDays` = `{n, plural, =0 {en cualquier momento} one {en menos de 24 h} other {en # días}}` (techo del servidor; el número solo en la versalita).
+- Tras re-emitir una guía de ENTRADA (`outcome:'cancelled'`), `AcceptedRequestPanel` compone `admin.m4.tracking.sdx.inbound.reissueDone` con el id de la solicitud (aviso de éxito de M5); `CancelLabelDialog` sigue devolviendo `''` en entrada.
+- Se retira `buylist.offer.pickupLockedInProgress` (4c sin superficie hasta §25.5e, N-5). Las cinco claves «sin diseño» de §104 quedan ratificadas o cambiadas por ux-ui.
+- **UX-BSD-17** en `m5/ux-bsd-17.test.tsx`: rojo sobre `f76abbba` (4/9 pruebas; las 5 verdes son la red de seguridad y `null`); canarios medidos sobre copia, N=1 deterministas: `=0 {hoy}` · quitar la rama `shipment_confirmed` · pantalla sin frase tras re-emitir ⇒ **3/3 muerden**.

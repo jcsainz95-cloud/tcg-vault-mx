@@ -14,7 +14,7 @@ import { get, p66_3Offenders } from './i18n-p66-3.testkit';
  */
 const KEYS: string[] = [
   'status.sellRequestExpiry.not_continued',
-  ...['closedNotContinued', 'pickupLockedInProgress'].map((k) => `buylist.offer.${k}`),
+  'buylist.offer.closedNotContinued',
   ...['title', 'body', 'bodyNoCarrier', 'tracking', 'download', 'downloading', 'alsoInEmail', 'downloadShort', 'errorUnavailable', 'errorTemporary'].map(
     (k) => `buylist.offer.label.${k}`,
   ),
@@ -22,8 +22,8 @@ const KEYS: string[] = [
     'title', 'ref', 'originTitle', 'sender', 'senderMissing', 'senderHint', 'senderSuggestion', 'useSuggestion', 'scopeNote', 'resyncNote',
     'senderRequired', 'destinationTitle', 'destinationName', 'destinationNote', 'feeDeducted', 'boxValue', 'marginNegative', 'pickupYes',
     'pickupNo', 'deliveryHome', 'deliveryBranch', 'showBranch', 'hideBranch', 'noRecommended', 'confirmNegative', 'confirmBranch',
-    'sentToSeller', 'processingNote', 'bought', 'manualIntro', 'reissueBody', 'reissueNotAccepted', 'reissueSellerShipped',
-    ...['featureDisabled', 'notAccepted', 'sellerShipped', 'manualExists', 'noPickupAddress', 'senderMissingQuote', 'storeAddressMissing', 'destinationRejected'].map(
+    'sentToSeller', 'processingNote', 'bought', 'manualIntro', 'reissueBody', 'reissueNotAccepted', 'reissueSellerShipped', 'reissueDone',
+    ...['featureDisabled', 'notAccepted', 'sellerShipped', 'shipmentConfirmed', 'manualExists', 'noPickupAddress', 'senderMissingQuote', 'storeAddressMissing', 'destinationRejected'].map(
       (k) => `error.${k}`,
     ),
   ].map((k) => `admin.m4.tracking.sdx.inbound.${k}`),
@@ -82,6 +82,11 @@ describe('UX-BSD-9 (BSD-F8) · paridad ES/EN de §BSD-UX.8', () => {
         expect(String(get(cat, k))).not.toMatch(/expir|venc|plazo|no enviaste|deadline|expired|didn.t send/i);
       }
     }
+  });
+
+  it('✏ vBSD-1.1 · `pickupLockedInProgress` retirada (4c sin superficie hasta §25.5e, N-5)', () => {
+    expect(get(es, 'buylist.offer.pickupLockedInProgress')).toBeUndefined();
+    expect(get(en, 'buylist.offer.pickupLockedInProgress')).toBeUndefined();
   });
 
   it('UX-BSD-10 · la copia vieja «ya no se cancela» no queda en las dos claves que cambian', () => {

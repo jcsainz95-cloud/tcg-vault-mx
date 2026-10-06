@@ -406,8 +406,8 @@ export function CancelLabelDialog({
     onSuccess: (res) => {
       invalidate();
       if (variant === 'retry') onDone(res.outcome === 'cancelled' ? tr('done') : tr('already'));
-      // 💰 rev BSD-1: `done` dice «el envío volvió a preparado» (salida); en entrada la ficha de M5 se relee y lo muestra
-      // (vuelve «Generar guía»). Sin copy propio diseñado ⇒ sin frase (ver FRONTEND_NOTES §BSD).
+      // 💰 rev BSD-1: `done` dice «el envío volvió a preparado» (salida). En entrada devuelve `''` con `cancelled` y el panel
+      // de M5 compone `inbound.reissueDone` con el id de la solicitud (✏ vBSD-1.1).
       else if (inbound) onDone(res.outcome === 'cancelled' ? '' : t('already'));
       else onDone(res.outcome === 'cancelled' ? t('done') : t('already'));
       onClose();

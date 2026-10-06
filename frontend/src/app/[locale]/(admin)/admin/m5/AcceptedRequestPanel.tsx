@@ -161,7 +161,9 @@ export function AcceptedRequestPanel({
             onClose={() => setReissueOpen(false)}
             onDone={(msg) => {
               refresh();
-              if (msg) onNotice({ variant: 'success', requestId: r.id, text: msg });
+              // ✏ vBSD-1.1 (§BSD-UX.6a): en entrada el diálogo devuelve `''` con `outcome:'cancelled'` (no conoce la
+              // solicitud); la frase `reissueDone` la compone el panel. Otro desenlace trae su texto (`already`).
+              onNotice({ variant: 'success', requestId: r.id, text: msg || tSdx('inbound.reissueDone', { id: r.id }) });
             }}
           />
         </div>

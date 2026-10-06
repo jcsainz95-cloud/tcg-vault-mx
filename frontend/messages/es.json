@@ -1005,7 +1005,6 @@
       "loginBody": "Entrarás con tu cuenta: esta oferta no se acepta desde un enlace del correo.",
       "viewRequestCta": "Ver esta solicitud",
       "closedNotContinued": "Tras una revisión adicional, decidimos no continuar con esta venta. La solicitud queda cerrada y no se compró ninguna carta.",
-      "pickupLockedInProgress": "Estamos generando tu guía con esta dirección: ya no se puede cambiar. Si está mal, escríbenos a {email}.",
       "label": {
         "title": "Tu guía",
         "body": "Ya pagamos tu guía con {carrier}. Imprímela, pégala en tu paquete y llévalo a una sucursal de {carrier}.",
@@ -2187,8 +2186,10 @@
               "noPickupAddress": "Esta solicitud no guardó la dirección del vendedor (es de antes de que se guardara) y Skydropx no cotiza sin ella. Captura la guía a mano.",
               "senderMissingQuote": "Falta quién envía y Skydropx no cotiza sin ese dato. Escríbelo (puedes usar el nombre de su cuenta) y guarda. No se cotizó nada.",
               "storeAddressMissing": "Falta la dirección de la tienda en «Configuración › Envíos», y es el destino de esta guía. No se cotizó nada: complétala ahí o captura la guía a mano.",
-              "destinationRejected": "El servidor rechazó la petición porque llevaba un destino: el de esta guía es siempre la tienda. No se cotizó ni se cobró nada. Recarga la página."
-            }
+              "destinationRejected": "El servidor rechazó la petición porque llevaba un destino: el de esta guía es siempre la tienda. No se cotizó ni se cobró nada. Recarga la página.",
+              "shipmentConfirmed": "El envío de esta solicitud ya está confirmado: ya no se genera guía. No se abrió ni se cobró nada. Cuando llegue el paquete, recíbelo y revisa las cartas."
+            },
+            "reissueDone": "Guía cancelada. La solicitud {id} volvió a «sin guía» y la cuenta para su cierre automático empieza de nuevo hoy. Ya puedes generar la nueva; al vendedor le llegará con la nota de que sustituye a la anterior."
           }
         }
       },
@@ -3203,8 +3204,8 @@
         "alreadySkydropx": "Esta solicitud ya tiene una guía comprada en Skydropx. No se guardó la guía a mano: para cambiarla, cancélala y compra otra.",
         "inProgress": "Hay una compra de guía en curso para esta solicitud. No se guardó nada; espera a que termine.",
         "preparing": "Preparando la guía…",
-        "alertFilter": "Solo solicitudes con alerta en su guía de entrada",
-        "openLabel": "Abrir guía"
+        "alertFilter": "Solo solicitudes con alerta en su guía",
+        "openLabel": "Abrir la ventana de la guía"
       },
       "declineAccepted": {
         "action": "Declinar",
@@ -3233,7 +3234,7 @@
         "line": "Sin guía: se cierra sola el {datetime} si para entonces no tiene guía.",
         "tag": "Se cierra sola",
         "note": "Al cerrarse, al vendedor le llega el correo de «no continuamos» y no cuenta en su contra. Para evitarlo, genera su guía o declínala tú.",
-        "inDays": "{n, plural, =0 {hoy} one {en # día} other {en # días}}"
+        "inDays": "{n, plural, =0 {en cualquier momento} one {en menos de 24 h} other {en # días}}"
       }
     },
     "m2": {

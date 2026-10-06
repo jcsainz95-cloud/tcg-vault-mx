@@ -140,7 +140,7 @@ describe('BSD-F1 · «Generar guía con Skydropx»', () => {
       row({ inboundShipment: liveGuide({ status: 'cancelado', providerCanceledAt: '2026-10-05T10:00:00.000Z', labelAlert: { kind: 'label_cancel_failed', since: '2026-10-05T10:00:00.000Z', canRelease: false } }) }),
     );
     expect(await within(card()).findByTestId(`m5-inbound-alert-${ID}`)).toHaveTextContent('Cancelación sin confirmar');
-    expect(within(card()).getByRole('button', { name: 'Abrir guía' })).toBeInTheDocument();
+    expect(within(card()).getByRole('button', { name: 'Abrir la ventana de la guía' })).toBeInTheDocument();
   });
 });
 
@@ -258,7 +258,7 @@ describe('BSD-1.3 punto 4 · filtro «solo con alerta en su guía de entrada»',
   it('marcarlo pide `?inboundLabelAlert=true`; sin marcar, la petición de siempre', async () => {
     const { list } = await render(row());
     expect(list).toHaveBeenLastCalledWith();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Solo solicitudes con alerta en su guía de entrada' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Solo solicitudes con alerta en su guía' }));
     await waitFor(() => expect(list).toHaveBeenLastCalledWith({ inboundLabelAlert: true }));
   });
 });

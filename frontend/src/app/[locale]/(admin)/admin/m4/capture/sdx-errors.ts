@@ -93,6 +93,9 @@ export function inboundErrorView(e: unknown, t: T, ctx: Pick<Ctx, 'statusLabel' 
   switch (err.code) {
     case 'GUIDE_NOT_ALLOWED':
       if (d.reason === 'seller_declared_shipped') return view(t('inbound.error.sellerShipped'), { effect: { kind: 'fatal' } });
+      // ✏ vBSD-1.1 (§BSD-UX.5d): la solicitud SIGUE `aceptada` con el envío confirmado ⇒ «ya no está aceptada» se contradiría.
+      if (d.reason === 'shipment_confirmed') return view(t('inbound.error.shipmentConfirmed'), { effect: { kind: 'fatal' } });
+      // `status`, `closed`, otro o ausente ⇒ `notAccepted` (red de seguridad).
       return view(t('inbound.error.notAccepted', { status: sell(d.status) }), { effect: { kind: 'fatal' } });
     case 'SHIPMENT_ALREADY_LABELED':
       if (d.labelSource === 'manual') return view(t('inbound.error.manualExists'), { effect: { kind: 'fatal' } });
