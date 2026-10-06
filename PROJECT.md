@@ -9066,7 +9066,196 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
   «Disputas…» y 2026-10-05 «Términos tras quitar disputas…») y se pueden aplicar ya; T-1/T-2/T-3 esperan P-LEG-6
   (o su default) (criterio 510).
 
+### AC. Accesorios — fundas, carpetas y demás, con precio final del dueño (transversal — NUEVO 2026-10-06, sesión 6 · ⚠️ BORRADOR de product-owner, con preguntas P-ACC abiertas)
+
+> **Palabras del dueño (2026-10-06, textual):** «Quiero una pestaña adicional en comprar que sea accesorios, ahí
+> subiré penny sleeves, carpetas y demás. Yo pongo precio final y subo la foto en PNG, ¿cómo lo ves? ¿Y si tengo
+> artículos arriba lo sugieres cuando van a cerrar la compra? ¿Ves muy grande este cambio?»
+>
+> **Lo medido por el orquestador (2026-10-06, rama `claude/accesorios`, base `production`)** — no por product-owner:
+> el sellado (`SealedProduct`, `backend/prisma/schema.prisma` ~838) está **atado al catálogo de TCGplayer** (set y
+> producto de TCGplayer obligatorios), así que un accesorio **no cabe ahí sin cambiar el modelo**; el módulo de
+> archivos (`backend/src/modules/uploads/`) existe solo para la INE y guarda en **privado**; la tienda tiene
+> `/catalog`, `/sellado` y `/checkout`; **no existe hoy ningún producto que no sea carta o sellado de un set**.
+> Cómo se modela es decisión del **arquitecto**; aquí solo se fija qué tiene que pasar.
+>
+> **Decisiones del dueño que esta sección respeta y NO re-pregunta:** precio que escribe el dueño = **con IVA
+> dentro** (`HECHOS.md` fila «Precio del sellado — respuestas a P-SP-1/2/3», 2026-10-05: «yo lo voy a meter con
+> iva»); **solo el dueño pone precio** al sellado, el personal da de alta sin precio (fila «Precio del sellado
+> (responde P-SELLADO-PRECIO…)», 2026-10-05) — se propone lo mismo aquí; **modo prueba de Stripe** hasta el cierre
+> (fila 2026-09-10); **tarifa fija de envío** por pedido (criterio 9, default MX$175); todo paquete **asegurado por
+> el valor del pedido** (fila «Skydropx — Carta Porte…», 2026-10-04); **procesos lo más automáticos posible**
+> (fila «REGLA GENERAL», 2026-10-04); ventas finales con sus excepciones (§B, §S.11, §V).
+
+**¿Es muy grande el cambio? (respuesta en llano para el dueño)** — Es **mediano**. No es una pantalla nueva y
+ya: es un **tipo de producto nuevo** que pasa por el carrito, el cobro, las existencias, la preparación del
+pedido y los reembolsos — es decir, **toca dinero** y lleva sus tres revisiones (QA, techlead, seguridad). Lo
+nuevo de verdad son tres cosas: (1) un producto **sin carta ni set**, (2) **fotos públicas** subidas por ti (hoy
+solo existe subir la INE, que es privada), y (3) la **sugerencia antes de pagar**. Lo demás reutiliza lo que ya
+hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», reembolsos).
+
+#### AC.1 Qué es un accesorio
+- [ ] Un **accesorio** es un artículo que la tienda vende y que **no es carta ni sellado**: no tiene set, rareza,
+      acabado, condición ni precio de mercado. Tiene:
+      - **Nombre** (obligatorio; p. ej. «Penny sleeves Ultra PRO ×100»).
+      - **Descripción corta** (opcional; hasta 500 caracteres *(SUPUESTO: tope de 500)*; texto simple, sin formato).
+      - **Categoría** (obligatoria, una de una lista fija): **Fundas / penny sleeves**, **Toploaders**, **Carpetas**,
+        **Cajas de mazo**, **Playmats**, **Otros**. *(SUPUESTO: la lista es fija en la v1; agregar una categoría es
+        un cambio pequeño de producto, no un dial — P-ACC-6.)*
+      - **Precio final con IVA dentro** que escribe el dueño, en pesos con centavos — **es lo que ve el cliente en la
+        vitrina**, igual que el precio del sellado (`HECHOS.md` 2026-10-05). **No hay precio automático**: no existe
+        mercado de referencia; sin precio, el accesorio **no se puede activar**.
+      - **Existencias por cantidad** (número entero ≥ 0): «tengo 40 paquetes». No hay pieza individual con folio.
+      - **Activo / inactivo**: inactivo ⇒ no aparece en la tienda ni se sugiere, aunque tenga existencias.
+      - **Foto** (una; ver AC.2).
+      - **Sugerido** (sí/no, AC.5).
+- [ ] Para **activar** un accesorio hacen falta: nombre, categoría, precio y foto. *(SUPUESTO: sin foto no se
+      activa — una vitrina con huecos se ve descuidada; P-ACC-7.)*
+- [ ] El precio se guarda tal como lo escribe el dueño y **es lo que el cliente ve**; el IVA se calcula **dentro**
+      de ese precio para el desglose (16 %: precio ÷ 1.16 = base; la diferencia es IVA). **No se le aplica** el
+      markup de cartas, ni los spreads del sellado (§K), ni el redondeo de precios de cartas, ni el piso de MX$25.
+
+#### AC.2 La foto
+- [ ] El dueño sube la foto desde el panel. Se aceptan **PNG** (lo que pidió), y también **JPG y WebP**
+      *(SUPUESTO: aceptar los tres; es lo que sale de un celular o de la página del fabricante)*.
+- [ ] **Tamaño máximo del archivo: 10 MB** *(SUPUESTO)*. Más grande ⇒ mensaje claro («La foto pesa más de 10 MB»)
+      y no se guarda nada. Archivo que no es imagen de verdad (aunque diga «.png») ⇒ se rechaza.
+- [ ] **El sistema la acomoda solo** (regla «lo más automático posible»): la deja **cuadrada sin recortar el
+      producto** (si no es cuadrada, se rellena el fondo — blanco, o transparente si el PNG lo tiene), la reduce a un
+      tamaño de tienda *(SUPUESTO: lado máximo ~1200 px, más una miniatura para el listado)* y la guarda en un
+      formato ligero. **El dueño no tiene que editarla antes.** Se le quitan los datos ocultos de la cámara
+      (ubicación GPS, modelo del celular).
+- [ ] **La foto es PÚBLICA** (cualquiera la ve en la tienda, sin sesión) — **a diferencia de la INE**, que es
+      privada y solo ve el súper-admin (`HECHOS.md` 2026-09-11). ⛔ Las fotos de accesorios y las INE **no se
+      mezclan**: una foto de accesorio nunca queda guardada donde viven las INE ni con sus permisos, y una INE nunca
+      se vuelve pública por este camino. (Cómo se separa: arquitecto.)
+- [ ] Cambiar la foto reemplaza la anterior en la tienda.
+- [ ] Una sola foto por accesorio en la v1 (galería: fuera de alcance, AC.8).
+
+#### AC.3 La pestaña «Accesorios» en la tienda
+- [ ] En el menú **Comprar** aparece **«Accesorios»** (en: «Accessories») junto a las cartas y el sellado. Funciona
+      **sin cuenta** (como el resto de la tienda) y en celular.
+- [ ] **Listado**: tarjeta con foto, nombre, categoría y precio (con IVA, como toda la tienda, §Q). Filtro por
+      **categoría** y búsqueda por **nombre**. Orden por defecto *(SUPUESTO)*: primero los que tienen existencias,
+      luego por categoría y nombre.
+- [ ] **Ficha**: foto grande, nombre, categoría, descripción, precio, selector de **cantidad** (de 1 al máximo
+      disponible) y «Agregar al carrito».
+- [ ] **Agotado** (existencias 0 y activo): sigue visible con la etiqueta **«Agotado»**, al final del listado, y
+      **no se puede agregar** al carrito. *(SUPUESTO: se muestra en vez de ocultarse, para que el cliente sepa que lo
+      vendes; si el dueño lo quiere esconder, lo desactiva — P-ACC-5.)*
+- [ ] Cuántas unidades quedan: **no se muestra el número exacto** *(SUPUESTO)*; solo «Agotado» o disponible. Si el
+      cliente pide más de lo que hay, se le dice «Solo hay N disponibles» y se ajusta.
+- [ ] Los accesorios **no aparecen** en el catálogo de cartas, ni en la búsqueda de cartas, ni en el cotizador de
+      venta (buylist), ni en bóveda/portafolio. La tienda **no compra** accesorios a clientes.
+
+#### AC.4 Carrito, pago, existencias, envío y reembolsos (💰 zona de dinero)
+- [ ] **Mismo carrito y mismo pedido**: un cliente puede comprar cartas, sellado y accesorios **en un solo pedido y
+      un solo cobro de Stripe**. También se puede comprar **solo** accesorios.
+- [ ] **El precio lo pone el servidor**, nunca lo que mande el navegador (misma protección que el resto, SEC-A1). Y
+      se cobra **el precio que el cliente vio** (`HECHOS.md` 2026-10-04 «Portada: se cobra el precio que el cliente
+      VIO»): si el dueño cambia el precio mientras alguien tiene el accesorio en el carrito, se aplica la misma regla
+      que el arquitecto definió para las cartas.
+- [ ] **Comisión de plataforma y IVA**: el accesorio entra al total igual que una carta o un sellado — su precio ya
+      trae el IVA (el checkout lo **informa**, no lo suma, §B/§Q) y la comisión de plataforma se suma aparte sobre el
+      total del pedido *(SUPUESTO: igual que el resto de la tienda — P-ACC-2)*. El IVA del accesorio cuenta en el IVA
+      del pedido (`Order.ivaCents`) y sale en el exporte de IVA para la factura manual.
+- [ ] **Existencias apartadas como el resto**: al ir a pagar, las unidades quedan **apartadas** para ese pedido y
+      nadie más puede comprarlas; si el pago falla o el cliente no paga a tiempo, **vuelven solas** a existencias
+      (misma regla y mismo plazo que las cartas). Dos clientes **nunca** pueden comprar la misma última unidad: el
+      segundo recibe «Ya no hay suficientes» antes de cobrarle.
+- [ ] **Al pagarse**, las existencias bajan en la cantidad vendida.
+- [ ] **Destino**: un accesorio **siempre se envía**; **no se guarda en bóveda** (no es coleccionable ni tiene valor
+      de portafolio). *(SUPUESTO; qué pasa si el cliente mezcla accesorios con cartas que quiere dejar en bóveda es
+      P-ACC-1.)*
+- [ ] **Envío**: con la **tarifa fija de envío** de siempre (criterio 9); los accesorios **no cambian** el cobro de
+      envío al cliente *(SUPUESTO — P-ACC-3)*. El valor de los accesorios **sí cuenta** para el seguro del paquete
+      (se asegura por el valor del pedido, `HECHOS.md` 2026-10-04).
+      ⚠️ **Para el arquitecto — NO MEDIDO:** la Carta Porte de las guías declara hoy el código SAT **49101600
+      «Coleccionables»** (`HECHOS.md` fila «Skydropx — Carta Porte…», 2026-10-04), pensado para cartas. Fundas,
+      carpetas o playmats probablemente no son «coleccionables». Falta medir si Skydropx acepta más de un concepto por
+      guía y qué código corresponde; no se pregunta al dueño hasta tener esa medición (regla O-6).
+- [ ] **«Pedidos por preparar» (§S)**: los accesorios del pedido aparecen como **renglones propios** con nombre,
+      foto pequeña y **cantidad** («Penny sleeves ×3»), y se palomean como las cartas (sin cajón ni folio).
+- [ ] **Falta o llega dañado** (§S.10, `HECHOS.md` 2026-09-29): el operador o el dueño puede **reembolsar solo ese
+      accesorio, por unidad** («faltó 1 de 3»): se reembolsa lo pagado por esas unidades con su parte de la comisión
+      (misma regla D-1 que la carta faltante) y cuenta para el tope del operador en 24 h. El pedido sigue con lo demás.
+- [ ] **Reembolso total del pedido**: misma regla que las cartas (`HECHOS.md` 2026-10-02 y 2026-10-04, SSL-R1):
+      **no enviado** ⇒ las unidades **vuelven solas a existencias**; **enviado** ⇒ **no vuelven** y el motivo es «no
+      llegó» / «llegó en mala condición».
+- [ ] **Reembolso de un accesorio de un pedido entregado** (§V.2): se puede, igual que una carta.
+- [ ] **Ventas finales** (§B): aplica también a accesorios — sin devolución por cambio de opinión, con las mismas
+      excepciones.
+- [ ] Contracargo del banco: igual que hoy para el pedido; no cambia nada de existencias por sí solo *(SUPUESTO)*.
+- [ ] Invitado (§J): puede comprar accesorios (siempre van a envío).
+
+#### AC.5 Sugerencia antes de pagar: «¿Te falta algo?»
+- [ ] En el **carrito** (antes de ir a pagar) *(SUPUESTO: en el carrito y no en la página de pago de Stripe, que no
+      es nuestra)* aparece un recuadro **«¿Te falta algo?»** con **hasta 3** accesorios *(SUPUESTO: N = 3, dial
+      que el dueño puede cambiar)*, cada uno con foto, nombre, precio y un botón **«Agregar»** (agrega 1 unidad sin
+      salir del carrito).
+- [ ] **Regla de qué se sugiere** (automática, sin trabajo del dueño):
+      1. Solo accesorios **activos y con existencias**.
+      2. **Nunca** uno que ya está en el carrito.
+      3. Primero los que el dueño marcó **«Sugerido»**; si faltan para llegar a 3, se completan con **los más
+         vendidos de los últimos 30 días**; si aún faltan, los demás activos con existencias.
+      4. Si no hay ninguno que cumpla, **el recuadro no aparece** (sin recuadro vacío).
+- [ ] **No molestar**: el recuadro es discreto, **no es ventana emergente**, no bloquea el botón de pagar y tiene
+      «No, gracias» que lo oculta **para esa visita al carrito** *(SUPUESTO)*. Si el carrito ya trae **un accesorio de
+      cada categoría sugerible**, igual se aplica la regla 2 (solo se excluye el mismo artículo) *(SUPUESTO —
+      P-ACC-4 pregunta si prefieres no sugerir nada a quien ya lleva accesorios)*.
+- [ ] Al agregar desde la sugerencia, el accesorio entra al carrito con el mismo precio y las mismas reglas que
+      desde la ficha.
+
+#### AC.6 Panel (admin): alta, edición, foto y existencias
+- [ ] Sección **«Accesorios»** en el panel *(dónde vive en el menú: ux-ui, sin mover el resto del menú — `HECHOS.md`
+      2026-10-02)*: lista con foto, nombre, categoría, precio, existencias, activo y sugerido; filtro por categoría y
+      por «agotados».
+- [ ] **Alta y edición** de todos los campos de AC.1, con su foto.
+- [ ] **Quién hace qué** *(SUPUESTO por analogía con el sellado, `HECHOS.md` 2026-10-05; P-ACC-8)*:
+      - **Solo el dueño** (súper-admin) pone o cambia el **precio**, **activa/desactiva** y marca **«Sugerido»**.
+      - El **personal** (operador) puede dar de alta un accesorio **sin precio** (queda inactivo), subir/cambiar la
+        foto y **ajustar existencias**.
+- [ ] **Existencias**: se ajustan con **«Entraron N»** (llegó mercancía) y **«Ajuste»** (conteo físico, merma) con
+      **motivo** obligatorio en el ajuste; cada cambio queda registrado con **quién, cuándo, antes y después**. Las
+      ventas, apartados y devoluciones a existencias de AC.4 los mueve **el sistema solo**, no a mano.
+- [ ] Cambiar el precio **no afecta** pedidos ya pagados.
+- [ ] **No se borra** un accesorio que ya se vendió alguna vez (para no romper pedidos ni reportes): se
+      **desactiva**. Uno que nunca se vendió sí se puede borrar *(SUPUESTO)*.
+- [ ] Todo cambio de precio, activación, existencias y foto queda en la **bitácora de auditoría**.
+- [ ] **Inventario y reportes**: los accesorios aparecen en el inventario del panel como **su propia pestaña o
+      filtro** (no mezclados con cartas por folio) y en el **detalle de Ventas** de cada pedido como renglones con
+      cantidad. En el **reporte de ganancias (P&L, M7)** entran como ingreso de venta.
+- [ ] **Dependencia, no diseño aquí:** la **analítica de ventas del dueño (§AN, rama `claude/analitica-ventas`)**
+      debe contar los accesorios como **un tipo de producto más** (ventas por tipo, más vendidos). Cuál de las dos
+      ramas entra primero y quién adapta a quién lo decide el orquestador/arquitecto; esta sección **no** redefine §AN.
+- [ ] **Costo del accesorio** (lo que te costó a ti): *(SUPUESTO: campo **opcional** «costo por unidad», visible
+      solo en el panel, para que el P&L y §AN puedan calcular margen; P-ACC-9)*.
+
+#### AC.7 Lo que NO cambia con §AC — se verifica por ausencia
+- [ ] Precio, publicación, catálogo y búsqueda de **cartas** y **sellado**: igual que hoy.
+- [ ] La **INE** sigue privada, con el mismo acceso (solo súper-admin) y la misma purga.
+- [ ] La tarifa de envío al cliente y la regla del seguro no cambian.
+- [ ] El buylist y el cotizador no cambian.
+
+#### AC.8 Fuera de alcance de §AC (primera versión)
+- **Variantes** de color, tamaño o diseño dentro de un mismo artículo (en la v1, cada variante es un accesorio
+  aparte: «Carpeta 9 bolsillos negra», «… azul»).
+- **Combos** o paquetes (p. ej. «sellado + fundas») y **descuentos** (por cantidad, cupones, promociones, precio
+  tachado).
+- **Galería** de varias fotos por accesorio; video.
+- **«Avísame cuando vuelva»** para accesorios agotados.
+- Sugerencias **inteligentes** por contenido del carrito (p. ej. «compraste una carta cara ⇒ toploader»); la v1 usa
+  la regla simple de AC.5.
+- Sugerir accesorios en **otras pantallas** (ficha de carta, correo de confirmación).
+- Accesorios en **bóveda**, en el **portafolio** o en el **buylist**.
+- **Proveedores y órdenes de compra** a proveedores; alerta de existencias bajas *(podría ser un aviso simple
+  después; no lo pediste)*.
+- Importar accesorios desde un archivo (Excel/CSV).
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §AC (accesorios)** *(2026-10-06)*: variantes de color/tamaño, combos, descuentos, galería de fotos, «avísame
+  cuando vuelva», sugerencias inteligentes, accesorios en bóveda/portafolio/buylist, compras a proveedores e
+  importación por archivo. Detalle en **§AC.8**.
 - **De §Z (control del gasto)** *(2026-10-04)*: avisos por **SMS o WhatsApp**; avisos o correos **al personal**;
   **aprobación previa del dueño guía por guía** como camino normal (el freno es el tope y el interruptor general);
   **bloqueo automático de cuentas** del personal por un aviso; **conciliación automática** del saldo de Skydropx
@@ -13262,6 +13451,70 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
    cifrada», T-10), se corrige **el texto** o se enruta el cambio de sistema al arquitecto — nunca se publica la
    promesa sin la conducta.
 
+**Accesorios (§AC, 2026-10-06 — BORRADOR, criterios 700–724; los marcados 💰 son zona de dinero)**
+
+700. **Alta completa y activación** *(§AC.1)*: el dueño da de alta un accesorio con nombre, categoría (una de las
+   seis), descripción, precio con IVA MX$89.00, existencias 20 y foto; lo activa y aparece en la tienda. Sin precio
+   **o** sin foto, el botón de activar se niega con un mensaje que dice qué falta.
+701. **El precio de la vitrina es el que escribió el dueño** *(§AC.1)*: con precio MX$89.00, listado, ficha, carrito y
+   checkout muestran **MX$89.00** (ni markup, ni spread, ni redondeo, ni piso de MX$25); el desglose de IVA del
+   checkout informa **MX$12.28** (89.00 − 89.00/1.16) y no suma nada al total.
+702. **Foto: formatos y tamaño** *(§AC.2)*: se aceptan PNG, JPG y WebP; un archivo de más de 10 MB se rechaza con
+   mensaje claro; un archivo renombrado a «.png» que no es imagen se rechaza; en ningún rechazo queda foto guardada.
+703. **Foto: el sistema la acomoda** *(§AC.2)*: una foto rectangular de 3000×2000 se ve en la tienda cuadrada, **sin
+   recortar el producto** (con relleno), y pesa menos que la original; la que se sirve no conserva datos de
+   ubicación (GPS) de la original.
+704. **Foto pública, INE privada** *(§AC.2, AC.7)*: la foto de un accesorio se abre en un navegador sin sesión; una
+   INE sigue sin abrirse sin sesión de súper-admin (mismas pruebas de hoy en verde), y ninguna foto de accesorio
+   queda guardada en el lugar o con los permisos de las INE.
+705. **Pestaña y listado** *(§AC.3)*: en el menú Comprar hay «Accesorios» (en: «Accessories»), sin sesión y en
+   celular; el filtro por categoría y la búsqueda por nombre funcionan; los inactivos no aparecen.
+706. **Agotado** *(§AC.3)*: con existencias 0, el accesorio se ve con «Agotado», va al final y no se puede agregar al
+   carrito (ni desde la ficha, ni desde la sugerencia, ni llamando a la API directamente).
+707. **Sin contaminar cartas** *(§AC.3, AC.7)*: los accesorios no salen en el catálogo ni la búsqueda de cartas, ni en
+   el cotizador, ni en bóveda o portafolio.
+708. 💰 **Pedido mixto, un solo cobro** *(§AC.4)*: un carrito con 1 carta, 1 sellado y 2 accesorios se paga en **un**
+   cobro de Stripe (modo prueba); el pedido lista los tres tipos; el total = suma de precios exhibidos + comisión de
+   plataforma + envío, y coincide centavo a centavo con lo cobrado en Stripe.
+709. 💰 **El precio no lo pone el navegador** *(§AC.4)*: una petición que manda un precio distinto para un accesorio
+   no cambia lo que se cobra.
+710. 💰 **Apartado de existencias** *(§AC.4)*: con 1 unidad en existencia, dos clientes intentan pagarla a la vez:
+   solo uno llega a pagar; el otro recibe «Ya no hay suficientes» **antes** de cobrarle. QA lo repite **N = 10** y
+   reporta la proporción (regla O-3): 10/10.
+711. 💰 **Pago fallido o abandonado devuelve existencias** *(§AC.4)*: un pago que falla, o que no se completa en el
+   plazo del apartado, devuelve las unidades solas, sin intervención.
+712. 💰 **Al pagar bajan las existencias** *(§AC.4)*: con 20 en existencia, un pedido pagado de 3 deja 17.
+713. **Destino envío** *(§AC.4, según P-ACC-1)*: un pedido con accesorios no deja un accesorio en bóveda; la regla
+   exacta con carritos mixtos se verifica según la respuesta a P-ACC-1.
+714. 💰 **Envío y seguro** *(§AC.4, según P-ACC-3)*: agregar accesorios no cambia el cobro de envío al cliente; el
+   valor asegurado del paquete incluye lo pagado por los accesorios.
+715. **Preparación** *(§AC.4)*: en «Pedidos por preparar», el pedido muestra cada accesorio como renglón con foto,
+   nombre y cantidad, y se puede palomear.
+716. 💰 **Falta una unidad** *(§AC.4)*: en un pedido con «Penny sleeves ×3», el operador reembolsa **1** unidad
+   faltante: se reembolsa lo pagado por esa unidad más su parte de la comisión, cuenta para su tope de 24 h, el
+   cliente recibe el aviso de siempre y el pedido sigue con lo demás.
+717. 💰 **Reembolso total según si salió** *(§AC.4)*: reembolso total de un pedido **no enviado** ⇒ las unidades
+   vuelven solas a existencias; de un pedido **enviado** ⇒ no vuelven y se pide el motivo «no llegó» / «llegó en
+   mala condición».
+718. **Sugerencia: qué sale** *(§AC.5)*: con 2 accesorios marcados «Sugerido» y otros 5 activos con existencias, el
+   carrito muestra 3: los 2 sugeridos y el más vendido de los últimos 30 días; nunca uno inactivo, agotado o que ya
+   está en el carrito.
+719. **Sugerencia: no molesta** *(§AC.5)*: sin accesorios elegibles no aparece el recuadro; el recuadro no es ventana
+   emergente, no tapa el botón de pagar y «No, gracias» lo oculta en esa visita; «Agregar» suma 1 unidad sin salir
+   del carrito.
+720. **Permisos del panel** *(§AC.6, según P-ACC-8)*: con sesión de operador, no se puede cambiar precio, activar ni
+   marcar «Sugerido» (ni desde la pantalla ni llamando a la API); sí se puede dar de alta sin precio, cambiar la foto
+   y ajustar existencias.
+721. **Existencias con rastro** *(§AC.6)*: un ajuste sin motivo se rechaza; cada «Entraron N» y cada ajuste muestra
+   quién, cuándo, antes y después; los cambios de precio, activación y foto quedan en la bitácora.
+722. **No se borra lo vendido** *(§AC.6)*: un accesorio con ventas no se puede borrar, solo desactivar; sus pedidos y
+   reportes siguen mostrándolo con el nombre y precio con que se vendió.
+723. **Inventario, Ventas y P&L** *(§AC.6)*: el accesorio aparece en el inventario del panel en su pestaña/filtro, en el
+   detalle de Ventas del pedido con cantidad, y su venta suma al ingreso del P&L del mes y al IVA del exporte.
+724. **Recorrido de punta a punta** *(O-4)*: contra el stack corriendo, QA recorre: el dueño da de alta un accesorio
+   con foto PNG → lo ve en la pestaña → un invitado lo agrega desde la sugerencia del carrito junto a una carta → paga
+   con tarjeta de prueba → el operador lo prepara → las existencias bajaron. En ES y EN.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
@@ -17447,3 +17700,36 @@ ese frente:**
   cambio es de fondo** (nuevos usos o nuevos destinatarios); los cambios menores, solo con la fecha en la página.
 - **P-LEG-14 · ¿Publicamos también el aviso en inglés?** La tienda tiene versión en inglés. Default: **sí, traducido,
   y la versión en español es la que vale** si difieren.
+
+## Preguntas — accesorios (§AC, 2026-10-06, sesión 6) — ABIERTAS, cada una con su recomendación
+
+> Lo que ya dijiste **no se pregunta**: precio con IVA dentro que escribes tú, solo tú pones precio, tarifa fija de
+> envío, seguro por valor del pedido, procesos automáticos (`HECHOS.md`). Si no contestas una, **se construye con la
+> recomendación**. Las que más cambian el trabajo son **P-ACC-1** y **P-ACC-3**.
+
+- **P-ACC-1 · Si alguien compra cartas para dejarlas en su bóveda y además unas fundas, ¿qué hacemos con las
+  fundas?** Opciones: (a) **un carrito con accesorios solo puede ir a envío** — si quiere bóveda, compra los
+  accesorios en otro pedido; (b) las fundas se guardan en su bóveda y salen con su siguiente retiro; (c) un mismo
+  pedido con dos destinos (cartas a bóveda, fundas por paquetería, cobrando envío). **Recomendación: (a)**: es la más
+  simple y clara; (b) mete artículos sin valor de colección en la bóveda y (c) es la más cara de construir.
+- **P-ACC-2 · ¿Los accesorios pagan la «Comisión de plataforma» como el resto?** Tu precio ya trae IVA; la comisión
+  se suma aparte en el pago (hoy ~MX$8.69 por cada MX$116). **Recomendación: sí, igual que cartas y sellado** — una
+  sola regla en el checkout. Si quieres que el precio que escribes sea lo único que paga el cliente (sin comisión
+  encima), dilo y lo hacemos solo para accesorios.
+- **P-ACC-3 · ¿Un playmat o una carpeta cambian el envío?** Son más grandes que un paquete de cartas.
+  **Recomendación: misma tarifa fija para todo pedido** (como hoy) y quien prepara elige la caja y la paquetería en
+  «Capturar guía»; si ves que los grandes te salen caros, después se puede añadir un cargo extra por artículo grande.
+- **P-ACC-4 · ¿Le sugerimos accesorios a quien ya lleva accesorios en el carrito?** **Recomendación: sí**, solo
+  quitando los que ya lleva (alguien con fundas puede querer toploaders). La alternativa es no sugerir nada si ya
+  lleva al menos uno.
+- **P-ACC-5 · Agotado: ¿se ve con la etiqueta «Agotado» o se esconde solo?** **Recomendación: se ve, al final de la
+  lista** (el cliente sabe que lo manejas y vuelve); si quieres esconder uno, lo desactivas.
+- **P-ACC-6 · ¿Las seis categorías te sirven?** Fundas/penny sleeves, toploaders, carpetas, cajas de mazo, playmats y
+  otros. **Recomendación: sí, y lo que no encaje va en «Otros»**; si falta alguna que vayas a usar mucho (p. ej.
+  «Dados y contadores»), dínosla ahora.
+- **P-ACC-7 · ¿Se puede publicar un accesorio sin foto?** **Recomendación: no** — sin foto no se activa.
+- **P-ACC-8 · ¿Quién hace qué en el panel?** **Recomendación (como el sellado):** solo tú pones precio, activas y
+  marcas «Sugerido»; tu personal puede dar de alta sin precio, subir la foto y ajustar existencias cuando llega
+  mercancía.
+- **P-ACC-9 · ¿Quieres anotar cuánto te costó cada accesorio** para ver tu ganancia en el reporte y en la analítica
+  de ventas? **Recomendación: sí, como dato opcional** que solo se ve en el panel.
