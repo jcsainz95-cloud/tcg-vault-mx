@@ -19,7 +19,7 @@ import type { SalesFigures } from '../../src/modules/sales-analytics/sales-figur
 let w: SpendWorld;
 let svc: SalesAnalyticsService;
 let admin: AdminService;
-const DIGEST_DAYS = ['2021-03-07', '2021-03-03'].map((d) => new Date(`${d}T00:00:00.000Z`));
+const DIGEST_DAYS = ['2021-03-07', '2021-03-03', '2021-03-05'].map((d) => new Date(`${d}T00:00:00.000Z`));
 
 /** El instante de «ahora» de las pruebas de marzo: domingo 2021-03-07 21:00 MX (después del último pedido). */
 const NOW_MARCH = mx('2021-03-07', 21);
@@ -369,6 +369,50 @@ describe('§AN fase B — ganancia, envíos, buylist, mejores días, mezcla (Pos
     const empty = await w.h.app.get(SpendDigestService).run({ now: mx('2021-03-04', 8) });
     expect(empty).toEqual({ day: '2021-03-03', status: 'empty', alertCount: 0 });
     expect(w.mail.sent).toHaveLength(0);
+  });
+
+  it('AN-B-18b (techlead/QA sobre 76dd1ee9): la línea de ventas que LANZA no deja la fila en `sending` — sin avisos ⇒ `failed` re-enviable; con avisos ⇒ sale sin la línea', async () => {
+    const digest = w.h.app.get(SpendDigestService);
+    const sales = w.h.app.get(SalesAnalyticsService); // el MISMO singleton que inyecta el digest
+    const runRow = (d: string) => w.h.prisma.spendDigestRun.findUnique({ where: { day: new Date(`${d}T00:00:00.000Z`) } });
+    const boom = () => jest.spyOn(sales, 'dayFigures').mockRejectedValueOnce(new Error('AN-B-18b: doble que lanza'));
+    const dedup = `an-b18b:${w.run}`;
+    await w.h.prisma.spendDigestRun.deleteMany({ where: { day: { in: [new Date('2021-03-07T00:00:00.000Z'), new Date('2021-03-05T00:00:00.000Z')] } } });
+    await w.h.prisma.spendAlert.deleteMany({ where: { dedupKey: { startsWith: 'an-b18b:' } } });
+    try {
+      // (1) Domingo 2021-03-07: sin avisos, con 1 pedido; la lectura de ventas lanza ⇒ no se sabe si hubo pedidos ⇒ `failed`.
+      w.mail.reset();
+      const spy = boom();
+      const r1 = await digest.run({ now: mx('2021-03-08', 8) }).catch((e: unknown) => e);
+      expect(spy).toHaveBeenCalledTimes(1); // CONTROL: el doble sí se ejecutó
+      expect((await runRow('2021-03-07'))?.status).not.toBe('sending');
+      expect(r1).toEqual({ day: '2021-03-07', status: 'failed', alertCount: 0 });
+      expect((await runRow('2021-03-07'))?.status).toBe('failed');
+      expect(w.mail.sent).toHaveLength(0);
+      spy.mockRestore();
+      // …y el re-envío manual lo recoge con la línea ya sana.
+      const r1b = await digest.run({ day: '2021-03-07' });
+      expect(r1b).toEqual({ day: '2021-03-07', status: 'sent', alertCount: 0 });
+      expect(w.mail.sent.filter((m) => m.to === w.owner.email)[0].text).toContain('Ventas de ayer: 1 pedido');
+
+      // (2) Viernes 2021-03-05 con UN aviso; la lectura de ventas lanza ⇒ el resumen de gasto sale igual, SIN la línea.
+      await w.h.prisma.spendAlert.create({
+        data: { kind: 'label_cap_warning', severity: 'digest', dedupKey: `${dedup}:a`, facts: {}, mailStatus: 'not_applicable', firstOccurredAt: mx('2021-03-05', 12), lastOccurredAt: mx('2021-03-05', 12) },
+      });
+      w.mail.reset();
+      const spy2 = boom();
+      const r2 = await digest.run({ now: mx('2021-03-06', 8) }).catch((e: unknown) => e);
+      expect(spy2).toHaveBeenCalledTimes(1);
+      expect((await runRow('2021-03-05'))?.status).not.toBe('sending');
+      expect(r2).toEqual({ day: '2021-03-05', status: 'sent', alertCount: 1 });
+      const mine = w.mail.sent.filter((m) => m.to === w.owner.email);
+      expect(mine).toHaveLength(1);
+      expect(mine[0].text).not.toContain('Ventas de ayer');
+      expect(mine[0].text).toContain('Por tipo'); // CONTROL: es el resumen de gasto, no un correo vacío
+    } finally {
+      jest.restoreAllMocks();
+      await w.h.prisma.spendAlert.deleteMany({ where: { dedupKey: { startsWith: 'an-b18b:' } } });
+    }
   });
 });
 
