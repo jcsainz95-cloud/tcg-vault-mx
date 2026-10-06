@@ -29468,13 +29468,13 @@ Los dos `layout()` y los dos `escapeHtml` locales se borraron (el escape lo hace
 - **Deuda registrada:** BE-43 (mitad de `mail/` pagada), AV-D2 (11 ficheros de 8 módulos y ciclo `mail/`↔`buylist/`),
   FX-D9 (disparador = traslado a `common/`), y MAIL-D1…D7 al final de `docs/TECH_DEBT.md`.
 
-## 77 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
+## 80 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
 
 Norma: `API_CONTRACT §15` + errata AN-1.1 (`edffe544`), `ARCHITECTURE §4.64`, `PROJECT §AN` (600–613, 620, 622 de salida, 623, 624).
 ⛔ Fase C (`M-AN-1`: método de pago, contracargos por día) **no** construida: sus claves **no viajan** (`mix.byPaymentMethod`,
 `chargebacks`, `chargebacksUndatedCount`), y tampoco `shipping.buylistRevenueCents/CostCents` (#78).
 
-### 77.1 Lo que hay
+### 80.1 Lo que hay
 | Pieza | Dónde |
 |---|---|
 | `GET /admin/reports/sales`, `/sales/export.csv`, `/sales/today` (`AdminReportsController`, `super_admin` de clase, `no-store`) | `admin/admin.controller.ts` |
@@ -29487,7 +29487,7 @@ Norma: `API_CONTRACT §15` + errata AN-1.1 (`edffe544`), `ARCHITECTURE §4.64`, 
 `SalesAnalyticsModule` lo importan `AdminModule` y `SpendAlertsModule`; él no importa ninguno (sin ciclo). `SpendDigestService`
 recibe el servicio `@Optional()` (los dobles que construyen el servicio a mano siguen valiendo; sin él, la regla es la de antes).
 
-### 77.2 Decisiones de implementación que otros roles necesitan
+### 80.2 Decisiones de implementación que otros roles necesitan
 - **`?topSort=` NO está en `/sales/export.csv`.** §15.2 dice que los dos primeros endpoints aceptan los mismos parámetros, pero el CSV
   no lleva listas (§15.7) ⇒ el orden no cambia un byte, y `C-EQ-1` exige que todo eje declarado sea observable («filtra») y prohíbe
   excepciones de `filtra`. Se omitió; un `?topSort=` en el CSV se ignora como cualquier parámetro desconocido. ⇒ **arquitecto**.
@@ -29506,7 +29506,7 @@ recibe el servicio `@Optional()` (los dobles que construyen el servicio a mano s
 - **`PnlComponents` es `type`, no `interface`**: el tipo de `pnl()` sigue siendo asignable a `Record<string, number>` como antes
   (`sdx-d2f.units.spec.ts` lo usa así).
 
-### 77.3 Pruebas (fixture `test/integration/helpers/sales-db.ts`: ventana propia feb–may 2021, ids fijos, comprueba que esté vacía)
+### 80.3 Pruebas (fixture `test/integration/helpers/sales-db.ts`: ventana propia feb–may 2021, ids fijos, comprueba que esté vacía)
 - `test/sales-analytics.units.spec.ts` (37): presets en día MX, AN-B-14 (11 filas de error, sin `value`), AN-B-6 puro, AN-B-5, AN-B-7,
   AN-B-21 puro (25862 = 8621 + 8621 + 8620; CONTROL 3 × `taxBaseCentsOf` = 25863), AN-B-23.
 - `test/integration/sales-analytics.e2e-spec.ts` (19, Postgres real): AN-B-1, 2, 3 (68001 = 53000 + 15001), 4, 6, 7, 8, 9, 10 (pesos,
@@ -29517,7 +29517,7 @@ recibe el servicio `@Optional()` (los dobles que construyen el servicio a mano s
   (`AN_PARITY_WRITE=1`, commit `d644be0d`); ⛔ no se regenera para hacer pasar nada.
 - Candados estructurales `IVA-9`/`IVA-11` leen ahora `admin.service.ts` **y** `pnl-core.ts` (el bucle del P&L se mudó).
 
-### 77.4 Medido (2026-10-06, copia `git archive 1a2e9165` del árbol ENTERO en el scratchpad `be-ventas`, `node_modules` propio con `prisma generate` dentro, BD propia `tcg_be_ventas`)
+### 80.4 Medido (2026-10-06, copia `git archive 1a2e9165` del árbol ENTERO en el scratchpad `be-ventas`, `node_modules` propio con `prisma generate` dentro, BD propia `tcg_be_ventas`)
 | Qué | Resultado |
 |---|---|
 | `tsc --noEmit` | limpio |
