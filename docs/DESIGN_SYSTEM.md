@@ -28472,6 +28472,9 @@ por mí):
 | §43 (ventana «Capturar guía») | solo salida | + **modo entrada** (BSD-UX.5); SK7 y SK10 tienen su versión de entrada | §BSD.3, `PROJECT §BSD.1` |
 | §43.19.11–.12 (avisos AG, `AVG-1`) | AG-1…AG-22 | + **AG-23**; su `AVG-1` lleva CTA a «Solicitudes de venta», no a «Ver el aviso» | BSD-UX.3, C-2 |
 | §60 (b) F-9 (diales del ciclo en M10) | subtítulo «Aplican a solicitudes nuevas…» | los dos diales nuevos van en un subgrupo propio que dice que **aplican también a las en curso** | BSD-UX.6e |
+| §43.23.1 (P&L de M7: orden y número de renglones) | **ocho** renglones con signo, en el orden del objeto del servidor | **diez**: «+ Tarifa de envío descontada a vendedores» y «− Guías para recibir cartas de vendedores» van **justo debajo de «Costo de lo vendido»** (no al final, aunque en el objeto vengan al final); margen y aviso, **fuera** de la fórmula | BSD-UX.11; §BSD.16.1 y .6 («dentro de costo de compras; margen y contador como nota») |
+| §43.23.3 `admin.m7.pnl.formula` | ocho términos | diez términos (BSD-UX.11c); sigue nombrando a Stripe y a los «ajustes de paquetería» | BSD-UX.11 |
+| §43.23.6 UX-PNL-1 y UX-PNL-4 | «ocho `pnl-line`»; tres renglones en `0` siguen visibles | «**diez** `pnl-line`»; los dos nuevos también se pintan con `0` | BSD-UX.11, UX-BSD-11 |
 
 ---
 
@@ -28968,6 +28971,7 @@ frontend re-mide los nombres reales de `labels`/`hints`/`rules` antes de crearla
 | `admin.dashboard` | **nueva** `buylistGuideDue` | 6c |
 | `admin.m10.dials` | **nuevas** `groups.buylistGuideClose`, `groups.buylistGuideCloseNote`, `labels/hints/rules.buylistGuideCloseCalendarDays`, `labels/hints/rules.buylistGuideWarnDaysBeforeClose` | 6e |
 | `admin.spendAlerts` | **nuevas** `kind.AG-23.{title, text}`, `field.{sellRequestId, closesAt, offerGrossCents}`, `mail.AG-23.{remedy, cta}` | 3 |
+| `admin.m7.pnl` | **cambia** `formula`; **nuevas** `buylistFeeRetained`, `buylistGuideCost`, `buylistGuideMargin`, `buylistGuideMarginHelp`, `buylistGuideMarginNegative`, `buylistGuideCostMissing` | 11 |
 | Backend (constantes de plantilla, no `messages/*.json`) | `notContinued.*` (BSD-M1); `guide.{subjectReplaced, titleReplaced, replaced}`, `guide.sdx.{intro, introNoPdf, dropoff, tracking, redownload}` (AV-7); asunto y remedio de `AVG-1`/AG-23 en `modules/spend-alerts/` | 1–3 |
 
 ### BSD-UX.9 Candados sugeridos (los escriben frontend y backend; ux-ui dice qué deben morder)
@@ -28984,6 +28988,12 @@ frontend re-mide los nombres reales de `labels`/`hints`/`rules` antes de crearla
 | UX-BSD-8 | BSD-F6 | Con `guideDueSoon:true` ⇒ versalita y nota; con `false` y `guideDueAt` ⇒ solo la línea neutra; con el reloj falso movido 6 días la marca **no** cambia sin datos nuevos del servidor; tablero con contador 0 ⇒ ningún nodo | derivar `guideDueSoon` de `guideDueAt` en el cliente |
 | UX-BSD-9 | BSD-F8 | Paridad de todas las claves de BSD-UX.8 | borrar una de `en.json` |
 | UX-BSD-10 | — | M5 `aceptada`: el DOM no contiene «ya no se cancela» / «can no longer be cancelled» | dejar la copia vieja |
+| UX-BSD-11 | §BSD.16.2 | P&L con los cuatro campos ≠ 0: **diez** `pnl-line` en el orden de BSD-UX.11a (el 4.º `data-sign="+"` = `buylistShippingFeeRetainedCents`, el 5.º `"−"` = `buylistGuideCostCents`); Σ (signo × monto) = `profitCents` del fixture (UX-PNL-1 con diez). Con los dos en `0`: los dos renglones **siguen** con «MX$0.00» | quitar el renglón de la guía; darle `"−"` a la tarifa; pintarlos al final de la lista; esconderlos en `0` |
+| UX-BSD-12 | §BSD.16.2 | El margen **no** es parte de la fórmula: su nodo (`data-testid="pnl-buylist-margin"`) no es `pnl-line` ni `pnl-included`, no lleva `data-sign` ni «suma»/«resta», y no entra en la Σ de UX-BSD-11 | pintar el margen con `PnlLine` |
+| UX-BSD-13 | BX5 / GAS-4 | Fixture con tarifa 18 000, guía 21 552 y margen **1 517** ⇒ se pinta MX$15.17 (⛔ −35.52). Margen −3 552 ⇒ monto `formatMoneyCents(−3552)` tal cual, `text-danger`, y la frase `buylistGuideMarginNegative` en el DOM; margen ≥ 0 ⇒ ni la frase ni `text-danger` | calcular el margen como tarifa − guía en el cliente; `Math.abs` del margen; pintar el negativo sin la frase |
+| UX-BSD-14 | criterio 202(c) | `buylistGuideCostMissingCount = 0` ⇒ ningún nodo `pnl-buylist-guide-missing`; `= 2` ⇒ `Banner` `warning` con `role="status"` y el plural de 2; **cero** `<a>` y cero `button` dentro | pintarlo con `??` o con `!= null`; meterle un enlace |
+| UX-BSD-15 | criterio 202(c) | Tarifa 0, margen 0 y contador 0 ⇒ el bloque del margen **no** existe; tarifa > 0 y margen 0 ⇒ existe y dice «MX$0.00» | condicionar solo a `margen !== 0` |
+| UX-BSD-16 | paridad, P66-3, §29.4b | Las 6 claves nuevas de `admin.m7.pnl` en `es` y `en`; `formula` sigue con «Stripe» (ES y EN) y «ajustes de paquetería» (ES), y gana «descontada a vendedores» (ES) / «deducted from sellers» (EN); `/buylist\|M-?\d\|AG-\d\|AV-\d/i` sobre las claves nuevas ⇒ 0 | borrar una en `en.json`; escribir «buylist» en un rótulo |
 | ML-30 (backend) | BSD-B20 | `AVG-1` de AG-23: asunto con la fecha corta de `closesAt`, CTA `IR A SOLICITUDES DE VENTA` → `/admin/m5` sin `?`, sin línea de «Frenar», sin PII del vendedor (fixture canaria de §41) | CTA a `spend-alerts`; interpolar el nombre del vendedor |
 
 ### BSD-UX.10 Solicitudes y notas (ninguna bloquea el diseño; las del arquitecto **no las resuelvo yo**)
@@ -29002,3 +29012,139 @@ frontend re-mide los nombres reales de `labels`/`hints`/`rules` antes de crearla
 | **N-1** | orquestador | Encargo vs. contrato en AG-23: «lleva 5 días aceptada» no se escribe (el ancla puede ser el despliegue o una re-emisión; `facts` no trae la aceptación). El texto dice la fecha de cierre, como §BSD.8.3 |
 | **N-2** | orquestador | Zonas compartidas que toca el diseño: `frontend/src/components/` (si `CaptureLabelDialog` se mueve), `frontend/src/lib/status-map.ts`, `frontend/src/types/contract.ts`, `messages/*.json`. Un solo stream a la vez (`CLAUDE.md`) |
 | **N-3** | devops | La descarga del vendedor (`GET /buylist/requests/:id/label.pdf`) aparece en dos superficies (portal y «Ventas»): las dos al inventario de rutas del DAST como una sola ruta (§BSD.12.5) |
+| **C-9** | arquitecto / product-owner | **El aviso «guías hechas a mano sin costo» no tiene a dónde llevar.** El costo de una guía manual solo se captura al **confirmar el envío** (`POST /admin/buylist/:id/confirm-shipment`, `409 NOT_ACCEPTED` fuera de `aceptada`, `API_CONTRACT.md:33523-33548`) o al marcar una guía **cancelada** (`…/guide/cancellation-done`). Las solicitudes que cuenta `buylistGuideCostMissingCount` ya están **pagadas**: ningún verbo del contrato deja capturarles el costo, y M5 no tiene ruta por solicitud (C-2). Por eso el aviso de BSD-UX.11d **no lleva enlace** y dice la verdad: hoy no se puede corregir. Si el dueño quiere corregirlas, hace falta un verbo nuevo (p. ej. capturar o corregir `guideActualCostCents` en una solicitud pagada, con bitácora) y, para el enlace, una ruta o filtro en M5. ⛔ No lo resuelvo yo |
+| **N-4** | orquestador | BSD-UX.11 toca zonas compartidas: `frontend/src/types/contract.ts` (el `PnlDTO` gana los cuatro campos), `frontend/src/lib/mock/fixtures.ts` (`mockPnl`) y `messages/*.json`. Mismo stream que N-2 |
+
+### BSD-UX.11 💰 M7 — la tarifa descontada y las guías para recibir cartas en el estado de resultados (§BSD.16, errata BSD-1.2)
+
+**Fuentes** (no se re-preguntan): `HECHOS.md:81` (2026-10-06, «Q-BSD-1: el costo real de la guía de ENTRADA del buylist
+RESTA en la ganancia del reporte», palabras del dueño «que reste en el reporte»); la precisión «pero en muchos casos tendrá
+margen» la relaya el orquestador (`API_CONTRACT.md:25-28`), no está en `HECHOS.md` (de memoria del orquestador, no medido
+por mí). Norma: `API_CONTRACT §BSD.16` (`API_CONTRACT.md:40220-40276`) y errata BSD-1.3 punto 6 (sin efecto en pantalla:
+es la clase del censo del lector). Reglas de cálculo: `backend/src/modules/admin/pnl-buylist.ts` (entero); campos y CSV:
+`admin.service.ts:1826-1844` y `:2103-2107`. Pantalla de hoy: `(admin)/admin/m7/M7View.tsx` entero (263 líneas; `PnlLine`
+`:33-45`, `PnlIncluded` `:51-58`, renglones `:128-143`, aviso `shippingCostMissing` `:157-163`). Lectura del 2026-10-06 en
+`/home/user/tcg-bsdx`; ⛔ sin Bash, sha **NO MEDIDO** por mí (el encargo dice `88df74e6`).
+
+**Lo que manda de §43.23 y no cambia:** la ganancia es `profitCents` del servidor (GAS-4, ⛔ nunca la suma de lo pintado);
+los renglones con signo **son la fórmula** y se pintan siempre, también en `0`; signo visible `aria-hidden` + «suma»/«resta»
+`sr-only`; los montos con `formatMoneyCents` tal cual llegan; ⛔ códigos «M-n/AG-n/AV-n» en los textos (P66-3). **Cero
+tokens, pares de contraste o componentes nuevos:** se reusan `PnlLine` y `Banner`; el bloque del margen es texto.
+
+**En palabras del dueño (así se explica en la pantalla):** cuando le compramos cartas a alguien, le **descontamos** una
+tarifa fija por el envío, y nosotros **pagamos** la guía con la que nos manda el paquete. Lo descontado **suma** a la
+ganancia; lo que costaron las guías **resta**. La diferencia, solicitud por solicitud, es el **margen**: casi siempre a
+favor; si una guía salió más cara que lo descontado, en contra.
+
+#### BSD-UX.11a Dónde van y con qué signo
+
+```
+ESTADO DE RESULTADOS (P&L)
+Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para … ← pnl.formula
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ +  Ingresos (ventas)                                             MX$12,000.00 │
+│ +  Ingreso por envío (cobrado)                                      MX$900.00 │
+│ −  Costo de lo vendido                                            MX$7,000.00 │
+│ +  Tarifa de envío descontada a vendedores                          MX$540.00 │  ⭐ suma (text-text)
+│ −  Guías para recibir cartas de vendedores                          MX$495.17 │  ⭐ resta (text-danger)
+│ −  Comisiones Stripe                                                MX$420.00 │
+│ −  Costo de envío (paquetería, neto)                                MX$780.00 │
+│      Incluye ajustes de paquetería                                  MX$120.00 │
+│ −  Reembolsos (mercancía y envío, sin IVA)                          MX$500.00 │
+│ −  Comisión de plataforma devuelta                                   MX$30.00 │
+│ −  Compensaciones por carta perdida                                 MX$250.00 │
+│ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│ Margen de las guías de vendedores                                    MX$44.83 │  ⭐ nota, sin signo, text-xs
+│ Lo descontado menos lo que costó la guía, en las solicitudes pagadas…         │  ⭐ buylistGuideMarginHelp
+│ [aviso: N envíos liquidados no tienen costo de paquetería capturado…]         │  ← sin cambio
+│ [aviso: N solicitudes pagadas usaron guía hecha a mano sin costo…]            │  ⭐ solo si > 0
+│ ════════════════════════════════════════════════════════════════════════════ │
+│ ↗ Ganancia del periodo                                            MX$3,964.83 │  ← profitCents, tal cual
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Renglón | Campo | Signo | Cuándo se pinta | Componente |
+|---|---|---|---|---|
+| Tarifa de envío descontada a vendedores | `buylistShippingFeeRetainedCents` | **`+`** (monto `text-text`, signo `text-muted`, como «Ingresos») | **siempre**, también con `0` | `PnlLine sign="+"` |
+| Guías para recibir cartas de vendedores | `buylistGuideCostCents` | **`−`** (signo y monto `text-danger`) | **siempre**, también con `0` | `PnlLine sign="−"` |
+| Margen de las guías de vendedores | `buylistGuideMarginCents` | **ninguno** (no es parte de la fórmula: ya está dentro de los dos de arriba) | si `buylistShippingFeeRetainedCents > 0` **o** `buylistGuideMarginCents !== 0` | bloque propio (11b) |
+| Aviso de guías hechas a mano sin costo | `buylistGuideCostMissingCount` | — | **solo si `> 0`** | `Banner warning` (11d) |
+
+- **Orden:** los dos renglones nuevos van **justo debajo de «Costo de lo vendido»** y antes de «Comisiones Stripe», aunque
+  en el objeto del servidor vengan al final. *Por qué:* el contrato dice que la tarifa es un **descuento sobre lo que se le
+  paga al vendedor** y se presenta «dentro del bloque de costo de compras, nunca en ingresos» (§BSD.16.1); el renglón de
+  compras que hoy existe es «Costo de lo vendido». Así el dueño lee de corrido «lo que pagué por cartas, lo que me
+  descontaron de envío, lo que me costaron las guías». ✏ Corrige la regla de orden de §43.23.1 solo para estos dos.
+- **Cada uno es su propio renglón con signo** (hijo propio del `divide-y`, como «Comisiones Stripe»): ⛔ no son «Incluye…»
+  de «Costo de lo vendido», porque **no** están dentro de esa cifra (BSD-B35: el costo de cada carta sigue siendo el bruto).
+- *Por qué los dos se pintan con `0`:* son parte de la fórmula escrita encima (misma razón que §43.23.1). Un «+ MX$0.00»
+  en un mes sin compras es un dato.
+- **Montos tal cual llegan**, ⛔ la pantalla no niega, suma ni compara. Que la tarifa del mes menos las guías del mes **no**
+  dé el margen es correcto (se miden en días distintos); la ayuda lo dice (11b) y la pantalla ⛔ no lo «arregla».
+- **El CSV no cambia de diseño:** sus cuatro columnas nuevas son los nombres de los campos, al final y en el orden del
+  objeto (BSD-B36). Nada que rotular.
+
+#### BSD-UX.11b El margen — una nota, no un renglón
+
+Debajo del último renglón con signo, **fuera** del `divide-y`, separado por una línea punteada (`border-t border-dashed
+border-border`, `pt-2`), antes de los avisos:
+
+| Propiedad | Valor |
+|---|---|
+| Enganche | `data-testid="pnl-buylist-margin"`; ⛔ `pnl-line`, ⛔ `pnl-included`, ⛔ `data-sign` |
+| Línea 1 | rótulo `buylistGuideMargin` a la izquierda (`text-xs text-muted`), monto a la derecha (`text-xs tabular font-medium`) |
+| Color del monto | `≥ 0` ⇒ `text-text`; `< 0` ⇒ `text-danger`. ⛔ `text-success`: es una nota, no un logro, y no compite con la ganancia |
+| Línea 2 | `buylistGuideMarginHelp` (`text-xs text-muted`), siempre que el bloque se pinte |
+| Línea 3 (solo `< 0`) | `buylistGuideMarginNegative` (`text-xs text-danger`): el color nunca es la única señal |
+| Signo del número | el que dé `formatMoneyCents` sobre el valor negativo del servidor. ⛔ `Math.abs`, ⛔ anteponer `+` |
+| Lector de pantalla | se oye «Margen de las guías de vendedores, MX$44.83» y la ayuda; ⛔ «suma»/«resta» |
+
+- *Por qué no es tooltip:* M7 no tiene componente de tooltip (`Glob components/ui/*ooltip*` ⇒ 0), un tooltip no se ve en el
+  teléfono y añadiría una parada de tabulación por renglón. La ayuda va escrita, corta y siempre visible.
+- *Por qué la condición y no `> 0`:* un margen de **MX$0.00** con tarifa descontada es un dato (salimos tablas); sin
+  tarifa y sin margen el bloque sería un indicador vacío (criterio 202(c)). La condición no calcula nada: solo decide si
+  pintar.
+
+#### BSD-UX.11c Textos y claves (`admin.m7.pnl.*`)
+
+| Clave | ES | EN | Estado |
+|---|---|---|---|
+| `formula` | **Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para recibir cartas de vendedores − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.** | **Income + shipping revenue − cost of goods sold + shipping fee deducted from sellers − labels for receiving cards from sellers − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.** | **cambia el valor** |
+| `buylistFeeRetained` | Tarifa de envío descontada a vendedores | Shipping fee deducted from sellers | nueva |
+| `buylistGuideCost` | Guías para recibir cartas de vendedores | Labels for receiving cards from sellers | nueva |
+| `buylistGuideMargin` | Margen de las guías de vendedores | Margin on seller labels | nueva |
+| `buylistGuideMarginHelp` | Lo descontado menos lo que costó la guía, en las solicitudes pagadas en este periodo. Las guías de Skydropx cuentan sin IVA; las hechas a mano, con el costo que capturaste. Ya está dentro de los dos renglones de arriba y no se suma otra vez. No siempre coincide con restarlos: la guía cuenta el día que se compra y el descuento, el día que se paga. | The amount deducted minus what the label cost, for requests paid in this period. Skydropx labels count without VAT; manual ones, at the cost you entered. It's already included in the two lines above and isn't added again. It doesn't always match subtracting them: the label counts on the day it's bought and the deduction on the day the seller is paid. | nueva |
+| `buylistGuideMarginNegative` | En este periodo las guías costaron más de lo que se descontó a los vendedores. | In this period, the labels cost more than what was deducted from sellers. | nueva |
+| `buylistGuideCostMissing` | `{count, plural, one {# solicitud pagada usó una guía hecha a mano sin costo capturado: su guía cuenta como si hubiera costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.} other {# solicitudes pagadas usaron una guía hecha a mano sin costo capturado: sus guías cuentan como si hubieran costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.}}` | `{count, plural, one {# paid request used a manual label with no cost entered: its label counts as if it cost MX$0 and its margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.} other {# paid requests used a manual label with no cost entered: their labels count as if they cost MX$0 and their margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.}}` | nueva |
+
+- *Por qué «descontada» y no «retenida»:* es la palabra que el dueño y el vendedor ya usan (`HECHOS.md:79`: «al vendedor se
+  le descuenta la tarifa fija»). *Por qué «guías para recibir cartas de vendedores» y no «guías de entrada» ni «de
+  compra»:* «entrada» es jerga interna y «guías de compra» se lee como «guías que compramos», que son todas. ⛔ La palabra
+  «buylist» en ningún texto de pantalla: el menú dice «Solicitudes de venta» / “Sell requests” (`es.json:1297`).
+- *Por qué el rótulo de la guía no dice «(sin IVA)»:* las de Skydropx cuentan sin IVA, pero las hechas a mano cuentan
+  **tal cual se capturaron** (§BSD.16.2 (b)); «sin IVA» en el rótulo afirmaría de más. Lo dice la ayuda.
+- **Fórmula:** el `+` de la tarifa es `+` normal; los `−`, U+2212 (como hoy). Sigue nombrando a Stripe (candado §29.4b,
+  `i18n-parity.test.ts`) y a los «ajustes de paquetería» (criterio 238).
+
+#### BSD-UX.11d El aviso de guías hechas a mano sin costo
+
+`Banner variant="warning" role="status"` envuelto en `data-testid="pnl-buylist-guide-missing"`, **debajo** del aviso de
+costo de paquetería que ya existe (`M7View.tsx:157-163`) y antes de la ganancia; **solo si
+`buylistGuideCostMissingCount > 0`** (⛔ `??`, ⛔ `!= null`). Mismo aspecto que el aviso de hoy.
+
+- **Sin enlace.** Medido: las solicitudes que cuenta ya están pagadas, y el contrato solo deja capturar el costo de una guía
+  manual al confirmar el envío (`409 NOT_ACCEPTED` después) o al marcarla cancelada; además M5 no tiene ruta por solicitud.
+  Un enlace llevaría a una pantalla donde **no se puede hacer** lo que el aviso pide. Por eso el texto dice dónde se
+  captura **para las próximas** y que estas ya no se corrigen. Solicitud al arquitecto en **C-9**. Si el contrato gana el
+  verbo y la ruta, el aviso gana un enlace `IR A SOLICITUDES DE VENTA` y se cambia la última frase; hasta entonces, no.
+- Las solicitudes con guía de **Skydropx** nunca cuentan aquí: su costo lo da Skydropx (`pnl-buylist.ts:72-74`).
+
+#### BSD-UX.11e Accesibilidad y contraste
+
+- Los dos renglones nuevos heredan de `PnlLine` el signo visible `aria-hidden` y el «suma»/«resta» `sr-only`: se oye
+  «suma, Tarifa de envío descontada a vendedores, MX$540.00» y «resta, Guías para recibir cartas de vendedores, MX$495.17».
+- El margen y el aviso no tienen texto de signo; el aviso es `role="status"` (no interrumpe). Sin elementos interactivos
+  nuevos: el orden de tabulación de M7 no cambia.
+- Móvil (≤ 390 px): los rótulos largos se parten en dos líneas, el monto arriba a la derecha; ⛔ truncar con «…».
+- **Contraste — cero pares nuevos:** `text-text`, `text-muted` y `text-danger` sobre `bg-surface`, los mismos que ya usa la
+  tarjeta (§43.23.7, verificados en §10 en claro y oscuro); el `Banner warning` es el del aviso de hoy.
