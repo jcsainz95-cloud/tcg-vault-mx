@@ -28403,3 +28403,726 @@ Espacio **`auth.*`** (`es.json:1183`, `en.json:1183`). La clave sigue el patrón
 | **N-2** | arquitecto (informativo, no bloquea) | Si el refresh muere en una página **pública** de la tienda (sin guard), probablemente no hay redirección al login: las dos que encontré son `PrivateRouteGuard.tsx:77` y `AdminShell.tsx:70`
 (Grep en `components/layout/`; que no haya otra en todo `frontend/src` es **NO MEDIDO** — lo cierra un Grep de
 `pathname: '/login'` en todo el árbol). El contrato pide «el mismo flujo de hoy», así que este diseño **no añade** una redirección nueva ahí: el usuario verá la tienda deslogueada sin aviso. Si se quiere avisar también en ese caso, haría falta decidirlo (p. ej. un aviso en la tienda); no se diseña sin pedido |
+
+---
+
+## AN-UX. Analítica de ventas del dueño — pestaña «Ventas» de Reportes (M9) y tarjeta «Ventas de hoy» del tablero (v7.0, 2026-10-06 · `API_CONTRACT §15` rev v1.85⟨ventas⟩ · `PROJECT §AN`, criterios 600–613 P1 y 620–624 P2)
+
+### AN-UX.0 Fuente, lo leído y las reglas duras
+
+**Norma:** `PROJECT.md §AN` (AN.1 definiciones, AN.2 P1, AN.3 P2, AN.4 quién lo ve) y criterios **600–613** y **620–624**;
+`API_CONTRACT §15` (endpoints §15.1, parámetros y `400` §15.2, reglas de conteo §15.3, **`SalesReportDTO` §15.4**,
+**`SalesTodayDTO` §15.5**, pruebas `AN-F-*` §15.6, CSV §15.7, P2 §15.8, preguntas P-AN-1..3 §15.9); `HECHOS.md` fila
+2026-10-06 «Analítica de ventas del dueño (§AN) — respuestas a P-ANA-1..3»: el reembolso se resta **el día en que se
+hace**; el ticket es **lo que pagó el cliente**; pestaña «Ventas» en Reportes + tarjeta en el tablero; **alcance completo
+P1 + P2** («Mete de una vez el scope completo»). Default de **P-AN-2** aplicado: la tarjeta compara contra el mismo día
+de la semana pasada **completo**.
+
+**Lo que leí** (2026-10-06, árbol `/home/user/tcg-ventas`, rama `claude/analitica-ventas`; ⛔ sin Bash, sha **NO MEDIDO**
+por mí): `(admin)/admin/m9/M9View.tsx` entero (139 líneas: **sin pestañas**; rango con `DateRangePresets` `:68` + dos
+`Input type="date"` `:70-71`; `StatCard` en retícula `:88`; exportes P&L/IVA/inventario `:105-135`); `m9/page.tsx`
+(`SuperAdminOnly`); `AdminSidebar.tsx:111` (`m9` con `superAdminOnly: true`); `AdminDashboard.tsx:147-260` (retícula
+`:155-156`, tarjeta «Ventas del periodo» `:209-227`, `useRole().isSuperAdmin` `:151`); `components/ui/StatCard.tsx`
+entero; `components/domain/DateRangePresets.tsx` entero (presets `week|month|quarter|year`, **no** los de §15.2);
+`messages/es.json:4935-4962` (`admin.m9.*`), `:1320-1323` (`admin.dashboard.sales*`), `:1028-1032` (`finish.*`), `:33-39`
+(`common.datePresets`). §7.7, §7.8, §7.17, §8.1, §8.2, §9.3, §10, §43.22, §43.23 y §80.4 de este documento.
+
+**Medido, que cambia el diseño:**
+1. **M9 no tiene pestañas hoy.** «Pestaña Ventas» significa introducir `Tabs` (§6.6) en M9: **«Ventas»** (nueva) y
+   **«Actividad»** (todo lo que M9 pinta hoy, **sin cambio**, incluidos su rango y sus tres exportes).
+2. **El selector de M9 no sirve tal cual:** `DateRangePresets` ofrece «Esta semana / Último mes / Este trimestre / Este
+   año» y calcula fechas en el navegador; §15.2 pide `today|yesterday|last7|last30|this_month|last_month|custom`
+   **resueltos por el servidor en hora de México**. La pestaña «Ventas» tiene **su propio** selector (AN-UX.2) y ⛔ no
+   toca `DateRangePresets` (lo usan M7 y la pestaña «Actividad»).
+3. **El tablero ya tiene una tarjeta «Ventas del periodo»** (`:209-227`, operador incluido, con bruto/neto). La nueva se
+   titula **«Ventas de hoy»** —otro rótulo, otro periodo— y ⛔ no sustituye ni toca la existente.
+4. **No existe modo oscuro.** El encargo pide contraste «en claro/oscuro»; el sistema es **tema único claro** (§2.3,
+   §10, §11.1: «No hay bloque `.dark`»). Todo se verifica sobre **papel** y **pozo** (AN-UX.13). Si algún día hay tema
+   oscuro, esta sección necesita su tabla; hoy no hay nada que medir.
+5. **Dos cifras que pide §AN.3 no vienen en el DTO:** **contracargos por día** y **mezcla por tipo de producto**
+   (sueltas / gradeadas / sellado). Se dejan diseñadas con la regla «se pintan solo si el campo llega» y se piden al
+   arquitecto (AN-UX.15, N-AN-1 y N-AN-2). ⛔ El front no las deriva de otras cifras.
+
+**Reglas duras (se revisan en el PR):**
+- **AN-1 · Una cifra, una fuente (GAS-4).** Todo número sale **tal cual** del DTO. ⛔ El front no suma filas, no
+  recalcula totales, no calcula el ticket, no calcula diferencias ni porcentajes, no resta envío cobrado menos costo.
+  Si algo no viene, no se pinta (o se pinta «—»), y se pide.
+- **AN-2 · `null` es «—», nunca `0`.** `avgTicketCents`/`piecesPerOrder` `null` ⇒ «—» con texto `sr-only` «sin dato: no
+  hubo pedidos». ⛔ Ni «MX$0.00», ni `NaN`, ni `Infinity` (criterio 604).
+- **AN-3 · Unidades antes que porcentaje** (criterio 606): «+2 pedidos · +200 %», en ese orden y en la misma línea.
+- **AN-4 · El rótulo del periodo y sus cifras cambian juntos** (criterio 286): mientras carga un periodo nuevo se
+  sigue viendo el rótulo **viejo** con las cifras **viejas**; ⛔ nunca el rótulo nuevo sobre cifras viejas.
+- **AN-5 · Las fechas del periodo las dice el servidor** (`period.from/to`, `previousPeriod.from/to`). ⛔ El navegador
+  no resuelve «últimos 7 días» ni «mes pasado» (su zona horaria puede no ser la de México).
+- **AN-6 · El color no es portador.** Deltas con signo (`+`/`−` U+2212) y flecha (▲/▼) en texto; la gráfica es de **una
+  sola serie** a la vez, en tinta; los días en cero se ven como marca, no como hueco.
+- **AN-7 · Solo súper-admin** (criterio 613). La pestaña vive en una página ya `SuperAdminOnly`; la tarjeta del tablero
+  **no se monta** (ni pide `/today`) si `!isSuperAdmin` — ⛔ ni candado, ni «Solo súper-admin», ni celda vacía.
+- **AN-8 · Sin rastreo nuevo.** Ninguna librería de gráficas que cargue script, fuente o cookie de terceros; la gráfica
+  es SVG propio o una librería empaquetada en el bundle (criterio 613, `AN-F-4`).
+- **P66-3:** ⛔ ningún código «M-n», «AN-n», «P-AN-n» en textos de pantalla.
+
+**Cero tokens nuevos, cero pares de contraste nuevos** (AN-UX.13).
+
+---
+
+### AN-UX.1 Dónde vive — las pestañas de Reportes
+
+```
+REPORTES                                                         ← h1 = rótulo del menú (sin cambio, §37.2)
+[ Ventas ]  [ Actividad ]                                        ← Tabs §6.6; activa con subrayado 2px tinta
+─────────────────────────────────────────────────────────────────
+(contenido de la pestaña)
+```
+
+| Pestaña | Contenido | URL |
+|---|---|---|
+| **Ventas** (primera, **por defecto**) | AN-UX.2 … AN-UX.10 | `/admin/m9?tab=ventas` (y sin `tab`) |
+| **Actividad** | Lo de hoy, **idéntico**: «Rango de fechas», «Actividad de la tienda» (metas N/X/Y/Z), «Exportar» (P&L, IVA, inventario) | `/admin/m9?tab=actividad` |
+
+- *Por qué «Ventas» primero y por defecto:* es lo que el dueño viene a ver (pidió «cuántos pedidos tuve por día»); las
+  metas de lanzamiento son de consulta ocasional. Rompe la expectativa de quien abría M9 y veía las metas — por eso la
+  pestaña se llama con el mismo nombre que el `h2` que ya conoce («Actividad de la tienda»).
+- **El estado vive en la URL** (`tab`, `preset`, `from`, `to`, `groupBy`, `topSort`, y los locales `chart`, `cols`,
+  `top`): recargar o compartir el enlace deja la pantalla igual, y la tarjeta del tablero llega a
+  `?tab=ventas&preset=today`. Valores fuera de dominio en la URL ⇒ se ignoran y se usa el default (⛔ no se manda basura
+  al servidor para recibir un `400`).
+- Teclado de las pestañas: §6.6 (flechas, `aria-selected`, `role="tablist"` como en `M4View`). Cada pestaña monta su
+  consulta **solo cuando está activa** (la de «Actividad» no se pide mientras se ve «Ventas»).
+
+**Orden de la pestaña «Ventas»** (de arriba abajo; también el orden de tabulación):
+1. Selector de periodo y agrupación (AN-UX.2) + rótulo del periodo.
+2. Números grandes del periodo (AN-UX.3).
+3. Gráfica de barras (AN-UX.4).
+4. Tabla por día/semana/mes + «Descargar CSV» (AN-UX.5, AN-UX.9).
+4b. Totales P2 del periodo (envío, compras del buylist, ganancia — AN-UX.8c), solo si vienen.
+5. Lo más vendido (AN-UX.6).
+6. Cuándo se vende (P2, AN-UX.8a) y Cómo y a quién se vende (P2, AN-UX.8b).
+
+---
+
+### AN-UX.2 Selector de periodo (`SalesPeriodPicker`) y rótulo
+
+```
+PERIODO
+( Hoy )( Ayer )( Últimos 7 días )( Últimos 30 días )( Este mes )( Mes pasado )( Elegir fechas… )
+                                                               ↓ solo con «Elegir fechas…»
+  Desde [2026-09-01]   Hasta [2026-09-30]   [ Ver ]
+VER POR   ( Día )( Semana )( Mes )
+Del 30 sep al 6 oct 2026 · 7 días · hora del centro de México
+Se compara con: del 23 al 29 sep 2026                           ← text-sm muted
+```
+
+**Presets** — fila de chips (`Button` `ghost` `sm`; el activo `primary`, como el `RangeToggle` de §7.17), `role="group"`
+con `aria-label`, cada chip `aria-pressed`, ≥ 44 px de alto. En < `sm` la fila hace *wrap* (⛔ sin scroll horizontal:
+son 7 y el dueño debe verlos todos). Default **«Últimos 7 días»** (`last7`, §15.2).
+
+| Chip | `preset` |
+|---|---|
+| Hoy | `today` |
+| Ayer | `yesterday` |
+| Últimos 7 días | `last7` |
+| Últimos 30 días | `last30` |
+| Este mes | `this_month` |
+| Mes pasado | `last_month` |
+| Elegir fechas… | `custom` (abre los dos campos; no consulta hasta «Ver») |
+
+**Rango a mano** — dos `Input type="date"` («Desde», «Hasta») y un botón «Ver» (`secondary`). Se consulta **al pulsar
+«Ver»**, no a cada tecla (cada fecha a medio escribir sería un `400`). Validación en el navegador, **antes** de mandar,
+con el mismo texto que dará el servidor:
+
+| Caso | Dónde | Texto (clave `range.*`) |
+|---|---|---|
+| Falta una de las dos | bajo el campo vacío | «Elige las dos fechas.» |
+| Desde > Hasta | bajo «Desde» | «La fecha de inicio va antes que la de fin.» |
+| Hasta > hoy (México) | bajo «Hasta» | «No puede ser después de hoy.» |
+| Más de 366 días | bajo «Desde» | «Máximo un año (366 días). Acorta el rango.» |
+
+- `max` del `Input` = hoy en México (`Intl.DateTimeFormat('en-CA', {timeZone:'America/Mexico_City'})`). Es una **ayuda**,
+  no la regla: la regla es del servidor (AN-5).
+- Un `400 VALIDATION_ERROR` que llegue igual se pinta **bajo el campo que diga `details.field`** con el texto de la
+  tabla (por `field`; `preset`/`groupBy`/`topSort` ⇒ el genérico `range.invalid` «Ese periodo no es válido. Elige otro.»
+  en un `Banner` danger). `aria-invalid` + `aria-describedby` (§8.2).
+
+**Ver por** — segmentado «Día · Semana · Mes» (`groupBy`), `aria-pressed`, default «Día». Debajo, solo con «Semana»:
+nota `text-xs muted` «Semanas de lunes a domingo; la primera y la última pueden quedar cortadas por el periodo.»
+Cambiar la agrupación **no** cambia los números grandes (criterio 605) — no hace falta decirlo, pero el candado
+UX-AN-6 lo vigila.
+
+**Rótulo del periodo** (`aria-live="polite"`, se actualiza **con** los datos, AN-4): de `period` y `previousPeriod`.
+- Un día: «Hoy, lun 6 oct 2026» / «Ayer, dom 5 oct 2026» / «Lun 6 oct 2026» (custom de un día).
+- Varios: «Del 30 sep al 6 oct 2026 · 7 días · hora del centro de México».
+- Comparación: «Se compara con: del 23 al 29 sep 2026» (un día: «Se compara con: dom 5 oct 2026»).
+- Con «Mes pasado» la comparación son **los mismos días inmediatamente antes** (P-AN-3, default), así que el rótulo de
+  comparación **no** dice «agosto»: dice las fechas. Es justo para que el dueño no lea «contra agosto» donde no lo es.
+
+---
+
+### AN-UX.3 Los números grandes — ocho celdas con su comparación
+
+Retícula de `StatCard` igual que el tablero (§7.8; `grid sm:grid-cols-2 lg:grid-cols-4`, reglas por `divide-*`), **4 × 2**:
+
+| # | Rótulo | Cifra grande | Línea de apoyo | Comparación (`comparison.*`) |
+|---|---|---|---|---|
+| 1 | Pedidos | `totals.orders` | — | `orders` (unidad: pedido/pedidos) |
+| 2 | Cobrado (con IVA) | `chargedCents` | «Lo que pagaron los clientes: con IVA, envío y comisión.» | `chargedCents` |
+| 3 | Venta sin IVA | `netSalesCents` | «La misma cifra de ingresos que Finanzas.» | `netSalesCents` |
+| 4 | Reembolsos | `refunds.amountCents` | «{n} reembolsos · {card} con tarjeta · {spei} por SPEI» y, debajo, «Se restan {net} sin IVA» | `refundsAmountCents` |
+| 5 | Venta neta de reembolsos | `netSalesAfterRefundsCents` | «Venta sin IVA menos los reembolsos hechos en el periodo.» | `netSalesAfterRefundsCents` |
+| 6 | Ticket promedio | `avgTicketCents` o «—» | «Cobrado ÷ pedidos: lo que deja un cliente por compra.» | `avgTicketCents` |
+| 7 | Piezas por pedido | `piecesPerOrder` (1 decimal) o «—» | «{pieces} piezas vendidas» | `piecesPerOrder` |
+| 8 | Clientes | `customers.distinct` | «{new} nuevos · {returning} recurrentes» | ⛔ ninguna (no viene en el DTO; AN-1) |
+
+- Celda 4: «Reembolsos» con `refunds.count = 0` ⇒ cifra «MX$0.00» y apoyo «Sin reembolsos.» (un `0` con su nombre es
+  dato). Los reembolsos se cuentan **el día en que se hicieron** (HECHOS, P-ANA-1): el apoyo de la celda 5 lo dice con
+  «hechos en el periodo».
+- Celda 5 **negativa** (más reembolsos que ventas): «−MX$350.00» en **tinta** (⛔ sin rojo de alarma: es legítimo) y
+  una segunda línea «Negativa: los reembolsos del periodo pasan la venta.»
+- Celda 8: debajo, `text-xs muted`: «Nuevo: su primera compra pagada cae en este periodo. Se reconoce por correo,
+  también si compró como invitado.»
+- Dinero con `formatMoneyCents(valor, locale)` (§9.3). Piezas por pedido con 1 decimal en el formato del idioma («2.0»).
+
+**La línea de comparación** — `font-mono text-xs`, color **`text-muted` siempre** (⛔ ni verde ni rojo: que suban los
+reembolsos es malo y que suba la venta es bueno; pintar «bueno/malo» es opinar, y con pocas ventas el color dramatiza).
+La dirección la dicen el signo y la flecha, y el `sr-only`.
+
+| `Delta` | Situación | Texto |
+|---|---|---|
+| `diff > 0`, `pct` número | normal | «▲ +2 pedidos · +200 %» · «▲ +MX$850.00 · +12 %» |
+| `diff < 0`, `pct` número | normal | «▼ −1 pedido · −33 %» · «▼ −MX$120.00 · −8 %» |
+| `diff = 0` | sin cambio | «= Igual que el periodo anterior» |
+| `diff ≠ 0`, `pct = null` y `previousTotals.orders = 0` | criterio 606 | «▲ +3 pedidos · sin ventas en el periodo anterior» |
+| `diff ≠ 0`, `pct = null` y `previousTotals.orders > 0` | esa cifra fue 0 antes (p. ej. reembolsos) | «▲ +MX$500.00 · antes fue cero» |
+| `diff = null` y `previousTotals.orders = 0` | ticket/piezas sin anterior | «Sin ventas en el periodo anterior» |
+| `diff = null` y `totals.orders = 0` | ticket/piezas sin actual | «Antes: {valor anterior}» (de `previousTotals`, tal cual) |
+
+- Flecha `aria-hidden`; antes de ella un `sr-only` «subió»/«bajó»/«igual». Se oye: «subió, más 2 pedidos, más 200 por
+  ciento, contra el periodo anterior».
+- Signo menos: U+2212 «−» (como §43.23.3), también dentro del dinero («−MX$120.00»).
+- El `%` es **entero** tal cual llega (`pct`); ⛔ el front no lo redondea ni lo calcula.
+- `piecesPerOrder.diff` se pinta con 1 decimal («▲ +0.5 piezas por pedido»).
+
+---
+
+### AN-UX.4 Gráfica de barras (`SalesBarChart`)
+
+```
+PEDIDOS POR DÍA                          Ver: ( Pedidos )( Cobrado )
+ 3 ┤        ██
+ 2 ┤        ██        ██
+ 1 ┤  ██    ██        ██          ┌┐
+ 0 ┼──▁▁──██──██──▁▁──██──▁▁──└┘──      ← ▁ = día en cero (marca de 2 px) · └┘ = hoy, en curso (barra sin relleno)
+     lun   mar   mié   jue   vie   sáb   dom*
+                                     * Hoy sigue en curso.
+Los mismos números están en la tabla de abajo.
+```
+
+- **Una serie a la vez** (AN-6): conmutador «Ver: Pedidos · Cobrado» (segmentado, `aria-pressed`, URL `chart`). Dos
+  escalas distintas en una gráfica (doble eje) confunden; dos colores dependerían del color.
+- **Una barra por fila de `rows`, en el mismo orden** (criterio 609): ni se agregan, ni se saltan, ni se re-muestrean.
+  Mismo `groupBy` que la tabla.
+- **Barras:** relleno `--color-text` (tinta), sin radio (§4.2), separación ≥ 2 px. Valor encima de cada barra
+  (`font-mono text-xs`) **solo si hay ≤ 14 barras**; con más, solo en el tooltip.
+- **Día en cero:** marca de **2 px** de alto en `--color-text-muted` sobre la línea base, ocupando su hueco (⛔ hueco
+  vacío: «no se saltan», criterio 609).
+- **Hoy en curso** (la barra cuyo `to` es hoy en México, si el periodo incluye hoy): **sin relleno**, contorno de 2 px en
+  tinta, y su etiqueta del eje lleva «*» con la nota «* Hoy sigue en curso.» La forma, no el color, dice «incompleta».
+- **Ejes:** X con la etiqueta de cada cubo (día «6 oct» / «Oct 6»; semana «29 sep–5 oct»; mes «oct 2026»), y si hay
+  más de 14 barras, una de cada `ceil(n/7)` (las demás en el tooltip). Y con 3–4 marcas (`text-xs muted tabular-nums`;
+  dinero abreviado «MX$1.2k»). Líneas guía horizontales en `--color-border` (decorativas). Escala desde **0** siempre.
+- **Muchas barras:** con más de 62 cubos (p. ej. un año por día), las barras pueden quedar de 1–2 px. Encima de la
+  gráfica, `text-xs muted`: «Con tantos días, se lee mejor por semana o por mes.» + botón enlace «Ver por semana»
+  (cambia `groupBy`). ⛔ No se cambia la agrupación solo.
+- **Tooltip** (ratón y toque, ⛔ no es el único acceso): «Lun 6 oct · 3 pedidos · MX$1,250.00».
+- **Tamaño:** alto 200 px en < `md`, 240 px en ≥ `md`; ancho del contenedor.
+- **Movimiento:** ninguno (⛔ barras que «crecen» al cargar).
+
+**Accesibilidad — la tabla es la equivalencia.** La gráfica es un `<figure>`; el `svg` lleva `role="img"` y un
+`aria-label` de resumen construido con `rows` y `totals` (sin calcular nada nuevo salvo encontrar el máximo):
+«Pedidos por día, del 30 sep al 6 oct: 5 en total; el día con más, jueves 2 oct con 3; 4 días sin pedidos.» El
+`figcaption` visible dice «Los mismos números están en la tabla de abajo.» Las barras **no** son paradas de tabulación
+(hasta 366 trampas de Tab); quien usa teclado o lector lee la tabla (AN-UX.5), que es la misma información fila a fila.
+
+---
+
+### AN-UX.5 Tabla por día / semana / mes (`SalesDailyTable`)
+
+`DataTable` (§7.7), `<table>` con `<caption class="sr-only">` («Ventas por día, del 30 sep al 6 oct 2026»), cabecera
+pegajosa, números a la derecha con `tabular-nums`. **Todas las filas de `rows`, también las de cero** (criterio 605); al
+final, un `<tfoot>` «Total del periodo» con **`totals`** (⛔ nunca la suma de las filas, AN-1).
+
+**Conmutador de columnas** («Columnas: Ventas · Envíos, compras y ganancia», URL `cols`) — catorce columnas no caben;
+las dos vistas comparten la columna del día.
+
+*Vista «Ventas» (P1, por defecto):*
+
+| Columna | Campo | Vacío |
+|---|---|---|
+| Día / Semana / Mes | `from`–`to` | — |
+| Pedidos | `orders` | `0` |
+| Cobrado (con IVA) | `chargedCents` | `MX$0.00` |
+| Venta sin IVA | `netSalesCents` | `MX$0.00` |
+| Reembolsos | `refunds.count` · `refunds.amountCents` («1 · MX$400.00»; con 0: «0») | `0` |
+| Venta neta de reembolsos | `netSalesAfterRefundsCents` | `MX$0.00` |
+| Ticket promedio | `avgTicketCents` | «—» |
+| Piezas por pedido | `piecesPerOrder` | «—» |
+
+*Vista «Envíos, compras y ganancia» (P2):*
+
+| Columna | Campo | Notas |
+|---|---|---|
+| Día / Semana / Mes | `from`–`to` | — |
+| Envío cobrado (sin IVA) | `shipping.chargedNetCents` | — |
+| Costo de guías (sin IVA) | `shipping.costNetCents` | si `shipping.costMissingCount > 0`: «MX$300.00 ⚠ 2 sin costo» (icono `aria-hidden` + texto) |
+| Ajustes de paquetería | `shipping.adjustmentsCents` | encabezado `title`: «Ya van dentro del costo de guías» (mismo nombre que §43.23) |
+| Ingreso por tarifa de buylist / Costo de guías de buylist | `shipping.buylistRevenueCents` / `buylistCostCents` | **solo si la clave viene** (§15.8: ausente hasta #78); ⛔ nunca «MX$0.00» inventado |
+| Compras del buylist | `buylist.paidCount` · `buylist.paidNetCents` («2 · MX$1,800.00») | si `paidWithoutPayoutCount > 0`: «⚠ 1 sin monto» |
+| Contracargos | (campo pedido, N-AN-1) | **la columna no existe** hasta que el campo llegue |
+| Ganancia (regla de Finanzas) | `profitCents` | negativa en tinta con «−» |
+
+- Si la vista P2 se abre y los campos P2 **no** vienen (servidor en fase A), el conmutador **no se muestra** (⛔ ni una
+  vista llena de «—»). Lo mismo para cada bloque P2 de AN-UX.8.
+- Debajo de la vista P2, `text-xs muted`, siempre: «La ganancia sigue la misma regla que Finanzas; cada día suma la
+  ganancia de Finanzas del periodo.» Y, solo si alguna fila tiene envíos sin costo: «⚠ Hay envíos sin costo de guía
+  capturado: el costo real puede ser mayor.» y si alguna tiene compras sin monto: «⚠ Hay compras del buylist pagadas
+  sin monto registrado: no están en la suma.»
+- **Etiqueta del día:** «lun 6 oct» (con día de la semana: ayuda a leer patrones); semana «29 sep – 5 oct» y, si está
+  cortada (menos de 7 días), «· 3 días»; mes «oct 2026» y, si cortado, «· del 1 al 6».
+- **Fila de cero** (`orders = 0` y `refunds.count = 0`): todo en `text-muted`. Sigue siendo una fila con sus ceros.
+- **Fila de hoy en curso:** tras la etiqueta, «· en curso» (`text-xs muted`).
+- **Escritorio:** la primera columna pegajosa a la izquierda si hay scroll horizontal. **Móvil (< `md`):** cada fila
+  colapsa a tarjeta (§7.7) con el día como título y las cifras de la vista como «rótulo: valor»; con 31 filas es
+  aceptable; con más de 31, aviso igual que la gráfica («se lee mejor por semana o por mes»).
+
+---
+
+### AN-UX.6 Lo más vendido (`SalesTopLists`)
+
+```
+LO MÁS VENDIDO                               Ordenar por: ( Venta sin IVA )( Piezas )
+[ Cartas ] [ Sets ] [ Sellados ]                                  ← Tabs §6.6
+ #  Carta                                    Piezas   Venta sin IVA
+ 1  Charizard ex · 199/165 · 151  [REVERSE]      3        MX$4,200.00
+ 2  Pikachu · 025 · Base  [GRADEADA]             1        MX$2,100.00
+ …  (hasta 10)
+No cuenta pedidos reembolsados completos; por eso su suma puede ser menor que la venta del periodo.
+```
+
+- **Orden:** `topSort` (`net` por defecto) — cambiarlo **vuelve a pedir** el informe (el orden lo da el servidor, ⛔ no se
+  reordena en el navegador). Mientras llega, la lista anterior se queda atenuada (AN-UX.10).
+- **Cartas** (`top.cards`): nombre + número + set (datos de catálogo, `lang="en"`, sin traducir, §9.2), y el acabado con
+  `FinishMark` (§16.6) usando `finish.*` (`es.json:1028-1032`); `productType = 'graded'` ⇒ chip «GRADEADA» en versalitas
+  (`Badge` neutro). Dos acabados de la misma carta = **dos renglones** (criterio 607): el acabado visible es lo que los
+  distingue.
+- **Sets** (`top.sets`): nombre del set, piezas, venta sin IVA.
+- **Sellados** (`top.sealed`): nombre del producto + set, piezas, venta sin IVA.
+- La columna por la que se ordena lleva `aria-sort="descending"` en su encabezado y va en `font-medium`.
+- **Hasta 10** por lista; menos si hay menos. Lista vacía: «Sin cartas vendidas en este periodo.» / «Sin sets…» /
+  «Sin sellados…» (texto, sin ilustración).
+- La nota del pie (siempre visible): «No cuenta pedidos reembolsados completos; por eso su suma puede ser menor que la
+  venta del periodo.» — evita que el dueño intente cuadrarla contra «Venta sin IVA» (§15.3: son para ordenar).
+- ⛔ Sin enlace a la ficha pública ni dato de cliente.
+
+---
+
+### AN-UX.7 Nuevos y recurrentes
+
+Vive en la celda 8 de AN-UX.3 (cifra = `customers.distinct`; apoyo «{new} nuevos · {returning} recurrentes»; nota de
+definición). ⛔ Sin gráfica de pastel ni porcentaje: son dos conteos y con pocos clientes un porcentaje engaña (la misma
+razón que AN-3). ⛔ Sin comparación contra el periodo anterior (no viene).
+
+---
+
+### AN-UX.8 Bloques de P2
+
+Cada bloque se pinta **solo si su campo viene** en el DTO (fase B/C, §15.8). Todos llevan `h2` propio y su tabla.
+
+#### AN-UX.8a «Cuándo se vende» — mejores días y horas (criterio 620)
+
+Dos gráficas pequeñas con el **mismo** patrón de AN-UX.4 (una serie, tinta, ceros visibles, escala desde 0, conmutador
+«Pedidos · Cobrado» compartido entre las dos, sin movimiento):
+- **Por día de la semana** (`bestDays.byWeekday`, siempre 7): lun … dom.
+- **Por hora** (`bestDays.byHour`, siempre 24, hora del centro de México): etiquetas cada 3 h («00», «03», … «21»).
+
+Equivalencia accesible: debajo de cada una, `<details>` «Ver como tabla» con su tabla (día/hora · pedidos · cobrado);
+hora en la tabla como «13:00–13:59». Resumen `aria-label` igual que AN-UX.4 («El día con más pedidos: viernes, 4»).
+
+Aviso de pocos datos (`text-xs muted`, encima, si `totals.orders < 30`): «Con pocos pedidos esto todavía no dice
+mucho: un solo día bueno lo cambia todo.» *(El umbral 30 es decisión de diseño, no regla de negocio; se puede mover.)*
+
+#### AN-UX.8b «Cómo y a quién se vende» — mezclas (criterio 621)
+
+Tres tablas cortas, cada una con su `caption` visible. Columnas: concepto · pedidos · cobrado. Una barra de proporción
+en tinta **decorativa** (`aria-hidden`, ancho = pedidos ÷ `totals.orders`, dibujo, no cifra) puede acompañar; ⛔ sin
+porcentaje escrito (AN-1).
+
+| Tabla | Filas |
+|---|---|
+| A dónde va | Envío a domicilio (`direct_ship`) · Bóveda (`vault`) |
+| Quién compra | Con cuenta (`account`) · Invitado (`guest`) |
+| Cómo paga | una por `byPaymentMethod`: `card` «Tarjeta», `oxxo` «OXXO», `customer_balance` «Transferencia», cualquier otro «Otro ({method})», `null` «Sin dato» |
+
+- Bajo «Cómo paga», si hay fila `null`: «Sin dato: pedidos pagados antes de que la tienda guardara el método de pago.»
+  Si la única fila no-`null` es «Tarjeta»: «Hoy la tienda solo cobra con tarjeta.» ⚠ **NO MEDIDO** qué métodos tiene
+  encendidos Stripe (§15.9): el texto sale del dato, no de una suposición.
+- «Mezcla por tipo de producto» (sueltas / gradeadas / sellado): **no se pinta** hasta N-AN-2.
+
+#### AN-UX.8c Totales P2 del periodo
+
+Segunda retícula de `StatCard`, debajo de la tabla y antes de «Lo más vendido» **solo si los campos vienen**:
+
+| Rótulo | Cifra | Apoyo |
+|---|---|---|
+| Envío cobrado (sin IVA) | `totals.shipping.chargedNetCents` | — |
+| Costo de guías (sin IVA) | `totals.shipping.costNetCents` | «Incluye ajustes de paquetería {adj}» si `> 0`; «⚠ {n} envíos sin costo capturado» si `> 0` |
+| Compras del buylist | `totals.buylist.paidNetCents` | «{n} compras pagadas»; «⚠ {m} sin monto registrado» si `> 0` |
+| Ganancia (regla de Finanzas) | `totals.profitCents` | «La misma ganancia que Finanzas.» |
+
+- *Por qué no hay celda «¿me sale el envío?» con la diferencia:* el DTO no la trae y restarla en el navegador sería una
+  segunda fuente (AN-1). Las dos cifras quedan **una al lado de la otra** y se pide la diferencia (N-AN-3).
+- Sin comparación contra el periodo anterior (`comparison` no trae estas cifras).
+
+#### AN-UX.8d Resumen diario por correo (criterio 624; lo construye backend)
+
+Línea nueva en el resumen de las 08:00 (patrón §41 / §43.19.12), con el dinero en la forma de §41.5:
+
+| Clave sugerida | ES | EN |
+|---|---|---|
+| `salesYesterday` | Ventas de ayer: {orders, plural, one {# pedido} other {# pedidos}} · {charged} · ticket {ticket} | Yesterday's sales: {orders, plural, one {# order} other {# orders}} · {charged} · avg. order {ticket} |
+
+`{ticket}` = «—» si `avgTicketCents` es `null`. Va **después** de los avisos (si hay) y antes del pie.
+
+---
+
+### AN-UX.9 Descargar CSV (criterio 610)
+
+Botón `secondary` `sm` con icono `DownloadCloud` en la cabecera de la tabla: «Descargar CSV». Pide
+`/sales/export.csv` con **el mismo** `preset`/`from`/`to`/`groupBy` que la pantalla (⛔ nunca otro periodo), `loading`
+mientras baja, y guarda con el nombre que da `Content-Disposition` (`ventas_<from>_<to>_<groupBy>.csv`). Debajo,
+`text-xs muted`: «Una fila por {día|semana|mes}, también las de cero, y una de total. Los montos vienen en centavos
+(MX$1,250.00 = 125000) para que cuadren exactos. Sin datos de clientes.» Error ⇒ `Banner` danger `role="alert"` bajo el
+botón (§8.3, ⛔ solo toast). «Lo más vendido» **no** se exporta (§15.7).
+
+---
+
+### AN-UX.10 Estados — carga, vacío, error
+
+| Estado | Qué se ve |
+|---|---|
+| **Primera carga** | Esqueletos con la forma final: 8 celdas (cifra), rectángulo de la gráfica, 7 filas de tabla, 5 de «lo más vendido». Selector ya interactivo. ⛔ Spinner de página |
+| **Cambio de periodo / agrupación / orden** | Se **conservan** los datos anteriores (TanStack `placeholderData: keepPreviousData`) con `opacity-60` y `aria-busy="true"` en la región; texto `sr-only` «Actualizando…». El rótulo del periodo **no cambia** hasta que llegan los datos (AN-4) |
+| **Periodo sin ventas** (`totals.orders = 0` y `refunds.count = 0`) | `Banner` info arriba: «No hubo ventas en este periodo.» y **todo lo demás se pinta igual**: ceros, «—», filas de cero, barras-marca. ⛔ Ilustración de vacío que esconda la tabla: con pocas ventas, ver los días vacíos **es** la información (§AN.2 punto 4) |
+| **Sin ventas pero con reembolsos** | Sin banner; la celda 5 puede ser negativa (AN-UX.3) |
+| **Error de red / 5xx** | `QueryState` (§8.1): `Banner` danger «No se pudieron cargar las ventas.» + «Reintentar». Si había datos, se quedan visibles bajo el banner, atenuados |
+| **`400`** | En el campo del selector (AN-UX.2) |
+| **`403`** (rol perdido a media sesión) | `Banner` danger «Solo el súper-admin puede ver las ventas.» ⛔ sin reintentar |
+| **Bloque P2 sin campo** | El bloque no existe (AN-UX.8) |
+
+---
+
+### AN-UX.11 Tarjeta «Ventas de hoy» del tablero (`SalesTodayCard`, criterio 611)
+
+**Dónde:** `AdminDashboard.tsx`, **inmediatamente después** de «Ventas del periodo» (`:209-227`), dentro de la misma
+retícula. **Solo si `isSuperAdmin`** (AN-7): para el operador **no existe** (⛔ ni enmascarada, ni consulta).
+
+**Datos:** su propia consulta `GET /admin/reports/sales/today` (⛔ no viene en `/admin/dashboard`, §15.1), así que tiene
+**su propio** estado de carga y error dentro de la celda (a diferencia de §43.22.1, que comparte la consulta del
+tablero). Se refresca al volver a la pestaña del navegador (`refetchOnWindowFocus`); ⛔ sin temporizador de sondeo.
+
+```
+VENTAS DE HOY                                   ← eyebrow
+3 pedidos                                        ← cifra grande: today.orders con su unidad
+MX$1,250.00 cobrado                              ← today.chargedCents
+Hoy, lun 6 oct · va en curso                     ← rótulo del periodo (criterio 286)
+Lun 29 sep completo: 1 pedido · MX$400.00        ← sameWeekdayLastWeek
+▲ +2 pedidos · ▲ +MX$850.00                      ← comparison (unidades; % solo si cabe, ver abajo)
+Ver ventas                                       ← enlace → /admin/m9?tab=ventas&preset=today
+```
+
+- **Cifra grande** = pedidos de hoy («3 pedidos» / «1 pedido» / «0 pedidos»: con su unidad, para no confundirla con la
+  cifra de «Ventas del periodo» de al lado). Segunda línea, el cobrado.
+- **Rótulo del periodo** (criterio 286): «Hoy, {día} · va en curso» y la referencia «{día de la semana pasada} completo»
+  con su fecha. *Por qué «va en curso» y «completo»:* con el default de **P-AN-2** se compara un día a medias contra uno
+  entero; a las 10 de la mañana casi siempre irá «abajo». Decirlo evita que el dueño se alarme por la mañana. Si el
+  dueño cambia P-AN-2 a «hasta esta misma hora», el rótulo pasa a «hasta las {hora}» (otra clave, no se diseña más).
+- **Comparación:** las reglas de AN-UX.3 en versión corta — unidades primero; el `%` se añade **solo en ≥ `sm`** y solo
+  si no es `null` («▲ +2 pedidos (+200 %)»); si `sameWeekdayLastWeek.orders = 0`: «El lun 29 sep no hubo ventas.» sin %;
+  `diff = 0`: «= Igual que el lun 29 sep». Color `text-muted`, flecha `aria-hidden`, `sr-only` «subió/bajó».
+- **Enlace** «Ver ventas»: estilo de enlace de las demás tarjetas (`underline-offset-2 hover:underline
+  focus-visible:shadow-focus`, `:260`). ⛔ La celda entera no es clicable (la retícula no lo hace en ninguna otra).
+- **Carga:** `Skeleton h-16` dentro de la celda (como el esqueleto del tablero). **Error:** «No se pudieron cargar las
+  ventas de hoy.» + botón enlace «Reintentar» (⛔ banner grande: es una celda). El resto del tablero no se ve afectado.
+- **Cero ventas hoy:** «0 pedidos», «MX$0.00 cobrado» y la comparación normal (⛔ «sin ventas» como error).
+
+---
+
+### AN-UX.12 Accesibilidad (además de §8.2)
+
+- Encabezados: `h1` Reportes → pestañas → `h2` por bloque («Periodo», «Resumen del periodo», «Por día», «Lo más
+  vendido», «Cuándo se vende», «Cómo y a quién se vende»). El `h2` de la gráfica y de la tabla cambia con `groupBy`
+  («Por semana», «Por mes»).
+- Orden de tabulación = orden visual (AN-UX.1): presets → (fechas → Ver) → Ver por → conmutador de la gráfica →
+  columnas de la tabla → Descargar CSV → pestañas de lo más vendido → ordenar por → bloques P2.
+- La gráfica no recibe foco; la tabla es la equivalencia (AN-UX.4). Las gráficas P2 llevan su tabla en `<details>`.
+- Conmutadores segmentados: `role="group"` con `aria-label` y botones `aria-pressed` (no `radio`, igual que §7.17).
+- Cifras «—» con `sr-only` «sin dato: no hubo pedidos».
+- Deltas: flecha `aria-hidden` + `sr-only` «subió/bajó/igual»; el signo `−` es U+2212 (los lectores lo leen «menos»).
+- Iconos ⚠ siempre `aria-hidden` con texto al lado.
+- Objetivos táctiles ≥ 44 px en chips y conmutadores; foco con el anillo de §8.2.
+- `prefers-reduced-motion`: no hay movimiento que apagar (AN-UX.4).
+- **Móvil (≤ 390 px):** la pestaña se usa en el teléfono (el dueño revisa ventas fuera de la tienda): retícula de
+  celdas a 1 columna, chips con *wrap*, gráfica a todo el ancho con ≤ 14 etiquetas, tabla en tarjetas (§7.7). ⛔ Nunca
+  truncar con «…» un rótulo de dinero (§43.23.4).
+
+---
+
+### AN-UX.13 Contraste — cero pares nuevos (tema único claro)
+
+Valores reales de `globals.css` según §80.4: papel `#F4F1EA`, pozo `#EFEBE2`, tinta `#1A1A18`, muted `#6E695E`, acento
+`#B31217`.
+
+| Elemento | Par | Ratio aprox. | Cumple | Ya verificado en |
+|---|---|---|---|---|
+| Barra (relleno) y contorno de «hoy en curso» | tinta sobre papel / pozo | ~15.5:1 / ~14.7:1 | ≥ 3:1 UI | §10 |
+| Marca de día en cero | muted sobre papel / pozo | ~4.8:1 / ~4.6:1 | ≥ 3:1 UI | §10, §80.4 |
+| Valores sobre barras, ejes, deltas, notas `text-xs` | muted sobre papel / pozo | ~4.8:1 / ~4.6:1 | AA texto | §10, §43.22.9 |
+| Cifras, tabla | tinta sobre papel / pozo (fila hover) | ~15.5:1 / ~14.7:1 | AA/AAA | §10 |
+| Chip de preset activo | papel sobre tinta | ~15.5:1 | AA/AAA | §10 |
+| Anillo de foco | `#B31217` sobre papel / pozo | ~6.2:1 / ~5.9:1 | ≥ 3:1 UI | §80.4 |
+| Líneas guía | `--color-border` sobre papel | ~1.3:1 | decorativo (no portan dato) | §10 |
+
+- **Modo oscuro: no aplica** — no existe (§2.3, §11.1). Ninguna pieza de esta sección va sobre los paneles de tinta.
+- ⛔ Ningún verde/rojo nuevo: los deltas son `muted` y las barras, tinta. Sin colores, no hay par de daltonismo que
+  verificar; la forma (marca de cero, barra hueca de hoy) y el texto (signo, flecha, `sr-only`) llevan el significado.
+
+---
+
+### AN-UX.14 Textos ES / EN (paridad en el mismo cambio)
+
+Namespaces: `admin.m9.tabs.*`, `admin.m9.sales.*` (pestaña) y `admin.dashboard.salesToday.*` (tarjeta). Lo de
+`admin.m9.*` que ya existe **no cambia** (lo usa la pestaña «Actividad» y lo fijan `AdminPageTitles.test.tsx:236-242`).
+Plurales con ICU (§9.4). Fechas con `Intl.DateTimeFormat` en `timeZone: 'America/Mexico_City'` (⛔ la zona del navegador).
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m9.tabs.sales` | Ventas | Sales |
+| `admin.m9.tabs.activity` | Actividad | Activity |
+| `sales.period.title` | Periodo | Period |
+| `sales.period.presetsLabel` | Elegir periodo | Choose a period |
+| `sales.period.today` | Hoy | Today |
+| `sales.period.yesterday` | Ayer | Yesterday |
+| `sales.period.last7` | Últimos 7 días | Last 7 days |
+| `sales.period.last30` | Últimos 30 días | Last 30 days |
+| `sales.period.thisMonth` | Este mes | This month |
+| `sales.period.lastMonth` | Mes pasado | Last month |
+| `sales.period.custom` | Elegir fechas… | Pick dates… |
+| `sales.period.from` | Desde | From |
+| `sales.period.to` | Hasta | To |
+| `sales.period.apply` | Ver | Show |
+| `sales.range.bothRequired` | Elige las dos fechas. | Pick both dates. |
+| `sales.range.fromAfterTo` | La fecha de inicio va antes que la de fin. | The start date must come before the end date. |
+| `sales.range.toFuture` | No puede ser después de hoy. | It can't be later than today. |
+| `sales.range.tooLong` | Máximo un año (366 días). Acorta el rango. | One year at most (366 days). Shorten the range. |
+| `sales.range.invalid` | Ese periodo no es válido. Elige otro. | That period isn't valid. Pick another one. |
+| `sales.groupBy.label` | Ver por | Show by |
+| `sales.groupBy.day` | Día | Day |
+| `sales.groupBy.week` | Semana | Week |
+| `sales.groupBy.month` | Mes | Month |
+| `sales.groupBy.weekNote` | Semanas de lunes a domingo; la primera y la última pueden quedar cortadas por el periodo. | Weeks run Monday to Sunday; the first and last may be cut short by the period. |
+| `sales.label.oneDayToday` | Hoy, {date} | Today, {date} |
+| `sales.label.oneDayYesterday` | Ayer, {date} | Yesterday, {date} |
+| `sales.label.oneDay` | {date} | {date} |
+| `sales.label.range` | Del {from} al {to} · {days, plural, one {# día} other {# días}} · hora del centro de México | {from} to {to} · {days, plural, one {# day} other {# days}} · Central Mexico time |
+| `sales.label.compareRange` | Se compara con: del {from} al {to} | Compared with: {from} to {to} |
+| `sales.label.compareDay` | Se compara con: {date} | Compared with: {date} |
+| `sales.summary.title` | Resumen del periodo | Period summary |
+| `sales.card.orders` | Pedidos | Orders |
+| `sales.card.charged` | Cobrado (con IVA) | Collected (incl. VAT) |
+| `sales.card.chargedHelp` | Lo que pagaron los clientes: con IVA, envío y comisión. | What customers paid: VAT, shipping and fee included. |
+| `sales.card.netSales` | Venta sin IVA | Sales excl. VAT |
+| `sales.card.netSalesHelp` | La misma cifra de ingresos que Finanzas. | The same income figure as Finance. |
+| `sales.card.refunds` | Reembolsos | Refunds |
+| `sales.card.refundsDetail` | {count, plural, one {# reembolso} other {# reembolsos}} · {card} con tarjeta · {spei} por SPEI | {count, plural, one {# refund} other {# refunds}} · {card} by card · {spei} by SPEI |
+| `sales.card.refundsNet` | Se restan {amount} sin IVA | {amount} excl. VAT is subtracted |
+| `sales.card.refundsNone` | Sin reembolsos. | No refunds. |
+| `sales.card.netAfterRefunds` | Venta neta de reembolsos | Sales net of refunds |
+| `sales.card.netAfterRefundsHelp` | Venta sin IVA menos los reembolsos hechos en el periodo. | Sales excl. VAT minus refunds made in the period. |
+| `sales.card.netAfterRefundsNegative` | Negativa: los reembolsos del periodo pasan la venta. | Negative: refunds in the period exceed sales. |
+| `sales.card.avgTicket` | Ticket promedio | Average order |
+| `sales.card.avgTicketHelp` | Cobrado ÷ pedidos: lo que deja un cliente por compra. | Collected ÷ orders: what a customer spends per purchase. |
+| `sales.card.piecesPerOrder` | Piezas por pedido | Items per order |
+| `sales.card.pieces` | {count, plural, one {# pieza vendida} other {# piezas vendidas}} | {count, plural, one {# item sold} other {# items sold}} |
+| `sales.card.customers` | Clientes | Customers |
+| `sales.card.customersSplit` | {new, plural, one {# nuevo} other {# nuevos}} · {returning, plural, one {# recurrente} other {# recurrentes}} | {new} new · {returning} returning |
+| `sales.card.customersHelp` | Nuevo: su primera compra pagada cae en este periodo. Se reconoce por correo, también si compró como invitado. | New: their first paid purchase falls in this period. Recognized by email, even if they bought as a guest. |
+| `sales.noData` | sin dato: no hubo pedidos | no data: there were no orders |
+| `sales.delta.up` | subió | went up |
+| `sales.delta.down` | bajó | went down |
+| `sales.delta.same` | Igual que el periodo anterior | Same as the previous period |
+| `sales.delta.orders` | {diff, plural, one {# pedido} other {# pedidos}} | {diff, plural, one {# order} other {# orders}} |
+| `sales.delta.piecesPerOrder` | {diff} piezas por pedido | {diff} items per order |
+| `sales.delta.noPrevious` | sin ventas en el periodo anterior | no sales in the previous period |
+| `sales.delta.noPreviousAlone` | Sin ventas en el periodo anterior | No sales in the previous period |
+| `sales.delta.wasZero` | antes fue cero | it was zero before |
+| `sales.delta.before` | Antes: {value} | Before: {value} |
+| `sales.chart.titleOrders` | Pedidos por {unit, select, day {día} week {semana} other {mes}} | Orders by {unit, select, day {day} week {week} other {month}} |
+| `sales.chart.titleCharged` | Cobrado por {unit, select, day {día} week {semana} other {mes}} | Collected by {unit, select, day {day} week {week} other {month}} |
+| `sales.chart.metricLabel` | Ver | Show |
+| `sales.chart.metricOrders` | Pedidos | Orders |
+| `sales.chart.metricCharged` | Cobrado | Collected |
+| `sales.chart.caption` | Los mismos números están en la tabla de abajo. | The same numbers are in the table below. |
+| `sales.chart.inProgress` | * Hoy sigue en curso. | * Today is still in progress. |
+| `sales.chart.tooMany` | Con tantos días, se lee mejor por semana o por mes. | With this many days, it reads better by week or month. |
+| `sales.chart.switchToWeek` | Ver por semana | Show by week |
+| `sales.chart.summaryOrders` | {metric} del {from} al {to}: {total} en total; el día con más, {best} con {bestValue}; {zero, plural, =0 {ningún día sin pedidos} one {# día sin pedidos} other {# días sin pedidos}}. | {metric} from {from} to {to}: {total} in total; the busiest, {best} with {bestValue}; {zero, plural, =0 {no days without orders} one {# day without orders} other {# days without orders}}. |
+| `sales.table.title` | Por {unit, select, day {día} week {semana} other {mes}} | By {unit, select, day {day} week {week} other {month}} |
+| `sales.table.caption` | Ventas por {unit, select, day {día} week {semana} other {mes}}, del {from} al {to} | Sales by {unit, select, day {day} week {week} other {month}}, {from} to {to} |
+| `sales.table.colsLabel` | Columnas | Columns |
+| `sales.table.colsSales` | Ventas | Sales |
+| `sales.table.colsMoney` | Envíos, compras y ganancia | Shipping, purchases and profit |
+| `sales.table.colPeriod` | {unit, select, day {Día} week {Semana} other {Mes}} | {unit, select, day {Day} week {Week} other {Month}} |
+| `sales.table.total` | Total del periodo | Period total |
+| `sales.table.inProgress` | en curso | in progress |
+| `sales.table.partialDays` | {days, plural, one {# día} other {# días}} | {days, plural, one {# day} other {# days}} |
+| `sales.table.shippingCharged` | Envío cobrado (sin IVA) | Shipping charged (excl. VAT) |
+| `sales.table.shippingCost` | Costo de guías (sin IVA) | Label cost (excl. VAT) |
+| `sales.table.shippingAdjustments` | Ajustes de paquetería | Carrier adjustments |
+| `sales.table.shippingAdjustmentsHint` | Ya van dentro del costo de guías | Already included in label cost |
+| `sales.table.buylistRevenue` | Ingreso por tarifa de buylist | Buylist fee income |
+| `sales.table.buylistCost` | Costo de guías de buylist | Buylist label cost |
+| `sales.table.buylistPaid` | Compras del buylist | Buylist purchases |
+| `sales.table.chargebacks` | Contracargos | Chargebacks |
+| `sales.table.profit` | Ganancia (regla de Finanzas) | Profit (Finance rule) |
+| `sales.table.costMissing` | {count, plural, one {# sin costo} other {# sin costo}} | {count} without cost |
+| `sales.table.payoutMissing` | {count, plural, one {# sin monto} other {# sin monto}} | {count} without amount |
+| `sales.table.profitNote` | La ganancia sigue la misma regla que Finanzas; cada día suma la ganancia de Finanzas del periodo. | Profit follows the same rule as Finance; the days add up to Finance's profit for the period. |
+| `sales.table.costMissingNote` | Hay envíos sin costo de guía capturado: el costo real puede ser mayor. | Some shipments have no label cost recorded: the real cost may be higher. |
+| `sales.table.payoutMissingNote` | Hay compras del buylist pagadas sin monto registrado: no están en la suma. | Some paid buylist purchases have no amount recorded: they aren't in the total. |
+| `sales.table.tooMany` | Con tantos días, se lee mejor por semana o por mes. | With this many days, it reads better by week or month. |
+| `sales.top.title` | Lo más vendido | Best sellers |
+| `sales.top.sortLabel` | Ordenar por | Sort by |
+| `sales.top.sortNet` | Venta sin IVA | Sales excl. VAT |
+| `sales.top.sortPieces` | Piezas | Items |
+| `sales.top.cards` | Cartas | Cards |
+| `sales.top.sets` | Sets | Sets |
+| `sales.top.sealed` | Sellados | Sealed |
+| `sales.top.colRank` | # | # |
+| `sales.top.colCard` | Carta | Card |
+| `sales.top.colSet` | Set | Set |
+| `sales.top.colSealed` | Producto | Product |
+| `sales.top.colPieces` | Piezas | Items |
+| `sales.top.colNet` | Venta sin IVA | Sales excl. VAT |
+| `sales.top.graded` | Gradeada | Graded |
+| `sales.top.emptyCards` | Sin cartas vendidas en este periodo. | No cards sold in this period. |
+| `sales.top.emptySets` | Sin sets vendidos en este periodo. | No sets sold in this period. |
+| `sales.top.emptySealed` | Sin sellados vendidos en este periodo. | No sealed products sold in this period. |
+| `sales.top.note` | No cuenta pedidos reembolsados completos; por eso su suma puede ser menor que la venta del periodo. | Fully refunded orders aren't counted, so the total may be lower than the period's sales. |
+| `sales.when.title` | Cuándo se vende | When you sell |
+| `sales.when.byWeekday` | Por día de la semana | By day of the week |
+| `sales.when.byHour` | Por hora (centro de México) | By hour (Central Mexico) |
+| `sales.when.asTable` | Ver como tabla | Show as table |
+| `sales.when.fewData` | Con pocos pedidos esto todavía no dice mucho: un solo día bueno lo cambia todo. | With few orders this doesn't say much yet: a single good day changes everything. |
+| `sales.when.hourRange` | {from}:00–{from}:59 | {from}:00–{from}:59 |
+| `sales.mix.title` | Cómo y a quién se vende | How and to whom you sell |
+| `sales.mix.destination` | A dónde va | Where it goes |
+| `sales.mix.directShip` | Envío a domicilio | Home delivery |
+| `sales.mix.vault` | Bóveda | Vault |
+| `sales.mix.buyer` | Quién compra | Who buys |
+| `sales.mix.account` | Con cuenta | With an account |
+| `sales.mix.guest` | Invitado | Guest |
+| `sales.mix.payment` | Cómo paga | How they pay |
+| `sales.mix.method.card` | Tarjeta | Card |
+| `sales.mix.method.oxxo` | OXXO | OXXO |
+| `sales.mix.method.customer_balance` | Transferencia | Bank transfer |
+| `sales.mix.method.other` | Otro ({method}) | Other ({method}) |
+| `sales.mix.method.none` | Sin dato | No data |
+| `sales.mix.noneNote` | Sin dato: pedidos pagados antes de que la tienda guardara el método de pago. | No data: orders paid before the store recorded the payment method. |
+| `sales.mix.cardOnly` | Hoy la tienda solo cobra con tarjeta. | The store only takes cards today. |
+| `sales.mix.colOrders` | Pedidos | Orders |
+| `sales.mix.colCharged` | Cobrado | Collected |
+| `sales.p2.shippingCharged` | Envío cobrado (sin IVA) | Shipping charged (excl. VAT) |
+| `sales.p2.shippingCost` | Costo de guías (sin IVA) | Label cost (excl. VAT) |
+| `sales.p2.includesAdjustments` | Incluye ajustes de paquetería {amount} | Includes carrier adjustments {amount} |
+| `sales.p2.costMissing` | {count, plural, one {# envío sin costo capturado} other {# envíos sin costo capturado}} | {count, plural, one {# shipment without recorded cost} other {# shipments without recorded cost}} |
+| `sales.p2.buylistPaid` | Compras del buylist | Buylist purchases |
+| `sales.p2.buylistCount` | {count, plural, one {# compra pagada} other {# compras pagadas}} | {count, plural, one {# paid purchase} other {# paid purchases}} |
+| `sales.p2.payoutMissing` | {count} sin monto registrado | {count} without a recorded amount |
+| `sales.p2.profit` | Ganancia (regla de Finanzas) | Profit (Finance rule) |
+| `sales.p2.profitHelp` | La misma ganancia que Finanzas. | The same profit as Finance. |
+| `sales.csv.button` | Descargar CSV | Download CSV |
+| `sales.csv.help` | Una fila por {unit, select, day {día} week {semana} other {mes}}, también las de cero, y una de total. Los montos vienen en centavos (MX$1,250.00 = 125000) para que cuadren exactos. Sin datos de clientes. | One row per {unit, select, day {day} week {week} other {month}}, including zero rows, plus a total row. Amounts are in cents (MX$1,250.00 = 125000) so they add up exactly. No customer data. |
+| `sales.csv.error` | No se pudo descargar el CSV. Intenta de nuevo. | The CSV couldn't be downloaded. Try again. |
+| `sales.state.updating` | Actualizando… | Updating… |
+| `sales.state.empty` | No hubo ventas en este periodo. | There were no sales in this period. |
+| `sales.state.error` | No se pudieron cargar las ventas. | Sales couldn't be loaded. |
+| `sales.state.forbidden` | Solo el súper-admin puede ver las ventas. | Only the super-admin can see sales. |
+| `admin.dashboard.salesToday.title` | Ventas de hoy | Today's sales |
+| `admin.dashboard.salesToday.orders` | {count, plural, one {# pedido} other {# pedidos}} | {count, plural, one {# order} other {# orders}} |
+| `admin.dashboard.salesToday.charged` | {amount} cobrado | {amount} collected |
+| `admin.dashboard.salesToday.today` | Hoy, {date} · va en curso | Today, {date} · in progress |
+| `admin.dashboard.salesToday.reference` | {date} completo: {orders, plural, one {# pedido} other {# pedidos}} · {amount} | {date}, full day: {orders, plural, one {# order} other {# orders}} · {amount} |
+| `admin.dashboard.salesToday.noReference` | El {date} no hubo ventas. | There were no sales on {date}. |
+| `admin.dashboard.salesToday.same` | = Igual que el {date} | = Same as {date} |
+| `admin.dashboard.salesToday.link` | Ver ventas | See sales |
+| `admin.dashboard.salesToday.error` | No se pudieron cargar las ventas de hoy. | Today's sales couldn't be loaded. |
+| `admin.dashboard.salesToday.retry` | Reintentar | Retry |
+
+(`sales.*` = `admin.m9.sales.*`.) Notas de copy:
+- «Cobrado» y no «Ventas brutas»: el dueño preguntó por «volumen de venta en dinero»; «cobrado» dice qué es sin
+  jerga. La tarjeta «Ventas del periodo» del tablero sigue diciendo «Bruto» (no se toca); son la misma suma de
+  `totalCents` con otro rótulo y otro periodo — si el dueño quiere un solo nombre, es una errata aparte (N-AN-5).
+- «Ticket promedio» en ES (es la palabra que usó el dueño); «Average order» en EN (lo natural en inglés).
+- Signo `−` U+2212 en todas las cadenas y en el formato de montos negativos.
+
+---
+
+### AN-UX.15 Candados sugeridos (los escribe frontend; Testing Library contra MSW; los que coinciden con §15.6 llevan su ID)
+
+Enganche sugerido (decisión de frontend): `data-testid="sales-card-<campo>"`, `sales-delta-<campo>`, `sales-bar` con
+`data-index`/`data-value`, `sales-row` con `data-from`, `sales-today-card`.
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-AN-1** (`AN-F-1`) | Fixture con `orders = 0`: ticket y piezas por pedido muestran «—» y su `sr-only`; ⛔ «MX$0.00», «NaN», «Infinity» en el DOM | `formatMoneyCents(avgTicketCents ?? 0)` |
+| **UX-AN-2** (`AN-F-1`) | 3 vs 1: el texto del delta de pedidos contiene «+2 pedidos» **antes** que «+200 %» (índice en el `textContent`); previo con 0 pedidos: contiene «sin ventas en el periodo anterior» y **no** contiene «%» | Invertir el orden; pintar `pct ?? 0` + «%» |
+| **UX-AN-3** (`AN-F-2`) | Nº de `sales-bar` = `rows.length`; cada `data-value` = el campo de su fila; con filas en cero, sus barras existen (marca de cero) | Filtrar las barras con valor 0 |
+| **UX-AN-4** | Nº de `sales-row` = `rows.length` (7 con ventas en 2); el `tfoot` muestra `totals` **aunque** el fixture tenga `totals ≠ Σ rows` (a propósito) | Sumar las filas en el cliente |
+| **UX-AN-5** | Mientras la consulta del periodo nuevo está pendiente, el rótulo del periodo sigue siendo el del anterior | Pintar el rótulo desde el estado del selector y no desde `period` |
+| **UX-AN-6** | Cambiar `groupBy` manda `groupBy` en la petición y las 8 celdas pintan los `totals` de la respuesta (iguales en el fixture) | Recalcular celdas desde las filas |
+| **UX-AN-7** | Rango a mano: los cuatro casos de AN-UX.2 muestran su texto y **no** hacen petición; un `400 {details:{field:'to'}}` pinta el texto bajo «Hasta» | Validar solo en el servidor; perder `field` |
+| **UX-AN-8** | `topSort` cambia ⇒ nueva petición con `topSort=pieces`; el orden en pantalla es el del fixture (aunque esté «desordenado» respecto a piezas, a propósito) | Reordenar en el cliente |
+| **UX-AN-9** | Dos acabados de la misma carta ⇒ dos filas, cada una con su `FinishMark` | Agrupar por `cardId` |
+| **UX-AN-10** (`AN-F-3`) | Con `vault_operator`: `sales-today-card` no está en el DOM y **no** hubo petición a `/sales/today` (espía de red) | Montar la tarjeta con `masked` |
+| **UX-AN-11** | Con súper-admin: la tarjeta pinta pedidos, cobrado, el rótulo «Hoy, …· va en curso», la referencia «… completo» con `sameWeekdayLastWeek.day`, y el enlace apunta a `/admin/m9?tab=ventas&preset=today` | Quitar el rótulo; enlazar a `/admin/m9` sin parámetros |
+| **UX-AN-12** | Error de `/sales/today` ⇒ la celda muestra su error y el resto del tablero sigue pintado | Propagar el error al `QueryState` del tablero |
+| **UX-AN-13** | Fixture sin campos P2 (`shipping`, `buylist`, `profitCents`, `bestDays`, `mix` ausentes): no existe el conmutador de columnas ni los bloques P2; con ellos, sí. Sin `buylistRevenueCents` ⇒ sin esa columna (⛔ «MX$0.00») | Pintar P2 con `?? 0` |
+| **UX-AN-14** | CSV: la petición lleva el mismo `preset`/`from`/`to`/`groupBy` que la pantalla | Exportar siempre `last7` |
+| **UX-AN-15** | Paridad: todas las claves de AN-UX.14 existen en `es` y `en`; `grep -nE '\b(M-?1?[0-9]\|AN-[0-9]+\|P-AN)\b'` sobre `admin.m9.sales.*` y `admin.dashboard.salesToday.*` ⇒ 0 (P66-3); las claves previas de `admin.m9.*` sin cambio (`AdminPageTitles.test.tsx:236-242` verde) | Borrar una en `en.json`; meter «AN-1» en un texto |
+| **UX-AN-16** (`AN-F-4`) | La pestaña no inyecta `<script>` externo ni cookie nueva (el candado del criterio 509 sigue verde sin tocar el aviso) | Cargar una librería de gráficas desde CDN |
+| **UX-AN-17** | Deltas: ningún delta tiene clase `text-success`/`text-danger`/`text-accent`; cada uno tiene `sr-only` «subió»/«bajó»/«igual» | Colorear por signo |
+
+---
+
+### AN-UX.16 Lista de cambios para frontend (fichero:línea leídos el 2026-10-06 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FS-AN-1 | `(admin)/admin/m9/M9View.tsx:60-137` | Envolver lo de hoy en la pestaña «Actividad» (sin cambiar su contenido); `Tabs` «Ventas»/«Actividad» con `tab` en la URL; «Ventas» por defecto | AN-UX.1 |
+| FS-AN-2 | nuevo bajo `m9/` (p. ej. `SalesTab.tsx`, `SalesPeriodPicker.tsx`, `SalesBarChart.tsx`, `SalesDailyTable.tsx`, `SalesTopLists.tsx`) | La pestaña. ⛔ No tocar `components/domain/DateRangePresets.tsx` (M7 y «Actividad») | AN-UX.2–.10 |
+| FS-AN-3 | `(admin)/admin/AdminDashboard.tsx:227` (tras «Ventas del periodo») | `SalesTodayCard` solo con `isSuperAdmin`, consulta propia | AN-UX.11 |
+| FS-AN-4 | `lib/api.ts`, `types/contract.ts` (**zona compartida**, §15.10) | `getSalesReport`, `exportSalesCsv`, `getSalesToday`; `SalesReportDTO`, `SalesTodayDTO` con los campos P2 **opcionales** en el tipo del front (para que la ausencia se pueda pintar como ausencia) | AN-UX.8 |
+| FS-AN-5 | `messages/es.json:4935-4962` y `en.json` (mismo bloque) + `admin.dashboard` (`es.json:1320-1323`) | Claves de AN-UX.14 | AN-UX.14 |
+
+---
+
+### AN-UX.17 Solicitudes y notas a otros roles
+
+| # | Para | Qué |
+|---|---|---|
+| **N-AN-1** | arquitecto | **Contracargos por día** (§AN.3, «como los cuenta §W.3 (c)») **no** están en `SalesFigures` (§15.4). Diseño listo: columna «Contracargos» en la vista P2 de la tabla y celda en AN-UX.8c, pintadas solo si el campo llega. Propuesta: `chargebacks: { count, amountCents }` por cubo |
+| **N-AN-2** | arquitecto | **Mezcla por tipo de producto** (sueltas / gradeadas / sellado, en piezas y dinero; §AN.3) **no** está en `mix`. Propuesta: `mix.byProductType: { raw, graded, sealed: { pieces, netCents } }`. Se pintaría como cuarta tabla de AN-UX.8b |
+| **N-AN-3** | arquitecto | «¿Me sale el envío?»: el DTO trae cobrado y costo, no la diferencia, y el front no resta (AN-1). Si se quiere la respuesta directa, un `shipping.resultNetCents` por cubo (con su regla para `costMissingCount > 0`). Mientras tanto, las dos cifras van lado a lado |
+| **N-AN-4** | arquitecto (informativo) | El CSV en centavos es exacto pero raro para el dueño en Excel; la pantalla lo explica (`sales.csv.help`). Si se prefiere pesos con dos decimales, es un cambio de §15.7, no de diseño |
+| **N-AN-5** | product-owner (informativo) | La tarjeta existente «Ventas del periodo» dice «Bruto» para la misma suma que aquí se llama «Cobrado (con IVA)». No se toca aquí; si el dueño quiere un solo nombre, errata aparte |
+| **N-AN-6** | orquestador | Zonas compartidas que toca frontend: `lib/api.ts`, `types/contract.ts`, `messages/*.json` (§15.10). Un solo stream a la vez |
+| **N-AN-7** | orquestador | P-AN-2 aplicada con su default (día completo). Si el dueño elige «hasta esta misma hora», cambian solo dos textos de la tarjeta (`today`, `reference`) |
