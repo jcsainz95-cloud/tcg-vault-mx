@@ -97,24 +97,29 @@ interface CatalogEntry {
   productType: ProductType;
   sealedProductId: string | null;
   unitNetCents: number;
+  /** Lo que cobra el renglón (IVA y comisión dentro), DATO del simulador: ⛔ ningún factor de IVA en el front. */
+  unitChargedCents: number;
 }
 const CATALOG: CatalogEntry[] = [
-  { kind: 'card', cardId: 'sv3pt5-199', name: 'Charizard ex', number: '199/165', setId: 'sv3pt5', setName: '151', finish: 'reverse_holo', productType: 'raw', sealedProductId: null, unitNetCents: 140000 },
-  { kind: 'card', cardId: 'sv3pt5-199', name: 'Charizard ex', number: '199/165', setId: 'sv3pt5', setName: '151', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 125000 },
-  { kind: 'card', cardId: 'base1-58', name: 'Pikachu', number: '58/102', setId: 'base1', setName: 'Base', finish: 'normal', productType: 'graded', sealedProductId: null, unitNetCents: 210000 },
-  { kind: 'card', cardId: 'sv3pt5-25', name: 'Pikachu', number: '025/165', setId: 'sv3pt5', setName: '151', finish: 'normal', productType: 'raw', sealedProductId: null, unitNetCents: 3500 },
-  { kind: 'card', cardId: 'sv4pt5-232', name: 'Mew ex', number: '232/091', setId: 'sv4pt5', setName: 'Paldean Fates', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 52000 },
-  { kind: 'card', cardId: 'swsh7-215', name: 'Umbreon VMAX', number: '215/203', setId: 'swsh7', setName: 'Evolving Skies', finish: 'holofoil', productType: 'graded', sealedProductId: null, unitNetCents: 690000 },
-  { kind: 'card', cardId: 'sv2-254', name: 'Iono', number: '254/193', setId: 'sv2', setName: 'Paldea Evolved', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 24000 },
-  { kind: 'card', cardId: 'sv1-81', name: 'Miraidon ex', number: '081/198', setId: 'sv1', setName: 'Scarlet & Violet', finish: 'normal', productType: 'raw', sealedProductId: null, unitNetCents: 8000 },
-  { kind: 'card', cardId: 'sv6-130', name: 'Greninja ex', number: '130/167', setId: 'sv6', setName: 'Twilight Masquerade', finish: 'reverse_holo', productType: 'raw', sealedProductId: null, unitNetCents: 15000 },
-  { kind: 'card', cardId: 'swsh12-186', name: 'Lugia V', number: '186/195', setId: 'swsh12', setName: 'Silver Tempest', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 98000 },
-  { kind: 'card', cardId: 'sv5-24', name: 'Gouging Fire', number: '024/162', setId: 'sv5', setName: 'Temporal Forces', finish: 'normal', productType: 'raw', sealedProductId: null, unitNetCents: 2500 },
-  { kind: 'card', cardId: 'sv3-125', name: 'Charizard ex', number: '125/197', setId: 'sv3', setName: 'Obsidian Flames', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 36000 },
-  { kind: 'sealed', cardId: 'sp-151-etb', name: 'Elite Trainer Box', number: '', setId: 'sv3pt5', setName: '151', finish: 'normal', productType: 'sealed', sealedProductId: 'sp-151-etb', unitNetCents: 180000 },
-  { kind: 'sealed', cardId: 'sp-pf-bundle', name: 'Booster Bundle', number: '', setId: 'sv4pt5', setName: 'Paldean Fates', finish: 'normal', productType: 'sealed', sealedProductId: 'sp-pf-bundle', unitNetCents: 72000 },
-  { kind: 'sealed', cardId: 'sp-legacy-tin', name: 'Lata de colección (sin producto)', number: '', setId: 'swsh12', setName: 'Silver Tempest', finish: 'normal', productType: 'sealed', sealedProductId: null, unitNetCents: 45000 },
+  { kind: 'card', cardId: 'sv3pt5-199', name: 'Charizard ex', number: '199/165', setId: 'sv3pt5', setName: '151', finish: 'reverse_holo', productType: 'raw', sealedProductId: null, unitNetCents: 140000, unitChargedCents: 167300 },
+  { kind: 'card', cardId: 'sv3pt5-199', name: 'Charizard ex', number: '199/165', setId: 'sv3pt5', setName: '151', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 125000, unitChargedCents: 149375 },
+  { kind: 'card', cardId: 'base1-58', name: 'Pikachu', number: '58/102', setId: 'base1', setName: 'Base', finish: 'normal', productType: 'graded', sealedProductId: null, unitNetCents: 210000, unitChargedCents: 250950 },
+  { kind: 'card', cardId: 'sv3pt5-25', name: 'Pikachu', number: '025/165', setId: 'sv3pt5', setName: '151', finish: 'normal', productType: 'raw', sealedProductId: null, unitNetCents: 3500, unitChargedCents: 4182 },
+  { kind: 'card', cardId: 'sv4pt5-232', name: 'Mew ex', number: '232/091', setId: 'sv4pt5', setName: 'Paldean Fates', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 52000, unitChargedCents: 62140 },
+  { kind: 'card', cardId: 'swsh7-215', name: 'Umbreon VMAX', number: '215/203', setId: 'swsh7', setName: 'Evolving Skies', finish: 'holofoil', productType: 'graded', sealedProductId: null, unitNetCents: 690000, unitChargedCents: 824550 },
+  { kind: 'card', cardId: 'sv2-254', name: 'Iono', number: '254/193', setId: 'sv2', setName: 'Paldea Evolved', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 24000, unitChargedCents: 28680 },
+  { kind: 'card', cardId: 'sv1-81', name: 'Miraidon ex', number: '081/198', setId: 'sv1', setName: 'Scarlet & Violet', finish: 'normal', productType: 'raw', sealedProductId: null, unitNetCents: 8000, unitChargedCents: 9560 },
+  { kind: 'card', cardId: 'sv6-130', name: 'Greninja ex', number: '130/167', setId: 'sv6', setName: 'Twilight Masquerade', finish: 'reverse_holo', productType: 'raw', sealedProductId: null, unitNetCents: 15000, unitChargedCents: 17925 },
+  { kind: 'card', cardId: 'swsh12-186', name: 'Lugia V', number: '186/195', setId: 'swsh12', setName: 'Silver Tempest', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 98000, unitChargedCents: 117110 },
+  { kind: 'card', cardId: 'sv5-24', name: 'Gouging Fire', number: '024/162', setId: 'sv5', setName: 'Temporal Forces', finish: 'normal', productType: 'raw', sealedProductId: null, unitNetCents: 2500, unitChargedCents: 2988 },
+  { kind: 'card', cardId: 'sv3-125', name: 'Charizard ex', number: '125/197', setId: 'sv3', setName: 'Obsidian Flames', finish: 'holofoil', productType: 'raw', sealedProductId: null, unitNetCents: 36000, unitChargedCents: 43020 },
+  { kind: 'sealed', cardId: 'sp-151-etb', name: 'Elite Trainer Box', number: '', setId: 'sv3pt5', setName: '151', finish: 'normal', productType: 'sealed', sealedProductId: 'sp-151-etb', unitNetCents: 180000, unitChargedCents: 215100 },
+  { kind: 'sealed', cardId: 'sp-pf-bundle', name: 'Booster Bundle', number: '', setId: 'sv4pt5', setName: 'Paldean Fates', finish: 'normal', productType: 'sealed', sealedProductId: 'sp-pf-bundle', unitNetCents: 72000, unitChargedCents: 86040 },
+  { kind: 'sealed', cardId: 'sp-legacy-tin', name: 'Lata de colección (sin producto)', number: '', setId: 'swsh12', setName: 'Silver Tempest', finish: 'normal', productType: 'sealed', sealedProductId: null, unitNetCents: 45000, unitChargedCents: 53775 },
 ];
+
+/** Envío a domicilio: 150.00 sin IVA, 174.00 cobrado (dato del simulador). */
+const SHIP_CHARGED_CENTS = 17400;
 
 interface MockOrder {
   day: string;
@@ -144,8 +149,6 @@ function ordersOfDay(day: string): MockOrder[] {
     const direct = s % 5 < 3;
     const netCents = items.reduce((a, it) => a + it.unitNetCents, 0);
     const shipNetCents = direct ? 15000 : 0;
-    const iva = Math.round((netCents + shipNetCents) * 0.16);
-    const fee = Math.round(netCents * 0.035);
     const methodRoll = (s >>> 5) % 10;
     out.push({
       day,
@@ -157,13 +160,21 @@ function ordersOfDay(day: string): MockOrder[] {
       refunded: (s >>> 13) % 15 === 0,
       items,
       netCents,
-      chargedCents: netCents + shipNetCents + iva + fee,
+      chargedCents: items.reduce((a, it) => a + it.unitChargedCents, 0) + (direct ? SHIP_CHARGED_CENTS : 0),
       shipNetCents,
       shipCostCents: direct ? ((s >>> 15) % 7 === 0 ? null : 11800) : null,
     });
   }
   return out;
 }
+
+/** Reembolsos de ejemplo: monto al cliente y su parte sin IVA, como DATOS (⛔ dividir por la tasa en el front). */
+const REFUND_AMOUNTS: Array<{ amountCents: number; netCents: number }> = [
+  { amountCents: 40000, netCents: 34483 },
+  { amountCents: 50000, netCents: 43103 },
+  { amountCents: 60000, netCents: 51724 },
+  { amountCents: 70000, netCents: 60345 },
+];
 
 interface DayRefund {
   channel: 'card' | 'spei';
@@ -173,8 +184,8 @@ interface DayRefund {
 function refundsOfDay(day: string): DayRefund[] {
   const h = hash(`refund:${day}`);
   if (h % 7 !== 0) return [];
-  const amountCents = 40000 + (h % 4) * 10000;
-  return [{ channel: h % 2 === 0 ? 'card' : 'spei', amountCents, netCents: Math.round(amountCents / 1.16) }];
+  const r = REFUND_AMOUNTS[h % REFUND_AMOUNTS.length];
+  return [{ channel: h % 2 === 0 ? 'card' : 'spei', ...r }];
 }
 
 // ---------------------------------------------------------------- cifras
