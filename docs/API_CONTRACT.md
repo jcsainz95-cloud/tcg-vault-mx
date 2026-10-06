@@ -40015,13 +40015,20 @@ primer CSV y confirma que suma una columna.
 ### 15.8 P2 — cómo sale cada cifra, y de qué depende
 
 - **612 · `profitCents`, 622 · `shipping.*`:** de `pnlBuckets` (`ARCHITECTURE §4.64.4`), el cuerpo de `pnl()` **partido**,
-  cada componente en el día de **su** fecha (la misma que M7 usa: órdenes por `settledAt`, envíos por `pickingAt`, ajustes por
-  `chargedAt`, reembolsos por `submittedAt`/`paidAt`). Σ días = `pnl()` del periodo por construcción. ⚠️ **Hereda D-AN-1**:
+  cada componente en el día de **su** fecha (la misma que M7 usa: órdenes por `settledAt`, envíos de **venta** por `pickingAt`
+  con `OUTBOUND_ONLY`, ajustes por `chargedAt`, reembolsos por `submittedAt`/`paidAt`; ⭐ con #78 fusionado, los cuatro
+  renglones del buylist de §BSD.16: retenido, margen por solicitud y «sin costo capturado» por `SellRequest.paidAt`
+  (`pagada`); guía de Skydropx de **entrada** por `labelPurchasedAt` (`INBOUND_ONLY`, neta de IVA, `0` si la cancelación
+  está confirmada); guía manual con costo por `coalesce(guideSentAt, shipmentConfirmedAt)`). Σ días = `pnl()` del periodo
+  por construcción (`BACKEND_NOTES §81`). ⚠️ **Hereda D-AN-1**:
   la ganancia sigue la regla de Finanzas de hoy; el front la rotula «Ganancia (regla de Finanzas)». Se alinea sola cuando
   §W 277/278 cambie `pnl-core`. ⭐ AN-1.1: `shipping.resultNetCents` = cobrado neto − costo neto del mismo cubo (§15.11.3).
 - ⭐ **AN-1.1 · §AN.3 contracargos** (fase C, §15.11.1) y **mezcla por tipo de producto** (fase B, §15.11.2).
 - **622 · `buylistRevenueCents` / `buylistCostCents`:** ⛔ **condicionado a que #78 (`M-72`) esté en `production`**. Se
   añaden como lo que #78 meta en `pnlBuckets`, con su misma fecha; hasta entonces las claves **no viajan** (ausentes, no `0`).
+  ⭐ 2026-10-06 (`BACKEND_NOTES §81`, sobre `91c6869b`): #78 ya está en la rama y `pnlBuckets` ya trae las cifras; el mapeo
+  será `buylistShippingFeeRetainedCents` / `buylistGuideCostCents` del mismo cubo. **Sigue pendiente** (DTO, columnas del
+  CSV de §15.7, front y AN-B-15, que hoy afirma que no viajan); ahora **desbloqueado** en lo técnico, no construido.
 - **623 · `buylist.*`:** `SellRequest` `status = 'pagada'`, día de `paidAt`; `paidNetCents = Σ payoutNetCents`. No depende de #78.
 - **620 · `bestDays`:** de los mismos pedidos R-2, día de la semana y hora de `settledAt` en México.
 - **621 · `mix`:** destino (`fulfillmentMode`) e invitado/cuenta (`guestEmail != null`) salen de lo que ya se guarda.
@@ -40042,6 +40049,9 @@ primer CSV y confirma que suma una columna.
   esta misma hora»? Default: **completo**.
 - **P-AN-3** — «Mes pasado» se compara contra los mismos días inmediatamente anteriores (como dice §AN.2). ¿O contra el mes
   calendario anterior? Default: **como dice §AN.2**.
+- **Aviso al dueño (no pregunta; 2026-10-06, `BACKEND_NOTES §81`):** la «Ganancia» de la pestaña Ventas **incluye ya el
+  buylist** (lo retenido suma, las guías restan), con la misma regla que Finanzas (M7): cambia en los días con pagos o guías
+  del buylist. Las cifras de envío del buylist en `shipping` (622) **aún no se muestran**: pendiente, ya desbloqueado.
 - **Medición pendiente (no pregunta):** qué métodos de pago tiene encendidos la cuenta de Stripe (panel de Stripe →
   métodos de pago). Si solo hay tarjeta, 621 por método no dice nada nuevo hasta que se encienda otro.
 

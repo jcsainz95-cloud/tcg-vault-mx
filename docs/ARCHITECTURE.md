@@ -29678,9 +29678,14 @@ Riesgos técnicos:
 > - **`D-AN-2` (abierta, = D-1 de §W, criterio 275):** `range()` (`admin.service.ts:478-497`) toma `YYYY-MM-DD` como
 >   medianoche UTC con `lte`; M9/M7 mandan la fecha cruda (`M9View.tsx:37-41`) ⇒ el último día se pierde y el corte no es
 >   México. AN no usa `range()`.
-> - **`D-AN-3` (abierta, = D-7 de §W, criterio 287):** el contrato §M7 declara `buylistShippingRevenueCents/CostCents/Basis`
->   en `pnl` (`API_CONTRACT.md:34752-34766`); el código no los devuelve (`admin.service.ts:1815-1828`). #78 (`M-72`), según el
->   orquestador; ⛔ contenido de #78 NO MEDIDO.
+> - **`D-AN-3` (= D-7 de §W, criterio 287) — ⭐ corregida 2026-10-06 tras fusionar #78 (`BACKEND_NOTES §81`, QA aprobado
+>   sobre `91c6869b`):** `pnl()` **sí** devuelve las cifras del buylist, las cuatro de `API_CONTRACT §BSD.16`
+>   (`buylistShippingFeeRetainedCents`, `buylistGuideCostCents`, `buylistGuideMarginCents`, `buylistGuideCostMissingCount`),
+>   y `pnlBuckets` (`admin/pnl-core.ts`) las reparte por cubo (retenido/margen/sin costo por `paidAt`; guía Skydropx de
+>   entrada por `labelPurchasedAt`; guía manual por `coalesce(guideSentAt, shipmentConfirmedAt)`); `AdminService.pnl()` = el
+>   cubo `all`. Lo que queda abierto es solo de nombre: el §M7 viejo (`API_CONTRACT.md:34752-34766`) declara
+>   `buylistShippingRevenueCents/CostCents/Basis`, que **no** son las claves construidas; manda §BSD.16. Texto original:
+>   «el código no los devuelve (`admin.service.ts:1815-1828`)», medido antes de #78.
 >
 > **⭐ BSD-1.2: `DV-BSD-1` CERRADA por diseño** (`API_CONTRACT §BSD.16` punto 4; construye B-4). Texto original:
 > **rev BSD-1 — `DV-BSD-1` (abierta, 💰, informativa; medida 2026-10-06 por Grep sobre `/home/user/tcg-bsdx`, sha NO
