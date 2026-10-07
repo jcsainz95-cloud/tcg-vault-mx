@@ -607,8 +607,8 @@ otro sitio fabrica `INV-` (`rg "INV-|nextFolio" backend/src`, el resto de aciert
 **Fichero C v2** (`…_3_folios.sql`; el nombre lo elige backend y se ajustan las pruebas):
 - `LOCK TABLE "Order", "InventoryItem" IN SHARE ROW EXCLUSIVE MODE`.
 - **Cada contador con su propia guarda, independientes:** `TCG-` solo si `Order` está vacía (como v1); `INV-` solo si
-  `InventoryItem` está vacía. Si una tabla ya tiene filas, **ese** contador no se toca y lo dice en castellano («ya hay N
-  piezas: tus folios siguen desde INV-00xxxx; no pasa nada»); el otro se reinicia igual. Si **ninguno** se puede, aborta
+  `InventoryItem` está vacía. Si una tabla ya tiene filas, **ese** contador no se toca y lo dice en castellano con la
+  **frase común de §14.12** (C y D dicen lo mismo; ⛔ ya no «no pasa nada»); el otro se reinicia igual. Si **ninguno** se puede, aborta
   (mensaje de QA-8 adaptado). Motivo de la independencia: si el dueño re-sube inventario antes de correr C, no debe
   perder el reinicio de `TCG-`, y un `INV-` sin reiniciar es inocuo.
 - ⛔ `ENV-` sigue **sin** reiniciarse (§5.2 intacto, medido y con prueba §9.7).
@@ -673,10 +673,11 @@ su definición y `limpieza-republicar.ts:130`; `detail?`: **NO MEDIDO**; backend
 - `PendingPriceEntry` `catalog`/`buylist` y `VaultLocation`, `SealedProduct`, `VariantPriceOverride`: INFO de conteo.
 - Se quitan: «mismo conteo que tras la limpieza: InventoryItem» y «contador `inventory_folio_seq` igual que en la
   limpieza».
-- Se añaden: «siguiente `INV-` = `INV-000001`, **o** ya hay piezas nuevas y el folio mínimo es `INV-000001`»;
+- Se añaden: «siguiente `INV-` = `INV-000001`, **o** ya hay piezas nuevas y el folio mínimo es `INV-000001`»
+  (**sustituida por §14.12**: tres salidas OK/AVISO/FALLA, mínimo numérico, contra el rastro);
   «**ningún folio por delante de su contador**» (`max` numérico de `InventoryItem.folio` ≤ `last_value` de
   `inventory_folio_seq` si `is_called`; ídem `Order.orderNumber` / `order_number_seq`).
-- `shipment_folio_seq` igual que en el rastro: **se queda**.
+- `shipment_folio_seq` igual que en el rastro: **se queda** (leída de la secuencia misma, no de `pg_sequences`: §14.12 MENOR-1).
 
 ### 14.8 Guion del dueño v2 (sustituye §8.2)
 
@@ -754,3 +755,103 @@ deja de ser necesario como caso (se puede quedar en el fixture: se borra igual).
 - Los supuestos de `HECHOS.md:80` («pendientes de que los corrija») se dan por buenos; si el dueño quisiera conservar el
   **sellado** o la **custodia**, cambian §14.2 (borrado acotado por `productType`/`ownerType`), G-9 y C (con piezas
   vivas `INV-` no podría reiniciarse: §5.3 volvería a aplicar).
+
+### 14.12 v2.1 (2026-10-07) — C y D dicen lo mismo del folio `INV-` (QA N-1, MENOR-1, MENOR-3)
+
+Hallazgos de QA sobre `ec808db2` (rama `claude/limpieza-db`). N-1 **medido por QA** (no por mí); MENOR-1 razonado por
+QA; MENOR-3 **NO MEDIDO** por QA ni por mí. Los tres van a backend **juntos** (mismos dos ficheros + una spec).
+
+**N-1 · el defecto.** Secuencia: B COMMIT → el dueño sube 2 piezas (`INV-000015/016`) → C exit 0 y dice
+`NO se toca: … tus folios siguen desde ahí; no pasa nada` (`…_3_folios.sql:86`) → D dice
+`FALLA | contador de inventario … | primera carta INV-000015` y `HAY FALLAS (1)` (`…_4_verificacion.sql:167-171`).
+Origen: §14.5 (guardas independientes, «inocuo») contra §14.7 (D exige `INV-000001`). Un paso dice «no pasa nada» y el
+siguiente dice «falla» sobre el mismo estado: el dueño no sabe a cuál creer.
+
+**Decisión: cambia D (acepta el caso), y C cambia su frase. C NO pasa a exigir orden.** Motivos:
+1. Exigir orden en C (negarse si hay piezas) **pierde el reinicio de `TCG-`**, que es el que importa (el primer pedido
+   real); es justo lo que la independencia de §14.5 protege.
+2. Tras subir piezas, `INV-` **ya no se puede** reiniciar sin chocar (§5.3); negarse no arregla nada, solo bloquea.
+3. Dejar `INV-` sin reiniciar es inocuo (tabla de §14.5, medida: ni etiquetas, ni Skydropx, ni Stripe llevan el folio).
+4. Pero el dueño pidió «reiniciar folios» (`HECHOS.md:79`, 2026-10-06, «(3) Folios reinician»), así que **no** es «no
+   pasa nada»: es un **AVISO** — se le dice que su petición no se cumplió para `INV-`, por qué, y que no rompe nada.
+
+**Estado nuevo de D: `AVISO`.** Se enseña, **no cuenta como falla** (como `INFO`), pero es distinto de `INFO`: dice que
+algo no salió como se pidió. La línea final cuenta fallas sobre `resultado NOT IN ('OK','INFO','AVISO')` y, si hay
+avisos, dice `VERIFICACION: TODO OK (con N aviso(s))` (sigue casando `/VERIFICACION: TODO OK/`).
+
+**Frase común (literal, la misma en C y en D; las pruebas la buscan como subcadena):**
+`NO se reinició INV-: ya había piezas cuando corriste C`
+- C (sustituye `…_3_folios.sql:86`): `NO se reinició INV-: ya había piezas cuando corriste C (N pieza(s), de INV-xxxxxx a
+  INV-yyyyyy). Tus folios siguen desde ahí, no desde INV-000001. No rompe nada (ningún folio va en etiquetas, guías ni
+  pagos). La próxima vez, este paso va ANTES de subir cartas.` — `xxxxxx/yyyyyy` = mínimo y máximo **numéricos** (ver
+  MENOR-3; `…_3_folios.sql:65` hoy usa `max(folio)` de texto).
+- D línea 51: resultado `AVISO`, detalle `NO se reinició INV-: ya había piezas cuando corriste C · primera INV-xxxxxx ·
+  siguiente INV-zzzzzz · no rompe nada`.
+
+**D línea 51 v2.1 (sustituye `…_4_verificacion.sql:166-171`).** Definiciones: `R` = `rastro.secuencias.inventory_folio_seq`
+(el `last_value` en la limpieza, lo escribe B en `…_2_limpieza.sql:420`); `m` = mínimo **numérico** de los folios
+`^INV-[0-9]+$` (como ya hace `mayor` en `…_4_verificacion.sql:114`); `P` = siguiente de `inventory_folio_seq`;
+`T1` = «siguiente `TCG-` es 1» (la condición de la línea 50, `:163`).
+
+| Caso | Condición | Resultado |
+|---|---|---|
+| Sin rastro (base sin limpiar) | `count(rastro) <> 1` | `FALLA` (se conserva: la prueba de `pdb-limpieza.e2e-spec.ts:369` lo exige) |
+| Reiniciado, sin piezas | sin piezas ∧ `P = 1` | `OK` |
+| Reiniciado, piezas subidas | hay piezas ∧ `m ≤ R` | `OK` (cubre MENOR-3: si se borra `INV-000001`, `m = 2 ≤ R`) |
+| No reiniciado porque C encontró piezas | hay piezas ∧ `m > R` ∧ `T1` | `AVISO` (frase común) |
+| C no se corrió / se negó | cualquier otro caso (p. ej. hay piezas ∧ `m > R` ∧ ¬`T1`; sin piezas ∧ `P ≠ 1`) | `FALLA`, detalle `el contador no se reinició y C no corrió (el de pedidos tampoco está en TCG-000001)` |
+
+Por qué `T1` en el `AVISO`: sin él, «nunca corriste C» saldría como aviso con un motivo falso. `T1` prueba que C sí corrió
+(es el único que reinicia `TCG-`, y tras B `Order` está vacía). La línea 52 («ningún folio por delante») **no cambia** y
+sigue siendo la que vigila la integridad.
+
+Puntos ciegos aceptados (los digo, no los tapo): (a) si tras reiniciar se suben **más** de `R` piezas y se borran las
+primeras `R`, `m > R` y saldría `AVISO` con motivo falso — inofensivo (no es `FALLA` ni oculta una); (b) si `R` = 1 con
+`is_called = f` (contador nunca usado) reiniciado y no reiniciado son el mismo estado. En producción `R` es el último folio
+dado antes de limpiar: QA vio `INV-000015` como siguiente ⇒ `R = 14` en **su** fixture; el valor real de producción: **NO
+MEDIDO** (lo imprime B en el ensayo).
+
+**MENOR-1 · `pg_sequences.last_value` es NULL si la secuencia nunca se leyó** (`…_4_verificacion.sql:106-109` y
+`:180-183`; QA lo ubicó «~53», es la comprobación de orden 53). Con `shipment_folio_seq` sin `nextval` nunca, B guarda
+`1` (lee `SELECT last_value FROM shipment_folio_seq`, `…_2_limpieza.sql:419`) y D compara contra `NULL` ⇒ `FALLA` falso
+`ahora ?`. **Cambio:** D lee `SELECT last_value FROM shipment_folio_seq` (misma fuente que B); se retira el CTE `sec`.
+Punto ciego residual: B no guarda `is_called`, así que pasar de «nunca usado» (1, f) a «un `nextval`» (1, t) no se ve;
+en producción hay `ENV-` emitidos (`ENV-000003` en Skydropx, `HECHOS.md:79`) ⇒ `is_called = t` probable, **NO MEDIDO** en
+la base. No se amplía el rastro de B por esto (tocaría §9.1).
+
+**MENOR-3 · `min(folio)` de texto** (`…_4_verificacion.sql:115` y la comparación `f.menor = 'INV-000001'` de `:168`;
+QA lo ubicó «~51»). Se resuelve dentro de la tabla de arriba: `m` numérico y `m ≤ R` en vez de `= 'INV-000001'`. Mismo
+cambio en C (`:65`): mínimo y máximo numéricos para la frase. (La rama `TCG-` de `folios`, `:120`, deja de usarse para
+`menor`; backend puede quitarla.) Que la app pueda **borrar la fila** de una pieza (y no solo cambiarle el estado), que
+es lo que haría real este caso: **NO MEDIDO**; la prueba lo construye por SQL como precondición.
+
+**Pruebas que deben fallar HOY** (en `test/integration/pdb-limpieza.e2e-spec.ts`; deterministas, sin carrera ⇒ una
+tirada basta, O-3 no aplica; altas por la **app** con `altaPorApp`, como `:391`):
+
+| # | Pasos | Esperado | Hoy (en `ec808db2`) |
+|---|---|---|---|
+| T-N1 | B COMMIT → `altaPorApp(e, 2)` → C → D | C exit 0, su línea de inventario contiene la frase común y `INV-` mínimo = `R+1`; TCG reiniciado. D: `AVISO \| contador de inventario…` con la **misma** frase y el **mismo** primer folio que C; `VERIFICACION: TODO OK`; ninguna `FALLA` | Rojo: C dice «no pasa nada» y D `FALLA` (medido por QA) |
+| T-N1-ctl | B COMMIT → `altaPorApp(e, 2)` → **sin C** → D | línea 51 `FALLA` (no `AVISO`), línea 50 `FALLA`, `HAY FALLAS` | Verde hoy; es el candado contra un `AVISO` que tape «no corriste C» |
+| T-M3 | B COMMIT → C → `altaPorApp(e, 3)` → borrar por SQL la fila `INV-000001` → D | línea 51 `OK`, `TODO OK` | Rojo: `menor = 'INV-000002'` ⇒ `FALLA` (deducido del código, **NO MEDIDO**) |
+| T-M1 | **antes de B**: `setval('shipment_folio_seq', 1, false)` y afirmar `is_called = f` (precondición, para que la prueba ejerza el caso) → B COMMIT → C → D | línea 53 `OK`, detalle `ahora 1 · rastro 1` | Rojo: `ahora ?` ⇒ `FALLA` (deducido, **NO MEDIDO**) |
+
+Se mantienen sin cambio: `:363-385` (D sucia ⇒ `FALLA` en «contador de inventario»; B+C ⇒ `TODO OK`), `:387-394`,
+`:396-406`, §9.6/§9.7 (incluida la mutación M-v2-2a: con la lectura nueva, `setval` de `ENV-` en C debe seguir poniendo
+la línea 53 en `FALLA`).
+
+**Mutaciones** (en copia del árbol entero, O-9; deterministas ⇒ N = 1 por mutación vale, reportar `1/1`):
+
+| # | Mutación | Debe poner en rojo |
+|---|---|---|
+| M-N1-a | D cuenta `AVISO` como falla | T-N1 |
+| M-N1-b | `AVISO` sin la condición `T1` | T-N1-ctl |
+| M-N1-c | C vuelve a la frase vieja | T-N1 (subcadena común) |
+| M-M3 | D vuelve a `min(folio) = 'INV-000001'` | T-M3 |
+| M-M1 | D vuelve a `pg_sequences` | T-M1 |
+
+**Guion (§14.8):** el paso 7 se queda («C **antes** de dar de alta nada»); se añade en el paso 8: «si D dice `AVISO` en el
+contador de inventario, es que subiste cartas antes de C: no rompe nada, tus folios no empiezan en INV-000001».
+Comentarios de cabecera a ajustar por backend: `…_3_folios.sql:15-16` («no pasa nada») y `…_4_verificacion.sql:36-37`
+(«que el folio empiece en INV-000001»).
+
+Sin cambio de `API_CONTRACT.md` ni de `ARCHITECTURE.md` (son guiones SQL de un solo uso, sin endpoint ni schema).
