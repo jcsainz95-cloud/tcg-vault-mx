@@ -2,6 +2,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CatalogService, DeckMetaUnitDTO } from '../catalog/catalog.service';
 import { DeckMatcherService } from './deck-matcher.service';
 import { DecksMetaService } from './decks-meta.service';
+import { ConfigService } from '@nestjs/config';
+import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
+
+/** §AC.8: el servicio firma el `pullToken` con `domainHmac` (llave efímera de prueba). */
+const PII = new PiiCryptoService(new ConfigService({}));
 
 /**
  * DECKS-META §3.4/§13 (Fase 1) — la lógica MONEY-ADJACENT: la disponibilidad. FUENTE-CONFIABLE
@@ -38,7 +43,7 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
     } as unknown as CatalogService;
     const prisma = {} as unknown as PrismaService;
     const matcher = {} as unknown as DeckMatcherService;
-    return new DecksMetaService(prisma, catalog, matcher);
+    return new DecksMetaService(prisma, catalog, matcher, PII);
   }
 
   const matchedLine = (over: Partial<any> = {}): any => ({
@@ -131,9 +136,10 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
       const catalog = {
         getSellableRawUnitsByCardIds: jest.fn(async () => new Map()),
       } as unknown as CatalogService;
-      const prisma = {} as unknown as PrismaService;
+      // §AC.8: `paste` liga las energías ⇒ lee los productos de energía activos.
+      const prisma = { accessory: { findMany: jest.fn(async () => []) } } as unknown as PrismaService;
       const matcher = { matchLines: jest.fn(async () => matchReturn) } as unknown as DeckMatcherService;
-      return new DecksMetaService(prisma, catalog, matcher);
+      return new DecksMetaService(prisma, catalog, matcher, PII);
     }
 
     it('texto vacío ⇒ 422 DECK_LIST_UNPARSEABLE', async () => {
@@ -197,7 +203,7 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
           ]),
         },
       } as unknown as PrismaService;
-      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService);
+      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService, PII);
       const res = await svc.listPublished();
       expect(res.data).toHaveLength(1);
       expect(res.data[0].imageUrl).toBe('https://img/ala.png');
@@ -235,7 +241,7 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
         ];
       });
       const prisma = { metaDeck: { findMany } } as unknown as PrismaService;
-      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService);
+      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService, PII);
       const res = await svc.listPublished();
       expect(res.data[0].imageUrl).toBe('https://img/twm-25.png');
       // Forma del DTO SIN cambio: la teja no gana campos por la portada.
@@ -261,7 +267,7 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
       };
       const prisma = { $transaction: jest.fn(async (cb: any) => cb(tx)), metaDeckList: tx.metaDeckList } as unknown as PrismaService;
       const matcher = { matchLines: jest.fn(async () => [{ ...matchedLine(), matchedCard: card() }]) } as unknown as DeckMatcherService;
-      const svc = new DecksMetaService(prisma, { getSellableRawUnitsByCardIds: jest.fn() } as unknown as CatalogService, matcher);
+      const svc = new DecksMetaService(prisma, { getSellableRawUnitsByCardIds: jest.fn() } as unknown as CatalogService, matcher, PII);
       await svc.adminCreateOrCurate({ slug: 'dragapult', name: 'Dragapult', listText: '4 Dragapult ex TWM 130' });
       expect(created).toHaveLength(1);
       const d = created[0];
@@ -281,7 +287,7 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
       const prisma = {
         metaDeck: { findFirst: jest.fn(async () => null) },
       } as unknown as PrismaService;
-      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService);
+      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService, PII);
       await expect(svc.getBySlug('no-existe')).rejects.toMatchObject({ code: 'DECK_NOT_FOUND' });
     });
 
@@ -296,11 +302,14 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
             sharePct: 10,
             trend: 0,
             source: 'limitless',
-            currentList: { sourceUrl: null, sourceTournament: null, cards: [] },
+            currentList: { id: 'L1', sourceUrl: null, sourceTournament: null, cards: [] },
           })),
         },
+        // §AC.8: la ficha lee los productos de energía activos y el dial del paquete.
+        accessory: { findMany: jest.fn(async () => []) },
+        configSetting: { findUnique: jest.fn(async () => null) },
       } as unknown as PrismaService;
-      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService);
+      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService, PII);
       const detail = await svc.getBySlug('dragapult');
       expect(detail).not.toHaveProperty('legalityVerifiedAt');
       expect(detail).toHaveProperty('groups');
@@ -318,6 +327,7 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
         prisma,
         { getSellableRawUnitsByCardIds: jest.fn() } as unknown as CatalogService,
         {} as unknown as DeckMatcherService,
+        PII,
       );
     }
 
@@ -360,6 +370,7 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate 
         prisma,
         { getSellableRawUnitsByCardIds: jest.fn() } as unknown as CatalogService,
         {} as unknown as DeckMatcherService,
+        PII,
       );
       return { svc, $transaction, upsert, prisma };
     }

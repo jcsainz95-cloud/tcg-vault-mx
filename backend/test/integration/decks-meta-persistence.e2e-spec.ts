@@ -3,6 +3,8 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { CatalogService, DeckMetaUnitDTO } from '../../src/modules/catalog/catalog.service';
 import { DeckMatcherService } from '../../src/modules/decks-meta/deck-matcher.service';
 import { DecksMetaService } from '../../src/modules/decks-meta/decks-meta.service';
+import { ConfigService } from '@nestjs/config';
+import { PiiCryptoService } from '../../src/common/crypto/pii-crypto.service';
 import { parseDeckList } from '../../src/modules/decks-meta/deck-list.parser';
 
 /**
@@ -25,7 +27,8 @@ describe('DecksMeta persistence (integración, Postgres real)', () => {
     }),
   } as unknown as CatalogService;
   const matcher = new DeckMatcherService(prisma);
-  const service = new DecksMetaService(prisma, catalog, matcher);
+  // §AC.8: el servicio firma el `pullToken` (llave efímera de prueba).
+  const service = new DecksMetaService(prisma, catalog, matcher, new PiiCryptoService(new ConfigService({})));
 
   const tag = randomUUID().slice(0, 8);
   const setId = `set-${tag}`;
