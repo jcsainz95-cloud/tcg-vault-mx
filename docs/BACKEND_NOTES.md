@@ -30089,3 +30089,72 @@ contrato no listaba:
   | M2 degradado `[]` / M2' degradado `['location','price']` | 6 unitarias cada una (SU-B5 + convert-guard + security) |
   | M3 el modo sin `--apply` llama a `reevaluateForPublication` | unitaria «⛔ sin --apply NO llama…» · integración SU-B6 |
   | M4 sin la guarda de identidad de slab | SU-B3 (ii) |
+
+### 82.SU8 · SU.8 construida — el alta dispara la publicación (2026-10-07, rama `claude/sin-ubicacion`, sobre `35b06778`)
+
+**Norma.** `API_CONTRACT §M1-SU` SU.8 (SU.8.1–SU.8.5), `ARCHITECTURE §4.65 (h)`. Sin schema, migración, endpoint, código
+de error ni campo nuevo.
+
+**Qué cambió (servidor, solo `inventory.service.ts`).**
+- Helper privado `publishCreated(ids, trigger: 'alta' | 'alta_lote' | 'encontrada', folios = [])`: llama al MISMO cuerpo
+  (`reevaluateForPublication(ids)`) dentro de `try/catch`; si lanza, `logger.warn` con trigger y folios y devuelve `[]`.
+  Con `ids` vacío no llama. El tercer parámetro (`folios`, solo para el log) es un añadido a la firma recomendada del
+  contrato: SU.8.2 pide el folio en el `warn` y los ids solos no lo traen.
+- `createItem`: tras el `$transaction`, `publishCreated([id], 'alta', [folio])`; el `201` devuelve `status: 'listed'` si
+  el resultado es `published` y el de la fila creada (`in_stock`) en cualquier otro caso (sin precio, guarda, fallo).
+  Sin relectura: decide el `outcome` del cuerpo.
+- `batchCreate`: tras el `$transaction` (fresco), UNA llamada con los `inventoryItemIds` de todas las líneas `ok:true`.
+  El fast-path de replay y la rama P2002 devuelven antes y no llegan. `publishCreated` no lanza, así que no puede caer
+  en el `catch` del P2002. `resultJson` y la forma de la respuesta no cambian (SU.8.3).
+- `adjustFound` (`encontrada`): tras el `$transaction`, `publishCreated(response.inventoryItemIds, 'encontrada',
+  response.folios)`. `toStatus: 'in_stock'` se queda.
+- ⛔ El `move` (`tryAutoPublish`) no cambia.
+
+**Efecto visible.** Lo dado de alta con precio que resuelve nace `listed` sin `bulk-publish`; raw/graded de `compra`
+sin precio escalan a M2 en el alta (antes no) y quedan en `pending-publish` con `["price"]` y su `pendingPriceEntryId`.
+El sellado sin precio sigue con UNA entrada (dedupe por clave; `inventory.sealed-pending-dedup.spec.ts` verde sin
+cambios).
+
+**Pruebas — `test/integration/su8-alta-publica.e2e-spec.ts`** (Postgres real, HTTP; el cuerpo se observa con
+`jest.spyOn` sobre la instancia real de `InventoryService`, y SU-B12 tumba `PricingService.loadPricingCurve`):
+SU-B7 (raw / graded / sellado sin producto), SU-B8, SU-B9 (con una tercera línea `ok:false` para que «exactamente los
+`ok:true`» discrimine), SU-B10 y SU-B12 (canarios), SU-B11, y un extra de backend: «SU-B7 (extra)» sellado LIGADO con
+`manualMarketMxnCents` ⇒ `listed` y 0 entradas en M2.
+- SU-B8 usa una carta PROPIA sin referencia: con la `nopref` del fixture salía **verde sobre el código de partida**,
+  porque la semilla ya tiene una entrada abierta para su clave (pieza `E2E-STK-0001`) y la fila de la cola toma el
+  `pendingPriceEntryId` de cualquier entrada abierta. Con carta virgen el id solo puede venir de SU.8.
+
+**Prueba existente que cambió y el contrato no listaba: `test/inventory.pending-reason-writers.spec.ts`.** «alta con
+override manual de mercado (`manualMarketMxnCents`) ⇒ resuelve ⇒ 0 entradas» quedó roja con SU.8 (1 entrada
+`no_market`). Causa: el doble de `getReferencesBatch` devolvía siempre `Map` vacío, así que el disparo no veía el
+`PriceReference isManualOverride` que el propio alta acababa de escribir y escalaba. La consulta real sí lo ve (medido:
+«SU-B7 (extra)» con Postgres ⇒ `listed`, 0 entradas). Arreglo en el doble, no en la aserción: por defecto responde los
+overrides manuales escritos en su almacén (misma clave `cardId|productType|gradeKey|finish`); sin overrides ⇒ `Map`
+vacío como antes. La aserción (0 entradas) no cambia.
+
+**Pruebas que el contrato preveía que podían cambiar y NO cambiaron (medido: verdes).** `inventory.adjustments.spec.ts`,
+`inventory.batch.spec.ts` y `inventory.sealed-pending-dedup.spec.ts`: sus arneses no simulan `inventoryItem.findMany`,
+en las altas el disparo lanza dentro del `try/catch` (se ve el `warn`) y lo que aseveran no depende de él: la fila
+creada y `toStatus` en «encontrada» (`adjustments:215`); `updateMany` no llamado en ajustes de pieza existente
+(`adjustments:355/374`) y en `bulk-publish` (`batch:363/407/431`), que no son altas. Como avisa el contrato, no prueban SU.8: eso lo hace la
+suite de integración de arriba. `integration/sealed-price.e2e-spec.ts:730/755`: verdes sin cambios.
+
+**Mediciones (copia del árbol ENTERO por `git archive 35b06778` + los ficheros de SU.8, scratchpad `be-su8`; cliente de
+Prisma generado en la copia, ⛔ no en el `node_modules` compartido; BD propia `tcg_be_bsd_b4` tras `migrate reset`; Redis
+db 14).**
+- **Primero en rojo** (código de `35b06778` + la suite nueva): 6 rojas — SU-B7 ×3 (`in_stock` en vez de `listed`),
+  SU-B8 (0 entradas en M2), SU-B9 (0 llamadas al cuerpo), SU-B11 (`in_stock`). Canarios verdes: SU-B10, SU-B12 (A) y (B).
+- **Después:** `tsc --noEmit` exit 0 · `eslint` (src, test, scripts) exit 0 · **unitaria completa 441/441 suites,
+  7968/7968** · **integración completa 116/116 suites, 2265 verdes + 2 skipped** (incluye `sealed-price` y la suite nueva,
+  10/10).
+- **Mutaciones** (segunda copia, restaurada con `cmp` contra el árbol vivo; deterministas, N=1 cada una), todas rojas:
+  | Mutación | Rojas |
+  |---|---|
+  | M1 sin disparo en `createItem` | SU-B7 ×3, SU-B7 (extra), SU-B8 |
+  | M2 sin disparo en `batchCreate` | SU-B9 |
+  | M3 sin disparo en `adjustFound` | SU-B11 |
+  | M4 disparo en el replay (fast-path de `batchCreate`) | SU-B10 |
+  | M5 sin `try/catch` (el `catch` relanza) | SU-B12 (A) y (B) |
+- **NO MEDIDO:** la rama P2002 con disparo (no hay mutación que la ejercite sin carrera; por lectura no llega a
+  `publishCreated`); el replay de «encontrada» con disparo (SU-B10 es solo del lote); E2E de frontend (por lectura, ninguna
+  spec de `frontend/e2e` da de alta y luego espera `in_stock`; la semilla E2E crea con Prisma directo, no por el alta).

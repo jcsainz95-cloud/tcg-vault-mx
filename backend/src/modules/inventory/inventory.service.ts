@@ -812,7 +812,46 @@ export class InventoryService {
       }
       return created;
     });
-    return { id: item.id, folio: item.folio, status: item.status, acquisitionCostCents: r.acquisitionCostCents };
+    // ⭐ SU.8 (API_CONTRACT §M1-SU, ARCHITECTURE §4.65 (h)) — el alta es el disparador que antes era el `move`.
+    // Después del commit, best-effort (`publishCreated`). El `status` del `201` es el RESULTANTE: `listed` solo si el
+    // cuerpo publicó; en cualquier otro caso (sin precio, guarda, fallo capturado) el de la fila creada (`in_stock`).
+    const pub = await this.publishCreated([item.id], 'alta', [item.folio]);
+    const published = pub.some((p) => p.inventoryItemId === item.id && p.outcome === 'published');
+    return {
+      id: item.id,
+      folio: item.folio,
+      status: published ? InventoryStatus.listed : item.status,
+      acquisitionCostCents: r.acquisitionCostCents,
+    };
+  }
+
+  /**
+   * ⭐ SU.8 (API_CONTRACT §M1-SU, SU.8.2) — **el alta dispara la publicación**, con el MISMO cuerpo
+   * (`reevaluateForPublication`): ids y nada más, ⛔ sin copia del pipeline ni precio/`status` del llamador.
+   *
+   * Lo llaman `createItem`, `batchCreate` y `adjustFound` **después del commit** y **solo en el procesamiento
+   * fresco** (nunca en el replay idempotente ni en la rama P2002: re-publicaría lo que el operador retiró entre la
+   * primera petición y el replay).
+   *
+   * **Best-effort, y más estricto que el `move`** (`tryAutoPublish` no captura): el alta suelta no tiene clave de
+   * idempotencia, así que un `500` después del commit invitaría a reintentar ⇒ pieza duplicada. Un fallo aquí se
+   * registra (con los folios) y devuelve `[]`: la pieza queda `in_stock`, visible en `pending-publish` o en M1.
+   */
+  private async publishCreated(
+    ids: string[],
+    trigger: 'alta' | 'alta_lote' | 'encontrada',
+    folios: readonly string[] = [],
+  ): Promise<PublishReevaluationResult[]> {
+    if (ids.length === 0) return [];
+    try {
+      return await this.reevaluateForPublication(ids);
+    } catch (e) {
+      this.logger.warn(
+        `publish trigger (${trigger}): no se pudo reevaluar ${ids.length} pieza(s) recién creada(s) ` +
+          `[${folios.join(', ')}]; quedan in_stock (${e instanceof Error ? e.message : String(e)})`,
+      );
+      return [];
+    }
   }
 
   /**
@@ -1515,6 +1554,19 @@ export class InventoryService {
         });
         return { summary, results };
       });
+      // ⭐ SU.8 — tras el commit, UNA llamada con todos los ids de las líneas `ok:true` (el cuerpo trocea y carga los
+      // diales una vez). Solo aquí, en el procesamiento fresco: el fast-path de replay y la rama P2002 no llegan.
+      // `publishCreated` no lanza, así que nunca cae en el `catch` de abajo. `resultJson` ya quedó guardado sin
+      // `status` por pieza (SU.8.3): la respuesta del lote no cambia de forma.
+      const createdIds: string[] = [];
+      const createdFolios: string[] = [];
+      for (const line of results) {
+        if (line.ok) {
+          createdIds.push(...line.inventoryItemIds);
+          createdFolios.push(...line.folios);
+        }
+      }
+      await this.publishCreated(createdIds, 'alta_lote', createdFolios);
       return { batchKey: req.batchKey, idempotentReplay: false, summary, results };
     } catch (e) {
       // P2002 en el claim = otra corrida ganó la carrera por este batchKey → replay (no duplica).
@@ -3577,6 +3629,9 @@ export class InventoryService {
         }
         return out;
       });
+      // ⭐ SU.8 — tras el commit, los ids de ESTA respuesta (fresca: el replay y la rama P2002 no llegan aquí).
+      // `toStatus: 'in_stock'` se queda: describe la fila `InventoryAdjustment`, no el estado vivo (SU.8.3).
+      await this.publishCreated(response.inventoryItemIds, 'encontrada', response.folios);
       return response;
     } catch (e) {
       // P2002 en el claim = otra corrida ganó la carrera por este batchKey → replay (no duplica).
