@@ -17,6 +17,13 @@
 > correo con reglas de privacidad, enlaces del correo independientes del dial. `M-74` sin cambio. Pruebas WSH-T31…T37 y
 > WSH-F6…F9. Queda una pregunta al dueño (staff con lista).
 >
+> **Errata v1.87.2⟨wishlist⟩ — lo que backend encontró al construir** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD
+> dado por el orquestador `410075e`; ⛔ sha NO MEDIDO: sin Bash). Responde a `BACKEND_NOTES §84.3`. Norma en
+> `API_CONTRACT §WSH.11` y en su sitio; porqué en **§4.WSH (k)**. Pipe estricto **por parámetro**; `OptionalSessionGuard`
+> ratificado; 💰 **`M-74` cambia una FK** (`WishlistNotice.inventoryItemId` → `ON DELETE CASCADE`) para no chocar con la
+> limpieza que borra el inventario; cinco cambios descritos para la rama de limpieza (LZ-W1…W5, no escritos aquí). Pruebas
+> WSH-T38…T41.
+>
 > **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
 > `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
 > porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
@@ -29136,6 +29143,43 @@ con conteo de correos distintos pendientes (P-WSH-9, recomendación del PO).
   - Si seguridad lo marca alto, se quita el `<img>` y product-owner ajusta 813. Que el aviso de privacidad (824) mencione
     al proveedor de imágenes es cosa del product-owner y del abogado del dueño, no del contrato.
 
+**(k) Errata v1.87.2 — lo que backend encontró al construir (2026-10-07).** Norma: `API_CONTRACT §WSH.11`.
+- **Pipe por parámetro.** El texto de v1.87 suponía que un pipe de controlador ve el cuerpo crudo; no lo ve, porque el
+  global corre antes y ya quitó lo desconocido. Backend lo midió (M0: `201` con `maxPriceCents`). La regla que queda es de
+  forma, no de intención: todo `@Body` de `wishlist/` lleva `StrictBodyPipe`, y un candado de `grep` (WSH-T38) lo vigila,
+  porque el error vuelve en silencio en cuanto alguien añade una ruta con `@Body()` a secas. ⛔ Sigue sin tocarse el pipe
+  global (D-WSH-6: radio no medido).
+- **Sesión opcional en una ruta pública.** «Con sesión se usa el correo de la cuenta» era imposible: `@Public()` salta el
+  guard global entero. Opciones: quitar `@Public()` (rompe a los invitados, que `PROJECT §WSH.7` conserva); leer el token en
+  el servicio (segunda copia de la verificación fuera de un guard); **un guard opcional que repite las comprobaciones del
+  global y nunca rechaza** (elegido). Riesgo vigilado: que las dos copias de la verificación se separen. Se acota a una ruta
+  y WSH-T39 prueba los cinco casos de token malo; si aparece un segundo consumidor, el guard sube a `common/guards/` y el
+  global y el opcional comparten la función de verificación.
+- **💰 FK de la pieza: `CASCADE`, no `RESTRICT` ni `SET NULL`.** `RESTRICT` en este schema protege **dinero y prueba legal**
+  (`OrderItem`, `Dispute`, `ReplacementCase`, `VaultPlacementItem`): «una pieza con transacción no se borra». Un aviso de
+  la lista de deseos no es ninguna de las dos cosas (criterio 815, ninguna tabla de M-74 gobierna un cobro). Es historia
+  de la pieza, como `InventoryMovement`/`InventoryAdjustment`, que ya son `CASCADE`. Medido el 2026-10-07: ningún código de
+  `backend/src` borra filas de `InventoryItem`; el único que lo hace es la limpieza `P-DB-LIMPIEZA` (`HECHOS.md:80`), que
+  borra **a propósito** toda la historia, bitácora incluida. Con `RESTRICT`, cada guion o prueba que borre piezas tendría
+  que saber de la lista de deseos: es el acoplamiento que la decisión (b) evitó en los escritores. Además, las limpiezas de
+  decenas de pruebas de integración borran piezas con `inventoryItem.deleteMany` (`grep` en `backend/test`); con
+  `RESTRICT`, un aviso creado por otra suite en la base compartida las pondría rojas sin defecto. `SET NULL` descartado:
+  la columna pasaría a anulable, el único `(userId, inventoryItemId)` dejaría de deduplicar (en Postgres dos `NULL` no
+  chocan) y el job tendría que tratar avisos sin pieza. **Lo que se pierde:** la foto de un aviso cuya pieza se borró.
+  Solo pasa en la limpieza, que borra también la bitácora; el `WishlistMail` (que el correo salió) se conserva.
+- **Las otras FK de M-74 no cambian.** `cardId` sigue `RESTRICT`, igual que `SealedRestockSubscription.cardId` (ningún
+  código borra `Card`, y la limpieza conserva el catálogo). Las de `User` siguen `CASCADE` (el borrado duro ya debe llevarse
+  la lista, criterio 817), y `mailId` sigue `SET NULL`.
+- **Interacción con la limpieza** (rama `claude/limpieza-db`): la limpieza se niega a correr si hay tablas que no
+  clasificó (G-8), así que **tiene** que conocer las tablas de M-74 si M-74 llega antes. Lo que debe cambiar allí, y por
+  qué los dos diales de aviso deben estar apagados durante la limpieza y la re-subida, está en `API_CONTRACT §WSH.11`
+  (LZ-W1…W5). La causa de fondo: con M-74 el «avísame» de sellados corre solo, y un inventario vacío durante horas **arma**
+  todas las suscripciones pendientes.
+- **Ratificados sin cambio de diseño:** P = `displayPriceCents` (el contrato usaba un nombre muerto desde §M10-IVA.3); el
+  candado `xact` en una transacción portadora (una conexión retenida por job; la corrección descansa en el CAS y el único,
+  no en el candado); `wishlistEnabled` puesto por el controlador; los tres censos tocados; T9 parcial (la detección usa la
+  misma puerta que el catálogo).
+
 ---
 
 ## 5. Decisiones transversales
@@ -31729,9 +31773,13 @@ Riesgos técnicos:
     (`schema.prisma:2550`) solo actúa en el borrado duro y aun así conserva `email`.
   - **D-WSH-6:** el `ValidationPipe` global descarta campos desconocidos en silencio (`main.ts:54`,
     `forbidNonWhitelisted: false`). El criterio 801 exige **rechazar** ⇒ las rutas de `wishlist` usan un pipe estricto
-    propio. ⛔ No se cambia el global en este stream: el radio de ese cambio no está medido.
+    propio. ⛔ No se cambia el global en este stream: el radio de ese cambio no está medido. ⭐ v1.87.2: el pipe va **por
+    parámetro** (uno de controlador no rechaza nada, medido por backend); cerrado según `BACKEND_NOTES §84.2`, NO
+    re-medido por el arquitecto.
   - **D-WSH-7:** el «una a la vez» del job es una bandera en memoria (`sealed-restock-notify.service.ts:34`, `:47`). No cubre
-    dos instancias (cuántas corre producción: NO MEDIDO) ⇒ candado consultivo de Postgres.
+    dos instancias (cuántas corre producción: NO MEDIDO) ⇒ candado consultivo de Postgres. ⭐ v1.87.2: construido como
+    `pg_try_advisory_xact_lock` (`wishlist-notify.service.ts:66-73`, `sealed-restock-notify.service.ts:78-85`, leídos);
+    con dos instancias reales: NO MEDIDO, lo cubre WSH-T41 con el candado tomado desde otra conexión.
 
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
@@ -32603,6 +32651,12 @@ productivas); las migraciones solo redefinen esquema.~~
 - **Seeds:** las ocho claves de §WSH.2 (`wishlist_enabled = off`). `sealed_restock_alerts` sigue en `off` en el seed; el
   encendido es un `PUT /admin/settings` del súper-admin **en el mismo despliegue** (`PROJECT §WSH.7` punto 1).
 - **Reversa:** primero el código; luego `DROP` de tablas, enum y columnas. No toca dinero ni inventario.
+- ⭐ **v1.87.2 — una FK cambia, en su sitio** (M-74 no está publicada): `WishlistNotice_inventoryItemId_fkey` pasa a
+  `ON DELETE CASCADE` (`migration.sql:100`, y `onDelete: Cascade` en `schema.prisma`). Porqué: §4.WSH (k). FK de M-74
+  después del cambio: `WishlistItem.userId` CASCADE, `.cardId` RESTRICT; `WishlistNotice.wishlistItemId` CASCADE,
+  `.userId` CASCADE, `.inventoryItemId` **CASCADE**, `.mailId` SET NULL; `WishlistMail.userId` CASCADE (WSH-T40).
+- ⭐ **v1.87.2 — orden respecto de la limpieza `P-DB-LIMPIEZA`:** `API_CONTRACT §WSH.11` «Orden de despliegue». Si la
+  limpieza no incorpora LZ-W1…W3, se corre **antes** de desplegar M-74.
 
 ### rev BSD-1 (**M-72 provisional**: guía de entrada del buylist — **DDL ADITIVO + 1 enum nuevo + 2 valores de enum + 3 columnas + 2 CHECK + FK + 2 índices + relleno ACOTADO de una columna nueva**, §4.BSD)
 - **Carpeta:** `prisma/migrations/20261025120000_m72_bsd_inbound_label/` (posterior a `M-71` `20261021120000`, medido con
