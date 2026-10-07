@@ -428,6 +428,15 @@ jobs:
         if: hashFiles('backend/package.json') != ''
         run: |
           docker build -f Dockerfile.backend -t tcg-backend:scan --target runtime .
+      # G-SHARP (DEVOPS_NOTES §93, API_CONTRACT §AC.11/§AC.16): la MISMA imagen que se
+      # escanea —la que construye Railway con este Dockerfile— carga `sharp` con el
+      # binario musl de su plataforma, procesa una foto como §AC.11 y carga el módulo
+      # compilado que lo importa. Sin red (`--network none`). Canario: 5 casos.
+      - name: G-SHARP — sharp carga en la imagen del backend (y su canario muerde)
+        if: hashFiles('backend/package.json') != ''
+        run: |
+          ./scripts/check-image-sharp.sh tcg-backend:scan
+          ./scripts/check-image-sharp-canary.sh tcg-backend:scan
       - name: Trivy image backend
         if: hashFiles('backend/package.json') != ''
         uses: aquasecurity/trivy-action@v0.36.0

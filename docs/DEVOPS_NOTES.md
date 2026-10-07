@@ -14619,3 +14619,87 @@ reimplementación aproximada de la regla `generic-api-key` en Python da **0** co
 
 `git revert` del commit: se van archivo, huellas, `.gitattributes`, la excepción de `.gitignore`, candado y job. No toca imagen, `CMD` ni
 migraciones. Datos: este cambio no escribe en ninguna base; si el `import` ya se corrió, la tabla se queda (§79.9).
+
+---
+## §93 · `sharp` en la imagen del backend (fotos de accesorios, §AC.11) — candado G-SHARP (2026-10-07, rama `claude/accesorios`)
+
+Norma: `API_CONTRACT §AC.11` (fotos procesadas con `sharp`) y `§AC.16` («que la imagen de Railway instala `sharp`:
+devops, con un arranque»). Dependencia añadida por backend en `44175fd` (`backend/package.json`: `"sharp": "^0.34.5"`).
+
+### 93.0 Estado en una línea
+
+Railway construye con **`Dockerfile.backend`** (`railway.json`: `"builder": "DOCKERFILE"`, no Nixpacks), base
+`node:24-alpine` (**musl**). Con el lockfile actual, `npm ci` en esa base instala y **carga** el binario musl de
+`sharp`, y el backend **arranca** y lo tiene cargado en memoria. **No hace falta cambiar el Dockerfile.** Lo nuevo es
+un candado (G-SHARP) en el job `trivy-image`, sobre la MISMA imagen que se escanea. **Bloqueo aparte, de backend:**
+`sharp 0.34.5` pone en rojo `npm-audit`, `trivy-fs` y `trivy-image` (93.3).
+
+### 93.1 Por qué no cambia el Dockerfile
+
+- El lockfile fija `sharp` y **todos** los binarios `@img/sharp-*` / `@img/sharp-libvips-*` con `resolved` +
+  `integrity` (registro npm). Las entradas no llevan `libc`, así que en Linux x64 npm instala **las dos** variantes
+  (glibc y musl); `sharp` elige en tiempo de ejecución la de la libc real. Medido en la imagen:
+  `node_modules/@img/` = `sharp-linux-x64`, `sharp-linuxmusl-x64`, `sharp-libvips-linux-x64`,
+  `sharp-libvips-linuxmusl-x64`, y el proceso carga **`sharp-linuxmusl-x64.node`** + `libvips-cpp.so.8.17.3`
+  (leído de `/proc/<pid>/maps`, no del paquete).
+- El script de instalación de `sharp` (`node install/check.js || npm run build`) no descarga nada: comprueba que el
+  binario precompilado está y sale. Nada fuera del lockfile entra en la imagen por `sharp`.
+- No hacen falta `--os/--cpu/--libc`: construir **dentro** de la base Alpine ya es la plataforma de destino. Esos
+  flags solo harían falta si alguien generara `node_modules` fuera y lo copiara, que este Dockerfile no hace.
+
+### 93.2 Mediciones (2026-10-07, devops, copia `git archive 4d15501f` en el scratchpad)
+
+Docker sí arranca aquí y `docker pull` de Docker Hub funciona, pero **`dl-cdn.alpinelinux.org` da 403** (política de
+salida del sandbox). Por eso la imagen se construyó con una **variante de medición** del Dockerfile (solo en el
+scratchpad): CA del proxy añadida, y el `apk upgrade && apk add libc6-compat openssl` sustituido por un `openssl`
+falso que solo responde a `openssl version` (para que Prisma elija su motor `linux-musl-openssl-3.0.x`, el mismo que
+elige la imagen real; `libssl.so.3` ya viene en `node:24-alpine`). Todo lo demás, igual que el Dockerfile real.
+
+| Medida | Resultado |
+|---|---|
+| Build de la variante (etapas deps/build/runtime, guards de npm y de Prisma) | rc=0 |
+| `require('sharp')` como `nestjs`, `--network none` | OK, `sharp 0.34.5`, `vips 8.17.3`, binario `linuxmusl-x64` |
+| Tubería de §AC.11 (`limitInputPixels`, `failOn:'error'`, `metadata`, `rotate`, `resize contain`, `webp`) | OK |
+| **Arranque** con el `CMD` real (preflights + `migrate deploy` + `node dist/main.js`) contra Postgres 16 y Redis 7 desechables (red Docker propia, sin puertos al host, secretos aleatorios) | `/api/v1/health` = `{"status":"ok","db":"up","redis":"up"}` a los 9 s; rutas `/api/v1/admin/accessories/:id/photo` mapeadas; el PID 1 tiene `sharp-linuxmusl-x64.node` cargado |
+| `./scripts/check-image-sharp.sh` | verde |
+| `./scripts/check-image-sharp-canary.sh` | **5/5** (V1 verde; R1 sin addon musl, R2 sin libvips musl, R3 sin `accessory-photo.js`, R4 libc equivocada: rojos) |
+| CI en glibc: job `backend` de CI sobre `8ab4c88d` (con `sharp`) | success (ubuntu instala `@img/sharp-linux-x64` del lockfile) |
+
+### 93.3 Bloqueo de backend: `sharp 0.34.5` tiene un aviso HIGH
+
+`npm audit --omit=dev --audit-level=high` sobre `backend/` (lockfile de `4d15501f`): **1 high** en `sharp <=0.35.5-rc.1`
+(GHSA-f88m-g3jw-g9cj, GHSA-rgj7-g3m4-5g8c, GHSA-wq5f-xc86-pv6w — el mismo de §91 en el frontend). Coincide con CI:
+`Security SAST` pasó de **success** en `e0bcba7c` (antes de `44175fd`) a **failure** desde `1bde01de` (primer push con
+`sharp`) con `npm-audit`, `trivy-fs` y `trivy-image` en rojo. Los registros de CI no se pueden leer desde aquí (403 del
+almacén de logs); la causa está medida en local, no en el log.
+
+El arreglo es de **backend** (`backend/package.json` es suyo): `"sharp": "^0.35.5"` y regenerar el lockfile. Medido en
+una copia (sin tocar el árbol vivo):
+- `npm install sharp@^0.35.5 --save --package-lock-only`: 28 entradas cambian, todas de la familia `sharp`
+  (más la raíz). `npm audit --omit=dev --audit-level=high` ⇒ rc=0.
+- Imagen con 0.35.5: G-SHARP verde (`sharp-linuxmusl-x64-0.35.5.node`, vips 8.18.7) y **arranque** OK (health 6 s).
+- `tsc -p tsconfig.build.json` (código de producción): rc=0.
+- **Pero** `test/accessories.photo.spec.ts:33` deja de compilar: `TS2503: Cannot find namespace 'sharp'` (usa
+  `sharp.Color`; en 0.35 los tipos ya no se exponen como espacio de nombres). `accessories.photo-isolation.spec.ts`
+  pasa. Ese ajuste de la prueba es de backend.
+
+### 93.4 Lo que queda NO MEDIDO hasta el primer despliegue en Railway
+
+1. **Que el build de Railway pase** con `sharp` (en particular el `apk` real con `libc6-compat`, que aquí no se pudo
+   instalar). Lo medirá antes el job `trivy-image` + G-SHARP en CI, que construye el Dockerfile real con `apk`.
+2. **Que Railway construya en `linux/amd64`.** G-SHARP comprueba la arquitectura que tenga el contenedor; el lockfile
+   también trae `linuxmusl-arm64`, así que en arm64 tampoco faltaría el binario, pero no está medido.
+3. **Cómo se comprueba en Railway** (servicio backend, proyecto `marvelous-kindness`):
+   - *Build Logs*: la línea `npm warn install-scripts   sharp@0.3x.x (install: node install/check.js || npm run build)`
+     y **ninguna** línea de `node-gyp`/`gyp ERR!`/`sharp: Attempting to build from source` (eso significaría que no
+     encontró el binario y que intentó compilarlo).
+   - *Deploy Logs*: aparecen `Mapped {/api/v1/admin/accessories/:id/photo, POST} route` y
+     `Nest application successfully started`, y el healthcheck `/api/v1/health` pasa. Si `sharp` no cargara, el
+     proceso moriría antes con `Could not load the "sharp" module using the linuxmusl-x64 runtime` (el módulo lo
+     importa al cargar), y Railway lo dejaría en `ON_FAILURE`.
+   - Prueba funcional: subir una foto a un accesorio desde el panel y ver que se sirve como WebP.
+
+### 93.5 Rollback
+
+`git revert` del commit de este § quita el paso de CI y los dos scripts; no toca imagen, `CMD` ni datos. Si en Railway
+el backend no arranca por `sharp`: *Redeploy* del despliegue anterior desde la pestaña Deployments de Railway y revisar el *Build Log* según 93.4.
