@@ -14158,6 +14158,48 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   >   Publica el rezago, pero también **re-publica las piezas `in_stock` CON ubicación que alguien retiró de la venta a
   >   propósito** (`ItemDetailModal` «Retirar de venta»). Cuántas hay: **NO MEDIDO**. Se mide con
   >   `SELECT count(*) FROM "InventoryItem" WHERE "ownerType"='platform' AND status='in_stock' AND "locationId" IS NOT NULL`.
+  > - ⭐ **SU.3-R · El script también re-publica retiradas SIN cajón (dato de QA, gate sobre `2c516314`, 2026-10-07).**
+  >   El riesgo de arriba no es exclusivo de «Publicar todo». «Retirar de venta» es `PATCH status:'in_stock'` y deja
+  >   la pieza en la misma selección del script (`platform ∧ in_stock ∧ locationId IS NULL`,
+  >   `reevaluate-unlocated.ts:105`). `--apply` no puede distinguir una pieza retenida por la regla vieja de una que
+  >   el operador retiró. Medido por QA (N=1, determinista): INV-000006 estaba retirada y quedó `listed` después de
+  >   `--apply`. El retiro queda solo en `AuditLog`: `inventory.item_updated`, con
+  >   `before.status='listed'` → `after.status='in_stock'`, escrito por el `PATCH` que no publica
+  >   (`inventory.service.ts:3004` → `writeItemUpdatedAudit` `:540-561`, acción `:528`). No deja `InventoryMovement`
+  >   (`:2975`, a propósito).
+  >   **Norma para el orquestador. NO se corre `--apply` en ninguno de estos casos:**
+  >   1. **Si la limpieza de base va a correr** (`HECHOS.md`, fila «CAMBIO P-DB-LIMPIEZA: también se BORRA el
+  >      inventario», 2026-10-07). Con el inventario borrado no hay rezago (ver «Orden respecto a la limpieza» arriba).
+  >      Basta la corrida en seco con `selected: 0` después de la limpieza. Este es el caso esperado.
+  >   2. **Si el conteo de retiradas (abajo) es mayor que 0**, salvo que el dueño diga pieza por pieza que se pueden
+  >      re-publicar. Si no lo dice, primero se aplica la exclusión propuesta más abajo.
+  >   3. **Si el conteo no se puede hacer o es incompleto** (punto (ii) abajo). En ese caso cuenta como «hay retiradas».
+  >
+  >   **Cómo contar las retiradas antes, en solo lectura** (la corre quien tenga la credencial; CLAUDE.md, «Secretos»):
+  >   ```sql
+  >   SELECT count(*) FROM "InventoryItem" i
+  >   WHERE i."ownerType"='platform' AND i.status='in_stock' AND i."locationId" IS NULL
+  >     AND EXISTS (SELECT 1 FROM "AuditLog" a
+  >                 WHERE a.action='inventory.item_updated' AND a."entityType"='InventoryItem'
+  >                   AND a."entityId"=i.id
+  >                   AND a.before->>'status'='listed' AND a.after->>'status'='in_stock');
+  >   ```
+  >   Para ver cuáles son, se cambia `count(*)` por `i.folio`. Columnas según `schema.prisma:2413-2429`.
+  >   (i) La consulta es una **cota superior**: cuenta una pieza retirada alguna vez aunque después se haya vuelto a
+  >   publicar y a bajar por otro camino. Para decidir no correr, sobra.
+  >   (ii) Es **incompleta hacia atrás**: `inventory.item_updated` existe desde v1.80.8.7 (comentario en `:516`). Un
+  >   retiro anterior solo dejó `inventory.update` (`inventory.controller.ts:699`), que no guarda el diff y no
+  >   distingue un retiro de un cambio de precio. Se puede sacar una cota gruesa con el mismo `EXISTS`, usando
+  >   `a.action='inventory.update'` y sin las condiciones de `before`/`after`. **NO MEDIDO:** desde cuándo está
+  >   v1.80.8.7 en `production`. Lo cierra `git log production` sobre el commit que introdujo `itemUpdatedAudit`.
+  >   **NO MEDIDO:** la consulta no se ha corrido contra ninguna base. QA midió la conducta del script, no esta
+  >   consulta.
+  >
+  >   **Propuesta, no exigida:** que la selección del script excluya las piezas que cumplen el `EXISTS` de arriba,
+  >   cuente `excludedWithdrawn` en ambos modos y añada SU-B7 («retirada sin cajón + `--apply` ⇒ sigue `in_stock`»).
+  >   Dueño: backend. Hoy **no hace falta** si se cumple la norma 1, porque el script no se usa. Pasa a ser obligatoria
+  >   solo si la limpieza no corre, o si conserva piezas de plataforma (supuesto (a) arriba). Aun con la exclusión, el
+  >   hueco (ii) sigue: un retiro anterior a v1.80.8.7 se re-publicaría. Por eso la norma 2 sigue vigente.
   >
   > **SU.4 · Frontend.** `sealedFinalPriceMode` (`SealedFinalPrice.tsx:50`): `in_stock` ⇒ **`'publish'` siempre**.
   > Hoy, sin ubicación, devuelve `'save'` («Guardar precio» manda `{listPriceCents}` sin `status`). Con SU.1, esa pieza
@@ -14236,6 +14278,24 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > 3. **Añadidos de backend no previstos**: `previewPublication` y `loadPublishRunDials`. Quedan nombrados en SU.3 con la
   >    condición «solo informa».
   > 4. **Dónde corre el script y en qué orden respecto a la limpieza de base**: en SU.3, «Quién lo corre».
+  >
+  > **SU.9 · Deuda del contrato: cambiar el precio de un sellado re-publica sus retiradas (MENOR de QA, gate sobre
+  > `2c516314`, 2026-10-07).** `PUT …/sealed-products/:id/sale-price` corre el cuerpo sobre **todas** las piezas
+  > `platform ∧ in_stock` del producto (`sealed-price.service.ts:385-391`), así que también sobre las que el operador
+  > retiró de la venta. Ya pasaba antes de SU-1 con las piezas con cajón. SU-1 solo suma las que no tienen cajón. Es la
+  > misma clase de defecto que SU.3-R: el estado `in_stock` no distingue «retenida» de «retirada a propósito».
+  > - **Estado:** deuda **aceptada, no bloqueante**. Lo pedido es una alta en `docs/TECH_DEBT.md`, que escribe su
+  >   dueño.
+  > - **Dueño del arreglo:** backend (`inventory/`). **Dueño de la decisión de fondo:** arquitecto, porque es un
+  >   cambio de modelo. Las dos salidas posibles:
+  >   (a) Un estado o marca persistida de «retirada por el operador» que todo disparador automático respeta
+  >   (`move`, precio de sellado, barrido, alta de SU.8) y que solo un camino manual levanta. Toca el schema.
+  >   (b) Excluir por `AuditLog` en cada disparador. Se descarta como norma, porque lee la bitácora para decidir.
+  >   Hasta decidir, la conducta documentada es esta: **un disparador automático puede re-publicar una pieza
+  >   retirada**.
+  > - **NO MEDIDO:** si `move` (`inventory.service.ts:3327`) y el barrido de precios hacen lo mismo con una retirada.
+  >   Por la selección, `move` sí debería hacerlo (deducción, no medida). Lo cierra la misma prueba de QA con
+  >   «Mover de ubicación» sobre una pieza retirada.
   >
   > **SU.8 · El alta dispara la publicación (2026-10-07, arquitecto; cierra el NO MEDIDO de SU.3 (b)).**
   > **El hueco, medido por lectura (orquestador y arquitecto, 2026-10-07; no ejecutado):** antes de SU-1 el camino del
