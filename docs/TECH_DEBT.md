@@ -9870,3 +9870,35 @@ Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (`grep 
   la pueden expresar los de objeto.
 - **Disparador:** cuando QuickAdd o VariantDrawer necesiten avisar con una variante distinta de `success`.
 - **Comprobación:** las cuatro props con el mismo tipo (el de objeto) y `grep -n "onToast?: (msg: string)" frontend/src/app` vacío.
+
+## Backend · 2026-10-07 · gate de techlead sobre `2c516314` (aprobado con deuda) y arquitecto (rama `claude/sin-ubicacion`, §SU)
+
+Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (HEAD `695a3316`).
+
+### TD-SU-D1 · P3 · Los arneses unitarios de alta no simulan `findMany` ni los diales: el `catch` tapa el deterioro
+- **Dueño:** backend (`backend/test/`).
+- **Qué es:** `inventory.adjustments.spec.ts`, `inventory.batch.spec.ts` e `inventory.sealed-pending-dedup.spec.ts` no
+  simulan `findMany` ni los diales; el disparo de `publishCreated` (`backend/src/modules/inventory/inventory.service.ts:840-855`)
+  falla dentro del `catch` (best-effort, devuelve `[]`) y solo se nota por el `warn`. El `catch` tapa el deterioro del arnés:
+  una prueba puede seguir verde con el disparo roto.
+- **Disparador:** el próximo cambio en `publishCreated` / `reevaluateForPublication` o en esos tres arneses.
+- **Comprobación:** esos arneses con un doble explícito de `reevaluateForPublication`, o con una afirmación de que el `warn`
+  de `publishCreated` no ocurrió; y una mutación que rompa el disparo pone alguna roja.
+
+### TD-SU-D2 · P3 · `reevaluate-unlocated.ts` (barrido de una vez) arrastra `previewPublication` a producción y duplica el salto de URL
+- **Dueño:** backend (`backend/scripts/`, `inventory.service.ts`).
+- **Qué es:** `backend/scripts/reevaluate-unlocated.ts` es un barrido de una vez y arrastra a producción
+  `previewPublication` (`inventory.service.ts:3152-3188`), que solo usan el script y las pruebas. Además
+  `resolveDatabaseUrl`/`describeUrl` (`backend/scripts/reevaluate-unlocated.ts:46-77`) duplican `scripts/geo/import-sepomex.ts:200`
+  (raíz del repo, no `backend/`).
+- **Disparador:** decidir el barrido (API_CONTRACT §M1-SU SU.3-R: si corre la limpieza, el script no se usa más).
+- **Comprobación:** retirados script y método (y `test/reevaluate-unlocated.spec.ts`), o el salto de URL en un helper común
+  con `grep -rn "function resolveDatabaseUrl" --include=*.ts` en **un** sitio.
+
+### TD-SU-9 · P3 · Cambiar el precio de un sellado re-publica piezas retiradas a propósito (aceptada, no bloqueante)
+- **Dueño:** backend + decisión de schema del arquitecto (API_CONTRACT §M1-SU SU.9; misma clase que SU.3-R).
+- **Qué es:** `autoPublishAfterPrice` (`backend/src/modules/inventory/sealed-price.service.ts:385-391`) re-evalúa todas las
+  piezas `in_stock` del sellado; el estado `in_stock` no distingue «retenida» de «retirada a propósito», y no hay marca de
+  «retirada», así que una retirada deliberada vuelve a publicarse al cambiar el precio.
+- **Disparador:** el arquitecto decide la marca de «retirada» en el schema (zona compartida, regla 9), o una queja de operador.
+- **Comprobación:** prueba que fija precio sobre un sellado con una pieza retirada a propósito y esta sigue sin publicar.
