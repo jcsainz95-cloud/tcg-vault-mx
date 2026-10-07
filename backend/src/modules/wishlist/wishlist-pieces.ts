@@ -15,12 +15,24 @@ import { Finish, Prisma } from '@prisma/client';
 
 type Db = Pick<Prisma.TransactionClient, '$queryRaw'>;
 
-/** El fragmento SQL del predicado sobre el alias `ii` (pieza) y `cp` (LEFT JOIN a `CardProduct`). */
-const PIECE_PREDICATE = Prisma.sql`
-  ii."ownerType"::text = 'platform'
-  AND ii."productType"::text = 'raw'
-  AND ii."status"::text = 'listed'
+/**
+ * ⭐ v1.87.3⟨wishlist⟩ (M-1 de QA, API_CONTRACT §WSH.4 «Se quita sola»): el predicado se parte en dos y ésta es la ÚNICA copia
+ * de «producto de set», sobre el alias `ii` (pieza) y `cp` (LEFT JOIN a `CardProduct`): `raw` ∧ (`cardProductId` nulo ∨ su
+ * `CardProduct.kind ∈ {set_base, other}`). La leen el aviso (dentro de `PIECE_PREDICATE`) y la baja al pagar
+ * (`WishlistService.consumeForSettledOrder`): lo que quita el deseo es exactamente lo que lo habría avisado. Promo,
+ * exclusivo de deck, `cardProductId` huérfano, graded y sellado no son «esa carta» para la lista. Candado WSH-T43.
+ */
+export const SET_PRODUCT_PREDICATE = Prisma.sql`
+  ii."productType"::text = 'raw'
   AND (ii."cardProductId" IS NULL OR cp."kind"::text IN ('set_base', 'other'))`;
+
+/** «A la venta» (solo el estado; el precio lo decide el catálogo con `sellableByIds`). */
+const FOR_SALE_PREDICATE = Prisma.sql`
+  ii."ownerType"::text = 'platform'
+  AND ii."status"::text = 'listed'`;
+
+/** El predicado completo del aviso = producto de set ∧ a la venta. */
+const PIECE_PREDICATE = Prisma.sql`${SET_PRODUCT_PREDICATE} AND ${FOR_SALE_PREDICATE}`;
 
 /** Piezas `listed` que casan con UN (carta, acabado). */
 export async function listedPiecesFor(db: Db, cardId: string, finish: Finish): Promise<string[]> {

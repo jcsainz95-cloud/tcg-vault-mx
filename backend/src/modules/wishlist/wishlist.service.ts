@@ -14,7 +14,7 @@ import type { IvaDials } from '../../common/money';
 import { fits, maxDisplay, WISHLIST_PCTS, WishlistIvaMode, WishlistPct } from '../../common/wishlist-math';
 import { readWishlistDials } from './wishlist-dials';
 import { keyOf, WishlistMarketService } from './wishlist-market.service';
-import { listedPiecesFor, listedPiecesForKeys } from './wishlist-pieces';
+import { listedPiecesFor, listedPiecesForKeys, SET_PRODUCT_PREDICATE } from './wishlist-pieces';
 import { WISHLIST_CLOCK, WISHLIST_MAIL_DOMAIN, WishlistClock, WishlistDials } from './wishlist.constants';
 import { CreateWishlistItemDto, WishlistMailActionDto } from './dto/wishlist.dto';
 
@@ -285,21 +285,24 @@ export class WishlistService {
 
   /**
    * 816 — tras el commit de las DOS liquidaciones (bóveda y envío directo), best-effort en el llamador. Borra los deseos de
-   * `order.userId` cuyo (carta, acabado) coincide con alguna pieza `raw` del pedido. Idempotente; invitado ⇒ nada.
-   * ⛔ Solo LEE el pedido y sus piezas.
+   * `order.userId` cuyo (carta, acabado) coincide con alguna pieza del pedido que cumple la parte «producto de set» del
+   * predicado del aviso (`SET_PRODUCT_PREDICATE`, ⭐ v1.87.3 M-1): la promo o el exclusivo de deck de la misma carta y acabado
+   * NO quitan el deseo (no lo habrían avisado). ⛔ Sin `status`/`ownerType`/vendibilidad: la pieza ya está pagada.
+   * Idempotente; invitado ⇒ nada. ⛔ Solo LEE el pedido y sus piezas.
    */
   async consumeForSettledOrder(orderId: string): Promise<number> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: { userId: true, items: { select: { inventoryItem: { select: { cardId: true, finish: true, productType: true } } } } },
-    });
+    const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { userId: true } });
     if (!order?.userId) return 0;
-    const pairs = order.items
-      .map((i) => i.inventoryItem)
-      .filter((p) => p.productType === 'raw')
-      .map((p) => ({ cardId: p.cardId, finish: p.finish }));
+    const pairs = await this.prisma.$queryRaw<{ cardId: string; finish: Finish }[]>(Prisma.sql`
+      SELECT DISTINCT ii."cardId", ii."finish"::text AS "finish"
+      FROM "OrderItem" oi
+      JOIN "InventoryItem" ii ON ii."id" = oi."inventoryItemId"
+      LEFT JOIN "CardProduct" cp ON cp."tcgplayerProductId" = ii."cardProductId"
+      WHERE oi."orderId" = ${orderId} AND ${SET_PRODUCT_PREDICATE}`);
     if (pairs.length === 0) return 0;
-    const r = await this.prisma.wishlistItem.deleteMany({ where: { userId: order.userId, OR: pairs } });
+    const r = await this.prisma.wishlistItem.deleteMany({
+      where: { userId: order.userId, OR: pairs.map((p) => ({ cardId: p.cardId, finish: p.finish })) },
+    });
     if (r.count > 0) this.logger.log(`wishlist: ${r.count} deseo(s) cumplidos por el pedido ${orderId}.`);
     return r.count;
   }
