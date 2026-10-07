@@ -1461,6 +1461,7 @@
       "gradingCompany": "Grading company",
       "gradeValue": "Grade",
       "location": "Location (Box/Row/Slot)",
+      "locationNone": "No location",
       "acquisitionType": "Acquisition type",
       "acquisitionPct": "In-kind contribution %",
       "noPhotoNotice": "No own photo: the pokemontcg.io catalog image is used. Graded items capture company + grade + certificate.",

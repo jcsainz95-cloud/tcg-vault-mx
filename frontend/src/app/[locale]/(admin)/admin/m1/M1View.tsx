@@ -368,6 +368,7 @@ export function M1View() {
         <VariantDrawer
           {...drawer}
           locations={locations.data ?? []}
+          locationsReady={locations.isSuccess}
           onClose={() => setDrawer(null)}
           onChanged={invalidateAggregates}
           onToast={(msg) => pushToast({ variant: 'success', title: t('title'), message: msg })}

@@ -295,7 +295,6 @@ function QuickAddSection({
   const t = useTranslations('masterSet');
   const tp = useTranslations('admin.m1');
   const tFinish = useTranslations('finish');
-  const tc = useTranslations('common');
 
   const availableFinishes = FINISH_ORDER.filter((f) => cell.availableFinishes.includes(f));
   const [productType, setProductType] = useState<ProductType>('raw');
@@ -402,7 +401,9 @@ function QuickAddSection({
       {locations.length > 0 && (
         <Select
           label={tp('location')}
-          options={[{ value: '', label: tc('all') }, ...locations.map((l) => ({ value: l.id, label: l.label }))]}
+          // §M1-SU (ubicación opcional): '' = sin `locationId`; se rotula «Sin ubicación» (antes «Todos», que no es lo que se envía).
+          placeholder={tp('locationNone')}
+          options={locations.map((l) => ({ value: l.id, label: l.label }))}
           value={locationId}
           onChange={(e) => setLocationId(e.target.value)}
         />

@@ -20572,3 +20572,15 @@ días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 defa
   busca `createToastNotListed`.
 - **Candados SU-UX-7…11** (SU-UX-7 = SU-F2): `m1/AltaPublica.su-ux.test.tsx`. Deterministas (espías de `@/lib/api`).
 - **Fuera de este pase:** «encontrada» de `CellDrawer` sin aviso de éxito propio (como dice §SU-UX.6).
+
+### §106.x · Cierre de gates sobre `2c516314` (2026-10-07)
+- **QA IMPORTANTE — lo que se ve es lo que se envía.** `AddItemModal` pintaba el primer cajón con `locationId=''` (no había
+  opción vacía) y la pieza se creaba sin ubicación. Ahora `placeholder={t('locationNone')}` («Sin ubicación» / «No location»,
+  clave nueva `admin.m1.locationNone`; §SU-UX no traía texto, es el mínimo con paridad). Misma clase en `CellDrawer`
+  (QuickAddSection del Master Set): la opción `''` se rotulaba `common.all` («Todos»); ahora usa la misma clave.
+  `AddGradedModal` y `QuickAdd` (m1) no tienen selector de ubicación: sin defecto. Candados:
+  `m1/UbicacionOpcional.su-ux.test.tsx` y `MasterSet.test.tsx` («CellDrawer: la opción vacía…»), rojos antes del arreglo.
+- **QA MENOR — `locationsReady`.** `VariantDrawer` acepta `locationsReady` (por defecto `false`: quien no lo sabe no afirma
+  «no hay ubicaciones») y lo reenvía a `ItemDetailModal`; `M1View` y `M11View` pasan `locations.isSuccess`.
+- **Techlead D3.** SU-UX-10 en `MasterSet.test.tsx`: carrito y `encontrada` invalidan `['pending-publish']`.
+- **Techlead D4** registrada en `TECH_DEBT.md` (TD-SU-D4a/b).

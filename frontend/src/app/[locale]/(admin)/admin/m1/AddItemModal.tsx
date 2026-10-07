@@ -614,6 +614,9 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         )}
         <Select
           label={t('location')}
+          // §M1-SU (ubicación opcional): sin opción vacía el navegador pintaba el PRIMER cajón con el estado en ''
+          // ⇒ se veía un cajón y se enviaba ninguno. «Sin ubicación» = '' = `locationId` ausente: se ve lo que se envía.
+          placeholder={t('locationNone')}
           options={(locations.data ?? []).map((l) => ({ value: l.id, label: l.label }))}
           value={locationId}
           onChange={(e) => setLocationId(e.target.value)}

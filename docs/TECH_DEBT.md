@@ -9846,3 +9846,27 @@ este mismo pase porque eran baratas (BACKEND_NOTES §80.5).
   de la analítica sigue verde).
 
 ### TD-AN-8..11 (frontend): cerradas en 8fb5d5a2, sin deuda.
+
+## Frontend · 2026-10-07 · gate de techlead sobre `2c516314` (rama `claude/sin-ubicacion`, §SU / SU.8)
+
+Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (`grep -rn "'pending-publish'" frontend/src`, sin tests).
+
+### TD-SU-D4a · P3 · El literal `['pending-publish']` repetido sin fábrica de claves de consulta
+- **Dueño:** frontend (`frontend/src/lib/` cuando se toque la zona compartida).
+- **Qué es:** la clave de la cola «Listas para publicar» se escribe a mano en **10 sitios de 8 ficheros** (el techlead
+  contó 9): `components/master-set/MasterSetPanel.tsx:143`, `m11/M11View.tsx:61`, `m10/sections/PremiumFloorSection.tsx:146`,
+  `m1/sealed-final-price.ts:21`, `m1/M1View.tsx:189`, `m1/PendingPublishQueue.tsx:206,224`, `m1/AddItemModal.tsx:185,229`,
+  `m1/QuickAdd.tsx:168`. Una errata en uno (o un cambio de forma de la clave en `PendingPublishQueue`) deja la cola sin
+  refrescar sin que nada falle; hoy lo vigila SU-UX-10 (`AltaPublica.su-ux.test.tsx`, `MasterSet.test.tsx`) solo en las altas.
+- **Disparador:** el próximo cambio que añada un sitio más o cambie la forma de la clave.
+- **Comprobación:** una fábrica (`queryKeys.pendingPublish()` o similar) y `grep -rn "'pending-publish'" frontend/src` sin
+  tests devuelve **un** sitio.
+
+### TD-SU-D4b · P3 · `onToast` de m1 con dos formas
+- **Dueño:** frontend (`m1/`).
+- **Qué es:** `AddItemModal.tsx:40` y `AddGradedModal.tsx:34` reciben un objeto `{variant, title, message, duration?}`;
+  `QuickAdd.tsx:65` y `VariantDrawer.tsx:81,410` reciben una cadena (el padre decide variante y título). Dos contratos para
+  el mismo gesto: quien cablea un componente nuevo no sabe cuál usar, y la variante «aún no» (info, 9 s) de §SU-UX.6 solo
+  la pueden expresar los de objeto.
+- **Disparador:** cuando QuickAdd o VariantDrawer necesiten avisar con una variante distinta de `success`.
+- **Comprobación:** las cuatro props con el mismo tipo (el de objeto) y `grep -n "onToast?: (msg: string)" frontend/src/app` vacío.

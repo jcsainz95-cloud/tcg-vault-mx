@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within, getDefaultNormalizer } from '@testing-library/react';
+import { QueryClient } from '@tanstack/react-query';
 import { renderWithProviders } from '@/test/render';
 import { ApiClientError } from '@/lib/api-client';
 import type {
@@ -11,6 +12,7 @@ import type {
 } from '@/types/contract';
 import { MasterSetPanel } from './MasterSetPanel';
 import * as api from '@/lib/api';
+import es from '../../../messages/es.json';
 
 // `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
 // Lo necesita el enlace del guardarraíl («Ver en la cola de pendientes») de la consola de precios.
@@ -1384,5 +1386,67 @@ describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'Celebrations' })).toBeInTheDocument();
     expect(await screen.findByText('0/50 variantes · 0%')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: 'Classic Collection' })).toBeInTheDocument();
+  });
+});
+
+describe('SU-UX-10 · MasterSetPanel: el alta del carrito y la «encontrada» refrescan «Listas para publicar»', () => {
+  // Gate techlead D3 (sobre 2c516314): `invalidateAggregates` (MasterSetPanel) invalida `['pending-publish']` y
+  // ningún candado lo cubría. Mutación que debe morder: quitar esa línea.
+  const PENDING = { queryKey: ['pending-publish'] };
+
+  it('carrito: «Dar de alta al inventario» correcto ⇒ invalida la cola', async () => {
+    vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
+      batchKey: 'b-su10',
+      idempotentReplay: false,
+      summary: { requested: 1, createdItems: 1, failedLines: 0 },
+      results: [{ index: 0, ok: true, folios: ['INV-000510'], inventoryItemIds: ['x10'] }],
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+    const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Dar de alta al inventario' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(PENDING));
+  });
+
+  it('ajuste `encontrada` correcto ⇒ invalida la cola', async () => {
+    vi.spyOn(api, 'createInventoryAdjustment').mockResolvedValue({
+      adjustmentIds: ['adj-su10'],
+      reason: 'encontrada',
+      inventoryItemIds: ['inv-su10'],
+      folios: ['INV-000410'],
+      fromStatus: null,
+      toStatus: 'in_stock',
+      idempotentReplay: false,
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+    const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Registrar ajuste' }));
+    expect(await within(drawer).findByText('Ajuste registrado (INV-000410).')).toBeInTheDocument();
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(PENDING));
+  });
+});
+
+describe('Ubicación opcional · CellDrawer: la opción vacía dice «Sin ubicación» (no «Todos»)', () => {
+  // Gate QA sobre 2c516314 (misma clase que AddItemModal): la opción '' se rotulaba `common.all` («Todos») y
+  // enviaba la pieza SIN `locationId`. Lo que se ve debe ser lo que se envía.
+  it('sin elegir: se ve «Sin ubicación» y la línea viaja sin `locationId`', async () => {
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
+      batchKey: 'b-loc',
+      idempotentReplay: false,
+      summary: { requested: 1, createdItems: 1, failedLines: 0 },
+      results: [{ index: 0, ok: true, folios: ['INV-000511'], inventoryItemIds: ['x11'] }],
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+    const select = (await within(drawer).findByRole('combobox', { name: es.admin.m1.location })) as HTMLSelectElement;
+    expect(select.options[select.selectedIndex]?.textContent).toBe(es.admin.m1.locationNone);
+    expect(within(select).queryByRole('option', { name: es.common.all })).toBeNull();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Dar de alta al inventario' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].items[0].locationId).toBeUndefined();
   });
 });
