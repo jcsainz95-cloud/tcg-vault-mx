@@ -30005,3 +30005,156 @@ avisa y el smoke de INE no corre en estricto): tsc 0 · eslint 0 · unitaria **4
 día» (AN-B-13 y AN-B-15 siguen verdes: por eso existe la prueba por día); M2 margen sin restar la guía ⇒ rojas AN-B-13 (2) y
 BSD-B34 e2e; M3 ganancia sin el buylist ⇒ rojas AN-B-13 y AN-B-15; M4 sin `OUTBOUND_ONLY` en el envío de venta ⇒ rojos el
 censo BSD-B23 y la unitaria de clases. Las cuatro restauradas y comparadas con `cmp` contra el árbol vivo.
+
+## 82 · Errata SU-1 construida (💰) — la ubicación deja de ser requisito para publicar (2026-10-07, rama `claude/sin-ubicacion`, sobre `8c72c556`; código en `7e1462a6`)
+
+**Norma.** `API_CONTRACT §M1-SU` (SU.1–SU.6), `ARCHITECTURE §4.65`, HECHOS «La ubicación (cajón) NO es requisito para
+publicar, por ahora» (2026-10-07). Sin schema, migración, endpoint, código de error ni campo nuevo.
+
+**Qué cambió (servidor).**
+- `inventory.service.ts` `pendingPublishStateOf`: ya no hace `missing.push('location')` ⇒ `missing ⊆ ['price']`.
+  `reevaluateOne`: sin el corte `missing_location` ⇒ una pieza sin cajón pasa por guardas + precio + `claimListed` como
+  cualquiera (con precio ⇒ `published`; sin precio ⇒ escala a M2, `price_pending`, `["price"]`). Guardas de graded
+  (cert + identidad de slab) intactas.
+- `pendingPublish`: `?missing=location` sigue válido (clase L) y corta en seco con `200 { data: [], page, pageSize,
+  total: 0 }` (antes empujaba `locationId: null` a SQL). Ninguna fila puede casar, así que no se barre el inventario.
+- `buylist.service.ts` `triggerPublish`: el degradado (puerto ausente o que lanza) pasa de `['location','price']` a
+  `['price']`. ⛔ Nunca `[]`.
+- Vocabulario dormido, sin tocar tipos: `PendingPublishMissing`, `PublishReevaluationOutcome.missing_location`,
+  `SealedAutoPublishDTO.missingLocation` (vale siempre 0), `PENDING_PUBLISH_MISSING_VALUES`. **Revertir** = devolver
+  la línea de `pendingPublishStateOf` (comentario en el sitio la cita), el corte de `reevaluateOne` y el degradado.
+- Nuevo `InventoryService.previewPublication(ids)`: el pronóstico de `reevaluateForPublication` **sin escribir**
+  (mismo orden: listed → guardas → precio con `pendingPublishStateOf`). Lo usa el modo por defecto del script.
+  Los diales de una corrida (`curve`, política de venta, spreads, IVA) se leen en `loadPublishRunDials`, que comparten
+  los dos: el censo PF-11 de `loadSalePremiumFloorPolicy` sigue en 4 en `inventory.service.ts`.
+
+**Script del rezago (SU.3): `backend/scripts/reevaluate-unlocated.ts`.**
+- `npx ts-node scripts/reevaluate-unlocated.ts` cuenta y **no escribe**: `{"mode":"dry-run","selected",
+  "wouldPublish","pricePending","notPublishable"}`. Con `--apply` corre `reevaluateForPublication(ids)` sobre
+  `platform ∧ in_stock ∧ locationId IS NULL` y cuenta `published`, `pricePending`, `notPublishable` y `byOutcome`. Una
+  segunda corrida con `--apply` da `published: 0`. Cualquier otro argumento sale con 64.
+- Base: `DATABASE_URL`, o `DATABASE_PUBLIC_URL` si `DATABASE_URL` es `*.railway.internal` (mismo salto que
+  `scripts/geo/import-sepomex.ts`, reimplementado en el script para no importar código de devops). Imprime solo una
+  etiqueta (`localhost:5432/db` o `***.dominio:***/db`), nunca la URL.
+- Contexto Nest **mínimo** (`ConfigModule` sin `.env`, Prisma, Crypto, Audit, Settings, Inventory), no `AppModule`:
+  ni el planificador de jobs ni workers de BullMQ arrancan. Al arrancar, `SpendWatchService` puede registrar
+  `NO_OWNER_ACCOUNT` (solo lee; ruido conocido en bases sin dueño).
+- ⚠️ **Para devops/orquestador:** la imagen de `Dockerfile.backend` copia `src/`, `prisma/` y `tsconfig.json`, pero **no
+  `backend/scripts/`**. Para correrlo dentro de Railway hay que añadir la copia o correrlo desde un checkout con
+  `railway run` (que inyecta `DATABASE_URL`/`DATABASE_PUBLIC_URL`). Recomendado: dry-run primero y pegar las cuentas
+  en la solicitud de fusión.
+
+**Semilla E2E.** `E2E_FOLIOS.pendingPublishNoLocation` (`E2E-STK-0001`) pasa a la carta `nopref` (sin
+`PriceReference`): `in_stock`, sin cajón y **sin precio** ⇒ `missing: ['price']`, `resolvedSalePriceCents: null`,
+`priceBasis: 'pending'`. El `reset` también re-apunta `cardId` (una BD sembrada antes la tenía en `common`, con precio,
+y saldría de la cola en la primera corrida). El nombre del folio se conserva porque lo citan el contrato y otras suites.
+
+**Pruebas SU-B (tabla SU.6), rojas sobre `8c72c556` y verdes en `7e1462a6`:**
+| # | Dónde | Rojo medido sobre el código de partida |
+|---|---|---|
+| SU-B1 | `test/inventory.su1-sin-ubicacion.spec.ts` | `missing_location` en vez de `published` (+ sin precio: `missing_location` en vez de `price_pending`) |
+| SU-B2 | ídem (i)–(iii) + `integration/pending-publish-seed.e2e-spec.ts` (ii por HTTP con la semilla, iii por HTTP) | (i) total 1; (ii) `["location","price"]`; (iii) la fila sin cajón |
+| SU-B3 | ídem (i) roja; (ii) verde a propósito (guarda de slab con precio manual) | (i) `missing_location` |
+| SU-B4 | `integration/sealed-price.e2e-spec.ts` | `{published:0, missingLocation:1, …}` |
+| SU-B5 | `test/buylist.bl25-bl26.spec.ts` (+ convert-guard, security) | `["location","price"]` |
+| SU-B6 | `integration/reevaluate-unlocated.e2e-spec.ts` (+ `test/reevaluate-unlocated.spec.ts`) | 1.ª `--apply` `published: 0` |
+
+Reescritas (no borradas), además de la lista de §M1-SU: `inventory.pending-publish.spec.ts` (5) «y SALE de la cola»
+(ahora entra por precio y sale con el `move`) y (1b) (las filas selladas entran por falta de precio; el doble de
+pricing ganó `sealedMarketGradeKeyForItem`/`resolveSealedSalePrice`, el mismo que `inventory.sealed-final-price.spec`);
+`inventory.sealed-final-price.spec.ts` SFP-7 «el campo viaja SIEMPRE» y SFP-8 (la paridad con la fila de la cola se
+fija ahora contra `previewPublication` y el basis por valor, porque la pieza con precio ya no está en la cola);
+`integration/inventory-price-audit.e2e-spec.ts` SFP-7/SFP-8 (ídem, por HTTP + `previewPublication`); y dos que el
+contrato no listaba:
+- ⚠️ **Discrepancia con §M1-SU (para el arquitecto):** el contrato dice que `enum-query-axes.e2e-spec.ts:412` «sigue
+  verde sin cambios». **Medido: rojo** («punto 1 fila 2 — FILTRA», distancia 0). Con SU-1 toda fila de la cola trae
+  `missing = ['price']`, así que `?missing=price` ≡ sin filtro y no puede demostrar que filtra. Arreglo: se invierten
+  `valid: 'location'` / `alterno: 'price'` (`?missing=location` ⇒ `[]` ≠ base, y `price` lo discrimina). El dominio
+  (`allowed`) y la paridad clase L no cambian. Verde después.
+- `integration/buylist-item-final.e2e-spec.ts` BRJ-10: la pieza convertida tiene precio de mercado ⇒ la conversión la
+  publica en el acto (SU.1 disparador (a)); la precondición pasa de `in_stock` a `listed`.
+
+**Mediciones (copia del árbol entero en scratchpad, BD propia `tcg_be_ubic`, Postgres 16 + Redis locales).**
+- Antes del cambio de regla (código de `8c72c556` + pruebas nuevas): unitarias SU **7 rojas** (SU-B1 ×3, SU-B2 i–iii,
+  SU-B3 i) + buylist **6 rojas** (SU-B5 y las de `['location','price']`); integración **10 rojas** (SU-B2 ii/iii por HTTP,
+  SU-B4, SU-B6, SP-2, SP-16, SFP-7/9, «ninguna fila emite location»). SU-B3 (ii) verde, como pide la tabla.
+- Después (`7e1462a6`): `tsc --noEmit` y `eslint` limpios; **unitaria completa 441/441 suites, 7968/7968**;
+  **integración completa 115/115 suites, 2255 verdes + 2 skipped**.
+- Mutaciones (sobre una segunda copia, restauradas con `cmp` contra el árbol vivo; deterministas, N=1 cada una):
+  | Mutación | Rojas |
+  |---|---|
+  | M1 volver a exigir ubicación (las dos líneas) | 18 unitarias (5 suites) · integración SU-B4, SP-16, SU-B6 |
+  | M1a solo el corte de `reevaluateOne` | SU-B1 ×2, SU-B1 «missing_location ya no se produce», SU-B3 (i) |
+  | M1b solo el `missing.push('location')` | SU-B1 sin precio, «missing_location…», SU-B2 (i), (ii) |
+  | M2 degradado `[]` / M2' degradado `['location','price']` | 6 unitarias cada una (SU-B5 + convert-guard + security) |
+  | M3 el modo sin `--apply` llama a `reevaluateForPublication` | unitaria «⛔ sin --apply NO llama…» · integración SU-B6 |
+  | M4 sin la guarda de identidad de slab | SU-B3 (ii) |
+
+### 82.SU8 · SU.8 construida — el alta dispara la publicación (2026-10-07, rama `claude/sin-ubicacion`, sobre `35b06778`)
+
+**Norma.** `API_CONTRACT §M1-SU` SU.8 (SU.8.1–SU.8.5), `ARCHITECTURE §4.65 (h)`. Sin schema, migración, endpoint, código
+de error ni campo nuevo.
+
+**Qué cambió (servidor, solo `inventory.service.ts`).**
+- Helper privado `publishCreated(ids, trigger: 'alta' | 'alta_lote' | 'encontrada', folios = [])`: llama al MISMO cuerpo
+  (`reevaluateForPublication(ids)`) dentro de `try/catch`; si lanza, `logger.warn` con trigger y folios y devuelve `[]`.
+  Con `ids` vacío no llama. El tercer parámetro (`folios`, solo para el log) es un añadido a la firma recomendada del
+  contrato: SU.8.2 pide el folio en el `warn` y los ids solos no lo traen.
+- `createItem`: tras el `$transaction`, `publishCreated([id], 'alta', [folio])`; el `201` devuelve `status: 'listed'` si
+  el resultado es `published` y el de la fila creada (`in_stock`) en cualquier otro caso (sin precio, guarda, fallo).
+  Sin relectura: decide el `outcome` del cuerpo.
+- `batchCreate`: tras el `$transaction` (fresco), UNA llamada con los `inventoryItemIds` de todas las líneas `ok:true`.
+  El fast-path de replay y la rama P2002 devuelven antes y no llegan. `publishCreated` no lanza, así que no puede caer
+  en el `catch` del P2002. `resultJson` y la forma de la respuesta no cambian (SU.8.3).
+- `adjustFound` (`encontrada`): tras el `$transaction`, `publishCreated(response.inventoryItemIds, 'encontrada',
+  response.folios)`. `toStatus: 'in_stock'` se queda.
+- ⛔ El `move` (`tryAutoPublish`) no cambia.
+
+**Efecto visible.** Lo dado de alta con precio que resuelve nace `listed` sin `bulk-publish`; raw/graded de `compra`
+sin precio escalan a M2 en el alta (antes no) y quedan en `pending-publish` con `["price"]` y su `pendingPriceEntryId`.
+El sellado sin precio sigue con UNA entrada (dedupe por clave; `inventory.sealed-pending-dedup.spec.ts` verde sin
+cambios).
+
+**Pruebas — `test/integration/su8-alta-publica.e2e-spec.ts`** (Postgres real, HTTP; el cuerpo se observa con
+`jest.spyOn` sobre la instancia real de `InventoryService`, y SU-B12 tumba `PricingService.loadPricingCurve`):
+SU-B7 (raw / graded / sellado sin producto), SU-B8, SU-B9 (con una tercera línea `ok:false` para que «exactamente los
+`ok:true`» discrimine), SU-B10 y SU-B12 (canarios), SU-B11, y un extra de backend: «SU-B7 (extra)» sellado LIGADO con
+`manualMarketMxnCents` ⇒ `listed` y 0 entradas en M2.
+- SU-B8 usa una carta PROPIA sin referencia: con la `nopref` del fixture salía **verde sobre el código de partida**,
+  porque la semilla ya tiene una entrada abierta para su clave (pieza `E2E-STK-0001`) y la fila de la cola toma el
+  `pendingPriceEntryId` de cualquier entrada abierta. Con carta virgen el id solo puede venir de SU.8.
+
+**Prueba existente que cambió y el contrato no listaba: `test/inventory.pending-reason-writers.spec.ts`.** «alta con
+override manual de mercado (`manualMarketMxnCents`) ⇒ resuelve ⇒ 0 entradas» quedó roja con SU.8 (1 entrada
+`no_market`). Causa: el doble de `getReferencesBatch` devolvía siempre `Map` vacío, así que el disparo no veía el
+`PriceReference isManualOverride` que el propio alta acababa de escribir y escalaba. La consulta real sí lo ve (medido:
+«SU-B7 (extra)» con Postgres ⇒ `listed`, 0 entradas). Arreglo en el doble, no en la aserción: por defecto responde los
+overrides manuales escritos en su almacén (misma clave `cardId|productType|gradeKey|finish`); sin overrides ⇒ `Map`
+vacío como antes. La aserción (0 entradas) no cambia.
+
+**Pruebas que el contrato preveía que podían cambiar y NO cambiaron (medido: verdes).** `inventory.adjustments.spec.ts`,
+`inventory.batch.spec.ts` y `inventory.sealed-pending-dedup.spec.ts`: sus arneses no simulan `inventoryItem.findMany`,
+en las altas el disparo lanza dentro del `try/catch` (se ve el `warn`) y lo que aseveran no depende de él: la fila
+creada y `toStatus` en «encontrada» (`adjustments:215`); `updateMany` no llamado en ajustes de pieza existente
+(`adjustments:355/374`) y en `bulk-publish` (`batch:363/407/431`), que no son altas. Como avisa el contrato, no prueban SU.8: eso lo hace la
+suite de integración de arriba. `integration/sealed-price.e2e-spec.ts:730/755`: verdes sin cambios.
+
+**Mediciones (copia del árbol ENTERO por `git archive 35b06778` + los ficheros de SU.8, scratchpad `be-su8`; cliente de
+Prisma generado en la copia, ⛔ no en el `node_modules` compartido; BD propia `tcg_be_bsd_b4` tras `migrate reset`; Redis
+db 14).**
+- **Primero en rojo** (código de `35b06778` + la suite nueva): 6 rojas — SU-B7 ×3 (`in_stock` en vez de `listed`),
+  SU-B8 (0 entradas en M2), SU-B9 (0 llamadas al cuerpo), SU-B11 (`in_stock`). Canarios verdes: SU-B10, SU-B12 (A) y (B).
+- **Después:** `tsc --noEmit` exit 0 · `eslint` (src, test, scripts) exit 0 · **unitaria completa 441/441 suites,
+  7968/7968** · **integración completa 116/116 suites, 2265 verdes + 2 skipped** (incluye `sealed-price` y la suite nueva,
+  10/10).
+- **Mutaciones** (segunda copia, restaurada con `cmp` contra el árbol vivo; deterministas, N=1 cada una), todas rojas:
+  | Mutación | Rojas |
+  |---|---|
+  | M1 sin disparo en `createItem` | SU-B7 ×3, SU-B7 (extra), SU-B8 |
+  | M2 sin disparo en `batchCreate` | SU-B9 |
+  | M3 sin disparo en `adjustFound` | SU-B11 |
+  | M4 disparo en el replay (fast-path de `batchCreate`) | SU-B10 |
+  | M5 sin `try/catch` (el `catch` relanza) | SU-B12 (A) y (B) |
+- **NO MEDIDO:** la rama P2002 con disparo (no hay mutación que la ejercite sin carrera; por lectura no llega a
+  `publishCreated`); el replay de «encontrada» con disparo (SU-B10 es solo del lote); E2E de frontend (por lectura, ninguna
+  spec de `frontend/e2e` da de alta y luego espera `in_stock`; la semilla E2E crea con Prisma directo, no por el alta).

@@ -8066,7 +8066,7 @@ export class BuylistService implements OnModuleInit {
    *
    * ⚠️ **El degradado NO inventa un estado bueno.** Sin puerto se responde `missing: []`… **no**: se
    * responde con lo que sabemos, que es *nada*, y por eso `missing` sale **vacío solo cuando el
-   * puerto confirmó que no falta nada**. Si el puerto no contesta, se dice `['location','price']`
+   * puerto confirmó que no falta nada**. Si el puerto no contesta, se dice `['price']` (SU-1, §M1-SU; antes `['location','price']`)
    * —*«no sé, revísalo»*— porque un `[]` inventado significaría **«ya está a la venta»** y sacaría la
    * pieza de la pantalla que existe para encontrarla. *Donde el flag solo hace VISIBLE, se falla
    * hacia visible.*
@@ -8074,7 +8074,9 @@ export class BuylistService implements OnModuleInit {
   private async triggerPublish(
     inventoryItemId: string,
   ): Promise<{ missing: ('location' | 'price')[]; pendingPriceEntryId?: string }> {
-    const unknown = { missing: ['location', 'price'] as ('location' | 'price')[] };
+    // ⭐ Errata SU-1 (§M1-SU, SU.2): «no sé» = todo lo que PODRÍA faltar, y desde SU-1 eso es solo el precio (la
+    // ubicación ya no es requisito para publicar). Antes `['location','price']`. ⛔ Nunca `[]`.
+    const unknown = { missing: ['price'] as ('location' | 'price')[] };
     if (!this.inventoryPublish) {
       this.logger.warn(
         `convert-to-inventory: INVENTORY_PUBLISH_PORT no disponible para ${inventoryItemId}; ` +

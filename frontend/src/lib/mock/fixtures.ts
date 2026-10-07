@@ -6821,12 +6821,14 @@ export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
       productType: 'raw',
       finish: 'holofoil',
       cardProductId: null,
+      // ⭐ Errata SU-1 (`API_CONTRACT §M1-SU` SU.2): sin cajón y CON precio ya no habita la cola (se publica sola);
+      // el servidor nunca emite `"location"`. Esta pieza sin cajón sigue aquí porque le falta el PRECIO.
       locationId: null,
       listPriceCents: null,
-      resolvedSalePriceCents: 120000,
-      priceBasis: 'market',
-      pendingPriceEntryId: null,
-      missing: ['location'],
+      resolvedSalePriceCents: null,
+      priceBasis: null,
+      pendingPriceEntryId: 'ppe-76',
+      missing: ['price'],
       acquisitionType: 'buylist',
       sourceSellRequestItemId: 'sri-desk-1',
       createdAt: '2026-08-30T18:00:00Z',
@@ -6861,7 +6863,8 @@ export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
       resolvedSalePriceCents: null,
       priceBasis: null,
       pendingPriceEntryId: 'ppe-78',
-      missing: ['location', 'price'],
+      // Errata SU-1: sin cajón no es motivo; solo falta el precio.
+      missing: ['price'],
       acquisitionType: 'buylist',
       sourceSellRequestItemId: 'sri-desk-2',
       createdAt: '2026-08-30T18:10:00Z',

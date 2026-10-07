@@ -257,7 +257,9 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       const X = await product({ owner: 700, market: 100_000 });
       const L1 = await piece(X, { listPriceCents: 1000 }); // legado SOMBREADO por el producto
       const L2 = await piece(X); // sin legado
-      const S1 = await piece(X, { status: 'in_stock', locationId: null }); // en la cola (sin ubicación)
+      // ⭐ SU-1 (§M1-SU): sin ubicación y CON precio del producto ⇒ ya NO está en la cola (no le falta nada); su `P` se
+      // mide en la fila de M1, abajo.
+      const S1 = await piece(X, { status: 'in_stock', locationId: null });
 
       // Ficha de Compra (pieza) y la de sellado (grupo + piezas).
       const ficha = await h.api('GET', `/catalog/listings/${L1.id}`);
@@ -300,16 +302,18 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
 
       // Cola «Listas para publicar» y listado de M1 (admin).
       const pp = await h.api('GET', '/admin/inventory/pending-publish?productType=sealed&pageSize=100', { token: admin });
-      const row = (pp.body.data as any[]).find((r) => r.inventoryItemId === S1.id);
-      expect(row).toMatchObject({
-        missing: ['location'],
+      expect(pp.status).toBe(200);
+      // ⭐ SU-1: S1 (sin cajón, con `P`) no está en la cola — antes salía con `missing: ['location']`.
+      expect((pp.body.data as any[]).some((r) => r.inventoryItemId === S1.id)).toBe(false);
+      const li = await h.api('GET', `/admin/inventory/items?cardId=${ANCHOR}&productType=sealed&pageSize=100`, { token: admin });
+      // La MISMA paridad que la cola le exigía a S1, ahora en su fila de M1 (sigue `in_stock`: el GET no publica).
+      expect((li.body.data as any[]).find((r) => r.id === S1.id)).toMatchObject({
+        status: 'in_stock',
         resolvedSalePriceCents: 603,
         resolvedDisplayPriceCents: 700,
         sealedPriceOrigin: 'product',
         sealedProductDisplayPriceCents: 700,
-        sealedProductId: X.id,
       });
-      const li = await h.api('GET', `/admin/inventory/items?cardId=${ANCHOR}&productType=sealed&pageSize=100`, { token: admin });
       const r1 = (li.body.data as any[]).find((r) => r.id === L1.id);
       expect(r1).toMatchObject({
         listPriceCents: 1000,
@@ -556,7 +560,7 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
   });
 
   describe('💰 SP-16 — A-2: el `PUT` publica lo publicable DESPUÉS del commit', () => {
-    it('A (in_stock con ubicación) ⇒ listed; B (sin ubicación) sigue in_stock; C (listed) y D (de cliente) intactas; autoPublish {1,1,0}; una fila', async () => {
+    it('A (in_stock con ubicación) ⇒ listed; B (sin ubicación) ⇒ listed (SU-1); C (listed) y D (de cliente) intactas; autoPublish {2,0,0}; una fila', async () => {
       const X = await product({ owner: null });
       const A = await piece(X, { status: 'in_stock' });
       const B = await piece(X, { status: 'in_stock', locationId: null });
@@ -566,13 +570,24 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       const [c0, d0] = [await snap(C.id), await snap(D.id)];
       const r = await put(X.id, { displayPriceCents: 129_900, expectedDisplayPriceCents: null });
       expect(r.status).toBe(200);
-      expect(r.body.autoPublish).toEqual({ published: 1, missingLocation: 1, notPublished: 0 });
+      // ⭐ SU-1 (§M1-SU): la pieza sin cajón también se publica; `missingLocation` vale siempre 0 (vocabulario dormido).
+      expect(r.body.autoPublish).toEqual({ published: 2, missingLocation: 0, notPublished: 0 });
       expect((await snap(A.id)).status).toBe('listed');
-      expect((await snap(B.id)).status).toBe('in_stock');
+      expect((await snap(B.id)).status).toBe('listed');
       expect([await snap(C.id), await snap(D.id)]).toEqual([c0, d0]);
       expect((await auditRows(X.id)).length).toBe(1);
-      // La fila se relee DESPUÉS del intento: A ya cuenta como listed.
-      expect(r.body.data.pieces).toEqual({ inStock: 1, listed: 2, reserved: 0 });
+      // La fila se relee DESPUÉS del intento: A y B ya cuentan como listed.
+      expect(r.body.data.pieces).toEqual({ inStock: 0, listed: 3, reserved: 0 });
+    });
+    it('⭐ SU-B4 · una pieza SIN ubicación: el `PUT` la publica — `autoPublish {published:1, missingLocation:0, notPublished:0}`', async () => {
+      const X = await product({ owner: null });
+      const B = await piece(X, { status: 'in_stock', locationId: null });
+      const r = await put(X.id, { displayPriceCents: 129_900, expectedDisplayPriceCents: null });
+      expect(r.status).toBe(200);
+      expect(r.body.autoPublish).toEqual({ published: 1, missingLocation: 0, notPublished: 0 });
+      const after = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: B.id }, select: { status: true, locationId: true } });
+      // Publicar no es ubicar: el cajón sigue vacío.
+      expect(after).toEqual({ status: 'listed', locationId: null });
     });
     it('con `reevaluateForPublication` que LANZA: 200, `autoPublish: null`, precio confirmado y bitácora presente', async () => {
       const X = await product({ owner: null });

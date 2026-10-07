@@ -10,6 +10,20 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata SU-1 — LA UBICACIÓN DEJA DE SER REQUISITO PARA PUBLICAR, POR AHORA (2026-10-07, arquitecto, árbol
+> `/home/user/tcg-ubic`, rama `claude/sin-ubicacion`; ⛔ sha NO MEDIDO: sin Bash; numeración NO MEDIDA contra ramas vivas).**
+> Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Norma entera en
+> **[§M1-SU](#M1-SU)**; porqué en `ARCHITECTURE §4.65`. Sin schema, migración, endpoint, código de error ni campo nuevo.
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | SU-1 | Regla de publicación | Plataforma `in_stock` + guardas + precio que resuelve ⇒ se publica. `locationId` no cuenta (raw, graded, sellado) | **Sí**: lo convertido en M5 con precio sale a la venta al instante | backend |
+> | SU-2 | `missing: "location"` | Se **conserva** en tipos y contrato, **dormido**: el servidor no lo emite; `?missing=location` ⇒ `200` vacío; `missing_location` y `missingLocation` siempre 0 | No (sin cambio de tipos) | backend |
+> | SU-3 | Piezas retenidas hoy | Barrido único con el mismo cuerpo (`reevaluateForPublication`) sobre `platform ∧ in_stock ∧ locationId IS NULL` | **Sí** (publica el rezago) | backend (+ quién lo corre: orquestador) |
+> | SU-4 | Sellado en la cola | `sealedFinalPriceMode`: `in_stock` ⇒ siempre «Guardar y publicar» | Sí | frontend |
+> | SU-5 | Texto | `es.json:1596` dice «antes de IVA» para todo el sellado; el precio del producto es **con IVA** (M-71) | Texto | ux-ui → frontend |
+> | SU-8 | Alta (una, lote, «encontrada») | Tras el commit llama a `reevaluateForPublication(ids creados)`, best-effort con `try/catch`, nunca en replay. `201` del alta suelta: `status` = estado resultante. Sin campo nuevo | **Sí**: lo dado de alta con precio sale a la venta sin `bulk-publish` | backend (+ texto: ux-ui → frontend) |
+>
 > **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2 (2026-10-06, arquitecto, árbol `/home/user/tcg-ventas`,
 > rama `claude/analitica-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash).** Norma
 > entera: **[§15](#AN)**. Porqué: `ARCHITECTURE §4.64`. ⛔ Numeración NO MEDIDA contra #78 y otras ramas vivas.
@@ -13659,7 +13673,7 @@ Backend, integración contra Postgres real, fixture de §PNL.8 (solicitud del ci
 
 | Prueba | Caso | Espera | Mutación que la pone en rojo |
 |---|---|---|---|
-| **BRJ-10** *(falla hoy — medida por backend 1/1)* | `PATCH …/decision {reject, reason}` sobre carta `convertida_inventario` (`approvedPriceCents 8000`) | `409 CONFLICT {itemId, itemStatus:'convertida_inventario', reason:'ITEM_FINAL'}`; la fila idéntica antes/después (`itemStatus`, `approvedPriceCents`, `rejectedAt`, `rejectionReason`); `approvedTotalCents` idéntico; 0 correos; 0 bitácora; pieza intacta | quitar el peldaño **y** el término del `where` ⇒ `200` (la conducta de hoy) |
+| **BRJ-10** *(falla hoy — medida por backend 1/1)* · ⭐ SU-1 ([§M1-SU](#M1-SU) SU.7 (2)): la pieza convertida nace **`listed`**, no `in_stock` | `PATCH …/decision {reject, reason}` sobre carta `convertida_inventario` (`approvedPriceCents 8000`) | `409 CONFLICT {itemId, itemStatus:'convertida_inventario', reason:'ITEM_FINAL'}`; la fila idéntica antes/después (`itemStatus`, `approvedPriceCents`, `rejectedAt`, `rejectionReason`); `approvedTotalCents` idéntico; 0 correos; 0 bitácora; pieza intacta | quitar el peldaño **y** el término del `where` ⇒ `200` (la conducta de hoy) |
 | **BRJ-11** *(falla hoy — NO MEDIDO, leído en código)* | Misma carta: `approve`; y, en una solicitud **legado** (sin `offerSentAt`), `adjust {approvedPriceCents: 1}` | `409 … ITEM_FINAL` en los dos; `approvedPriceCents` sigue `8000`; `itemStatus` sigue `convertida_inventario` | aplicar el peldaño solo a `reject` ⇒ `200` y la carta deja de decir que es inventario |
 | **BRJ-12** | El `where` sin el `if`: unitario de `rejectItemWrite` (o integración con el pre-check apagado por inyección) | el `where` lleva `itemStatus NOT IN ITEM_FINAL_STATUSES` siempre; `count = 0` sobre una convertida ⇒ `409 … ITEM_FINAL` (no `NO_LIVE_ADJUSTMENT`) | quitar el término del `where` ⇒ rojo; mapear `count = 0` siempre a terminal ⇒ rojo |
 | **BRJ-13** 🔁 *(falla hoy si E-3 es real — NO MEDIDO)* | Carta `aprobada`; `convert-to-inventory` y `PATCH …{reject}` simultáneos (N ≥ 10 rondas); y lo mismo con `reject-items` | en **cada** ronda: o (conversión `200` ∧ rechazo `409 ITEM_FINAL`/`409 CONFLICT {itemIds}`) o (rechazo `200` ∧ conversión `422 ITEM_NOT_APPROVED`/`409 … CONCURRENT_UPDATE` ∧ **cero** `InventoryItem` con ese `sourceSellRequestItemId`). **Nunca** `convertida_inventario` con `rejectedAt`, ni `rechazada` con `inventoryItemId`. Proporción reportada (O-3) | quitar el CAS de la conversión ⇒ estado mixto en alguna ronda. ⚠️ Antes de arreglar, backend mide la proporción **con el defecto** (¿cuántas rondas de N lo muestran?) — si es 0/N, la prueba no es sensible y se fuerza el orden con candado de fila, como hizo BRJ-8 |
@@ -14003,6 +14017,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - `productType=raw` → `rawCondition` solo `NM` (v1.1). `productType=sealed` → `sealedSubtype?` (opcional) + **`sealedCondition?` (v1.23, default `mint`; `mint | minor_box_damage`, visible al comprador)**, **sin** `rawCondition`/grade/rareza/cert; `listPriceCents` (override MXN) es **opcional** (v1.23): si se omite, el sellado se auto-precia por `mercado TCGCSV × spread` cuando está mapeado y el dial `sealedPriceSource=tcgcsv` (ARCHITECTURE §4.23b); sin mercado ni override queda `PRICE_PENDING` (no publicable). **`sealedCondition` en raw/graded → `422 VALIDATION_ERROR`.** `productType=graded` → `gradingCompany` + `gradeValue` + **`certNumber` (nº de certificado PSA/CGC, string) — REQUERIDO para publicar una gradeada** (v1.2). Sin validación automática contra la graduadora (fuera de alcance); es un dato capturado a mano.
   Para `aportacion_en_especie`: el costo se calcula = **referencia del día × pct** (default 70, editable). El item nace `ownerType=platform`.
   Res `201`: `{ id, folio: "INV-000123", status: "in_stock", acquisitionCostCents }`
+  ⭐ **Errata SU-1, SU.8 ([§M1-SU](#M1-SU)):** tras el commit el alta dispara la publicación; `status` es el estado
+  **resultante** (`"listed"` si se publicó, `"in_stock"` si no). Igual disparan `items/batch` y `adjustments(encontrada)`,
+  que no cambian de forma.
   Err `422 PRICE_PENDING` (si aportación en especie y no hay referencia → cola de precio pendiente), `422 VALIDATION_ERROR` (p. ej. `sealed` con `rawCondition`, `raw` con `rawCondition != NM`, o **`graded` sin `certNumber`**).
 - `GET /api/v1/admin/inventory/items` — query `?status=&cardId=&ownerType=&locationId=&zone=&q=&page=&finish=&productType=`
   - **`status?`, `ownerType?` y `zone?` — [§0-Q](#enum-query-filter) (v1.72, P-84; el contrato CALLABA en los tres y aquí se decide).** Los **tres son clase E** (ARCHITECTURE §4.37), dominio = el enum **completo** derivado de Prisma, **nunca una lista escrita a mano**:
@@ -14054,6 +14071,322 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   publicar»** (fase 8, D10, criterio 125). *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
   Query: `?missing=location|price&acquisitionType=&productType=&setId=&page=&pageSize=` (todos opcionales; `pageSize` ≤ 100).
   Res `200`: `{ data: PendingPublishRowDTO[], page, pageSize, total }` (§11).
+  > <a id="M1-SU"></a>**⭐⭐ Errata SU-1 (2026-10-07) — LA UBICACIÓN NO ES REQUISITO PARA PUBLICAR, POR AHORA. MANDA SOBRE
+  > todo lo que, en esta entrada y en las demás, diga «ubicación + precio ⇒ publicada», «le falta ubicación» o
+  > `missing_location`.** Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora»
+  > (2026-10-07; dueño: *«no requiero de poner ubicación por el momento, quítalo»*). Porqué: `ARCHITECTURE §4.65`.
+  >
+  > **SU.1 · La regla.** Una pieza `ownerType='platform'`, `status='in_stock'`, se publica cuando pasa
+  > `assertPublishableGuards` y su precio de venta resuelve. **`locationId` no entra en la decisión**, para los tres tipos:
+  > - **raw:** precio de la curva / override de variante / `listPriceCents` (sin cambios).
+  > - **graded:** igual, y **siguen** exigiéndose `certNumber` e identidad de slab (`inventory.service.ts:1737-1742` y
+  >   siguientes) — esas guardas no cambian.
+  > - **sealed:** ligado ⇒ precio del dueño del producto (`P`, con IVA, M-71); sin producto ⇒ `listPriceCents` por pieza
+  >   (`L`, antes de IVA, `D-SP-4`). Sin cambios salvo la ubicación.
+  >
+  > Predicado nuevo de la cola: `ownerType='platform' ∧ status='in_stock' ∧ precio NO resoluble`.
+  > Los cuatro disparadores siguen iguales: (a) convertir en M5, (b) mover ubicación, (c) precio que se vuelve resoluble
+  > (barrido, override de M2, `PUT` del precio de un producto sellado). **Cambio observable:** (a) ahora publica en el
+  > acto una carta convertida cuyo precio resuelve; antes se quedaba en la cola por falta de cajón.
+  > Los caminos manuales (`bulk-publish`, `publish-all`, `PATCH … status:'listed'`) **no cambian**: ya no leían
+  > `locationId` (medido por lectura, `assertPublishableGuards` `inventory.service.ts:1726-1760`).
+  >
+  > **SU.2 · El vocabulario `location` se CONSERVA, dormido** (decisión: lo más simple y reversible).
+  > - `PendingPublishRowDTO.missing: ("location" | "price")[]`, `?missing=location|price`,
+  >   `PublishReevaluationOutcome` (`missing_location`) y `SealedAutoPublishDTO.missingLocation` **no cambian de tipo**.
+  > - **Mientras rija la fila de HECHOS, el servidor no emite `"location"`**: `missing ⊆ ["price"]`; el resultado
+  >   `missing_location` no se produce; `missingLocation` vale siempre `0`.
+  > - `?missing=location` **sigue siendo válido** (clase L, §0-Q; sin `400`) y responde `200 { data: [], total: 0 }`.
+  > - El degradado de `convert-to-inventory` (puerto ausente o que lanza; hoy `["location","price"]`,
+  >   `buylist.service.ts:8077`) pasa a **`["price"]`**: «no sé» sigue significando «todo lo que podría faltar», y hoy eso
+  >   es solo el precio. ⛔ Nunca `[]`.
+  > - Revertir = devolver las dos líneas de SU.1 y este degradado. Los tipos y los clientes no se tocan en ninguno de
+  >   los dos sentidos. ⭐ **Corregido por SU.7 (1), 2026-10-07:** la fila `?missing=` de `C-EQ-1` **sí** cambió
+  >   (`enum-query-axes.e2e-spec.ts:415`, `valid`/`alterno` invertidos). Al revertir hay que volver a correrla. Que siga
+  >   verde con la regla vieja: **NO MEDIDO**.
+  >
+  > **SU.3 · El rezago: lo que la regla vieja dejó retenido.** Al desplegar, cada pieza `platform ∧ in_stock ∧
+  > locationId IS NULL` cuyo precio resuelve pasa a `missing = []`: **sale de la cola y no se publica**, porque ningún
+  > disparador corre sobre ella. Sería una pieza pagada fuera de la venta y fuera de toda pantalla (fase 8, criterio 125).
+  > - **Norma:** un barrido único, idempotente, con **el mismo cuerpo** (`reevaluateForPublication(ids)`, ⛔ sin copia del
+  >   pipeline) sobre esa selección. Con precio ⇒ `published`; sin precio ⇒ escala a M2 y se queda en la cola con
+  >   `["price"]`; guardas ⇒ `not_publishable`.
+  > - **Forma:** script de backend `backend/scripts/reevaluate-unlocated.ts` (contexto Nest, sin HTTP). Por defecto **no
+  >   escribe** y cuenta: `selected`, `wouldPublish`, `pricePending`, `notPublishable`. Con `--apply` corre el cuerpo y
+  >   cuenta por `outcome`. Una segunda corrida con `--apply` da `published: 0`.
+  > - ⭐ **El pronóstico (SU.7 (3), 2026-10-07): `InventoryService.previewPublication(ids)`**, compartiendo los diales
+  >   de la corrida con `reevaluateForPublication` a través de `loadPublishRunDials` (`inventory.service.ts:3082-3088`,
+  >   `:3100-3136`). Esto **respeta** «⛔ sin copia del pipeline». La norma protege el camino que **escribe**, y `--apply`
+  >   sigue llamando al cuerpo único. El pronóstico no escribe. Decide con las mismas funciones: `assertPublishableGuards`
+  >   y `pendingPublishStateOf` → `derivePublishSalePrice(item, null, ctx)` (`:2040`). Es la misma llamada que hace
+  >   `resolvePublishSalePrice` (`:1804`), con el mismo orden: listed → guardas → precio (`:3118-3131` frente a
+  >   `:3240-3258`). Lo que se repite es el andamio (trozos, `not_found`) y el **orden**. Condición: el pronóstico **solo
+  >   informa**. ⛔ Ningún camino decide escribir a partir de su resultado. Si cambia el orden de `reevaluateOne`, cambia
+  >   también aquí. Ninguna prueba compara pieza a pieza el pronóstico con el `--apply`. SU-B6 compara cuentas sobre tres
+  >   piezas (`integration/reevaluate-unlocated.e2e-spec.ts:96-114`). No bloquea, porque `--apply` cuenta por su propio
+  >   `outcome`.
+  > - **Quién lo corre y dónde:** lo decide el orquestador. La credencial vive en Railway, así que el dueño lo corre ahí o
+  >   devops lo cablea al despliegue (CLAUDE.md, «Secretos»). Va en el cuerpo de la solicitud de fusión.
+  >   ⭐ **Dato medido (SU.7 (4), 2026-10-07):** la imagen **no lleva el script**. La etapa final de `Dockerfile.backend`
+  >   copia `dist`, `prisma`, `src`, `tsconfig.json` y dos `.sh` de `scripts/` en la raíz (`Dockerfile.backend:80-90`,
+  >   `:103`, `:109`), pero no `backend/scripts/`. Lo midió backend (`BACKEND_NOTES §82`) y lo confirmé leyendo el
+  >   Dockerfile. Quedan dos vías: (i) correrlo desde un checkout con `railway run`, que inyecta
+  >   `DATABASE_URL`/`DATABASE_PUBLIC_URL`; (ii) que devops añada la copia a la imagen (eso es de devops, no del contrato).
+  >   No he medido si `ts-node` está en las `node_modules` de producción.
+  >   ⭐ **Orden respecto a la limpieza de base (SU.7 (4)).** El dueño pidió que la limpieza **también borre el inventario**
+  >   (`HECHOS.md`, fila «CAMBIO P-DB-LIMPIEZA: también se BORRA el inventario», 2026-10-07; en la rama
+  >   `claude/limpieza-db`). Si esa limpieza corre **después** de desplegar SU-1 y borra todas las piezas de plataforma,
+  >   la selección de SU.3 (`platform ∧ in_stock ∧ locationId IS NULL`) queda **vacía**. Entonces el rezago desaparece con
+  >   el inventario borrado y el script no hace falta. «Publicar todo» deja de tener su riesgo, porque no quedan piezas
+  >   retiradas a propósito. Mientras tanto no se pierde ninguna venta: esas piezas tampoco estaban a la venta antes de
+  >   SU-1. Solo dejan de verse en la cola. **Recomendación, sin decidir por el dueño:** si va a limpiar, que la limpieza
+  >   vaya después de SU-1, o en cualquier orden pero antes de vender en real, y saltarse el `--apply`. Se puede confirmar
+  >   corriendo el script en seco tras la limpieza y esperando `selected: 0`. Esto depende de dos cosas que no están
+  >   cerradas:
+  >   (a) que la limpieza borre **todo** el inventario de plataforma. Según la misma fila de HECHOS, es un supuesto del
+  >   orquestador que el dueño aún puede corregir. Si conserva piezas de plataforma, el script vuelve a hacer falta.
+  >   (b) qué pasa con el inventario que el dueño **vuelva a subir**. El alta, sola o por lote, crea la pieza `in_stock` y
+  >   no llama a `reevaluateForPublication` (`inventory.service.ts:769-815`, `:1461-1469`, `buildItemData` `:1372`). Con
+  >   SU-1, una pieza recién dada de alta y con precio queda `missing = []`: fuera de la cola y sin publicar, como ya
+  >   pasaba antes con una pieza dada de alta **con** cajón. **NO MEDIDO:** si el frontend de alta publica después
+  >   (`status:'listed'` o `bulk-publish`) o si el operador publica a mano desde M1. Lo cierra leer la pantalla de alta de
+  >   M1 y su llamada, o dar de alta una pieza en local y ver su `status`. Esto también matiza el «fuera de toda pantalla»
+  >   de arriba. Una pieza `in_stock` sigue en el listado de M1 (NO MEDIDO por pantalla). Lo que pierde es la cola.
+  >   ⭐ **Cerrado por SU.8 (abajo):** medido por lectura que ninguna pantalla de alta publica después; el alta pasa a
+  >   disparar la publicación.
+  > - **Alternativa sin script:** el botón «Publicar todo» de M1 (`POST /admin/inventory/publish-all`, `M1View.tsx:313`).
+  >   Publica el rezago, pero también **re-publica las piezas `in_stock` CON ubicación que alguien retiró de la venta a
+  >   propósito** (`ItemDetailModal` «Retirar de venta»). Cuántas hay: **NO MEDIDO**. Se mide con
+  >   `SELECT count(*) FROM "InventoryItem" WHERE "ownerType"='platform' AND status='in_stock' AND "locationId" IS NOT NULL`.
+  > - ⭐ **SU.3-R · El script también re-publica retiradas SIN cajón (dato de QA, gate sobre `2c516314`, 2026-10-07).**
+  >   El riesgo de arriba no es exclusivo de «Publicar todo». «Retirar de venta» es `PATCH status:'in_stock'` y deja
+  >   la pieza en la misma selección del script (`platform ∧ in_stock ∧ locationId IS NULL`,
+  >   `reevaluate-unlocated.ts:105`). `--apply` no puede distinguir una pieza retenida por la regla vieja de una que
+  >   el operador retiró. Medido por QA (N=1, determinista): INV-000006 estaba retirada y quedó `listed` después de
+  >   `--apply`. El retiro queda solo en `AuditLog`: `inventory.item_updated`, con
+  >   `before.status='listed'` → `after.status='in_stock'`, escrito por el `PATCH` que no publica
+  >   (`inventory.service.ts:3004` → `writeItemUpdatedAudit` `:540-561`, acción `:528`). No deja `InventoryMovement`
+  >   (`:2975`, a propósito).
+  >   **Norma para el orquestador. NO se corre `--apply` en ninguno de estos casos:**
+  >   1. **Si la limpieza de base va a correr** (`HECHOS.md`, fila «CAMBIO P-DB-LIMPIEZA: también se BORRA el
+  >      inventario», 2026-10-07). Con el inventario borrado no hay rezago (ver «Orden respecto a la limpieza» arriba).
+  >      Basta la corrida en seco con `selected: 0` después de la limpieza. Este es el caso esperado.
+  >   2. **Si el conteo de retiradas (abajo) es mayor que 0**, salvo que el dueño diga pieza por pieza que se pueden
+  >      re-publicar. Si no lo dice, primero se aplica la exclusión propuesta más abajo.
+  >   3. **Si el conteo no se puede hacer o es incompleto** (punto (ii) abajo). En ese caso cuenta como «hay retiradas».
+  >
+  >   **Cómo contar las retiradas antes, en solo lectura** (la corre quien tenga la credencial; CLAUDE.md, «Secretos»):
+  >   ```sql
+  >   SELECT count(*) FROM "InventoryItem" i
+  >   WHERE i."ownerType"='platform' AND i.status='in_stock' AND i."locationId" IS NULL
+  >     AND EXISTS (SELECT 1 FROM "AuditLog" a
+  >                 WHERE a.action='inventory.item_updated' AND a."entityType"='InventoryItem'
+  >                   AND a."entityId"=i.id
+  >                   AND a.before->>'status'='listed' AND a.after->>'status'='in_stock');
+  >   ```
+  >   Para ver cuáles son, se cambia `count(*)` por `i.folio`. Columnas según `schema.prisma:2413-2429`.
+  >   (i) La consulta es una **cota superior**: cuenta una pieza retirada alguna vez aunque después se haya vuelto a
+  >   publicar y a bajar por otro camino. Para decidir no correr, sobra.
+  >   (ii) Es **incompleta hacia atrás**: `inventory.item_updated` existe desde v1.80.8.7 (comentario en `:516`). Un
+  >   retiro anterior solo dejó `inventory.update` (`inventory.controller.ts:699`), que no guarda el diff y no
+  >   distingue un retiro de un cambio de precio. Se puede sacar una cota gruesa con el mismo `EXISTS`, usando
+  >   `a.action='inventory.update'` y sin las condiciones de `before`/`after`. **NO MEDIDO:** desde cuándo está
+  >   v1.80.8.7 en `production`. Lo cierra `git log production` sobre el commit que introdujo `itemUpdatedAudit`.
+  >   **NO MEDIDO:** la consulta no se ha corrido contra ninguna base. QA midió la conducta del script, no esta
+  >   consulta.
+  >
+  >   **Propuesta, no exigida:** que la selección del script excluya las piezas que cumplen el `EXISTS` de arriba,
+  >   cuente `excludedWithdrawn` en ambos modos y añada SU-B7 («retirada sin cajón + `--apply` ⇒ sigue `in_stock`»).
+  >   Dueño: backend. Hoy **no hace falta** si se cumple la norma 1, porque el script no se usa. Pasa a ser obligatoria
+  >   solo si la limpieza no corre, o si conserva piezas de plataforma (supuesto (a) arriba). Aun con la exclusión, el
+  >   hueco (ii) sigue: un retiro anterior a v1.80.8.7 se re-publicaría. Por eso la norma 2 sigue vigente.
+  >
+  > **SU.4 · Frontend.** `sealedFinalPriceMode` (`SealedFinalPrice.tsx:50`): `in_stock` ⇒ **`'publish'` siempre**.
+  > Hoy, sin ubicación, devuelve `'save'` («Guardar precio» manda `{listPriceCents}` sin `status`). Con SU.1, esa pieza
+  > queda con `missing = []`, sale de la cola **sin publicarse** y ningún disparador la recoge: el mismo hueco de SU.3,
+  > fabricado desde la UI. Por eso es obligatorio. La rama `'save'` y sus textos (`es.json:5935`, `:5949`, `:5957`,
+  > `:6004`, `:1606`) quedan **dormidos**: inalcanzables, conservados para revertir y para no mover la paridad de i18n
+  > (`i18n-sealed-product-price.test.ts:30`). Las ramas `'location'` de `MissingCell`/`ReasonLines`
+  > (`PendingPublishQueue.tsx:52`, `:115`) y la línea `missingLocation` de `SealedPriceSavedNotice.tsx:42` no se pintan,
+  > porque el servidor ya no emite ese valor. Sin cambio.
+  >
+  > **SU.5 · Lo que NO cambia (medido por lectura, 2026-10-07):**
+  > - **Preparación y picking.** Ya toleran pieza sin cajón: `LocationView` `{kind:'unassigned'}`
+  >   (`preparation-view.ts:40`, `:145`); orden con las `unassigned` al final (`shipments.service.ts:1532-1542`);
+  >   «Sin ubicar» + `LocateItemControl` en la tarjeta (`ShipPreparationCard.tsx:900-916`) y en la hoja impresa
+  >   (`PrintSheetView.tsx:116`, `:133`). Efecto: habrá más filas «Sin ubicar» en la hoja de trabajo. Ningún verbo de
+  >   preparación exige ubicación (`grep location_required` en `shipments/`: vacío).
+  > - **Bóveda/custodia del cliente.** `VaultPlacement` `confirm` **sigue** exigiendo cajón de custodia
+  >   (`vault-placement.service.ts:511-513`, `reason:'location_required'`), igual que `replacement-case.service.ts:520`.
+  >   No es publicar, y la fila de HECHOS habla de publicar. Si el dueño quiere también custodia sin cajón, es otra decisión
+  >   suya (no asumida aquí).
+  > - **Export `.xlsx`.** La columna «Ubicación» se queda (`inventory.service.ts:618`) y una pieza sin cajón ya sale con
+  >   celda vacía (`:3938`, `it.location?.label ?? ''`).
+  > - **Tablero.** No se encontró ningún conteo `pendingPublish` en el tablero (`grep pendingPublish` en
+  >   `backend/src/modules/admin`: vacío), así que no hay conteo que cambie. La línea de `workQueue.pendingPublish` de este
+  >   contrato pasa a decir «les falta precio».
+  > - **«Mover de ubicación» / «Ubicar» (M1 `ItemDetailModal`, M4 `LocateItemControl`).** Siguen disponibles y siguen
+  >   siendo el disparador (b). Ponerle cajón a una pieza es opcional.
+  >
+  > **SU.6 · Pruebas que fijan la regla.** Las escriben backend y frontend. Todas deben estar **rojas** sobre el código de
+  > hoy, salvo SU-B3 (ii), que comprueba que no se rompe la guarda de slab:
+  > | # | Prueba | Espera | Muerde si |
+  > |---|---|---|---|
+  > | SU-B1 | `reevaluateForPublication` sobre raw `in_stock`, sin ubicación, con precio | `published` y la pieza `listed` | vuelve `:3168-3171` |
+  > | SU-B2 | `pending-publish`: (i) sin ubicación con precio; (ii) sin ubicación sin precio; (iii) `?missing=location` | (i) fuera de la cola; (ii) `missing` **exactamente** `["price"]`; (iii) `200`, `data: []`, `total: 0` | vuelve `:2021` |
+  > | SU-B3 | graded sin ubicación: (i) con cert + slab + precio; (ii) sin slab | (i) `published`; (ii) no se publica | se pierde la guarda de slab |
+  > | SU-B4 | `PUT …/sealed-products/:id/sale-price` con una pieza sin ubicación | `autoPublish = {published: 1, missingLocation: 0, notPublished: 0}` | vuelve el corte de ubicación |
+  > | SU-B5 | `convert-to-inventory` con el puerto que lanza | `pendingPublish.missing = ["price"]` | vuelve `["location","price"]` o sale `[]` |
+  > | SU-B6 | Script SU.3: sin `--apply` y luego `--apply` dos veces | sin `--apply` no escribe nada (cuenta de `listed` igual); 1.ª con `--apply` publica las que tienen precio; 2.ª `published: 0` | el modo sin `--apply` escribe |
+  > | SU-F1 | `sealedFinalPriceMode({status:'in_stock', ownerType:'platform', hasLocation:false})` | `'publish'` | vuelve `'save'` |
+  >
+  > Pruebas de hoy que fijan la regla vieja y se **reescriben** (no se borran): `inventory.publish-port.spec.ts:173`,
+  > `:223`, `:298`; `inventory.publish-port-variants.spec.ts:295`; `inventory.pending-publish.spec.ts:200`, `:208`,
+  > `:260`, `:338`; `inventory.sealed-final-price.spec.ts:686`; `integration/sealed-price.e2e-spec.ts:305`, `:569`;
+  > `integration/inventory-price-audit.e2e-spec.ts:518`, `:537`; `integration/pending-publish-seed.e2e-spec.ts:139`,
+  > `:162`, `:176-201`; `buylist.bl25-bl26.spec.ts:154`, `:180`; `buylist.security.spec.ts:270`, `:275`;
+  > `buylist.convert-guard.spec.ts:91`, `:111`, `:149`. En frontend: `SealedFinalPrice.test.tsx:155`, `:234`;
+  > `PendingPublishQueue.test.tsx:43`, `:76`; `lib/mock/fixtures.ts:6829`, `:6864`.
+  > **Semilla E2E:** `E2E_FOLIOS.pendingPublishNoLocation` (`prisma/seed-e2e.ts:598-624`) es raw sin cajón **con**
+  > precio. Con SU.1 deja de estar en la cola. Se cambia a una pieza **sin precio** (sigue habitando la cola con
+  > `["price"]`), o se añade una así y se aserta que la otra ya no está.
+  > ~~`enum-query-axes.e2e-spec.ts:412` (`alterno: 'location'`) **sigue verde** sin cambios: el valor sigue en el eje.~~
+  > **Falso, lo corrige SU.7 (1).**
+  >
+  > **SU.7 · Errata de esta errata (2026-10-07, mediciones de backend en `7e1462a6`, `BACKEND_NOTES §82`).**
+  > 1. **`C-EQ-1`, fila `?missing=`: ROJA sin cambios, no verde.** Backend la midió así sobre la regla nueva: «punto 1
+  >    fila 2 — FILTRA», distancia 0. Es determinista (N=1). Con SU-1 toda fila de la cola trae `missing = ["price"]`, así
+  >    que `?missing=price` devuelve lo mismo que no filtrar. Arreglo de backend: invertir a `valid: 'location'`,
+  >    `alterno: 'price'` (`enum-query-axes.e2e-spec.ts:411-415`). El dominio `allowed` y la clase L no cambian.
+  >    **Revisión del arquitecto.** Leí el árbol en `HEAD` de `claude/sin-ubicacion`, no el diff, porque no tengo git. La
+  >    inversión **conserva** lo que la propiedad `filtra` debe demostrar (`:1215-1234`):
+  >    - (1) Hay datos sin filtrar. Lo asegura la semilla `pendingPublishNoLocation`, ahora sin precio.
+  >    - (2) El token cambia el resultado. `?missing=location` da `[]` y la base no está vacía, así que «validar y tirar
+  >      el valor» (`QA-M3`) sale rojo.
+  >    - (3) El token discrimina. `location` da `[]` y `price` no está vacío, así que «vacío ante cualquier token» sale rojo.
+  >
+  >    Hay dos límites, y los dos son del dominio, no del candado:
+  >    - La (2) ahora la cumple el corte en seco de `?missing=location` (`BACKEND_NOTES §82`, «corta en seco»), no la
+  >      consulta SQL.
+  >    - Ya no hay token que seleccione un subconjunto **propio** no vacío, porque `price` equivale a toda la cola.
+  >      `C-EQ-1` no atraparía un `?missing=price` que devolviera un subconjunto equivocado pero no vacío. No he medido si
+  >      otra prueba lo fija. Con SU-1 no hay conducta distinta que fijar.
+  > 2. **`integration/buylist-item-final.e2e-spec.ts` BRJ-10 cambia de precondición** (faltaba en la lista de arriba).
+  >    La carta convertida tiene precio de mercado, así que el disparador (a) de SU.1 la publica en el acto. La pieza de
+  >    la precondición pasa de `in_stock` a **`listed`**. Lo que BRJ-10 asserta no cambia: `409 ITEM_FINAL`, fila
+  >    idéntica, 0 correos, 0 bitácora, pieza intacta.
+  > 3. **Añadidos de backend no previstos**: `previewPublication` y `loadPublishRunDials`. Quedan nombrados en SU.3 con la
+  >    condición «solo informa».
+  > 4. **Dónde corre el script y en qué orden respecto a la limpieza de base**: en SU.3, «Quién lo corre».
+  >
+  > **SU.9 · Deuda del contrato: cambiar el precio de un sellado re-publica sus retiradas (MENOR de QA, gate sobre
+  > `2c516314`, 2026-10-07).** `PUT …/sealed-products/:id/sale-price` corre el cuerpo sobre **todas** las piezas
+  > `platform ∧ in_stock` del producto (`sealed-price.service.ts:385-391`), así que también sobre las que el operador
+  > retiró de la venta. Ya pasaba antes de SU-1 con las piezas con cajón. SU-1 solo suma las que no tienen cajón. Es la
+  > misma clase de defecto que SU.3-R: el estado `in_stock` no distingue «retenida» de «retirada a propósito».
+  > - **Estado:** deuda **aceptada, no bloqueante**. Lo pedido es una alta en `docs/TECH_DEBT.md`, que escribe su
+  >   dueño.
+  > - **Dueño del arreglo:** backend (`inventory/`). **Dueño de la decisión de fondo:** arquitecto, porque es un
+  >   cambio de modelo. Las dos salidas posibles:
+  >   (a) Un estado o marca persistida de «retirada por el operador» que todo disparador automático respeta
+  >   (`move`, precio de sellado, barrido, alta de SU.8) y que solo un camino manual levanta. Toca el schema.
+  >   (b) Excluir por `AuditLog` en cada disparador. Se descarta como norma, porque lee la bitácora para decidir.
+  >   Hasta decidir, la conducta documentada es esta: **un disparador automático puede re-publicar una pieza
+  >   retirada**.
+  > - **NO MEDIDO:** si `move` (`inventory.service.ts:3327`) y el barrido de precios hacen lo mismo con una retirada.
+  >   Por la selección, `move` sí debería hacerlo (deducción, no medida). Lo cierra la misma prueba de QA con
+  >   «Mover de ubicación» sobre una pieza retirada.
+  >
+  > **SU.8 · El alta dispara la publicación (2026-10-07, arquitecto; cierra el NO MEDIDO de SU.3 (b)).**
+  > **El hueco, medido por lectura (orquestador y arquitecto, 2026-10-07; no ejecutado):** antes de SU-1 el camino del
+  > dueño era «alta sin cajón → cola "Sin ubicación" → mover a cajón → el `move` publica» (`tryAutoPublish(id,'move')`,
+  > `inventory.service.ts:3327`). Con SU-1 una pieza dada de alta **con precio** queda `missing = []`: fuera de la cola y
+  > sin publicar. Ningún alta llama al cuerpo: los únicos llamadores son `move` (`:3327`), `sealed-price.service.ts:391`
+  > y `buylist.service.ts:8088`. Ninguna pantalla de alta publica después (`grep publish` en `AddItemModal.tsx`,
+  > `AddGradedModal.tsx`, `QuickAdd.tsx`, `SealedAddFlow.tsx`: 0; `MasterSetPanel.tsx:320` solo es el callback del botón
+  > manual). QA tuvo que hacer `bulk-publish` tras dar de alta por la API (dato del orquestador). La fila de HECHOS
+  > («La ubicación (cajón) NO es requisito para publicar, por ahora», 2026-10-07) pide vender sin poner cajón: eso
+  > exige que el alta sea el disparador que antes era el `move`.
+  >
+  > **SU.8.1 · Las tres altas del servidor que crean `platform ∧ in_stock`** (`buildItemData`, `:1371-1372`; son los
+  > únicos `inventoryItem.create` de `inventory/`, más la conversión de buylist, que ya dispara):
+  > | Alta | Servidor | Pantallas que la usan |
+  > |---|---|---|
+  > | (A) `POST /admin/inventory/items` | `createItem` `:769-816` | `AddItemModal.tsx:168` (una carta), `AddGradedModal.tsx:55` |
+  > | (B) `POST /admin/inventory/items/batch` | `batchCreate` `:1400-1531` | `AddItemModal.tsx:209` (lote); `QuickAdd.tsx:157`, montado en `SealedAddFlow.tsx:407`, `SealedTab.tsx:370` y `VariantDrawer.tsx:270`; `MasterSetPanel.tsx:127` (carrito del binder, `CellDrawer.tsx:96`) |
+  > | (C) `POST /admin/inventory/adjustments` `reason:'encontrada'` | `adjustFound` `:3472-3590` | `CellDrawer.tsx:532-549` |
+  > `VariantDrawer.tsx:793` también llama a `adjustments`, pero con `inventoryItemId` (motivos sobre una pieza que ya
+  > existe): no es alta y no entra.
+  >
+  > **SU.8.2 · La regla.** Después del **commit** de la transacción del alta, se llama **al mismo cuerpo**
+  > (`reevaluateForPublication(ids)`, `:3052`) con los ids que **esta** petición acaba de crear. ⛔ Sin copia del pipeline,
+  > sin precio ni `status` pasados por el llamador. Decide `reevaluateOne` (`:3233`): con precio ⇒ `published` (`listed`);
+  > sin precio ⇒ escala a M2 y la pieza se queda en `pending-publish` con `missing` exactamente `["price"]` y su
+  > `pendingPriceEntryId`; guardas (p. ej. slab sin identidad) ⇒ `not_publishable`, sigue `in_stock`.
+  > - (A) un id; (B) todos los `inventoryItemIds` de las líneas `ok:true`, en **una** llamada (trocea y carga los
+  >   diales una vez, `:3058-3069`); (C) los `inventoryItemIds` de la respuesta.
+  > - **Solo en el procesamiento fresco.** El replay idempotente de (B) y (C) (fast-path `:1408-1409`, `:3489-3494`, y la
+  >   rama P2002 `:1519-1527`, `:3581-3589`) **no** dispara. Si disparara, re-publicaría una pieza que el operador
+  >   retiró de la venta entre la primera petición y el replay.
+  > - **Best-effort, y más estricto que el `move`.** Un fallo del disparo **no** cambia la respuesta del alta: se
+  >   captura, se registra (`logger.warn` con el folio) y la pieza queda `in_stock`, visible en `pending-publish` si le
+  >   falta precio o en M1 si no. Motivo: `tryAutoPublish` (`:3019-3035`) **no captura**; tras el `move` un `500` se
+  >   reintenta sin daño, pero (A) **no tiene clave de idempotencia** y un `500` después del commit invita a reintentar
+  >   ⇒ **pieza duplicada**. Forma recomendada (firma, no código): un helper privado
+  >   `publishCreated(ids: string[], trigger: 'alta' | 'alta_lote' | 'encontrada'): Promise<PublishReevaluationResult[]>`
+  >   que envuelve `reevaluateForPublication` en `try/catch` y devuelve `[]` si falla. ⛔ El `move` no cambia aquí.
+  > - Escalada de M2: el sellado sin precio ya escalaba en el alta (`escalateSealedAltaIfPriceless`, `:786-790`) con la
+  >   misma clave que la publicación, así que el disparo **no** abre una segunda entrada (dedupe por clave, `:777-785`).
+  >   **Nuevo:** raw/graded de **compra** sin precio hoy no escalan en el alta (solo la aportación, `:818-823`, y esa
+  >   lanza `422` sin crear); con SU.8 escalan por `reevaluateOne`. Es lo que pide la fase 8: *un pendiente visible*.
+  >
+  > **SU.8.3 · Respuestas. Sin campo nuevo.**
+  > - (A) `201 { id, folio, status, acquisitionCostCents }`: **`status` pasa a ser el estado resultante**, `"listed"` si
+  >   el disparo devolvió `published` y `"in_stock"` en cualquier otro caso (incluido el fallo capturado). El tipo ya era
+  >   `InventoryStatus`; lo que cambia es que deja de ser siempre `"in_stock"`. Es el mismo patrón que el `move` (S49-R4,
+  >   `:3328`).
+  > - (B) y (C) **no cambian de forma**: `BatchLineResult` y `InventoryAdjustmentResponse` se guardan dentro de la
+  >   transacción como fuente del replay (`resultJson`, `:1508-1515`, `:3569-3577`), **antes** del disparo. Un `status` por
+  >   pieza ahí sería falso en el replay, o exigiría reescribir `resultJson` después del commit. Se descarta.
+  >   `InventoryAdjustmentResponse.toStatus: "in_stock"` se queda: describe la fila `InventoryAdjustment`, no el estado
+  >   vivo de la pieza.
+  >
+  > **SU.8.4 · Frontend (texto; decide ux-ui la redacción).**
+  > - `AddItemModal.tsx:186-190` y `AddGradedModal.tsx:64`: con `status === "listed"`, decir que **quedó a la venta**;
+  >   con `"in_stock"`, que **aún no está a la venta** y se revisa en «Listas para publicar». Hoy `createToast`
+  >   (`es.json:1428`) solo dice «dada de alta». `AddGradedModal` no muestra aviso propio (solo `onCreated`); NO MEDIDO qué
+  >   pinta su llamador `M1View.tsx:391`.
+  > - Lote y «encontrada» (`batchToastAllOk` `es.json:1440`, `successOne`/`successSummary` `:5526-5527`): no hay dato por
+  >   pieza. Si se cambia el texto, que sea verdadero sin él: «las que tienen precio ya están a la venta; las demás,
+  >   en "Listas para publicar"». ⛔ No bloquea.
+  > - Mock: `api.ts:3885` devuelve `status: 'in_stock'` fijo. Si el texto depende de `status`, el mock debe poder dar
+  >   `"listed"`.
+  >
+  > **SU.8.5 · Pruebas.** Deben estar **rojas** sobre el código de hoy, salvo las marcadas *canario* (verdes hoy; fijan
+  > que la implementación no rompa algo):
+  > | # | Prueba | Espera | Muerde si |
+  > |---|---|---|---|
+  > | SU-B7 | (A) sin `locationId`, con precio que resuelve, tres casos: raw con `listPriceCents`; graded con cert + identidad de slab + precio; sellado sin producto con `listPriceCents` | `201`, `status:"listed"` en la respuesta **y** en BD | el alta no dispara, o la respuesta no relee el estado |
+  > | SU-B8 | (A) raw `compra` sin precio ni referencia | `201`, `status:"in_stock"`; en `pending-publish`, `missing` **exactamente** `["price"]` y `pendingPriceEntryId` no nulo | no escala (hoy no escala, por lectura) |
+  > | SU-B9 | (B) un lote con dos líneas: una con precio y otra sin él | la primera `listed`, la segunda `in_stock` con `["price"]`; `reevaluateForPublication` se llama **una** vez con exactamente los ids `ok:true` | no dispara, o dispara por pieza |
+  > | SU-B10 | (B) replay: tras la 1.ª corrida se retira de la venta la pieza publicada (`PATCH status:"in_stock"`); se repite el mismo `batchKey` | `idempotentReplay:true`, la pieza sigue `in_stock`, el cuerpo **no** se llama | el replay dispara (*canario*: verde hoy) |
+  > | SU-B11 | (C) `encontrada` raw con referencia | piezas `listed` | `adjustFound` no dispara |
+  > | SU-B12 | (A) y (B) con el cuerpo que lanza (`pricing.loadPricingCurve` rechaza) | `201` / `200`, la pieza existe `in_stock`, respuesta de (A) con `status:"in_stock"` | el fallo del disparo tumba el alta (*canario*: verde hoy) |
+  > | SU-F2 | `AddItemModal`: respuesta con `status:"listed"` y luego con `"in_stock"` | dos textos distintos (a la venta / aún no) | el aviso ignora `status` |
+  > El candado de dedupe `inventory.sealed-pending-dedup.spec.ts:216-236` (alta de sellado sin precio ⇒ **exactamente
+  > una** `PendingPriceEntry`) debe seguir verde **sin cambios**: con SU.8 el alta escala dos veces con la misma clave.
+  > **Pruebas de hoy que pueden cambiar, NO MEDIDO por ejecución** (candidatas por lectura; la lista exacta la mide
+  > backend corriendo la suite):
+  > - las que dan de alta con precio y aseveran `in_stock`, o que `inventoryItem.updateMany` no se llamó:
+  >   `inventory.adjustments.spec.ts:215`, `:355`, `:374`; `inventory.batch.spec.ts:363`, `:407`, `:431`;
+  >   `inventory.sealed-pending-dedup.spec.ts:247` (sin precio: no debería cambiar).
+  > - los arneses unitarios de alta que no simulan `inventoryItem.findMany` ni los diales: el disparo lanzará dentro del
+  >   `try/catch` y seguirán verdes, pero **sin probar nada**. SU-B7…B12 necesitan un arnés que sí los simule.
+  > - `integration/sealed-price.e2e-spec.ts:730` (alta del dueño con `listPriceCents: 5000`) y `:755` (SP-9,
+  >   «encontrada» con precio): esas piezas nacerán `listed`. Lo que aseveran hoy (código, `productType`,
+  >   `listPriceCents`) no depende del `status`, pero no lo he corrido.
+  > - E2E de QA: el `bulk-publish` tras el alta deja de hacer falta. Si se queda, sigue verde: re-publicar una `listed`
+  >   es no-op `ok:true` (`api.ts:3959-3961`).
   > **⚠️ v1.73 — `?missing=`, `?acquisitionType=` y `?productType=` los norma [§0-Q](#enum-query-filter)** (conducta ante
   > vacío, `400 VALIDATION_ERROR` con `details.field` + `details.allowed`). **`?missing=` es CLASE L** (§0-Q punto 3): su
   > dominio **`location | price`** no existe en el schema —no nombra un estado persistido, nombra **qué le falta a la
@@ -32574,6 +32907,8 @@ lleva `@HttpCode` explícito en cada ruta.
   > - **Res gana `pendingPublish: { missing: ("location" | "price")[], pendingPriceEntryId?: string }`** — el
   >   **enlace desde M5 a la cola de M1** (`GET /admin/inventory/pending-publish`). `missing: []` ⇒ la pieza ya se
   >   **publicó sola** (auto-publicación, criterio 125).
+  >   ⭐ **Errata SU-1 ([§M1-SU](#M1-SU)):** el servidor ya no emite `"location"`. Con precio que resuelve, la carta se
+  >   publica al convertir (`missing: []`). El degradado «no sé» pasa de `["location","price"]` a `["price"]`.
   Res `200`: `{ inventoryItemId, alreadyConverted: boolean, pendingPublish: { missing, pendingPriceEntryId? } }`.
 - **`POST /api/v1/admin/buylist/:id/reject` (v1.24-buylist-request-reject, NUEVO)** — `vault_operator`/`super_admin` (mismo guard que el resto de §M5 hasta verificación; **NO** es dinero saliente → sin `MoneyOutGuard`), **auditado** (`action: buylist.reject`). Botón «Rechazar solicitud» de M5: **cierre EXPLÍCITO** de una solicitud a estado terminal `rechazada`. Cubre el caso operativo que la auto-transición no alcanza: solicitudes **ya atoradas** cuyo(s) ítem(es) fueron rechazados **antes** del fix P-4 (o rechazadas por otra vía sin sellar la solicitud).
   Req: `{ reason?: string }` — `reason` **opcional** (0–500 chars), motivo interno del cierre a nivel solicitud; **NO PII**, va al `AuditLog` (`after`), no se expone al cliente ni al correo (no hay correo en este flujo). Body vacío `{}` es válido.
@@ -36222,7 +36557,8 @@ Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/e
 >   hábiles vive en la fila de la cola, no en el tablero: el tablero cuenta trabajo, no urgencia.)*
 > - **`buylistPendingGuideCancellation`** — guías compradas y no usadas (D22, criterio 139). *Una etiqueta comprada y
 >   olvidada es **dinero tirado que nadie ve**.*
-> - **`pendingPublish`** — piezas convertidas a las que les falta **ubicación o precio** (fase 8, criterio 125:
+> - **`pendingPublish`** — piezas convertidas a las que les falta **precio** (⭐ Errata SU-1, [§M1-SU](#M1-SU): la
+>   ubicación dejó de contar; antes decía «ubicación o precio») (fase 8, criterio 125:
 >   *«la cola es **visible en el dashboard** como parte de la cola de trabajo del back-office»*).
 > Los cuatro son **conteos**, sin campos de dinero ⇒ **visibles para `vault_operator`** como el resto de `workQueue`.
 
@@ -36811,7 +37147,8 @@ voy a meter con iva». Solicitudes: `DESIGN_SYSTEM §70.8`. Porqué: `ARCHITECTU
   ∧ status='in_stock' ∧ sealedProductId=:id` y llama a **`reevaluateForPublication(ids)`** (`inventory.service.ts:2837`):
   el **mismo** cuerpo, pipeline completo (`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`),
   idempotente. Mismo módulo ⇒ llamada directa, ⛔ sin pasar por el puerto (como el disparo (b), `:2808-2809`). Las piezas
-  sin ubicación salen `missing_location` y no se tocan.
+  sin ubicación salen `missing_location` y no se tocan. ⭐ **Errata SU-1 ([§M1-SU](#M1-SU)):** ya no; la pieza sin
+  ubicación se publica igual que las demás y `missingLocation` vale siempre `0`.
 - **Por qué SÍ:** el contrato ya obliga a intentar publicar **cuando el precio se vuelve resoluble** (§M1, momento (c)) y
   el `PUT` es exactamente ese momento para un producto sin mercado. Sin el disparo, una pieza en caja **con ubicación**
   que recibe el precio deja de cumplir el predicado de la cola (`missing = []`) y se queda `in_stock`: fuera de la venta y

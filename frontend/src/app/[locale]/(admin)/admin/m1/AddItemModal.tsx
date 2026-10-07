@@ -37,7 +37,7 @@ const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'compra'];
 
 export interface AddItemModalProps {
   onClose: () => void;
-  onToast: (t: { variant: 'success' | 'danger'; title: string; message: string; duration?: number }) => void;
+  onToast: (t: { variant: 'success' | 'danger' | 'info'; title: string; message: string; duration?: number }) => void;
 }
 
 /**
@@ -181,13 +181,25 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
       setSelectedCard(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-inventory'] });
       void queryClient.invalidateQueries({ queryKey: ['variant-pieces'] });
+      // §SU-UX.6 (e): el alta puede dejar la pieza en «Listas para publicar» → se refresca la cola.
+      void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
       onClose();
-      // P-4.3: toast flotante INEQUÍVOCO con el folio devuelto.
-      onToast({
-        variant: 'success',
-        title: t('createToastTitle'),
-        message: t('createToast', { folio: data.folio }),
-      });
+      // P-4.3 + §SU-UX.6 (a)/(b), SU.8.3: el aviso lo decide el `status` del 201, no el precio del formulario.
+      // `listed` ⇒ a la venta (success); cualquier otro ⇒ «aún no» (info, 9 s: texto más largo).
+      if (data.status === 'listed') {
+        onToast({
+          variant: 'success',
+          title: t('createToastTitle'),
+          message: t('createToastListed', { folio: data.folio }),
+        });
+      } else {
+        onToast({
+          variant: 'info',
+          title: t('createToastTitle'),
+          message: t('createToastNotListed', { folio: data.folio }),
+          duration: 9000,
+        });
+      }
     },
   });
 
@@ -214,18 +226,22 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
       setBatchCards([]);
       void queryClient.invalidateQueries({ queryKey: ['admin-inventory'] });
       void queryClient.invalidateQueries({ queryKey: ['variant-pieces'] });
+      void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
       const { createdItems, failedLines } = data.summary;
+      // §SU-UX.6 (d): el lote no trae `status` por pieza (SU.8.3) → la nota condicional va DETRÁS del texto de hoy.
+      const note = t('batchPublishNote');
       if (failedLines === 0) {
         onToast({
           variant: 'success',
           title: t('batchToastTitle'),
-          message: t('batchToastAllOk', { created: createdItems }),
+          message: `${t('batchToastAllOk', { created: createdItems })} ${note}`,
+          duration: 9000,
         });
       } else {
         onToast({
           variant: 'danger',
           title: t('batchToastTitle'),
-          message: t('batchToastPartial', { created: createdItems, failed: failedLines }),
+          message: `${t('batchToastPartial', { created: createdItems, failed: failedLines })} ${note}`,
           duration: 9000,
         });
       }
@@ -598,6 +614,9 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         )}
         <Select
           label={t('location')}
+          // §M1-SU (ubicación opcional): sin opción vacía el navegador pintaba el PRIMER cajón con el estado en ''
+          // ⇒ se veía un cajón y se enviaba ninguno. «Sin ubicación» = '' = `locationId` ausente: se ve lo que se envía.
+          placeholder={t('locationNone')}
           options={(locations.data ?? []).map((l) => ({ value: l.id, label: l.label }))}
           value={locationId}
           onChange={(e) => setLocationId(e.target.value)}

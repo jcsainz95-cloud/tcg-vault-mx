@@ -599,10 +599,10 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // PUBLICAR» (§4.39m.1, criterio 125). Ver el porqué largo en `E2E_FOLIOS.pendingPublishNoLocation`.
   //
   // Reproduce el estado en que nace una pieza CONVERTIDA desde M5 (`convertToInventory`): plataforma,
-  // `in_stock`, `acquisitionType='buylist'`, costo = el bruto ofertado de la línea… y **SIN ubicación**,
-  // porque la conversión no la exige (atorar ahí atoraría el pago al vendedor). Resultado observable:
-  // `missing: ['location']` y un precio de venta que SÍ resuelve (la carta tiene referencia de
-  // mercado), que es exactamente el perfil de las filas reales de esta cola.
+  // `in_stock`, `acquisitionType='buylist'`, SIN ubicación (la conversión no la exige). ⭐ Errata SU-1
+  // (API_CONTRACT §M1-SU): la ubicación ya NO es requisito para publicar, así que una pieza con precio
+  // resoluble ya no habita la cola. Por eso la carta es `nopref` (SIN `PriceReference`): el precio NO
+  // resuelve ⇒ `missing: ['price']`, `resolvedSalePriceCents: null`, `priceBasis: 'pending'`.
   //
   // ⚠️ **NO lleva `sourceSellRequestItemId`.** Esa FK es única y colgarla de una de las dos
   // `SellRequest` del ciclo marcaría esa línea como YA CONVERTIDA, rompiendo las pruebas del ciclo
@@ -616,17 +616,21 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await upsertItem(
     E2E_FOLIOS.pendingPublishNoLocation,
     {
-      cardId: cardIds[E2E_CARDS.common.externalId],
+      // SU-1: la carta SIN referencia de mercado ⇒ el precio de venta no resuelve (lo que le falta).
+      cardId: cardIds[E2E_CARDS.nopref.externalId],
       productType: 'raw',
       rawCondition: 'NM',
       ownerType: 'platform',
       status: 'in_stock',
       acquisitionType: 'buylist',
-      // La curva paga 50 % de los $50 de mercado del común: el BRUTO que se le ofertó al vendedor.
+      // El BRUTO que se le ofertó al vendedor (precio capturado a mano en M5: sin mercado no hay curva).
       acquisitionCostCents: 2500,
-      // locationId AUSENTE a propósito: es lo que le falta y lo que la cola existe para señalar.
+      // locationId AUSENTE: como nace una pieza convertida. Desde SU-1 no es lo que la retiene.
     },
     {
+      // SU-1: el reset también re-apunta la carta — una BD sembrada antes de SU-1 la tiene en `common` (con
+      // precio), y sin esto la pieza saldría de la cola en la primera corrida.
+      cardId: cardIds[E2E_CARDS.nopref.externalId],
       ownerType: 'platform',
       ownerUserId: null,
       ownershipStatus: null,

@@ -289,11 +289,12 @@ describe('⚠️ (4) es un ADAPTADOR: mismas guardas, mismo cuerpo', () => {
     expect(rows[0].status).toBe('in_stock');
   });
 
-  it('sin ubicación NO publica, aunque la variante ya tenga precio', async () => {
+  it('⭐ SU-1 (§M1-SU): sin ubicación SÍ publica cuando la variante ya tiene precio — el mismo desenlace que por id', async () => {
     const { port, rows } = build([piece({ id: 'a', locationId: null })]);
     const res = await port.reevaluateVariantsForPublication([RAW_NM]);
-    expect(res.map((r) => r.outcome)).toEqual(['missing_location']);
-    expect(rows[0].status).toBe('in_stock');
+    expect(res.map((r) => r.outcome)).toEqual(['published']);
+    expect(rows[0].status).toBe('listed');
+    expect(rows[0].locationId).toBeNull();
   });
 
   it('sin precio resoluble NO publica y escala: el mismo desenlace que por id', async () => {

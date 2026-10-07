@@ -20510,3 +20510,77 @@ censo sin cambio).
 
 **Pendiente / fuera de alcance.** El resumen de las 08:00 (AN-UX.8d) es de backend. «Mes pasado» compara con los mismos
 días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 default): si el dueño cambia, son textos.
+
+## §106 · ⭐ **Errata SU-1 — la ubicación deja de ser requisito para publicar** (2026-10-07, rama `claude/sin-ubicacion`; `API_CONTRACT §M1-SU` SU.4/SU.6, `ARCHITECTURE §4.65`)
+
+- **`sealedFinalPriceMode`** (`m1/SealedFinalPrice.tsx`): `in_stock` ⇒ `'publish'` **siempre**. Antes, sin cajón,
+  devolvía `'save'` («Guardar precio» sin `status`): con SU.1 eso dejaba la pieza con `missing = []`, fuera de la cola
+  y sin publicar. `hasLocation` se conserva en la firma (dormido) para que revertir sea una línea
+  (`p.hasLocation ? 'publish' : 'save'`). La rama `'save'` y sus textos (`noLocationHint`, `effectNoLocation`,
+  `savedNoLocation`, `reason.location`) quedan **dormidos** — inalcanzables, sin borrar (paridad i18n intacta).
+- **Prueba SU-F1** (`SealedFinalPrice.test.tsx`): unitaria sobre `sealedFinalPriceMode` + DOM en la cola (sin cajón
+  ⇒ único botón «Guardar y publicar», `PATCH {listPriceCents, status:'listed'}`). Sustituye a la antigua FP-3.
+- **Cola** (`PendingPublishQueue.tsx`): sin cambio de conducta; las ramas `'location'` de `MissingCell`/`ReasonLines`
+  se conservan dormidas (el tipo no cambia). Comentario de cabecera actualizado.
+- **Fixtures y pruebas a la forma nueva** (`missing ⊆ ["price"]`): `lib/mock/fixtures.ts` `inv-pub-1` (sin cajón,
+  ahora **sin precio**, `ppe-76`) e `inv-pub-3`; `PendingPublishQueue.test.tsx` (fila base y aserción
+  «⛔ nunca "Ubicación"»).
+- **Revisado sin cambio:** `AddItemModal` (cajón ya opcional), `ItemDetailModal`, `SealedPriceSavedNotice`
+  (`missingLocation` vale 0 ⇒ no se pinta), E2E `precios-s5.spec.ts` (usa una pieza con cajón) y `admin.spec.ts @real`
+  (depende de que la semilla E2E de backend deje ≥1 pieza en la cola: SU.6 «Semilla E2E», del lado backend).
+- **Pendiente segunda vuelta:** los textos de ux-ui (`es.json` «antes de IVA», avisos de cajones vacíos,
+  descubribilidad del folio) cuando `DESIGN_SYSTEM.md` los publique.
+
+### §106.1 · Segunda vuelta — textos y descubribilidad de `DESIGN_SYSTEM §SU-UX` (ux-ui `11a6d98b`) — 2026-10-07
+
+- **Textos (ES/EN):** `publishQueue.note` (2.ª frase nueva: sellado ligado «con IVA», suelto «antes de IVA»; la
+  1.ª igual), claves nuevas `publishQueue.openHint`, `move.noTargets`, `move.noOtherTarget`, `move.manageLocations`.
+  Las dormidas de SU-UX.2 se conservan.
+- **Cola:** folio subrayado siempre (`underline decoration-border … hover:decoration-current`) y `openHint` bajo el
+  subtítulo solo con filas.
+- **Ficha (`ItemDetailModal`):** sin destino para «Mover» ⇒ en lugar de `Select` + nota + «Mover», el aviso
+  (`noTargets` si no existe ninguna `platform_stock` activa; `noOtherTarget` si la pieza ya está en la única) y el
+  enlace «Ir a Ubicaciones» a `/admin/m1?locations=open` (cierra la ficha al pulsar). Prop nueva opcional
+  `locationsReady` (por defecto `true`): con `false` se pinta el selector de siempre, ⛔ un «no hay ubicaciones» que es
+  «no sé». La cola le pasa `locations.isSuccess`; los demás llamadores (VariantDrawer, M11, MasterSetPanel) no se
+  tocaron.
+- **`M1View`:** lee `?locations=open` con `useSearchParams` (no solo al montar: el enlace también se pulsa dentro de M1,
+  donde la vista no se re-monta), abre `LocationsModal` y quita el parámetro con `replaceState`, como `tab`.
+- **Candados SU-UX-1…6:** `m1/SinUbicacion.su-ux.test.tsx`.
+
+### §106.2 · SU.8 — el aviso tras el alta dice si la pieza quedó a la venta (`DESIGN_SYSTEM §SU-UX.6–7` vSU-2, ux-ui `f18cf4ae`; `API_CONTRACT §M1-SU` SU.8.3–SU.8.5, SU-F2) — 2026-10-07
+
+- **Una pieza (`AddItemModal`, `AddGradedModal`):** decide el `status` del `201` (⛔ no el precio del formulario).
+  `listed` ⇒ `success` (`createToastListed` / `addGraded.successListed`); cualquier otro ⇒ `info`, `duration: 9000`
+  (`createToastNotListed` / `addGraded.successNotListed`). Título `admin.m1.createToastTitle` en los dos modales.
+- **`AddGradedModal`:** prop opcional nueva `onToast` (misma forma que la de `AddItemModal`, ahora con `'info'`);
+  `M1View` le pasa `pushToast`. `onCreated` se sigue llamando antes del aviso. El banner verde dentro del modal
+  (`addGraded.success`, «Gradeada dada de alta · folio …») **se conserva**: §SU-UX.6 la daba por no usada, pero
+  `AddGradedModal.tsx` la pinta tras el alta (medido por lectura). Por eso no se borra.
+- **`admin.m1.createToast` queda dormida.** Ninguna prueba la lee, pero no se borra en este pase (revertir = una línea).
+- **Lote:** `batchPublishNote` va **detrás** del texto de hoy, separada por un espacio, en `AddItemModal` (todo bien
+  → `success` y ahora `duration: 9000`; con fallos → `danger` como hoy) y en el **toast** de `QuickAdd`. El
+  resultado dentro del panel de `QuickAdd` no cambia.
+- **Refresco de la cola:** `invalidateQueries({ queryKey: ['pending-publish'] })` (prefijo, cubre M11) tras toda alta
+  correcta: `AddItemModal` (una y lote), `QuickAdd`, `M1View.invalidateAggregates` (gradeada; también corre tras
+  «Publicar todo» y cambios del drawer, donde también es correcto) y `MasterSetPanel.invalidateAggregates` (carrito
+  del binder y «encontrada» vía `onAdjusted`; sin candado propio).
+- **Mock** (`api.ts` `createInventoryItem`): `listed` si el alta trae `listPriceCents > 0` o si la carta ya tiene
+  `referenceValue.status === 'priced'` en `mockInventory` (p. ej. Charizard); si no, `in_stock`. Así se ven las dos
+  variantes en modo mock. `// MOCK` marcado.
+- **Prueba de hoy cambiada:** `M1View.test.tsx` P-4.3 buscaba el texto viejo exacto con `status:"in_stock"`; ahora
+  busca `createToastNotListed`.
+- **Candados SU-UX-7…11** (SU-UX-7 = SU-F2): `m1/AltaPublica.su-ux.test.tsx`. Deterministas (espías de `@/lib/api`).
+- **Fuera de este pase:** «encontrada» de `CellDrawer` sin aviso de éxito propio (como dice §SU-UX.6).
+
+### §106.x · Cierre de gates sobre `2c516314` (2026-10-07)
+- **QA IMPORTANTE — lo que se ve es lo que se envía.** `AddItemModal` pintaba el primer cajón con `locationId=''` (no había
+  opción vacía) y la pieza se creaba sin ubicación. Ahora `placeholder={t('locationNone')}` («Sin ubicación» / «No location»,
+  clave nueva `admin.m1.locationNone`; §SU-UX no traía texto, es el mínimo con paridad). Misma clase en `CellDrawer`
+  (QuickAddSection del Master Set): la opción `''` se rotulaba `common.all` («Todos»); ahora usa la misma clave.
+  `AddGradedModal` y `QuickAdd` (m1) no tienen selector de ubicación: sin defecto. Candados:
+  `m1/UbicacionOpcional.su-ux.test.tsx` y `MasterSet.test.tsx` («CellDrawer: la opción vacía…»), rojos antes del arreglo.
+- **QA MENOR — `locationsReady`.** `VariantDrawer` acepta `locationsReady` (por defecto `false`: quien no lo sabe no afirma
+  «no hay ubicaciones») y lo reenvía a `ItemDetailModal`; `M1View` y `M11View` pasan `locations.isSuccess`.
+- **Techlead D3.** SU-UX-10 en `MasterSet.test.tsx`: carrito y `encontrada` invalidan `['pending-publish']`.
+- **Techlead D4** registrada en `TECH_DEBT.md` (TD-SU-D4a/b).

@@ -409,7 +409,10 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/inventory/items', param: 'productType', clazz: 'E', allowed: Object.values(ProductType), valid: 'graded', alterno: 'raw', auth: 'admin', echoValue: false },
   { route: 'GET /admin/inventory/pending-publish', param: 'acquisitionType', clazz: 'E', allowed: Object.values(AcquisitionType), valid: 'compra', alterno: 'buylist', auth: 'admin', echoValue: false },
   // ⭐ `D-EQ-2` · CLASE L: `location | price` no existe en el schema — nombra QUÉ LE FALTA a la fila.
-  { route: 'GET /admin/inventory/pending-publish', param: 'missing', clazz: 'L', allowed: PENDING_PUBLISH_MISSING_VALUES, valid: 'price', alterno: 'location', auth: 'admin', echoValue: false },
+  // ⭐ SU-1 (§M1-SU, SU.2): con el cajón fuera de la regla, TODA fila de la cola trae `missing` = `['price']`, así que
+  // `?missing=price` ≡ sin filtro y no puede demostrar «filtra» (distancia 0 frente a la base). Se invierten `valid` y
+  // `alterno`: `?missing=location` ⇒ `data: []` (≠ base, FILTRA) y `price` lo DISCRIMINA. El dominio (`allowed`) no cambia.
+  { route: 'GET /admin/inventory/pending-publish', param: 'missing', clazz: 'L', allowed: PENDING_PUBLISH_MISSING_VALUES, valid: 'location', alterno: 'price', auth: 'admin', echoValue: false },
   // ⭐ **`EQ-D3` (este pase, M11) — `?productType=`: el eje que la cola de «Listas para publicar» de
   // M11 monta con `productType=sealed` y que HASTA HOY el endpoint NO tenía**, así que NestJS lo
   // ignoraba y la cola devolvía TODO — una carta SUELTA (`raw`) se colaba en la cola «filtrada a

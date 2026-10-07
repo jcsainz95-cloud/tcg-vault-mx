@@ -417,15 +417,16 @@ export const E2E_FOLIOS = {
    * **preexistente** (el seed nunca sembró `in_stock`, ni una vez en toda su historia) y solo se vio
    * cuando la suite E2E completa corrió por primera vez contra el stack real.
    *
-   * **Por qué le falta la UBICACIÓN y no el precio.** Es el caso que ocurre de verdad: la conversión
-   * desde M5 **no exige ubicación a propósito** (§4.39m.3 — exigirla atoraría el pago al vendedor),
-   * así que la pieza nace en una caja que todavía no existe. El precio, en cambio, **resuelve**:
-   * contra el stack real todas las piezas de la cola tienen precio resoluble, y forzar lo contrario
-   * sería fabricar una coincidencia de fixture. Además así la fila ejercita el invariante de dinero
-   * de la cola —**jamás `MX$0.00` para «no resoluble»**, §7.3—: se pinta un importe REAL, y una
-   * regresión que resolviera cero se vería.
+   * **Por qué le falta el PRECIO (⭐ Errata SU-1, API_CONTRACT §M1-SU, 2026-10-07).** Hasta SU-1 era una
+   * raw SIN caja CON precio (`missing: ['location']`). Desde SU-1 la ubicación **no es requisito para
+   * publicar** (HECHOS «La ubicación (cajón) NO es requisito para publicar, por ahora»): esa pieza ya
+   * no le falta nada y saldría de la cola. Ahora es la carta `nopref` (sin `PriceReference`), **sin
+   * caja y sin precio** ⇒ `missing: ['price']`, `resolvedSalePriceCents: null`, `priceBasis: 'pending'`.
+   * Así la fila ejercita el otro lado del invariante de dinero de la cola —**el «no resoluble» viaja
+   * como `null`, jamás como `MX$0.00`**, §7.3—. El nombre del folio se conserva (lo citan el contrato
+   * y otras suites): «NoLocation» sigue siendo verdad, solo dejó de ser la razón de estar en la cola.
    *
-   * ⚠️ **NO le pongas ubicación ni la publiques «para dejarla bonita»**: en cuanto no le falte nada,
+   * ⚠️ **NO le pongas precio ni la publiques «para dejarla bonita»**: en cuanto no le falte nada,
    * la auto-publicación la saca sola (sin botón, D10) y la cola vuelve a quedar vacía.
    */
   pendingPublishNoLocation: 'E2E-STK-0001',
