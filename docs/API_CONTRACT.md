@@ -10,6 +10,19 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata SU-1 — LA UBICACIÓN DEJA DE SER REQUISITO PARA PUBLICAR, POR AHORA (2026-10-07, arquitecto, árbol
+> `/home/user/tcg-ubic`, rama `claude/sin-ubicacion`; ⛔ sha NO MEDIDO: sin Bash; numeración NO MEDIDA contra ramas vivas).**
+> Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Norma entera en
+> **[§M1-SU](#M1-SU)**; porqué en `ARCHITECTURE §4.65`. Sin schema, migración, endpoint, código de error ni campo nuevo.
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | SU-1 | Regla de publicación | Plataforma `in_stock` + guardas + precio que resuelve ⇒ se publica. `locationId` no cuenta (raw, graded, sellado) | **Sí**: lo convertido en M5 con precio sale a la venta al instante | backend |
+> | SU-2 | `missing: "location"` | Se **conserva** en tipos y contrato, **dormido**: el servidor no lo emite; `?missing=location` ⇒ `200` vacío; `missing_location` y `missingLocation` siempre 0 | No (sin cambio de tipos) | backend |
+> | SU-3 | Piezas retenidas hoy | Barrido único con el mismo cuerpo (`reevaluateForPublication`) sobre `platform ∧ in_stock ∧ locationId IS NULL` | **Sí** (publica el rezago) | backend (+ quién lo corre: orquestador) |
+> | SU-4 | Sellado en la cola | `sealedFinalPriceMode`: `in_stock` ⇒ siempre «Guardar y publicar» | Sí | frontend |
+> | SU-5 | Texto | `es.json:1596` dice «antes de IVA» para todo el sellado; el precio del producto es **con IVA** (M-71) | Texto | ux-ui → frontend |
+>
 > **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2 (2026-10-06, arquitecto, árbol `/home/user/tcg-ventas`,
 > rama `claude/analitica-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash).** Norma
 > entera: **[§15](#AN)**. Porqué: `ARCHITECTURE §4.64`. ⛔ Numeración NO MEDIDA contra #78 y otras ramas vivas.
@@ -14054,6 +14067,104 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   publicar»** (fase 8, D10, criterio 125). *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
   Query: `?missing=location|price&acquisitionType=&productType=&setId=&page=&pageSize=` (todos opcionales; `pageSize` ≤ 100).
   Res `200`: `{ data: PendingPublishRowDTO[], page, pageSize, total }` (§11).
+  > <a id="M1-SU"></a>**⭐⭐ Errata SU-1 (2026-10-07) — LA UBICACIÓN NO ES REQUISITO PARA PUBLICAR, POR AHORA. MANDA SOBRE
+  > todo lo que, en esta entrada y en las demás, diga «ubicación + precio ⇒ publicada», «le falta ubicación» o
+  > `missing_location`.** Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora»
+  > (2026-10-07; dueño: *«no requiero de poner ubicación por el momento, quítalo»*). Porqué: `ARCHITECTURE §4.65`.
+  >
+  > **SU.1 · La regla.** Una pieza `ownerType='platform'`, `status='in_stock'`, se publica cuando pasa
+  > `assertPublishableGuards` y su precio de venta resuelve. **`locationId` no entra en la decisión**, para los tres tipos:
+  > - **raw:** precio de la curva / override de variante / `listPriceCents` (sin cambios).
+  > - **graded:** igual, y **siguen** exigiéndose `certNumber` e identidad de slab (`inventory.service.ts:1737-1742` y
+  >   siguientes) — esas guardas no cambian.
+  > - **sealed:** ligado ⇒ precio del dueño del producto (`P`, con IVA, M-71); sin producto ⇒ `listPriceCents` por pieza
+  >   (`L`, antes de IVA, `D-SP-4`). Sin cambios salvo la ubicación.
+  >
+  > Predicado nuevo de la cola: `ownerType='platform' ∧ status='in_stock' ∧ precio NO resoluble`.
+  > Los cuatro disparadores siguen iguales: (a) convertir en M5, (b) mover ubicación, (c) precio que se vuelve resoluble
+  > (barrido, override de M2, `PUT` del precio de un producto sellado). **Cambio observable:** (a) ahora publica en el
+  > acto una carta convertida cuyo precio resuelve; antes se quedaba en la cola por falta de cajón.
+  > Los caminos manuales (`bulk-publish`, `publish-all`, `PATCH … status:'listed'`) **no cambian**: ya no leían
+  > `locationId` (medido por lectura, `assertPublishableGuards` `inventory.service.ts:1726-1760`).
+  >
+  > **SU.2 · El vocabulario `location` se CONSERVA, dormido** (decisión: lo más simple y reversible).
+  > - `PendingPublishRowDTO.missing: ("location" | "price")[]`, `?missing=location|price`,
+  >   `PublishReevaluationOutcome` (`missing_location`) y `SealedAutoPublishDTO.missingLocation` **no cambian de tipo**.
+  > - **Mientras rija la fila de HECHOS, el servidor no emite `"location"`**: `missing ⊆ ["price"]`; el resultado
+  >   `missing_location` no se produce; `missingLocation` vale siempre `0`.
+  > - `?missing=location` **sigue siendo válido** (clase L, §0-Q; sin `400`) y responde `200 { data: [], total: 0 }`.
+  > - El degradado de `convert-to-inventory` (puerto ausente o que lanza; hoy `["location","price"]`,
+  >   `buylist.service.ts:8077`) pasa a **`["price"]`**: «no sé» sigue significando «todo lo que podría faltar», y hoy eso
+  >   es solo el precio. ⛔ Nunca `[]`.
+  > - Revertir = devolver las dos líneas de SU.1 y este degradado. Los tipos, la paridad (`C-EQ-1`,
+  >   `enum-query-axes.e2e-spec.ts:412`) y los clientes no se tocan en ninguno de los dos sentidos.
+  >
+  > **SU.3 · El rezago: lo que la regla vieja dejó retenido.** Al desplegar, cada pieza `platform ∧ in_stock ∧
+  > locationId IS NULL` cuyo precio resuelve pasa a `missing = []`: **sale de la cola y no se publica**, porque ningún
+  > disparador corre sobre ella. Sería una pieza pagada fuera de la venta y fuera de toda pantalla (fase 8, criterio 125).
+  > - **Norma:** un barrido único, idempotente, con **el mismo cuerpo** (`reevaluateForPublication(ids)`, ⛔ sin copia del
+  >   pipeline) sobre esa selección. Con precio ⇒ `published`; sin precio ⇒ escala a M2 y se queda en la cola con
+  >   `["price"]`; guardas ⇒ `not_publishable`.
+  > - **Forma:** script de backend `backend/scripts/reevaluate-unlocated.ts` (contexto Nest, sin HTTP). Por defecto **no
+  >   escribe** y cuenta: `selected`, `wouldPublish`, `pricePending`, `notPublishable`. Con `--apply` corre el cuerpo y
+  >   cuenta por `outcome`. Una segunda corrida con `--apply` da `published: 0`.
+  > - **Quién lo corre y dónde:** lo decide el orquestador. La credencial vive en Railway, así que el dueño lo corre ahí o
+  >   devops lo cablea al despliegue (CLAUDE.md, «Secretos»). Va en el cuerpo de la solicitud de fusión.
+  > - **Alternativa sin script:** el botón «Publicar todo» de M1 (`POST /admin/inventory/publish-all`, `M1View.tsx:313`).
+  >   Publica el rezago, pero también **re-publica las piezas `in_stock` CON ubicación que alguien retiró de la venta a
+  >   propósito** (`ItemDetailModal` «Retirar de venta»). Cuántas hay: **NO MEDIDO**. Se mide con
+  >   `SELECT count(*) FROM "InventoryItem" WHERE "ownerType"='platform' AND status='in_stock' AND "locationId" IS NOT NULL`.
+  >
+  > **SU.4 · Frontend.** `sealedFinalPriceMode` (`SealedFinalPrice.tsx:50`): `in_stock` ⇒ **`'publish'` siempre**.
+  > Hoy, sin ubicación, devuelve `'save'` («Guardar precio» manda `{listPriceCents}` sin `status`). Con SU.1, esa pieza
+  > queda con `missing = []`, sale de la cola **sin publicarse** y ningún disparador la recoge: el mismo hueco de SU.3,
+  > fabricado desde la UI. Por eso es obligatorio. La rama `'save'` y sus textos (`es.json:5935`, `:5949`, `:5957`,
+  > `:6004`, `:1606`) quedan **dormidos**: inalcanzables, conservados para revertir y para no mover la paridad de i18n
+  > (`i18n-sealed-product-price.test.ts:30`). Las ramas `'location'` de `MissingCell`/`ReasonLines`
+  > (`PendingPublishQueue.tsx:52`, `:115`) y la línea `missingLocation` de `SealedPriceSavedNotice.tsx:42` no se pintan,
+  > porque el servidor ya no emite ese valor. Sin cambio.
+  >
+  > **SU.5 · Lo que NO cambia (medido por lectura, 2026-10-07):**
+  > - **Preparación y picking.** Ya toleran pieza sin cajón: `LocationView` `{kind:'unassigned'}`
+  >   (`preparation-view.ts:40`, `:145`); orden con las `unassigned` al final (`shipments.service.ts:1532-1542`);
+  >   «Sin ubicar» + `LocateItemControl` en la tarjeta (`ShipPreparationCard.tsx:900-916`) y en la hoja impresa
+  >   (`PrintSheetView.tsx:116`, `:133`). Efecto: habrá más filas «Sin ubicar» en la hoja de trabajo. Ningún verbo de
+  >   preparación exige ubicación (`grep location_required` en `shipments/`: vacío).
+  > - **Bóveda/custodia del cliente.** `VaultPlacement` `confirm` **sigue** exigiendo cajón de custodia
+  >   (`vault-placement.service.ts:511-513`, `reason:'location_required'`), igual que `replacement-case.service.ts:520`.
+  >   No es publicar, y la fila de HECHOS habla de publicar. Si el dueño quiere también custodia sin cajón, es otra decisión
+  >   suya (no asumida aquí).
+  > - **Export `.xlsx`.** La columna «Ubicación» se queda (`inventory.service.ts:618`) y una pieza sin cajón ya sale con
+  >   celda vacía (`:3938`, `it.location?.label ?? ''`).
+  > - **Tablero.** No se encontró ningún conteo `pendingPublish` en el tablero (`grep pendingPublish` en
+  >   `backend/src/modules/admin`: vacío), así que no hay conteo que cambie. La línea de `workQueue.pendingPublish` de este
+  >   contrato pasa a decir «les falta precio».
+  > - **«Mover de ubicación» / «Ubicar» (M1 `ItemDetailModal`, M4 `LocateItemControl`).** Siguen disponibles y siguen
+  >   siendo el disparador (b). Ponerle cajón a una pieza es opcional.
+  >
+  > **SU.6 · Pruebas que fijan la regla.** Las escriben backend y frontend. Todas deben estar **rojas** sobre el código de
+  > hoy, salvo SU-B3 (ii), que comprueba que no se rompe la guarda de slab:
+  > | # | Prueba | Espera | Muerde si |
+  > |---|---|---|---|
+  > | SU-B1 | `reevaluateForPublication` sobre raw `in_stock`, sin ubicación, con precio | `published` y la pieza `listed` | vuelve `:3168-3171` |
+  > | SU-B2 | `pending-publish`: (i) sin ubicación con precio; (ii) sin ubicación sin precio; (iii) `?missing=location` | (i) fuera de la cola; (ii) `missing` **exactamente** `["price"]`; (iii) `200`, `data: []`, `total: 0` | vuelve `:2021` |
+  > | SU-B3 | graded sin ubicación: (i) con cert + slab + precio; (ii) sin slab | (i) `published`; (ii) no se publica | se pierde la guarda de slab |
+  > | SU-B4 | `PUT …/sealed-products/:id/sale-price` con una pieza sin ubicación | `autoPublish = {published: 1, missingLocation: 0, notPublished: 0}` | vuelve el corte de ubicación |
+  > | SU-B5 | `convert-to-inventory` con el puerto que lanza | `pendingPublish.missing = ["price"]` | vuelve `["location","price"]` o sale `[]` |
+  > | SU-B6 | Script SU.3: sin `--apply` y luego `--apply` dos veces | sin `--apply` no escribe nada (cuenta de `listed` igual); 1.ª con `--apply` publica las que tienen precio; 2.ª `published: 0` | el modo sin `--apply` escribe |
+  > | SU-F1 | `sealedFinalPriceMode({status:'in_stock', ownerType:'platform', hasLocation:false})` | `'publish'` | vuelve `'save'` |
+  >
+  > Pruebas de hoy que fijan la regla vieja y se **reescriben** (no se borran): `inventory.publish-port.spec.ts:173`,
+  > `:223`, `:298`; `inventory.publish-port-variants.spec.ts:295`; `inventory.pending-publish.spec.ts:200`, `:208`,
+  > `:260`, `:338`; `inventory.sealed-final-price.spec.ts:686`; `integration/sealed-price.e2e-spec.ts:305`, `:569`;
+  > `integration/inventory-price-audit.e2e-spec.ts:518`, `:537`; `integration/pending-publish-seed.e2e-spec.ts:139`,
+  > `:162`, `:176-201`; `buylist.bl25-bl26.spec.ts:154`, `:180`; `buylist.security.spec.ts:270`, `:275`;
+  > `buylist.convert-guard.spec.ts:91`, `:111`, `:149`. En frontend: `SealedFinalPrice.test.tsx:155`, `:234`;
+  > `PendingPublishQueue.test.tsx:43`, `:76`; `lib/mock/fixtures.ts:6829`, `:6864`.
+  > **Semilla E2E:** `E2E_FOLIOS.pendingPublishNoLocation` (`prisma/seed-e2e.ts:598-624`) es raw sin cajón **con**
+  > precio. Con SU.1 deja de estar en la cola. Se cambia a una pieza **sin precio** (sigue habitando la cola con
+  > `["price"]`), o se añade una así y se aserta que la otra ya no está.
+  > `enum-query-axes.e2e-spec.ts:412` (`alterno: 'location'`) **sigue verde** sin cambios: el valor sigue en el eje.
   > **⚠️ v1.73 — `?missing=`, `?acquisitionType=` y `?productType=` los norma [§0-Q](#enum-query-filter)** (conducta ante
   > vacío, `400 VALIDATION_ERROR` con `details.field` + `details.allowed`). **`?missing=` es CLASE L** (§0-Q punto 3): su
   > dominio **`location | price`** no existe en el schema —no nombra un estado persistido, nombra **qué le falta a la
@@ -32574,6 +32685,8 @@ lleva `@HttpCode` explícito en cada ruta.
   > - **Res gana `pendingPublish: { missing: ("location" | "price")[], pendingPriceEntryId?: string }`** — el
   >   **enlace desde M5 a la cola de M1** (`GET /admin/inventory/pending-publish`). `missing: []` ⇒ la pieza ya se
   >   **publicó sola** (auto-publicación, criterio 125).
+  >   ⭐ **Errata SU-1 ([§M1-SU](#M1-SU)):** el servidor ya no emite `"location"`. Con precio que resuelve, la carta se
+  >   publica al convertir (`missing: []`). El degradado «no sé» pasa de `["location","price"]` a `["price"]`.
   Res `200`: `{ inventoryItemId, alreadyConverted: boolean, pendingPublish: { missing, pendingPriceEntryId? } }`.
 - **`POST /api/v1/admin/buylist/:id/reject` (v1.24-buylist-request-reject, NUEVO)** — `vault_operator`/`super_admin` (mismo guard que el resto de §M5 hasta verificación; **NO** es dinero saliente → sin `MoneyOutGuard`), **auditado** (`action: buylist.reject`). Botón «Rechazar solicitud» de M5: **cierre EXPLÍCITO** de una solicitud a estado terminal `rechazada`. Cubre el caso operativo que la auto-transición no alcanza: solicitudes **ya atoradas** cuyo(s) ítem(es) fueron rechazados **antes** del fix P-4 (o rechazadas por otra vía sin sellar la solicitud).
   Req: `{ reason?: string }` — `reason` **opcional** (0–500 chars), motivo interno del cierre a nivel solicitud; **NO PII**, va al `AuditLog` (`after`), no se expone al cliente ni al correo (no hay correo en este flujo). Body vacío `{}` es válido.
@@ -36222,7 +36335,8 @@ Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/e
 >   hábiles vive en la fila de la cola, no en el tablero: el tablero cuenta trabajo, no urgencia.)*
 > - **`buylistPendingGuideCancellation`** — guías compradas y no usadas (D22, criterio 139). *Una etiqueta comprada y
 >   olvidada es **dinero tirado que nadie ve**.*
-> - **`pendingPublish`** — piezas convertidas a las que les falta **ubicación o precio** (fase 8, criterio 125:
+> - **`pendingPublish`** — piezas convertidas a las que les falta **precio** (⭐ Errata SU-1, [§M1-SU](#M1-SU): la
+>   ubicación dejó de contar; antes decía «ubicación o precio») (fase 8, criterio 125:
 >   *«la cola es **visible en el dashboard** como parte de la cola de trabajo del back-office»*).
 > Los cuatro son **conteos**, sin campos de dinero ⇒ **visibles para `vault_operator`** como el resto de `workQueue`.
 
@@ -36811,7 +36925,8 @@ voy a meter con iva». Solicitudes: `DESIGN_SYSTEM §70.8`. Porqué: `ARCHITECTU
   ∧ status='in_stock' ∧ sealedProductId=:id` y llama a **`reevaluateForPublication(ids)`** (`inventory.service.ts:2837`):
   el **mismo** cuerpo, pipeline completo (`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`),
   idempotente. Mismo módulo ⇒ llamada directa, ⛔ sin pasar por el puerto (como el disparo (b), `:2808-2809`). Las piezas
-  sin ubicación salen `missing_location` y no se tocan.
+  sin ubicación salen `missing_location` y no se tocan. ⭐ **Errata SU-1 ([§M1-SU](#M1-SU)):** ya no; la pieza sin
+  ubicación se publica igual que las demás y `missingLocation` vale siempre `0`.
 - **Por qué SÍ:** el contrato ya obliga a intentar publicar **cuando el precio se vuelve resoluble** (§M1, momento (c)) y
   el `PUT` es exactamente ese momento para un producto sin mercado. Sin el disparo, una pieza en caja **con ubicación**
   que recibe el precio deja de cumplir el predicado de la cola (`missing = []`) y se queda `in_stock`: fuera de la venta y

@@ -4,6 +4,11 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
+> `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
+> porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
+> para el rezago y una línea de frontend.
+>
 > **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2** (2026-10-06, arquitecto, rama `claude/analitica-ventas`
 > en `/home/user/tcg-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT`
 > gana **§15** ([#AN](API_CONTRACT.md#AN)); porqué en **§4.64**; desviaciones `D-AN-1…3` en §9. Tres endpoints nuevos en M9
@@ -18767,6 +18772,8 @@ ownerType='platform' ∧ status='in_stock' ∧ ( locationId IS NULL  ∨  precio
 
 Cada fila dice **qué le falta** (`missing: ("location"|"price")[]`) y, si falta precio, trae el `pendingPriceEntryId`
 para el deep-link a la cola de precio pendiente de M2. **La pieza sin ubicación sale SEÑALADA** (criterio 125).
+> ⭐ **Errata SU-1 (2026-10-07, §4.65):** el término `locationId IS NULL` sale del predicado, y «ubicación +» sale de
+> (m.2). El servidor ya no emite `"location"`. El vocabulario se conserva dormido.
 
 **(m.2) Auto-publicación: «ubicación + precio ⇒ publicada», sin botón.**
 La publicación **se intenta** en los tres momentos en que puede dejar de faltar algo: **(a)** al convertir, **(b)** al
@@ -28899,6 +28906,73 @@ Norma: `API_CONTRACT §15.11`. Lo que cambia en la forma y por qué:
 Rendimiento (§4.64.6): +1 consulta en la fase C (pedidos con `chargebackOpenedAt` en el periodo, columnas enumeradas) +1
 `count` de no fechados; la mezcla por tipo reusa los renglones que ya trae `top`. Sin índice nuevo (mismo disparador que
 `settledAt`). ⚠️ **NO MEDIDO** con qué regional abre el dueño Excel (`API_CONTRACT §15.7`).
+
+### 4.65 SIN UBICACIÓN — el cajón deja de ser requisito para publicar, por ahora (Errata SU-1, 2026-10-07, NORMATIVO, 💰 **publica inventario pagado**)
+
+**Norma:** `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). El dueño
+la escribió desde la cola «Listas para publicar (sellado)», con INV-002043 detenida por «Sin ubicación». Contrato:
+`API_CONTRACT §M1-SU`. Sustituye en §4.39m (m.1) el término `locationId IS NULL` del predicado y en (m.2) el «ubicación +»
+de «ubicación + precio ⇒ publicada». (m.3) se queda: la conversión ya no exigía cajón.
+
+**(a) Dónde vivía el requisito, medido por lectura.** En **dos** sitios, y solo en la ruta automática:
+`pendingPublishStateOf` (`inventory.service.ts:2021`, `missing.push('location')`) y `reevaluateOne` (`:3168-3171`,
+corte `missing_location` antes de las guardas). Los caminos manuales ya publicaban sin cajón: `assertPublishableGuards`
+(`:1726-1760`) no lee `locationId`, y `bulkPublish` / `publishAll` / el `PATCH` pasan por él. La regla era incoherente
+antes de esta errata. El dueño podía publicar desde «Publicar» de la ficha (`ItemDetailModal.tsx:307-315`). Desde la
+cola no podía, porque la fila del sellado le ofrecía solo «Guardar precio» (`SealedFinalPrice.tsx:50`).
+
+**(b) Decisión: borrar las dos líneas y conservar el vocabulario dormido.** El predicado y el disparo siguen siendo un
+solo cuerpo (`pendingPublishStateOf` → `reevaluateOne`). Solo pierden el término de ubicación.
+- **Descartado: retirar `location` del enum.** Habría que tocar el contrato, `types/contract.ts`, la paridad clase L
+  (`C-EQ-1`, `enum-query-axes`), el DTO de sellado (`missingLocation`) y cuatro ramas de frontend. Revertir pediría lo
+  mismo al revés. Con «por el momento», el coste de ida y vuelta manda.
+- **Descartado: «sin ubicación» como chip informativo que no bloquea.** Una pieza con precio se publica y sale de la cola,
+  así que el chip solo se vería en las que no tienen precio. Pondría junto a lo que bloquea algo que no bloquea. Además,
+  el dueño dijo «quítalo».
+- **Descartado: una constante `PUBLISH_REQUIRES_LOCATION`.** Mantendría vivas las dos ramas con pruebas para un
+  interruptor que hoy nadie pide. Revertir es un `git revert` de dos líneas, porque el vocabulario sigue en su sitio.
+
+**(c) El rezago es lo que hace falta de verdad, no un detalle.** La cola descansa en una premisa: «`missing = []` ⇒ la
+auto-publicación ya la sacó» (`inventory.service.ts:2139-2141`). Las piezas retenidas solo por el cajón tienen precio y
+ningún disparador pendiente. Al desplegar caen a `missing = []` y desaparecen de la cola **sin publicarse**. Es la
+contradicción exacta de la fase 8. Por eso SU.3 hace un barrido único con el mismo cuerpo, por defecto sin escribir. Por
+la misma premisa, SU.4 del frontend es obligatoria: «Guardar precio» sin `status` fabricaría el mismo hueco desde la UI.
+Hay un hueco hermano **preexistente**, que no se arregla aquí: el `PATCH` de `listPriceCents` sin `status` sobre una pieza
+`in_stock` **con** cajón no dispara la publicación. Solo el `move` llama a `tryAutoPublish` (`:3252`). El frontend lo
+esquiva mandando siempre `status:'listed'`.
+
+**(d) Efectos colaterales (medidos por lectura; detalle en `API_CONTRACT §M1-SU` SU.5).**
+- La preparación ya tolera `unassigned`. Habrá más «Sin ubicar» en la hoja.
+- La custodia del cliente (`VaultPlacement`) sigue exigiendo cajón. La fila de HECHOS no la cubre.
+- El export conserva la columna, vacía cuando no hay cajón.
+- El tablero no tiene conteo `pendingPublish` implementado.
+- Cambio de conducta que el dueño debe leer en la solicitud de fusión: **una carta convertida en M5 con precio queda a
+  la venta en el acto**, sin cajón.
+
+**(e) Por qué el dueño «no puede mover ubicación en ningún lado» (medido por lectura, 2026-10-07; datos de prod NO
+MEDIDOS).**
+1. En la cola, el único camino es **pulsar el folio**. Es un `<button>` que parece texto y solo se subraya al pasar el
+   ratón (`PendingPublishQueue.tsx:306-316`). Abre `ItemDetailModal`, que sí tiene «Mover de ubicación»
+   (`ItemDetailModal.tsx:331-364`, `canMove` en `in_stock`).
+2. El selector solo ofrece cajones **activos de `platform_stock`** (`ItemDetailModal.tsx:186-188`). Si no hay ninguno, el
+   selector sale **vacío y sin aviso**. `LocateItemControl` de M4 sí avisa (`es.json:2521`, «Créalas en Inventario»), pero
+   solo se monta en la preparación de un pedido (`ShipPreparationCard.tsx:912-916`), no en la cola.
+3. **Sí hay pantalla para crear cajones:** el botón «Ubicaciones» de la barra de **M1** (`M1View.tsx:310` →
+   `LocationsModal`, zona por defecto `platform_stock`, `LocationsModal.tsx:37`). **No está en M11**, donde estaba el
+   dueño: `M11View.tsx:110` monta la cola, pero no el gestor de cajones.
+4. ¿Hay cajones `platform_stock` activos en producción? **NO MEDIDO.** Lo cierra
+   `SELECT zone, "isActive", count(*) FROM "VaultLocation" GROUP BY 1,2` o `GET /admin/locations`.
+Con SU-1 nada de esto bloquea la venta. Mejoras para cuando el cajón vuelva a importar, ⛔ no bloqueantes y para ux-ui:
+el aviso de «no hay cajones» en el selector de la ficha y una affordance visible en el folio.
+
+**(f) Texto erróneo (para ux-ui → frontend).** `frontend/messages/es.json:1596` (`admin.m1.publishQueue.note`) dice «Solo
+el producto sellado admite aquí un precio a mano, **antes de IVA**». Es falso para el caso común. La fila del sellado
+**ligado** monta `SealedProductPriceEditor` (`PendingPublishQueue.tsx:325-348`), que escribe el precio del dueño del
+producto **con IVA**: es lo que paga el cliente (M-71, §4.62). Solo la pieza sellada **sin producto** lleva `L` antes de
+IVA (`D-SP-4`, §4.62.8 (g)). Hay que decir las dos cosas, o ninguna cifra de IVA. Ejemplo, que ux-ui afina: «Aquí solo
+el sellado admite precio a mano: el del producto, con IVA (lo que paga el cliente); una pieza sellada sin producto,
+antes de IVA». También está desfasado el docblock de `PendingPublishQueue.tsx:178-181` («que con ubicación ES el gesto
+de publicar»). `basis.manual` (`es.json:1599`, «a mano, antes de IVA») es correcto: solo lo usan raw/graded.
 
 ---
 
