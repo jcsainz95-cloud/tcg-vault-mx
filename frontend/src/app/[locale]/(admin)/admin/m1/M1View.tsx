@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Search, Plus, Megaphone, MapPin, FileSpreadsheet } from 'lucide-react';
@@ -112,6 +113,20 @@ export function M1View() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [locationsOpen, setLocationsOpen] = useState(false);
+  /**
+   * §SU-UX.3 (b): `?locations=open` (enlace «Ir a Ubicaciones» de la ficha sin destino) abre «Ubicaciones» y se quita
+   * de la URL, igual que `tab`. Con `useSearchParams` y no solo al montar: el enlace también se pulsa desde la propia
+   * M1 (cola, drill-down), donde la vista no se re-monta.
+   */
+  const searchParams = useSearchParams();
+  const wantsLocations = searchParams?.get('locations') === 'open';
+  useEffect(() => {
+    if (!wantsLocations) return;
+    setLocationsOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('locations');
+    window.history.replaceState(null, '', url.toString());
+  }, [wantsLocations]);
   const [publishAllOpen, setPublishAllOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState | null>(null);
   const [addGraded, setAddGraded] = useState<{ open: boolean; card?: { id: string; name: string } | null }>({
@@ -170,6 +185,8 @@ export function M1View() {
     void queryClient.invalidateQueries({ queryKey: ['sealed-sets'] });
     void queryClient.invalidateQueries({ queryKey: ['sealed-set-detail'] });
     void queryClient.invalidateQueries({ queryKey: ['graded-inventory'] });
+    // §SU-UX.6 (e): un alta (gradeada) puede dejar la pieza en «Listas para publicar»; prefijo ⇒ cubre M11 también.
+    void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
   }
 
   function drawerFromItem(item: InventoryItemDTO): DrawerState {
@@ -351,6 +368,7 @@ export function M1View() {
         <VariantDrawer
           {...drawer}
           locations={locations.data ?? []}
+          locationsReady={locations.isSuccess}
           onClose={() => setDrawer(null)}
           onChanged={invalidateAggregates}
           onToast={(msg) => pushToast({ variant: 'success', title: t('title'), message: msg })}
@@ -378,6 +396,7 @@ export function M1View() {
           card={addGraded.card}
           onClose={() => setAddGraded({ open: false })}
           onCreated={invalidateAggregates}
+          onToast={pushToast}
         />
       )}
 

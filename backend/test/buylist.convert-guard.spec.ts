@@ -82,13 +82,14 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
     const res = await svc.convertToInventory('sri-1', 'actor');
     // v1.51.18 (fase 8): la respuesta gana `pendingPublish` (deep-link de M5 a la cola de M1) y
     // `alreadyConverted`. Aquí el puerto NO está cableado (test unitario), así que el degradado
-    // honesto es «no sé»: `['location','price']`. **Jamás `[]`**, que significaría «ya está a la
+    // honesto es «no sé»: todo lo que podría faltar — desde la errata SU-1 (§M1-SU, SU.2) eso es solo
+    // `['price']` (la ubicación ya no es requisito). **Jamás `[]`**, que significaría «ya está a la
     // venta» y sacaría la pieza de la pantalla que existe para encontrarla.
     expect(res).toEqual({
       inventoryItemId: 'inv-1',
       folio: 'INV-000001',
       alreadyConverted: false,
-      pendingPublish: { missing: ['location', 'price'] },
+      pendingPublish: { missing: ['price'] },
     });
     expect(prisma.inventoryItem.create).toHaveBeenCalledTimes(1);
     expect(created.id).toBe('inv-1');
@@ -108,7 +109,7 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
     expect(res).toEqual({
       inventoryItemId: 'inv-existing',
       alreadyConverted: true,
-      pendingPublish: { missing: ['location', 'price'] },
+      pendingPublish: { missing: ['price'] },
     });
     expect(prisma.inventoryItem.create).not.toHaveBeenCalled();
   });
@@ -146,7 +147,7 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
     await expect(svc.convertToInventory('sri-1', 'actor')).resolves.toEqual({
       inventoryItemId: 'inv-other',
       alreadyConverted: true,
-      pendingPublish: { missing: ['location', 'price'] },
+      pendingPublish: { missing: ['price'] },
     });
   });
 });

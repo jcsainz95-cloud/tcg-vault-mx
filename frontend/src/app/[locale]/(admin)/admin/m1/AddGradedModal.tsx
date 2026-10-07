@@ -27,11 +27,17 @@ export interface AddGradedModalProps {
   /** Carta prefijada (desde la teja del Master Set); ausente = picker mínimo por búsqueda. */
   card?: { id: string; name: string } | null;
   onCreated?: () => void;
+  /**
+   * §SU-UX.6: aviso tras el alta, misma forma que `AddItemModal.onToast` (M1View le pasa `pushToast`). Lo decide el
+   * `status` del 201 (SU.8.3): `listed` ⇒ a la venta; cualquier otro ⇒ «aún no».
+   */
+  onToast?: (t: { variant: 'success' | 'danger' | 'info'; title: string; message: string; duration?: number }) => void;
 }
 
-export function AddGradedModal({ open, onClose, card, onCreated }: AddGradedModalProps) {
+export function AddGradedModal({ open, onClose, card, onCreated, onToast }: AddGradedModalProps) {
   const t = useTranslations('admin.inventory.addGraded');
   const tc = useTranslations('common');
+  const tM1 = useTranslations('admin.m1');
   const errorMessage = useErrorMessage('operator');
 
   const [query, setQuery] = useState('');
@@ -61,7 +67,23 @@ export function AddGradedModal({ open, onClose, card, onCreated }: AddGradedModa
         acquisitionType: 'compra',
         acquisitionCostCents: price.trim() !== '' ? Math.round(Number(price) * 100) : undefined,
       }),
-    onSuccess: () => onCreated?.(),
+    onSuccess: (data) => {
+      onCreated?.();
+      if (data.status === 'listed') {
+        onToast?.({
+          variant: 'success',
+          title: tM1('createToastTitle'),
+          message: t('successListed', { folio: data.folio }),
+        });
+      } else {
+        onToast?.({
+          variant: 'info',
+          title: tM1('createToastTitle'),
+          message: t('successNotListed', { folio: data.folio }),
+          duration: 9000,
+        });
+      }
+    },
   });
 
   const certMissing = cert.trim() === '';

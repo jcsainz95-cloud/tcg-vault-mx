@@ -84,7 +84,9 @@ export const INVENTORY_PUBLISH_PORT = 'INVENTORY_PUBLISH_PORT';
  *
  * - `published` — pasó el pipeline completo y quedó `listed`.
  * - `already_listed` — ya estaba a la venta; el disparo fue un no-op (idempotencia).
- * - `missing_location` — sin ubicación: no se publica **y no se escala nada** (el hueco es de
+ * - `missing_location` — ⭐ **DORMIDO desde la errata SU-1 (§M1-SU, SU.2): no se produce** mientras la ubicación no
+ *   sea requisito para publicar (HECHOS 2026-10-07); se conserva en el tipo para revertir. Su sentido original:
+ *   sin ubicación: no se publica **y no se escala nada** (el hueco es de
  *   captura, no de mercado; escalar ensuciaría la cola de M2 con piezas cuyo precio sí resuelve).
  * - `price_pending` — sin precio resoluble. **Escaló a la cola de M2** ⇒ es un *pendiente visible*.
  * - `not_publishable` — status de origen no publicable, no es de plataforma, o perdió una carrera

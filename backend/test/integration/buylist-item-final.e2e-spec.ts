@@ -5,7 +5,8 @@
  *
  * La solicitud nace por la PUERTA (`POST /buylist/requests`); el ESTADO de partida se siembra por `h.prisma` y la
  * CONDUCTA (aprobar, convertir, rechazar) va por HTTP. La carta `convertida_inventario` se fabrica por los verbos reales
- * (`approve` → `convert-to-inventory`), así que su pieza `in_stock` existe de verdad.
+ * (`approve` → `convert-to-inventory`), así que su pieza existe de verdad (⭐ SU-1, §M1-SU: con precio resoluble y sin
+ * cajón la conversión la publica en el acto ⇒ nace `listed`; antes se quedaba `in_stock` por falta de ubicación).
  *
  * BRJ-13 va en dos formas: (a) el entrelazado del defecto E-3 FORZADO con el candado de fila de Postgres (la conversión
  * se detiene en el `INSERT "InventoryItem"` —su FK a `"Card"` pide `FOR KEY SHARE`— mientras el rechazo confirma
@@ -176,7 +177,8 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
     const antes = await foto(srId, itemId);
     expect(antes.item).toMatchObject({ itemStatus: 'convertida_inventario', approvedPriceCents: 8000, inventoryItemId });
     expect(antes.request.approvedTotalCents).toBe(8000);
-    expect(antes.piezas).toEqual([{ id: inventoryItemId, status: 'in_stock', acquisitionCostCents: 8000 }]);
+    // ⭐ SU-1 (§M1-SU, SU.1 disparador (a)): la carta tiene precio de mercado ⇒ la conversión la publicó sin cajón.
+    expect(antes.piezas).toEqual([{ id: inventoryItemId, status: 'listed', acquisitionCostCents: 8000 }]);
     enviados = [];
     const res = await decide(itemId, { decision: 'reject', reason: 'llegó doblada' });
     esItemFinal(res, itemId, 'convertida_inventario');

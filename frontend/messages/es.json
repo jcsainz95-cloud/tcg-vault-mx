@@ -1426,6 +1426,8 @@
       "gradedNoBulk": "El alta masiva no aplica a gradeadas: cada certificado (cert #) es único por pieza, así que las gradeadas se dan de alta una por una.",
       "createToastTitle": "Alta registrada",
       "createToast": "Pieza dada de alta · folio {folio}.",
+      "createToastListed": "Pieza dada de alta y a la venta · folio {folio}.",
+      "createToastNotListed": "Pieza dada de alta · folio {folio}. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar».",
       "multiSelect": "Seleccionar varias cartas (alta masiva)",
       "batchAdd": "Añadir al lote",
       "batchInLote": "En el lote",
@@ -1439,6 +1441,7 @@
       "batchToastTitle": "Alta masiva",
       "batchToastAllOk": "{created} cartas dadas de alta.",
       "batchToastPartial": "{created} creadas, {failed} con error. Revisa el detalle.",
+      "batchPublishNote": "Las que tienen precio quedan a la venta; si a alguna le falta, la encuentras en «Listas para publicar».",
       "batchReplay": "Reintento idempotente (no se duplicó).",
       "batchLine": "Carta {index}",
       "productType": "Tipo de producto",
@@ -1458,6 +1461,7 @@
       "gradingCompany": "Gradeadora",
       "gradeValue": "Grado",
       "location": "Ubicación (Caja/Fila/Slot)",
+      "locationNone": "Sin ubicación",
       "acquisitionType": "Tipo de adquisición",
       "acquisitionPct": "% aportación en especie",
       "noPhotoNotice": "Sin foto propia: se usa la imagen de catálogo de pokemontcg.io. Para gradeadas se captura empresa + grado + certificado.",
@@ -1529,7 +1533,10 @@
         "note": "Nota (opcional)",
         "action": "Mover",
         "success": "Item movido a {label}.",
-        "error": "No se pudo mover el item."
+        "error": "No se pudo mover el item.",
+        "noTargets": "No hay ubicaciones de stock creadas. No hacen falta para vender; si quieres ordenar el stock, créalas en Inventario › Ubicaciones.",
+        "noOtherTarget": "Esta es la única ubicación de stock. Para moverla, crea otra en Inventario › Ubicaciones.",
+        "manageLocations": "Ir a Ubicaciones"
       },
       "mark": {
         "title": "Marcar pérdida / daño",
@@ -1593,7 +1600,8 @@
         "pendingPriceLink": "Ver en la cola de precio pendiente",
         "sealedMark": "SELLADO",
         "sealedUnidentified": "Sellado sin identificar",
-        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio a mano, antes de IVA.",
+        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. El sellado sí: si la pieza está ligada a un producto, pones el precio del producto, con IVA, y vale para todas sus piezas; si no lo está, pones el precio de esa pieza, antes de IVA.",
+        "openHint": "Pulsa un folio para abrir la pieza y ver lo que puedes hacer con ella.",
         "openPiece": "Abrir la pieza {folio}",
         "basis": {
           "manual": "a mano, antes de IVA",
@@ -5455,7 +5463,9 @@
         "certRequired": "Captura el número de certificado.",
         "price": "Precio de compra (MXN)",
         "cta": "Dar de alta al inventario",
-        "success": "Gradeada dada de alta · folio {folio}."
+        "success": "Gradeada dada de alta · folio {folio}.",
+        "successListed": "Gradeada dada de alta y a la venta · folio {folio}.",
+        "successNotListed": "Gradeada dada de alta · folio {folio}. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar»."
       }
     },
     "pricing": {

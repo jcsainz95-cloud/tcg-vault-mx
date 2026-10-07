@@ -1426,6 +1426,8 @@
       "gradedNoBulk": "Bulk add doesn't apply to graded cards: each certificate (cert #) is unique per slab, so graded cards are added one at a time.",
       "createToastTitle": "Item added",
       "createToast": "Item added to the vault · folio {folio}.",
+      "createToastListed": "Item added and on sale · folio {folio}.",
+      "createToastNotListed": "Item added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”.",
       "multiSelect": "Select multiple cards (bulk add)",
       "batchAdd": "Add to batch",
       "batchInLote": "In batch",
@@ -1439,6 +1441,7 @@
       "batchToastTitle": "Bulk add",
       "batchToastAllOk": "{created} cards added.",
       "batchToastPartial": "{created} added, {failed} failed. Check the details.",
+      "batchPublishNote": "Those with a price go on sale; if any is missing one, you'll find it in “Ready to publish”.",
       "batchReplay": "Idempotent retry (no duplicates).",
       "batchLine": "Card {index}",
       "productType": "Product type",
@@ -1458,6 +1461,7 @@
       "gradingCompany": "Grading company",
       "gradeValue": "Grade",
       "location": "Location (Box/Row/Slot)",
+      "locationNone": "No location",
       "acquisitionType": "Acquisition type",
       "acquisitionPct": "In-kind contribution %",
       "noPhotoNotice": "No own photo: the pokemontcg.io catalog image is used. Graded items capture company + grade + certificate.",
@@ -1529,7 +1533,10 @@
         "note": "Note (optional)",
         "action": "Move",
         "success": "Item moved to {label}.",
-        "error": "We couldn't move the item."
+        "error": "We couldn't move the item.",
+        "noTargets": "There are no stock locations yet. They aren't needed to sell; if you want to organize stock, create them in Inventory › Locations.",
+        "noOtherTarget": "This is the only stock location. To move it, create another one in Inventory › Locations.",
+        "manageLocations": "Go to Locations"
       },
       "mark": {
         "title": "Mark lost / damaged",
@@ -1593,7 +1600,8 @@
         "pendingPriceLink": "See in the pending price queue",
         "sealedMark": "SEALED",
         "sealedUnidentified": "Unidentified sealed product",
-        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set price here, before VAT.",
+        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Sealed is the exception: if the item is linked to a product, you set the product's price, VAT included, and it applies to all its items; if it isn't, you set that item's price, before VAT.",
+        "openHint": "Click a folio to open the item and see what you can do with it.",
         "openPiece": "Open item {folio}",
         "basis": {
           "manual": "set by hand, before VAT",
@@ -5455,7 +5463,9 @@
         "certRequired": "Enter the certificate number.",
         "price": "Purchase price (MXN)",
         "cta": "Add to inventory",
-        "success": "Graded card added · folio {folio}."
+        "success": "Graded card added · folio {folio}.",
+        "successListed": "Graded card added and on sale · folio {folio}.",
+        "successNotListed": "Graded card added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”."
       }
     },
     "pricing": {

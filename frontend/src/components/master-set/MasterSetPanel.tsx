@@ -139,6 +139,8 @@ export function MasterSetPanel({
     void queryClient.invalidateQueries({ queryKey: ['master-sets'] });
     void queryClient.invalidateQueries({ queryKey: ['master-set-binder'] });
     void queryClient.invalidateQueries({ queryKey: ['cell-pieces'] });
+    // §SU-UX.6 (e): el alta del carrito puede dejar piezas en «Listas para publicar» → se refresca la cola.
+    void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
   }
 
   /** Encola la línea en el LOTE pendiente (alta por lote; se confirma con `submitBatch`). */

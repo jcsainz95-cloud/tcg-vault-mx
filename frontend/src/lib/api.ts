@@ -3878,11 +3878,18 @@ export async function createInventoryItem(
     });
   }
   // MOCK: pendiente de backend real — devuelve el shape 201 del contrato con folio simulado.
+  // §M1-SU SU.8.3: `status` es el estado RESULTANTE del alta (el disparo publica si hay precio). El mock lo aproxima
+  // para poder ver las dos variantes del aviso (§SU-UX.6 (f)): `listed` si el alta trae `listPriceCents > 0` o si la
+  // carta ya tiene referencia de mercado en los fixtures (precio que resuelve); si no, `in_stock`.
   const seq = String(fx.mockInventory.length + 1).padStart(6, '0');
+  const resolvesPrice =
+    (input.listPriceCents ?? 0) > 0 ||
+    (input.productType !== 'sealed' &&
+      fx.mockInventory.some((i) => i.card.id === input.cardId && i.referenceValue?.status === 'priced'));
   return delay({
     id: `inv-new-${seq}`,
     folio: `INV-${seq}`,
-    status: 'in_stock',
+    status: resolvesPrice ? 'listed' : 'in_stock',
     acquisitionCostCents: 0,
   });
 }
