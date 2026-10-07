@@ -4,6 +4,12 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.87⟨wishlist⟩ — lista de deseos, «lista de compra casi segura» y «avísame» de sellados encendido** (2026-10-07,
+> arquitecto, rama `claude/wishlist` en `/home/user/tcg-wishlist`, HEAD dado por el orquestador `c36f0dea`; ⛔ sha NO
+> MEDIDO: sin Bash). Norma en `API_CONTRACT §WSH`; porqué en **§4.WSH**; migración **`M-74`** en §11; desviaciones
+> **D-WSH-1…7** en §9. Módulo nuevo `wishlist`; el aviso sale de un barrido por estado con deduplicación por
+> `(cuenta, pieza)`, no de un evento por escritor.
+>
 > **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
 > `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
 > porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
@@ -29004,6 +29010,88 @@ de publicar»). `basis.manual` (`es.json:1599`, «a mano, antes de IVA») es cor
   cajón saldría `missing_location` y la que nace con cajón y precio se publicaría al alta, que es lo que «ubicación +
   precio ⇒ publicada» ya pedía.
 
+### 4.WSH Lista de deseos, «lista de compra casi segura» y «avísame» de sellados (rev v1.87⟨wishlist⟩, 2026-10-07)
+
+Norma en `API_CONTRACT §WSH`. Criterios `PROJECT` 800–827. Decisiones del dueño: `HECHOS.md` filas 2026-10-07
+«Respuestas a P-WSH-1…6» y «P-WSH-1 aclarada y P-WSH-4 cerrada». Aquí va el **porqué**.
+
+**(a) Módulo propio.** `backend/src/modules/wishlist/` es dueño de `WishlistItem`, `WishlistNotice` y `WishlistMail`, de
+la aritmética (`common/wishlist-math.ts`, pura) y de los dos jobs de aviso. Lee precios por los seams de `pricing`
+(`getReferencesBatch`, `decideSalePrice`) y la vendibilidad por un método público nuevo del catálogo (`sellableByIds`,
+mismo cuerpo que `fetchSellable`). ⛔ Ningún cálculo de precio propio: *dos fuentes para un precio* es la clase de defecto
+que este proyecto más repite. Work stream sugerido: uno propio, «Lista de deseos», que toca zonas compartidas
+(`prisma/`, `settings.constants.ts`, `jobs/scheduler.service.ts`, `API_CONTRACT.md`) ⇒ se serializa con la rama de
+accesorios (§AC, M-73), que también toca schema y contrato (NO MEDIDO qué toca exactamente).
+
+**(b) El aviso sale del ESTADO, no de un evento.** Medido por lectura: al menos seis caminos escriben `status='listed'`
+(alta por SU.8, `bulk-publish`, buylist `buylist.service.ts:8088`, sellado `sealed-price.service.ts:391`, ingesta
+`price-ingest.service.ts:988`, liberación de reserva `orders/reservation.ts:59`). Engancharse a cada uno deja el
+séptimo sin aviso, y el séptimo nadie lo ve. Un barrido cada 5 min sobre «piezas que casan y son vendibles» + un
+**único** `(userId, inventoryItemId)` cubre todos los caminos, incluido el que todavía no existe.
+- **Descartado: outbox escrito por cada escritor de `listed`.** Más inmediato, pero exige tocar seis módulos de dinero
+  y vuelve a depender de que el próximo se acuerde.
+- **Descartado: `listedAt` en `InventoryItem`.** Haría falta mantenerlo en los seis escritores (mismo problema) y no
+  resuelve «una vez por pieza» cuando la pieza vuelve de una reserva.
+- **Coste aceptado:** hasta 5 min de retraso + la ventana de agrupado (30 min por defecto). El dueño pidió «avisar», no
+  «avisar al instante».
+
+**(c) Deduplicación.** «Una vez por pieza y por cuenta» = el único de `WishlistNotice`. Consecuencias deliberadas:
+- una pieza reservada y liberada no repite (810); una pieza nueva de la misma carta sí;
+- el deseo agregado con pieza ya a la venta inserta filas `suppressed` en la misma transacción (812);
+- pausa, correo sin verificar o cuenta inactiva ⇒ `skipped`, sin recuperación posterior;
+- borrar el deseo borra sus avisos (cascada). Si la cuenta lo vuelve a agregar mientras la pieza está a la venta, cae
+  en `suppressed`. Si lo vuelve a agregar con la pieza **reservada** y ésta se libera, recibe un aviso de una pieza que
+  ya le avisaron. Se acepta: requiere quitar y volver a poner el deseo en esa ventana.
+
+**(d) El máximo es una señal, nunca un precio.** Ninguna superficie vende al máximo ni a un precio por cliente (`HECHOS`
+2026-10-07 «P-WSH-1 aclarada…», opción A descartada). Por eso `wishlist/` **no importa** nada que escriba `Order`,
+`InventoryItem` ni Stripe (lo censa WSH-T15). La foto de `WishlistNotice` guarda lo que dijo el correo para poder
+auditarlo; no gobierna ningún cobro.
+
+**(e) Un solo redondeo.** El criterio 827 da $787.11, que solo sale dividiendo el cociente exacto
+`1050 / (1.16 × 1.15)`. Si se redondea el «sin IVA» a centavos antes, sale $787.10. La fórmula entera de
+`API_CONTRACT §WSH.3` hace una sola división por cifra y reproduce las doce cifras de 827 (calculado a mano; lo fija
+WSH-T22). El IVA usa los dos diales vigentes (`iva_pct`, `iva_transfer_pct`) por `displayPriceCentsOf`, el mismo de toda la
+tienda: el modo `without_iva` es literalmente «el % como si fuera precio de lista».
+
+**(f) Enlaces sin sesión.** Token HMAC sin estado con la llave del índice ciego y prefijo de dominio
+(`pii-crypto.service.ts:268-270`, precedente `mr-reveal:v1:`). Sin tabla de tokens: la acción es idempotente y de bajo
+valor. Que el `id` de «dejar de recibir» sea el del **correo** y no el de la cuenta evita poner el `userId` en un enlace.
+La página del enlace pide un clic: los escáneres de correo siguen los `GET`.
+
+**(g) «Avísame» de sellados: lo que faltaba para que el dial sirva.** Además de agendar el job (D-WSH-1) y poner enlace
+(D-WSH-2), hacen falta dos piezas que el encargo no traía:
+- **Deduplicación por correo** (D-WSH-3): dos capas, no crear la segunda fila pendiente y agrupar por correo al enviar.
+  La segunda capa es la que cuenta: la primera tiene carrera.
+- **Armado** (D-WSH-4): hoy solo se puede apuntar uno en la ficha de un producto **con** existencia. Sin armado, agendar
+  el job manda «¡Volvió a existencia!» a los cinco minutos. Con `armedAt`, el aviso exige ver el producto agotado y
+  luego de vuelta. El criterio 823 dice «se apunta en la ficha de un sellado agotado», y esa ficha no existe. Ver Q-WSH-1.
+
+**(h) La bandera del correo ajeno.** Medido: invitado, sin verificar, 5/min por IP (`catalog.controller.ts:116-121`).
+Opciones:
+- **Doble opt-in** (correo de confirmación): descartada, porque **ella misma** es el vector: cada intento manda un
+  correo a la víctima.
+- **Solo cuentas:** cierra la clase, pero cambia lo que `PROJECT §WSH.7` dejó igual («sigue aceptando invitados»). Es
+  pregunta Q-WSH-2.
+- **Propuesta (por defecto):** con sesión se usa el correo de la cuenta; no se duplica la pendiente; tope de 5 pendientes
+  por correo (dial). El daño queda acotado a correos de una sola vez, y solo cuando hay reposición real.
+
+**(i) Lista de compra sin datos personales.** Se agrega en el servidor y se responde con una lista blanca de claves (821).
+El conteo por nivel **es** el máximo de cada cliente sin decir quién es (`PROJECT §WSH.6`). Los sellados van aparte y solo
+con conteo de correos distintos pendientes (P-WSH-9, recomendación del PO).
+
+**Preguntas para el dueño (vía orquestador), con recomendación:**
+- **Q-WSH-1 · ¿Hace falta que un cliente se pueda apuntar a un sellado que ya se agotó?** Hoy la ficha de un sellado
+  agotado no existe (`sealed-catalog.service.ts:353-356`, `:374`), así que el formulario solo aparece mientras hay piezas.
+  **Recomendación: no por ahora.** El «avísame» funciona como «avísame si se agota y vuelve» (armado), y el PO ajusta la
+  redacción de 823 («se apunta en la ficha de un sellado a la venta; se agota; vuelve; recibe un correo»). Servir la
+  ficha de un agotado es una superficie nueva (de dónde llega el cliente, qué precio se muestra) y va aparte.
+- **Q-WSH-2 · ¿El «avísame» de sellados debe pedir cuenta?** **Recomendación: no.** Se queda abierto a invitados con los
+  topes de (h). Si pentester o seguridad lo marcan alto, la salida es «solo cuentas», sin migración.
+- P-WSH-7/8/9 quedan como diales (`wishlist_target_margin_pct` 15, `wishlist_margin_basis` `cost`,
+  `wishlist_max_iva_mode` `with_iva`) y como sección separable de la respuesta (`sealed`). Si el dueño responde distinto,
+  basta mover un dial, sin desplegar.
+
 ---
 
 ## 5. Decisiones transversales
@@ -31580,6 +31668,27 @@ Riesgos técnicos:
   (`buylist.service.ts:7503-7506`; NO MEDIDO). **Acción (backend):** `API_CONTRACT §PNL.10.2`/`.3`, pruebas BRJ-10…13.
   **Acción (dueño, vía orquestador):** las dos consultas de solo lectura de §PNL.10.2 paso 5 en la ventana de despliegue.
 
+- **rev v1.87⟨wishlist⟩ (2026-10-07, arquitecto, lectura sin ejecutar en `/home/user/tcg-wishlist`) — el «avísame» de
+  sellados no cierra su ciclo.** Acción para todas: backend, según `API_CONTRACT §WSH.7` y §WSH.5.
+  - **D-WSH-1:** el job no está agendado (`sealed-restock-notify.service.ts:28-29`; solo
+    `admin-jobs.controller.ts:391-394`; `scheduler.service.ts` no lo registra, `:179-272`, ni lo enruta, `:331-390`). El
+    criterio 64 («activarlos no requiere nuevo desarrollo») no se sostiene para el «avísame».
+  - **D-WSH-2:** el correo no lleva enlace (`sealed-restock-notify.service.ts:111`, bloques de `:127`).
+  - **D-WSH-3:** el alta crea sin buscar duplicado (`sealed-catalog.service.ts:505`) y el job manda un correo por fila
+    (`sealed-restock-notify.service.ts:88-91`) ⇒ el mismo correo apuntado dos veces recibe dos.
+  - **D-WSH-4:** la ficha del sellado responde `404` si el grupo no tiene piezas `listed` (`sealed-catalog.service.ts:353-356`,
+    `:374`), y el formulario solo vive ahí (`SealedDetailView.tsx:238`). El job empareja contra «hay `listed` ahora»
+    (`sealed-restock-notify.service.ts:80-89`). Con el job agendado, toda suscripción avisaría en el siguiente tick sin que el
+    producto se agote. **NO EJECUTADO.**
+  - **D-WSH-5 (PII):** el borrado suave no toca `SealedRestockSubscription` (`admin.service.ts:1643-1695`: ninguna línea
+    sobre ella). El correo real del usuario borrado se queda en sus filas y seguiría recibiendo avisos. `onDelete: SetNull`
+    (`schema.prisma:2550`) solo actúa en el borrado duro y aun así conserva `email`.
+  - **D-WSH-6:** el `ValidationPipe` global descarta campos desconocidos en silencio (`main.ts:54`,
+    `forbidNonWhitelisted: false`). El criterio 801 exige **rechazar** ⇒ las rutas de `wishlist` usan un pipe estricto
+    propio. ⛔ No se cambia el global en este stream: el radio de ese cambio no está medido.
+  - **D-WSH-7:** el «una a la vez» del job es una bandera en memoria (`sealed-restock-notify.service.ts:34`, `:47`). No cubre
+    dos instancias (cuántas corre producción: NO MEDIDO) ⇒ candado consultivo de Postgres.
+
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
 
@@ -32438,6 +32547,18 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### rev v1.87⟨wishlist⟩ (**M-74**: lista de deseos — **DDL ADITIVO: 3 tablas + 1 enum + 1 columna en `User` + 2 columnas y 1 índice en `SealedRestockSubscription` + 2 CHECK; sin relleno**, §4.WSH)
+- **Carpeta:** `prisma/migrations/20261027120000_m74_wishlist/`. El último en este árbol es `m72`
+  (`20261025120000_m72_bsd_inbound_label`, medido con `Glob` el 2026-10-07). `M-73` es de accesorios (`/home/user/tcg-accesorios`,
+  su fecha de carpeta NO MEDIDA): si cae después de `20261027…`, se re-fecha **ésta**.
+- **Forma normativa:** `API_CONTRACT §WSH.1`. CHECKs: `wishlist_max_pct_allowed` (`maxPct IN (5,10,16)`) y
+  `wishlist_notice_skip_reason` (`status='skipped'` ⇔ `skipReason IN ('paused','unverified','inactive','unavailable')`).
+- **Sin relleno:** `armedAt`/`matchedAt` nulos son la semántica correcta para las suscripciones que ya existan. Antes de
+  desplegar se cuentan (consulta en §WSH.1) y la cifra va a la solicitud de fusión.
+- **Seeds:** las ocho claves de §WSH.2 (`wishlist_enabled = off`). `sealed_restock_alerts` sigue en `off` en el seed; el
+  encendido es un `PUT /admin/settings` del súper-admin **en el mismo despliegue** (`PROJECT §WSH.7` punto 1).
+- **Reversa:** primero el código; luego `DROP` de tablas, enum y columnas. No toca dinero ni inventario.
 
 ### rev BSD-1 (**M-72 provisional**: guía de entrada del buylist — **DDL ADITIVO + 1 enum nuevo + 2 valores de enum + 3 columnas + 2 CHECK + FK + 2 índices + relleno ACOTADO de una columna nueva**, §4.BSD)
 - **Carpeta:** `prisma/migrations/20261025120000_m72_bsd_inbound_label/` (posterior a `M-71` `20261021120000`, medido con

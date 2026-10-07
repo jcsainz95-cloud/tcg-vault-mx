@@ -10,6 +10,23 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.87⟨wishlist⟩ — LISTA DE DESEOS POR CUENTA, «LISTA DE COMPRA CASI SEGURA» Y «AVÍSAME» DE SELLADOS ENCENDIDO
+> (2026-10-07, arquitecto, árbol `/home/user/tcg-wishlist`, rama `claude/wishlist`, HEAD dado por el orquestador
+> `c36f0dea`; ⛔ sha NO MEDIDO: sin Bash).** Norma entera: **[§WSH](#WSH)**. Porqué: `ARCHITECTURE §4.WSH`. Criterios
+> `PROJECT` 800–827. Decisiones del dueño: `HECHOS.md` filas 2026-10-07 «Respuestas a P-WSH-1…6» y «P-WSH-1 aclarada y
+> P-WSH-4 cerrada». ⛔ Numeración `v1.87` / `M-74` reservada por el orquestador (accesorios = v1.86/M-73; production =
+> v1.85/M-72); NO MEDIDA contra otras ramas vivas.
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | WSH-1 | Esquema | **`M-74`**: `WishlistItem`, `WishlistNotice`, `WishlistMail`, enum `WishlistNoticeStatus`, `User.wishlistAlertsPausedAt`, `SealedRestockSubscription.armedAt/matchedAt` | Aditivo | backend |
+> | WSH-2 | Cliente | `GET/POST /wishlist`, `PATCH/DELETE /wishlist/:id`, `PUT /wishlist/alerts`; `POST /wishlist/mail-actions` (público, por token) | Sí (nuevo) | backend + frontend |
+> | WSH-3 | Aviso | Job **`wishlist-notify`** (cada 5 min): detecta piezas `listed` vendibles, dedup por `(userId, inventoryItemId)`, agrupa por ventana, tope diario | Sí | backend |
+> | WSH-4 | Dueño | `GET /admin/reports/wishlist-demand` (+ `export.csv`), `super_admin`, sin datos personales; sellados solo con conteo (P-WSH-9) | Sí (nuevo) | backend + frontend |
+> | WSH-5 | Diales | 8 claves nuevas en `GET/PUT /admin/settings` (incluido `wishlist_enabled`, seed `off`) | Sí | backend + frontend |
+> | WSH-6 | Sellados | `sealed-restock-notify` **agendado**, con enlace, un correo por correo y producto, armado al agotarse, topes anti-abuso | **Sí** | backend |
+> | WSH-7 | Bajas | Se quita sola al pagar (las dos ramas de liquidación); el borrado suave borra lista **y** suscripciones de sellado | Sí | backend |
+>
 > **Errata SU-1 — LA UBICACIÓN DEJA DE SER REQUISITO PARA PUBLICAR, POR AHORA (2026-10-07, arquitecto, árbol
 > `/home/user/tcg-ubic`, rama `claude/sin-ubicacion`; ⛔ sha NO MEDIDO: sin Bash; numeración NO MEDIDA contra ramas vivas).**
 > Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Norma entera en
@@ -8216,6 +8233,7 @@ LabelCancelKind     = reissue | auto_close | orphan_auto | orphan_manual  // v1.
 SpendAlertKind      = label_after_address_fix | label_cap_warning | label_cap_blocked | label_reissue_loop | label_charge_drift | carrier_extra_charge | provider_balance_low | cancel_refund_missing | label_charged_unexplained | label_not_shipped | parcel_returned | parcel_problem | label_costly_choice | operator_refund_cap | super_admin_money_out | shrinkage | chargeback | buylist_manual_price | psa_credits | stuck_refund | owner_account_changed | staff_control_by_non_owner | buylist_guide_due  // rev BSD-1 (M-72, §BSD.7 regla 9): + `buylist_guide_due` = AG-23, «esta solicitud aceptada se cierra sola en N días si no tiene guía» (23 valores). v1.80.12.9 (M-68, §19.29.2) AG-1…AG-20 en ese orden (AG-14…AG-20 reservados, sin disparador) + v1.80.12.10 (§19.30.1 (6), §19.30.2 (3)) AG-21 y AG-22. Clase E (espeja `schema.prisma:1776-1799`). Filtro `?kind=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio (22 valores).
 SpendAlertSeverity  = immediate | digest  // v1.80.12.9 (M-68, §19.29.2): 🔴 inmediato / 🟡 resumen (Z.2). Clase E (espeja `schema.prisma:1802-1805`). Filtro `?severity=` de `GET /admin/spend-alerts` ⇒ tres bandas cuando `src/` lo valide. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
 SpendAlertMailStatus = not_applicable | pending | sending | sent | batched | batch_sent | failed | failed_unknown | no_recipient  // v1.80.12.9 (M-68, §19.29.5): estado del correo de un aviso (outbox). Clase E (espeja `schema.prisma:1808-1818`). Solo DTO (`SpendAlertDTO.mail.status`) ⇒ banda 3 universal. ⚠️ v1.80.12.12: línea añadida, sin cambio de dominio.
+WishlistNoticeStatus = pending | sent | suppressed | skipped  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): estado de un aviso «ya la tenemos» por (cuenta, pieza). `pending` = detectado, sin enviar; `sent` = salió en un `WishlistMail`; `suppressed` = la pieza ya estaba a la venta cuando se agregó el deseo (criterio 812); `skipped` = no se envía (motivo en `skipReason`). Clase E (espeja `schema.prisma` tras M-74). Interno: ningún DTO ni filtro lo expone ⇒ banda 3 universal. ⚠️ Hasta que M-74 se construya, la banda 3 no tiene enum contra el que comparar (precedente `PaymentRefundKind` / M-70).
 SellRequestStatus   = cotizada | ofertada | aceptada | en_transito | recibida | verificacion | aprobada | pagada
                     | rechazada | abandonada | expirada
                     // ⚠️ v1.51 (M-46, PROJECT §P.1 / criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`,
@@ -41509,3 +41527,396 @@ citados); el arquitecto no midió ninguna. Manda sobre §BSD.18 donde choquen.
 
 **Pruebas que cambian en esta errata:** B9 (mutación de tres muros y conjunto de respuestas) y B16 (código del modo 2).
 Nada más se construye.
+
+---
+
+## <a id="WSH"></a>WSH. LISTA DE DESEOS POR CUENTA, «LISTA DE COMPRA CASI SEGURA» Y «AVÍSAME» DE SELLADOS (rev v1.87⟨wishlist⟩, 2026-10-07, **NORMATIVA**)
+
+**Fuente.** `PROJECT.md §WSH` y criterios **800–827**. Decisiones del dueño, que no se re-preguntan: `HECHOS.md` fila
+2026-10-06 «Lista de deseos (P-WISHLIST) — reglas del dueño» (Near Mint, acabado, 5/10/16 %), y filas 2026-10-07
+**«Respuestas a P-WSH-1…6»** («ya avisamos a todos», «Con IVA pero déjame flexible», «No se compromete», «Sí enciende el
+avísame cuando vuelva») y **«P-WSH-1 aclarada y P-WSH-4 cerrada»** (el máximo es **señal de compra**, no precio especial;
+la carta sale a **su precio normal**; «20 por cuenta»). **P-WSH-7/8/9** van con la recomendación del product-owner por
+encargo del orquestador: margen **sobre lo que pagas**, dial al **15 %**; arrancar **con IVA**; sellados en la lista de
+compra **solo con conteo**. Las tres quedan como diales o como sección separable.
+Árbol `/home/user/tcg-wishlist` leído sin Bash ⇒ **sha NO MEDIDO**. Todo `fichero:línea` de esta sección se leyó el
+2026-10-07 en ese árbol.
+
+**Módulo nuevo:** `backend/src/modules/wishlist/` (dueño del dato). Toca, con una llamada cada uno: `catalog` (avísame de
+sellados y un campo de la ficha), `payments` (quitar el deseo al liquidar), `admin` (borrado suave), `settings` (diales),
+`jobs/scheduler.service.ts` (dos repetibles). ⛔ No toca `pricing`: **lee** sus seams.
+
+### WSH.1 Esquema (`M-74`, aditivo)
+
+```prisma
+enum WishlistNoticeStatus { pending sent suppressed skipped }
+
+model WishlistItem {                       // un deseo = (cuenta, carta, acabado). Condición: siempre NM (no hay columna).
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardId         String
+  card           Card     @relation(fields: [cardId], references: [id])
+  finish         Finish
+  maxPct         Int      // CHECK wishlist_max_pct_allowed: maxPct IN (5,10,16)  (HECHOS 2026-10-06, punto 3)
+  lastNotifiedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  notices        WishlistNotice[]
+  @@unique([userId, cardId, finish])       // criterio 804: la carrera del doble alta muere aquí (P2002 ⇒ 409)
+  @@index([cardId, finish])                // empareja pieza → deseos y agrega la lista de compra
+}
+
+model WishlistNotice {                     // «esta cuenta ya supo de esta pieza»: la deduplicación vive aquí.
+  id              String   @id @default(uuid())
+  wishlistItemId  String
+  wishlistItem    WishlistItem  @relation(fields: [wishlistItemId], references: [id], onDelete: Cascade)
+  userId          String   // = wishlistItem.userId (desnormalizado para el único); FK a User, onDelete Cascade
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  status          WishlistNoticeStatus @default(pending)
+  skipReason      String?  // CHECK: status='skipped' ⇔ skipReason IN ('paused','unverified','inactive','unavailable')
+  detectedAt      DateTime @default(now())
+  mailId          String?
+  mail            WishlistMail? @relation(fields: [mailId], references: [id], onDelete: SetNull)
+  // Foto de lo que dijo el correo (criterios 806, 825). Centavos MXN. NULL mientras `pending`.
+  priceDisplayCents Int?   // P de la pieza al enviar (con IVA dentro), el mismo de `ListingDTO.salePriceCents`
+  marketCents       Int?   // mercado del acabado EL DÍA DEL ENVÍO; NULL = sin mercado
+  maxDisplayCents   Int?   // máximo del cliente ese día, con IVA dentro; NULL ⇔ marketCents NULL
+  fits              Boolean?
+  resolvedAt      DateTime?
+  @@unique([userId, inventoryItemId])      // ⭐ UNA vez por pieza y por cuenta (criterio 810)
+  @@index([status, detectedAt])
+  @@index([inventoryItemId])
+}
+
+model WishlistMail {                       // un correo enviado = un lote; el tope diario cuenta estas filas
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locale    Locale
+  itemCount Int
+  sentAt    DateTime @default(now())
+  failedAt  DateTime?                       // el proveedor rechazó; los avisos NO se reintentan (a lo sumo una vez)
+  notices   WishlistNotice[]
+  @@index([userId, sentAt])
+}
+
+// User:                      wishlistAlertsPausedAt DateTime?   // «dejar de recibir estos avisos» (criterio 814)
+// SealedRestockSubscription: armedAt   DateTime?   // el producto estuvo AGOTADO después de apuntarse (WSH.7)
+//                            matchedAt DateTime?   // primera vez que se vio de vuelta (ventana de agrupado)
+//                            @@index([email, notifiedAt])
+```
+
+- **Sin relleno.** `armedAt`/`matchedAt` nacen `NULL` en las filas que existan: es la semántica correcta (WSH.7 (c)).
+  Cuántas filas hay en producción: **NO MEDIDO**; lo cierra `SELECT count(*), count(*) FILTER (WHERE "notifiedAt" IS NULL)
+  FROM "SealedRestockSubscription"` en la ventana de despliegue (usuario de solo lectura o el dueño), y la cifra va a la
+  solicitud de fusión.
+- **Reversa:** primero el código; después `DROP` de las tres tablas, del enum y de las cuatro columnas. Se pierden deseos
+  y el historial de avisos; ningún dinero ni inventario depende de ellos.
+- **Dónde casa una pieza con un deseo** (predicado único `wishlistPieceWhere`, en `wishlist/`): `ownerType='platform'`,
+  `productType='raw'` (raw es siempre NM, `schema.prisma:50-52`), `cardId` y `finish` del deseo, y producto de set:
+  `cardProductId IS NULL` o su `CardProduct.kind ∈ {set_base, other}` (`schema.prisma:390-395`; `other` se trata como
+  set_base). Graded, sellado, promo y deck_exclusive **no** casan. Cuando §IDS añada idioma/sello, el predicado suma
+  «inglés y sin sello» (hoy no existen esas columnas: `grep language|stamp` en el schema = 0 coincidencias de columna).
+- **«A la venta»** = `status='listed'` **y** vendible según el **mismo** seam del catálogo (`fetchSellable` →
+  `toListingRow`, `catalog.service.ts:688-755`): `dto.sellable ∧ listPriceCents != null`. El precio del correo es ese
+  `salePriceCents` (P, con IVA). ⛔ El módulo `wishlist` no recalcula precios. Backend expone desde `CatalogService` un
+  método público `sellableByIds(ids)` que devuelve `{ inventoryItemId, salePriceCents }` con el mismo cuerpo.
+
+### WSH.2 Diales (`GET/PUT /admin/settings`, `super_admin`; operador ⇒ `403 MONEY_OUT_FORBIDDEN`, `settings.controller.ts:38-39`)
+
+| Clave (DTO) | Clave BD | Seed | Dominio | Fuente |
+|---|---|---|---|---|
+| `wishlistEnabled` | `wishlist_enabled` | `off` | `on\|off` | Se enciende **después** de publicar el aviso de privacidad (criterio 824) |
+| `wishlistMaxPerAccount` | `wishlist_max_per_account` | `20` | entero `[1,200]` | `HECHOS` 2026-10-07 «…P-WSH-4 cerrada»: «20 por cuenta» |
+| `wishlistMaxIvaMode` | `wishlist_max_iva_mode` | `with_iva` | `with_iva\|without_iva` | `HECHOS` 2026-10-07 «Respuestas…»: «Con IVA pero déjame flexible»; P-WSH-8 (a) |
+| `wishlistDailyMailCap` | `wishlist_daily_mail_cap` | `3` | entero `[1,20]` | `PROJECT §WSH.4` (supuesto del PO) |
+| `wishlistMailWindowMin` | `wishlist_mail_window_min` | `30` | entero `[0,720]` | La ventana de agrupado la fija el arquitecto (`PROJECT §WSH.4`) |
+| `wishlistTargetMarginPct` | `wishlist_target_margin_pct` | `15` | entero `[0,100]` | P-WSH-7 (a), recomendación |
+| `wishlistMarginBasis` | `wishlist_margin_basis` | `cost` | `cost\|sale` | P-WSH-7: (a) `cost` = «15 % sobre lo que pagas»; (b) `sale` |
+| `sealedRestockMaxPendingPerEmail` | `sealed_restock_max_pending_per_email` | `5` | entero `[1,50]` | Mitigación anti-abuso de WSH.7 (b) |
+
+- Fuera de dominio ⇒ `422 VALIDATION_ERROR` por clave (validador de siempre). El cambio se audita como `settings.update`
+  dentro de la misma transacción (`settings.controller.ts:106-117`): eso **es** la bitácora de diales de 808 y 826.
+- Mover un dial no reescribe nada guardado: los máximos se calculan al leer (criterio 808).
+
+### WSH.3 La aritmética (pura, `common/wishlist-math.ts`; enteros, sin `1.16` en coma flotante)
+
+Entradas: `M` = mercado del acabado en centavos (la `PriceReference` vigente de `raw:NM` + acabado, set_base, por
+`pricing.getReferencesBatch` — la misma que alimenta la curva, `catalog.service.ts:705-717`); `p ∈ {5,10,16}`;
+`r` = dial `iva_pct`; `t` = dial `iva_transfer_pct` (`settings.getIvaDials()`, `settings.service.ts:302`); `m` = margen
+deseado. `half(x/y)` = redondeo a la mitad hacia arriba del cociente exacto (entero positivo).
+
+```
+maxDisplay(M,p) =
+  with_iva    : half(M·(100+p) / 100)                                  // el % ya incluye el IVA
+  without_iva : displayPriceCentsOf(half(M·(100+p)/100), t, r)          // common/money.ts:622
+fits(P, M, p)   = M != null ∧ P <= maxDisplay(M,p)
+normalDisplay   = displayPriceCentsOf(decideSalePrice({M, rareza, override de variante, curva, política}).priceCents, t, r)
+                  // pricing.service.ts:2892 ; null si la decisión es `pending`
+tope(p)         = normalDisplay == null ? maxDisplay(M,p) : min(maxDisplay(M,p), normalDisplay)
+ceiling(p) =
+  cost : half( tope(p) · 10000 / ((100+r)·(100+m)) )                     // «puedes pagar hasta», sin IVA
+  sale : half( tope(p) · (100−m) / (100+r) )
+mainCeiling     = ceiling del nivel más alto con ≥ 1 cuenta
+marginAtMarket  = half(tope(pTop)·100/(100+r)) − M   ;  pct = marginAtMarket / M (1 decimal)
+```
+
+- ⭐ **Un solo redondeo por cifra.** Redondear el «sin IVA» intermedio a centavos y luego dividir entre `1.15` da
+  **$787.10** donde el criterio 827 exige **$787.11**. La fórmula de arriba reproduce las doce cifras de 827 al centavo
+  (calculado a mano por el arquitecto; lo fija WSH-T22): con `M = 100000`, `r=16`, `t=100`, `m=15`, `cost`:
+  `with_iva` ⇒ 78711 / 82459 / 86957, techo 86957; `without_iva` ⇒ 91304 / 95652 / 100000; `m=20` y 16 % `with_iva` ⇒
+  83333; `sale` y 16 % `with_iva` ⇒ 85000 (= P-WSH-7 (b)).
+- `M == null` (variante en «precio pendiente», §N.2) ⇒ **ningún** máximo, techo ni margen: campos `null`, nunca `0`
+  (criterios 807 y 820).
+
+### WSH.4 Endpoints del cliente (`/api/v1/wishlist`)
+
+Sesión obligatoria (`401 UNAUTHENTICATED` sin ella, criterio 802). Cualquier rol con correo; una cuenta de staff sin
+correo ⇒ `403 FORBIDDEN`. Con `wishlistEnabled = off` ⇒ `404 FEATURE_DISABLED` (código existente,
+`error-codes.ts:655`). ⛔ **Cuerpo estricto**: estas rutas usan `ValidationPipe({ whitelist: true,
+forbidNonWhitelisted: true })` a nivel de controlador, porque el global **descarta** campos desconocidos en silencio
+(`main.ts:54`, `forbidNonWhitelisted: false`) y 801 exige **rechazar** un precio o una condición ⇒ `400 VALIDATION_ERROR`
+`details: { field }`.
+
+```ts
+WishlistItemDTO = {
+  id: string,
+  card: { id: string, name: string, setName: string, number: string, imageSmallUrl: string | null },
+  finish: Finish,
+  maxPct: 5 | 10 | 16,
+  maxToday: { status: 'priced', maxDisplayCents: number, approximate: true }   // «se recalcula el día que la consigamos»
+          | { status: 'no_market' },                                            // 807: sin cifra, ni 0
+  availableNow: { count: number, fromDisplayCents: number } | null,             // piezas vendibles hoy (enlace: ficha de la carta)
+  lastNotifiedAt: string | null,                                                // ISO
+  createdAt: string,
+}
+WishlistResponse = { items: WishlistItemDTO[], count: number, limit: number,
+                     alertsPaused: boolean, emailVerified: boolean, ivaMode: 'with_iva' | 'without_iva' }
+```
+
+| Método y ruta | Cuerpo | Éxito | Errores |
+|---|---|---|---|
+| `GET /wishlist` | — | `200 WishlistResponse` (orden `createdAt` desc) | `401`, `404 FEATURE_DISABLED` |
+| `POST /wishlist` | `{ cardId: string, finish: Finish, maxPct: 5\|10\|16 }` | `201 WishlistItemDTO` | `400 VALIDATION_ERROR` (forma, `maxPct` fuera de 5/10/16, campo extra); `404 NOT_FOUND` (carta); `422 FINISH_NOT_AVAILABLE` (acabado ∉ `Card.availableFinishes`, SEC-A1); `409 WISHLIST_DUPLICATE` `{ wishlistItemId, maxPct }` (criterio 804: el front ofrece cambiar el %); `422 WISHLIST_LIMIT_REACHED` `{ limit, count }` (803) |
+| `PATCH /wishlist/:id` | `{ maxPct: 5\|10\|16 }` | `200 WishlistItemDTO` | `400`; `404 NOT_FOUND` si no es de la cuenta (⛔ no `403`: no se confirma que exista, 805) |
+| `DELETE /wishlist/:id` | — | `204` | `404 NOT_FOUND` igual que arriba |
+| `PUT /wishlist/alerts` | `{ paused: boolean }` | `200 { alertsPaused: boolean }` | `400` |
+
+- **Tope (803) sin carrera.** En una transacción: `SELECT … FROM "User" WHERE id = $1 FOR UPDATE`, contar, insertar. Dos
+  altas simultáneas con 19 deseos ⇒ exactamente una gana. El tope se lee del dial en esa transacción; bajarlo no borra
+  deseos (`PROJECT §WSH.1`).
+- **Agregar algo ya a la venta (812).** En la **misma** transacción del alta, por cada pieza que hoy casa y está vendible
+  se inserta `WishlistNotice { status: 'suppressed', resolvedAt: now }`. Así la detección no la ve como nueva.
+- `availableNow` y `maxToday` se calculan al leer, con los diales vigentes (808: mover el dial cambia la cifra sin
+  desplegar).
+- **Ficha de la carta:** `GET /catalog/cards/:cardId` gana en la raíz de su `200` el campo aditivo
+  `wishlistEnabled: boolean`. El botón usa `GET /wishlist` (≤ 20 filas) para saber qué acabados ya están; ⛔ no hay ruta
+  nueva por carta. El sellado **no** muestra el botón (823).
+
+### WSH.5 El aviso «ya la tenemos» — job `wishlist-notify`
+
+**Evento (decisión).** No se engancha a cada escritor de `status='listed'`: hay al menos seis (alta suelta/lote/
+«encontrada» por SU.8, `bulk-publish`, conversión del buylist `buylist.service.ts:8088`, precio del sellado
+`sealed-price.service.ts:391`, `price-ingest.service.ts:988`, liberación de reserva `orders/reservation.ts:59`), y un
+séptimo mañana se olvidaría. El aviso sale del **estado**: un barrido cada **5 min** que mira qué piezas casan **y están
+vendibles ahora**. La deduplicación es el único `(userId, inventoryItemId)`, no la memoria de un evento. Así el alta que
+publica sola (SU.8) avisa sin una línea en `inventory`.
+
+**Cada corrida** (single-flight con candado consultivo de Postgres `pg_try_advisory_lock` de clave propia, liberado al
+final; ⛔ no la bandera en memoria de `sealed-restock-notify.service.ts:34,47`, que no cubre dos instancias):
+1. Con `wishlistEnabled = off` ⇒ no-op con log (`{ job, enqueued:false, reason:'WISHLIST_DISABLED' }`).
+2. **Detectar.** Piezas `wishlistPieceWhere ∧ listed` cruzadas con `WishlistItem` por `(cardId, finish)`, menos las que ya
+   tienen fila para ese `userId` ⇒ `createMany({ status:'pending' }, skipDuplicates)`. Solo se insertan las vendibles
+   (`sellableByIds`). A **todas** las cuentas, quepa o no (`HECHOS` 2026-10-07 «Respuestas…»: «ya avisamos a todos»).
+3. **Despachar**, por cuenta con filas `pending`:
+   - cuenta `status ≠ active` ⇒ `skipped/inactive`; `wishlistAlertsPausedAt != null` ⇒ `skipped/paused`;
+     `emailVerified = false` ⇒ `skipped/unverified` (813). ⛔ No se recuperan después: un aviso perdido durante la pausa no
+     llega al reanudar. Es la regla «una vez por pieza».
+   - Pieza ya no vendible: en `reserved` ⇒ se queda `pending` (puede volver; 810); en otro estado ⇒ `skipped/unavailable`.
+   - **Ventana:** se espera mientras el `detectedAt` más viejo de la cuenta sea posterior a `now − wishlistMailWindowMin`.
+     Así una captura de 200 cartas en media hora sale en **un** correo (811).
+   - **Tope diario:** si la cuenta ya tiene `wishlistDailyMailCap` filas `WishlistMail` con `sentAt` en el **día de México**
+     (`America/Mexico_City`, como `spend-digest`, `scheduler.service.ts:31`), se espera al día siguiente. Entonces se
+     re-evalúa la disponibilidad: solo sale lo que siga a la venta (811).
+   - **Enviar:** en una transacción, CAS `pending → sent` (`updateMany … where status='pending'`), crea `WishlistMail`,
+     escribe la foto (`priceDisplayCents`, `marketCents` **de ese día**, `maxDisplayCents`, `fits`; 806/825) y
+     `WishlistItem.lastNotifiedAt`. El correo sale **después** del commit. Si el proveedor falla ⇒ `WishlistMail.failedAt`
+     y log; ⛔ sin reintento (a lo sumo una vez; mismo criterio que `sealed-restock-notify.service.ts:92-100`).
+   - Un deseo con varias piezas a la vez ⇒ **una** línea con el P más bajo y «N disponibles».
+4. Resultado: `{ job:'wishlist-notify', enqueued:true, detected, sent, skipped, waiting }`.
+
+**Disparo manual (QA):** `POST /admin/jobs/wishlist-notify`, `super_admin`, auditado como los demás jobs
+(`admin-jobs.controller.ts:391-402` es el precedente). `200` con el resultado de arriba.
+
+**Nada se aparta (815).** El módulo `wishlist` no escribe en `InventoryItem`, `Order` ni Stripe. El primero que paga se
+la lleva; el deseo del otro sigue activo y su fila de esa pieza queda `sent` (no se le repite).
+
+**Se quita sola al pagar (816).** Tras el commit de **las dos** liquidaciones (`payments.service.ts:293`, rama bóveda, y
+`:455`, envío directo), best-effort con `try/catch`: `wishlist.consumeForSettledOrder(orderId)` borra los
+`WishlistItem` de `order.userId` cuyo `(cardId, finish)` coincide con alguna pieza `raw` del pedido. Idempotente
+(`deleteMany`). Pedido de invitado (`userId` nulo) ⇒ nada.
+
+**Borrado de la cuenta (817).** El borrado suave (`admin.service.ts:1643-1695`) suma, dentro de su transacción:
+`wishlistItem.deleteMany`, `wishlistMail.deleteMany` (los avisos caen en cascada) y
+`sealedRestockSubscription.deleteMany({ where: { OR: [{ userId: id }, { email: <correo previo> }] } })` — ver
+`ARCHITECTURE §9` D-WSH-5. El borrado duro ya cascadea por FK.
+
+### WSH.6 El correo (texto mínimo; redacción final de ux-ui, `es`/`en` con paridad)
+
+Sobre `mailShell` (`buylist/mail-shell.ts`), con el pie del aviso de privacidad de siempre (criterio 507). Idioma =
+`User.locale`. Enlaces con `appUrl()` (`mail-shell.ts:498`); sin origen ⇒ el correo sale con instrucciones en texto (⛔
+nunca un `href` a medias).
+
+- **Asunto:** `Ya tenemos una carta de tu lista: {carta}` / `Ya tenemos {n} cartas de tu lista`
+  · `We found a card from your wishlist: {card}` / `We found {n} cards from your wishlist`.
+- **Por línea:** foto, nombre, set y número, acabado; `Precio: {P} IVA incluido`; `Tu máximo de hoy: {máx} IVA incluido`
+  y una de: `Cabe en tu máximo.` / `Está arriba de tu máximo.` / `Hoy no hay precio de mercado: no pudimos calcular tu
+  máximo.`; botón `Ver la carta` → `appUrl('catalog/{cardId}', locale)`; enlace `Quitar esta carta de mi lista`.
+- **Una vez por correo:** `No te la apartamos: si varias personas la esperan, se la lleva quien pague primero.` ·
+  `We don't hold it for you: if several people are waiting, whoever pays first gets it.` y enlace `Dejar de recibir
+  estos avisos` · `Stop these alerts`.
+- ⛔ No va en la campana (§R). ⛔ No dice cuántas personas la esperan.
+
+**Enlaces sin sesión (814).** El correo apunta a una página del front, `/{locale}/lista-de-deseos/aviso?a=&id=&t=`, que
+pide **un clic** para confirmar. ⛔ Nunca un `GET` que modifique: los antivirus de correo abren los enlaces solos.
+
+| Método y ruta | Cuerpo | Éxito | Errores |
+|---|---|---|---|
+| `POST /wishlist/mail-actions` (`@Public`, `@Throttle` 10/min por IP) | `{ action: 'remove' \| 'pause', id: string, token: string }` | `200 { result: 'removed' \| 'paused' \| 'already_done' }` | `400 VALIDATION_ERROR`; `404 WISHLIST_LINK_INVALID` (token que no cuadra, `id` inexistente; ⛔ no distingue cuál) |
+
+- `remove`: `id` = `WishlistItem.id`. `pause`: `id` = `WishlistMail.id` (resuelve la cuenta; ⛔ el `userId` no viaja en el
+  correo). `token = piiCrypto.domainHmac('wsh-mail:v1:', `${action}:${id}`)` (`pii-crypto.service.ts:268-270`: misma
+  llave, prefijo de dominio, ⛔ ningún secreto nuevo). Comparación en tiempo constante. Un `id` de otra cuenta con el
+  token de la propia no cuadra ⇒ `404`, nada cambia.
+- Reanudar: `PUT /wishlist/alerts { paused:false }` desde «Mi cuenta».
+
+### WSH.7 «Avísame cuando vuelva» de sellados: encendido y completo (criterio 823)
+
+**Lo medido el 2026-10-07 (lectura):**
+- El job no está agendado: «disparo es MANUAL» (`sealed-restock-notify.service.ts:28-29`); solo lo llama
+  `POST /admin/jobs/sealed-restock-notify` (`admin-jobs.controller.ts:391-394`); `scheduler.service.ts` no lo registra ni
+  lo enruta (`:179-272`, `:331-390`).
+- El correo no lleva enlace (`:111` «Sin CTA», bloques de `:127`).
+- Dos filas del mismo correo y producto dan **dos** correos: el alta crea sin buscar (`sealed-catalog.service.ts:505`) y el
+  job manda uno por fila (`:88-91`).
+- ⭐ **Hallazgo nuevo del arquitecto:** la ficha del sellado solo existe si el grupo tiene piezas `listed`
+  (`sealed-catalog.service.ts:353-356` y `:374` ⇒ `404`), y el formulario solo vive en esa ficha (`SealedDetailView.tsx:238`).
+  Hoy **nadie puede apuntarse a un sellado agotado**, y el job empareja contra «hay piezas `listed` ahora» (`:80-89`). Con
+  el job agendado, quien se apunte en una ficha **con existencia** recibiría «¡Volvió a existencia!» en el siguiente tick
+  sin que el producto se haya agotado. Por lectura; **no ejecutado**.
+
+**Norma.**
+- **(a) Agendado.** Repetible `sealed-restock-notify` en `scheduler.service.ts`, cron por env `SEALED_RESTOCK_NOTIFY_CRON`
+  (default `*/5 * * * *`, sufijo `-cron` como `repeatEvery`), y su `case` en `process()`. Mismo candado consultivo que
+  WSH.5 (clave propia). El endpoint manual se conserva. Con `sealed_restock_alerts = off` sigue siendo no-op (823, rama
+  `off`). ⚠️ Depende de `REDIS_URL` en producción (`scheduler.service.ts:142-149`): **NO MEDIDO** en este árbol; lo
+  cierra la línea «Scheduler activo (BullMQ)» en los registros de Railway tras desplegar.
+- **(b) Anti-abuso de correo ajeno** (la bandera de `PROJECT §WSH.7`; norma propuesta, pregunta Q-WSH-2 en `ARCHITECTURE
+  §4.WSH`):
+  - con sesión, el servidor **ignora** `dto.email` y usa el correo de la cuenta;
+  - al apuntarse, si ya hay una fila **pendiente** del mismo correo y la misma identidad ⇒ no crea otra (`202` neutro);
+  - si el correo ya tiene `sealedRestockMaxPendingPerEmail` filas pendientes ⇒ no crea (`202` neutro, log);
+  - se conserva el `@Throttle` de 5/min (`catalog.controller.ts:118`).
+  Daño máximo resultante: a lo sumo 5 productos pendientes por correo víctima, y **un** correo por reposición real.
+- **(c) Armado.** Una suscripción solo puede avisar **después** de haber visto su producto agotado: en cada corrida, una
+  fila pendiente con `armedAt IS NULL` cuya identidad **no** tiene piezas vendibles ⇒ `armedAt = now`. Solo las armadas
+  emparejan. Si el producto se agota y vuelve entre dos ticks (< 5 min), ese regreso no avisa: se acepta y se documenta.
+- **(d) Ventana y deduplicación.** Primera vez que una fila armada encuentra el producto de vuelta ⇒ `matchedAt = now`.
+  Se envía cuando `matchedAt ≤ now − wishlistMailWindowMin` (la misma ventana que WSH.5) y el producto sigue vendible. Se
+  agrupa **por correo**: un correo con todas sus identidades listas, **una** línea por identidad aunque haya filas
+  duplicadas; todas esas filas se marcan `notifiedAt`. Una sola vez por fila (`notifiedAt`, ya existente).
+- **(e) Enlace.** Cada línea lleva `Ver el producto` → `appUrl('sellado/{inventoryItemId}', 'es')` de una pieza vendible de
+  esa identidad (la más barata por P). Sigue bilingüe y sobre `mailShell`. Pie: `¿No lo pediste? Ignora este correo: no
+  volverás a recibirlo por este producto.` ⛔ No hace falta enlace de baja: el aviso no se repite (`PROJECT §WSH.7`).
+- **Lo que no cambia:** acepta invitados, un aviso por suscripción, no entra en el tope de 20 ni usa %.
+
+### WSH.8 La «lista de compra casi segura» (M9, `super_admin`)
+
+`@Controller('admin/reports')` ya es `@Roles(Role.super_admin)` (`admin.controller.ts:550-552`). Operador y cliente ⇒
+`403 FORBIDDEN` (818, 826).
+
+| Método y ruta | Query | Éxito |
+|---|---|---|
+| `GET /admin/reports/wishlist-demand` | `sort?` ∈ `wanted\|ceiling\|margin\|market\|normal\|buyers\|buylist` (clase L, §0-Q; fuera ⇒ `400 VALIDATION_ERROR {field:'sort', allowed}`); `dir?` ∈ `asc\|desc` | `200 WishlistDemandResponse`, `Cache-Control: no-store` |
+| `GET /admin/reports/wishlist-demand/export.csv` | los mismos | `200 text/csv`, mismas filas y orden; **pesos con 2 decimales** (como AN-1.1) |
+
+```ts
+WishlistDemandTierDTO = { maxPct: 5 | 10 | 16, accounts: number,
+                          maxDisplayCents: number | null,     // máximo del cliente, CON IVA (como lo ve él)
+                          ceilingCents: number | null }        // «puedes pagar hasta», SIN IVA
+WishlistDemandRowDTO = {
+  cardId: string, cardName: string, setName: string, number: string, finish: Finish, imageSmallUrl: string | null,
+  wantedCount: number,                                      // cuántas cuentas la buscan
+  tiers: WishlistDemandTierDTO[],                           // solo niveles con ≥ 1 cuenta, orden 16 → 10 → 5
+  mainCeilingCents: number | null,
+  marketCents: number | null,
+  normalPrice: { listCents: number, displayCents: number } | null,   // sin IVA / con IVA
+  buyersAtNormalPrice: number | null,                       // cuentas con maxDisplay ≥ normalPrice.displayCents
+  marginAtMarket: { cents: number, pct: number } | null,    // puede ser negativo; se muestra en rojo
+  buylistTodayCents: number | null,                         // quote.quotedPriceCents de buylist.batchQuote (raw, NM, acabado)
+}
+WishlistDemandResponse = {
+  generatedAt: string,
+  dials: { ivaMode: 'with_iva' | 'without_iva', ivaRatePct: number, ivaTransferPct: number,
+           targetMarginPct: number, marginBasis: 'cost' | 'sale' },
+  rows: WishlistDemandRowDTO[],
+  sealed: { productName: string, sealedSubtype: SealedSubtype | null, sealedCondition: SealedCondition,
+            waitingCount: number }[],                         // P-WSH-9: SOLO conteo de correos distintos pendientes
+}
+```
+
+- **Filas:** cada `(cardId, finish)` con ≥ 1 deseo de una cuenta `active` y **sin** piezas vendibles (819). Cuentan los
+  deseos pausados o sin verificar: siguen siendo demanda.
+- **Orden por defecto (820):** `wantedCount` ↓, `mainCeilingCents` ↓, `marginAtMarket.cents` ↓. Filas con
+  `marketCents = null` **al final**, con su conteo y `tiers[].maxDisplayCents/ceilingCents`, `mainCeilingCents`,
+  `marginAtMarket`, `buyersAtNormalPrice` en `null` (ni 0).
+- **Sin datos personales (821).** Lista blanca de claves: exactamente las de arriba. ⛔ Ni `userId`, ni
+  `wishlistItemId`, ni correo, ni nombre, ni fechas por cuenta. El CSV lleva columnas fijas por nivel
+  (`cuentas_16`, `max_16`, `techo_16`, … `_10`, `_5`) y la sección de sellados aparte.
+- `buylistTodayCents`: lotes de ≤ 50 (`BuylistQuoteItemDTO`, `API_CONTRACT §6`); `precio_pendiente` ⇒ `null`.
+
+### WSH.9 Pruebas que deben fallar hoy (2026-10-07; todas rojas porque nada de esto existe: `grep -i wishlist` en `backend/src` y `frontend/src` = 0 según PO sobre `abb435d3`, NO re-medido por el arquitecto)
+
+| Id | Criterio | Qué afirma | Dónde |
+|---|---|---|---|
+| WSH-T1 | 800, 801 | `maxPct` ∉ {5,10,16} ⇒ 400; acabado fuera de `availableFinishes` ⇒ 422 `FINISH_NOT_AVAILABLE`; cuerpo con `maxPriceCents` o `condition` ⇒ 400; ninguna fila creada | backend e2e |
+| WSH-T2 | 802 | sin sesión ⇒ 401 en las cinco rutas de cliente | backend e2e |
+| WSH-T3 | 803 | 21.º ⇒ 422 `WISHLIST_LIMIT_REACHED {limit:20,count:20}`; borrar uno ⇒ cabe; **carrera**: dos `POST` con 19 ⇒ exactamente 1 gana, N ≥ 10 rondas con proporción | backend e2e |
+| WSH-T4 | 804 | mismo acabado ⇒ 409 `WISHLIST_DUPLICATE {wishlistItemId}`; otro acabado ⇒ 201 | backend e2e |
+| WSH-T5 | 805 | cuenta B: `GET` no ve, `PATCH`/`DELETE` de un id de A ⇒ 404 y A intacta | backend e2e |
+| WSH-T6 | 806 | deseo al 10 %, mercado 1000 al guardar y 1200 al enviar ⇒ `maxDisplayCents = 132000` en la foto | backend e2e |
+| WSH-T7 | 807 | variante pendiente ⇒ `maxToday.status='no_market'`, sin clave de cifra | backend e2e |
+| WSH-T8 | 808 | `with_iva` ⇒ 110000; `PUT` a `without_iva` ⇒ 127600 en lista, correo y demanda; operador ⇒ 403 `MONEY_OUT_FORBIDDEN`; `settings.update` en bitácora | backend e2e |
+| WSH-T9 | 809 | pieza publicada por alta suelta (SU.8), por `bulk-publish`, por conversión de buylist y por liberación de reserva ⇒ aviso a **todas** las cuentas; graded, otro acabado, promo y pendiente ⇒ ninguno | backend e2e |
+| WSH-T10 | 810 | reservar y liberar la misma pieza ⇒ 1 correo; segunda pieza ⇒ segundo correo | backend e2e |
+| WSH-T11 | 811 | 5 piezas en la ventana ⇒ 1 correo con 5 líneas; 4.º correo del día no sale; al día siguiente solo lo que sigue a la venta (reloj inyectado) | backend e2e |
+| WSH-T12 | 812 | deseo agregado con pieza ya a la venta ⇒ fila `suppressed`, 0 correos | backend e2e |
+| WSH-T13 | 813 | render `es` y `en`: P, máximo, cabe/no cabe, `catalog/{cardId}`, la frase de «no te la apartamos», los dos enlaces y el pie de privacidad; correo no verificado ⇒ `skipped/unverified` | backend unit + e2e |
+| WSH-T14 | 814 | `remove` y `pause` con token válido funcionan sin sesión; token alterado o id ajeno ⇒ 404 y nada cambia; `GET` a la ruta ⇒ 404/405 | backend e2e |
+| WSH-T15 | 815 | dos cuentas, una pieza: ambas `sent`; paga una; el deseo de la otra sigue; 0 escrituras en `InventoryItem`/`Order` desde `wishlist/` (censo por `grep` en la prueba) | backend e2e |
+| WSH-T16 | 816 | liquidar por **bóveda** y por **envío directo** ⇒ el deseo desaparece | backend e2e |
+| WSH-T17 | 817 | borrado suave ⇒ 0 `WishlistItem`/`WishlistMail` de la cuenta, 0 suscripciones de sellado con su correo previo; la demanda baja | backend e2e |
+| WSH-T18 | 818, 826 | demanda y su CSV: operador y cliente ⇒ 403 | backend e2e |
+| WSH-T19 | 819, 820 | filas solo sin piezas vendibles; orden por defecto; filas sin mercado al final con `null` | backend e2e |
+| WSH-T20 | 821 | las claves de la respuesta y las columnas del CSV son **exactamente** las de la lista blanca (prueba de lista exacta) | backend e2e |
+| WSH-T21 | 822 | CSV = mismas filas y orden que el JSON con el `sort` activo | backend e2e |
+| WSH-T22 | 827 | las doce cifras de WSH.3 al centavo, `m=20` ⇒ 83333 y `sale` ⇒ 85000 | backend unit (`wishlist-math`) |
+| WSH-T23 | 825 | cuentas al 5 % y al 16 %, P entre ambos máximos ⇒ `fits` false/true; P = `salePriceCents` del `ListingDTO` público | backend e2e |
+| WSH-T24 | 823 | el planificador registra `sealed-restock-notify` y `wishlist-notify` y `process()` los enruta (unitaria con BullMQ simulado **y** AppModule real, patrón `sdx-c1-jobs.e2e-spec.ts`) | backend unit + e2e |
+| WSH-T25 | 823 | dos suscripciones del mismo correo ⇒ 1 correo con enlace `sellado/{id}` de una pieza vendible; segunda reposición ⇒ 0 correos | backend e2e |
+| WSH-T26 | 823 | apuntarse con existencia ⇒ 0 correos hasta que se agota y vuelve (armado) | backend e2e |
+| WSH-T27 | 823 | dial `off` ⇒ `404 FEATURE_DISABLED` al apuntarse y job no-op | backend e2e (ya existe parcial; se re-afirma) |
+| WSH-T28 | WSH.7 (b) | con sesión se guarda el correo de la cuenta; 6.ª pendiente del mismo correo ⇒ 202 sin fila | backend e2e |
+| WSH-T29 | — | `wishlistEnabled=off` ⇒ rutas de cliente `404 FEATURE_DISABLED` y `wishlist-notify` no-op | backend e2e |
+| WSH-T30 | — | paridad: línea canónica de `WishlistNoticeStatus` = enum del schema; las ocho claves de WSH.2 en `SETTING_DTO_MAP` | `enum-values-parity.spec.ts` + settings |
+| WSH-F1 | 800, 802–804 | ficha: solo acabados de la carta, 5/10/16 con 10 preseleccionado, invitado ⇒ a entrar, tope y duplicado explicados | Playwright |
+| WSH-F2 | 805, 807, 808 | «Mi lista»: columnas, «aproximado», «sin precio de mercado», cambiar % y quitar | Playwright |
+| WSH-F3 | 814 | la página del enlace pide un clic y confirma; sin sesión | Playwright |
+| WSH-F4 | 818–822 | M9: solo súper-admin, orden, sin datos personales, exporta | Playwright |
+| WSH-F5 | 823 | ficha de sellado sin botón de deseos; formulario visible con el dial `on` | Playwright |
+
+Canarios de mutación (los corre backend y los repite el orquestador sobre copia, O-9): quitar el `@@unique([userId,
+inventoryItemId])` ⇒ T10 rojo; quitar el `FOR UPDATE` del tope ⇒ T3 rojo con proporción; redondear el intermedio a
+centavos ⇒ T22 rojo; quitar la condición `armedAt` ⇒ T26 rojo; quitar una de las dos llamadas de liquidación ⇒ T16 rojo.
