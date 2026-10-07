@@ -28974,6 +28974,18 @@ el sellado admite precio a mano: el del producto, con IVA (lo que paga el client
 antes de IVA». También está desfasado el docblock de `PendingPublishQueue.tsx:178-181` («que con ubicación ES el gesto
 de publicar»). `basis.manual` (`es.json:1599`, «a mano, antes de IVA») es correcto: solo lo usan raw/graded.
 
+**(g) Errata SU.7 (2026-10-07; mediciones de backend en `7e1462a6`; detalle en `API_CONTRACT §M1-SU` SU.7).**
+- Dije que la fila `?missing=` de `C-EQ-1` seguía verde sin cambios. Era falso: backend la midió **roja**. Se
+  invirtieron `valid` y `alterno`, y la inversión conserva las tres aserciones de `filtra`.
+- BRJ-10 cambia de precondición: la pieza convertida nace `listed`.
+- `previewPublication` y `loadPublishRunDials` se admiten como pronóstico de solo lectura. No son una copia del
+  pipeline que escribe.
+- El script no viaja en la imagen.
+- Si la limpieza de base (`HECHOS`, «también se BORRA el inventario») borra todo el inventario de plataforma, el rezago
+  de (c) desaparece con él. El orden lo decide el dueño.
+- Queda abierto y **NO MEDIDO**: si la pieza que el dueño vuelva a subir por el alta de M1 se publica sin más pasos.
+  El alta no dispara la publicación (`inventory.service.ts:769-815`).
+
 ---
 
 ## 5. Decisiones transversales

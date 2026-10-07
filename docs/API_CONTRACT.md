@@ -13672,7 +13672,7 @@ Backend, integración contra Postgres real, fixture de §PNL.8 (solicitud del ci
 
 | Prueba | Caso | Espera | Mutación que la pone en rojo |
 |---|---|---|---|
-| **BRJ-10** *(falla hoy — medida por backend 1/1)* | `PATCH …/decision {reject, reason}` sobre carta `convertida_inventario` (`approvedPriceCents 8000`) | `409 CONFLICT {itemId, itemStatus:'convertida_inventario', reason:'ITEM_FINAL'}`; la fila idéntica antes/después (`itemStatus`, `approvedPriceCents`, `rejectedAt`, `rejectionReason`); `approvedTotalCents` idéntico; 0 correos; 0 bitácora; pieza intacta | quitar el peldaño **y** el término del `where` ⇒ `200` (la conducta de hoy) |
+| **BRJ-10** *(falla hoy — medida por backend 1/1)* · ⭐ SU-1 ([§M1-SU](#M1-SU) SU.7 (2)): la pieza convertida nace **`listed`**, no `in_stock` | `PATCH …/decision {reject, reason}` sobre carta `convertida_inventario` (`approvedPriceCents 8000`) | `409 CONFLICT {itemId, itemStatus:'convertida_inventario', reason:'ITEM_FINAL'}`; la fila idéntica antes/después (`itemStatus`, `approvedPriceCents`, `rejectedAt`, `rejectionReason`); `approvedTotalCents` idéntico; 0 correos; 0 bitácora; pieza intacta | quitar el peldaño **y** el término del `where` ⇒ `200` (la conducta de hoy) |
 | **BRJ-11** *(falla hoy — NO MEDIDO, leído en código)* | Misma carta: `approve`; y, en una solicitud **legado** (sin `offerSentAt`), `adjust {approvedPriceCents: 1}` | `409 … ITEM_FINAL` en los dos; `approvedPriceCents` sigue `8000`; `itemStatus` sigue `convertida_inventario` | aplicar el peldaño solo a `reject` ⇒ `200` y la carta deja de decir que es inventario |
 | **BRJ-12** | El `where` sin el `if`: unitario de `rejectItemWrite` (o integración con el pre-check apagado por inyección) | el `where` lleva `itemStatus NOT IN ITEM_FINAL_STATUSES` siempre; `count = 0` sobre una convertida ⇒ `409 … ITEM_FINAL` (no `NO_LIVE_ADJUSTMENT`) | quitar el término del `where` ⇒ rojo; mapear `count = 0` siempre a terminal ⇒ rojo |
 | **BRJ-13** 🔁 *(falla hoy si E-3 es real — NO MEDIDO)* | Carta `aprobada`; `convert-to-inventory` y `PATCH …{reject}` simultáneos (N ≥ 10 rondas); y lo mismo con `reject-items` | en **cada** ronda: o (conversión `200` ∧ rechazo `409 ITEM_FINAL`/`409 CONFLICT {itemIds}`) o (rechazo `200` ∧ conversión `422 ITEM_NOT_APPROVED`/`409 … CONCURRENT_UPDATE` ∧ **cero** `InventoryItem` con ese `sourceSellRequestItemId`). **Nunca** `convertida_inventario` con `rejectedAt`, ni `rechazada` con `inventoryItemId`. Proporción reportada (O-3) | quitar el CAS de la conversión ⇒ estado mixto en alguna ronda. ⚠️ Antes de arreglar, backend mide la proporción **con el defecto** (¿cuántas rondas de N lo muestran?) — si es 0/N, la prueba no es sensible y se fuerza el orden con candado de fila, como hizo BRJ-8 |
@@ -14096,8 +14096,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > - El degradado de `convert-to-inventory` (puerto ausente o que lanza; hoy `["location","price"]`,
   >   `buylist.service.ts:8077`) pasa a **`["price"]`**: «no sé» sigue significando «todo lo que podría faltar», y hoy eso
   >   es solo el precio. ⛔ Nunca `[]`.
-  > - Revertir = devolver las dos líneas de SU.1 y este degradado. Los tipos, la paridad (`C-EQ-1`,
-  >   `enum-query-axes.e2e-spec.ts:412`) y los clientes no se tocan en ninguno de los dos sentidos.
+  > - Revertir = devolver las dos líneas de SU.1 y este degradado. Los tipos y los clientes no se tocan en ninguno de
+  >   los dos sentidos. ⭐ **Corregido por SU.7 (1), 2026-10-07:** la fila `?missing=` de `C-EQ-1` **sí** cambió
+  >   (`enum-query-axes.e2e-spec.ts:415`, `valid`/`alterno` invertidos). Al revertir hay que volver a correrla. Que siga
+  >   verde con la regla vieja: **NO MEDIDO**.
   >
   > **SU.3 · El rezago: lo que la regla vieja dejó retenido.** Al desplegar, cada pieza `platform ∧ in_stock ∧
   > locationId IS NULL` cuyo precio resuelve pasa a `missing = []`: **sale de la cola y no se publica**, porque ningún
@@ -14108,8 +14110,44 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > - **Forma:** script de backend `backend/scripts/reevaluate-unlocated.ts` (contexto Nest, sin HTTP). Por defecto **no
   >   escribe** y cuenta: `selected`, `wouldPublish`, `pricePending`, `notPublishable`. Con `--apply` corre el cuerpo y
   >   cuenta por `outcome`. Una segunda corrida con `--apply` da `published: 0`.
+  > - ⭐ **El pronóstico (SU.7 (3), 2026-10-07): `InventoryService.previewPublication(ids)`**, compartiendo los diales
+  >   de la corrida con `reevaluateForPublication` a través de `loadPublishRunDials` (`inventory.service.ts:3082-3088`,
+  >   `:3100-3136`). Esto **respeta** «⛔ sin copia del pipeline». La norma protege el camino que **escribe**, y `--apply`
+  >   sigue llamando al cuerpo único. El pronóstico no escribe. Decide con las mismas funciones: `assertPublishableGuards`
+  >   y `pendingPublishStateOf` → `derivePublishSalePrice(item, null, ctx)` (`:2040`). Es la misma llamada que hace
+  >   `resolvePublishSalePrice` (`:1804`), con el mismo orden: listed → guardas → precio (`:3118-3131` frente a
+  >   `:3240-3258`). Lo que se repite es el andamio (trozos, `not_found`) y el **orden**. Condición: el pronóstico **solo
+  >   informa**. ⛔ Ningún camino decide escribir a partir de su resultado. Si cambia el orden de `reevaluateOne`, cambia
+  >   también aquí. Ninguna prueba compara pieza a pieza el pronóstico con el `--apply`. SU-B6 compara cuentas sobre tres
+  >   piezas (`integration/reevaluate-unlocated.e2e-spec.ts:96-114`). No bloquea, porque `--apply` cuenta por su propio
+  >   `outcome`.
   > - **Quién lo corre y dónde:** lo decide el orquestador. La credencial vive en Railway, así que el dueño lo corre ahí o
   >   devops lo cablea al despliegue (CLAUDE.md, «Secretos»). Va en el cuerpo de la solicitud de fusión.
+  >   ⭐ **Dato medido (SU.7 (4), 2026-10-07):** la imagen **no lleva el script**. La etapa final de `Dockerfile.backend`
+  >   copia `dist`, `prisma`, `src`, `tsconfig.json` y dos `.sh` de `scripts/` en la raíz (`Dockerfile.backend:80-90`,
+  >   `:103`, `:109`), pero no `backend/scripts/`. Lo midió backend (`BACKEND_NOTES §82`) y lo confirmé leyendo el
+  >   Dockerfile. Quedan dos vías: (i) correrlo desde un checkout con `railway run`, que inyecta
+  >   `DATABASE_URL`/`DATABASE_PUBLIC_URL`; (ii) que devops añada la copia a la imagen (eso es de devops, no del contrato).
+  >   No he medido si `ts-node` está en las `node_modules` de producción.
+  >   ⭐ **Orden respecto a la limpieza de base (SU.7 (4)).** El dueño pidió que la limpieza **también borre el inventario**
+  >   (`HECHOS.md`, fila «CAMBIO P-DB-LIMPIEZA: también se BORRA el inventario», 2026-10-07; en la rama
+  >   `claude/limpieza-db`). Si esa limpieza corre **después** de desplegar SU-1 y borra todas las piezas de plataforma,
+  >   la selección de SU.3 (`platform ∧ in_stock ∧ locationId IS NULL`) queda **vacía**. Entonces el rezago desaparece con
+  >   el inventario borrado y el script no hace falta. «Publicar todo» deja de tener su riesgo, porque no quedan piezas
+  >   retiradas a propósito. Mientras tanto no se pierde ninguna venta: esas piezas tampoco estaban a la venta antes de
+  >   SU-1. Solo dejan de verse en la cola. **Recomendación, sin decidir por el dueño:** si va a limpiar, que la limpieza
+  >   vaya después de SU-1, o en cualquier orden pero antes de vender en real, y saltarse el `--apply`. Se puede confirmar
+  >   corriendo el script en seco tras la limpieza y esperando `selected: 0`. Esto depende de dos cosas que no están
+  >   cerradas:
+  >   (a) que la limpieza borre **todo** el inventario de plataforma. Según la misma fila de HECHOS, es un supuesto del
+  >   orquestador que el dueño aún puede corregir. Si conserva piezas de plataforma, el script vuelve a hacer falta.
+  >   (b) qué pasa con el inventario que el dueño **vuelva a subir**. El alta, sola o por lote, crea la pieza `in_stock` y
+  >   no llama a `reevaluateForPublication` (`inventory.service.ts:769-815`, `:1461-1469`, `buildItemData` `:1372`). Con
+  >   SU-1, una pieza recién dada de alta y con precio queda `missing = []`: fuera de la cola y sin publicar, como ya
+  >   pasaba antes con una pieza dada de alta **con** cajón. **NO MEDIDO:** si el frontend de alta publica después
+  >   (`status:'listed'` o `bulk-publish`) o si el operador publica a mano desde M1. Lo cierra leer la pantalla de alta de
+  >   M1 y su llamada, o dar de alta una pieza en local y ver su `status`. Esto también matiza el «fuera de toda pantalla»
+  >   de arriba. Una pieza `in_stock` sigue en el listado de M1 (NO MEDIDO por pantalla). Lo que pierde es la cola.
   > - **Alternativa sin script:** el botón «Publicar todo» de M1 (`POST /admin/inventory/publish-all`, `M1View.tsx:313`).
   >   Publica el rezago, pero también **re-publica las piezas `in_stock` CON ubicación que alguien retiró de la venta a
   >   propósito** (`ItemDetailModal` «Retirar de venta»). Cuántas hay: **NO MEDIDO**. Se mide con
@@ -14164,7 +14202,34 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **Semilla E2E:** `E2E_FOLIOS.pendingPublishNoLocation` (`prisma/seed-e2e.ts:598-624`) es raw sin cajón **con**
   > precio. Con SU.1 deja de estar en la cola. Se cambia a una pieza **sin precio** (sigue habitando la cola con
   > `["price"]`), o se añade una así y se aserta que la otra ya no está.
-  > `enum-query-axes.e2e-spec.ts:412` (`alterno: 'location'`) **sigue verde** sin cambios: el valor sigue en el eje.
+  > ~~`enum-query-axes.e2e-spec.ts:412` (`alterno: 'location'`) **sigue verde** sin cambios: el valor sigue en el eje.~~
+  > **Falso, lo corrige SU.7 (1).**
+  >
+  > **SU.7 · Errata de esta errata (2026-10-07, mediciones de backend en `7e1462a6`, `BACKEND_NOTES §82`).**
+  > 1. **`C-EQ-1`, fila `?missing=`: ROJA sin cambios, no verde.** Backend la midió así sobre la regla nueva: «punto 1
+  >    fila 2 — FILTRA», distancia 0. Es determinista (N=1). Con SU-1 toda fila de la cola trae `missing = ["price"]`, así
+  >    que `?missing=price` devuelve lo mismo que no filtrar. Arreglo de backend: invertir a `valid: 'location'`,
+  >    `alterno: 'price'` (`enum-query-axes.e2e-spec.ts:411-415`). El dominio `allowed` y la clase L no cambian.
+  >    **Revisión del arquitecto.** Leí el árbol en `HEAD` de `claude/sin-ubicacion`, no el diff, porque no tengo git. La
+  >    inversión **conserva** lo que la propiedad `filtra` debe demostrar (`:1215-1234`):
+  >    - (1) Hay datos sin filtrar. Lo asegura la semilla `pendingPublishNoLocation`, ahora sin precio.
+  >    - (2) El token cambia el resultado. `?missing=location` da `[]` y la base no está vacía, así que «validar y tirar
+  >      el valor» (`QA-M3`) sale rojo.
+  >    - (3) El token discrimina. `location` da `[]` y `price` no está vacío, así que «vacío ante cualquier token» sale rojo.
+  >
+  >    Hay dos límites, y los dos son del dominio, no del candado:
+  >    - La (2) ahora la cumple el corte en seco de `?missing=location` (`BACKEND_NOTES §82`, «corta en seco»), no la
+  >      consulta SQL.
+  >    - Ya no hay token que seleccione un subconjunto **propio** no vacío, porque `price` equivale a toda la cola.
+  >      `C-EQ-1` no atraparía un `?missing=price` que devolviera un subconjunto equivocado pero no vacío. No he medido si
+  >      otra prueba lo fija. Con SU-1 no hay conducta distinta que fijar.
+  > 2. **`integration/buylist-item-final.e2e-spec.ts` BRJ-10 cambia de precondición** (faltaba en la lista de arriba).
+  >    La carta convertida tiene precio de mercado, así que el disparador (a) de SU.1 la publica en el acto. La pieza de
+  >    la precondición pasa de `in_stock` a **`listed`**. Lo que BRJ-10 asserta no cambia: `409 ITEM_FINAL`, fila
+  >    idéntica, 0 correos, 0 bitácora, pieza intacta.
+  > 3. **Añadidos de backend no previstos**: `previewPublication` y `loadPublishRunDials`. Quedan nombrados en SU.3 con la
+  >    condición «solo informa».
+  > 4. **Dónde corre el script y en qué orden respecto a la limpieza de base**: en SU.3, «Quién lo corre».
   > **⚠️ v1.73 — `?missing=`, `?acquisitionType=` y `?productType=` los norma [§0-Q](#enum-query-filter)** (conducta ante
   > vacío, `400 VALIDATION_ERROR` con `details.field` + `details.allowed`). **`?missing=` es CLASE L** (§0-Q punto 3): su
   > dominio **`location | price`** no existe en el schema —no nombra un estado persistido, nombra **qué le falta a la
