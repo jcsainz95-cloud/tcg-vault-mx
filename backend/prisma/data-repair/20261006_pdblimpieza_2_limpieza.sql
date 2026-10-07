@@ -14,6 +14,7 @@
 --  NO toca: usuarios, catálogo (cartas, sets, imágenes), precios (referencias de mercado y tus precios por variante),
 --  el sellado del catálogo (con tu precio por producto y su imagen), tus cajones (vacíos) ni los diales.
 --  Al final deja UNA fila en la bitácora con lo que se hizo (sin correos ni folios).
+--  ⚠️ Esta salida trae correos y nombres de tus clientes: no la pegues en chats, correos ni en el repositorio.
 --
 --  ANTES DE EMPEZAR: descarga el Excel de tu inventario (M1 → exportar) y guárdalo. Es tu lista para volver a subir.
 --  Sus folios (INV-…) son los VIEJOS: después de esto el folio vuelve a empezar en INV-000001, así que úsalo como

@@ -30173,6 +30173,45 @@ ni BD propios: el rol `tcg` no tiene `CREATEROLE` ni `CREATEDB`):
   `shipment_folio_seq` en producción (los imprime A/B en el ensayo); los puntos ciegos (a)/(b) de §14.12 quedan
   aceptados, sin prueba.
 
+### 79.7 · Condiciones de QA (veredicto sobre `37f7a450`, APROBADO CON CONDICIONES) y LZ2-S1 de seguridad (2026-10-07, sobre `e1e2ff0a`)
+
+**Cambios:**
+- **IMPORTANTE (QM1)** — prueba nueva `T-N1-sinPiezas`: B COMMIT → sin C → sin altas, con el contador de pedidos ya usado
+  (el fixture lo usa: precondición afirmada) ⇒ D línea 51 `FALLA` («C no corrió», `siguiente INV-<R+1>`), línea 50
+  `FALLA`, `HAY FALLAS`, sin `AVISO`. Cubre la rama de §14.12 «sin piezas ∧ P ≠ 1 ⇒ FALLA».
+- **QM3** — dos pruebas `T-R-borde` que fijan R en el límite: `m = R ⇒ OK` (B → C → R altas → se borran por SQL
+  `INV-000001…R-1`) y `m = R + 1 ⇒ AVISO` (B → 1 alta → C). Cada una fuerza ANTES de B que el contador de pedidos del
+  rastro quede del lado contrario del límite (sube `inventory_folio_seq` o `order_number_seq` con `setval`, solo hacia
+  arriba) y lo afirma como precondición: así leer R de otra clave cambia el resultado siempre, no por casualidad del
+  fixture.
+- **C-4 «alta de usuario MIENTRAS B corre»** — sin ventanas fijas: el tercero (con `application_name` propio) toma el
+  candado y lo **sostiene** (`pg_sleep(170)`) hasta que la prueba lo suelta con `pg_cancel_backend`; la prueba espera
+  por **estado**: (1) el tercero está en `PgSleep` (ya tiene el candado), (2) B aparece en `pg_stat_activity` con el
+  pid del tercero en `pg_blocking_pids` (B ya contó «antes» y espera). Solo entonces da el alta y suelta. Un `finally`
+  cancela al tercero si algo falla antes (solo el suyo, por `application_name`).
+- **LZ2-S1** — cabecera de A (`…_1_censo.sql`, lista de custodia con correo/nombre/rol) y de B (`…_2_limpieza.sql`,
+  lista 2.4 y G-9): `⚠️ Esta salida trae correos y nombres de tus clientes: no la pegues en chats, correos ni en el
+  repositorio.` C y D no imprimen datos personales: sin cambio. Prueba nueva `LZ2-S1 · censo/limpieza` (cabeceras).
+- **MENOR de QA (coletilla «el de pedidos tampoco está en TCG-000001») — NO cambiado:** §14.12 fija ese detalle
+  **literal** para «cualquier otro caso» de la tabla; hacerlo condicional a `¬T1` cambia la tabla ⇒ va al arquitecto.
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `e1e2ff0a` + cambios, scratchpad `be-lz22`, `@prisma`/`.prisma`
+copiados y `prisma generate` dentro, esquemas propios `lz…` en `tcg_marketplace` local):
+- **Rojo contra su mutación** (en la copia, SQL restaurado y comparado con `cmp` tras cada una; deterministas ⇒ N = 1):
+  QM1 de QA (`WHEN piezas = 0 THEN 'reiniciado'`) ⇒ solo `T-N1-sinPiezas` roja (`OK … sin cartas · siguiente
+  INV-000015`), 1/1. QM3 de QA (R de la clave `order_number_seq`) ⇒ las dos `T-R-borde` rojas (m = R da `AVISO`;
+  m = R + 1 da `OK`), 1/1. Extra propia `m < r_inv` en vez de `m <= r_inv` ⇒ `T-R-borde m = R` roja, 1/1. LZ2-S1:
+  con las cabeceras de `e1e2ff0a` las dos pruebas de cabecera rojas, 1/1. En el fixture `R = 14`.
+- **C-4 con carga** (4 bucles de CPU propios, 4 CPU, muertos por PID): suite **completa** `pdb-limpieza` **10/10**
+  verdes (54/54 cada una, load 5.0–10.7); C-4 aislada 10/10 (load 5.0–9.8). La versión anterior aislada con la misma
+  carga también dio 10/10 (N = 10): el fallo de QA era en la suite completa, y no lo reproduje aislado.
+- **Hallazgo al medir:** la 1.ª tanda de suites completas dio 5 rojas en la corrida 1 por `remaining connection slots
+  are reserved` (71 conexiones de esta suite a la vez: cada esquema dejaba su `PrismaClient` abierto hasta `afterAll`;
+  `max_connections` = 100 compartido con otros agentes). Arreglo en la prueba: `afterEach` hace `$disconnect` de los
+  clientes de cada esquema (medido: 5 conexiones durante la suite). Las 10/10 de arriba son con ese arreglo.
+- **Unitarias que leen `data-repair`/`BACKEND_NOTES`/`TECH_DEBT`** (las 18 de §79.6): 18/18 suites, 807/807.
+- **NO MEDIDO:** la coletilla condicional (pendiente del arquitecto).
+
 ## 80 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
 
 Norma: `API_CONTRACT §15` + errata AN-1.1 (`edffe544`), `ARCHITECTURE §4.64`, `PROJECT §AN` (600–613, 620, 622 de salida, 623, 624).

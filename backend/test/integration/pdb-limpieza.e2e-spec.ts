@@ -33,6 +33,7 @@ import {
   limpiezaSql,
   migrateSchema,
   psql,
+  PsqlResult,
   psqlAsync,
   psqlFile,
   readRepair,
@@ -148,6 +149,12 @@ async function nextOf(e: Env, seq: string): Promise<number> {
 
 beforeAll(() => {
   admin = new PrismaClient();
+});
+// Cada esquema abre su propio PrismaClient (con su pool). Sin soltarlo al terminar cada caso, ~50 clientes vivos a la vez
+// agotan max_connections del Postgres compartido y el caso que toque falla con «remaining connection slots are
+// reserved» (medido, be-lz22). `$disconnect` es reversible: si un caso vuelve a usar el cliente, Prisma reconecta.
+afterEach(async () => {
+  for (const e of live) await e.db.$disconnect();
 });
 afterAll(async () => {
   for (const e of live) {
@@ -535,6 +542,69 @@ describe('💰 §14.12 v2.1 · C y D dicen lo mismo del folio INV- (QA N-1, MENO
     expect(d.stdout).not.toMatch(/\bAVISO\b/);
   });
 
+  it('T-N1-sinPiezas (QA v2.1, QM1) · B COMMIT → SIN C → SIN altas, con el contador de pedidos ya usado → D: «sin piezas» NO basta, la línea de inventario es FALLA porque el siguiente no es INV-000001', async () => {
+    const e = await fresh();
+    commit(e);
+    // Precondiciones: sin piezas, el siguiente INV- NO es 1 y el contador de pedidos ya se usó (C no corrió).
+    expect(await e.db.inventoryItem.count()).toBe(0);
+    const R = await rastroInv(e);
+    expect(await nextOf(e, 'inventory_folio_seq')).toBe(R + 1);
+    expect(R + 1).toBeGreaterThan(1);
+    expect(await nextOf(e, 'order_number_seq')).toBeGreaterThan(1);
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    const l51 = lineaD(d.stdout, 'contador de inventario');
+    expect({ l51, r: resultadoDe(l51) }).toEqual({ l51, r: 'FALLA' });
+    expect(l51).toContain('C no corrió');
+    expect(l51).toContain(`siguiente ${inv(R + 1)}`);
+    expect(l51).not.toContain('sin cartas');
+    expect(resultadoDe(lineaD(d.stdout, 'contador de pedidos'))).toBe('FALLA');
+    expect(d.stdout).toMatch(/HAY FALLAS/);
+    expect(d.stdout).not.toMatch(/\bAVISO\b|TODO OK/);
+  });
+
+  // §14.12 · el límite de R (QM3: R leído de otra clave del rastro). Cada caso fuerza ANTES de B que el contador de
+  // pedidos del rastro quede del lado contrario del límite, para que leer la clave equivocada cambie el resultado.
+  it('T-R-borde · m = R ⇒ OK (B → C → R piezas → se borran por SQL INV-000001…R-1); el rastro de pedidos queda POR DEBAJO de R', async () => {
+    const e = await fresh();
+    const ord = await nextOf(e, 'order_number_seq');
+    if ((await nextOf(e, 'inventory_folio_seq')) < ord + 3) await e.db.$queryRawUnsafe(`SELECT setval('inventory_folio_seq', ${ord + 3}, true)`);
+    commit(e);
+    const R = await rastroInv(e);
+    const a = await e.db.auditLog.findFirstOrThrow({ where: { action: 'maintenance.test_data_purge' } });
+    expect(Number((a.after as any).secuencias.order_number_seq)).toBeLessThan(R); // precondición de la mutación
+    ok(psql(e.schema, readRepair('folio')));
+    const folios = await altaPorApp(e, R);
+    expect(folios[0]).toBe(inv(1));
+    expect(folios[R - 1]).toBe(inv(R));
+    expect(await e.db.$executeRawUnsafe(`DELETE FROM "InventoryItem" WHERE substring(folio FROM 5)::bigint < ${R}`)).toBe(R - 1);
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    const l51 = lineaD(d.stdout, 'contador de inventario');
+    expect({ l51, r: resultadoDe(l51) }).toEqual({ l51, r: 'OK' });
+    expect(l51).toContain(`primera carta ${inv(R)}`);
+    expect(d.stdout).toMatch(/VERIFICACION: TODO OK\s*\|/);
+    expect(d.stdout).not.toMatch(/\bFALLA\b|\bAVISO\b/);
+  });
+
+  it('T-R-borde · m = R + 1 ⇒ AVISO (B → 1 pieza por la APP → C → D); el rastro de pedidos queda POR ENCIMA de R + 1', async () => {
+    const e = await fresh();
+    const R0 = await nextOf(e, 'inventory_folio_seq');
+    if ((await nextOf(e, 'order_number_seq')) < R0 + 3) await e.db.$queryRawUnsafe(`SELECT setval('order_number_seq', ${R0 + 3}, true)`);
+    commit(e);
+    const R = await rastroInv(e);
+    const a = await e.db.auditLog.findFirstOrThrow({ where: { action: 'maintenance.test_data_purge' } });
+    expect(Number((a.after as any).secuencias.order_number_seq)).toBeGreaterThan(R + 1); // precondición de la mutación
+    expect(await altaPorApp(e, 1)).toEqual([inv(R + 1)]);
+    ok(psql(e.schema, readRepair('folio')));
+    expect(await nextOf(e, 'order_number_seq')).toBe(1);
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    const l51 = lineaD(d.stdout, 'contador de inventario');
+    expect({ l51, r: resultadoDe(l51) }).toEqual({ l51, r: 'AVISO' });
+    expect(l51).toContain(FRASE_INV);
+    expect(l51).toContain(`primera ${inv(R + 1)}`);
+    expect(d.stdout).toMatch(/VERIFICACION: TODO OK \(con 1 aviso\(s\)\)/);
+    expect(d.stdout).not.toMatch(/\bFALLA\b/);
+  });
+
   it('T-M3 · B → C → 3 piezas por la APP → se borra por SQL la fila INV-000001 → D: la línea de inventario es OK (mínimo NUMÉRICO ≤ rastro) y TODO OK', async () => {
     const e = await fresh();
     commit(e);
@@ -677,6 +747,10 @@ describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qu�
     expect(h).not.toMatch(/republicar|PASO E/);
   });
 
+  it.each(['censo', 'limpieza'] as const)('LZ2-S1 (seguridad) · %s imprime correos y nombres de clientes: su encabezado lo dice en llano y pide no pegarla en chats, correos ni en el repositorio', (f) => {
+    expect(header(readRepair(f))).toContain('Esta salida trae correos y nombres de tus clientes: no la pegues en chats, correos ni en el repositorio.');
+  });
+
   it('B (v2): el encabezado dice «si al final ves ROLLBACK, NO se aplicó», que se BORRA el inventario, que descargue el Excel antes y que C va ANTES de re-subir', () => {
     const h = header(readRepair('limpieza'));
     expect(h).toMatch(/si al final ves ROLLBACK, NO se aplicó/i);
@@ -776,22 +850,43 @@ describe('🔒 C-4 / QA-6 · escrituras ajenas concurrentes no dan aborto ni FAL
   it('un alta de usuario MIENTRAS B corre (B esperando un candado de fila) ⇒ B termina con COMMIT (foto REPEATABLE READ), sin G-5 falso', async () => {
     const e = await fresh();
     const usersBefore = await e.db.user.count();
-    // Un tercero sostiene ~3 s el candado de una fila de bounty que B actualiza (< lock_timeout de 5 s).
-    const holder = psqlAsync(e.schema, `BEGIN; SELECT 1 FROM "VariantPriceOverride" WHERE id = '${e.fx.bounty.completed}' FOR UPDATE; SELECT pg_sleep(3); ROLLBACK;`);
-    await new Promise((res) => setTimeout(res, 700));
-    const run = psqlAsync(e.schema, commitSql(e));
-    let waited = false;
-    for (let i = 0; i < 40 && !waited; i++) {
-      await new Promise((res) => setTimeout(res, 100));
-      const w = await admin.$queryRawUnsafe<{ n: number }[]>(
-        `SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%VariantPriceOverride%bountyAcquiredQty%'`,
-      );
-      waited = w[0].n > 0;
+    // QA v2.1 (C-4 inestable con carga): nada de ventanas fijas. Un tercero toma el candado de una fila de bounty que B
+    // actualiza y lo SOSTIENE hasta que la prueba lo suelta (pg_cancel_backend); la prueba espera por ESTADO, no por
+    // tiempo: (1) el tercero ya tiene el candado (está en su pg_sleep), (2) B está bloqueado POR ese tercero
+    // (pg_blocking_pids). Solo entonces da el alta y suelta el candado (B espera ≤ lock_timeout de 5 s).
+    const app = `lzhold_${e.schema}`.slice(0, 63);
+    const holder = psqlAsync(e.schema, `SET application_name = '${app}';\nBEGIN;\nSELECT 1 FROM "VariantPriceOverride" WHERE id = '${e.fx.bounty.completed}' FOR UPDATE;\nSELECT pg_sleep(170);\nROLLBACK;\n`);
+    const until = async <T>(what: string, probe: () => Promise<T | undefined>, ms = 120_000): Promise<T> => {
+      const t0 = Date.now();
+      for (;;) {
+        const v = await probe();
+        if (v !== undefined) return v;
+        if (Date.now() - t0 > ms) throw new Error(`C-4: no se alcanzó «${what}» en ${ms} ms`);
+        await new Promise((res) => setTimeout(res, 50));
+      }
+    };
+    let run: Promise<PsqlResult> | undefined;
+    try {
+      const holderPid = await until('el tercero sostiene el candado', async () => {
+        const [r] = await admin.$queryRawUnsafe<{ pid: number }[]>(
+          `SELECT pid FROM pg_stat_activity WHERE application_name = $1 AND wait_event = 'PgSleep'`, app);
+        return r?.pid;
+      });
+      run = psqlAsync(e.schema, commitSql(e));
+      const bPid = await until('B bloqueado por el tercero', async () => {
+        const [r] = await admin.$queryRawUnsafe<{ pid: number }[]>(
+          `SELECT pid FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid)) AND query LIKE '%VariantPriceOverride%bountyAcquiredQty%'`, holderPid);
+        return r?.pid;
+      });
+      expect(bPid).toBeGreaterThan(0); // B está a mitad de camino (ya contó «antes») y esperando el candado
+      await e.db.user.create({ data: { email: `concurrente.${e.schema}@lz.local`, name: 'Alta durante B', role: 'customer', emailVerified: true } });
+      await admin.$queryRawUnsafe(`SELECT pg_cancel_backend($1::int)`, holderPid);
+    } finally {
+      // Si algo falló antes de soltarlo, el tercero no se queda colgado: se cancela por su application_name (solo el nuestro).
+      await admin.$queryRawUnsafe(`SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE application_name = $1`, app);
+      await holder;
     }
-    expect(waited).toBe(true); // B está a mitad de camino (ya contó «antes»)
-    await e.db.user.create({ data: { email: `concurrente.${e.schema}@lz.local`, name: 'Alta durante B', role: 'customer', emailVerified: true } });
-    await holder;
-    const r = await run;
+    const r = await run!;
     expect({ status: r.status, err: r.stderr.slice(0, 400) }).toEqual({ status: 0, err: '' });
     expect(await e.db.user.count()).toBe(usersBefore + 1);
     const trace = (await e.db.auditLog.findFirstOrThrow({ where: { action: 'maintenance.test_data_purge' } })).after as any;

@@ -7,6 +7,7 @@
 --  QUÉ HACE: cuenta lo que hay en cada tabla, enseña las llaves (FK) reales de la base, avisa de lo que pararía la
 --  limpieza (G-1…G-3), te enseña quién tiene cartas EN CUSTODIA (G-9: tendrás que declarar las cuentas de prueba) y
 --  el inventario que se va a borrar, y apunta dónde están los tres contadores (TCG-, ENV-, INV-). NO ESCRIBE NADA.
+--  ⚠️ Esta salida trae correos y nombres de tus clientes: no la pegues en chats, correos ni en el repositorio.
 --
 --  POR QUÉ CON EL ADMINISTRADOR Y NO CON `tcg_readonly`: ese usuario solo puede leer seis tablas, así que este censo
 --  se pararía en la primera consulta que toca otra. Y darle lectura de todo le abriría también contraseñas cifradas,
