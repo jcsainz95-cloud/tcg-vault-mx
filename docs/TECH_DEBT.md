@@ -9902,3 +9902,16 @@ Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (HEAD `
   «retirada», así que una retirada deliberada vuelve a publicarse al cambiar el precio.
 - **Disparador:** el arquitecto decide la marca de «retirada» en el schema (zona compartida, regla 9), o una queja de operador.
 - **Comprobación:** prueba que fija precio sobre un sellado con una pieza retirada a propósito y esta sigue sin publicar.
+
+## Frontend · 2026-10-07 · §AC E2E contra el stack (rama `claude/accesorios`, FRONTEND_NOTES §107.real)
+
+### TD-AC-E2E-1 · P2 · Los recorridos 724 y 748 se detienen en la sesión de pago: «pagar → preparar → bajan las existencias» sin E2E
+- **Dueño:** frontend (arnés Playwright) + devops (Stripe de prueba y webhook en el job E2E).
+- **Qué es:** `frontend/e2e/accessories.spec.ts` (AC-F14) llega a que `POST /checkout/guest/session` responda `201`, el modal
+  de Stripe monte y el servidor aparte lo pedido (1 accesorio; 8 Fuego + 4 Psíquica). Ningún E2E del arnés confirma un pago
+  con tarjeta de prueba (`checkout.spec.ts:66`, `guest-checkout.spec.ts:137` se detienen igual), así que la segunda mitad de
+  724 y 748 (cobro, «Pedidos por preparar» con el desglose, existencias que bajan) no la recorre nadie de punta a punta.
+- **Disparador:** cuando el job E2E tenga `STRIPE_TEST_*` y webhook de prueba (o una vía de confirmar el `PaymentIntent` de
+  prueba desde el arnés), o antes del release que active accesorios en producción.
+- **Comprobación:** el caso 724/748 de `accessories.spec.ts` paga con `4242…`, abre `/admin/shipments` y ve el pedido con el
+  renglón/desglose, y `GET /admin/accessories/:id` da `stockQty` bajado en lo pedido y `reservedQty` 0.

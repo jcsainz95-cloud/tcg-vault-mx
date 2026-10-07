@@ -20724,3 +20724,68 @@ Sustituye, donde choque, los párrafos «Fotos» (CSP) y «Respuestas que el con
   N=10 ⇒ 10/10 (24/24 pruebas). Copys: los de `DESIGN_SYSTEM §AC-UX.5`, sin nuevos.
 - **Para ux-ui (no cambiado):** con `reason:'insufficient_stock'` la coletilla «las energías las puedes agregar sueltas
   desde el deck» puede prometer energías que tampoco hay sueltas.
+
+### §107.real · E2E de §AC contra el stack real; AC-F14 (724, 748, 749); copys AC-UX.v1.86.4 (2026-10-07, rama `claude/accesorios`, base `c49fcebd`)
+
+**Por qué.** Todo `e2e/accessories.spec.ts` era mock-only con el motivo «el simulador de §AC sirve el catálogo y la
+cotización», falso desde que el backend de §AC está completo en esta rama. Doctrina H-4 (`e2e/utils/grading.ts:14-21`).
+
+**Qué cambió.**
+- `e2e/utils/accessories-scenario.ts` (nuevo): siembra por la API del contrato (§AC.11, §13) lo que cada caso necesita —
+  accesorios activos con foto PNG generada en el propio arnés (`makePng`), existencias y «Sugerido»; energías Fuego/Psíquica
+  activas con foto y existencias; deck `e2e-ac-energias` curado con `POST /admin/decks-meta` (8 «Basic Fire Energy», 4
+  «Basic Psychic Energy» y dos cartas)— y verifica con `GET /decks-meta/:slug` que el servidor ofrece el paquete.
+  Huella: cada caso retira lo que crea (`DELETE`; con renglones de pedido, `409 ACCESSORY_HAS_SALES` ⇒ se desactiva); el
+  `globalTeardown` (`restoreAccessoryScenario`) retira lo que quedó, desactiva las energías que activó el arnés y
+  despublica el deck. Quedan filas **inactivas** (accesorios con renglón de pedido `released`) y las existencias recibidas.
+- Los dos smokes de pantalla pasan a **agnósticos y `@real`** (mock: ids del simulador; real: lo sembrado). El listado se
+  acota con `?q=<etiqueta de la corrida>`.
+- **AC-F14** (describe «AC-F14 · contra el stack», solo-real con un único `beforeEach`):
+  - **724:** el dueño da de alta **por pantalla** (datos, foto PNG, precio, «Entraron 20», Sugerido, Activar) → la teja en
+    `/accesorios` con su precio y la foto cargada en el navegador → invitado: una carta + el accesorio desde «¿Te falta
+    algo?» → la cotización trae el renglón (8900) → el envío del desglose = `breakdown.shippingFeeCents` del servidor →
+    «Pagar» ⇒ sesión `201` y modal → `GET /admin/accessories/:id` ⇒ `stockQty 20, reservedQty 1`.
+  - **748:** lista de decks → ficha → energías ligadas (`deck-energy-fire/psychic`) → «Agregar de jalón» → «Agregar
+    paquete» → carrito con «Paquete de energías — {deck}» al precio del servidor; `shippingBox: null` (§AC.7: energías y
+    paquete no entran a la caja) y sin nota de caja, envío = el del servidor → sesión `201` y modal → apartadas +8 Fuego
+    y +4 Psíquica, existencias sin cambio.
+  - **749:** el invitado deja un accesorio en el carrito y entra con su cuenta → la ficha muestra el aviso P-AC-1 y no
+    «Agregar» → el checkout con cuenta cotiza **sin** `accessoryLines` y pinta «NO VAN EN ESTE PAGO» con el nombre → por API,
+    `POST /checkout/quote` y `/checkout/session` con el accesorio ⇒ `422 ACCESSORIES_REQUIRE_DIRECT_SHIP`; los pedidos del
+    cliente no cambian y el accesorio sigue con `reservedQty 0`.
+- ⛔ **724 y 748 se detienen en la sesión de pago**, como todos los smokes de dinero del arnés (ninguno paga con tarjeta de
+  prueba). «Paga → el operador prepara → bajan las existencias» queda **sin E2E**: `TECH_DEBT TD-AC-E2E-1`.
+- `admin.accessories.photo.saved` («Foto guardada.») no lo pinta ninguna pantalla (el diseño dice «vista previa y Cambiar
+  foto», `DESIGN_SYSTEM` §AC-UX bloque Foto); el caso afirma eso. Clave huérfana, no se tocó.
+
+**Filas que faltan en `backend/prisma/seed-e2e.ts` (petición a backend; espejo en `DECK_SEED`).** Sin ellas los dos casos
+del deck se saltan por dato del seed (medido: `ptcgoCode` a `null` ⇒ 4/4 saltados con la causa), no por mock-only:
+1. `CardSet` «E2E Base Set» con `ptcgoCode = 'EEB'` (hoy `null`; el emparejador casa por `ptcgoCode` + número y no hay
+   endpoint que lo escriba).
+2. Cartas raw «E2E Deck Ember» #40 (`externalId e2e-ac-deck-ember`) y «E2E Deck Spark» #41 (`e2e-ac-deck-spark`) en ese set,
+   precio de referencia NM **MX$50** (por debajo de todas las raw, para no mover el orden por precio de `grading.ts`), con
+   **dos** piezas `listed` de plataforma cada una (con Stripe de prueba la sesión de ES deja apartada una y EN usa la otra).
+No hacen falta filas de accesorios, energías ni cajas: se siembran por API. Cajas con tarifa no intervienen en 724/748 (el
+criterio 726/728 es otro caso).
+
+**Medido (clúster Postgres propio en `:55437`, Redis `:56387`, backend `:3497`, `next build`+`start` en `:3498`, copia
+`git archive` de `8ab4c88d` + estos cambios; filas del punto anterior **simuladas por SQL** en ese clúster):**
+- Real, `--repeat-each=5` × es/en (N=10 por caso), backend con `NODE_ENV=test` (como el job E2E: throttler apagado):
+  smoke listado/ficha/carrito **10/10**, smoke deck **10/10**, 749 **10/10**; 724 y 748 **10/10 llegan a la sesión** y
+  ahí son rojos por **`503 PAYMENT_PROVIDER_UNAVAILABLE`** (stack sin clave de Stripe: entorno, no producto). Lo posterior
+  a la sesión (modal y apartados) **NO MEDIDO** aquí.
+- Con `NODE_ENV=development` el límite `POST /checkout/guest/session` **5/h por IP** (`guest-orders.controller.ts:48`)
+  devolvió `429` en 19 de 20 sesiones: fuera del job E2E (que apaga el throttler) estos casos no se pueden repetir.
+- Mock, `--repeat-each=5`: smokes **20/20**, AC-F14 **30 saltados** (solo-real).
+- Canario de producto: con la ficha de accesorio ignorando la sesión (`false && isAuthenticated`, build propio) el 749 sale
+  **rojo 2/2** (es/en).
+- Teardown: tras la corrida, ningún accesorio activo, deck despublicado, piezas del deck `listed`.
+
+**Censo** (`scripts/check-e2e-skip-census.sh`, **rc 1**): `mockOnly` 144/30 (= baseline; en `HEAD c49fcebd` era 146/31 y ya
+salía rc 1 por los 2 de este fichero), `skipIfSeedMissing` 15→18 (7→8 ficheros), `realOnly` 22→24 (7→8). **En
+`accessories.spec.ts` no queda ningún mock-only.** Lo nuevo: `skipIfSeedMissing` = import + 2 llamadas (casos del deck,
+mientras falten las filas de arriba); `realOnly` = import + 1 llamada (`beforeEach` de AC-F14). Línea base: devops.
+
+**Copys AC-UX.v1.86.4** (commit aparte): las cinco claves con el texto literal del diseño; `DeckAvailability.ac.test.tsx`
+comparaba el texto viejo de `noStock`; candado en `src/lib/i18n-accessories.test.ts` (sin las frases viejas + literal
+es/en). Mutación (texto viejo en `es` `bundleNoStock`) ⇒ 4 rojas, 1/1.
