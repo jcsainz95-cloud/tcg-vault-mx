@@ -144,7 +144,7 @@ describe('AC-UX-7 · el recuadro del paquete', () => {
   it('insufficient_stock ⇒ una línea; not_offered / no_basic_energy ⇒ nada', () => {
     const { unmount } = render({ ...offered, offered: false, reason: 'insufficient_stock' });
     expect(
-      screen.getByText('Paquete de energías no disponible: no tenemos todas las que pide este deck. Agrega sueltas las que haya, abajo.'),
+      screen.getByText('Paquete de energías no disponible: no tenemos todas las que pide este deck. Abajo ves cuáles nos quedan para agregarlas sueltas.'),
     ).toBeInTheDocument();
     expect(screen.queryByTestId('deck-energy-bundle')).toBeNull();
     unmount();

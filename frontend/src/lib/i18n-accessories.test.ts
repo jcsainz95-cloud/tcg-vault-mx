@@ -100,4 +100,35 @@ describe('AC-UX-14 · paridad ES/EN de accesorios', () => {
     const offenders = all.filter(([, v]) => /cerrar sesión|cierra sesión|sign out|log out|como invitado|as a guest/i.test(v));
     expect(offenders).toEqual([]);
   });
+
+  /**
+   * AC-UX.v1.86.4 (`DESIGN_SYSTEM`): el paquete que sale por existencias NO promete energías sueltas. `insufficient_stock`
+   * puede significar que no queda ninguna; el copy solo dice el condicional («si nos quedan…»). Mutación: restaurar el
+   * texto viejo en una de las cinco ⇒ rojo.
+   */
+  const NO_LOOSE_PROMISE_KEYS = [
+    'checkout.accessoryPayError.bundle',
+    'checkout.accessoryPayError.bundleNoName',
+    'checkout.accessoryNotice.bundleNoStock',
+    'checkout.accessoryNotice.bundleNoStockNoName',
+    'decksMeta.bundle.noStock',
+  ];
+  it.each(NO_LOOSE_PROMISE_KEYS)('%s no promete energías sueltas (AC-UX.v1.86.4)', (k) => {
+    for (const [loc, tree] of [['es', es], ['en', en]] as const) {
+      const v = get(tree, k);
+      expect(typeof v, `${loc}:${k}`).toBe('string');
+      expect(v as string, `${loc}:${k}`).not.toMatch(/las energías las puedes agregar|las que haya|you can add the energy cards|the ones we have/i);
+    }
+  });
+
+  it.each([
+    ['checkout.accessoryPayError.bundle', 'El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck.', "The energy bundle for {deck} can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck."],
+    ['checkout.accessoryPayError.bundleNoName', 'Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck.', "An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck."],
+    ['checkout.accessoryNotice.bundleNoStock', 'El paquete de energías de {deck} salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck.', 'The energy bundle for {deck} left your cart: we no longer have all its energy cards. If we still have some left, you can add them one by one from the deck.'],
+    ['checkout.accessoryNotice.bundleNoStockNoName', 'Un paquete de energías salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck.', 'An energy bundle left your cart: we no longer have all its energy cards. If we still have some left, you can add them one by one from the deck.'],
+    ['decksMeta.bundle.noStock', 'Paquete de energías no disponible: no tenemos todas las que pide este deck. Abajo ves cuáles nos quedan para agregarlas sueltas.', "Energy bundle not available: we don't have all the energy cards this deck needs. Below you can see which ones we still have to add one by one."],
+  ])('%s = el texto literal de AC-UX.v1.86.4 (es/en)', (k, esText, enText) => {
+    expect(get(es, k)).toBe(esText);
+    expect(get(en, k)).toBe(enText);
+  });
 });

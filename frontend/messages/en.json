@@ -632,8 +632,8 @@
       "insufficientNoName": "There are only {n} left of an accessory in your cart. We've adjusted the quantity.",
       "bundleDeckIncomplete": "The energy bundle for {deck} left your cart: not all of the deck's cards are in it anymore.",
       "bundleDeckIncompleteNoName": "An energy bundle left your cart: not all of the deck's cards are in it anymore.",
-      "bundleNoStock": "The energy bundle for {deck} left your cart: we no longer have all its energy cards. You can add the ones we have one by one from the deck.",
-      "bundleNoStockNoName": "An energy bundle left your cart: we no longer have all its energy cards. You can add the ones we have one by one from the deck.",
+      "bundleNoStock": "The energy bundle for {deck} left your cart: we no longer have all its energy cards. If we still have some left, you can add them one by one from the deck.",
+      "bundleNoStockNoName": "An energy bundle left your cart: we no longer have all its energy cards. If we still have some left, you can add them one by one from the deck.",
       "bundleExpired": "The energy bundle for {deck} expired. Add it again from the deck.",
       "bundleExpiredNoName": "An energy bundle expired. Add it again from the deck.",
       "bundleUnavailable": "The energy bundle for {deck} is no longer available and left your cart.",
@@ -648,8 +648,8 @@
       "insufficientNoName": "There aren't enough of an accessory in your cart: {n} remaining. You weren't charged. We adjusted the quantity: check it and pay again.",
       "soldOut": "{name} sold out while you were paying. You weren't charged. We removed it: check your cart and pay again.",
       "soldOutNoName": "An accessory sold out while you were paying. You weren't charged. We removed it: check your cart and pay again.",
-      "bundle": "The energy bundle for {deck} can no longer be paid for. You weren't charged. We removed it from your cart; you can add the energy cards one by one from the deck.",
-      "bundleNoName": "An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart; you can add the energy cards one by one from the deck."
+      "bundle": "The energy bundle for {deck} can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck.",
+      "bundleNoName": "An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck."
     }
   },
   "vault": {
@@ -7213,7 +7213,7 @@
       "inCart": "In cart",
       "remove": "Remove bundle",
       "needsDeck": "First add the deck with “Add the whole deck”: the bundle only comes with the complete deck.",
-      "noStock": "Energy bundle not available: we don't have all the energy cards this deck needs. Add the ones we have one by one, below."
+      "noStock": "Energy bundle not available: we don't have all the energy cards this deck needs. Below you can see which ones we still have to add one by one."
     }
   },
   "support": {

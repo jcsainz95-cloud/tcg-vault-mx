@@ -632,8 +632,8 @@
       "insufficientNoName": "Solo quedan {n} de un accesorio de tu carrito. Ajustamos la cantidad.",
       "bundleDeckIncomplete": "El paquete de energías de {deck} salió del carrito: ya no están todas las cartas del deck.",
       "bundleDeckIncompleteNoName": "Un paquete de energías salió del carrito: ya no están todas las cartas del deck.",
-      "bundleNoStock": "El paquete de energías de {deck} salió del carrito: ya no tenemos todas sus energías. Puedes agregar sueltas las que haya desde el deck.",
-      "bundleNoStockNoName": "Un paquete de energías salió del carrito: ya no tenemos todas sus energías. Puedes agregar sueltas las que haya desde el deck.",
+      "bundleNoStock": "El paquete de energías de {deck} salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck.",
+      "bundleNoStockNoName": "Un paquete de energías salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck.",
       "bundleExpired": "El paquete de energías de {deck} venció. Vuelve a agregarlo desde el deck.",
       "bundleExpiredNoName": "Un paquete de energías venció. Vuelve a agregarlo desde el deck.",
       "bundleUnavailable": "El paquete de energías de {deck} ya no está disponible y salió del carrito.",
@@ -648,8 +648,8 @@
       "insufficientNoName": "Ya no hay suficientes de un accesorio de tu carrito: quedan {n}. No se cobró nada. Ajustamos la cantidad: revisa y vuelve a pagar.",
       "soldOut": "{name} se agotó mientras pagabas. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.",
       "soldOutNoName": "Un accesorio se agotó mientras pagabas. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.",
-      "bundle": "El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito; las energías las puedes agregar sueltas desde el deck.",
-      "bundleNoName": "Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito; las energías las puedes agregar sueltas desde el deck."
+      "bundle": "El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck.",
+      "bundleNoName": "Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck."
     }
   },
   "vault": {
@@ -7213,7 +7213,7 @@
       "inCart": "En el carrito",
       "remove": "Quitar paquete",
       "needsDeck": "Primero agrega el deck con «Agregar de jalón»: el paquete solo va con el deck completo.",
-      "noStock": "Paquete de energías no disponible: no tenemos todas las que pide este deck. Agrega sueltas las que haya, abajo."
+      "noStock": "Paquete de energías no disponible: no tenemos todas las que pide este deck. Abajo ves cuáles nos quedan para agregarlas sueltas."
     }
   },
   "support": {
