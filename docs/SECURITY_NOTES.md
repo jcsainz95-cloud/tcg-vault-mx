@@ -1,3 +1,110 @@
+# VEREDICTO BLUE TEAM — **STREAM «Publicar sin ubicación» (§M1-SU, SU.1…SU.9, SU.3-R; ARCHITECTURE §4.65)** · SHA **`15dffc9a`** (rama `claude/sin-ubicacion`, árbol `/home/user/tcg-ubic`) · 2026-10-07
+
+> ## VEREDICTO: **APROBADO CON CONDICIONES** sobre `15dffc9a`
+>
+> 0 críticas, 0 altas. **Una media de procedimiento** (SU-S1: `--apply` del script re-publica retiradas). No la puede
+> disparar un atacante, y su mitigación es una norma que tiene que ir en la solicitud de fusión. Dos bajas y dos info
+> quedan aceptadas como deuda con disparador. Nada de seguridad bloquea el botón `main → production` si se cumple
+> la condición C-SU-1.
+>
+> **Sobre qué medí** (2026-10-07, solo lectura): `HEAD` del árbol = `15dffc9a`. `origin/production` es ancestro de
+> `15dffc9a` (`git merge-base --is-ancestor`). `git diff --stat 2c516314 15dffc9a -- backend/src backend/scripts` sale
+> vacío, así que el backend que QA midió en vivo es el que juzgo. Delta: `git diff origin/production..15dffc9a`, 53
+> ficheros. El código de servidor que cambia está en `inventory.service.ts`, `inventory-publish.port.ts`,
+> `sealed-price.service.ts` (un comentario), `buylist.service.ts` (el degradado) y `scripts/reevaluate-unlocated.ts`.
+> **No ejecuté nada.** Este stream no tiene pase del pentester en `PENTEST_NOTES.md` (medido: la primera sección es
+> §AN), así que hice las dos lentes por lectura. Marcas de origen: **[QA]** = gate de QA sobre `2c516314`, que no volví
+> a medir.
+
+## §SU.1 Preguntas del encargo, una por una
+
+| # | Pregunta | Respuesta | Evidencia (fichero:línea en `15dffc9a`) |
+|---|---|---|---|
+| 1 | ¿Una pieza puede salir a la venta con un precio equivocado, en 0 o de otra pieza? | **No, por un camino nuevo.** El alta llama al **mismo** cuerpo (`reevaluateForPublication` → `reevaluateOne`) que ya usaban `move`, el precio del sellado y buylist. Solo se quitó el corte de ubicación (`:3293-3298`). El precio sale de `derivePublishSalePrice`, que no cambió: un `0` no cuenta como precio (`firstPresentAmount`/`isPresentAmount`, `common/money.ts:153`, `:509`) y todo `listPriceCents` del DTO es `@Min(1) @Max(MAX_LIST_PRICE_CENTS)` (`dto/*.ts:109,150,201,228,284`). `publishCreated` solo recibe **ids**, ni precio ni `status` del llamador (`:840-855`). El ownerType y el status van en el CAS de `claimListed` (`:2385-2398`), así que no hay doble venta. | lectura |
+| 2 | ¿La custodia (vault) sigue exigiendo cajón? ¿Algo publica piezas de clientes? | **Sí exige cajón, y no, nada las publica.** `git diff --stat` sobre `backend/src/modules/vault`, `schema.prisma`, `orders` y `payments` sale vacío. Siguen `vault-placement.service.ts:513` y `replacement-case.service.ts:520` (`location_required`). Las tres altas crean `ownerType:'platform'` (`buildItemData`, `:1410`, la única forma de crear en `:798`, `:1501`, `:3586`). Una pieza de cliente se rechaza dos veces: en `assertPublishableGuards` (`:1796`) y en el `where ownerType:'platform'` del CAS (`:2388`). | lectura + `git diff --stat` |
+| 3 | ¿Un operador sin permiso puede publicar al dar de alta? | **No hay escalada.** `POST inventory/items`, `…/items/batch` y `…/adjustments` llevan el `@Roles(vault_operator, super_admin)` de la clase (`inventory.controller.ts:90`). `bulk-publish` (`:428`) y `publish-all` (`:452`) tienen **el mismo** permiso. Quien da de alta ya podía publicar. El precio del sellado por producto sigue siendo solo del dueño: `assertSealedPriceWriters` va **antes** de escribir en las tres altas (`:771`, `:1452`, `:3540`). | lectura |
+| 4 | ¿El replay o la idempotencia pueden duplicar, o re-publicar retiradas? | **Las altas, no.** `publishCreated` se llama después del commit y solo en el camino nuevo: el fast-path del lote (`:1447-1448`) y el de «encontrada» (`:3541-3545`) regresan antes, y la rama P2002 no llega a la llamada. SU-B10 lo fija como canario **[QA]**. `publishCreated` atrapa todo y devuelve `[]` (`:846-854`), así que no hay un `500` después del commit que invite a reintentar. **El script, sí: ver SU-S1.** | lectura |
+| 5 | ¿El script filtra la URL o la credencial en los registros? | **La credencial, no. El host, quizá** (SU-S4). `describeUrl` imprime `***.<dominio>:***/<db>` fuera de local, y sin usuario ni contraseña en local. El salto `*.railway.internal` → `DATABASE_PUBLIC_URL` no imprime la URL. El `catch` de arriba imprime solo `e.message`. | `scripts/reevaluate-unlocated.ts:46-77`, `:206-214` |
+| 6 | ¿Hay algo sensible en el diff (repo público)? | **No.** Busqué en las líneas añadidas `postgres://`, `sk_`, `whsec_`, `password=`, `api_key`, `rlwy.net` y `@host:puerto`. Solo aparecen los fixtures falsos de `test/reevaluate-unlocated.spec.ts:15-16` (`u:s3cr3t@…`, `roundhouse.proxy.rlwy.net:41234`). Siguen el mismo patrón falso que `seed-e2e.target-guard.spec.ts:67`. En el frontend no hay sumideros nuevos: ni `dangerouslySetInnerHTML` ni redirecciones abiertas. `?locations=open` solo se compara con un literal y se borra de la URL (`M1View.tsx`). | `git diff … \| grep -E '^\+'` |
+
+## §SU.2 Hallazgos priorizados
+
+### SU-S1 · **Media** (procedimiento, no explotable desde fuera) · `--apply` del script re-publica piezas retiradas a propósito
+- **Ubicación:** `backend/scripts/reevaluate-unlocated.ts:105-112` (selección `platform ∧ in_stock ∧ locationId IS NULL`)
+  → `reevaluateForPublication`.
+- **Evidencia:** **[QA]** N=1, determinista. INV-000006 estaba retirada (`PATCH status:'in_stock'`) y quedó `listed`
+  después de `--apply`. Lo confirmo por lectura: `in_stock` no distingue «retenida por la regla vieja» de
+  «retirada por el operador», y la selección no consulta `AuditLog`.
+- **Impacto en dinero:** se vende una pieza que el operador sacó a propósito (dañada, apartada, en revisión). El
+  **precio no es incorrecto**, porque decide el pipeline de siempre. El daño es una venta que hay que cancelar o
+  reembolsar.
+- **Qué lo mitiga hoy:** (a) el script **no va en la imagen** (SU.7 (4)), así que solo lo corre quien tiene la
+  credencial; (b) **por defecto no escribe**; (c) la norma SU.3-R (no correr `--apply` si va la limpieza, si hay
+  retiradas o si no se pueden contar).
+- **Dueño:** el orquestador (condición **C-SU-1**, abajo). Backend se encarga de la exclusión (`excludedWithdrawn` +
+  SU-B7) **solo si** se va a usar `--apply`.
+
+### SU-S2 · **Baja** · El alta con precio manual publica sin una segunda mirada
+- Antes de SU-1, el precio tecleado en el alta no salía a la venta hasta una segunda acción: `move` o `bulk-publish`.
+  Ahora sale en el acto (`:818`). Un error de tecleo, por ejemplo `100` en vez de `10000`, queda a la venta.
+- **No es escalada:** el mismo rol podía publicar ese mismo precio con `bulk-publish`. Lo acotan `@Min(1)` y `@Max`.
+- **Lo acepto.** Lo que lo dispara: el primer caso real de pieza vendida por error de tecleo, o el paso a `sk_live_`
+  con volumen. En ese punto, que el frontend muestre el precio en el aviso `createToastListed` (frontend) o un
+  guardarraíl de mínimo contra el mercado para el precio manual (arquitecto).
+
+### SU-S3 · **Baja** · El alta suelta no es idempotente y ahora la pieza duplicada sale a la venta
+- `POST /admin/inventory/items` no tiene clave de idempotencia (ya era así). Si se reintenta un `201` perdido en la
+  red, se crea otra pieza. Con SU.8 esa pieza fantasma queda `listed` y se puede comprar algo que no existe.
+- **Qué lo mitiga:** `publishCreated` nunca lanza (no hay `500` después del commit). El botón se deshabilita mientras
+  la petición va en curso (`AddItemModal.tsx:280-281`, `AddGradedModal.tsx:103-104`). Una pieza de más se ve en el
+  conteo físico.
+- **Lo acepto.** Dueño: backend. Lo que lo dispara: el próximo trabajo en la familia de idempotencia
+  (`TECH_DEBT` BE-BR1/H2), o cualquier pieza duplicada que se detecte.
+
+### SU-S4 · **Info** · El error de conexión del script puede imprimir host y puerto
+- `describeUrl` oculta el host, pero un error de conexión de Prisma («Can't reach database server at `h:p`») sale
+  tal cual por `stderr` (`reevaluate-unlocated.ts:210`). No incluye la credencial. Se imprime en la terminal de quien
+  ya tiene la URL. **Lo acepto**, con una condición: no pegar esa salida en issues ni en registros públicos de CI.
+
+### SU-S5 · **Info** (ya existía; es `TD-SU-9` / SU.9) · El precio del sellado y `move` re-publican retiradas
+- Es la misma clase que SU-S1, en disparadores manuales del operador o del dueño. Está aceptada en
+  `docs/TECH_DEBT.md` (TD-SU-9). La salida de fondo (una marca persistida «retirada por el operador») es del
+  arquitecto. Desde seguridad no sube de severidad: la dispara una persona con el permiso que corresponde.
+
+**Totales: Crítica 0 · Alta 0 · Media 1 (SU-S1) · Baja 2 · Info 2.**
+
+## §SU.3 Deuda de seguridad aceptada (registro del DoD)
+| Id | Impacto | Lo que la dispara | Dueño |
+|---|---|---|---|
+| SU-S2 | Un error de tecleo en el precio sale a la venta | primer caso real, o `sk_live_` con volumen | frontend / arquitecto |
+| SU-S3 | Un reintento crea una pieza duplicada que sale a la venta | trabajo en idempotencia, o la primera duplicada detectada | backend |
+| SU-S4 | Host y puerto en `stderr` local | si el script entra a CI o a un registro compartido | backend |
+| SU-S5 / TD-SU-9 | Un disparador manual re-publica una retirada | decisión del arquitecto sobre la marca «retirada» | arquitecto → backend |
+
+## §SU.4 Condiciones
+- **C-SU-1 (antes del botón, la cumple el orquestador):** el cuerpo de la solicitud `main → production` lleva la norma
+  SU.3-R tal cual: **no se corre `--apply`** si la limpieza de base va a correr, si el conteo de retiradas (consulta
+  de SU.3-R, solo lectura, la corre quien tiene la credencial) es > 0 o si no se puede hacer. El caso esperado es
+  solo la corrida en seco con `selected: 0` después de la limpieza.
+- **C-SU-2 (solo si algún día hace falta `--apply`):** primero, backend construye la exclusión `excludedWithdrawn` +
+  SU-B7 y vuelve a pasar por seguridad.
+- Siguen las heredadas de antes de `sk_live_` (ver los veredictos de `c62621e6` y `b370cf9b`). Este stream no las toca.
+
+## §SU.5 NO MEDIDO
+- No ejecuté ninguna suite ni el script. La conducta de SU-S1 y los SU-B7…B12 los consolido de **[QA]**.
+- No corrí la consulta de conteo de retiradas contra ninguna base (como dice SU.3-R).
+- No medí si `ts-node` está en las `node_modules` de producción: no hace falta para este veredicto.
+
+## §SU.6 Banderas para el humano
+- **Antes de vender con piezas que retiraste a mano:** no pidas que se corra el script con `--apply` sin el conteo
+  de SU.3-R. «Publicar todo» de M1 tiene el mismo efecto sobre las retiradas **con** cajón.
+- Siguen sin cambios: antes de `sk_live_`, el pentest de un tercero y el bug bounty, y la validación legal de la custodia
+  y de la PII.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-07 · código `15dffc9a` (rama `claude/sin-ubicacion`) · **APROBADO CON CONDICIONES** (C-SU-1 en el cuerpo de la solicitud de fusión; nada más bloquea)
+
+---
+
 # VEREDICTO BLUE TEAM — **RELEASE «Analítica de ventas del dueño» (§AN)** · SHA **`c78f8a24`** (rama `claude/analitica-ventas`) · 2026-10-06
 
 > ## VEREDICTO: ✅ **APROBADO** sobre `c78f8a24`
