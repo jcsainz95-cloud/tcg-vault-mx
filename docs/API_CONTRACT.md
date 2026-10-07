@@ -56,6 +56,19 @@
 > | 3 | 💰 `WishlistNotice.inventoryItemId` `RESTRICT` choca con la limpieza que borra el inventario | **`ON DELETE CASCADE`** en `M-74`; la rama de limpieza clasifica las 3 tablas nuevas (descrito en WSH.11, no escrito aquí) |
 > | 4 | `sellableByIds` → `displayPriceCents`; candado `pg_try_advisory_xact_lock`; `wishlistEnabled` en el controlador; censos; WSH-T9 parcial; §84.3 (6)–(12) | **Ratificados**; el texto del contrato se alinea |
 >
+> **Errata v1.87.3⟨wishlist⟩ — el rechazo de QA a §WSH (B-1 bloqueante y M-1)** (2026-10-07, arquitecto, árbol
+> `/home/user/tcg-wishlist`, HEAD dado por el orquestador `503cf07`; ⛔ sha NO MEDIDO: sin Bash). Norma en
+> **[§WSH.12](#WSH)**, con los cambios hechos en su sitio (§2-S `restock-subscriptions`, WSH.1, WSH.4 «Se quita sola»,
+> WSH.7 (f), WSH.9). ⚠️ **`M-74` gana un paso de datos acotado** (relleno de `tcgplayerProductId` en suscripciones
+> pendientes heredadas), en su sitio: aún no está publicada. **Cambio de cuerpo incompatible** en una ruta pública con un
+> solo cliente (la ficha de sellado).
+>
+> | # | Hallazgo de QA | Decisión |
+> |---|---|---|
+> | B-1 | La pantalla se apunta con `cardId+subtipo` (clave `c:`); la pieza mapeada tiene clave `p:` ⇒ nunca avisa | **(a)** El cliente manda **solo** `{ email, inventoryItemId }`; el servidor **deriva** la identidad de esa pieza. Cuerpo estricto: los campos viejos ⇒ `400`. WSH-T42 usa el cuerpo de la pantalla; candado de paridad pantalla↔DTO |
+> | B-1 (datos) | Filas pendientes ya guardadas con clave `c:` de un producto mapeado (cuántas: NO MEDIDO) | `M-74` paso (8): se les pone el `tcgplayerProductId` **solo si es inequívoco**; las ambiguas se quedan como están y se cuentan |
+> | M-1 | Comprar la promo de la misma carta y acabado borra el deseo | **La promo y el exclusivo de deck son otro producto para la lista**: lo que quita el deseo es exactamente lo que lo avisa (mismo filtro de producto de set). WSH-T43 |
+>
 > **Errata SU-1 — LA UBICACIÓN DEJA DE SER REQUISITO PARA PUBLICAR, POR AHORA (2026-10-07, arquitecto, árbol
 > `/home/user/tcg-ubic`, rama `claude/sin-ubicacion`; ⛔ sha NO MEDIDO: sin Bash; numeración NO MEDIDA contra ramas vivas).**
 > Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Norma entera en
@@ -10363,11 +10376,19 @@ Err `404 FEATURE_DISABLED` (dial `sealed_value_trend=off`), `404 NOT_FOUND` (pie
 ### POST /api/v1/catalog/sealed/restock-subscriptions — `public`  (v1.23 — FEATURE-FLAGGED `sealed_restock_alerts`)
 «Avísame cuando vuelva»: suscribe un correo a la reposición de un producto **agotado**. Acepta correo de invitado o de
 usuario logueado (si hay sesión, se asocia `userId`). Guarda una `SealedRestockSubscription` (ARCHITECTURE §4.23h/M-28).
-Req: `{ email: string, tcgplayerProductId?: number, cardId?: string, sealedSubtype?: SealedSubtype, sealedCondition: SealedCondition }`
-- Identidad de producto: `tcgplayerProductId` (mapeado, preferido) **o** `cardId (+ sealedSubtype)`. Uno de los dos es obligatorio.
+~~Req: `{ email: string, tcgplayerProductId?: number, cardId?: string, sealedSubtype?: SealedSubtype, sealedCondition: SealedCondition }`~~
+~~- Identidad de producto: `tcgplayerProductId` (mapeado, preferido) **o** `cardId (+ sealedSubtype)`. Uno de los dos es obligatorio.~~
+⭐ **v1.87.3⟨wishlist⟩ (B-1 de QA) — el cuerpo cambia; norma entera en `§WSH.7 (f)`:**
+Req: `{ email: string, inventoryItemId: string /* uuid de una pieza SELLADA; la ficha manda group.representativeItemId */ }`
+- El servidor **deriva** la identidad (`tcgplayerProductId`, `cardId`, `sealedSubtype`, `sealedCondition`) de esa pieza.
+  ⛔ El cliente ya no la manda: `tcgplayerProductId`, `cardId`, `sealedSubtype` o `sealedCondition` en el cuerpo ⇒
+  `400 VALIDATION_ERROR { field }` (pipe estricto). `inventoryItemId` ausente o no-uuid ⇒ `400 { field:'inventoryItemId' }`.
+- Pieza inexistente o no sellada ⇒ `202` neutro **sin fila** (anti-enumeración, igual que hoy con una carta inexistente).
 Res `202`: `{ subscribed: true }` — **respuesta neutra** (no revela si el producto existe/está agotado; anti-enumeración,
 patrón §4-G). **Rate-limited** por IP/correo (`429 RATE_LIMITED`).
-Err `404 FEATURE_DISABLED` (dial `off`), `422 VALIDATION_ERROR` (sin identidad de producto / correo inválido).
+Err `404 FEATURE_DISABLED` (dial `off`), `422 VALIDATION_ERROR` (correo inválido; ⭐ v1.87.3: «sin identidad de
+producto» desaparece — la identidad ya no viene del cliente), ⭐ `400 VALIDATION_ERROR { field }` (campo desconocido o
+`inventoryItemId` inválido, v1.87.3).
 
 ---
 
@@ -41641,6 +41662,9 @@ model WishlistMail {                       // un correo enviado = un lote; el to
   Cuántas filas hay en producción: **NO MEDIDO**; lo cierra `SELECT count(*), count(*) FILTER (WHERE "notifiedAt" IS NULL)
   FROM "SealedRestockSubscription"` en la ventana de despliegue (usuario de solo lectura o el dueño), y la cifra va a la
   solicitud de fusión.
+  ⭐ **v1.87.3 — un solo relleno, acotado:** `tcgplayerProductId` de las suscripciones pendientes heredadas con clave `c:`
+  cuando su producto es inequívocamente uno mapeado. Forma y conteos en WSH.7 (f) y WSH.12. `armedAt`/`matchedAt` siguen
+  sin relleno.
 - **Reversa:** primero el código; después `DROP` de las tres tablas, del enum y de las cuatro columnas. Se pierden deseos
   y el historial de avisos; ningún dinero ni inventario depende de ellos.
 - **Dónde casa una pieza con un deseo** (predicado único `wishlistPieceWhere`, en `wishlist/`): `ownerType='platform'`,
@@ -41860,6 +41884,12 @@ la lleva; el deseo del otro sigue activo y su fila de esa pieza queda `sent` (no
 `:455`, envío directo), best-effort con `try/catch`: `wishlist.consumeForSettledOrder(orderId)` borra los
 `WishlistItem` de `order.userId` cuyo `(cardId, finish)` coincide con alguna pieza `raw` del pedido. Idempotente
 (`deleteMany`). Pedido de invitado (`userId` nulo) ⇒ nada.
+⭐ **v1.87.3 (M-1 de QA) — «una pieza de esa carta y acabado» es una pieza que habría avisado.** Solo cuentan las piezas
+del pedido que cumplen la **parte de producto** del predicado de WSH.1: `productType='raw'` ∧ (`cardProductId IS NULL` ∨
+su `CardProduct.kind ∈ {set_base, other}`). Comprar la **promo** o el **exclusivo de deck** de la misma carta y acabado
+**no** quita el deseo (no lo habría avisado, y vale distinto: §4.29 / §P.8). Un `cardProductId` sin fila de `CardProduct`
+tampoco lo quita (el aviso tampoco casa). ⛔ Sin `status`, `ownerType` ni vendibilidad: la pieza ya está pagada. ⛔ Una
+sola copia del fragmento «producto de set»: el aviso y la baja lo leen del mismo sitio (`wishlist-pieces.ts`). WSH-T43.
 
 **Borrado de la cuenta (817).** El borrado suave (`admin.service.ts:1643-1695`) suma, dentro de su transacción:
 `wishlistItem.deleteMany`, `wishlistMail.deleteMany` (los avisos caen en cascada) y
@@ -41969,6 +41999,67 @@ pide **un clic** para confirmar. ⛔ Nunca un `GET` que modifique: los antivirus
   esa identidad (la más barata por P). Sigue bilingüe y sobre `mailShell`. Pie: `¿No lo pediste? Ignora este correo: no
   volverás a recibirlo por este producto.` ⛔ No hace falta enlace de baja: el aviso no se repite (`PROJECT §WSH.7`).
 - **Lo que no cambia:** acepta invitados, un aviso por suscripción, no entra en el tope de 20 ni usa %.
+- ⭐ **(f) Identidad de la suscripción: la deriva el servidor de una pieza (v1.87.3, B-1 de QA).**
+  - **Lo medido por QA (reproducible) y releído por el arquitecto el 2026-10-07:** el formulario manda
+    `{email, cardId, sealedSubtype, sealedCondition}` (`SealedDetailView.tsx:240-244`, `SealedRestockForm.tsx:46`), sin
+    `tcgplayerProductId` porque la ficha no lo expone. La fila queda con clave `c:cardId:subtipo:cond`; las piezas
+    mapeadas tienen `p:tcgplayerProductId:cond` (`sealed-restock-notify.service.ts:33-41`). En el job, `best` no contiene
+    la clave `c:` ⇒ la fila **se arma en el primer tick aunque haya existencia** (`:127`) y **nunca casa** (`:128`). Las
+    pruebas T25/T26 se suscribían con `tcgplayerProductId` (`sealed-restock-armed.e2e-spec.ts:63,94`), un cuerpo que la
+    pantalla no puede mandar. Además la regla de la clave vive **dos veces**: `sealedIdentityKey` (`:33-41`) y
+    `SealedCatalogService.groupKey` (`sealed-catalog.service.ts:202-206`).
+  - **Cuerpo (estricto):** `{ email: string, inventoryItemId: string }`. DTO con `@IsString() email` y
+    `@IsUUID() inventoryItemId`, por `@Body(new StrictBodyPipe(RestockSubscriptionDto))` (el mismo pipe de WSH.4, que hoy
+    vive en `wishlist/dto/wishlist.dto.ts:45`; `catalog` ya depende de `wishlist`, así que se importa de ahí; si aparece un
+    tercer consumidor sube a `common/pipes/`, zona compartida, pasando por el arquitecto). Campo desconocido ⇒
+    `400 VALIDATION_ERROR { field }` y 0 filas. ⛔ Sin periodo de gracia para el cuerpo viejo: aceptarlo mantendría vivo el
+    camino del defecto.
+  - **Derivación:** `piece = inventoryItem.findUnique({ id })` con `productType = 'sealed'`, **cualquier** `status` y
+    **cualquier** `ownerType`. Por qué cualquiera: el caso que más importa es «estaba viendo la ficha y se vendió la
+    última»; a esa hora la pieza ya no está `listed` y puede ser de otro dueño, y la identidad del producto no cambia. La
+    respuesta es neutra, así que aceptar cualquier pieza sellada no revela nada que el `202` no oculte ya; y un uuid no se
+    adivina. Columnas de la fila: `tcgplayerProductId = piece.tcgplayerProductId`, `cardId = piece.cardId`,
+    `sealedSubtype = piece.sealedSubtype`, `sealedCondition = piece.sealedCondition ?? 'mint'`. Pieza inexistente o no
+    sellada ⇒ `202 {subscribed:true}` sin fila. El resto de (b) (correo de la cuenta, «misma identidad ya pendiente», tope
+    por correo, `@Throttle`) se aplica **después** de derivar, sobre las columnas derivadas.
+  - **Invariante (lo que hace imposible B-1):** `sealedIdentityKey(fila) === sealedIdentityKey(pieza)` por construcción,
+    y `groupKey` de la ficha **llama** a `sealedIdentityKey` (un solo cuerpo de la regla; ⛔ ninguna otra plantilla
+    `` `p:${`` / `` `c:${`` en `modules/catalog/`). Quien se apunta desde cualquier pieza de un grupo queda con la clave de
+    ese grupo.
+  - **Por qué (a) y no (b) ni (c):** porqué completo en `ARCHITECTURE §4.WSH (l)`. Resumen: (b) deja al cliente armando la
+    identidad (segunda copia de la regla, y con `cardId+subtipo` seguiría el mismo defecto si el cliente se equivoca de
+    rama); (c) «casa por cualquiera de las dos» haría que un `c:` de la carta ancla case con **varios** productos mapeados
+    distintos del mismo set y subtipo (el sellado se ancla a una carta del set, `schema.prisma:2551-2552`): avisaría de
+    productos que la persona no pidió.
+  - **Filas heredadas (`M-74` paso 8, idempotente).** Solo pendientes (`notifiedAt IS NULL`) con `tcgplayerProductId IS
+    NULL`. Se rellena con el **único** `tcgplayerProductId` no nulo de las piezas `productType='sealed'` con el mismo `cardId`
+    y `sealedSubtype IS NOT DISTINCT FROM` el de la fila (cualquier condición, cualquier estado), **y solo si** ninguna pieza
+    de ese `(cardId, sealedSubtype)` es no mapeada. Forma:
+    ```sql
+    WITH cand AS (
+      SELECT s."id", min(ii."tcgplayerProductId") AS pid
+      FROM "SealedRestockSubscription" s
+      JOIN "InventoryItem" ii ON ii."productType"::text = 'sealed' AND ii."cardId" = s."cardId"
+                             AND ii."sealedSubtype" IS NOT DISTINCT FROM s."sealedSubtype"
+      WHERE s."notifiedAt" IS NULL AND s."tcgplayerProductId" IS NULL
+      GROUP BY s."id"
+      HAVING count(DISTINCT ii."tcgplayerProductId") = 1 AND bool_and(ii."tcgplayerProductId" IS NOT NULL))
+    UPDATE "SealedRestockSubscription" s SET "tcgplayerProductId" = cand.pid
+    FROM cand WHERE s."id" = cand."id" AND s."tcgplayerProductId" IS NULL;
+    ```
+    Ambiguas (dos o más productos mapeados, o mezcla con piezas no mapeadas, o sin piezas) ⇒ **no se tocan**: o son un
+    `c:` legítimo de un producto no mapeado, o no hay forma honesta de saber cuál pidieron. Una ambigua con producto
+    mapeado en existencia se arma y nunca casa: **no manda correo falso**, solo no avisa. ⛔ Ni se borran ni se adivinan.
+    El relleno **no** toca `armedAt`: una fila rellenada cuyo producto tiene existencia **no** se arma hasta que se agote
+    (la exigencia de (c) se conserva para las heredadas).
+    Conteos para la solicitud de fusión, **antes y después** del paso, en la ventana de despliegue (usuario de solo lectura
+    o el dueño): `SELECT count(*) FILTER (WHERE "tcgplayerProductId" IS NULL) AS c_pendientes FROM
+    "SealedRestockSubscription" WHERE "notifiedAt" IS NULL;` y el valor del dial `sealed_restock_alerts`. Si el dial nunca
+    estuvo `on` en producción, la ruta respondía `404` y la cifra es 0: **NO MEDIDO**.
+  - **Conocido y fuera de alcance (ya existía en `groupKey`):** si una pieza no mapeada se mapea después, su clave pasa de
+    `c:` a `p:` y las suscripciones hechas antes dejan de casar. Hoy no hay escritor que cambie `tcgplayerProductId` de
+    una pieza ya dada de alta: **NO MEDIDO** por el arquitecto (sin `grep` de escritores); si backend encuentra uno, lo
+    reporta.
 
 ### WSH.8 La «lista de compra casi segura» (M9, `super_admin`)
 
@@ -42084,6 +42175,8 @@ WishlistDemandResponse = {
 | ⭐ WSH-T39 | WSH.7 (b) (v1.87.2, punto 2) | `POST /catalog/sealed/restock-subscriptions` con `dto.email = otro@…`: (a) sesión válida de cliente ⇒ fila con el correo **de la cuenta** y su `userId`; (b) sin token ⇒ `dto.email`, `userId` nulo; (c) token con firma mala, caducado, de refresco (`typ`), con `tv` viejo o de cuenta `blocked` ⇒ **`202`, nunca `401`**, guardado como invitado; (d) staff sin correo ⇒ invitado. El tope de 5 pendientes cuenta sobre el correo resuelto. **Candado de fuente:** `OptionalSessionGuard` aparece en exactamente un `@UseGuards` y ese handler es `@Public()` | backend e2e + candado de `grep` |
 | ⭐ WSH-T40 | 815 (v1.87.2, punto 3) | **FK de M-74 por catálogo**: `pg_constraint.confdeltype` de las siete FK de las tablas nuevas = `WishlistItem.userId` `c`, `.cardId` `r`, `WishlistNotice.wishlistItemId` `c`, `.userId` `c`, **`.inventoryItemId` `c`**, `.mailId` `n`, `WishlistMail.userId` `c` (tabla exacta: una FK de más o de menos ⇒ rojo). **Conducta**: pieza con un aviso `sent` con foto ⇒ `DELETE FROM "InventoryItem"` de esa pieza funciona; el aviso desaparece; el `WishlistItem` y el `WishlistMail` siguen intactos | backend e2e (integración) |
 | ⭐ WSH-T41 | WSH.5, WSH.7 (a) (v1.87.2, punto 4) | candado entre instancias **sin carrera**: la prueba abre su propia transacción y toma `pg_advisory_xact_lock(87740101)`; `wishlist-notify.run()` ⇒ `{enqueued:false, reason:'ALREADY_RUNNING'}` y 0 filas nuevas en `WishlistNotice`/`WishlistMail`; la prueba suelta (commit) ⇒ `run()` corre. Ídem con `87740102` y `sealed-restock-notify` (0 `armedAt`/`notifiedAt` escritos mientras está tomado). Determinista ⇒ una tirada basta | backend e2e (integración) |
+| ⭐ WSH-T42 | 823, WSH.7 (f) (v1.87.3, B-1) | **Con EXACTAMENTE el cuerpo de la pantalla** `{ email, inventoryItemId }` (helper único de la prueba, tipado con esas dos claves; `inventoryItemId` = el `group.representativeItemId` que devuelve `GET /catalog/sealed/:id`, leído por HTTP en la prueba, no tomado del fixture). Dos ramas, cada una de punta a punta: **(1) producto mapeado** (piezas con `tcgplayerProductId`) y **(2) no mapeado** (`tcgplayerProductId` nulo). En cada una: apuntarse con existencia ⇒ `202`; la fila tiene `sealedIdentityKey(fila) === sealedIdentityKey(pieza)`; job con existencia ×2 (y reloj +60 min) ⇒ `armedAt` **nulo** y 0 correos; se agota ⇒ job ⇒ `armedAt` puesto; vuelve ⇒ `matchedAt`, 0 correos; reloj +31 min ⇒ **1** correo con `/es/sellado/{id vendible}`. **(3) «se vendió la última mientras miraba»:** la pieza pasa a no-`listed` **antes** del `POST` con su id ⇒ `202` y fila con la identidad correcta; vuelve ⇒ 1 correo. **(4) cuerpo viejo** `{email, cardId, sealedSubtype, sealedCondition}` y `{email, inventoryItemId, tcgplayerProductId}` ⇒ `400 VALIDATION_ERROR` con `details.field` del campo desconocido, 0 filas. **(5)** uuid inexistente y id de una pieza `raw` ⇒ `202 {subscribed:true}`, 0 filas. **(6) relleno de M-74** (corre el SQL del paso 8 sobre filas sembradas por Prisma): `c:` de un producto con un solo `tcgplayerProductId` ⇒ rellenada; con dos productos mapeados ⇒ intacta; con una pieza no mapeada del mismo `(cardId, subtipo)` ⇒ intacta; ya notificada ⇒ intacta; segunda corrida ⇒ 0 filas cambiadas. **Candados de fuente:** (a) en `backend/test/**`, toda llamada a `restock-subscriptions` pasa por un helper cuyo cuerpo tiene **solo** `email` e `inventoryItemId` (0 apariciones de `tcgplayerProductId`/`cardId`/`sealedSubtype`/`sealedCondition` en el `json` de esas llamadas; las inserciones directas por Prisma para simular carreras siguen permitidas); (b) **paridad pantalla↔servidor:** las claves de `RestockSubscriptionInput` (`frontend/src/lib/api.ts`) = las propiedades de `RestockSubscriptionDto` = `{email, inventoryItemId}` (spec de backend que lee los dos ficheros, como las de paridad de enums); (c) el `@Body` de la ruta lleva `StrictBodyPipe`; (d) en `modules/catalog/` hay **una** plantilla de clave de sellado (`groupKey` llama a `sealedIdentityKey`) | backend e2e (integración) + unit (candados) |
+| ⭐ WSH-T43 | 816 (v1.87.3, M-1) | cuenta con deseo `(C, holofoil)`. Pedido liquidado (rama bóveda) con una pieza `raw` de `C` `holofoil` cuyo `cardProductId` apunta a un `CardProduct` `kind='promo'` ⇒ el deseo **sigue**; ídem `deck_exclusive` ⇒ sigue; `cardProductId` sin fila en `CardProduct` ⇒ sigue; pieza `graded` de `C` ⇒ sigue. Después, pedido con pieza `raw` de set (`cardProductId` nulo **y**, en otra corrida, `kind='set_base'`) ⇒ desaparece. Llamada por el camino real de liquidación (no `consumeForSettledOrder` directo), al menos en la rama bóveda; la de envío directo la cubre T16. **Candado de fuente:** el literal `'set_base', 'other'` aparece **una** vez en `modules/wishlist/` (el fragmento compartido de `wishlist-pieces.ts`) | backend e2e (integración) + candado de `grep` |
 
 Canarios de mutación (los corre backend y los repite el orquestador sobre copia, O-9): quitar el `@@unique([userId,
 inventoryItemId])` ⇒ T10 rojo; quitar el `FOR UPDATE` del tope ⇒ T3 rojo con proporción; redondear el intermedio a
@@ -42094,6 +42187,14 @@ añadir `?utm_source=` a la URL de la imagen o quitar el filtro de host ⇒ T36 
 ⭐ v1.87.2: cambiar el pipe de un parámetro por uno de controlador ⇒ T38 rojo (es la mutación M0 de backend, ya roja);
 quitar `@UseGuards(OptionalSessionGuard)` ⇒ T39 (a) rojo; volver `inventoryItemId` a `RESTRICT` ⇒ T40 rojo (catálogo
 **y** conducta); cambiar el candado por una bandera en memoria ⇒ T41 rojo.
+⭐ v1.87.3: **(M42-a)** en la derivación, guardar `tcgplayerProductId: null` (el defecto B-1 reintroducido) ⇒ T42 rama (1)
+roja (0 correos, y `armedAt` puesto con existencia); **(M42-b)** cambiar el pipe estricto por `@Body()` a secas ⇒ T42 (4)
+rojo (`202` y fila en vez de `400`) y candado (c) rojo; **(M42-c)** añadir `cardId?` a `RestockSubscriptionInput` del
+frontend ⇒ candado (b) rojo; **(M42-d)** derivar solo de piezas `listed` ⇒ T42 (3) rojo; **(M42-e)** quitar el `bool_and`
+del relleno ⇒ T42 (6) «pieza no mapeada» rojo. **Canario de partida:** T42 (1) corrido sobre `503cf07` con el cuerpo viejo
+de la pantalla debe dar el rojo de QA (0 correos). **(M43)** volver `consumeForSettledOrder` a `productType='raw'` sin el
+fragmento de set ⇒ T43 rojo (el deseo desaparece con la promo). Todas deterministas ⇒ una tirada basta, sobre copia del
+árbol entero (O-9).
 
 ### WSH.10 Errata v1.87.1⟨wishlist⟩ — huecos de ux-ui (`DESIGN_SYSTEM §WSH-UX.14`), 2026-10-07
 
@@ -42169,3 +42270,37 @@ toda tabla de la base debe estar clasificada, y las tres de M-74 no lo están). 
   se para en G-8 sin escribir nada (falla cerrado) hasta que la rama la actualice.
 - `M-74` con la FK en `CASCADE` no depende de la limpieza. ⛔ Lo que no debe pasar es publicar `M-74` con `RESTRICT`: con un
   solo aviso en la base, el paso 11 de la limpieza falla por FK (también falla cerrado, pero obliga a otra vuelta de las dos ramas).
+
+### WSH.12 Errata v1.87.3⟨wishlist⟩ — el rechazo de QA (B-1 bloqueante, M-1), 2026-10-07
+
+Árbol leído sin Bash (`/home/user/tcg-wishlist`, HEAD dado por el orquestador `503cf07`, ⛔ sha NO MEDIDO). Porqué:
+`ARCHITECTURE §4.WSH (l)`. Cambios ya escritos en su sitio (⭐ v1.87.3).
+
+| Punto | Dónde quedó | Decisión |
+|---|---|---|
+| B-1 cuerpo | §2-S `restock-subscriptions`, WSH.7 (f) | `{ email, inventoryItemId }`, estricto; identidad derivada en el servidor de cualquier pieza sellada |
+| B-1 una sola regla | WSH.7 (f) «Invariante» | `groupKey` llama a `sealedIdentityKey` |
+| B-1 datos | WSH.1, WSH.7 (f), `M-74` paso (8) | Relleno acotado e idempotente de `tcgplayerProductId`; ambiguas intactas; conteo antes/después a la solicitud de fusión |
+| B-1 pruebas | WSH.9: WSH-T42 + mutaciones M42-a…e | Prueba con el cuerpo de la pantalla; candados de helper, paridad pantalla↔DTO, pipe y regla única |
+| M-1 | WSH.4 «Se quita sola», WSH.9: WSH-T43 + M43 | La promo y el exclusivo de deck no quitan el deseo; fragmento «producto de set» compartido con el aviso |
+
+**Lo que cambia para cada rol.**
+- **backend:** DTO y pipe de la ruta (`catalog.controller.ts:16-22`, `:128`); derivación en `subscribeRestock`
+  (`sealed-catalog.service.ts:456-545`: fuera la validación «identidad requerida» `:480-486` y la de `sealedCondition`
+  `:490-494`, fuera el ancla por `tcgplayerProductId` `:496-508`; la búsqueda de la pieza la sustituye); `groupKey`
+  (`:202-206`) llama a `sealedIdentityKey`; `M-74` paso (8) (añadir al final de `migration.sql`, tras `:128`, y su línea en
+  la cabecera: «un relleno acotado», que corrige «SIN relleno» de `:7`); `consumeForSettledOrder`
+  (`wishlist.service.ts:291-305`) pasa a SQL con el fragmento de producto de set extraído de `PIECE_PREDICATE`
+  (`wishlist-pieces.ts:19-23`: se parte en «producto de set» y «a la venta», y `PIECE_PREDICATE` = los dos). Reescribir al
+  cuerpo nuevo las llamadas HTTP de T25–T28 (`sealed-restock-armed.e2e-spec.ts:49,63,94-95,127,139,148,152`) y de T39
+  (`wishlist-v1-87-2.e2e-spec.ts:118-126`); sus afirmaciones no cambian. Pruebas nuevas WSH-T42, WSH-T43 y sus mutaciones.
+  ⚠️ `M-74` cambia de checksum otra vez: misma nota que v1.87.2 para bases locales que ya la registraron.
+- **frontend:** `RestockSubscriptionInput` (`lib/api.ts:807-813`) = `{ email: string; inventoryItemId: string }`;
+  `SealedRestockForm` recibe `inventoryItemId` en vez de `cardId/sealedSubtype/sealedCondition` y manda
+  `{ email: target, inventoryItemId }` (`SealedRestockForm.tsx:25-33`, `:46`); `SealedDetailView.tsx:240-244` le pasa
+  `group.representativeItemId`. Las pruebas del formulario (`SealedRestockForm.test.tsx`, `.wsh.test.tsx`) afirman el
+  cuerpo **exacto** (`toEqual`, dos claves). WSH-F5 sin cambio de texto. Sin texto nuevo en pantalla (ux-ui no interviene).
+- **Despliegue (devops/orquestador):** Vercel y Railway publican por separado; durante el desfase, el cuerpo de un lado no
+  vale en el otro y el formulario muestra el error genérico (no falla en silencio, no crea filas malas). Si el dial
+  `sealed_restock_alerts` está `off` en producción (seed), no hay desfase visible. Estado del dial en producción: NO MEDIDO.
+  Los conteos del paso (8) van a la solicitud de fusión (WSH.7 (f)).

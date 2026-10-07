@@ -24,6 +24,14 @@
 > limpieza que borra el inventario; cinco cambios descritos para la rama de limpieza (LZ-W1…W5, no escritos aquí). Pruebas
 > WSH-T38…T41.
 >
+> **Errata v1.87.3⟨wishlist⟩ — el rechazo de QA a §WSH** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD dado por el
+> orquestador `503cf07`; ⛔ sha NO MEDIDO: sin Bash). Responde a B-1 (bloqueante: el «avísame» de sellados nunca avisaba a
+> quien se apunta desde la pantalla) y M-1 (la promo borraba el deseo). Norma en `API_CONTRACT §WSH.12` y en su sitio;
+> porqué en **§4.WSH (l)**. El cliente manda `{ email, inventoryItemId }` y el **servidor deriva** la identidad del sellado
+> de esa pieza (una sola regla de clave); ⚠️ **`M-74` gana un relleno acotado** de `tcgplayerProductId` en suscripciones
+> pendientes heredadas, solo si es inequívoco; la baja al pagar usa el **mismo** filtro de producto de set que el aviso.
+> Pruebas WSH-T42 (con el cuerpo exacto de la pantalla y candado de paridad) y WSH-T43.
+>
 > **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
 > `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
 > porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
@@ -29180,6 +29188,46 @@ con conteo de correos distintos pendientes (P-WSH-9, recomendación del PO).
   no en el candado); `wishlistEnabled` puesto por el controlador; los tres censos tocados; T9 parcial (la detección usa la
   misma puerta que el catálogo).
 
+**(l) Errata v1.87.3 — el rechazo de QA (2026-10-07).** Norma: `API_CONTRACT §WSH.12` y WSH.7 (f).
+- **La causa no era un descuido del formulario; era de diseño.** El contrato v1.23 dejaba que el **cliente** eligiera la
+  identidad (`tcgplayerProductId` **o** `cardId+subtipo`), y la ficha solo tenía la segunda. Las pruebas se escribieron con
+  la primera. Resultado: dos claves para el mismo producto, cada lado probado con la suya, y nada que las comparara. La
+  lección que se lleva el diseño: **cuando el servidor ya sabe algo, el cliente no lo repite**; y una prueba de una ruta
+  pública se escribe con el cuerpo que manda la pantalla, con un candado que lo vigile.
+- **Opción elegida (a): el cliente manda la pieza, el servidor deriva.** La pantalla ya tiene un id de pieza (la URL y
+  `group.representativeItemId`); el servidor tiene la regla de agrupado. Derivar en el servidor deja **una** regla
+  (`sealedIdentityKey`, que `groupKey` pasa a llamar) y hace B-1 imposible por construcción: la clave de la fila es la de
+  la pieza, y la de la pieza es la del grupo que se está viendo. No expone nada nuevo.
+- **Descartada (b): exponer `tcgplayerProductId` en la ficha.** No es secreto (ya sale en `value-history`,
+  `sealed-catalog.service.ts:444`), pero deja la regla en el cliente: tendría que elegir rama (mapeado o no) igual que el
+  servidor, y el día que se equivoque reaparece B-1. Dos copias de una regla que no se comparan es exactamente lo que falló.
+- **Descartada (c): casar por cualquiera de las dos claves.** El sellado se ancla a una carta del set
+  (`schema.prisma:2551-2552`); varias cajas distintas del mismo set y subtipo comparten ancla. Un `c:` que case con
+  cualquier `p:` del mismo ancla avisaría de productos que la persona no pidió. Arreglar un «nunca avisa» con un «avisa de
+  más» cambia de defecto, no lo quita.
+- **Cualquier pieza sellada, no solo `listed`.** La ficha se carga con existencia (`:353-358` ⇒ `404` sin piezas); el
+  momento en que más se pulsa «avísame» es cuando se acaba de vender la última. Si se exigiera `listed`, ese clic se
+  perdería en silencio tras un `202`. Se acepta cualquier estado y dueño: la respuesta es neutra y un uuid no se adivina.
+- **💰 Filas heredadas: rellenar solo lo inequívoco.** Con la ruta sin cambios, toda fila nacida en la pantalla es `c:`. Las
+  de un producto no mapeado ya son correctas. Las de un producto mapeado no avisarán nunca. Rellenar `tcgplayerProductId`
+  cuando **un solo** producto mapeado tiene ese `(ancla, subtipo)` y ninguna pieza no mapeada lo comparte recupera esas
+  filas sin adivinar; las ambiguas se quedan y **no** producen correos falsos (se arman y no casan). Se descartó borrar
+  las ambiguas (perder una intención del cliente sin decírselo) y elegir «la más reciente» (adivinar). El relleno **no**
+  toca `armedAt`: el armado sigue exigiendo ver el producto agotado. Va en `M-74` porque no está publicada; cuántas filas
+  hay es NO MEDIDO (si el dial nunca estuvo encendido en producción, cero) y la cifra antes/después va a la solicitud de
+  fusión.
+- **Cuerpo estricto, sin gracia.** Aceptar el cuerpo viejo durante un tiempo mantendría vivo el camino que crea filas
+  `c:` de productos mapeados. Un solo cliente (la ficha); el desfase Vercel/Railway se ve como error genérico, no como
+  silencio.
+- **M-1: la promo es otro producto para la lista.** WSH.1 ya decidió que una promo o un exclusivo de deck **no avisan**
+  (valen distinto, §4.29); la baja al pagar no aplicaba ese filtro. Regla: **lo que quita un deseo es exactamente lo que lo
+  habría avisado** (parte de producto del mismo predicado, sin la parte «a la venta»). Si el dueño quisiera que la promo
+  cumpla el deseo, cambian los dos lados a la vez — el aviso **y** la baja —, nunca uno solo. Se lee de `PROJECT` 809/816
+  («esa carta y acabado») junto con WSH.1; no se re-pregunta, pero queda señalado al product-owner por si quiere hacerlo
+  explícito en 816.
+- **Deuda anotable (no bloqueante):** `StrictBodyPipe` vive en `wishlist/dto/` y ahora lo usa `catalog`. Con un tercer
+  consumidor sube a `common/pipes/` (zona compartida).
+
 ---
 
 ## 5. Decisiones transversales
@@ -32657,6 +32705,12 @@ productivas); las migraciones solo redefinen esquema.~~
   `.userId` CASCADE, `.inventoryItemId` **CASCADE**, `.mailId` SET NULL; `WishlistMail.userId` CASCADE (WSH-T40).
 - ⭐ **v1.87.2 — orden respecto de la limpieza `P-DB-LIMPIEZA`:** `API_CONTRACT §WSH.11` «Orden de despliegue». Si la
   limpieza no incorpora LZ-W1…W3, se corre **antes** de desplegar M-74.
+- ⭐ **v1.87.3 — paso (8), relleno ACOTADO e idempotente** (en su sitio; M-74 no está publicada): `tcgplayerProductId` de
+  las `SealedRestockSubscription` pendientes con clave `c:` cuyo `(cardId, sealedSubtype)` corresponde a **un solo**
+  producto mapeado y a ninguna pieza no mapeada. SQL normativo en `API_CONTRACT §WSH.7 (f)`. Ambiguas intactas. Sin tocar
+  `armedAt`/`matchedAt`. Conteo de `c:` pendientes antes y después, en la ventana de despliegue, a la solicitud de fusión.
+  **Reversa:** no se deshace (el valor rellenado describe el mismo producto que la fila ya nombraba; cómo lo leería el
+  job anterior a M-74: NO MEDIDO). La cabecera del fichero deja de decir «SIN relleno». Porqué: §4.WSH (l).
 
 ### rev BSD-1 (**M-72 provisional**: guía de entrada del buylist — **DDL ADITIVO + 1 enum nuevo + 2 valores de enum + 3 columnas + 2 CHECK + FK + 2 índices + relleno ACOTADO de una columna nueva**, §4.BSD)
 - **Carpeta:** `prisma/migrations/20261025120000_m72_bsd_inbound_label/` (posterior a `M-71` `20261021120000`, medido con
