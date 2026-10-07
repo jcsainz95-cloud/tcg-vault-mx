@@ -39,6 +39,7 @@ import {
   E2E_ADDRESS_RECIPIENT,
   E2E_PICKUP_ADDRESS,
   E2E_POSTAL_CODES,
+  E2E_SEALED_LISTED,
   E2E_SELL_REQUESTS,
   E2E_SET,
   E2E_SETTINGS,
@@ -507,6 +508,37 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     },
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
   );
+
+  // ⭐ v1.87.4⟨wishlist⟩ (WSH-F5) — la pieza SELLADA a la venta (ver `E2E_SEALED_LISTED`). Anclada a la carta `thirdraw`
+  // del set E2E (el sellado se ancla a una carta del set, `schema.prisma`); `GET /catalog/cards` no emite sellados (H9),
+  // así que la vitrina de singles no cambia. El reset devuelve estado, precio y MAPEO (un flujo puede desmapearla).
+  {
+    const sealedReset = {
+      ownerType: 'platform',
+      ownerUserId: null,
+      ownershipStatus: null,
+      status: 'listed',
+      listPriceCents: E2E_SEALED_LISTED.listPriceCents,
+      tcgplayerProductId: E2E_SEALED_LISTED.tcgplayerProductId,
+      tcgplayerGroupId: E2E_SEALED_LISTED.tcgplayerGroupId,
+      sealedProductName: E2E_SEALED_LISTED.productName,
+      locationId: platformLoc.id,
+    };
+    await upsertItem(
+      E2E_SEALED_LISTED.folio,
+      {
+        cardId: cardIds[E2E_CARDS.thirdraw.externalId],
+        productType: 'sealed',
+        rawCondition: null,
+        sealedSubtype: E2E_SEALED_LISTED.sealedSubtype,
+        sealedCondition: E2E_SEALED_LISTED.sealedCondition,
+        acquisitionType: 'compra',
+        acquisitionCostCents: 300000,
+        ...sealedReset,
+      },
+      sealedReset,
+    );
+  }
 
   // v1.50.3-d (§4.38i.9) — las DOS piezas de la carta de INV-D, sobre la MISMA carta: el grupo raw
   // publicado y el slab PSA 10 publicado. Con las dos a la vez, `getPublishedSlabGradesBatch` devuelve

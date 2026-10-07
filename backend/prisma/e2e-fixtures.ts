@@ -440,6 +440,27 @@ export const E2E_LOCATIONS = {
 export const E2E_LIST_OVERRIDE_CENTS = 60000; // listPriceCents del common override
 
 /**
+ * ⭐ v1.87.4⟨wishlist⟩ (WSH-F5, petición de frontend) — UNA pieza SELLADA a la venta en el seed: plataforma, `listed`, con
+ * precio propio y MAPEADA a un `tcgplayerProductId`. Sin ella `GET /catalog/sealed` daba `total: 0` contra el stack y el
+ * «avísame» con el cuerpo de la pantalla `{ email, inventoryItemId }` no se podía medir de punta a punta (la ficha
+ * `/es/sellado/{id}` necesita un grupo publicado). Folio PROPIO (`E2E-SLD-*`, fuera de `E2E_FOLIOS`: ningún bucle de
+ * piezas del seed la recorre). Los ids son aleatorios: frontend la encuentra por NOMBRE — en pantalla, la teja de
+ * `/es/sellado` muestra `productName`; por API, `GET /catalog/sealed?q=E2E Third Bird` (el `q` del grid busca por el nombre
+ * de la CARTA ancla, `E2E_CARDS.thirdraw`, no por el del producto) y se filtra la teja por `productName`. El seed la RESETEA en cada corrida (estado, dueño,
+ * precio y mapeo), así que un flujo que la venda o la desmapee no envenena la siguiente.
+ * ⛔ `tcgplayerProductId` fuera de los rangos aleatorios de las suites (700M–890M, 990M+).
+ */
+export const E2E_SEALED_LISTED = {
+  folio: 'E2E-SLD-0001',
+  productName: 'E2E Surging Sparks Booster Box',
+  sealedSubtype: 'box' as const,
+  sealedCondition: 'mint' as const,
+  tcgplayerProductId: 610000001,
+  tcgplayerGroupId: 61001,
+  listPriceCents: 450000,
+} as const;
+
+/**
  * Diales M10 que el seed FIJA (update) para que la matemática del checkout sea
  * determinista en la suite, aunque staging tenga overrides previos.
  */
