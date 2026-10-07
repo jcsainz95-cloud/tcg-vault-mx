@@ -30005,3 +30005,87 @@ avisa y el smoke de INE no corre en estricto): tsc 0 · eslint 0 · unitaria **4
 día» (AN-B-13 y AN-B-15 siguen verdes: por eso existe la prueba por día); M2 margen sin restar la guía ⇒ rojas AN-B-13 (2) y
 BSD-B34 e2e; M3 ganancia sin el buylist ⇒ rojas AN-B-13 y AN-B-15; M4 sin `OUTBOUND_ONLY` en el envío de venta ⇒ rojos el
 censo BSD-B23 y la unitaria de clases. Las cuatro restauradas y comparadas con `cmp` contra el árbol vivo.
+
+## 82 · Errata SU-1 construida (💰) — la ubicación deja de ser requisito para publicar (2026-10-07, rama `claude/sin-ubicacion`, sobre `8c72c556`; código en `7e1462a6`)
+
+**Norma.** `API_CONTRACT §M1-SU` (SU.1–SU.6), `ARCHITECTURE §4.65`, HECHOS «La ubicación (cajón) NO es requisito para
+publicar, por ahora» (2026-10-07). Sin schema, migración, endpoint, código de error ni campo nuevo.
+
+**Qué cambió (servidor).**
+- `inventory.service.ts` `pendingPublishStateOf`: ya no hace `missing.push('location')` ⇒ `missing ⊆ ['price']`.
+  `reevaluateOne`: sin el corte `missing_location` ⇒ una pieza sin cajón pasa por guardas + precio + `claimListed` como
+  cualquiera (con precio ⇒ `published`; sin precio ⇒ escala a M2, `price_pending`, `["price"]`). Guardas de graded
+  (cert + identidad de slab) intactas.
+- `pendingPublish`: `?missing=location` sigue válido (clase L) y corta en seco con `200 { data: [], page, pageSize,
+  total: 0 }` (antes empujaba `locationId: null` a SQL). Ninguna fila puede casar, así que no se barre el inventario.
+- `buylist.service.ts` `triggerPublish`: el degradado (puerto ausente o que lanza) pasa de `['location','price']` a
+  `['price']`. ⛔ Nunca `[]`.
+- Vocabulario dormido, sin tocar tipos: `PendingPublishMissing`, `PublishReevaluationOutcome.missing_location`,
+  `SealedAutoPublishDTO.missingLocation` (vale siempre 0), `PENDING_PUBLISH_MISSING_VALUES`. **Revertir** = devolver
+  la línea de `pendingPublishStateOf` (comentario en el sitio la cita), el corte de `reevaluateOne` y el degradado.
+- Nuevo `InventoryService.previewPublication(ids)`: el pronóstico de `reevaluateForPublication` **sin escribir**
+  (mismo orden: listed → guardas → precio con `pendingPublishStateOf`). Lo usa el modo por defecto del script.
+  Los diales de una corrida (`curve`, política de venta, spreads, IVA) se leen en `loadPublishRunDials`, que comparten
+  los dos: el censo PF-11 de `loadSalePremiumFloorPolicy` sigue en 4 en `inventory.service.ts`.
+
+**Script del rezago (SU.3): `backend/scripts/reevaluate-unlocated.ts`.**
+- `npx ts-node scripts/reevaluate-unlocated.ts` cuenta y **no escribe**: `{"mode":"dry-run","selected",
+  "wouldPublish","pricePending","notPublishable"}`. Con `--apply` corre `reevaluateForPublication(ids)` sobre
+  `platform ∧ in_stock ∧ locationId IS NULL` y cuenta `published`, `pricePending`, `notPublishable` y `byOutcome`. Una
+  segunda corrida con `--apply` da `published: 0`. Cualquier otro argumento sale con 64.
+- Base: `DATABASE_URL`, o `DATABASE_PUBLIC_URL` si `DATABASE_URL` es `*.railway.internal` (mismo salto que
+  `scripts/geo/import-sepomex.ts`, reimplementado en el script para no importar código de devops). Imprime solo una
+  etiqueta (`localhost:5432/db` o `***.dominio:***/db`), nunca la URL.
+- Contexto Nest **mínimo** (`ConfigModule` sin `.env`, Prisma, Crypto, Audit, Settings, Inventory), no `AppModule`:
+  ni el planificador de jobs ni workers de BullMQ arrancan. Al arrancar, `SpendWatchService` puede registrar
+  `NO_OWNER_ACCOUNT` (solo lee; ruido conocido en bases sin dueño).
+- ⚠️ **Para devops/orquestador:** la imagen de `Dockerfile.backend` copia `src/`, `prisma/` y `tsconfig.json`, pero **no
+  `backend/scripts/`**. Para correrlo dentro de Railway hay que añadir la copia o correrlo desde un checkout con
+  `railway run` (que inyecta `DATABASE_URL`/`DATABASE_PUBLIC_URL`). Recomendado: dry-run primero y pegar las cuentas
+  en la solicitud de fusión.
+
+**Semilla E2E.** `E2E_FOLIOS.pendingPublishNoLocation` (`E2E-STK-0001`) pasa a la carta `nopref` (sin
+`PriceReference`): `in_stock`, sin cajón y **sin precio** ⇒ `missing: ['price']`, `resolvedSalePriceCents: null`,
+`priceBasis: 'pending'`. El `reset` también re-apunta `cardId` (una BD sembrada antes la tenía en `common`, con precio,
+y saldría de la cola en la primera corrida). El nombre del folio se conserva porque lo citan el contrato y otras suites.
+
+**Pruebas SU-B (tabla SU.6), rojas sobre `8c72c556` y verdes en `7e1462a6`:**
+| # | Dónde | Rojo medido sobre el código de partida |
+|---|---|---|
+| SU-B1 | `test/inventory.su1-sin-ubicacion.spec.ts` | `missing_location` en vez de `published` (+ sin precio: `missing_location` en vez de `price_pending`) |
+| SU-B2 | ídem (i)–(iii) + `integration/pending-publish-seed.e2e-spec.ts` (ii por HTTP con la semilla, iii por HTTP) | (i) total 1; (ii) `["location","price"]`; (iii) la fila sin cajón |
+| SU-B3 | ídem (i) roja; (ii) verde a propósito (guarda de slab con precio manual) | (i) `missing_location` |
+| SU-B4 | `integration/sealed-price.e2e-spec.ts` | `{published:0, missingLocation:1, …}` |
+| SU-B5 | `test/buylist.bl25-bl26.spec.ts` (+ convert-guard, security) | `["location","price"]` |
+| SU-B6 | `integration/reevaluate-unlocated.e2e-spec.ts` (+ `test/reevaluate-unlocated.spec.ts`) | 1.ª `--apply` `published: 0` |
+
+Reescritas (no borradas), además de la lista de §M1-SU: `inventory.pending-publish.spec.ts` (5) «y SALE de la cola»
+(ahora entra por precio y sale con el `move`) y (1b) (las filas selladas entran por falta de precio; el doble de
+pricing ganó `sealedMarketGradeKeyForItem`/`resolveSealedSalePrice`, el mismo que `inventory.sealed-final-price.spec`);
+`inventory.sealed-final-price.spec.ts` SFP-7 «el campo viaja SIEMPRE» y SFP-8 (la paridad con la fila de la cola se
+fija ahora contra `previewPublication` y el basis por valor, porque la pieza con precio ya no está en la cola);
+`integration/inventory-price-audit.e2e-spec.ts` SFP-7/SFP-8 (ídem, por HTTP + `previewPublication`); y dos que el
+contrato no listaba:
+- ⚠️ **Discrepancia con §M1-SU (para el arquitecto):** el contrato dice que `enum-query-axes.e2e-spec.ts:412` «sigue
+  verde sin cambios». **Medido: rojo** («punto 1 fila 2 — FILTRA», distancia 0). Con SU-1 toda fila de la cola trae
+  `missing = ['price']`, así que `?missing=price` ≡ sin filtro y no puede demostrar que filtra. Arreglo: se invierten
+  `valid: 'location'` / `alterno: 'price'` (`?missing=location` ⇒ `[]` ≠ base, y `price` lo discrimina). El dominio
+  (`allowed`) y la paridad clase L no cambian. Verde después.
+- `integration/buylist-item-final.e2e-spec.ts` BRJ-10: la pieza convertida tiene precio de mercado ⇒ la conversión la
+  publica en el acto (SU.1 disparador (a)); la precondición pasa de `in_stock` a `listed`.
+
+**Mediciones (copia del árbol entero en scratchpad, BD propia `tcg_be_ubic`, Postgres 16 + Redis locales).**
+- Antes del cambio de regla (código de `8c72c556` + pruebas nuevas): unitarias SU **7 rojas** (SU-B1 ×3, SU-B2 i–iii,
+  SU-B3 i) + buylist **6 rojas** (SU-B5 y las de `['location','price']`); integración **10 rojas** (SU-B2 ii/iii por HTTP,
+  SU-B4, SU-B6, SP-2, SP-16, SFP-7/9, «ninguna fila emite location»). SU-B3 (ii) verde, como pide la tabla.
+- Después (`7e1462a6`): `tsc --noEmit` y `eslint` limpios; **unitaria completa 441/441 suites, 7968/7968**;
+  **integración completa 115/115 suites, 2255 verdes + 2 skipped**.
+- Mutaciones (sobre una segunda copia, restauradas con `cmp` contra el árbol vivo; deterministas, N=1 cada una):
+  | Mutación | Rojas |
+  |---|---|
+  | M1 volver a exigir ubicación (las dos líneas) | 18 unitarias (5 suites) · integración SU-B4, SP-16, SU-B6 |
+  | M1a solo el corte de `reevaluateOne` | SU-B1 ×2, SU-B1 «missing_location ya no se produce», SU-B3 (i) |
+  | M1b solo el `missing.push('location')` | SU-B1 sin precio, «missing_location…», SU-B2 (i), (ii) |
+  | M2 degradado `[]` / M2' degradado `['location','price']` | 6 unitarias cada una (SU-B5 + convert-guard + security) |
+  | M3 el modo sin `--apply` llama a `reevaluateForPublication` | unitaria «⛔ sin --apply NO llama…» · integración SU-B6 |
+  | M4 sin la guarda de identidad de slab | SU-B3 (ii) |
