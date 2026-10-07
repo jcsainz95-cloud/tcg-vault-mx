@@ -11,6 +11,9 @@
 > «Capturar guía» en modo entrada; «Declinar» en «Aceptada»; la marca «se cierra sola» en M5 y el tablero; los dos diales
 > de M10. Cero tokens nuevos, cero pares de contraste nuevos. Lo que sigue es la v6.1 sin más cambio que lo marcado en
 > §BSD-UX.0.
+> **vSU-1 (2026-10-07, rama `claude/sin-ubicacion`): §SU-UX NUEVA, al final.** Textos de la errata SU-1 (la ubicación
+> deja de ser requisito para publicar; `API_CONTRACT §M1-SU`, `ARCHITECTURE §4.65`): nota de «Listas para publicar»,
+> folio visible como enlace, aviso «no hay ubicaciones» en la ficha. Cero tokens nuevos.
 >
 > Estado anterior: **v6.1 (2026-10-05) — EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO CON IVA (§70 ajustada a la errata
 > `API_CONTRACT` v1.83.1 §M11-SP.12, `ARCHITECTURE §4.62.8`; `HECHOS.md:51` «Precio del sellado — respuestas a
@@ -30017,3 +30020,89 @@ Enganche sugerido (decisión de frontend): `data-testid="sales-card-<campo>"`, `
 | **N-AN-5** | product-owner (informativo) | La tarjeta existente «Ventas del periodo» dice «Bruto» para la misma suma que aquí se llama «Cobrado (con IVA)». No se toca aquí; si el dueño quiere un solo nombre, errata aparte |
 | **N-AN-6** | orquestador | Zonas compartidas que toca frontend: `lib/api.ts`, `types/contract.ts`, `messages/*.json` (§15.10). Un solo stream a la vez |
 | **N-AN-7** | orquestador | P-AN-2 aplicada con su default (día completo). Si el dueño elige «hasta esta misma hora», cambian solo dos textos de la tarjeta (`today`, `reference`) |
+
+---
+
+## SU-UX. Sin ubicación — textos de la errata SU-1 (vSU-1, 2026-10-07 · `API_CONTRACT §M1-SU` · `ARCHITECTURE §4.65`)
+
+**Norma:** `HECHOS.md:86`, fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Esta
+sección solo toca textos y dos detalles de presentación. ⛔ No rediseña pantallas ni añade tokens. Líneas leídas en
+`/home/user/tcg-ubic` el 2026-10-07 (ux-ui sin Bash: sha NO MEDIDO). Re-medir antes de editar.
+
+### SU-UX.1 La nota del pie de «Listas para publicar» (`admin.m1.publishQueue.note`, `es.json:1596`, `en.json:1596`)
+
+El texto de hoy es **falso para el sellado ligado a un producto**: ahí el editor fija el precio del **producto, con
+IVA**, para todas sus piezas (M-71, §70). Solo la pieza sellada **sin** producto lleva precio por pieza **antes de IVA**
+(D-SP-4). La primera frase es cierta y se conserva tal cual, así la aserción de `PendingPublishQueue.test.tsx:124` sigue
+valiendo. Cambia la segunda.
+
+| Clave | ES | EN |
+|---|---|---|
+| `note` **(cambia)** | Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. El sellado sí: si la pieza está ligada a un producto, pones el precio del producto, con IVA, y vale para todas sus piezas; si no lo está, pones el precio de esa pieza, antes de IVA. | This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Sealed is the exception: if the item is linked to a product, you set the product's price, VAT included, and it applies to all its items; if it isn't, you set that item's price, before VAT. |
+
+«con IVA» repite la fórmula de la hoja «Precios del sellado» (`es.json:4359`, «Un precio por producto, con IVA»).
+
+### SU-UX.2 La cola sin «falta ubicación»
+
+- `subtitle` («…Salen solas de aquí en cuanto no les falta nada.») y `empty` **no cambian**: siguen siendo verdad y
+  no nombran la ubicación. Tampoco cambia `admin.m11.queue.subtitle` («…y qué les falta»).
+- **Quedan dormidas y NO se borran** (SU.2/SU.4 del contrato: reversibles y fuera de la paridad):
+  `publishQueue.missingLocation`, `publishQueue.reason.location`, `sealedFinalPrice.noLocationHint`,
+  `confirm.effectNoLocation`, `done.savedNoLocation` y la línea `missingLocation` del aviso de sellado (`es.json:6004`).
+  El servidor ya no emite `"location"`, así que no se pintan.
+- No hay ninguna otra mención activa de la ubicación como requisito para publicar en `es.json`. Lo medí con
+  `grep "(ubicación|cajón).*(publica|venta)"`: solo salen esas claves dormidas y `:1757`, que habla de mover de un
+  cajón de cliente y no aplica.
+
+### SU-UX.3 Descubribilidad (mínima, sin rediseño)
+
+**(a) El folio se ve como enlace** (`PendingPublishQueue.tsx:306-316`). Hoy solo se subraya al pasar el ratón. Pasa a
+estar **subrayado siempre**: `underline underline-offset-2 decoration-border hover:decoration-current`, con el mismo foco.
+Con `total > 0`, bajo el `subtitle` (`:255`) va una línea de ayuda `text-xs text-muted` con la clave nueva `openHint`.
+Con la cola vacía no se pinta.
+
+**(b) El selector de ubicación vacío** (`ItemDetailModal.tsx:186-188`, sección «Mover de ubicación» `:331-364`). Si
+`moveTargets.length === 0`, **en lugar** del `Select`, la nota y el botón «Mover» (que no servirían) se pinta un `<p
+className="text-sm text-muted">` con el aviso y debajo un enlace con el estilo de `detail.seeSheet` (`:251`). Hay dos
+casos, porque `moveTargets` excluye la ubicación actual:
+- sin **ninguna** ubicación `platform_stock` activa ⇒ `move.noTargets`;
+- la pieza ya está en la **única** que hay ⇒ `move.noOtherTarget`.
+
+El enlace lleva a `/admin/m1?locations=open`. `M1View` lee el parámetro al montar, abre `LocationsModal`
+(`setLocationsOpen(true)`, `:114`) y lo quita de la URL, igual que hace con `tab` (`:107-108`). Antes de navegar, el
+enlace cierra la ficha (`onClose`) para que no queden dos modales apilados cuando la ficha se abrió desde M1. Este es el
+único cambio fuera de textos. Si frontend prefiere no tocar `M1View`, el aviso sin enlace basta: ya dice dónde está.
+
+**(c) Claves nuevas** (paridad ES/EN en el mismo cambio):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m1.publishQueue.openHint` | Pulsa un folio para abrir la pieza y ver lo que puedes hacer con ella. | Click a folio to open the item and see what you can do with it. |
+| `admin.m1.move.noTargets` | No hay ubicaciones de stock creadas. No hacen falta para vender; si quieres ordenar el stock, créalas en Inventario › Ubicaciones. | There are no stock locations yet. They aren't needed to sell; if you want to organize stock, create them in Inventory › Locations. |
+| `admin.m1.move.noOtherTarget` | Esta es la única ubicación de stock. Para moverla, crea otra en Inventario › Ubicaciones. | This is the only stock location. To move it, create another one in Inventory › Locations. |
+| `admin.m1.move.manageLocations` | Ir a Ubicaciones | Go to Locations |
+
+«Inventario › Ubicaciones» nombra lo que el dueño ve: `admin.nav.m1` = «Inventario» (`es.json:1306`) y el botón
+`locations.button` = «Ubicaciones» (`:1564`). «No hacen falta para vender» es la fila de HECHOS dicha al dueño. Si la
+regla se revierte, se quita esa frase. Ruta del namespace `move.*`: es la misma de `move.title` que usa la ficha. La ruta
+exacta en `en.json` está **NO MEDIDA**.
+
+### SU-UX.4 Candados sugeridos (los escribe frontend)
+
+| ID | Qué asevera | Canario |
+|---|---|---|
+| **SU-UX-1** | `publishQueue.note`: ES contiene «con IVA» **y** «antes de IVA»; EN contiene «VAT included» **y** «before VAT»; ⛔ «Solo el producto sellado admite aquí» | Restaurar el texto viejo |
+| **SU-UX-2** | Ficha `in_stock` con `locations=[]` ⇒ texto `noTargets` y enlace `href` que termina en `/admin/m1?locations=open`; ⛔ `combobox` «Nueva ubicación» | Volver a pintar el `Select` vacío |
+| **SU-UX-3** | Ficha con `location` = la única activa ⇒ `noOtherTarget`; con ≥1 destino ⇒ ni `noTargets` ni `noOtherTarget`, y sí el `Select` | Un solo texto para los dos casos |
+| **SU-UX-4** | `M1View` montado con `?locations=open` ⇒ diálogo «Ubicaciones de bóveda» abierto | Ignorar el parámetro |
+| **SU-UX-5** | Botón del folio con clase `underline` sin prefijo `hover:`; `openHint` presente con filas y ausente con la cola vacía | Volver a `hover:underline` |
+| **SU-UX-6** | Paridad: las 4 claves nuevas y `note` existen en `es` y `en`; las dormidas de SU-UX.2 **siguen** existiendo | Borrar `reason.location` |
+
+### SU-UX.5 Notas
+
+- **Contraste:** sin pares nuevos. `text-muted` sobre `surface` (~4.8:1) y subrayado en `border`. El subrayado es
+  decorativo: el nombre accesible `openPiece` ya existía.
+- **N-SU-1 (product-owner, informativo):** `locations.subtitle` dice «Crea al menos una para poder dar de alta items»
+  (`es.json:1566`). Si el alta exige ubicación hoy está **NO MEDIDO**. No lo toco: la fila de HECHOS habla de publicar.
+- **N-SU-2 (orquestador):** quién puede crear ubicaciones (`POST /admin/locations`, `API_CONTRACT.md:14745`) no tiene rol
+  declarado. Si un `vault_operator` llega al enlace y no puede crear, verá el error del modal: **NO MEDIDO**.
