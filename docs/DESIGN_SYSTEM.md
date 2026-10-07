@@ -30950,3 +30950,44 @@ portador»). La foto con fondo blanco sobre papel no es par de texto: lleva regl
 - si el operador puede leer `GET /admin/shipping/packages` (A-3 de §43.17 sigue abierta): afecta solo a la
   preselección de caja en «Capturar guía»;
 - la CSP / `images` de Next para el origen de las fotos de la API (`ARCHITECTURE.md:29215`).
+
+### AC-UX.v1.86.4 Errata de copy — el paquete que sale por existencias no promete energías sueltas (2026-10-07)
+
+**Origen.** `FRONTEND_NOTES §107.e2e`, «Para ux-ui»: con `reason:'insufficient_stock'`, la coletilla «las energías las
+puedes agregar sueltas desde el deck» puede prometer energías que **tampoco hay sueltas**. Es así: `insufficient_stock`
+significa que falta existencia de **al menos un** tipo, y puede faltar de todos (o el último pudo irse en la misma
+carrera, `API_CONTRACT §AC.20.1`).
+
+**Regla en la que se apoya (no se añade ninguna).** `HECHOS.md`, fila 2026-10-07 «Confirmaciones de accesorios,
+energías y paquete…», punto (5): «si falta existencia de algún tipo, el paquete no se ofrece y se venden sueltas a MX$5
+**las que haya**». El copy solo puede decir lo que esa frase garantiza: que lo que quede se vende suelto, **no** que
+quede algo. La ficha del deck ya enseña cuáles quedan (badge «DISPONIBLE»/«AGOTADA», AC-UX.8), así que el texto manda
+ahí con un condicional, sin afirmar existencias.
+
+**Claves que cambian** (paridad es/en en el mismo cambio; ⛔ sin marcadores nuevos ni quitados; el enlace «Ver el deck»
+y todo lo demás de AC-UX.5/AC-UX.8 sigue igual):
+
+| Clave (`frontend/messages/*.json`) | ES nuevo | EN nuevo |
+|---|---|---|
+| `checkout.accessoryPayError.bundle` (fila `422 ENERGY_BUNDLE_INVALID` de AC-UX.5, y el `409` de componente que la reutiliza) | El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck. | The energy bundle for {deck} can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck. |
+| `checkout.accessoryPayError.bundleNoName` | Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck. | An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck. |
+| `checkout.accessoryNotice.bundleNoStock` (fila `· insufficient_stock` de AC-UX.5) | El paquete de energías de {deck} salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck. | The energy bundle for {deck} left your cart: we no longer have all its energy cards. If we still have some left, you can add them one by one from the deck. |
+| `checkout.accessoryNotice.bundleNoStockNoName` | Un paquete de energías salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck. | An energy bundle left your cart: we no longer have all its energy cards. If we still have some left, you can add them one by one from the deck. |
+| `decksMeta.bundle.noStock` (fila `reason: 'insufficient_stock'` de AC-UX.8; misma promesa: «Agrega sueltas las que haya» con todas agotadas) | Paquete de energías no disponible: no tenemos todas las que pide este deck. Abajo ves cuáles nos quedan para agregarlas sueltas. | Energy bundle not available: we don't have all the energy cards this deck needs. Below you can see which ones we still have to add one by one. |
+
+Las filas correspondientes de AC-UX.5 (líneas `· insufficient_stock` y `422 ENERGY_BUNDLE_INVALID`), de AC-UX.8
+(`reason: 'insufficient_stock'`) y de AC-UX.15 (`decksMeta.bundle.noStock`) quedan **sustituidas** por esta tabla.
+
+**Por qué el texto del `422` es uno solo para cualquier `reason`.** La pantalla pinta la misma fila con cualquier
+`reason` y con el `409` de componente (`API_CONTRACT §AC.20.1`, «las dos salidas de la carrera se ven idénticas»). El
+condicional es verdad en todos: con `deck_incomplete`, `expired` o `not_offered` las energías sueltas siguen a la venta
+si hay; con `insufficient_stock` puede no haber ninguna. ⛔ No se separa el texto por `reason` (rompería la
+equivalencia que fija AC-F23).
+
+**Revisadas y sin cambio** (no prometen existencias): `bundleDeckIncomplete*`, `bundleExpired*` («Vuelve a agregarlo
+desde el deck»: si el paquete ya no se ofrece, la ficha lo dice con `noStock`), `bundleUnavailable*`, `bundleInvalid`,
+`accessoryPayError.insufficient*` y `soldOut*` (dan la cifra del servidor o dicen «se agotó»).
+
+**Candado sugerido** (lo escribe frontend, en `GuestCheckoutAccessories.test.tsx` o el de paridad): en `es` y `en`, las
+cinco claves de arriba ⛔ no contienen «las energías las puedes agregar» / «las que haya» / “you can add the energy
+cards” / “the ones we have”. *Mutación:* restaurar el texto viejo en una ⇒ rojo.
