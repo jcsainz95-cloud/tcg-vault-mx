@@ -1,3 +1,4 @@
+import { computeSealedSalePrice } from '../src/common/money';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -181,6 +182,19 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
     }),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+    // ⭐ SU-1: las filas selladas de (1b) entran ahora por FALTA DE PRECIO (antes, precio manual + sin cajón), así que
+    // la derivación del sellado SÍ corre: sin `tcgplayerProductId` no hay clave de mercado (`null`) ⇒ `pending`.
+    sealedMarketGradeKeyForItem: jest.fn(() => null),
+    // El mismo doble que `inventory.sealed-final-price.spec.ts`: la función pura de precio del sellado.
+    resolveSealedSalePrice: jest.fn((i: any, ref: any, ctx: any) =>
+      computeSealedSalePrice(
+        i.listPriceCents,
+        i.sealedSubtype,
+        ref && ref.status === 'priced' ? ref.referenceMxnCents : null,
+        ctx.spreadPctBySubtype,
+        ctx.fallbackPct,
+      ),
+    ),
     settlePendingForVariant: jest.fn(async (reason: unknown) => {
       writes.push(reason == null ? 'pending.close' : 'pending.escalate');
       return reason == null ? undefined : 'ppe-new';
@@ -193,21 +207,20 @@ function build(items: ReturnType<typeof item>[], openPending: any[] = []) {
 
 // =============================================================================================
 describe('⚠️ (1) la cola dice QUÉ LE FALTA', () => {
-  it('sin ubicación y sin precio ⇒ `missing: ["location","price"]`', async () => {
+  it('⭐ SU-1 (§M1-SU): sin ubicación y sin precio ⇒ `missing: ["price"]` — el cajón ya no se señala', async () => {
     const { svc } = build([item({ id: 'a' })]);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
     expect(res.total).toBe(1);
-    expect(res.data[0].missing).toEqual(['location', 'price']);
+    expect(res.data[0].missing).toEqual(['price']);
     expect(res.data[0].resolvedSalePriceCents).toBeNull();
     expect(res.data[0].priceBasis).toBe('pending');
   });
 
-  it('con precio pero sin ubicación ⇒ solo `location`, y ENSEÑA el precio resuelto', async () => {
+  it('⭐ SU-1 (§M1-SU): con precio pero sin ubicación NO ENTRA a la cola — no le falta nada', async () => {
     const { svc } = build([item({ id: 'a', priced: true })]);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
-    expect(res.data[0].missing).toEqual(['location']);
-    expect(res.data[0].resolvedSalePriceCents).toBeGreaterThan(0);
-    expect(res.data[0].priceBasis).not.toBe('pending');
+    expect(res.total).toBe(0);
+    expect(res.data).toEqual([]);
   });
 
   it('con ubicación pero sin precio ⇒ solo `price`', async () => {
@@ -251,13 +264,14 @@ describe('⚠️ (1b) P-79c — la proyección lleva el NOMBRE del sellado, no s
         id: 'a',
         productType: 'sealed',
         sealedProductName: 'Charizard ex Super-Premium Collection',
-        listPriceCents: 99900, // override manual: la fila entra por `missing: ["location"]`
+        // ⭐ SU-1 (§M1-SU): sin precio (ni producto ni `listPriceCents`) — la fila entra por `missing: ["price"]`;
+        // antes entraba por `["location"]` con un precio manual.
       }),
     ]);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
     expect(res.data[0].productType).toBe('sealed');
     expect(res.data[0].sealedProductName).toBe('Charizard ex Super-Premium Collection');
-    expect(res.data[0].missing).toEqual(['location']);
+    expect(res.data[0].missing).toEqual(['price']);
   });
 
   it('single (raw) ⇒ `sealedProductName` null (no se inventa nombre de sellado)', async () => {
@@ -280,7 +294,7 @@ describe('⚠️ (1b) P-79c — la proyección lleva el NOMBRE del sellado, no s
         productType: 'sealed',
         sealedProductName: 'PRE Elite Trainer Box',
         sealedSubtype: 'etb',
-        listPriceCents: 99900, // override manual ⇒ entra por `missing: ["location"]`
+        // ⭐ SU-1: sin precio ⇒ entra por `missing: ["price"]` (antes, precio manual + sin cajón ⇒ `["location"]`).
       }),
     ]);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
@@ -302,15 +316,16 @@ describe('⚠️ (2) el `total` es el de la COLA, no el del superconjunto', () =
     item({ id: 'a' }),
     item({ id: 'b', locationId: 'loc-1', priced: true }), // no entra
     item({ id: 'c', locationId: 'loc-1' }),
-    item({ id: 'd', priced: true }),
+    item({ id: 'd', priced: true }), // ⭐ SU-1 (§M1-SU): sin cajón y con precio — ya NO entra
+    item({ id: 'e' }),
   ];
 
   it('cuenta SOLO las pendientes', async () => {
     const { svc } = build(mixed);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
-    // *Una cola que dijera 4 cuando hay 3 sería peor que no tener cola.*
+    // *Una cola que dijera 5 cuando hay 3 sería peor que no tener cola.*
     expect(res.total).toBe(3);
-    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'c', 'd']);
+    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'c', 'e']);
   });
 
   it('pagina sobre la cola REAL y el total no cambia entre páginas', async () => {
@@ -326,17 +341,18 @@ describe('⚠️ (2) el `total` es el de la COLA, no el del superconjunto', () =
     expect(new Set(seen).size).toBe(3);
   });
 
-  it('`?missing=price` no cuenta las que solo esperan ubicación', async () => {
+  it('`?missing=price` cuenta las que esperan precio, con y sin cajón (y no la sin cajón con precio)', async () => {
     const { svc } = build(mixed);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20, missing: 'price' });
-    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'c']);
-    expect(res.total).toBe(2);
+    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'c', 'e']);
+    expect(res.total).toBe(3);
   });
 
-  it('`?missing=location` no cuenta las que solo esperan precio', async () => {
+  it('⭐ SU-1 (§M1-SU, SU.2): `?missing=location` sigue siendo válido y no devuelve NADA — `data: []`, `total: 0`', async () => {
     const { svc } = build(mixed);
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20, missing: 'location' });
-    expect(res.data.map((r: any) => r.inventoryItemId)).toEqual(['a', 'd']);
+    expect(res.data).toEqual([]);
+    expect(res.total).toBe(0);
   });
 });
 
@@ -549,9 +565,13 @@ describe('⚠️ (5) auto-publicación al fijar ubicación, SIN BOTÓN', () => {
   });
 
   it('⚠️ y SALE de la cola: el drenaje no depende de que alguien apriete nada', async () => {
-    const { svc } = build([item({ id: 'a', priced: true })]);
+    // ⭐ SU-1 (§M1-SU): lo que la retiene es el precio, no la caja. El precio se vuelve resoluble SIN disparo y el
+    // `move` (disparador b) la encuentra completa: se publica y sale.
+    const { svc, rows } = build([item({ id: 'a' })]);
     expect((await svc.pendingPublish({ page: 1, pageSize: 20 })).total).toBe(1);
+    (rows[0] as Record<string, unknown>).__priced = true;
     await svc.moveItem('a', { toLocationId: 'loc-1' }, 'op-1');
+    expect(rows[0].status).toBe('listed');
     expect((await svc.pendingPublish({ page: 1, pageSize: 20 })).total).toBe(0);
   });
 

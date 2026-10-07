@@ -20,12 +20,20 @@ import { TAG } from '../prep-shared';
  */
 
 /** Las tres líneas de una opción (planos 1–2 de §43.3c), reusadas en el resumen del paso 3. */
-export function RateLines({ rate }: { rate: ShipmentRateDTO }) {
+export function RateLines({ rate, inbound = false }: { rate: ShipmentRateDTO; inbound?: boolean }) {
   const t = useTranslations('admin.m4.tracking.sdx.options');
+  const ti = useTranslations('admin.m4.tracking.sdx.inbound');
   const locale = useLocale() as AppLocale;
   const days = rate.days === null ? t('daysNone') : t('days', { days: rate.days });
-  const pickup =
-    rate.pickup === true
+  // 💰 rev BSD-1 (§BSD-UX.5b): en ENTRADA el origen es el vendedor (recolección = la suya; ⛔ no se agenda) y el destino es
+  // la tienda (entrega «en la tienda» o en sucursal). Mismos datos del DTO, otras palabras.
+  const pickup = inbound
+    ? rate.pickup === true
+      ? ti('pickupYes')
+      : rate.pickup === false
+        ? ti('pickupNo', { carrierLabel: rate.carrierLabel })
+        : t('pickupNone')
+    : rate.pickup === true
       ? t('pickup')
       : rate.pickup === false
         ? rate.dropoff
@@ -49,16 +57,18 @@ export function RateLines({ rate }: { rate: ShipmentRateDTO }) {
       <p className="text-sm text-text">
         {days} · {pickup} ·{' '}
         {rate.deliveryKind === 'home' ? (
-          t('home')
+          inbound ? ti('deliveryHome') : t('home')
         ) : rate.deliveryKind === 'branch' ? (
-          <span className="text-accent">{t('branch')}</span>
+          <span className="text-accent">{inbound ? ti('deliveryBranch') : t('branch')}</span>
         ) : (
           t('deliveryNone')
         )}
       </p>
       <p className={cn('tabular text-sm', rate.marginCents < 0 ? 'text-accent' : 'text-text')}>
         {rate.marginCents < 0
-          ? t('marginNegative', { amount: formatMoneyCents(Math.abs(rate.marginCents), locale) })
+          ? inbound
+            ? ti('marginNegative', { abs: formatMoneyCents(Math.abs(rate.marginCents), locale) })
+            : t('marginNegative', { amount: formatMoneyCents(Math.abs(rate.marginCents), locale) })
           : t('margin', { amount: formatMoneyCents(rate.marginCents, locale) })}
       </p>
       {rate.planType !== null && <p className="font-mono text-[11px] text-muted">{t('plan', { plan: rate.planType })}</p>}
@@ -82,10 +92,14 @@ interface OptionsProps {
   pickReasonId: string;
   /** 💰 §43.19.1: `labelOptions.limit` — el operador ve las opciones (le sirven para la guía a mano) pero sabe que no comprará. */
   limit?: LabelPurchaseLimit | null;
+  /** 💰 rev BSD-1 (§BSD-UX.5b): modo entrada (banda de tarifa descontada, «en la tienda»). */
+  inbound?: boolean;
 }
 
 export function OptionsView(p: OptionsProps) {
   const t = useTranslations('admin.m4.tracking.sdx.options');
+  const ti = useTranslations('admin.m4.tracking.sdx.inbound');
+  const inbound = p.inbound === true;
   const locale = useLocale() as AppLocale;
   const money = (c: number) => formatMoneyCents(c, locale);
   const { quote } = p;
@@ -125,7 +139,7 @@ export function OptionsView(p: OptionsProps) {
         aria-label={`${r.carrierLabel} · ${r.serviceName}`}
       />
       <div className="min-w-0 flex-1">
-        <RateLines rate={r} />
+        <RateLines rate={r} inbound={inbound} />
       </div>
     </label>
   );
@@ -133,6 +147,13 @@ export function OptionsView(p: OptionsProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 text-sm text-text">
+        {/* 💰 §BSD-UX.5b: la BANDA — lo que se le descuenta al vendedor (`charged.grossCents` = `offerShippingFeeCents`, la
+            cifra contra la que el SERVIDOR calcula el margen), arriba y en `text-base`. ⛔ La pantalla no la calcula. */}
+        {inbound && (
+          <p className="text-base text-text" data-testid="sdx-inbound-fee">
+            {ti('feeDeducted', { fee: money(quote.charged.grossCents) })}
+          </p>
+        )}
         <div className="flex flex-wrap items-baseline gap-x-3">
           <span>
             {t('package', { label: pkg.label, length: pkg.lengthCm, width: pkg.widthCm, height: pkg.heightCm, kg: pkg.weightKg })}
@@ -156,8 +177,14 @@ export function OptionsView(p: OptionsProps) {
           />
         )}
         <p>{t('insurance', { coverage: money(quote.insurance.coverageCents), cost: money(quote.insurance.costCents) })}</p>
-        <p className="text-muted">{t('insuredValue', { value: money(quote.insurance.insuredValueCents) })}</p>
-        <p>{t('charged', { gross: money(quote.charged.grossCents), net: money(quote.charged.netCents) })}</p>
+        {inbound ? (
+          <p className="text-muted">{ti('boxValue', { value: money(quote.insurance.insuredValueCents) })}</p>
+        ) : (
+          <>
+            <p className="text-muted">{t('insuredValue', { value: money(quote.insurance.insuredValueCents) })}</p>
+            <p>{t('charged', { gross: money(quote.charged.grossCents), net: money(quote.charged.netCents) })}</p>
+          </>
+        )}
         <p className="text-muted">{t('validUntil', { datetime: formatDateTimeMx(quote.expiresAt, locale) })}</p>
         {p.limit && (
           <p className="text-muted" data-testid="sdx-limit-note">
@@ -183,7 +210,13 @@ export function OptionsView(p: OptionsProps) {
           {visible.map(row)}
           {branch.length > 0 && (
             <Button size="sm" variant="ghost" className="self-start" aria-expanded={p.showBranch} onClick={p.onToggleBranch}>
-              {p.showBranch ? t('hideBranch') : t('showBranch', { count: branch.length })}
+              {inbound
+                ? p.showBranch
+                  ? ti('hideBranch')
+                  : ti('showBranch', { count: branch.length })
+                : p.showBranch
+                  ? t('hideBranch')
+                  : t('showBranch', { count: branch.length })}
             </Button>
           )}
           {p.showBranch && branch.map(row)}
@@ -195,6 +228,13 @@ export function OptionsView(p: OptionsProps) {
         </p>
       )}
       {quote.rates.some((r) => r.isPromo) && <p className="text-xs text-muted">{t('promoNote')}</p>}
+      {/* 💰 §BSD-UX.5b / UX-BSD-6: sin recomendada (ninguna entrega en la tienda) ⇒ ninguna marcada y lo dice. ⛔ La
+          pantalla no elige (la preselección es `recommendedRateId`, del servidor). */}
+      {inbound && quote.rates.length > 0 && quote.recommendedRateId === null && (
+        <p className="text-sm text-text" data-testid="sdx-inbound-no-recommended">
+          {ti('noRecommended')}
+        </p>
+      )}
       {quote.rates.length > 0 && p.selected === null && (
         <p id={p.pickReasonId} className="text-sm text-text">
           {t('pickOne')}
@@ -213,10 +253,13 @@ interface BuyProps {
   /** El botón no está (SK4) o el servidor lo bloqueó: qué frase ocupa su sitio. */
   blockedText: string | null;
   isSuperAdmin: boolean;
+  /** 💰 rev BSD-1 (§BSD-UX.5c): modo entrada (las dos confirmaciones hablan del vendedor y de la tienda). */
+  inbound?: boolean;
 }
 
-export function BuyView({ rate, coverageCents, warnNegative, warnBranch, options, blockedText, isSuperAdmin }: BuyProps) {
+export function BuyView({ rate, coverageCents, warnNegative, warnBranch, options, blockedText, isSuperAdmin, inbound = false }: BuyProps) {
   const t = useTranslations('admin.m4.tracking.sdx.buy');
+  const ti = useTranslations('admin.m4.tracking.sdx.inbound');
   const locale = useLocale() as AppLocale;
   const money = (c: number) => formatMoneyCents(c, locale);
   const b = rate.breakdown;
@@ -240,7 +283,7 @@ export function BuyView({ rate, coverageCents, warnNegative, warnBranch, options
           : t('notEnabled'));
   return (
     <div className="flex flex-col gap-4">
-      <RateLines rate={rate} />
+      <RateLines rate={rate} inbound={inbound} />
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm" data-testid="sdx-breakdown">
         {rows.map(([label, suffix, cents]) => (
           <div key={label} className="contents">
@@ -260,12 +303,14 @@ export function BuyView({ rate, coverageCents, warnNegative, warnBranch, options
       </dl>
       {warnNegative && (
         <Banner variant="warning" role="status">
-          {t('confirmNegative', { amount: money(Math.abs(rate.marginCents)) })}
+          {inbound
+            ? ti('confirmNegative', { abs: money(Math.abs(rate.marginCents)) })
+            : t('confirmNegative', { amount: money(Math.abs(rate.marginCents)) })}
         </Banner>
       )}
       {warnBranch && (
         <Banner variant="warning" role="status">
-          {t('confirmBranch')}
+          {inbound ? ti('confirmBranch') : t('confirmBranch')}
         </Banner>
       )}
       {canBuy ? (

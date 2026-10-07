@@ -12,7 +12,7 @@ export class NoopMailAdapter implements MailPort {
 
   async send(msg: MailMessage): Promise<{ id?: string }> {
     this.logger.log(
-      `[NOOP MAIL] to=${msg.to} subject="${msg.subject}" (no se envía; adaptador Noop)`,
+      `[NOOP MAIL] to=${msg.to} subject="${msg.subject}" attachments=${msg.attachments?.length ?? 0} (no se envía; adaptador Noop)`,
     );
     // El texto lleva el link con el token en claro: útil para dev/CI. Nunca en prod (allí es Resend).
     this.logger.debug(`[NOOP MAIL] body:\n${msg.text}`);

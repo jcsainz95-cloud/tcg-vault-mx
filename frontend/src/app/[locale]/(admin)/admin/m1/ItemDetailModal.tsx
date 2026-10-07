@@ -33,6 +33,12 @@ export interface ItemDetailModalProps {
   itemId: string | null;
   onClose: () => void;
   locations: VaultLocationDTO[];
+  /**
+   * §SU-UX.3 (b): ¿`locations` ya llegó del servidor? Solo con `true` se pinta el aviso «no hay destino»; mientras
+   * carga (o si falló) se pinta el selector de siempre — ⛔ un «no hay ubicaciones» que en realidad es «no sé».
+   * Por defecto `true` (quien no lo pasa entrega una lista ya resuelta).
+   */
+  locationsReady?: boolean;
 }
 
 /**
@@ -44,7 +50,7 @@ export interface ItemDetailModalProps {
  * Cada acción confirma con Banner, muestra el error REAL del contrato y refresca
  * ['admin-inventory'] + el detalle.
  */
-export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalProps) {
+export function ItemDetailModal({ itemId, onClose, locations, locationsReady = true }: ItemDetailModalProps) {
   const t = useTranslations('admin.m1');
   const tsp = useTranslations('admin.sealedProductPrice');
   const tc = useTranslations('common');
@@ -186,6 +192,17 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const moveTargets = locations.filter(
     (l) => l.id !== item?.location?.id && l.zone === 'platform_stock' && l.isActive,
   );
+  /**
+   * §SU-UX.3 (b) (Errata SU-1): sin destino, el `Select` vacío y «Mover» no sirven. Dos casos, porque `moveTargets`
+   * excluye la ubicación actual: no existe ninguna `platform_stock` activa ⇒ `noTargets`; la pieza ya está en la
+   * única ⇒ `noOtherTarget`. Solo con la lista resuelta (`locationsReady`).
+   */
+  const noTargetKind: 'noTargets' | 'noOtherTarget' | null =
+    !locationsReady || moveTargets.length > 0
+      ? null
+      : locations.some((l) => l.zone === 'platform_stock' && l.isActive)
+        ? 'noOtherTarget'
+        : 'noTargets';
 
   return (
     <>
@@ -333,6 +350,20 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
                   <ArrowRightLeft size={16} aria-hidden /> {t('move.title')}
                 </h3>
+                {noTargetKind ? (
+                  <div className="flex flex-col gap-1" data-testid="move-no-target">
+                    <p className="text-sm text-muted">{t(`move.${noTargetKind}`)}</p>
+                    {/* M1View lee `?locations=open` y abre «Ubicaciones» (SU-UX.3 (b)); se cierra la ficha antes. */}
+                    <Link
+                      href="/admin/m1?locations=open"
+                      onClick={onClose}
+                      className="w-fit text-xs text-text underline underline-offset-4 hover:text-accent"
+                    >
+                      {t('move.manageLocations')}
+                    </Link>
+                  </div>
+                ) : (
+                <>
                 <Select
                   label={t('move.target')}
                   placeholder={t('move.targetPlaceholder')}
@@ -360,6 +391,8 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                     {t('move.action')}
                   </Button>
                 </div>
+                </>
+                )}
               </section>
             )}
 

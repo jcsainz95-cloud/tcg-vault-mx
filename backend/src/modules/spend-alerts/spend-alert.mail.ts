@@ -31,6 +31,7 @@ import {
   MailLocale,
   SPEND_STOP_LINE_CODES,
   SpendAlertMailView,
+  mailDateTimeMx,
   mailDay,
   mailMoney,
   mailTime,
@@ -95,9 +96,12 @@ export function spendAlertImmediateMail(v: SpendAlertMailView, r: SpendMailRecip
   const title = spendAlertTitle(v, l);
   const sentence = spendAlertSentence(v, l);
   const sref = shortRefOf(v, l);
+  // 💰 rev BSD-1 — AG-23 cambia asunto, filas, remedio y CTA (`buylistGuideDueParts`); el esqueleto es el mismo.
+  const ag23 = code === 'AG-23' ? buylistGuideDueParts(v, l, title) : null;
   // Asunto (§43.19.12, §43.20.10): `{título}: {ref corta}`; AG-21 solo el título; AG-22 `{título}: {persona}`.
-  const subject =
-    code === 'AG-21'
+  const subject = ag23
+    ? ag23.subject
+    : code === 'AG-21'
       ? title
       : code === 'AG-22'
         ? `${title}: ${(v.subjectName ?? '').trim() || (en ? 'an account with no name' : 'una cuenta sin nombre')}`
@@ -106,13 +110,16 @@ export function spendAlertImmediateMail(v: SpendAlertMailView, r: SpendMailRecip
           : title;
 
   const rows: string[] = [];
-  if (v.subjectName) rows.push(`${en ? 'Who' : 'Quién'}: ${v.subjectName}`);
-  if (code !== 'AG-21' && code !== 'AG-22') {
-    if (v.orderNumber) rows.push(`${en ? 'Order' : 'Pedido'}: ${v.orderNumber}`);
-    if (v.folio) rows.push(`${en ? 'Shipment' : 'Envío'}: ${v.folio}`);
-    if (v.amountCents !== null) rows.push(`${en ? 'Amount' : 'Monto'}: ${mailMoney(v.amountCents, l)}`);
+  if (ag23) rows.push(...ag23.rows);
+  else {
+    if (v.subjectName) rows.push(`${en ? 'Who' : 'Quién'}: ${v.subjectName}`);
+    if (code !== 'AG-21' && code !== 'AG-22') {
+      if (v.orderNumber) rows.push(`${en ? 'Order' : 'Pedido'}: ${v.orderNumber}`);
+      if (v.folio) rows.push(`${en ? 'Shipment' : 'Envío'}: ${v.folio}`);
+      if (v.amountCents !== null) rows.push(`${en ? 'Amount' : 'Monto'}: ${mailMoney(v.amountCents, l)}`);
+    }
+    rows.push(`${en ? 'When' : 'Cuándo'}: ${mailDay(dayMx(v.firstOccurredAt), l)} ${mailTime(v.firstOccurredAt)}`);
   }
-  rows.push(`${en ? 'When' : 'Cuándo'}: ${mailDay(dayMx(v.firstOccurredAt), l)} ${mailTime(v.firstOccurredAt)}`);
 
   const stopUrl = SPEND_STOP_LINE_CODES.has(code) ? settingsPageUrl(l) : undefined;
   const stop = stopUrl
@@ -120,8 +127,9 @@ export function spendAlertImmediateMail(v: SpendAlertMailView, r: SpendMailRecip
       ? `If you want to stop all label purchases now, change it in “Who can buy labels?”: ${stopUrl}`
       : `Si quieres frenar ya todas las compras de guías, cámbialo en «¿Quién puede comprar guías?»: ${stopUrl}`
     : null;
-  const url = spendAlertUrl(v.id, l);
-  const cta = en ? 'SEE THE ALERT' : 'VER EL AVISO';
+  const url = ag23 ? ag23.url : spendAlertUrl(v.id, l);
+  const cta = ag23 ? ag23.cta : en ? 'SEE THE ALERT' : 'VER EL AVISO';
+  const remedy = ag23?.remedy ?? null;
   const blocks = [
     headingRow(title, 22),
     spacerRow(24),
@@ -132,6 +140,7 @@ export function spendAlertImmediateMail(v: SpendAlertMailView, r: SpendMailRecip
     ruleRow(),
     spacerRow(16),
     ...rows.map((t) => monoRow(t)),
+    ...(remedy ? [spacerRow(24), proseRow(remedy)] : []),
     ...(stop ? [spacerRow(24), smallPrintRow(stop)] : []),
     spacerRow(32),
     ...(url ? [ctaRows(url, cta, 'accent')] : []),
@@ -139,8 +148,51 @@ export function spendAlertImmediateMail(v: SpendAlertMailView, r: SpendMailRecip
   return {
     subject,
     html: mailShell({ locale: l, audience: 'staff', title, preheader: sentence.slice(0, 90), blocks, footerWhy: footerWhy(l, opts.previousOwner) }),
-    text: [title, '', greeting(r, l), '', sentence, '', ...rows, ...(stop ? ['', stop] : []), ...(url ? ['', `${cta}: ${url}`] : []), '', footerWhy(l, opts.previousOwner)].join('\n'),
+    text: [
+      title,
+      '',
+      greeting(r, l),
+      '',
+      sentence,
+      '',
+      ...rows,
+      ...(remedy ? ['', remedy] : []),
+      ...(stop ? ['', stop] : []),
+      ...(url ? ['', `${cta}: ${url}`] : []),
+      '',
+      footerWhy(l, opts.previousOwner),
+    ].join('\n'),
   };
+}
+
+/**
+ * 💰 rev BSD-1 · **lo propio del `AVG-1` de AG-23** (API_CONTRACT §BSD.8.3 con BSD-1.1 C-2; DESIGN_SYSTEM §BSD-UX.3): asunto
+ * «Solicitud de venta sin guía: se cierra sola el {fecha corta}»; filas solicitud · valor de las cartas en la oferta · se
+ * cierra; remedio en prosa; CTA **bermellón** a `<origen>/<locale>/admin/m5` — ⛔ sin `?` ni fragmento (PS-153; M5 no tiene
+ * ruta por solicitud: el folio va en el cuerpo para el buscador). ⛔ Sin «Frenar» (no está en `SPEND_STOP_LINE_CODES`).
+ * ⛔ Ninguna PII del vendedor: todo sale de `facts` (`sellRequestId`, `closesAt`, `offerGrossCents`).
+ */
+function buylistGuideDueParts(
+  v: SpendAlertMailView,
+  l: MailLocale,
+  title: string,
+): { subject: string; rows: string[]; remedy: string; url: string | undefined; cta: string } {
+  const en = l === 'en';
+  const f = v.facts;
+  const folio = typeof f.sellRequestId === 'string' ? f.sellRequestId : '';
+  const closesIso = typeof f.closesAt === 'string' ? f.closesAt : null;
+  const closesDay = closesIso && !Number.isNaN(new Date(closesIso).getTime()) ? mailDay(dayMx(new Date(closesIso)), l) : null;
+  const subject = closesDay ? (en ? `${title}: closes on its own on ${closesDay}` : `${title}: se cierra sola el ${closesDay}`) : title;
+  const closes = mailDateTimeMx(f.closesAt, l);
+  const rows = [
+    `${en ? 'Sell request' : 'Solicitud de venta'}: ${folio}`,
+    `${en ? 'Value of the cards in the offer' : 'Valor de las cartas en la oferta'}: ${mailMoney(typeof f.offerGrossCents === 'number' ? f.offerGrossCents : null, l)}`,
+    ...(closes ? [`${en ? 'Closes' : 'Se cierra'}: ${closes}`] : []),
+  ];
+  const remedy = en
+    ? 'To keep it from closing, generate its label with Skydropx (or enter one by hand) in “Sell requests”: search for it by its ID. If you no longer want to buy it, you can decline it right there; the seller gets the same email either way.'
+    : 'Para que no se cierre, genera su guía con Skydropx (o captúrala a mano) en «Solicitudes de venta»: búscala por su folio. Si ya no la quieres comprar, puedes declinarla ahí mismo; al vendedor le llega el mismo correo en los dos casos.';
+  return { subject, rows, remedy, url: appUrl('admin/m5', l), cta: en ? 'GO TO SELL REQUESTS' : 'IR A SOLICITUDES DE VENTA' };
 }
 
 /** Una línea del lote o del resumen: `{hora} · {título} · {ref corta} · {monto}`. */
@@ -186,12 +238,28 @@ export function spendAlertBatchMail(items: SpendAlertMailView[], hourStart: Date
 }
 
 /** **`AVG-3`** — el resumen del día MX `day` (`summary` = `summarizeSpendAlerts` de ese día; ⛔ la plantilla no suma, GAS-4). */
+/** 💰 §AN 624 — las tres cifras de la línea de ventas del resumen (de `dayFigures`). */
+export interface SpendDigestSalesLine {
+  orders: number;
+  chargedCents: number;
+  avgTicketCents: number | null;
+}
+
+/** `Ventas de ayer: {orders} pedidos · {cobrado} · ticket {ticket|—}` (API_CONTRACT §15.8). */
+export function salesDigestLine(s: SpendDigestSalesLine, l: MailLocale): string {
+  const ticket = s.avgTicketCents === null ? '—' : mailMoney(s.avgTicketCents, l);
+  return l === 'en'
+    ? `Yesterday's sales: ${s.orders} ${s.orders === 1 ? 'order' : 'orders'} · ${mailMoney(s.chargedCents, l)} · ticket ${ticket}`
+    : `Ventas de ayer: ${s.orders} ${s.orders === 1 ? 'pedido' : 'pedidos'} · ${mailMoney(s.chargedCents, l)} · ticket ${ticket}`;
+}
+
 export function spendDigestMail(
   day: string,
   summary: SpendAlertSummaryDTO,
   immediates: SpendAlertMailView[],
   r: SpendMailRecipient,
   titleOfCode: (code: string, l: MailLocale) => string,
+  sales?: SpendDigestSalesLine | null,
 ): Omit<MailMessage, 'to'> {
   const l = normalizeMailLocale(r.locale);
   const en = l === 'en';
@@ -200,6 +268,13 @@ export function spendDigestMail(
   const title = en ? `What cost us money on ${d}` : `Lo que nos costó dinero el ${d}`;
   const sec: string[] = [];
   const txt: string[] = [];
+  // 💰 §AN 624 (API_CONTRACT §15.8): la línea de ventas del día, de `SalesAnalyticsService.dayFigures` (la MISMA fila de la
+  // tabla de «Ventas»). Ticket `null` (0 pedidos) ⇒ «—», ⛔ nunca MX$0.
+  if (sales) {
+    const t = salesDigestLine(sales, l);
+    sec.push(monoRow(t), spacerRow(16));
+    txt.push(t, '');
+  }
   if (immediates.length > 0) {
     const label = en ? 'Immediate' : 'Lo inmediato';
     sec.push(sectionLabelRow(label), ...immediates.map((v) => monoRow(line(v, l))), spacerRow(16));
@@ -209,8 +284,11 @@ export function spendDigestMail(
   const byKind = summary.byKind.map(
     (k) => `${k.code} · ${titleOfCode(k.code, l)} · ${en ? 'immediate' : 'inmediatos'} ${k.immediate} · ${en ? 'summary' : 'del resumen'} ${k.digest} · ${mailMoney(k.amountCents, l)}`,
   );
-  sec.push(sectionLabelRow(byKindLabel), ...byKind.map((t) => monoRow(t)), spacerRow(16));
-  txt.push(byKindLabel, ...byKind, '');
+  // Un día sin avisos pero con ventas (P-AN-1) no tiene «Por tipo»: ⛔ no se pinta una sección vacía.
+  if (byKind.length > 0) {
+    sec.push(sectionLabelRow(byKindLabel), ...byKind.map((t) => monoRow(t)), spacerRow(16));
+    txt.push(byKindLabel, ...byKind, '');
+  }
   if (summary.mutedCount > 0) {
     const m = summary.mutedCount;
     const t = en

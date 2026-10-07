@@ -37,10 +37,12 @@ function row(over: Partial<PendingPublishRowDTO> = {}): PendingPublishRowDTO {
     cardProductId: null,
     locationId: null,
     listPriceCents: null,
-    resolvedSalePriceCents: 120000,
-    priceBasis: 'market',
+    // ⭐ Errata SU-1 (`API_CONTRACT §M1-SU` SU.2): sin cajón y CON precio ya no está en la cola; la forma que el
+    // servidor emite es `missing ⊆ ["price"]`, y una pieza sin cajón solo habita la cola si le falta el precio.
+    resolvedSalePriceCents: null,
+    priceBasis: null,
     pendingPriceEntryId: null,
-    missing: ['location'],
+    missing: ['price'],
     acquisitionType: 'buylist',
     sourceSellRequestItemId: 'sri-1',
     createdAt: '2026-08-30T18:00:00.000Z',
@@ -73,12 +75,13 @@ beforeEach(() => {
 
 describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
   it('cada fila dice QUÉ LE FALTA y DE DÓNDE viene la pieza', async () => {
-    stub([row(), row({ inventoryItemId: 'inv-2', folio: 'INV-004202', missing: ['location', 'price'], resolvedSalePriceCents: null, priceBasis: null, pendingPriceEntryId: 'ppe-1' })]);
+    stub([row(), row({ inventoryItemId: 'inv-2', folio: 'INV-004202', locationId: 'loc-1', pendingPriceEntryId: 'ppe-1' })]);
     renderWithProviders(<PendingPublishQueue />, 'es');
 
     expect(await screen.findByText('INV-004201')).toBeInTheDocument();
-    expect(screen.getAllByText('Ubicación').length).toBe(2);
-    expect(screen.getAllByText('Precio').length).toBe(1);
+    // Errata SU-1: el cajón no es motivo — con o sin `locationId`, la fila dice «Precio» y ⛔ nunca «Ubicación».
+    expect(screen.queryAllByText('Ubicación').length).toBe(0);
+    expect(screen.getAllByText('Precio').length).toBe(2);
     expect(screen.getAllByText('Compra a vendedor').length).toBe(2);
   });
 
@@ -224,7 +227,7 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     renderWithProviders(<PendingPublishQueue />, 'en');
     expect(await screen.findByText('Ready to publish')).toBeInTheDocument();
     // La fila llega por red: se espera al contenido, no al encabezado estático.
-    expect(await screen.findByText('Location')).toBeInTheDocument();
+    expect(await screen.findByText('Price')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/admin\.m1\.publishQueue/);
   });
 

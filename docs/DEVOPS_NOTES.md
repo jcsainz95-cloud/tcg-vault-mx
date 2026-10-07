@@ -13302,6 +13302,9 @@ por licencia. ⛔ **Hasta que el archivo esté fijado y el `CMD` cableado, la fa
    ls -l CPdescarga.txt                               # el TAMAÑO: el orquestador lo pidió antes de meterlo en el repo
    scripts/geo/import-sepomex.sh import --file CPdescarga.txt --dry-run   # no abre base si no hay DATABASE_URL
    ```
+   > ⚠️ **Corregido 2026-10-07 (§92.4, medido):** `import --dry-run` **sí exige base**: sin `DATABASE_URL` sale 1
+   > con `[sepomex] ⛔ falta DATABASE_URL` (lo midió primero el orquestador; re-medido por devops). Es por diseño: el
+   > dry-run informa de la tabla de hoy y de la inclusión (1a). El paso **sin base** es `manifest --file …` (§81.4).
    El `dry-run` imprime sha256, codificación, filas/CP/estados derivados, descartes por motivo y si alcanza los pisos.
    Esas cifras son las que el contrato pide anotar aquí (aún **NO MEDIDAS**). Si no alcanza un piso: se para y se pide
    errata al arquitecto.
@@ -13603,7 +13606,8 @@ railway run --service <servicio-de-la-API> --environment production -- \
   scripts/geo/import-sepomex.sh verify --file CPdescarga.txt                                              # 0 cargado · 1 mal · 2 vacío
 ```
 
-- El manifiesto se commitea (no el archivo; §79.2, licencia NO MEDIDA). ⛔ Ni descargar de SEPOMEX desde un script ni
+- ~~El manifiesto se commitea (no el archivo; §79.2, licencia NO MEDIDA).~~ **Superado 2026-10-07 (§92):** el dueño
+  decidió que el archivo va en el repositorio (`HECHOS.md`); viven ahí archivo, `.sha256` y manifiesto. ⛔ Ni descargar de SEPOMEX desde un script ni
   de un origen no fijado. La app **no** necesita reiniciarse: lee la tabla en cada consulta.
 - El nombre del servicio y que `railway run` inyecte `DATABASE_PUBLIC_URL`: **NO MEDIDO** (§79.9).
 - **Condición de la ventana de esta release** (sustituye a 79.9 (a)(b)(c) y a §80.0; §19.25.5): el dueño hace una
@@ -14488,3 +14492,130 @@ excepción nueva en `.trivyignore`.
 
 **Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
 externa va fijada». Lo dejo propuesto, no lo cambio.
+
+## §90 · Redis local en MISCONF: `dir` en un scratchpad borrado (2026-10-06, rama `claude/buylist-skydropx`)
+
+**Síntoma (B-2/B-3/B-4, 2026-10-06):** `auth-password-attempts-redis` y `reset-admin-password-lock` rojas en todos
+los árboles con `MISCONF ... unable to persist to disk`.
+
+**Causa medida (devops, 2026-10-06):** `redis-server` (pid 20394, arrancado `--daemonize yes` sin `--dir`) tenía
+`dir`/cwd = `scratchpad/qa-mail-7aa2/new (deleted)` (`ls -l /proc/<pid>/cwd`). Al borrarse ese scratchpad (O-20)
+el BGSAVE no puede crear el RDB → `rdb_last_bgsave_status:err` → con `stop-writes-on-bgsave-error yes` rechaza toda
+escritura. No era el disco (88 %, 4.8 GB libres). `CONFIG SET dir` falla: `can't set protected config` (Redis 7).
+
+**Arreglo en caliente:** `redis-cli CONFIG SET save ""` (sin snapshots; el Redis local es efímero de pruebas,
+DBSIZE 0). Reversible con `CONFIG SET save "3600 1 300 100 60 10000"`. No reinicia ni pierde claves.
+Antes: 3/3 corridas rojas (31/31 fallan). Después: 5/5 verdes (31/31). N y logs del agente devops.
+
+**Candado en tooling (`scripts/stack-native.sh` `start_infra`):** Redis se arranca desde `/` con `--save ""`; y si
+ya está arriba con `rdb_last_bgsave_status:err`, aplica el mismo `CONFIG SET save ""` y avisa.
+Rollback: revertir el commit.
+
+**Para los gates:** no arranquéis `redis-server` a mano desde vuestro scratchpad; usad `stack-native.sh up --infra`.
+
+## §91 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
+
+**Causa (medida el 2026-10-06 sobre `production` `a884a2ec`).** Ninguna PR cambió dependencias. Se publicó un
+aviso sobre la versión que ya estaba en el lockfile: `sharp@0.35.4`, GHSA-wq5f-xc86-pv6w / CVE-2026-96889
+(vulnerabilidad en la dependencia `librsvg`), severidad **high**, corregido en 0.35.5. `sharp` es dependencia
+**directa** del frontend (`"sharp": "^0.35.4"`, la usa `next/image`). El backend no se toca: sigue con las 2
+moderate ya registradas (RL-DEP-1).
+
+**Arreglo.** Igual que en §89: `npm update sharp --package-lock-only` en `frontend/`. El rango `^0.35.4` ya admite
+0.35.5, así que no hace falta tocar `package.json` ni añadir `overrides`. En el lockfile cambian 27 entradas, todas
+de la familia `sharp`: `sharp` 0.35.4 → 0.35.5, los binarios `@img/sharp-*` 0.35.4 → 0.35.5 y
+`@img/sharp-libvips-*` 1.3.3 → 1.3.4. Ninguna otra entrada cambia (comprobado con un diff de `packages`,
+entrada por entrada). El lockfile se generó en una copia del frontend en el scratchpad, no en el
+`node_modules` compartido.
+
+**Antes → después, con la misma invocación:**
+- `npm audit --omit=dev --audit-level=high` en `frontend/`: rc=1 (`sharp <0.35.5`, 1 high) → rc=0 (`found 0
+  vulnerabilities`).
+- `AUDIT_LEVEL=high ./security/scripts/audit-npm.sh`: rc=1 → rc=0.
+- `npm ci` del lockfile nuevo: rc=0. `sharp.versions.sharp` = 0.35.5 (vips 8.18.7, rsvg 2.63.2), y codifica un
+  PNG de prueba.
+- `next build` del frontend en esa copia: rc=0.
+- `trivy-fs`: **NO MEDIDO** aquí, porque `trivy` no está instalado en este entorno. Lo medirá el CI de la PR.
+
+**Rollback:** revertir el commit. `npm-audit` vuelve a ponerse en rojo.
+
+---
+## §92 · Catálogo de CP de SEPOMEX en el repositorio, con su huella fijada (2026-10-07, rama `claude/catalogo-cp`)
+
+Norma: `HECHOS.md`, fila 2026-10-07 «Catálogo de códigos postales (SEPOMEX) VA EN EL REPOSITORIO, público, con su
+huella fijada» (opción (a) de §79.3; «solo asegúrate que nadie lo pueda alterar»). Sigue rigiendo §81: **ningún
+arranque carga, lee ni verifica el catálogo** (`API_CONTRACT §M4-SHIP.19.25.4`, `HECHOS.md:57`, candado G-BOOT).
+
+### 92.0 Estado en una línea
+
+El archivo, su `.sha256` y su manifiesto están en `scripts/geo/data/`; la huella está fijada en código
+(`scripts/check-sepomex-pin.sh`) y un job de CI (`sepomex-pin`, en el `needs` de `ci-ok`) rompe si cualquiera de las
+cuatro cosas cambia sin las otras o si git pudiera normalizar el archivo. **La carga en producción sigue siendo el
+`import` explícito de §81.4**, ahora con `--file scripts/geo/data/CPdescarga.txt` (no hace falta descargar nada).
+
+### 92.1 Qué hay
+
+| Ruta | Qué |
+|---|---|
+| `scripts/geo/data/CPdescarga.txt` | El archivo que entregó el dueño, **bytes idénticos** (`cmp` = 0): 15 732 978 B, Latin-1, CRLF en las 159 342 líneas (aviso + cabecera + 159 340 filas). |
+| `scripts/geo/data/CPdescarga.txt.sha256` | `071fd9ecb5c3cd71788d12e51306dcea4d55775b30bd98c9b0607ddb725235dc  CPdescarga.txt` (`sha256sum -c` ⇒ OK). |
+| `scripts/geo/data/CPdescarga.manifest.json` | `import-sepomex.sh manifest` (sin base). Hermano del archivo ⇒ `import`/`verify` lo encuentran solos (`manifestPathFor`). `setDigest` `20cd4a578b0cd2b30b5232e7eb783a625ccb29eaf1c80efadd6ee41af68aeb5b`. |
+| `.gitattributes` (nuevo) | `scripts/geo/data/CPdescarga.txt binary` (= `-text -diff -merge`): git no convierte CRLF ni nada, tenga quien tenga `core.autocrlf`. |
+| `scripts/check-sepomex-pin.sh` | Candado. Constantes `PINNED_FILE_SHA256` y `PINNED_SET_DIGEST`. [A] sha256 del archivo = fijado · [B] `.sha256` exacto · [C] manifiesto `fileSha256`/`setDigest` = fijados · [D] `git check-attr` text/diff/merge = unset · [E] blob del índice = bytes del árbol · [F] `.gitignore` no lo ignora. |
+| `scripts/check-sepomex-pin-canary.sh` | Repo git temporal por caso: **17/17** (2 VERDES: prístino y comentario; 15 ROJOS nombrando su bloque: byte cambiado, CRLF→LF, fila añadida, archivo borrado, archivo+`.sha256`+manifiesto re-fijados sin tocar el código, `.sha256` alterado / con 2 líneas, manifiesto `fileSha256` / `setDigest` alterado / borrado, sin regla, `text eol=lf`, solo `-diff`, índice ≠ árbol, `.gitignore` sin la excepción). 6 s. |
+| `.gitignore` | Excepción `!scripts/geo/data/` tras la regla general `data/` (medido: sin ella `git add` rechazaba el archivo). |
+| `.github/workflows/ci.yml` | Job `sepomex-pin` (candado + canario) y en el `needs` de `ci-ok`. |
+
+**Integridad, en capas:** (1) el importador comprueba `sha256` = manifiesto **antes** de interpretar el archivo y luego
+`setDigest` = manifiesto (`obtainVerified`, `import-sepomex.ts`; confirmado leyendo el código y midiendo: §80.4 G4/G6);
+(2) el candado ata archivo, `.sha256` y manifiesto a la constante del script; (3) `.gitattributes` impide la
+alteración involuntaria por fin de línea. **Lo que no protege:** quien pueda fusionar a `production` puede cambiar
+archivo + huellas + script en una sola PR; eso lo para la revisión de la PR. **No hay `CODEOWNERS`** en el repo (medido:
+ni en la raíz, ni en `.github/`, ni en `docs/`) y no lo invento: es una decisión del dueño (y solo muerde con
+protección de rama que exija revisión de propietarios).
+
+**Cambiar el catálogo (cuando SEPOMEX publique otro):** archivo + `.sha256` + `manifest --out` + las dos constantes del
+script + fila de `HECHOS.md`, en la misma PR; luego `import` explícito (§81.4).
+
+### 92.2 Lo que NO se hizo, y por qué: el `boot` en el `CMD` (§79.4)
+
+El encargo pedía §79.4 (`boot` entre `migrate deploy` y `node dist/main.js`, `scripts/geo` en la imagen, candado de que
+el `CMD` lo trae). **§79.4 está superado por §81** (errata v1.80.12.5, `API_CONTRACT §M4-SHIP.19.25.4`, que sale de
+`HECHOS.md:57`, «colonia como Mercado Libre»): `boot` ya **no existe** como subcomando (sale 64), la imagen no lleva
+`scripts/geo` y el candado G-BOOT (`check-boot-no-geo.sh`, job `boot-no-geo`) exige justo lo contrario. Cablearlo sería
+contradecir el contrato y poner rojo un gate de CI; la fila de `HECHOS.md` del 2026-10-07 decide **dónde vive** el
+archivo, no reabre el arranque. Si se quisiera volver a cargar en el arranque, es errata del arquitecto primero (regla
+9). `Dockerfile.backend` y `.dockerignore` **no cambian**: `scripts` sigue excluido del contexto, así que el archivo no
+viaja en la imagen.
+
+### 92.3 Arranques de CI/E2E/DAST
+
+Ninguno cambia: `e2e-real.yml`, `security-dast.yml` y `docker-compose.staging.yml` construyen `Dockerfile.backend` con
+contexto `.` y el `.dockerignore` de siempre (G-BOOT verde re-corrido). Ninguno nombra `scripts/geo` ni `PostalCode`
+(grep). `railway up` (`deploy.yml`) sube el repo (≈15 MB más, sin comprimir) pero el build lo excluye por
+`.dockerignore`: **NO MEDIDO** en Railway. gitleaks sobre el archivo: **NO MEDIDO** (no está instalado aquí); una
+reimplementación aproximada de la regla `generic-api-key` en Python da **0** coincidencias.
+
+### 92.4 Mediciones (2026-10-07, devops; base local propia `tcg_devops_cp_sepomex`, rol `devops_cp_sepomex`, PG 16)
+
+- `manifest` (sin base): **158 322 filas** (pares CP-colonia únicos), **31 874 CP**, **2 478 municipios**, **32
+  estados**; descartes: **1 018 duplicadas** `(CP, colonia)` (159 340 − 1 018 = 158 322), 0 CP no `^\d{5}$`, 0 campo
+  vacío, 0 carácter ilegible, 0 separador en campo. Pisos C-GEO-1 (2) ⇒ **OK**. 1.8 s.
+- `import --dry-run` **sin** `DATABASE_URL` ⇒ **sale 1**, `⛔ falta DATABASE_URL` (la nota de §79.3 estaba mal;
+  corregida allí). Con base ⇒ 0, «faltan 158 322», nada escrito.
+- `import --strict` (el camino de producción), tabla vacía: **+158 322 · ~0 · −0 · C-GEO-1 OK · COMMIT, 7.2 s**
+  (7.9 s de reloj). Segunda vez: **+0 · ~0 · −0, 6.3 s** (7.0 s de reloj). `verify --strict --file` ⇒ 0, «CATÁLOGO
+  CARGADO», faltan/discrepantes/ajenas 0, 4.2 s. N=1 cada uno (tiempos, no proporciones).
+- `PostalCodeService.resolvePostalCode` (el de la app, con `LocalPostalCodeSource`): **`01780` ⇒ local, 2 colonias**
+  («Olivar de los Padres», «Tizampampano del Pueblo Tetelpan»; Álvaro Obregón, CDMX); `01000` ⇒ 1; `64000` ⇒ 2;
+  `99999` ⇒ `null`.
+- Prueba del importador con esa base: **20/20**, `# skipped 0`.
+- Candados re-corridos, todos 0: `check-sepomex-pin` + canario 17/17, `check-boot-no-geo`, `check-ci-ok --static`
+  (28 jobs) + canario 10/10, `check-workflow-cwd` (100 invocaciones) + canario 8/8. Mutaciones del propio candado
+  sobre copia (N=1, deterministas): sin comparar el sha256 ⇒ canario **4/16 rojos**; sin mirar `text` ⇒ **2/16 rojos** (medido antes de añadir [F]).
+- La contraseña de la base local aparece **0** veces en los registros.
+
+### 92.5 Rollback
+
+`git revert` del commit: se van archivo, huellas, `.gitattributes`, la excepción de `.gitignore`, candado y job. No toca imagen, `CMD` ni
+migraciones. Datos: este cambio no escribe en ninguna base; si el `import` ya se corrió, la tabla se queda (§79.9).

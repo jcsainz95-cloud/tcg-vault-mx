@@ -678,16 +678,16 @@ describe('SFP-7 — `pendingReason` en «Listas para publicar» = el veredicto d
     expect(byId.get('noref')).toMatchObject({ missing: ['price'], pendingReason: 'no_market' });
   });
 
-  it('Double Rare en el piso sin ubicación (dial seed la publica) ⇒ solo `location`, `pendingReason: null`', async () => {
-    const { byId } = await pp([
+  it('Double Rare en el piso sin ubicación (dial seed la publica) ⇒ ⭐ SU-1: fuera de la cola, y el disparo la publica', async () => {
+    // Antes salía con `missing: ['location']`, `pendingReason: null`, basis `floor`. Con SU-1 (§M1-SU) no le falta
+    // nada: no está en la cola, y el veredicto de precio (el piso, publicable por el dial seed) se mide por el
+    // desenlace del cuerpo único — `published` — en vez de por la fila.
+    const { byId, svc } = await pp([
       raw({ id: 'dr', rarity: 'Double Rare', __market: 1000, locationId: null }),
     ]);
-    expect(byId.get('dr')).toMatchObject({
-      missing: ['location'],
-      pendingReason: null,
-      priceBasis: 'floor',
-      resolvedSalePriceCents: DEFAULT_PRICING_CURVE.sale.floorCents,
-    });
+    expect(byId.has('dr')).toBe(false);
+    const [res] = await svc.reevaluateForPublication(['dr']);
+    expect(res).toMatchObject({ outcome: 'published', missing: [] });
   });
 
   it('sellado sin precio ⇒ `no_market` (el mismo motivo con que la publicación lo escala)', async () => {
@@ -707,9 +707,16 @@ describe('SFP-7 — `pendingReason` en «Listas para publicar» = el veredicto d
   });
 
   it('el campo viaja SIEMPRE (null incluido) en cada fila', async () => {
-    const { byId } = await pp([raw({ id: 'x', __market: 200000, locationId: null })]);
+    // ⭐ SU-1 (§M1-SU): la fila de ejemplo era una raw con precio y sin cajón (`pendingReason: null`); ya no entra a
+    // la cola. El `null` lo da ahora la gradeada sin slab (sin variante no se escala), junto a una con motivo.
+    const { byId } = await pp([
+      row({ id: 'g', productType: 'graded', sealedSubtype: null, sealedCondition: null }),
+      raw({ id: 'x', locationId: null }),
+    ]);
+    expect('pendingReason' in byId.get('g')).toBe(true);
+    expect(byId.get('g').pendingReason).toBeNull();
     expect('pendingReason' in byId.get('x')).toBe(true);
-    expect(byId.get('x').pendingReason).toBeNull();
+    expect(byId.get('x').pendingReason).toBe('no_market');
   });
 });
 
@@ -728,10 +735,12 @@ describe('SFP-8 — `GET /admin/inventory/items`: precio derivado SOLO del sella
     const q1 = queue.data.find((d: any) => d.inventoryItemId === 's1');
     const l1 = list.data.find((d: any) => d.id === 's1');
     expect(l1.resolvedSalePriceCents).toBe(110000); // mercado × (1 + 10 %)
-    expect({ p: l1.resolvedSalePriceCents, b: l1.priceBasis }).toEqual({
-      p: q1.resolvedSalePriceCents,
-      b: q1.priceBasis,
-    });
+    // ⭐ SU-1 (§M1-SU): s1 (sin cajón, con precio) ya NO está en la cola — no le falta nada —, así que la paridad con
+    // la fila de la cola se fija contra el pronóstico del MISMO cuerpo (`previewPublication` ⇒ `would_publish`) y el
+    // basis se afirma por valor.
+    expect(q1).toBeUndefined();
+    expect(l1.priceBasis).toBe('market');
+    expect(await h.svc.previewPublication(['s1'])).toEqual([{ inventoryItemId: 's1', outcome: 'would_publish' }]);
     const l2 = list.data.find((d: any) => d.id === 's2');
     expect({ p: l2.resolvedSalePriceCents, b: l2.priceBasis }).toEqual({
       p: 150000,

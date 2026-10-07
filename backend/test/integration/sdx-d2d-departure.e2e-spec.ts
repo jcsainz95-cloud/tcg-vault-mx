@@ -52,7 +52,9 @@ describe('⭐ D2d — «Salida de hoy» (§19.9, PS-77)', () => {
   };
   /** Deja SOLO estos envíos como «por salir» con guía (los de otras pruebas pasan a `enviado`, como si hubieran salido). */
   const isolate = async (keep: string[]) => {
-    await h.prisma.shipmentRequest.updateMany({ where: { status: 'guia', id: { notIn: keep } }, data: { status: 'enviado', shippedAt: new Date() } });
+    // rev BSD-1 (B-3): solo envíos de SALIDA — una guía de ENTRADA del buylist en `guia` no puede pasar a `enviado` (CHECK
+    // `shipment_inbound_status`) y no está en «Salida de hoy» (la lleva el vendedor).
+    await h.prisma.shipmentRequest.updateMany({ where: { status: 'guia', kind: 'outbound', id: { notIn: keep } }, data: { status: 'enviado', shippedAt: new Date() } });
   };
 
   beforeAll(async () => {

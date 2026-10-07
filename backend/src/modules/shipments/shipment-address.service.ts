@@ -26,6 +26,8 @@ import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 import { optionalText, requiredPostalCode, requiredText } from '../users/address-rules';
 import { ShipmentsService } from './shipments.service';
 import { labelSourceOf } from './label-source';
+import { LABEL_SUBJECT_SELECT, LabelSubject, labelSubjectOf, lockSubjectRows } from './label-subject';
+import { INBOUND_SELL_REQUEST_GUARD_SELECT, assertInboundOpenForLabel, rejectDestinationKeys } from './label-inbound';
 
 export interface CorrectShipmentAddressReq {
   expectedAddressVersion: number;
@@ -65,6 +67,8 @@ export { labelSourceOf };
 
 /** El cuerpo, validado en el SERVIDOR con `400 VALIDATION_ERROR {field}` (el pipe global no emite `field`). */
 export function parseCorrectAddressBody(raw: unknown): CorrectShipmentAddressReq {
+  // ⭐ rev BSD-1 (§BSD.4.2, criterio 532): el DESTINO no se corrige por aquí (en la guía de entrada es la tienda).
+  rejectDestinationKeys(raw);
   const body = (raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   const v = body.expectedAddressVersion;
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) {
@@ -96,8 +100,11 @@ export class ShipmentAddressService {
   async correct(shipmentId: string, raw: unknown, actor: ShipmentAddressActor) {
     // 1. Forma ⇒ 400; inexistente ⇒ 404.
     const req = parseCorrectAddressBody(raw);
-    const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true } });
+    const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true, ...LABEL_SUBJECT_SELECT } });
     if (!exists) throw BusinessException.notFound();
+    // ⭐ rev BSD-1 (§BSD.4.2): en la guía de ENTRADA esto corrige el ORIGEN (el vendedor). ⛔ La libreta del vendedor y
+    // `pickupAddressSnapshot` no cambian; ⛔ no dispara AG-1 (`alertsAfterAddressFix`, en la compra).
+    const subject = labelSubjectOf(exists);
     // 2. ⭐ v1.80.12.5 (§M4-SHIP.19.25.1): `resolveAddressGeo`, FUERA de la tx (el mismo cuerpo que
     //    `GET /geo/postal-codes/:cp`, `C-SDX-3`). ⛔ Sin `422` geográficos: `city`/`state` del cuerpo solo cuentan con
     //    el CP fuera del catálogo; con el CP dentro ganan los del catálogo.
@@ -105,10 +112,11 @@ export class ShipmentAddressService {
 
     const outcome = await this.prisma.$transaction(
       async (tx) => {
-        // 3. Candado de fila (primera sentencia) y las guardas, en el orden del contrato.
-        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${shipmentId} FOR UPDATE`;
+        // 3. Candado de fila (primera sentencia; rev BSD-1 I-BSD-4: la solicitud antes que la fila de entrada) y las guardas,
+        //    en el orden del contrato.
+        await lockSubjectRows(tx, subject, shipmentId);
         const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id: shipmentId } });
-        this.assertCorrectable(row, req.expectedAddressVersion);
+        await this.assertCorrectable(tx, subject, row, req.expectedAddressVersion);
 
         // 4. `next` y `changed` (solo las claves cuyo valor difiere; ausente ≡ null, así un snapshot de 9 campos sin
         //    `references` no «cambia» por recibir `references: null`).
@@ -136,7 +144,7 @@ export class ShipmentAddressService {
         const cas = await tx.shipmentRequest.updateMany({
           where: {
             id: shipmentId,
-            status: 'picking',
+            status: subject.openStatus,
             labelSource: null,
             trackingNumber: null,
             labelProcessingSince: null,
@@ -151,7 +159,7 @@ export class ShipmentAddressService {
         });
         if (cas.count !== 1) {
           const actual = await tx.shipmentRequest.findUniqueOrThrow({ where: { id: shipmentId } });
-          this.assertCorrectable(actual, req.expectedAddressVersion);
+          await this.assertCorrectable(tx, subject, actual, req.expectedAddressVersion);
           throw this.addressChanged(actual.addressVersion);
         }
         // 6. ⭐ v1.80.12.2 (§M4-SHIP.19.22.1, SKX-SEC-1): en la MISMA tx, (a) los VALORES en `ShipmentAddressRevision`
@@ -193,9 +201,15 @@ export class ShipmentAddressService {
     return { outcome, shipment: await this.shipments.adminGet(shipmentId) };
   }
 
-  /** Paso 3 (§19.23.3 (2)): `status` ⇒ guía ⇒ compra en vuelo ⇒ versión, en ese orden (PS-104). */
-  private assertCorrectable(row: ShipmentRequest, expectedAddressVersion: number): void {
-    if (row.status !== 'picking') {
+  /**
+   * Paso 3 (§19.23.3 (2)): `status` ⇒ guía ⇒ compra en vuelo ⇒ versión, en ese orden (PS-104). ⭐ rev BSD-1 (§BSD.3): en la
+   * guía de entrada el «estado» es la guarda de la SOLICITUD y de la fila (`assertInboundOpenForLabel`, bajo su candado).
+   */
+  private async assertCorrectable(tx: Prisma.TransactionClient, subject: LabelSubject, row: ShipmentRequest, expectedAddressVersion: number): Promise<void> {
+    if (subject.sellRequestId) {
+      const sr = await tx.sellRequest.findUniqueOrThrow({ where: { id: subject.sellRequestId }, select: INBOUND_SELL_REQUEST_GUARD_SELECT });
+      assertInboundOpenForLabel(row, sr, subject.openStatus);
+    } else if (row.status !== subject.openStatus) {
       throw BusinessException.conflict('SHIPMENT_NOT_IN_PREPARATION', 'Shipment is not in preparation', { status: row.status });
     }
     const labelSource = labelSourceOf(row);

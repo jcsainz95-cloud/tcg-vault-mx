@@ -1,0 +1,337 @@
+{
+  "2021-02-01..2021-03-31": {
+    "pnl": {
+      "incomeCents": 69000,
+      "shippingRevenueCents": 25000,
+      "cogsCents": 36000,
+      "stripeFeesCents": 4650,
+      "shippingCostCents": 10000,
+      "shippingCostMissingCount": 1,
+      "shippingAdjustmentsCents": 2000,
+      "shippingInsuranceCents": 580,
+      "refundsCents": 20921,
+      "refundedFeesCents": 2270,
+      "compensationsCents": 1000,
+      "profitCents": -6393,
+      "buylistShippingFeeRetainedCents": 18000,
+      "buylistGuideCostCents": 43552,
+      "buylistGuideMarginCents": 3000,
+      "buylistGuideCostMissingCount": 1
+    },
+    "iva": {
+      "ivaCollectedCents": 12640,
+      "ivaRefundedCents": 3680,
+      "ivaNetCents": 8960,
+      "byOrder": [
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000100",
+          "ivaCents": 1120,
+          "settledAt": "2021-02-20T18:00:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000101",
+          "ivaCents": 1440,
+          "settledAt": "2021-02-25T18:00:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000102",
+          "ivaCents": 1600,
+          "settledAt": "2021-03-01T16:00:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000103",
+          "ivaCents": 1600,
+          "settledAt": "2021-03-01T18:00:00.000Z",
+          "status": "refunded"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000104",
+          "ivaCents": 4800,
+          "settledAt": "2021-03-02T05:30:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000105",
+          "ivaCents": 3200,
+          "settledAt": "2021-03-02T06:10:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000106",
+          "ivaCents": 800,
+          "settledAt": "2021-03-06T00:00:00.000Z",
+          "status": "chargeback"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000107",
+          "ivaCents": 480,
+          "settledAt": "2021-03-08T02:00:00.000Z",
+          "status": "settled"
+        }
+      ]
+    },
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,69000,25000,36000,4650,10000,1,2000,580,20921,2270,1000,-6393,18000,43552,3000,1\n",
+    "launch": {
+      "users": 3,
+      "salesSettled": 6,
+      "buylistPaid": 2,
+      "withdrawalsNoDispute": 0,
+      "goals": null
+    }
+  },
+  "2021-03-01..2021-03-07": {
+    "pnl": {
+      "incomeCents": 50000,
+      "shippingRevenueCents": 25000,
+      "cogsCents": 28000,
+      "stripeFeesCents": 3600,
+      "shippingCostCents": 10000,
+      "shippingCostMissingCount": 1,
+      "shippingAdjustmentsCents": 2000,
+      "shippingInsuranceCents": 580,
+      "refundsCents": 20921,
+      "refundedFeesCents": 2270,
+      "compensationsCents": 1000,
+      "profitCents": -9343,
+      "buylistShippingFeeRetainedCents": 18000,
+      "buylistGuideCostCents": 36552,
+      "buylistGuideMarginCents": 3000,
+      "buylistGuideCostMissingCount": 1
+    },
+    "iva": {
+      "ivaCollectedCents": 9600,
+      "ivaRefundedCents": 3680,
+      "ivaNetCents": 5920,
+      "byOrder": [
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000102",
+          "ivaCents": 1600,
+          "settledAt": "2021-03-01T16:00:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000103",
+          "ivaCents": 1600,
+          "settledAt": "2021-03-01T18:00:00.000Z",
+          "status": "refunded"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000104",
+          "ivaCents": 4800,
+          "settledAt": "2021-03-02T05:30:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000105",
+          "ivaCents": 3200,
+          "settledAt": "2021-03-02T06:10:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000106",
+          "ivaCents": 800,
+          "settledAt": "2021-03-06T00:00:00.000Z",
+          "status": "chargeback"
+        }
+      ]
+    },
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,50000,25000,28000,3600,10000,1,2000,580,20921,2270,1000,-9343,18000,36552,3000,1\n",
+    "launch": {
+      "users": 0,
+      "salesSettled": 3,
+      "buylistPaid": 2,
+      "withdrawalsNoDispute": 0,
+      "goals": null
+    }
+  },
+  "2021-03-02..2021-03-02": {
+    "pnl": {
+      "incomeCents": 0,
+      "shippingRevenueCents": 0,
+      "cogsCents": 0,
+      "stripeFeesCents": 0,
+      "shippingCostCents": 0,
+      "shippingCostMissingCount": 0,
+      "shippingAdjustmentsCents": 0,
+      "shippingInsuranceCents": 0,
+      "refundsCents": 0,
+      "refundedFeesCents": 0,
+      "compensationsCents": 0,
+      "profitCents": 0,
+      "buylistShippingFeeRetainedCents": 0,
+      "buylistGuideCostCents": 0,
+      "buylistGuideMarginCents": 0,
+      "buylistGuideCostMissingCount": 0
+    },
+    "iva": {
+      "ivaCollectedCents": 0,
+      "ivaRefundedCents": 0,
+      "ivaNetCents": 0,
+      "byOrder": []
+    },
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n",
+    "launch": {
+      "users": 0,
+      "salesSettled": 0,
+      "buylistPaid": 0,
+      "withdrawalsNoDispute": 0,
+      "goals": null
+    }
+  },
+  "2021-03-01T06:00:00.000Z..2021-03-08T05:59:59.999Z": {
+    "pnl": {
+      "incomeCents": 53000,
+      "shippingRevenueCents": 25000,
+      "cogsCents": 29000,
+      "stripeFeesCents": 3800,
+      "shippingCostCents": 10000,
+      "shippingCostMissingCount": 1,
+      "shippingAdjustmentsCents": 2000,
+      "shippingInsuranceCents": 580,
+      "refundsCents": 20921,
+      "refundedFeesCents": 2270,
+      "compensationsCents": 1000,
+      "profitCents": -14543,
+      "buylistShippingFeeRetainedCents": 18000,
+      "buylistGuideCostCents": 43552,
+      "buylistGuideMarginCents": 3000,
+      "buylistGuideCostMissingCount": 1
+    },
+    "iva": {
+      "ivaCollectedCents": 10080,
+      "ivaRefundedCents": 3680,
+      "ivaNetCents": 6400,
+      "byOrder": [
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000102",
+          "ivaCents": 1600,
+          "settledAt": "2021-03-01T16:00:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000103",
+          "ivaCents": 1600,
+          "settledAt": "2021-03-01T18:00:00.000Z",
+          "status": "refunded"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000104",
+          "ivaCents": 4800,
+          "settledAt": "2021-03-02T05:30:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000105",
+          "ivaCents": 3200,
+          "settledAt": "2021-03-02T06:10:00.000Z",
+          "status": "settled"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000106",
+          "ivaCents": 800,
+          "settledAt": "2021-03-06T00:00:00.000Z",
+          "status": "chargeback"
+        },
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000107",
+          "ivaCents": 480,
+          "settledAt": "2021-03-08T02:00:00.000Z",
+          "status": "settled"
+        }
+      ]
+    },
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,53000,25000,29000,3800,10000,1,2000,580,20921,2270,1000,-14543,18000,43552,3000,1\n",
+    "launch": {
+      "users": 0,
+      "salesSettled": 4,
+      "buylistPaid": 2,
+      "withdrawalsNoDispute": 0,
+      "goals": null
+    }
+  },
+  "2021-03-02T06:00:00.000Z..2021-03-03T05:59:59.999Z": {
+    "pnl": {
+      "incomeCents": 20000,
+      "shippingRevenueCents": 0,
+      "cogsCents": 12000,
+      "stripeFeesCents": 900,
+      "shippingCostCents": 8000,
+      "shippingCostMissingCount": 0,
+      "shippingAdjustmentsCents": 0,
+      "shippingInsuranceCents": 580,
+      "refundsCents": 0,
+      "refundedFeesCents": 0,
+      "compensationsCents": 0,
+      "profitCents": -15900,
+      "buylistShippingFeeRetainedCents": 0,
+      "buylistGuideCostCents": 15000,
+      "buylistGuideMarginCents": 0,
+      "buylistGuideCostMissingCount": 0
+    },
+    "iva": {
+      "ivaCollectedCents": 3200,
+      "ivaRefundedCents": 0,
+      "ivaNetCents": 3200,
+      "byOrder": [
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000105",
+          "ivaCents": 3200,
+          "settledAt": "2021-03-02T06:10:00.000Z",
+          "status": "settled"
+        }
+      ]
+    },
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,20000,0,12000,900,8000,0,0,580,0,0,0,-15900,0,15000,0,0\n",
+    "launch": {
+      "users": 0,
+      "salesSettled": 1,
+      "buylistPaid": 0,
+      "withdrawalsNoDispute": 0,
+      "goals": null
+    }
+  },
+  "2021-02-22T06:00:00.000Z..2021-03-01T05:59:59.999Z": {
+    "pnl": {
+      "incomeCents": 9000,
+      "shippingRevenueCents": 0,
+      "cogsCents": 4000,
+      "stripeFeesCents": 450,
+      "shippingCostCents": 0,
+      "shippingCostMissingCount": 0,
+      "shippingAdjustmentsCents": 0,
+      "shippingInsuranceCents": 0,
+      "refundsCents": 0,
+      "refundedFeesCents": 0,
+      "compensationsCents": 0,
+      "profitCents": 4550,
+      "buylistShippingFeeRetainedCents": 0,
+      "buylistGuideCostCents": 0,
+      "buylistGuideMarginCents": 0,
+      "buylistGuideCostMissingCount": 0
+    },
+    "iva": {
+      "ivaCollectedCents": 1440,
+      "ivaRefundedCents": 0,
+      "ivaNetCents": 1440,
+      "byOrder": [
+        {
+          "orderId": "a1e5a1e5-0000-4000-8000-000000000101",
+          "ivaCents": 1440,
+          "settledAt": "2021-02-25T18:00:00.000Z",
+          "status": "settled"
+        }
+      ]
+    },
+    "csv": "report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,refundsCents,refundedFeesCents,compensationsCents,profitCents,buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\npnl,9000,0,4000,450,0,0,0,0,0,0,0,4550,0,0,0,0\n",
+    "launch": {
+      "users": 0,
+      "salesSettled": 1,
+      "buylistPaid": 0,
+      "withdrawalsNoDispute": 0,
+      "goals": null
+    }
+  }
+}

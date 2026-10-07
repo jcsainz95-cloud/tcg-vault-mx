@@ -26,7 +26,7 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { diferida, esperarBloqueoDeFila } from './helpers/row-lock-barrier';
-import { PricingCurve } from '../../src/common/pricing-curve';
+import { InventoryService } from '../../src/modules/inventory/inventory.service';
 
 const RUN = `sfp${Date.now().toString(36)}`;
 const SET_ID = 'e2e-sfp-set';
@@ -61,7 +61,6 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
   let operatorId: string;
   let customerId: string;
   let shelf: string;
-  let curve: PricingCurve;
   let dialBefore: unknown = undefined;
   let seq = 0;
 
@@ -174,7 +173,6 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
     ).id;
     const row = await h.prisma.configSetting.findUnique({ where: { key: DIAL_KEY } });
     dialBefore = row ? row.valueJson : undefined;
-    curve = (await h.api<PricingCurve>('GET', '/admin/pricing/curve', { token: admin })).body;
 
     await cleanup();
     await h.prisma.cardSet.create({
@@ -514,12 +512,14 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
         pendingReason: 'premium_at_floor',
       });
       expect(q.get(ids.noref!)).toMatchObject({ missing: ['price'], pendingReason: 'no_market' });
-      expect(q.get(ids.dr!)).toMatchObject({
-        missing: ['location'],
-        pendingReason: null,
-        priceBasis: 'floor',
-        resolvedSalePriceCents: curve.sale.floorCents,
-      });
+      // ⭐ SU-1 (§M1-SU): la DR sin cajón cuyo precio resuelve (al piso, dial seed) ya NO está en la cola — no le falta
+      // nada. El veredicto de precio (piso, sin motivo) se sigue midiendo, ahora en la fila de M1.
+      expect(q.has(ids.dr!)).toBe(false);
+      // `GET /admin/inventory/items` no deriva precio de raw (SFP-8): el veredicto «publicable al piso» se lee del
+      // pronóstico del cuerpo único, sin escribir (la DR tiene que seguir `in_stock` para SFP-9).
+      expect(await h.app.get(InventoryService).previewPublication([ids.dr!])).toEqual([
+        { inventoryItemId: ids.dr, outcome: 'would_publish' },
+      ]);
       expect(q.get(ids.sealed!)).toMatchObject({ missing: ['price'], pendingReason: 'no_market' });
       expect(q.get(ids.graded!)).toMatchObject({
         missing: ['price'],
@@ -533,8 +533,10 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
       await setDial(NONE_DIAL);
       const before = await pendingSnapshot();
       const q = await queue();
+      // ⭐ SU-1: sin cajón, lo único que le falta es el precio (antes `['location','price']`). Que ENTRE a la cola
+      // justo tras el `PUT` (en SFP-7 no estaba) es lo que mide que el dial no tiene caché.
       expect(q.get(ids.dr!)).toMatchObject({
-        missing: ['location', 'price'],
+        missing: ['price'],
         pendingReason: 'premium_at_floor',
       });
       expect(await pendingSnapshot()).toEqual(before);
@@ -599,16 +601,16 @@ describe('E2E — M1-SFP: bitácora antes/después del PATCH, motivo en la cola,
         `/admin/inventory/pending-publish?setId=${SET_ID}&productType=sealed&pageSize=100`,
         { token: op },
       );
-      const qRow = q.body.data.find((d: any) => d.inventoryItemId === derived.id);
-      expect(qRow).toBeDefined();
-      expect(qRow.resolvedSalePriceCents).toBeGreaterThan(0);
-      expect({
-        p: byId.get(derived.id).resolvedSalePriceCents,
-        b: byId.get(derived.id).priceBasis,
-      }).toEqual({
-        p: qRow.resolvedSalePriceCents,
-        b: qRow.priceBasis,
-      });
+      expect(q.status).toBe(200);
+      // ⭐ SU-1 (§M1-SU): `derived` (sin cajón, con precio derivable) ya NO está en la cola — no le falta nada —, así
+      // que la paridad «igual que la cola» se fija contra el pronóstico del MISMO cuerpo de publicación
+      // (`previewPublication`, lectura pura) y el precio/basis de la fila de M1 se afirman por valor.
+      expect(q.body.data.some((d: any) => d.inventoryItemId === derived.id)).toBe(false);
+      expect(byId.get(derived.id).resolvedSalePriceCents).toBeGreaterThan(0);
+      expect(byId.get(derived.id).priceBasis).toBe('market');
+      expect(await h.app.get(InventoryService).previewPublication([derived.id])).toEqual([
+        { inventoryItemId: derived.id, outcome: 'would_publish' },
+      ]);
       expect({
         p: byId.get(manual.id).resolvedSalePriceCents,
         b: byId.get(manual.id).priceBasis,

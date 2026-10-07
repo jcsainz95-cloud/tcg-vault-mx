@@ -26,6 +26,9 @@ import { ShipmentExtraChargesJob } from './extra-charges.job';
 import { ShipmentDepartureService } from './departure.service';
 import { GuestOrderTokensModule } from '../orders/guest-order-tokens.module';
 import { ShippingWorkQueueService } from './shipping-work-queue.service';
+import { InboundShipmentService } from './inbound-shipment.service';
+import { InboundGuideNoticeService } from './inbound-guide-notice.service';
+import { AdminInboundShipmentController, SellerInboundLabelController } from './inbound-shipment.controller';
 
 @Module({
   // ⭐ v1.80.12 (M-64): `GeoModule` — la corrección de la dirección valida contra la lista del CP (§M4-SHIP.19.20.1).
@@ -51,6 +54,10 @@ import { ShippingWorkQueueService } from './shipping-work-queue.service';
     ShipmentDepartureService,
     // C-TL-1 (gate techlead sobre 31af0883): `workQueue.shipping` del tablero con el reloj y `tUnknownMs` de ESTE módulo.
     ShippingWorkQueueService,
+    // 💰 rev BSD-1 (§BSD.4.1, §BSD.4.4, §BSD.8.2): la guía de ENTRADA del buylist sobre el MISMO motor — abrir la fila,
+    // la descarga del vendedor y AV-7 con la etiqueta.
+    InboundShipmentService,
+    InboundGuideNoticeService,
     // ⭐ D2e (§19.12): los correos AV-17/18/19 al cliente — sello y envío en `ShipmentsService.notifyCarrierNotice`.
     { provide: CARRIER_NOTICES, inject: [ShipmentsService], useFactory: mailCarrierNotices },
     // 💰 §19.8: el post-commit de la cancelación automática, por token (los escritores viven en `payments/`).
@@ -67,7 +74,7 @@ import { ShippingWorkQueueService } from './shipping-work-queue.service';
       useFactory: (selection: ShippingProviderSelection) => purchaseKeyFor(selection.kind),
     },
   ],
-  controllers: [ShipmentsController, AdminShipmentsController],
+  controllers: [ShipmentsController, AdminShipmentsController, AdminInboundShipmentController, SellerInboundLabelController],
   // `ShipmentLabelCancelService` se exporta para el post-commit de los escritores automáticos de `cancelado` (§19.8).
   // ⭐ D2d: los tres jobs se exportan para el planificador y el disparo manual (`jobs/`).
   exports: [

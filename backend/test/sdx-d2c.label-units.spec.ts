@@ -295,11 +295,19 @@ describe('PS-117 / C-2 — `.purchase(` tiene UN llamador en shipments/ y `.prot
 
 // ================================================================ C-SDX-5 / C-SDX-4 / PS-117 (ampliada) — censos de la cancelación y la verificación
 
-describe('C-SDX-5 — `cancelProviderLabelIfAny` tiene EXACTAMENTE dos llamadores (los escritores automáticos de `cancelado`)', () => {
+// 💰 rev BSD-1 (API_CONTRACT §BSD.4.8): `closeInboundShipment` (shipments/inbound-close.ts) es el TERCER llamador — el
+// contrato manda que el cierre de la guía de ENTRADA use «el mismo cuerpo que usan los reembolsos y el contracargo». Su
+// post-commit (`afterAutoCloseVia`) es del LLAMADOR de `closeInboundShipment` (regla 2/8 del barrido, `decline-accepted`:
+// B-3), no del fichero, por eso no entra en la segunda prueba.
+describe('C-SDX-5 — `cancelProviderLabelIfAny` tiene EXACTAMENTE tres llamadores (los escritores automáticos de `cancelado`)', () => {
   const files = walk(SRC).map((p) => ({ path: rel(p), text: code(readFileSync(p, 'utf8')) }));
-  it('full-refund.service.ts (cierre por reembolso total) y payments.service.ts (contracargo)', () => {
+  it('full-refund.service.ts (cierre por reembolso total), payments.service.ts (contracargo) e inbound-close.ts (guía de entrada, rev BSD-1)', () => {
     const callers = files.filter((f) => /cancelProviderLabelIfAny\(tx,/.test(f.text)).map((f) => f.path).sort();
-    expect(callers).toEqual(['src/modules/payments/payments.service.ts', 'src/modules/payments/refunds/full-refund.service.ts']);
+    expect(callers).toEqual([
+      'src/modules/payments/payments.service.ts',
+      'src/modules/payments/refunds/full-refund.service.ts',
+      'src/modules/shipments/inbound-close.ts',
+    ]);
   });
   it('cada uno con su post-commit (`afterAutoCloseVia`) en el mismo fichero', () => {
     for (const p of ['src/modules/payments/payments.service.ts', 'src/modules/payments/refunds/full-refund.service.ts']) {
@@ -309,13 +317,17 @@ describe('C-SDX-5 — `cancelProviderLabelIfAny` tiene EXACTAMENTE dos llamadore
   });
 });
 
-describe('C-SDX-4 — `guia → picking` lo escribe SOLO `label/cancel`', () => {
-  it('ningún otro `updateMany` con `status: \'picking\'` lleva `guia` en su `where`', () => {
+// 💰 rev BSD-1 (errata BSD-1.3 punto 5): el estado del retroceso sale de la POLÍTICA de la clase (`label-subject.ts`:
+// `reissueStatus` = `picking` en salida, `solicitado` en la guía de entrada; `labeledStatus` = `guia`), ⛔ ya no del literal.
+// El candado reconoce las dos grafías: el literal `'picking'` con `'guia'` en el `where`, o `….reissueStatus` con
+// `….labeledStatus` en el `where`. Sigue habiendo UN solo escritor del retroceso.
+describe('C-SDX-4 — `guia → <abierta>` lo escribe SOLO `label/cancel`', () => {
+  it('ningún otro `updateMany` que devuelve a «abierta sin guía» lleva `guia` en su `where`', () => {
     const offenders: string[] = [];
     for (const p of walk(SRC)) {
       const t = code(readFileSync(p, 'utf8'));
-      for (const m of t.matchAll(/updateMany\(\{\s*where:\s*\{([\s\S]{0,300}?)\},\s*data:\s*\{\s*status:\s*'picking'/g)) {
-        if (/'guia'/.test(m[1]) && !/updateMany\(/.test(m[1])) offenders.push(rel(p));
+      for (const m of t.matchAll(/updateMany\(\{\s*where:\s*\{([\s\S]{0,300}?)\},\s*data:\s*\{\s*status:\s*('picking'|[A-Za-z_.]+\.reissueStatus)/g)) {
+        if (/'guia'|\.labeledStatus\b/.test(m[1]) && !/updateMany\(/.test(m[1])) offenders.push(rel(p));
       }
     }
     expect(offenders).toEqual(['src/modules/shipments/label-cancel.service.ts']);

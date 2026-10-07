@@ -1003,7 +1003,20 @@
       "notFoundBody": "Check the link in your email, or sign in with the account you used to create the request.",
       "loginTitle": "Sign in to see your offer",
       "loginBody": "You will sign in with your account: this offer is not accepted from an email link.",
-      "viewRequestCta": "View this request"
+      "viewRequestCta": "View this request",
+      "closedNotContinued": "After an additional review, we've decided not to continue with this sale. The request is closed and no card was purchased.",
+      "label": {
+        "title": "Your label",
+        "body": "We've already paid for your label with {carrier}. Print it, stick it on your package and take it to a {carrier} branch.",
+        "bodyNoCarrier": "We've already paid for your label. Print it, stick it on your package and take it to a branch of the carrier shown on it.",
+        "tracking": "Tracking number: {tracking}",
+        "download": "Download my label (PDF)",
+        "downloading": "Downloading…",
+        "alsoInEmail": "It's also attached to the email we sent you.",
+        "downloadShort": "Download label (PDF)",
+        "errorUnavailable": "This label is no longer available to download. If we changed it, we've emailed you the new one.",
+        "errorTemporary": "We couldn't get your label right now. Try again in a few minutes; it's also attached to the email we sent you."
+      }
     },
     "adjust": {
       "title": "Proposed price adjustment",
@@ -1373,6 +1386,20 @@
         "processing": "{n, plural, one {# label in progress} other {# labels in progress}}",
         "lowBalance": "Skydropx balance is low: buying labels may fail until it's topped up.",
         "seeBalance": "See the balance"
+      },
+      "buylistGuideDue": "{n, plural, one {# accepted request without a label closes on its own soon} other {# accepted requests without a label close on their own soon}}",
+      "buylistInboundLabelAlert": "{n, plural, one {# sell request with a label alert} other {# sell requests with a label alert}}",
+      "salesToday": {
+        "title": "Today's sales",
+        "orders": "{count, plural, one {# order} other {# orders}}",
+        "charged": "{amount} collected",
+        "today": "Today, {date} · in progress",
+        "reference": "{date}, full day: {orders, plural, one {# order} other {# orders}} · {amount}",
+        "noReference": "There were no sales on {date}.",
+        "same": "= Same as {date}",
+        "link": "See sales",
+        "error": "Today's sales couldn't be loaded.",
+        "retry": "Retry"
       }
     },
     "m1": {
@@ -1399,6 +1426,8 @@
       "gradedNoBulk": "Bulk add doesn't apply to graded cards: each certificate (cert #) is unique per slab, so graded cards are added one at a time.",
       "createToastTitle": "Item added",
       "createToast": "Item added to the vault · folio {folio}.",
+      "createToastListed": "Item added and on sale · folio {folio}.",
+      "createToastNotListed": "Item added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”.",
       "multiSelect": "Select multiple cards (bulk add)",
       "batchAdd": "Add to batch",
       "batchInLote": "In batch",
@@ -1412,6 +1441,7 @@
       "batchToastTitle": "Bulk add",
       "batchToastAllOk": "{created} cards added.",
       "batchToastPartial": "{created} added, {failed} failed. Check the details.",
+      "batchPublishNote": "Those with a price go on sale; if any is missing one, you'll find it in “Ready to publish”.",
       "batchReplay": "Idempotent retry (no duplicates).",
       "batchLine": "Card {index}",
       "productType": "Product type",
@@ -1431,6 +1461,7 @@
       "gradingCompany": "Grading company",
       "gradeValue": "Grade",
       "location": "Location (Box/Row/Slot)",
+      "locationNone": "No location",
       "acquisitionType": "Acquisition type",
       "acquisitionPct": "In-kind contribution %",
       "noPhotoNotice": "No own photo: the pokemontcg.io catalog image is used. Graded items capture company + grade + certificate.",
@@ -1502,7 +1533,10 @@
         "note": "Note (optional)",
         "action": "Move",
         "success": "Item moved to {label}.",
-        "error": "We couldn't move the item."
+        "error": "We couldn't move the item.",
+        "noTargets": "There are no stock locations yet. They aren't needed to sell; if you want to organize stock, create them in Inventory › Locations.",
+        "noOtherTarget": "This is the only stock location. To move it, create another one in Inventory › Locations.",
+        "manageLocations": "Go to Locations"
       },
       "mark": {
         "title": "Mark lost / damaged",
@@ -1566,7 +1600,8 @@
         "pendingPriceLink": "See in the pending price queue",
         "sealedMark": "SEALED",
         "sealedUnidentified": "Unidentified sealed product",
-        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set price here, before VAT.",
+        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Sealed is the exception: if the item is linked to a product, you set the product's price, VAT included, and it applies to all its items; if it isn't, you set that item's price, before VAT.",
+        "openHint": "Click a folio to open the item and see what you can do with it.",
         "openPiece": "Open item {folio}",
         "basis": {
           "manual": "set by hand, before VAT",
@@ -2128,6 +2163,53 @@
             "not_calibrated": "We can't yet check on our own that a label wasn't created.",
             "duplicate": "Skydropx created two labels for this same purchase.",
             "none": "We're still finishing the check."
+          },
+          "inbound": {
+            "title": "Seller-to-store label",
+            "ref": "Sell request {sellRequestId} · Shipment {folio}",
+            "originTitle": "From · the seller",
+            "sender": "Sender",
+            "senderMissing": "Sender missing",
+            "senderHint": "Name of the person dropping off the package. It goes on the label.",
+            "senderSuggestion": "Suggestion: {sellerName} (their account name).",
+            "useSuggestion": "Use this name",
+            "scopeNote": "This only corrects where this label starts from. The address saved on the seller's account and the one on their request don't change.",
+            "resyncNote": "If the seller changes their address before you buy the label, this correction is replaced by theirs.",
+            "senderRequired": "Enter who is sending it.",
+            "destinationTitle": "To · the store",
+            "destinationName": "Name",
+            "destinationNote": "It's the store address from “Settings › Shipping”. This label always goes there: it isn't changed here.",
+            "feeDeducted": "Deducted from the seller: {fee} (the fixed fee in their offer).",
+            "boxValue": "What's in the box is worth {value}: what we'll pay for the cards.",
+            "marginNegative": "Margin: −{abs} — this label costs more than what's deducted from them",
+            "pickupYes": "Offers pickup (not scheduled: the seller takes it to a branch)",
+            "pickupNo": "No pickup: the seller takes it to a {carrierLabel} branch",
+            "deliveryHome": "Delivers to the store",
+            "deliveryBranch": "Doesn't deliver to the store: someone would have to collect it at a branch",
+            "showBranch": "Also show {count, plural, one {# option that doesn't deliver} other {# options that don't deliver}} to the store",
+            "hideBranch": "Hide the options that don't deliver to the store",
+            "noRecommended": "No option delivers to the store. Pick one knowing it will have to be collected, or enter the label by hand.",
+            "confirmNegative": "Negative margin: −{abs}. This label costs more than the fee deducted from the seller. If you buy, you confirm it.",
+            "confirmBranch": "This option doesn't deliver to the store: someone will have to collect it at a branch. If you buy, you confirm it.",
+            "sentToSeller": "We've emailed the seller their label as a PDF; their time to ship it starts now.",
+            "processingNote": "When the number arrives, we'll email the seller their label and their time starts. Meanwhile, the request won't close on its own.",
+            "bought": "Label bought for request {id}: {carrier} · {tracking}. We've emailed the seller their label.",
+            "manualIntro": "For a label you already bought in the Skydropx panel or with another carrier. The seller gets it by email, same as today.",
+            "reissueBody": "It's cancelled in Skydropx and the balance comes back; if Skydropx doesn't return all of it, the difference is recorded as an adjustment. The request goes back to “no label”: the seller's time stops and the count toward automatic closing starts again today. When you buy the new one, the seller gets it with a note that it replaces the previous one.",
+            "reissueNotAccepted": "The request is no longer accepted ({status}): the label isn't changed from here.",
+            "reissueSellerShipped": "The seller already said they shipped the package: this label can't be changed now.",
+            "error": {
+              "featureDisabled": "Buying labels with Skydropx is switched off. Nothing was opened: enter the label by hand.",
+              "notAccepted": "This request is no longer accepted ({status}). Nothing was opened or charged.",
+              "sellerShipped": "The seller already said they shipped the package: no label is generated now. Nothing was charged.",
+              "manualExists": "This request already has a label entered by hand. Nothing was charged.",
+              "noPickupAddress": "This request didn't save the seller's address (it's from before addresses were saved) and Skydropx can't quote without it. Enter the label by hand.",
+              "senderMissingQuote": "The sender is missing and Skydropx can't quote without it. Enter it (you can use their account name) and save. Nothing was quoted.",
+              "storeAddressMissing": "The store address is missing in “Settings › Shipping”, and it's this label's destination. Nothing was quoted: complete it there or enter the label by hand.",
+              "destinationRejected": "The server rejected the request because it carried a destination: this label always goes to the store. Nothing was quoted or charged. Reload the page.",
+              "shipmentConfirmed": "This request's shipment is already confirmed: no label is generated now. Nothing was opened or charged. When the package arrives, receive it and review the cards."
+            },
+            "reissueDone": "Label cancelled. Request {id} is back to “no label” and the count toward automatic closing starts again today. You can now generate the new one; the seller will get it with a note that it replaces the previous one."
           }
         }
       },
@@ -3009,7 +3091,7 @@
         "reasonTooLong": "The reason cannot be longer than 500 characters.",
         "readOnlyByStatus": {
           "ofertada": "The offer is out and the seller has it. To change or close it, use “Cancel the offer” on the request.",
-          "aceptada": "The seller accepted: the request can no longer be cancelled. If a card arrives in bad condition, you reject it during review, with its reason.",
+          "aceptada": "The seller accepted. Generate their label so they can send the cards; if you no longer want to buy them, you can decline it as long as they haven't said they sent them.",
           "en_transito": "The package is on its way. When it arrives, press “Received: start review” and reject there any cards that arrive in bad shape.",
           "review": "It's under review: approve or reject each card on the request, or select several and “Reject selected”.",
           "done": "There's nothing left to decide here for this request."
@@ -3106,7 +3188,7 @@
         "goVerifying": "Go to “Verifying”",
         "verifyFailed": "We marked it as received, but the review couldn't be opened. Press “Start verification”."
       },
-      "acceptedNote": "Accepted: it can no longer be cancelled. If a card arrives in bad condition, you reject it during review, stating the reason.",
+      "acceptedNote": "Accepted. If a card arrives in bad condition, you reject it during review, stating the reason.",
       "notBought": {
         "tag": "NOT BOUGHT",
         "note": "It was marked as not bought when the offer went out: it isn't approved or rejected."
@@ -3132,6 +3214,47 @@
           "closed": "This request is already closed: its cards can't be changed. Nothing was saved.",
           "notFound": "A card no longer belongs to this request. We've refreshed the list. Nothing was saved."
         }
+      },
+      "inbound": {
+        "generate": "Generate label with Skydropx",
+        "summary": "Skydropx label: {carrier} · {tracking}",
+        "cost": "Label cost: {cost}",
+        "processing": "Label in progress: the number arrives on its own. Meanwhile, the request won't close on its own.",
+        "costFromProvider": "Skydropx provided this label's cost ({cost}): it isn't entered here.",
+        "alreadySkydropx": "This request already has a label bought in Skydropx. The manual label wasn't saved: to change it, cancel it and buy another.",
+        "inProgress": "A label purchase is in progress for this request. Nothing was saved; wait for it to finish.",
+        "preparing": "Preparing the label…",
+        "alertFilter": "Only requests with a label alert",
+        "openLabel": "Open the label window"
+      },
+      "declineAccepted": {
+        "action": "Decline",
+        "title": "Decline this accepted request",
+        "body": "The request closes and the seller gets the “not continuing” email, the same one as if it closed on its own. It can't be reopened; if they want to sell, they'll need a new quote. It doesn't count against them.",
+        "bodySdx": "Their Skydropx label ({carrier} · {tracking}) is cancelled automatically and the balance comes back, if the carrier hasn't moved it yet; if that's not possible, it goes to “Labels to cancel”.",
+        "bodyManual": "They have a label entered by hand ({carrier} · {tracking}): it goes to “Labels to cancel” for you to cancel it.",
+        "bodyInProgress": "A label purchase is in progress: if it completes, the label is cancelled automatically.",
+        "reasonLabel": "Reason (internal, required)",
+        "reasonHint": "3 to 500 characters. It's logged; the seller won't see it.",
+        "reasonTooShort": "Write the reason (3 characters or more) to decline.",
+        "confirm": "Decline and notify them",
+        "back": "Back",
+        "done": "Request {id} declined: it's closed and the seller gets the “not continuing” email.",
+        "error": {
+          "status": "This request is no longer accepted ({status}). It wasn't declined; you can see below how it stands.",
+          "sellerShipped": "The seller already said they shipped the package: it can't be declined now. Receive it and, if needed, reject the cards during review.",
+          "shipmentConfirmed": "The shipment is already confirmed: it can't be declined now. Receive it and review the cards.",
+          "reason": "Write the reason: 3 to 500 characters. It wasn't declined.",
+          "forbidden": "Your account can't decline requests.",
+          "unknown": "We don't know whether it was declined: the server didn't respond. Checking the request…",
+          "notDone": "It wasn't declined: the server didn't respond. Try again."
+        }
+      },
+      "guideDue": {
+        "line": "No label: it closes on its own on {datetime} if it still has none by then.",
+        "tag": "Closes on its own",
+        "note": "When it closes, the seller gets the “not continuing” email and it doesn't count against them. To avoid it, generate their label or decline it yourself.",
+        "inDays": "{n, plural, =0 {any moment now} one {in under 24 h} other {in # days}}"
       }
     },
     "m2": {
@@ -4837,7 +4960,9 @@
         "groups": {
           "deadlines": "Deadlines (business days)",
           "amounts": "Amounts (MX$)",
-          "alerts": "Alerts and suggestions"
+          "alerts": "Alerts and suggestions",
+          "buylistGuideClose": "Closing without a label (calendar days)",
+          "buylistGuideCloseNote": "Saturdays and Sundays count. Unlike the rest of the group, they also apply to requests in progress: they're read every day."
         },
         "labels": {
           "buylistOfferIssueDeadlineBusinessDays": "Deadline to send the offer",
@@ -4849,7 +4974,9 @@
           "buylistOperatorOfferCapCents": "Maximum offer without approval",
           "buylistShipmentConfirmAlertBusinessDays": "Unconfirmed shipment alert",
           "buylistOfferReissueAlertCount": "Cancelled offers alert",
-          "buylistVariantPositionCap": "Copies per variant cap (suggestion)"
+          "buylistVariantPositionCap": "Copies per variant cap (suggestion)",
+          "buylistGuideCloseCalendarDays": "Closing an accepted request without a label",
+          "buylistGuideWarnDaysBeforeClose": "Alert before closing without a label"
         },
         "help": {
           "buylistOfferIssueDeadlineBusinessDays": "Business days we have to make the offer. If they run out, the request closes and the seller gets the “we won't proceed” email.",
@@ -4861,7 +4988,9 @@
           "buylistOperatorOfferCapCents": "Above this gross, the super-admin approves the offer before it goes out. The exact amount goes out without approval.",
           "buylistShipmentConfirmAlertBusinessDays": "Business days after “I sent it” to flag the request. Nothing expires.",
           "buylistOfferReissueAlertCount": "From how many cancellations of an already-sent offer the request is flagged. It doesn't block or show in emails.",
-          "buylistVariantPositionCap": "At this quantity, the desk suggests “don't buy” for cards without a bounty. It never blocks."
+          "buylistVariantPositionCap": "At this quantity, the desk suggests “don't buy” for cards without a bounty. It never blocks.",
+          "buylistGuideCloseCalendarDays": "Calendar days since the seller accepted (or since their label was cancelled to replace it). If it still has no label by then, it closes on its own and they get the “not continuing” email. It doesn't count against them.",
+          "buylistGuideWarnDaysBeforeClose": "How many calendar days before closing the request is flagged and you get an email. 0 = no alert. If you set as many days as the closing or more, the alert goes out the day after accepting."
         },
         "rule": {
           "buylistOfferIssueDeadlineBusinessDays": "Whole number, 1 or more.",
@@ -4873,7 +5002,9 @@
           "buylistOperatorOfferCapCents": "In pesos, 0 or more.",
           "buylistShipmentConfirmAlertBusinessDays": "Whole number, 1 or more.",
           "buylistOfferReissueAlertCount": "Whole number, 1 or more.",
-          "buylistVariantPositionCap": "Whole number, 1 or more."
+          "buylistVariantPositionCap": "Whole number, 1 or more.",
+          "buylistGuideCloseCalendarDays": "Whole number, 1 to 60.",
+          "buylistGuideWarnDaysBeforeClose": "Whole number, 0 to 30."
         },
         "checkFields": "Check the marked fields. Nothing was saved.",
         "cross": "The label fee deducted ({fee}) plus the minimum the seller receives ({net}) can't exceed the minimum to quote ({min}). Nothing was saved.",
@@ -4892,7 +5023,7 @@
       },
       "pnl": {
         "title": "Profit & loss (P&L)",
-        "formula": "Income + shipping revenue − cost of goods sold − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.",
+        "formula": "Income + shipping revenue − cost of goods sold + shipping fee deducted from sellers − labels for receiving cards from sellers − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.",
         "income": "Income (sales)",
         "shippingRevenue": "Shipping revenue (collected)",
         "cogs": "Cost of goods sold",
@@ -4906,7 +5037,13 @@
         "refundedFees": "Platform fees refunded",
         "compensations": "Lost-card compensation",
         "signAdds": "adds",
-        "signSubtracts": "subtracts"
+        "signSubtracts": "subtracts",
+        "buylistFeeRetained": "Shipping fee deducted from sellers",
+        "buylistGuideCost": "Labels for receiving cards from sellers",
+        "buylistGuideMargin": "Margin on seller labels",
+        "buylistGuideMarginHelp": "The amount deducted minus what the label cost, for requests paid in this period. Skydropx labels count without VAT; manual ones, at the cost you entered. It's already included in the two lines above and isn't added again. It doesn't always match subtracting them: the label counts on the day it's bought and the deduction on the day the seller is paid.",
+        "buylistGuideMarginNegative": "In this period, the labels cost more than what was deducted from sellers.",
+        "buylistGuideCostMissing": "{count, plural, one {# paid request used a manual label with no cost entered: its label counts as if it cost MX$0 and its margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.} other {# paid requests used a manual label with no cost entered: their labels count as if they cost MX$0 and their margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.}}"
       },
       "values": {
         "title": "Inventory and custody value",
@@ -4958,6 +5095,215 @@
         "pnl": "Export P&L (CSV)",
         "iva": "Export VAT (CSV)",
         "inventory": "Export inventory (CSV)"
+      },
+      "tabs": {
+        "sales": "Sales",
+        "activity": "Activity"
+      },
+      "sales": {
+        "period": {
+          "title": "Period",
+          "presetsLabel": "Choose a period",
+          "today": "Today",
+          "yesterday": "Yesterday",
+          "last7": "Last 7 days",
+          "last30": "Last 30 days",
+          "thisMonth": "This month",
+          "lastMonth": "Last month",
+          "custom": "Pick dates…",
+          "from": "From",
+          "to": "To",
+          "apply": "Show"
+        },
+        "range": {
+          "bothRequired": "Pick both dates.",
+          "fromAfterTo": "The start date must come before the end date.",
+          "toFuture": "It can't be later than today.",
+          "tooLong": "One year at most (366 days). Shorten the range.",
+          "invalid": "That period isn't valid. Pick another one."
+        },
+        "groupBy": {
+          "label": "Show by",
+          "day": "Day",
+          "week": "Week",
+          "month": "Month",
+          "weekNote": "Weeks run Monday to Sunday; the first and last may be cut short by the period."
+        },
+        "label": {
+          "oneDayToday": "Today, {date}",
+          "oneDayYesterday": "Yesterday, {date}",
+          "oneDay": "{date}",
+          "range": "{from} to {to} · {days, plural, one {# day} other {# days}} · Central Mexico time",
+          "compareRange": "Compared with: {from} to {to}",
+          "compareDay": "Compared with: {date}"
+        },
+        "summary": {
+          "title": "Period summary"
+        },
+        "card": {
+          "orders": "Orders",
+          "charged": "Collected (incl. VAT)",
+          "chargedHelp": "What customers paid: VAT, shipping and fee included.",
+          "netSales": "Sales excl. VAT",
+          "netSalesHelp": "The same income figure as Finance.",
+          "refunds": "Refunds",
+          "refundsDetail": "{count, plural, one {# refund} other {# refunds}} · {card} by card · {spei} by SPEI",
+          "refundsNet": "{amount} excl. VAT is subtracted",
+          "refundsNone": "No refunds.",
+          "netAfterRefunds": "Sales net of refunds",
+          "netAfterRefundsHelp": "Sales excl. VAT minus refunds made in the period.",
+          "netAfterRefundsNegative": "Negative: refunds in the period exceed sales.",
+          "avgTicket": "Average order",
+          "avgTicketHelp": "Collected ÷ orders: what a customer spends per purchase.",
+          "piecesPerOrder": "Items per order",
+          "pieces": "{count, plural, one {# item sold} other {# items sold}}",
+          "customers": "Customers",
+          "customersSplit": "{new} new · {returning} returning",
+          "customersHelp": "New: their first paid purchase falls in this period. Recognized by email, even if they bought as a guest."
+        },
+        "noData": "no data: there were no orders",
+        "delta": {
+          "up": "went up",
+          "down": "went down",
+          "same": "Same as the previous period",
+          "orders": "{diff, plural, one {# order} other {# orders}}",
+          "piecesPerOrder": "{diff} items per order",
+          "noPrevious": "no sales in the previous period",
+          "noPreviousAlone": "No sales in the previous period",
+          "wasZero": "it was zero before",
+          "before": "Before: {value}"
+        },
+        "chart": {
+          "titleOrders": "Orders by {unit, select, day {day} week {week} other {month}}",
+          "titleCharged": "Collected by {unit, select, day {day} week {week} other {month}}",
+          "metricLabel": "Show",
+          "metricOrders": "Orders",
+          "metricCharged": "Collected",
+          "caption": "The same numbers are in the table below.",
+          "inProgress": "* Today is still in progress.",
+          "tooMany": "With this many days, it reads better by week or month.",
+          "switchToWeek": "Show by week",
+          "summaryOrders": "{metric} from {from} to {to}: {total} in total; the busiest, {best} with {bestValue}; {zero, plural, =0 {no days without orders} one {# day without orders} other {# days without orders}}."
+        },
+        "table": {
+          "title": "By {unit, select, day {day} week {week} other {month}}",
+          "caption": "Sales by {unit, select, day {day} week {week} other {month}}, {from} to {to}",
+          "colsLabel": "Columns",
+          "colsSales": "Sales",
+          "colsMoney": "Shipping, purchases and profit",
+          "colPeriod": "{unit, select, day {Day} week {Week} other {Month}}",
+          "total": "Period total",
+          "inProgress": "in progress",
+          "partialDays": "{days, plural, one {# day} other {# days}}",
+          "shippingCharged": "Shipping charged (excl. VAT)",
+          "shippingCost": "Label cost (excl. VAT)",
+          "shippingAdjustments": "Carrier adjustments",
+          "shippingAdjustmentsHint": "Already included in label cost",
+          "buylistRevenue": "Buylist fee income",
+          "buylistCost": "Buylist label cost",
+          "buylistPaid": "Buylist purchases",
+          "chargebacks": "Chargebacks",
+          "profit": "Profit (Finance rule)",
+          "costMissing": "{count} without cost",
+          "payoutMissing": "{count} without amount",
+          "profitNote": "Profit follows the same rule as Finance; the days add up to Finance's profit for the period.",
+          "costMissingNote": "Some shipments have no label cost recorded: the real cost may be higher.",
+          "payoutMissingNote": "Some paid buylist purchases have no amount recorded: they aren't in the total.",
+          "shippingResult": "Shipping result",
+          "shippingResultMaybeLower": "may be lower: some shipments have no cost",
+          "shippingResultNote": "Shipping result = shipping charged minus label cost (adjustments already included). Positive: what you charged covered the labels; negative: they cost more.",
+          "chargebacksNote": "Chargebacks count on the day they were opened and aren't subtracted from sales.",
+          "tooMany": "With this many days, it reads better by week or month."
+        },
+        "chargebacks": {
+          "undated": "{count, plural, one {# older chargeback has no date: it isn't on any day.} other {# older chargebacks have no date: they aren't on any day.}}"
+        },
+        "top": {
+          "title": "Best sellers",
+          "sortLabel": "Sort by",
+          "sortNet": "Sales excl. VAT",
+          "sortPieces": "Items",
+          "cards": "Cards",
+          "sets": "Sets",
+          "sealed": "Sealed",
+          "colRank": "#",
+          "colCard": "Card",
+          "colSet": "Set",
+          "colSealed": "Product",
+          "colPieces": "Items",
+          "colNet": "Sales excl. VAT",
+          "graded": "Graded",
+          "emptyCards": "No cards sold in this period.",
+          "emptySets": "No sets sold in this period.",
+          "emptySealed": "No sealed products sold in this period.",
+          "note": "Fully refunded orders aren't counted, so the total may be lower than the period's sales."
+        },
+        "when": {
+          "title": "When you sell",
+          "byWeekday": "By day of the week",
+          "byHour": "By hour (Central Mexico)",
+          "asTable": "Show as table",
+          "fewData": "With few orders this doesn't say much yet: a single good day changes everything.",
+          "hourRange": "{from}:00–{from}:59"
+        },
+        "mix": {
+          "title": "How and to whom you sell",
+          "destination": "Where it goes",
+          "directShip": "Home delivery",
+          "vault": "Vault",
+          "buyer": "Who buys",
+          "account": "With an account",
+          "guest": "Guest",
+          "payment": "How they pay",
+          "method": {
+            "card": "Card",
+            "oxxo": "OXXO",
+            "customer_balance": "Bank transfer",
+            "other": "Other ({method})",
+            "none": "No data"
+          },
+          "noneNote": "No data: orders paid before the store recorded the payment method.",
+          "cardOnly": "The store only takes cards today.",
+          "colOrders": "Orders",
+          "colCharged": "Collected",
+          "productType": "What sells",
+          "raw": "Single cards",
+          "graded": "Graded",
+          "sealed": "Sealed",
+          "colPieces": "Items",
+          "colNet": "Sales excl. VAT",
+          "productTypeNote": "Splits the period's sales excl. VAT, including orders later refunded; that's why it adds up to the summary and not to \"Best sellers\"."
+        },
+        "p2": {
+          "shippingCharged": "Shipping charged (excl. VAT)",
+          "shippingCost": "Label cost (excl. VAT)",
+          "includesAdjustments": "Includes carrier adjustments {amount}",
+          "costMissing": "{count, plural, one {# shipment without recorded cost} other {# shipments without recorded cost}}",
+          "buylistPaid": "Buylist purchases",
+          "buylistCount": "{count, plural, one {# paid purchase} other {# paid purchases}}",
+          "payoutMissing": "{count} without a recorded amount",
+          "profit": "Profit (Finance rule)",
+          "profitHelp": "The same profit as Finance.",
+          "shippingResult": "Shipping result",
+          "shippingResultHelp": "Shipping charged minus label cost.",
+          "shippingResultMaybeLower": "May be lower: some shipments have no recorded cost.",
+          "chargebacks": "Chargebacks",
+          "chargebacksCount": "{count, plural, one {# chargeback} other {# chargebacks}}",
+          "chargebacksOutcome": "{open} open · {won} won · {lost} lost",
+          "chargebacksHelp": "Counted on the day they were opened; not subtracted from sales.",
+          "chargebacksUndated": "{count, plural, one {# older one has no date and isn't counted here.} other {# older ones have no date and aren't counted here.}}"
+        },
+        "csv": {
+          "button": "Download CSV",
+          "help": "One row per {unit, select, day {day} week {week} other {month}}, including zero rows, plus a total row. Amounts in pesos with two decimals, no currency sign or thousands separators (MX$1,250.00 = 1250.00), so Excel can add them up. No customer data.",
+          "error": "The CSV couldn't be downloaded. Try again."
+        },
+        "state": {
+          "updating": "Updating…",
+          "empty": "There were no sales in this period.",
+          "error": "Sales couldn't be loaded.",
+          "forbidden": "Only the super-admin can see sales."
+        }
       }
     },
     "vaults": {
@@ -5117,7 +5463,9 @@
         "certRequired": "Enter the certificate number.",
         "price": "Purchase price (MXN)",
         "cta": "Add to inventory",
-        "success": "Graded card added · folio {folio}."
+        "success": "Graded card added · folio {folio}.",
+        "successListed": "Graded card added and on sale · folio {folio}.",
+        "successNotListed": "Graded card added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”."
       }
     },
     "pricing": {
@@ -5819,7 +6167,10 @@
         "cancelKind": "How it was cancelled",
         "cause": "Cause",
         "status": "Carrier status",
-        "providerReference": "Skydropx reference"
+        "providerReference": "Skydropx reference",
+        "sellRequestId": "Sell request",
+        "closesAt": "Closes",
+        "offerGrossCents": "Value of the cards in the offer"
       },
       "noData": "no data",
       "ref": {
@@ -5947,6 +6298,10 @@
         "generic": {
           "title": "Alert {code}",
           "text": "Open the alert to see the details."
+        },
+        "AG-23": {
+          "title": "Sell request without a label",
+          "text": "Sell request {folio} is still accepted and has no label: it closes on its own on {closesAt} if it still has no label by then. Value of its cards in the offer: {gross}."
         }
       },
       "prev": "Previous",
@@ -5997,7 +6352,8 @@
     "sellRequestExpiry": {
       "not_shipped": "Not shipped",
       "no_offer": "Not pursued",
-      "unknown": "Expired"
+      "unknown": "Expired",
+      "not_continued": "Not continued"
     },
     "sellItem": {
       "cotizada": "Quoted",

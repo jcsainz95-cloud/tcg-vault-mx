@@ -6,7 +6,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import { captureBuylistGuide, confirmBuylistShipment } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import type { AdminBuylistDTO } from '@/types/contract';
-import { formatDateTimeMx } from '@/lib/format';
+import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
+import { asApiError } from '@/lib/api-client';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -41,8 +42,22 @@ function pesosToCents(raw: string): number | undefined {
  *    renglón informativo, **nunca como un estado ni como un badge** — un segundo badge invitaría a
  *    leerlo como estado y a contarlo como inventario en camino, que es justo lo prohibido.
  */
-export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }) {
+export function BuylistShipmentActions({
+  request,
+  hideGuideCapture = false,
+  providerCostCents = null,
+}: {
+  request: AdminBuylistDTO;
+  /**
+   * 💰 rev BSD-1 (§BSD-UX.6a): con guía de Skydropx VIVA o compra en curso la captura a mano NO se pinta (el servidor la
+   * rechazaría con `409`). El plazo del vendedor y «Confirmar envío» siguen.
+   */
+  hideGuideCapture?: boolean;
+  /** 💰 rev BSD-1 (§BSD.4.5): con guía de Skydropx el costo lo dio el proveedor ⇒ ⛔ campo de costo (`400 provider_cost`). */
+  providerCostCents?: number | null;
+}) {
   const t = useTranslations('admin.m5.shipment');
+  const tIn = useTranslations('admin.m5.inbound');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
@@ -71,7 +86,7 @@ export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }
   const confirm = useMutation({
     mutationFn: () =>
       confirmBuylistShipment(request.id, {
-        ...(pesosToCents(actualCost) != null ? { guideActualCostCents: pesosToCents(actualCost) } : {}),
+        ...(providerCostCents == null && pesosToCents(actualCost) != null ? { guideActualCostCents: pesosToCents(actualCost) } : {}),
       }),
     onSuccess: () => {
       setConfirming(false);
@@ -81,6 +96,13 @@ export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }
   });
 
   const hasGuide = !!request.guideSentAt;
+  // 💰 rev BSD-1 (§BSD-UX.6a): los dos `409` nuevos de la captura a mano, con su copy (⛔ el texto crudo del servidor).
+  const guideErrorText = (e: unknown) => {
+    const err = asApiError(e);
+    if (err?.status === 409 && err.code === 'SHIPMENT_ALREADY_LABELED' && err.details?.labelSource === 'skydropx') return tIn('alreadySkydropx');
+    if (err?.status === 409 && err.code === 'LABEL_IN_PROGRESS') return tIn('inProgress');
+    return getErrorMessage(e);
+  };
   const canCapture = carrier.trim().length > 0 && tracking.trim().length > 0;
 
   return (
@@ -92,6 +114,8 @@ export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }
 
       {/* --- 1. La guía. NO mueve el estado, y el copy lo dice antes de que se pulse nada. --- */}
       <div className="flex flex-col gap-2">
+        {!hideGuideCapture && (
+        <>
         <p className="text-xs leading-[1.6] text-muted">{t('guideNote')}</p>
         <div className="flex flex-wrap items-end gap-3">
           <Input
@@ -119,6 +143,8 @@ export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }
             {hasGuide ? t('recaptureCta') : t('captureCta')}
           </Button>
         </div>
+        </>
+        )}
         {/* El plazo del vendedor: si no hay guía se DICE que no ha arrancado, en vez de dejar un
             hueco que se lea como «sin plazo» o, peor, como «ya venció». */}
         <p className="tabular text-xs text-muted">
@@ -128,7 +154,7 @@ export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }
         </p>
         {guide.isError && (
           <Banner variant="danger" role="alert">
-            {getErrorMessage(guide.error)}
+            {guideErrorText(guide.error)}
           </Banner>
         )}
       </div>
@@ -149,6 +175,11 @@ export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }
         <span className="eyebrow">{t('confirmTitle')}</span>
         <p className="text-xs leading-[1.6] text-muted">{t('confirmNote')}</p>
         <div className="flex flex-wrap items-end gap-3">
+          {providerCostCents != null ? (
+            <p className="tabular text-xs text-text" data-testid="m5-cost-from-provider">
+              {tIn('costFromProvider', { cost: formatMoneyCents(providerCostCents, locale) })}
+            </p>
+          ) : (
           <Input
             label={t('actualCostLabel')}
             type="number"
@@ -159,12 +190,13 @@ export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }
             onChange={(e) => setActualCost(e.target.value)}
             className="w-44"
           />
+          )}
           <Button size="sm" className="mb-1" onClick={() => setConfirming(true)}>
             {t('confirmCta')}
           </Button>
         </div>
         {/* ⚠️ La frontera money-safe, dicha en la pantalla donde alguien podría creer lo contrario. */}
-        <p className="text-xs leading-[1.6] text-muted">{t('actualCostHint')}</p>
+        {providerCostCents == null && <p className="text-xs leading-[1.6] text-muted">{t('actualCostHint')}</p>}
         {confirm.isError && (
           <Banner variant="danger" role="alert">
             {getErrorMessage(confirm.error)}

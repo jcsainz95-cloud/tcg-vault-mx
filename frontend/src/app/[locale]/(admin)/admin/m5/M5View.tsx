@@ -28,7 +28,8 @@ import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { BuylistDecisionDesk } from './BuylistDecisionDesk';
-import { BuylistShipmentActions } from './BuylistShipmentActions';
+import { AcceptedRequestPanel } from './AcceptedRequestPanel';
+import { GuideDueTag } from './GuideDueMark';
 import { BuylistCycleQueues } from './BuylistCycleQueues';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -233,7 +234,13 @@ export function M5View() {
   const getError = useErrorMessage('operator');
   const tRoot = useTranslations();
   // Operativas: fetch de la página actual del server (las etapas vivas siguen filtrando en memoria).
-  const query = useQuery({ queryKey: ['admin-buylist'], queryFn: () => getAdminBuylist() });
+  // 💰 rev BSD-1 (BSD-1.3 punto 4): «solo con alerta en su guía de entrada» ⇒ `?inboundLabelAlert=true` (filtra el
+  // SERVIDOR con el mismo `labelAlertOf` de M4). Sin el filtro, la petición es la de siempre.
+  const [inboundAlertOnly, setInboundAlertOnly] = useState(false);
+  const query = useQuery({
+    queryKey: inboundAlertOnly ? ['admin-buylist', 'inbound-alert'] : ['admin-buylist'],
+    queryFn: () => (inboundAlertOnly ? getAdminBuylist({ inboundLabelAlert: true }) : getAdminBuylist()),
+  });
 
   // Feedback de la última acción, anclado a SU solicitud (éxito o mensaje real del backend).
   // `final` (§60.14, F-33): la carta ya no admite decisiones (`409 CONFLICT {reason:'ITEM_FINAL'}`). No es un fallo de
@@ -751,6 +758,18 @@ export function M5View() {
       )}
 
       {/* Buscador por folio/usuario (clave i18n admin.searchGlobal) */}
+      <label className="flex min-h-[44px] items-center gap-2 text-sm text-text" data-testid="m5-inbound-alert-filter">
+        <input
+          type="checkbox"
+          className="h-5 w-5 accent-text"
+          checked={inboundAlertOnly}
+          onChange={(e) => {
+            setInboundAlertOnly(e.target.checked);
+            setTab(null);
+          }}
+        />
+        {t('inbound.alertFilter')}
+      </label>
       <div className="max-w-sm">
         <Input
           label={t('searchLabel')}
@@ -1178,6 +1197,8 @@ export function M5View() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="tabular text-sm font-medium">{req.id}</span>
                   <StatusBadge domain="sellRequest" value={req.status} reason={req.expiredReason} />
+                  {/* 💰 rev BSD-1 (§BSD-UX.6c): la versalita «Se cierra sola» ⇔ `guideDueSoon` del SERVIDOR (BSD-F6). */}
+                  <GuideDueTag req={req} />
                   {/* Vendedor legible (v1.18: seller.name + seller.email del server); el UUID
                       queda en el tooltip. Sigue enlazando a su ficha 360° en M6 (?user=<id>). */}
                   <Link
@@ -1292,8 +1313,23 @@ export function M5View() {
                   acciones existen. Capturar la guía NO mueve el estado; confirmar sí — y son dos
                   actos separados porque el plazo mide algo del VENDEDOR y nos enteramos por algo
                   NUESTRO. */}
-              {req.status === 'aceptada' && <BuylistShipmentActions request={req} />}
-              {/* §60.5 b (HECHOS.md:45): una `aceptada` NO se cancela — la fila dice dónde está la acción. */}
+              {/* 💰 rev BSD-1 (§BSD-UX.6a–c): la ficha `aceptada` gana la guía de entrada de Skydropx, «Declinar» y la marca del
+                  cierre; la captura a mano y la confirmación siguen dentro (`BuylistShipmentActions`). */}
+              {req.status === 'aceptada' && (
+                <AcceptedRequestPanel
+                  req={req}
+                  onNotice={(n) => {
+                    // `409` de «Declinar» ⇒ `warning` sobre la ficha releída; éxito ⇒ aviso de página (tras declinar, la
+                    // solicitud SALE de su pestaña y su ficha ya no está para anclarlo).
+                    if (n.variant === 'warning') setFeedback({ requestId: n.requestId, kind: 'final', message: n.text });
+                    else {
+                      setGoVerifying(false);
+                      setPageNotice(n.text);
+                    }
+                  }}
+                />
+              )}
+              {/* §60.5 b · ✏ §BSD-UX.6a: desde BSD-1 una `aceptada` SÍ se declina — la nota ya no dice «ya no se cancela». */}
               {req.status === 'aceptada' && (
                 <p className="text-xs text-muted" data-testid={`m5-accepted-note-${req.id}`}>
                   {t('acceptedNote')}

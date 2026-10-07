@@ -11,6 +11,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
+import { SalesTodayCard } from './SalesTodayCard';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
@@ -225,6 +226,9 @@ export function AdminDashboard() {
                 </span>
               }
             />
+            {/* §AN-UX.11 (criterio 611): «Ventas de hoy», SOLO súper-admin — para el operador no existe (⛔ ni máscara
+                ni consulta, AN-7). Consulta propia `/admin/reports/sales/today`; su error no toca el resto del tablero. */}
+            {isSuperAdmin && <SalesTodayCard />}
             <StatCard
               label={t('workQueue')}
               value={
@@ -236,6 +240,27 @@ export function AdminDashboard() {
                   <QueueLink href="/admin/m4" label={t('shipments')} count={query.data.workQueue.shipments} />
                   <QueueLink href="/admin/m5" label="Buylist" count={query.data.workQueue.buylist} />
                   <QueueLink href="/admin/m2" label={t('pendingPrices')} count={query.data.workQueue.pendingPrices} />
+                  {/* 💰 rev BSD-1 (§BSD-UX.6c, BSD-1.1 C-3): el contador lo da el SERVIDOR (hermano de `buylist`, que sigue
+                      siendo un número). ⛔ Con 0 (o ausente: servidor anterior) no hay nodo. Texto completo, ⛔ un número solo. */}
+                  {(query.data.workQueue.buylistGuideDueSoon ?? 0) > 0 && (
+                    <Link
+                      href="/admin/m5"
+                      className="w-full text-sm text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                      data-testid="dashboard-buylist-guide-due"
+                    >
+                      {t('buylistGuideDue', { n: query.data.workQueue.buylistGuideDueSoon ?? 0 })}
+                    </Link>
+                  )}
+                  {/* 💰 rev BSD-1 (BSD-1.3 punto 4): guías de ENTRADA atascadas (`labelAlertOf ≠ null`). Mismo trato que arriba. */}
+                  {(query.data.workQueue.buylistInboundLabelAlert ?? 0) > 0 && (
+                    <Link
+                      href="/admin/m5"
+                      className="w-full text-sm text-accent underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                      data-testid="dashboard-buylist-inbound-alert"
+                    >
+                      {t('buylistInboundLabelAlert', { n: query.data.workQueue.buylistInboundLabelAlert ?? 0 })}
+                    </Link>
+                  )}
                 </span>
               }
             />

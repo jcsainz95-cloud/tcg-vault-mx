@@ -287,6 +287,11 @@ export const SettingKey = {
   // hay identidad aritmética que preservar. *Meterlo «por simetría» sería inventar una relación entre
   // un número de veces y un monto.*
   BUYLIST_OFFER_REISSUE_ALERT_COUNT: 'buylist_offer_reissue_alert_count',
+  // 💰 rev BSD-1 (API_CONTRACT §BSD.9, §BSD.7 reglas 8 y 9): el cierre de una `aceptada` SIN guía a N días NATURALES
+  // desde `coalesce(inboundGuideClockStartedAt, acceptedAt)`, y el aviso AG-23 al dueño `warn` días antes. Aplican a las
+  // solicitudes EN CURSO (el barrido las lee en cada pasada). Claves nuevas ⇒ basta el default de abajo.
+  BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS: 'buylist_guide_close_calendar_days',
+  BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE: 'buylist_guide_warn_days_before_close',
 
   // ===========================================================================================
   // ⚠️⚠️ NO ES EL DIAL 11. Es el INTERRUPTOR DEL PASO 6 DE M-46 (B-4).
@@ -532,6 +537,9 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // número que el humano mueve no puede exigir un redeploy. *Una alerta de más cuesta un vistazo;
   // una de menos cuesta un vendedor.*
   [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: 2,
+  // rev BSD-1 (§BSD.9): 7 días naturales (`HECHOS.md` 2026-10-06) y aviso el día 5 (P-BSD-1 ⇒ 2 días antes).
+  [SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS]: 7,
+  [SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE]: 2,
   // ⚠️ B-4 — el interruptor del PASO 6 de M-46 nace **APAGADO**, y ése ES el mecanismo. Un entorno
   // recién desplegado NO caduca ninguna `cotizada` ni manda un solo correo de «no procederemos»
   // hasta que un humano haya hecho el censo/triage y encienda esta fila a mano.
@@ -1153,6 +1161,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // ⚠️ Dial 9: `>= 1`. El `0` NO es legal — ver el docblock del validador.
   [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: validateBuylistMinimumOfferNetCents,
   [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: validatePositiveIntDial('cancellations'),
+  // rev BSD-1 (§BSD.9): 1..60 y 0..30. El efectivo del aviso es `min(warn, close − 1)` (lo aplica `guide-clock.ts`, no aquí:
+  // un validador por clave no ve la otra).
+  [SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS]: (v) => (isInt(v) && v >= 1 && v <= 60 ? null : 'must be an integer 1..60 (calendar days)'),
+  [SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE]: (v) => (isInt(v) && v >= 0 && v <= 30 ? null : 'must be an integer 0..30 (days)'),
   // ⚠️ B-4 — interruptor del paso 6 (NO es el dial 11). `on|off` estricto, por el mismo motivo que
   // `grading_hook_enabled`: que un `true` o un `'ON'` no queden guardados **pareciendo encendidos**
   // en la fila que decide si se mandan correos terminales a vendedores reales.
@@ -1247,6 +1259,9 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   buylistShipmentConfirmAlertBusinessDays: SettingKey.BUYLIST_SHIPMENT_CONFIRM_ALERT_BUSINESS_DAYS,
   buylistMinimumOfferNetCents: SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS,
   buylistOfferReissueAlertCount: SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT,
+  // rev BSD-1 (§BSD.9): los dos diales del cierre sin guía (M10, `super_admin`).
+  buylistGuideCloseCalendarDays: SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS,
+  buylistGuideWarnDaysBeforeClose: SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE,
   // ⭐💰 v1.81 (M-66, §19.13 + §19.19.12): los doce de Skydropx. `shippingLabelPurchase`, `shippingInsuranceTiers` y
   // `shippingLabelFormat` entran (v1.80.11); `shippingDeclaredValueCapCents` NO existe (retirado, §19.19.5).
   shippingProvider: SettingKey.SHIPPING_PROVIDER,

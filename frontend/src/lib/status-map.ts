@@ -97,6 +97,14 @@ const MAP: Record<StatusDomain, Record<string, BadgeSpec>> = {
       icon: 'alert',
       i18nKey: 'status.sellRequestExpiry.not_shipped',
     },
+    // 💰 rev BSD-1 (DESIGN_SYSTEM §BSD-UX.4a, BX2) — NO CONTINUÓ: lo decidimos nosotros (cierre sin guía o «Declinar» en
+    // `aceptada`) ⇒ neutral, `soft`, SIN icono, igual que «No procedió». La fila refinada es obligatoria: sin ella el
+    // fallback pintaría «Expirada», que está prohibido para este desenlace.
+    expirada_not_continued: {
+      tone: 'neutral',
+      shape: 'soft',
+      i18nKey: 'status.sellRequestExpiry.not_continued',
+    },
   },
   sellItem: {
     cotizada: S('sellItem', 'cotizada', 'neutral', 'soft'),

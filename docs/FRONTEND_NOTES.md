@@ -20396,3 +20396,191 @@ panel `/admin`, sin `reason`, recarga en EN; la API se finge con `page.route`, n
   **antes** (HEAD sin el cambio, `-g "Listas para publicar" --repeat-each=10`) `:103` 0/10 y `:125` 0/10 (rojas en
   `:121` y `:130`, el lápiz «Poner precio de INV-000109»); **después** (`precios-s5.spec.ts` entero, `--repeat-each=10`)
   90/90 verdes, 10 saltadas (`:306`, `realOnly`); `:103` 10/10 y `:125` 10/10.
+
+## §104 · 💰 **BSD — buylist con guía Skydropx de entrada** (2026-10-06, rama `claude/buylist-skydropx`, commiteado sobre `d04cb905`; `DESIGN_SYSTEM §BSD-UX.0–.11` · `API_CONTRACT §BSD` rev BSD-1 + erratas 1.1–1.4 · `PROJECT §BSD`, criterios 532–550)
+
+**Qué se construyó (todo con datos del servidor; la pantalla no calcula ni decide, BX5):**
+
+| Superficie | Fichero | Qué |
+|---|---|---|
+| Portal del vendedor | `(storefront)/buylist/requests/[id]/SellRequestDetailView.tsx`, `SellerLabelBlock.tsx`, `seller-label.ts` | `not_continued` ⇒ frase espejo de BSD-M1, sin bloque de oferta y sin montos (`hideMoney` gana el motivo; BSD-1.4 p. 8: el servidor ya redacta y esto es el segundo cinturón). «Tu guía» ⇔ `labelPdfAvailable === true`; descarga por `requestBlob` (Bearer, no cookie) ⇒ `blob:`; `404` (los dos códigos, sin oráculo) ⇒ `errorUnavailable` + relectura; resto ⇒ `errorTemporary` |
+| «Ventas» | `(storefront)/buylist/MyRequestsSection.tsx` | enlace «Descargar guía (PDF)» ⇔ `labelPdfAvailable`; con `no_offer`/`not_continued` ni total ni precios ni «pendiente» (antes la lista pintaba `MX$0.00` con el `null` de `no_offer`: defecto previo corregido de paso) |
+| Insignia | `lib/status-map.ts` | fila `expirada_not_continued` neutral, `soft`, sin icono («No continuó») |
+| Ventana de captura, modo entrada | `m4/CaptureLabelDialog.tsx` (+ `capture/AddressStep.tsx`, `QuoteViews.tsx`, `sdx-errors.ts`, `sell-status.ts`) | la MISMA ventana (SK1) con `CaptureTarget.sellRequestId`: título/ref propios; paso 1 con origen editable («Quién envía», sugerencia `sellerName` que SOLO rellena, BX7) y destino `<dl>` sin controles (BX4); banda `feeDeducted` = `charged.grossCents`; textos de recolección/entrega/margen de entrada; `noRecommended`; errores de §BSD-UX.5d en `inboundErrorView` (también lo usa M5); paso 4 solo «Descargar PDF» + `sentToSeller`; «Capturar a mano» = `POST /admin/buylist/:id/guide` sin costo |
+| Re-emitir | `m4/LabelActions.tsx` (`CancelLabelDialog inbound`) | cuerpo `reissueBody`, `409 LABEL_NOT_CANCELLABLE {sell_request_status|seller_declared_shipped}`; invalida también `['admin-buylist']` |
+| M5 ficha `aceptada` | `m5/AcceptedRequestPanel.tsx`, `DeclineAcceptedDialog.tsx`, `GuideDueMark.tsx`, `BuylistShipmentActions.tsx`, `M5View.tsx` | detalle `GET /admin/buylist/:id` (única fuente de `inboundLabelOptions`, por actor); «Generar guía con Skydropx» ⇒ `POST …/inbound-shipment` ⇒ ventana; guía viva (resumen, costo C-5 tal cual, PDF, re-emitir), en proceso, `labelAlert` con el `LabelAlertBlock` de M4 + «Abrir guía»; captura a mano oculta con guía viva/en curso y sin campo de costo con guía de Skydropx (`costFromProvider`); «Declinar» ⇔ `declineAcceptedAllowed === true`; marca ⇔ `guideDueSoon`/`guideDueAt`/`guideDueInDays`; filtro `?inboundLabelAlert=true` |
+| Tablero | `AdminDashboard.tsx` | `workQueue.buylistGuideDueSoon` y `buylistInboundLabelAlert` (hermanos; `> 0` o nada) |
+| M10 | `m10/sections/BuylistCycleSection.tsx` | subgrupo «Cierre sin guía (días naturales)» con su nota, después de «Plazos» |
+| AG-23 | `spend-alerts/alert-text.ts`, `[id]/SpendAlertDetailView.tsx`, `m10/sections/SpendControlSection.tsx`, `types/contract.ts` | tipo/código, texto con los tres `facts` (lista blanca), `closesAt` como fecha, apagable (C-7) con «Correo inmediato» |
+| M7 | `m7/M7View.tsx` | §BSD-UX.11: los dos renglones con signo bajo «Costo de lo vendido», el margen como nota (⛔ `pnl-line`), aviso de guías manuales sin costo sin enlace |
+
+**Decisiones de implementación:**
+- La ventana NO se movió a `components/`: M5 la importa desde `../m4/` (mismo route group `(admin)`). Moverla era zona compartida y no aportaba conducta.
+- Claves en el espacio REAL del catálogo (§BSD-UX.6e pedía re-medirlo): diales en `admin.m10.buylistCycle.{groups,labels,help,rule}` (el diseño decía `admin.m10.dials.{…,hints,rules}`); datos de AG-23 en `admin.spendAlerts.fact.*` (el diseño decía `field.*`, que aquí son los campos de domicilio de AG-1); `admin.spendAlerts.mail.AG-23.*` no se creó (el correo es del backend y `mail.*` es el estado del correo). `{bruto}` del texto ES de AG-23 va como `{gross}` en los dos idiomas (ICU exige el mismo argumento).
+- Estado de la SOLICITUD en los `409` del modo entrada: `useSellStatusLabel` (`expirada` ⇒ «Expirada», pantalla del operador).
+- Mocks: `getAdminBuylistRequest` responde `provider:'off'` y `openBuylistInboundShipment` lanza `404 FEATURE_DISABLED` (`// MOCK`: el servidor falso no tiene Skydropx); fixtures de portal `sr-3004` (aceptada con guía viva) y `sr-3005` (`not_continued`, con montos a propósito: peor caso); `mockPnl` gana los cuatro campos.
+
+**Copy SIN diseño (frontend lo puso para no dejar el dato del contrato sin pintar; pendiente de ux-ui):** `admin.m5.guideDue.inDays` («en N días», contrato BSD-1.1 C-8 / BSD-F6), `admin.m5.inbound.alertFilter`, `admin.m5.inbound.openLabel`, `admin.m5.inbound.preparing` («Preparando la guía…», citado en §BSD-UX.5 pero sin clave en .8), `admin.dashboard.buylistInboundLabelAlert` (BSD-1.3 p. 4). Tras re-emitir una guía de ENTRADA no se pinta la frase `admin.m4.label.cancel.done` («volvió a preparado» es de salida); no hay frase propia.
+
+**Huecos medidos (2026-10-06):** §BSD-UX.4c — el portal NO tiene pantalla para que el vendedor cambie su dirección (`grep -rn "pickup-address" frontend/src` ⇒ solo un comentario en `lib/error-audience.ts`): la clave `buylist.offer.pickupLockedInProgress` existe con paridad pero no tiene superficie. El cierre del stepper con la versalita «No continuó» + fecha (§25.2d) sigue pendiente como para los demás motivos (`PipelineStepper.tsx:45`).
+
+**Candados (vitest, cada uno rojo sobre la base `20cda136` sin este trabajo: 10/10 ficheros, 161/175 pruebas rojas; las 14 verdes son los casos «no se pinta nada»)** y su canario, medido sobre copia del árbol (N=1, deterministas):
+
+| Candado | Fichero | Mutación | Muerde |
+|---|---|---|---|
+| UX-BSD-3 | `SellRequestDetailView.bsd.test.tsx` | dejar la oferta visible en `not_continued` | sí |
+| UX-BSD-4 | ídem + `MyRequestsSection.bsd.test.tsx` | decidir «Tu guía» por `offer.trackingNumber` | sí |
+| UX-BSD-5 | `CaptureLabelDialog.inbound.test.tsx` | «Usar este nombre» guarda solo · destino como `input readOnly` | sí · sí |
+| UX-BSD-6 | ídem | preseleccionar la primera fila | sí |
+| UX-BSD-7 | `M5View.bsd.test.tsx` | «Declinar» por `status` · reintentar el `POST` ante `5xx` | sí · sí |
+| UX-BSD-8 | ídem + `AdminDashboard.bsd.test.tsx` | marca con el reloj de la pantalla · tablero pinta con `0` | sí · sí |
+| UX-BSD-9 | `lib/i18n-bsd.test.ts` | renombrar una clave en `en.json` | sí |
+| UX-BSD-10 | `M5View.bsd.test.tsx`, `M5View.pnl.test.tsx`, `i18n-bsd.test.ts` | (copia vieja) | — |
+| UX-BSD-11…16 | `m7/M7View.bsd.test.tsx`, `i18n-bsd.test.ts` | margen = tarifa − guía en el cliente | sí |
+| AG-23 / M10 / insignia | `alert-text.bsd.test.ts`, `BuylistCycleSection.bsd.test.tsx`, `status-map.bsd.test.ts` | — | — |
+
+Pruebas previas que cambiaron porque el diseño cambió (no se debilitaron: se actualizó el valor esperado al texto/estructura nuevos): `M5View.pnl.test.tsx` (nota `aceptada`; casillas medidas en la FICHA porque la página gana una), `BuylistDecisionDesk.test.tsx` (nota `aceptada`), `SpendAlerts.v421.test.tsx` y `SpendControlSection.test.tsx` (+AG-23: 14 apagables), `i18n-pnl.test.ts` (fórmula), `M7View.pnl.test.tsx` y `M7View.test.tsx` (diez renglones, ganancia del fixture).
+
+**E2E (Playwright, mocks):** `e2e/buylist-bsd.spec.ts` (portal `not_continued` + descarga en portal y «Ventas»), más `buylist-offer`, `buylist` y `m5-transitions` por los fixtures nuevos: 41/41 verdes, N=1 por caso.
+
+### §104.1 · ✏ vBSD-1.1 (DESIGN_SYSTEM §BSD-UX, commit `9bedf764`) — 2026-10-06
+- `GUIDE_NOT_ALLOWED {reason:'shipment_confirmed'}` ⇒ `admin.m4.tracking.sdx.inbound.error.shipmentConfirmed` (rama propia en `sdx-errors.ts` antes del `notAccepted`, que queda como red de seguridad para `status`/`closed`/otro).
+- Textos de `admin.m5.inbound.openLabel` y `alertFilter` cambian; `admin.m5.guideDue.inDays` = `{n, plural, =0 {en cualquier momento} one {en menos de 24 h} other {en # días}}` (techo del servidor; el número solo en la versalita).
+- Tras re-emitir una guía de ENTRADA (`outcome:'cancelled'`), `AcceptedRequestPanel` compone `admin.m4.tracking.sdx.inbound.reissueDone` con el id de la solicitud (aviso de éxito de M5); `CancelLabelDialog` sigue devolviendo `''` en entrada.
+- Se retira `buylist.offer.pickupLockedInProgress` (4c sin superficie hasta §25.5e, N-5). Las cinco claves «sin diseño» de §104 quedan ratificadas o cambiadas por ux-ui.
+- **UX-BSD-17** en `m5/ux-bsd-17.test.tsx`: rojo sobre `f76abbba` (4/9 pruebas; las 5 verdes son la red de seguridad y `null`); canarios medidos sobre copia, N=1 deterministas: `=0 {hoy}` · quitar la rama `shipment_confirmed` · pantalla sin frase tras re-emitir ⇒ **3/3 muerden**.
+
+### §104.2 · Forma REAL del cierre redactado (errata BSD-1.4 punto 8, backend `d04cb905`, `BACKEND_NOTES §78.B5` p. 8) — 2026-10-06
+- **Medido contra la forma real** (`toCustomerSellRequestDTO`, `buylist.service.ts:463-469`, `:2129-2171`, `:2239-2244`; prueba BSD-B41 en `backend/test/integration/bsd-b5.e2e-spec.ts:290`): en `expirada` + `no_offer`/`not_continued`, `quotedTotalCents = null`, las cuatro cifras de línea `null` explícito y `offer: null` en el detalle.
+- **Qué rompía (medido sobre `bf637f85`):** con una línea `ajustada` en un cierre redactado, «Ventas» pintaba el bloque de responder el ajuste con «Nuevo total MX$0.00» (suma de `approvedPriceCents ?? 0`). El estado es improbable (los ajustes se hacen tras la recepción), pero la guarda era una sola línea: `hasAdjustedItems` ahora exige `!hideMoney`. El portal con `offer: null` ya se pintaba bien (stepper sin las fechas de la oferta; no se tocó, lo decide el arquitecto).
+- **Tipos:** `SellRequestDTO.quotedTotalCents: number | null` y `SellItemDTO.{quotedPriceCents, approvedPriceCents}: number | null` (el servidor ya los mandaba así). tsc solo señaló el mock de piezas rechazadas (`?? undefined`).
+- **Servidor falso:** `mockSellRequestDTO`/`mockSellRequestDetailDTO` redactan como el real (`sr-3005`: todo `*Cents` `null` y `offer: null`).
+- **Candado** `(storefront)/buylist/redacted-shape.bsd.test.tsx` (no_offer y not_continued, lista y detalle con la forma real, y B41 sobre el servidor falso): rojo sobre `bf637f85` en 3/6 pruebas; canarios N=1: bloque de ajuste sin guarda · mock sin redactar `not_continued` · total sin guarda de `null` ⇒ **3/3 muerden**.
+
+### §104.3 · Gate de QA sobre `b6acea1e` (2026-10-06)
+- **C-1 (condición):** el aviso tras comprar la guía de entrada pintaba la clave cruda `admin.m5.inbound.bought`; ahora `tSdx('inbound.bought')`. Candado `m5/AcceptedRequestPanel.qa.test.tsx` con los mensajes reales (rojo sobre `b6acea1e`). **Barrido** de las llamadas `t('…')` con clave literal de las 18 pantallas BSD contra `es.json`/`en.json`, resolviendo cada `t` por su `useTranslations` más cercano: 723 claves, 0 faltan (antes del arreglo: 1, ésta); `sdx-errors.ts`: 52, 0 faltan. Script en el scratchpad del agente (no versionado); las claves dinámicas (`t(\`…${x}\`)`) no entran en el barrido.
+- **M-2:** en `no_offer`/`not_continued` el portal ya no pinta el bloque «Dirección de origen … va impresa en la guía» (`closedWithoutGuide`).
+- **M-4:** si falla `GET /admin/buylist/:id`, el panel de la `aceptada` lo dice con `QueryState` (texto del código o `common.errorGeneric`, sin copy nuevo) y «Reintentar».
+- **BSD-TL-D8 (parte):** nombre del PDF del servidor en `label-pdf.ts` (afecta también a M4: ahora guarda el nombre del `Content-Disposition` de la ruta admin).
+- **M-8 (opcional) no hecho:** en modo mock no hay Skydropx (`openBuylistInboundShipment` lanza `FEATURE_DISABLED`) ni una `aceptada` en `mockAdminBuylist`; un Playwright útil exigía ampliar el servidor falso. El flujo queda cubierto en vitest (`M5View.bsd.test.tsx`, `ux-bsd-17.test.tsx`, `AcceptedRequestPanel.qa.test.tsx`).
+
+## §105 · **Analítica de ventas del dueño — pestaña «Ventas» de Reportes (M9) y tarjeta «Ventas de hoy»** (2026-10-06, rama `claude/analitica-ventas`; `DESIGN_SYSTEM §AN-UX` `5b7ec485` + `e1cde296`; `API_CONTRACT §15` + errata AN-1.1 `edffe544`)
+
+**Qué hay.**
+- `m9/M9View.tsx`: Reportes pasa a dos pestañas de página (`?tab=ventas|actividad`, «Ventas» por defecto, patrón APG de
+  `M4View`). «Actividad» es lo de antes **sin cambio** (rango, metas, exportes); cada pestaña monta su consulta solo
+  cuando está activa. `m9/page.tsx` pasa a servidor asíncrono (lee la URL) — `AdminPageTitles.test.tsx` mide la vista
+  sin parámetros, como con M4/M3/refunds.
+- Pestaña «Ventas»: `SalesTab` (orquesta), `SalesPeriodPicker` (+ `SalesPeriodLabel`), `SalesSummary` (8 celdas +
+  `SalesDelta`), `SalesBarChart` (+ `BarSeries`, `Segmented`), `SalesDailyTable`, `SalesTopLists`, `SalesP2`
+  (totales P2, «Cuándo se vende», «Cómo y a quién se vende» + «Qué se vende»). Estado en la URL: `salesParams.ts`
+  (sin `'use client'`, lo usa `page.tsx`); formato de días de México: `salesFormat.ts`.
+- `admin/SalesTodayCard.tsx`, montada en `AdminDashboard.tsx` tras «Ventas del periodo» **solo** con `isSuperAdmin`.
+- API (`lib/api.ts`): `getSalesReport`, `exportSalesCsv` (Blob + `Content-Disposition`), `getSalesToday`. Tipos
+  (`types/contract.ts`): `SalesReportDTO`, `SalesTodayDTO`, `SalesFiguresDTO`… con **todo P2 opcional** (FS-AN-4): la
+  ausencia se pinta como ausencia.
+- Servidor falso: `lib/mock/sales.ts` (MOCK: pendiente de backend real). Cumple las invariantes de §15.4/AN-1.1 (lo
+  prueba `lib/mock/sales.test.ts`), 403 al operador, los 400 de §15.2 sin `value`, CSV en pesos con `*Mxn`. Fase del
+  servidor para la demo: `localStorage['tcg.salesPhase'] = 'A'|'B'|'C'` (default `B`, lo que el servidor construye hoy).
+
+**Decisiones.**
+- **AN-1 por construcción:** ningún componente suma, promedia, resta ni reordena. Lo único «calculado» en pantalla es
+  dibujo: el máximo de la escala de la gráfica (1/2/5×10ᵏ), el ancho de las barras decorativas de proporción, buscar el
+  día con más para el `aria-label`, y si una semana/mes está recortado (días del cubo, para «· 3 días»).
+- **La gráfica es HTML/CSS propio** (`role="img"` + `aria-label`), no SVG: la marca de cero mide 2 px reales sin
+  depender de `viewBox`, y no hay librería externa (AN-8). `recharts` ya está en el bundle pero no se usa aquí.
+- **«Igual que el periodo anterior»** no lleva `sr-only` aparte: la palabra «igual» ya está en el texto visible y
+  §AN-UX.14 no define clave para ello.
+- **`400` del servidor por `field`** (AN-1.2, §15.12.5: sin `details.reason`): mensaje genérico `range.invalid` («Ese
+  periodo no es válido. Elige otro.», clave ya existente de §AN-UX.14) bajo el campo que diga `field`; `preset/groupBy/
+  topSort` ⇒ el mismo texto en banner. Los cuatro casos con texto propio se validan en el navegador antes de pedir.
+- **`SalesTopSealedDTO.setName: string | null`** (AN-1.2, §15.12.4) ⇒ «—» con su `sr-only`.
+- **El CSV se pide con las fechas del DTO** (`preset=custom&from=period.from&to=period.to`), también para un preset:
+  mandar el preset dejaría que el servidor lo re-resolviera al exportar (pasada la medianoche de México, «Hoy» sería
+  otro día). Gate QA de `76dd1ee9`.
+- **Reembolsos por canal** en la celda 4: `{card}`/`{spei}` se rellenan con el **monto** de cada canal (el texto de
+  §AN-UX.3 admite los dos; el monto dice más).
+- **Candados contra espías de `@/lib/api`**, no MSW (no es dependencia del proyecto y no se instala).
+
+**Candados** (todos deterministas, N=1): `m9/SalesTab.test.tsx` (UX-AN-1..9, 13, 14, 16..20 + estados de §AN-UX.10),
+`admin/SalesTodayCard.test.tsx` (UX-AN-10/AN-F-3, 11, 12), `lib/i18n-sales-an.test.ts` (UX-AN-15 leyendo la tabla de
+§AN-UX.14 del propio documento, UX-AN-20), `lib/mock/sales.test.ts` (invariantes del servidor falso), `M9View.test.tsx`
+(pestañas). E2E: `e2e/sales-analytics.spec.ts` (sin `@real`, agnóstico: estructura, no montos; ⛔ sin `mockOnly` —
+censo sin cambio).
+
+**Pendiente / fuera de alcance.** El resumen de las 08:00 (AN-UX.8d) es de backend. «Mes pasado» compara con los mismos
+días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 default): si el dueño cambia, son textos.
+
+## §106 · ⭐ **Errata SU-1 — la ubicación deja de ser requisito para publicar** (2026-10-07, rama `claude/sin-ubicacion`; `API_CONTRACT §M1-SU` SU.4/SU.6, `ARCHITECTURE §4.65`)
+
+- **`sealedFinalPriceMode`** (`m1/SealedFinalPrice.tsx`): `in_stock` ⇒ `'publish'` **siempre**. Antes, sin cajón,
+  devolvía `'save'` («Guardar precio» sin `status`): con SU.1 eso dejaba la pieza con `missing = []`, fuera de la cola
+  y sin publicar. `hasLocation` se conserva en la firma (dormido) para que revertir sea una línea
+  (`p.hasLocation ? 'publish' : 'save'`). La rama `'save'` y sus textos (`noLocationHint`, `effectNoLocation`,
+  `savedNoLocation`, `reason.location`) quedan **dormidos** — inalcanzables, sin borrar (paridad i18n intacta).
+- **Prueba SU-F1** (`SealedFinalPrice.test.tsx`): unitaria sobre `sealedFinalPriceMode` + DOM en la cola (sin cajón
+  ⇒ único botón «Guardar y publicar», `PATCH {listPriceCents, status:'listed'}`). Sustituye a la antigua FP-3.
+- **Cola** (`PendingPublishQueue.tsx`): sin cambio de conducta; las ramas `'location'` de `MissingCell`/`ReasonLines`
+  se conservan dormidas (el tipo no cambia). Comentario de cabecera actualizado.
+- **Fixtures y pruebas a la forma nueva** (`missing ⊆ ["price"]`): `lib/mock/fixtures.ts` `inv-pub-1` (sin cajón,
+  ahora **sin precio**, `ppe-76`) e `inv-pub-3`; `PendingPublishQueue.test.tsx` (fila base y aserción
+  «⛔ nunca "Ubicación"»).
+- **Revisado sin cambio:** `AddItemModal` (cajón ya opcional), `ItemDetailModal`, `SealedPriceSavedNotice`
+  (`missingLocation` vale 0 ⇒ no se pinta), E2E `precios-s5.spec.ts` (usa una pieza con cajón) y `admin.spec.ts @real`
+  (depende de que la semilla E2E de backend deje ≥1 pieza en la cola: SU.6 «Semilla E2E», del lado backend).
+- **Pendiente segunda vuelta:** los textos de ux-ui (`es.json` «antes de IVA», avisos de cajones vacíos,
+  descubribilidad del folio) cuando `DESIGN_SYSTEM.md` los publique.
+
+### §106.1 · Segunda vuelta — textos y descubribilidad de `DESIGN_SYSTEM §SU-UX` (ux-ui `11a6d98b`) — 2026-10-07
+
+- **Textos (ES/EN):** `publishQueue.note` (2.ª frase nueva: sellado ligado «con IVA», suelto «antes de IVA»; la
+  1.ª igual), claves nuevas `publishQueue.openHint`, `move.noTargets`, `move.noOtherTarget`, `move.manageLocations`.
+  Las dormidas de SU-UX.2 se conservan.
+- **Cola:** folio subrayado siempre (`underline decoration-border … hover:decoration-current`) y `openHint` bajo el
+  subtítulo solo con filas.
+- **Ficha (`ItemDetailModal`):** sin destino para «Mover» ⇒ en lugar de `Select` + nota + «Mover», el aviso
+  (`noTargets` si no existe ninguna `platform_stock` activa; `noOtherTarget` si la pieza ya está en la única) y el
+  enlace «Ir a Ubicaciones» a `/admin/m1?locations=open` (cierra la ficha al pulsar). Prop nueva opcional
+  `locationsReady` (por defecto `true`): con `false` se pinta el selector de siempre, ⛔ un «no hay ubicaciones» que es
+  «no sé». La cola le pasa `locations.isSuccess`; los demás llamadores (VariantDrawer, M11, MasterSetPanel) no se
+  tocaron.
+- **`M1View`:** lee `?locations=open` con `useSearchParams` (no solo al montar: el enlace también se pulsa dentro de M1,
+  donde la vista no se re-monta), abre `LocationsModal` y quita el parámetro con `replaceState`, como `tab`.
+- **Candados SU-UX-1…6:** `m1/SinUbicacion.su-ux.test.tsx`.
+
+### §106.2 · SU.8 — el aviso tras el alta dice si la pieza quedó a la venta (`DESIGN_SYSTEM §SU-UX.6–7` vSU-2, ux-ui `f18cf4ae`; `API_CONTRACT §M1-SU` SU.8.3–SU.8.5, SU-F2) — 2026-10-07
+
+- **Una pieza (`AddItemModal`, `AddGradedModal`):** decide el `status` del `201` (⛔ no el precio del formulario).
+  `listed` ⇒ `success` (`createToastListed` / `addGraded.successListed`); cualquier otro ⇒ `info`, `duration: 9000`
+  (`createToastNotListed` / `addGraded.successNotListed`). Título `admin.m1.createToastTitle` en los dos modales.
+- **`AddGradedModal`:** prop opcional nueva `onToast` (misma forma que la de `AddItemModal`, ahora con `'info'`);
+  `M1View` le pasa `pushToast`. `onCreated` se sigue llamando antes del aviso. El banner verde dentro del modal
+  (`addGraded.success`, «Gradeada dada de alta · folio …») **se conserva**: §SU-UX.6 la daba por no usada, pero
+  `AddGradedModal.tsx` la pinta tras el alta (medido por lectura). Por eso no se borra.
+- **`admin.m1.createToast` queda dormida.** Ninguna prueba la lee, pero no se borra en este pase (revertir = una línea).
+- **Lote:** `batchPublishNote` va **detrás** del texto de hoy, separada por un espacio, en `AddItemModal` (todo bien
+  → `success` y ahora `duration: 9000`; con fallos → `danger` como hoy) y en el **toast** de `QuickAdd`. El
+  resultado dentro del panel de `QuickAdd` no cambia.
+- **Refresco de la cola:** `invalidateQueries({ queryKey: ['pending-publish'] })` (prefijo, cubre M11) tras toda alta
+  correcta: `AddItemModal` (una y lote), `QuickAdd`, `M1View.invalidateAggregates` (gradeada; también corre tras
+  «Publicar todo» y cambios del drawer, donde también es correcto) y `MasterSetPanel.invalidateAggregates` (carrito
+  del binder y «encontrada» vía `onAdjusted`; sin candado propio).
+- **Mock** (`api.ts` `createInventoryItem`): `listed` si el alta trae `listPriceCents > 0` o si la carta ya tiene
+  `referenceValue.status === 'priced'` en `mockInventory` (p. ej. Charizard); si no, `in_stock`. Así se ven las dos
+  variantes en modo mock. `// MOCK` marcado.
+- **Prueba de hoy cambiada:** `M1View.test.tsx` P-4.3 buscaba el texto viejo exacto con `status:"in_stock"`; ahora
+  busca `createToastNotListed`.
+- **Candados SU-UX-7…11** (SU-UX-7 = SU-F2): `m1/AltaPublica.su-ux.test.tsx`. Deterministas (espías de `@/lib/api`).
+- **Fuera de este pase:** «encontrada» de `CellDrawer` sin aviso de éxito propio (como dice §SU-UX.6).
+
+### §106.x · Cierre de gates sobre `2c516314` (2026-10-07)
+- **QA IMPORTANTE — lo que se ve es lo que se envía.** `AddItemModal` pintaba el primer cajón con `locationId=''` (no había
+  opción vacía) y la pieza se creaba sin ubicación. Ahora `placeholder={t('locationNone')}` («Sin ubicación» / «No location»,
+  clave nueva `admin.m1.locationNone`; §SU-UX no traía texto, es el mínimo con paridad). Misma clase en `CellDrawer`
+  (QuickAddSection del Master Set): la opción `''` se rotulaba `common.all` («Todos»); ahora usa la misma clave.
+  `AddGradedModal` y `QuickAdd` (m1) no tienen selector de ubicación: sin defecto. Candados:
+  `m1/UbicacionOpcional.su-ux.test.tsx` y `MasterSet.test.tsx` («CellDrawer: la opción vacía…»), rojos antes del arreglo.
+- **QA MENOR — `locationsReady`.** `VariantDrawer` acepta `locationsReady` (por defecto `false`: quien no lo sabe no afirma
+  «no hay ubicaciones») y lo reenvía a `ItemDetailModal`; `M1View` y `M11View` pasan `locations.isSuccess`.
+- **Techlead D3.** SU-UX-10 en `MasterSet.test.tsx`: carrito y `encontrada` invalidan `['pending-publish']`.
+- **Techlead D4** registrada en `TECH_DEBT.md` (TD-SU-D4a/b).

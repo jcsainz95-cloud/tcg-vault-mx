@@ -214,7 +214,10 @@ const CICLO: Record<string, Renderizador> = {
  */
 // v1.82 · PNL-4: el correo 29 (`sellItemsRejectedTemplate`) es el hermano en plural del 4 — misma clase
 // (aviso de verificación, sin montos), mismo lado. Su contenido lo fija ML-24 (`buylist.items-rejected-mail.spec.ts`).
-const FUERA_DEL_CICLO = ['sellItemRejectedTemplate', 'sellItemsRejectedTemplate'];
+// 💰 rev BSD-1 (§BSD.8.1): BSD-M1 (`sellRequestNotContinuedTemplate`) cierra una `aceptada` sin culpa — no es uno de los
+// cinco del ciclo de oferta. Su lista de prohibidos (más estricta: ni guía, ni plazo, ni días) la fija BSD-B21
+// (`bsd.b3-mails.spec.ts`).
+const FUERA_DEL_CICLO = ['sellItemRejectedTemplate', 'sellItemsRejectedTemplate', 'sellRequestNotContinuedTemplate'];
 
 // =============================================================================================
 describe('⚠️ (1) el conteo es CINCO, y la lista se cierra sola', () => {

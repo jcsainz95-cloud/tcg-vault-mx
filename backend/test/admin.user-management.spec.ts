@@ -106,6 +106,8 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
       portfolioSnapshot: { deleteMany: jest.fn(async () => ({})) },
       // ⭐ v1.80.12.2 (SKX-SEC-1): los valores de las correcciones de dirección de sus envíos.
       shipmentAddressRevision: { deleteMany: jest.fn(async () => ({})) },
+      // rev BSD-1 (BSD-B27): el borrado suave vacía el domicilio de las guías de ENTRADA del vendedor (`scrubInboundShipmentPii`).
+      shipmentRequest: { updateMany: jest.fn(async () => ({ count: 0 })) },
       user: { update: jest.fn(async () => ({})) },
     };
     const prisma: any = {
