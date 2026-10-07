@@ -32,6 +32,14 @@
 > pendientes heredadas, solo si es inequívoco; la baja al pagar usa el **mismo** filtro de producto de set que el aviso.
 > Pruebas WSH-T42 (con el cuerpo exacto de la pantalla y candado de paridad) y WSH-T43.
 >
+> **Errata v1.87.4⟨wishlist⟩ — el mapeo de piezas cambia después de apuntarse** (2026-10-07, arquitecto, rama
+> `claude/wishlist`, HEAD dado por el orquestador `7248b780`; ⛔ sha NO MEDIDO: sin Bash). Responde a
+> `BACKEND_NOTES §84.v1.87.3`: sí hay un escritor de `tcgplayerProductId` sobre piezas ya dadas de alta (la curación de
+> §M2). Norma en `API_CONTRACT §WSH.13` y WSH.7 (g); porqué en **§4.WSH (m)**. El job de sellados **re-apunta** al
+> empezar cada corrida las suscripciones pendientes huérfanas a su destino único, reinicia el armado y quita duplicados;
+> `pricing` no toca la tabla de `catalog`. Sin esquema, sin `M-74` nueva, sin ruta. Prueba WSH-T44. Tres
+> interpretaciones de backend ratificadas.
+>
 > **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
 > `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
 > porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
@@ -29228,6 +29236,64 @@ con conteo de correos distintos pendientes (P-WSH-9, recomendación del PO).
 - **Deuda anotable (no bloqueante):** `StrictBodyPipe` vive en `wishlist/dto/` y ahora lo usa `catalog`. Con un tercer
   consumidor sube a `common/pipes/` (zona compartida).
 
+**(m) Errata v1.87.4 — el mapeo cambia después de apuntarse (2026-10-07).** Norma: `API_CONTRACT §WSH.13` y WSH.7 (g).
+- **Lo medido (backend, no el arquitecto):** `SealedMappingService.updateMapping` reescribe `tcgplayerProductId` de una
+  pieza (`pricing/sealed-mapping.service.ts:117-120`) y, con `applyToSiblings`, de sus hermanas selladas sin mapear del
+  mismo `(cardId, sealedSubtype)` (`:122-133`), por `PUT /admin/pricing/sealed/items/:itemId/mapping`
+  (`sealed-pricing.controller.ts:112`); también desmapea. Releído por el arquitecto: las hermanas se filtran **sin**
+  estado ni condición, así que alcanzan a las vendidas. El alta (`inventory.service.ts:1294-1319`) fija el mapeo por
+  pieza según lo que captura el operador, sin mirar a las hermanas: una reposición puede nacer mapeada junto a piezas
+  viejas sin mapear. En los dos casos, la clave de la fila (fijada al apuntarse, v1.87.3) deja de existir en las piezas
+  y la fila no casa nunca.
+- **Opción elegida: reconciliar en el job, leyendo el estado.** Al empezar cada corrida (con el candado tomado, antes de
+  armar), toda pendiente **huérfana** (ninguna pieza tiene ya su clave) se re-apunta al valor de `tcgplayerProductId`
+  —`NULL` incluido— que comparten **todas** las piezas selladas de su `(ancla, subtipo)`, si es uno solo. Es la regla del
+  paso (8) de `M-74` generalizada a los dos sentidos (`c:`→`p:`, `p:`→`c:`, `p:P1`→`p:P2`). Por qué así:
+  - **Dirección de dependencias.** La tabla es del job de `catalog`; quien la escribe es `catalog`. `pricing` ya importa
+    de `catalog` (`sealed-mapping.service.ts:4`, `toCardDTO`); hacer que además escriba sus filas añadiría un segundo
+    acoplamiento, del tipo que TD-WSH-3 ya señala entre `catalog` y `wishlist`.
+  - **Cubre a todos los escritores, también los futuros y el alta mezclada.** El hueco existió porque la regla dependía
+    de que nadie cambiara la pieza; atarla a un escritor concreto repite esa apuesta. Leyendo el estado da igual quién
+    lo cambió.
+  - **Sin ventana de estado partido para el armado:** la reconciliación va en la misma corrida y antes del paso de
+    armado, así que ninguna corrida arma con la clave vieja una fila que ya debería tener la nueva.
+  - **Coste:** una consulta por tick sobre las pendientes (acotadas por el tope por correo) unida al inventario sellado.
+    El retraso máximo entre el `PUT` y el re-apuntado es un tick (5 min), igual que la detección de reposición.
+- **Descartada (A), la sugerida por backend: reescribir en `updateMapping`, en la misma transacción.** Inmediata y
+  atómica, pero (1) `pricing` pasa a escribir una tabla de `catalog`; (2) solo cubre ese escritor: no el alta mezclada ni
+  uno futuro; (3) con la curación pieza por pieza tendría que aplicar de todas formas la regla «un solo destino» sobre el
+  grupo entero, que es la misma consulta que aquí, pero en otro módulo. Dos copias de la regla es el defecto de B-1.
+- **Descartada (B): evento de dominio `sealed-mapping.changed` que escucha `catalog`.** Mejora la dirección respecto de
+  (A), pero sigue cubriendo solo a quien emite el evento y añade infraestructura de eventos que el proyecto no usa para
+  esto (el aviso de deseos ya se decidió como barrido por estado y no por evento, rev v1.87).
+- **Descartada (C): guardar en la fila la pieza ancla y calcular la clave en cada tick a partir de ella.** Necesita una
+  columna y una FK a `InventoryItem` (cambia `M-74`, y la limpieza que borra inventario la dejaría sin ancla), no sirve
+  para las filas heredadas, y con el grupo partido la fila sigue solo a su pieza, no al producto.
+- **Se reinicia `armedAt`/`matchedAt` al re-apuntar.** El armado se ganó mirando la clave vieja. Con el grupo a medio
+  curar (unas piezas `c:` agotadas, otras ya `p:` a la venta) puede ser falso, y conservarlo manda «¡Volvió!» de un
+  producto que nunca se agotó. Reiniciado, la misma corrida lo vuelve a armar si el producto de verdad no está a la venta;
+  lo único que se pierde es un aviso cuya reposición coincidió con el cambio de mapeo dentro de la ventana de agrupado.
+  Misma regla que en v1.87.3: correo falso nunca, aviso perdido en un borde estrecho sí. El paso (8) no reinicia porque
+  sus filas nacen con `armedAt` nulo (columna nueva de `M-74`).
+- **Ambiguas, intactas.** `|D| ≥ 2` o sin piezas: no se adivina (mismo criterio que el paso (8) y que la opción (c)
+  descartada en (l)). Con la limpieza de inventario, las filas quedan huérfanas sin destino hasta que se re-sube; si las
+  piezas re-subidas traen el mismo mapeo, ya no son huérfanas y casan solas.
+- **Duplicados del mismo correo: se borra el que se re-apunta.** (b) promete una pendiente por correo e identidad, y el
+  tope por correo cuenta filas. La fila que ya tenía la clave nueva conserva su armado, que sí se ganó con esa clave.
+- **El paso (8) se conserva** (no cambia el checksum de `M-74` por tercera vez y sus conteos siguen siendo la medición de
+  la ventana de despliegue). Son dos copias de la regla de avance; WSH-T44 (9) las compara sobre los mismos fixtures.
+- **TD-WSH-3:** su disparador es «el próximo cambio de `sealed-restock-notify`», y este lo es. Decisión: **no se paga
+  aquí**. Esta errata corrige un hueco que se pierde en silencio en una rama sin publicar; mover reloj, diales y candado a
+  un sitio neutro toca zona compartida y mezclaría una refactorización con la corrección. La reconciliación no añade
+  ningún import de `wishlist/` (usa solo Prisma), así que el acoplamiento no crece. Queda para el techlead
+  re-evaluarlo en su veredicto.
+- **Interpretaciones de backend ratificadas (`BACKEND_NOTES §84.v1.87.3`):** (1) `postRestockExpectingRejection` como
+  segunda vía de prueba, solo para T42 (4): el candado (a) prohíbe los cuerpos viejos en el helper normal, y la
+  afirmación «el cuerpo viejo ⇒ `400`» necesita mandarlos; queda confinada a un fichero por candado. (2) Correo ausente o
+  no texto ⇒ `400 {field:'email'}` del pipe; texto con forma inválida ⇒ `422`: tipo y presencia los rechaza el pipe,
+  contenido el servicio, como en las demás rutas estrictas. (3) El relleno del paso (8) no se revierte: no se distingue
+  después qué filas rellenó, y el valor nombra el mismo producto.
+
 ---
 
 ## 5. Decisiones transversales
@@ -32711,6 +32777,9 @@ productivas); las migraciones solo redefinen esquema.~~
   `armedAt`/`matchedAt`. Conteo de `c:` pendientes antes y después, en la ventana de despliegue, a la solicitud de fusión.
   **Reversa:** no se deshace (el valor rellenado describe el mismo producto que la fila ya nombraba; cómo lo leería el
   job anterior a M-74: NO MEDIDO). La cabecera del fichero deja de decir «SIN relleno». Porqué: §4.WSH (l).
+- ⭐ **v1.87.4 — `M-74` sin cambio.** La re-asignación de suscripciones cuando cambia el mapeo de las piezas es código del
+  job (`API_CONTRACT §WSH.7 (g)`), no un paso de datos. El paso (8) se conserva; su paridad con la regla del job la fija
+  WSH-T44 (9). Porqué: §4.WSH (m).
 
 ### rev BSD-1 (**M-72 provisional**: guía de entrada del buylist — **DDL ADITIVO + 1 enum nuevo + 2 valores de enum + 3 columnas + 2 CHECK + FK + 2 índices + relleno ACOTADO de una columna nueva**, §4.BSD)
 - **Carpeta:** `prisma/migrations/20261025120000_m72_bsd_inbound_label/` (posterior a `M-71` `20261021120000`, medido con
