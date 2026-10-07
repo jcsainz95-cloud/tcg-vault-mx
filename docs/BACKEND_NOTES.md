@@ -30329,3 +30329,121 @@ blancas), `accessory-input.ts` (cuerpos y consultas), `accessory-photo.ts` (`sha
 - Suite completa de integración: solo corrí `accessories-panel`, `sdx-d2f-money`, `accessories-m73-migration` y
   `kyc-ine-links` (las tres últimas 147/147 en un esquema reiniciado con la M-73 del árbol vivo, que otro agente estaba
   reescribiendo; `accessories-panel` 29/29). El resto de la integración: NO MEDIDO por mí.
+
+### 83.C Stream (C) `decks-meta` — energías del deck, paquete y `pullToken` (§AC.8) 💰 (2026-10-07, rama `claude/accesorios`; código en `a80c50b`, sobre `501faf1`)
+
+**Alcance:** solo `src/modules/decks-meta/` y sus pruebas. ⛔ Sin schema, sin migración, sin secreto nuevo (la firma usa
+`PiiCryptoService.domainHmac`, misma llave del índice ciego, dominio `deck-pull:v1:`). ⛔ No toca `orders`/`payments`.
+
+#### 83.C.1 Qué hay
+- `energy-type.ts` — `energyTypeOf(rawName): EnergyType | null` (puro).
+- `deck-pull-token.ts` — `signPullToken` / `verifyPullToken` (puros; la llave la pone quien llama).
+- `energy-bundle.ts` — `computeEnergyBundleOffer` (la oferta de la ficha) y `evaluateDeckPulls` (**el validador puro**), más
+  `accessoryPhotoOf`.
+- `decks-meta.service.ts`:
+  - `GET /decks-meta/:slug` gana `energyBundle` en la raíz y `basicEnergy` en **todas** las líneas (`null` salvo energía
+    ligada).
+  - `POST /decks-meta/paste` gana `basicEnergy` por línea; ⛔ sin `energyBundle` ni `pullToken` (P-EN-7).
+  - `unitInventoryItemIds`, `availableQty` y `unitPriceMxnCents` no cambian (criterio 747; AC-B36).
+- `decks-meta.module.ts` **exporta `DecksMetaService`** para que el checkout de invitado lo inyecte.
+- El constructor de `DecksMetaService` gana un 4.º parámetro `PiiCryptoService` (global; DI sin cambios en otros módulos).
+
+#### 83.C.2 💰 Lo que llama el stream B (firma)
+```ts
+// src/modules/decks-meta/decks-meta.service.ts — inyectar DecksMetaService (importar DecksMetaModule en OrdersModule)
+evaluateDeckPulls(
+  pulls: readonly { pullToken: string; withEnergyBundle: boolean }[],
+  opts: {
+    requestInventoryItemIds: readonly string[];          // las piezas de la petición, DESPUÉS de la poda en quote (P-EN-4)
+    db?: Prisma.TransactionClient | PrismaService;       // la tx de `session` (default: this.prisma)
+    now?: Date;                                          // reloj (default: new Date())
+    extraAvailableByAccessoryId?: ReadonlyMap<string, number>; // lo apartado por la PROPIA reserva (retryOfCheckoutToken)
+  },
+): Promise<DeckPullEvaluation[]>                         // uno por entrada, mismo orden (campo `index`)
+
+type DeckPullEvaluation =
+  | { index; status: 'bundle' | 'offer'; deckSlug; deckName; metaDeckId; metaDeckListId /* la FIRMADA */;
+      signedInventoryItemIds: string[] /* ⇒ deckOrderItemIds */; bundle: EnergyBundleDTO /* §AC.4, con photo */ }
+  | { index; status: 'invalid'; withEnergyBundle: boolean; deckSlug: string | null; reason: BundleReason }
+  | { index; status: 'ignored'; deckSlug; why: 'bundled' | 'offer_repeated' };
+```
+- Puro y síncrono, si B ya tiene los hechos cargados: `evaluateDeckPulls(pulls, ctx)` de `energy-bundle.ts`, con
+  `ctx = { signer, nowSec, requestInventoryItemIds, decksBySlug, listsById, products, bundlePriceCents }`. El método del
+  servicio solo carga eso y delega. Lo cargan también, sueltos, `loadEnergyProducts(db, extra?)` y
+  `loadEnergyBundlePriceCents(db)`.
+- **Cómo lo traduce B (lectura de §AC.4/§AC.8; B decide el cableado):**
+  - `bundle` ⇒ renglón `energy_bundle`: `unitPriceCents = bundle.priceCents` (el dial, leído **en la llamada**);
+    componentes = `bundle.energies[]` (`accessoryId`, `energyType`, `quantity`); `metaDeckId`, `metaDeckListId`,
+    `deckSlug`, `deckName`; `deckOrderItemIds` = los `OrderItem` de `signedInventoryItemIds`.
+  - `offer` ⇒ `energyBundleOffers` (`bundle`).
+  - `invalid` ⇒ `quote`: `unavailableBundles {deckSlug, reason}`. `session` con `withEnergyBundle:true`: `422
+    ENERGY_BUNDLE_INVALID {deckSlug, reason}`; con `false`: se ignora («no se valida»).
+  - `ignored` ⇒ nada (no es error).
+- ⛔ **No aparta nada.** El apartado por tipo, sumado con las energías sueltas y con otros paquetes del mismo pedido, es el
+  `UPDATE … WHERE "stockQty" - "reservedQty" >= q` de B (§AC.4 paso 2). `insufficient_stock` aquí se calcula **por
+  paquete**: dos paquetes de 8 «Fuego» con 10 disponibles salen los dos `bundle`; la suma la corta B (en `quote`, su poda;
+  en `session`, `409 ACCESSORY_INSUFFICIENT_STOCK`).
+- Llamar a `quote` **después** de podar piezas: P-EN-4 compara contra `requestInventoryItemIds`.
+
+#### 83.C.3 Decisiones que NO están literales en §AC.8 (para que el arquitecto las ratifique o las tumbe)
+1. **Precedencia del `reason`** de la oferta: (1) ningún tipo ⇒ `no_basic_energy`; (2) algún tipo sin producto activo
+   ⇒ `not_offered`; (3) P-EN-3 ⇒ `not_offered`; (4) P-AC-4 ⇒ `not_offered`; (5) existencias ⇒ `insufficient_stock`.
+   Lo estructural antes que las existencias. §AC.8 no dice qué `reason` lleva «tipo sin producto activo»; elegí
+   `not_offered` (no se arregla reponiendo). En el validador, `no_basic_energy` ⇒ `not_offered` (no está en `BundleReason`).
+2. **P-AC-4, «líneas que no son energía básica»** = `matchStatus ≠ unmatched_basic_energy`. Una energía sin set de tipo
+   desconocido (p. ej. «Jet Energy») **no** cuenta en el denominador; una energía básica que **sí** casó como carta **sí**
+   cuenta (y no entra a `energies`, porque `energyTypeOf` solo se aplica a `unmatched_basic_energy`).
+3. **`looseTotalCents`** suma solo los tipos con producto activo (sin producto no hay precio). Da igual para `offered`
+   (ese caso ya es `not_offered`), pero la cifra que ve el cliente en ese caso es parcial.
+4. **«Copias firmadas»** = número de ids firmados (sin repetir). En la ficha se firma la unión de todos los
+   `unitInventoryItemIds` de la lista **vigente**.
+5. **`deck_incomplete` también para `withEnergyBundle:false`** (el paso 3 es «por cada `deckPulls[i]`»): en `quote`, un
+   deck que el cliente desarmó en el carrito sale en `unavailableBundles` con `deck_incomplete` aunque nunca pidiera el
+   paquete. Si el frontend lo quiere callado, es cambio de contrato.
+6. **Duplicados:** se cuentan entre los `true` que pasaron los pasos 1–3. Los `false` se evalúan después de todos los
+   `true`: si el deck ya lleva paquete ⇒ `ignored: bundled`; si ya se ofreció ⇒ `ignored: offer_repeated` (una oferta por
+   deck). El estado `ignored` es interno (B no lo expone).
+7. **Lista firmada de otro deck** (`list.deckId ≠ deck.id`, p. ej. deck borrado y recreado con el mismo slug) o lista
+   inexistente ⇒ `deck_unpublished`.
+8. **Forma estricta de la carga:** exactamente `v, slug, listId, ids, iat`; `ids` cadenas en orden estricto (sin
+   repetidos); `iat` entero ≥ 0 y no más de 5 min en el futuro. Cualquier otra cosa, aunque la firma sea buena ⇒
+   `invalid_token`. Orden: texto → firma → carga → vigencia; con firma mala nunca se dice `expired` ni se consulta la BD
+   con datos del token.
+9. **Vigencia:** vale mientras `now − iat ≤ 30 días` (el segundo 30 d + 1 ya es `expired`).
+10. **El dial `energy_bundle_price_cents`** se lee de `ConfigSetting` aquí (`loadEnergyBundlePriceCents`), con la clave y el
+    default de `settings.constants` (`SettingKey.ENERGY_BUNDLE_PRICE_CENTS`, `SETTING_DEFAULTS` = 2000; los registró (A) en
+    `45e7911`). Ausente o fuera de 1..100_000 ⇒ 2000. Lectura directa (no `SettingsService`) para poder leerlo con el
+    cliente de la transacción de B.
+11. **`basicEnergy: null` explícito** en toda línea no ligada (§AC.8 «Si no ⇒ `null`»), no omitido.
+12. **Foto:** `accessoryPhotoOf` delega en `photoDTO` de `accessories/accessory-dto.ts` (de (A)): **un** solo constructor,
+    `/api/v1/accessories/:id/photo/:v/full|thumb` (ruta de la API con prefijo, sin host). El frontend la usa como `src`
+    directo (`AccessoryTile.tsx:34`): si la API vive en otro origen que la tienda, una ruta sin host no carga. **NO
+    MEDIDO** cómo la resuelve el frontend; aplica igual a (A).
+
+#### 83.C.4 Pruebas (escritas antes del código; «antes» medido contra stubs con la misma firma)
+| Prueba | Fichero | Casos | Antes (stub) | Después |
+|---|---|---|---|---|
+| AC-B28 `energyTypeOf` | `src/modules/decks-meta/energy-type.spec.ts` | 38 | 23 rojas (las 15 verdes son los `null` esperados) | 38/38 |
+| AC-B31 `pullToken` | `src/modules/decks-meta/deck-pull-token.spec.ts` | 38 | 13 rojas (las 25 verdes son rechazos; los muerde la mutación y sus CONTROL) | 38/38 |
+| AC-B30 oferta + AC-B32 validador (puro) | `src/modules/decks-meta/energy-bundle.spec.ts` | 32 | 30 rojas | 32/32 |
+| AC-B29, AC-B30 (ficha y `paste`), AC-B36, AC-B32 (lectura de BD) | `test/integration/decks-meta-energy.e2e-spec.ts` | 17 | 16 rojas (AC-B36 verde: es el candado de «no cambia») | 17/17 |
+| Existentes de `decks-meta` | `decks-meta.service.spec.ts`, `decks-meta-persistence.e2e-spec.ts` | — | verdes | verdes (solo se les pasó el 4.º parámetro y los mocks de `accessory`/`configSetting`) |
+
+**Mutaciones** (copia del árbol entero `git archive 501faf1` + los 12 ficheros de `a80c50b`, `node_modules` enlazado;
+deterministas, 1 corrida cada una; M1 y M2 repetidas también sobre una copia anterior de `44175fd`, mismo resultado):
+| Mutación | Rojas |
+|---|---|
+| M1 verificar con `domainHmac('', parte1)` (sin dominio) | 20 (token + validador), incluida «firma SIN dominio ⇒ invalid_token» |
+| M1b aceptar con dominio **o** sin dominio | 1: «firma SIN dominio ⇒ invalid_token» |
+| M2 quitar la regla de la mitad (P-AC-4) | 6 unitarias + 1 de integración («2 de 6 copias ⇒ not_offered») |
+| M2b `Math.floor` en vez de `Math.ceil` | 1: «49 no-energía (impar)» |
+
+**Suite unitaria entera** (misma copia): 449/449 suites, 8159/8159 pruebas. En la corrida completa 2 suites
+(`money.bounty-cap`, `buylist.admin-list-filters`) cayeron por el entorno —un worker con SIGKILL y
+`node_modules/.prisma/client/default.js` ausente mientras otro agente regeneraba el cliente compartido; carga ~15 con 4
+CPU—; repetidas solas: 2/2 y 37/37. Ninguna importa `decks-meta`. Integración: `decks-meta-energy` 17/17 y
+`decks-meta-persistence` 7/7 en el esquema propio `acc_c`.
+
+**NO MEDIDO:** el cableado en `quote`/`session` (AC-B32 de punta a punta, AC-B33 carrera del paquete): es de (B). La foto
+servida de verdad por `GET /accessories/:id/photo/…`: es de (A). La app no se levantó; el grafo de DI con el 4.º parámetro sí
+compila (`test/app.module.spec.ts` «compiles the full module graph», verde en la corrida entera).
