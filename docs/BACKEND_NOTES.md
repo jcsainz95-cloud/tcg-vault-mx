@@ -30658,3 +30658,62 @@ mutación (las carreras, N=10 dentro de la prueba). **15/15 rojas:**
 - **Integración completa (todas las suites):** NO MEDIDA; solo el subconjunto de módulos tocados (83.B.5).
 - **Rendimiento de `GET /admin/shipments/:id`:** ahora arma la vista de preparación (para `accessoryLines`) en cada detalle
   directo; no medido con carga.
+
+### 83.v1.86.4 Errata v1.86.4 (§AC.20) aplicada — AC-B61, AC-B62, AC-B63 y la norma del dial (2026-10-07, rama `claude/accesorios`, sobre `23ac19d4`; pruebas en `2f8731e3`)
+
+**Sin cambio de código de producción.** Las tres pruebas son candados de conducta ya construida (§AC.20.4): nacen verdes y
+cada una se entrega con su mutación roja. Ninguna prueba demostró un defecto.
+
+#### 83.v1.86.4.1 Qué cambió
+- **`test/integration/decks-meta-energy.e2e-spec.ts` (§AC.20.2):** `beforeAll` guarda `prev` (`valueJson` + `updatedBy`) y
+  pone el estado base «ausente» con `deleteMany` (sustituye al `expect(dialExisted).toBe(false)`); los casos 6000 y 0 usan
+  `upsert`; `afterAll` repone `prev` (lo recrea si existía, si no lo deja ausente). **AC-B63** añadida (ausente ⇒ 2000;
+  2300 ⇒ 2300 y `offered:true`).
+- **`test/integration/accessories-panel.e2e-spec.ts:49` (revisada con la misma regla):** ya guardaba y reponía los diales;
+  perdía `updatedBy` al reponer (medido: `seed-e2e` ⇒ `NULL` tras la suite). Ahora lo conserva.
+- **AC-B61** en `accessories-checkout.e2e-spec.ts` (dentro de AC-B32): (a) 5 «Fuego» y el deck pide 8 ⇒ `422
+  ENERGY_BUNDLE_INVALID {index:0, deckSlug, reason:'insufficient_stock'}`; (b) 10 y dos paquetes de 8 de decks distintos ⇒
+  `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId: Fuego, availableQty: 10}`. En las dos: mismas órdenes, renglones,
+  componentes y PaymentIntent creados que antes, y existencias sin cambio.
+- **AC-B62** en `accessories-prep-refunds.e2e-spec.ts` (dentro de AC-B20): funda ×3 (10 → 7), M3 total con
+  `refundOutcome='definitive'` ⇒ fila `order_full` `failed`, `stockQty=10`, envío `cancelado`, renglón `restocked`, un
+  movimiento `restock` (3, 7→10); después `charge.refunded` total ⇒ orden `refunded`, `stockQty=10`, sigue habiendo uno.
+  **El doble de Stripe ya sabía rechazar** (`refundOutcome = 'definitive'`, `helpers/e2e-app.ts`): no se tocó.
+
+#### 83.v1.86.4.2 Antes / después
+- **`decks-meta-energy` vieja en un esquema con `seed-e2e`** (copia `git archive 23ac19d4`, esquema `acc_b2`): **17/17
+  rojas** (el `expect` de `beforeAll`). Además su `afterAll` **borró la fila sembrada** (medido: 0 filas tras la suite) —
+  el efecto que §AC.20.2 (3) prohíbe.
+- **Nueva:** 19/19 con la fila sembrada (y la fila queda `2000`/`seed-e2e`); 19/19 con la fila ausente (y queda ausente).
+- **AC-B61 y AC-B62:** verdes desde el primer intento (3/3 corridas). AC-B62 **N=10: 10/10 verde** (secuencial: el orden de
+  los eventos lo fija la prueba, no hay carrera).
+
+#### 83.v1.86.4.3 Mutaciones (copia `git archive` del árbol entero + las pruebas, esquema `acc_b2`)
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| traducir el `insufficient_stock` del validador a `409` (`guest-accessory-cart.ts`) | AC-B61 (a) | rojo: `409` en vez de `422` |
+| el validador no ve la falta (disponible infinito vía `extraAvailableByAccessoryId`; equivale a validar después del apartado) | AC-B61 (a) | rojo: `409` en vez de `422` |
+| quitar `status = 'sold'` del CAS de `restockAccessoriesOnFullRefund` (lectura **y** `UPDATE`) | AC-B62 | rojo: `stockQty 13` |
+| mover la reposición a la confirmación (la pasada que sella, tx1 de M3, no repone) | AC-B62 | rojo: `stockQty 7` tras el `failed` |
+| el lector del dial devuelve siempre el default | AC-B63 caso 2300 | rojo: `2000` |
+| sin respaldo para la fila ausente (`row ? … : 0`) | AC-B63 caso ausente | rojo: `0` |
+| quitar `status = 'sold'` **solo** del `UPDATE` (la lectura sigue filtrando) | AC-B62 | **sobrevive** (verde) |
+
+- **La sobreviviente, explicada:** las dos pasadas (tx1 de M3 y `charge.refunded`) toman los candados envíos → `Order` antes
+  de leer los renglones, así que la segunda lee con la primera ya confirmada y el filtro `status:'sold'` de la lectura basta.
+  El `WHERE status='sold'` del `UPDATE` es la segunda red. Matarla haría falta una pasada que lea sin el candado de
+  `Order`, que hoy no existe. ⛔ No es un defecto; queda dicho para quien quite un candado.
+
+#### 83.v1.86.4.4 Para quien corra la integración
+- ⚠️ Las suites de integración comparten estado de BD (energías de la semilla, diales): **`--runInBand`**
+  (`jest-integration.config.js` ya dice `maxWorkers: 1`). Medido: con `--maxWorkers=2` y dos ficheros a la vez, AC-B61 (a)
+  dio `not_offered` porque el `init()` de la otra suite apagó «Fuego» a mitad de la prueba. No es de la prueba.
+- Los CHECK de M-64/M-68 no se aplicaron en `acc_b2`: ninguna de estas pruebas depende de ellos.
+
+#### 83.v1.86.4.5 Suites
+- Integración, ficheros tocados + `accessories-panel` (en serie, esquema `acc_b2`): **4/4 suites, 106/106**.
+- Unitaria ENTERA sobre `git archive 2f8731e3` (árbol entero, `--maxWorkers=2`): **454/454 suites, 8243/8243 pruebas**.
+
+#### 83.v1.86.4.6 NO MEDIDO
+- La integración completa (todas las suites): solo las cuatro de arriba.
+- El reparto `409`/`422` bajo carrera (AC-B33): no se re-midió aquí; es de QA (criterio 741).
