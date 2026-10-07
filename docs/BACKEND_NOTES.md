@@ -30229,3 +30229,103 @@ pruebas. ⛔ Ningún servicio, controlador ni DTO: eso es (A)/(B)/(C).
 - **AC-B2** `test/enum-values-parity.spec.ts`: 5 enums en el ancla, en `PRISMA_ENUMS` y en `DERIVED_VALUES`, más el orden
   exacto de `AccessoryCategory`. Antes: la suite no compilaba (TS2305 ×10). Después: bandas 1-2 y orden verdes; banda 3 roja
   por 83.4 (a).
+
+### 83.A Stream (A) construido — `accessories/`: tienda pública, panel, fotos en Postgres, existencias manuales, cajas con tarifa y diales (2026-10-07, rama `claude/accesorios`)
+**Alcance (§AC.17 (A)):** ⛔ sin cobro. Apartar/soltar/liquidar/reponer (`accessory-stock.ts` de §AC.6), `box-fit.ts`
+(§AC.7) y todo `quote`/`session`/preparación/reembolsos son del stream (B): **no** se crearon aquí (los nombres de
+fichero de §AC.6/§AC.7 quedan libres para (B)).
+
+**Ficheros:** `src/modules/accessories/` — `accessories.module.ts`, `accessories.controller.ts` (público),
+`accessories.service.ts`, `admin-accessories.controller.ts`, `admin-accessories.service.ts`, `accessory-dto.ts` (listas
+blancas), `accessory-input.ts` (cuerpos y consultas), `accessory-photo.ts` (`sharp`), `activation.ts`,
+`suggestion-rule.ts`. Fuera del módulo: `common/error-codes.ts` (los **15** códigos de §AC.13, también los de (B)),
+`admin/shipping-config.ts` + `.service.ts` (`customerFeeCents`), `settings/settings.constants.ts` (2 diales),
+`app.module.ts` (import), `package.json` (`sharp ^0.34.5`).
+
+**Endpoints:** `GET /accessories`, `GET /accessories/suggestions`, `GET /accessories/:id`,
+`GET /accessories/:id/photo/:version/:variant` (públicos); `GET|POST /admin/accessories`, `GET|PATCH|DELETE
+/admin/accessories/:id`, `POST …/:id/activate|deactivate` (★), `POST …/:id/photo`, `POST …/:id/stock`,
+`GET …/:id/stock-movements`; `GET|PUT /admin/shipping/packages` con `customerFeeCents`; `PUT /admin/settings` con
+`energyBundlePriceCents` y `accessorySuggestionCount`.
+
+#### 83.A.1 Decisiones que otros roles necesitan
+1. **URL de la foto = ruta absoluta de la API, sin host:** `/api/v1/accessories/<id>/photo/<version>/full|thumb` (letra de
+   §AC.3 «rutas absolutas de la API»). ⚠️ **Discrepancia para el arquitecto/frontend:** `AccessoryPhoto.tsx` y
+   `AccessoryTile.tsx` ponen `photo.thumbUrl` tal cual en `<img src>`; con la tienda en otro origen (Vercel) y la API en
+   Railway, una ruta sin host apunta al origen de la tienda ⇒ 404. O el frontend antepone el origen de
+   `NEXT_PUBLIC_API_BASE_URL`, o el contrato pide URL con host (el backend no tiene hoy variable con su propio origen
+   público). NO MEDIDO contra el stack desplegado.
+2. **`Cross-Origin-Resource-Policy: cross-origin`** en la respuesta de la foto: `helmet()` (`main.ts:44`) pone
+   `same-origin` por defecto y el navegador bloquearía el `<img>` de otro origen. Más `immutable` + `nosniff` de §AC.3.
+3. **Tipo de la foto por firma a mano** (PNG/JPEG/WebP por números mágicos), no con `file-type`: la 21 instalada es solo
+   ESM y el backend es CommonJS bajo ts-jest. Misma regla («por firma, nunca por extensión»), sin dependencia nueva.
+4. **multer en memoria, a mano** (`multer` 2 sin `@types`): límite 10 MiB ⇒ `422 PHOTO_INVALID {reason:'too_large'}` (⛔ el
+   `413`); sin archivo o multipart roto ⇒ `400 VALIDATION_ERROR {field:'file'}`. El procesador repite el tope de 10 MiB.
+5. **Alta:** el súper-admin puede mandar `active`; se **ignora** (nace inactivo siempre; activar es su verbo con su `422`).
+   El operador que lo manda recibe `403 FORBIDDEN_FIELD` con los demás ★. «Mandar» = llave presente con valor ≠
+   `undefined` (también `null`).
+6. **`PATCH` de un activo que lo dejaría sin precio/medidas/peso** ⇒ `422 ACCESSORY_NOT_ACTIVATABLE {missing}` (el contrato
+   no lo dice; sin esto el CHECK `accessory_active_ready` daría `500`). Cambiar a categoría no-energía sin mandar
+   `energyType` lo limpia; energía sin tipo, tipo sin energía o «Sugerido» en energía ⇒ `400 {field}`.
+7. **Borrar sin ventas borra también sus `AccessoryStockMovement`** (FK `Restrict`; sin eso el `204` del contrato es
+   imposible) y la foto (cascada). La bitácora `accessory.deleted` guarda la fila y `movementsDeleted`. Un renglón creado en
+   paralelo gana por la FK (`P2003` ⇒ `409 ACCESSORY_HAS_SALES`).
+8. **Respuesta de `POST …/stock`** (el contrato no la fija): `200 AdminAccessoryDTO`. `adjust` con `newStockQty =
+   expectedStockQty` ⇒ `400 {field:'newStockQty', reason:'no_change'}`; el CAS es `WHERE stockQty = expected AND
+   reservedQty <= new` y, si no casa, se distingue `STOCK_CONFLICT {stockQty}` de `STOCK_BELOW_RESERVED {reservedQty}`.
+   `receive.note` (≤ 200) va a `AccessoryStockMovement.reason`.
+9. **Panel:** `pageSize` por defecto 50 (≤ 100) en lista y movimientos; orden categoría → nombre → id. Movimientos: más
+   recientes primero.
+10. **Cajas:** `customerFeeCents` ausente en el `PUT` ⇒ `null` (es reemplazo entero). Rango 1..10_000_000 ⇒ si no, `400
+    {field:'customerFeeCents', index}`.
+11. **Diales:** `energy_bundle_price_cents` (1..100_000, default 2000) y `accessory_suggestion_count` (0..6, default 3), sin
+    fila en la migración: `prisma/seed.ts` (y `seed-e2e`) siembran todo `SETTING_DEFAULTS` con `upsert … update:{}`, y sin
+    fila manda el default de código. ⛔ Fuera de `OWNER_ONLY_SETTING_KEYS`. El operador
+    recibe el `403 MONEY_OUT_FORBIDDEN` de clase de `SettingsController` (no un `403 FORBIDDEN` llano).
+12. **Sugerencias:** «más vendidos» = Σ `quantity` de renglones `accessory` en pedidos `status = settled` con `settledAt` en
+    30 d (letra; un pedido después reembolsado ya no es `settled` y no cuenta). Desempate final por `id`.
+13. **404 de la foto** usa `NOT_FOUND` (no `ACCESSORY_NOT_FOUND`, que es de la ficha).
+
+#### 83.A.2 Pruebas (de §AC.14, las del panel y la tienda; las de `quote`/`session`/`track` son de (B))
+| Prueba | Dónde | Antes del código | Después |
+|---|---|---|---|
+| AC-B3 (lista, ficha, sugerencias; ⛔ `quote`/`track`) | `test/accessories.activation-and-dto.spec.ts` + `integration/accessories-panel.e2e-spec.ts` | no compila / rojo | verde |
+| AC-B4 (procesador y HTTP) | `test/accessories.photo.spec.ts` (13) + integración | no compila / rojo | verde |
+| AC-B5 (sin S3 ni `UploadsService`, con canario) | `test/accessories.photo-isolation.spec.ts` | rojo (no existía el módulo) | verde |
+| AC-B6, AC-B45 (mitad de activación) | unitaria + integración | no compila / rojo | verde |
+| AC-B7, AC-B8, AC-B9, AC-B39 | integración | rojo | verde |
+| AC-B23 | `test/accessories.suggestion-rule.spec.ts` + integración | no compila / rojo | verde |
+| AC-B40 + diales | `test/accessories.dials-and-packages.spec.ts` + integración | no compila / rojo | verde |
+- **Antes** (sin `accessories/`): unitarias 5/5 suites sin compilar (TS2307/TS2339); integración **27 rojas / 2 verdes de
+  29** (las 2 verdes son controles que ya valían: `403` del operador en cajas/diales y `404` de un id inexistente).
+- **Suite unitaria entera** (copia `git archive` de `501faf1`, árbol entero): 445/446 suites y 8038/8038 pruebas; la suite
+  restante (`auth.c7-mint`) murió por `SIGKILL` del worker con carga ~17 en 4 CPU y, repetida sola, 13/13 ⇒ **446/446**.
+- **Después:** unitarias de accesorios 62/62; `accessories-panel.e2e-spec.ts` 29/29 (3 corridas en el árbol vivo, esquema `acc_a`; la 2.ª
+  dio 28/29 por un supuesto falso de la prueba — los diales SÍ vienen sembrados por `seed-e2e` — corregido en `501faf1`).
+- **Ajustadas por norma (§AC.15, llave aditiva):** `test/sdx-d2f.units.spec.ts` y `integration/sdx-d2f-money.e2e-spec.ts`
+  (`toEqual` exacto de `ShippingPackageDTO` ⇒ + `customerFeeCents: null`). Ambas verdes.
+
+#### 83.A.3 Mutaciones (copia `git archive` del árbol ENTERO en `501faf1`, esquema propio `acc_a_mut`; deterministas, 1 corrida)
+| Mutación | Resultado |
+|---|---|
+| `toCardDTO` con `...r` | AC-B3 «llaves EXACTAS» rojo |
+| sin comprobar la firma | AC-B4 texto renombrado y GIF rojos (2) |
+| `.withMetadata()` en la salida | AC-B4 «sin EXIF ni GPS» rojo |
+| `fit: 'cover'` | AC-B4 relleno/alfa/orientación rojos (3) |
+| importar `UploadsService` en `accessory-photo.ts` | AC-B5 rojo |
+| la energía pide medidas | AC-B45 rojos (2) |
+| la regla deja pasar energías | AC-B23 unitaria roja |
+| sin rango de `customerFeeCents` | AC-B40 unitaria: 6 rojas |
+| dial de sugerencias 0..7 | 1 roja |
+| integración, una corrida con 8 mutaciones en sitios disjuntos (cada prueba nombrada mira uno solo): `forbidStar` siempre pasa; CAS sin `stockQty = expected`; borrar sin la comprobación de ventas **y** sin mapear `P2003`; sin `immutable`; orden sin «agotados al final»; activar sin `activationMissing`; sugerencias sin el filtro `settled`/30 d | **10/29 rojas**, exactamente las 10 de esas mutaciones (AC-B7 ×2, AC-B6/B45 ×2, AC-B8, AC-B9 ×2, AC-B39, AC-B3 lista, AC-B23) |
+| quitar `customerFeeCents` del `select` de cajas | no compila (TS2322): el tipo `ShippingPackageDTO` lo exige |
+| borrar SOLO la comprobación de ventas (con el mapeo de `P2003`) | AC-B9 **verde** (3/3): la FK `Restrict` es la segunda red. Por eso la mutación que cuenta es la doble |
+
+#### 83.A.4 NO MEDIDO (y qué lo cierra)
+- La foto en el stack desplegado (CORP real detrás de `helmet()`, `<img>` desde Vercel): E2E de frontend contra el stack.
+- `sharp` en la imagen de Railway: devops, con un arranque (dependencia añadida en `44175fd`).
+- Carreras del panel (dos `adjust` a la vez, dos `activate` del mismo tipo): el CAS y el índice parcial las cubren por
+  construcción; sin prueba N=10 (no son dinero de cobro). Lo cierra una prueba de carrera si QA la pide.
+- Suite completa de integración: solo corrí `accessories-panel`, `sdx-d2f-money`, `accessories-m73-migration` y
+  `kyc-ine-links` (las tres últimas 147/147 en un esquema reiniciado con la M-73 del árbol vivo, que otro agente estaba
+  reescribiendo; `accessories-panel` 29/29). El resto de la integración: NO MEDIDO por mí.
