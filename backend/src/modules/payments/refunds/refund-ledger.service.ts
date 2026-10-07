@@ -59,6 +59,14 @@ export interface NewRefundRow {
   components: RefundComponents;
   replacementCaseId?: string | null;
   reason?: string | null;
+  /**
+   * 💰 v1.86⟨accesorios⟩ (§AC.18.2): la forma de una fila de ACCESORIO — `item_missing` ⇒ renglón + línea de envío +
+   * `accessoryQty` (+ `missingReason`); `item_delivered` ⇒ renglón + `accessoryQty`, ⛔ sin línea de envío. Nunca junto a
+   * `orderItemId`/`shipmentItemId` (los CHECK de M-73 lo impiden).
+   */
+  orderAccessoryLineId?: string | null;
+  shipmentAccessoryLineId?: string | null;
+  accessoryQty?: number | null;
 }
 
 export interface RefundActor {
@@ -152,6 +160,9 @@ export class RefundLedgerService {
         requestedByUserId: actor.id,
         requestedByRole: actor.role,
         reason: r.reason ?? null,
+        orderAccessoryLineId: r.orderAccessoryLineId ?? null,
+        shipmentAccessoryLineId: r.shipmentAccessoryLineId ?? null,
+        accessoryQty: r.accessoryQty ?? null,
       })),
     });
     const created = await tx.paymentRefund.findMany({ where: { idempotencyKey: { in: rows.map((r) => r.idempotencyKey) } } });
@@ -506,6 +517,8 @@ export class RefundLedgerService {
         where: { id: { in: refundIds }, customerNotifiedAt: now },
         include: {
           orderItem: { select: { cardSnapshot: true } },
+          // 💰 v1.86⟨accesorios⟩ (§AC.10 (5)): el correo nombra el accesorio y la cantidad («Penny sleeves ×1»).
+          orderAccessoryLine: { select: { kind: true, snapshot: true, deckName: true } },
           replacementCase: { select: { customerUserId: true, originalInventoryItem: { select: { card: { select: { name: true, set: { select: { name: true } } } } } } } },
           order: { select: { id: true, orderNumber: true, guestEmail: true, locale: true, userId: true, createdAt: true } },
           shipmentRequest: { select: { id: true, userId: true } },
@@ -537,8 +550,9 @@ export class RefundLedgerService {
           .map((r) => {
             const facts = r.orderItem ? readFrozenCardFacts(r.orderItem.cardSnapshot) : null;
             const fromCase = r.replacementCase?.originalInventoryItem.card;
+            const accessory = r.orderAccessoryLine ? accessoryRefundNameOf(r.orderAccessoryLine, r.accessoryQty ?? 1, recipient.locale) : null;
             return {
-              name: facts?.name ?? fromCase?.name ?? '',
+              name: accessory ?? facts?.name ?? fromCase?.name ?? '',
               setName: facts?.setName ?? fromCase?.set?.name ?? null,
               reason: r.missingReason ?? r.deliveredReason ?? null,
               amountCents: r.amountCents,
@@ -663,4 +677,14 @@ export class RefundLedgerService {
       },
     });
   }
+}
+
+/**
+ * 💰 v1.86⟨accesorios⟩ (§AC.10 (5)) — el nombre que AV-12 pinta para una fila de accesorio: «Penny sleeves ×1»; el
+ * paquete, «Paquete de energías — <deck> ×1». La plantilla no cambia (pinta `cards[].name`).
+ */
+function accessoryRefundNameOf(line: { kind: string; snapshot: unknown; deckName: string | null }, qty: number, locale: string | null): string {
+  if (line.kind === 'energy_bundle') return `${locale === 'en' ? 'Energy bundle' : 'Paquete de energías'} — ${line.deckName ?? ''} ×${qty}`;
+  const snap = (line.snapshot ?? {}) as { name?: unknown };
+  return `${typeof snap.name === 'string' ? snap.name : ''} ×${qty}`;
 }

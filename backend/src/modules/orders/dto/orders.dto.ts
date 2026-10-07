@@ -12,6 +12,7 @@ import {
 import { applyDecorators } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import { BusinessException } from '../../../common/business.exception';
+import { AccessoryLineInput, AccessoryLinesField, DeckPullInput, DeckPullsField } from './accessory-cart.dto';
 
 /** v1.82 · PNL-6 (`R69-1`): tope del motivo del reembolso total — el de toda nota de este módulo. */
 export const REFUND_REASON_MAX = 500;
@@ -46,11 +47,20 @@ function MaxLengthWithField(field: string, max: number): PropertyDecorator {
 
 export class QuoteDto {
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) inventoryItemIds!: string[];
+  /**
+   * 💰 v1.86⟨accesorios⟩ (§AC.5, criterio 749): se DECLARAN con la forma de §AC.4 para que el `whitelist` no los borre en
+   * silencio; no vacíos ⇒ `422 ACCESSORIES_REQUIRE_DIRECT_SHIP` (lo lanza `OrdersController`). ⛔ Se rechazan, no se ignoran.
+   */
+  @AccessoryLinesField() accessoryLines?: AccessoryLineInput[];
+  @DeckPullsField() deckPulls?: DeckPullInput[];
 }
 
 export class SessionDto {
   @IsArray() @ArrayNotEmpty() @IsString({ each: true }) inventoryItemIds!: string[];
   @IsOptional() @IsString() billingProfileId?: string;
+  /** 💰 v1.86⟨accesorios⟩ (§AC.5): ver `QuoteDto`. */
+  @AccessoryLinesField() accessoryLines?: AccessoryLineInput[];
+  @DeckPullsField() deckPulls?: DeckPullInput[];
 }
 
 export class RefundDto {

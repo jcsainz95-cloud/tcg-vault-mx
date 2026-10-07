@@ -215,6 +215,8 @@ describe('POST /orders/guest/track — MINIMIZACIÓN DE DATOS (§4-G.3, criterio
         'paidAt', 'shipping', 'status', 'support', 'tokenExpiresAt',
         // v1.80 (§M4-SHIP.10, aditivo): lo devuelto por Stripe (sin actor, sin `failureCode`, sin componentes).
         'refundedCents',
+        // 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.6, aditivo): los renglones de accesorio (`OrderAccessoryLineDTO`).
+        'accessoryLines',
       ].sort(),
     );
   });

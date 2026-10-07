@@ -22,11 +22,13 @@ import { afterAutoCloseVia } from '../shipments/label-auto-close';
 import { PaymentRefund, Prisma, Role, ShippedRefundReason } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { orderFullRefundComponents } from '../../common/money';
+import { itemMissingRefundComponents, orderFullRefundComponents } from '../../common/money';
 import { FullRefundService, VaultPieceState } from '../payments/refunds/full-refund.service';
 import { NON_FAILED, PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { ACCEPTED_SHIPPED_REFUND_REASONS } from '../../common/business-rules';
 import { DeliveredRefundView, deliveredLinesOf, deliveredRefundDecision, deliveredRefundViewOf, parseItemDeliveredBody } from './item-delivered-refund';
+import { ACCESSORY_LINE_READ_INCLUDE, OrderAccessoryLineDTO, accessoryDeliveredRefundOf, toOrderAccessoryLineDTO } from './accessory-lines-view';
+import { ACCESSORY_LINE_QTY_MAX } from './dto/accessory-cart.dto';
 import {
   FULL_REFUND_REVIEW_SELECT,
   FullRefundReviewDTO,
@@ -475,6 +477,155 @@ export class OrderRefundService {
       throw e;
     }
     // (8) post-commit: Stripe (`amount = A`, `Idempotency-Key = item-delivered:<id>`) y AV-12 (invitado incluido).
+    const [finalRow] = await this.ledger.executeAndNotify([row.id], actor);
+    return { refund: (await this.ledger.toDtos([finalRow]))[0] };
+  }
+
+  // ================================================================ 💰 v1.86⟨accesorios⟩ §AC.10 (2) — un renglón tras la entrega
+
+  /**
+   * ¿El deck de un paquete ya está reembolsado ENTERO? (P-EN-5, §AC.10 (3)): cada `deckOrderItemIds` tiene una fila NO
+   * fallida `item_missing`, `item_delivered` o `case_refund`.
+   */
+  private async deckCovered(db: Prisma.TransactionClient | PrismaService, deckOrderItemIds: readonly string[]): Promise<boolean> {
+    if (deckOrderItemIds.length === 0) return false;
+    const rows = await db.paymentRefund.findMany({
+      where: { orderItemId: { in: [...deckOrderItemIds] }, kind: { in: ['item_missing', 'item_delivered', 'case_refund'] }, ...NON_FAILED },
+      select: { orderItemId: true },
+    });
+    const covered = new Set(rows.map((r) => r.orderItemId));
+    return deckOrderItemIds.every((id) => covered.has(id));
+  }
+
+  /**
+   * `accessoryLines` de `GET /admin/orders/:id` (§AC.12, §AC.19.6) con `deliveredRefund` (v1.86.2): el MISMO cuerpo que el
+   * verbo (`accessoryDeliveredRefundOf` + `itemMissingRefundComponents`), ⛔ sin candados. La pantalla no calcula.
+   */
+  async accessoryLinesForM3(orderId: string): Promise<OrderAccessoryLineDTO[]> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) return [];
+    const lines = await this.prisma.orderAccessoryLine.findMany({
+      where: { orderId },
+      include: { ...ACCESSORY_LINE_READ_INCLUDE, shipmentLine: { select: { shipmentRequest: { select: { status: true } } } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const out: OrderAccessoryLineDTO[] = [];
+    for (const l of lines) {
+      const deckCovered = l.kind === 'energy_bundle' ? await this.deckCovered(this.prisma, l.deckOrderItemIds) : false;
+      out.push(
+        toOrderAccessoryLineDTO(
+          l,
+          accessoryDeliveredRefundOf({ order, line: l, shipmentStatus: l.shipmentLine?.shipmentRequest.status ?? null, deckCovered }),
+        ),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * 💰 §AC.10 (2) — `POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered` (súper-admin, `@MoneyOut`). Los pasos
+   * de §PNL.2 cambiando la carta por el renglón: (1) cuerpo ⇒ `400 {field}`; renglón de OTRA orden ⇒ `404`; (2) candados
+   * envíos → `Order` → renglón; (3) guardas bajo candado (`ITEM_REFUND_NOT_AVAILABLE {reason}`, `ACCESSORY_REFUND_EXCEEDS
+   * {refundableQty}`, `BUNDLE_REFUND_REQUIRES_DECK`); (4) importe `itemMissingRefundComponents(order, k × P)` y defensa
+   * del remanente; (5) `expectedRefundCents ≠ A` ⇒ `409 REFUND_PREVIEW_STALE {refundCents: A}`, cero escrituras; (6) CAS
+   * `refundedQty + k ≤ quantity` y fila `item_delivered` (`acc-delivered:<lineId>:<refundedQty tras el acto>`, ⛔ sin línea
+   * de envío); (7) bitácora; (8) post-commit Stripe + AV-12. ⛔ Cero inventario; la orden sigue `settled`.
+   */
+  async refundAccessoryDelivered(orderId: string, lineId: string, rawBody: unknown, actor: { id: string; role: Role }): Promise<{ refund: PaymentRefundDTO }> {
+    const raw = typeof rawBody === 'object' && rawBody !== null && !Array.isArray(rawBody) ? (rawBody as Record<string, unknown>) : {};
+    const quantity = raw.quantity;
+    if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1 || quantity > ACCESSORY_LINE_QTY_MAX) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'quantity must be an integer >= 1', { field: 'quantity' });
+    }
+    const body = parseItemDeliveredBody(rawBody);
+    const head = await this.prisma.orderAccessoryLine.findUnique({ where: { id: lineId }, select: { orderId: true, kind: true } });
+    if (!head || head.orderId !== orderId) throw BusinessException.notFound();
+    // P-EN-5: el paquete se reembolsa ENTERO (⛔ proporcional por energía).
+    if (head.kind === 'energy_bundle' && quantity !== 1) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'an energy bundle is refunded whole (quantity 1)', { field: 'quantity' });
+    }
+    let row: PaymentRefund;
+    try {
+      row = await this.prisma.$transaction(
+        async (tx) => {
+          await lockShipmentsOfOrder(tx, orderId);
+          await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM "OrderAccessoryLine" WHERE id = ${lineId} FOR UPDATE`;
+          const order = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
+          const line = await tx.orderAccessoryLine.findUniqueOrThrow({
+            where: { id: lineId },
+            include: { shipmentLine: { select: { shipmentRequest: { select: { status: true } } } } },
+          });
+          if (order.fulfillmentMode !== 'direct_ship') {
+            throw BusinessException.conflict('ITEM_REFUND_NOT_AVAILABLE', 'Not a direct-ship order', { reason: 'not_direct_ship' });
+          }
+          // (3) guardas BAJO candado con el MISMO cuerpo que la vista `deliveredRefund` de M3 (⛔ dos reglas): orden
+          // liquidada → todo reembolsado → entregado → (paquete) deck entero.
+          const deckCovered = line.kind === 'energy_bundle' ? await this.deckCovered(tx, line.deckOrderItemIds) : false;
+          const view = accessoryDeliveredRefundOf({ order, line, shipmentStatus: line.shipmentLine?.shipmentRequest.status ?? null, deckCovered });
+          if (view.kind === 'not_refundable') {
+            if (view.reason === 'fully_refunded') throw BusinessException.conflict('ACCESSORY_REFUND_EXCEEDS', 'More units than remain refundable', { refundableQty: 0 });
+            if (view.reason === 'bundle_requires_deck') throw BusinessException.conflict('BUNDLE_REFUND_REQUIRES_DECK', 'The deck of this bundle is not fully refunded');
+            throw BusinessException.conflict('ITEM_REFUND_NOT_AVAILABLE', 'This accessory cannot be refunded after delivery', { reason: view.reason });
+          }
+          const refundableQty = view.refundableQty;
+          if (quantity > refundableQty) {
+            throw BusinessException.conflict('ACCESSORY_REFUND_EXCEEDS', 'More units than remain refundable', { refundableQty });
+          }
+          // (4) `A` = `deliveredRefund.amountByQtyCents[quantity − 1]` (§AC.10 (2) v1.86.2): la cifra que vio el súper-admin.
+          const components = itemMissingRefundComponents(order, quantity * line.unitPriceCents);
+          const A = components.amountCents;
+          const refunded = await this.ledger.refundedNonFailedCents(tx, orderId);
+          if (A > order.totalCents - refunded) {
+            this.logger.error(`refund-accessory-delivered ${orderId}/${lineId}: A=${A} excede el remanente ${order.totalCents - refunded} (no debe ocurrir).`);
+            throw BusinessException.conflict('CONFLICT', 'The refund would exceed what remains of the charge', { remainingCents: order.totalCents - refunded });
+          }
+          if (body.expectedRefundCents !== A) {
+            throw BusinessException.conflict('REFUND_PREVIEW_STALE', 'The refund amount changed', { refundCents: A });
+          }
+          const cas = await tx.$executeRaw`
+            UPDATE "OrderAccessoryLine" SET "refundedQty" = "refundedQty" + ${quantity}::int
+             WHERE id = ${lineId} AND "refundedQty" + ${quantity}::int <= quantity`;
+          if (cas !== 1) throw BusinessException.conflict('ACCESSORY_REFUND_EXCEEDS', 'More units than remain refundable', { refundableQty });
+          const [created] = await this.ledger.createRows(
+            tx,
+            [
+              {
+                idempotencyKey: `acc-delivered:${lineId}:${line.refundedQty + quantity}`,
+                kind: 'item_delivered',
+                orderId,
+                orderAccessoryLineId: lineId,
+                accessoryQty: quantity,
+                deliveredReason: body.reason,
+                missingReason: null,
+                reason: body.note,
+                components,
+              },
+            ],
+            actor,
+            { deliveredReason: body.reason },
+          );
+          await tx.auditLog.create({
+            data: {
+              actorUserId: actor.id,
+              actorRole: actor.role,
+              action: 'order.accessory_refund_delivered',
+              entityType: 'Order',
+              entityId: orderId,
+              after: { orderAccessoryLineId: lineId, quantity, reason: body.reason, note: body.note, amountCents: created.amountCents, refundId: created.id },
+            },
+          });
+          return created;
+        },
+        { maxWait: 10_000, timeout: 30_000 },
+      );
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const line = await this.prisma.orderAccessoryLine.findUnique({ where: { id: lineId }, select: { quantity: true, refundedQty: true } });
+        throw BusinessException.conflict('ACCESSORY_REFUND_EXCEEDS', 'More units than remain refundable', { refundableQty: line ? line.quantity - line.refundedQty : 0 });
+      }
+      throw e;
+    }
     const [finalRow] = await this.ledger.executeAndNotify([row.id], actor);
     return { refund: (await this.ledger.toDtos([finalRow]))[0] };
   }

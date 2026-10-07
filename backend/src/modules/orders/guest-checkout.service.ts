@@ -33,6 +33,27 @@ import {
   GuestOrderPublicStatus,
 } from './guest-checkout.constants';
 import { supportContact } from '../mail/support-contact';
+import { DecksMetaService } from '../decks-meta/decks-meta.service';
+import { sameLooseCart } from './accessory-cart';
+import { reserveAccessories } from './accessory-stock';
+import { BoxChoice, boxSnapshotOf, shippingFeeWithBox } from './box-fit';
+import {
+  EMPTY_QUOTE_ACCESSORY_PART,
+  QuoteAccessoryPart,
+  SessionAccessoryPart,
+  boxChoiceOf,
+  createAccessoryLines,
+  orderAccessoryCartOf,
+  ownAccessoryReservedOf,
+  quoteAccessoryPart,
+  sameSlugSet,
+  sessionAccessoryPart,
+  sessionLinesDtoOf,
+  shippingBoxDtoOf,
+} from './guest-accessory-cart';
+import { ACCESSORY_LINE_READ_INCLUDE, AccessoryLineReadRow, toOrderAccessoryLineDTO } from './accessory-lines-view';
+import { photoDTO } from '../accessories/accessory-dto';
+import type { EnergyBundleDTO } from '../decks-meta/energy-bundle';
 
 /** Snapshot de dirección de un pedido `direct_ship` (el invitado no tiene fila `Address`). */
 export interface GuestAddressSnapshot {
@@ -78,6 +99,9 @@ export class GuestCheckoutService {
     // ⭐ v1.81 (M-64, §M4-SHIP.19.5): la lista de colonias por CP. `@Optional()` (unitarios a mano); sin él, cotizar
     // con dirección o crear la sesión LANZA — ⛔ un pedido nunca nace sin validar la colonia.
     @Optional() private readonly postalCodesSvc?: PostalCodeService,
+    // 💰 v1.86⟨accesorios⟩ (§AC.19.4): el validador de `deckPulls` (stream C). `@Optional()` por los unitarios a mano;
+    // sin él, un carrito CON `deckPulls` lanza (⛔ nunca se cobra un paquete sin validar).
+    @Optional() private readonly decksMeta?: DecksMetaService,
   ) {}
 
   private get postalCodes(): PostalCodeService {
@@ -117,12 +141,29 @@ export class GuestCheckoutService {
       unavailableItems,
       ownReservation,
       reservedByYou,
-      frozenOrder,
+      frozenOrder: frozenByItems,
     } = await this.orders.priceCartForQuote(
       dto.inventoryItemIds,
       claimedOrderId ? { orderId: claimedOrderId } : undefined,
     );
-    const computed = await this.quoteBreakdowns(subtotalCents, lines.length === 0, ivaDials);
+    // 💰 v1.86⟨accesorios⟩ (§AC.19.4, orden normativo de `quote`): (2) poda de piezas ⇒ `lines`; (3) el validador de
+    // decks con las piezas YA podadas; (4) existencias: paquetes primero, luego sueltos con el remanente; (5) traducción;
+    // (6) caja y desglose con lo que quedó. Sin accesorios ni `deckPulls` ⇒ ⛔ no se lee nada más (I-AC-5).
+    const accLines = dto.accessoryLines ?? [];
+    const pulls = dto.deckPulls ?? [];
+    const acc: QuoteAccessoryPart =
+      accLines.length > 0 || pulls.length > 0
+        ? await quoteAccessoryPart(this.prisma as unknown as Prisma.TransactionClient, this.decksMeta, {
+            lines: accLines,
+            pulls,
+            prunedInventoryItemIds: lines.map((l) => l.inventoryItemId),
+            extra: claimedOrderId ? await ownAccessoryReservedOf(this.prisma as unknown as Prisma.TransactionClient, [claimedOrderId]) : undefined,
+          })
+        : EMPTY_QUOTE_ACCESSORY_PART;
+    const frozenOrder = await this.frozenForQuote(frozenByItems, claimedOrderId, lines.length, acc);
+    const itemsEmpty = lines.length === 0;
+    const empty = itemsEmpty && acc.accessoryLines.length === 0 && acc.energyBundles.length === 0;
+    const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, empty ? null : await boxChoiceOf(this.prisma as unknown as Prisma.TransactionClient, acc.units));
     // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
     const breakdown: DirectShipBreakdownDTO = frozenOrder
       ? { ...this.orders.breakdownOf(frozenOrder), shippingFeeCents: frozenOrder.shippingFeeCents }
@@ -145,7 +186,37 @@ export class GuestCheckoutService {
       unavailableItems,
       // Banderas, no texto (§0 i18n): el front renderiza ventas finales / factura / términos.
       notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
+      // 💰 v1.86⟨accesorios⟩ (§AC.4, aditivo): SIEMPRE presentes (`[]`/`null` sin accesorios).
+      accessoryLines: acc.accessoryLines,
+      energyBundles: acc.energyBundles,
+      energyBundleOffers: acc.energyBundleOffers,
+      unavailableAccessories: acc.unavailableAccessories,
+      unavailableBundles: acc.unavailableBundles,
+      shippingBox: shippingBoxDtoOf(computed.choice),
+      vaultExcludesAccessories: acc.accessoryLines.length > 0 || acc.energyBundles.length > 0,
     };
+  }
+
+  /**
+   * v1.68.1 + 💰 v1.86⟨accesorios⟩ — el desglose CONGELADO de la orden propia rige solo si esa orden cubre el carrito
+   * ENTERO: piezas (lo decide `priceCartForQuote`) **y** el mismo multiconjunto de accesorios y los mismos paquetes. Un
+   * carrito solo de accesorios (sin piezas) se compara directo contra la orden reclamada.
+   */
+  private async frozenForQuote(frozenByItems: Order | null, claimedOrderId: string | null, itemLines: number, acc: QuoteAccessoryPart): Promise<Order | null> {
+    const db = this.prisma as unknown as Prisma.TransactionClient;
+    if (frozenByItems) {
+      const cart = await orderAccessoryCartOf(db, frozenByItems.id);
+      return sameLooseCart(cart.loose, acc.loose) && sameSlugSet(cart.bundleSlugs, acc.bundleSlugs) && cart.allReserved ? frozenByItems : null;
+    }
+    if (!claimedOrderId || itemLines > 0 || (acc.loose.length === 0 && acc.bundleSlugs.length === 0)) return null;
+    const order = await this.prisma.order.findUnique({ where: { id: claimedOrderId }, include: { items: { select: { id: true } } } });
+    if (!order || order.status !== 'pending' || order.items.length > 0) return null;
+    const cart = await orderAccessoryCartOf(db, order.id);
+    const live = await this.prisma.orderAccessoryLine.count({ where: { orderId: order.id, status: 'reserved', reservedUntil: { gt: new Date() } } });
+    const total = await this.prisma.orderAccessoryLine.count({ where: { orderId: order.id } });
+    if (live === 0 || live !== total) return null;
+    const { items: _items, ...row } = order;
+    return sameLooseCart(cart.loose, acc.loose) && sameSlugSet(cart.bundleSlugs, acc.bundleSlugs) ? (row as Order) : null;
   }
 
   // ---------------------------------------------------------------- session
@@ -192,13 +263,25 @@ export class GuestCheckoutService {
       dto.inventoryItemIds,
       claimedOrderId ? { orderId: claimedOrderId } : undefined,
     );
-    const breakdownPre = await this.breakdownFor(subtotalCents, ivaDials);
+    // 💰 v1.86⟨accesorios⟩ (§AC.4, §AC.19.4): con accesorios o `deckPulls` el desglose se arma DENTRO de la tx (precio
+    // del accesorio y dial del paquete leídos por el `tx` y congelados; caja con las cajas del `tx`). Los diales de dinero
+    // (`E_base` y la comisión) se leen AQUÍ, fuera, por la misma razón del pool. Sin accesorios ⇒ el camino de hoy, literal.
+    const accLines = dto.accessoryLines ?? [];
+    const pulls = dto.deckPulls ?? [];
+    const withAccessories = accLines.length > 0 || pulls.length > 0;
+    const breakdownPre = withAccessories ? null : await this.breakdownFor(subtotalCents, ivaDials);
+    const accDials = withAccessories
+      ? {
+          baseFeeCents: shippingFeeDisplayCentsOf(await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS), ivaDials),
+          fee: await this.settings.getStripeFee(),
+        }
+      : null;
 
     const outcome = await this.prisma.$transaction(
       async (
         tx,
       ): Promise<
-        | { kind: 'reused'; order: Order; reservedUntil: Date }
+        | { kind: 'reused'; order: Order; reservedUntil: Date; part: SessionAccessoryPart | null }
         | {
             kind: 'created';
             order: Order;
@@ -206,6 +289,8 @@ export class GuestCheckoutService {
             itemIds: string[];
             supersededOrderIds: string[];
             reservedUntil: Date;
+            part: SessionAccessoryPart | null;
+            choice: BoxChoice | null;
           }
       > => {
         // §4-R.2: PUERTA POR CLIENTE (aquí, por correo normalizado: solo SERIALIZA; la titularidad la
@@ -213,16 +298,21 @@ export class GuestCheckoutService {
         await lockReservationGate(tx, { guestEmail });
         const now = new Date();
         const own: OwnReservation[] = claimedOrderId
-          ? await this.orders.findOwnLiveReservations(
-              tx,
-              dto.inventoryItemIds,
-              { orderId: claimedOrderId },
-              now,
-            )
+          ? await this.ownGuestReservations(tx, dto.inventoryItemIds, claimedOrderId, now)
           : [];
-        if (own.length === 1 && this.orders.isReusable(own[0], dto.inventoryItemIds)) {
+        // 💰 §AC.19.4 pasos 2–3 — validaciones de accesorios y paquetes, ANTES de crear nada (409 / 422 ⇒ rollback).
+        const part = withAccessories
+          ? await sessionAccessoryPart(tx, this.decksMeta, {
+              lines: accLines,
+              pulls,
+              requestInventoryItemIds: dto.inventoryItemIds,
+              extra: own.length > 0 ? await ownAccessoryReservedOf(tx, own.map((o) => o.order.id)) : undefined,
+            })
+          : null;
+        if (own.length === 1 && this.orders.isReusable(own[0], dto.inventoryItemIds) && (await this.sameAccessoryCart(tx, own[0].order.id, part))) {
+          // `renewReservation` renueva piezas y renglones de accesorio (§AC.6 (3)).
           const reservedUntil = await this.orders.renewReservation(tx, own[0].order.id, now);
-          return { kind: 'reused', order: own[0].order, reservedUntil };
+          return { kind: 'reused', order: own[0].order, reservedUntil, part };
         }
         const supersededOrderIds: string[] = [];
         for (const o of own) {
@@ -230,7 +320,20 @@ export class GuestCheckoutService {
           supersededOrderIds.push(o.order.id);
         }
 
-        const breakdown = breakdownPre;
+        // 💰 §AC.7: la caja (solo con accesorios que no son energía) y `max(E_base, caja)`; el desglose con TODO el
+        // subtotal (I-AC-1). Sin accesorios ⇒ `breakdownPre`, el de hoy.
+        let choice: BoxChoice | null = null;
+        let breakdown: DirectShipBreakdownDTO;
+        if (part && accDials) {
+          choice = await boxChoiceOf(tx, part.units);
+          const shippingFeeCents = shippingFeeWithBox(accDials.baseFeeCents, choice);
+          breakdown = this.orders.representableOrThrow(() =>
+            computeDirectShipBreakdown(subtotalCents + part.subtotalCents, shippingFeeCents, ivaDials.ivaRatePct, accDials.fee),
+          );
+        } else {
+          breakdown = breakdownPre as DirectShipBreakdownDTO;
+        }
+        const boxSnapshot = part && accDials ? boxSnapshotOf(choice, accDials.baseFeeCents, part.units) : null;
         // v1.68.1: por el `tx` (una sola conexión por checkout; ver `OrdersService.nextOrderNumber`).
         const orderNumber = await this.orders.nextOrderNumber(tx);
         const reservedUntil = reservedUntilFrom(now);
@@ -261,6 +364,8 @@ export class GuestCheckoutService {
             ivaTransferPct: ivaDials.ivaTransferPct,
             cfdiStatus: 'registrado',
             items: { create: lines },
+            // 💰 v1.86⟨accesorios⟩ (§AC.1/§AC.7): la caja congelada (`null` ⇔ tarifa de hoy) y «revisar caja».
+            ...(boxSnapshot ? { shippingBoxSnapshot: boxSnapshot as unknown as Prisma.InputJsonValue, shippingBoxReview: choice?.review ?? false } : {}),
           },
         });
         // Reserva ATÓMICA por el helper COMPARTIDO con el checkout de bóveda (T2): mismas guardias
@@ -268,6 +373,12 @@ export class GuestCheckoutService {
         // orden) y el vencimiento. La diferencia de esta ruta es el `null`: NO se escribe titularidad,
         // la pieza sigue siendo de la plataforma durante todo el ciclo — invariante §4-G.0-1.
         await this.orders.reserveItems(tx, items, null, { orderId: order.id, reservedUntil });
+        if (part) {
+          // 💰 §AC.19.4 pasos 4–5: renglones congelados y el apartado ÚNICO por accesorio (Σ sueltos + Σ componentes),
+          // `accessoryId` ascendente, condición en el `UPDATE`. 0 filas ⇒ 409 y se deshace TODO, piezas incluidas.
+          await createAccessoryLines(tx, order.id, part, reservedUntil);
+          await reserveAccessories(tx, order.id, part.wants);
+        }
         return {
           kind: 'created',
           order,
@@ -275,6 +386,8 @@ export class GuestCheckoutService {
           itemIds: lines.map((l) => l.inventoryItemId),
           supersededOrderIds,
           reservedUntil,
+          part,
+          choice,
         };
       },
       RESERVATION_TX_OPTIONS,
@@ -326,6 +439,68 @@ export class GuestCheckoutService {
       reused: outcome.kind === 'reused',
       reservedUntil: outcome.reservedUntil,
       supersededOrderIds: outcome.kind === 'reused' ? [] : outcome.supersededOrderIds,
+      // 💰 v1.86⟨accesorios⟩ (§AC.4, §AC.19.4, aditivo): lo CREADO (en el reuso, lo de la orden reusada). ⛔ Sin
+      // `energyBundleOffers` ni `unavailableBundles`: la sesión no ofrece.
+      ...(await this.sessionAccessoryResponse(order, outcome.part, outcome.kind === 'created' ? { choice: outcome.choice } : null)),
+    };
+  }
+
+  /**
+   * 💰 v1.86⟨accesorios⟩ (§AC.4 reuso) — `isReusable` exige además el MISMO multiconjunto `(accessoryId, quantity)` y el
+   * MISMO conjunto de paquetes (por `deckSlug`), todos aún apartados. Si no ⇒ se sustituye (y `supersedeOwnOrder` suelta
+   * también los apartados de accesorio, §AC.6 (2)).
+   */
+  private async sameAccessoryCart(tx: Prisma.TransactionClient, orderId: string, part: SessionAccessoryPart | null): Promise<boolean> {
+    const cart = await orderAccessoryCartOf(tx, orderId);
+    if (!cart.allReserved) return false;
+    return sameLooseCart(cart.loose, part?.looseWants ?? []) && sameSlugSet(cart.bundleSlugs, part?.bundleSlugs ?? []);
+  }
+
+  /**
+   * v1.68 (§4-R.2) + 💰 v1.86⟨accesorios⟩ — las reservas PROPIAS del invitado: las que intersecan el carrito por PIEZAS
+   * (`findOwnLiveReservations`) **más** la orden reclamada si solo aparta accesorios (sin piezas no la encuentra el
+   * pre-scan por piezas). `heldAlive` de esa orden = todos sus renglones `reserved` y sin vencer.
+   */
+  private async ownGuestReservations(tx: Prisma.TransactionClient, cartIds: string[], claimedOrderId: string, now: Date): Promise<OwnReservation[]> {
+    const own = await this.orders.findOwnLiveReservations(tx, cartIds, { orderId: claimedOrderId }, now);
+    if (own.some((o) => o.order.id === claimedOrderId)) return own;
+    const order = await tx.order.findUnique({ where: { id: claimedOrderId }, include: { items: true } });
+    if (!order || order.status !== 'pending') return own;
+    const lines = await tx.orderAccessoryLine.findMany({ where: { orderId: claimedOrderId }, select: { status: true, reservedUntil: true } });
+    if (!lines.some((l) => l.status === 'reserved')) return own;
+    const heldAlive = order.items.length === 0 && lines.every((l) => l.status === 'reserved' && l.reservedUntil.getTime() > now.getTime());
+    return [...own, { order, heldItemIds: [], heldAlive }];
+  }
+
+  /**
+   * La parte aditiva de la respuesta de `session` (§AC.4): `accessoryLines`, `energyBundles` y `shippingBox` de lo CREADO;
+   * en el REUSO, lo de la orden reusada con sus precios CONGELADOS (el PI cobra eso, no el catálogo de hoy).
+   */
+  private async sessionAccessoryResponse(order: Order, part: SessionAccessoryPart | null, created: { choice: BoxChoice | null } | null) {
+    if (created) {
+      return {
+        accessoryLines: (part?.loose ?? []).map((l) => ({
+          accessoryId: l.row.id,
+          name: l.row.name,
+          category: l.row.category,
+          energyType: l.row.energyType,
+          unitPriceCents: l.row.priceCents,
+          quantity: l.quantity,
+          lineTotalCents: l.row.priceCents * l.quantity,
+          photo: photoDTO(l.row.id, l.row.photoVersion),
+        })),
+        energyBundles: (part?.bundles ?? []).map((b) => b.bundle) as EnergyBundleDTO[],
+        shippingBox: shippingBoxDtoOf(created.choice),
+      };
+    }
+    const db = this.prisma as unknown as Prisma.TransactionClient;
+    const frozenBundles = await this.prisma.orderAccessoryLine.findMany({ where: { orderId: order.id, kind: 'energy_bundle' }, select: { deckSlug: true, unitPriceCents: true } });
+    const priceBySlug = new Map(frozenBundles.map((b) => [b.deckSlug, b.unitPriceCents]));
+    const snap = order.shippingBoxSnapshot as { code?: string; label?: string } | null;
+    return {
+      accessoryLines: await sessionLinesDtoOf(db, order.id),
+      energyBundles: (part?.bundles ?? []).map((b) => ({ ...b.bundle, priceCents: priceBySlug.get(b.deckSlug) ?? b.bundle.priceCents })) as EnergyBundleDTO[],
+      shippingBox: snap && snap.code ? { code: snap.code, label: snap.label ?? snap.code, review: order.shippingBoxReview } : null,
     };
   }
 
@@ -376,6 +551,8 @@ export class GuestCheckoutService {
         // ⭐ D2e (§19.12, PS-89): + los eventos del transportista para la línea de tiempo pública.
         shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT } },
         refunds: true,
+        // 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.6): los renglones con su accesorio VIGENTE (la foto de hoy) y componentes.
+        accessoryLines: { include: ACCESSORY_LINE_READ_INCLUDE, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
       },
     });
     // Defensa: un token vivo sin pedido (borrado) se trata igual que un token inventado.
@@ -578,23 +755,29 @@ export class GuestCheckoutService {
    */
   private async quoteBreakdowns(
     subtotalCents: number,
+    /** 💰 v1.86⟨accesorios⟩: el `vaultBreakdown` es SOLO de cartas, como hoy (§AC.4). */
+    itemsSubtotalCents: number,
     empty: boolean,
+    itemsEmpty: boolean,
     // ⚠️ Los MISMOS diales que derivaron cada `P` del carrito, ⛔ no una segunda lectura.
     ivaDials: IvaDials,
-  ): Promise<{ breakdown: DirectShipBreakdownDTO; vaultBreakdown: BreakdownDTO }> {
+    /** 💰 v1.86⟨accesorios⟩ (§AC.7): la caja elegida; `null` ⇒ la tarifa de hoy, bit a bit. */
+    choice: BoxChoice | null,
+  ): Promise<{ breakdown: DirectShipBreakdownDTO; vaultBreakdown: BreakdownDTO; choice: BoxChoice | null }> {
     const ivaPct = ivaDials.ivaRatePct;
     const fee = await this.settings.getStripeFee();
     if (empty) {
       const zero = this.orders.zeroCartBreakdown(ivaPct);
-      return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero };
+      return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero, choice: null };
     }
-    const shippingFeeCents = shippingFeeDisplayCentsOf(
+    const baseFeeCents = shippingFeeDisplayCentsOf(
       await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS),
       ivaDials,
     );
     return {
-      breakdown: computeDirectShipBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
-      vaultBreakdown: computeCartBreakdown(subtotalCents, ivaPct, fee),
+      breakdown: computeDirectShipBreakdown(subtotalCents, shippingFeeWithBox(baseFeeCents, choice), ivaPct, fee),
+      vaultBreakdown: itemsEmpty ? this.orders.zeroCartBreakdown(ivaPct) : computeCartBreakdown(itemsSubtotalCents, ivaPct, fee),
+      choice,
     };
   }
 
@@ -655,6 +838,7 @@ export class GuestCheckoutService {
       }[];
       shipmentRequests: (ShipmentRequest & { carrierEvents?: TimelineEventRow[] })[];
       refunds?: { status: string; amountCents: number }[];
+      accessoryLines?: AccessoryLineReadRow[];
     },
     tokenExpiresAt: Date,
   ) {
@@ -693,6 +877,8 @@ export class GuestCheckoutService {
         // `failureCode` ni componentes.
         refund: clientRefundOf(oi.refund),
       })),
+      // 💰 v1.86⟨accesorios⟩ (§AC.19.6): `OrderAccessoryLineDTO` (lista blanca; ⛔ `deliveredRefund`, costo, snapshot).
+      accessoryLines: (order.accessoryLines ?? []).map((l) => toOrderAccessoryLineDTO(l)),
       breakdown: {
         subtotalCents: order.subtotalCents,
         shippingFeeCents: order.shippingFeeCents,

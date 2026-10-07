@@ -37,6 +37,7 @@
  *     aún `reserved`) bloquearía, y podría interbloquear (`40P01`) con quien tome pieza → `Order`. ⚠ NO MEDIDA como
  *     carrera; anotada para el arquitecto en BACKEND_NOTES §21.
  */
+import { restockAccessoriesOnFullRefund } from '../../orders/accessory-stock';
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus, Prisma, ShippedRefundReason } from '@prisma/client';
 import { cancelProviderLabelIfAny } from '../../shipments/label-auto-close';
@@ -239,6 +240,11 @@ export class FullRefundService {
     const releasedItemIds = isSettleableOrderStatus(row.status)
       ? await releaseReservedOfUnsettledRefund(tx, orderId, trigger, actorUserId, { lockedReservedIds, orderNumber: row.orderNumber })
       : [];
+    // 💰 v1.86⟨accesorios⟩ (§AC.6 (5), criterios 717/744): orden LIQUIDADA y ningún envío propio salido
+    // (`afterShipment = false`, leído BAJO los candados de arriba) ⇒ los renglones `sold` vuelven a existencias
+    // (`quantity − missingQty`; el paquete, por tipo). Con envío salido ⇒ nada vuelve. ⛔ Difiere de las cartas a propósito
+    // (`ARCHITECTURE §4.AC (k)`). Idempotente por el CAS `sold → restocked` (la segunda pasada no repone).
+    const restocked = (row.status === 'settled' || row.status === 'refunded') && !afterShipment ? await restockAccessoriesOnFullRefund(tx, orderId, new Date()) : { lines: 0, units: 0 };
     const sealedNow = row.fullRefundClosedAt === null;
     if (opts.shippedReason && (!sealedNow || !afterShipment)) {
       // Invariante: M3 decidió «enviado» bajo el MISMO candado y sobre una orden `settled` sin sello.
@@ -278,6 +284,7 @@ export class FullRefundService {
             afterShipment,
             shippedReason: opts.shippedReason?.reason ?? null,
             releasedItemIds,
+            restockedAccessoryLines: restocked.lines,
           },
         },
       });

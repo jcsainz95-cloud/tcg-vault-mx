@@ -105,6 +105,8 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
           return { count: 1 };
         }),
       },
+      // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): la liberación suelta también los renglones de accesorio (aquí, ninguno).
+      orderAccessoryLine: { findMany: jest.fn(async () => []) },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const stripe: any = {

@@ -188,6 +188,8 @@ export class AdminOrdersController {
     if (!extra) throw BusinessException.notFound();
     // 💰 v1.82 (§PNL.2): `items[].deliveredRefund` — el MISMO cuerpo que el verbo `refund-delivered` (pasos 3–4), sin candados.
     const deliveredViews = await this.refunds.deliveredRefundViews(id);
+    // 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.6): renglones de accesorio con `deliveredRefund` (solo M3).
+    const accessoryLines = await this.refunds.accessoryLinesForM3(id);
     const {
       user: buyer,
       refunds: rows,
@@ -238,6 +240,7 @@ export class AdminOrdersController {
         trackingNumber: s.trackingNumber,
       })),
       vaultPlacement: vaultPlacement ?? null,
+      accessoryLines,
       // 💰 v1.80.8.6 (§M4-SHIP.18.12 (7)): el registro del motivo y el estado VIVO del envío (lo usa el diálogo de M3
       // para pedir el motivo antes de enviar; quien decide es la tx1, ⛔ no este campo).
       fullRefundReview,
@@ -352,6 +355,22 @@ export class AdminOrdersController {
     @CurrentUser() user: { id: string; role: Role },
   ) {
     return this.refunds.refundDelivered(id, orderItemId, body, user);
+  }
+
+  /**
+   * 💰 v1.86⟨accesorios⟩ (§AC.10 (2), v1.86.2) — reembolsar UNIDADES de un renglón de accesorio (o el paquete ENTERO) de
+   * un directo YA ENTREGADO. `@MoneyOut()`: solo `super_admin`; el operador recibe `403 MONEY_OUT_FORBIDDEN` auditado.
+   * Cuerpo crudo `{quantity, reason, note, expectedRefundCents}`: lo valida el servicio. Res `201 { refund }`.
+   */
+  @Post(':id/accessory-lines/:lineId/refund-delivered')
+  @MoneyOut()
+  async refundAccessoryDelivered(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    return this.refunds.refundAccessoryDelivered(id, lineId, body, user);
   }
 
   /**
