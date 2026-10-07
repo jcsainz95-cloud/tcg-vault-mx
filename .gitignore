@@ -53,6 +53,9 @@ nuclei.jsonl
 # Los volúmenes de docker-compose son named volumes (no en el árbol),
 # pero por si alguien monta datos localmente:
 data/
+# EXCEPCIÓN: el catálogo de CP de SEPOMEX VA en el repo (HECHOS.md 2026-10-07; DEVOPS_NOTES §92). Lo vigila
+# scripts/check-sepomex-pin.sh [F].
+!scripts/geo/data/
 tmp/
 
 # Volcado de Redis local (lo deja `redis-server` al correr el stack nativo desde la raíz)
