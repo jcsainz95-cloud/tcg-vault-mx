@@ -1,11 +1,12 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · D · LA VERIFICACIÓN (SOLO LECTURA) — se corre DESPUÉS del fichero 2 (COMMIT) y del fichero 3
---  Fecha: 2026-10-06 · v2: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR
---  Diseño: docs/specs/LIMPIEZA_DB.md §14.7 (v2) y §8.3 · Notas: BACKEND_NOTES §79 y §79.5
+--  Fecha: 2026-10-06 · v2 y v2.1: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR
+--  Diseño: docs/specs/LIMPIEZA_DB.md §14.7 (v2), §14.12 (v2.1) y §8.3 · Notas: BACKEND_NOTES §79, §79.5 y §79.6
 -- =====================================================================================
 --
---  QUÉ HACE: comprueba, una por una, que la base quedó como dice el diseño. Cada línea sale «OK» o «FALLA» (o
---  «INFO»: solo para que lo veas, no cuenta), y la última dice «VERIFICACION: TODO OK» o cuántas fallaron.
+--  QUÉ HACE: comprueba, una por una, que la base quedó como dice el diseño. Cada línea sale «OK» o «FALLA», o
+--  «INFO» (solo para que lo veas, no cuenta) o «AVISO» (algo no salió como pediste pero no rompe nada; no cuenta como
+--  falla). La última dice «VERIFICACION: TODO OK» (con «(con N aviso(s))» si hay avisos) o cuántas fallaron.
 --  Compara contra el RASTRO que dejó el fichero 2 en la bitácora (los conteos de antes y los contadores), así que no
 --  hace falta que copies a mano los números del censo.
 --
@@ -33,8 +34,10 @@
 --
 --  Lo que la app escribe entre la limpieza y esta verificación (un cliente que se registra, un precio nuevo, el
 --  portafolio del job diario, las cartas que ya volviste a subir) es REAL y NO cuenta como falla: sale como INFO o
---  como «posteriores». Del inventario se exige que no quede NADA anterior a la limpieza, que el folio empiece en
---  INV-000001 y que ningún folio vaya por delante de su contador.
+--  como «posteriores». Del inventario se exige que no quede NADA anterior a la limpieza, que el contador se haya
+--  reiniciado en el fichero 3 y que ningún folio vaya por delante de su contador. Si subiste cartas ANTES del fichero 3,
+--  el contador de inventario no se pudo reiniciar: sale AVISO («NO se reinició INV-: ya había piezas cuando corriste C»),
+--  no rompe nada, solo que tus folios no empiezan en INV-000001.
 --  ⚠️ Córrelo ANTES de abrir la tienda a pedidos reales: un pedido nuevo haría fallar «0 filas en Order» (correcto:
 --     la verificación es de la base recién limpiada).
 -- =====================================================================================
@@ -103,21 +106,35 @@ info AS (
   UNION ALL
   SELECT 'PendingPriceEntry (catalog/buylist)', (SELECT count(*) FROM "PendingPriceEntry" WHERE context::text IN ('catalog', 'buylist')), NULL
 ),
-sec AS (
-  SELECT sequencename AS s, last_value
-  FROM pg_sequences WHERE schemaname = current_schema()
-),
 -- El próximo número de cada contador, y el mayor número ya usado (folios con el formato de la app: PREFIJO-nnnnnn).
 folios AS (
   SELECT 'INV-' AS pre,
          (SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM inventory_folio_seq) AS proximo,
-         (SELECT max(substring(folio FROM 5)::bigint) FROM "InventoryItem" WHERE folio ~ '^INV-[0-9]+$') AS mayor,
-         (SELECT min(folio) FROM "InventoryItem") AS menor
+         (SELECT max(substring(folio FROM 5)::bigint) FROM "InventoryItem" WHERE folio ~ '^INV-[0-9]+$') AS mayor
   UNION ALL
   SELECT 'TCG-',
          (SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM order_number_seq),
-         (SELECT max(substring("orderNumber" FROM 5)::bigint) FROM "Order" WHERE "orderNumber" ~ '^TCG-[0-9]+$'),
-         (SELECT min("orderNumber") FROM "Order")
+         (SELECT max(substring("orderNumber" FROM 5)::bigint) FROM "Order" WHERE "orderNumber" ~ '^TCG-[0-9]+$')
+),
+-- §14.12 · el contador de inventario. R = su valor en la limpieza (rastro); m = el folio MÁS BAJO, NUMÉRICO (MENOR-3:
+-- como texto 'INV-1000000' < 'INV-999999'); p = el siguiente; t1 = «el siguiente pedido es TCG-000001» (solo el
+-- fichero 3 reinicia ese contador, y tras la limpieza no hay pedidos: prueba que el fichero 3 SÍ corrió).
+inv AS (
+  SELECT (SELECT count(*) FROM rastro) AS n_rastro,
+         (SELECT (r -> 'secuencias' ->> 'inventory_folio_seq')::bigint FROM rastro) AS r_inv,
+         (SELECT count(*) FROM "InventoryItem") AS piezas,
+         (SELECT min(substring(folio FROM 5)::bigint) FROM "InventoryItem" WHERE folio ~ '^INV-[0-9]+$') AS m,
+         (SELECT proximo FROM folios WHERE pre = 'INV-') AS p,
+         (SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM order_number_seq) = 1 AS t1
+),
+inv_estado AS (
+  SELECT inv.*,
+         CASE WHEN n_rastro <> 1 THEN 'sin rastro'
+              WHEN piezas = 0 AND p = 1 THEN 'reiniciado'
+              WHEN piezas > 0 AND m <= r_inv THEN 'reiniciado'
+              WHEN piezas > 0 AND m > r_inv AND t1 THEN 'aviso'
+              ELSE 'no corrio' END AS estado
+  FROM inv
 ),
 c AS (
   SELECT 10 AS ord, '0 filas en ' || tabla AS comprobacion,
@@ -163,12 +180,21 @@ c AS (
          CASE WHEN (SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM order_number_seq) = 1 THEN 'OK' ELSE 'FALLA' END,
          (SELECT 'siguiente ' || CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM order_number_seq)
   UNION ALL
-  -- v2 (§14.7): INV- reinicia en C. Sin cartas, el siguiente es 1; si ya volviste a subir, la primera fue INV-000001.
-  SELECT 51, 'contador de inventario: el siguiente es INV-000001, o la primera carta subida es INV-000001',
-         CASE WHEN (SELECT count(*) FROM rastro) = 1 AND ((f.menor IS NULL AND f.proximo = 1) OR f.menor = 'INV-000001') THEN 'OK' ELSE 'FALLA' END,
-         CASE WHEN f.menor IS NULL THEN 'sin cartas · siguiente INV-' || lpad(f.proximo::text, 6, '0')
-              ELSE 'primera carta ' || f.menor || ' · siguiente INV-' || lpad(f.proximo::text, 6, '0') END
-  FROM folios f WHERE f.pre = 'INV-'
+  -- v2.1 (§14.12): INV- se reinicia en el fichero 3. OK si se reinició (sin cartas y el siguiente es 1, o la carta más
+  -- baja es de después del reinicio: m <= R); AVISO si el fichero 3 corrió pero ya había cartas (la MISMA frase que
+  -- dice el fichero 3; no cuenta como falla); FALLA si no hay rastro o si el fichero 3 no corrió.
+  SELECT 51, 'contador de inventario: reiniciado en el fichero 3',
+         CASE estado WHEN 'reiniciado' THEN 'OK' WHEN 'aviso' THEN 'AVISO' ELSE 'FALLA' END,
+         CASE estado
+           WHEN 'sin rastro' THEN 'sin rastro de la limpieza · siguiente INV-' || lpad(p::text, 6, '0')
+           WHEN 'aviso' THEN 'NO se reinició INV-: ya había piezas cuando corriste C · primera INV-' || lpad(m::text, 6, '0')
+                             || ' · siguiente INV-' || lpad(p::text, 6, '0') || ' · no rompe nada'
+           WHEN 'no corrio' THEN 'el contador no se reinició y C no corrió (el de pedidos tampoco está en TCG-000001)'
+                                 || coalesce(' · primera INV-' || lpad(m::text, 6, '0'), '') || ' · siguiente INV-' || lpad(p::text, 6, '0')
+           WHEN 'reiniciado' THEN CASE WHEN piezas = 0 THEN 'sin cartas · siguiente INV-' || lpad(p::text, 6, '0')
+                                       ELSE 'primera carta ' || coalesce('INV-' || lpad(m::text, 6, '0'), '?') || ' · siguiente INV-' || lpad(p::text, 6, '0') END
+         END
+  FROM inv_estado
   UNION ALL
   -- R-12 (§14.5): un alta que tomara número entre la guarda de C y su setval dejaría una pieza POR DELANTE del contador
   -- (el día que el contador la alcance, la siguiente alta choca). Ídem pedidos.
@@ -177,10 +203,12 @@ c AS (
          'mayor usado ' || coalesce(f.pre || lpad(f.mayor::text, 6, '0'), '(ninguno)') || ' · siguiente ' || f.pre || lpad(f.proximo::text, 6, '0')
   FROM folios f
   UNION ALL
-  SELECT 53, 'contador ' || s || ' igual que en la limpieza (NO se reinicia)',
-         CASE WHEN (SELECT (r -> 'secuencias' ->> s)::bigint FROM rastro) = sec.last_value THEN 'OK' ELSE 'FALLA' END,
-         'ahora ' || coalesce(sec.last_value::text, '?') || ' · rastro ' || coalesce((SELECT r -> 'secuencias' ->> s FROM rastro), 'sin rastro')
-  FROM sec WHERE s = 'shipment_folio_seq'
+  -- §14.12 MENOR-1: se lee de la secuencia misma, como la guardó el fichero 2 (pg_sequences.last_value es NULL si la
+  -- secuencia nunca se usó, y daría una FALLA falsa).
+  SELECT 53, 'contador shipment_folio_seq igual que en la limpieza (NO se reinicia)',
+         CASE WHEN (SELECT (r -> 'secuencias' ->> 'shipment_folio_seq')::bigint FROM rastro) = s.last_value THEN 'OK' ELSE 'FALLA' END,
+         'ahora ' || s.last_value::text || ' · rastro ' || coalesce((SELECT r -> 'secuencias' ->> 'shipment_folio_seq' FROM rastro), 'sin rastro')
+  FROM shipment_folio_seq s
   UNION ALL
   SELECT 60, 'bounties: comprado = 0 en todas las filas',
          CASE WHEN n = 0 THEN 'OK' ELSE 'FALLA' END, n::text
@@ -190,8 +218,11 @@ SELECT resultado, comprobacion, detalle FROM (
   SELECT ord, resultado, comprobacion, detalle FROM c
   UNION ALL
   SELECT 99,
-         CASE WHEN count(*) FILTER (WHERE resultado NOT IN ('OK', 'INFO')) = 0 THEN 'VERIFICACION: TODO OK'
-              ELSE 'VERIFICACION: HAY FALLAS (' || count(*) FILTER (WHERE resultado NOT IN ('OK', 'INFO')) || ')' END,
+         -- AVISO no cuenta como falla (§14.12), pero se dice cuántos hay.
+         CASE WHEN count(*) FILTER (WHERE resultado NOT IN ('OK', 'INFO', 'AVISO')) = 0 THEN
+                'VERIFICACION: TODO OK' || CASE WHEN count(*) FILTER (WHERE resultado = 'AVISO') > 0
+                                                THEN ' (con ' || count(*) FILTER (WHERE resultado = 'AVISO') || ' aviso(s))' ELSE '' END
+              ELSE 'VERIFICACION: HAY FALLAS (' || count(*) FILTER (WHERE resultado NOT IN ('OK', 'INFO', 'AVISO')) || ')' END,
          '', ''
   FROM c
 ) z ORDER BY ord, comprobacion;

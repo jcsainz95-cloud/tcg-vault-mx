@@ -30131,6 +30131,48 @@ propio con `@prisma`/`.prisma` copiados y `prisma generate` dentro, esquemas pro
   - **Propia** (G-7 con la clasificación v1: ignora `Inventory*`): «G-7 tras volver a subir» roja (B sale 0 y borraría la
     pieza re-subida); las otras dos de G-7 siguen verdes, como debe ser. 1/1.
 
+### 79.6 · v2.1 — C y D dicen lo mismo del folio `INV-` (2026-10-07, spec `LIMPIEZA_DB.md` §14.12; QA N-1, MENOR-1, MENOR-3 sobre `ec808db2`; sobre `b5ce0727`)
+
+**Cambios** (`backend/prisma/data-repair/`):
+- **C** (`…_3_folios.sql`): si ya hay piezas, la línea de inventario dice la **frase común** `NO se reinició INV-: ya
+  había piezas cuando corriste C (N pieza(s), de INV-x a INV-y). Tus folios siguen desde ahí, no desde INV-000001. No
+  rompe nada (…). La próxima vez, este paso va ANTES de subir cartas.` (fuera «no pasa nada»). Mínimo y máximo
+  **numéricos** (`substring(folio FROM 5)::bigint` sobre `^INV-[0-9]+$`), no `max(folio)` de texto. C sigue sin
+  exigir orden: `TCG-` se reinicia igual (§14.12 motivo 1).
+- **D** (`…_4_verificacion.sql`): estado nuevo **`AVISO`** (se enseña, no cuenta como falla; la línea final dice
+  `VERIFICACION: TODO OK (con N aviso(s))`, sigue casando `/VERIFICACION: TODO OK/`). Línea 51 renombrada a
+  `contador de inventario: reiniciado en el fichero 3`, con la tabla de §14.12 en dos CTE (`inv`, `inv_estado`):
+  sin rastro ⇒ FALLA; sin piezas ∧ siguiente = 1 ⇒ OK; piezas ∧ `m ≤ R` ⇒ OK; piezas ∧ `m > R` ∧ `T1` ⇒ AVISO con la
+  frase común y `primera INV-x · siguiente INV-z`; resto ⇒ FALLA `el contador no se reinició y C no corrió (…)`. `m` es
+  el mínimo **numérico**; `R` = `rastro.secuencias.inventory_folio_seq`; `T1` = siguiente `TCG-` es 1. Se quitó el
+  `menor` de texto del CTE `folios` (también la rama `TCG-`). Línea 53 lee `FROM shipment_folio_seq` (la misma fuente que
+  guarda B) y se retiró el CTE `sec` sobre `pg_sequences` (MENOR-1). Línea 52 sin cambio.
+- **B** (`…_2_limpieza.sql`): **solo comentario** del PASO 5 de la cabecera (§14.12 «Guion», paso 8): si D dice AVISO en
+  el contador de inventario, subiste cartas antes de C; no rompe nada. Ninguna línea ejecutable cambia.
+- Cabeceras de C (`:15-16`) y D (`:36-37`) ajustadas como pide §14.12.
+
+**Pruebas** (`test/integration/pdb-limpieza.e2e-spec.ts`, 49 casos): nuevas T-N1, T-N1-ctl, T-M3, T-M1 (bloque «§14.12
+v2.1»), con helpers `lineaD`/`resultadoDe`/`rastroInv`. Ajustada «§9.6 con piezas nuevas y sin pedidos»: buscaba
+`/ya hay 1 pieza/` (la frase vieja); ahora exige la frase común con `(1 pieza(s), de INV-x a INV-x)` y que no salga «no
+pasa nada».
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `b5ce0727` + cambios, scratchpad `be-lz21`, `@prisma`/`.prisma`
+copiados y `prisma generate` dentro, esquemas propios `lz…` en la BD local con el rol de la pila nativa — no hubo rol
+ni BD propios: el rol `tcg` no tiene `CREATEROLE` ni `CREATEDB`):
+- **Rojo antes del arreglo:** T-N1 roja (C «no pasa nada»), T-M3 roja (`FALLA … primera carta INV-000002`), T-M1 roja
+  (`FALLA … ahora ? · rastro 1`), §9.6 ajustada roja; T-N1-ctl **verde** (es el candado, verde hoy como dice la spec).
+  T-M3 y T-M1 eran «deducido, NO MEDIDO» en §14.12: ahora medidas. En el fixture `R = 14`.
+- **Verde:** 49/49 integración `pdb-limpieza`.
+- **Mutaciones** (en la copia, SQL restaurado y `diff -r` vacío tras cada una; deterministas ⇒ N = 1): M-N1-a (AVISO
+  cuenta como falla) ⇒ solo T-N1 roja, 1/1; M-N1-b (AVISO sin `T1`) ⇒ solo T-N1-ctl roja (`AVISO` ≠ `FALLA`), 1/1;
+  M-N1-c (C con la frase vieja) ⇒ solo T-N1 roja, 1/1; M-M3 (`min(folio) = 'INV-000001'` de texto) ⇒ solo T-M3 roja,
+  1/1; M-M1 (línea 53 desde `pg_sequences`) ⇒ solo T-M1 roja, 1/1. Además **M-v2-2a** con la lectura nueva (C hace
+  `setval('shipment_folio_seq', 1, false)`): «D … tras B + C ⇒ TODO OK» roja con `FALLA | contador shipment_folio_seq
+  … | ahora 1 · rastro 3`, 1/1.
+- **NO MEDIDO:** que la app pueda borrar la **fila** de una pieza (T-M3 la borra por SQL); `R` e `is_called` de
+  `shipment_folio_seq` en producción (los imprime A/B en el ensayo); los puntos ciegos (a)/(b) de §14.12 quedan
+  aceptados, sin prueba.
+
 ## 80 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
 
 Norma: `API_CONTRACT §15` + errata AN-1.1 (`edffe544`), `ARCHITECTURE §4.64`, `PROJECT §AN` (600–613, 620, 622 de salida, 623, 624).

@@ -442,7 +442,10 @@ describe('💰 P-DB-LIMPIEZA · C v2 (folios TCG- e INV-, guardas independientes
     expect(after.sequences.inventory_folio_seq).toEqual(before.sequences.inventory_folio_seq);
     expect(after.sequences.shipment_folio_seq).toEqual(before.sequences.shipment_folio_seq);
     expect(await nextOf(e, 'order_number_seq')).toBe(1);
-    expect(r.stdout).toMatch(/ya hay 1 pieza/);
+    // §14.12: la frase común con C y D (ya no «no pasa nada»), con el mínimo y el máximo NUMÉRICOS.
+    const f = `INV-${String(Number(v)).padStart(6, '0')}`;
+    expect(r.stdout).toContain(`${FRASE_INV} (1 pieza(s), de ${f} a ${f})`);
+    expect(r.stdout).not.toMatch(/no pasa nada/);
   });
 
   it('§9.6 con pedidos y sin piezas ⇒ INV- se reinicia, TCG- NO se mueve y lo dice; ENV- igual', async () => {
@@ -474,6 +477,90 @@ describe('💰 P-DB-LIMPIEZA · C v2 (folios TCG- e INV-, guardas independientes
     expect(r.stderr).not.toMatch(/[Cc]orre primero la limpieza/);
     expect(r.stderr).toMatch(/limpieza YA se hizo[^\n]*TCG-000001/);
     expectSame(before, await snapshot(admin, e.schema));
+  });
+});
+
+/** §14.12 · la frase LITERAL que C y D comparten cuando `INV-` no se pudo reiniciar (las pruebas la buscan como subcadena). */
+const FRASE_INV = 'NO se reinició INV-: ya había piezas cuando corriste C';
+/** La línea de la salida de D (formato alineado de psql: `resultado | comprobación | detalle`) cuya comprobación empieza por `comprobacion`. */
+function lineaD(stdout: string, comprobacion: string): string {
+  const l = stdout.split('\n').find((x) => new RegExp(`^\\s*\\S+\\s*\\|\\s*${comprobacion}`).test(x));
+  if (!l) throw new Error(`D no trae la línea «${comprobacion}»:\n${stdout.slice(-3000)}`);
+  return l;
+}
+const resultadoDe = (linea: string) => linea.split('|')[0].trim();
+/** `R` de §14.12: el `last_value` de `inventory_folio_seq` que B guardó en el rastro. */
+async function rastroInv(e: Env): Promise<number> {
+  const a = await e.db.auditLog.findFirstOrThrow({ where: { action: 'maintenance.test_data_purge' } });
+  return Number((a.after as any).secuencias.inventory_folio_seq);
+}
+const inv = (k: number) => `INV-${String(k).padStart(6, '0')}`;
+
+describe('💰 §14.12 v2.1 · C y D dicen lo mismo del folio INV- (QA N-1, MENOR-1, MENOR-3)', () => {
+  it('T-N1 · B COMMIT → 2 piezas por la APP → C → D: C reinicia TCG-, NO INV- y lo dice con la frase común; D da AVISO (no FALLA) con la MISMA frase y el MISMO primer folio, y TODO OK', async () => {
+    const e = await fresh();
+    commit(e);
+    const R = await rastroInv(e);
+    const folios = await altaPorApp(e, 2);
+    expect(folios).toEqual([inv(R + 1), inv(R + 2)]);
+
+    const c = ok(psql(e.schema, readRepair('folio')));
+    expect(await nextOf(e, 'order_number_seq')).toBe(1);
+    expect(await nextOf(e, 'inventory_folio_seq')).toBe(R + 3); // INV- no se movió
+    const lc = c.stdout.split('\n').find((x) => x.includes('inventario (INV-)') && x.includes(FRASE_INV));
+    expect({ lineaC: lc ?? c.stdout.slice(-2000) }).toEqual({ lineaC: expect.stringContaining(FRASE_INV) });
+    expect(lc).toContain(`(2 pieza(s), de ${inv(R + 1)} a ${inv(R + 2)})`);
+    expect(c.stdout).not.toMatch(/no pasa nada/);
+
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    const l51 = lineaD(d.stdout, 'contador de inventario');
+    expect(resultadoDe(l51)).toBe('AVISO');
+    expect(l51).toContain(FRASE_INV);
+    expect(l51).toContain(`primera ${inv(R + 1)}`); // el mismo primer folio que nombró C
+    expect(l51).toContain(`siguiente ${inv(R + 3)}`);
+    expect(d.stdout).toMatch(/VERIFICACION: TODO OK \(con 1 aviso\(s\)\)/);
+    expect(d.stdout).not.toMatch(/\bFALLA\b/);
+  });
+
+  it('T-N1-ctl · B COMMIT → 2 piezas por la APP → SIN C → D: la línea de inventario es FALLA (no AVISO), la de pedidos FALLA y HAY FALLAS', async () => {
+    const e = await fresh();
+    commit(e);
+    await altaPorApp(e, 2);
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    const l51 = lineaD(d.stdout, 'contador de inventario');
+    expect(resultadoDe(l51)).toBe('FALLA');
+    expect(l51).not.toContain(FRASE_INV);
+    expect(resultadoDe(lineaD(d.stdout, 'contador de pedidos'))).toBe('FALLA');
+    expect(d.stdout).toMatch(/HAY FALLAS/);
+    expect(d.stdout).not.toMatch(/\bAVISO\b/);
+  });
+
+  it('T-M3 · B → C → 3 piezas por la APP → se borra por SQL la fila INV-000001 → D: la línea de inventario es OK (mínimo NUMÉRICO ≤ rastro) y TODO OK', async () => {
+    const e = await fresh();
+    commit(e);
+    ok(psql(e.schema, readRepair('folio')));
+    expect(await altaPorApp(e, 3)).toEqual([inv(1), inv(2), inv(3)]);
+    // Precondición construida por SQL (que la app pueda borrar la FILA de una pieza: NO MEDIDO, §14.12 MENOR-3).
+    expect(await e.db.$executeRawUnsafe(`DELETE FROM "InventoryItem" WHERE folio = 'INV-000001'`)).toBe(1);
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    const l51 = lineaD(d.stdout, 'contador de inventario');
+    expect({ l51, r: resultadoDe(l51) }).toEqual({ l51, r: 'OK' });
+    expect(d.stdout).toMatch(/VERIFICACION: TODO OK/);
+    expect(d.stdout).not.toMatch(/\bFALLA\b|\bAVISO\b/);
+  });
+
+  it('T-M1 · shipment_folio_seq NUNCA usada (is_called = f) antes de B → B → C → D: la línea «contador shipment_folio_seq» es OK con «ahora 1 · rastro 1»', async () => {
+    const e = await fresh();
+    await e.db.$queryRawUnsafe(`SELECT setval('shipment_folio_seq', 1, false)`);
+    const [s] = await admin.$queryRawUnsafe<{ v: string; c: boolean }[]>(`SELECT last_value::text AS v, is_called AS c FROM "${e.schema}".shipment_folio_seq`);
+    expect(s).toEqual({ v: '1', c: false }); // la prueba ejerce el caso «nunca leída»
+    commit(e);
+    ok(psql(e.schema, readRepair('folio')));
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    const l53 = lineaD(d.stdout, 'contador shipment_folio_seq');
+    expect({ l53, r: resultadoDe(l53) }).toEqual({ l53, r: 'OK' });
+    expect(l53).toMatch(/ahora 1 · rastro 1\s*$/);
+    expect(d.stdout).toMatch(/VERIFICACION: TODO OK/);
   });
 });
 

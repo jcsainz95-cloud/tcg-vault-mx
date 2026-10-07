@@ -1,8 +1,8 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · C · LOS FOLIOS VUELVEN A EMPEZAR: pedidos en TCG-000001 e inventario en INV-000001 (v2)
---  Fecha: 2026-10-06 · v2: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO (usuario ADMINISTRADOR), SOLO
+--  Fecha: 2026-10-06 · v2 y v2.1: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO (usuario ADMINISTRADOR), SOLO
 --  DESPUÉS del COMMIT del fichero 2, y ANTES de volver a subir tu inventario y del primer pedido real.
---  Diseño: docs/specs/LIMPIEZA_DB.md §14.5 (v2) y §5.4 · Notas: BACKEND_NOTES §79 y §79.5
+--  Diseño: docs/specs/LIMPIEZA_DB.md §14.5 (v2), §14.12 (v2.1) y §5.4 · Notas: BACKEND_NOTES §79, §79.5 y §79.6
 -- =====================================================================================
 --
 --  POR QUÉ VA APARTE: un contador de Postgres NO se deshace con ROLLBACK. Si esto fuera dentro del fichero 2, el
@@ -13,7 +13,9 @@
 --   · PEDIDOS (TCG-): si NO queda ningún pedido, el próximo será TCG-000001. Si ya hay pedidos, NO se toca (dos pedidos
 --     con el mismo número no pueden existir y el choque rompería el cobro) y te lo dice.
 --   · INVENTARIO (INV-): si NO queda ninguna carta, la próxima que subas será INV-000001. Si ya subiste alguna, NO se
---     toca y te lo dice: tus folios siguen desde donde iban, y no pasa nada.
+--     puede reiniciar (chocaría con ellas) y te lo dice: «NO se reinició INV-: ya había piezas cuando corriste C».
+--     Tus folios siguen desde donde iban; no rompe nada (ningún folio va en etiquetas, guías ni pagos), pero no es lo
+--     que pediste: la verificación (fichero 4) te lo enseña como AVISO. Por eso este paso va ANTES de subir cartas.
 --   Si NINGUNO de los dos se puede reiniciar, se NIEGA entero y no cambia nada.
 --
 --  El de ENVÍOS (ENV-) NO se reinicia nunca: el sistema confundiría la guía real ya cancelada ENV-000003 con un envío
@@ -59,10 +61,13 @@ UNION ALL SELECT 'envíos (ENV-) — NO se toca', last_value, is_called FROM shi
 CREATE TEMP TABLE lz_c (orden int, contador text, que_paso text) ON COMMIT DROP;
 
 DO $$
-DECLARE n_ord bigint; n_inv bigint; primero text; folio_max text; hecho boolean;
+DECLARE n_ord bigint; n_inv bigint; primero text; folio_min bigint; folio_max bigint; hecho boolean;
 BEGIN
   SELECT count(*), min("orderNumber") INTO n_ord, primero FROM "Order";
-  SELECT count(*), max(folio) INTO n_inv, folio_max FROM "InventoryItem";
+  -- §14.12 MENOR-3: mínimo y máximo NUMÉRICOS (como texto, 'INV-1000000' < 'INV-999999').
+  SELECT count(*) INTO n_inv FROM "InventoryItem";
+  SELECT min(substring(folio FROM 5)::bigint), max(substring(folio FROM 5)::bigint) INTO folio_min, folio_max
+  FROM "InventoryItem" WHERE folio ~ '^INV-[0-9]+$';
   hecho := EXISTS (SELECT 1 FROM "AuditLog" WHERE action = 'maintenance.test_data_purge');
   IF n_ord > 0 AND n_inv > 0 THEN
     -- QA-8: si la limpieza ya se hizo, esos pedidos y cartas son REALES (no hay que «correr primero la limpieza»).
@@ -83,7 +88,12 @@ BEGIN
     PERFORM setval('inventory_folio_seq', 1, false);
     INSERT INTO lz_c VALUES (2, 'inventario (INV-)', 'reiniciado: la próxima carta que subas es INV-000001');
   ELSE
-    INSERT INTO lz_c VALUES (2, 'inventario (INV-)', format('NO se toca: ya hay %s pieza(s) (hasta %s): tus folios siguen desde ahí; no pasa nada', n_inv, folio_max));
+    -- §14.12 (QA N-1): la MISMA frase que dice la verificación D (AVISO). No es «no pasa nada»: pediste reiniciar y no se pudo.
+    INSERT INTO lz_c VALUES (2, 'inventario (INV-)', format(
+      'NO se reinició INV-: ya había piezas cuando corriste C (%s pieza(s), de %s a %s). Tus folios siguen desde ahí, no desde INV-000001. No rompe nada (ningún folio va en etiquetas, guías ni pagos). La próxima vez, este paso va ANTES de subir cartas.',
+      n_inv,
+      coalesce('INV-' || lpad(folio_min::text, 6, '0'), '?'),
+      coalesce('INV-' || lpad(folio_max::text, 6, '0'), '?')));
   END IF;
   INSERT INTO lz_c VALUES (3, 'envíos (ENV-)', 'NO se toca nunca (LIMPIEZA_DB.md §5.2)');
 END $$;

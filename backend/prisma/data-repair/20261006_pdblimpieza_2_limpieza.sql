@@ -56,7 +56,9 @@
 --   PASO 4 · Si estás de acuerdo: cambia la ÚLTIMA línea del fichero, donde dice  ROLLBACK;  por  COMMIT;
 --            guarda y córrelo otra vez. Debe terminar con la palabra COMMIT. **Copia el «PUNTO PITR» que sale al
 --            principio**: es el instante al que restauras si hubiera que deshacerlo (Railway → Postgres → Backups).
---   PASO 5 · Corre el fichero 3 (folios) ANTES de volver a subir nada, y luego el 4 (verificación).
+--   PASO 5 · Corre el fichero 3 (folios) ANTES de volver a subir nada, y luego el 4 (verificación). Si el 4 dice AVISO
+--            en el contador de inventario, es que subiste cartas antes del 3: no rompe nada, solo que tus folios no
+--            empiezan en INV-000001.
 --   PASO 6 · Vuelve a subir tu inventario en M1: la primera carta debe salir INV-000001.
 --
 --  ¿QUIERES CONSERVAR LA BITÁCORA? Este fichero la BORRA entera (queda solo en el respaldo de Railway). Si quieres una
