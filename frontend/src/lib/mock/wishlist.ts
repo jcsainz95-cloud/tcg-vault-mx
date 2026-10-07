@@ -369,19 +369,29 @@ export function mockWishlistDemand(params: WishlistDemandParams = {}): MockWishl
   };
 }
 
-/** CSV del simulador: mismas filas y orden que el JSON (criterio 822); pesos con 2 decimales. */
+/**
+ * Celda de texto del CSV (`API_CONTRACT §WSH.8` v1.87.2): entre comillas dobles, comillas dobladas y, si empieza con
+ * `=`, `+`, `-`, `@`, tabulador o retorno, prefijo `'` (contra fórmulas al abrirlo en una hoja de cálculo).
+ */
+export function csvTextCell(v: string): string {
+  const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+/**
+ * CSV del simulador: mismas filas y orden que el JSON (criterio 822); pesos con 2 decimales. ⭐ C2 (techlead): la
+ * cabecera es la LITERAL de `API_CONTRACT §WSH.8` v1.87.2, con la sección `sellados` aparte tras una línea vacía
+ * (candado: `wishlist-csv.test.ts`, que lee la cabecera del contrato).
+ */
 export function mockWishlistDemandCsv(params: WishlistDemandParams = {}): string {
   const money = (c: number | null) => (c == null ? '' : (c / 100).toFixed(2));
   const tier = (r: WishlistDemandRowDTO, p: WishlistMaxPct) => r.tiers.find((x) => x.maxPct === p);
-  const head = [
-    'carta', 'set', 'numero', 'acabado', 'la_buscan',
-    'cuentas_16', 'max_16', 'techo_16', 'cuentas_10', 'max_10', 'techo_10', 'cuentas_5', 'max_5', 'techo_5',
-    'paga_hasta', 'mercado', 'precio_normal_sin_iva', 'precio_normal_con_iva', 'pagan_precio_normal',
-    'margen_a_mercado', 'margen_a_mercado_pct', 'buylist_hoy',
-  ];
+  const head =
+    'carta,set,numero,acabado,la_buscan,cuentas_16,max_16,techo_16,cuentas_10,max_10,techo_10,cuentas_5,max_5,techo_5,' +
+    'techo_principal,mercado,normal_sin_iva,normal_con_iva,pagan_normal,margen_mercado,margen_mercado_pct,buylist_hoy';
   const lines = demandRows(params).map((r) =>
     [
-      r.cardName, r.setName, r.number, r.finish, r.wantedCount,
+      csvTextCell(r.cardName), csvTextCell(r.setName), csvTextCell(r.number), r.finish, r.wantedCount,
       ...([16, 10, 5] as const).flatMap((p) => {
         const t = tier(r, p);
         return [t?.accounts ?? 0, money(t?.maxDisplayCents ?? null), money(t?.ceilingCents ?? null)];
@@ -392,5 +402,8 @@ export function mockWishlistDemandCsv(params: WishlistDemandParams = {}): string
       money(r.buylistTodayCents),
     ].join(','),
   );
-  return [head.join(','), ...lines].join('\n');
+  const sealed = mockWishlistDemand(params).sealed.map((x) =>
+    [csvTextCell(x.productName), x.sealedSubtype ?? '', x.sealedCondition, x.waitingCount].join(','),
+  );
+  return `${[head, ...lines, '', 'sellados', 'producto,presentacion,condicion,esperan', ...sealed].join('\n')}\n`;
 }
