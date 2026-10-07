@@ -200,7 +200,7 @@ describe('WSH-T42 — el «avísame» con el cuerpo de la pantalla avisa de verd
       join(__dirname, '..', '..', 'prisma', 'migrations', '20261027120000_m74_wishlist', 'migration.sql'),
       'utf8',
     );
-    const step8 = sql.split(/^-- \(8\)/m)[1];
+    const step8 = sql.split(/^-- \(8\)[^\n]*\n/m)[1]; // tras la línea de cabecera del paso
     expect(step8).toBeDefined();
     const statement = step8
       .split('\n')

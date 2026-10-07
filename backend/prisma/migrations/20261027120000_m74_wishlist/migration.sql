@@ -4,9 +4,12 @@
 --
 -- DDL ADITIVO: 1 enum + 3 tablas + 1 columna en `User` + 2 columnas y 1 índice en `SealedRestockSubscription` + 2 CHECK +
 -- 8 filas de `ConfigSetting` (los diales de §WSH.2, sembrados como `upsert update:{}`: ON CONFLICT DO NOTHING).
--- ⛔ CERO dinero, inventario o correo movidos. ⛔ SIN relleno: `armedAt`/`matchedAt` NULL es la semántica correcta para las
--- suscripciones que ya existan (§WSH.7 (c)). Cuántas hay en producción: NO MEDIDO — lo cierra, en la ventana de despliegue,
+-- ⛔ CERO dinero, inventario o correo movidos. `armedAt`/`matchedAt` nacen NULL (sin relleno): es la semántica correcta para
+-- las suscripciones que ya existan (§WSH.7 (c)). ⭐ v1.87.3 (B-1 de QA, §WSH.7 (f)): UN relleno acotado, el paso 8 —
+-- `tcgplayerProductId` de las suscripciones PENDIENTES heredadas con clave `c:` cuyo producto es inequívocamente UNO mapeado;
+-- las ambiguas quedan intactas. Cuántas hay en producción: NO MEDIDO — lo cierran, en la ventana de despliegue, ANTES y DESPUÉS:
 --   SELECT count(*), count(*) FILTER (WHERE "notifiedAt" IS NULL) FROM "SealedRestockSubscription";
+--   SELECT count(*) FILTER (WHERE "tcgplayerProductId" IS NULL) AS c_pendientes FROM "SealedRestockSubscription" WHERE "notifiedAt" IS NULL;
 --
 -- IDEMPOTENTE: `IF NOT EXISTS`, enum en bloque `duplicate_object`, constraints quitar-si-existe-y-poner, siembra ON CONFLICT.
 --
@@ -20,6 +23,8 @@
 --   ALTER TABLE "User" DROP COLUMN IF EXISTS "wishlistAlertsPausedAt";
 --   DROP INDEX IF EXISTS "SealedRestockSubscription_email_notifiedAt_idx";
 --   ALTER TABLE "SealedRestockSubscription" DROP COLUMN IF EXISTS "armedAt", DROP COLUMN IF EXISTS "matchedAt";
+--   (el relleno del paso 8 NO se revierte: después no se distingue qué filas rellenó. Es una columna de identidad de una
+--    suscripción pendiente, sin dinero ni inventario; la deja con el producto de las piezas de su carta. §WSH.7 (f).)
 --   DELETE FROM "ConfigSetting" WHERE key IN ('wishlist_enabled','wishlist_max_per_account','wishlist_max_iva_mode',
 --     'wishlist_daily_mail_cap','wishlist_mail_window_min','wishlist_target_margin_pct','wishlist_margin_basis',
 --     'sealed_restock_max_pending_per_email') AND "updatedBy" = 'migration:m74-wishlist';  -- solo lo no tocado (§11.0)
@@ -126,3 +131,20 @@ VALUES ('wishlist_enabled', '"off"'::jsonb, 'migration:m74-wishlist', CURRENT_TI
        ('wishlist_margin_basis', '"cost"'::jsonb, 'migration:m74-wishlist', CURRENT_TIMESTAMP),
        ('sealed_restock_max_pending_per_email', '5'::jsonb, 'migration:m74-wishlist', CURRENT_TIMESTAMP)
 ON CONFLICT ("key") DO NOTHING;
+
+-- (8) ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f) «Filas heredadas»): relleno ACOTADO e IDEMPOTENTE. Solo
+-- pendientes (`notifiedAt IS NULL`) sin `tcgplayerProductId`; se rellena con el ÚNICO `tcgplayerProductId` no nulo de las piezas
+-- selladas del mismo `cardId` y `sealedSubtype IS NOT DISTINCT FROM` (cualquier condición, cualquier estado), y SOLO si ninguna
+-- pieza de ese (cardId, sealedSubtype) es no mapeada (`bool_and`). Ambiguas (dos productos mapeados, mezcla con no mapeadas,
+-- sin piezas) ⇒ NO se tocan. No toca `armedAt`: una rellenada con existencia no se arma hasta que se agote. Segunda corrida ⇒
+-- 0 filas. La prueba WSH-T42 (6) ejecuta ESTE texto (lo lee de este fichero): una sola sentencia tras esta cabecera.
+WITH cand AS (
+  SELECT s."id", min(ii."tcgplayerProductId") AS pid
+  FROM "SealedRestockSubscription" s
+  JOIN "InventoryItem" ii ON ii."productType"::text = 'sealed' AND ii."cardId" = s."cardId"
+                         AND ii."sealedSubtype" IS NOT DISTINCT FROM s."sealedSubtype"
+  WHERE s."notifiedAt" IS NULL AND s."tcgplayerProductId" IS NULL
+  GROUP BY s."id"
+  HAVING count(DISTINCT ii."tcgplayerProductId") = 1 AND bool_and(ii."tcgplayerProductId" IS NOT NULL))
+UPDATE "SealedRestockSubscription" s SET "tcgplayerProductId" = cand.pid
+FROM cand WHERE s."id" = cand."id" AND s."tcgplayerProductId" IS NULL;

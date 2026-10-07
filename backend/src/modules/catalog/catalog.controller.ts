@@ -3,22 +3,24 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { OptionalSessionGuard } from './optional-session.guard';
 import { Throttle } from '@nestjs/throttler';
-import { IsIn, IsInt, IsOptional, IsString } from 'class-validator';
-import { SealedCondition, SealedSubtype } from '@prisma/client';
+import { IsString, IsUUID } from 'class-validator';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogService } from './catalog.service';
 import { SetValueService } from './set-value.service';
 import { SealedCatalogService } from './sealed-catalog.service';
-import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+import { StrictBodyPipe } from '../wishlist/dto/wishlist.dto';
 
-/** v1.23-sealed-sales (§2-S): «avísame cuando vuelva». Identidad = productId o cardId(+subtype). */
-class RestockSubscriptionDto {
+/**
+ * v1.23-sealed-sales (§2-S): «avísame cuando vuelva». ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f)): el cliente
+ * manda SOLO `{ email, inventoryItemId }` (la pieza que mira, `group.representativeItemId`) y el servidor DERIVA la identidad
+ * del producto de esa pieza — una sola regla de clave (`sealedIdentityKey`). Cuerpo ESTRICTO (`StrictBodyPipe` en el
+ * parámetro, igual que WSH.4): `tcgplayerProductId`/`cardId`/`sealedSubtype`/`sealedCondition` ⇒ `400 {field}`. Paridad con
+ * `RestockSubscriptionInput` del frontend: candado WSH-T42 (b) en `test/wishlist.source-locks.spec.ts`.
+ */
+export class RestockSubscriptionDto {
   @IsString() email!: string;
-  @IsOptional() @IsInt() tcgplayerProductId?: number;
-  @IsOptional() @IsString() cardId?: string;
-  @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
-  @IsIn(SEALED_CONDITION_VALUES) sealedCondition!: SealedCondition;
+  @IsUUID() inventoryItemId!: string;
 }
 
 @Controller('catalog')
@@ -125,8 +127,8 @@ export class CatalogController {
   @Post('sealed/restock-subscriptions')
   // rev v1.87⟨wishlist⟩ (§WSH.7 (b)): con sesión el servidor usa el correo de la CUENTA (el `@Public` global no lee el token).
   @UseGuards(OptionalSessionGuard)
-  subscribeRestock(@Body() dto: RestockSubscriptionDto, @CurrentUser('id') userId?: string) {
-    return this.sealed.subscribeRestock(dto, userId);
+  subscribeRestock(@Body(new StrictBodyPipe(RestockSubscriptionDto)) dto: Record<string, unknown>, @CurrentUser('id') userId?: string) {
+    return this.sealed.subscribeRestock(dto as unknown as RestockSubscriptionDto, userId);
   }
 
   @Public()
