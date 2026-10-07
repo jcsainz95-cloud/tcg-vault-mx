@@ -11,6 +11,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { DashboardDTO, SpendControlDTO } from '@/types/contract';
+import { SalesTodayCard } from './SalesTodayCard';
 
 /**
  * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
@@ -225,6 +226,9 @@ export function AdminDashboard() {
                 </span>
               }
             />
+            {/* §AN-UX.11 (criterio 611): «Ventas de hoy», SOLO súper-admin — para el operador no existe (⛔ ni máscara
+                ni consulta, AN-7). Consulta propia `/admin/reports/sales/today`; su error no toca el resto del tablero. */}
+            {isSuperAdmin && <SalesTodayCard />}
             <StatCard
               label={t('workQueue')}
               value={

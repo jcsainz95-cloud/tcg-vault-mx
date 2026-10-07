@@ -12,6 +12,7 @@
  */
 import { Module } from '@nestjs/common';
 import { ShippingProviderModule } from '../shipping-provider/shipping-provider.module';
+import { SalesAnalyticsModule } from '../sales-analytics/sales-analytics.module';
 import { SpendAlertsService } from './spend-alerts.service';
 import { SpendMailService } from './spend-mail.service';
 import { SpendAlertsPanelService } from './spend-alerts-panel.service';
@@ -23,7 +24,8 @@ import { SpendDigestService } from './spend-digest.service';
 import { SPEND_ALERTS_CLOCK, systemSpendClock } from './spend-alerts.constants';
 
 @Module({
-  imports: [ShippingProviderModule],
+  // 💰 §AN 624: `SalesAnalyticsModule` da la línea de ventas del resumen de las 08:00 (no importa este módulo: sin ciclo).
+  imports: [ShippingProviderModule, SalesAnalyticsModule],
   providers: [
     SpendAlertsService,
     SpendMailService,

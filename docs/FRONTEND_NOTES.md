@@ -20463,3 +20463,50 @@ Pruebas previas que cambiaron porque el diseño cambió (no se debilitaron: se a
 - **M-4:** si falla `GET /admin/buylist/:id`, el panel de la `aceptada` lo dice con `QueryState` (texto del código o `common.errorGeneric`, sin copy nuevo) y «Reintentar».
 - **BSD-TL-D8 (parte):** nombre del PDF del servidor en `label-pdf.ts` (afecta también a M4: ahora guarda el nombre del `Content-Disposition` de la ruta admin).
 - **M-8 (opcional) no hecho:** en modo mock no hay Skydropx (`openBuylistInboundShipment` lanza `FEATURE_DISABLED`) ni una `aceptada` en `mockAdminBuylist`; un Playwright útil exigía ampliar el servidor falso. El flujo queda cubierto en vitest (`M5View.bsd.test.tsx`, `ux-bsd-17.test.tsx`, `AcceptedRequestPanel.qa.test.tsx`).
+
+## §105 · **Analítica de ventas del dueño — pestaña «Ventas» de Reportes (M9) y tarjeta «Ventas de hoy»** (2026-10-06, rama `claude/analitica-ventas`; `DESIGN_SYSTEM §AN-UX` `5b7ec485` + `e1cde296`; `API_CONTRACT §15` + errata AN-1.1 `edffe544`)
+
+**Qué hay.**
+- `m9/M9View.tsx`: Reportes pasa a dos pestañas de página (`?tab=ventas|actividad`, «Ventas» por defecto, patrón APG de
+  `M4View`). «Actividad» es lo de antes **sin cambio** (rango, metas, exportes); cada pestaña monta su consulta solo
+  cuando está activa. `m9/page.tsx` pasa a servidor asíncrono (lee la URL) — `AdminPageTitles.test.tsx` mide la vista
+  sin parámetros, como con M4/M3/refunds.
+- Pestaña «Ventas»: `SalesTab` (orquesta), `SalesPeriodPicker` (+ `SalesPeriodLabel`), `SalesSummary` (8 celdas +
+  `SalesDelta`), `SalesBarChart` (+ `BarSeries`, `Segmented`), `SalesDailyTable`, `SalesTopLists`, `SalesP2`
+  (totales P2, «Cuándo se vende», «Cómo y a quién se vende» + «Qué se vende»). Estado en la URL: `salesParams.ts`
+  (sin `'use client'`, lo usa `page.tsx`); formato de días de México: `salesFormat.ts`.
+- `admin/SalesTodayCard.tsx`, montada en `AdminDashboard.tsx` tras «Ventas del periodo» **solo** con `isSuperAdmin`.
+- API (`lib/api.ts`): `getSalesReport`, `exportSalesCsv` (Blob + `Content-Disposition`), `getSalesToday`. Tipos
+  (`types/contract.ts`): `SalesReportDTO`, `SalesTodayDTO`, `SalesFiguresDTO`… con **todo P2 opcional** (FS-AN-4): la
+  ausencia se pinta como ausencia.
+- Servidor falso: `lib/mock/sales.ts` (MOCK: pendiente de backend real). Cumple las invariantes de §15.4/AN-1.1 (lo
+  prueba `lib/mock/sales.test.ts`), 403 al operador, los 400 de §15.2 sin `value`, CSV en pesos con `*Mxn`. Fase del
+  servidor para la demo: `localStorage['tcg.salesPhase'] = 'A'|'B'|'C'` (default `B`, lo que el servidor construye hoy).
+
+**Decisiones.**
+- **AN-1 por construcción:** ningún componente suma, promedia, resta ni reordena. Lo único «calculado» en pantalla es
+  dibujo: el máximo de la escala de la gráfica (1/2/5×10ᵏ), el ancho de las barras decorativas de proporción, buscar el
+  día con más para el `aria-label`, y si una semana/mes está recortado (días del cubo, para «· 3 días»).
+- **La gráfica es HTML/CSS propio** (`role="img"` + `aria-label`), no SVG: la marca de cero mide 2 px reales sin
+  depender de `viewBox`, y no hay librería externa (AN-8). `recharts` ya está en el bundle pero no se usa aquí.
+- **«Igual que el periodo anterior»** no lleva `sr-only` aparte: la palabra «igual» ya está en el texto visible y
+  §AN-UX.14 no define clave para ello.
+- **`400` del servidor por `field`** (AN-1.2, §15.12.5: sin `details.reason`): mensaje genérico `range.invalid` («Ese
+  periodo no es válido. Elige otro.», clave ya existente de §AN-UX.14) bajo el campo que diga `field`; `preset/groupBy/
+  topSort` ⇒ el mismo texto en banner. Los cuatro casos con texto propio se validan en el navegador antes de pedir.
+- **`SalesTopSealedDTO.setName: string | null`** (AN-1.2, §15.12.4) ⇒ «—» con su `sr-only`.
+- **El CSV se pide con las fechas del DTO** (`preset=custom&from=period.from&to=period.to`), también para un preset:
+  mandar el preset dejaría que el servidor lo re-resolviera al exportar (pasada la medianoche de México, «Hoy» sería
+  otro día). Gate QA de `76dd1ee9`.
+- **Reembolsos por canal** en la celda 4: `{card}`/`{spei}` se rellenan con el **monto** de cada canal (el texto de
+  §AN-UX.3 admite los dos; el monto dice más).
+- **Candados contra espías de `@/lib/api`**, no MSW (no es dependencia del proyecto y no se instala).
+
+**Candados** (todos deterministas, N=1): `m9/SalesTab.test.tsx` (UX-AN-1..9, 13, 14, 16..20 + estados de §AN-UX.10),
+`admin/SalesTodayCard.test.tsx` (UX-AN-10/AN-F-3, 11, 12), `lib/i18n-sales-an.test.ts` (UX-AN-15 leyendo la tabla de
+§AN-UX.14 del propio documento, UX-AN-20), `lib/mock/sales.test.ts` (invariantes del servidor falso), `M9View.test.tsx`
+(pestañas). E2E: `e2e/sales-analytics.spec.ts` (sin `@real`, agnóstico: estructura, no montos; ⛔ sin `mockOnly` —
+censo sin cambio).
+
+**Pendiente / fuera de alcance.** El resumen de las 08:00 (AN-UX.8d) es de backend. «Mes pasado» compara con los mismos
+días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 default): si el dueño cambia, son textos.

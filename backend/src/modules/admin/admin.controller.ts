@@ -24,6 +24,7 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
+import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.service';
 import { ActorThrottlerGuard } from './actor-throttler.guard';
 import { AuditService } from '../audit/audit.service';
 import { UserAuditScope, USER_AUDIT_SCOPE_VALUES } from '../audit/audit.service';
@@ -549,7 +550,53 @@ export class AdminFinanceController {
 @Controller('admin/reports')
 @Roles(Role.super_admin)
 export class AdminReportsController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly sales: SalesAnalyticsService,
+  ) {}
+
+  /**
+   * 💰 §AN (API_CONTRACT §15.1) — pestaña «Ventas» de M9. `super_admin` por la clase (⛔ el operador no ve dinero, 613).
+   * Días de México resueltos en el servidor (§15.2); `400 VALIDATION_ERROR` sin `details.value`.
+   */
+  @Get('sales')
+  @Header('Cache-Control', 'no-store')
+  salesReport(
+    @Query('preset') preset?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('groupBy') groupBy?: string,
+    @Query('topSort') topSort?: string,
+  ) {
+    return this.sales.report({ preset, from, to, groupBy, topSort }, new Date());
+  }
+
+  /**
+   * 💰 §15.7 — el CSV de la tabla por día/semana/mes (pesos con dos decimales, AN-1.1). ⚠️ Sin `?topSort=`: el CSV no
+   * lleva «lo más vendido» (§15.7 lo prohíbe), así que el orden no cambiaría ni un byte — declararlo sería un eje que
+   * valida y no hace nada (C-EQ-1 «filtra» no observable). Discrepancia con §15.2 anotada para el arquitecto.
+   */
+  @Get('sales/export.csv')
+  @Header('Cache-Control', 'no-store')
+  async salesCsv(
+    @Res() res: Response,
+    @Query('preset') preset?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('groupBy') groupBy?: string,
+  ) {
+    const csv = await this.sales.csv({ preset, from, to, groupBy }, new Date());
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${csv.filename}"`);
+    res.send(csv.body);
+  }
+
+  /** 💰 §15.5 — tarjeta «Ventas de hoy» del tablero (⛔ no sale de `/admin/dashboard`, que es `vault_operator+`). */
+  @Get('sales/today')
+  @Header('Cache-Control', 'no-store')
+  salesToday() {
+    return this.sales.today(new Date());
+  }
 
   @Get('launch-metrics')
   launchMetrics(@Query('from') from?: string, @Query('to') to?: string) {

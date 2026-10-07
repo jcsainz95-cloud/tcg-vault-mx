@@ -30073,3 +30073,143 @@ generado en la copia, BD propia `tcg_be_limpieza2`):
 - Medido (copia entera de `9352915c` + cambios, BD propia): 50/50; tsc y eslint exit 0. Mutaciones 1/1 rojas: volver a
   poner `psql "$URL"` en el encabezado de C; romper el formato del `\copy`.
 
+## 80 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
+
+Norma: `API_CONTRACT §15` + errata AN-1.1 (`edffe544`), `ARCHITECTURE §4.64`, `PROJECT §AN` (600–613, 620, 622 de salida, 623, 624).
+⛔ Fase C (`M-AN-1`: método de pago, contracargos por día) **no** construida: sus claves **no viajan** (`mix.byPaymentMethod`,
+`chargebacks`, `chargebacksUndatedCount`), y tampoco `shipping.buylistRevenueCents/CostCents` (#78).
+
+### 80.1 Lo que hay
+| Pieza | Dónde |
+|---|---|
+| `GET /admin/reports/sales`, `/sales/export.csv`, `/sales/today` (`AdminReportsController`, `super_admin` de clase, `no-store`) | `admin/admin.controller.ts` |
+| Periodo, presets, cubos recortados, validación §15.2 | `sales-analytics/sales-period.ts` (puro) |
+| Una definición por cifra, `Delta`, `allocateByWeight`, `centsToPesosCell` | `sales-analytics/sales-figures.ts` (puro) |
+| `report` / `csv` / `today` / `dayFigures` (un solo cuerpo: `bucketFigures`) | `sales-analytics/sales-analytics.service.ts` |
+| M7 partido en cubos: `pnlBuckets`, `refundRowsInPeriod`, `refundsInPeriod` | `admin/pnl-core.ts`; `AdminService.pnl()` = un cubo con el `range()` de siempre |
+| Línea «Ventas de ayer» + envío con pedidos sin avisos (P-AN-1 default) | `spend-alerts/spend-digest.service.ts`, `spend-alert.mail.ts` (`salesDigestLine`) |
+
+`SalesAnalyticsModule` lo importan `AdminModule` y `SpendAlertsModule`; él no importa ninguno (sin ciclo). `SpendDigestService`
+recibe el servicio `@Optional()` (los dobles que construyen el servicio a mano siguen valiendo; sin él, la regla es la de antes).
+
+### 80.2 Decisiones de implementación que otros roles necesitan
+- **`?topSort=` NO está en `/sales/export.csv`.** §15.2 dice que los dos primeros endpoints aceptan los mismos parámetros, pero el CSV
+  no lleva listas (§15.7) ⇒ el orden no cambia un byte, y `C-EQ-1` exige que todo eje declarado sea observable («filtra») y prohíbe
+  excepciones de `filtra`. Se omitió; un `?topSort=` en el CSV se ignora como cualquier parámetro desconocido. ⇒ **arquitecto**.
+- **C-EQ-1:** `preset`/`groupBy`/`topSort` (×`sales`) y `preset`/`groupBy` (×CSV) van al registro como **`PENDIENTE-ARQUITECTO`**: §15.2
+  los declara clase L pero la **tabla de §0-Q punto 4** no tiene sus filas (medido con `grep 'reports/sales'`). Trinquetes: registro
+  59 → 64, pendientes 18 → 23; `from`/`to` de las dos rutas en `NO_ENUM_POR_RUTA` (tope 54 → 58). La paridad de clase L lee la tabla
+  de §15.2 (la regex quita el `\|` de Markdown).
+- **`preset=custom` sin fechas** ⇒ `400 {field:'from'}` (la tabla de errores de §15.2 no lo lista; se trata como «falta `from`»).
+- ⭐ **AN-1.2 (`50b5faeb`, §15.12):** ratificados `topSort` fuera del CSV y `custom` sin fechas ⇒ `400 {field:'from'}`. Las cinco
+  filas de C-EQ-1 pasan a `transcrita` (pendientes 23 → 18; registro 64). `TopSealed.setName` es `string | null` en el DTO,
+  pero **medido: nunca `null`** — sin `SealedProduct` el set es el de la `Card` de la pieza (`cardId` y `Card.setId` obligatorios);
+  prueba nueva en `sales-analytics.e2e-spec.ts`. Copia `50b5faeb` + cambio: unitaria 428/428 (7777), integración sales + C-EQ-1
+  3/3 suites, 561/561.
+- **CSV:** la fila `total` lleva `to` vacío. Columnas de fase A + fase B (con `shippingResultNetMxn` tras `shippingCostNetMxn`).
+- **`comparison.piecesPerOrder.diff`** se redondea a un decimal (la resta en coma flotante de dos cifras de un decimal no lo es).
+- **`mix.byDestination` / `byBuyer`** se emiten (no necesitan migración); `byProductType` reparte el `netRevenueCents` de cada pedido
+  entre sus renglones por `unitPriceCents` (resto mayor, desempate por `OrderItem.id`) e **incluye** los `refunded`.
+- **Rendimiento:** dos pasadas de `bucketFigures` (periodo y anterior) ⇒ ~14 consultas por informe; el arquitecto sugería una sola
+  consulta de órdenes para los dos periodos (§4.64.6, no normativo). Sin índice nuevo; el disparador de `@@index([settledAt])` sigue
+  siendo el de §4.64.6 (NO MEDIDO el volumen de producción).
+- **`PnlComponents` es `type`, no `interface`**: el tipo de `pnl()` sigue siendo asignable a `Record<string, number>` como antes
+  (`sdx-d2f.units.spec.ts` lo usa así).
+
+### 80.3 Pruebas (fixture `test/integration/helpers/sales-db.ts`: ventana propia feb–may 2021, ids fijos, comprueba que esté vacía)
+- `test/sales-analytics.units.spec.ts` (37): presets en día MX, AN-B-14 (11 filas de error, sin `value`), AN-B-6 puro, AN-B-5, AN-B-7,
+  AN-B-21 puro (25862 = 8621 + 8621 + 8620; CONTROL 3 × `taxBaseCentsOf` = 25863), AN-B-23.
+- `test/integration/sales-analytics.e2e-spec.ts` (19, Postgres real): AN-B-1, 2, 3 (68001 = 53000 + 15001), 4, 6, 7, 8, 9, 10 (pesos,
+  sin datos de cliente con CONTROL), 11, 12 (403/200/401, `no-store`), 14 por HTTP, 15 (profit 11009, envío 25000/10000/2000), 16,
+  17, 18 (envía con pedidos sin avisos; `empty` sin ninguno), 21 (con `refunded`, y el ejemplo del contrato), 22.
+- `test/integration/sales-analytics-pnl-parity.e2e-spec.ts` — **AN-B-13**: instantánea `fixtures/an-b-13-pnl-snapshot.json`
+  (`pnl`, `ivaReport`, `exportCsv('pnl')`, `launchMetrics`, 6 rangos) escrita con el código **anterior** al refactor
+  (`AN_PARITY_WRITE=1`, commit `d644be0d`); ⛔ no se regenera para hacer pasar nada.
+- Candados estructurales `IVA-9`/`IVA-11` leen ahora `admin.service.ts` **y** `pnl-core.ts` (el bucle del P&L se mudó).
+
+### 80.4 Medido (2026-10-06, copia `git archive 1a2e9165` del árbol ENTERO en el scratchpad `be-ventas`, `node_modules` propio con `prisma generate` dentro, BD propia `tcg_be_ventas`)
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` | limpio |
+| Unitaria completa | **428/428 suites, 7777/7777** |
+| Integración completa (`--runInBand`) | **109/109 suites, 2154 verdes + 2 skipped** de 2156 (incluye `enum-query-axes` 539/539) |
+| AN-B-13 antes del refactor (escribe la instantánea) / después | 2/2 · 2/2 |
+
+**Mutaciones** (deterministas ⇒ N=1 cada una, dicho así; aplicadas y revertidas sobre la copia; `src` de la copia comparado con el vivo
+al terminar: idéntico):
+| # | Mutación | Rojas reales |
+|---|---|---|
+| m1 | R-2 con `status: 'settled'` | AN-B-4, y además AN-B-1, 3, 7, 8, 9, 16, 21 (8 rojas) |
+| m2 | `lte` en lugar del semiabierto | AN-B-1, AN-B-8, AN-B-11 |
+| m3 | `subtotalCents` en vez de `netRevenueCents` | AN-B-3, AN-B-4, AN-B-21 ×2 |
+| m4 | `avgTicketCents = 0` con 0 pedidos | AN-B-5 |
+| m5 | sin recorte de semana/mes | AN-B-6 (integración) + 2 unitarias de cubos |
+| m6 | `pnl-core` salta los ajustes | AN-B-13 (instantánea y CONTROL), AN-B-15, AN-B-22 |
+| m7 | CSV en centavos | AN-B-10 |
+| m8 | `byProductType` con `taxBaseCentsOf` por renglón | AN-B-21 (el ejemplo del contrato) |
+| m9 | `resultNetCents` resta otra vez los ajustes | AN-B-15, AN-B-22 |
+| m11 | `centsToPesosCell` con `Math.trunc` (pierde el signo con \|n\| < 100) | AN-B-23 (`-5 ⇒ "-0.05"`) |
+| m10 | (fase C) | no aplica: fase C no construida |
+
+### 80.5 Arreglos tras los gates de QA y techlead sobre `76dd1ee9` (2026-10-06)
+
+- **C-1 (bloqueante) — el resumen de las 08:00 ya no deja la fila en `sending`.** `spend-digest.service.ts`: TODO lo que
+  corre después de reservar el día (`count` de avisos, línea de ventas, envío) va dentro del `try`; cualquier fallo ⇒
+  `failed` (re-enviable por cron o `{day}`). La línea de ventas es un **extra** (`salesLine()`: si `dayFigures` lanza, se
+  registra y devuelve `'failed'`). **Decisión** para la regla «avisos O pedidos ⇒ se manda»:
+  - con avisos ⇒ el resumen de gasto **sale sin la línea**;
+  - sin avisos ⇒ no se sabe si hubo pedidos ⇒ **no se manda** y la fila pasa a `failed` (⛔ nunca `empty`, que cerraría
+    el día en silencio). El re-envío lo recoge con la línea sana.
+  Prueba **AN-B-18b** (`test/integration/sales-analytics.e2e-spec.ts`, doble = `jest.spyOn(SalesAnalyticsService.dayFigures)`
+  que lanza): roja sobre `76dd1ee9` (estado final `sending`), verde con el arreglo. Mutaciones: llamada fuera del `try` ⇒
+  rojo; quitar el `failed` del caso sin avisos ⇒ rojo (sale `empty`).
+- **QA menor (no-store en 401/403): NO aplicado.** El proyecto pone `Cache-Control: no-store` con `@Header` en el handler
+  (≈25 rutas: `admin.controller.ts`, `admin-shipments.controller.ts`, `guest-orders.controller.ts`, …) y **ninguna** lo
+  lleva en sus 401/403 (los lanza el guard antes del handler; ni el filtro de excepciones ni `main.ts` ponen
+  `Cache-Control`, medido con `grep -rn Cache-Control src/common src/main.ts` ⇒ vacío). Hacerlo solo aquí sería
+  incoherente; si se quiere, es un cambio transversal (filtro global) para el arquitecto.
+- **TD-AN-5/6/7 cerradas en código** (ver `docs/TECH_DEBT.md`, sección «Backend · 2026-10-06 · gates … `76dd1ee9`»):
+  válvula `AN_PARITY_WRITE` cerrada en CI; seguro `580` en la fixture (S2) con la instantánea AN-B-13 **regenerada con el
+  código de `d644be0d`** (antes de `pnl-core`; solo cambian los 8 campos `shippingInsuranceCents`); `total.pnl` lanza si
+  `pnlBuckets` trae una llave fuera de los cubos; R-2 con `status in (settled, refunded, chargeback)` explícito.
+  Pruebas: `test/sales-analytics.pnl-keys.spec.ts` (TD-AN-6/7, rojas 2/3 sobre `76dd1ee9`), CONTROL de AN-B-13
+  (`shippingInsuranceCents = 580`; quitar la línea del seguro en `pnl-core` ⇒ AN-B-13 2/2 rojas).
+
+## 81 · Fusión `claude/analitica-ventas` + #78 (`claude/buylist-skydropx`, `f5ef59b7`) — 💰 `pnlBuckets` con el buylist (2026-10-06)
+
+**Qué quedó.** El cuerpo de `pnl()` sigue en `admin/pnl-core.ts` (`pnlBuckets`, §AN fase B) y ahora lleva los cuatro renglones
+de B-4 (§BSD.16) que #78 había puesto en `AdminService.pnl()`/`pnlBuylistGuides`. Cada renglón cae en el cubo de la fecha
+con la que #78 lo acota: retenido, margen por solicitud y «sin costo capturado» por `paidAt` (solicitudes `pagada`); guía de
+Skydropx de entrada por `labelPurchasedAt` (`INBOUND_ONLY`, ⛔ las de cancelación confirmada); guía manual con costo por
+`coalesce(guideSentAt, shipmentConfirmedAt)` (BSD-1.4 punto 12). La ganancia de cada cubo suma lo retenido y resta las guías
+del cubo. La lectura es `buylistRowsInPeriod` (mismas tres consultas de #78); las reglas por fila siguen en `pnl-buylist.ts`.
+El envío de VENTA de `pnlBuckets` ganó `OUTBOUND_ONLY` (lo traía el `pnl()` de #78; en `pnl-core` faltaba). `PnlComponents` y
+`zeroPnl()` llevan las cuatro claves al final (orden del DTO y del CSV de M7). `AdminService.pnl()` = el cubo `all`.
+- **Censo BSD-B23:** las llaves pasan a `pnl-core.ts pnlBuckets#findMany#1` (`outbound_only`) y `pnl-core.ts
+  buylistRowsInPeriod#findMany#1` (`inbound_only`), también en los mínimos. **C-EQ-1:** techo 55 (BSD) + 4 (AN) = **59**.
+- **Analítica:** `profitCents` de cada fila incluye ahora el buylist (612 = «regla de Finanzas» = `pnl()`; Σ días = `pnl()`).
+  ⚠️ **Para el arquitecto/dueño:** la «Ganancia» de la pestaña Ventas cambia en los días con guías o pagos del buylist.
+- **AN-5 (622 `shipping.buylistRevenueCents/CostCents`) NO se añade aquí:** el contrato lo condiciona a «#78 en
+  `production`», que al fusionar no se cumple; y aunque el mapeo es trivial (`buylistShippingFeeRetainedCents` /
+  `buylistGuideCostCents` del mismo cubo), arrastra columnas del CSV de §15.7, el DTO del front y pruebas. Sigue pendiente;
+  AN-B-15 sigue afirmando que las claves NO viajan.
+- ⚠️ `ARCHITECTURE §9 D-AN-3` dice que el código no devuelve las cifras del buylist en `pnl`: con #78 devuelve las de §BSD.16
+  (no las `buylistShippingRevenueCents/CostCents/Basis` del §M7 viejo). Lo actualiza el arquitecto.
+
+**Fixture de la analítica (`helpers/sales-db.ts`).** Con la fixture anterior el `pnl()` de #78 daba un retenido de **−40 000**
+(SR1 tenía `payoutNetCents` sin bruto). Ganó: SR1 con bruto 58 000 y guía manual 15 000 entregada el 03-02; SR2 con guía
+manual sin costo; SR3 `aceptada` con guía de Skydropx de entrada 25 000/3 448 comprada el 03-04; SR4 con costo 7 000 confirmado
+sin guía el 03-07; `assertWindowEmpty` vigila además `labelPurchasedAt`, `guideSentAt` y `shipmentConfirmedAt`.
+**AN-B-13:** la instantánea se REGENERÓ con el código de #78 (`git archive origin/claude/buylist-skydropx` = `f5ef59b7`, su
+`pnl()` sin partir) sobre la fixture nueva (`AN_PARITY_WRITE=1`, local, sin `CI`) y el código fusionado la iguala. Su CONTROL
+afirma los cuatro renglones (18 000 · 43 552 · 3 000 · 1). AN-B-15: total `11009 + 18000 − 15000 − 21552 − 7000`.
+**Prueba nueva «AN-B-15 por día»** (`sales-analytics.e2e-spec.ts`): cada fila = `pnl()` de SU día; Σ filas = total no ve un
+renglón puesto en otro día del periodo. Unitaria nueva `test/pnl-core.buylist-buckets.spec.ts` (cubos, `all`, filtros de clase).
+
+**Medido** (copia del árbol entero del merge, BD propia, `node_modules` propio con `prisma generate` dentro; sin S3: el seed
+avisa y el smoke de INE no corre en estricto): tsc 0 · eslint 0 · unitaria **439/439 suites, 7949/7949** · integración
+**114/114 suites, 2252/2252** · frontend vitest **290 ficheros (1 skip), 3854 pruebas (10 skip)**, tsc 0.
+**Mutaciones** (N=1 cada una, deterministas): M1 guía de Skydropx al cubo `null` ⇒ roja la unitaria de cubos y «AN-B-15 por
+día» (AN-B-13 y AN-B-15 siguen verdes: por eso existe la prueba por día); M2 margen sin restar la guía ⇒ rojas AN-B-13 (2) y
+BSD-B34 e2e; M3 ganancia sin el buylist ⇒ rojas AN-B-13 y AN-B-15; M4 sin `OUTBOUND_ONLY` en el envío de venta ⇒ rojos el
+censo BSD-B23 y la unitaria de clases. Las cuatro restauradas y comparadas con `cmp` contra el árbol vivo.

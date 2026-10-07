@@ -1388,7 +1388,19 @@
         "seeBalance": "Ver el saldo"
       },
       "buylistGuideDue": "{n, plural, one {# solicitud aceptada sin guía se cierra sola pronto} other {# solicitudes aceptadas sin guía se cierran solas pronto}}",
-      "buylistInboundLabelAlert": "{n, plural, one {# solicitud de venta con alerta en su guía} other {# solicitudes de venta con alerta en su guía}}"
+      "buylistInboundLabelAlert": "{n, plural, one {# solicitud de venta con alerta en su guía} other {# solicitudes de venta con alerta en su guía}}",
+      "salesToday": {
+        "title": "Ventas de hoy",
+        "orders": "{count, plural, one {# pedido} other {# pedidos}}",
+        "charged": "{amount} cobrado",
+        "today": "Hoy, {date} · va en curso",
+        "reference": "{date} completo: {orders, plural, one {# pedido} other {# pedidos}} · {amount}",
+        "noReference": "El {date} no hubo ventas.",
+        "same": "= Igual que el {date}",
+        "link": "Ver ventas",
+        "error": "No se pudieron cargar las ventas de hoy.",
+        "retry": "Reintentar"
+      }
     },
     "m1": {
       "title": "Inventario",
@@ -5075,6 +5087,215 @@
         "pnl": "Exportar P&L (CSV)",
         "iva": "Exportar IVA (CSV)",
         "inventory": "Exportar inventario (CSV)"
+      },
+      "tabs": {
+        "sales": "Ventas",
+        "activity": "Actividad"
+      },
+      "sales": {
+        "period": {
+          "title": "Periodo",
+          "presetsLabel": "Elegir periodo",
+          "today": "Hoy",
+          "yesterday": "Ayer",
+          "last7": "Últimos 7 días",
+          "last30": "Últimos 30 días",
+          "thisMonth": "Este mes",
+          "lastMonth": "Mes pasado",
+          "custom": "Elegir fechas…",
+          "from": "Desde",
+          "to": "Hasta",
+          "apply": "Ver"
+        },
+        "range": {
+          "bothRequired": "Elige las dos fechas.",
+          "fromAfterTo": "La fecha de inicio va antes que la de fin.",
+          "toFuture": "No puede ser después de hoy.",
+          "tooLong": "Máximo un año (366 días). Acorta el rango.",
+          "invalid": "Ese periodo no es válido. Elige otro."
+        },
+        "groupBy": {
+          "label": "Ver por",
+          "day": "Día",
+          "week": "Semana",
+          "month": "Mes",
+          "weekNote": "Semanas de lunes a domingo; la primera y la última pueden quedar cortadas por el periodo."
+        },
+        "label": {
+          "oneDayToday": "Hoy, {date}",
+          "oneDayYesterday": "Ayer, {date}",
+          "oneDay": "{date}",
+          "range": "Del {from} al {to} · {days, plural, one {# día} other {# días}} · hora del centro de México",
+          "compareRange": "Se compara con: del {from} al {to}",
+          "compareDay": "Se compara con: {date}"
+        },
+        "summary": {
+          "title": "Resumen del periodo"
+        },
+        "card": {
+          "orders": "Pedidos",
+          "charged": "Cobrado (con IVA)",
+          "chargedHelp": "Lo que pagaron los clientes: con IVA, envío y comisión.",
+          "netSales": "Venta sin IVA",
+          "netSalesHelp": "La misma cifra de ingresos que Finanzas.",
+          "refunds": "Reembolsos",
+          "refundsDetail": "{count, plural, one {# reembolso} other {# reembolsos}} · {card} con tarjeta · {spei} por SPEI",
+          "refundsNet": "Se restan {amount} sin IVA",
+          "refundsNone": "Sin reembolsos.",
+          "netAfterRefunds": "Venta neta de reembolsos",
+          "netAfterRefundsHelp": "Venta sin IVA menos los reembolsos hechos en el periodo.",
+          "netAfterRefundsNegative": "Negativa: los reembolsos del periodo pasan la venta.",
+          "avgTicket": "Ticket promedio",
+          "avgTicketHelp": "Cobrado ÷ pedidos: lo que deja un cliente por compra.",
+          "piecesPerOrder": "Piezas por pedido",
+          "pieces": "{count, plural, one {# pieza vendida} other {# piezas vendidas}}",
+          "customers": "Clientes",
+          "customersSplit": "{new, plural, one {# nuevo} other {# nuevos}} · {returning, plural, one {# recurrente} other {# recurrentes}}",
+          "customersHelp": "Nuevo: su primera compra pagada cae en este periodo. Se reconoce por correo, también si compró como invitado."
+        },
+        "noData": "sin dato: no hubo pedidos",
+        "delta": {
+          "up": "subió",
+          "down": "bajó",
+          "same": "Igual que el periodo anterior",
+          "orders": "{diff, plural, one {# pedido} other {# pedidos}}",
+          "piecesPerOrder": "{diff} piezas por pedido",
+          "noPrevious": "sin ventas en el periodo anterior",
+          "noPreviousAlone": "Sin ventas en el periodo anterior",
+          "wasZero": "antes fue cero",
+          "before": "Antes: {value}"
+        },
+        "chart": {
+          "titleOrders": "Pedidos por {unit, select, day {día} week {semana} other {mes}}",
+          "titleCharged": "Cobrado por {unit, select, day {día} week {semana} other {mes}}",
+          "metricLabel": "Ver",
+          "metricOrders": "Pedidos",
+          "metricCharged": "Cobrado",
+          "caption": "Los mismos números están en la tabla de abajo.",
+          "inProgress": "* Hoy sigue en curso.",
+          "tooMany": "Con tantos días, se lee mejor por semana o por mes.",
+          "switchToWeek": "Ver por semana",
+          "summaryOrders": "{metric} del {from} al {to}: {total} en total; el día con más, {best} con {bestValue}; {zero, plural, =0 {ningún día sin pedidos} one {# día sin pedidos} other {# días sin pedidos}}."
+        },
+        "table": {
+          "title": "Por {unit, select, day {día} week {semana} other {mes}}",
+          "caption": "Ventas por {unit, select, day {día} week {semana} other {mes}}, del {from} al {to}",
+          "colsLabel": "Columnas",
+          "colsSales": "Ventas",
+          "colsMoney": "Envíos, compras y ganancia",
+          "colPeriod": "{unit, select, day {Día} week {Semana} other {Mes}}",
+          "total": "Total del periodo",
+          "inProgress": "en curso",
+          "partialDays": "{days, plural, one {# día} other {# días}}",
+          "shippingCharged": "Envío cobrado (sin IVA)",
+          "shippingCost": "Costo de guías (sin IVA)",
+          "shippingAdjustments": "Ajustes de paquetería",
+          "shippingAdjustmentsHint": "Ya van dentro del costo de guías",
+          "buylistRevenue": "Ingreso por tarifa de buylist",
+          "buylistCost": "Costo de guías de buylist",
+          "buylistPaid": "Compras del buylist",
+          "chargebacks": "Contracargos",
+          "profit": "Ganancia (regla de Finanzas)",
+          "costMissing": "{count, plural, one {# sin costo} other {# sin costo}}",
+          "payoutMissing": "{count, plural, one {# sin monto} other {# sin monto}}",
+          "profitNote": "La ganancia sigue la misma regla que Finanzas; cada día suma la ganancia de Finanzas del periodo.",
+          "costMissingNote": "Hay envíos sin costo de guía capturado: el costo real puede ser mayor.",
+          "payoutMissingNote": "Hay compras del buylist pagadas sin monto registrado: no están en la suma.",
+          "shippingResult": "Resultado del envío",
+          "shippingResultMaybeLower": "puede ser menor: hay envíos sin costo",
+          "shippingResultNote": "Resultado del envío = envío cobrado menos costo de guías (los ajustes ya van dentro). Positivo: lo cobrado cubrió las guías; negativo: costaron más.",
+          "chargebacksNote": "Los contracargos cuentan el día en que se abrieron y no se restan de la venta.",
+          "tooMany": "Con tantos días, se lee mejor por semana o por mes."
+        },
+        "chargebacks": {
+          "undated": "{count, plural, one {# contracargo anterior sin fecha: no aparece en ningún día.} other {# contracargos anteriores sin fecha: no aparecen en ningún día.}}"
+        },
+        "top": {
+          "title": "Lo más vendido",
+          "sortLabel": "Ordenar por",
+          "sortNet": "Venta sin IVA",
+          "sortPieces": "Piezas",
+          "cards": "Cartas",
+          "sets": "Sets",
+          "sealed": "Sellados",
+          "colRank": "#",
+          "colCard": "Carta",
+          "colSet": "Set",
+          "colSealed": "Producto",
+          "colPieces": "Piezas",
+          "colNet": "Venta sin IVA",
+          "graded": "Gradeada",
+          "emptyCards": "Sin cartas vendidas en este periodo.",
+          "emptySets": "Sin sets vendidos en este periodo.",
+          "emptySealed": "Sin sellados vendidos en este periodo.",
+          "note": "No cuenta pedidos reembolsados completos; por eso su suma puede ser menor que la venta del periodo."
+        },
+        "when": {
+          "title": "Cuándo se vende",
+          "byWeekday": "Por día de la semana",
+          "byHour": "Por hora (centro de México)",
+          "asTable": "Ver como tabla",
+          "fewData": "Con pocos pedidos esto todavía no dice mucho: un solo día bueno lo cambia todo.",
+          "hourRange": "{from}:00–{from}:59"
+        },
+        "mix": {
+          "title": "Cómo y a quién se vende",
+          "destination": "A dónde va",
+          "directShip": "Envío a domicilio",
+          "vault": "Bóveda",
+          "buyer": "Quién compra",
+          "account": "Con cuenta",
+          "guest": "Invitado",
+          "payment": "Cómo paga",
+          "method": {
+            "card": "Tarjeta",
+            "oxxo": "OXXO",
+            "customer_balance": "Transferencia",
+            "other": "Otro ({method})",
+            "none": "Sin dato"
+          },
+          "noneNote": "Sin dato: pedidos pagados antes de que la tienda guardara el método de pago.",
+          "cardOnly": "Hoy la tienda solo cobra con tarjeta.",
+          "colOrders": "Pedidos",
+          "colCharged": "Cobrado",
+          "productType": "Qué se vende",
+          "raw": "Cartas sueltas",
+          "graded": "Gradeadas",
+          "sealed": "Sellado",
+          "colPieces": "Piezas",
+          "colNet": "Venta sin IVA",
+          "productTypeNote": "Reparte la venta sin IVA del periodo, también la de pedidos que luego se reembolsaron; por eso suma lo mismo que el resumen y no lo mismo que «Lo más vendido»."
+        },
+        "p2": {
+          "shippingCharged": "Envío cobrado (sin IVA)",
+          "shippingCost": "Costo de guías (sin IVA)",
+          "includesAdjustments": "Incluye ajustes de paquetería {amount}",
+          "costMissing": "{count, plural, one {# envío sin costo capturado} other {# envíos sin costo capturado}}",
+          "buylistPaid": "Compras del buylist",
+          "buylistCount": "{count, plural, one {# compra pagada} other {# compras pagadas}}",
+          "payoutMissing": "{count} sin monto registrado",
+          "profit": "Ganancia (regla de Finanzas)",
+          "profitHelp": "La misma ganancia que Finanzas.",
+          "shippingResult": "Resultado del envío",
+          "shippingResultHelp": "Envío cobrado menos costo de guías.",
+          "shippingResultMaybeLower": "Puede ser menor: hay envíos sin costo capturado.",
+          "chargebacks": "Contracargos",
+          "chargebacksCount": "{count, plural, one {# contracargo} other {# contracargos}}",
+          "chargebacksOutcome": "{open, plural, one {# abierto} other {# abiertos}} · {won, plural, one {# ganado} other {# ganados}} · {lost, plural, one {# perdido} other {# perdidos}}",
+          "chargebacksHelp": "Cuentan el día en que se abrieron; no se restan de la venta.",
+          "chargebacksUndated": "{count, plural, one {# anterior sin fecha, fuera de este conteo.} other {# anteriores sin fecha, fuera de este conteo.}}"
+        },
+        "csv": {
+          "button": "Descargar CSV",
+          "help": "Una fila por {unit, select, day {día} week {semana} other {mes}}, también las de cero, y una de total. Montos en pesos con dos decimales, sin signo de pesos ni comas de miles (MX$1,250.00 = 1250.00), para que Excel los sume. Sin datos de clientes.",
+          "error": "No se pudo descargar el CSV. Intenta de nuevo."
+        },
+        "state": {
+          "updating": "Actualizando…",
+          "empty": "No hubo ventas en este periodo.",
+          "error": "No se pudieron cargar las ventas.",
+          "forbidden": "Solo el súper-admin puede ver las ventas."
+        }
       }
     },
     "vaults": {

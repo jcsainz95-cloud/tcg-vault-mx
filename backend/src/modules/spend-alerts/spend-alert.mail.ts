@@ -238,12 +238,28 @@ export function spendAlertBatchMail(items: SpendAlertMailView[], hourStart: Date
 }
 
 /** **`AVG-3`** — el resumen del día MX `day` (`summary` = `summarizeSpendAlerts` de ese día; ⛔ la plantilla no suma, GAS-4). */
+/** 💰 §AN 624 — las tres cifras de la línea de ventas del resumen (de `dayFigures`). */
+export interface SpendDigestSalesLine {
+  orders: number;
+  chargedCents: number;
+  avgTicketCents: number | null;
+}
+
+/** `Ventas de ayer: {orders} pedidos · {cobrado} · ticket {ticket|—}` (API_CONTRACT §15.8). */
+export function salesDigestLine(s: SpendDigestSalesLine, l: MailLocale): string {
+  const ticket = s.avgTicketCents === null ? '—' : mailMoney(s.avgTicketCents, l);
+  return l === 'en'
+    ? `Yesterday's sales: ${s.orders} ${s.orders === 1 ? 'order' : 'orders'} · ${mailMoney(s.chargedCents, l)} · ticket ${ticket}`
+    : `Ventas de ayer: ${s.orders} ${s.orders === 1 ? 'pedido' : 'pedidos'} · ${mailMoney(s.chargedCents, l)} · ticket ${ticket}`;
+}
+
 export function spendDigestMail(
   day: string,
   summary: SpendAlertSummaryDTO,
   immediates: SpendAlertMailView[],
   r: SpendMailRecipient,
   titleOfCode: (code: string, l: MailLocale) => string,
+  sales?: SpendDigestSalesLine | null,
 ): Omit<MailMessage, 'to'> {
   const l = normalizeMailLocale(r.locale);
   const en = l === 'en';
@@ -252,6 +268,13 @@ export function spendDigestMail(
   const title = en ? `What cost us money on ${d}` : `Lo que nos costó dinero el ${d}`;
   const sec: string[] = [];
   const txt: string[] = [];
+  // 💰 §AN 624 (API_CONTRACT §15.8): la línea de ventas del día, de `SalesAnalyticsService.dayFigures` (la MISMA fila de la
+  // tabla de «Ventas»). Ticket `null` (0 pedidos) ⇒ «—», ⛔ nunca MX$0.
+  if (sales) {
+    const t = salesDigestLine(sales, l);
+    sec.push(monoRow(t), spacerRow(16));
+    txt.push(t, '');
+  }
   if (immediates.length > 0) {
     const label = en ? 'Immediate' : 'Lo inmediato';
     sec.push(sectionLabelRow(label), ...immediates.map((v) => monoRow(line(v, l))), spacerRow(16));
@@ -261,8 +284,11 @@ export function spendDigestMail(
   const byKind = summary.byKind.map(
     (k) => `${k.code} · ${titleOfCode(k.code, l)} · ${en ? 'immediate' : 'inmediatos'} ${k.immediate} · ${en ? 'summary' : 'del resumen'} ${k.digest} · ${mailMoney(k.amountCents, l)}`,
   );
-  sec.push(sectionLabelRow(byKindLabel), ...byKind.map((t) => monoRow(t)), spacerRow(16));
-  txt.push(byKindLabel, ...byKind, '');
+  // Un día sin avisos pero con ventas (P-AN-1) no tiene «Por tipo»: ⛔ no se pinta una sección vacía.
+  if (byKind.length > 0) {
+    sec.push(sectionLabelRow(byKindLabel), ...byKind.map((t) => monoRow(t)), spacerRow(16));
+    txt.push(byKindLabel, ...byKind, '');
+  }
   if (summary.mutedCount > 0) {
     const m = summary.mutedCount;
     const t = en
