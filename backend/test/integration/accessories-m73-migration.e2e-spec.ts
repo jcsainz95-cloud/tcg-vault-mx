@@ -63,6 +63,7 @@ const NAMED_CHECKS: Record<string, string[]> = {
     'payment_refund_accessory_qty_min',
     'payment_refund_card_xor_accessory',
     'payment_refund_accessory_shipment_line',
+    'payment_refund_accessory_shape', // v1.86.2 (§AC.18.3)
   ],
 };
 
@@ -198,7 +199,7 @@ describe('💰 AC-B1 — M-73 (accesorios) contra Postgres real', () => {
     it('cada CHECK con nombre existe en su tabla', async () => {
       const rows = await prisma.$queryRawUnsafe<{ t: string; c: string }[]>(
         `SELECT cl.relname AS t, co.conname AS c FROM pg_constraint co JOIN pg_class cl ON cl.oid = co.conrelid
-          WHERE co.contype = 'c' AND cl.relnamespace = 'public'::regnamespace`,
+          WHERE co.contype = 'c' AND cl.relnamespace = current_schema()::regnamespace`,
       );
       for (const [t, names] of Object.entries(NAMED_CHECKS)) {
         const have = rows.filter((r) => r.t === t).map((r) => r.c);
@@ -208,7 +209,7 @@ describe('💰 AC-B1 — M-73 (accesorios) contra Postgres real', () => {
 
     it('el índice parcial es ÚNICO y PARCIAL; el disparador es de restricción', async () => {
       const [idx] = await prisma.$queryRawUnsafe<{ def: string }[]>(
-        `SELECT indexdef AS def FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'accessory_energy_type_active_key'`,
+        `SELECT indexdef AS def FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'accessory_energy_type_active_key'`,
       );
       expect(idx?.def).toMatch(/CREATE UNIQUE INDEX .* WHERE \(active AND \("energyType" IS NOT NULL\)\)/);
       const trg = await prisma.$queryRawUnsafe<{ n: string; isconstraint: boolean }[]>(
@@ -243,7 +244,7 @@ describe('💰 AC-B1 — M-73 (accesorios) contra Postgres real', () => {
     it('columnas nuevas en tablas existentes: anulables o con DEFAULT, sin tocar filas', async () => {
       const cols = await prisma.$queryRawUnsafe<{ t: string; c: string; nullable: string; def: string | null }[]>(
         `SELECT table_name AS t, column_name AS c, is_nullable AS nullable, column_default AS def
-           FROM information_schema.columns WHERE table_schema = 'public' AND (
+           FROM information_schema.columns WHERE table_schema = current_schema() AND (
              (table_name = 'Order' AND column_name IN ('shippingBoxSnapshot','shippingBoxReview')) OR
              (table_name = 'ShippingPackage' AND column_name = 'customerFeeCents') OR
              (table_name = 'PaymentRefund' AND column_name IN ('orderAccessoryLineId','shipmentAccessoryLineId','accessoryQty')))
@@ -615,25 +616,35 @@ describe('💰 AC-B1 — M-73 (accesorios) contra Postgres real', () => {
         ...over,
       };
       const cols = Object.keys(row);
-      const casts: Record<string, string> = { kind: '::"PaymentRefundKind"', requestedByRole: '::"Role"' };
+      const casts: Record<string, string> = {
+        kind: '::"PaymentRefundKind"',
+        requestedByRole: '::"Role"',
+        missingReason: '::"MissingReason"',
+        deliveredReason: '::"ShippedRefundReason"',
+      };
       await tx.$executeRawUnsafe(
         `INSERT INTO "PaymentRefund" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map((c, i) => `$${i + 1}${casts[c] ?? ''}`).join(', ')})`,
         ...cols.map((c) => row[c]),
       );
     }
 
+    // v1.86.2 (§AC.18.2): una fila con renglón solo existe con forma `item_missing` (con línea de envío y motivo) o
+    // `item_delivered` (sin línea de envío, con motivo de entrega y nota). Las demás formas: AC-B47…B49.
+    const delivered = (l: string) => ({ kind: 'item_delivered', orderAccessoryLineId: l, accessoryQty: 1, deliveredReason: 'not_arrived', reason: 'nota' });
+    const missing = (l: string, s: string) => ({ kind: 'item_missing', orderAccessoryLineId: l, shipmentAccessoryLineId: s, accessoryQty: 1, missingReason: 'not_found' });
+
     it('PaymentRefund: CONTROL — una fila con renglón y cantidad entra; varias filas por renglón entran (sin @unique)', async () => {
       await rolledBack(async (tx) => {
         const { orderId, lineId, slId } = await shipLine(tx);
-        await refund(tx, orderId, { orderAccessoryLineId: lineId, accessoryQty: 1 });
-        await refund(tx, orderId, { orderAccessoryLineId: lineId, accessoryQty: 1, shipmentAccessoryLineId: slId });
+        await refund(tx, orderId, delivered(lineId));
+        await refund(tx, orderId, missing(lineId, slId));
       });
     });
 
     it.each([
-      ['renglón sin cantidad', (l: string) => ({ orderAccessoryLineId: l }), /payment_refund_accessory_qty_pair/],
+      ['renglón sin cantidad', (l: string) => ({ ...delivered(l), accessoryQty: null }), /payment_refund_accessory_qty_pair/],
       ['cantidad sin renglón', () => ({ accessoryQty: 1 }), /payment_refund_accessory_qty_pair/],
-      ['cantidad 0', (l: string) => ({ orderAccessoryLineId: l, accessoryQty: 0 }), /payment_refund_accessory_qty_min/],
+      ['cantidad 0', (l: string) => ({ ...delivered(l), accessoryQty: 0 }), /payment_refund_accessory_qty_min/],
       ['línea de envío sin renglón', (_l: string, s: string) => ({ shipmentAccessoryLineId: s }), /payment_refund_accessory_shipment_line/],
     ])('PaymentRefund: %s ⇒ error', async (_n, build, what) => {
       await rejects(what as RegExp, async (tx) => {
@@ -645,7 +656,8 @@ describe('💰 AC-B1 — M-73 (accesorios) contra Postgres real', () => {
     it('PaymentRefund: carta Y renglón en la misma fila ⇒ error (definición del CHECK)', async () => {
       // Una fila con `orderItemId` necesita forma de carta (M-61/M-70); se fija la DEFINICIÓN, que es lo que muerde.
       const [r] = await prisma.$queryRawUnsafe<{ def: string }[]>(
-        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'payment_refund_card_xor_accessory'`,
+        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+          WHERE conname = 'payment_refund_card_xor_accessory' AND connamespace = current_schema()::regnamespace`,
       );
       expect(r?.def).toMatch(/NOT \(\("orderItemId" IS NOT NULL\) AND \("orderAccessoryLineId" IS NOT NULL\)\)/);
     });
@@ -653,8 +665,8 @@ describe('💰 AC-B1 — M-73 (accesorios) contra Postgres real', () => {
     it('PaymentRefund.shipmentAccessoryLineId es @unique: un faltante por línea', async () => {
       await rejects(/23505[\s\S]*shipmentAccessoryLineId/, async (tx) => {
         const { orderId, lineId, slId } = await shipLine(tx);
-        await refund(tx, orderId, { orderAccessoryLineId: lineId, accessoryQty: 1, shipmentAccessoryLineId: slId });
-        await refund(tx, orderId, { orderAccessoryLineId: lineId, accessoryQty: 1, shipmentAccessoryLineId: slId });
+        await refund(tx, orderId, missing(lineId, slId));
+        await refund(tx, orderId, missing(lineId, slId));
       });
     });
   });

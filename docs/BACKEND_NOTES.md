@@ -30206,7 +30206,7 @@ pruebas. ⛔ Ningún servicio, controlador ni DTO: eso es (A)/(B)/(C).
    lo lee.
 5. **Semilla idempotente por TIPO** (`WHERE NOT EXISTS` por `energyType`, no por nombre: si el dueño renombra, no duplica).
 
-### 83.4 ⛔ Bloqueos para el arquitecto (medidos)
+### 83.4 Bloqueos para el arquitecto (medidos sobre `4e06c7e`) — ✅ CERRADOS por la errata v1.86.2 (`e0bcba7`, §AC.18; ver 83.6)
 - **(a) AC-B2 banda 3:** `docs/API_CONTRACT.md` no tiene línea canónica `Nombre = a | b …` en «Enums (fuente de verdad)»
   para los 5 enums nuevos (`grep -nE '^(AccessoryCategory|EnergyType|AccessoryLineKind|AccessoryLineStatus|AccessoryStockMovementKind)\s+='`
   ⇒ 0). Resultado: `test/enum-values-parity.spec.ts` **11 rojas** (5 de banda 3 + 5 de banda 3 universal + «SIN línea
@@ -30229,6 +30229,37 @@ pruebas. ⛔ Ningún servicio, controlador ni DTO: eso es (A)/(B)/(C).
 - **AC-B2** `test/enum-values-parity.spec.ts`: 5 enums en el ancla, en `PRISMA_ENUMS` y en `DERIVED_VALUES`, más el orden
   exacto de `AccessoryCategory`. Antes: la suite no compilaba (TS2305 ×10). Después: bandas 1-2 y orden verdes; banda 3 roja
   por 83.4 (a).
+
+### 83.6 Errata v1.86.2 (§AC.18) construida — formas de `PaymentRefund` para accesorios (2026-10-07, sobre `44175fd`)
+- **§AC.18.1:** las 5 líneas canónicas ya están en §0 ⇒ `test/enum-values-parity.spec.ts` **149/149**.
+- **§AC.18.3 en `M-73`** (no `M-73b`; M-73 no está fusionada): tras los cuatro CHECK de accesorio, `DROP`/`ADD` de
+  `PaymentRefund_item_missing_chk` y `PaymentRefund_item_delivered_shape_chk` (mismos nombres de M-61/M-70, rama carta +
+  rama accesorio) y `payment_refund_accessory_shape` nuevo. Texto literal del contrato.
+- **§AC.18.4 en la reversa:** el bloque de reversa vive ahora entre `-- REVERSA:BEGIN` y `-- REVERSA:END` (cada línea con
+  `-- ` delante; quitarlo da SQL ejecutable) y **repone los dos CHECK de M-61/M-70 ANTES** de los `DROP COLUMN` de
+  `PaymentRefund`. AC-B51 lo extrae y lo ejecuta tal cual, en una tx deshecha.
+- **AC-B1 ajustada:** sus filas de `PaymentRefund` con renglón usaban `order_remaining` (forma que v1.86.2 prohíbe); ahora
+  usan `item_delivered`/`item_missing` de accesorio. Sus consultas de catálogo leen `current_schema()` (antes `public`) para
+  poder correr en un esquema propio. `NAMED_CHECKS` gana `payment_refund_accessory_shape` (105 casos).
+- **AC-B47…B51** en `test/integration/accessories-m73-refund-shapes.e2e-spec.ts` (22 casos; siembra `seedE2E`; filas con
+  FK reales; «rechaza» = `23514` + nombre del CHECK). AC-B50 aplica M-73 ENTERA por segunda vez (splitter que respeta
+  `$$…$$`) y aplica la parte `PaymentRefund` de M-73 sobre una copia de la tabla devuelta a forma M-72 con una fila de carta de
+  cada `kind`. AC-B52 es del stream de cobro (B): no está aquí.
+- **Antes** (BD con la M-73 de `4e06c7e`): 11 rojas de 22 — B47 (2)(5)(8), B48 (2)(3), B49 ×2, B50 texto/definición
+  viva/forma M-72, B51. **Después:** 22/22; con AC-B1, 127/127.
+- **Mutaciones de §AC.18.5** (copia del árbol entero en `44175fd` + los 4 ficheros, cada una en su esquema recién migrado;
+  deterministas, 1 corrida):
+
+  | Mutación | Rojas | Incluye la nombrada |
+  |---|---|---|
+  | M-61 literal en `item_missing_chk` | 3 | B47 (2) ✓ |
+  | `missingReason` solo en la rama carta | 1 | B47 (3) ✓ |
+  | sin `shipmentAccessoryLineId IS NULL` en el entregado | 1 | B48 (4) ✓ |
+  | sin `reason IS NOT NULL` | 1 | B48 (6) ✓ (`pnl-delivered-refunds:490`: NO MEDIDO bajo mutación; por lectura su `UPDATE … reason = NULL` deja de reventar) |
+  | sin `payment_refund_accessory_shape` | 4 | B49 ×2 ✓ |
+  | reversa sin reponer los dos CHECK | 1 | B51 ✓ |
+  | sin comparar `expectedRefundCents` | — | AC-B52: stream (B), no medida aquí |
+
 
 ### 83.A Stream (A) construido — `accessories/`: tienda pública, panel, fotos en Postgres, existencias manuales, cajas con tarifa y diales (2026-10-07, rama `claude/accesorios`)
 **Alcance (§AC.17 (A)):** ⛔ sin cobro. Apartar/soltar/liquidar/reponer (`accessory-stock.ts` de §AC.6), `box-fit.ts`
@@ -30447,3 +30478,12 @@ CPU—; repetidas solas: 2/2 y 37/37. Ninguna importa `decks-meta`. Integración
 **NO MEDIDO:** el cableado en `quote`/`session` (AC-B32 de punta a punta, AC-B33 carrera del paquete): es de (B). La foto
 servida de verdad por `GET /accessories/:id/photo/…`: es de (A). La app no se levantó; el grafo de DI con el 4.º parámetro sí
 compila (`test/app.module.spec.ts` «compiles the full module graph», verde en la corrida entera).
+- **Suites (copia del árbol entero en `44175fd` + estos ficheros; BD en esquema propio `acc_m73`, no `public`):** unitarias
+  **441/441 · 7989/7989**; integración del subconjunto de reembolsos/preparación (`accessories-m73*`,
+  `pnl-delivered-refunds`, `shipments-prep`, `full-refund-vault`, `orders-public-status`, `settle-late`, `guest-checkout`,
+  `sales-analytics-pnl-parity`, `seed-spei-bucket`, `refund-reason-max`) **11/11 · 286/286**; `migrate deploy` desde cero
+  en `acc_m73` ✓ y el diff contra `schema.prisma` no menciona nada de M-73.
+- **Integración completa: NO MEDIDA limpia.** La corrida murió (`Killed`, exit 137) con carga ~17 en 4 CPU. Además, en un
+  esquema que no es `public` hay rojos de entorno ajenos a M-73: `m64`/`m68` crean CHECKs tras
+  `IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = …)` sin filtrar esquema (ya existen en `public` ⇒ se saltan),
+  y varias pruebas consultan `pg_enum`/`pg_constraint` sin esquema y ven duplicados de `public`, `wsh_be`, `acc_*`.

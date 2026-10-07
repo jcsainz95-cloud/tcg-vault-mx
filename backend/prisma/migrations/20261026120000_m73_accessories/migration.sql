@@ -14,30 +14,49 @@
 -- `CREATE OR REPLACE FUNCTION`, semilla con `WHERE NOT EXISTS`).
 --
 -- ============================================ REVERSA (documentada, NO automática) ============================================
--- ⚠️ PRIMERO se revierte el CÓDIGO, después esto (API_CONTRACT §AC.1, ARCHITECTURE §11).
+-- ⚠️ PRIMERO se revierte el CÓDIGO, después esto (API_CONTRACT §AC.1 y §AC.18.4, ARCHITECTURE §11).
 -- 0. Comprobación previa:
 --      SELECT count(*) FROM "OrderAccessoryLine";
 --    > 0 ⇒ ⛔ NO se revierte: borraría el detalle de lo cobrado. Se desactivan los accesorios
 --    (UPDATE "Accessory" SET "active" = false) y se dejan las tablas.
--- 1. Con 0 renglones:
---      DROP TRIGGER IF EXISTS "order_accessory_line_direct_ship" ON "OrderAccessoryLine";
---      DROP FUNCTION IF EXISTS order_accessory_line_direct_ship_check();
---      ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_qty_pair",
---        DROP CONSTRAINT IF EXISTS "payment_refund_accessory_qty_min", DROP CONSTRAINT IF EXISTS "payment_refund_card_xor_accessory",
---        DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shipment_line",
---        DROP CONSTRAINT IF EXISTS "PaymentRefund_orderAccessoryLineId_fkey", DROP CONSTRAINT IF EXISTS "PaymentRefund_shipmentAccessoryLineId_fkey";
---      DROP INDEX IF EXISTS "PaymentRefund_shipmentAccessoryLineId_key"; DROP INDEX IF EXISTS "PaymentRefund_orderAccessoryLineId_idx";
---      ALTER TABLE "PaymentRefund" DROP COLUMN IF EXISTS "accessoryQty", DROP COLUMN IF EXISTS "shipmentAccessoryLineId",
---        DROP COLUMN IF EXISTS "orderAccessoryLineId";
---      DROP TABLE IF EXISTS "ShipmentAccessoryLine", "OrderEnergyBundleComponent", "OrderAccessoryLine",
---        "AccessoryStockMovement", "AccessoryPhoto", "Accessory";
---      ALTER TABLE "Order" DROP CONSTRAINT IF EXISTS "order_shipping_box_review";
---      ALTER TABLE "Order" DROP COLUMN IF EXISTS "shippingBoxReview", DROP COLUMN IF EXISTS "shippingBoxSnapshot";
---      ALTER TABLE "ShippingPackage" DROP CONSTRAINT IF EXISTS "shipping_package_customer_fee";
---      ALTER TABLE "ShippingPackage" DROP COLUMN IF EXISTS "customerFeeCents";   -- ⚠️ pierde las tarifas capturadas
---      DROP TYPE IF EXISTS "AccessoryStockMovementKind", "AccessoryLineStatus", "AccessoryLineKind", "EnergyType",
---        "AccessoryCategory";
---      DELETE FROM "_prisma_migrations" WHERE migration_name = '20261026120000_m73_accessories';
+-- 1. Con 0 renglones, el bloque de abajo ENTERO (entre los marcadores; quitar el «-- » inicial de cada línea). Lo
+--    ejecuta tal cual AC-B51 (`test/integration/accessories-m73-refund-shapes.e2e-spec.ts`) en una tx deshecha.
+--    ⚠️ (§AC.18.4) Los dos CHECK de M-61/M-70 se REPONEN con su texto literal ANTES de quitar las columnas de
+--    `PaymentRefund`: un `DROP COLUMN` borra en silencio todo CHECK que la nombre, y la tabla quedaría SIN las formas de
+--    la carta.
+-- REVERSA:BEGIN
+-- DROP TRIGGER IF EXISTS "order_accessory_line_direct_ship" ON "OrderAccessoryLine";
+-- DROP FUNCTION IF EXISTS order_accessory_line_direct_ship_check();
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shape";
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_missing_chk";
+-- ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_missing_chk"
+--   CHECK (("kind" = 'item_missing') = ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL AND "missingReason" IS NOT NULL));
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_delivered_shape_chk";
+-- ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_delivered_shape_chk"
+--   CHECK ("kind"::text <> 'item_delivered' OR ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+--     AND "missingReason" IS NULL AND "reason" IS NOT NULL AND "orderId" IS NOT NULL));
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_qty_pair";
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_qty_min";
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_card_xor_accessory";
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shipment_line";
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_orderAccessoryLineId_fkey";
+-- ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_shipmentAccessoryLineId_fkey";
+-- DROP INDEX IF EXISTS "PaymentRefund_shipmentAccessoryLineId_key";
+-- DROP INDEX IF EXISTS "PaymentRefund_orderAccessoryLineId_idx";
+-- ALTER TABLE "PaymentRefund" DROP COLUMN IF EXISTS "accessoryQty";
+-- ALTER TABLE "PaymentRefund" DROP COLUMN IF EXISTS "shipmentAccessoryLineId";
+-- ALTER TABLE "PaymentRefund" DROP COLUMN IF EXISTS "orderAccessoryLineId";
+-- DROP TABLE IF EXISTS "ShipmentAccessoryLine", "OrderEnergyBundleComponent", "OrderAccessoryLine",
+--   "AccessoryStockMovement", "AccessoryPhoto", "Accessory";
+-- ALTER TABLE "Order" DROP CONSTRAINT IF EXISTS "order_shipping_box_review";
+-- ALTER TABLE "Order" DROP COLUMN IF EXISTS "shippingBoxReview", DROP COLUMN IF EXISTS "shippingBoxSnapshot";
+-- ALTER TABLE "ShippingPackage" DROP CONSTRAINT IF EXISTS "shipping_package_customer_fee";
+-- -- ⚠️ la siguiente pierde las tarifas capturadas por caja
+-- ALTER TABLE "ShippingPackage" DROP COLUMN IF EXISTS "customerFeeCents";
+-- DROP TYPE IF EXISTS "AccessoryStockMovementKind", "AccessoryLineStatus", "AccessoryLineKind", "EnergyType",
+--   "AccessoryCategory";
+-- DELETE FROM "_prisma_migrations" WHERE migration_name = '20261026120000_m73_accessories';
+-- REVERSA:END
 -- ===============================================================================================================================
 
 -- (1) CreateEnum (tipos NUEVOS: usables en esta misma transacción, a diferencia de un `ADD VALUE`)
@@ -325,7 +344,7 @@ ALTER TABLE "ShippingPackage" DROP CONSTRAINT IF EXISTS "shipping_package_custom
 ALTER TABLE "ShippingPackage" ADD CONSTRAINT "shipping_package_customer_fee"
   CHECK ("customerFeeCents" IS NULL OR "customerFeeCents" BETWEEN 1 AND 10000000);
 
--- ---- PaymentRefund ---- (las filas existentes cumplen: las 3 columnas nacen NULL)
+-- ---- PaymentRefund ---- (las filas existentes cumplen: las 3 columnas nacen NULL; medido en AC-B50 con una fila de cada kind)
 ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_qty_pair";
 ALTER TABLE "PaymentRefund" ADD CONSTRAINT "payment_refund_accessory_qty_pair"
   CHECK (("accessoryQty" IS NULL) = ("orderAccessoryLineId" IS NULL));
@@ -338,6 +357,39 @@ ALTER TABLE "PaymentRefund" ADD CONSTRAINT "payment_refund_card_xor_accessory"
 ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shipment_line";
 ALTER TABLE "PaymentRefund" ADD CONSTRAINT "payment_refund_accessory_shipment_line"
   CHECK ("shipmentAccessoryLineId" IS NULL OR "orderAccessoryLineId" IS NOT NULL);
+
+-- v1.86.2 (API_CONTRACT §AC.18.2/.3): las formas de M-61/M-70 aceptan el renglón de accesorio. Filas existentes: todas
+-- de carta, con las 3 columnas de accesorio en NULL ⇒ cumplen la rama de carta (que es la de antes más «accesorio nulo»).
+-- Los NOMBRES de M-61/M-70 se conservan (`pnl-delivered-refunds.e2e-spec.ts` busca `…_item_delivered_shape_chk`).
+--   · faltante de accesorio: renglón + línea de envío + motivo (lo leen `missing_at_prep` y AV-12).
+--   · entregado de accesorio: renglón SIN línea de envío (`shipmentAccessoryLineId` es @unique y es de la ÚNICA fila de
+--     faltante; con ella el segundo entregado del renglón chocaría con P2002), nota obligatoria, sin motivo de preparación.
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_missing_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_missing_chk"
+  CHECK (("kind"::text = 'item_missing') = (
+    "missingReason" IS NOT NULL AND (
+      ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+        AND "orderAccessoryLineId" IS NULL AND "shipmentAccessoryLineId" IS NULL)
+      OR
+      ("orderAccessoryLineId" IS NOT NULL AND "shipmentAccessoryLineId" IS NOT NULL
+        AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL))));
+
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_delivered_shape_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_delivered_shape_chk"
+  CHECK ("kind"::text <> 'item_delivered' OR (
+    "missingReason" IS NULL AND "reason" IS NOT NULL AND "orderId" IS NOT NULL AND (
+      ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+        AND "orderAccessoryLineId" IS NULL)
+      OR
+      ("orderAccessoryLineId" IS NOT NULL AND "shipmentAccessoryLineId" IS NULL
+        AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL))));
+
+-- Un renglón de accesorio solo aparece en las dos formas de arriba, y nunca junto a un nodo de carta.
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shape";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "payment_refund_accessory_shape"
+  CHECK ("orderAccessoryLineId" IS NULL OR (
+    "kind"::text IN ('item_missing', 'item_delivered') AND "orderId" IS NOT NULL
+    AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL AND "replacementCaseId" IS NULL));
 
 -- (7) I-AC-4 en BD: un renglón de accesorio SOLO en un pedido `direct_ship`. Es un CHECK entre tablas (Postgres no admite
 -- subconsultas en CHECK) ⇒ CONSTRAINT TRIGGER, NO diferible: revienta al final de la sentencia, dentro de la tx de quien

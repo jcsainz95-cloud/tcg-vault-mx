@@ -2042,7 +2042,9 @@ model PaymentRefund {
   // filas por renglón (una por acto: «faltó 1 de 3», luego «entregado» de otra unidad…). `accessoryQty` = unidades que
   // cubre ESTA fila. CHECKs: `payment_refund_accessory_qty_pair` (cantidad ⇔ renglón), `payment_refund_accessory_qty_min`
   // (≥ 1), `payment_refund_card_xor_accessory` (nunca carta Y renglón), `payment_refund_accessory_shipment_line`
-  // (línea de envío ⇒ renglón).
+  // (línea de envío ⇒ renglón). v1.86.2 (§AC.18): solo en `item_missing` (con línea de envío y motivo) o `item_delivered`
+  // (sin línea de envío, con nota) — `PaymentRefund_item_missing_chk`/`_item_delivered_shape_chk` ampliados en M-73 y
+  // `payment_refund_accessory_shape`.
   orderAccessoryLineId    String?
   orderAccessoryLine      OrderAccessoryLine?    @relation(fields: [orderAccessoryLineId], references: [id], onDelete: Restrict)
   // El faltante AL PREPARAR: una fila por línea de envío (`acc-item:<shipmentAccessoryLineId>`).
