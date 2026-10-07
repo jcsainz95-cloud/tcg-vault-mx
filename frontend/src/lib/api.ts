@@ -804,12 +804,11 @@ export async function getSealedValueHistory(
  * `sealed_restock_alerts`). Respuesta NEUTRA (no revela si el producto existe/está agotado). Con el
  * dial `off` responde `404 FEATURE_DISABLED` y el front oculta el CTA.
  */
+// ⭐ errata v1.87.3⟨wishlist⟩ (B-1, §WSH.12): el cliente manda SOLO la pieza; el servidor deriva la identidad del
+// producto (una sola regla de clave). Cuerpo estricto: los campos viejos (`cardId`/subtipo/condición) ⇒ `400`.
 export interface RestockSubscriptionInput {
   email: string;
-  tcgplayerProductId?: number;
-  cardId?: string;
-  sealedSubtype?: SealedSubtype;
-  sealedCondition: SealedCondition;
+  inventoryItemId: string;
 }
 export async function subscribeSealedRestock(
   input: RestockSubscriptionInput,

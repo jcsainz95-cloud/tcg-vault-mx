@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { subscribeSealedRestock } from '@/lib/api';
-import type { SealedCondition, SealedSubtype } from '@/types/contract';
 import { ApiClientError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
 import { Input } from '@/components/ui/Input';
@@ -22,15 +21,7 @@ function isEmail(v: string): boolean {
  * éxito siempre muestra el mismo mensaje. Si el flag está apagado el endpoint responde
  * `404 FEATURE_DISABLED` y el componente se OCULTA (cableado apagado limpio).
  */
-export function SealedRestockForm({
-  cardId,
-  sealedSubtype,
-  sealedCondition,
-}: {
-  cardId: string;
-  sealedSubtype?: SealedSubtype;
-  sealedCondition: SealedCondition;
-}) {
+export function SealedRestockForm({ inventoryItemId }: { inventoryItemId: string }) {
   const t = useTranslations('sealed.restock');
   const tc = useTranslations('common');
   const [email, setEmail] = useState('');
@@ -42,8 +33,8 @@ export function SealedRestockForm({
   const target = accountEmail ?? email.trim();
 
   const mutation = useMutation({
-    mutationFn: () =>
-      subscribeSealedRestock({ email: target, cardId, sealedSubtype, sealedCondition }),
+    // errata v1.87.3 (B-1): cuerpo exacto de dos claves; el servidor deriva la identidad de la pieza.
+    mutationFn: () => subscribeSealedRestock({ email: target, inventoryItemId }),
     onError: (err) => {
       // 404 FEATURE_DISABLED (race con el dial) → ocultar el formulario en vez de mostrar error.
       if (err instanceof ApiClientError && err.status === 404 && err.code === 'FEATURE_DISABLED') {

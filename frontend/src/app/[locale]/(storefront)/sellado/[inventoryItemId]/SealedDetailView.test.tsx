@@ -214,3 +214,19 @@ describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', 
     expect(cells[0].className).toContain('sm:col-span-2');
   });
 });
+
+describe('SealedDetailView · «avísame» (errata v1.87.3 B-1)', () => {
+  it('el formulario manda la pieza representativa del grupo: cuerpo exacto { email, inventoryItemId }', async () => {
+    mockDetail({ group: BOX_MINT, restockEnabled: true });
+    const sub = vi.spyOn(api, 'subscribeSealedRestock').mockResolvedValue({ subscribed: true });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+
+    fireEvent.change(await screen.findByLabelText('Correo'), { target: { value: 'yo@ejemplo.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Avisarme' }));
+
+    await screen.findByText('Listo. Si se agota y vuelve, te escribimos una sola vez.');
+    expect(sub).toHaveBeenCalledTimes(1);
+    expect(sub.mock.calls[0][0]).toEqual({ email: 'yo@ejemplo.com', inventoryItemId: BOX_MINT.representativeItemId });
+    expect(Object.keys(sub.mock.calls[0][0]).sort()).toEqual(['email', 'inventoryItemId']);
+  });
+});

@@ -237,11 +237,7 @@ function Detail({
           {/* Feature-flag: «avísame cuando vuelva» (restock). Se muestra solo si el flag está ON. */}
           {restockEnabled && (
             <div className="mt-8 border-t border-border pt-6">
-              <SealedRestockForm
-                cardId={group.card.id}
-                sealedSubtype={group.sealedSubtype ?? undefined}
-                sealedCondition={group.sealedCondition}
-              />
+              <SealedRestockForm inventoryItemId={group.representativeItemId} />
             </div>
           )}
         </div>
