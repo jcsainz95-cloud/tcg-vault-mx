@@ -393,6 +393,104 @@ describe('AC-F9 · F-SP-5: el importe del botón y del modal sale de la SESIÓN'
     expect(alert.closest('[role="alert"]')).not.toBeNull();
     await waitFor(() => expect(cart().deckPulls).toEqual([]));
   });
+
+  // 💰 Perdedor de la carrera por las últimas energías (§AC.19.4): según en qué paso pierda, la sesión responde con uno
+  // de dos códigos. Los dos tienen que acabar igual para el cliente: texto del paquete (DESIGN_SYSTEM §AC-UX.5), «No se
+  // cobró nada» y el paquete fuera del carrito. ⛔ Nunca «Un accesorio se agotó» (no tiene accesorios sueltos).
+  it('carrera, paso 3 · 422 ENERGY_BUNDLE_INVALID {index, reason:insufficient_stock}: texto del paquete y sale del carrito', async () => {
+    const usr = userEvent.setup();
+    seedCart({ ids: ['inv-1002'], deckPulls: [{ token: 'tok-d', slug: 'dragapult-ex', withEnergyBundle: true, deckName: 'Dragapult ex' }] });
+    vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(guestQuote({ energyBundles: [bundle()] }));
+    vi.spyOn(api, 'createGuestCheckoutSession').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'ENERGY_BUNDLE_INVALID',
+        message: 'x',
+        details: { index: 0, deckSlug: 'dragapult-ex', reason: 'insufficient_stock' },
+      }),
+    );
+    render();
+    await fillGuestForm(usr);
+    await usr.click(within(screen.getByRole('complementary')).getByRole('button', { name: /^Pagar/ }));
+    const alert = await screen.findByText(/^El paquete de energías de Dragapult ex ya no se puede pagar\. No se cobró nada\./);
+    expect(alert.closest('[role="alert"]')).not.toBeNull();
+    expect(screen.queryByText(/se agotó mientras pagabas/)).toBeNull();
+    await waitFor(() => expect(cart().deckPulls).toEqual([]));
+  });
+
+  it('carrera, paso 5 · 409 ACCESSORY_INSUFFICIENT_STOCK de un COMPONENTE del paquete: texto del paquete y sale del carrito', async () => {
+    const usr = userEvent.setup();
+    seedCart({
+      ids: ['inv-1002'],
+      accessories: [{ id: 'acc-1', qty: 2 }],
+      deckPulls: [{ token: 'tok-d', slug: 'dragapult-ex', withEnergyBundle: true, deckName: 'Dragapult ex' }],
+    });
+    // `acc-water` es energía del paquete y NO renglón suelto ⇒ fila de 422 (DESIGN_SYSTEM §AC-UX.5, párrafo final).
+    vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(guestQuote({ accessoryLines: [SLEEVES], energyBundles: [bundle()] }));
+    vi.spyOn(api, 'createGuestCheckoutSession').mockRejectedValue(
+      new ApiClientError(409, { code: 'ACCESSORY_INSUFFICIENT_STOCK', message: 'x', details: { accessoryId: 'acc-water', availableQty: 0 } }),
+    );
+    render();
+    await fillGuestForm(usr);
+    await usr.click(within(screen.getByRole('complementary')).getByRole('button', { name: /^Pagar/ }));
+    const alert = await screen.findByText(/^El paquete de energías de Dragapult ex ya no se puede pagar\. No se cobró nada\./);
+    expect(alert.closest('[role="alert"]')).not.toBeNull();
+    expect(screen.queryByText(/se agotó mientras pagabas/)).toBeNull();
+    await waitFor(() => expect(cart().deckPulls).toEqual([]));
+    // El renglón suelto, que no perdió nada, se queda intacto.
+    expect(cart().accessories).toEqual([{ id: 'acc-1', qty: 2 }]);
+  });
+
+  /**
+   * AC-F23 (`API_CONTRACT §AC.20.1`, errata v1.86.4): el perdedor de la carrera recibe 409 o 422 según el paso que lo
+   * detecte, y ⛔ ninguno se traduce al otro. Lo que se fija aquí es que el CLIENTE no note la diferencia: mismo aviso,
+   * mismo carrito y la misma re-cotización (sin el paquete) para las dos salidas.
+   */
+  it('AC-F23 · las dos salidas del perdedor (409 de componente y 422 insufficient_stock) se ven IGUALES y re-cotizan', async () => {
+    const losers = [
+      new ApiClientError(409, { code: 'ACCESSORY_INSUFFICIENT_STOCK', message: 'x', details: { accessoryId: 'acc-fire', availableQty: 3 } }),
+      new ApiClientError(422, {
+        code: 'ENERGY_BUNDLE_INVALID',
+        message: 'x',
+        details: { index: 0, deckSlug: 'dragapult-ex', reason: 'insufficient_stock' },
+      }),
+    ];
+    const outcomes: { alert: string; cart: unknown; requote: unknown }[] = [];
+    for (const loser of losers) {
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+      clearAccessoryNotices();
+      seedCart({
+        ids: ['inv-1002'],
+        accessories: [{ id: 'acc-1', qty: 2 }],
+        deckPulls: [{ token: 'tok-d', slug: 'dragapult-ex', withEnergyBundle: true, deckName: 'Dragapult ex' }],
+      });
+      const quote = vi
+        .spyOn(api, 'getGuestCheckoutQuote')
+        .mockResolvedValue(guestQuote({ accessoryLines: [SLEEVES], energyBundles: [bundle()] }));
+      vi.spyOn(api, 'createGuestCheckoutSession').mockRejectedValue(loser);
+      const usr = userEvent.setup();
+      const view = render();
+      await fillGuestForm(usr);
+      const callsBeforePay = quote.mock.calls.length;
+      await usr.click(within(screen.getByRole('complementary')).getByRole('button', { name: /^Pagar/ }));
+      const alert = (await screen.findByText(/No se cobró nada/)).closest('[role="alert"]');
+      expect(alert).not.toBeNull();
+      await waitFor(() => expect(cart().deckPulls).toEqual([]));
+      // Re-cotiza sola (la clave cambió al salir el paquete) y la cotización nueva ya no lleva el deckPull.
+      await waitFor(() => expect(quote.mock.calls.length).toBeGreaterThan(callsBeforePay));
+      const lastQuote = quote.mock.calls[quote.mock.calls.length - 1];
+      outcomes.push({ alert: alert!.textContent ?? '', cart: cart(), requote: lastQuote[3] });
+      view.unmount();
+      vi.restoreAllMocks();
+      vi.spyOn(api, 'getAccessorySuggestions').mockResolvedValue({ items: [] });
+    }
+    const [via409, via422] = outcomes;
+    expect(via409.alert).toMatch(/^El paquete de energías de Dragapult ex ya no se puede pagar\. No se cobró nada\./);
+    expect(via422.alert).toBe(via409.alert);
+    expect({ ...(via422.cart as object), updatedAt: 0 }).toEqual({ ...(via409.cart as object), updatedAt: 0 });
+    expect(via409.requote).toEqual({ accessoryLines: [{ accessoryId: 'acc-1', quantity: 2 }], deckPulls: [] });
+    expect(via422.requote).toEqual(via409.requote);
+  });
 });
 
 describe('AC-F21 (v1.86.3, §AC.19.4) · el carrito se corrige por `index` de unavailableBundles', () => {

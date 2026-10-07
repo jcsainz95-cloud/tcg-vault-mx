@@ -38,13 +38,21 @@ for (const locale of LOCALES) {
 
     test('deck: «Agregar de jalón» no agrega el paquete; «Agregar paquete» lo pone en el carrito', async ({ page }) => {
       await page.goto(`/${locale}/decks-meta`);
-      await page.getByRole('link', { name: t(locale, 'decksMeta.list.view') }).first().click();
+      // La lista no pinta ningún «Ver deck» (`decksMeta.list.view` existe en los mensajes pero ninguna pantalla lo
+      // usa): cada deck es una tarjeta-enlace entera a `/decks-meta/{slug}`. Se entra por la primera tarjeta (⛔ no
+      // «Pegar mi lista», que vive bajo la misma ruta) y se comprueba que de verdad se llegó a una ficha de deck.
+      const firstDeck = page.locator(`a[href^="/${locale}/decks-meta/"]:not([href$="/decks-meta/pegar"])`).first();
+      await expect(firstDeck).toBeVisible();
+      await firstDeck.click();
+      await expect(page).toHaveURL(new RegExp(`/${locale}/decks-meta/(?!pegar$)[^/]+$`));
       const box = page.getByTestId('deck-energy-bundle');
       await expect(box).toBeVisible();
       const addBundle = box.getByRole('button', { name: t(locale, 'decksMeta.bundle.add') });
       await expect(addBundle).toBeDisabled();
       await page.getByRole('button', { name: t(locale, 'decksMeta.addAll.button') }).click();
       await expect(addBundle).toBeEnabled();
+      // «Agregar de jalón» deja el paquete FUERA: sigue ofreciéndose y no hay «En el carrito» en el recuadro.
+      await expect(box.getByRole('button', { name: new RegExp(t(locale, 'decksMeta.bundle.inCart')) })).toHaveCount(0);
       await addBundle.click();
       // Las piezas del deck mock no son listados del fixture del catálogo (la cotización mock las podaría): el
       // carrito de punta a punta va en el E2E real de 748, pendiente del backend.

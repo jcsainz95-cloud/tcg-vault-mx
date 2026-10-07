@@ -20700,3 +20700,27 @@ Sustituye, donde choque, los párrafos «Fotos» (CSP) y «Respuestas que el con
   (`:39`) falla también en HEAD `4dd5649` (no encuentra «Ver deck» en `/decks-meta` mock): previo, **no tocado**.
 - **NO MEDIDO:** la foto con la API en `http:` y la CSP en `enforce` en un navegador real (la prueba es de la función pura);
   ninguna de las respuestas nuevas contra el backend real (stream B aún no las sirve en este árbol).
+
+### §107.e2e · E2E «deck: Agregar de jalón…» y perdedor de la carrera del paquete (AC-F23) (2026-10-07, rama `claude/accesorios`, base `23ac19d4`)
+
+- **Causa raíz (defecto de la prueba, no de la pantalla ni del seed).** `e2e/accessories.spec.ts:39` buscaba
+  `getByRole('link', { name: decksMeta.list.view })` («Ver deck» / «View deck»). Esa clave existe en los mensajes pero
+  **ninguna pantalla la pinta**, nunca lo hizo (`git log -S"list.view"` sobre `decks-meta/` vacío): en `DecksMetaListView`
+  cada deck es una tarjeta-enlace entera a `/decks-meta/{slug}`, cuyo nombre accesible es el contenido de la tarjeta. El mock
+  sí lista 3 decks; el caso es `mockOnly`, así que el seed E2E de backend no interviene (⛔ ninguna fila nueva en
+  `seed-e2e.ts`). `DESIGN_SYSTEM` no especifica un «Ver deck» en la lista, así que no se añade a la pantalla.
+- **Arreglo.** Se entra por la primera tarjeta (`a[href^="/{locale}/decks-meta/"]` sin `…/pegar`) y se comprueba la URL de
+  ficha. Sin debilitar: siguen el recuadro `deck-energy-bundle`, «Agregar paquete» apagado hasta «Agregar de jalón»,
+  y se **añade** que tras «de jalón» el recuadro no dice «En el carrito» (el paquete no entra solo).
+- **Medido:** canario con el selector viejo ⇒ 2/2 rojos (es/en, `waiting for getByRole('link', { name: 'Ver deck' })`);
+  con el arreglo, la spec entera `--repeat-each=10` ⇒ **40/40** (20/20 del caso del deck), modo mock, build propio
+  `.next-e2e-mock-ac3`, puerto 3473. Contra el stack real no aplica: el caso es `mockOnly` (se salta en real); el
+  recorrido real de 748 sigue pendiente (§107).
+- **AC-F23 (`API_CONTRACT §AC.20.1`).** La pantalla ya trataba los dos códigos del perdedor igual (sin cambio de
+  producción); se fijan con pruebas en `GuestCheckoutAccessories.test.tsx`: `422 ENERGY_BUNDLE_INVALID
+  {index, reason:'insufficient_stock'}`, `409 ACCESSORY_INSUFFICIENT_STOCK` de un componente (el renglón suelto queda
+  intacto) y una prueba de **equivalencia**: mismo texto del aviso, mismo carrito y misma re-cotización sin el paquete.
+  Mutaciones (quitar la rama «componente ⇒ paquete»; 422 con texto sin nombre) ⇒ AC-F23 en rojo, 1/1 cada una. Fichero
+  N=10 ⇒ 10/10 (24/24 pruebas). Copys: los de `DESIGN_SYSTEM §AC-UX.5`, sin nuevos.
+- **Para ux-ui (no cambiado):** con `reason:'insufficient_stock'` la coletilla «las energías las puedes agregar sueltas
+  desde el deck» puede prometer energías que tampoco hay sueltas.
