@@ -30202,3 +30202,855 @@ Notas:
 - **N-SU-3 (orquestador / arquitecto, informativo):** que una pieza `not_publishable` aparezca en «Listas para
   publicar» (con «Por revisar», `es.json:1593`) está **NO MEDIDO**. Por eso el texto dice «si le falta precio» y no
   promete que la pieza esté en la cola.
+
+---
+
+## WSH-UX. Lista de deseos, «lista de compra» del dueño y «avísame» de sellados (vWSH-1, 2026-10-07 · `API_CONTRACT §WSH` rev v1.87⟨wishlist⟩ · `ARCHITECTURE §4.WSH` · `PROJECT §WSH`, criterios 800–827)
+
+### WSH-UX.0 Fuente, lo leído y las reglas duras
+
+**Norma.** Manda `API_CONTRACT §WSH` (WSH.1–WSH.9). Decisiones del dueño, que no se re-preguntan: `HECHOS.md` fila
+2026-10-06 «Lista de deseos (P-WISHLIST) — reglas del dueño» (Near Mint, acabado, 5/10/16 %); fila 2026-10-07
+«Respuestas a P-WSH-1…6» («ya avisamos a todos», «Con IVA pero déjame flexible», «No se compromete», «Sí enciende el
+avísame cuando vuelva»); y fila 2026-10-07 **«P-WSH-1 aclarada y P-WSH-4 cerrada»**, que es la que manda: el máximo es
+una **señal de compra para el dueño, no un precio especial**; la carta sale a **su precio normal**; se avisa a
+**todos**; se la lleva **quien pague primero**; **20 por cuenta**. Q-WSH-1 y Q-WSH-2 (`ARCHITECTURE §4.WSH`) se diseñan
+con la recomendación del arquitecto: **no** hay apuntarse a un sellado agotado y el «avísame» **no** pide cuenta.
+
+**Lo que leí** (2026-10-07, árbol `/home/user/tcg-wishlist`, rama `claude/wishlist`; ux-ui sin Bash ⇒ sha **NO MEDIDO**
+por mí; el encargo dice `34712c2f`): `API_CONTRACT.md:41533-41923` (§WSH entera); `ARCHITECTURE.md:29013-29093`;
+`PROJECT.md:9373-9642` (§WSH) y `:14039-14060` (criterios 800–808); `HECHOS.md:88-89`;
+`CardDetailView.tsx` (`:53-112`, `:178-448`); `account/layout.tsx`; `SealedDetailView.tsx:225-264`;
+`M9View.tsx` (pestañas `:80-108`) y `salesParams.ts:8`; `M10View.tsx:38`, `:87-111`; `IvaLabel.tsx`; `Badge.tsx`;
+`mail-shell.ts` (exportes, `cardLineRows :281-307`); `sealed-restock-notify.service.ts:107-134`;
+`catalog.service.ts:1496-1503`; `buylist-catalog.controller.ts:20-22`; `messages/es.json:4585-4620` y `:6784-6791`.
+§33.1, §33.5, §33.6, AN-UX.0–AN-UX.2 y SU-UX de este documento.
+
+**Medido, que cambia el diseño:**
+1. **La ficha de una carta sin piezas sí existe**: `getCard` devuelve `200` con `listings: []` para cualquier `Card`
+   (`catalog.service.ts:1496-1503`). Pero el catálogo de «Comprar» **solo lista grupos con `stockCount ≥ 1`**
+   (`API_CONTRACT.md:6121`). Una carta que la tienda nunca tuvo **no se encuentra navegando**, y es justo la que más se
+   desea (`PROJECT §WSH.7`: «incluso de las que la tienda nunca ha tenido»). Ver WSH-UX.3 (e) y Q-WSH-UX-4.
+2. **Antes de guardar no hay de dónde sacar los pesos de cada %.** El botón lee `GET /wishlist`
+   (`API_CONTRACT.md:41714-41716`); el máximo en pesos solo llega **en** un `WishlistItemDTO` ya guardado. La ficha trae
+   `referenceValue` por grupo, pero es neto, solo existe con piezas a la venta y ⛔ §21.8 prohíbe publicar el mercado
+   cuando no fijó el precio. Recalcularlo en el navegador sería **dos fuentes para un precio**. ⇒ Q-WSH-UX-1.
+3. **`WishlistResponse` no trae la tasa de IVA** (`API_CONTRACT.md:41695-41696`), y `IvaLabel` la necesita para su
+   rótulo (`IvaLabel.tsx:56`). ⇒ Q-WSH-UX-2.
+4. **No hay tema oscuro** (AN-UX.0 punto 4, §11.1). Todo se verifica sobre papel y pozo.
+5. **El header del cliente está cerrado en seis entradas** (§33.1). La lista **no** entra al header: vive en «Mi
+   cuenta».
+
+**Reglas duras (se revisan en el PR):**
+- **WSH-1 · El máximo nunca se lee como precio.** Ninguna superficie del cliente dice «tu precio», «te la dejamos en»,
+  «precio especial» ni equivalentes. El máximo se rotula siempre **«tu máximo»** y va acompañado, la primera vez que
+  aparece en cada pantalla, de que la carta sale a su precio normal.
+- **WSH-2 · Una cifra, una fuente.** Todo peso sale del DTO tal cual (`maxToday.maxDisplayCents`,
+  `availableNow.fromDisplayCents`, `tiers[]`, `mainCeilingCents`…). ⛔ El front no multiplica por `1.05/1.10/1.16`, no
+  divide entre `1.16`, no resta márgenes. Única excepción, temporal y nombrada: la comparación de WSH-UX.4 (c)
+  (Q-WSH-UX-3).
+- **WSH-3 · `null` es «sin dato», nunca `0`.** `no_market` ⇒ «Sin precio de mercado por ahora» (criterio 807); en la
+  lista del dueño, «—» con `sr-only` (criterio 820). ⛔ Ni `MX$0.00`, ni `NaN`.
+- **WSH-4 · Sin presión.** «Cabe» / «arriba de tu máximo» se dicen en llano, sin urgencia, sin contadores, sin «¡date
+  prisa!». La frase de quien paga primero es información, no amenaza. ⛔ Nunca se dice cuántas personas la esperan
+  (`API_CONTRACT.md:41780`).
+- **WSH-5 · Lo apagado no existe.** `wishlistEnabled = false` (ficha) o `404 FEATURE_DISABLED` (`GET /wishlist`) ⇒ ni
+  botón, ni sección, ni enlace, ni candado (§7.15).
+- **WSH-6 · Sin datos personales en el panel** (criterio 821): el panel pinta solo las claves de la lista blanca de
+  `WishlistDemandRowDTO`.
+- **P66-3:** ⛔ ningún código «WSH-n», «M-74», «P-WSH-n» en textos de pantalla ni de correo.
+
+**Cero tokens nuevos. Cero pares de contraste nuevos** (WSH-UX.11). Componentes nuevos: `WishlistBlock`,
+`PctChoice`, `WishlistRow`, `BuyListTab` y `WishlistMailActionPage`, todos compuestos con piezas existentes (WSH-UX.10).
+
+---
+
+### WSH-UX.1 Mapa: dónde vive cada cosa
+
+| Superficie | Ruta | Quién | Sección |
+|---|---|---|---|
+| Bloque «Lista de deseos» en la ficha de la carta | `/catalog/{cardId}` (existe) | todos (el invitado ve la invitación) | WSH-UX.2 |
+| «Mi lista de deseos» | **`/account/wishlist`** (nueva; privada por el prefijo `/account`) | `customer` | WSH-UX.3, WSH-UX.4 |
+| Resumen en «Mi cuenta» | `/account#wishlist` (sección nueva) | `customer` | WSH-UX.3 (a) |
+| Página del enlace del correo | **`/{locale}/lista-de-deseos/aviso?a=&id=&t=`** (la fija el contrato, `:41782`; pública) | cualquiera con el enlace | WSH-UX.6 |
+| Correo «Ya tenemos una carta de tu lista» | — | cuenta con correo verificado | WSH-UX.5 |
+| Pestaña «Lista de compra» de Reportes | `/admin/m9?tab=compra` (nueva pestaña) | `super_admin` | WSH-UX.7 |
+| «Avísame cuando vuelva» de sellados | `/sellado/{id}` (existe) + correo | todos | WSH-UX.8 |
+| Diales | `/admin/m10` (grupo nuevo) y `/admin/m11` (un dial) | `super_admin` | WSH-UX.9 |
+
+- **Por qué `/account/wishlist` y no `/lista-de-deseos`:** hereda el guard de `/account` (`PrivateRouteGuard`) y el
+  redirect de staff (`account/layout.tsx:20-25`) sin tocar nada; y deja `/lista-de-deseos/aviso` fuera del prefijo
+  privado, que es lo que el enlace del correo necesita (se abre **sin** sesión).
+- **Staff:** el contrato admite deseos de cualquier rol con correo (`:41676`), pero §33.6 dice que el operador no compra.
+  La UI **no** muestra nada de esto a `vault_operator`/`super_admin` en el storefront ni en `/admin/account`. Q-WSH-UX-6.
+- **Header:** sin entrada nueva (§33.1, seis y ni una más).
+
+---
+
+### WSH-UX.2 El bloque «Lista de deseos» en la ficha de la carta (`WishlistBlock`)
+
+**Dónde.** Columna derecha de `Detail` (`CardDetailView.tsx:310`), **después** de la lista «Ejemplares disponibles»
+(`:356-394`), separado por `mt-10 border-t border-border pt-8`. Con piezas a la venta, comprar va primero; sin piezas,
+el bloque queda a la vista porque la lista de ejemplares está vacía (ver (g)). Solo se monta si
+`detail.wishlistEnabled === true` (campo aditivo de la ficha, `:41714-41715`). No se monta en el sellado (`:41716`).
+
+**(a) Anatomía, cliente con sesión, carta que aún no está en su lista**
+
+```
+LISTA DE DESEOS                                             ← eyebrow mono 11px uppercase tracking 0.14em muted
+¿La buscas? Te avisamos por correo cuando la consigamos.    ← h2 serif 22px (como «Ejemplares disponibles»)
+Siempre Near Mint, sin gradear.                             ← text-sm muted
+
+Acabado                                                     ← legend
+( Normal )  ( Reverse Holo )                                ← radio chips; solo `availableFinishes`
+
+¿Hasta cuánto más del precio de mercado pagarías?           ← legend
+( 5 % )  (■ 10 % ■)  ( 16 % )                               ← 10 % preseleccionado (WSH-F1)
+
+┃ Es una señal para nosotros, no un compromiso: no te       ← rule-note (regla izquierda, 13px muted)
+┃ apartamos la carta ni te cobramos nada. Si la
+┃ conseguimos, sale a su precio normal, el mismo para todos.
+
+[ Agregar Reverse Holo a mi lista ]      7 de 20            ← Button primary · contador mono 11px muted
+```
+
+- **Acabado.** Opciones = `card.availableFinishes` en el orden de `FINISH_ORDER` (`lib/finish.ts`); rótulo
+  `finish.<enum>` (existe). ⛔ No `displayFinishes`: esa lista es «acabados con precio» y el servidor valida contra
+  `availableFinishes` (SEC-A1, `:41702`). Con **un** solo acabado no hay radio: una línea `Acabado: Normal` en texto.
+  Preselección: el acabado del primer grupo a la venta (`listings[0].finish`) si lo hay; si no, el primero de
+  `FINISH_ORDER`. El acabado elegido **va dentro del texto del botón** («Agregar Reverse Holo a mi lista») para que no
+  se agregue el acabado equivocado sin verlo.
+- **Porcentaje.** Tres opciones, `5 %`, `10 %`, `16 %`; 10 % preseleccionado (`PROJECT §WSH.1` supuesto; prueba WSH-F1).
+  Debajo de cada número, **sus pesos** «hasta MX$1,100» **solo si** existe la fuente que pide Q-WSH-UX-1. Mientras no
+  exista, **no se pinta ninguna cifra** antes de guardar (regla WSH-2) y lo dice la línea `noPesosYet` (b).
+- **Contador `7 de 20`**: `count` y `limit` de `GET /wishlist` (`:41695`). ⛔ Nunca el 20 escrito a mano: es un dial.
+- **Sin selector de condición** (criterio 800). La línea «Siempre Near Mint, sin gradear» lo explica.
+
+**(b) Tras guardar (`201 WishlistItemDTO`): estado «ya en tu lista»**
+
+```
+LISTA DE DESEOS
+✓ Está en tu lista · Reverse Holo · hasta 10 % sobre mercado      ← role="status", text-success + Check
+Tu máximo de hoy: MX$1,100.00  IVA incluido · aproximado          ← tabular 17px + rótulo de IVA + «aproximado»
+Se recalcula con el precio de mercado del día en que la consigamos.   ← text-xs muted
+Te avisaremos a ana@correo.mx.                                    ← text-sm muted
+
+Cambiar tu máximo   ( 5 % ) (■ 10 % ■) ( 16 % )   [ Guardar cambio ]   ← secondary sm, habilitado solo si cambia
+Quitar de mi lista · Ver mi lista →                               ← Button link · EditorialLink
+```
+
+- Con `maxToday.status === 'no_market'`: en lugar de la cifra, **«Sin precio de mercado por ahora: cuando lo haya,
+  calcularemos tu máximo.»** (criterio 807).
+- **Sin cifras previas** (mientras Q-WSH-UX-1 esté abierta), bajo los chips del estado (a) va una línea `text-xs
+  muted`: **«Verás tu máximo en pesos en cuanto la agregues.»**
+- El estado (b) también es el **arranque** cuando `GET /wishlist` ya trae ese `(cardId, finish)`: cambiar el chip de
+  acabado cambia el bloque entre (a) y (b) según esté o no en la lista (criterio 804: «el botón dice que ya está y
+  permite cambiar el porcentaje o quitarla»).
+- **Cambiar el %**: `PATCH /wishlist/:id {maxPct}`; al éxito, la cifra se reemplaza por la del `200` y aparece la línea
+  mono verde `GUARDADO` (patrón §33.6). **Quitar**: `DELETE` sin diálogo (no es dinero y es reversible) y el bloque
+  vuelve a (a) con un `role="status"` **«La quitamos de tu lista.»**
+- **Correo sin verificar** (`emailVerified === false`): debajo de «Te avisaremos a…», `rule-note` con regla roja:
+  **«Verifica tu correo para recibir el aviso.»** + enlace **«Verificar en Mi cuenta»** → `/account#email`. Agregar
+  **sí** se permite (el deseo cuenta como demanda, `:41870-41871`).
+- **Avisos pausados** (`alertsPaused === true`): misma nota con **«Pausaste los avisos de tu lista: no te escribiremos
+  hasta que los reanudes.»** + enlace **«Reanudar en Mi lista»** → `/account/wishlist`.
+
+**(c) Lista llena (`count >= limit` y este `(cardId, finish)` no está en ella)**
+
+En lugar de los chips de % y del botón:
+
+```
+Tu lista está llena: tienes 20 de 20 cartas.                 ← text-sm text-text
+Quita una para hacer lugar y vuelve a esta página.           ← text-sm muted
+[ Ver mi lista ]                                             ← secondary sm → /account/wishlist
+```
+
+Es la respuesta en pantalla del criterio 803 («dice cómo liberar lugar»). ⛔ No es un botón deshabilitado sin
+explicación. Si a pesar de esto el servidor responde `422 WISHLIST_LIMIT_REACHED {limit, count}` (otra pestaña), se
+pasa a este mismo estado con las cifras del `details`.
+
+**(d) Invitado (sin sesión)**, criterio 802
+
+```
+LISTA DE DESEOS
+¿La buscas? Guárdala en tu lista y te avisamos por correo cuando la consigamos.
+Necesitas una cuenta para tener lista de deseos.
+[ Entrar para agregarla ]   Crear cuenta                     ← secondary · Button link
+```
+
+`Entrar` → `/login?next=/catalog/{cardId}`; `Crear cuenta` → la ruta de registro con el mismo `?next=` (patrón de
+§33.11; ruta exacta de registro NO MEDIDA). ⛔ Sin chips de acabado ni de %: elegir y perderlo al entrar es peor que
+elegir después.
+
+**(e) Errores** (catálogo `error.*` vía `useErrorMessage`, nunca el texto del servidor)
+
+| Respuesta | Qué pasa en el bloque |
+|---|---|
+| `409 WISHLIST_DUPLICATE {wishlistItemId, maxPct}` | Pasa al estado (b) con ese `id` y ese `%`, y la línea `role="status"` **«Ya la tenías en tu lista con este acabado. Si quieres, cambia tu máximo.»** (criterio 804) |
+| `422 WISHLIST_LIMIT_REACHED` | Estado (c) |
+| `422 FINISH_NOT_AVAILABLE` | `role="alert"` **«Ese acabado no existe para esta carta. Elige otro.»** y se recarga la ficha |
+| `401` | Estado (d) (la sesión caducó) |
+| `404 FEATURE_DISABLED` | El bloque se desmonta (WSH-5) |
+| otro / red | `role="alert"` **«No pudimos guardar tu lista. Intenta de nuevo.»**; el botón vuelve a estar activo |
+
+**(f) Carga.** Mientras `GET /wishlist` no responde: `Skeleton` de 44 px de alto del ancho del botón y los chips
+deshabilitados. La ficha **no espera** a la lista para pintarse.
+
+**(g) La ficha sin ninguna pieza a la venta** (`listings.length === 0`). Hoy no tiene diseño. Mínimo:
+- `FactGrid` no se pinta (no hay hechos de precio) y la nota al pie usa `referenceExplainerNoMarket` (existe).
+- Bajo el `h2` «Ejemplares disponibles», en lugar de renglones: una línea `text-[15px] muted` **«Hoy no tenemos esta
+  carta.»** El bloque de deseos queda justo debajo y es la acción principal de la página.
+- ⛔ No se muestra «agotado» ni «vuelve pronto»: no lo sabemos.
+
+**(h) Accesibilidad.** Cada grupo de chips es un `<fieldset>` con `<legend>` visible; los chips son `<input
+type="radio">` reales con la piel de chip (`Button` `ghost sm` / activo `primary`, como AN-UX.2), 44 px de alto, flechas
+para moverse dentro del grupo, `focus-visible:shadow-focus`. Los pesos bajo un % forman parte de su `<label>`. El
+resultado de guardar/quitar se anuncia por `role="status"`; los errores por `role="alert"`. Tras guardar, el foco
+**no** salta (el usuario sigue donde estaba). Orden de tabulación: acabado → % → botón → enlaces.
+
+---
+
+### WSH-UX.3 «Mi lista de deseos» (`/account/wishlist`)
+
+**(a) Resumen en «Mi cuenta», sección `#wishlist`.** Nueva fila en la tabla de §33.6: va **después** de `#addresses`,
+solo `customer`. Entrada del índice pegajoso: `LISTA DE DESEOS`.
+- `h2` serif 24px **«Lista de deseos»**; línea muted **«{count} de {limit} cartas. Te avisamos por correo cuando
+  consigamos alguna.»**; con `alertsPaused`: **«{count} de {limit} cartas. Los avisos están pausados.»**; con
+  `count = 0`: **«Aún no tienes cartas en tu lista.»**
+- Botón `secondary sm` **«Ver mi lista»** → `/account/wishlist`.
+- Carga por su cuenta (`QueryState`, §33.6 «estados obligatorios»); `404 FEATURE_DISABLED` ⇒ la sección y su entrada
+  del índice **no existen** (WSH-5).
+
+**(b) La página.** Misma columna editorial que «Mi cuenta» (`max-w-2xl`, §33.6), enlace de vuelta **«← Mi cuenta»**
+encima.
+
+```
+CUENTA
+Mi lista de deseos                                            ← h1 serif 30/40px
+7 de 20 cartas · Te avisamos por correo cuando consigamos alguna de estas cartas.
+
+[Banner info, si alertsPaused]  Pausaste los avisos de tu lista. Tu lista sigue guardada.   [ Reanudar avisos ]
+[Banner warning, si !emailVerified]  Verifica tu correo para recibir los avisos.  [ Reenviar correo de verificación ]
+
+┃ Tu máximo es una señal para que sepamos hasta dónde buscar. Si conseguimos la carta, sale a su
+┃ precio normal, el mismo para todos, y te avisamos aunque esté arriba de tu máximo. No te la
+┃ apartamos: se la lleva quien pague primero.                   ← rule-note, una vez por página (WSH-1)
+
+BUSCAR UNA CARTA PARA AGREGAR                                 ← ver (e)
+[ Nombre de la carta o número…                     ]
+
+─────────────────────────────────────────────── renglones (WSH-UX.4) ──
+
+Avisos por correo                                             ← h2, al pie
+Te escribimos cuando consigamos una carta de tu lista. Juntamos varias en un solo correo.   [ Pausar avisos ]
+```
+
+- Orden de los renglones: el del servidor (`createdAt` desc, `:41701`). Sin paginación (≤ `limit`).
+- **Reanudar avisos**: `PUT /wishlist/alerts {paused:false}`; al éxito el banner se cambia por `role="status"`
+  **«Listo: volverás a recibir los avisos de tu lista.»** El banner de pausa lleva una segunda línea, porque lo que
+  llegó durante la pausa **no** se avisa después (`:41735-41736`): **«Lo que llegó mientras estaban pausados no se
+  vuelve a avisar; revisa tu lista para ver qué está disponible hoy.»**
+- **Pausar desde aquí**: sección del pie, botón `secondary sm` **«Pausar avisos»** (`PUT {paused:true}`); pausados, el
+  botón dice **«Reanudar avisos»**. ⛔ El texto no cita el tope diario: es un dial de admin y no viaja al cliente.
+- **Reenviar verificación**: los cuatro estados de `useResendVerification` (§33.6 b).
+
+**(c) Estados.** Carga: tres renglones `Skeleton` de 96 px. Error: `Banner danger` con «Reintentar». Vacío
+(`count = 0`): `EmptyState` **«Tu lista está vacía»** + **«Busca una carta arriba o pulsa «Agregar a mi lista» en la
+ficha de cualquier carta. Te avisamos cuando la consigamos.»** (el buscador sigue visible encima).
+`404 FEATURE_DISABLED` (alguien entra por URL con el dial apagado): `EmptyState` **«La lista de deseos aún no está
+disponible.»** + `← Mi cuenta`.
+
+**(d) Lista llena.** Con `count >= limit`, el buscador se sustituye por la línea **«Tu lista está llena ({count} de
+{limit}). Quita una carta para agregar otra.»** Si `limit` baja por debajo de `count` (el dial bajó, `:41708-41709`),
+se ve igual: nada se borra.
+
+**(e) Buscador para agregar** (recomendación de Q-WSH-UX-4; si el arquitecto lo descarta, se quita esta pieza y el
+vacío dice solo «pulsa «Agregar a mi lista» en la ficha»). Un `Input` con label **«Buscar una carta para
+agregar»**, `type="search"`, debounce 300 ms, mínimo 2 caracteres, contra el buscador público de **todo** el
+catálogo que ya usa el cotizador (`GET /buylist/cards`, `buylist-catalog.controller.ts:20-22`). Resultados: hasta 8
+renglones compactos (`CardImage` 40 px, nombre, set · código-número con `CardCode`), cada uno un **enlace a la ficha**
+`/catalog/{cardId}`, donde está el bloque de WSH-UX.2. ⛔ No se agrega desde el resultado: el acabado y el % se eligen
+con la carta delante. Sin resultados: **«No encontramos esa carta. Prueba con el nombre en inglés o con su
+número.»** Es una lista de enlaces bajo un campo de búsqueda (⛔ no `combobox`), con una región `aria-live="polite"`
+que anuncia **«{n} resultados»**.
+
+---
+
+### WSH-UX.4 El renglón de un deseo (`WishlistRow`)
+
+**(a) Anatomía** (renglón de catálogo con `border-b`, no tarjeta; patrón de «Ejemplares disponibles»):
+
+```
+[img 56px]  Charizard ex                                         [ Quitar ]
+            Obsidian Flames · OBF 125 · Reverse Holo · Near Mint
+            Tu máximo: hasta 10 % sobre mercado    [ hasta 10 % ▾ ]  [ Guardar ]
+            Hoy: hasta MX$1,100.00  IVA incluido · aproximado (i)
+            Disponible ahora: 2 · desde MX$1,334.00   ARRIBA DE TU MÁXIMO   Ver la carta →
+            Último aviso: 3 oct 2026
+```
+
+| Línea | Fuente (`WishlistItemDTO`, `:41684-41694`) | Regla |
+|---|---|---|
+| Imagen | `card.imageSmallUrl` | `CardImage` (monograma si `null`), `alt=""` (el nombre va al lado) |
+| Nombre (`lang="en"`), set, número | `card.name`, `card.setName`, `card.number` | Nombre 15px 500 tinta; meta mono 12px muted |
+| Acabado y condición | `finish` + literal «Near Mint» | `finish.<enum>`; «Near Mint» es `catalog.condition.nm.label` (existe) |
+| Tu máximo (%) | `maxPct` | **«hasta {pct} % sobre mercado»** |
+| Hoy (pesos) | `maxToday` | `priced` ⇒ cifra `tabular` + rótulo de IVA + «aproximado» con ayuda (d); `no_market` ⇒ **«Sin precio de mercado por ahora»** (criterio 807) |
+| Disponible ahora | `availableNow` | `null` ⇒ **«No la tenemos todavía»** (muted); si no ⇒ **«Disponible ahora: {count} · desde {from}»** + veredicto (c) + enlace **«Ver la carta →»** a `/catalog/{card.id}` |
+| Último aviso | `lastNotifiedAt` | `formatDate`; `null` ⇒ **«Aún no te hemos avisado»** |
+
+**(b) Cambiar el %.** `Select` compacto (opciones «hasta 5 %», «hasta 10 %», «hasta 16 %») + botón `secondary sm`
+**«Guardar»** que aparece solo si cambió (⛔ no se guarda al cambiar el `select`: con teclado, la flecha dispararía
+un `PATCH` por opción). Al éxito: la cifra de «Hoy» se reemplaza con la del `200`, línea mono verde `GUARDADO`
+(§33.6). `404` (ya no es suyo, o lo quitó en otra pestaña) ⇒ el renglón se retira con `role="status"` **«Esa carta ya
+no estaba en tu lista.»**
+
+**(c) «Cabe» o «arriba» con piezas a la venta.** Solo si `availableNow != null` **y** `maxToday.status === 'priced'`:
+- `fromDisplayCents <= maxDisplayCents` ⇒ `Badge tone="success"` **«CABE EN TU MÁXIMO»**;
+- si no ⇒ `Badge tone="neutral"` **«ARRIBA DE TU MÁXIMO»** (muted, ⛔ no rojo: no es un error, WSH-4);
+- `no_market` ⇒ sin veredicto.
+
+⚠️ Esta comparación es la **única** cuenta del front y es la misma desigualdad de `fits` (`:41655`, `P <= maxDisplay`).
+Se retira en cuanto el contrato traiga el campo (Q-WSH-UX-3).
+
+**(d) «Aproximado».** La palabra va seguida de un botón-icono `Info` de 44 px con `aria-label` **«Por qué es
+aproximado»** que despliega (`aria-expanded`) el texto: **«Tu máximo sale del precio de mercado. Lo recalculamos el
+día en que consigamos la carta, así que puede subir o bajar.»** Sin tooltip solo-hover (§8.2).
+
+**(e) Quitar.** `Button` `ghost sm` **«Quitar»** con `aria-label` **«Quitar {carta} ({acabado}) de mi lista»**.
+`DELETE` sin diálogo; toast `info` **«Quitamos {carta} de tu lista.»** con acción **«Deshacer»** (§28.6c), que hace
+`POST /wishlist` con los mismos `{cardId, finish, maxPct}`. El foco pasa al renglón siguiente (o al buscador si era el
+último). Si el `POST` de deshacer devuelve `422 WISHLIST_LIMIT_REACHED` (otra pestaña llenó la lista), toast `danger`
+**«No pudimos regresarla: tu lista ya está llena.»**
+
+**(f) Móvil 390 px.** Imagen 48 px; el `Select` y «Guardar» bajan a su propia línea a ancho completo; «Quitar» queda
+arriba a la derecha (44 px). Sin scroll horizontal.
+
+**(g) Se quita sola.** Cuando la cuenta paga una pieza de esa carta y acabado, el deseo desaparece en el servidor
+(`:41756-41759`). La página no avisa: al volver ya no está. ⛔ No se añade ningún texto en el checkout.
+
+---
+
+### WSH-UX.5 El correo «Ya tenemos una carta de tu lista» (redacción final, `es`/`en` con paridad)
+
+Sobre `mailShell` (§31/§41: marca en texto vivo, pie de privacidad de siempre, criterio 507), idioma = `User.locale`.
+Se construye con los bloques que ya existen en `mail-shell.ts`; lo único nuevo es la miniatura (ver (d)).
+
+**(a) Estructura**
+
+```
+[marca]
+LISTA DE DESEOS                                          ← eyebrowRow
+Ya tenemos una carta de tu lista                         ← headingRow 26
+La conseguimos y ya está a la venta en la tienda.        ← proseRow
+──────────────────────────────────────────────────────── ruleRow
+[mini] Charizard ex                          MX$1,334.00  ← cardLineRows (+ miniatura), amount = P
+       Obsidian Flames · OBF 125 · Reverse Holo · Near Mint
+       Precio: MX$1,334.00 IVA incluido
+       Tu máximo de hoy: MX$1,100.00 IVA incluido
+       Está arriba de tu máximo.
+       [ Ver la carta ]                                   ← ctaRows tone ink
+       Quitar esta carta de mi lista                      ← enlace 13px muted subrayado
+──────────────────────────────────────────────────────── (una por deseo)
+▌SIN APARTADO                                             ← termsBoxRows
+▌No te la apartamos: si varias personas la esperan, se la lleva quien pague primero.
+▌El precio es el normal de la tienda, el mismo para todos.
+Dejar de recibir estos avisos                             ← smallPrintRow con enlace
+[pie: por qué recibes esto + aviso de privacidad]
+```
+
+**(b) Textos**
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto (1 carta) | Ya tenemos una carta de tu lista: {carta} | We found a card from your wishlist: {card} |
+| Asunto (n cartas) | Ya tenemos {n} cartas de tu lista | We found {n} cards from your wishlist |
+| Preheader | Está a la venta a su precio normal. Te decimos si cabe en tu máximo. | It's on sale at its regular price. We'll tell you if it fits your max. |
+| Eyebrow | LISTA DE DESEOS | WISHLIST |
+| Titular (1) | Ya tenemos una carta de tu lista | We found a card from your wishlist |
+| Titular (n) | Ya tenemos {n} cartas de tu lista | We found {n} cards from your wishlist |
+| Entrada (1) | La conseguimos y ya está a la venta en la tienda. | We got it and it's now on sale in the store. |
+| Entrada (n) | Las conseguimos y ya están a la venta en la tienda. | We got them and they're now on sale in the store. |
+| Meta de la línea | {set} · {número} · {acabado} · Near Mint | {set} · {number} · {finish} · Near Mint |
+| Varias piezas del mismo deseo (delante de la meta) | {n} disponibles · | {n} available · |
+| Precio | Precio: {P} IVA incluido | Price: {P} VAT included |
+| Precio (varias) | Precio desde: {P} IVA incluido | Price from: {P} VAT included |
+| Máximo | Tu máximo de hoy: {máx} IVA incluido | Your max today: {max} VAT included |
+| Cabe | Cabe en tu máximo. | It fits your max. |
+| No cabe | Está arriba de tu máximo. | It's above your max. |
+| Sin mercado | Hoy no hay precio de mercado: no pudimos calcular tu máximo. | There's no market price today, so we couldn't work out your max. |
+| Botón | Ver la carta | See the card |
+| Quitar | Quitar esta carta de mi lista | Remove this card from my wishlist |
+| Rótulo de la caja | SIN APARTADO | NOT ON HOLD |
+| Caja, párrafo 1 | No te la apartamos: si varias personas la esperan, se la lleva quien pague primero. | We don't hold it for you: if several people are waiting, whoever pays first gets it. |
+| Caja, párrafo 2 | El precio es el normal de la tienda, el mismo para todos. | The price is the store's regular price, the same for everyone. |
+| Baja | Dejar de recibir estos avisos | Stop these alerts |
+| Por qué lo recibes (`footerWhy`) | Recibes este correo porque agregaste estas cartas a tu lista de deseos en TCG HUNT. Tu lista sigue guardada aunque dejes de recibir avisos. | You're receiving this email because you added these cards to your TCG HUNT wishlist. Your list stays saved even if you stop these alerts. |
+| Sin origen de app (`appUrl` indefinido, `:41769`) | Para verla, entra a TCG HUNT › Mi cuenta › Mi lista de deseos. | To see it, go to TCG HUNT › My account › My wishlist. |
+
+- La línea del precio, la del máximo, los tres veredictos y la caja son las del contrato (`:41774-41779`), literales.
+- **Sin máximo** (`maxDisplayCents` nulo): se omite la línea «Tu máximo de hoy» y va la línea «Sin mercado». ⛔
+  Nunca «MX$0.00» (criterio 807).
+- Los veredictos van en **texto**, en tinta, sin color: el color en correo no es fiable bajo inversión (§31.8).
+- Varias piezas de un mismo deseo: **una** línea (`:41747`); `amount` = el P más bajo; precio con «Precio desde».
+- Con `appUrl` indefinido no se pinta ni el botón ni los dos enlaces (⛔ nunca un `href` a medias): va la línea «Sin
+  origen de app» una vez, tras la caja.
+
+**(c) Texto plano** (parte `text` del correo): las mismas frases, una por línea; los enlaces como URL completa tras su
+rótulo («Ver la carta: https://…»).
+
+**(d) La miniatura.** `cardLineRows` no tiene imagen (`mail-shell.ts:281-307`). Se pide a backend una variante con
+una celda izquierda de **56 px** de ancho: `<img width="56" height="78" alt="">` de `card.imageSmallUrl`, `valign="top"`,
+`padding-right:12px`. `alt=""` porque el nombre de la carta va al lado (con imágenes bloqueadas, la línea se lee igual).
+Sin `imageSmallUrl` la celda no existe (⛔ ni hueco gris ni icono roto). ⚠️ Es una imagen remota de un tercero
+(`images.pokemontcg.io`) en un correo: ver Q-WSH-UX-9.
+
+**(e) Accesibilidad del correo.** Un solo encabezado principal (el titular); botones con texto real ≥ 44 px de alto
+(`ctaRows`); enlaces subrayados; el dinero alineado por tabla (§31); `lang` del esqueleto según `User.locale`.
+
+---
+
+### WSH-UX.6 La página del enlace del correo (`/{locale}/lista-de-deseos/aviso`)
+
+Pública, sin sesión, **un clic** para confirmar (`:41782-41783`; ⛔ nada se hace al cargar). Chrome del storefront,
+columna `max-w-md` centrada. `<meta name="robots" content="noindex">` y `<meta name="referrer"
+content="no-referrer">`. Al montar se leen `a`, `id` y `t` y se **limpian de la barra** con `history.replaceState`
+(el token no queda en capturas ni en el historial).
+
+| `a` | Título (`h1` serif 30px) | Texto | Botón (`primary`) |
+|---|---|---|---|
+| `remove` | Quitar una carta de tu lista | Confirma y la quitamos. No hace falta entrar a tu cuenta. | Quitar de mi lista |
+| `pause` | Dejar de recibir avisos de tu lista | Tu lista se queda guardada. Puedes reanudar los avisos cuando quieras en Mi cuenta. | Dejar de recibir avisos |
+
+| Respuesta de `POST /wishlist/mail-actions` | Pantalla (`role="status"` o `alert`) |
+|---|---|
+| `removed` | ✓ **Listo: la quitamos de tu lista.** |
+| `paused` | ✓ **Listo: ya no te mandaremos estos avisos.** + «Puedes reanudarlos en Mi cuenta › Mi lista de deseos.» |
+| `already_done` (remove) | **Esa carta ya no estaba en tu lista.** |
+| `already_done` (pause) | **Estos avisos ya estaban pausados.** |
+| `404 WISHLIST_LINK_INVALID` / faltan parámetros / `a` desconocida | **Este enlace no funciona.** + «Entra a tu cuenta para revisar tu lista.» (⛔ no dice por qué) |
+| `429` | **Demasiados intentos. Espera un minuto y vuelve a intentar.** |
+| red / 5xx | **No pudimos hacerlo. Intenta de nuevo.** (el botón sigue) |
+
+Tras el resultado: enlace **«Ir a mi lista de deseos»** → `/account/wishlist` (el guard pide sesión si no la hay).
+Botón con `loading` «Un momento…»; tras el éxito se retira (no se puede pulsar dos veces). El foco va al mensaje de
+resultado (`tabIndex=-1`).
+
+---
+
+### WSH-UX.7 El panel del dueño: pestaña «Lista de compra» de Reportes (`BuyListTab`)
+
+**Dónde.** Tercera pestaña de M9: `Ventas · Actividad · Lista de compra` (`M9_TABS` gana `'compra'`,
+`salesParams.ts:8`); URL `/admin/m9?tab=compra`; monta su consulta solo cuando está activa (AN-UX.1). M9 ya es
+`SuperAdminOnly` (criterio 818). Va junto a Reportes porque es información para decidir, no una cola de trabajo
+(`PROJECT §WSH.6` deja el lugar a ux-ui).
+
+**(a) Cabecera de la pestaña**
+
+```
+Cartas que te piden y no tienes                                    ← h2
+Cartas que alguien tiene en su lista de deseos y hoy no tienes a la venta. Sin nombres: solo cuántos.
+Calculado con: margen que buscas 15 % sobre lo que pagas · máximos de los clientes leídos con IVA · IVA 16 %
+                                                                  Cambiar en Configuración →   ← /admin/m10#wishlist
+Generado: 7 oct 2026, 10:42                                        ← generatedAt, text-xs muted
+
+ORDENAR POR  (Recomendado)(Más buscadas)(Techo)(Margen a mercado)(Mercado)(Precio normal)(Pagan tu precio)(Buylist hoy)   [ Mayor primero ]
+BUSCAR [ carta, set o número ]   [ ] Ocultar las que no tienen precio de mercado        [ Descargar CSV ]  [ Imprimir ]
+```
+
+- La línea «Calculado con» sale **toda** de `dials` (`:41862-41863`): `targetMarginPct`, `marginBasis` («sobre lo que
+  pagas» = `cost`, «sobre la venta» = `sale`), `ivaMode` («leídos con IVA» / «leídos sin IVA»), `ivaRatePct`.
+- **Orden:** chips (`Button ghost sm`, activo `primary`, `role="group"`, `aria-pressed`, ≥ 44 px, *wrap* en móvil, como
+  AN-UX.2). «Recomendado» = **sin** `sort` (orden por defecto del servidor, criterio 820); los demás mandan
+  `sort=wanted|ceiling|margin|market|normal|buyers|buylist`. El botón de dirección alterna `dir=desc|asc` («Mayor
+  primero» / «Menor primero») y no se muestra con «Recomendado». Estado en la URL (`sort`, `dir`).
+- **Filtros** (en el navegador, sobre las filas recibidas; el contrato no tiene filtros, Q-WSH-UX-7): texto sobre
+  nombre/set/número y «Ocultar las que no tienen precio de mercado». Con un filtro activo, línea muted **«Mostrando
+  {shown} de {total} cartas. El CSV trae la lista completa.»**
+- **Descargar CSV** → `export.csv` con los mismos `sort`/`dir` (criterio 822). Nombre `lista-de-compra-AAAA-MM-DD.csv`.
+- **Imprimir** → `window.print()` con hoja `@media print`: sin chrome, un renglón por carta, la cifra «Paga hasta» a
+  la derecha, 10 pt. Es la versión «de pie, en una mesa» (`PROJECT §WSH.6`).
+
+**(b) El renglón de una carta.** Leído de pie: la cifra grande es **«Paga hasta»** (`mainCeilingCents`).
+
+```
+[img 56]  Charizard ex                                   3 LA BUSCAN            PAGA HASTA
+          OBF 125 · Obsidian Flames · Reverse Holo                              MX$869.57
+                                                                                 sin IVA
+          ┌───────┬──────────┬───────────────────────┬────────────────────────┐
+          │ Nivel │ Cuentas  │ Su máximo (con IVA)   │ Pagas hasta (sin IVA)  │
+          │ 16 %  │ 1        │ MX$1,160.00           │ MX$869.57              │
+          │ 10 %  │ 2        │ MX$1,100.00           │ MX$824.59              │
+          └───────┴──────────┴───────────────────────┴────────────────────────┘
+          Mercado hoy MX$1,000.00 · Tu precio normal MX$1,150.00 sin IVA (MX$1,334.00 con IVA)
+          Pagan tu precio normal: 0 · Si la pagas a mercado: ganas MX$0.00 (0.0 %) · El buylist pagaría hoy: MX$700.00
+```
+
+| Cifra | Fuente (`WishlistDemandRowDTO`, `:41849-41859`) | Presentación |
+|---|---|---|
+| La buscan | `wantedCount` | mono 11px uppercase «{n} LA BUSCAN» / «1 LA BUSCA» |
+| Paga hasta | `mainCeilingCents` | `tabular` 28 px 500 tinta + «sin IVA» `text-xs muted`; rótulo `PAGA HASTA` con ayuda desplegable: «Lo más que puedes pagar y todavía ganar tu margen, con el cliente que más ofreció.» |
+| Tabla de niveles | `tiers[]` (16 → 10 → 5, solo los que traen cuentas) | tabla HTML real (`<th scope>`), mono `tabular`, cifras alineadas a la derecha; el encabezado «Su máximo» dice **con IVA** y «Pagas hasta» dice **sin IVA** |
+| Mercado hoy | `marketCents` | sin IVA |
+| Precio normal | `normalPrice.listCents` / `.displayCents` | «{list} sin IVA ({display} con IVA)»; `null` ⇒ «Precio normal: sin calcular» |
+| Pagan tu precio normal | `buyersAtNormalPrice` | entero; `0` se pinta **0** (es un dato, no un hueco) |
+| Si la pagas a mercado | `marginAtMarket {cents, pct}` | con signo; negativo en `text-accent` **y** con «−» U+2212 y la palabra **«pierdes»**: «Si la pagas a mercado: pierdes MX$51.72 (−5.2 %)»; cero o positivo: «ganas …» (AN-6: el color no es portador). Unidad de `pct`: Q-WSH-UX-8 |
+| El buylist pagaría hoy | `buylistTodayCents` | sin IVA; `null` ⇒ «El buylist no la cotiza hoy» |
+
+- **Sin precio de mercado** (`marketCents = null`, al final por orden del servidor): la cifra grande es **«—»** con
+  `sr-only` **«sin dato: no hay precio de mercado»**; `Badge outline neutral` **«SIN PRECIO DE MERCADO»**; la tabla de
+  niveles muestra «Nivel» y «Cuentas» y las otras dos columnas en «—». ⛔ Ningún `0` (criterio 820).
+- **Ninguna fila**: `EmptyState` **«Nadie está esperando una carta que no tengas.»** + **«Cuando alguien agregue a su
+  lista una carta sin piezas a la venta, aparece aquí.»**
+- **Escritorio ≥ lg**: el renglón en tres zonas (identidad · tabla de niveles · cifra grande a la derecha). **Móvil**:
+  la cifra grande arriba a la derecha junto al nombre, la tabla a ancho completo debajo (4 columnas caben en 390 px
+  con mono 12 px), las líneas de mercado apiladas.
+- Cada renglón es un `<article aria-labelledby>` con el nombre como `h3`. ⛔ Sin enlaces a cuentas, sin correos, sin
+  fechas por cuenta (criterio 821).
+
+**(c) Sellados que esperan aviso** (`sealed[]`, P-WSH-9: solo conteo). Debajo, `h2` **«Sellados que esperan
+aviso»** + muted **«Personas que pidieron que les avisemos cuando vuelva. Solo el conteo de correos.»** `DataTable`:
+Producto · Tipo (`sealedSubtype` legible o «—») · Condición (`sealedCondition` legible) · **Esperan** (`waitingCount`).
+Vacío: **«Nadie está esperando un sellado.»** ⛔ Sin máximos ni techos (no aplican al sellado).
+
+**(d) Estados.** Carga: `Skeleton` de 4 renglones; al cambiar el orden se siguen viendo las filas viejas con
+`aria-busy` (AN-4). Error: `Banner danger` con «Reintentar». Los valores de `sort`/`dir` de la URL fuera de dominio se
+ignoran antes de pedir (AN-UX.1), así que `400 VALIDATION_ERROR` no debe verse.
+
+---
+
+### WSH-UX.8 «Avísame cuando vuelva» de sellados
+
+**(a) El formulario en la ficha del sellado** (`SealedRestockForm`, `SealedDetailView.tsx:238-246`; solo con el dial
+`sealed_restock_alerts = on`). Con la recomendación de Q-WSH-1, el formulario vive en una ficha **con existencia**, y
+el aviso exige que el producto **se agote y vuelva** (armado, `:41823-41825`). El texto de hoy («Te escribimos en cuanto
+este producto vuelva a estar disponible», `es.json:6786`) **deja de ser cierto** y cambia.
+
+- **Sin sesión:** campo de correo como hoy.
+- **Con sesión:** ⛔ sin campo (el servidor ignora `dto.email` y usa el de la cuenta, `:41818`). Línea muted **«Te
+  avisaremos a {email}.»** y solo el botón.
+- **La respuesta es neutra** (`202` aunque no se cree fila, `:41819-41820`): la confirmación **no** puede afirmar que
+  se guardó algo nuevo, ni distinguir «ya estabas apuntado».
+
+| Clave (`…restock.*`, ruta exacta NO MEDIDA: `es.json:6784`) | ES | EN |
+|---|---|---|
+| `title` (sin cambio) | Avísame cuando vuelva | Notify me when it's back |
+| `body` **(cambia)** | Si se agota, te escribimos una sola vez cuando vuelva a estar disponible. | If it sells out, we'll email you once when it's back. |
+| `emailLabel` (sin cambio) | Correo | Email |
+| `signedInAs` **(nueva)** | Te avisaremos a {email}. | We'll notify {email}. |
+| `cta` (sin cambio) | Avisarme | Notify me |
+| `confirmed` **(cambia)** | Listo. Si se agota y vuelve, te escribimos una sola vez. | Done. If it sells out and comes back, we'll email you once. |
+| `rateLimited` **(nueva)** | Demasiados intentos. Espera un minuto y vuelve a intentar. | Too many attempts. Wait a minute and try again. |
+
+Los valores EN de las claves «sin cambio» no los medí (`en.json` sin leer): se conservan los que existan.
+`404 FEATURE_DISABLED` ⇒ el formulario se retira (WSH-5).
+
+**(b) El correo de reposición** (bilingüe, `locale 'es'` fijo como hoy; agrupado por correo, una línea por producto,
+`:41826-41832`):
+
+| Pieza | Texto (ES · EN en la misma línea, como hoy) |
+|---|---|
+| Asunto (1) | ¡Volvió! · Back in stock: {producto} |
+| Asunto (n) | Volvieron {n} productos que esperabas · {n} products you were waiting for are back |
+| Titular | ¡Volvió a existencia! · Back in stock |
+| Entrada | Lo que nos pediste que te avisáramos ya está otra vez a la venta en TCG HUNT. · What you asked us to tell you about is on sale again at TCG HUNT. |
+| Línea | `{producto}` (`cardLineRows.title`) + botón **«Ver el producto · See the product»** → `appUrl('sellado/{inventoryItemId}','es')` |
+| Nota (una vez) | No te lo apartamos: se lo lleva quien pague primero. · We don't hold it for you: whoever pays first gets it. |
+| Pie (`footerWhy`) | ¿No lo pediste? Ignora este correo: no volverás a recibirlo por este producto. · Didn't ask for this? Ignore this email: you won't get it again for this product. |
+
+- ⛔ Sin precio en la línea: el contrato no lo manda y el precio del sellado puede cambiar entre el envío y la visita.
+- ⛔ Sin enlace de baja (no se repite, `:41832`). Sin `appUrl`: «Búscalo en TCG HUNT › Comprar › Sellado. · Look for
+  it at TCG HUNT › Shop › Sealed.»
+
+---
+
+### WSH-UX.9 Los diales
+
+**(a) M10 › grupo nuevo «Lista de deseos»** (`id="wishlist"`, ancla del enlace de WSH-UX.7). Va como **`<section>`
+propia** debajo de «Diales de configuración», con su `h2` **«Lista de deseos»** y el mismo patrón de guardado parcial
+(`PUT` solo con las claves tocadas). `DialKind` gana `'enum'` con opciones (`M10View.tsx:38`).
+
+| DTO | Tipo | Rótulo ES | Rótulo EN | Ayuda ES | Ayuda EN |
+|---|---|---|---|---|---|
+| `wishlistEnabled` | `onOff` | Lista de deseos | Wishlist | Encendida, los clientes pueden guardar cartas y reciben avisos por correo. Apagada, todo se oculta; las listas se conservan. | On, customers can save cards and get email alerts. Off, everything is hidden; lists are kept. |
+| `wishlistMaxPerAccount` | `int` | Cartas por cuenta | Cards per account | Bajarlo no borra cartas guardadas; solo impide agregar. | Lowering it doesn't delete saved cards; it only blocks adding. |
+| `wishlistMaxIvaMode` | `enum` | Cómo se lee el máximo del cliente | How the customer's max is read | **Con IVA:** el % ya incluye el IVA (mercado $1,000 al 10 % = $1,100 en total). **Sin IVA:** el % va antes del IVA ($1,100 + IVA = $1,276). | **VAT included:** the % already includes VAT (market $1,000 at 10% = $1,100 total). **Before VAT:** the % goes before VAT ($1,100 + VAT = $1,276). |
+| `wishlistTargetMarginPct` | `pct` | Margen que buscas | Target margin | Con él se calcula «Paga hasta» en la lista de compra. | Used to work out “Pay up to” in the buy list. |
+| `wishlistMarginBasis` | `enum` | Ese margen se mide | That margin is measured | **Sobre lo que pagas** (pagas $100, ganas $15) o **sobre la venta** (vendes en $100, ganas $15). | **On what you pay** (you pay $100, you make $15) or **on the sale** (you sell for $100, you make $15). |
+| `wishlistDailyMailCap` | `int` | Correos de aviso por cliente al día | Alert emails per customer per day | Lo que pase del tope sale junto al día siguiente, si sigue a la venta. | Anything over the cap goes out together the next day, if still on sale. |
+| `wishlistMailWindowMin` | `int` | Minutos para juntar avisos | Minutes to batch alerts | Las cartas que entran en este tiempo van en un solo correo. También aplica al aviso de sellados. | Cards that arrive within this time go in one email. Also applies to sealed alerts. |
+
+Opciones de los `enum`: `with_iva` **«Con IVA»** / «VAT included»; `without_iva` **«Sin IVA»** / «Before VAT»; `cost`
+**«Sobre lo que pagas»** / «On what you pay»; `sale` **«Sobre la venta»** / «On the sale». Unidades: `pct` e `int` como
+hoy (`es.json:4610-4616`).
+
+Los ejemplos en pesos de la ayuda de `wishlistMaxIvaMode` son los del criterio 808 (texto fijo, no se calculan).
+
+**(b) Encender `wishlistEnabled` pide confirmación** (criterio 824: el aviso de privacidad va antes). `Modal` de
+§7.6 al pasar de `off` a `on`, **antes** de guardar:
+- Título: **«¿Encender la lista de deseos?»** · «Turn on the wishlist?»
+- Cuerpo: **«Antes de encenderla, tu aviso de privacidad tiene que decir que usamos las listas de deseos, sin
+  nombres, para decidir qué cartas conseguir. Al encenderla, los clientes verán el botón en las fichas y empezarán a
+  recibir avisos por correo.»** · “Before you turn it on, your privacy notice must say that we use wishlists, without
+  names, to decide which cards to get. Once it's on, customers will see the button on card pages and start getting
+  email alerts.”
+- Botones: **«Sí, encender»** / «Yes, turn on» (`primary`) · **«Cancelar»** / «Cancel» (`secondary`, foco inicial).
+  Apagar no pide confirmación.
+
+**(c) M11 › diales de sellado** (`SealedDialsPanel.tsx`, junto a `sealed_restock_alerts`, que vive ahí): una fila
+nueva `sealedRestockMaxPendingPerEmail` (`int`) **«Avisos pendientes por correo»** · «Pending alerts per email», ayuda
+**«Tope de productos que un mismo correo puede estar esperando a la vez. Frena que alguien apunte el correo de otra
+persona a muchos productos.»** · “Most products one email can be waiting on at once. Stops someone from signing up
+another person's email to many products.” Va en M11 y no en M10 porque es del «avísame» de sellados, cuyo interruptor
+ya vive ahí.
+
+Errores `422 VALIDATION_ERROR` por clave: el mensaje del dial bajo su campo, como hoy. M10 ya es `superAdminOnly`
+(`AdminSidebar.tsx:113`).
+
+---
+
+### WSH-UX.10 Componentes: qué se reutiliza y qué es nuevo
+
+| Componente | Dónde | Compuesto de |
+|---|---|---|
+| `WishlistBlock` (nuevo) | `(storefront)/catalog/[cardId]/` (local de la ficha, como `InstanceCta`) | `PctChoice`, `Button`, `IvaLabel`, `Badge`, `Skeleton` |
+| `PctChoice` (nuevo, local) | mismo sitio | `<fieldset>` + `<input type="radio">` con piel de chip |
+| `WishlistView`, `WishlistRow` (nuevos) | `(storefront)/account/wishlist/` | `CardImage`, `CardCode`, `Select`, `Button`, `Badge`, `IvaLabel`, `Banner`, `EmptyState`, `Toast` con «Deshacer» |
+| Sección `#wishlist` | `components/domain/account/AccountView` | patrón de sección de §33.6 |
+| `WishlistMailActionPage` (nuevo) | `(storefront)/lista-de-deseos/aviso/` | `Button` |
+| `BuyListTab` (nuevo) | `(admin)/admin/m9/` | `Button` (chips), `Input`, `Badge`, `DataTable` (sellados), `EmptyState`, `QueryState` |
+| Grupo «Lista de deseos» de M10 | `M10View.tsx` | patrón de diales existente + `Modal` |
+| Variante de `cardLineRows` con miniatura | `backend/src/modules/buylist/mail-shell.ts` (backend) | ver WSH-UX.5 (d) |
+
+⚠️ `components/` y `lib/` son zona compartida (CLAUDE.md): todo lo nuevo vive **local** a su ruta. Solo la sección
+nueva de `AccountView` toca una zona compartida.
+
+---
+
+### WSH-UX.11 Contraste: cero pares nuevos
+
+Todos los pares ya están medidos en §10 / §20 / AN-UX.13: `text` y `muted` sobre papel y pozo; `success` (veredicto
+«CABE», `GUARDADO`); `accent` (margen negativo, notas con regla roja) sobre papel; chip activo `primary` (texto sobre
+tinta). El tono nunca va solo en el color: «CABE»/«ARRIBA», «pierdes»/«ganas» y «−» lo dicen en texto. Correo:
+veredictos en tinta (§31.8). Sin tema oscuro (WSH-UX.0 punto 4).
+
+---
+
+### WSH-UX.12 Textos de pantalla (paridad ES/EN en el mismo cambio)
+
+Namespace `wishlist.*` (storefront) y `admin.m9.buyList.*` (panel). Los de diales y sellado están en WSH-UX.8 y .9.
+Placeholders entre llaves; el dinero llega ya formateado por `formatMoneyCents`.
+
+| Clave | ES | EN |
+|---|---|---|
+| `wishlist.eyebrow` | LISTA DE DESEOS | WISHLIST |
+| `wishlist.block.title` | ¿La buscas? Te avisamos por correo cuando la consigamos. | Looking for it? We'll email you when we get it. |
+| `wishlist.block.nmNote` | Siempre Near Mint, sin gradear. | Always Near Mint, ungraded. |
+| `wishlist.block.finishLegend` | Acabado | Finish |
+| `wishlist.block.pctLegend` | ¿Hasta cuánto más del precio de mercado pagarías? | How much above market price would you pay? |
+| `wishlist.block.pctOption` | {pct} % | {pct}% |
+| `wishlist.block.pctPesos` | hasta {amount} | up to {amount} |
+| `wishlist.block.signalNote` | Es una señal para nosotros, no un compromiso: no te apartamos la carta ni te cobramos nada. Si la conseguimos, sale a su precio normal, el mismo para todos. | It's a signal for us, not a commitment: we don't hold the card or charge you anything. If we get it, it goes on sale at its regular price, the same for everyone. |
+| `wishlist.block.noPesosYet` | Verás tu máximo en pesos en cuanto la agregues. | You'll see your max in pesos as soon as you add it. |
+| `wishlist.block.add` | Agregar {finish} a mi lista | Add {finish} to my wishlist |
+| `wishlist.block.count` | {count} de {limit} | {count} of {limit} |
+| `wishlist.block.inList` | Está en tu lista · {finish} · hasta {pct} % sobre mercado | It's on your wishlist · {finish} · up to {pct}% above market |
+| `wishlist.maxToday` | Tu máximo de hoy: {amount} | Your max today: {amount} |
+| `wishlist.approx` | aproximado | approximate |
+| `wishlist.approxHelpLabel` | Por qué es aproximado | Why it's approximate |
+| `wishlist.approxHelp` | Tu máximo sale del precio de mercado. Lo recalculamos el día en que consigamos la carta, así que puede subir o bajar. | Your max comes from the market price. We recalculate it on the day we get the card, so it may go up or down. |
+| `wishlist.recalcNote` | Se recalcula con el precio de mercado del día en que la consigamos. | It's recalculated with the market price on the day we get it. |
+| `wishlist.noMarket` | Sin precio de mercado por ahora | No market price for now |
+| `wishlist.block.noMarketLong` | Sin precio de mercado por ahora: cuando lo haya, calcularemos tu máximo. | No market price for now: once there is one, we'll work out your max. |
+| `wishlist.notifyTo` | Te avisaremos a {email}. | We'll notify {email}. |
+| `wishlist.block.changeLegend` | Cambiar tu máximo | Change your max |
+| `wishlist.block.saveChange` | Guardar cambio | Save change |
+| `wishlist.remove` | Quitar de mi lista | Remove from my wishlist |
+| `wishlist.seeList` | Ver mi lista | See my wishlist |
+| `wishlist.block.removed` | La quitamos de tu lista. | We removed it from your wishlist. |
+| `wishlist.block.duplicate` | Ya la tenías en tu lista con este acabado. Si quieres, cambia tu máximo. | It was already on your wishlist with this finish. You can change your max if you like. |
+| `wishlist.unverified` | Verifica tu correo para recibir el aviso. | Verify your email to get the alert. |
+| `wishlist.unverifiedCta` | Verificar en Mi cuenta | Verify in My account |
+| `wishlist.pausedNote` | Pausaste los avisos de tu lista: no te escribiremos hasta que los reanudes. | You paused your wishlist alerts: we won't email you until you resume them. |
+| `wishlist.pausedCta` | Reanudar en Mi lista | Resume in My wishlist |
+| `wishlist.full.title` | Tu lista está llena: tienes {count} de {limit} cartas. | Your wishlist is full: you have {count} of {limit} cards. |
+| `wishlist.full.body` | Quita una para hacer lugar y vuelve a esta página. | Remove one to make room and come back to this page. |
+| `wishlist.guest.title` | ¿La buscas? Guárdala en tu lista y te avisamos por correo cuando la consigamos. | Looking for it? Save it to your wishlist and we'll email you when we get it. |
+| `wishlist.guest.body` | Necesitas una cuenta para tener lista de deseos. | You need an account to have a wishlist. |
+| `wishlist.guest.login` | Entrar para agregarla | Log in to add it |
+| `wishlist.guest.register` | Crear cuenta | Create account |
+| `wishlist.error.finish` | Ese acabado no existe para esta carta. Elige otro. | That finish doesn't exist for this card. Pick another one. |
+| `wishlist.error.generic` | No pudimos guardar tu lista. Intenta de nuevo. | We couldn't save your wishlist. Please try again. |
+| `wishlist.card.notHere` | Hoy no tenemos esta carta. | We don't have this card today. |
+| `wishlist.account.title` | Lista de deseos | Wishlist |
+| `wishlist.account.summary` | {count} de {limit} cartas. Te avisamos por correo cuando consigamos alguna. | {count} of {limit} cards. We'll email you when we get any of them. |
+| `wishlist.account.summaryPaused` | {count} de {limit} cartas. Los avisos están pausados. | {count} of {limit} cards. Alerts are paused. |
+| `wishlist.account.summaryEmpty` | Aún no tienes cartas en tu lista. | You don't have any cards on your wishlist yet. |
+| `wishlist.page.back` | ← Mi cuenta | ← My account |
+| `wishlist.page.title` | Mi lista de deseos | My wishlist |
+| `wishlist.page.subtitle` | {count} de {limit} cartas · Te avisamos por correo cuando consigamos alguna de estas cartas. | {count} of {limit} cards · We'll email you when we get any of these cards. |
+| `wishlist.page.signalNote` | Tu máximo es una señal para que sepamos hasta dónde buscar. Si conseguimos la carta, sale a su precio normal, el mismo para todos, y te avisamos aunque esté arriba de tu máximo. No te la apartamos: se la lleva quien pague primero. | Your max is a signal so we know how far to look. If we get the card, it goes on sale at its regular price, the same for everyone, and we'll tell you even if it's above your max. We don't hold it for you: whoever pays first gets it. |
+| `wishlist.page.pausedBanner` | Pausaste los avisos de tu lista. Tu lista sigue guardada. | You paused your wishlist alerts. Your wishlist is still saved. |
+| `wishlist.page.pausedLost` | Lo que llegó mientras estaban pausados no se vuelve a avisar; revisa tu lista para ver qué está disponible hoy. | Anything that arrived while they were paused won't be announced again; check your wishlist to see what's available today. |
+| `wishlist.page.resume` | Reanudar avisos | Resume alerts |
+| `wishlist.page.pause` | Pausar avisos | Pause alerts |
+| `wishlist.page.resumed` | Listo: volverás a recibir los avisos de tu lista. | Done: you'll get your wishlist alerts again. |
+| `wishlist.page.unverifiedBanner` | Verifica tu correo para recibir los avisos. | Verify your email to get the alerts. |
+| `wishlist.page.alertsTitle` | Avisos por correo | Email alerts |
+| `wishlist.page.alertsBody` | Te escribimos cuando consigamos una carta de tu lista. Juntamos varias en un solo correo. | We email you when we get a card from your wishlist. We group several into one email. |
+| `wishlist.page.searchLabel` | Buscar una carta para agregar | Search for a card to add |
+| `wishlist.page.searchEmpty` | No encontramos esa carta. Prueba con el nombre en inglés o con su número. | We couldn't find that card. Try its English name or its number. |
+| `wishlist.page.searchCount` | {n, plural, one {# resultado} other {# resultados}} | {n, plural, one {# result} other {# results}} |
+| `wishlist.page.full` | Tu lista está llena ({count} de {limit}). Quita una carta para agregar otra. | Your wishlist is full ({count} of {limit}). Remove a card to add another. |
+| `wishlist.page.emptyTitle` | Tu lista está vacía | Your wishlist is empty |
+| `wishlist.page.emptyBody` | Busca una carta arriba o pulsa «Agregar a mi lista» en la ficha de cualquier carta. Te avisamos cuando la consigamos. | Search for a card above or press “Add to my wishlist” on any card page. We'll let you know when we get it. |
+| `wishlist.page.disabled` | La lista de deseos aún no está disponible. | The wishlist isn't available yet. |
+| `wishlist.row.maxPct` | Tu máximo: hasta {pct} % sobre mercado | Your max: up to {pct}% above market |
+| `wishlist.row.pctOption` | hasta {pct} % | up to {pct}% |
+| `wishlist.row.today` | Hoy: hasta {amount} | Today: up to {amount} |
+| `wishlist.row.notYet` | No la tenemos todavía | We don't have it yet |
+| `wishlist.row.available` | Disponible ahora: {count} · desde {amount} | Available now: {count} · from {amount} |
+| `wishlist.row.fits` | CABE EN TU MÁXIMO | FITS YOUR MAX |
+| `wishlist.row.above` | ARRIBA DE TU MÁXIMO | ABOVE YOUR MAX |
+| `wishlist.row.seeCard` | Ver la carta | See the card |
+| `wishlist.row.lastNotified` | Último aviso: {date} | Last alert: {date} |
+| `wishlist.row.neverNotified` | Aún no te hemos avisado | We haven't alerted you yet |
+| `wishlist.row.removeLabel` | Quitar {card} ({finish}) de mi lista | Remove {card} ({finish}) from my wishlist |
+| `wishlist.row.removedToast` | Quitamos {card} de tu lista. | We removed {card} from your wishlist. |
+| `wishlist.row.undoFull` | No pudimos regresarla: tu lista ya está llena. | We couldn't put it back: your wishlist is already full. |
+| `wishlist.row.gone` | Esa carta ya no estaba en tu lista. | That card was no longer on your wishlist. |
+| `wishlist.ivaIncluded` | IVA incluido | VAT included |
+| `wishlist.mailAction.removeTitle` | Quitar una carta de tu lista | Remove a card from your wishlist |
+| `wishlist.mailAction.removeBody` | Confirma y la quitamos. No hace falta entrar a tu cuenta. | Confirm and we'll remove it. You don't need to log in. |
+| `wishlist.mailAction.removeCta` | Quitar de mi lista | Remove from my wishlist |
+| `wishlist.mailAction.pauseTitle` | Dejar de recibir avisos de tu lista | Stop your wishlist alerts |
+| `wishlist.mailAction.pauseBody` | Tu lista se queda guardada. Puedes reanudar los avisos cuando quieras en Mi cuenta. | Your wishlist stays saved. You can resume alerts any time in My account. |
+| `wishlist.mailAction.pauseCta` | Dejar de recibir avisos | Stop alerts |
+| `wishlist.mailAction.removed` | Listo: la quitamos de tu lista. | Done: we removed it from your wishlist. |
+| `wishlist.mailAction.paused` | Listo: ya no te mandaremos estos avisos. | Done: we won't send you these alerts anymore. |
+| `wishlist.mailAction.pausedHint` | Puedes reanudarlos en Mi cuenta › Mi lista de deseos. | You can resume them in My account › My wishlist. |
+| `wishlist.mailAction.alreadyRemoved` | Esa carta ya no estaba en tu lista. | That card was no longer on your wishlist. |
+| `wishlist.mailAction.alreadyPaused` | Estos avisos ya estaban pausados. | These alerts were already paused. |
+| `wishlist.mailAction.invalid` | Este enlace no funciona. | This link doesn't work. |
+| `wishlist.mailAction.invalidHint` | Entra a tu cuenta para revisar tu lista. | Log in to check your wishlist. |
+| `wishlist.mailAction.rateLimited` | Demasiados intentos. Espera un minuto y vuelve a intentar. | Too many attempts. Wait a minute and try again. |
+| `wishlist.mailAction.error` | No pudimos hacerlo. Intenta de nuevo. | We couldn't do it. Please try again. |
+| `wishlist.mailAction.working` | Un momento… | One moment… |
+| `wishlist.mailAction.goToList` | Ir a mi lista de deseos | Go to my wishlist |
+| `admin.m9.tabs.buyList` | Lista de compra | Buy list |
+| `admin.m9.buyList.title` | Cartas que te piden y no tienes | Cards people want that you don't have |
+| `admin.m9.buyList.subtitle` | Cartas que alguien tiene en su lista de deseos y hoy no tienes a la venta. Sin nombres: solo cuántos. | Cards someone has on their wishlist that you don't have on sale today. No names: just how many. |
+| `admin.m9.buyList.dials` | Calculado con: margen que buscas {margin} % {basis} · máximos de los clientes {ivaMode} · IVA {rate} % | Calculated with: target margin {margin}% {basis} · customers' max {ivaMode} · VAT {rate}% |
+| `admin.m9.buyList.basis.cost` | sobre lo que pagas | on what you pay |
+| `admin.m9.buyList.basis.sale` | sobre la venta | on the sale |
+| `admin.m9.buyList.ivaMode.with_iva` | leídos con IVA | read with VAT |
+| `admin.m9.buyList.ivaMode.without_iva` | leídos sin IVA | read before VAT |
+| `admin.m9.buyList.changeDials` | Cambiar en Configuración | Change in Settings |
+| `admin.m9.buyList.generatedAt` | Generado: {date} | Generated: {date} |
+| `admin.m9.buyList.sortLabel` | Ordenar por | Sort by |
+| `admin.m9.buyList.sort.default` | Recomendado | Recommended |
+| `admin.m9.buyList.sort.wanted` | Más buscadas | Most wanted |
+| `admin.m9.buyList.sort.ceiling` | Techo | Ceiling |
+| `admin.m9.buyList.sort.margin` | Margen a mercado | Margin at market |
+| `admin.m9.buyList.sort.market` | Mercado | Market |
+| `admin.m9.buyList.sort.normal` | Precio normal | Regular price |
+| `admin.m9.buyList.sort.buyers` | Pagan tu precio | Pay your price |
+| `admin.m9.buyList.sort.buylist` | Buylist hoy | Buylist today |
+| `admin.m9.buyList.dir.desc` | Mayor primero | Highest first |
+| `admin.m9.buyList.dir.asc` | Menor primero | Lowest first |
+| `admin.m9.buyList.search` | Buscar carta, set o número | Search card, set or number |
+| `admin.m9.buyList.hideNoMarket` | Ocultar las que no tienen precio de mercado | Hide those without a market price |
+| `admin.m9.buyList.filtered` | Mostrando {shown} de {total} cartas. El CSV trae la lista completa. | Showing {shown} of {total} cards. The CSV has the full list. |
+| `admin.m9.buyList.csv` | Descargar CSV | Download CSV |
+| `admin.m9.buyList.print` | Imprimir | Print |
+| `admin.m9.buyList.wanted` | {n, plural, one {# LA BUSCA} other {# LA BUSCAN}} | {n, plural, one {# WANTS IT} other {# WANT IT}} |
+| `admin.m9.buyList.ceiling` | PAGA HASTA | PAY UP TO |
+| `admin.m9.buyList.ceilingHelp` | Lo más que puedes pagar y todavía ganar tu margen, con el cliente que más ofreció. | The most you can pay and still make your margin, with the customer who offered the most. |
+| `admin.m9.buyList.withoutIva` | sin IVA | before VAT |
+| `admin.m9.buyList.tier.level` | Nivel | Level |
+| `admin.m9.buyList.tier.accounts` | Cuentas | Accounts |
+| `admin.m9.buyList.tier.max` | Su máximo (con IVA) | Their max (VAT incl.) |
+| `admin.m9.buyList.tier.ceiling` | Pagas hasta (sin IVA) | You pay up to (before VAT) |
+| `admin.m9.buyList.market` | Mercado hoy {amount} | Market today {amount} |
+| `admin.m9.buyList.normal` | Tu precio normal {list} sin IVA ({display} con IVA) | Your regular price {list} before VAT ({display} VAT incl.) |
+| `admin.m9.buyList.normalNone` | Precio normal: sin calcular | Regular price: not calculated |
+| `admin.m9.buyList.buyers` | Pagan tu precio normal: {n} | Pay your regular price: {n} |
+| `admin.m9.buyList.marginGain` | Si la pagas a mercado: ganas {amount} ({pct} %) | If you pay market: you make {amount} ({pct}%) |
+| `admin.m9.buyList.marginLoss` | Si la pagas a mercado: pierdes {amount} (−{pct} %) | If you pay market: you lose {amount} (−{pct}%) |
+| `admin.m9.buyList.buylist` | El buylist pagaría hoy: {amount} | Buylist would pay today: {amount} |
+| `admin.m9.buyList.buylistNone` | El buylist no la cotiza hoy | Buylist doesn't quote it today |
+| `admin.m9.buyList.noMarket` | SIN PRECIO DE MERCADO | NO MARKET PRICE |
+| `admin.m9.buyList.noMarketSr` | sin dato: no hay precio de mercado | no data: there's no market price |
+| `admin.m9.buyList.emptyTitle` | Nadie está esperando una carta que no tengas. | Nobody is waiting for a card you don't have. |
+| `admin.m9.buyList.emptyBody` | Cuando alguien agregue a su lista una carta sin piezas a la venta, aparece aquí. | When someone adds a card with nothing on sale to their wishlist, it shows up here. |
+| `admin.m9.buyList.sealedTitle` | Sellados que esperan aviso | Sealed products waiting for an alert |
+| `admin.m9.buyList.sealedSubtitle` | Personas que pidieron que les avisemos cuando vuelva. Solo el conteo de correos. | People who asked us to tell them when it's back. Only the count of emails. |
+| `admin.m9.buyList.sealedCols.product` | Producto | Product |
+| `admin.m9.buyList.sealedCols.type` | Tipo | Type |
+| `admin.m9.buyList.sealedCols.condition` | Condición | Condition |
+| `admin.m9.buyList.sealedCols.waiting` | Esperan | Waiting |
+| `admin.m9.buyList.sealedEmpty` | Nadie está esperando un sellado. | Nobody is waiting for a sealed product. |
+
+- `marginLoss` recibe el **valor absoluto** de `cents` y `pct` (el signo lo pone la frase). Mismo criterio que AN-3.
+- `wishlist.ivaIncluded` existe solo mientras Q-WSH-UX-2 esté abierta; cuando el DTO traiga la tasa se usa `IvaLabel`
+  y la clave se borra.
+
+---
+
+### WSH-UX.13 Candados sugeridos (los escribe frontend; amplían WSH-F1…F5 del contrato)
+
+| ID | Qué asevera | Canario |
+|---|---|---|
+| **WSH-UX-1** | Ficha con `wishlistEnabled:false` ⇒ ningún texto `wishlist.*`; con `true` y sesión ⇒ radios de acabado = `availableFinishes` exactos, % = {5,10,16} con 10 marcado, **ningún** control de condición | Pintar `displayFinishes` |
+| **WSH-UX-2** | El texto del botón contiene el acabado seleccionado; cambiar el acabado cambia el texto | Botón fijo «Agregar a mi lista» |
+| **WSH-UX-3** | `409 WISHLIST_DUPLICATE` ⇒ estado «ya en tu lista» con el `%` del `details`; `422 WISHLIST_LIMIT_REACHED` ⇒ texto con `{count} de {limit}` y enlace a `/account/wishlist`, sin botón «Agregar» | Toast genérico de error |
+| **WSH-UX-4** | Invitado ⇒ enlace con `next=/catalog/{cardId}`; ningún `radio` | Mostrar chips al invitado |
+| **WSH-UX-5** | `maxToday.status:'no_market'` ⇒ «Sin precio de mercado por ahora» y **ningún** `MX$` en esa línea (ni `MX$0.00`) | Pintar `0` |
+| **WSH-UX-6** | Cambiar el `Select` de % **no** llama a `PATCH`; pulsar «Guardar» sí, una vez | `onChange` → `PATCH` |
+| **WSH-UX-7** | Página del enlace: montar **no** llama a `POST /wishlist/mail-actions`; pulsar el botón sí, con `{action,id,token}` de la URL; tras montar, la URL ya no trae `t=` | Auto-enviar al cargar |
+| **WSH-UX-8** | `BuyListTab`: el DOM no contiene `@` ni `userId` ni `wishlistItemId` (prueba sobre un DTO de prueba que los traiga de más) | Pintar `wishlistItemId` |
+| **WSH-UX-9** | Fila con `marketCents:null` ⇒ «—» con `sr-only` y `SIN PRECIO DE MERCADO`; ningún `MX$0.00` en esa fila | Formatear `null` como `0` |
+| **WSH-UX-10** | `marginAtMarket.cents < 0` ⇒ la frase contiene «pierdes» **y** «−» (no solo la clase `text-accent`) | Solo cambiar color |
+| **WSH-UX-11** | Ninguna clave `wishlist.*` contiene «precio especial», «tu precio», «te la dejamos» / «special price», «your price» | Copiar «tu precio» |
+| **WSH-UX-12** | Paridad: todas las claves de WSH-UX.8, .9 y .12 en `es` y `en` con los mismos placeholders | Borrar una en `en` |
+| **WSH-UX-13** | Formulario de reposición con sesión ⇒ sin `input[type=email]` y con «Te avisaremos a {email}» | Dejar el campo |
+| **WSH-UX-14** | M10: pasar `wishlistEnabled` a `on` abre el diálogo y **no** hay `PUT` hasta «Sí, encender»; apagar hace `PUT` directo | Guardar sin diálogo |
+
+---
+
+### WSH-UX.14 Preguntas y huecos del contrato (lo que este diseño no decide)
+
+- **Q-WSH-UX-1 · arquitecto · Los pesos de cada % antes de guardar.** El encargo y `PROJECT §WSH.2` piden ver el
+  equivalente en pesos al elegir; el contrato no da fuente (`API_CONTRACT.md:41714-41716`: el botón solo lee
+  `GET /wishlist`). **Recomendación:** `GET /wishlist/preview?cardId=` (con sesión y con el dial) ⇒ `{ finish, tiers:
+  { maxPct, maxDisplayCents | null }[] }[]`, con la misma aritmética de WSH.3. ⛔ No en la ficha pública: publicaría
+  el mercado aunque no fije el precio (§21.8). Mientras tanto: sin cifras antes de guardar (WSH-UX.2 b).
+- **Q-WSH-UX-2 · arquitecto · Falta `ivaRatePct` en `WishlistResponse`** (`API_CONTRACT.md:41695-41696`); `IvaLabel`
+  la necesita (`IvaLabel.tsx:56`). **Recomendación:** añadirlo (aditivo). Mientras: clave `wishlist.ivaIncluded` «IVA
+  incluido», la misma que usa el correo (`:41774`).
+- **Q-WSH-UX-3 · arquitecto · «Si cabe» en la lista del cliente.** `PROJECT §WSH.2` y el encargo piden ver si lo
+  disponible cabe en el máximo; `availableNow` no lo trae (`API_CONTRACT.md:41691`). **Recomendación:**
+  `availableNow.fits: boolean | null`, calculado con `fits` de WSH.3. Mientras: la comparación de WSH-UX.4 (c).
+- **Q-WSH-UX-4 · arquitecto / product-owner · Cómo se encuentra una carta que no tenemos.** El catálogo solo lista
+  grupos con piezas (`API_CONTRACT.md:6121`); la ficha de una carta sin piezas sí responde (`catalog.service.ts:1496-1503`).
+  **Recomendación:** el buscador de WSH-UX.3 (e) sobre el `GET /buylist/cards` que ya existe (público, todo el
+  catálogo, `buylist-catalog.controller.ts:20-22`), sin cambiar el contrato. Pide visto bueno porque usa una ruta de
+  otro módulo desde otra superficie.
+- **Q-WSH-UX-5 · arquitecto · `POST /wishlist/mail-actions` con el dial apagado.** WSH.4 dice `404 FEATURE_DISABLED`
+  para «estas rutas» (`API_CONTRACT.md:41677`); la de los enlaces es pública y está en otra tabla (`:41787`).
+  **Recomendación:** que siga funcionando con el dial apagado: quitar o pausar siempre debe poder hacerse.
+- **Q-WSH-UX-6 · product-owner · Staff con lista.** El contrato admite cualquier rol con correo (`:41676`); §33.6 dice
+  que el operador no compra. **Recomendación:** ninguna superficie para staff (es lo diseñado).
+- **Q-WSH-UX-7 · arquitecto · Filtros de la lista de compra.** El contrato solo tiene `sort`/`dir` (`:41842`).
+  **Recomendación:** filtros en el navegador (texto y «sin mercado»), con la línea que dice que el CSV es completo.
+  Un CSV filtrado necesitaría parámetros nuevos.
+- **Q-WSH-UX-8 · arquitecto · Unidad de `marginAtMarket.pct`** (`:41663` «1 decimal», `:41857`): ¿`-5.2` (puntos
+  porcentuales) o `-0.052`? Diseñado como **puntos porcentuales con un decimal**. Si es fracción, frontend multiplica
+  por 100 solo para formatear.
+- **Q-WSH-UX-9 · backend / seguridad · La foto en el correo.** `cardLineRows` no tiene imagen (`mail-shell.ts:281-307`)
+  y el contrato pide foto (`:41774`, criterio 813). Es una imagen remota de un tercero (`images.pokemontcg.io`):
+  cargarla le dice a ese tercero que se abrió el correo. **Recomendación:** miniatura de 56 px con `alt=""`
+  (WSH-UX.5 d) y que seguridad diga si ese tercero es aceptable. Si no, el correo va sin foto y el criterio 813 se
+  ajusta.
+- **Informativo (product-owner):** el texto del «avísame» de sellados cambia porque, con el armado, solo avisa si el
+  producto **se agota y vuelve** (WSH-UX.8 a). Encaja con la redacción de 823 que propone el arquitecto (Q-WSH-1).
