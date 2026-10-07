@@ -9376,8 +9376,9 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
 > **Respuestas del dueño incorporadas (2026-10-07)** — fuente: `HECHOS.md` filas «**Respuestas a P-ACC-1…9
 > (accesorios, `PROJECT.md` §AC) y alcance de energías (P-ENERGIAS)**» y «**Confirmaciones de accesorios, energías
 > y paquete de energías del battle deck**» (ambas 2026-10-07, sesión 6), más la fila **P-ENERGIAS** de `PENDIENTES.md`
-> (rama `claude/wishlist`). Resumen de lo cerrado: **P-ACC-1** todo pedido con envío a domicilio, de invitado o de
-> cuenta, nunca a bóveda · **P-ACC-2** sí pagan comisión · **P-ACC-3** el envío **puede cambiar** según la caja ·
+> (rama `claude/wishlist`). Resumen de lo cerrado: **P-ACC-1** envío a domicilio, nunca a bóveda — **solo invitado**
+> por P-ACC-10 (a), fila posterior «"Termina wishlist y accesorios"…» (2026-10-07), que manda sobre «de invitado o de
+> cuenta»; esa fila cierra también P-ACC-3a..c y P-EN-1..7 · **P-ACC-2** sí pagan comisión · **P-ACC-3** el envío **puede cambiar** según la caja ·
 > **P-ACC-4** se sugieren quitando los que ya lleva · **P-ACC-6** las categorías están bien · **P-ACC-7** sin foto no
 > se publica · **P-ACC-9** se anota el costo unitario · **P-ACC-5 y P-ACC-8 sin respuesta explícita, van con la
 > recomendación** · **Energías** básicas (AC.9) · **Paquete de energías del Meta Battle Deck** (AC.10).
@@ -9429,8 +9430,9 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
       - **Foto** (una; ver AC.2).
       - **Sugerido** (sí/no, AC.5).
 - [ ] Para **activar** un accesorio hacen falta: nombre, categoría, precio y foto — **sin foto no se publica**
-      (P-ACC-7, `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «No publicamos si no tiene foto»). Si las medidas
-      y el peso también son obligatorios para activar depende de **P-ACC-3c**.
+      (P-ACC-7, `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «No publicamos si no tiene foto»). Un accesorio
+      que **no es energía** necesita además **medidas y peso** (P-ACC-3c con su recomendación, `HECHOS.md` 2026-10-07
+      «"Termina wishlist y accesorios"…»; ver AC.4.1).
 - [ ] El precio se guarda tal como lo escribe el dueño y **es lo que el cliente ve**; el IVA se calcula **dentro**
       de ese precio para el desglose (16 %: precio ÷ 1.16 = base; la diferencia es IVA). **No se le aplica** el
       markup de cartas, ni los spreads del sellado (§K), ni el redondeo de precios de cartas, ni el piso de MX$25.
@@ -9486,17 +9488,18 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
       (misma regla y mismo plazo que las cartas). Dos clientes **nunca** pueden comprar la misma última unidad: el
       segundo recibe «Ya no hay suficientes» antes de cobrarle.
 - [ ] **Al pagarse**, las existencias bajan en la cantidad vendida.
-- [ ] **Destino — solo envío a domicilio** (P-ACC-1 cerrada, `HECHOS.md` 2026-10-07 «Confirmaciones de accesorios…»:
-      «los accesorios (y las energías) se ofrecen y venden en **todo pedido con envío a domicilio**, de invitado o de
-      cuenta; nunca a bóveda»):
+- [ ] **Destino — solo la compra de invitado con envío a domicilio** (P-ACC-1 y **P-ACC-10 cerradas**). Manda
+      `HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…», que sustituye en esto a la fila anterior
+      «Confirmaciones de accesorios…» («de invitado o de cuenta»): «**P-ACC-10:** opción (a): **accesorios y energías
+      solo en la compra de invitado con envío a domicilio**. Hoy el cliente con cuenta solo compra a bóveda
+      (`guest-checkout.dto.ts:130`) … El envío a domicilio para cuentas es un proyecto aparte, no se hace aquí».
       - Un pedido con destino **bóveda** **no puede** llevar accesorios ni energías. El servidor lo rechaza aunque el
         navegador lo intente (no basta con esconder el botón).
-      - Un pedido con **envío a domicilio** — de invitado (§J) **o** de cliente con cuenta — sí puede.
-      - ⚠️ **NO MEDIDO (para el orquestador/arquitecto, antes de preguntar nada al dueño — O-6):** si hoy un cliente
-        **con cuenta** puede elegir envío directo a domicilio al comprar. El comentario del checkout dice que el flujo
-        con sesión es «destino bóveda» (`frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx:43`),
-        mientras §B dice «cuando el comprador tiene cuenta **y eligió** destino bóveda» (`PROJECT.md` §B, criterio de
-        titularidad `pending`). Si no existe, «de cuenta con envío» es alcance nuevo → **P-ACC-10**.
+      - Un pedido de **invitado** (§J) con **envío a domicilio** sí puede.
+      - Un cliente **con sesión abierta** **no puede** pagar accesorios, energías ni el paquete de energías: el
+        checkout con cuenta los **rechaza en el servidor** (no los ignora en silencio). Qué ve ese cliente en la
+        pestaña y en el carrito: pregunta **P-AC-1** del contrato (`docs/API_CONTRACT.md` §AC.16), abierta al dueño
+        con recomendación; no se decide aquí.
       - Qué pasa si el carrito tiene accesorios y el cliente elige bóveda (o acepta el upsell de bóveda del invitado,
         `CheckoutView.tsx:73-75`, que re-cotiza **sin envío**): **P-ACC-11**.
 - [ ] **Envío**: ver **AC.4.1** (el cobro puede cambiar según la caja). El valor de los accesorios y energías **sí
@@ -9524,25 +9527,39 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
 > Fuente: P-ACC-3, `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «Sí podrían cambiar el envío, hay que calcular la
 > caja que sería para eso» → «el envío **puede cambiar**: hay que calcular la caja según lo que lleva el pedido
 > (mecanismo: arquitecto)». Hoy el envío al cliente es una **tarifa fija por pedido** (criterio 9, default MX$175).
-- [ ] **Cada accesorio tiene medidas y peso**: largo × ancho × alto (cm) y peso (g) del artículo empacado como se
-      vende. Los captura quien da de alta el accesorio.
-- [ ] **El dueño registra las cajas que usa**: nombre (p. ej. «Caja chica», «Caja playmat»), medidas interiores y
-      peso de la caja vacía, y lo que se cobra por ella al cliente según la respuesta a **P-ACC-3b**. Cuántas cajas y
-      cuáles: **P-ACC-3a** (no se inventan).
+> **P-ACC-3a, 3b y 3c cerradas** por `HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»: «el dueño
+> **registra sus cajas en el panel** (medidas y una **tarifa fija por caja**). El sistema elige la caja más chica donde
+> cabe el pedido; si no cabe en ninguna, cobra la más grande y quien prepara lo resuelve. Sin medidas inventadas: el
+> catálogo de cajas empieza vacío y lo llena el dueño».
+- [ ] **Cada accesorio que no es energía tiene medidas y peso**: largo × ancho × alto (cm) y peso (g) del artículo
+      empacado como se vende. Los captura quien da de alta el accesorio, y **son obligatorios para activarlo** (sin
+      ellos no se puede elegir caja) — recomendación de P-ACC-3c, adoptada por la misma fila («se construyen con las
+      recomendaciones del orquestador para lo que quedaba abierto»).
+- [ ] **El dueño registra sus cajas en el panel**: nombre (p. ej. «Caja chica», «Caja playmat»), medidas interiores y
+      una **tarifa fija por caja** que es lo que se cobra al cliente (P-ACC-3b (a)). **El catálogo de cajas empieza
+      vacío** y lo llena el dueño; no se inventan medidas ni cajas (P-ACC-3a). Sin cajas registradas, todo pedido cobra
+      la tarifa fija de hoy (criterio 9).
 - [ ] **El sistema elige la caja solo** (regla «lo más automático posible», `HECHOS.md` 2026-10-04 «REGLA GENERAL»):
-      con lo que lleva el pedido (cartas, sellado, accesorios, energías) elige **la caja más chica en la que cabe
-      todo**. Cómo calcula «cabe» lo decide el arquitecto. Si no cabe en ninguna: **P-ACC-3c**.
+      elige **la caja más chica en la que cabe el pedido**. Cómo calcula «cabe» lo decide el arquitecto.
+      **Qué cuenta para la caja: solo los accesorios que no son energía**; cartas, sellado, energías sueltas y paquetes
+      de energías **no** cuentan, porque el sistema no tiene sus medidas y no se inventan. ⏳ **Pendiente de confirmar
+      por el dueño: P-AC-5** (`docs/API_CONTRACT.md` §AC.16); esta es la recomendación del contrato y se construye así
+      si no contesta.
+- [ ] **Si no cabe en ninguna caja** (P-ACC-3c): se cobra **la más grande** y quien prepara lo resuelve (dos paquetes o
+      una caja especial) **sin cobrar más al cliente**.
 - [ ] **El cobro de envío al cliente sale de la caja elegida** y el cliente lo **ve antes de pagar**, en carrito y
       checkout; **se cobra lo que vio**, centavo a centavo (misma regla que el precio, `HECHOS.md` 2026-10-04
       «Portada: se cobra el precio que el cliente VIO»). Si el cliente agrega o quita algo y cambia la caja, el envío
       mostrado se actualiza antes de pagar.
-- [ ] **Pedido sin accesorios: igual que hoy.** Un pedido solo de cartas/sellado cobra la tarifa fija de siempre
-      (criterio 9). *(SUPUESTO: la caja de hoy es la «base» y su cobro no cambia; los accesorios solo pueden subir el
-      envío a una caja mayor. Confirmar en P-ACC-3a.)*
-- [ ] **Quien prepara ve la caja elegida** en «Pedidos por preparar» / «Capturar guía». *(SUPUESTO: puede usar otra
-      caja si en la mano no cabe, pero eso **no cambia** lo ya cobrado al cliente; la diferencia es costo del dueño.)*
-- [ ] Las **energías** (AC.9) cuentan como cartas para la caja (son cartas físicas). *(SUPUESTO: no necesitan medidas
-      propias.)*
+- [ ] **Cuánto se cobra con caja: lo mayor entre la tarifa fija de hoy (criterio 9) y la tarifa de la caja elegida**
+      — agregar un accesorio nunca baja el envío respecto de un pedido solo de cartas. ⏳ **Pendiente de confirmar por
+      el dueño: P-AC-2** (`docs/API_CONTRACT.md` §AC.16); esta es la recomendación del contrato y se construye así si
+      no contesta.
+- [ ] **Pedido sin accesorios (que no sean energía): igual que hoy.** Cobra la tarifa fija de siempre (criterio 9), al
+      centavo; no se elige caja.
+- [ ] **Quien prepara ve la caja elegida** en «Pedidos por preparar» / «Capturar guía». Puede usar otra caja si en la
+      mano no cabe; eso **no cambia** lo ya cobrado al cliente (la diferencia es costo del dueño — consecuencia de «quien
+      prepara lo resuelve», misma fila).
 
 #### AC.5 Sugerencia antes de pagar: «¿Te falta algo?»
 - [ ] En el **carrito** (antes de ir a pagar) *(SUPUESTO: en el carrito y no en la página de pago de Stripe, que no
@@ -9559,9 +9576,13 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
       «No, gracias» que lo oculta **para esa visita al carrito** *(SUPUESTO)*.
 - [ ] **A quien ya lleva accesorios se le sigue sugiriendo, quitando los que ya lleva** (regla 2) — P-ACC-4,
       `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «Sí sugerimos quitando los que ya lleva».
-- [ ] La sugerencia es para pedidos **con envío a domicilio** (AC.4). Cómo se comporta si el cliente acaba eligiendo
-      bóveda: **P-ACC-11**.
-- [ ] **Energías** en la sugerencia: **P-EN-2** (recomendación: solo si el dueño las marca «Sugerido»).
+- [ ] La sugerencia es para la **compra de invitado con envío a domicilio** (AC.4; P-ACC-10 (a), `HECHOS.md`
+      2026-10-07 «**"Termina wishlist y accesorios"**…»). Cómo se comporta si el cliente acaba eligiendo bóveda:
+      **P-ACC-11**. Con sesión abierta, lo que ve el cliente es **P-AC-1** (`docs/API_CONTRACT.md` §AC.16).
+- [ ] **Las energías nunca entran en «¿Te falta algo?»** — ni solas por «más vendidas» ni marcadas por el dueño;
+      una energía **no se puede marcar «Sugerido»**. Se ofrecen en los decks (AC.10) y en Accesorios → Energías.
+      Fuente: P-EN-2 cerrada, `HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»: «las energías **no**
+      entran en "¿Te falta algo?"; se ofrecen en los decks».
 - [ ] Al agregar desde la sugerencia, el accesorio entra al carrito con el mismo precio y las mismas reglas que
       desde la ficha.
 
@@ -9614,15 +9635,19 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
   básicas (8 tipos)»).
 - Energías **por set o por arte** (una «Energía Fuego» de un set distinto a otra): no se distinguen (misma fila).
 - Energías en **paquetes de N** a la venta suelta (fuera del paquete del deck): se venden **por pieza**.
-- Paquete de energías para listas **pegadas** por el cliente o decks fuera del top del meta *(SUPUESTO — P-EN-7)*.
+- Paquete de energías para listas **pegadas** por el cliente o decks fuera del top del meta (P-EN-7 con la
+  recomendación del product-owner, `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»).
 - Accesorios o energías **añadidos a un retiro de bóveda** (§D): un retiro no es una compra *(SUPUESTO — P-ACC-12)*.
-- **Cotización en vivo** de la paquetería por pedido, si el dueño elige tarifa fija por caja (P-ACC-3b).
+- **Cotización en vivo** de la paquetería por pedido: el dueño eligió tarifa fija por caja (P-ACC-3b, `HECHOS.md`
+  2026-10-07 «"Termina wishlist y accesorios"…»).
 - **Galería** de varias fotos por accesorio; video.
 - **«Avísame cuando vuelva»** para accesorios agotados.
 - Sugerencias **inteligentes** por contenido del carrito (p. ej. «compraste una carta cara ⇒ toploader»); la v1 usa
   la regla simple de AC.5.
 - Sugerir accesorios en **otras pantallas** (ficha de carta, correo de confirmación).
 - Accesorios en **bóveda**, en el **portafolio** o en el **buylist**.
+- **Envío a domicilio para clientes con cuenta** (y con él, accesorios con sesión abierta): «es un proyecto aparte, no
+  se hace aquí» (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…», P-ACC-10).
 - **Proveedores y órdenes de compra** a proveedores; alerta de existencias bajas *(podría ser un aviso simple
   después; no lo pediste)*.
 - Importar accesorios desde un archivo (Excel/CSV).
@@ -9636,9 +9661,12 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
 - [ ] **Son accesorios** de la categoría **«Energías»**: todo lo de AC.1–AC.8 les aplica (foto obligatoria para
       publicar, existencias por cantidad, apartado, comisión aparte, solo envío a domicilio, reembolsos por unidad,
       bitácora, costo unitario), salvo lo que este apartado dice distinto.
-- [ ] **Un producto por tipo, 8 en total**, llamados **«Energía <tipo>»**. *(SUPUESTO sobre cuáles son los 8 — la fila
-      de HECHOS dice «8 tipos» sin nombrarlos: Planta, Fuego, Agua, Rayo, Psíquica, Lucha, Oscura y Metálica — en:
-      Grass, Fire, Water, Lightning, Psychic, Fighting, Darkness, Metal. Confirmar en **P-EN-1**.)*
+- [ ] **Un producto por tipo, 8 en total**, llamados **«Energía <tipo>»**: Planta, Fuego, Agua, Rayo, Psíquica, Lucha,
+      Oscura y Metálica — en: Grass, Fire, Water, Lightning, Psychic, Fighting, Darkness, Metal (P-EN-1 cerrada,
+      `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»: «los 8 tipos (Planta, Fuego, Agua, Rayo, Psíquica,
+      Lucha, Oscura, Metálica)»).
+- [ ] **Precios editables**: los MX$5 por energía y los MX$20 del paquete (AC.10) **se editan en el panel**, solo por
+      el dueño como cualquier precio (P-EN-6, misma fila: «MX$5 y MX$20 se editan en el panel»; quién, P-ACC-8).
 - [ ] Cada producto de energía lleva **su tipo como dato** (no solo en el nombre), para que los decks del meta lo
       encuentren sin adivinar por texto (AC.10).
 - [ ] **Por pieza y sin distinguir set**: el cliente elige tipo y cantidad («Energía Fuego ×8»); el dueño lleva una
@@ -9702,8 +9730,9 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
       carrito tiene un deck agregado **sin** su paquete, el carrito lo sugiere **una sola vez** (discreto, como AC.5,
       no ventana emergente).
 - [ ] **Solo con su deck (regla 4)**: el paquete solo vale si su deck está en el carrito. Si el deck sale, **el
-      paquete sale también y el cliente ve un aviso** que lo dice. Qué cuenta como «el deck está en el carrito»:
-      **P-EN-4**. El servidor lo revisa al cobrar: un paquete sin su deck **no se cobra** a MX$20.
+      paquete sale también y el cliente ve un aviso** que lo dice. **«El deck está en el carrito» cuando están todas
+      las cartas que agregó «Agregar de jalón»** (P-EN-4 (a), `HECHOS.md` 2026-10-07 «"Termina wishlist y
+      accesorios"…»); el mínimo de cartas para ofrecer el paquete es **P-AC-4** del contrato, abierta. El servidor lo revisa al cobrar: un paquete sin su deck **no se cobra** a MX$20.
 - [ ] **Uno por deck** (regla 4): no se puede agregar dos veces el paquete del mismo deck; con dos decks distintos,
       un paquete por cada uno.
 - [ ] **Fuera del descuento del deck** (regla 4): el paquete nunca entra en la base ni en el cálculo del descuento
@@ -9715,10 +9744,18 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
 - [ ] **Solo envío a domicilio (regla 6)**: igual que todo accesorio (AC.4).
 - [ ] **Preparación**: en «Pedidos por preparar» el paquete sale como renglón «Paquete de energías — <deck>» con su
       **desglose por tipo y cantidad**, para que quien prepara sepa qué meter *(SUPUESTO)*.
-- [ ] **Reembolsos**: reembolso total, igual que AC.4 (no enviado ⇒ las energías vuelven a existencias). Si falta
-      **parte** del paquete: **P-EN-5**.
+- [ ] **Reembolsos**: reembolso total, igual que AC.4 (no enviado ⇒ las energías vuelven a existencias). Fuera del
+      reembolso total, **el paquete se reembolsa completo (MX$20 con su parte de la comisión) solo si se devuelve el
+      deck completo**; **nunca** hay reembolso proporcional por energías sueltas del paquete. Fuente: P-EN-5 cerrada,
+      `HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»: «el paquete se reembolsa completo solo si se
+      devuelve el deck completo».
+      - Qué pasa si **al preparar** falta el paquete (o parte) y el deck sí sale: pregunta **P-AC-3** del contrato
+        (`docs/API_CONTRACT.md` §AC.16), **abierta al dueño**, con la recomendación del arquitecto (marcarlo faltante
+        entero y reembolsar los MX$20 aunque salga el deck; si falta solo una parte, completarla del estante). No se
+        decide aquí.
 - [ ] **Cuándo no conviene el paquete**: un deck con pocas energías (N × MX$5 ≤ MX$20) haría el paquete más caro que
-      sueltas: **P-EN-3**. Un deck **sin** energías básicas no muestra recuadro *(consecuencia de la regla 1)*.
+      sueltas: en ese caso **no se muestra el paquete, solo las sueltas** (P-EN-3 con la recomendación del
+      product-owner, `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»). Un deck **sin** energías básicas no muestra recuadro *(consecuencia de la regla 1)*.
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §BSD (buylist con guía Skydropx de entrada)** *(2026-10-06)*: cambiar la tarifa fija del buylist; cambiar los
@@ -14143,10 +14180,12 @@ de dinero; los que dicen «según P-…» se ajustan a la respuesta o a su recom
 711. 💰 **Pago fallido o abandonado devuelve existencias** *(§AC.4)*: un pago que falla, o que no se completa en el
    plazo del apartado, devuelve las unidades solas, sin intervención.
 712. 💰 **Al pagar bajan las existencias** *(§AC.4)*: con 20 en existencia, un pedido pagado de 3 deja 17.
-713. 💰 **Solo envío a domicilio** *(§AC.4, P-ACC-1 cerrada)*: un invitado con envío y un cliente con cuenta con envío
-   a domicilio (según P-ACC-10) pagan un pedido con accesorios; un pedido con destino **bóveda** que lleve un accesorio
-   o una energía **se rechaza en el servidor** (también llamando a la API directamente) y ningún accesorio queda
-   nunca en una bóveda. La conducta con el upsell de bóveda se verifica según P-ACC-11.
+713. 💰 **Solo invitado con envío a domicilio** *(§AC.4, P-ACC-1 y P-ACC-10 (a) cerradas, `HECHOS.md` 2026-10-07
+   «"Termina wishlist y accesorios"…»)*: un invitado con envío a domicilio paga un pedido con accesorios; un pedido con
+   destino **bóveda** que lleve un accesorio o una energía **se rechaza en el servidor** (también llamando a la API
+   directamente) y ningún accesorio queda nunca en una bóveda; con **sesión abierta**, cotizar o pagar un carrito con
+   accesorios, energías o paquete **se rechaza en el servidor** (no se ignoran en silencio). La conducta con el
+   upsell de bóveda se verifica según P-ACC-11.
 714. 💰 **Seguro** *(§AC.4)*: el valor asegurado del paquete incluye lo pagado por accesorios y energías. (El cobro de
    envío se verifica en 725–728.)
 715. **Preparación** *(§AC.4)*: en «Pedidos por preparar», el pedido muestra cada accesorio como renglón con foto,
@@ -14176,28 +14215,39 @@ de dinero; los que dicen «según P-…» se ajustan a la respuesta o a su recom
    con foto PNG → lo ve en la pestaña → un invitado lo agrega desde la sugerencia del carrito junto a una carta → paga
    con tarjeta de prueba → el operador lo prepara → las existencias bajaron. En ES y EN.
 
-*Envío por caja (§AC.4.1 — cajas y cifras de prueba de QA, no del dueño; las reales salen de P-ACC-3a/3b):*
+*Envío por caja (§AC.4.1 — P-ACC-3a..c cerradas, `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»; las
+cajas y cifras son de prueba de QA, las reales las registra el dueño en el panel):*
 
-725. 💰 **Pedido sin accesorios, envío de hoy** *(§AC.4.1)*: con dos cajas registradas («chica» y «grande»), un pedido
-   solo de cartas cobra exactamente la tarifa fija de hoy (criterio 9) — mismas pruebas de envío de hoy en verde.
+725. 💰 **Pedido sin accesorios, envío de hoy; con caja, lo mayor** *(§AC.4.1)*: (a) con el catálogo de cajas **vacío**,
+   todo pedido —con o sin accesorios— cobra exactamente la tarifa fija de hoy (criterio 9); (b) con dos cajas
+   registradas («chica» y «grande»), un pedido solo de cartas, sellado y/o energías (sin accesorios que no sean energía)
+   cobra exactamente la tarifa fija de hoy, y no se elige caja *(según P-AC-5, pendiente de confirmar por el dueño)*;
+   (c) con una «chica» de tarifa **menor** que la de hoy, un pedido de cartas + una funda cobra la tarifa de hoy, y con
+   una «grande» de tarifa **mayor**, cobra la de la grande *(lo mayor de las dos, según P-AC-2, pendiente de confirmar
+   por el dueño)*. Las pruebas de envío de hoy siguen en verde.
 726. 💰 **El accesorio grande cambia la caja y se cobra lo que se vio** *(§AC.4.1)*: con un playmat cuyas medidas no
    caben en la «chica», el sistema elige la «grande»; carrito y checkout muestran ese envío **antes de pagar**; el
    cobro de Stripe (modo prueba) coincide centavo a centavo con lo mostrado.
-727. 💰 **El envío se recalcula y no lo pone el navegador** *(§AC.4.1)*: al quitar el playmat el envío mostrado vuelve
-   al de la «chica» antes de pagar; una petición que manda otro monto de envío no cambia lo cobrado.
-728. **La caja llega a quien prepara** *(§AC.4.1)*: «Pedidos por preparar» / «Capturar guía» muestran la caja elegida;
-   usar otra caja al preparar no cambia lo ya cobrado. Un pedido que no cabe en ninguna caja se comporta según
-   P-ACC-3c.
-729. **Medidas y peso** *(§AC.4.1, AC.6)*: se capturan en el alta (también por el operador); si son obligatorias para
-   activar, se verifica según P-ACC-3c.
+727. 💰 **El envío se recalcula y no lo pone el navegador** *(§AC.4.1)*: con un playmat y una funda en el carrito, al
+   quitar el playmat el envío mostrado pasa, antes de pagar, al que corresponde a la funda sola según AC.4.1 (la caja
+   más chica donde cabe, con la regla de P-AC-2); una petición que manda otro monto de envío no cambia lo cobrado.
+728. 💰 **La caja llega a quien prepara, y si no cabe se cobra la más grande** *(§AC.4.1, P-ACC-3c)*: «Pedidos por
+   preparar» / «Capturar guía» muestran la caja elegida; usar otra caja al preparar no cambia lo ya cobrado. Un pedido
+   con tres playmats que no caben en ninguna caja registrada cobra la tarifa de la caja **más grande** (centavo a
+   centavo con lo mostrado y lo cobrado en Stripe) y llega a quien prepara con esa caja; no se le cobra más al cliente.
+729. **Medidas y peso** *(§AC.4.1, AC.6, P-ACC-3c)*: se capturan en el alta (también por el operador); un accesorio que
+   no es energía **sin** medidas o sin peso no se puede activar (el botón se niega diciendo qué falta, también
+   llamando a la API directamente).
 730. **Costo unitario solo en el panel** *(§AC.6)*: el costo no aparece en ninguna respuesta de la tienda pública (ni
    listado, ni ficha, ni carrito, ni API sin sesión de admin); el P&L muestra el margen de un accesorio con costo.
 
 *Energías básicas (§AC.9):*
 
-731. **Las 8 energías en Accesorios → Energías** *(§AC.9, según P-EN-1)*: el filtro «Energías» lista los 8 productos
-   «Energía <tipo>» (ES y EN); el cliente agrega «Energía Fuego ×8» y el carrito muestra **MX$40.00** con IVA
-   informado **MX$5.52** (40.00 − 40.00/1.16), comisión aparte.
+731. **Las 8 energías en Accesorios → Energías** *(§AC.9, P-EN-1 y P-EN-6 cerradas, `HECHOS.md` 2026-10-07
+   «"Termina wishlist y accesorios"…»)*: el filtro «Energías» lista los 8 productos «Energía <tipo>» —Planta, Fuego,
+   Agua, Rayo, Psíquica, Lucha, Oscura y Metálica— (ES y EN); el cliente agrega «Energía Fuego ×8» y el carrito muestra
+   **MX$40.00** con IVA informado **MX$5.52** (40.00 − 40.00/1.16), comisión aparte. Si el dueño cambia en el panel el
+   precio de la energía o el del paquete, la tienda muestra el nuevo.
 732. **Un producto por tipo** *(§AC.9)*: activar un segundo producto del mismo tipo de energía se rechaza con mensaje
    claro.
 733. **Las especiales siguen siendo cartas** *(§AC.9, AC.8)*: una energía especial con set y número (p. ej. «Reversal
@@ -14216,8 +14266,8 @@ Energy» (12 energías; sueltas = MX$60.00):*
    cobro de Stripe coincide centavo a centavo.
 737. **El carrito lo sugiere una vez (regla 3)**: con el deck en el carrito y sin paquete, el carrito sugiere el paquete
    una sola vez por deck; no es ventana emergente ni tapa el botón de pagar.
-738. 💰 **Sin deck no hay paquete, y uno por deck (regla 4)**: al sacar el deck del carrito (según P-EN-4) el paquete
-   sale con un aviso visible; agregar un segundo paquete del mismo deck no es posible; una petición directa a la API
+738. 💰 **Sin deck no hay paquete, y uno por deck (regla 4)**: al quitar del carrito **una** de las cartas que metió «Agregar de
+   jalón» (P-EN-4 (a), `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…») el paquete sale con un aviso visible; agregar un segundo paquete del mismo deck no es posible; una petición directa a la API
    que intenta cobrar un paquete sin su deck, o dos del mismo deck, **se rechaza** antes de cobrar.
 739. 💰 **Fuera del descuento del deck (regla 4)**: el paquete cuesta MX$20.00 con o sin descuento de deck; si el
    descuento 5 %/3 % se construye, su base **no** incluye el paquete (este criterio queda vivo para ese día).
@@ -14229,10 +14279,16 @@ Energy» (12 energías; sueltas = MX$60.00):*
 742. 💰 **Solo envío a domicilio (regla 6)**: un pedido a bóveda con el paquete se rechaza en el servidor.
 743. **Preparación del paquete** *(§AC.10)*: «Pedidos por preparar» muestra «Paquete de energías — <deck>» con el
    desglose «Fuego ×8, Psíquica ×4» y se puede palomear.
-744. 💰 **Reembolsos del paquete** *(§AC.10)*: reembolso total de un pedido no enviado ⇒ las 12 energías vuelven a
-   existencias por tipo; la falta de parte del paquete se reembolsa según P-EN-5.
-745. **Deck con pocas energías** *(§AC.10, según P-EN-3)*: con un deck que pide 4 energías (sueltas = MX$20.00), la
-   ficha se comporta según P-EN-3.
+744. 💰 **Reembolsos del paquete** *(§AC.10, P-EN-5 cerrada, `HECHOS.md` 2026-10-07 «"Termina wishlist y
+   accesorios"…»)*: reembolso total de un pedido no enviado ⇒ las 12 energías vuelven a existencias por tipo. Fuera del
+   reembolso total: con el deck **completo** ya reembolsado, el paquete se reembolsa **entero** (MX$20.00 con su parte
+   de la comisión); con el deck **no** completo, el intento de reembolsar el paquete **se rechaza** (también llamando a
+   la API directamente). Nunca hay reembolso proporcional por energías del paquete. El caso «falta al preparar» se
+   verifica según P-AC-3 (`API_CONTRACT §AC.16`).
+745. **Deck con pocas energías** *(§AC.10, P-EN-3 con la recomendación del product-owner, `HECHOS.md` 2026-10-07
+   «"Termina wishlist y accesorios"…»)*: con un deck que pide 4 energías (sueltas = MX$20.00), la ficha **no** muestra
+   el recuadro del paquete y sí ofrece las 4 sueltas; una petición directa a la API que intenta cobrar el paquete de
+   ese deck **se rechaza** antes de cobrar.
 746. **El paquete no adelanta a Decks Meta** *(§AC.10, criterio 197)*: si Meta Battle Decks no está al público en
    producción, tampoco el paquete ni la liga de energías del deck; Accesorios → Energías sí puede estar.
 747. **Lo de cartas del deck no cambia** *(§AC.7)*: «Agregar de jalón» agrega exactamente las mismas piezas que hoy y las
@@ -14240,8 +14296,11 @@ Energy» (12 energías; sueltas = MX$60.00):*
 748. **Recorrido de punta a punta — deck con energías** *(O-4)*: contra el stack corriendo, un invitado abre un deck →
    «Agregar de jalón» → agrega el paquete → el envío mostrado corresponde a la caja → paga con tarjeta de prueba → el
    operador ve el desglose y lo prepara → las existencias de cada tipo bajaron en lo que pedía el deck. En ES y EN.
-749. **Recorrido de punta a punta — cliente con cuenta y envío** *(O-4, según P-ACC-10)*: un cliente con sesión compra
-   cartas + un accesorio con envío a domicilio, paga y el pedido sale por paquetería, no a su bóveda.
+749. 💰 **Recorrido de punta a punta — con sesión no se pagan accesorios** *(O-4, P-ACC-10 (a), `HECHOS.md`
+   2026-10-07 «"Termina wishlist y accesorios"…»; `API_CONTRACT §AC.5`)*: contra el stack corriendo, un cliente con
+   sesión abierta intenta cotizar y pagar cartas + un accesorio: el servidor **rechaza** la petición (en cotizar y en
+   pagar, también llamando a la API directamente), **no** se crea cobro en Stripe ni pedido, y ninguna existencia del
+   accesorio queda apartada. Lo que ve el cliente en pantalla se verifica según P-AC-1 (`API_CONTRACT §AC.16`).
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -18496,36 +18555,37 @@ ese frente:**
 
 > **Cerradas — no se re-preguntan** (`HECHOS.md` 2026-10-07, filas «Respuestas a P-ACC-1…9 … (P-ENERGIAS)» y
 > «Confirmaciones de accesorios, energías y paquete de energías del battle deck»): **P-ACC-1** todo pedido con envío a
-> domicilio, de invitado o de cuenta, nunca a bóveda · **P-ACC-2** sí pagan comisión · **P-ACC-3** el envío puede
-> cambiar según la caja (quedan las sub-preguntas 3a–3c) · **P-ACC-4** se sugiere quitando lo que ya lleva ·
+> domicilio, nunca a bóveda — **acotada por P-ACC-10 (a): solo invitado** (`HECHOS.md` 2026-10-07 «"Termina wishlist
+> y accesorios"…», que manda sobre «de invitado o de cuenta») · **P-ACC-2** sí pagan comisión · **P-ACC-3** el envío puede
+> cambiar según la caja (sub-preguntas 3a–3c cerradas después, ver abajo) · **P-ACC-4** se sugiere quitando lo que ya lleva ·
 > **P-ACC-6** categorías bien · **P-ACC-7** sin foto no se publica · **P-ACC-9** costo unitario sí · **P-ACC-5** y
 > **P-ACC-8** sin respuesta explícita, **van con la recomendación** (agotado se ve al final; solo el dueño pone precio,
 > activa y marca «Sugerido») · energías básicas a MX$5 · paquete del deck a MX$20 con sus seis reglas · precios ya con
 > IVA.
 >
-> **Abiertas** — si no contestas una, **se construye con la recomendación**. Las que más cambian el trabajo:
-> **P-ACC-3a/3b** y **P-ACC-10**.
+> **Cerradas después** por `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…» («se construyen con las
+> recomendaciones del orquestador para lo que quedaba abierto»): **P-ACC-3a..c, P-ACC-10, P-EN-1, P-EN-2, P-EN-4,
+> P-EN-5, P-EN-6**; **P-EN-3 y P-EN-7 van con la recomendación del product-owner**. Ver cada una abajo.
+>
+> **Siguen abiertas** — si no contestas una, **se construye con la recomendación**: **P-ACC-11**, **P-ACC-12** y las
+> del contrato **P-AC-1..5** (`docs/API_CONTRACT.md` §AC.16).
 
 **Envío por caja (P-ACC-3):**
-- **P-ACC-3a · ¿Qué cajas usas?** Para cada una: nombre, medidas por dentro (cm) y peso vacía. **Recomendación:**
-  empezar con la caja que usas hoy para cartas (su envío sigue costando lo de hoy, criterio 9) y **una o dos** más
-  grandes para carpetas/playmats. Sin esta lista no se puede probar la elección de caja con datos reales.
-- **P-ACC-3b · ¿Cómo se calcula lo que paga el cliente por cada caja?** (a) **una tarifa fija por caja** que tú
-  escribes (p. ej. «chica» = la de hoy, «grande» = la que tú digas), o (b) la **cotización real** de la paquetería con
-  las medidas y el peso de ese pedido. **Recomendación: (a)** — el cliente ve siempre el mismo precio para la misma
-  caja, tú lo controlas, y es lo más parecido a la tarifa fija que ya tienes. (b) sigue de cerca tu costo real pero el
-  envío cambia de un día a otro y depende de que la paquetería conteste antes de cobrar.
-- **P-ACC-3c · ¿Qué pasa si el pedido no cabe en ninguna caja** (p. ej. tres playmats)? **Recomendación:** se cobra la
-  caja más grande y el pedido llega a «Pedidos por preparar» marcado «revisar caja», para que quien prepara decida
-  (dos paquetes o una caja especial) sin cobrar más al cliente. Y las **medidas y el peso serán obligatorios para
-  activar** un accesorio (sin ellos no se puede elegir caja).
+- **P-ACC-3a · ¿Qué cajas usas?** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»):
+  el dueño **registra sus cajas en el panel**; sin medidas inventadas, el catálogo de cajas **empieza vacío** y lo
+  llena él. Aplicado en AC.4.1 y criterio 725.
+- **P-ACC-3b · ¿Cómo se calcula lo que paga el cliente por cada caja?** ✅ **RESPONDIDA** (misma fila): **una tarifa
+  fija por caja**, que escribe el dueño. Aplicado en AC.4.1. Si con caja se cobra la de la caja o lo mayor entre esa y
+  la de hoy: **P-AC-2** del contrato, abierta.
+- **P-ACC-3c · ¿Qué pasa si el pedido no cabe en ninguna caja?** ✅ **RESPONDIDA** (misma fila): se cobra **la más
+  grande** y **quien prepara lo resuelve**. Las medidas y el peso obligatorios para activar van con la recomendación
+  (la fila adopta las recomendaciones para lo que quedaba abierto). Aplicado en AC.4.1 y criterios 728 y 729.
 
 **Destino:**
-- **P-ACC-10 · Cliente con cuenta y envío a domicilio.** ⚠️ **Antes de preguntarte, el orquestador lo mide (O-6):**
-  si hoy un cliente con sesión puede elegir envío directo a domicilio (el checkout con sesión dice «destino bóveda»,
-  `CheckoutView.tsx:43`). **Solo si no existe** se te pregunta: ¿lo construimos (para que los clientes con cuenta
-  también compren accesorios)? **Recomendación: sí**, es lo que dijiste («de invitado o de cuenta»); sin eso, quien
-  tiene cuenta no podría comprar accesorios.
+- **P-ACC-10 · Cliente con cuenta y envío a domicilio.** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina
+  wishlist y accesorios"**…»): opción (a), **accesorios y energías solo en la compra de invitado con envío a
+  domicilio**; el envío a domicilio para cuentas es un proyecto aparte, no se hace aquí. Aplicado en AC.4, AC.5 y
+  criterios 713 y 749.
 - **P-ACC-11 · Carrito con accesorios y el cliente elige bóveda** (o acepta la oferta «guarda tus cartas en tu
   bóveda» del checkout de invitado, que quita el envío). **Recomendación:** se le avisa en claro «los accesorios y
   energías solo se envían a domicilio» y elige: **mandar todo a domicilio**, o **quitar los accesorios** de este
@@ -18535,21 +18595,25 @@ ese frente:**
   es buena idea para después porque ese paquete ya va a domicilio.
 
 **Energías y paquete del deck:**
-- **P-EN-1 · ¿Los 8 tipos son estos?** Planta, Fuego, Agua, Rayo, Psíquica, Lucha, Oscura y Metálica.
-  **Recomendación: sí** (son las 8 básicas que se imprimen hoy).
-- **P-EN-2 · ¿Las energías aparecen en el recuadro «¿Te falta algo?» del carrito?** Por ser baratas y muy vendidas
-  podrían ocupar los 3 lugares. **Recomendación:** solo si tú marcas una como «Sugerido»; no entran solas por «más
-  vendidas».
+- **P-EN-1 · ¿Los 8 tipos son estos?** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y
+  accesorios"**…»): **sí**, los 8 tipos: Planta, Fuego, Agua, Rayo, Psíquica, Lucha, Oscura y Metálica.
+- **P-EN-2 · ¿Las energías aparecen en el recuadro «¿Te falta algo?» del carrito?** ✅ **RESPONDIDA** (`HECHOS.md`
+  2026-10-07 «**"Termina wishlist y accesorios"**…»): **no**, nunca; se ofrecen en los decks. Aplicado en AC.5.
 - **P-EN-3 · Deck con pocas energías** (4 o menos: sueltas cuestan MX$20 o menos, el paquete no ahorra nada).
-  **Recomendación:** en ese caso **no se muestra el paquete**, solo las sueltas.
-- **P-EN-4 · ¿Cuándo cuenta que «el deck está en el carrito»?** Hoy el carrito guarda cartas sueltas, no «decks».
-  (a) mientras sigan en el carrito **todas** las cartas que «Agregar de jalón» metió para ese deck; (b) mientras siga
-  **al menos una**. **Recomendación: (a)** — con (b) alguien compra una carta barata y se lleva 12+ energías por MX$20.
-  Si el cliente quita una carta del deck, el paquete sale y se le avisa (regla 4).
-- **P-EN-5 · Si falta parte del paquete** (llegaron 10 de 12 energías): **Recomendación:** se reembolsa la parte
-  proporcional (MX$20 ÷ 12 × 2) más su parte de la comisión, igual que una carta faltante.
-- **P-EN-6 · ¿El MX$20 del paquete y el MX$5 de la energía los puedes cambiar desde el panel?** **Recomendación: sí,
-  solo tú**, como cualquier precio de accesorio; arrancan en MX$20 y MX$5.
+  ✅ **Va con la recomendación del product-owner** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»:
+  «P-EN-3 y P-EN-7 van con la recomendación del product-owner»): en ese caso **no se muestra el paquete**, solo las
+  sueltas.
+- **P-EN-4 · ¿Cuándo cuenta que «el deck está en el carrito»?** ✅ **RESPONDIDA** (misma fila): opción (a), «el deck
+  "está en el carrito" cuando están todas las cartas que agregó "Agregar de jalón"». Si el cliente quita una carta del
+  deck, el paquete sale y se le avisa (regla 4). El mínimo de cartas para ofrecer el paquete es **P-AC-4** del
+  contrato, abierta.
+- **P-EN-5 · Reembolso del paquete.** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y
+  accesorios"**…»): «el paquete se reembolsa completo solo si se devuelve el deck completo»; sin reembolso
+  proporcional. Aplicado en AC.10 y criterio 744. El caso «falta el paquete al preparar» sigue **abierto** como
+  **P-AC-3** del contrato (`docs/API_CONTRACT.md` §AC.16), con la recomendación del arquitecto.
+- **P-EN-6 · ¿El MX$20 del paquete y el MX$5 de la energía los puedes cambiar desde el panel?** ✅ **RESPONDIDA**
+  (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»): **sí**, «MX$5 y MX$20 se editan en el panel»;
+  arrancan en MX$20 y MX$5. Quién los cambia: solo el dueño, como cualquier precio (P-ACC-8, AC.6).
 - **P-EN-7 · ¿El paquete se ofrece también en «Pegar lista»** (cuando el cliente pega su propia lista de deck)?
-  **Recomendación: no en esta versión**: solo en los decks del meta que publica la tienda; en «Pegar lista» las
-  energías sí salen ligadas y se pueden agregar sueltas.
+  ✅ **Va con la recomendación del product-owner** (misma fila): **no en esta versión**; solo en los decks del meta
+  que publica la tienda; en «Pegar lista» las energías sí salen ligadas y se pueden agregar sueltas.
