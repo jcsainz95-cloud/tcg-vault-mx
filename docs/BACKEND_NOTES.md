@@ -30386,3 +30386,63 @@ esquema propio `wsh_be3` (re-desplegado desde cero con la M-74 nueva: `migrate d
 **NO MEDIDO:** los conteos del paso (8) en producción (van a la solicitud de fusión, WSH.7 (f)); el estado del dial
 `sealed_restock_alerts` en producción; `smoke6.mjs` de QA contra un stack levantado (el canario lo reproduce en la suite de
 integración, no contra el stack).
+
+### 84.v1.87.4 Errata v1.87.4⟨wishlist⟩ aplicada (2026-10-07, rama `claude/wishlist`, sobre `43c3f8f1`)
+
+API_CONTRACT WSH.7 (g), WSH.9 (WSH-T44, M44-a…f y M44-c'), WSH.13; porqué ARCHITECTURE §4.WSH (m). Contrato sin tocar.
+
+| Commit | Qué |
+|---|---|
+| `fdc13335` prueba | WSH-T44 en fichero nuevo `test/integration/wishlist-v1-87-4.e2e-spec.ts`, escrito ANTES del código |
+| `d3d5fe11` (g) | `reconcileOrphans()` en `catalog/sealed-restock-notify.service.ts`; doble de Prisma de `test/sealed-restock-notify.spec.ts` al día + 3 casos unitarios |
+| `1753f9ed` seed | `E2E_SEALED_LISTED` en `seed-e2e.ts`/`e2e-fixtures.ts` (petición de frontend, WSH-F5) + `seed-sealed-listed.e2e-spec.ts` |
+
+**Qué hace (g).** Primera línea de `matchAndNotify` (dentro del callback que tomó el candado consultivo; con el dial `off`
+`run()` sale antes y no reconcilia). En UNA transacción interactiva propia (`this.prisma.$transaction`, en una conexión
+distinta de la del candado, como el resto de `matchAndNotify`): un `$queryRaw` con la forma del contrato (huérfana +
+`|D|` con `NULL` como valor + `min(pid)`), y en TS el choque por correo (pendientes de esos correos que no se re-apuntan, y
+entre re-apuntadas por `(createdAt, id)`); `deleteMany` de las que chocan y `updateMany` por `pid` con
+`armedAt = matchedAt = NULL`, ambos con guarda `notifiedAt IS NULL`. Log: `reconciliación de mapeo — X re-apuntadas, Y
+borradas por choque, Z huérfanas intactas` (sin correos). `SealedRestockNotifyResult`, `pricing/sealed-mapping.service.ts`,
+`M-74` y su paso (8) sin cambio. Sin import nuevo de `wishlist/` desde `catalog`.
+
+**Lecturas de WSH-T44 que conviene saber (no cambian el contrato):**
+- El job se corre con `app.get(SealedRestockNotifyService).run()` (reloj inyectado `WISHLIST_CLOCK`), no por HTTP.
+- (6) y (8) congelan la fila DESPUÉS de un tick que la arma (o del ciclo completo hasta `notifiedAt`): así «byte a byte»
+  incluye `armedAt`, y cualquier reescritura de (g) se ve (reinicia el armado).
+- (9) segunda mitad: tras el paso (8) el tick arma B, C y E (su clave no está a la venta: es el ARMADO, no (g)). Se comparan
+  A y D byte a byte y B/C/E con todas las columnas salvo `armedAt`. «0 filas escritas» = 0 escritas por (g).
+- (10a) compara la TABLA ENTERA antes y después del segundo tick (incluye una `p:` armada y emparejada no huérfana: la
+  que hace morder a M44-c).
+
+**Canario (sobre `43c3f8f1` + el spec, sin el código):** 9/14 rojas. T44 (1): `tcg null`, `sameKeyAsPiece false`,
+`matched false`, **0 correos** (esperado 1). Verdes ya entonces (controles): (6), (8), (10b), candado de fuente y (9) 2.ª
+mitad.
+
+**Mutaciones** (copia `git archive d3d5fe11` del árbol ENTERO, N=1 cada una —deterministas—, aplicadas por script y
+revertidas copiando el original; al final `diff -rq` contra `git archive` limpio ⇒ «copia LIMPIA» y T44 14/14):
+
+| # | Mutación | Rojas |
+|---|---|---|
+| M44-a | sin la llamada a `reconcileOrphans()` | (1) (2) (3) (4) (5) (5b) (7) (10a) (9) 1.ª |
+| M44-b | re-apuntar sin `armedAt`/`matchedAt` a nulo | (5b) |
+| M44-c | sin la condición de huérfana | (1) (3) (7) (8) (10a) |
+| M44-c' | sin la parte `NULL` del conteo de `D` | (3) (6) (7) |
+| M44-d | sin el borrado por choque | (7) |
+| M44-e | sin `notifiedAt IS NULL` (CTE y guardas) | (8) (9) ambas |
+| M44-f | `updateMapping` escribe `SealedRestockSubscription` | candado, (6) (7) |
+
+**Pieza sellada del seed (WSH-F5).** Folio `E2E-SLD-0001`, nombre de producto **«E2E Surging Sparks Booster Box»**,
+`box`/`mint`, plataforma `listed`, `listPriceCents 450000`, `tcgplayerProductId 610000001` / grupo `61001`, anclada a la carta
+`thirdraw` («E2E Third Bird», set E2E). Por API: `GET /catalog/sealed?q=E2E Third Bird` (el `q` del grid filtra por el nombre
+de la CARTA) y la teja con ese `productName`; en pantalla, `/es/sellado` muestra el nombre del producto. El seed la resetea
+en cada corrida (estado, dueño, precio, mapeo). Fuera de `E2E_FOLIOS`. ⚠️ Para frontend: `frontend/e2e/catalog.spec.ts:62`
+(`needsSeed('ningún grupo sellado publicado…')`) y el comentario de `:249-252` («el estado vacío SIEMPRE está ahí») asumían
+`total: 0`; con el seed nuevo `/es/sellado?sealedSubtype=box` ya NO está vacío. NO MEDIDO contra el stack con navegador.
+
+**Medición final** (copia `git archive 1753f9ed` del árbol ENTERO, esquema propio `wsh_be4` re-creado desde cero con
+`migrate deploy`): unitaria completa `--maxWorkers=2` **446/446 suites, 8058/8058** (T42 (b) verde: el `api.ts` de frontend ya
+está commiteado). Integración §WSH (`wishlist*`, `sealed-restock-armed`, `enum-query-axes`, `seed-sealed-listed`) **9/9
+suites, 662/662**. Integración completa 115/124 suites, 2354/2390 (34 rojas, 2 omitidas): las **mismas 9 suites** salen rojas
+sobre `49482fb0` (sin el seed nuevo) en el mismo esquema (9/9 suites rojas, 38 pruebas): CHECKs/migraciones que buscan
+en `public` (lo ya anotado en §84.5), carreras de `vault-placement-races` y estado compartido. No las causa este cambio.
