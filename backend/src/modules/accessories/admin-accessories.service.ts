@@ -12,7 +12,8 @@
  *  - Existencias: `receive` suma; `adjust` es CAS `WHERE stockQty = expected AND reservedQty <= new` (⛔ leer y luego
  *    escribir); cada acto escribe `AccessoryStockMovement` con actor, antes y después, y bitácora (criterio 721).
  *  - Borrar: con renglón o componente de paquete que lo nombre ⇒ `409 ACCESSORY_HAS_SALES`. Si no, se borran sus
- *    movimientos (FK Restrict) y la foto (cascada) con el accesorio; la bitácora `accessory.deleted` guarda la fila.
+ *    movimientos (FK Restrict) y la foto (cascada) con el accesorio; la bitácora `accessory.deleted` guarda la fila y la
+ *    lista entera de movimientos borrados en `before.movements` (orden `createdAt`; §AC.19.2 punto 7).
  *  - Foto: se procesa FUERA de la transacción (CPU); la fila de foto, la versión y la bitácora, DENTRO.
  *  - Bitácora `accessory.updated {before, after}` solo de campos que cambian; ⛔ `unitCostCents` nunca en `before` y en
  *    `after` solo si el actor es ★ (§AC.11).
@@ -288,7 +289,14 @@ export class AdminAccessoriesService {
       await this.prisma.$transaction(async (tx) => {
         const cur = await this.lockRow(tx, id);
         if ((await this.hasSalesMap(tx, [id])).size > 0) throw hasSales();
-        const movements = await tx.accessoryStockMovement.deleteMany({ where: { accessoryId: id } });
+        // §AC.19.2 punto 7: `AccessoryStockMovement` es «sin purga»; lo que se borra viaja entero en la bitácora.
+        const rows = await tx.accessoryStockMovement.findMany({
+          where: { accessoryId: id },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: { kind: true, delta: true, stockBefore: true, stockAfter: true, reason: true, actorUserId: true, createdAt: true },
+        });
+        const movements = rows.map((m) => ({ ...m, createdAt: m.createdAt.toISOString() }));
+        await tx.accessoryStockMovement.deleteMany({ where: { accessoryId: id } });
         await tx.accessory.delete({ where: { id } });
         await this.audit.log(
           {
@@ -297,7 +305,7 @@ export class AdminAccessoriesService {
             action: 'accessory.deleted',
             entityType: 'Accessory',
             entityId: id,
-            before: { ...this.auditView(cur, FIELD_ORDER, isSuper(actor)), stockQty: cur.stockQty, active: cur.active, photoVersion: cur.photoVersion, movementsDeleted: movements.count },
+            before: { ...this.auditView(cur, FIELD_ORDER, isSuper(actor)), stockQty: cur.stockQty, active: cur.active, photoVersion: cur.photoVersion, movementsDeleted: movements.length, movements },
           },
           tx,
         );

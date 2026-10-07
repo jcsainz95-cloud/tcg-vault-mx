@@ -30369,6 +30369,24 @@ blancas), `accessory-input.ts` (cuerpos y consultas), `accessory-photo.ts` (`sha
   `kyc-ine-links` (las tres últimas 147/147 en un esquema reiniciado con la M-73 del árbol vivo, que otro agente estaba
   reescribiendo; `accessories-panel` 29/29). El resto de la integración: NO MEDIDO por mí.
 
+#### 83.A.v1.86.3 Errata §AC.19.2 construida (2026-10-07, sobre `4dd5649`)
+- **Borrado con la lista entera (punto 7, AC-B53):** `remove` lee los `AccessoryStockMovement` del accesorio
+  (orden `createdAt`, desempate `id`) ANTES de borrarlos, dentro de la misma transacción con la fila bloqueada, y la
+  bitácora `accessory.deleted` lleva `before.movements: {kind, delta, stockBefore, stockAfter, reason, actorUserId,
+  createdAt}[]` (`createdAt` en ISO) con `movementsDeleted` = su largo. ⛔ Sin `id` ni `orderId` del movimiento: con
+  ventas no se puede borrar, así que `orderId` es siempre `null` aquí, y la lista es la de §AC.19.2 al pie de la letra.
+- **Lo que ya cumplía (medido, sin cambio de código):** `PATCH` que desarma un activo ⇒ `422 ACCESSORY_NOT_ACTIVATABLE
+  {missing}` sin escrituras (AC-B54, candado nuevo: no existía prueba de integración del `PATCH`); `PATCH` sin cambio,
+  `activate` de un activo y `deactivate` de un inactivo ⇒ `200` con la fila y sin bitácora; `stock` ⇒ `200
+  AdminAccessoryDTO`; `no_change` se compara con `expectedStockQty` (`accessory-input.ts:157`), no con `stockQty`.
+- **Pruebas** (`test/integration/accessories-panel.e2e-spec.ts`, bloque «v1.86.3»): AC-B53 (antes rojo: `before.movements`
+  `undefined`; después verde), AC-B54 y «respuestas fijadas» (verdes antes y después: candados de lo ya construido).
+  Integración del módulo **32/32**; unitarias de accesorios **5/5 suites, 62/62**. Esquema propio `acc_a2`.
+- **Mutaciones** (copia `git archive HEAD` del árbol entero + los dos ficheros cambiados; 1 corrida cada una, deterministas):
+  guardar solo la cuenta ⇒ AC-B53 rojo; quitar `activationMissing` del `PATCH` ⇒ AC-B54 rojo; `deactivate` sin el
+  corto de idempotencia ⇒ «respuestas fijadas» rojo; quitar `no_change` ⇒ «respuestas fijadas» rojo (`409` en vez de
+  `400`). Cada una puso roja solo su prueba.
+
 ### 83.C Stream (C) `decks-meta` — energías del deck, paquete y `pullToken` (§AC.8) 💰 (2026-10-07, rama `claude/accesorios`; código en `a80c50b`, sobre `501faf1`)
 
 **Alcance:** solo `src/modules/decks-meta/` y sus pruebas. ⛔ Sin schema, sin migración, sin secreto nuevo (la firma usa

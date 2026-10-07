@@ -465,6 +465,84 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
     });
   });
 
+  // ---------------------------------------------------------------- v1.86.3 (§AC.19.2, §AC.19.7)
+
+  describe('v1.86.3 — §AC.19.2 (borrado con la lista de movimientos, PATCH que desarma un activo, respuestas fijadas)', () => {
+    it('AC-B53: borrar sin ventas con 3 movimientos ⇒ 204; `before.movements` con los 3, en orden y exactos; movementsDeleted = 3', async () => {
+      const id = (await create(admin, { name: nm('borrar con movimientos'), category: 'sleeves' })).body.id;
+      // `initial` solo lo escribe la migración (§AC.1): se siembra a mano, con fecha anterior y sin actor.
+      const t0 = new Date(Date.now() - 60_000);
+      await setStock(id, 5);
+      await h.prisma.accessoryStockMovement.create({
+        data: { accessoryId: id, kind: 'initial', delta: 5, stockBefore: 0, stockAfter: 5, reason: null, actorUserId: null, createdAt: t0 },
+      });
+      expect((await h.api('POST', `/admin/accessories/${id}/stock`, { token: op, json: { kind: 'receive', quantity: 3, note: 'factura 7' } })).status).toBe(200);
+      expect((await h.api('POST', `/admin/accessories/${id}/stock`, { token: admin, json: { kind: 'adjust', newStockQty: 6, expectedStockQty: 8, reason: 'conteo físico' } })).status).toBe(200);
+      const rows = await h.prisma.accessoryStockMovement.findMany({ where: { accessoryId: id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+      expect(rows.map((m) => m.kind)).toEqual(['initial', 'receive', 'adjust']);
+
+      const d = await h.api('DELETE', `/admin/accessories/${id}`, { token: admin });
+      expect(d.status).toBe(204);
+      expect(await h.prisma.accessoryStockMovement.count({ where: { accessoryId: id } })).toBe(0);
+      const log = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'accessory.deleted', entityId: id } });
+      const before = log.before as Record<string, unknown>;
+      expect(before.movementsDeleted).toBe(3);
+      expect(before.movements).toEqual([
+        { kind: 'initial', delta: 5, stockBefore: 0, stockAfter: 5, reason: null, actorUserId: null, createdAt: t0.toISOString() },
+        { kind: 'receive', delta: 3, stockBefore: 5, stockAfter: 8, reason: 'factura 7', actorUserId: opId, createdAt: rows[1].createdAt.toISOString() },
+        { kind: 'adjust', delta: -2, stockBefore: 8, stockAfter: 6, reason: 'conteo físico', actorUserId: adminId, createdAt: rows[2].createdAt.toISOString() },
+      ]);
+    });
+
+    it('AC-B54: PATCH de un activo con priceCents:null ⇒ 422 {missing:[price]} y nada cambia; energía activa con weightG:null ⇒ 200', async () => {
+      const id = await ready();
+      const auditsBefore = await h.prisma.auditLog.count({ where: { entityId: id } });
+      const r = await h.api('PATCH', `/admin/accessories/${id}`, { token: admin, json: { priceCents: null } });
+      expect([r.status, r.body.error?.code, r.body.error?.details]).toEqual([422, 'ACCESSORY_NOT_ACTIVATABLE', { missing: ['price'] }]);
+      const row = await h.prisma.accessory.findUniqueOrThrow({ where: { id } });
+      expect([row.priceCents, row.active]).toEqual([8900, true]);
+      expect(await h.prisma.auditLog.count({ where: { entityId: id } })).toBe(auditsBefore);
+
+      const type = 'darkness';
+      expect(await h.prisma.accessory.count({ where: { energyType: type, active: true } })).toBe(0);
+      const e = await ready({ name: nm('Energía Oscura'), category: 'energy', energyType: type, priceCents: 500, lengthMm: null, widthMm: null, heightMm: null, weightG: 10 });
+      const ok = await h.api('PATCH', `/admin/accessories/${e}`, { token: admin, json: { weightG: null } });
+      expect([ok.status, ok.body.weightG, ok.body.active]).toEqual([200, null, true]);
+      await h.api('POST', `/admin/accessories/${e}/deactivate`, { token: admin });
+    });
+
+    it('respuestas fijadas: PATCH sin cambio, activar/desactivar repetidos ⇒ 200 con la fila y sin bitácora; stock ⇒ 200 con la fila; no_change contra expectedStockQty', async () => {
+      const id = await ready();
+      const fila = (await h.api('GET', `/admin/accessories/${id}`, { token: admin })).body;
+      const audits = () => h.prisma.auditLog.count({ where: { entityId: id } });
+      const n0 = await audits();
+
+      const p = await h.api('PATCH', `/admin/accessories/${id}`, { token: admin, json: { name: fila.name, priceCents: fila.priceCents } });
+      expect([p.status, p.body]).toEqual([200, fila]);
+      const a = await h.api('POST', `/admin/accessories/${id}/activate`, { token: admin });
+      expect([a.status, a.body]).toEqual([200, fila]);
+      expect(await audits()).toBe(n0);
+
+      const d1 = await h.api('POST', `/admin/accessories/${id}/deactivate`, { token: admin });
+      expect([d1.status, d1.body.active]).toEqual([200, false]);
+      const n1 = await audits();
+      expect(n1).toBe(n0 + 1);
+      const d2 = await h.api('POST', `/admin/accessories/${id}/deactivate`, { token: admin });
+      expect([d2.status, d2.body]).toEqual([200, d1.body]);
+      expect(await audits()).toBe(n1);
+
+      const s = await h.api('POST', `/admin/accessories/${id}/stock`, { token: op, json: { kind: 'receive', quantity: 10 } });
+      expect(s.status).toBe(200);
+      expect(s.body).toEqual((await h.api('GET', `/admin/accessories/${id}`, { token: op })).body);
+
+      // `no_change` se mide contra lo que vio el operador (expected), no contra stockQty (10).
+      const nc = await h.api('POST', `/admin/accessories/${id}/stock`, { token: op, json: { kind: 'adjust', newStockQty: 7, expectedStockQty: 7, reason: 'conteo físico' } });
+      expect([nc.status, nc.body.error.details]).toEqual([400, { field: 'newStockQty', reason: 'no_change' }]);
+      const cf = await h.api('POST', `/admin/accessories/${id}/stock`, { token: op, json: { kind: 'adjust', newStockQty: 10, expectedStockQty: 7, reason: 'conteo físico' } });
+      expect([cf.status, cf.body.error.code, cf.body.error.details]).toEqual([409, 'STOCK_CONFLICT', { stockQty: 10 }]);
+    });
+  });
+
   // ---------------------------------------------------------------- AC-B4 / AC-B39 fotos
 
   describe('AC-B4 / AC-B39 — fotos', () => {
