@@ -807,6 +807,13 @@ export const ErrorCode = {
   OWNER_ONLY_SETTING: 'OWNER_ONLY_SETTING',
   // 🔒 D2g (§M4-SHIP.19.30.2 (2), C-21 (b)): restablecer/bloquear/borrar la cuenta del dueño desde otra cuenta. 403 sin `details`.
   OWNER_ACCOUNT_PROTECTED: 'OWNER_ACCOUNT_PROTECTED',
+  // ── rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.4 / §WSH.6) ─────────────────────────────────────────────────────────────
+  // 409 — `POST /wishlist` con la misma (carta, acabado) ya deseada (criterio 804). `details: { wishlistItemId, maxPct }`.
+  WISHLIST_DUPLICATE: 'WISHLIST_DUPLICATE',
+  // 422 — el tope por cuenta (dial `wishlist_max_per_account`, criterio 803). `details: { limit, count }`.
+  WISHLIST_LIMIT_REACHED: 'WISHLIST_LIMIT_REACHED',
+  // 404 — `POST /wishlist/mail-actions`: token que no cuadra o `id` inexistente (⛔ no distingue cuál). Sin `details`.
+  WISHLIST_LINK_INVALID: 'WISHLIST_LINK_INVALID',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
