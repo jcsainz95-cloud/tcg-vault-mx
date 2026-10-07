@@ -4,6 +4,17 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.86⟨accesorios⟩ — 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK** (2026-10-07, arquitecto, worktree
+> `/home/user/tcg-accesorios`, rama `claude/accesorios`; HEAD `1a5f8c04` según el encargo; ⛔ sha NO MEDIDO por mí: sin Bash).
+> Norma en `API_CONTRACT §AC` ([#AC](API_CONTRACT.md#AC)); el porqué en **§4.AC**; desviaciones `D-AC-1…3` en §9; migración
+> **`M-73`** en §11 (número reservado por el orquestador; `M-74`/v1.87 son de `claude/wishlist`).
+> - Tabla propia `Accessory` con existencias por cantidad (dos contadores con CHECK). No es `SealedProduct` ni `InventoryItem`.
+> - Renglones de pedido propios (`OrderAccessoryLine`). `OrderItem` no cambia.
+> - Solo en la compra de invitado con envío a domicilio (`HECHOS.md` 2026-10-07, «"Termina wishlist y accesorios"», P-ACC-10).
+> - La caja sale de `ShippingPackage` con una columna nueva, `customerFeeCents`. Sin cajas con tarifa, el envío es el de hoy.
+> - Las fotos se guardan en Postgres y se sirven públicas desde la API. No se tocan el bucket ni las llaves de la INE.
+> - El paquete de energías se ata a su deck con un `pullToken` firmado con `domainHmac`, que ya existe. No hay secreto nuevo.
+>
 > **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
 > `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
 > porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
@@ -29004,6 +29015,205 @@ de publicar»). `basis.manual` (`es.json:1599`, «a mano, antes de IVA») es cor
   cajón saldría `missing_location` y la que nace con cajón y precio se publicaría al alta, que es lo que «ubicación +
   precio ⇒ publicada» ya pedía.
 
+### 4.AC ACCESORIOS Y ENERGÍAS — un producto por cantidad, una caja que cobra, un paquete atado a su deck (v1.86⟨accesorios⟩, 2026-10-07, NORMATIVO, 💰 **DINERO**)
+
+> Norma entera: `API_CONTRACT §AC`. Aquí va el porqué. Árbol leído: `/home/user/tcg-accesorios` (rama `claude/accesorios`),
+> con Read/Grep/Glob, sin Bash ⇒ **sha NO MEDIDO**; toda cita `fichero:línea` es de ese árbol el 2026-10-07.
+
+**(a) Fuentes del dueño (O-17: se citan las filas, no el encargo).** `HECHOS.md`, filas del 2026-10-07 (sesión 6):
+- **F1** «Respuestas a P-ACC-1…9 (accesorios, `PROJECT.md` §AC) y alcance de energías (P-ENERGIAS)» (`HECHOS.md:88`):
+  comisión sí (P-ACC-2), el envío puede cambiar por caja (P-ACC-3), sugerir quitando lo que ya lleva (P-ACC-4), sin foto
+  no se publica (P-ACC-7), costo unitario sí (P-ACC-9), energías básicas de 8 tipos a MX$5, paquete del deck a MX$20.
+- **F2** «Confirmaciones de accesorios, energías y paquete de energías del battle deck» (`HECHOS.md:89`): precios con IVA
+  dentro, comisión aparte y las seis reglas del paquete.
+- **F3** «"Termina wishlist y accesorios"» (`HECHOS.md:90`). **Manda sobre F2 donde chocan.**
+  - P-ACC-10 (a): **solo compra de invitado con envío a domicilio**.
+  - P-ACC-3a..c: cajas del dueño con medidas y **tarifa fija por caja**; la más chica donde cabe; si no cabe en ninguna,
+    la más grande; el catálogo empieza vacío.
+  - P-EN-1: los 8 tipos.
+  - P-EN-2: las energías **no** entran en «¿Te falta algo?».
+  - P-EN-4: el deck está en el carrito cuando están todas las cartas que agregó «Agregar de jalón».
+  - P-EN-5: el paquete se reembolsa completo solo si se devuelve el deck completo.
+  - P-EN-6: MX$5 y MX$20 se editan en el panel.
+  - P-EN-3 y P-EN-7: van con la recomendación del product-owner (`PROJECT.md:18543-18555`).
+- `PROJECT.md §AC` (`:9374-9722`) y criterios 700–749 (`:14112-14244`) se escribieron **antes** de F3. Donde chocan,
+  manda F3 (es palabra del dueño, posterior). Los choques van como `D-AC-1…3` (§9) a product-owner.
+
+**(b) Lo medido que decide el diseño.**
+
+| Hecho | Dónde |
+|---|---|
+| `direct_ship` solo existe en el DTO de invitado | `orders/dto/guest-checkout.dto.ts:129-130` |
+| La ruta de invitado **rechaza** una sesión válida (`409 ALREADY_AUTHENTICATED`) | `orders/guards/reject-authenticated.guard.ts:57-62` |
+| El `ValidationPipe` global **quita** en silencio las llaves desconocidas | `main.ts:54` (`whitelist: true, forbidNonWhitelisted: false`) |
+| `OrderItem.inventoryItemId` es NOT NULL: un renglón = una pieza | `schema.prisma:1462` |
+| «Una carta se reembolsa UNA vez»: `PaymentRefund.orderItemId @unique` | `schema.prisma:1990-1992` |
+| `SealedProduct` exige set y producto de TCGplayer | `schema.prisma:840-843` |
+| `ShippingPackage` ya guarda cajas con medidas (cm) para Skydropx; sus semillas son «ESTIMADO» | `schema.prisma:1747-1760`, `settings/shipping-dials.ts:176-204` |
+| Las cajas se editan por reemplazo entero, solo súper-admin | `admin/shipping-config.ts:1-77`, `admin/shipping-config.service.ts:79-88` |
+| El envío del invitado sale del dial neto `shipping_fee_cents` (`E = round(F×(1+t·r))`) | `orders/guest-checkout.service.ts:591-619` |
+| El total de un directo es `grossUpTotal(S+E)`; IVA dentro | `common/money.ts:855-868` |
+| Comisión de una línea reembolsada: `floor(F×P/G)`, y `Σ ≤ F` | `common/money.ts:1057-1081` |
+| Lo asegurado de un directo = Σ `OrderItem.unitPriceCents` de las líneas `picked` | `shipments/label-quote.service.ts:476-484` |
+| Liquidar un directo: CAS del pedido y luego pieza por pieza, con «recuperación» si el barrido soltó la reserva | `payments/payments.service.ts:438-505` |
+| Reembolso total de un directo: piezas `picking` congeladas para decisión manual | `payments/refunds/full-refund.service.ts:1-39` |
+| El plan de «preparado» cierra con `order_remaining` cuando no sale ninguna línea | `shipments/shipment-prep.service.ts:342-394` |
+| `domainHmac(domain, value)`: HMAC con la llave del índice ciego y prefijo de dominio; precedente `mr-reveal:v1:` | `common/crypto/pii-crypto.service.ts:263-270` |
+| El matcher deja `unmatched_basic_energy` **también** a líneas sin set o número | `decks-meta/deck-matcher.service.ts:142-153` |
+| El parser solo marca energía básica si la línea **no** casó como carta con set y número | `decks-meta/deck-list.parser.ts:39-47, 95-106` |
+| Las listas del meta son inmutables | `schema.prisma:2618-2644` |
+| Archivos: S3 solo para la INE, privado, llaves `kyc_ine/…` | `uploads/uploads.service.ts:15-23, 49-50` |
+| No hay librería de imágenes en el backend (sí `file-type` y `multer`) | `backend/package.json:33, 73, 78` |
+| El informe de IVA suma `Order.ivaCents` por pedido | `admin/admin.service.ts:1864-1885` |
+| P&L: ingreso por `netRevenueCents(order)` (lee `subtotalCents`) y costo por pieza | `admin/pnl-core.ts:189-203` |
+| La analítica exige Σ `mix.byProductType.*` = totales | `API_CONTRACT.md:40258, 40270-40276` |
+| Carrito: `localStorage` `tcg.cart` = `{ ids, updatedAt }`, 30 días | `frontend/src/lib/cart.ts:6-39` |
+| «Agregar de jalón» mete la unión de `unitInventoryItemIds` | `frontend/…/decks-meta/DeckAvailability.tsx:33-68` |
+| Última migración del árbol: `20261025120000_m72_bsd_inbound_label` | Glob `backend/prisma/migrations/*/migration.sql` |
+
+**(c) Producto propio `Accessory`, no `SealedProduct` ni `InventoryItem`.**
+- `SealedProduct` exige TCGplayer (`schema.prisma:840-843`). Relajarlo tocaría el sync del catálogo y el precio del
+  sellado (M-71), que son de otro stream.
+- `InventoryItem` es **una fila por pieza física**, con folio, dueño, estado y movimientos. 40 fundas serían 40 filas.
+  Además, cada lector del inventario (bóveda, buylist, exporte `.xlsx`, conteos) tendría que excluirlas. AC.3 y AC.7
+  exigen que no se mezclen.
+- `Accessory` lleva lo de AC.1: nombre, descripción, categoría, tipo de energía, medidas y peso, costo, precio con IVA,
+  existencias, activo, «Sugerido» y la versión de la foto. CHECKs en BD:
+  - `active ⇒ precio ∧ foto` (P-ACC-7);
+  - `active ∧ categoría ≠ energy ⇒ medidas ∧ peso`. Sin medidas no hay caja (P-ACC-3c, recomendación de `PROJECT.md:18520`).
+- Las 8 energías nacen en `M-73` como filas **inactivas**: MX$5 (F1), existencias 0 y sin foto. El dueño sube la foto,
+  da entrada y activa. Es lo más automático sin inventar nada.
+
+**(d) Renglones propios `OrderAccessoryLine`, no un `OrderItem` polimórfico.**
+- Volver nullable `OrderItem.inventoryItemId` rompería en silencio a sus lectores: 31 apariciones de
+  `include: { items` / `orderItem.findMany` en 11 ficheros de `src/modules` (Grep, 2026-10-07). Algunos, como el reclamo
+  de bóveda, el contracargo o «Por reponer», asumen una pieza.
+- También rompería el invariante «una carta se reembolsa una vez», y un accesorio se reembolsa **por unidad** («faltó 1
+  de 3»).
+- El precio: cada lector de dinero del pedido tiene que leer **también** los renglones de accesorio. Se cierra con:
+  - la identidad **I-AC-1** (`subtotalCents = Σ OrderItem.unitPriceCents + Σ unitPriceCents × quantity` de los
+    renglones de accesorio), con su prueba;
+  - un **censo** con nombre de cada sitio que suma o recorre líneas (`API_CONTRACT §AC.15`).
+- El paquete de energías es un renglón más (`kind = energy_bundle`), con precio propio y sus componentes por tipo en
+  `OrderEnergyBundleComponent`. Así los apartados, ventas y devoluciones de existencias van **por tipo de energía**,
+  igual que una energía suelta.
+
+**(e) Existencias por contador, con la condición en el `UPDATE`.**
+- `stockQty` (existencias; bajan **al pagarse**, criterio 712) y `reservedQty` (apartado vivo). CHECK
+  `0 ≤ reservedQty ≤ stockQty`.
+- Apartar: `UPDATE "Accessory" SET "reservedQty" = "reservedQty" + q WHERE id = $1 AND "stockQty" - "reservedQty" >= q`.
+  Con 0 filas, el checkout no cobra (`409`).
+  - Postgres reevalúa el `WHERE` sobre la versión confirmada tras esperar la fila, así que dos clientes **no** pueden
+    tomar la última unidad (criterio 710).
+  - ⛔ Nada de leer y luego escribir: es la lección de `REL-B` (`payments.service.ts:282-290`).
+- Soltar y vender son CAS **sobre el renglón** (`status` en el `WHERE`) y en la misma sentencia mueven el contador. Un
+  doble aviso de Stripe o dos barridos no restan dos veces.
+- **Orden de candados:** puerta del cliente → piezas → accesorios (por `id` ascendente) → libro. Los accesorios van
+  siempre **después** de las piezas. Así, ningún camino que ya tome pieza → pedido se cruza con uno nuevo.
+- **Rechazado: una fila por unidad.** Reproduciría la carga de `InventoryItem` sin ganar nada. El rastro que pide AC.6
+  lo da `AccessoryStockMovement` (quién, cuándo, antes y después).
+
+**(f) La caja: `ShippingPackage` + `customerFeeCents`, no una tabla nueva.**
+- Las medidas de la caja ya viven en `ShippingPackage` y Skydropx las usa al cotizar (`label-quote.service.ts:499`). Una
+  segunda tabla serían **dos fuentes para un hecho**: las medidas de la misma caja física.
+- Columna nueva `customerFeeCents Int?` (lo que paga el cliente, IVA dentro, tecleado por el dueño):
+  - `null` ⇒ la caja **no** cuenta para el cobro. Las dos semillas `envelope`/`box` (medidas «ESTIMADO») nacen así.
+  - Eso cumple F3: «el catálogo de cajas empieza vacío y lo llena el dueño».
+- **Ajuste: una condición necesaria, no un empaquetado.** Una caja «sirve» si cada unidad cabe sola con rotación (las
+  tres medidas ordenadas, una contra otra) **y** la suma de volúmenes cabe en el volumen de la caja.
+  - Se elige la de menor volumen; desempate por tarifa, `sortOrder` y `code`.
+  - Si ninguna sirve: la de **mayor** volumen y el pedido queda marcado «revisar caja» (F3).
+  - Es una heurística: puede decir «cabe» y en la mano no caber. AC.4.1 ya lo prevé: quien prepara usa otra caja y lo
+    cobrado no cambia.
+- **Quién entra al cálculo: solo los accesorios que no son energía.** Cartas, sellado y energías **no** tienen medidas en
+  la BD (`schema.prisma:838-870` y `Card`). Inventarlas lo prohíbe F3 («sin medidas inventadas»). Van en el paquete de
+  siempre, como hoy. La consecuencia y la pregunta van en P-AC-5.
+- **Tarifa:** sin accesorios con medidas, o sin cajas con tarifa ⇒ **la tarifa de hoy, bit a bit** (criterio 725).
+  - Con caja elegida ⇒ `max(E_hoy, customerFeeCents)`: agregar un accesorio **nunca abarata** el envío.
+  - El `max` lo propone `PROJECT.md:9539-9541` y queda como pregunta al dueño (P-AC-2).
+- **Rechazado: cotización en vivo de Skydropx.** F3 eligió tarifa fija por caja.
+- **El pedido congela la caja:** `Order.shippingBoxSnapshot` (código, nombre, medidas y tarifa) y `shippingBoxReview`.
+  ⛔ Sin FK: el reemplazo entero de `PUT /admin/shipping/packages` borra y recrea filas.
+
+**(g) Fotos en Postgres, servidas públicas por la API.**
+- **Medido:** el único almacenamiento de archivos es S3 para la INE, privado y con llaves `kyc_ine/…`
+  (`uploads.service.ts:15-23`). Qué proveedor hay en producción y si existe un bucket público: **NO MEDIDO**. Lo cierra
+  devops leyendo las variables `S3_*` en Railway.
+- **Decisión:** `AccessoryPhoto` (bytea), una fila por accesorio con dos variantes WebP (1200 px y 400 px), servida por
+  `GET /accessories/:id/photo/:version/:variant` con caché `immutable`. Por qué:
+  - ⛔ cero infraestructura y cero secretos nuevos (regla de secretos de `CLAUDE.md`);
+  - la separación de la INE es **por construcción**: el código de fotos no importa el cliente S3. Una política mal puesta
+    no puede volver pública una INE (AC.2, criterio 704);
+  - foto y accesorio cambian en la misma transacción (con bitácora).
+- **Costo:** ~100–200 kB por foto en la BD y en los respaldos (estimación, NO MEDIDO). Se acepta por tamaño de catálogo
+  (cientos, no miles).
+- **Procesar la imagen exige `sharp`** (dependencia nueva fijada; la añade backend). Devops verifica que la imagen de
+  Railway la instala (binario prearmado; **NO MEDIDO**).
+- **Rechazado: subida firmada directa al bucket** (como la INE). La foto tiene que acomodarse en el servidor (AC.2), así
+  que el archivo pasa por el backend de todos modos.
+
+**(h) El paquete de energías se ata al deck con un `pullToken` firmado.**
+- P-EN-4 (F3): «el deck está en el carrito cuando están todas las cartas que agregó "Agregar de jalón"». El servidor
+  tiene que saber **qué** agregó el botón. Si el navegador lo declara, cualquiera manda una carta barata y se lleva el
+  paquete (el abuso que nombra `PROJECT.md:18546-18547`).
+- `GET /decks-meta/:slug` firma la unión que el botón va a agregar:
+  `base64url(JSON{v,slug,listId,ids,iat}) + "." + domainHmac('deck-pull:v1:', payload)`.
+  - Usa la llave del índice ciego con prefijo de dominio. ⛔ Ningún secreto nuevo (precedente `mr-reveal:v1:`,
+    `pii-crypto.service.ts:263-270`). ⛔ Nada se persiste.
+  - El carrito guarda el token. Al cotizar y al cobrar, el servidor verifica firma y vigencia (30 días = vida del
+    carrito, `cart.ts:14`) y que **todos** los `ids` firmados vengan en el pedido.
+- La lista firmada es inmutable (`schema.prisma:2618`): las energías que pide el paquete se leen de **esa** lista en la
+  BD, nunca del navegador.
+- **Rechazado: guardar la jalada en una tabla.** Exigiría un endpoint público de escritura, con su limitador y su purga.
+- **Tipo de energía:** `energyTypeOf(rawName)`, puro, por diccionario («Basic Fire Energy», «Fire Energy», «Basic {R}
+  Energy», «Darkness/Dark», «Metal»…).
+  - Solo para líneas `unmatched_basic_energy`. Si no reconoce el tipo ⇒ `null`, y la línea se ve como hoy.
+  - ⛔ No se infiere de líneas sin set que no sean energía (el matcher las mezcla, `deck-matcher.service.ts:143`).
+  - Las energías básicas que **sí** casaron como carta (con set y número) siguen siendo cartas, como hoy. Cuántas hay en
+    los decks publicados: **NO MEDIDO**; lo mide una consulta a `MetaDeckCard ⋈ Card` (`supertype='Energy'`).
+
+**(i) Precio que se cobra:** el del servidor al crear la sesión, igual que las cartas. La pantalla muestra el total de la
+sesión (F-SP-5, `API_CONTRACT.md:36832-36835`). «Se cobra el precio que vio» (`HECHOS.md:64`) sigue pendiente de §X
+para todo producto (`D-SP-2`). Esta rama no lo cierra ni lo empeora.
+
+**(j) Solo invitado con envío (F3), y lo que eso implica.**
+- El cliente con sesión no puede usar la compra de invitado (`reject-authenticated.guard.ts:57-62`). Con F3, **un
+  cliente con cuenta no puede comprar accesorios mientras tenga la sesión abierta**. Lo que ve en la tienda es P-AC-1.
+- El checkout con cuenta (`QuoteDto`/`SessionDto`) **declara** `accessoryLines`/`deckPulls` solo para rechazarlos con
+  `422 ACCESSORIES_REQUIRE_DIRECT_SHIP`. Si no los declarara, el pipe los quitaría en silencio (`main.ts:54`) y el
+  criterio 713 («se rechaza en el servidor») no se cumpliría.
+
+**(k) Reembolsos.**
+- Por unidad, con la **misma** fórmula de la carta: `itemMissingRefundComponents(order, k × P)`.
+- Se reusan los tipos `item_missing` / `item_delivered`; lo que distingue la línea es qué FK está puesta. Así el correo
+  AV-12, los reintentos y el estado público siguen funcionando, con los sitios del censo de `§AC.15` ajustados.
+- Tope por renglón: `refundedQty ≤ quantity`, con CAS.
+- **Reembolso total sin envío salido:** las unidades **vuelven solas** a existencias, menos las que faltaron al preparar.
+  - **Difiere de las cartas**, que quedan congeladas para decisión manual (`full-refund.service.ts:7-8`). Motivos: AC.4
+    lo pide («vuelven solas»), `HECHOS.md:43` (a) lo permite, y una funda es intercambiable mientras que una carta lleva
+    folio y estado propios.
+- **Paquete:** P-EN-5 (F3) ⇒ fuera de un reembolso total, solo se reembolsa **entero** y solo cuando todas las cartas
+  del deck ya están reembolsadas.
+  - Si falta el paquete al preparar, el contrato va con la recomendación de P-AC-3: entero, sin exigir el deck.
+  - Si el dueño la rechaza, cambia una sola guarda (`API_CONTRACT §AC.10` (3)).
+
+**(l) Reportes.**
+- El IVA y el ingreso del P&L ya salen del pedido (`admin.service.ts:1864-1885`, `pnl-core.ts:195`), así que incluyen
+  los accesorios sin cambio.
+- El **costo** sí cambia: `cogsCents += unitCostCents congelado × unidades vendidas`; sin costo capturado ⇒ 0, la misma
+  regla `?? 0` de las piezas (`pnl-core.ts:201`).
+- La analítica (§15) gana `mix.byProductType.accessory`. Sin eso, la invariante Σ = totales se rompe con el primer
+  pedido con accesorios.
+
+**(m) Riesgos y NO MEDIDO.**
+- Carta Porte: un solo concepto «49101600 Coleccionables» por guía. Si Skydropx acepta más de uno y cuál corresponde a
+  fundas: **NO MEDIDO**. No se pregunta al dueño hasta medirlo en sandbox (O-6). Mientras tanto la guía no cambia.
+- El peso de la guía sigue siendo `ShippingPackage.weightKg`. Los gramos de los accesorios se muestran a quien prepara y
+  no cambian la cotización (v1).
+- Si `decks-meta` está publicado en producción: **NO MEDIDO** (`PROJECT.md:9683-9689`). Sin la ficha pública no hay
+  token, así que no hay paquete (criterio 746, por construcción).
+- La CSP o `images` de Next deben admitir el origen de la API para las fotos: **NO MEDIDO**; frontend lo verifica.
+
 ---
 
 ## 5. Decisiones transversales
@@ -29773,6 +29983,19 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **v1.86⟨accesorios⟩ — medidas el 2026-10-07 por lectura en `/home/user/tcg-accesorios` (sha NO MEDIDO). Ninguna es
+> de código: son choques entre `PROJECT.md §AC` y `HECHOS.md:90` (F3), posterior. El contrato sigue a F3. Se enrutan a
+> product-owner; el arquitecto no las corrige.**
+> - **`D-AC-1` (abierta):** `PROJECT.md:9489-9499` (AC.4), `:9562` (AC.5), criterios **713** y **749** y P-ACC-10 «abierta»
+>   (`:18524-18528`) dicen «de invitado **o de cuenta**». F3 decide P-ACC-10 (a): **solo invitado**. El criterio 749
+>   pasa a probar lo contrario: con sesión, el checkout rechaza accesorios (`API_CONTRACT §AC.5`).
+> - **`D-AC-2` (abierta):** P-EN-5 en `PROJECT.md:18549-18550` recomienda reembolso **proporcional** de la parte que
+>   falta. F3: «el paquete se reembolsa completo solo si se devuelve el deck completo». El criterio 744 se ajusta; queda
+>   P-AC-3 para el caso «falta al preparar».
+> - **`D-AC-3` (abierta):** `PROJECT.md:9564` (AC.5) y P-EN-2 (`:18540-18542`) dicen «energías en la sugerencia solo si
+>   el dueño las marca». F3: «las energías **no** entran». El contrato las excluye siempre y prohíbe marcarlas como
+>   sugeridas (CHECK).
+>
 > **v1.85⟨ventas⟩ — medidas el 2026-10-06 por lectura en `/home/user/tcg-ventas` (sha NO MEDIDO; §4.64.1). Ninguna se
 > corrige en el stream de analítica (criterio 613); se enrutan a §W.**
 > - **`D-AN-1` (💰, abierta, = D-2/D-3 de `PROJECT §W`):** `pnl()` cuenta ingreso solo de `status: 'settled'`
@@ -32438,6 +32661,21 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.86⟨accesorios⟩ (**M-73**: accesorios, existencias, fotos, renglones, cajas con tarifa — **DDL ADITIVO: 5 enums nuevos + 6 tablas nuevas + 2 columnas en `Order` + 1 en `ShippingPackage` + 3 en `PaymentRefund` + CHECKs + índices + 8 filas semilla; SIN relleno de filas existentes**, §4.AC)
+- **Número:** `M-73`, reservado por el orquestador el 2026-10-07 (production llega a `M-72`; `M-74` es de `claude/wishlist`).
+- **Carpeta:** `prisma/migrations/20261026120000_m73_accessories/`, posterior a `m72` (`20261025120000`, medido con Glob el
+  2026-10-07). ⚠️ Qué fecha de carpeta usa `claude/wishlist` para `M-74`: **NO MEDIDO**. Debe ser posterior a esta; si
+  no lo es, se renumera la **segunda** que se fusione.
+- **Contenido, CHECKs, índices, semilla y reversa:** `API_CONTRACT §AC.1` (forma normativa entera).
+- **Filas existentes:** ninguna cambia de valor.
+  - `Order.shippingBoxReview` nace `false` por DEFAULT. Es honesto: ningún pedido histórico eligió caja.
+  - `shippingBoxSnapshot` nace `null` = «tarifa fija de hoy».
+  - `ShippingPackage.customerFeeCents` nace `null` en las dos semillas: el catálogo de cajas con tarifa empieza **vacío**
+    (F3).
+- **Semilla:** las 8 «Energía <tipo>», **inactivas**, MX$5 (`priceCents = 500`, F1), existencias 0 y sin foto.
+- **Reversa:** primero el código. Con pedidos que tengan renglones de accesorio, **no** se revierte: borraría el detalle
+  de lo cobrado. Se desactivan los accesorios y se deja la tabla.
 
 ### rev BSD-1 (**M-72 provisional**: guía de entrada del buylist — **DDL ADITIVO + 1 enum nuevo + 2 valores de enum + 3 columnas + 2 CHECK + FK + 2 índices + relleno ACOTADO de una columna nueva**, §4.BSD)
 - **Carpeta:** `prisma/migrations/20261025120000_m72_bsd_inbound_label/` (posterior a `M-71` `20261021120000`, medido con
