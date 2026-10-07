@@ -1,0 +1,19 @@
+{
+  "fileSha256": "071fd9ecb5c3cd71788d12e51306dcea4d55775b30bd98c9b0607ddb725235dc",
+  "encoding": "latin1",
+  "derived": {
+    "rows": 158322,
+    "postalCodes": 31874,
+    "municipalities": 2478,
+    "states": 32
+  },
+  "discarded": {
+    "cp_no_5_digitos": 0,
+    "campo_vacio": 0,
+    "caracter_ilegible": 0,
+    "separador_en_campo": 0
+  },
+  "duplicatesDropped": 1018,
+  "setDigest": "20cd4a578b0cd2b30b5232e7eb783a625ccb29eaf1c80efadd6ee41af68aeb5b",
+  "sourceNotice": "El Catálogo Nacional de Códigos Postales, es elaborado por Correos de México y se proporciona en forma gratuita para uso particular, no estando permitida su comercialización, total o parcial, ni su distribución a terceros bajo ningún concepto."
+}
