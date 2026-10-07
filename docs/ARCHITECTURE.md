@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.86.3⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `bb5147b` según el orquestador;
+> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.19`; el porqué en **§4.AC (p)**. ⛔ Sin schema ni cambio a
+> `M-73`. Ratifica lo construido por A (`BACKEND_NOTES §83.A.1`) y C (`§83.C.3`). Un ajuste a A: la bitácora del borrado
+> guarda los movimientos. Fija para el frontend (`FRONTEND_NOTES §107`) la foto como ruta sin host, más el origen de la
+> API en `img-src`, las respuestas del panel y de la preparación, y `id`/`kind` en los renglones. Entrega a B el cableado
+> de `evaluateDeckPulls`: paquetes primero en `quote` e `index` en `unavailableBundles`. Pruebas AC-B53…B60 y AC-F20…F22.
+>
 > **Errata v1.86.2⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `4e06c7e` según el orquestador;
 > ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.18`; el porqué en **§4.AC (o)**. Responde a `BACKEND_NOTES
 > §83.3/§83.4`. Cinco líneas de enums en §0 del contrato. 💰 `M-73` (sin fusionar) reescribe dos CHECK de `PaymentRefund`
@@ -29275,6 +29282,36 @@ para todo producto (`D-SP-2`). Esta rama no lo cierra ni lo empeora.
   formas de la carta, y nada falla. La reversa repone primero (§AC.18.4), y AC-B51 lo vigila.
 - **Las 5 decisiones de backend (§83.3) se ratifican.** La única afirmación que dependía de algo no medido era «el modo
   del pedido no cambia». Se midió con Grep: una sola escritura, el `create`.
+
+**(p) Errata v1.86.3 — cerrar lo que A, C y el frontend dejaron abierto antes de que arranque B (2026-10-07).** Norma:
+`API_CONTRACT §AC.19`.
+- **Foto: ruta sin host, y la ancla quien la pinta.** Se pesaron las dos opciones:
+  - URL con host: exige que el backend conozca su origen público, y hoy no lo conoce. `APP_BASE_URL` es la lista CORS
+    de la tienda (`main.ts:17-25`). Haría falta una variable nueva por entorno, y un error en ella rompería todas las
+    fotos a la vez, en silencio.
+  - Ruta sin host (elegida): el frontend ya tiene `NEXT_PUBLIC_API_BASE_URL` y es el único consumidor. Ya está
+    construido y anclado en un solo sitio.
+  - La CSP se estrecha en vez de abrirse: se añade el origen exacto de la API a `img-src`, como ya está en `connect-src`.
+    ⛔ No se abre `http:`.
+  - El correo es el único consumidor que necesitaría host. Hoy ningún correo de pedido lleva imágenes, así que AV-2 va
+    sin foto, y no se inventa la variable solo para eso.
+- **Versión vigente, no la del snapshot.** La ruta de la foto exige la versión actual (`404` si no). Un historial
+  armado con la versión congelada se rompe en cuanto el dueño cambia la foto. El snapshot queda como registro, no como URL.
+- **Borrado sin ventas.** «Sin purga» y «`204` sin ventas» chocaban: la FK `Restrict` obliga a borrar los movimientos.
+  Se acepta borrarlos y el registro entero pasa a la bitácora, que sí es permanente. Sin ventas no hay dinero detrás,
+  pero sí el rastro de quién movió existencias.
+- 💰 **Paquetes primero en `quote`.** El validador de C mide cada paquete solo; la suma con sueltos y otros paquetes es de
+  B. El paquete es todo o nada, y el renglón suelto se puede recortar: atender primero al paquete vende más sin partir
+  nada. En `session` no hay orden: es estricta y todo o nada, como hoy.
+- **`index` en `unavailableBundles`.** Con `invalid_token` el servidor no puede decir el `slug`, y la pantalla adivinaba
+  cuál quitar («el que la respuesta no nombra»). Ese truco falla en cuanto un `deckPull` válido no aparece en la
+  respuesta (`ignored`). La posición en la petición es la llave que no depende de leer el token.
+- **Conteos de preparación: solo cartas.** Un renglón tiene cantidad y faltante parcial, y no cabe en `missing: number`.
+  Meterlo ahí rompería I-AC-5 y la pantalla ya construida lo contaría dos veces. Los conteos los suma la pantalla (son
+  conteos, no dinero). El dinero (`refundPreviewCents`) sigue llegando sumado del servidor.
+- **Lo de A y C se ratifica casi entero.** Cada decisión cierra un hueco de la letra en la dirección más estricta: `422`
+  en vez de `500`, `deck_unpublished` ante una lista ajena, firma antes que vigencia. Ninguna cambia dinero ni forma
+  pública.
 
 ---
 
