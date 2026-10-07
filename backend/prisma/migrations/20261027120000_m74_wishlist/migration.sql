@@ -96,8 +96,10 @@ ALTER TABLE "WishlistNotice" DROP CONSTRAINT IF EXISTS "WishlistNotice_wishlistI
 ALTER TABLE "WishlistNotice" ADD CONSTRAINT "WishlistNotice_wishlistItemId_fkey" FOREIGN KEY ("wishlistItemId") REFERENCES "WishlistItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "WishlistNotice" DROP CONSTRAINT IF EXISTS "WishlistNotice_userId_fkey";
 ALTER TABLE "WishlistNotice" ADD CONSTRAINT "WishlistNotice_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- v1.87.2 (API_CONTRACT §WSH.11 (5), ARCHITECTURE §4.WSH (k)): CASCADE, no RESTRICT — un aviso es historia de la pieza;
+-- borrar la pieza (limpieza P-DB) se lleva sus avisos. Editada EN SITIO (M-74 no publicada); quitar-y-poner ⇒ re-aplicable.
 ALTER TABLE "WishlistNotice" DROP CONSTRAINT IF EXISTS "WishlistNotice_inventoryItemId_fkey";
-ALTER TABLE "WishlistNotice" ADD CONSTRAINT "WishlistNotice_inventoryItemId_fkey" FOREIGN KEY ("inventoryItemId") REFERENCES "InventoryItem"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "WishlistNotice" ADD CONSTRAINT "WishlistNotice_inventoryItemId_fkey" FOREIGN KEY ("inventoryItemId") REFERENCES "InventoryItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "WishlistNotice" DROP CONSTRAINT IF EXISTS "WishlistNotice_mailId_fkey";
 ALTER TABLE "WishlistNotice" ADD CONSTRAINT "WishlistNotice_mailId_fkey" FOREIGN KEY ("mailId") REFERENCES "WishlistMail"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "WishlistMail" DROP CONSTRAINT IF EXISTS "WishlistMail_userId_fkey";

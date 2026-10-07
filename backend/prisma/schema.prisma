@@ -2735,7 +2735,8 @@ model WishlistNotice {
   userId            String
   user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   inventoryItemId   String
-  inventoryItem     InventoryItem        @relation(fields: [inventoryItemId], references: [id])
+  // v1.87.2: CASCADE — borrar la pieza se lleva sus avisos (API_CONTRACT §WSH.11 (5)).
+  inventoryItem     InventoryItem        @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   status            WishlistNoticeStatus @default(pending)
   // CHECK `wishlist_notice_skip_reason`: status='skipped' ⇔ skipReason IN ('paused','unverified','inactive','unavailable').
   skipReason        String?
