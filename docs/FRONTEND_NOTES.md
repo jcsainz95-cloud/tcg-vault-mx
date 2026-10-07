@@ -20650,3 +20650,72 @@ apagado). E2E: `e2e/wishlist.spec.ts` (WSH-F1…F9), todos `mockOnly` (no hay ba
 **NO MEDIDO**: los E2E de `e2e/wishlist.spec.ts` contra el stack (ni en mock si la carga de la máquina no lo permitió en
 este pase: ver el informe del pase); WSH-F5 «formulario visible con el dial `on`» (el mock de `subscribeSealedRestock`
 siempre responde `FEATURE_DISABLED`); que `/register` honre `?next=`.
+
+### §108.v1.87.3 · Rechazo de QA y condiciones de techlead sobre `503cf07` (2026-10-07, base `71fc6e3f`)
+
+**Commits:** `38a993de` (B-1) · `d58a0bdb` (C2) · `30a9bcff` (I-2) · `d6d6383d` (B-3, I-1/C1, E2E) · este apartado y
+`TECH_DEBT` TD-WSH-F1…F4 en el commit de docs que lo acompaña.
+
+**B-1 · errata v1.87.3 (`API_CONTRACT §WSH.12` «Qué hace frontend»).** `RestockSubscriptionInput` = `{ email, inventoryItemId }`
+(`lib/api.ts`); `SealedRestockForm` recibe `inventoryItemId` y manda `{ email: target, inventoryItemId }`;
+`SealedDetailView` le pasa `group.representativeItemId`. Pruebas: `SealedRestockForm.test.tsx`, `.wsh.test.tsx` y
+`SealedDetailView.test.tsx` afirman el cuerpo con `toEqual` **y** con la lista de claves (`toEqual` ignora claves `undefined`:
+`{email, cardId: undefined}` pasaría un `toEqual` de dos claves). Rojo previo: 3/3. Sin texto nuevo.
+
+**B-3 · F1/F7 en mock.** Defecto de la prueba: daban por hecho que la ficha llega con «Normal» marcado, y la ficha
+preselecciona el primer acabado **a la venta** (`reverse_holo` en el fixture de Pikachu). Corregido sin debilitar: F1 lee el
+acabado marcado y exige que el botón nombre **ese** acabado, y luego que lo siga en los dos sentidos (además ahora afirma que
+el botón del acabado anterior desaparece); F1-tope y F7 **eligen** el acabado antes de afirmar. Fallo previo medido con el spec
+de `71fc6e3f` en mock: F1 (`:47`), F1-tope (`:76`), F7 (`:92`) rojos (más F4/F8, rojo esperado por mi cambio C2 del CSV).
+
+**I-1 / C1 · E2E agnósticos.** `e2e/wishlist.spec.ts` prepara el estado por entorno: mock = servidor falso; real = API del
+contrato (`customer2` para `POST/DELETE /wishlist`, súper-admin para `PUT /admin/settings`), cartas del seed por nombre en
+`GET /buylist/cards?q=` (E2E Reverse Bird = normal con mercado + reverse_holo sin mercado; E2E Order Two = sin mercado; E2E
+Order Ten = nunca tuvo piezas). Los diales se fotografían en `beforeAll`, se reponen en cada `beforeEach` y en `afterAll`
+(que enciende el dial antes de vaciar: con el dial apagado `GET /wishlist` es 404 — defecto propio encontrado al medir).
+El fichero corre en un worker (`mode: 'default'`) porque comparte diales globales; por eso `--repeat-each` exige
+`--workers=1` (con workers en paralelo, 7/110 rojos por interferencia entre copias, no por conducta). La spec de QA
+(`wsh-real.spec.ts`) sirvió de guía; no se copió (ids aleatorios del seed, SQL directo y enlaces del log del backend no
+existen en CI). Nuevo **WSH-F10** (824). F3 y F9 se parten: la parte medible en real (un clic, nada al cargar, token fuera de
+la barra, meta, enlace no firmado ⇒ «no funciona»; dial apagado ⇒ la página sigue, la lista dice «no disponible», la ficha
+sin bloque) es `@real`; el «confirmar» con token válido queda `mockOnly`.
+
+Medido sobre un stack propio (clúster Postgres 16 en `/var/lib/postgresql/frontend-wsh2`:5462, Redis :6394, backend de
+`71fc6e3f` por ts-node :3399, Next de producción con `NEXT_PUBLIC_USE_MOCKS=false` :3401; todo apagado y borrado al terminar):
+- real, `E2E_REAL=1`: **10/10**; N=10 en serie: **100/100** (F5 saltado 10/10 por `needsSeed`). Sin `E2E_REAL` (fichero
+  entero contra el stack): 10 verdes, 3 saltados (dos `mockOnly`, un `needsSeed`).
+- mock: **13/13**; N=10: **130/130**.
+Carga máxima vista durante las corridas: 8.44 (4 CPU).
+
+**C2 · CSV del simulador.** `mockWishlistDemandCsv` sigue la cabecera literal de §WSH.8 v1.87.2, línea vacía, `sellados`,
+`producto,presentacion,condicion,esperan`, celdas de texto con comillas y `'` contra fórmulas (`csvTextCell`, igual que el
+servidor). Candado `lib/mock/wishlist-csv.test.ts` (lee las cabeceras del contrato). El E2E F4/F8 compara la cabecera
+literal y la estructura completa en los dos entornos.
+
+**I-2 · aviso de privacidad (824).** `content/legal/privacy-wishlist.ts` con los dos textos **literales** de `PROJECT §WSH.5`
+(`aba09760`); el español va como párrafo propio al final del apartado 3 (finalidades primarias) del aviso, que es el texto
+que se publica en `/es/privacidad` y en `/en/privacidad`; en `/en` se añade además el inglés literal con `lang="en"` justo
+debajo (prop `englishAddenda` de `PrivacyNoticeView`). «Mi cuenta»/"My account" ya son los nombres visibles
+(`messages/*.json` `myAccount`), así que no cambia nada del texto. Versión `0.4-provisional-2026-10-07`. Candados:
+`privacy-wishlist.test.ts` (lee PROJECT.md), `page.test.tsx` (es/en) y WSH-F10. ⚠️ Lugar elegido por frontend sin pase de
+ux-ui (PROJECT dice «frontend con ux-ui»): a revisar por ux-ui; y en `/en` conviven aviso en español + párrafo inglés.
+
+**B-2 · censo (`scripts/check-e2e-skip-census.sh`), medido 2026-10-07 tras este pase.** Baseline `mockOnly 144 / 30`,
+`needsSeed 35 / 10`. Ahora: **`mockOnly 148 / 31`** y **`needsSeed 38 / 11`** (el resto igual). En `wishlist.spec.ts`:
+`mockOnly` = 4 ocurrencias (import + mención en el docblock + **2 llamadas**), `needsSeed` = 3 (import + mención + **1
+llamada**). Motivos vigentes, uno por llamada:
+1. `WSH-F3 · confirmar` — `mockOnly`: el token del enlace lo firma el servidor (HMAC) y solo existe dentro del correo; el
+   arnés no lee el buzón.
+2. `WSH-F9 · confirmar con el dial apagado` — `mockOnly`: mismo motivo.
+3. `WSH-F5 · ficha de sellado sin botón de deseos` — `needsSeed`: `seed-e2e` no siembra ningún sellado a la venta, así que
+   `/sellado` real está vacío. Agnóstico: pasaría tal cual con esa fila. (El candado `e2e-harness.test.ts` prohíbe `@real`
+   con `needsSeed`, por eso no lleva la etiqueta.)
+Línea base: la regenera devops con este motivo (frontend no toca `scripts/`).
+
+**Pendiente / NO MEDIDO.** El formulario «avísame» contra el backend de la errata v1.87.3 (el stack propio corrió el
+backend de `71fc6e3f`, con el cuerpo viejo; y el seed no tiene sellado a la venta). Para cerrar F5 en real y medir B-1 de
+punta a punta: **petición a backend** de una pieza sellada `listed` en `seed-e2e.ts`. No se repitió una mutación con
+rebuild del bundle (carga); los rojos previos medidos de cada prueba nueva hacen de canario.
+
+**Suites (2026-10-07, árbol `d6d6383d` + este apartado):** vitest 303 ficheros verdes + 1 saltado, **3992/4002** (10
+saltadas, 0 rojas); `tsc --noEmit` rc=0; `next lint` sin avisos; `check:legal:provisional` 9 verdes + 1 saltada.

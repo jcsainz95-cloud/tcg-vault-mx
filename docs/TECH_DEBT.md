@@ -10011,3 +10011,47 @@ Deuda que el techlead dejó al backend de la lista de deseos. **No se paga en es
   registrable) y `wishlist` se suscribe; `payments` deja de importar `WishlistModule`.
 - **Disparador:** un segundo consumidor de «pedido liquidado».
 - **Comprobación:** `grep -n "WishlistModule" backend/src/modules/payments` vacío; WSH-T16 y WSH-T43 verdes.
+
+## Frontend · 2026-10-07 · gate de techlead sobre `503cf07` (rama `claude/wishlist`, §WSH)
+
+Registrado a petición del techlead (aprobado con condiciones); **no se arregla en este pase**. Fichero:línea
+**re-medidos el 2026-10-07** sobre el árbol de esta rama (`71fc6e3f` + el trabajo de §108.v1.87.3), sin tests.
+
+### TD-WSH-F1 · P3 · La clave de caché `['wishlist']` triplicada y sus ayudantes duplicados
+- **Dueño:** frontend (salida: `frontend/src/hooks/useWishlist.ts`, **zona compartida** ⇒ un solo stream a la vez).
+- **Qué es:** la misma lectura `GET /wishlist` se declara con tres literales: `WishlistBlock.tsx:27`
+  (`WISHLIST_QUERY_KEY`), `account/wishlist/WishlistView.tsx:20` (`KEY`) y `components/domain/account/AccountView.tsx:58`.
+  Alrededor van duplicados el detector de dial apagado (`isFeatureOff`: `WishlistBlock.tsx:40`, `WishlistView.tsx:24`,
+  `AccountView.tsx:65`) y el parche de caché (`patchCache`: `WishlistBlock.tsx:171`, `WishlistView.tsx:44`). Si una de
+  las tres claves cambia, la ficha, «Mi cuenta» y «Mi lista» dejan de compartir caché y se desincronizan sin que falle nada.
+- **Disparador:** el próximo cambio de forma de la clave o un cuarto consumidor de la lista.
+- **Comprobación:** un `useWishlist()` (clave + `isFeatureOff` + `patchCache`) en `hooks/`, y
+  `grep -rn "\['wishlist'\]" frontend/src` sin tests devuelve **un** sitio.
+
+### TD-WSH-F2 · P3 · `CustomerBlock` con 8 estados locales, `overrides` espejo de la caché y `cardName={cardId}`
+- **Dueño:** frontend (`catalog/[cardId]/WishlistBlock.tsx`).
+- **Qué es:** `CustomerBlock` lleva 8 `useState` (`WishlistBlock.tsx:138-147`: `finish`, `pct`, `changePct`, `overrides`,
+  `fullFromServer`, `notice`, `savedPatch`, `guest`); `overrides` (`:143`) es un espejo por acabado de lo que ya está en la
+  caché `['wishlist']` (existe porque el `409` solo trae id y %), así que hay dos fuentes del mismo hecho. Además
+  `WishlistBlock.tsx:352` pasa `cardName={cardId}`: la prop se llama «nombre» y recibe un id.
+- **Disparador:** el siguiente estado nuevo del bloque, o cuando la prop se use para pintar texto.
+- **Comprobación:** un reductor (o la caché como única fuente) sin `overrides`; la prop renombrada (`cardId`) o con el
+  nombre real; `grep -n "cardName={cardId}" frontend/src` vacío.
+
+### TD-WSH-F3 · P3 · Staff en `/account/wishlist` ⇒ 404
+- **Dueño:** frontend (depende de **Q-WSH-UX-6**, ux-ui/PO: no hay superficie de lista de deseos para staff).
+- **Qué es:** el redirect existente de staff manda `/account/wishlist` a `/admin/account/wishlist`, que no existe ⇒ 404
+  (anotado en §108 «Staff en `/account/wishlist`»). Coherente hoy con Q-WSH-UX-6, pero un 404 no explica nada.
+- **Disparador:** respuesta a Q-WSH-UX-6.
+- **Comprobación:** según la respuesta, o página propia o redirect a un destino que exista, con prueba que lo fije.
+
+### TD-WSH-F4 · P4 · Detalles menores
+- **Dueño:** frontend.
+- **Qué es:** (a) `ChoiceChips` vive dentro de `catalog/[cardId]/PctChoice.tsx:19` y ya lo consume `WishlistBlock.tsx:280`
+  para los acabados: es un componente genérico con nombre y sitio de uno concreto. (b) El literal `[5, 10, 16]` se repite en
+  `PctChoice.tsx:96` y `account/wishlist/WishlistRow.tsx:103` aunque existe `WISHLIST_MAX_PCTS` (`types/contract.ts:7467`).
+  (c) `api.ts:7427` añade `ivaTransferPct: 100` fijo a la respuesta de la demanda en la rama mock (el dial no puede nombrarse
+  en el mock por el candado del criterio 209); el valor no se pinta, pero es un número inventado en el cliente.
+- **Disparador:** el próximo cambio en esos ficheros.
+- **Comprobación:** (a) `ChoiceChips` en `components/ui/` o renombrado; (b) `grep -rn "\[5, 10, 16\]" frontend/src/app` vacío;
+  (c) el valor sale del fixture de ajustes del mock o lleva comentario `// MOCK:` con su motivo.
