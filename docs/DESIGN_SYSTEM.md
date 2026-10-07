@@ -14,6 +14,8 @@
 > **vSU-1 (2026-10-07, rama `claude/sin-ubicacion`): §SU-UX NUEVA, al final.** Textos de la errata SU-1 (la ubicación
 > deja de ser requisito para publicar; `API_CONTRACT §M1-SU`, `ARCHITECTURE §4.65`): nota de «Listas para publicar»,
 > folio visible como enlace, aviso «no hay ubicaciones» en la ficha. Cero tokens nuevos.
+> **vSU-2 (2026-10-07):** §SU-UX.6–7 nuevas. El aviso tras el alta distingue «a la venta» de «aún no» según el
+> `status` de SU.8, la cola se refresca después del alta y hay candados SU-UX-7…11. Cero tokens nuevos.
 >
 > Estado anterior: **v6.1 (2026-10-05) — EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO CON IVA (§70 ajustada a la errata
 > `API_CONTRACT` v1.83.1 §M11-SP.12, `ARCHITECTURE §4.62.8`; `HECHOS.md:51` «Precio del sellado — respuestas a
@@ -30106,3 +30108,97 @@ exacta en `en.json` está **NO MEDIDA**.
   (`es.json:1566`). Si el alta exige ubicación hoy está **NO MEDIDO**. No lo toco: la fila de HECHOS habla de publicar.
 - **N-SU-2 (orquestador):** quién puede crear ubicaciones (`POST /admin/locations`, `API_CONTRACT.md:14745`) no tiene rol
   declarado. Si un `vault_operator` llega al enlace y no puede crear, verá el error del modal: **NO MEDIDO**.
+
+### SU-UX.6 El aviso tras el alta: «a la venta» o «aún no» (vSU-2, 2026-10-07 · `API_CONTRACT §M1-SU` SU.8.3–SU.8.5, SU-F2)
+
+**Norma:** la misma fila de HECHOS que SU-UX («La ubicación (cajón) NO es requisito para publicar, por ahora»,
+2026-10-07). Desde SU.8, el alta publica sola si la pieza tiene precio. El aviso tiene que decirle al dueño si la
+pieza **ya está a la venta**, y si no, dónde mirar. ⛔ Ningún texto de esta sección nombra la ubicación. Líneas leídas
+en `/home/user/tcg-ubic` el 2026-10-07 (ux-ui sin Bash: sha NO MEDIDO). Re-medir antes de editar.
+
+**Lo que hay hoy (leído):**
+- `AddItemModal.tsx:186-190`: el toast `success` dice «Pieza dada de alta · folio {folio}.» (`createToast`,
+  `es.json:1428`/`en.json:1428`), sea cual sea el `status`.
+- `AddGradedModal.tsx:64`: no avisa (solo `onCreated`). Su llamador `M1View.tsx:391-396` pasa `invalidateAggregates`, que
+  no pinta nada (`:180-188`). La clave `admin.inventory.addGraded.success` (`es.json:5462`) existe pero no la usa este
+  componente.
+- Lote: `AddItemModal.tsx:217-231` (`batchToastAllOk`/`batchToastPartial`, `es.json:1440-1441`) y `QuickAdd.tsx:183-191`
+  (`successOne`/`successSummary`, `es.json:5526-5527`). El servidor no da `status` por pieza en el lote (SU.8.3).
+- **Ninguna alta refresca la cola.** «Listas para publicar» usa `['pending-publish', …]` (`PendingPublishQueue.tsx:206`).
+  `AddItemModal.tsx:182-183,215-216`, `M1View.tsx:180-188` y `MasterSetPanel.tsx:138-142` no la invalidan. Sin ese cambio,
+  un aviso que diga «la encuentras en Listas para publicar» manda al dueño a una cola que todavía no la muestra.
+
+**(a) Regla de decisión (alta de una pieza).** Si `response.status === "listed"`, usar la variante **a la venta**.
+Con cualquier otro valor (`"in_stock"`, que incluye el fallo capturado de SU.8.2), usar la variante **aún no**.
+⛔ No se deduce del precio que mandó el formulario: manda el `status` que devolvió el servidor.
+
+**(b) Tono, con los tokens que ya existen (`Toast.tsx:17,77-81`). Cero tokens nuevos.**
+
+| Caso | `variant` | Regla e icono | `role` | `duration` |
+|---|---|---|---|---|
+| A la venta (`listed`) | `success` | `border-success` + `Check` | `status` | por defecto (6000) |
+| Aún no (`in_stock`) | `info` | `border-on-ink-rule`, sin icono | `status` | `9000` (texto más largo; igual que `batchToastPartial`, `AddItemModal.tsx:229`) |
+| Lote sin fallos | `success` (como hoy) | igual que hoy | `status` | `9000` |
+| Lote con fallos | `danger` (como hoy) | igual que hoy | `alert` | `9000` (como hoy) |
+
+«Aún no» **no es** `danger`: el alta salió bien y no hay nada roto. Es un pendiente normal, que la cola ya resuelve.
+El título de las dos variantes sigue siendo `createToastTitle` («Alta registrada» / «Item added»).
+
+**(c) Sin enlace en el aviso.** Hay tres motivos:
+1. El toast no admite enlaces. Su única acción es `undo` (`Toast.tsx:26-32`), y §28.6c la reserva para deshacer.
+2. La cola está en la misma pantalla. `PendingPublishQueue` se monta en `M1View.tsx:304`, encima de las pestañas, y los
+   dos modales de alta se abren desde ahí (`:387`, `:391`).
+3. Un enlace en un aviso que se cierra solo a los 6–9 s no es accesible: no da tiempo a tabular hasta él.
+
+Lo que sí se pide es que la cola **se refresque** (punto (e)), para que el dueño la vea al cerrar el modal.
+
+**(d) Textos (paridad ES/EN en el mismo cambio).**
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m1.createToastListed` | Pieza dada de alta y a la venta · folio {folio}. | Item added and on sale · folio {folio}. |
+| `admin.m1.createToastNotListed` | Pieza dada de alta · folio {folio}. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar». | Item added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”. |
+| `admin.inventory.addGraded.successListed` | Gradeada dada de alta y a la venta · folio {folio}. | Graded card added and on sale · folio {folio}. |
+| `admin.inventory.addGraded.successNotListed` | Gradeada dada de alta · folio {folio}. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar». | Graded card added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”. |
+| `admin.m1.batchPublishNote` | Las que tienen precio quedan a la venta; si a alguna le falta, la encuentras en «Listas para publicar». | Those with a price go on sale; if any is missing one, you'll find it in “Ready to publish”. |
+
+- **Por qué «si le falta precio» y no «le falta precio».** `in_stock` también sale cuando una guarda deja la pieza
+  `not_publishable` (p. ej. un slab sin identidad) o cuando falla el disparo. En esos casos la pieza puede no estar en
+  la cola (SU.8.2: «visible en `pending-publish` si le falta precio o en M1 si no»). La frase condicional es cierta en
+  todos los casos, y el caso normal (falta precio) queda dicho. «Listas para publicar» / «Ready to publish» es el
+  título literal de la cola (`es.json:1584`, `en.json:1584`).
+- **Lote.** `batchPublishNote` se añade **detrás** del mensaje de hoy, separado por un espacio, en:
+  `AddItemModal` lote (`batchToastAllOk` y `batchToastPartial`) y `QuickAdd` (`successOne` y `successSummary`; QuickAdd
+  la lee con `tRoot('admin.m1.batchPublishNote')`, `QuickAdd.tsx:94`). Los textos de hoy **no cambian**. Así las pruebas
+  que ya los buscan siguen valiendo.
+- **`AddGradedModal`:** recibe una prop opcional `onToast` con la misma forma que la de `AddItemModal`.
+  `M1View.tsx:391-396` le pasa `pushToast`. Se sigue llamando a `onCreated` como hoy.
+- **Dormidas:** `admin.m1.createToast` y `admin.inventory.addGraded.success` dejan de usarse. Se borran en el mismo
+  cambio solo si ninguna prueba las lee (NO MEDIDO). Si alguna las lee, se quedan dormidas.
+- **Fuera de este pase** (⛔ no se tocan, no bloquea): `MasterSetPanel` no muestra aviso de éxito (`:129-135`, leído), y
+  la «encontrada» de `CellDrawer.tsx:532-549` no la medí. Si se les da aviso, se usa `batchPublishNote`.
+
+**(e) Refresco de la cola.** Cuando un alta sale bien, se invalida `['pending-publish']` (por prefijo, así cubre también
+la cola de M11 de sellado). Los sitios son: `AddItemModal` (una y lote), `QuickAdd`, `M1View.invalidateAggregates`
+(gradeada) y `MasterSetPanel.invalidateAggregates`.
+
+**(f) Mock.** `api.ts:3885` devuelve hoy `status: 'in_stock'` fijo (SU.8.4). Tiene que poder devolver `"listed"`.
+Propuesta: `"listed"` si el alta trae `listPriceCents`. Lo decide frontend; lo que importa es que las dos variantes se
+puedan ver en el modo mock.
+
+### SU-UX.7 Candados sugeridos para SU-UX.6 (los escribe frontend; SU-UX-7 es el SU-F2 del contrato)
+
+| ID | Qué asevera | Canario |
+|---|---|---|
+| **SU-UX-7** | `AddItemModal`, alta de una pieza. Con `{status:"listed"}`: `onToast` recibe `variant:"success"` y un mensaje con el folio y «a la venta», sin «Aún no». Con `{status:"in_stock"}`: `variant:"info"` y un mensaje con «Aún no está a la venta» **y** «Listas para publicar». Los dos mensajes son distintos | Volver a `createToast` sin mirar `status` |
+| **SU-UX-8** | `AddGradedModal`: las mismas dos aserciones con `successListed`/`successNotListed`, y `onCreated` se sigue llamando | Quitar el `onToast` (la gradeada vuelve a no avisar) |
+| **SU-UX-9** | Lote: el toast de `AddItemModal` (todo bien **y** con fallos) y el de `QuickAdd` contienen `batchPublishNote` **y** el texto de hoy (`batchToastAllOk` / `successOne`…) | Reemplazar el texto de hoy en lugar de añadir la nota |
+| **SU-UX-10** | Tras un alta correcta, `invalidateQueries` se llama con `queryKey: ['pending-publish']` en `AddItemModal` (una y lote), `QuickAdd` y `M1View` (gradeada) | Quitar la invalidación de uno de ellos |
+| **SU-UX-11** | Paridad: las 5 claves nuevas existen en `es` y `en`, con el placeholder `{folio}` donde toca; ninguna contiene «ubicación» / «location» | Borrar una clave en `en` |
+
+Notas:
+- **Contraste:** no hay pares nuevos. Los tres tonos usan `text-on-ink-muted` sobre `ink`, que ya existe
+  (`Toast.tsx:99`). El tono no se cifra solo en el color: lo dicen el texto y el icono (`Check` solo en «a la venta»).
+- **N-SU-3 (orquestador / arquitecto, informativo):** que una pieza `not_publishable` aparezca en «Listas para
+  publicar» (con «Por revisar», `es.json:1593`) está **NO MEDIDO**. Por eso el texto dice «si le falta precio» y no
+  promete que la pieza esté en la cola.
