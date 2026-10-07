@@ -30504,3 +30504,157 @@ CPU—; repetidas solas: 2/2 y 37/37. Ninguna importa `decks-meta`. Integración
 **NO MEDIDO:** el cableado en `quote`/`session` (AC-B32 de punta a punta, AC-B33 carrera del paquete): es de (B). La foto
 servida de verdad por `GET /accessories/:id/photo/…`: es de (A). La app no se levantó; el grafo de DI con el 4.º parámetro sí
 compila (`test/app.module.spec.ts` «compiles the full module graph», verde en la corrida entera).
+
+
+### 83.B Stream (B) construido — compra de invitado con accesorios y paquete, apartado, liquidación, caja, preparación, reembolsos, M3/seguimiento, P&L y analítica 💰 (2026-10-07, rama `claude/accesorios`, sobre `4dd5649`)
+
+**Alcance (§AC.17 (B)):** `orders`, `payments`, `shipments`, `admin/pnl-core`, `sales-analytics`. ⛔ Sin schema ni
+migración (M-73 ya trae todo), sin tocar `accessories/` (solo se importa `photoDTO`) ni `decks-meta/` (solo se llama
+`DecksMetaService.evaluateDeckPulls`). Contrato: v1.86 + erratas .1/.2/.3; el orden de `quote`/`session` es el de §AC.19.4.
+
+**Ficheros nuevos (los nombres de §AC.6/§AC.7 quedan en `orders/`, no en `accessories/`, que es de (A)):**
+- `orders/accessory-stock.ts` — un cuerpo por verbo de §AC.6: `reserveAccessories`, `releaseAccessoryReservations`,
+  `renewAccessoryReservations`, `settleAccessories`, `restockAccessoriesOnFullRefund`, `accessoryReservedDrift`,
+  `expiredAccessoryOrderIds`. Toda condición va en el `UPDATE`; orden por `accessoryId` ascendente.
+- `orders/box-fit.ts` — §AC.7 puro: `chooseBox`, `fitUnitsOf` (⛔ energías), `shippingFeeWithBox` (`max`, P-AC-2),
+  `boxSnapshotOf`.
+- `orders/accessory-cart.ts` — puro: `allocateQuoteStock` (paquetes primero, §AC.19.4 paso 4), `wantsOf` (apartado único),
+  `lineIvaCents`, `sameLooseCart`.
+- `orders/guest-accessory-cart.ts` — la parte de accesorios de `quote`/`session` (lee con el `db` que le den; traduce el
+  validador de C).
+- `orders/accessory-lines-view.ts` — `OrderAccessoryLineDTO` (M3 y seguimiento), `accessoryAmountByQtyCents`,
+  `accessoryDeliveredRefundOf` (la vista de M3 Y las guardas del verbo: un cuerpo), renglones del correo.
+- `orders/dto/accessory-cart.dto.ts` — `accessoryLines`/`deckPulls` (§AC.4), `CartNotEmpty`, `accessoryId` repetido ⇒
+  `400 {field:'accessoryLines'}`.
+- `orders/mail/accessory-mail-lines.ts` — «Penny sleeves ×3 — $267.00» / «Paquete de energías — <deck> ×1 (Fuego ×8)».
+- `shipments/accessory-prep.ts` — `ShipAccessoryLineDTO`, `loadAccessoryPrepLines`, cuerpo del `PATCH`, seguro.
+
+**Endpoints:**
+- `POST /checkout/guest/quote` y `/session`: §AC.4 + §AC.19.4 (respuestas aditivas). `inventoryItemIds` pasa a opcional.
+- `POST /checkout/quote` y `/session` (con cuenta): `accessoryLines`/`deckPulls` declarados; no vacíos ⇒ `422
+  ACCESSORIES_REQUIRE_DIRECT_SHIP` en el controlador, ANTES del servicio (criterio 749). La ruta de invitado con sesión
+  válida sigue en `409 ALREADY_AUTHENTICATED` (`reject-authenticated.guard.ts`, sin cambio: ya rechazaba).
+- `PATCH /admin/shipments/:id/prep-accessory-lines/:lineId` (operador+): §AC.19.5.
+- `GET /admin/shipments/:id` y `/picking-list`: `accessoryLines` + `box`.
+- `POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered` (`@MoneyOut`): §AC.10 (2) v1.86.2.
+- `GET /admin/orders/:id`: `accessoryLines` con `deliveredRefund`. `POST /orders/guest/track`: `accessoryLines` sin él.
+
+#### 83.B.1 Decisiones que otros roles necesitan (lo que el contrato no fija letra por letra)
+1. 💰 **Carrera del paquete: el perdedor recibe una de DOS respuestas, según el instante** (medido: 1/10 en una corrida de
+   AC-B33). Si las dos sesiones validan antes de que la otra aparte ⇒ el `UPDATE … WHERE` decide ⇒ `409
+   ACCESSORY_INSUFFICIENT_STOCK`. Si una valida DESPUÉS del commit de la otra, el validador de C ya ve el stock corto ⇒
+   `422 ENERGY_BUNDLE_INVALID {reason:'insufficient_stock'}` (§AC.19.4 paso 3). Las dos son del contrato y en las dos
+   ⛔ no hay cobro ni doble apartado. ⚠️ **Para frontend:** las dos significan «ya no hay suficientes» (criterio 741).
+   **Para el arquitecto:** si quiere UN código, es errata (p. ej. que `session` traduzca el `insufficient_stock` del
+   validador a `409`).
+2. **Detalles de `409 ACCESSORY_UNAVAILABLE`:** `reason ∈ {not_found, inactive}` (sin precio solo puede ser inactivo: CHECK
+   `accessory_active_ready`). **`409 ACCESSORY_INSUFFICIENT_STOCK.availableQty`** = `stockQty − reservedQty` al fallar el
+   `UPDATE` (lo que queda para OTRO).
+3. **Reuso (§AC.4):** una orden reclamada que solo aparta accesorios (sin piezas) también es «propia» (el pre-scan por piezas
+   no la ve). `heldAlive` = todos sus renglones `reserved` sin vencer. Reuso ⇔ mismas piezas ∧ mismo multiconjunto ∧
+   mismos `deckSlug` ∧ todo aún apartado. En `quote`, el desglose CONGELADO solo rige si además casan los accesorios.
+4. **Soltar nunca resta por debajo de lo real:** si `reservedQty < Σ` (deriva), no se resta (⛔ soltar de más vendería lo
+   apartado por otro); lo denuncia `accessory.reserved_drift` en el barrido.
+5. **Pago tardío sin existencias:** `settledWithoutStock = true`, sin tocar existencias; bitácora
+   `order.settle_accessory_unbacked {lineId, accessoryId, quantity}` UNA por renglón, fuera de la tx. Un paquete se
+   recupera entero o nada.
+6. **El settle/soltar del webhook deciden con los renglones leídos ANTES** (`include: { accessoryLines: { select: { id } } }`):
+   nacen en la sesión, antes del pago, así que esa lectura los ve todos. Sin renglones ⇒ el camino de hoy, literal.
+7. **Reponer al reembolso total** corre en la pasada de `closeShipmentsOnFullRefund` (M3 tx1 y `charge.refunded`), con la
+   orden `settled|refunded` y `afterShipment = false` bajo los candados; idempotente por el CAS `sold → restocked`. ⚠️ En
+   M3 eso es al PEDIR el reembolso (tx1), igual que el cierre del envío: si Stripe lo rechaza después, las unidades ya
+   volvieron al estante. Mismo momento que el contrato fija («en `closeShipmentsOnFullRefund`»).
+8. **`PATCH …/prep-accessory-lines`:** `400 {field}` de forma ANTES de leer; `missingQty > quantity` (o `≠ 1` en paquete) es
+   `400 {field:'missingQty', max}` DESPUÉS de leer la línea (necesita su cantidad). Bitácora con `before` y `after`.
+9. **Verbo de entregado:** las guardas bajo candado son `accessoryDeliveredRefundOf` (el MISMO cuerpo que la vista de M3):
+   `order_not_settled|not_delivered ⇒ 409 ITEM_REFUND_NOT_AVAILABLE {reason}`; `fully_refunded ⇒ 409
+   ACCESSORY_REFUND_EXCEEDS {refundableQty: 0}`; `bundle_requires_deck ⇒ 409 BUNDLE_REFUND_REQUIRES_DECK`; paquete con
+   `quantity ≠ 1 ⇒ 400 {field:'quantity'}`. Candados: envíos → `Order` → renglón (`FOR UPDATE`).
+10. **AV-12 de accesorio:** el nombre lo arma el libro («Penny sleeves ×1»; «Paquete de energías — <deck> ×1»); la
+    plantilla no cambia.
+11. **Correos de pedido (AV-2 y confirmación de invitado):** renglones sin foto (§AC.19.1). El esqueleto de marca SÍ lleva
+    su `<img>` del logotipo (`mail-shell`): la prueba compara el número de `<img>` con el mismo correo sin accesorios.
+12. **Analítica:** `byProductType.accessory`; peso del reparto = `unitPriceCents × quantity` del renglón; `pieces` =
+    unidades + 1 por paquete, también en `totals.pieces`.
+
+#### 83.B.2 Pruebas (escritas ANTES del código)
+| Prueba (§AC.14 / §AC.19.7) | Fichero | Antes del código | Después |
+|---|---|---|---|
+| AC-B24, AC-B25 (snapshot), AC-B45 (filtro) — tabla de la caja | `test/accessories-b.box-fit.spec.ts` (19) | 19 rojas (stub con la firma) | 19/19 |
+| AC-B56 (puro), AC-B12, apartado único, reuso | `test/accessories-b.cart-allocation.spec.ts` (12) | 12 rojas | 12/12 |
+| §AC.4 DTO, AC-B10 (whitelist), 749 (422 con cuenta) | `test/accessories-b.checkout-dto.spec.ts` (17) | no compila (TS2339: el DTO no declaraba los campos) | 17/17 |
+| AC-B60 (llaves exactas), AC-B55 (foto vigente), importes por cantidad, `deliveredRefund`, correo sin foto | `test/accessories-b.order-lines-view.spec.ts` (16) | la suite no corre (stub lanza) | 16/16 |
+| AC-B37 censo con canario | `test/accessories-b.release-census.spec.ts` (20) | 17 rojas / 3 verdes (canarios + «no ciego») | 20/20 |
+| AC-B10, B11, B12, B13, B14, B15, B16+749, B24/B25/B45/B46, B32, B33, B34, B38, B43, B44, B56, B57 | `test/integration/accessories-checkout.e2e-spec.ts` (34) | 33 rojas / 1 verde (CONTROL: sesión válida en la ruta de invitado ⇒ 409, ya existía) | 34/34 |
+| AC-B18, B19, B20, B21, B22, B35, B41, B42, B52, B55, B58, B59, B60 | `test/integration/accessories-prep-refunds.e2e-spec.ts` (18) | 18 rojas | 18/18 |
+| AC-B17, AC-B46 (guía con otra caja) | `test/integration/accessories-label-quote.e2e-spec.ts` (3) | 2 rojas / 1 verde (CONTROL: directo sin accesorios) | 3/3 |
+| AC-B26, AC-B27 | `test/integration/accessories-pnl-analytics.e2e-spec.ts` (4) | 4 rojas | 4/4 |
+
+- Antes, medido: unitarias **48 rojas / 3 verdes de 51** más 2 suites que no corrían (33 pruebas); integración **57 rojas / 2
+  verdes de 59** (los 2 verdes son CONTROLES de conducta que ya existía). Logs en el scratchpad (`before-unit.log`,
+  `before-int.log`).
+- **Dos pruebas mías corregidas antes del verde (premisa, no debilitamiento):** (a) «el correo no lleva `<img`»: el esqueleto
+  de marca (`buylist/mail-shell`) trae el logotipo; ahora compara el número de `<img>` con el mismo correo sin accesorios y
+  exige que no haya `/photo/`. (b) El censo AC-B37 (2) aceptaba solo nombres de tabla; ahora acepta también el cuerpo único
+  que lee los renglones (`releaseAccessoryReservations`, `settleAccessories`, `restockAccessoriesOnFullRefund`,
+  `accessoryInsuredCents`, `expiredAccessoryOrderIds`) — el canario sigue mordiendo.
+- **AC-B33 corregida tras medir** (ver 83.B.1 (1)): aceptaba solo `409`; en 1 de 10 rondas el perdedor recibió `422
+  ENERGY_BUNDLE_INVALID {reason:'insufficient_stock'}`, también del contrato. El predicado exige además `reserved=8`.
+- **Pruebas heredadas ajustadas por norma (§AC.15):** dobles de Prisma ganan `orderAccessoryLine`/`shipmentAccessoryLine`
+  (`m61-mock-defaults.ts`, `guest-checkout.session|guard-sweep-mail`, `orders.reservation`, `orders.reservation-owner`);
+  `guest-checkout.tracking` (allowlist + `accessoryLines`, aditivo §AC.19.6); `sales-analytics.e2e` AN-B-21 (+ celda
+  `accessory`); `refunds.candados` C-REF-1 (`order-refund.service.ts` 2 ⇒ 3 llamadores de `createRows`: el verbo que §AC.10
+  (2) nombra).
+
+#### 83.B.3 Carreras (N=10, O-3)
+| Carrera | Corridas × N | Resultado |
+|---|---|---|
+| AC-B13 última unidad (2 sesiones, `stockQty=1`) | 4 × 10 | **40/40**: una `201`, una `409 ACCESSORY_INSUFFICIENT_STOCK`, `reservedQty=1`, 1 renglón |
+| AC-B33 paquete (8 «Fuego», 2 sesiones de 8) | 4 × 10 | **40/40** una gana y `reservedQty=8`; el código del perdedor: `409` en 39/40, `422 ENERGY_BUNDLE_INVALID/insufficient_stock` en 1/40 (83.B.1 (1)) |
+| AC-B22 entregado sobre la última unidad (2 actos) | 3 × 10 | **30/30**: una `201`, una `409 ACCESSORY_REFUND_EXCEEDS`, `refundedQty=1`, 1 fila |
+
+Carga durante las corridas: 4–8 (4 CPU), con otros agentes. Más una corrida final sobre `git archive 1ae3c21` (esquema `acc_b_mut`): AC-B13 10/10, AC-B33 10/10 (perdedor `409` en las 10), AC-B22 10/10. **Totales: AC-B13 50/50, AC-B33 50/50 (perdedor `409` 49/50, `422 insufficient_stock` 1/50), AC-B22 40/40.**
+
+#### 83.B.4 Mutaciones
+Copia del árbol ENTERO (`git archive 1ae3c21`, `node_modules` enlazado), esquema propio `acc_b_mut`; una corrida por
+mutación (las carreras, N=10 dentro de la prueba). **15/15 rojas:**
+
+| Mutación | Prueba que la muerde | Resultado |
+|---|---|---|
+| **(1)** quitar `AND "stockQty" − "reservedQty" ≥ q` del apartado | AC-B13 | **0/10** verdes (10/10 rojas): el perdedor recibe `500` — el CHECK `accessory_stock` es la segunda red (nunca dos apartados), el `WHERE` es lo que da el `409` limpio |
+| **(2)** no comparar `expectedRefundCents` en el verbo de renglón | AC-B52 | rojo (cero filas con `A−1` ya no se cumple) |
+| **(3)** contar el costo del paquete dos veces en el P&L | AC-B26 | 2 rojas |
+| quitar `status = 'reserved'` del soltar | AC-B14 «dos soltadas» | rojo |
+| quitar `afterShipment = false` de la reposición | AC-B20 «ENVIADO» | rojo |
+| sueltos antes que paquetes en `quote` | AC-B56 (unitaria: 2; integración: 1) | rojo |
+| sumar renglones a `ShipPreparationCounts.total` | AC-B59 (en AC-B18) | rojo |
+| foto con `snapshot.photoVersion` | AC-B55 (unitaria: 2; integración M3/seguimiento: 1) | rojo |
+| `spread` de la fila en `OrderAccessoryLineDTO` | AC-B60 | 4 rojas |
+| quitar `releaseAccessoryReservations` del pago fallido | AC-B37 (censo por fichero) y AC-B14 `payment_failed` | rojo |
+| quitar el filtro `category ≠ energy` de la caja | AC-B45 | rojo |
+| quitar el término de accesorios de `refundPreviewCents` (el plan lo sigue sumando) | AC-B41 | rojo |
+
+#### 83.B.5 Suites
+- **Antes (pruebas que fallan, sobre `4dd5649` + pruebas nuevas):** unitarias de (B) 48 rojas / 3 verdes de 51, y 2 suites que
+  ni corrían (33 pruebas, módulos inexistentes); integración 57 rojas / 2 verdes (los dos testigos) de 59.
+- **Después:** unitarias de (B) 84/84; integración de (B) 59/59.
+- **Unitaria ENTERA sobre `git archive 1ae3c21` (árbol entero, sin env de PII):** 454/454 suites, 8243/8243 pruebas.
+- **Integración de los módulos tocados (41 suites) sobre la misma copia, esquema `acc_b_mut`:** 38/41 suites, 791 verdes /
+  19 rojas / 2 omitidas de 812. Las 3 rojas son de entorno, no de (B): `replacement-cases` PS-34 y `iva-price-convention`
+  leen `information_schema`/`pg_enum` sin filtrar esquema (excluidas por el encargo); `decks-meta-energy` (de C) supone que la
+  perilla del paquete NO tiene fila, y el `seed-e2e` sí la siembra (valor medido 2000) — aviso para (C)/arquitecto.
+
+#### 83.B.6 NO MEDIDO (y qué lo cierra)
+- **El stack levantado:** las pruebas son HTTP contra la app Nest real (harness) y Postgres real; ⛔ no levanté
+  `stack-native.sh` ni el frontend. El recorrido de punta a punta de 724/748/749 en pantalla: QA (E2E).
+- **Stripe real (modo prueba):** se usa el doble del arnés (PI, reembolsos, cancelación).
+- **Carta Porte con más de un concepto** (§AC.9): sin cambio en v1; sandbox de Skydropx.
+- **`decks-meta-energy.e2e-spec.ts` (de C) roja en mi esquema:** su `expect(dialExisted).toBe(false)` (línea 80) supone
+  que `energy_bundle_price_cents` no existe, y `seed-e2e` siembra todos los `SETTING_DEFAULTS` (medido: la fila existe con
+  `2000` en `acc_b`). Depende del orden de las suites, no de (B). Lo cierra C (o QA en BD limpia).
+- **Suites que leen el catálogo sin esquema** (`replacement-cases` PS-34 con `information_schema`, `iva-price-convention`
+  con `pg_enum`): rojas en un esquema que no es `public` por duplicados de otros esquemas; ⛔ no medidas aquí (instrucción
+  del orquestador).
+- **Integración completa (todas las suites):** NO MEDIDA; solo el subconjunto de módulos tocados (83.B.5).
+- **Rendimiento de `GET /admin/shipments/:id`:** ahora arma la vista de preparación (para `accessoryLines`) en cada detalle
+  directo; no medido con carga.
