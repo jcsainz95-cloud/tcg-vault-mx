@@ -1426,6 +1426,8 @@
       "gradedNoBulk": "El alta masiva no aplica a gradeadas: cada certificado (cert #) es único por pieza, así que las gradeadas se dan de alta una por una.",
       "createToastTitle": "Alta registrada",
       "createToast": "Pieza dada de alta · folio {folio}.",
+      "createToastListed": "Pieza dada de alta y a la venta · folio {folio}.",
+      "createToastNotListed": "Pieza dada de alta · folio {folio}. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar».",
       "multiSelect": "Seleccionar varias cartas (alta masiva)",
       "batchAdd": "Añadir al lote",
       "batchInLote": "En el lote",
@@ -1439,6 +1441,7 @@
       "batchToastTitle": "Alta masiva",
       "batchToastAllOk": "{created} cartas dadas de alta.",
       "batchToastPartial": "{created} creadas, {failed} con error. Revisa el detalle.",
+      "batchPublishNote": "Las que tienen precio quedan a la venta; si a alguna le falta, la encuentras en «Listas para publicar».",
       "batchReplay": "Reintento idempotente (no se duplicó).",
       "batchLine": "Carta {index}",
       "productType": "Tipo de producto",
@@ -5459,7 +5462,9 @@
         "certRequired": "Captura el número de certificado.",
         "price": "Precio de compra (MXN)",
         "cta": "Dar de alta al inventario",
-        "success": "Gradeada dada de alta · folio {folio}."
+        "success": "Gradeada dada de alta · folio {folio}.",
+        "successListed": "Gradeada dada de alta y a la venta · folio {folio}.",
+        "successNotListed": "Gradeada dada de alta · folio {folio}. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar»."
       }
     },
     "pricing": {

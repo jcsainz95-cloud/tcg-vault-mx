@@ -185,6 +185,8 @@ export function M1View() {
     void queryClient.invalidateQueries({ queryKey: ['sealed-sets'] });
     void queryClient.invalidateQueries({ queryKey: ['sealed-set-detail'] });
     void queryClient.invalidateQueries({ queryKey: ['graded-inventory'] });
+    // §SU-UX.6 (e): un alta (gradeada) puede dejar la pieza en «Listas para publicar»; prefijo ⇒ cubre M11 también.
+    void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
   }
 
   function drawerFromItem(item: InventoryItemDTO): DrawerState {
@@ -393,6 +395,7 @@ export function M1View() {
           card={addGraded.card}
           onClose={() => setAddGraded({ open: false })}
           onCreated={invalidateAggregates}
+          onToast={pushToast}
         />
       )}
 

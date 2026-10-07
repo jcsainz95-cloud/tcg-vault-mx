@@ -20547,3 +20547,28 @@ días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 defa
 - **`M1View`:** lee `?locations=open` con `useSearchParams` (no solo al montar: el enlace también se pulsa dentro de M1,
   donde la vista no se re-monta), abre `LocationsModal` y quita el parámetro con `replaceState`, como `tab`.
 - **Candados SU-UX-1…6:** `m1/SinUbicacion.su-ux.test.tsx`.
+
+### §106.2 · SU.8 — el aviso tras el alta dice si la pieza quedó a la venta (`DESIGN_SYSTEM §SU-UX.6–7` vSU-2, ux-ui `f18cf4ae`; `API_CONTRACT §M1-SU` SU.8.3–SU.8.5, SU-F2) — 2026-10-07
+
+- **Una pieza (`AddItemModal`, `AddGradedModal`):** decide el `status` del `201` (⛔ no el precio del formulario).
+  `listed` ⇒ `success` (`createToastListed` / `addGraded.successListed`); cualquier otro ⇒ `info`, `duration: 9000`
+  (`createToastNotListed` / `addGraded.successNotListed`). Título `admin.m1.createToastTitle` en los dos modales.
+- **`AddGradedModal`:** prop opcional nueva `onToast` (misma forma que la de `AddItemModal`, ahora con `'info'`);
+  `M1View` le pasa `pushToast`. `onCreated` se sigue llamando antes del aviso. El banner verde dentro del modal
+  (`addGraded.success`, «Gradeada dada de alta · folio …») **se conserva**: §SU-UX.6 la daba por no usada, pero
+  `AddGradedModal.tsx` la pinta tras el alta (medido por lectura). Por eso no se borra.
+- **`admin.m1.createToast` queda dormida.** Ninguna prueba la lee, pero no se borra en este pase (revertir = una línea).
+- **Lote:** `batchPublishNote` va **detrás** del texto de hoy, separada por un espacio, en `AddItemModal` (todo bien
+  → `success` y ahora `duration: 9000`; con fallos → `danger` como hoy) y en el **toast** de `QuickAdd`. El
+  resultado dentro del panel de `QuickAdd` no cambia.
+- **Refresco de la cola:** `invalidateQueries({ queryKey: ['pending-publish'] })` (prefijo, cubre M11) tras toda alta
+  correcta: `AddItemModal` (una y lote), `QuickAdd`, `M1View.invalidateAggregates` (gradeada; también corre tras
+  «Publicar todo» y cambios del drawer, donde también es correcto) y `MasterSetPanel.invalidateAggregates` (carrito
+  del binder y «encontrada» vía `onAdjusted`; sin candado propio).
+- **Mock** (`api.ts` `createInventoryItem`): `listed` si el alta trae `listPriceCents > 0` o si la carta ya tiene
+  `referenceValue.status === 'priced'` en `mockInventory` (p. ej. Charizard); si no, `in_stock`. Así se ven las dos
+  variantes en modo mock. `// MOCK` marcado.
+- **Prueba de hoy cambiada:** `M1View.test.tsx` P-4.3 buscaba el texto viejo exacto con `status:"in_stock"`; ahora
+  busca `createToastNotListed`.
+- **Candados SU-UX-7…11** (SU-UX-7 = SU-F2): `m1/AltaPublica.su-ux.test.tsx`. Deterministas (espías de `@/lib/api`).
+- **Fuera de este pase:** «encontrada» de `CellDrawer` sin aviso de éxito propio (como dice §SU-UX.6).

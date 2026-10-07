@@ -1426,6 +1426,8 @@
       "gradedNoBulk": "Bulk add doesn't apply to graded cards: each certificate (cert #) is unique per slab, so graded cards are added one at a time.",
       "createToastTitle": "Item added",
       "createToast": "Item added to the vault · folio {folio}.",
+      "createToastListed": "Item added and on sale · folio {folio}.",
+      "createToastNotListed": "Item added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”.",
       "multiSelect": "Select multiple cards (bulk add)",
       "batchAdd": "Add to batch",
       "batchInLote": "In batch",
@@ -1439,6 +1441,7 @@
       "batchToastTitle": "Bulk add",
       "batchToastAllOk": "{created} cards added.",
       "batchToastPartial": "{created} added, {failed} failed. Check the details.",
+      "batchPublishNote": "Those with a price go on sale; if any is missing one, you'll find it in “Ready to publish”.",
       "batchReplay": "Idempotent retry (no duplicates).",
       "batchLine": "Card {index}",
       "productType": "Product type",
@@ -5459,7 +5462,9 @@
         "certRequired": "Enter the certificate number.",
         "price": "Purchase price (MXN)",
         "cta": "Add to inventory",
-        "success": "Graded card added · folio {folio}."
+        "success": "Graded card added · folio {folio}.",
+        "successListed": "Graded card added and on sale · folio {folio}.",
+        "successNotListed": "Graded card added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”."
       }
     },
     "pricing": {
