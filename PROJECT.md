@@ -9512,6 +9512,32 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
   (`HECHOS.md` 2026-10-07, ambas filas: «sigue con la recomendación»): el aviso lo dice como parte del servicio
   («usamos tu lista, sin tu nombre, para decidir qué conseguir») y el dueño se lo pasa a su abogado junto con lo demás
   de §LEG. ⛔ product-owner no da asesoría legal.
+- **Texto exacto de la línea del aviso de privacidad (P-WSH-6, con la recomendación — `HECHOS.md` fila 2026-10-07
+  «P-WSH-1 aclarada y P-WSH-4 cerrada (lista de deseos)»: «P-WSH-6 (línea del aviso de privacidad) sigue con la
+  recomendación»).** Añadido 2026-10-07 por el hallazgo I-2 de QA sobre `503cf07` (en `frontend/src/content/legal/`
+  no hay ninguna mención de la lista de deseos; medido por QA, no por product-owner). Frontend lo copia **literal**
+  como un párrafo propio en las finalidades del aviso (§LEG.2 puntos 2–4); el lugar exacto dentro del aviso lo decide
+  frontend con ux-ui. Lo revisa el abogado del dueño junto con el resto de §LEG.
+  - **es:** «**Lista de deseos.** Si agregas cartas a tu lista de deseos, guardamos qué cartas son (y en qué
+    acabado), el porcentaje sobre el precio de mercado que elegiste como máximo para cada una y el correo de tu cuenta
+    para avisarte. Lo usamos para (i) avisarte por correo cuando
+    consigamos una de esas cartas, con su precio y si cabe en tu máximo, y (ii) saber qué cartas buscar para la
+    tienda. Para esto último usamos solo totales (cuántas personas buscan cada carta y hasta cuánto pagarían), sin tu
+    nombre ni tu correo. Puedes quitar una carta o dejar de recibir estos avisos desde cualquiera de esos correos, sin
+    entrar a tu cuenta, o desde "Mi cuenta". Si borras tu cuenta, tu lista se borra.»
+  - **en:** «**Wishlist.** If you add cards to your wishlist, we store which cards they are (and in which finish),
+    the percentage over market price you chose as your maximum for each one, and your account email so we can notify
+    you. We use this to (i) email you when we get one of
+    those cards, with its price and whether it fits your maximum, and (ii) know which cards to look for for the
+    store. For the latter we only use totals (how many people want each card and up to how much they would pay),
+    without your name or email. You can remove a card or stop these notices from any of those emails, without
+    signing in, or from "My account". If you delete your account, your wishlist is deleted.»
+  - Cada afirmación del texto sale de esta sección, no se añade nada: qué se guarda (WSH.2–WSH.3, correo de la cuenta
+    por WSH.4; borrado con la cuenta, WSH.2), los dos usos (WSH.4 y WSH.6, `HECHOS.md` 2026-10-07 «P-WSH-1 aclarada…»: «señal de compra para el
+    dueño»), solo totales sin nombre ni correo (WSH.6 «Privacidad: el dueño ve CONTEOS», criterio 821) y la baja sin
+    entrar (WSH.5, criterio 814). *(SUPUESTO: «Mi cuenta» es el nombre visible de la sección de perfil; si la pantalla
+    usa otro, frontend pone ese nombre y deja el resto literal.)* **No** se promete plazo de conservación (P-LEG-11
+    sigue abierta).
 
 #### WSH.6 La vista del dueño: «Lista de compra casi segura»
 
@@ -14099,13 +14125,24 @@ de esa respuesta)**
    identificador de cliente; solo conteos y cifras por nivel.
 822. **Exportable** *(§WSH.6)*: el archivo trae las mismas filas y cifras que la pantalla con el orden activo.
 823. **«Avísame cuando vuelva» de sellados, encendido y completo** *(§WSH.7, decidido; sustituye al criterio 64 para
-   el «avísame»)*: con el dial en `on` tras el despliegue, un visitante se apunta en la ficha de un sellado agotado;
-   el sellado vuelve a la venta; **sin que nadie apriete nada en el admin**, el visitante recibe **un** correo con
-   enlace que abre la ficha de ese sellado. Apuntarse dos veces con el mismo correo da **un** correo. Al volver a
-   agotarse y volver otra vez, no recibe un segundo correo (aviso de una sola vez). La ficha de un sellado **no**
-   muestra el botón de lista de deseos. Con el dial en `off`, el formulario no aparece y no sale ningún correo.
-824. **Aviso de privacidad al día** *(§WSH.5, P-WSH-6 con la recomendación)*: antes de encender la lista de deseos, el
-   aviso menciona el dato (qué cartas quiere el cliente) y su uso (avisarle y decidir qué comprar, sin su nombre); el
+   el «avísame»; `HECHOS.md` 2026-10-07 «Respuestas a P-WSH-1…6»: «Sí enciende el avísame cuando vuelva»)*: con el
+   dial en `on` tras el despliegue, un visitante se apunta en la ficha de un sellado **a la venta** (la ficha de un
+   sellado agotado no existe hoy: QA midió 404 con la pieza en `in_custody`, hallazgo I-3 sobre `503cf07`); ese
+   sellado **se agota** (deja de haber piezas a la venta) y luego **vuelve a la venta**; **sin que nadie apriete nada
+   en el admin**, el visitante recibe **un** correo con enlace que abre la ficha de ese sellado. Si el sellado vuelve
+   a tener piezas **sin haberse agotado antes** (p. ej. se suma una pieza más mientras sigue a la venta), **no** sale
+   ningún correo. Apuntarse dos veces con el mismo correo da **un** correo. Al volver a agotarse y volver otra vez,
+   no recibe un segundo correo (aviso de una sola vez). La ficha de un sellado **no** muestra el botón de lista de
+   deseos. Con el dial en `off`, el formulario no aparece y no sale ningún correo.
+   ⏳ **Pendiente de confirmar por el dueño: Q-WSH-1** (`docs/ARCHITECTURE.md` §WSH, «¿Hace falta que un cliente se
+   pueda apuntar a un sellado que ya se agotó?», recomendación «no por ahora»). Esta redacción sigue la
+   recomendación; si el dueño responde «sí», este criterio se reescribe y apuntarse en un sellado agotado pasa a ser
+   alcance nuevo.
+824. **Aviso de privacidad al día** *(§WSH.5, P-WSH-6 con la recomendación — `HECHOS.md` 2026-10-07 «P-WSH-1 aclarada
+   y P-WSH-4 cerrada (lista de deseos)»: «P-WSH-6 (línea del aviso de privacidad) sigue con la recomendación»)*:
+   antes de encender la lista de deseos, la página del aviso de privacidad (criterio 500), en es y en en, contiene el
+   párrafo «Lista de deseos» **con el texto literal de §WSH.5** (solo cambia el nombre de «Mi cuenta» si la pantalla
+   usa otro). Se verifica abriendo `/es/privacidad` y su equivalente en inglés sin sesión y buscando el párrafo. El
    criterio 502 se amplía a recorrer también el botón de la lista de deseos.
 825. **El correo dice si cabe, y la pieza sale a precio normal** *(§WSH.4)*: con dos cuentas al 5 % y al 16 % y una
    pieza cuyo precio con IVA queda entre ambos máximos, la del 16 % recibe «cabe en tu máximo» y la del 5 % «está
