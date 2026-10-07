@@ -13,18 +13,33 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 const NOW = new Date('2030-01-01T12:00:00.000Z');
 const MIN = 60_000;
 
-function build(opts: { flag?: string; pending?: any[]; available?: any[]; prices?: Record<string, number>; locked?: boolean } = {}) {
+function build(
+  opts: { flag?: string; pending?: any[]; available?: any[]; prices?: Record<string, number>; locked?: boolean; orphans?: any[] } = {},
+) {
   const updates: { where: any; data: any }[] = [];
+  const calls: string[] = [];
+  // Una sola `$queryRaw` para las dos transacciones: el candado (`pg_try_advisory_xact_lock`) y la reconciliación (g) v1.87.4,
+  // que devuelve `opts.orphans` (huérfanas con su `n = |D|` y `pid`). El ciclo real de (g) lo mide WSH-T44 (integración).
+  const $queryRaw = jest.fn(async (strings: TemplateStringsArray) => {
+    if (strings.join('?').includes('pg_try_advisory_xact_lock')) return [{ locked: opts.locked ?? true }];
+    calls.push('reconcile');
+    return opts.orphans ?? [];
+  });
   const prisma: any = {
     sealedRestockSubscription: {
-      findMany: jest.fn(async () => opts.pending ?? []),
+      findMany: jest.fn(async (a: any) => {
+        calls.push(a?.select ? 'stay' : 'pending');
+        return a?.select ? [] : (opts.pending ?? []);
+      }),
+      deleteMany: jest.fn(async () => ({ count: 0 })),
       updateMany: jest.fn(async (a: any) => {
         updates.push(a);
         return { count: Array.isArray(a.where.id?.in) ? a.where.id.in.length : 1 };
       }),
     },
     inventoryItem: { findMany: jest.fn(async () => opts.available ?? []) },
-    $transaction: jest.fn(async (fn: any) => fn({ $queryRaw: jest.fn(async () => [{ locked: opts.locked ?? true }]) })),
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    $queryRaw,
   };
   const settings = {
     getString: jest.fn(async () => opts.flag ?? 'off'),
@@ -37,7 +52,7 @@ function build(opts: { flag?: string; pending?: any[]; available?: any[]; prices
     ),
   } as unknown as CatalogService;
   const svc = new SealedRestockNotifyService(prisma as PrismaService, settings, mail, catalog, { now: () => NOW });
-  return { prisma, settings, mail, svc, updates };
+  return { prisma, settings, mail, svc, updates, calls };
 }
 
 const sub = (over: any) => ({
@@ -136,6 +151,31 @@ describe('SealedRestockNotifyService (§WSH.7)', () => {
     expect(msg.html).toContain('Box &lt;script&gt;alert(1)&lt;/script&gt; &quot;X&quot; &amp; Y');
     expect(msg.text).toContain(hostil);
     expect(msg.subject).toContain(hostil);
+  });
+
+  it('(g) v1.87.4: la reconciliación corre ANTES de leer las pendientes; huérfana con destino único ⇒ re-apunta y desarma', async () => {
+    const orphan = { id: 's9', email: 'a@b.com', cardId: 'c1', sealedSubtype: 'box', sealedCondition: 'mint', createdAt: NOW, n: 1, pid: 100 };
+    const { svc, calls, updates } = build({ flag: 'on', pending: [], orphans: [orphan] });
+    await svc.run();
+    expect(calls).toEqual(['reconcile', 'stay', 'pending']);
+    expect(updates[0]).toEqual({
+      where: { id: { in: ['s9'] }, notifiedAt: null },
+      data: { tcgplayerProductId: 100, armedAt: null, matchedAt: null },
+    });
+  });
+
+  it('(g) v1.87.4: huérfanas ambiguas (|D| = 0 o ≥ 2) ⇒ ni se re-apuntan ni se borran', async () => {
+    const o = (id: string, n: number) => ({ id, email: 'a@b.com', cardId: 'c1', sealedSubtype: 'box', sealedCondition: 'mint', createdAt: NOW, n, pid: null });
+    const { svc, prisma, updates } = build({ flag: 'on', pending: [], orphans: [o('s1', 0), o('s2', 2)] });
+    await svc.run();
+    expect(updates).toEqual([]);
+    expect(prisma.sealedRestockSubscription.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('dial OFF ⇒ tampoco reconcilia (el job es no-op)', async () => {
+    const { svc, calls } = build({ flag: 'off', orphans: [{ id: 's9', n: 1, pid: 1 }] });
+    await svc.run();
+    expect(calls).toEqual([]);
   });
 
   it('sin suscripciones pendientes → notified 0 (no consulta inventario)', async () => {

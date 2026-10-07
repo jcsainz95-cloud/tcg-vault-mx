@@ -92,6 +92,8 @@ export class SealedRestockNotifyService {
 
   private async matchAndNotify(): Promise<{ notified: number; armed: number; mails: number }> {
     const now = (this.clock ?? systemWishlistClock).now();
+    // (g) v1.87.4: ANTES de leer las pendientes y de armar/emparejar, con el candado ya tomado.
+    await this.reconcileOrphans();
     const pending = await this.prisma.sealedRestockSubscription.findMany({
       where: { notifiedAt: null },
       include: { card: { select: { name: true } } },
@@ -167,6 +169,104 @@ export class SealedRestockNotifyService {
     }
     this.logger.log(`sealed-restock-notify: ${toArm.length} armadas, ${notified} notificadas en ${mails} correo(s).`);
     return { notified, armed: toArm.length, mails };
+  }
+
+  /**
+   * (g) v1.87.4⟨wishlist⟩ (API_CONTRACT §WSH.7 (g), ARCHITECTURE §4.WSH (m)) — re-apunta las suscripciones PENDIENTES
+   * HUÉRFANAS (su clave ya no la tiene ninguna pieza sellada) a su destino ÚNICO. El mapeo de las piezas cambia después de
+   * apuntarse (`PUT /admin/pricing/sealed/items/:itemId/mapping`: mapear, re-mapear o desmapear, con o sin hermanas) y una
+   * fila huérfana no casaría nunca. Se lee el ESTADO, no el evento: cubre cualquier escritor de `tcgplayerProductId`.
+   *
+   *  - Huérfana: `p:` sin ninguna pieza sellada con su `tcgplayerProductId`; `c:` sin ninguna pieza sellada de su
+   *    `(cardId, sealedSubtype)` con `tcgplayerProductId IS NULL`. Una fila NO huérfana no se toca nunca.
+   *  - Destino `D` = valores distintos de `tcgplayerProductId` de las piezas selladas de su `(cardId, sealedSubtype)`, con
+   *    `NULL` contando como un valor. `|D| = 1` ⇒ se re-apunta; `|D| = 0` o `≥ 2` ⇒ intacta (no se adivina).
+   *  - Re-apuntar reinicia `armedAt` y `matchedAt` (el armado viejo se ganó mirando la clave vieja: conservarlo podría mandar
+   *    un «¡Volvió!» falso). El armado de esta misma corrida la evalúa ya con la clave nueva.
+   *  - Choque (mismo correo y misma clave nueva que otra pendiente que no se re-apunta, o que otra re-apuntada más antigua por
+   *    `(createdAt, id)`) ⇒ la re-apuntada se BORRA: una pendiente por correo e identidad.
+   *  - Una transacción para borrados y re-apuntados. Log de tres cifras, ⛔ sin correos. ⛔ `pricing` no toca esta tabla.
+   */
+  private async reconcileOrphans(): Promise<void> {
+    const out = await this.prisma.$transaction(async (tx) => {
+      const orphans = await tx.$queryRaw<
+        {
+          id: string;
+          email: string;
+          cardId: string;
+          sealedSubtype: string | null;
+          sealedCondition: string;
+          createdAt: Date;
+          n: number;
+          pid: number | null;
+        }[]
+      >`
+        WITH orphan AS (
+          SELECT s."id", s."email", s."cardId", s."sealedSubtype", s."sealedCondition"::text AS "sealedCondition", s."createdAt"
+          FROM "SealedRestockSubscription" s
+          WHERE s."notifiedAt" IS NULL AND (
+               (s."tcgplayerProductId" IS NOT NULL AND NOT EXISTS (
+                  SELECT 1 FROM "InventoryItem" ii
+                  WHERE ii."productType"::text = 'sealed' AND ii."tcgplayerProductId" = s."tcgplayerProductId"))
+            OR (s."tcgplayerProductId" IS NULL AND NOT EXISTS (
+                  SELECT 1 FROM "InventoryItem" ii
+                  WHERE ii."productType"::text = 'sealed' AND ii."cardId" = s."cardId"
+                    AND ii."sealedSubtype" IS NOT DISTINCT FROM s."sealedSubtype" AND ii."tcgplayerProductId" IS NULL)))),
+        dest AS (
+          SELECT o."id",
+                 (count(DISTINCT ii."tcgplayerProductId") + max(CASE WHEN ii."tcgplayerProductId" IS NULL THEN 1 ELSE 0 END))::int AS n,
+                 min(ii."tcgplayerProductId") AS pid
+          FROM orphan o
+          JOIN "InventoryItem" ii ON ii."productType"::text = 'sealed' AND ii."cardId" = o."cardId"
+                                 AND ii."sealedSubtype" IS NOT DISTINCT FROM o."sealedSubtype"
+          GROUP BY o."id")
+        SELECT o."id", o."email", o."cardId", o."sealedSubtype"::text AS "sealedSubtype", o."sealedCondition", o."createdAt",
+               COALESCE(d.n, 0)::int AS n, d.pid
+        FROM orphan o LEFT JOIN dest d ON d."id" = o."id"
+        ORDER BY o."createdAt" ASC, o."id" ASC`;
+      const movable = orphans.filter((o) => o.n === 1);
+      const intact = orphans.length - movable.length;
+      if (movable.length === 0) return { repointed: 0, deleted: 0, intact };
+
+      const newKey = (o: (typeof movable)[number]) =>
+        sealedIdentityKey({ tcgplayerProductId: o.pid, cardId: o.cardId, sealedSubtype: o.sealedSubtype, sealedCondition: o.sealedCondition });
+      // Claves pendientes de esos correos que NO se re-apuntan en esta corrida (las que ganaron su `armedAt` con esa clave).
+      const stay = await tx.sealedRestockSubscription.findMany({
+        where: { notifiedAt: null, email: { in: [...new Set(movable.map((o) => o.email))] }, id: { notIn: movable.map((o) => o.id) } },
+        select: { email: true, tcgplayerProductId: true, cardId: true, sealedSubtype: true, sealedCondition: true },
+      });
+      const taken = new Set(stay.map((s) => `${s.email}\u0000${sealedIdentityKey(s)}`));
+      const toDelete: string[] = [];
+      const toRepoint = new Map<number | null, string[]>();
+      for (const o of movable) {
+        // `movable` viene ordenado por (createdAt, id): la primera re-apuntada de un correo y clave es la que se queda.
+        const k = `${o.email}\u0000${newKey(o)}`;
+        if (taken.has(k)) {
+          toDelete.push(o.id);
+          continue;
+        }
+        taken.add(k);
+        toRepoint.set(o.pid, [...(toRepoint.get(o.pid) ?? []), o.id]);
+      }
+      let deleted = 0;
+      if (toDelete.length > 0) {
+        deleted = (await tx.sealedRestockSubscription.deleteMany({ where: { id: { in: toDelete }, notifiedAt: null } })).count;
+      }
+      let repointed = 0;
+      for (const [pid, ids] of toRepoint) {
+        repointed += (
+          await tx.sealedRestockSubscription.updateMany({
+            where: { id: { in: ids }, notifiedAt: null },
+            data: { tcgplayerProductId: pid, armedAt: null, matchedAt: null },
+          })
+        ).count;
+      }
+      return { repointed, deleted, intact };
+    });
+    this.logger.log(
+      `sealed-restock-notify: reconciliación de mapeo — ${out.repointed} re-apuntadas, ${out.deleted} borradas por choque, ` +
+        `${out.intact} huérfanas intactas.`,
+    );
   }
 
   /**
