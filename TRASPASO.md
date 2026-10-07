@@ -41,18 +41,28 @@ especial las reglas **O-1…O-27**, «Cómo se publica» y «Reparto de modelos�
 | Rama | HEAD | Qué trae | Estado | Lo que falta |
 |---|---|---|---|---|
 | `claude/limpieza-db` | `773746d2` | PR **#80**, limpieza de la base v2.1 (también borra el inventario; conserva fotos, usuarios y catálogo) | **Lista**: CI 77/77, QA + techlead + seguridad aprobados | Que el dueño la fusione. Después, correrla con sus datos previos (P-S6-LIMP-RUN) |
-| `claude/accesorios` | `1a5f8c04` + lo que entregue el arquitecto | §AC: accesorios + energías (MX$5) + paquete de energías del Meta Battle Deck (MX$20) | PO aprobable; **arquitecto lanzado en la sesión 6** | Ver §3 |
-| `claude/wishlist` | `c36f0dea` + lo que entregue el arquitecto | §WSH: lista de deseos (20 por cuenta) + lista de compra del dueño + «avísame» de sellados automático | PO aprobable; **arquitecto lanzado en la sesión 6** | Ver §3 |
+| `claude/accesorios` | **`c7cc8a90`** | §AC: accesorios + energías (MX$5) + paquete de energías del Meta Battle Deck (MX$20). Contrato v1.86⟨accesorios⟩ y M-73 (`20261026120000_m73_accessories`) **diseñados** | PO + arquitecto hechos | Ver §3 |
+| `claude/wishlist` | **`34712c2f`** | §WSH: lista de deseos (20 por cuenta) + lista de compra del dueño + «avísame» de sellados automático. Contrato v1.87⟨wishlist⟩ y M-74 (`20261027120000_m74_wishlist`) **diseñados** | PO + arquitecto hechos | Ver §3 |
 | `claude/traspaso-s6` | ver `git log` | Estos documentos: reglas O-21…O-27, recuento de PENDIENTES, fila de entorno en HECHOS | PR de solo documentos | Que el dueño la fusione |
 
 ## 3 · Qué haces primero
 
-1. **Los dos arquitectos de la sesión 6.** Mira si su trabajo quedó commiteado: `git log origin/claude/accesorios`
-   y `origin/claude/wishlist` buscando un commit `docs(arquitecto)` posterior a los HEAD del §2.
-   - **Si está:** verifica las reservas (O-24): accesorios M-73/v1.86, wishlist M-74/v1.87. Sigue con ux-ui, y
-     después backend ∥ frontend con la prueba que falla primero (modelo fuerte en todo lo que toca dinero:
-     checkout, orders, payments e inventory).
-   - **Si no está:** re-lanza al arquitecto con el encargo de `PENDIENTES.md` P-S6-ACC / P-S6-WSH.
+1. **Accesorios y wishlist: el diseño está hecho y commiteado** (`c7cc8a90` y `34712c2f`). Lo que sigue en cada uno:
+   - **Primero, el product-owner** cierra las contradicciones que encontró el arquitecto de accesorios entre
+     `PROJECT.md` y `HECHOS.md` (`D-AC-1…3`: cuenta frente a solo invitado; reembolso del paquete; energías en la
+     sugerencia). Manda HECHOS.
+   - **Preguntas abiertas al dueño**, cada una con recomendación y ya cableada con ella en el contrato:
+     - accesorios: P-AC-1…5 (`API_CONTRACT §AC.16`);
+     - wishlist: Q-WSH-1 («avísame» a sellado agotado; recomendación: no por ahora) y Q-WSH-2 (¿pide cuenta?;
+       recomendación: no).
+     Pregúntalas en llano y con ejemplo (O-27). No bloquean empezar.
+   - **ux-ui**, después **backend ∥ frontend**, con la prueba que falla primero (AC-B1…B40/F1…F15, WSH-T1…T30/F1…F5).
+     El modelo fuerte va en todo lo que toca dinero.
+   - **Zonas compartidas** (`schema.prisma`, settings, scheduler, contrato, checkout): las dos ramas las tocan, así
+     que **se serializan**. M-73 (accesorios) va antes que M-74 (wishlist); las carpetas ya tienen fechas en ese
+     orden.
+   - Devops: `sharp` en la imagen del backend (fotos de accesorios). Que Railway lo instale: NO MEDIDO.
+   - NO MEDIDO por el arquitecto de wishlist: que producción tenga `REDIS_URL`. Sin él no corre el envío automático.
 2. **#80:** si el dueño ya la fusionó, prepara con él la corrida de la limpieza (P-S6-LIMP-RUN). Pídele solo lo que
    esa fila lista y nada más (O-6).
 3. **Cobro en real (P-S6-LIVE):**
