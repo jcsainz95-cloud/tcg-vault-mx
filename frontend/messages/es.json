@@ -1529,7 +1529,10 @@
         "note": "Nota (opcional)",
         "action": "Mover",
         "success": "Item movido a {label}.",
-        "error": "No se pudo mover el item."
+        "error": "No se pudo mover el item.",
+        "noTargets": "No hay ubicaciones de stock creadas. No hacen falta para vender; si quieres ordenar el stock, créalas en Inventario › Ubicaciones.",
+        "noOtherTarget": "Esta es la única ubicación de stock. Para moverla, crea otra en Inventario › Ubicaciones.",
+        "manageLocations": "Ir a Ubicaciones"
       },
       "mark": {
         "title": "Marcar pérdida / daño",
@@ -1593,7 +1596,8 @@
         "pendingPriceLink": "Ver en la cola de precio pendiente",
         "sealedMark": "SELLADO",
         "sealedUnidentified": "Sellado sin identificar",
-        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. Solo el producto sellado admite aquí un precio a mano, antes de IVA.",
+        "note": "Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. El sellado sí: si la pieza está ligada a un producto, pones el precio del producto, con IVA, y vale para todas sus piezas; si no lo está, pones el precio de esa pieza, antes de IVA.",
+        "openHint": "Pulsa un folio para abrir la pieza y ver lo que puedes hacer con ella.",
         "openPiece": "Abrir la pieza {folio}",
         "basis": {
           "manual": "a mano, antes de IVA",

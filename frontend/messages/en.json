@@ -1529,7 +1529,10 @@
         "note": "Note (optional)",
         "action": "Move",
         "success": "Item moved to {label}.",
-        "error": "We couldn't move the item."
+        "error": "We couldn't move the item.",
+        "noTargets": "There are no stock locations yet. They aren't needed to sell; if you want to organize stock, create them in Inventory › Locations.",
+        "noOtherTarget": "This is the only stock location. To move it, create another one in Inventory › Locations.",
+        "manageLocations": "Go to Locations"
       },
       "mark": {
         "title": "Mark lost / damaged",
@@ -1593,7 +1596,8 @@
         "pendingPriceLink": "See in the pending price queue",
         "sealedMark": "SEALED",
         "sealedUnidentified": "Unidentified sealed product",
-        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Only sealed product accepts a hand-set price here, before VAT.",
+        "note": "This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Sealed is the exception: if the item is linked to a product, you set the product's price, VAT included, and it applies to all its items; if it isn't, you set that item's price, before VAT.",
+        "openHint": "Click a folio to open the item and see what you can do with it.",
         "openPiece": "Open item {folio}",
         "basis": {
           "manual": "set by hand, before VAT",

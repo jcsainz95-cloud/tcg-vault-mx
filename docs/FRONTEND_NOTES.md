@@ -20530,3 +20530,20 @@ días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 defa
   (depende de que la semilla E2E de backend deje ≥1 pieza en la cola: SU.6 «Semilla E2E», del lado backend).
 - **Pendiente segunda vuelta:** los textos de ux-ui (`es.json` «antes de IVA», avisos de cajones vacíos,
   descubribilidad del folio) cuando `DESIGN_SYSTEM.md` los publique.
+
+### §106.1 · Segunda vuelta — textos y descubribilidad de `DESIGN_SYSTEM §SU-UX` (ux-ui `11a6d98b`) — 2026-10-07
+
+- **Textos (ES/EN):** `publishQueue.note` (2.ª frase nueva: sellado ligado «con IVA», suelto «antes de IVA»; la
+  1.ª igual), claves nuevas `publishQueue.openHint`, `move.noTargets`, `move.noOtherTarget`, `move.manageLocations`.
+  Las dormidas de SU-UX.2 se conservan.
+- **Cola:** folio subrayado siempre (`underline decoration-border … hover:decoration-current`) y `openHint` bajo el
+  subtítulo solo con filas.
+- **Ficha (`ItemDetailModal`):** sin destino para «Mover» ⇒ en lugar de `Select` + nota + «Mover», el aviso
+  (`noTargets` si no existe ninguna `platform_stock` activa; `noOtherTarget` si la pieza ya está en la única) y el
+  enlace «Ir a Ubicaciones» a `/admin/m1?locations=open` (cierra la ficha al pulsar). Prop nueva opcional
+  `locationsReady` (por defecto `true`): con `false` se pinta el selector de siempre, ⛔ un «no hay ubicaciones» que es
+  «no sé». La cola le pasa `locations.isSuccess`; los demás llamadores (VariantDrawer, M11, MasterSetPanel) no se
+  tocaron.
+- **`M1View`:** lee `?locations=open` con `useSearchParams` (no solo al montar: el enlace también se pulsa dentro de M1,
+  donde la vista no se re-monta), abre `LocationsModal` y quita el parámetro con `replaceState`, como `tab`.
+- **Candados SU-UX-1…6:** `m1/SinUbicacion.su-ux.test.tsx`.

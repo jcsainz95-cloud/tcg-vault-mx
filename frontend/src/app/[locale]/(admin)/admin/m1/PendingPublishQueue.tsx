@@ -257,6 +257,8 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
         )}
       </div>
       <p className="mt-1 max-w-[70ch] text-sm leading-[1.6] text-muted">{t('subtitle')}</p>
+      {/* §SU-UX.3 (a): con filas, una línea que dice que el folio abre la pieza; con la cola vacía no se pinta. */}
+      {(query.data?.data.length ?? 0) > 0 && <p className="mt-1 text-xs text-muted">{t('openHint')}</p>}
       {done && (
         <div className="mt-3">
           <Banner key={done} variant="success" role="status" dismissible>
@@ -313,7 +315,7 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
                           folioRefs.current[row.inventoryItemId] = el;
                         }}
                         aria-label={t('openPiece', { folio: row.folio })}
-                        className="underline-offset-2 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                        className="underline decoration-border underline-offset-2 hover:decoration-current focus-visible:shadow-focus focus-visible:outline-none"
                         onClick={() => setDetailId(row.inventoryItemId)}
                       >
                         {row.folio}
@@ -439,7 +441,7 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
 
       <p className="mt-4 max-w-[70ch] text-xs leading-[1.6] text-muted">{t('note')}</p>
 
-      <ItemDetailModal itemId={detailId} onClose={closeDetail} locations={locations.data ?? []} />
+      <ItemDetailModal itemId={detailId} onClose={closeDetail} locations={locations.data ?? []} locationsReady={locations.isSuccess} />
     </section>
   );
 }
