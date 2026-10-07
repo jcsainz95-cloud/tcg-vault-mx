@@ -30,7 +30,7 @@ describe('SealedRestockForm · flag ENCENDIDO (suscripción acepta)', () => {
     fillEmail();
     fireEvent.click(await screen.findByRole('button', { name: 'Avisarme' }));
 
-    expect(await screen.findByText('Listo. Te avisaremos por correo cuando vuelva.')).toBeInTheDocument();
+    expect(await screen.findByText('Listo. Si se agota y vuelve, te escribimos una sola vez.')).toBeInTheDocument();
   });
 });
 

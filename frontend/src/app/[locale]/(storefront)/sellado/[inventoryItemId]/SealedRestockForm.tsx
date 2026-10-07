@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { subscribeSealedRestock } from '@/lib/api';
 import type { SealedCondition, SealedSubtype } from '@/types/contract';
 import { ApiClientError } from '@/lib/api-client';
+import { useSession } from '@/lib/session';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -34,10 +35,15 @@ export function SealedRestockForm({
   const tc = useTranslations('common');
   const [email, setEmail] = useState('');
   const [featureOff, setFeatureOff] = useState(false);
+  // ⭐ §WSH.7 (b) / WSH-UX-13: con sesión el servidor IGNORA `dto.email` y usa el de la cuenta ⇒ sin campo; se manda el
+  // de la cuenta solo porque el cuerpo lo pide, y la pantalla dice a dónde llegará.
+  const { user } = useSession();
+  const accountEmail = user?.email ?? null;
+  const target = accountEmail ?? email.trim();
 
   const mutation = useMutation({
     mutationFn: () =>
-      subscribeSealedRestock({ email: email.trim(), cardId, sealedSubtype, sealedCondition }),
+      subscribeSealedRestock({ email: target, cardId, sealedSubtype, sealedCondition }),
     onError: (err) => {
       // 404 FEATURE_DISABLED (race con el dial) → ocultar el formulario en vez de mostrar error.
       if (err instanceof ApiClientError && err.status === 404 && err.code === 'FEATURE_DISABLED') {
@@ -48,6 +54,14 @@ export function SealedRestockForm({
 
   if (featureOff) return null;
 
+  // `429` (5/min) ⇒ su texto; el `404` del dial ya retiró el formulario; lo demás, el genérico.
+  const restockError =
+    mutation.isError && !(mutation.error instanceof ApiClientError && mutation.error.status === 404)
+      ? mutation.error instanceof ApiClientError && mutation.error.status === 429
+        ? t('rateLimited')
+        : tc('errorGeneric')
+      : null;
+
   return (
     <div>
       <p className="eyebrow">{t('title')}</p>
@@ -57,6 +71,26 @@ export function SealedRestockForm({
         <Banner variant="success" role="status" className="mt-4">
           {t('confirmed')}
         </Banner>
+      ) : accountEmail ? (
+        <form
+          className="mt-4 flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            mutation.mutate();
+          }}
+        >
+          <p className="text-[13px] text-muted">{t('signedInAs', { email: accountEmail })}</p>
+          <div>
+            <Button type="submit" variant="secondary" loading={mutation.isPending}>
+              {t('cta')}
+            </Button>
+          </div>
+          {restockError && (
+            <p role="alert" className="text-[13px] text-accent">
+              {restockError}
+            </p>
+          )}
+        </form>
       ) : (
         <form
           className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"
@@ -73,11 +107,7 @@ export function SealedRestockForm({
               placeholder={t('emailPlaceholder')}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              error={
-                mutation.isError && !(mutation.error instanceof ApiClientError && mutation.error.status === 404)
-                  ? tc('errorGeneric')
-                  : undefined
-              }
+              error={restockError ?? undefined}
             />
           </div>
           <Button type="submit" variant="secondary" disabled={!isEmail(email)} loading={mutation.isPending}>

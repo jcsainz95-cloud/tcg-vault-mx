@@ -34,6 +34,7 @@ import { ShippingSection } from './sections/ShippingSection';
 import { SpendControlSection } from './sections/SpendControlSection';
 import { PremiumFloorSection } from './sections/PremiumFloorSection';
 import { BuylistCycleSection } from './sections/BuylistCycleSection';
+import { WishlistDialsSection } from './sections/WishlistDialsSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
@@ -439,6 +440,10 @@ export function M10View() {
           )}
         </QueryState>
       </section>
+
+      {/* ⭐ §WSH-UX.9 (a) — «Lista de deseos»: sección propia debajo de «Diales de configuración», con su guardado
+          parcial y la confirmación de encendido (criterio 824). `id="wishlist"` = destino del enlace de la lista de compra. */}
+      <WishlistDialsSection />
 
       {/* §60.7 b (F-9) — los DIEZ diales del ciclo de venta, en su propio grupo, guardado y errores por campo. */}
       <BuylistCycleSection />

@@ -20584,3 +20584,69 @@ días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 defa
   «no hay ubicaciones») y lo reenvía a `ItemDetailModal`; `M1View` y `M11View` pasan `locations.isSuccess`.
 - **Techlead D3.** SU-UX-10 en `MasterSet.test.tsx`: carrito y `encontrada` invalidan `['pending-publish']`.
 - **Techlead D4** registrada en `TECH_DEBT.md` (TD-SU-D4a/b).
+
+## §108 · ⭐ **Lista de deseos por cuenta, «lista de compra casi segura» y «avísame» de sellados** (2026-10-07, rama `claude/wishlist`, base `de751da`; `API_CONTRACT §WSH` v1.87⟨wishlist⟩ + errata v1.87.1 · `DESIGN_SYSTEM §WSH-UX` vWSH-1 · `PROJECT §WSH`, criterios 800–827)
+
+Manda el contrato con su errata: se retiraron las soluciones temporales del diseño (clave `wishlist.ivaIncluded`, la
+comparación `<=` en el renglón, «sin cifras antes de guardar» / `noPesosYet`). El backend de §WSH se construye **en
+paralelo**: todo lo de aquí corre contra el contrato con el servidor falso `src/lib/mock/wishlist.ts` (`// MOCK`).
+
+**Superficies (todas nuevas salvo donde se dice):**
+- **Ficha** (`catalog/[cardId]/WishlistBlock.tsx` + `PctChoice.tsx`): se monta solo con `detail.wishlistEnabled === true`
+  (campo aditivo de la ficha; ausente ⇒ apagado). Staff ⇒ nada (Q-WSH-UX-6); invitado ⇒ invitación con
+  `/login?next=/catalog/{id}` y `/register?next=…` (que `/register` honre `next` está **NO MEDIDO**). Cliente: (a) agregar,
+  (b) ya en tu lista (cambiar % con `PATCH`, quitar con `DELETE`), (c) lista llena. Pesos bajo cada % = `tiers` de
+  `GET /wishlist/preview`; tras un `409 WISHLIST_DUPLICATE` (que no trae `maxToday`) la cifra de «hoy» se toma del
+  preview para ese % (por contrato es la misma, WSH-T31). La ficha sin piezas dice «Hoy no tenemos esta carta.»
+  (`CardDetailView`, cambio de una línea).
+- **«Mi lista»** (`account/wishlist/`: `WishlistView`, `WishlistRow`, `WishlistSearch`, `page.tsx`). «Cabe / arriba» =
+  `availableNow.fits` (⛔ el front no compara). Buscador sobre `GET /buylist/cards` (enlaces a la ficha, sin precios,
+  debounce 300 ms, ≥ 2 caracteres, 8 resultados). Quitar = `DELETE` + toast «Deshacer» (`POST` con los mismos
+  `{cardId, finish, maxPct}`).
+- **Resumen en «Mi cuenta»** (`components/domain/account/WishlistSection.tsx`; zona compartida, solo añadido): la
+  sección `#wishlist` va tras `#addresses`; la consulta vive en `AccountView` y decide si **existe** (`404
+  FEATURE_DISABLED` ⇒ ni sección ni índice). `sectionsForRole` **no** cambió (la sección se inserta aparte).
+- **Página del enlace** (`lista-de-deseos/aviso/`): un clic, nada al cargar, `history.replaceState` quita `a/id/t` de la
+  barra, `noindex` + `referrer: no-referrer`. No consulta el dial (v1.87.1 Q-WSH-UX-5).
+- **M9 › «Lista de compra»** (`m9/BuyListTab.tsx`, `m9/buyListParams.ts`; `M9_TABS` gana `compra`). Pinta campo a
+  campo la lista blanca (⛔ nunca itera el DTO). `pct` en puntos porcentuales tal cual (`Intl` con 1 decimal del valor
+  absoluto; el signo lo pone la frase «pierdes … (−x %)»). Filtros en el navegador; el CSV se pide solo con `sort/dir`.
+  `parseBuyListUrl` vive en un módulo sin `'use client'` porque lo llama `page.tsx` (servidor).
+- **M10 › «Lista de deseos»** (`m10/sections/WishlistDialsSection.tsx`, `id="wishlist"`): siete diales, `PUT` parcial;
+  pasar `wishlistEnabled` a `on` abre el diálogo y no hay `PUT` hasta «Sí, encender». **M11**: el octavo dial
+  (`sealedRestockMaxPendingPerEmail`) en `SealedDialsPanel`, como entero.
+- **«Avísame» de sellados** (`SealedRestockForm`): con sesión, sin campo de correo y «Te avisaremos a {email}» (se manda
+  el de la cuenta porque el cuerpo lo pide; el servidor lo ignora, §WSH.7 b). Textos `body`/`confirmed` cambiados al
+  armado; `429` con su texto.
+
+**Decisiones de implementación**
+- **Una lectura cacheada**: `['wishlist']` la comparten ficha, «Mi cuenta» y «Mi lista»; las mutaciones parchean la caché
+  (`setQueryData`) en vez de refetch, y el bloque guarda «overrides» locales por acabado (el `409` solo trae id y %).
+- **Tipos**: añadidos al final de `contract.ts` (bloque §WSH) más dos campos aditivos dentro de interfaces existentes
+  (`GroupedListingDetailResponse.wishlistEnabled?`, ocho claves opcionales al final de `SettingsDTO`).
+- **Cliente**: nueve funciones al final de `api.ts` (`getWishlist`, `getWishlistPreview`, `addWishlistItem`,
+  `updateWishlistItem`, `removeWishlistItem`, `setWishlistAlertsPaused`, `postWishlistMailAction`, `getWishlistDemand`,
+  `exportWishlistDemandCsv`); `getCardDetail` (rama mock) añade `wishlistEnabled`.
+- **Mock** (`mock/wishlist.ts`): cifras **copiadas del contrato** (WSH-T31/WSH.3/WSH-T35), no recalculadas; sin mercado:
+  `c-zapdos` y `c-pikachu`/`reverse_holo`. Banderas en `localStorage` (`tcg.mock.wishlist*`), token válido `mock-token`.
+  El seed DEMO enciende `wishlistEnabled` (el real es `off`). El dial de traslación **no** se nombra en el mock (candado
+  del criterio 209): `api.ts` lo añade al ensamblar la respuesta de la demanda (valor fijo 100, no se pinta).
+- **Staff en `/account/wishlist`**: el redirect existente lo manda a `/admin/account/wishlist`, que no existe (404).
+  Coherente con Q-WSH-UX-6 (no hay superficie para staff); no se añadió página.
+- **Copia de M10**: el botón dice «Guardar lista de deseos (n cambios)» y no «Guardar» a secas: un «Guardar» suelto
+  chocaba con el de la sección de grading en una prueba de M2 (medido: «Found multiple elements … "Guardar"»).
+
+**Pruebas** (escritas antes del código; rojo medido: 23 fallos en 8 ficheros sobre el árbol sin componentes):
+`catalog/[cardId]/WishlistBlock.test.tsx` (WSH-F1, F7, UX-1…5, staff, (g)), `account/wishlist/WishlistView.test.tsx`
+(WSH-F2, F6, UX-6, `fits`), `lista-de-deseos/aviso/WishlistMailActionPage.test.tsx` (WSH-F3/F9, UX-7),
+`m9/BuyListTab.test.tsx` (WSH-F4/F8, UX-8/9/10), `m10/sections/WishlistDialsSection.test.tsx` (UX-14),
+`sellado/[inventoryItemId]/SealedRestockForm.wsh.test.tsx` (UX-13), `components/domain/account/WishlistSection.test.tsx`,
+`src/test/wishlist-wsh-locks.test.ts` (candado de fuente WSH-F7, UX-11, UX-12, retiro de la errata, P66-3), y un caso
+nuevo en `M9View.test.tsx` y `SealedDialsPanel.test.tsx`. Pruebas de hoy cambiadas: `M9View.test.tsx` (tres pestañas),
+`SealedRestockForm.test.tsx` (texto `confirmed` nuevo), `AccountView.test.tsx` (mock de `getWishlist` con el dial
+apagado). E2E: `e2e/wishlist.spec.ts` (WSH-F1…F9), todos `mockOnly` (no hay backend que medir todavía) ⇒ el censo
+`e2e-skip-census` sube y su baseline es de devops.
+
+**NO MEDIDO**: los E2E de `e2e/wishlist.spec.ts` contra el stack (ni en mock si la carga de la máquina no lo permitió en
+este pase: ver el informe del pase); WSH-F5 «formulario visible con el dial `on`» (el mock de `subscribeSealedRestock`
+siempre responde `FEATURE_DISABLED`); que `/register` honre `?next=`.

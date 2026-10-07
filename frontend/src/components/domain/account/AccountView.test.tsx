@@ -20,7 +20,12 @@ vi.mock('@/i18n/navigation', () => ({
 // La vista habla con `getMe`/`updateMe` (y las secciones del cliente con libreta/facturación/KYC).
 const getMe = vi.fn();
 const updateMe = vi.fn();
-vi.mock('@/lib/api', () => ({
+vi.mock('@/lib/api', async () => ({
+  // §WSH-UX.3 (a): la sección de la lista de deseos tiene su propio test (`WishlistSection.test.tsx`); aquí el dial
+  // va apagado (`404 FEATURE_DISABLED`) para que las secciones de §33.6 se midan sin ella.
+  getWishlist: vi.fn().mockRejectedValue(
+    new (await import('@/lib/api-client')).ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'off' }),
+  ),
   getMe: () => getMe(),
   updateMe: (...a: unknown[]) => updateMe(...a),
   logout: vi.fn().mockResolvedValue(undefined),

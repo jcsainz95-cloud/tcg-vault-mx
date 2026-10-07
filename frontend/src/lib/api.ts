@@ -312,6 +312,18 @@ import * as salesMock from './mock/sales';
 import type { SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
+import * as wishlistMock from './mock/wishlist';
+import type {
+  WishlistCreateRequest,
+  WishlistDemandParams,
+  WishlistDemandResponse,
+  WishlistItemDTO,
+  WishlistMailActionRequest,
+  WishlistMailActionResponse,
+  WishlistMaxPct,
+  WishlistPreviewResponse,
+  WishlistResponse,
+} from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
@@ -533,7 +545,8 @@ export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
 export async function getCardDetail(cardId: string): Promise<GroupedListingDetailResponse> {
   if (!config.useMocks) return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`);
   try {
-    return await delay(fx.mockGroupedDetail(cardId));
+    // ⭐ v1.87⟨wishlist⟩ (§WSH.4): el servidor añade en la raíz `wishlistEnabled` (dial vigente).
+    return await delay({ ...fx.mockGroupedDetail(cardId), wishlistEnabled: wishlistMock.mockWishlistEnabled() });
   } catch (e) {
     throw translateFixtureError(e);
   }
@@ -7342,3 +7355,90 @@ export async function claimGuestOrders(orderIds: string[]): Promise<ClaimOrdersR
   }
   return delay<ClaimOrdersResponse>({ claimed, failed }, 400);
 }
+
+// ============================================================================
+// ⭐ v1.87⟨wishlist⟩ + errata v1.87.1 — §WSH Lista de deseos (API_CONTRACT §WSH.4, §WSH.6, §WSH.8).
+// Rama mock: `mock/wishlist.ts` (servidor falso con las cifras del contrato). ⛔ El front no calcula pesos.
+// ============================================================================
+
+/** `GET /wishlist` — `401`; `404 FEATURE_DISABLED` con el dial apagado (la UI lo trata como «no existe»). */
+export async function getWishlist(): Promise<WishlistResponse> {
+  if (!config.useMocks) return apiRequest<WishlistResponse>('/wishlist');
+  return delay(null).then(() => wishlistMock.mockGetWishlist());
+}
+
+/** ⭐ v1.87.1 `GET /wishlist/preview?cardId=` — pesos de cada % antes de guardar (0 escrituras). */
+export async function getWishlistPreview(cardId: string): Promise<WishlistPreviewResponse> {
+  if (!config.useMocks) return apiRequest<WishlistPreviewResponse>('/wishlist/preview', { query: { cardId } });
+  return delay(null).then(() => wishlistMock.mockGetWishlistPreview(cardId));
+}
+
+/** `POST /wishlist` — `409 WISHLIST_DUPLICATE {wishlistItemId,maxPct}`, `422 WISHLIST_LIMIT_REACHED {limit,count}`, `422 FINISH_NOT_AVAILABLE`. */
+export async function addWishlistItem(body: WishlistCreateRequest): Promise<WishlistItemDTO> {
+  if (!config.useMocks) return apiRequest<WishlistItemDTO>('/wishlist', { method: 'POST', body });
+  return delay(null).then(() => wishlistMock.mockAddWishlistItem(body));
+}
+
+/** `PATCH /wishlist/:id { maxPct }` — `404` si no es de la cuenta. */
+export async function updateWishlistItem(id: string, maxPct: WishlistMaxPct): Promise<WishlistItemDTO> {
+  if (!config.useMocks) {
+    return apiRequest<WishlistItemDTO>(`/wishlist/${encodeURIComponent(id)}`, { method: 'PATCH', body: { maxPct } });
+  }
+  return delay(null).then(() => wishlistMock.mockUpdateWishlistItem(id, maxPct));
+}
+
+/** `DELETE /wishlist/:id` — `204`; `404` si no es de la cuenta. */
+export async function removeWishlistItem(id: string): Promise<void> {
+  if (!config.useMocks) {
+    await apiRequest<void>(`/wishlist/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return;
+  }
+  return delay(null).then(() => wishlistMock.mockRemoveWishlistItem(id));
+}
+
+/** `PUT /wishlist/alerts { paused }`. */
+export async function setWishlistAlertsPaused(paused: boolean): Promise<{ alertsPaused: boolean }> {
+  if (!config.useMocks) {
+    return apiRequest<{ alertsPaused: boolean }>('/wishlist/alerts', { method: 'PUT', body: { paused } });
+  }
+  return delay(null).then(() => wishlistMock.mockSetWishlistAlerts(paused));
+}
+
+/**
+ * `POST /wishlist/mail-actions` (`@Public`, 10/min por IP). ⭐ v1.87.1: NO depende del dial. `404 WISHLIST_LINK_INVALID`
+ * no dice por qué. ⛔ Nunca se llama al cargar la página: solo con el clic de confirmación (WSH-UX-7).
+ */
+export async function postWishlistMailAction(body: WishlistMailActionRequest): Promise<WishlistMailActionResponse> {
+  if (!config.useMocks) {
+    return apiRequest<WishlistMailActionResponse>('/wishlist/mail-actions', { method: 'POST', body });
+  }
+  return delay(null).then(() => wishlistMock.mockWishlistMailAction(body));
+}
+
+/** `GET /admin/reports/wishlist-demand` (`super_admin`). Solo `sort`/`dir` viajan (v1.87.1: filtros en el navegador). */
+export async function getWishlistDemand(params: WishlistDemandParams = {}): Promise<WishlistDemandResponse> {
+  if (!config.useMocks) {
+    return apiRequest<WishlistDemandResponse>('/admin/reports/wishlist-demand', {
+      query: { sort: params.sort, dir: params.sort ? params.dir : undefined },
+    });
+  }
+  return delay(null).then(() => {
+    const body = wishlistMock.mockWishlistDemand(params);
+    // MOCK: el simulador no expone su dial de traslación; la lista de compra no lo pinta (solo viaja en el DTO admin).
+    return { ...body, dials: { ...body.dials, ivaTransferPct: 100 } };
+  });
+}
+
+/** `GET /admin/reports/wishlist-demand/export.csv` — mismas filas y orden que el JSON (criterio 822), siempre completo. */
+export async function exportWishlistDemandCsv(params: WishlistDemandParams = {}): Promise<BlobResponse> {
+  if (!config.useMocks) {
+    return requestBlob('/admin/reports/wishlist-demand/export.csv', {
+      query: { sort: params.sort, dir: params.sort ? params.dir : undefined },
+    });
+  }
+  return delay(null).then(() => ({
+    blob: new Blob([wishlistMock.mockWishlistDemandCsv(params)], { type: 'text/csv;charset=utf-8' }),
+    filename: null,
+  }));
+}
+

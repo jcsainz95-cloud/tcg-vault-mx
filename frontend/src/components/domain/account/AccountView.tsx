@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { getMe } from '@/lib/api';
+import { getMe, getWishlist } from '@/lib/api';
+import { asApiError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
 import { isStaffRole } from '@/lib/account-routes';
 import { cn } from '@/lib/cn';
@@ -17,6 +18,7 @@ import { BillingSection } from './BillingSection';
 import { KycSection } from './KycSection';
 import { PasswordSection } from './PasswordSection';
 import { SessionSection } from './SessionSection';
+import { WishlistSection } from './WishlistSection';
 import { SectionError, type AccountSectionId } from './SectionShell';
 
 export type AccountSurface = 'storefront' | 'admin';
@@ -43,12 +45,32 @@ export function sectionsForRole(staff: boolean, hasEmail = true): AccountSection
  */
 export function AccountView({ surface }: { surface: AccountSurface }) {
   const t = useTranslations('account');
+  const tWishlist = useTranslations('wishlist');
   const { user: sessionUser, ready } = useSession();
   const meQuery = useQuery({ queryKey: ['me'], queryFn: getMe, enabled: ready && !!sessionUser });
   const user: UserDTO | null = meQuery.data ?? sessionUser;
   const staff = isStaffRole(user?.role);
   const hasEmail = user?.email != null;
-  const sections = useMemo(() => sectionsForRole(staff, hasEmail), [staff, hasEmail]);
+  // ⭐ §WSH-UX.3 (a): la sección de la lista de deseos EXISTE solo para el cliente y con el dial encendido. La consulta
+  // decide su existencia (`404 FEATURE_DISABLED` ⇒ ni sección ni entrada del índice, WSH-5). Staff: ni se consulta
+  // (Q-WSH-UX-6). Misma clave que la ficha y «Mi lista»: una sola lectura cacheada.
+  const wishlist = useQuery({
+    queryKey: ['wishlist'],
+    queryFn: getWishlist,
+    enabled: ready && !!user && !staff,
+    retry: false,
+  });
+  const wishlistOff = (() => {
+    const err = asApiError(wishlist.error);
+    return err?.status === 404 && err.code === 'FEATURE_DISABLED';
+  })();
+  const showWishlist = !!user && !staff && !wishlistOff;
+  const sections = useMemo(() => {
+    const base = sectionsForRole(staff, hasEmail);
+    if (!showWishlist) return base;
+    const i = base.indexOf('addresses');
+    return [...base.slice(0, i + 1), 'wishlist' as const, ...base.slice(i + 1)];
+  }, [staff, hasEmail, showWishlist]);
   const [hash, setHash] = useState<string>('');
 
   // Anclajes (`#profile`, `#password`…): al llegar con hash la sección recibe el foco (tabIndex=-1,
@@ -97,7 +119,7 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
                     active === id ? 'text-text' : 'text-muted hover:text-text',
                   )}
                 >
-                  {sectionTitle(id, t)}
+                  {sectionTitle(id, t, tWishlist)}
                 </a>
               </li>
             ))}
@@ -125,6 +147,14 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
           {sections.includes('email') && <EmailSection user={user} canResend={!staff} />}
           {sections.includes('username') && <UsernameSection username={user.username ?? '—'} />}
           {sections.includes('addresses') && <AddressesSection user={user} />}
+          {sections.includes('wishlist') && (
+            <WishlistSection
+              data={wishlist.data}
+              isLoading={wishlist.isLoading}
+              error={wishlist.error}
+              onRetry={() => wishlist.refetch()}
+            />
+          )}
           {sections.includes('billing') && <BillingSection accountEmail={user.email ?? ''} />}
           {sections.includes('kyc') && <KycSection />}
           {sections.includes('password') && <PasswordSection user={user} />}
@@ -135,7 +165,11 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
   );
 }
 
-function sectionTitle(id: AccountSectionId, t: ReturnType<typeof useTranslations<'account'>>): string {
+function sectionTitle(
+  id: AccountSectionId,
+  t: ReturnType<typeof useTranslations<'account'>>,
+  tWishlist: ReturnType<typeof useTranslations<'wishlist'>>,
+): string {
   switch (id) {
     case 'profile':
       return t('profile.title');
@@ -153,6 +187,8 @@ function sectionTitle(id: AccountSectionId, t: ReturnType<typeof useTranslations
       return t('password.title');
     case 'session':
       return t('session.title');
+    case 'wishlist':
+      return tWishlist('account.title');
   }
 }
 

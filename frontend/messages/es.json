@@ -4329,7 +4329,9 @@
           "sealedValueTrend": "Tendencia de valor del sellado",
           "sealedRestockAlerts": "Alertas de reposición de sellado",
           "save": "Guardar {count} cambio(s)",
-          "saved": "Diales guardados."
+          "saved": "Diales guardados.",
+          "sealedRestockMaxPendingPerEmail": "Avisos pendientes por correo",
+          "sealedRestockMaxPendingPerEmailHelp": "Tope de productos que un mismo correo puede estar esperando a la vez. Frena que alguien apunte el correo de otra persona a muchos productos."
         },
         "onOff": {
           "on": "Encendido",
@@ -5010,6 +5012,50 @@
         "cross": "La guía que se descuenta ({fee}) más el mínimo que recibe el vendedor ({net}) no puede pasar del mínimo para cotizar ({min}). No se guardó nada.",
         "save": "Guardar {count, plural, =0 {cambios} one {# cambio} other {# cambios}}",
         "saved": "Ciclo de venta guardado."
+      },
+      "wishlist": {
+        "title": "Lista de deseos",
+        "subtitle": "Cómo funciona la lista de deseos de los clientes y la lista de compra de Reportes.",
+        "labels": {
+          "wishlistEnabled": "Lista de deseos",
+          "wishlistMaxPerAccount": "Cartas por cuenta",
+          "wishlistMaxIvaMode": "Cómo se lee el máximo del cliente",
+          "wishlistTargetMarginPct": "Margen que buscas",
+          "wishlistMarginBasis": "Ese margen se mide",
+          "wishlistDailyMailCap": "Correos de aviso por cliente al día",
+          "wishlistMailWindowMin": "Minutos para juntar avisos"
+        },
+        "help": {
+          "wishlistEnabled": "Encendida, los clientes pueden guardar cartas y reciben avisos por correo. Apagada, todo se oculta; las listas se conservan.",
+          "wishlistMaxPerAccount": "Bajarlo no borra cartas guardadas; solo impide agregar.",
+          "wishlistMaxIvaMode": "<b>Con IVA:</b> el % ya incluye el IVA (mercado $1,000 al 10 % = $1,100 en total). <b>Sin IVA:</b> el % va antes del IVA ($1,100 + IVA = $1,276).",
+          "wishlistTargetMarginPct": "Con él se calcula «Paga hasta» en la lista de compra.",
+          "wishlistMarginBasis": "<b>Sobre lo que pagas</b> (pagas $100, ganas $15) o <b>sobre la venta</b> (vendes en $100, ganas $15).",
+          "wishlistDailyMailCap": "Lo que pase del tope sale junto al día siguiente, si sigue a la venta.",
+          "wishlistMailWindowMin": "Las cartas que entran en este tiempo van en un solo correo. También aplica al aviso de sellados."
+        },
+        "units": {
+          "pct": "%",
+          "int": "número entero"
+        },
+        "options": {
+          "on": "Encendida",
+          "off": "Apagada",
+          "with_iva": "Con IVA",
+          "without_iva": "Sin IVA",
+          "cost": "Sobre lo que pagas",
+          "sale": "Sobre la venta"
+        },
+        "confirm": {
+          "title": "¿Encender la lista de deseos?",
+          "body": "Antes de encenderla, tu aviso de privacidad tiene que decir que usamos las listas de deseos, sin nombres, para decidir qué cartas conseguir. Al encenderla, los clientes verán el botón en las fichas y empezarán a recibir avisos por correo.",
+          "yes": "Sí, encender",
+          "cancel": "Cancelar"
+        },
+        "save": "Guardar lista de deseos ({count, plural, =0 {sin cambios} one {# cambio} other {# cambios}})",
+        "saved": "Guardado.",
+        "checkFields": "Revisa los campos marcados. No se guardó nada.",
+        "invalid": "Ese valor no es válido para este dial."
       }
     },
     "m7": {
@@ -5098,7 +5144,8 @@
       },
       "tabs": {
         "sales": "Ventas",
-        "activity": "Actividad"
+        "activity": "Actividad",
+        "buyList": "Lista de compra"
       },
       "sales": {
         "period": {
@@ -5304,6 +5351,76 @@
           "error": "No se pudieron cargar las ventas.",
           "forbidden": "Solo el súper-admin puede ver las ventas."
         }
+      },
+      "buyList": {
+        "title": "Cartas que te piden y no tienes",
+        "subtitle": "Cartas que alguien tiene en su lista de deseos y hoy no tienes a la venta. Sin nombres: solo cuántos.",
+        "dials": "Calculado con: margen que buscas {margin} % {basis} · máximos de los clientes {ivaMode} · IVA {rate} %",
+        "basis": {
+          "cost": "sobre lo que pagas",
+          "sale": "sobre la venta"
+        },
+        "ivaMode": {
+          "with_iva": "leídos con IVA",
+          "without_iva": "leídos sin IVA"
+        },
+        "changeDials": "Cambiar en Configuración",
+        "generatedAt": "Generado: {date}",
+        "sortLabel": "Ordenar por",
+        "sort": {
+          "default": "Recomendado",
+          "wanted": "Más buscadas",
+          "ceiling": "Techo",
+          "margin": "Margen a mercado",
+          "market": "Mercado",
+          "normal": "Precio normal",
+          "buyers": "Pagan tu precio",
+          "buylist": "Buylist hoy"
+        },
+        "dir": {
+          "desc": "Mayor primero",
+          "asc": "Menor primero"
+        },
+        "search": "Buscar carta, set o número",
+        "hideNoMarket": "Ocultar las que no tienen precio de mercado",
+        "filtered": "Mostrando {shown} de {total} cartas. El CSV trae la lista completa.",
+        "csv": "Descargar CSV",
+        "csvError": "No pudimos descargar el CSV. Intenta de nuevo.",
+        "print": "Imprimir",
+        "wanted": "{n, plural, one {# LA BUSCA} other {# LA BUSCAN}}",
+        "ceiling": "PAGA HASTA",
+        "ceilingHelpLabel": "Qué es «Paga hasta»",
+        "ceilingHelp": "Lo más que puedes pagar y todavía ganar tu margen, con el cliente que más ofreció.",
+        "withoutIva": "sin IVA",
+        "tier": {
+          "caption": "Niveles de quienes la buscan",
+          "level": "Nivel",
+          "levelValue": "{pct} %",
+          "accounts": "Cuentas",
+          "max": "Su máximo (con IVA)",
+          "ceiling": "Pagas hasta (sin IVA)"
+        },
+        "market": "Mercado hoy {amount}",
+        "normal": "Tu precio normal {list} sin IVA ({display} con IVA)",
+        "normalNone": "Precio normal: sin calcular",
+        "buyers": "Pagan tu precio normal: {n}",
+        "marginGain": "Si la pagas a mercado: ganas {amount} ({pct} %)",
+        "marginLoss": "Si la pagas a mercado: pierdes {amount} (−{pct} %)",
+        "buylist": "El buylist pagaría hoy: {amount}",
+        "buylistNone": "El buylist no la cotiza hoy",
+        "noMarket": "SIN PRECIO DE MERCADO",
+        "noMarketSr": "sin dato: no hay precio de mercado",
+        "emptyTitle": "Nadie está esperando una carta que no tengas.",
+        "emptyBody": "Cuando alguien agregue a su lista una carta sin piezas a la venta, aparece aquí.",
+        "sealedTitle": "Sellados que esperan aviso",
+        "sealedSubtitle": "Personas que pidieron que les avisemos cuando vuelva. Solo el conteo de correos.",
+        "sealedCols": {
+          "product": "Producto",
+          "type": "Tipo",
+          "condition": "Condición",
+          "waiting": "Esperan"
+        },
+        "sealedEmpty": "Nadie está esperando un sellado."
       }
     },
     "vaults": {
@@ -6783,11 +6900,13 @@
     },
     "restock": {
       "title": "Avísame cuando vuelva",
-      "body": "Te escribimos en cuanto este producto vuelva a estar disponible.",
+      "body": "Si se agota, te escribimos una sola vez cuando vuelva a estar disponible.",
       "emailLabel": "Correo",
       "emailPlaceholder": "tucorreo@ejemplo.com",
       "cta": "Avisarme",
-      "confirmed": "Listo. Te avisaremos por correo cuando vuelva."
+      "confirmed": "Listo. Si se agota y vuelve, te escribimos una sola vez.",
+      "signedInAs": "Te avisaremos a {email}.",
+      "rateLimited": "Demasiados intentos. Espera un minuto y vuelve a intentar."
     },
     "vault": {
       "emptyTitle": "Aún no tienes sellado en tu bóveda",
@@ -6908,6 +7027,129 @@
       "checkout": "Qué hacemos con tus datos: <privacy>Aviso de privacidad</privacy>.",
       "sellForm": "Tu CLABE la usamos para pagarte por transferencia a tu nombre, y tu INE —si te la pedimos— para verificar tu identidad. Detalles en el <privacy>Aviso de privacidad</privacy>.",
       "accountIne": "Para qué usamos tu INE y cuándo la borramos: <privacy>Aviso de privacidad</privacy>."
+    }
+  },
+  "wishlist": {
+    "eyebrow": "LISTA DE DESEOS",
+    "block": {
+      "title": "¿La buscas? Te avisamos por correo cuando la consigamos.",
+      "nmNote": "Siempre Near Mint, sin gradear.",
+      "finishLegend": "Acabado",
+      "finishSingle": "Acabado: {finish}",
+      "pctLegend": "¿Hasta cuánto más del precio de mercado pagarías?",
+      "pctOption": "{pct} %",
+      "pctPesos": "hasta {amount}",
+      "signalNote": "Es una señal para nosotros, no un compromiso: no te apartamos la carta ni te cobramos nada. Si la conseguimos, sale a su precio normal, el mismo para todos.",
+      "add": "Agregar {finish} a mi lista",
+      "count": "{count} de {limit}",
+      "inList": "Está en tu lista · {finish} · hasta {pct} % sobre mercado",
+      "noMarketLong": "Sin precio de mercado por ahora: cuando lo haya, calcularemos tu máximo.",
+      "changeLegend": "Cambiar tu máximo",
+      "saveChange": "Guardar cambio",
+      "removed": "La quitamos de tu lista.",
+      "duplicate": "Ya la tenías en tu lista con este acabado. Si quieres, cambia tu máximo."
+    },
+    "maxToday": "Tu máximo de hoy: {amount}",
+    "approx": "aproximado",
+    "approxHelpLabel": "Por qué es aproximado",
+    "approxHelp": "Tu máximo sale del precio de mercado. Lo recalculamos el día en que consigamos la carta, así que puede subir o bajar.",
+    "recalcNote": "Se recalcula con el precio de mercado del día en que la consigamos.",
+    "noMarket": "Sin precio de mercado por ahora",
+    "notifyTo": "Te avisaremos a {email}.",
+    "remove": "Quitar de mi lista",
+    "seeList": "Ver mi lista",
+    "unverified": "Verifica tu correo para recibir el aviso.",
+    "unverifiedCta": "Verificar en Mi cuenta",
+    "pausedNote": "Pausaste los avisos de tu lista: no te escribiremos hasta que los reanudes.",
+    "pausedCta": "Reanudar en Mi lista",
+    "saved": "GUARDADO",
+    "full": {
+      "title": "Tu lista está llena: tienes {count} de {limit} cartas.",
+      "body": "Quita una para hacer lugar y vuelve a esta página."
+    },
+    "guest": {
+      "title": "¿La buscas? Guárdala en tu lista y te avisamos por correo cuando la consigamos.",
+      "body": "Necesitas una cuenta para tener lista de deseos.",
+      "login": "Entrar para agregarla",
+      "register": "Crear cuenta"
+    },
+    "error": {
+      "finish": "Ese acabado no existe para esta carta. Elige otro.",
+      "generic": "No pudimos guardar tu lista. Intenta de nuevo."
+    },
+    "card": {
+      "notHere": "Hoy no tenemos esta carta."
+    },
+    "account": {
+      "title": "Lista de deseos",
+      "summary": "{count} de {limit} cartas. Te avisamos por correo cuando consigamos alguna.",
+      "summaryPaused": "{count} de {limit} cartas. Los avisos están pausados.",
+      "summaryEmpty": "Aún no tienes cartas en tu lista."
+    },
+    "page": {
+      "back": "← Mi cuenta",
+      "eyebrow": "CUENTA",
+      "title": "Mi lista de deseos",
+      "subtitle": "{count} de {limit} cartas · Te avisamos por correo cuando consigamos alguna de estas cartas.",
+      "signalNote": "Tu máximo es una señal para que sepamos hasta dónde buscar. Si conseguimos la carta, sale a su precio normal, el mismo para todos, y te avisamos aunque esté arriba de tu máximo. No te la apartamos: se la lleva quien pague primero.",
+      "pausedBanner": "Pausaste los avisos de tu lista. Tu lista sigue guardada.",
+      "pausedLost": "Lo que llegó mientras estaban pausados no se vuelve a avisar; revisa tu lista para ver qué está disponible hoy.",
+      "resume": "Reanudar avisos",
+      "pause": "Pausar avisos",
+      "resumed": "Listo: volverás a recibir los avisos de tu lista.",
+      "unverifiedBanner": "Verifica tu correo para recibir los avisos.",
+      "alertsTitle": "Avisos por correo",
+      "alertsBody": "Te escribimos cuando consigamos una carta de tu lista. Juntamos varias en un solo correo.",
+      "searchTitle": "BUSCAR UNA CARTA PARA AGREGAR",
+      "searchLabel": "Buscar una carta para agregar",
+      "searchPlaceholder": "Nombre de la carta o número…",
+      "searchEmpty": "No encontramos esa carta. Prueba con el nombre en inglés o con su número.",
+      "searchCount": "{n, plural, one {# resultado} other {# resultados}}",
+      "full": "Tu lista está llena ({count} de {limit}). Quita una carta para agregar otra.",
+      "emptyTitle": "Tu lista está vacía",
+      "emptyBody": "Busca una carta arriba o pulsa «Agregar a mi lista» en la ficha de cualquier carta. Te avisamos cuando la consigamos.",
+      "disabled": "La lista de deseos aún no está disponible."
+    },
+    "row": {
+      "maxPct": "Tu máximo: hasta {pct} % sobre mercado",
+      "pctLabel": "Tu máximo",
+      "pctOption": "hasta {pct} %",
+      "save": "Guardar",
+      "today": "Hoy: hasta {amount}",
+      "notYet": "No la tenemos todavía",
+      "available": "Disponible ahora: {count} · desde {amount}",
+      "fits": "CABE EN TU MÁXIMO",
+      "above": "ARRIBA DE TU MÁXIMO",
+      "seeCard": "Ver la carta",
+      "lastNotified": "Último aviso: {date}",
+      "neverNotified": "Aún no te hemos avisado",
+      "remove": "Quitar",
+      "removeLabel": "Quitar {card} ({finish}) de mi lista",
+      "removedToast": "Quitamos {card} de tu lista.",
+      "undo": "Deshacer",
+      "undoFull": "No pudimos regresarla: tu lista ya está llena.",
+      "undoError": "No pudimos regresarla. Búscala y agrégala de nuevo.",
+      "gone": "Esa carta ya no estaba en tu lista.",
+      "condition": "Near Mint"
+    },
+    "mailAction": {
+      "removeTitle": "Quitar una carta de tu lista",
+      "removeBody": "Confirma y la quitamos. No hace falta entrar a tu cuenta.",
+      "removeCta": "Quitar de mi lista",
+      "pauseTitle": "Dejar de recibir avisos de tu lista",
+      "pauseBody": "Tu lista se queda guardada. Puedes reanudar los avisos cuando quieras en Mi cuenta.",
+      "pauseCta": "Dejar de recibir avisos",
+      "removed": "Listo: la quitamos de tu lista.",
+      "paused": "Listo: ya no te mandaremos estos avisos.",
+      "pausedHint": "Puedes reanudarlos en Mi cuenta › Mi lista de deseos.",
+      "alreadyRemoved": "Esa carta ya no estaba en tu lista.",
+      "alreadyPaused": "Estos avisos ya estaban pausados.",
+      "invalid": "Este enlace no funciona.",
+      "invalidHint": "Entra a tu cuenta para revisar tu lista.",
+      "rateLimited": "Demasiados intentos. Espera un minuto y vuelve a intentar.",
+      "error": "No pudimos hacerlo. Intenta de nuevo.",
+      "working": "Un momento…",
+      "goToList": "Ir a mi lista de deseos"
     }
   }
 }
