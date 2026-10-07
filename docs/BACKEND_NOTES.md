@@ -30259,7 +30259,15 @@ pruebas. ⛔ Ningún servicio, controlador ni DTO: eso es (A)/(B)/(C).
   | sin `payment_refund_accessory_shape` | 4 | B49 ×2 ✓ |
   | reversa sin reponer los dos CHECK | 1 | B51 ✓ |
   | sin comparar `expectedRefundCents` | — | AC-B52: stream (B), no medida aquí |
-
+- **Suites (copia del árbol entero en `44175fd` + estos ficheros; BD en esquema propio `acc_m73`, no `public`):** unitarias
+  **441/441 · 7989/7989**; integración del subconjunto de reembolsos/preparación (`accessories-m73*`,
+  `pnl-delivered-refunds`, `shipments-prep`, `full-refund-vault`, `orders-public-status`, `settle-late`, `guest-checkout`,
+  `sales-analytics-pnl-parity`, `seed-spei-bucket`, `refund-reason-max`) **11/11 · 286/286**; `migrate deploy` desde cero
+  en `acc_m73` ✓ y el diff contra `schema.prisma` no menciona nada de M-73.
+- **Integración completa: NO MEDIDA limpia.** La corrida murió (`Killed`, exit 137) con carga ~17 en 4 CPU. Además, en un
+  esquema que no es `public` hay rojos de entorno ajenos a M-73: `m64`/`m68` crean CHECKs tras
+  `IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = …)` sin filtrar esquema (ya existen en `public` ⇒ se saltan),
+  y varias pruebas consultan `pg_enum`/`pg_constraint` sin esquema y ven duplicados de `public`, `wsh_be`, `acc_*`.
 
 ### 83.A Stream (A) construido — `accessories/`: tienda pública, panel, fotos en Postgres, existencias manuales, cajas con tarifa y diales (2026-10-07, rama `claude/accesorios`)
 **Alcance (§AC.17 (A)):** ⛔ sin cobro. Apartar/soltar/liquidar/reponer (`accessory-stock.ts` de §AC.6), `box-fit.ts`
@@ -30478,12 +30486,3 @@ CPU—; repetidas solas: 2/2 y 37/37. Ninguna importa `decks-meta`. Integración
 **NO MEDIDO:** el cableado en `quote`/`session` (AC-B32 de punta a punta, AC-B33 carrera del paquete): es de (B). La foto
 servida de verdad por `GET /accessories/:id/photo/…`: es de (A). La app no se levantó; el grafo de DI con el 4.º parámetro sí
 compila (`test/app.module.spec.ts` «compiles the full module graph», verde en la corrida entera).
-- **Suites (copia del árbol entero en `44175fd` + estos ficheros; BD en esquema propio `acc_m73`, no `public`):** unitarias
-  **441/441 · 7989/7989**; integración del subconjunto de reembolsos/preparación (`accessories-m73*`,
-  `pnl-delivered-refunds`, `shipments-prep`, `full-refund-vault`, `orders-public-status`, `settle-late`, `guest-checkout`,
-  `sales-analytics-pnl-parity`, `seed-spei-bucket`, `refund-reason-max`) **11/11 · 286/286**; `migrate deploy` desde cero
-  en `acc_m73` ✓ y el diff contra `schema.prisma` no menciona nada de M-73.
-- **Integración completa: NO MEDIDA limpia.** La corrida murió (`Killed`, exit 137) con carga ~17 en 4 CPU. Además, en un
-  esquema que no es `public` hay rojos de entorno ajenos a M-73: `m64`/`m68` crean CHECKs tras
-  `IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = …)` sin filtrar esquema (ya existen en `public` ⇒ se saltan),
-  y varias pruebas consultan `pg_enum`/`pg_constraint` sin esquema y ven duplicados de `public`, `wsh_be`, `acc_*`.
