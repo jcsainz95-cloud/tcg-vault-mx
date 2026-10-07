@@ -31054,3 +31054,43 @@ Placeholders entre llaves; el dinero llega ya formateado por `formatMoneyCents`.
   ajusta.
 - **Informativo (product-owner):** el texto del «avísame» de sellados cambia porque, con el armado, solo avisa si el
   producto **se agota y vuelve** (WSH-UX.8 a). Encaja con la redacción de 823 que propone el arquitecto (Q-WSH-1).
+
+### WSH-UX.v1.87.3 El párrafo «Lista de deseos» en el aviso de privacidad (2026-10-07 · `PROJECT §WSH.5`, criterio 824 · revisión de `30a9bcff`)
+
+**Veredicto: se ratifica tal como está.** Ningún cambio de ubicación ni de presentación; solo un candado
+sugerido. El texto es el literal de `PROJECT.md:9521-9534` y aquí no se toca.
+
+**Lo leído:** `frontend/src/content/legal/privacidad.es.ts:123-144` (apartados 1–10 del aviso; el párrafo entra en
+`:142`), `privacy-wishlist.ts:13-29`, `PrivacyNoticeView.tsx:97-154`, `privacidad/page.tsx:37-45`,
+`ARCHITECTURE.md:28417-28421` (aviso en español; en `/en`, la línea «Legal notice available in Spanish only»).
+
+**(a) Ubicación: el apartado 3, «finalidades primarias», después de la lista a)–i), como párrafo propio. Correcta.**
+- `PROJECT §WSH.5` (`:9518-9519`) lo pide «como un párrafo propio en las finalidades del aviso».
+- Va en el 3 y no en el 4 (secundarias) por dos razones. P-WSH-6 va con la recomendación: el uso se explica «como
+  parte del servicio» (`:9512-9513`). Y el apartado 4 afirma «Hoy no usamos tus datos para finalidades secundarias»
+  (`privacidad.es.ts:152`), así que ponerlo ahí contradiría al propio aviso.
+- No va como inciso j). El párrafo reúne datos, usos, baja y borrado en un solo bloque, que es lo que pide PROJECT, y
+  arranca con una entrada en negrita. Es el mismo patrón que «**Datos financieros y patrimoniales.**», que va en el
+  apartado 2 debajo de su lista (`:115-120`). No se parte en los apartados 2/3/6: partirlo cambiaría el texto literal.
+
+**(b) `/en`: el aviso en español (`<article lang="es">`) y, justo debajo del párrafo español, el párrafo inglés
+literal con `lang="en"` y el mismo estilo de párrafo. Correcto.**
+- **No hay precedente de un párrafo bilingüe en el aviso.** El único texto inglés de la página es la línea
+  `privacy.spanishOnly` de la cabecera (`PrivacyNoticeView.tsx:130-134`), que también lleva `lang="en"`. El párrafo
+  sigue esa misma regla: el `lang` lo pone el elemento, no la página.
+- **El inglés va debajo del español y no lo sustituye.** El aviso que vale es el español, y el criterio 824 exige
+  los dos textos en la página en inglés.
+- **Mismo estilo** (`text-sm leading-relaxed text-text/90`, la negrita de entrada en `font-semibold`). Las dos
+  entradas, «**Lista de deseos.**» y «**Wishlist.**», seguidas, ya dicen que el segundo es la versión del primero. Un
+  borde, una sangría o un rótulo «English» añadirían un texto o un patrón que el aviso no tiene. No se añaden.
+- **La línea «Legal notice available in Spanish only» se queda como está.** Sigue siendo cierta para el documento.
+  Cambiarla es decisión del abogado (`ARCHITECTURE.md:28421`), no de diseño.
+- **Contraste:** cero pares nuevos (los tokens son los del aviso, §80.4).
+
+**(c) Candado sugerido (lo escribe frontend).** El párrafo inglés se ata al apartado (`sectionId`), no al párrafo
+español. Si mañana alguien añade un bloque al apartado 3 después del de la lista de deseos, el inglés quedaría
+separado del español sin que nada falle.
+
+| Id | Afirma | Mutación que debe morder |
+|---|---|---|
+| **WSH-UX-15** | En `/en`, dentro de `#finalidades-primarias`, el elemento **inmediatamente anterior** al `p[lang="en"]` que empieza por «Wishlist.» es el `p` que empieza por «Lista de deseos.»; en `/es` no hay ningún `p[lang="en"]` en el apartado | Añadir un bloque `p` cualquiera después de `WISHLIST_PRIVACY_ES` en `privacidad.es.ts` |
