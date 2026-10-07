@@ -9902,3 +9902,112 @@ Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (HEAD `
   «retirada», así que una retirada deliberada vuelve a publicarse al cambiar el precio.
 - **Disparador:** el arquitecto decide la marca de «retirada» en el schema (zona compartida, regla 9), o una queja de operador.
 - **Comprobación:** prueba que fija precio sobre un sellado con una pieza retirada a propósito y esta sigue sin publicar.
+
+## Backend · 2026-10-07 · gate de techlead sobre `503cf07` (rama `claude/wishlist`, §WSH)
+
+Deuda que el techlead dejó al backend de la lista de deseos. **No se paga en este pase** (encargo: registrar). Fichero:línea
+**re-medidos el 2026-10-07** sobre `64b293b7` (errata v1.87.3 ya aplicada; las cifras del techlead eran sobre `503cf07`).
+
+### TD-WSH-1 · P3 · `OptionalSessionGuard` duplica las comprobaciones de `JwtAuthGuard`
+- **Dueño:** backend (`modules/catalog/optional-session.guard.ts:27-44`; el original en `common/guards/jwt-auth.guard.ts:47-80`).
+- **Qué es:** el guard opcional del «avísame» repite a mano firma HS256, `typ`, `sub`, `tv` y estado de la cuenta. Si el
+  global gana una comprobación (p. ej. otra clase de token), el opcional no la hereda y una sesión que el global rechaza
+  contaría aquí como cuenta. Hoy WSH-T39 (c) fija los cinco casos conocidos.
+- **Dirección:** extraer «¿este token es una sesión de acceso válida? ⇒ usuario o nulo» a una función de `common/guards/`
+  (zona compartida, pasa por el arquitecto) que usen los dos guards; `JwtAuthGuard` lanza, el opcional no.
+- **Disparador:** el próximo cambio en `JwtAuthGuard`, o un segundo consumidor del guard opcional (WSH.7 (b) ya dice que
+  entonces sube a `common/guards/`).
+- **Comprobación:** las comprobaciones viven en un solo sitio (`grep -rn "payload.typ !== undefined" backend/src` ⇒ 1) y
+  WSH-T39 sigue verde.
+
+### TD-WSH-2 · P3 · `readWishlistDialsTx` es un segundo lector del dial `wishlist_max_per_account`
+- **Dueño:** backend (`modules/wishlist/wishlist.service.ts:312-316`; el lector principal es `wishlist-dials.ts:11`).
+- **Qué es:** el alta lee el tope dentro de su transacción (WSH.4) con un lector propio que reimplementa «fila o
+  `SETTING_DEFAULTS`, validado con `SETTING_VALIDATORS`». Dos lectores del mismo dial pueden divergir (un cambio de
+  validación o de defecto en uno solo).
+- **Dirección:** que `SettingsService` ofrezca leer un dial con un cliente de transacción, y que ambos usen esa vía.
+- **Disparador:** un tercer dial que haya que leer dentro de una transacción, o el próximo cambio de `SettingsService`.
+- **Comprobación:** `grep -rn "readWishlistDialsTx" backend/src` vacío; WSH-T3 (carrera del tope) sigue verde.
+
+### TD-WSH-3 · P3 · `catalog` depende de ficheros de `wishlist/`
+- **Dueño:** backend (`modules/catalog/catalog.controller.ts:12`, `catalog.module.ts:5`,
+  `sealed-restock-notify.service.ts:8-9`).
+- **Qué es:** el catálogo importa de `wishlist/` el pipe estricto, el reloj (`WISHLIST_CLOCK`), los diales
+  (`readWishlistDials`) y la clave del candado del job de sellados. La dirección natural es la contraria (la lista de deseos
+  consume el catálogo); hoy no hay ciclo de módulos Nest, pero sí acoplamiento de ficheros.
+- **Dirección:** mover reloj, clave de candado y lector de la ventana a un sitio neutro (o el job de sellados a su propio
+  módulo), y el pipe a `common/pipes/` (TD-WSH-9). Pasa por el arquitecto (zona compartida).
+- **Disparador:** el próximo cambio de `sealed-restock-notify` o un tercer import de `catalog` → `wishlist`.
+- **Comprobación:** `grep -rn "from '../wishlist" backend/src/modules/catalog` vacío.
+
+### TD-WSH-4 · P3 · `@Optional()` en producción solo para las pruebas
+- **Dueño:** backend (`modules/catalog/catalog.controller.ts:32-34` `settings`; `sealed-restock-notify.service.ts:68-70`
+  `catalog` y `clock`; `payments/payments.service.ts:49-51` `wishlist`).
+- **Qué es:** dependencias que en la app siempre existen entran como opcionales para que los unitarios construyan el
+  objeto a mano. Si un día el módulo dejara de proveerlas, la ficha diría «lista apagada», el job de sellados no vería
+  piezas vendibles y el pago no quitaría el deseo, **sin error**. Misma clase que TD-AN-4.
+- **Dirección:** quitar `@Optional()` y pasar dobles en las suites que construyen esos objetos.
+- **Disparador:** el próximo cambio de cada constructor.
+- **Comprobación:** `grep -n "@Optional()"` en esas tres líneas vacío y las suites unitarias verdes.
+
+### TD-WSH-5 · P3 · Duplicaciones pequeñas
+- **Dueño:** backend.
+- **Qué es:**
+  - **Clave de sellado:** la regla vive una vez desde v1.87.3 (`groupKey` llama a `sealedIdentityKey`, candado WSH-T42 (d)),
+    pero `sealedDetail` (`sealed-catalog.service.ts:~360-370`) y el relleno de M-74 paso (8) expresan la misma identidad
+    como filtro (`where` / SQL), no como clave. Es la forma que el contrato pide; queda anotado por si cambia la regla.
+  - **Normalización de correo:** `trim().toLowerCase()` en `sealed-catalog.service.ts:468-469`; ya existen
+    `normalizeEmail` en `common/validation/credentials.ts:15` y `orders/guest-privacy.ts:43`.
+  - **`FINISH_LABELS`:** `wishlist/wishlist-mail.ts:55` repite `buylist/buylist-mail.templates.ts:95`.
+  - **`SET_IMAGE_HOSTS`:** `wishlist-mail.ts:26` lo importa de `catalog/catalog-sync.service.ts:285` (un servicio de
+    sincronización) en vez de un módulo de constantes.
+- **Disparador:** el próximo cambio en cualquiera de esas copias.
+- **Comprobación:** una sola definición por concepto (`grep -rn "const FINISH_LABELS" backend/src` ⇒ 1; el «avísame» usa
+  `normalizeEmail`; `SET_IMAGE_HOSTS` en un fichero de constantes).
+
+### TD-WSH-6 · P3 · Escala de los barridos de 5 minutos
+- **Dueño:** backend (`modules/wishlist/wishlist-notify.service.ts:116`, `wishlist-pieces.ts` `undetectedMatches`;
+  `modules/catalog/sealed-restock-notify.service.ts:95-104`).
+- **Qué es:** cada tick lee todas las pendientes y todas las piezas candidatas sin paginar. Correcto y barato con el
+  volumen de hoy (NO MEDIDO en producción).
+- **Dirección:** paginar por lotes con cursor, o limitar la detección a piezas cambiadas desde el último tick.
+- **Disparador (umbral del techlead):** una corrida de cualquiera de los dos jobs **> 30 s**, o **> ~1k** filas pendientes
+  (`WishlistNotice` `pending` o `SealedRestockSubscription` con `notifiedAt IS NULL`).
+- **Comprobación:** duración por corrida en el registro del job, y conteo de pendientes, antes y después.
+
+### TD-WSH-7 · P3 · `halfDiv` y la cota 2⁵³
+- **Dueño:** backend (`common/wishlist-math.ts:32-39` y sus llamadores `:47`, `:75-76`, `:90`).
+- **Qué es:** `halfDiv` divide en `BigInt`, pero sus llamadores multiplican en `number` antes de llamarla
+  (`marketCents * (100 + p)`, `topeCents * 10000`). Por encima de 2⁵³ el producto ya llegó inexacto y el `BigInt` no lo
+  repara. Con centavos de cartas reales está muy lejos (haría falta un mercado de ~9·10¹¹ MXN).
+- **Dirección:** que `halfDiv` reciba los factores (o `bigint`) y multiplique dentro, o un `assert Number.isSafeInteger`
+  del producto.
+- **Disparador:** el próximo cambio de `wishlist-math.ts`.
+- **Comprobación:** prueba con un producto > 2⁵³ que rechaza o calcula exacto.
+
+### TD-WSH-8 · P3 · `WishlistNotice.userId` sin FK compuesta con su deseo
+- **Dueño:** backend + arquitecto (schema, zona compartida) (`prisma/schema.prisma:2732-2736`).
+- **Qué es:** `userId` está desnormalizado de `wishlistItem.userId` para el único `(userId, inventoryItemId)`; nada en la
+  base impide un aviso cuyo `userId` no sea el dueño del deseo. Hoy el único escritor lo copia del deseo.
+- **Dirección:** `@@unique([id, userId])` en `WishlistItem` y FK compuesta `(wishlistItemId, userId)` desde
+  `WishlistNotice`, o un CHECK por trigger. Migración nueva (no se edita M-74 una vez publicada).
+- **Disparador:** un segundo escritor de `WishlistNotice`.
+- **Comprobación:** insertar por SQL un aviso con `userId` ajeno ⇒ error de FK.
+
+### TD-WSH-9 · P3 · `StrictBodyPipe` vive en `wishlist/dto` y ya tiene dos consumidores
+- **Dueño:** backend (`modules/wishlist/dto/wishlist.dto.ts:45-66`; consumidores `wishlist.controller.ts` y, desde
+  v1.87.3, `catalog/catalog.controller.ts:12`).
+- **Qué es:** el pipe es genérico pero vive en el DTO de un módulo. WSH.7 (f) lo permite con dos consumidores y dice que
+  con un tercero sube a `common/pipes/`.
+- **Dirección:** moverlo a `common/pipes/strict-body.pipe.ts` (zona compartida, pasa por el arquitecto).
+- **Disparador:** el tercer consumidor (regla del contrato).
+- **Comprobación:** `grep -rn "class StrictBodyPipe" backend/src` ⇒ `common/pipes/`; candados WSH-T38 y WSH-T42 (c) verdes.
+
+### TD-WSH-10 · P3 · Propuesta: invertir la dependencia `PaymentsModule → WishlistModule`
+- **Dueño:** backend + arquitecto (`modules/payments/payments.module.ts:2,25`; llamada en `payments.service.ts:61`).
+- **Qué es:** el dinero importa a la lista de deseos para llamar `consumeForSettledOrder` tras liquidar. Un módulo de
+  dinero que conoce a un consumidor opcional crece con cada consumidor nuevo.
+- **Dirección (propuesta del techlead, a decidir por el arquitecto):** `payments` emite «pedido liquidado» (evento o puerto
+  registrable) y `wishlist` se suscribe; `payments` deja de importar `WishlistModule`.
+- **Disparador:** un segundo consumidor de «pedido liquidado».
+- **Comprobación:** `grep -n "WishlistModule" backend/src/modules/payments` vacío; WSH-T16 y WSH-T43 verdes.
