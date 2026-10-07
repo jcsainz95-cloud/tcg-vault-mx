@@ -64,11 +64,14 @@ function build(opts: {
   trend?: string;
   restock?: string;
   findFirst?: any;
+  findUnique?: any;
 } = {}) {
   const prisma = {
     inventoryItem: {
       findMany: jest.fn(async () => opts.items ?? []),
       findFirst: jest.fn(async () => opts.findFirst ?? null),
+      // v1.87.3 (§WSH.7 (f)): el «avísame» deriva la identidad de UNA pieza por su id.
+      findUnique: jest.fn(async () => opts.findUnique ?? null),
     },
     priceReference: { findMany: jest.fn(async () => []) },
     card: {
@@ -253,42 +256,58 @@ describe('SealedCatalogService — endpoints FEATURE-FLAGGED (§2-S)', () => {
     await expect(svc.sealedValueHistory('i1', '1m')).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
+  // ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, §WSH.7 (f)): el cuerpo es `{ email, inventoryItemId }`; la identidad la DERIVA el servidor.
+  const PIECE = '11111111-1111-4111-8111-111111111111';
+  const sealedPiece = (over: Record<string, unknown> = {}) => ({
+    id: PIECE,
+    productType: 'sealed',
+    cardId: 'c1',
+    sealedSubtype: 'box',
+    sealedCondition: 'minor_box_damage',
+    tcgplayerProductId: 4242,
+    ...over,
+  });
+
   it('restock con dial OFF → 404 FEATURE_DISABLED', async () => {
-    const { svc } = build({ restock: 'off' });
-    await expect(
-      svc.subscribeRestock({ email: 'a@b.com', cardId: 'c1', sealedCondition: 'mint' }),
-    ).rejects.toMatchObject({ code: 'FEATURE_DISABLED' });
+    const { svc } = build({ restock: 'off', findUnique: sealedPiece() });
+    await expect(svc.subscribeRestock({ email: 'a@b.com', inventoryItemId: PIECE })).rejects.toMatchObject({ code: 'FEATURE_DISABLED' });
   });
 
   it('restock con dial ON y correo inválido → 422 VALIDATION_ERROR', async () => {
-    const { svc } = build({ restock: 'on' });
-    await expect(
-      svc.subscribeRestock({ email: 'no-arroba', cardId: 'c1', sealedCondition: 'mint' }),
-    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    const { svc } = build({ restock: 'on', findUnique: sealedPiece() });
+    await expect(svc.subscribeRestock({ email: 'no-arroba', inventoryItemId: PIECE })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  it('restock con dial ON sin identidad de producto → 422 VALIDATION_ERROR', async () => {
-    const { svc } = build({ restock: 'on' });
-    await expect(
-      svc.subscribeRestock({ email: 'a@b.com', sealedCondition: 'mint' }),
-    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
-  });
-
-  it('restock con dial ON, correo e identidad válidos → 202 neutro { subscribed: true } y persiste', async () => {
-    const { svc, prisma } = build({ restock: 'on' });
-    const res = await svc.subscribeRestock({ email: 'A@B.com ', cardId: 'c1', sealedCondition: 'mint' });
+  it('restock con pieza SELLADA → 202 neutro y la fila lleva la identidad DERIVADA de la pieza (las 4 columnas)', async () => {
+    const { svc, prisma } = build({ restock: 'on', findUnique: sealedPiece() });
+    const res = await svc.subscribeRestock({ email: 'A@B.com ', inventoryItemId: PIECE });
     expect(res).toEqual({ subscribed: true });
     const create = (prisma.sealedRestockSubscription.create as jest.Mock).mock.calls[0][0].data;
-    expect(create.email).toBe('a@b.com'); // normalizado (trim + lowercase)
-    expect(create.cardId).toBe('c1');
-    expect(create.notifiedAt).toBeNull();
+    expect(create).toEqual(
+      expect.objectContaining({
+        email: 'a@b.com', // normalizado (trim + lowercase)
+        cardId: 'c1',
+        sealedSubtype: 'box',
+        sealedCondition: 'minor_box_damage',
+        tcgplayerProductId: 4242,
+        notifiedAt: null,
+      }),
+    );
   });
 
-  it('restock: cardId inexistente → NEUTRO 202 sin persistir (anti-enumeración)', async () => {
-    const { svc, prisma } = build({ restock: 'on' });
-    (prisma.card.findUnique as jest.Mock).mockResolvedValueOnce(null);
-    const res = await svc.subscribeRestock({ email: 'a@b.com', cardId: 'ghost', sealedCondition: 'mint' });
-    expect(res).toEqual({ subscribed: true });
-    expect((prisma.sealedRestockSubscription.create as jest.Mock)).not.toHaveBeenCalled();
+  it('restock con pieza sellada sin condición ni mapeo → `mint` y `tcgplayerProductId` nulo (clave `c:` = la del grupo)', async () => {
+    const { svc, prisma } = build({ restock: 'on', findUnique: sealedPiece({ sealedCondition: null, tcgplayerProductId: null }) });
+    await svc.subscribeRestock({ email: 'a@b.com', inventoryItemId: PIECE });
+    const create = (prisma.sealedRestockSubscription.create as jest.Mock).mock.calls[0][0].data;
+    expect([create.sealedCondition, create.tcgplayerProductId]).toEqual(['mint', null]);
+  });
+
+  it('restock: pieza inexistente o NO sellada → NEUTRO 202 sin persistir (anti-enumeración)', async () => {
+    for (const piece of [null, sealedPiece({ productType: 'raw' })]) {
+      const { svc, prisma } = build({ restock: 'on', findUnique: piece });
+      const res = await svc.subscribeRestock({ email: 'a@b.com', inventoryItemId: PIECE });
+      expect(res).toEqual({ subscribed: true });
+      expect(prisma.sealedRestockSubscription.create as jest.Mock).not.toHaveBeenCalled();
+    }
   });
 });

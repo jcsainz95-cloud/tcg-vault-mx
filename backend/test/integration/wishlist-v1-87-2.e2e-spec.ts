@@ -17,6 +17,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Role, UserStatus } from '@prisma/client';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { createWshWorld, WshPerson, WshWorld } from './helpers/wishlist-db';
+import { restockBody, RestockBody, subscribeRestock } from './helpers/restock-subscribe';
 
 let w: WshWorld;
 const MIN = 60_000;
@@ -103,7 +104,7 @@ describe('WSH-T39 — `OptionalSessionGuard` en el «avísame» de sellados (WSH
     prodSeq += 1;
     const c = await w.card({ finishes: ['normal'] });
     const tcg = 600000000 + Math.floor(Math.random() * 99999999) + prodSeq;
-    await w.piece(c.id, {
+    const pieceId = await w.piece(c.id, {
       productType: 'sealed',
       rawCondition: null,
       sealedSubtype: 'box',
@@ -113,17 +114,12 @@ describe('WSH-T39 — `OptionalSessionGuard` en el «avísame» de sellados (WSH
       status: 'in_custody',
       listCents: 200000,
     });
-    return { cardId: c.id, tcg };
+    return { cardId: c.id, tcg, pieceId };
   }
-  const subscribe = (json: Record<string, unknown>, token?: string) =>
-    w.h.api('POST', '/catalog/sealed/restock-subscriptions', { token, json });
-  const body = (email: string, p: { cardId: string; tcg: number }) => ({
-    email,
-    cardId: p.cardId,
-    sealedSubtype: 'box',
-    tcgplayerProductId: p.tcg,
-    sealedCondition: 'mint',
-  });
+  // ⭐ v1.87.3 (B-1 de QA): el cuerpo de la PANTALLA `{ email, inventoryItemId }` por el helper único; las afirmaciones no
+  // cambian (la identidad la deriva el servidor de la pieza: mismo `tcgplayerProductId`).
+  const subscribe = (b: RestockBody, token?: string) => subscribeRestock(w.h, b, token);
+  const body = (email: string, p: { pieceId: string }) => restockBody(email, p.pieceId);
   const otro = () => `otro-${w.run}-${randomBytes(3).toString('hex')}@e2e.local`;
   const rowsOf = (email: string) => w.h.prisma.sealedRestockSubscription.findMany({ where: { email } });
 

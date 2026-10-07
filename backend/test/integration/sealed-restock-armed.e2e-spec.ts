@@ -8,8 +8,13 @@
  *  WSH-T26 — apuntarse con existencia ⇒ 0 correos hasta que se agota y vuelve (armado).
  *  WSH-T27 — dial `off` ⇒ `404 FEATURE_DISABLED` al apuntarse y job no-op.
  *  WSH-T28 — con sesión se guarda el correo de la cuenta; 6.ª pendiente del mismo correo ⇒ 202 sin fila.
+ *
+ * ⭐ v1.87.3 (B-1 de QA): todas las altas van con el cuerpo de la PANTALLA `{ email, inventoryItemId }` por el helper único
+ * (`helpers/restock-subscribe.ts`); antes se apuntaban con `tcgplayerProductId`, un cuerpo que la pantalla no puede mandar.
+ * Las afirmaciones no cambian.
  */
 import { createWshWorld, WshWorld } from './helpers/wishlist-db';
+import { restockBody, RestockBody, subscribeRestock } from './helpers/restock-subscribe';
 
 let w: WshWorld;
 const MIN = 60_000;
@@ -45,8 +50,7 @@ async function product() {
     });
   return { cardId: c.id, tcg, mk, name: `Caja Avísame ${w.run} ${prodSeq}` };
 }
-const subscribe = (json: Record<string, unknown>, token?: string) =>
-  w.h.api('POST', '/catalog/sealed/restock-subscriptions', { token, json });
+const subscribe = (body: RestockBody, token?: string) => subscribeRestock(w.h, body, token);
 const runJob = async () => {
   const r = await w.h.api('POST', '/admin/jobs/sealed-restock-notify', { token: w.adminToken, json: {} });
   expect(r.status).toBe(202);
@@ -58,9 +62,9 @@ const soldOut = (cardId: string) =>
 describe('WSH-T26 — armado: apuntarse con existencia no avisa hasta que se agota y vuelve', () => {
   it('con existencia ⇒ 0 correos; se agota (arma); vuelve ⇒ espera la ventana ⇒ 1 correo', async () => {
     const p = await product();
-    await p.mk();
+    const first = await p.mk();
     const email = `armed-${w.run}@e2e.local`;
-    expect((await subscribe({ email, tcgplayerProductId: p.tcg, sealedCondition: 'mint' })).status).toBe(202);
+    expect((await subscribe(restockBody(email, first))).status).toBe(202);
     await runJob();
     w.clock.advance(60 * MIN);
     await runJob();
@@ -89,10 +93,10 @@ describe('WSH-T26 — armado: apuntarse con existencia no avisa hasta que se ago
 describe('WSH-T25 — un correo por correo y producto; una sola vez', () => {
   it('dos suscripciones del mismo correo ⇒ 1 correo con enlace a una pieza vendible; segunda reposición ⇒ 0', async () => {
     const p = await product();
-    await p.mk();
+    const first = await p.mk();
     const email = `twice-${w.run}@e2e.local`;
-    await subscribe({ email, tcgplayerProductId: p.tcg, sealedCondition: 'mint' });
-    await subscribe({ email: email.toUpperCase(), tcgplayerProductId: p.tcg, sealedCondition: 'mint' });
+    await subscribe(restockBody(email, first));
+    await subscribe(restockBody(email.toUpperCase(), first));
     expect(await w.h.prisma.sealedRestockSubscription.count({ where: { email } })).toBe(1); // capa 1
     // capa 2: una fila duplicada que ganó la carrera de la capa 1
     await w.h.prisma.sealedRestockSubscription.create({ data: { email, cardId: p.cardId, tcgplayerProductId: p.tcg, sealedCondition: 'mint', sealedSubtype: 'box' } });
@@ -123,8 +127,9 @@ describe('WSH-T25 — un correo por correo y producto; una sola vez', () => {
 describe('WSH-T27 — dial `off`', () => {
   it('apuntarse ⇒ 404 FEATURE_DISABLED; job no-op', async () => {
     const p = await product();
+    const piece = await p.mk();
     await w.setDial('sealed_restock_alerts', 'off');
-    const r = await subscribe({ email: `off-${w.run}@e2e.local`, tcgplayerProductId: p.tcg, sealedCondition: 'mint' });
+    const r = await subscribe(restockBody(`off-${w.run}@e2e.local`, piece));
     expect(r.status).toBe(404);
     expect(r.body.error.code).toBe('FEATURE_DISABLED');
     const j = await runJob();
@@ -136,7 +141,7 @@ describe('WSH-T28 — anti-abuso de correo ajeno (WSH.7 (b))', () => {
   it('con sesión se guarda el correo de la CUENTA (se ignora dto.email); la 6.ª pendiente del mismo correo ⇒ 202 sin fila', async () => {
     const a = await w.customer();
     const p = await product();
-    const r = await subscribe({ email: `victima-${w.run}@e2e.local`, cardId: p.cardId, sealedSubtype: 'box', tcgplayerProductId: p.tcg, sealedCondition: 'mint' }, a.token);
+    const r = await subscribe(restockBody(`victima-${w.run}@e2e.local`, await p.mk('in_custody')), a.token);
     expect(r.status).toBe(202);
     expect(await w.h.prisma.sealedRestockSubscription.count({ where: { email: `victima-${w.run}@e2e.local` } })).toBe(0);
     const mine = await w.h.prisma.sealedRestockSubscription.findFirstOrThrow({ where: { email: a.email } });
@@ -145,11 +150,11 @@ describe('WSH-T28 — anti-abuso de correo ajeno (WSH.7 (b))', () => {
     const victim = `cap-${w.run}@e2e.local`;
     for (let i = 0; i < 5; i += 1) {
       const q = await product();
-      expect((await subscribe({ email: victim, cardId: q.cardId, sealedSubtype: 'box', tcgplayerProductId: q.tcg, sealedCondition: 'mint' })).status).toBe(202);
+      expect((await subscribe(restockBody(victim, await q.mk('in_custody')))).status).toBe(202);
     }
     expect(await w.h.prisma.sealedRestockSubscription.count({ where: { email: victim } })).toBe(5);
     const sixth = await product();
-    const r6 = await subscribe({ email: victim, cardId: sixth.cardId, sealedSubtype: 'box', tcgplayerProductId: sixth.tcg, sealedCondition: 'mint' });
+    const r6 = await subscribe(restockBody(victim, await sixth.mk('in_custody')));
     expect(r6.status).toBe(202);
     expect(r6.body).toEqual({ subscribed: true });
     expect(await w.h.prisma.sealedRestockSubscription.count({ where: { email: victim } })).toBe(5);
