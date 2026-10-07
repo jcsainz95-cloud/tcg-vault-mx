@@ -46,6 +46,8 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
 
   const created: string[] = [];
   let packagesBefore: unknown;
+  const DIAL_KEYS = ['energy_bundle_price_cents', 'accessory_suggestion_count'];
+  let dialsBefore: { key: string; valueJson: unknown }[] = [];
 
   beforeAll(async () => {
     h = await E2EHarness.create();
@@ -57,6 +59,8 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
     JPG = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#0c0' } }).jpeg().toBuffer();
     WEBP = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#00c' } }).webp().toBuffer();
     packagesBefore = (await h.api('GET', '/admin/shipping/packages', { token: admin })).body;
+    // Los diales pueden venir sembrados (`seed-e2e` siembra todos los defaults): se guardan y se reponen al final.
+    dialsBefore = await h.prisma.configSetting.findMany({ where: { key: { in: DIAL_KEYS } }, select: { key: true, valueJson: true } });
   });
 
   afterAll(async () => {
@@ -72,7 +76,8 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
     await h.prisma.accessoryStockMovement.deleteMany({ where: { accessoryId: { in: ids } } });
     await h.prisma.accessory.deleteMany({ where: { id: { in: ids } } });
     if (packagesBefore) await h.api('PUT', '/admin/shipping/packages', { token: admin, json: packagesBefore });
-    await h.prisma.configSetting.deleteMany({ where: { key: { in: ['energy_bundle_price_cents', 'accessory_suggestion_count'] } } });
+    await h.prisma.configSetting.deleteMany({ where: { key: { in: DIAL_KEYS } } });
+    for (const d of dialsBefore) await h.prisma.configSetting.create({ data: { key: d.key, valueJson: d.valueJson as never } });
     await h.close();
   });
 
@@ -256,9 +261,10 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
     it('operador: PUT de cajas y de diales ⇒ 403', async () => {
       const p = await h.api('PUT', '/admin/shipping/packages', { token: op, json: packagesBefore });
       expect(p.status).toBe(403);
-      const s = await h.api('PUT', '/admin/settings', { token: op, json: { energyBundlePriceCents: 2500 } });
+      const antes = (await h.api('GET', '/admin/settings', { token: admin })).body.energyBundlePriceCents;
+      const s = await h.api('PUT', '/admin/settings', { token: op, json: { energyBundlePriceCents: antes + 1 } });
       expect(s.status).toBe(403);
-      expect(await h.prisma.configSetting.count({ where: { key: 'energy_bundle_price_cents' } })).toBe(0);
+      expect((await h.api('GET', '/admin/settings', { token: admin })).body.energyBundlePriceCents).toBe(antes);
     });
 
     it('operador: foto y existencias ⇒ ok', async () => {
@@ -640,7 +646,7 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
 
   describe('§AC.11 — diales de precios', () => {
     it('GET muestra los defaults; PUT súper-admin los cambia (validación por clave)', async () => {
-      await h.prisma.configSetting.deleteMany({ where: { key: { in: ['energy_bundle_price_cents', 'accessory_suggestion_count'] } } });
+      await h.prisma.configSetting.deleteMany({ where: { key: { in: DIAL_KEYS } } });
       const g = await h.api('GET', '/admin/settings', { token: admin });
       expect([g.body.energyBundlePriceCents, g.body.accessorySuggestionCount]).toEqual([2000, 3]);
       const p = await h.api('PUT', '/admin/settings', { token: admin, json: { energyBundlePriceCents: 2500 } });
