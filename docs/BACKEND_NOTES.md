@@ -30273,3 +30273,44 @@ Norma: `API_CONTRACT §WSH` con la errata v1.87.1 (el contrato manda). Decisione
   «Scheduler activo (BullMQ)» en Railway tras desplegar); cuántas `SealedRestockSubscription` hay en producción (consulta en
   `API_CONTRACT §WSH.1`); qué hosts tiene hoy `Card.imageSmallUrl` (otro host ⇒ correo sin foto, no fuga); si `resend` 4.8.0
   rechaza algo del HTML nuevo; la suite E2E de frontend (no es de este rol).
+
+### 84.v1.87.2 Errata v1.87.2⟨wishlist⟩ aplicada (2026-10-07, rama `claude/wishlist`, sobre `43b28f8`)
+
+Norma: `API_CONTRACT §WSH.11` (índice) + los puntos ⭐ v1.87.2 de WSH.1/4/5/7, `ARCHITECTURE §4.WSH (k)`. El contrato no se tocó.
+
+| Commit | Qué |
+|---|---|
+| `0f38170` pruebas | WSH-T38…T41 escritas ANTES del cambio: `test/wishlist.source-locks.spec.ts` (candados de fuente de T38 y T39) y `test/integration/wishlist-v1-87-2.e2e-spec.ts` (conducta T38…T41) |
+| `54c1629` M-74 | `WishlistNotice.inventoryItemId` `ON DELETE RESTRICT` ⇒ `CASCADE` en `migration.sql` (editada en sitio, M-74 no publicada) y `onDelete: Cascade` en `schema.prisma` |
+
+- **84.3 (5) queda cerrada:** borrar una pieza se lleva sus avisos; el deseo y el `WishlistMail` quedan. La limpieza P-DB ya no tiene
+  que borrar `WishlistNotice` antes del inventario.
+- **Re-aplicar M-74 sobre una base con la versión vieja** (medido en el esquema propio `wsh_be2`): con la FK puesta a mano en
+  `RESTRICT`, `migration.sql` re-ejecutado por `psql -v ON_ERROR_STOP=1` ⇒ 0 errores y `confdeltype = 'c'`. Una base con la
+  versión vieja **registrada** en `_prisma_migrations` verá otro checksum en `migrate dev` (lo dice WSH.11); `migrate deploy` en
+  una base nueva aplica la versión nueva (medido: esquema borrado y re-desplegado, T40 verde).
+- **WSH-T23:** su prueba (`wishlist-notify.e2e-spec.ts:294`) ya decía `displayPriceCents`; sin cambio.
+- **WSH-T41 es determinista:** la prueba toma `pg_advisory_xact_lock(<clave>)` en una transacción propia (otra conexión del pool),
+  comprueba en `pg_locks` que está concedido y SOLO entonces dispara el job. No hay carrera que medir con N.
+- **T40 filtra por `current_schema()`** (`pg_namespace.nspname`): la base compartida tiene otros esquemas con las mismas tablas.
+- ⚠️ Los candados consultivos son de **base**, no de esquema: dos corridas de T41 en esquemas distintos de la misma base se
+  pisarían la clave (la otra vería `ALREADY_RUNNING` un instante). La prueba solo exige `≥ 1` candado concedido; el riesgo es de
+  entornos compartidos, no de CI (una base por corrida). NO MEDIDO con dos corridas simultáneas.
+
+**Antes del cambio** (sobre `0f38170`, esquema `wsh_be2` desplegado con la M-74 vieja): e2e nueva 11/13 verdes, **T40 2/2 rojas**
+por conducta (`"WishlistNotice.inventoryItemId": "r"` y violación de FK al borrar la pieza). T38, T39 y T41 verdes: el código ya
+hacía lo que la errata ratifica (pipe por parámetro, guard opcional, candado en transacción portadora); su valor está en las
+mutaciones. Candados de fuente 5/5 verdes.
+
+**Mutaciones** (copia `git archive HEAD` del árbol ENTERO en `54c1629`, N=1 cada una —todas deterministas—, revertida y
+comprobada limpia con `git status` de la copia):
+
+| # | Mutación | Resultado |
+|---|---|---|
+| M38 | las 4 rutas con `@Body() dto: <Dto>` (el global descarta el campo en silencio; mismo efecto que el pipe de controlador, M0) | T38 e2e **4/4 rojas** (201/200/200/200 en vez de 400); candado **2/5 rojas** |
+| M39a | sin `@UseGuards(OptionalSessionGuard)` | T39 **2 rojas** ((a) guarda `dto.email`; tope sobre el correo resuelto); candado **1 roja** |
+| M39b | el guard no mira `tokenVersion` ni `blocked`/`deleted` | T39 (c) **roja** (caso «`tv` viejo» guardado con `userId`) |
+| M39c | el guard también en `GET /catalog/cards/:cardId` | candado **1 roja** (aparece en 2 `@UseGuards`) |
+| M39d | el guard rechaza con `401` si la firma no verifica | T39 (c) **roja** («firma mala» ⇒ 401) |
+| M40 | FK puesta a mano en `RESTRICT` (= M-74 vieja) | T40 **2/2 rojas** |
+| M41a / M41b | `wishlist-notify` / `sealed-restock-notify` ignoran el candado (`if (!locked) return null` fuera) | T41 **roja** en su caso, 1/1 cada una |
