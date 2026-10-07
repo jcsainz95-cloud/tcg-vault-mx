@@ -231,8 +231,25 @@ export const PUBLISH_ALL_FAILURES_CAP = 200;
  */
 export const PENDING_PUBLISH_CHUNK_SIZE = PUBLISH_ALL_CHUNK_SIZE;
 
-/** Qué le falta a una pieza para estar a la venta (§11 `PendingPublishRowDTO.missing`). */
+/**
+ * Qué le falta a una pieza para estar a la venta (§11 `PendingPublishRowDTO.missing`).
+ * ⭐ Errata SU-1 (§M1-SU, SU.2): `'location'` se CONSERVA en el tipo, dormido — el servidor no lo emite mientras
+ * rija la fila de HECHOS «La ubicación (cajón) NO es requisito para publicar, por ahora».
+ */
 export type PendingPublishMissing = 'location' | 'price';
+
+/** ⭐ SU-1 (SU.3): el pronóstico de `previewPublication` — lo que `reevaluateForPublication` haría, sin escribir. */
+export type PublishPreviewOutcome =
+  | 'would_publish'
+  | 'already_listed'
+  | 'price_pending'
+  | 'not_publishable'
+  | 'not_found';
+
+export interface PublishPreviewResult {
+  inventoryItemId: string;
+  outcome: PublishPreviewOutcome;
+}
 
 /**
  * v1.51.19 (§4.39m.8) — llave de emparejamiento **variante ↔ pieza** para el disparador (c). Incluye
@@ -2016,9 +2033,10 @@ export class InventoryService {
    */
   private pendingPublishStateOf(item: PublishableItem, ctx: PublishPricingCtx): PendingPublishState {
     const missing: PendingPublishMissing[] = [];
-    // ⚠️ La ubicación va PRIMERA porque es la que el operador puede arreglar sin depender de nadie:
-    // es un dato de captura, no un dato de mercado.
-    if (item.locationId == null) missing.push('location');
+    // ⭐⭐ Errata SU-1 (API_CONTRACT §M1-SU, SU.1/SU.2; ARCHITECTURE §4.65; HECHOS «La ubicación (cajón) NO es
+    // requisito para publicar, por ahora», 2026-10-07): `locationId` NO entra en la decisión ⇒ el servidor no emite
+    // `'location'` (`missing ⊆ ['price']`). Revertir = devolver aquí
+    // `if (item.locationId == null) missing.push('location');` (primero) y el corte de `reevaluateOne`.
     const derived = this.derivePublishSalePrice(item, null, ctx);
     if (derived.ok) {
       return {
@@ -2069,7 +2087,8 @@ export class InventoryService {
    * pagada podía quedarse quieta para siempre sin que nada lo señalara.*
    *
    * Predicado (§4.39m.1): `ownerType='platform' ∧ status='in_stock' ∧ (locationId IS NULL ∨ precio NO
-   * resoluble)`.
+   * resoluble)`. ⭐ **Errata SU-1 (§M1-SU):** desde 2026-10-07 es `platform ∧ in_stock ∧ precio NO resoluble` —
+   * la ubicación no entra (ver `pendingPublishStateOf`).
    *
    * ### ⚠️ Por qué esto barre y no pagina en SQL, dicho sin adornos
    * *«Precio no resoluble»* **no es expresable en SQL**: depende de la curva vigente, de las
@@ -2083,9 +2102,8 @@ export class InventoryService {
    * cuando hay 900 sería peor que no tener cola. Señalado al arquitecto como punto de escala.
    *
    * `missing` dice **QUÉ le falta**; con `'price'` viaja el `pendingPriceEntryId` para el deep-link a
-   * la cola de M2. **La pieza sin ubicación sale SEÑALADA, no bloqueada** (m.3): la conversión no
-   * exige ubicación a propósito — *bloquearla atoraría el pago al vendedor, y el pago no puede
-   * depender de que ya sepamos en qué caja va la carta*.
+   * la cola de M2. La conversión no exige ubicación a propósito (m.3) — *bloquearla atoraría el pago al
+   * vendedor*; y desde SU-1 (§M1-SU) **tampoco la exige publicar**: una pieza sin cajón con precio se publica.
    */
   async pendingPublish(q: {
     missing?: PendingPublishMissing;
@@ -2104,10 +2122,11 @@ export class InventoryService {
       // la cola de M11 (que pide `productType=sealed`) devolvía TODO y una carta suelta se colaba.
       ...(q.productType ? { productType: q.productType } : {}),
       ...(q.setId ? { card: { setId: q.setId } } : {}),
-      // Cuando se filtra por `missing=location` el predicado SÍ es SQL: se empuja a la BD para no
-      // barrer de más. `missing=price` no puede empujarse — ver el bloque de arriba.
-      ...(q.missing === 'location' ? { locationId: null } : {}),
     };
+    // ⭐ Errata SU-1 (§M1-SU, SU.2): `?missing=location` sigue siendo VÁLIDO (clase L, sin `400`) pero el servidor ya
+    // no emite ese valor ⇒ ninguna fila puede casar: `200 { data: [], total: 0 }` sin barrer el inventario.
+    // `missing=price` no puede empujarse a SQL — ver el bloque de arriba.
+    if (q.missing === 'location') return { data: [], page: q.page, pageSize: q.pageSize, total: 0 };
     const selectedIds = (
       await this.prisma.inventoryItem.findMany({
         where,
@@ -3036,11 +3055,7 @@ export class InventoryService {
     const ids = [...new Set(inventoryItemIds)].filter((x) => typeof x === 'string' && x.length > 0);
     if (ids.length === 0) return [];
     const out: PublishReevaluationResult[] = [];
-    const curve = await this.pricing.loadPricingCurve();
-    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por corrida junto a la curva.
-    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
-    const sealed = await this.pricing.loadSealedSpreads();
-    const ivaDials = await this.settings.getIvaDials(); // 💰 v1.83.1: una lectura por corrida
+    const { curve, premiumFloorPolicy, sealed, ivaDials } = await this.loadPublishRunDials();
     for (let i = 0; i < ids.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
       const chunkIds = ids.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
       const items = await this.prisma.inventoryItem.findMany({
@@ -3054,6 +3069,67 @@ export class InventoryService {
       const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
       for (const item of items) {
         out.push(await this.reevaluateOne(item, ctx));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Los diales de UNA corrida de publicación por id, leídos una vez: curva, política de VENTA (v1.80.8.5 `M2-PF`),
+   * spreads del sellado y diales de IVA (💰 v1.83.1). Compartido por `reevaluateForPublication` y su pronóstico
+   * `previewPublication` (SU-1) para que los dos lean exactamente lo mismo.
+   */
+  private async loadPublishRunDials() {
+    const curve = await this.pricing.loadPricingCurve();
+    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
+    const sealed = await this.pricing.loadSealedSpreads();
+    const ivaDials = await this.settings.getIvaDials();
+    return { curve, premiumFloorPolicy, sealed, ivaDials };
+  }
+
+  /**
+   * ⭐ Errata SU-1 (API_CONTRACT §M1-SU, SU.3) — **el PRONÓSTICO de `reevaluateForPublication`, sin escribir.**
+   *
+   * Lo usa el modo por defecto (sin `--apply`) de `scripts/reevaluate-unlocated.ts`: contar qué haría el barrido
+   * del rezago antes de que alguien lo corra contra producción. ⛔ **No escribe NADA**: ni `claimListed`, ni
+   * escalada/cierre de la cola de M2 (usa `pendingPublishStateOf` ⇒ `derivePublishSalePrice`, el mismo cuerpo
+   * de LECTURA que la cola `pending-publish`). Mismo orden de decisión que `reevaluateOne` (listed → guardas →
+   * precio), así que el pronóstico y el `--apply` solo difieren si el mundo cambia entre las dos corridas (un
+   * checkout que reserva, un precio que se mueve) — y por eso el `--apply` cuenta por su propio `outcome`.
+   */
+  async previewPublication(inventoryItemIds: string[]): Promise<PublishPreviewResult[]> {
+    const ids = [...new Set(inventoryItemIds)].filter((x) => typeof x === 'string' && x.length > 0);
+    if (ids.length === 0) return [];
+    const out: PublishPreviewResult[] = [];
+    // Los MISMOS diales que el `--apply` (`reevaluateForPublication`): el pronóstico no puede leer otra política.
+    const { curve, premiumFloorPolicy, sealed, ivaDials } = await this.loadPublishRunDials();
+    for (let i = 0; i < ids.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
+      const chunkIds = ids.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
+      const items = await this.prisma.inventoryItem.findMany({
+        where: { id: { in: chunkIds } },
+        include: PUBLISHABLE_INCLUDE,
+      });
+      const found = new Set(items.map((it) => it.id));
+      for (const missingId of chunkIds.filter((x) => !found.has(x))) {
+        out.push({ inventoryItemId: missingId, outcome: 'not_found' });
+      }
+      const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
+      for (const item of items) {
+        if (item.status === 'listed') {
+          out.push({ inventoryItemId: item.id, outcome: 'already_listed' });
+          continue;
+        }
+        try {
+          this.assertPublishableGuards(item);
+        } catch {
+          out.push({ inventoryItemId: item.id, outcome: 'not_publishable' });
+          continue;
+        }
+        const state = this.pendingPublishStateOf(item, ctx);
+        out.push({
+          inventoryItemId: item.id,
+          outcome: state.missing.includes('price') ? 'price_pending' : 'would_publish',
+        });
       }
     }
     return out;
@@ -3165,10 +3241,9 @@ export class InventoryService {
       return { inventoryItemId: id, outcome: 'already_listed', missing: [] };
     }
     const state = this.pendingPublishStateOf(item, ctx);
-    if (item.locationId == null) {
-      // Sin ubicación no se publica **y no se escala nada**: el hueco es de captura, no de mercado.
-      return { inventoryItemId: id, outcome: 'missing_location', missing: state.missing };
-    }
+    // ⭐⭐ Errata SU-1 (§M1-SU, SU.1): aquí había un corte «sin ubicación ⇒ `missing_location`, no se publica ni se
+    // escala». Ya no: una pieza sin cajón cuyo precio resuelve se publica; sin precio escala a M2 como cualquiera.
+    // El resultado `missing_location` queda en el tipo, dormido (SU.2).
     try {
       this.assertPublishableGuards(item);
     } catch (e) {

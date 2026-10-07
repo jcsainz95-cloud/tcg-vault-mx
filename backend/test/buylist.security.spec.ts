@@ -267,12 +267,12 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
       inventoryItemId: 'inv-1',
       folio: 'INV-000001',
       alreadyConverted: false,
-      pendingPublish: { missing: ['location', 'price'] },
+      pendingPublish: { missing: ['price'] },
     });
     expect(res2).toEqual({
       inventoryItemId: 'inv-1',
       alreadyConverted: true,
-      pendingPublish: { missing: ['location', 'price'] },
+      pendingPublish: { missing: ['price'] },
     });
     expect(prisma.inventoryItem.create).toHaveBeenCalledTimes(2);
     // Solo se materializó UN InventoryItem.
