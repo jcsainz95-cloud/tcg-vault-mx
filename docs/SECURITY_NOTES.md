@@ -1,3 +1,320 @@
+# VEREDICTO BLUE TEAM — **STREAM «Publicar sin ubicación» (§M1-SU, SU.1…SU.9, SU.3-R; ARCHITECTURE §4.65)** · SHA **`15dffc9a`** (rama `claude/sin-ubicacion`, árbol `/home/user/tcg-ubic`) · 2026-10-07
+
+> ## VEREDICTO: **APROBADO CON CONDICIONES** sobre `15dffc9a`
+>
+> 0 críticas, 0 altas. **Una media de procedimiento** (SU-S1: `--apply` del script re-publica retiradas). No la puede
+> disparar un atacante, y su mitigación es una norma que tiene que ir en la solicitud de fusión. Dos bajas y dos info
+> quedan aceptadas como deuda con disparador. Nada de seguridad bloquea el botón `main → production` si se cumple
+> la condición C-SU-1.
+>
+> **Sobre qué medí** (2026-10-07, solo lectura): `HEAD` del árbol = `15dffc9a`. `origin/production` es ancestro de
+> `15dffc9a` (`git merge-base --is-ancestor`). `git diff --stat 2c516314 15dffc9a -- backend/src backend/scripts` sale
+> vacío, así que el backend que QA midió en vivo es el que juzgo. Delta: `git diff origin/production..15dffc9a`, 53
+> ficheros. El código de servidor que cambia está en `inventory.service.ts`, `inventory-publish.port.ts`,
+> `sealed-price.service.ts` (un comentario), `buylist.service.ts` (el degradado) y `scripts/reevaluate-unlocated.ts`.
+> **No ejecuté nada.** Este stream no tiene pase del pentester en `PENTEST_NOTES.md` (medido: la primera sección es
+> §AN), así que hice las dos lentes por lectura. Marcas de origen: **[QA]** = gate de QA sobre `2c516314`, que no volví
+> a medir.
+
+## §SU.1 Preguntas del encargo, una por una
+
+| # | Pregunta | Respuesta | Evidencia (fichero:línea en `15dffc9a`) |
+|---|---|---|---|
+| 1 | ¿Una pieza puede salir a la venta con un precio equivocado, en 0 o de otra pieza? | **No, por un camino nuevo.** El alta llama al **mismo** cuerpo (`reevaluateForPublication` → `reevaluateOne`) que ya usaban `move`, el precio del sellado y buylist. Solo se quitó el corte de ubicación (`:3293-3298`). El precio sale de `derivePublishSalePrice`, que no cambió: un `0` no cuenta como precio (`firstPresentAmount`/`isPresentAmount`, `common/money.ts:153`, `:509`) y todo `listPriceCents` del DTO es `@Min(1) @Max(MAX_LIST_PRICE_CENTS)` (`dto/*.ts:109,150,201,228,284`). `publishCreated` solo recibe **ids**, ni precio ni `status` del llamador (`:840-855`). El ownerType y el status van en el CAS de `claimListed` (`:2385-2398`), así que no hay doble venta. | lectura |
+| 2 | ¿La custodia (vault) sigue exigiendo cajón? ¿Algo publica piezas de clientes? | **Sí exige cajón, y no, nada las publica.** `git diff --stat` sobre `backend/src/modules/vault`, `schema.prisma`, `orders` y `payments` sale vacío. Siguen `vault-placement.service.ts:513` y `replacement-case.service.ts:520` (`location_required`). Las tres altas crean `ownerType:'platform'` (`buildItemData`, `:1410`, la única forma de crear en `:798`, `:1501`, `:3586`). Una pieza de cliente se rechaza dos veces: en `assertPublishableGuards` (`:1796`) y en el `where ownerType:'platform'` del CAS (`:2388`). | lectura + `git diff --stat` |
+| 3 | ¿Un operador sin permiso puede publicar al dar de alta? | **No hay escalada.** `POST inventory/items`, `…/items/batch` y `…/adjustments` llevan el `@Roles(vault_operator, super_admin)` de la clase (`inventory.controller.ts:90`). `bulk-publish` (`:428`) y `publish-all` (`:452`) tienen **el mismo** permiso. Quien da de alta ya podía publicar. El precio del sellado por producto sigue siendo solo del dueño: `assertSealedPriceWriters` va **antes** de escribir en las tres altas (`:771`, `:1452`, `:3540`). | lectura |
+| 4 | ¿El replay o la idempotencia pueden duplicar, o re-publicar retiradas? | **Las altas, no.** `publishCreated` se llama después del commit y solo en el camino nuevo: el fast-path del lote (`:1447-1448`) y el de «encontrada» (`:3541-3545`) regresan antes, y la rama P2002 no llega a la llamada. SU-B10 lo fija como canario **[QA]**. `publishCreated` atrapa todo y devuelve `[]` (`:846-854`), así que no hay un `500` después del commit que invite a reintentar. **El script, sí: ver SU-S1.** | lectura |
+| 5 | ¿El script filtra la URL o la credencial en los registros? | **La credencial, no. El host, quizá** (SU-S4). `describeUrl` imprime `***.<dominio>:***/<db>` fuera de local, y sin usuario ni contraseña en local. El salto `*.railway.internal` → `DATABASE_PUBLIC_URL` no imprime la URL. El `catch` de arriba imprime solo `e.message`. | `scripts/reevaluate-unlocated.ts:46-77`, `:206-214` |
+| 6 | ¿Hay algo sensible en el diff (repo público)? | **No.** Busqué en las líneas añadidas `postgres://`, `sk_`, `whsec_`, `password=`, `api_key`, `rlwy.net` y `@host:puerto`. Solo aparecen los fixtures falsos de `test/reevaluate-unlocated.spec.ts:15-16` (`u:s3cr3t@…`, `roundhouse.proxy.rlwy.net:41234`). Siguen el mismo patrón falso que `seed-e2e.target-guard.spec.ts:67`. En el frontend no hay sumideros nuevos: ni `dangerouslySetInnerHTML` ni redirecciones abiertas. `?locations=open` solo se compara con un literal y se borra de la URL (`M1View.tsx`). | `git diff … \| grep -E '^\+'` |
+
+## §SU.2 Hallazgos priorizados
+
+### SU-S1 · **Media** (procedimiento, no explotable desde fuera) · `--apply` del script re-publica piezas retiradas a propósito
+- **Ubicación:** `backend/scripts/reevaluate-unlocated.ts:105-112` (selección `platform ∧ in_stock ∧ locationId IS NULL`)
+  → `reevaluateForPublication`.
+- **Evidencia:** **[QA]** N=1, determinista. INV-000006 estaba retirada (`PATCH status:'in_stock'`) y quedó `listed`
+  después de `--apply`. Lo confirmo por lectura: `in_stock` no distingue «retenida por la regla vieja» de
+  «retirada por el operador», y la selección no consulta `AuditLog`.
+- **Impacto en dinero:** se vende una pieza que el operador sacó a propósito (dañada, apartada, en revisión). El
+  **precio no es incorrecto**, porque decide el pipeline de siempre. El daño es una venta que hay que cancelar o
+  reembolsar.
+- **Qué lo mitiga hoy:** (a) el script **no va en la imagen** (SU.7 (4)), así que solo lo corre quien tiene la
+  credencial; (b) **por defecto no escribe**; (c) la norma SU.3-R (no correr `--apply` si va la limpieza, si hay
+  retiradas o si no se pueden contar).
+- **Dueño:** el orquestador (condición **C-SU-1**, abajo). Backend se encarga de la exclusión (`excludedWithdrawn` +
+  SU-B7) **solo si** se va a usar `--apply`.
+
+### SU-S2 · **Baja** · El alta con precio manual publica sin una segunda mirada
+- Antes de SU-1, el precio tecleado en el alta no salía a la venta hasta una segunda acción: `move` o `bulk-publish`.
+  Ahora sale en el acto (`:818`). Un error de tecleo, por ejemplo `100` en vez de `10000`, queda a la venta.
+- **No es escalada:** el mismo rol podía publicar ese mismo precio con `bulk-publish`. Lo acotan `@Min(1)` y `@Max`.
+- **Lo acepto.** Lo que lo dispara: el primer caso real de pieza vendida por error de tecleo, o el paso a `sk_live_`
+  con volumen. En ese punto, que el frontend muestre el precio en el aviso `createToastListed` (frontend) o un
+  guardarraíl de mínimo contra el mercado para el precio manual (arquitecto).
+
+### SU-S3 · **Baja** · El alta suelta no es idempotente y ahora la pieza duplicada sale a la venta
+- `POST /admin/inventory/items` no tiene clave de idempotencia (ya era así). Si se reintenta un `201` perdido en la
+  red, se crea otra pieza. Con SU.8 esa pieza fantasma queda `listed` y se puede comprar algo que no existe.
+- **Qué lo mitiga:** `publishCreated` nunca lanza (no hay `500` después del commit). El botón se deshabilita mientras
+  la petición va en curso (`AddItemModal.tsx:280-281`, `AddGradedModal.tsx:103-104`). Una pieza de más se ve en el
+  conteo físico.
+- **Lo acepto.** Dueño: backend. Lo que lo dispara: el próximo trabajo en la familia de idempotencia
+  (`TECH_DEBT` BE-BR1/H2), o cualquier pieza duplicada que se detecte.
+
+### SU-S4 · **Info** · El error de conexión del script puede imprimir host y puerto
+- `describeUrl` oculta el host, pero un error de conexión de Prisma («Can't reach database server at `h:p`») sale
+  tal cual por `stderr` (`reevaluate-unlocated.ts:210`). No incluye la credencial. Se imprime en la terminal de quien
+  ya tiene la URL. **Lo acepto**, con una condición: no pegar esa salida en issues ni en registros públicos de CI.
+
+### SU-S5 · **Info** (ya existía; es `TD-SU-9` / SU.9) · El precio del sellado y `move` re-publican retiradas
+- Es la misma clase que SU-S1, en disparadores manuales del operador o del dueño. Está aceptada en
+  `docs/TECH_DEBT.md` (TD-SU-9). La salida de fondo (una marca persistida «retirada por el operador») es del
+  arquitecto. Desde seguridad no sube de severidad: la dispara una persona con el permiso que corresponde.
+
+**Totales: Crítica 0 · Alta 0 · Media 1 (SU-S1) · Baja 2 · Info 2.**
+
+## §SU.3 Deuda de seguridad aceptada (registro del DoD)
+| Id | Impacto | Lo que la dispara | Dueño |
+|---|---|---|---|
+| SU-S2 | Un error de tecleo en el precio sale a la venta | primer caso real, o `sk_live_` con volumen | frontend / arquitecto |
+| SU-S3 | Un reintento crea una pieza duplicada que sale a la venta | trabajo en idempotencia, o la primera duplicada detectada | backend |
+| SU-S4 | Host y puerto en `stderr` local | si el script entra a CI o a un registro compartido | backend |
+| SU-S5 / TD-SU-9 | Un disparador manual re-publica una retirada | decisión del arquitecto sobre la marca «retirada» | arquitecto → backend |
+
+## §SU.4 Condiciones
+- **C-SU-1 (antes del botón, la cumple el orquestador):** el cuerpo de la solicitud `main → production` lleva la norma
+  SU.3-R tal cual: **no se corre `--apply`** si la limpieza de base va a correr, si el conteo de retiradas (consulta
+  de SU.3-R, solo lectura, la corre quien tiene la credencial) es > 0 o si no se puede hacer. El caso esperado es
+  solo la corrida en seco con `selected: 0` después de la limpieza.
+- **C-SU-2 (solo si algún día hace falta `--apply`):** primero, backend construye la exclusión `excludedWithdrawn` +
+  SU-B7 y vuelve a pasar por seguridad.
+- Siguen las heredadas de antes de `sk_live_` (ver los veredictos de `c62621e6` y `b370cf9b`). Este stream no las toca.
+
+## §SU.5 NO MEDIDO
+- No ejecuté ninguna suite ni el script. La conducta de SU-S1 y los SU-B7…B12 los consolido de **[QA]**.
+- No corrí la consulta de conteo de retiradas contra ninguna base (como dice SU.3-R).
+- No medí si `ts-node` está en las `node_modules` de producción: no hace falta para este veredicto.
+
+## §SU.6 Banderas para el humano
+- **Antes de vender con piezas que retiraste a mano:** no pidas que se corra el script con `--apply` sin el conteo
+  de SU.3-R. «Publicar todo» de M1 tiene el mismo efecto sobre las retiradas **con** cajón.
+- Siguen sin cambios: antes de `sk_live_`, el pentest de un tercero y el bug bounty, y la validación legal de la custodia
+  y de la PII.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-07 · código `15dffc9a` (rama `claude/sin-ubicacion`) · **APROBADO CON CONDICIONES** (C-SU-1 en el cuerpo de la solicitud de fusión; nada más bloquea)
+
+---
+
+# VEREDICTO BLUE TEAM — **RELEASE «Analítica de ventas del dueño» (§AN)** · SHA **`c78f8a24`** (rama `claude/analitica-ventas`) · 2026-10-06
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `c78f8a24`
+>
+> 0 críticas, 0 altas, 0 medias abiertas en el delta. Una baja (AN-5) **aceptada como deuda** con disparador medible
+> (§AN.3). No exijo la fase en vivo del pentester (§AN.4). Nada de seguridad bloquea la solicitud `main → production`.
+>
+> **Sobre qué medí** (todo en `/home/user/tcg-ventas`, 2026-10-06): `origin/production` es ancestro de `c78f8a24`
+> (`git merge-base --is-ancestor`, medido). `git diff --stat c78f8a24 6609060f` ⇒ solo `docs/PENTEST_NOTES.md` (medido):
+> el código juzgado es `c78f8a24`. Delta revisado: `git diff --stat origin/production c78f8a24 -- backend/src frontend/src
+> scripts security` ⇒ **37 ficheros, +4999/−166**. Marcas de origen: **[pentester]** (caja blanca sobre `c78f8a24`, sin fase
+> en vivo), **[QA]** (en vivo sobre `76dd1ee9`, APROBADO CON CONDICIONES); no lo volví a medir.
+
+## §AN.1 Hallazgos del red team, consolidados
+
+| Id | Sev. | Mi juicio | Evidencia mía |
+|---|---|---|---|
+| AN-1 authz vertical | Info | **Confirmado.** `@Roles(Role.super_admin)` de clase en `AdminReportsController` cubre las tres rutas nuevas; guardas globales Throttler→Jwt→PasswordChange→Roles (`app.module.ts:82-85`). En vivo **[QA]**: 401/403/200. | `admin.controller.ts` diff (rutas `sales`, `sales/export.csv`, `sales/today` dentro de la clase) |
+| AN-2 PII | Info | **Confirmado.** El correo del cliente se usa como llave en memoria (`customerKeyOf`) y en el `where` de `customers()` (`sales-analytics.service.ts:321-340`); no viaja al DTO ni al CSV. **[QA]** en vivo: CSV sin `@`/nombres/dirección/orderNumber/ids. | lectura del service |
+| AN-3 CSV-fórmula | Info | **Confirmado.** Sin columnas de texto libre en el CSV. `filename` se arma de `from`/`to` (`isYmd`, regex anclada + fecha real, `spend-alerts/mx-day.ts:33`) y `groupBy` (lista blanca) ⇒ sin CRLF en `Content-Disposition`. | `sales-period.ts` `readYmd`, `resolvePeriod` |
+| AN-4 SQL | Info | **Confirmado.** Sin `$queryRaw`/`Prisma.sql` en el delta; `typeof !== 'string'` ⇒ 400 también para `?from=a&from=b` (array). **[QA]**: 13 casos de 400, incl. inyección en `from`. | `sales-period.ts` `readYmd` |
+| AN-5 DoS por rango | **Baja** | **Confirmado y ampliado** (ver §AN.3). Aceptado como deuda. | service `:194-227`, `:321-347` |
+| AN-6 correo 08:00 | Info | **Confirmado.** Destinatarios = `ownerRecipients` (`isOwner`); la línea solo lleva 3 números. Si `dayFigures` falla, el log lleva `e.message` del error (sin cifras de cliente). | `spend-digest.service.ts` diff |
+| AN-7 refactor pnl | Info | **Confirmado.** `pnl-core.ts` es puro; `GET /admin/finance/pnl` sigue `super_admin`. | diff `admin.controller.ts` (sin cambios de guarda) |
+
+## §AN.2 Lo que revisé yo y el pentester no cubrió
+
+- **Delta `76dd1ee9 → c78f8a24`** (lo que entró después de la evidencia en vivo de QA): `git diff --stat` ⇒ 10 ficheros,
+  +101/−32 (medido). **Ninguno toca guardas, rutas ni DTO de salida**: el service solo añade `status in
+  [settled, refunded, chargeback]` (TD-AN-7, *estrecha* lo leído) y un `throw` de coherencia (TD-AN-6) que sale como
+  `500 INTERNAL "Internal server error"` sin el mensaje interno (`all-exceptions.filter.ts:82-83`); el digest mueve el
+  conteo dentro del `try` (C-1). Por eso la evidencia en vivo de QA sobre `76dd1ee9` sigue valiendo para authz/PII/400.
+- **Manifiesto de secretos** (`security/secretos-publicados.sha256`, commit `7768d811`): las 2 líneas nuevas son
+  exactamente `sha256("re_an_fix_o3")` y `sha256("re_an_fix_o4")` (medido con `sha256sum`), ids de reembolso **de
+  prueba** de `backend/test/integration/helpers/sales-db.ts:289,294`. Correcto: no es un secreto real, y listarlo solo
+  hace que el preflight rechace ese literal como valor de entorno.
+- **`scripts/stack-native.sh`** (Redis `--save ""` desde `/`, `CONFIG SET save ""` si MISCONF): solo afecta al Redis
+  local de pruebas; no toca config de deploy. Sin efecto de seguridad en producción.
+- **Dependencias:** `npm audit --omit=dev --package-lock-only` sobre `c78f8a24` (copia en scratchpad, borrada):
+  frontend **0 vulnerabilidades** (sharp 0.35.5 cierra GHSA-wq5f-xc86-pv6w); backend **2 moderadas**, y
+  `backend/package*.json` **no cambia** en el delta (`git diff --stat` vacío) ⇒ son las de RL-DEP-1, ya registradas.
+- **Frontend:** sin `dangerouslySetInnerHTML`/`innerHTML`/`eval` en los ficheros nuevos (grep, medido). El único
+  `localStorage` (`tcg.salesPhase`) vive en `lib/mock/sales.ts`, solo en modo demo (`config.useMocks`). La tarjeta
+  «Ventas de hoy» se monta solo con `isSuperAdmin` (`AdminDashboard.tsx:231`) — eso es UX; la frontera real es el 403
+  del servidor (**[QA]** en vivo).
+- **Rate limiting:** las rutas heredan el throttler global (300/min por IP, `app.module.ts:46`); no tienen
+  `ActorThrottlerGuard`. Relevante solo para AN-5.
+
+## §AN.3 AN-5 — decisión: **ACEPTADO como deuda Baja, sin medir antes de publicar**
+
+**Ampliación mía:** además de `ordersIn`/`itemsOf`, `customers()` (`service:326-335`) trae **todas las órdenes previas**
+de los clientes del periodo sin `take` (y con listas `in` del tamaño del periodo). Es la consulta que más crece con la
+antigüedad de la tienda, no con el rango.
+
+**Por qué no bloquea:** (1) solo `super_admin`, que hoy es el dueño; un atacante necesita su sesión, y con su sesión
+tiene cosas peores que un GET lento; (2) solo lectura, no mueve dinero ni deja estado a medias; (3) el throttler
+global limita la ráfaga; (4) el volumen actual de la tienda es pequeño frente a lo que una agregación en memoria
+aguanta — **NO MEDIDO** con cifra; no lo medí contra producción (⛔ fuera de alcance).
+
+**Disparador (cualquiera de los tres) ⇒ backend mide y acota:**
+1. Cuando los pedidos cobrados (`settled/refunded/chargeback`) en cualquier ventana de 366 días pasen de **10 000**, o
+   los `OrderItem` de esa ventana de **50 000** (lo mide el dueño o devops con un `count` de solo lectura).
+2. Cualquier 5xx/timeout o p95 > 3 s en `GET /admin/reports/sales*` en los registros de Railway.
+3. Antes de dar `super_admin` a una segunda persona o de exponer el reporte a otro rol.
+
+**Medición que lo cierra** (la del pentester): sembrar el umbral del punto 1 en local y cronometrar
+`GET /admin/reports/sales?preset=custom&from=…&to=…&groupBy=day` (N≥5, reportar mediana y máximo, y RSS del proceso).
+**Arreglo esperado si muerde:** agregación en BD (`groupBy`/sumas por día) o tope de rango menor para `groupBy=day`, y
+`customers()` resuelto con `EXISTS`/`distinct` en vez de traer filas. Dueño: **backend**.
+
+## §AN.4 ¿Es aceptable que el pentester no hiciera fase en vivo? **Sí.**
+
+Lo que una fase en vivo habría probado ya lo midió **[QA]** en vivo sobre `76dd1ee9`: 401/403/200 en las tres rutas,
+`no-store` en los 200, CSV sin PII, 13 casos de 400 (incl. inyección en `from`), operador sin pestaña ni petición a
+`/sales`, correo 08:00 solo a `isOwner`. Y el delta `76dd1ee9 → c78f8a24` no toca nada de eso (§AN.2, medido). Lo único
+que la fase en vivo añadiría es el tiempo de AN-5, que queda como deuda con disparador. **No exijo otra medición** para
+este release.
+
+## §AN.5 Banderas para el humano
+- Sin cambios respecto al veredicto «listo-real» de abajo: **CL-1/CL-2/CL-3** siguen siendo condiciones antes de
+  `sk_live_`; este release no las abre ni las cierra (no medido su estado hoy: lo dirá el siguiente pase).
+- El reporte de ventas expone cifras de negocio completas: la sesión del dueño vale más que antes. Nada nuevo que hacer,
+  pero suma un argumento a la 2FA de `super_admin`, que §4 de abajo deja como P1 **después** de salir a cobro real (no
+  cambio esa decisión).
+
+# VEREDICTO BLUE TEAM — **RELEASE «Buylist con guía Skydropx de entrada» (BSD)** · SHA **`64877aad`** (rama `claude/buylist-skydropx`) · 2026-10-06
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `64877aad` (con un aceptado y dos pendientes no bloqueantes)
+>
+> - **0 críticas · 0 altas · 0 medias** abiertas en el delta. Nada de seguridad bloquea fusionar `claude/buylist-skydropx`
+>   a `main` ni la solicitud `main → production` **en modo prueba**.
+> - **`BSD-RT-1` (baja) se ACEPTA documentado** (§BSD-S3, A-BSD-1), no se arregla antes de fusionar. **`BSD-RT-2` (info) es
+>   PENDIENTE de devops, no condición del release** (§BSD-S4, P-BSD-SEC-1).
+> - **CL-1 / CL-2 / CL-3** (pase «listo-real», más abajo) **siguen abiertas sin cambio**: son condiciones para `sk_live_`,
+>   no para este release. Este pase no las cierra ni les añade nada.
+>
+> **Sobre qué medí.** Código juzgado: `64877aad`. Después solo hay `e48cd3ac` y `daff8008`, ambos **solo**
+> `docs/PENTEST_NOTES.md` (`git log --oneline` medido). Delta del stream: `git diff a884a2ec..64877aad -- backend/src` ⇒ 48
+> ficheros de producción, +3361/−279 (medido); `a884a2ec` es el lado `production` del merge `ccde6d14`, así que ese merge
+> **no** entra en el delta. Sin cambios en `package.json`/`package-lock.json` ni en `.github/` o `security/`; solo
+> `scripts/stack-native.sh` (Redis local `--save ""`, sin efecto en despliegue).
+> **Lo medido por mí** lleva fichero:línea o comando (lectura de código y `grep`/`git` en `/home/user/tcg-bsdx`, 2026-10-06).
+> **[pentester]** = Fase en vivo del red team sobre `64877aad` (`:3299`, adaptador `fake`), no la repetí. No levanté stack ni
+> corrí suites: todo lo que el red team ya midió en vivo (IDOR, authz, carreras, CHECK) lo crucé contra el código, no lo re-medí.
+
+## BSD-S1. Hallazgos del red team, consolidados
+
+| Id | Sev. RT | Validación blue team | Decisión |
+|---|---|---|---|
+| `BSD-RT-1` throttle `label.pdf` por IP | Baja | **Real.** `inbound-shipment.controller.ts:42` usa `@Throttle` sin guard propio ⇒ el tracker es `req.ip` (con `trust proxy` bien puesto, `src/trust-proxy.ts:15`, así que NO es «todos comparten la IP del balanceador»). Severidad **Baja confirmada**. Matiz que añado: rotar IP también **burla el objetivo de coste** (una cuenta con guía viva puede pedir >10 descargas/min a Skydropx y escribir una fila `AuditLog buylist.label_downloaded` por descarga, `inbound-shipment.service.ts:166`); queda acotado por el global 300/min/IP, por los ≤ 5 MB/10 s del proxy y porque solo sirve guías propias. | **ACEPTADO** (A-BSD-1) |
+| `BSD-RT-2` DAST sin las rutas nuevas | Info | **Real, y más que info en lo documental:** `API_CONTRACT.md:40517` dice «la ruta ya está en el inventario del DAST (§BSD.12.5)», pero `security/` **no tiene** inventario de rutas y `grep -rln "label.pdf\|inbound-shipment\|decline-accepted\|buylist" security/` ⇒ 0 (medido). La afirmación del contrato no es cierta hoy. No es una vulnerabilidad: los controles de esas rutas están cubiertos por candados (BSD-B44, B27, censo B23) y por el ataque en vivo del red team. | **PENDIENTE devops** (P-BSD-SEC-1) |
+
+Coincido con el resto del pase del red team; lo que crucé contra código y resiste: IDOR del PDF (`findFirst {id, userId}`,
+mismo 404), cabeceras/nombre saneado, destino no manipulable, rutas de salida 404 con id de entrada, CAS de
+`decline-accepted`, redacción del portal `not_continued`, CSV sin texto libre.
+
+## BSD-S2. Lo que revisé yo (fuera del alcance del red team)
+
+1. **SSRF en la descarga del PDF — sin hallazgo.** La URL **sí** viene del proveedor (`ShipmentRequest.labelUrl`), y los tres
+   llamadores (admin, vendedor, adjunto AV-7) pasan por **un** cuerpo: `label-pdf-download.ts:17-29` ⇒ `downloadLabelPdf`
+   (`shipping-provider/label-proxy.ts`, **sin cambios** en el delta): `assertProviderUrl` contra `SKYDROPX_URL_HOSTS` en el
+   primer salto y en cada `Location`, `redirect:'manual'`, ≤ 3 saltos, `Bearer` solo hacia el host de la API, `application/pdf`,
+   ≤ 5 MB, 10 s. Con `fake`, cero red. El vendedor nunca ve `labelUrl`.
+2. **Adjunto por Resend — sin hallazgo.** `mail.port.ts`: `contentType` es el literal `'application/pdf'`, a lo sumo un adjunto,
+   tamaño acotado por el proxy (5 MB, muy por debajo del límite de Resend); `filename` = `sellerLabelFilenameOf` (solo
+   `[A-Za-z0-9]`). `resend-mail.adapter.ts` solo añade la clave si hay adjunto. AV-7 va **solo** a `sr.user.email`, salta
+   cuentas anonimizadas y sella una vez (`inbound-guide-notice.service.ts:66-77`).
+3. **PII del vendedor.**
+   - *Fila de entrada:* `addressSnapshot` copiado de `pickupAddressSnapshot` sin `addressId` (`inbound-shipment.service.ts:116`).
+     Bitácora sin PII (`:121-130`, solo `shipmentId`).
+   - *Hacia Skydropx:* `from` = domicilio, nombre y teléfono del vendedor; **el correo es el de la tienda**
+     (`label-inbound.ts:171`), como manda ARCHITECTURE §4.BSD (i). Minimización correcta.
+   - *Correos:* BSD-M1 sin motivo ni domicilio; AV-7 lleva el PDF (que sí trae el domicilio del propio vendedor) **solo** a él.
+     AG-23 al dueño solo con `sellRequestId`, fecha y monto.
+   - *Logs:* revisé todos los `logger.*` añadidos en el delta (`git diff … | grep logger`): ids, códigos y nombres de clase de
+     error; **ningún** domicilio, nombre, teléfono, correo, token ni secreto de Skydropx. `skydropx.adapter.ts` no añade logs.
+   - *Borrado de cuenta (BSD-B27):* cableado **dentro** de la tx de `deleteUser` (`admin.service.ts:1679`), en la rama de borrado
+     suave, que es la única que alcanza a un vendedor (tener una `SellRequest` cuenta como transacción, `:1624`). Prueba de
+     integración `test/integration/bsd-b2-inbound.e2e-spec.ts:729` y cableado en `test/admin.user-management.spec.ts:109`.
+     **Matiz (info, I-BSD-1):** el mismo domicilio **sigue** en `SellRequest.pickupAddressSnapshot`, que por política deliberada
+     de ARCHITECTURE §4.39 (a)/(b) no se purga al borrar la cuenta (registro de dónde salió una mercancía que pagamos), y en
+     Skydropx como encargado. B27 cumple su norma; no anonimiza el domicilio de la base. No es defecto del stream: es la
+     política de retención ya aceptada, y su revisión alcanza a los tres snapshots a la vez.
+4. **Secretos de Skydropx — sin hallazgo.** `SKYDROPX_CLIENT_SECRET` se sigue leyendo solo en la fábrica; el delta no toca
+   `shipping-provider.factory.ts`, `spend-gate.ts` ni `label-proxy.ts` (`git diff --stat … -- modules/shipping-provider/` ⇒
+   solo `port`, `adapter`, `fake`).
+5. **`SKYDROPX_ALLOW_SPEND` / PS-99 — intactos.** La guía de entrada **no** abre una vía de compra nueva: el único llamador de
+   `port.purchase` sigue siendo `label-purchase.service.ts:339` (grep medido), detrás del reclamo, del tope de 24 h del operador
+   (`claimed.kind==='limited'`, `:305`) y de la puerta de dos llaves + candado de ejecución. Los candados de devops
+   (`scripts/check-skydropx-spend-lock.sh` y su canario) no cambian en el delta. El red team corrió todo con `fake`.
+6. **Authz de las rutas nuevas — sin hallazgo.** `POST …/inbound-shipment` y `POST …/decline-accepted`: `@Roles(vault_operator,
+   super_admin)` de clase (`inbound-shipment.controller.ts:24`, `admin-buylist.controller.ts:42`); ninguna gasta (la compra sigue
+   en `POST /admin/shipments/:id/label`, con sus topes). `GET …/label.pdf`: rol + propiedad por `userId`.
+7. **Inyección — sin hallazgo.** Los `$queryRaw` nuevos son plantillas etiquetadas con parámetros (`inbound-close.ts:50-51`, barrido).
+   `outboundOnlySql(alias)` (`label-subject.ts:41-42`) interpola `alias` en `Prisma.raw`, pero **no tiene llamadores** fuera de su
+   definición (grep medido): endurecimiento opcional, no hallazgo.
+8. **El barrido frente a carreras — sin hallazgo por código.** Regla 8 relee bajo `SELECT … FOR UPDATE` de la `SellRequest` y luego
+   de la fila de entrada (mismo orden I-BSD-4 que `decline-accepted` y la compra) y cierra por el **mismo** `closeInboundShipment`;
+   una compra en vuelo cae en la rama `in_flight`/«pagada pero cancelado» (§19.18.3) que ya usa el auto-cierre por reembolso.
+   Regla 10 abre la tarea con `updateMany … IS NULL` (idempotente). Una regla que falla no tumba las demás (`isolated`). La
+   carrera declinar∥comprar la midió el red team en vivo (**[pentester]**, 0/12 fuga, N=2×12) por el mismo cuerpo de cierre; la
+   variante barrido∥compra **no la medí** (NO MEDIDO): comparte cuerpo y candados, por eso no la elevo.
+9. **Dependencias.** `npm audit --omit=dev` (backend, 2026-10-06) ⇒ 0 altas/críticas, 2 moderadas `@nestjs/core` /
+   `@nestjs/platform-express`: es `RL-DEP-1`, ya registrado; el delta no toca el lockfile.
+
+## BSD-S3. Deuda de seguridad aceptada en este pase (no bloquea)
+
+- **A-BSD-1 · `BSD-RT-1` · Baja.** Throttle de `GET /buylist/requests/:id/label.pdf` por IP. **Por qué se acepta:** sin impacto de
+  confidencialidad ni integridad; el daño es disponibilidad para vendedores tras un NAT compartido y una cota de coste algo más
+  laxa frente a quien rote IP con su propia guía; volumen esperado de 1–2 descargas por vendedor. **Disparador:** (a) la primera
+  queja/registro de `429` legítimo en esa ruta, (b) escalar a más de una instancia del backend, o (c) antes de `sk_live_` si para
+  entonces no se hizo — lo que llegue antes. **Arreglo propuesto (backend):** llave por **actor**, con el patrón ya existente
+  `ActorThrottlerGuard` (`modules/admin/actor-throttler.guard.ts`). ⛔ No por `:id` de solicitud: el throttle corre **antes** del
+  chequeo de propiedad, y un tercero podría agotar el cubo de la solicitud de otro vendedor. **Comprobación:** prueba que dos
+  cuentas desde la misma IP tienen cupos independientes, y mutación que vuelve a `req.ip` y la pone roja.
+- **I-BSD-1 · Info.** Domicilio del vendedor retenido en `SellRequest.pickupAddressSnapshot` tras borrar la cuenta (§BSD-S2.3).
+  Política existente. **Disparador:** cualquier revisión de la política de retención de domicilios (alcanza a los tres snapshots).
+
+## BSD-S4. Pendientes (no condición del release)
+
+- **P-BSD-SEC-1 · devops · `BSD-RT-2`.** Meter `GET /buylist/requests/:id/label.pdf` en el recorrido **autenticado** del DAST
+  (cuenta de cliente con una guía `fake` sembrada) y valorar sondas dirigidas a los dos POST admin nuevos. **Por qué no es
+  condición:** no es una vulnerabilidad, el CI de SAST/DAST sigue en pie y los controles los cubren candados de prueba y el
+  ataque en vivo. **Disparador:** antes de cerrar el próximo release, o antes de `sk_live_`, lo que llegue antes.
+  **Comprobación:** `grep -rn "label.pdf" security/` ≥ 1 y un informe de ZAP donde la URL aparezca con `200`.
+  **Y arquitecto:** errata de `API_CONTRACT.md:40517` («la ruta ya está en el inventario del DAST»), que hoy es falsa.
+
+## BSD-S5. Banderas para el humano (el dueño)
+
+1. **Aviso de privacidad y la guía de entrada.** La fila de Skydropx dice «Nombre de quien **recibe**, dirección, teléfono y
+   correo» (`frontend/src/content/legal/privacidad.es.ts:169`). Con este release, el domicilio, nombre y teléfono del
+   **vendedor** (como remitente) viajan a Skydropx. Es el punto 6 de §BSD.12 (product-owner, «NO MEDIDO si ya lo dice»): **medido,
+   no lo dice con precisión**. No bloquea la seguridad del release (el aviso sigue en borrador, con los datos P-LEG pendientes),
+   pero conviene que el product-owner ajuste la fila («nombre, dirección y teléfono de quien envía o recibe») antes de publicar el
+   aviso o de comprar guías de entrada con vendedores reales — lo que llegue antes. Validación legal recomendada.
+2. **Primera guía de entrada real.** Las tres «NO MEDIDO» de §BSD.13 (que Skydropx acepte el origen explícito) se miden con dinero
+   real del saldo Skydropx en producción. Desde seguridad no hay objeción, siempre por la puerta de dos llaves existente.
+3. **Sin cambio:** pentest de tercero + bug bounty antes de operar con dinero real, y CL-1/CL-2/CL-3 antes de `sk_live_`.
+
+## BSD-S6. Ruteo
+
+| Qué | Rol dueño | Cuándo |
+|---|---|---|
+| A-BSD-1 (throttle por actor) | backend | por disparador (§BSD-S3) |
+| P-BSD-SEC-1 (DAST con la ruta) | devops | próximo release o antes de `sk_live_` |
+| Errata `API_CONTRACT.md:40517` | arquitecto | con P-BSD-SEC-1 |
+| Fila de Skydropx en `/privacidad` | product-owner (texto) → frontend | antes de publicar el aviso o de guías de entrada reales |
+
+---
+
 # VEREDICTO BLUE TEAM — **RELEASE «listo-real» (antes del paso a COBRO REAL)** · SHA **`c62621e6`** (rama `claude/listo-real`) · 2026-10-05
 
 > ## VEREDICTO: ✅ **APROBADO CON CONDICIONES** sobre `c62621e6`

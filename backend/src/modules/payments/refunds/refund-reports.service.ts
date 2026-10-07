@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { customerDisplayName } from '../../vault/customer-display-name';
 import { RefundLedgerService } from './refund-ledger.service';
+import { OUTBOUND_ONLY } from '../../shipments/label-subject';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -129,7 +130,7 @@ export class RefundReportsService {
         win(30 * DAY),
         this.ledger.operatorUsedCents(this.prisma, u.id, now),
         this.prisma.shipmentRequest.findMany({
-          where: { preparedByUserId: u.id, preparedAt: { gte: d30 } },
+          where: { ...OUTBOUND_ONLY, preparedByUserId: u.id, preparedAt: { gte: d30 } },
           select: { items: { select: { prepStatus: true } } },
         }),
         this.prisma.replacementCase.count({ where: { status: 'replaced', openedByUserId: u.id, resolvedByUserId: u.id, resolvedAt: { gte: d30 } } }),

@@ -12,9 +12,10 @@ import { get, p66_3Offenders } from './i18n-p66-3.testkit';
 // P66-3: patrón único en `./i18n-p66-3.testkit` (caza «M-1» con y sin guion; el grep de §43.23.5 no lo cazaba).
 
 const EXPECTED: Record<string, { es: string; en: string }> = {
+  // ✏ rev BSD-1 (DESIGN_SYSTEM §BSD-UX.11c): la fórmula gana los dos términos de la tarifa y las guías de vendedores.
   formula: {
-    es: 'Ingresos + ingreso por envío − costo de lo vendido − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.',
-    en: 'Income + shipping revenue − cost of goods sold − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.',
+    es: 'Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para recibir cartas de vendedores − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.',
+    en: 'Income + shipping revenue − cost of goods sold + shipping fee deducted from sellers − labels for receiving cards from sellers − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.',
   },
   refunds: { es: 'Reembolsos (mercancía y envío, sin IVA)', en: 'Refunds (goods and shipping, excl. VAT)' },
   refundedFees: { es: 'Comisión de plataforma devuelta', en: 'Platform fees refunded' },

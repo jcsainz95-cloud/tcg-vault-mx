@@ -286,7 +286,8 @@ describe('UX-GAS-11 · avisos apagados (`muted`) en la lista, el detalle y el fi
     const opts = within(screen.getByLabelText('Tipo') as HTMLSelectElement)
       .getAllByRole('option')
       .map((o) => o.textContent?.split(' · ')[0]);
-    expect(opts).toEqual(['Todos', ...Array.from({ length: 13 }, (_, i) => `AG-${i + 1}`), 'AG-21', 'AG-22']);
+    // 💰 rev BSD-1: + AG-23 «Solicitud de venta sin guía» (BSD-1.1 C-7), en orden de código.
+    expect(opts).toEqual(['Todos', ...Array.from({ length: 13 }, (_, i) => `AG-${i + 1}`), 'AG-21', 'AG-22', 'AG-23']);
     expect(within(screen.getByLabelText('Tipo')).getByRole('option', { name: 'AG-22 · Cambios de otro súper-admin' })).toHaveAttribute(
       'value',
       'staff_control_by_non_owner',

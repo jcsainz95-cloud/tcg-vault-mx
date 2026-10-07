@@ -72,6 +72,53 @@ interface Ctx {
   isSuperAdmin: boolean;
   money: (cents: number) => string;
   statusLabel: (s: unknown) => string;
+  /**
+   * 💰 rev BSD-1 (DESIGN_SYSTEM §BSD-UX.5d) — la ventana está en **modo entrada** (guía del vendedor a la tienda). Sus
+   * errores propios dicen qué no se escribió, qué no se cobró y el remedio (SK6). `sellStatusLabel` rotula el estado de
+   * la SOLICITUD (`GUIDE_NOT_ALLOWED {status}` habla de la solicitud, no del envío).
+   */
+  inbound?: boolean;
+  sellStatusLabel?: (s: unknown) => string;
+}
+
+/**
+ * 💰 rev BSD-1 (§BSD-UX.5d) — los errores PROPIOS del modo entrada, antes de la tabla común (§43.7). `null` ⇒ sigue la común.
+ * También la usa M5 bajo «Generar guía con Skydropx» (`POST …/inbound-shipment`).
+ */
+export function inboundErrorView(e: unknown, t: T, ctx: Pick<Ctx, 'statusLabel' | 'sellStatusLabel'>): SdxErrorView | null {
+  const err = e instanceof ApiClientError ? e : null;
+  if (!err) return null;
+  const d = (err.details ?? {}) as Record<string, unknown>;
+  const sell = ctx.sellStatusLabel ?? ctx.statusLabel;
+  switch (err.code) {
+    case 'GUIDE_NOT_ALLOWED':
+      if (d.reason === 'seller_declared_shipped') return view(t('inbound.error.sellerShipped'), { effect: { kind: 'fatal' } });
+      // ✏ vBSD-1.1 (§BSD-UX.5d): la solicitud SIGUE `aceptada` con el envío confirmado ⇒ «ya no está aceptada» se contradiría.
+      if (d.reason === 'shipment_confirmed') return view(t('inbound.error.shipmentConfirmed'), { effect: { kind: 'fatal' } });
+      // `status`, `closed`, otro o ausente ⇒ `notAccepted` (red de seguridad).
+      return view(t('inbound.error.notAccepted', { status: sell(d.status) }), { effect: { kind: 'fatal' } });
+    case 'SHIPMENT_ALREADY_LABELED':
+      if (d.labelSource === 'manual') return view(t('inbound.error.manualExists'), { effect: { kind: 'fatal' } });
+      return null;
+    case 'PICKUP_ADDRESS_MISSING':
+      return view(t('inbound.error.noPickupAddress'), { manualPrimary: true, effect: { kind: 'blockPurchase' } });
+    case 'SHIPMENT_ADDRESS_INCOMPLETE': {
+      const missing = (Array.isArray(d.missing) ? d.missing : []) as ShipmentAddressMissingField[];
+      if (missing.includes('recipientName') && !missing.includes('phone')) {
+        return view(t('inbound.error.senderMissingQuote'), { effect: { kind: 'toAddressEdit', missing } });
+      }
+      return null;
+    }
+    case 'SHIPPING_PROVIDER_NOT_CONFIGURED':
+      if (Array.isArray(d.missing) && d.missing.includes('origin_snapshot')) {
+        return view(t('inbound.error.storeAddressMissing'), { manualPrimary: true, effect: { kind: 'none' } });
+      }
+      return null;
+    case 'VALIDATION_ERROR':
+      if (d.reason === 'destination_not_editable') return view(t('inbound.error.destinationRejected'), { effect: { kind: 'fatal' } });
+      return null;
+  }
+  return null;
 }
 
 const view = (text: string, over: Partial<SdxErrorView> = {}): SdxErrorView => ({
@@ -131,6 +178,10 @@ export function sdxErrorView(e: unknown, t: T, ctx: Ctx): SdxErrorView {
     return view(t('inFlight.checking'), { variant: 'info', effect: { kind: 'unknownOutcome', edgeBlocked: d.reason === 'edge_blocked' } });
   }
   if (!err) return view('', { effect: { kind: 'none' } });
+  if (ctx.inbound) {
+    const own = inboundErrorView(e, t, ctx);
+    if (own) return own;
+  }
 
   switch (err.code) {
     case 'FEATURE_DISABLED':

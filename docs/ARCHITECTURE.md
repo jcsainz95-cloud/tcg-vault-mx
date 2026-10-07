@@ -4,6 +4,57 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
+> `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
+> porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
+> para el rezago y una línea de frontend. **SU.8** (§4.65 (h)): el alta (suelta, lote, «encontrada») dispara la
+> publicación con el mismo cuerpo.
+>
+> **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2** (2026-10-06, arquitecto, rama `claude/analitica-ventas`
+> en `/home/user/tcg-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT`
+> gana **§15** ([#AN](API_CONTRACT.md#AN)); porqué en **§4.64**; desviaciones `D-AN-1…3` en §9. Tres endpoints nuevos en M9
+> (`super_admin`), sin tabla nueva; una columna aditiva (`M-AN-1`, solo para 621); 622 del buylist condicionada a #78.
+>
+> **Errata BSD-1.5** (2026-10-06, arquitecto; sha NO MEDIDO): responde a `BACKEND_NOTES §78.B5`. La norma está en
+> `API_CONTRACT §BSD.19` y el porqué en §4.BSD (o). Solo cambian dos pruebas de backend (B9 y B16); lo demás se ratifica.
+>
+> **Errata BSD-1.4** (2026-10-06, arquitecto; sha NO MEDIDO): responde a `BACKEND_NOTES §78.5/§78.B3/§78.B4` y a
+> `DESIGN_SYSTEM` C-9. La norma está en `API_CONTRACT §BSD.18` y el porqué en §4.BSD (n).
+> - El sello de AV-7 pasa a ser un solo predicado, con el número.
+> - La descarga del vendedor tiene límite propio.
+> - En `not_continued`, el servidor no manda montos.
+> - La revisión de domicilio del admin se firma con quien la hizo.
+> - El periodo de (b) del P&L ya no pierde costos.
+> - Las carreras se repiten contra la ruta real.
+> - El resto se ratifica. Sin migración.
+>
+> **Errata BSD-1.3** (2026-10-06, arquitecto; sha NO MEDIDO): respuesta a `BACKEND_NOTES §78`. Norma en `API_CONTRACT §BSD.17`;
+> porqué en §4.BSD (m).
+> - Rechazar ya no puede cerrar una solicitud `aceptada`.
+> - `AdminShipmentDTO.kind` gana `buylist_inbound`.
+> - Se ratifica el 7.º parámetro de `writeSellRequestGuide`.
+> - Las guías de entrada atascadas se ven en M5 y en el tablero.
+> - Los estados del motor pasan a la política de `label-subject.ts`.
+> - Hay una clase de censo nueva, `inbound_only`.
+> - Sin migración; B-1 no se rehace.
+>
+> **Errata BSD-1.2** (2026-10-06, arquitecto; sha NO MEDIDO): Q-BSD-1 respondida.
+> - En `pnl()`, la guía de entrada **resta** (neto) y la tarifa **retenida** al vendedor **suma**, como reducción del costo de
+>   compra.
+> - Se reporta el margen de la guía por solicitud pagada.
+> - Norma en `API_CONTRACT §BSD.16`; porqué en §4.BSD (l). DV-BSD-1 queda cerrada.
+> - Bloque nuevo B-4. Sin migración; B-1 sin cambio.
+>
+> **Errata BSD-1.1** (2026-10-06, arquitecto; sha NO MEDIDO): respuesta a `DESIGN_SYSTEM §BSD-UX` — norma en `API_CONTRACT
+> §BSD.15`, porqué en §4.BSD (k). Sin migración; B-1 sin cambio salvo la aserción de I-BSD-2 (nombre legible de paquetería).
+>
+> **Rev BSD-1 — 💰 BUYLIST: GUÍA SKYDROPX DE ENTRADA, «DECLINAR» EN «ACEPTADA» Y CIERRE A 7 DÍAS NATURALES** (2026-10-06,
+> arquitecto, rama `claude/buylist-skydropx`, HEAD dado por el orquestador `3c7726b8`; ⛔ sha NO MEDIDO: sin Bash). Norma en
+> `API_CONTRACT §BSD` (cabecera «Rev BSD-1»); porqué en **§4.BSD**; migración **`M-72` provisional** en §11; desviación
+> **DV-BSD-1** en §9. La guía de entrada es una `ShipmentRequest` con `kind='buylist_inbound'` (un solo motor de compra);
+> `SellRequestExpiryReason` gana `not_continued`; regla 8 (cierre), 9 (aviso AG-23) y 10 (reconciliación) del barrido.
+> Numeración propia (BSD) para no chocar con `claude/idiomas-sellos` ni `claude/correos-marca` (NO MEDIDAS).
+>
 > **Rev v1.80.12.17 — 💰 ERRATA TRAS EL GATE DE QA SOBRE `31af0883`** (2026-10-05, arquitecto, rama `claude/skydropx-d`, HEAD dado
 > por el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT` sube a **v1.80.12.17**; norma en `API_CONTRACT §M4-SHIP.19.36`;
 > porqué en **§4.60 (ac)**. M7 pinta «ajustes de paquetería» y seguro (criterio 238) y las tres restas de v1.80.7; la línea de
@@ -18722,6 +18773,8 @@ ownerType='platform' ∧ status='in_stock' ∧ ( locationId IS NULL  ∨  precio
 
 Cada fila dice **qué le falta** (`missing: ("location"|"price")[]`) y, si falta precio, trae el `pendingPriceEntryId`
 para el deep-link a la cola de precio pendiente de M2. **La pieza sin ubicación sale SEÑALADA** (criterio 125).
+> ⭐ **Errata SU-1 (2026-10-07, §4.65):** el término `locationId IS NULL` sale del predicado, y «ubicación +» sale de
+> (m.2). El servidor ya no emite `"location"`. El vocabulario se conserva dormido.
 
 **(m.2) Auto-publicación: «ubicación + precio ⇒ publicada», sin botón.**
 La publicación **se intenta** en los tres momentos en que puede dejar de faltar algo: **(a)** al convertir, **(b)** al
@@ -28542,6 +28595,415 @@ AVG-1/2/3 es una página `admin/…`»). Se decide la opción (1): los correos s
   cliente: llevan el pie. «Solo-staff» se decide por la **consulta de destinatarios**, no por el tema del correo.
 - **Choque A:** las 4 plantillas de la fusión son de cliente (§14.18 E5-5); no hay decisión.
 
+### 4.BSD BUYLIST CON GUÍA SKYDROPX DE ENTRADA — una sola máquina de compra, una fila más, y un cierre que no culpa (rev BSD-1, 2026-10-06, NORMATIVO, 💰 **DINERO + PII + TERCERO**)
+
+Norma entera: `API_CONTRACT §BSD`. Aquí, el porqué. Origen: `PROJECT.md §BSD` (criterios 532–550) y las filas de `HECHOS.md`
+del 2026-10-06 sobre el buylist (cierre sin guía a 7 días naturales; Skydropx de entrada antes de cobrar en real; respuestas a
+P-BSD-1…5 = las recomendaciones del product-owner). Lectura del árbol `/home/user/tcg-bsdx` (sha NO MEDIDO, sin Bash).
+
+**(a) Por qué la guía de entrada es una `ShipmentRequest` y no una tabla nueva ni columnas en `SellRequest`.** Las propiedades
+que protegen el dinero de Skydropx **son de cuenta, no de envío**: una compra en vuelo a la vez (candado consultivo y la
+consulta de `labelProcessingSince` sobre **toda** la tabla, `label-purchase.service.ts:399-423`), una tarifa no se compra dos
+veces (`:349-353`), un `providerShipmentId` pertenece a una sola fila (`@unique`), el folio `ENV-` sale de **una** secuencia y
+la adopción de una compra sin respuesta busca **ese** folio, el tope de MX$2,500 por persona suma **un** libro de intentos y
+TG-2 cuenta **un** libro de guías pagadas. Con una segunda tabla, cada una de esas propiedades tendría que re-demostrarse
+**entre dos tablas** —«otra compra en vuelo» tendría que mirar las dos, la unicidad del id también, la adopción por folio
+también—, y un olvido en cualquiera es dinero pagado dos veces o una guía huérfana: **dos fuentes para un hecho** en la
+zona donde más cuesta. Con una fila más de la misma tabla, esas propiedades valen **por construcción** y el encargo («no
+inventes un segundo camino de compra») se cumple en la letra. *Descartado:* columnas Skydropx en `SellRequest` (≈ 25
+columnas duplicadas y el motor partido en dos); una tabla polimórfica «sujeto de guía» (reescribir el motor entero, que ya
+pasó tres veredictos, para ganar lo mismo).
+
+**(b) El precio de (a), dicho entero, y sus candados.** `ShipmentRequest` tiene ~50 lectores (Grep del 2026-10-06 de
+`shipmentRequest.find*/count` y SQL crudo en `backend/src`) escritos pensando en envíos de **venta**. Un lector que olvide el
+`kind` mete una guía de entrada en la cola de preparación, en el tablero o en el P&L. Tres muros: (1) **CHECK** que obliga a
+la fila de entrada a `userId`, `orderId` y PaymentIntent nulos y montos en 0 ⇒ ninguna lista de cliente (filtran por
+`userId` positivo) ni ningún sumador de ingresos puede verla aunque se equivoque; (2) **censo** BSD-B23 que clasifica cada
+sitio (`outbound_only` / `all_kinds` / `by_key`) y se pone rojo con un sitio nuevo sin clasificar — el mismo patrón que los
+censos de proyecciones de este proyecto; (3) la política por `kind` vive en **un** fichero (`label-subject.ts`, BSD-B25).
+*Segunda copia aceptada a ojos abiertos (I-BSD-2):* el par paquetería/número vive en la fila de entrada (lo lee el motor) y
+en la solicitud (lo ve el vendedor y ancla su plazo, criterio 123). Se acepta porque **un solo escritor** los pone en **una**
+transacción (`writeSellRequestGuide`, extraído de `adminGuide`), y porque mover el plazo del vendedor a la fila de entrada
+obligaría a reescribir el ciclo de §4.39, que no es de este alcance.
+
+**(c) Por qué `not_continued` es un TERCER valor de `expiredReason`, contra la nota D39.** D39 dijo «no gana un tercer
+valor» porque para el vendedor «decidimos» y «dejamos vencer» eran **el mismo hecho**: los dos ocurrían **antes** de ofertar
+y el correo 4 dice exactamente eso. Aquí ofertamos y el vendedor **aceptó**: el correo 4 («nunca te ofertamos») sería falso, y
+`not_shipped` le imputaría un incumplimiento que el dueño quiere expresamente que no le impute (`HECHOS.md` 2026-10-06 (b)).
+El enum viaja al cliente y gobierna su copy; por eso el hecho nuevo **necesita** valor propio. La distinción
+«a mano / solo» sigue en `declinedBy`, como en D39.
+
+**(d) El reloj: ancla re-anclable y fecha derivada.** No se congela una fecha límite: el criterio 543 exige que cambiar el
+dial de 7 a 10 salve a una solicitud de 8 días, y eso solo es cierto si la fecha se **deriva** del dial vivo. Patrón D38
+(`offerIssueClockStartedAt ?? createdAt`): `inboundGuideClockStartedAt ?? acceptedAt`. Dos escritores, nombrados: `M-72`
+(P-BSD-2, las abiertas cuentan desde el despliegue) y la re-emisión (es corrección nuestra; *el vendedor no paga por una
+corrección nuestra*, D38). **Días naturales** = resta de milisegundos; sin calendario de festivos, así que esta regla no
+hereda el fail-closed de calendario de las otras (no lo necesita), pero un ancla nula **no** cierra.
+
+**(e) Por qué el relleno de `M-72` no es «relleno peligroso».** Toca solo filas vivas `aceptada` sin guía, escribe solo una
+columna nueva y **aplaza** un efecto; no mueve estado, dinero ni correo. Lo peligroso sería **no** hacerlo: la primera pasada
+del barrido cerraría con correo la del 15-sep y todas las viejas. Su reversa conjunta exige revertir **primero** el código.
+
+**(f) Orden de candados SR → ShR (I-BSD-4).** Hasta hoy ninguna transacción tomaba las dos filas. Ahora cinco caminos sí
+(declinar, regla 8, regla 2, reclamo/respuesta de compra, re-emisión). Un orden único es la única forma barata de no
+interbloquear; BSD-B31 lo mide con carreras N ≥ 10. El candado consultivo de cuenta no cambia (nunca espera).
+
+**(g) El aviso del día 5 reutiliza la tubería de avisos al dueño (AG-23).** Ya existe todo lo que pide P-BSD-1: correo solo
+al dueño (`audience:'staff'`), deduplicación por llave única, silenciado por dial, vista en el panel. Un correo propio sería
+un segundo buzón con su propio sello. La marca de M5/tablero es **derivada** (sin columna).
+
+**(h) Dinero.** Al vendedor se le sigue descontando la tarifa congelada (D16/D25/D31); el neto no se toca (BSD-B11). El costo
+real queda en la fila de entrada desde la respuesta de Skydropx (como en salida, §4.60). **Qué es margen:** `tarifa −
+costo neto`, el mismo cálculo que en salida (la tarifa descontada no lleva IVA trasladado) — interpretación marcada en el
+contrato. **P&L:** el informe de hoy **no** cuenta ni la tarifa descontada ni el costo de guía del buylist (DV-BSD-1), y el
+costo de lo vendido usa el **bruto** ofertado; meter el costo de la guía en la ganancia sin acreditar la tarifa la
+subestimaría. Por eso, por defecto, línea **informativa** (Q-BSD-1 al dueño). Lo que sí entra como hoy: cargos extra y lo no
+devuelto de una cancelación (`ShipmentCostAdjustment`, sin filtro de `kind`: el dinero salió igual).
+
+**(i) PII.** La fila de entrada guarda el domicilio del vendedor con `userId = null`: la anonimización de cuenta, que hoy
+encuentra los envíos por `userId`, **no** la vería. Se norma que la encuentre por `SellRequest.userId` (BSD-B27). El correo del
+**origen** que viaja a Skydropx es el de la **tienda**, no el del vendedor (minimización; además evita que Skydropx le escriba).
+
+**(j) Lo que no se hizo y por qué.** «En tránsito» por escaneo (P-BSD-5: después de cobrar en real) ⇒ las filas de entrada
+**no** entran al sondeo de rastreo, y con eso tampoco a AV-17/18/19. Recolección a domicilio: fuera (§BSD.6 de PROJECT).
+Cambiar la tarifa fija: fuera.
+
+**(k) Errata BSD-1.1 (ux-ui).** Fueron cuatro fallos míos de forma, no de fondo:
+- Puse `labelPdfAvailable` dentro de `offer`, que solo viaja en el detalle. Pasa a ser un campo plano.
+- Colgué un campo de `workQueue.buylist`, que es un número. Pasa a ser un campo hermano.
+- Pedí un enlace a una ficha de M5 que no existe. El CTA va a `/admin/m5` y el folio va en el cuerpo.
+- Dejé que el cliente calculara «en N días». Ahora lo manda el servidor: *una fecha derivada de dos maneras son dos fechas*.
+
+Además, la copia del nombre de paquetería en la solicitud pasa a ser el **nombre legible**, porque es la que lee el
+vendedor; la del motor sigue siendo el código. I-BSD-2 conserva un solo escritor, ahora con la regla de esa traducción.
+
+**(l) Errata BSD-1.2: la guía resta, la tarifa retenida suma y el margen se ve.** El dueño respondió Q-BSD-1 «que reste en
+el reporte» y precisó «en muchos casos tendrá margen». Esto sustituye el «informativo» de (h).
+- **Lo medido.** El costo de lo vendido del buylist es el **bruto** de la línea (`buylist.service.ts:7519-7530`, sumado en
+  `admin.service.ts:1742-1744`). `pnl()` no lee lo pagado al vendedor.
+- **Consecuencia.** Hoy la tarifa retenida no reduce ningún costo. Acreditarla no es doble cuenta. Lo que sí sería un error
+  es dejarla fuera mientras la guía resta.
+- **Cómo se presenta la tarifa.** Contablemente es una **reducción del costo de compra**, no un ingreso: no hay venta y no
+  causa IVA trasladado. Va como renglón propio y no repartida por carta, porque `:7526-7528` decide que el costo de una pieza
+  no dependa del paquete en que llegó.
+- **Cómo se mide el margen.** Por **solicitud pagada**, no como resta de los dos totales del mes. Los dos renglones viven en
+  periodos distintos, y una guía de una solicitud que nunca se pagó cuesta sin retener nada.
+- **Cancelaciones.** Lo no devuelto sigue en «ajustes de paquetería», como en P-SDX-PNL-1 (A). Una guía cancelada con
+  confirmación sale del renglón de guías, así que no hay doble cuenta.
+
+**(m) Errata BSD-1.3 (lo que encontró B-1).**
+- **Prohibir en vez de cablear.** `rejectRequest` y `autoRejectIfAllRejectedTx` podían cerrar una `aceptada`. Cablearles
+  `closeInboundShipment` arreglaría la fila de entrada y dejaría el **desenlace** equivocado: correo de cartas rechazadas y
+  relojes de devolución sobre cartas que no llegaron. Contradice la fila de `HECHOS.md` del 2026-10-04 sobre rechazar solo
+  lo que llegó mal. La puerta correcta es «Declinar». La guarda va en el `WHERE`, para que la vía automática tampoco llegue
+  por carrera.
+- **Un campo, no dos.** `AdminShipmentDTO.kind` ya contestaba «qué clase de envío es». Un segundo campo con el mismo nombre
+  conceptual serían dos respuestas a una pregunta, así que gana un valor. Prisma conserva su enum y el tipo TS derivado
+  cambia de nombre.
+- **Atascos visibles en M5.** Al marcar `outbound_only` las alertas de M4, las de entrada quedaban sin pantalla. Se ven en
+  M5 con el mismo `labelAlertOf`, sin una segunda regla.
+- **Estados por política.** Los literales `'picking'` del motor eran la última costura de salida. Pasan a `label-subject.ts`,
+  con un candado que impide que vuelvan.
+
+**(n) Errata BSD-1.4 (lo que encontraron B-2, B-3, B-4 y ux-ui).** Norma en `API_CONTRACT §BSD.18`.
+- **Un muro redundante no es un muro inútil, pero necesita su propio canario.**
+  - BSD-B4 tiene dos muros y BSD-B9 tiene varios.
+  - Una mutación de uno solo no muerde, así que la prueba de carrera muta por pares. El muro que un día quede solo recibe
+    una prueba determinista (B45).
+  - El `status` del CAS se queda porque es la misma línea que en salida sí es el muro.
+- **La tarea del buylist la escribe el buylist.**
+  - `afterAutoClose` de `shipments/` lo comparten los reembolsos.
+  - Meterle la columna de `SellRequest` obligaría a ramificar por `kind` fuera de la política.
+  - El llamador ya era el único escritor, así que se corrige el contrato y no el código.
+- **Una guarda, una función.**
+  - Las dos copias del sello de AV-7 ya divergían.
+  - La copia manual podía anunciar un número ya corregido: es un razonamiento, NO MEDIDO, y BSD-B40 (b) lo mide.
+  - El predicado vive junto al reinicio del sello, en `sell-request-guide.ts`.
+- **La regla de los montos del cliente va en el servidor, como en `no_offer`.**
+  - En `not_continued` no compramos nada, y una cifra junto a «no continuamos» se lee como deuda.
+  - La excepción de `not_shipped` (el registro de una oferta vinculante incumplida por el vendedor) no aplica, porque el
+    que no siguió fuimos nosotros.
+- **Quién corrigió es un hecho, no una convención.**
+  - La misma fila de entrada firmaba con el actor por M4 y con el vendedor por M5.
+  - SEC-A1 protege la forma del cuerpo, no la aridad del método. El candado se reescribe con su intención: el DTO solo
+    lleva `addressId`.
+- **Una suma por meses tiene que dar el total.**
+  - (b) por `guideSentAt` dejaba fuera de todo mes los costos capturados sin guía.
+  - `shipmentConfirmedAt` es el instante del registro, y lo escribe el mismo `updateMany` que el costo.
+- **C-9: sin verbo para el lanzamiento.** El costo manual es solo de reporte y nunca entra al pago. Corregirlo después
+  queda como trabajo posterior, y la condición es un solo escritor de `guideActualCostCents`.
+- **Las carreras se miden contra el código que corre.** Un sustituto fiel del reclamo no tiene las ventanas
+  `precheck → claim` ni el post-commit.
+
+**(o) Errata BSD-1.5 (lo que §BSD.18 no aguantó).** Norma en `API_CONTRACT §BSD.19`.
+- **Contar los muros antes de fijar una mutación.**
+  - §BSD.18 listó dos muros de B9 y había tres por encima de la compra: candado consultivo, relectura `in_progress` bajo
+    I-BSD-4 y `labelProcessingSince: null` del CAS.
+  - Cualquiera de los tres basta solo, porque la relectura y el CAS van con la fila tomada.
+  - Debajo hay más: el libro de intentos con sus únicos y `markSent` (a). Cuál mordió en la mutación está NO MEDIDO, y no
+    hace falta para lanzar: no cambia ninguna norma, y `markSent` (a) ya tiene canario propio.
+  - La prueba tiene que afirmar lo que la mutación rompe. Si muerde por `5xx`, «nunca `5xx`» va escrito en B9.
+- **Una guarda redundante en dinero puede no ser redundante en el mensaje.**
+  - En B16, quitar la guarda de `claim` no compra nada, porque el CAS de `status` frena. Pero el operador recibe «el envío
+    cambió» en vez de «la solicitud ya no admite guía».
+  - El código de error es lo que esa guarda aporta, y es lo que se fija.
+- **La regla gana al mecanismo.** «Los mismos campos» era cómo se redactaba `no_offer`, y «ninguna cifra» es por qué.
+  - En `not_continued` hubo oferta, así que cumplir la regla obliga a quitar la oferta entera: su prosa lleva los montos.
+  - Perder las fechas del stepper es aceptable, porque un paso sin dato no se pinta.
+  - Recuperarlas sería un cambio de contrato aparte, con la regla de cuál fuente manda.
+- **Un término redundante hoy es el muro de mañana** si representa el hecho y no su consecuencia. `closedAt` es «cerrada».
+  `status` es lo que hoy acompaña a ese hecho.
+
+---
+
+### 4.64 ANALÍTICA DE VENTAS DEL DUEÑO — `PROJECT §AN`, P1 + P2 (v1.85⟨ventas⟩, 2026-10-06, NORMATIVO, 💰 **LEE DINERO**)
+
+> **Origen:** `PROJECT §AN` (criterios **600–613** y **620–624**) y `HECHOS.md:80` («Analítica de ventas del dueño (§AN) —
+> respuestas a P-ANA-1..3», 2026-10-06). **P-ANA-4**: el orquestador relayó el 2026-10-06 la palabra del dueño «Mete de una
+> vez el scope completo» ⇒ se diseñan P1 **y** P2 (la fila en `HECHOS.md` la escribe el orquestador; ⛔ NO MEDIDA por el
+> arquitecto). Árbol `/home/user/tcg-ventas`, rama `claude/analitica-ventas` (base `production` sin `M-72`, según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma entera: `API_CONTRACT §15` ([#AN](API_CONTRACT.md#AN)).
+> **Numeración:** `v1.85⟨ventas⟩` / `§4.64` / contrato `§15` — ⛔ NO MEDIDO si el PR #78 (`M-72`) u otra rama viva usa esos
+> números; lo comprueba el orquestador antes de fusionar (si chocan, se renumera sin cambiar contenido).
+
+#### 4.64.1 Lo medido (2026-10-06, lectura de código en este árbol)
+
+| Hecho | Dónde |
+|---|---|
+| M7 `pnl()` cuenta ingreso de órdenes **`status: 'settled'`** acotadas por `settledAt` | `backend/src/modules/admin/admin.service.ts:1722-1745` |
+| Lo devuelto resta en el periodo en que salió: `PaymentRefund` `submitted\|succeeded` por `submittedAt`, `ManualRefund` `paid` por `paidAt` | `admin.service.ts:1836-1861` (`refundsInPeriod`) |
+| Un reembolso **total** mueve la orden `settled → refunded` (sella `refundedAt`, **no** toca `settledAt`) | `payments/refunds/refund-ledger.service.ts:338-341`; `payments/payments.service.ts:735-738` |
+| Un contracargo mueve la orden a `chargeback`; ganarlo vuelve a `settled` **conservando** `settledAt` | `payments.service.ts:924-931`, `:1074-1081` |
+| `settledAt` solo se escribe al liquidar (las dos ramas) | `payments.service.ts:293`, `:455` |
+| Precedente de «pedido que alguna vez se cobró»: `status IN (settled, refunded, chargeback)` por `settledAt` | `admin.service.ts:1997` (`ivaReport`); `payments/refunds/origin.ts:76` (`settledAt: { not: null }`) |
+| `range()` de admin interpreta `YYYY-MM-DD` como medianoche **UTC** y usa `lte` ⇒ el último día se pierde y el corte no es México | `admin.service.ts:478-497`; el front manda la fecha cruda (`frontend/src/app/[locale]/(admin)/admin/m9/M9View.tsx:37-41`) |
+| Ya existe el corte por día de México, semiabierto `[00:00 MX, 00:00 MX del día siguiente)` | `backend/src/modules/spend-alerts/mx-day.ts:42-99` (`mxDayStart`, `nextYmd`, `prevYmd`, `mxDaysRange`, `parseMxDayFilter`); `common/business-days.ts:151` (`toMexicoCityDateKey`) |
+| Ingreso neto por fila y por convención (no agregable en SQL sin duplicar la regla) | `common/money.ts:891-901` (`netRevenueCents`), `:931-943` (`netShippingRevenueCents`); el tablero ya suma en memoria por eso (`admin.service.ts:2223-2240`) |
+| Lo que pagó el cliente = `Order.totalCents` (es el monto del `PaymentIntent`) | `orders/orders.service.ts:1109` |
+| Una pieza = un `OrderItem` (sin cantidad) | `backend/prisma/schema.prisma:1441-1470` |
+| Invitado ⇔ `guestEmail != null` (inmutable, sobrevive al reclamo) | `schema.prisma:1352-1354` |
+| Índices de `Order`: `userId`, `status`, `guestEmail` — **ninguno** sobre `settledAt` | `schema.prisma:1435-1438` |
+| M9 es `super_admin` a nivel de clase | `admin/admin.controller.ts:548-551` (`@Roles(Role.super_admin)`); M7 igual, `:489-491`; el tablero es `vault_operator + super_admin`, `:592-594` |
+| **Métodos de pago:** el checkout crea el `PaymentIntent` con `automatic_payment_methods: { enabled: true }` y el front monta `<PaymentElement>` ⇒ **los métodos son los que estén encendidos en el panel de Stripe**; el código no fija ninguno | `payments/stripe.service.ts:185-191`; `frontend/src/components/domain/StripePaymentModal.tsx:111`. ⛔ **NO MEDIDO** qué métodos tiene encendidos la cuenta (es configuración del panel de Stripe; lo cierra el dueño mirando *Settings → Payment methods*, o una lectura de solo lectura de la API) |
+| Del método solo se guarda marca + últimos 4, y **solo** en `direct_ship` | `payments.service.ts:439-441`, `:456`; columnas `schema.prisma:1372-1373` |
+| Buylist: lo que salió por SPEI está sellado en `SellRequest.payoutNetCents` al pasar a `pagada` (con `paidAt`) | `schema.prisma:2242-2245`, `:2117` |
+| Resumen de las 08:00: `spend-digest`, **solo al dueño**, y **sin correo si no hubo avisos** | `spend-alerts/spend-digest.service.ts:67-71`, `:73`, `:88`; `spend-mail.service.ts:53-55` |
+
+#### 4.64.2 La decisión de fondo: qué es «un pedido cobrado», y por qué choca con `pnl()` de hoy
+
+**Regla AN (una sola, para todas las cifras de §AN):** un pedido cuenta en el día México de su **`settledAt`**, **sea cual
+sea su estado actual** (`settled`, `refunded` o `chargeback`). Lo que pase después (reembolso, contracargo) **no** reescribe
+ese día; el reembolso cuenta **en su propio día** (P-ANA-1, `HECHOS.md:80` (1)). Es el predicado que ya usa `ivaReport`
+(`admin.service.ts:1997`).
+
+**El choque, medido:** `pnl()` filtra `status: 'settled'` (`admin.service.ts:1725`). Un pedido cobrado el lunes y
+reembolsado completo el miércoles pasa a `refunded` ⇒ **desaparece del ingreso del lunes** en M7 **y además** el miércoles
+resta su reembolso (`refundsInPeriod`). Es exactamente el defecto **D-2** que `PROJECT §W.3 (d)` (criterio **278**) manda
+corregir; con contracargo, **D-3** (criterio **277**). Ninguno está construido en esta base (no hay §W en este documento ni
+en el código medido).
+
+Consecuencia: **los criterios 602 («venta sin IVA = ingreso de M7, al centavo») y 603 («el lunes queda intacto») no pueden
+ser los dos verdes contra el `pnl()` de hoy**, y 613 prohíbe cambiar las cifras de M7 en este stream. Se elige:
+
+- **Manda 603** (palabra literal del dueño en `HECHOS.md:80` (1), y es lo que §W.3 (d) ya norma para M7). AN usa la Regla AN.
+- **602 se reformula como identidad exacta, medible hoy** (`API_CONTRACT §15.6` AN-B-3):
+  `Σ netSalesCents(AN) = pnl.incomeCents + Σ netRevenueCents(o)` sobre los pedidos con `settledAt` en el periodo y
+  `status ∈ {refunded, chargeback}`. Ese segundo término **es** la doble resta D-2/D-3, con nombre. Cuando no hay tales
+  pedidos, la igualdad es la literal de 602.
+- **Cierre:** cuando §W 277/278 entre, M7 adopta el mismo predicado (sale del mismo `pnl-core`, §4.64.4) y el término se
+  hace cero **por construcción**. ⇒ `PENDIENTE`: product-owner anota junto al 602 que su igualdad literal depende de 278.
+
+#### 4.64.3 Por qué así (decisiones y alternativas descartadas)
+
+| Decisión | Alternativa descartada y por qué |
+|---|---|
+| **Sin tabla nueva ni vista materializada.** Una consulta acotada por periodo + agregación en memoria con los **mismos** helpers de `money.ts` | Agregar en SQL (`date_trunc … AT TIME ZONE`) duplicaría `netRevenueCents` dentro de una expresión: dos fuentes para la regla del IVA (lo que el tablero ya evitó, `admin.service.ts:2223-2228`) |
+| **El día lo corta el servidor**, con `mx-day.ts` (semiabierto, ⛔ `lte`) | Reusar `range()` de admin: arrastra D-1 (UTC + último día perdido). ⛔ No se arregla `range()` aquí: cambiaría M7/M9 (criterio 613); es §W 275 |
+| **Presets resueltos en el servidor** (`today`, `yesterday`…) | Que el navegador calcule «hoy»: un navegador fuera de México corta otro día |
+| Endpoints **en `AdminReportsController`** (M9) ⇒ hereda `@Roles(Role.super_admin)` de clase | Meterlo en `GET /admin/dashboard` (es `vault_operator+`): obligaría a un `null` por rol y un olvido filtra dinero al operador. La tarjeta del tablero llama a **su propio** endpoint de M9 |
+| **Módulo nuevo `backend/src/modules/sales-analytics/`** (servicio + funciones puras), importado por `admin` (controlador) y `spend-alerts` (624) | Ponerlo en `AdminService`: `spend-alerts` tendría que importar `AdminModule` entero (riesgo de ciclo de módulos) |
+| **`pnl-core.ts`**: el cuerpo de `pnl()` se parte en `pnlBuckets(db, range, keyOf)`; `pnl()` = un solo cubo | Llamar `pnl()` una vez por día: N×5 consultas (366 días ⇒ ~1 800) y dos cuerpos que «deben» dar lo mismo |
+| Semana **lunes a domingo**, cubos **recortados** al periodo | Semana ISO completa: el total del periodo cambiaría al agrupar (criterio 605) |
+| `to` no puede ser posterior a hoy MX; tramo máximo **366 días** | Días futuros en la tabla «con cero» serían información falsa; sin tope, una petición barre la tabla entera |
+
+#### 4.64.4 Forma interna (firmas; ⛔ no es código)
+
+```
+// backend/src/modules/sales-analytics/sales-period.ts — puro
+resolvePeriod(q: { preset?, from?, to?, groupBy? }, now: Date)
+  → { from: Ymd, to: Ymd, days: number, prev: { from: Ymd, to: Ymd }, groupBy, buckets: Bucket[] }
+bucketKeyOf(instant: Date, groupBy, period) → Ymd   // inicio del cubo recortado; usa toMexicoCityDateKey
+// backend/src/modules/sales-analytics/sales-figures.ts — puro
+salesFiguresOf(orders: OrderLite[], refunds: RefundLite[]) → SalesFigures   // una definición por cifra (§15.4)
+// backend/src/modules/admin/pnl-core.ts — 💰 extraído de admin.service.ts:1722-1861 SIN cambiar una cifra
+pnlBuckets(db, range: {gte, lt}, keyOf: (d: Date) => string) → Map<string, PnlComponents>
+refundsInPeriod(db, range)                                   // movido tal cual
+// AdminService.pnl(from, to) = pnlBuckets(db, range(from,to) as hoy, () => 'all').get('all')
+// backend/src/modules/sales-analytics/sales-analytics.service.ts
+report(q, now) → SalesReportDTO;  csv(q, now) → string;  today(now) → SalesTodayDTO;  dayFigures(day: Ymd) → SalesFigures
+```
+
+⚠️ `pnlBuckets` debe aceptar **también** el filtro `lte` que hoy produce `range()` (para que `pnl()` dé bit a bit lo mismo,
+criterio 613). Para AN se le pasa el semiabierto de `mx-day.ts`.
+
+#### 4.64.5 Fases dentro del stream (para el orquestador)
+
+| Fase | Criterios | Toca | Zona compartida |
+|---|---|---|---|
+| **A** | 600–611, 613 | `sales-analytics/` (nuevo), `admin.controller.ts` (rutas en `AdminReportsController`), front `admin/m9` (pestaña) y `AdminDashboard.tsx` (tarjeta) | `frontend/src/lib/api.ts`, `frontend/src/types/contract.ts` |
+| **B** | 612, 620, 622 (salida), 623, 624 | `admin/pnl-core.ts` (💰 refactor de M7 con candado de paridad), `spend-alerts/spend-digest.service.ts` + `spend-alert.mail.ts` | — |
+| **C** | 621 (método de pago) y ⭐ AN-1.1 contracargos por día (§4.64.8) | `schema.prisma` + migración **`M-AN-1`** (número lo asigna el orquestador; `M-72` es #78), `payments.service.ts`, `stripe.service.ts` | `backend/prisma/` ⇒ se serializa |
+| **C′** | 622 (columnas del buylist) | Solo si **#78 (`M-72`) está en `production`**: AN lee las mismas componentes que #78 añada a `pnlBuckets` | — |
+
+Modelo: todo esto lee dinero y la fase B toca el cuerpo de M7 ⇒ **modelo fuerte** para el plano y las pruebas; la fase A
+de frontend sin dinero puede bajar al barato con las pruebas ya escritas (CLAUDE.md «Reparto de modelos»).
+
+#### 4.64.6 Rendimiento (lo que se sabe y lo que no)
+
+- Por petición: ~10 consultas fijas, **sin N+1**: órdenes de periodo **y** periodo anterior en una sola consulta
+  (`settledAt ∈ [prev.from, to]`, columnas enumeradas), renglones de los pedidos del periodo, 2 de reembolsos, 1 de clientes
+  previos, ~4 de `pnlBuckets`, 1 de buylist.
+- **Sin índice nuevo en P1/P2.** `Order` no tiene índice sobre `settledAt` (`schema.prisma:1435-1438`) ⇒ barrido de `Order`.
+  Volumen hoy: ⛔ **NO MEDIDO** (toda venta es de prueba, `PROJECT §AN` cita `HECHOS.md` fila 16). **Disparador** para añadir
+  `@@index([settledAt])` (migración aditiva): `EXPLAIN ANALYZE` del informe de 366 días > 300 ms en producción, o > 50 000
+  filas en `Order`. Se mide, no se supone.
+- Memoria: acotada por las órdenes de 2×366 días (con columnas enumeradas, ⛔ sin `include` de piezas para las cifras).
+
+#### 4.64.7 Lo que el PROJECT no aguantó (para product-owner y el dueño)
+
+1. **602 vs 603** contra el `pnl()` de hoy (§4.64.2). Decidido: manda 603; 602 queda como identidad con el término D-2/D-3.
+2. **612 (ganancia por día)**: hoy **no** sale de `pnl()` sin cálculo nuevo (`pnl()` devuelve un solo agregado,
+   `admin.service.ts:1815-1828`). Con el alcance completo del dueño se **incluye** en la fase B vía `pnl-core` (misma fórmula
+   partida, no una fórmula nueva) — pero **hereda D-2/D-3**: la ganancia del lunes **sí baja** si el miércoles se reembolsa
+   completo, a diferencia de la venta. La pantalla lo rotula «Ganancia (regla de Finanzas)». Se alinea sola con 277/278.
+3. **621 por método de pago**: el dato **no se guarda** hoy (solo marca/4 últimos y solo en envío directo). Requiere `M-AN-1`;
+   los pedidos anteriores salen como «sin dato». Si la cuenta de Stripe solo tiene tarjeta encendida (NO MEDIDO), la mezcla
+   será 100 % tarjeta y la parte útil es destino e invitado/cuenta.
+4. **622**: el lado de **salida** (envío cobrado vs guías de pedidos y retiros) es construible hoy y cuadra con M7 por
+   construcción. El «tarifa congelada» que menciona §AN.3 es del **buylist** (`schema.prisma:2237-2240`), cuyo costo no está en
+   el `pnl()` de esta base (el contrato §M7 lo declara desde v1.51.1, `API_CONTRACT.md:34752-34766`, y el código no lo tiene,
+   `admin.service.ts:1815-1828`) ⇒ esas columnas quedan **condicionadas a #78 en `production`**.
+5. **623** «cuadra con el flujo SPEI de §W.3 (e)»: ese flujo (criterio 279) no existe en esta base. AN cuadra contra la fuente
+   (`payoutNetCents` por `paidAt`); cuando 279 se construya, debe leer el mismo helper.
+6. **624**: hoy el resumen **no se manda** si no hubo avisos (`spend-digest.service.ts:67-71`). Para que «la línea de ventas
+   de ayer» exista hace falta cambiar esa regla: **default del arquitecto** = se manda si hubo avisos **o** hubo pedidos ayer;
+   ni uno ni otro ⇒ sin correo, como hoy. Es pregunta al dueño con default (`API_CONTRACT §15.9` P-AN-1).
+7. **«Tarjeta: contra el mismo día de la semana pasada»**: se compara contra **ese día completo** (SUPUESTO; alternativa:
+   «hasta la misma hora»). Pregunta P-AN-2 con default.
+8. **«Contra el periodo anterior del mismo largo»** para «Mes pasado»: se compara contra los N días inmediatamente anteriores
+   (literal del PROJECT), no contra el mes calendario anterior. P-AN-3 con default.
+
+#### 4.64.8 Errata AN-1.1 (2026-10-06) — los cuatro huecos que encontró ux-ui (N-AN-1…4)
+
+Norma: `API_CONTRACT §15.11`. Lo que cambia en la forma y por qué:
+
+| # | Decisión | Fase | Por qué así | Descartado |
+|---|---|---|---|---|
+| N-AN-1 | `Order.chargebackOpenedAt`, `chargebackAmountCents` en **`M-AN-1`** (misma migración que 621, aditiva, sin relleno); escritas una vez en `onChargeDispute`; cubo por `chargebackOpenedAt`, desenlace de hoy | C | Hoy no existe la fecha del contracargo (`payments.service.ts:924-931`, `:1027-1030`, `:1074-1091`) ni manera de reconstruirla (`ProcessedStripeEvent` no guarda la orden, `schema.prisma:2494-2498`). Una sola migración para la fase C = una sola serialización de `backend/prisma/` | Fechar por `settledAt` (inventa el día); leer la API de Stripe al pedir el informe (red en una lectura, y el 403/latencia rompería la pestaña); tabla `Chargeback` propia (es la línea de §W.3 (c) / 277, con cuota y estado: otro stream) |
+| N-AN-2 | `mix.byProductType` con el `netRevenueCents` de cada pedido **repartido** por resto mayor entre sus renglones | B | Σ mezcla = `totals.netSalesCents` al centavo, una sola regla del IVA (`money.ts:891-901`); el residuo lo absorbe el reparto, ⛔ la cifra autoritativa (R3) | `taxBaseCentsOf` por renglón (lo de `top`): con `IVA_INCLUSIVE` no cuadra (ej. 3×100.00 ⇒ 25863 vs 25862) |
+| N-AN-3 | `shipping.resultNetCents` en el DTO | B | La pantalla no calcula (regla AN-1 de diseño); el servidor ya tiene las dos cifras del mismo cubo. Ajustes y seguro ya van dentro del costo (`admin.service.ts:1767-1773`, `:1801-1802`) | Restar en el front (segunda fuente); `null` con costos sin capturar (escondería la cifra; basta el aviso de `costMissingCount`) |
+| N-AN-4 | CSV en **pesos con 2 decimales** (aritmética entera), JSON en centavos | A | El CSV es para el dueño en Excel; pesos con dos decimales son la misma cifra al centavo (610) | Centavos (exacto pero ilegible en Excel); `$` o separador de miles (Excel lo lee como texto) |
+
+Rendimiento (§4.64.6): +1 consulta en la fase C (pedidos con `chargebackOpenedAt` en el periodo, columnas enumeradas) +1
+`count` de no fechados; la mezcla por tipo reusa los renglones que ya trae `top`. Sin índice nuevo (mismo disparador que
+`settledAt`). ⚠️ **NO MEDIDO** con qué regional abre el dueño Excel (`API_CONTRACT §15.7`).
+
+### 4.65 SIN UBICACIÓN — el cajón deja de ser requisito para publicar, por ahora (Errata SU-1, 2026-10-07, NORMATIVO, 💰 **publica inventario pagado**)
+
+**Norma:** `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). El dueño
+la escribió desde la cola «Listas para publicar (sellado)», con INV-002043 detenida por «Sin ubicación». Contrato:
+`API_CONTRACT §M1-SU`. Sustituye en §4.39m (m.1) el término `locationId IS NULL` del predicado y en (m.2) el «ubicación +»
+de «ubicación + precio ⇒ publicada». (m.3) se queda: la conversión ya no exigía cajón.
+
+**(a) Dónde vivía el requisito, medido por lectura.** En **dos** sitios, y solo en la ruta automática:
+`pendingPublishStateOf` (`inventory.service.ts:2021`, `missing.push('location')`) y `reevaluateOne` (`:3168-3171`,
+corte `missing_location` antes de las guardas). Los caminos manuales ya publicaban sin cajón: `assertPublishableGuards`
+(`:1726-1760`) no lee `locationId`, y `bulkPublish` / `publishAll` / el `PATCH` pasan por él. La regla era incoherente
+antes de esta errata. El dueño podía publicar desde «Publicar» de la ficha (`ItemDetailModal.tsx:307-315`). Desde la
+cola no podía, porque la fila del sellado le ofrecía solo «Guardar precio» (`SealedFinalPrice.tsx:50`).
+
+**(b) Decisión: borrar las dos líneas y conservar el vocabulario dormido.** El predicado y el disparo siguen siendo un
+solo cuerpo (`pendingPublishStateOf` → `reevaluateOne`). Solo pierden el término de ubicación.
+- **Descartado: retirar `location` del enum.** Habría que tocar el contrato, `types/contract.ts`, la paridad clase L
+  (`C-EQ-1`, `enum-query-axes`), el DTO de sellado (`missingLocation`) y cuatro ramas de frontend. Revertir pediría lo
+  mismo al revés. Con «por el momento», el coste de ida y vuelta manda.
+- **Descartado: «sin ubicación» como chip informativo que no bloquea.** Una pieza con precio se publica y sale de la cola,
+  así que el chip solo se vería en las que no tienen precio. Pondría junto a lo que bloquea algo que no bloquea. Además,
+  el dueño dijo «quítalo».
+- **Descartado: una constante `PUBLISH_REQUIRES_LOCATION`.** Mantendría vivas las dos ramas con pruebas para un
+  interruptor que hoy nadie pide. Revertir es un `git revert` de dos líneas, porque el vocabulario sigue en su sitio.
+
+**(c) El rezago es lo que hace falta de verdad, no un detalle.** La cola descansa en una premisa: «`missing = []` ⇒ la
+auto-publicación ya la sacó» (`inventory.service.ts:2139-2141`). Las piezas retenidas solo por el cajón tienen precio y
+ningún disparador pendiente. Al desplegar caen a `missing = []` y desaparecen de la cola **sin publicarse**. Es la
+contradicción exacta de la fase 8. Por eso SU.3 hace un barrido único con el mismo cuerpo, por defecto sin escribir. Por
+la misma premisa, SU.4 del frontend es obligatoria: «Guardar precio» sin `status` fabricaría el mismo hueco desde la UI.
+Hay un hueco hermano **preexistente**, que no se arregla aquí: el `PATCH` de `listPriceCents` sin `status` sobre una pieza
+`in_stock` **con** cajón no dispara la publicación. Solo el `move` llama a `tryAutoPublish` (`:3252`). El frontend lo
+esquiva mandando siempre `status:'listed'`.
+
+**(d) Efectos colaterales (medidos por lectura; detalle en `API_CONTRACT §M1-SU` SU.5).**
+- La preparación ya tolera `unassigned`. Habrá más «Sin ubicar» en la hoja.
+- La custodia del cliente (`VaultPlacement`) sigue exigiendo cajón. La fila de HECHOS no la cubre.
+- El export conserva la columna, vacía cuando no hay cajón.
+- El tablero no tiene conteo `pendingPublish` implementado.
+- Cambio de conducta que el dueño debe leer en la solicitud de fusión: **una carta convertida en M5 con precio queda a
+  la venta en el acto**, sin cajón.
+
+**(e) Por qué el dueño «no puede mover ubicación en ningún lado» (medido por lectura, 2026-10-07; datos de prod NO
+MEDIDOS).**
+1. En la cola, el único camino es **pulsar el folio**. Es un `<button>` que parece texto y solo se subraya al pasar el
+   ratón (`PendingPublishQueue.tsx:306-316`). Abre `ItemDetailModal`, que sí tiene «Mover de ubicación»
+   (`ItemDetailModal.tsx:331-364`, `canMove` en `in_stock`).
+2. El selector solo ofrece cajones **activos de `platform_stock`** (`ItemDetailModal.tsx:186-188`). Si no hay ninguno, el
+   selector sale **vacío y sin aviso**. `LocateItemControl` de M4 sí avisa (`es.json:2521`, «Créalas en Inventario»), pero
+   solo se monta en la preparación de un pedido (`ShipPreparationCard.tsx:912-916`), no en la cola.
+3. **Sí hay pantalla para crear cajones:** el botón «Ubicaciones» de la barra de **M1** (`M1View.tsx:310` →
+   `LocationsModal`, zona por defecto `platform_stock`, `LocationsModal.tsx:37`). **No está en M11**, donde estaba el
+   dueño: `M11View.tsx:110` monta la cola, pero no el gestor de cajones.
+4. ¿Hay cajones `platform_stock` activos en producción? **NO MEDIDO.** Lo cierra
+   `SELECT zone, "isActive", count(*) FROM "VaultLocation" GROUP BY 1,2` o `GET /admin/locations`.
+Con SU-1 nada de esto bloquea la venta. Mejoras para cuando el cajón vuelva a importar, ⛔ no bloqueantes y para ux-ui:
+el aviso de «no hay cajones» en el selector de la ficha y una affordance visible en el folio.
+
+**(f) Texto erróneo (para ux-ui → frontend).** `frontend/messages/es.json:1596` (`admin.m1.publishQueue.note`) dice «Solo
+el producto sellado admite aquí un precio a mano, **antes de IVA**». Es falso para el caso común. La fila del sellado
+**ligado** monta `SealedProductPriceEditor` (`PendingPublishQueue.tsx:325-348`), que escribe el precio del dueño del
+producto **con IVA**: es lo que paga el cliente (M-71, §4.62). Solo la pieza sellada **sin producto** lleva `L` antes de
+IVA (`D-SP-4`, §4.62.8 (g)). Hay que decir las dos cosas, o ninguna cifra de IVA. Ejemplo, que ux-ui afina: «Aquí solo
+el sellado admite precio a mano: el del producto, con IVA (lo que paga el cliente); una pieza sellada sin producto,
+antes de IVA». También está desfasado el docblock de `PendingPublishQueue.tsx:178-181` («que con ubicación ES el gesto
+de publicar»). `basis.manual` (`es.json:1599`, «a mano, antes de IVA») es correcto: solo lo usan raw/graded.
+
+**(g) Errata SU.7 (2026-10-07; mediciones de backend en `7e1462a6`; detalle en `API_CONTRACT §M1-SU` SU.7).**
+- Dije que la fila `?missing=` de `C-EQ-1` seguía verde sin cambios. Era falso: backend la midió **roja**. Se
+  invirtieron `valid` y `alterno`, y la inversión conserva las tres aserciones de `filtra`.
+- BRJ-10 cambia de precondición: la pieza convertida nace `listed`.
+- `previewPublication` y `loadPublishRunDials` se admiten como pronóstico de solo lectura. No son una copia del
+  pipeline que escribe.
+- El script no viaja en la imagen.
+- Si la limpieza de base (`HECHOS`, «también se BORRA el inventario») borra todo el inventario de plataforma, el rezago
+  de (c) desaparece con él. El orden lo decide el dueño.
+- Queda abierto y **NO MEDIDO**: si la pieza que el dueño vuelva a subir por el alta de M1 se publica sin más pasos.
+  El alta no dispara la publicación (`inventory.service.ts:769-815`). ⭐ **Cerrado por (h).**
+
+**(h) Errata SU.8 — el alta pasa a ser disparador (2026-10-07; detalle en `API_CONTRACT §M1-SU` SU.8).**
+- **Medido por lectura, no ejecutado:** ninguna de las tres altas de servidor (`createItem`, `batchCreate`,
+  `adjustFound`) llama al cuerpo, y ninguna pantalla de alta publica después. Antes de SU-1 el `move` hacía de
+  disparador porque el cajón era lo último que faltaba. Con SU-1 ya no lo es, y el disparador se quedó sin momento: la
+  pieza con precio nace `missing = []`, fuera de la cola y sin publicar.
+- **Decisión:** el alta se suma a los disparadores (a)–(c) de §4.39m.2 como **(d) alta**, con el mismo cuerpo
+  (`reevaluateForPublication`). Dispara después del commit, solo en el procesamiento fresco (nunca en el replay
+  idempotente, que re-publicaría una pieza retirada) y con `try/catch`: el alta suelta no tiene clave de idempotencia y
+  un `500` después del commit invita a duplicar la pieza.
+- **Descartado: publicar desde el frontend tras el alta** (`bulk-publish` encadenado). Serían dos peticiones y el hueco
+  volvería en cada pantalla nueva, además de en la API, que es donde lo pisó QA.
+- **Descartado: un campo nuevo en la respuesta del lote.** El resultado del lote es la fuente del replay y se guarda
+  antes del disparo. Solo el alta suelta devuelve el estado resultante, en el campo `status` que ya tenía.
+- **Revertir** (si el cajón vuelve a ser requisito): no hace falta quitar las llamadas. Con la regla vieja, la pieza sin
+  cajón saldría `missing_location` y la que nace con cajón y precio se publicaría al alta, que es lo que «ubicación +
+  precio ⇒ publicada» ya pedía.
+
 ---
 
 ## 5. Decisiones transversales
@@ -29310,6 +29772,37 @@ Riesgos técnicos:
 ---
 
 ## 9. Desviaciones detectadas
+
+> **v1.85⟨ventas⟩ — medidas el 2026-10-06 por lectura en `/home/user/tcg-ventas` (sha NO MEDIDO; §4.64.1). Ninguna se
+> corrige en el stream de analítica (criterio 613); se enrutan a §W.**
+> - **`D-AN-1` (💰, abierta, = D-2/D-3 de `PROJECT §W`):** `pnl()` cuenta ingreso solo de `status: 'settled'`
+>   (`admin.service.ts:1725`) y resta los reembolsos en su día (`:1836-1861`) ⇒ un reembolso total o un contracargo
+>   **borra la venta de su día y además resta** (doble resta). Cierre: §W criterios 277/278, adoptando la Regla AN en
+>   `pnl-core` (§4.64.2). Comprobación: AN-B-3 con el término de diferencia = 0.
+> - **`D-AN-2` (abierta, = D-1 de §W, criterio 275):** `range()` (`admin.service.ts:478-497`) toma `YYYY-MM-DD` como
+>   medianoche UTC con `lte`; M9/M7 mandan la fecha cruda (`M9View.tsx:37-41`) ⇒ el último día se pierde y el corte no es
+>   México. AN no usa `range()`.
+> - **`D-AN-3` (= D-7 de §W, criterio 287) — ⭐ corregida 2026-10-06 tras fusionar #78 (`BACKEND_NOTES §81`, QA aprobado
+>   sobre `91c6869b`):** `pnl()` **sí** devuelve las cifras del buylist, las cuatro de `API_CONTRACT §BSD.16`
+>   (`buylistShippingFeeRetainedCents`, `buylistGuideCostCents`, `buylistGuideMarginCents`, `buylistGuideCostMissingCount`),
+>   y `pnlBuckets` (`admin/pnl-core.ts`) las reparte por cubo (retenido/margen/sin costo por `paidAt`; guía Skydropx de
+>   entrada por `labelPurchasedAt`; guía manual por `coalesce(guideSentAt, shipmentConfirmedAt)`); `AdminService.pnl()` = el
+>   cubo `all`. Lo que queda abierto es solo de nombre: el §M7 viejo (`API_CONTRACT.md:34752-34766`) declara
+>   `buylistShippingRevenueCents/CostCents/Basis`, que **no** son las claves construidas; manda §BSD.16. Texto original:
+>   «el código no los devuelve (`admin.service.ts:1815-1828`)», medido antes de #78.
+>
+> **⭐ BSD-1.2: `DV-BSD-1` CERRADA por diseño** (`API_CONTRACT §BSD.16` punto 4; construye B-4). Texto original:
+> **rev BSD-1 — `DV-BSD-1` (abierta, 💰, informativa; medida 2026-10-06 por Grep sobre `/home/user/tcg-bsdx`, sha NO
+> MEDIDO):** `schema.prisma:2237-2240` dice de `SellRequest.guideActualCostCents` «`null` ⇒ M7 usa la tarifa congelada y lo
+> DECLARA», y el criterio 536 dice «con guía manual sin costo capturado, el reporte usa la tarifa **como hoy**». **Ningún
+> lector de M7 lo usa:** `guideActualCostCents` aparece solo en `buylist.service.ts`, `buylist.dto.ts`,
+> `admin-buylist.controller.ts` (backend) y en M5 / `api.ts` / `contract.ts` (frontend); `admin.service.ts` `pnl()` no lo lee
+> ni lee la tarifa del buylist. Consecuencia: el «como hoy» del 536 no describe nada construido. Enrutado: orquestador →
+> product-owner (decidir con Q-BSD-1 qué cuenta el P&L del buylist). ⛔ El arquitecto no lo corrige.
+>
+> **rev BSD-1 — `DV-BSD-2` (cerrada por diseño):** la copia `pickupAddressSnapshot` no lleva `recipientName` ni `references`
+> aunque la libreta sí (medido por product-owner, `PROJECT.md §BSD.0`). §BSD.4.5 la completa hacia adelante; las viejas se
+> completan en la ventana.
 
 > **v1.83 — `D-SP-1` (abierta, temporal; se cierra al fusionar con Skydropx):** «solo el dueño fija el precio del
 > sellado» (`HECHOS.md:50` (4)) se construye como `role === 'super_admin'`; un súper-admin del personal también puede.
@@ -31945,6 +32438,18 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### rev BSD-1 (**M-72 provisional**: guía de entrada del buylist — **DDL ADITIVO + 1 enum nuevo + 2 valores de enum + 3 columnas + 2 CHECK + FK + 2 índices + relleno ACOTADO de una columna nueva**, §4.BSD)
+- **Carpeta:** `prisma/migrations/20261025120000_m72_bsd_inbound_label/` (posterior a `M-71` `20261021120000`, medido con
+  `Glob` el 2026-10-06 en `/home/user/tcg-bsdx`: el último es `m71`; `M-69` sigue libre como colchón de Skydropx). ⚠️ Las
+  ramas `claude/idiomas-sellos` y `claude/correos-marca` **no se midieron** (sin Bash): si alguna ya tomó `M-72`, se renumera
+  **ésta** y su fecha de carpeta.
+- **Contenido, orden, CHECKs, relleno y reversa:** `API_CONTRACT §BSD.1` (forma normativa entera).
+- **Relleno:** `inboundGuideClockStartedAt = now()` solo para `aceptada` ∧ `closedAt IS NULL` ∧ `guideSentAt IS NULL`
+  (P-BSD-2). Antes de desplegar se cuenta (NM-6) y la cifra va a la solicitud de fusión.
+- **Enums en la misma tx:** `ADD VALUE` sin uso en la migración; si Postgres lo rechaza, `M-72b` (precedente `M-70`).
+- **Reversa:** documentada en el contrato; **primero el código**. ⛔ Con guías de entrada vivas no se revierte sin
+  cancelarlas.
 
 ### v1.83-precio-sellado (**M-71**: precio del dueño por producto sellado — **DDL ADITIVO + 1 CHECK + relleno que no mueve precios efectivos**, §4.62)
 

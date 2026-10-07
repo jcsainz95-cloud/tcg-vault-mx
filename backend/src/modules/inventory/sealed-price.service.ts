@@ -392,6 +392,7 @@ export class SealedPriceService {
       const out: SealedAutoPublishDTO = { published: 0, missingLocation: 0, notPublished: 0 };
       for (const r of results) {
         if (r.outcome === 'published') out.published++;
+        // ⭐ SU-1 (§M1-SU, SU.2): `missing_location` ya no se produce ⇒ `missingLocation` vale siempre 0 (campo dormido).
         else if (r.outcome === 'missing_location') out.missingLocation++;
         else out.notPublished++;
       }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Minus, Plus } from 'lucide-react';
 import { batchCreateItems } from '@/lib/api';
@@ -92,6 +92,7 @@ export function QuickAddSection({
 }: QuickAddProps) {
   const t = useTranslations('admin.quickAdd');
   const tRoot = useTranslations();
+  const queryClient = useQueryClient();
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
   const errorRef = useRef<HTMLDivElement>(null);
@@ -163,7 +164,10 @@ export function QuickAddSection({
         batchKeyRef.current = null;
         const folios = data.results.flatMap((r) => (r.ok ? r.folios : []));
         onCreated?.(folios);
-        onToast?.(summaryOf(data));
+        // §SU-UX.6 (e): el alta puede dejar piezas en «Listas para publicar» → se refresca la cola.
+        void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
+        // §SU-UX.6 (d): la nota va solo en el toast, DETRÁS del texto de hoy (el resultado del panel no cambia).
+        onToast?.(`${summaryOf(data)} ${tRoot('admin.m1.batchPublishNote')}`);
       } else {
         // Fallo por-línea (p. ej. PRICE_PENDING): el banner anclado lo pinta el render.
         batchKeyRef.current = null;

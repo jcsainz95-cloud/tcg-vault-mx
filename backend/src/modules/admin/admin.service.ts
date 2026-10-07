@@ -30,12 +30,8 @@ import { BusinessException } from '../../common/business.exception';
 import { variantKey } from '../../common/variant-key';
 import { toAddressDTO } from '../users/address-dto';
 import { UsersService } from '../users/users.service';
-import {
-  netRevenueCents,
-  netShippingCostCents,
-  netShippingRevenueCents,
-  shipmentNetRevenueCents,
-} from '../../common/money';
+import { netRevenueCents, netShippingRevenueCents } from '../../common/money';
+import { pnlBuckets, refundsInPeriod, zeroPnl } from './pnl-core';
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -52,6 +48,8 @@ import {
   isValidEmailFormat,
   normalizeEmail,
 } from '../../common/validation/credentials';
+import { OUTBOUND_ONLY } from '../shipments/label-subject';
+import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
 
 /**
  * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
@@ -1671,6 +1669,9 @@ export class AdminService {
       await tx.shipmentAddressRevision.deleteMany({
         where: { shipmentRequest: { OR: [{ userId: id }, { order: { userId: id } }] } },
       });
+      // 💰 rev BSD-1 (BSD-B27): las guías de ENTRADA de sus solicitudes de venta nacen con `userId` NULO (CHECK
+      // `shipment_kind_link`) ⇒ el borrado de arriba no las alcanza: su domicilio y sus revisiones se vacían aquí (un cuerpo, de B-2).
+      await scrubInboundShipmentPii(tx, id);
       await tx.user.update({
         where: { id },
         data: {
@@ -1720,144 +1721,13 @@ export class AdminService {
    * ⚠️ **Esta cifra del reporte SÍ cambia con este pase, y debe cambiar**: hoy falta un sumando.
    */
   async pnl(from?: string, to?: string) {
-    const createdAt = range(from, to);
-    const settledOrders = await this.prisma.order.findMany({
-      where: { status: 'settled', ...(createdAt ? { settledAt: createdAt } : {}) },
-      include: { items: { include: { inventoryItem: true } } },
-    });
-    let incomeCents = 0;
-    let stripeFeesCents = 0;
-    let cogsCents = 0;
-    // `D-IVA-5`: el ingreso de envío cobrado DENTRO de la orden (`direct_ship`). Se acumula aparte
-    // porque es INGRESO DE ENVÍO, no ingreso de mercancía: va a `shippingRevenueCents`, jamás a
-    // `incomeCents`. Se acota por `settledAt` (el mismo predicado del `findMany` de arriba), que es
-    // lo que el contrato dice: «órdenes settled del periodo».
-    let directShipShippingRevenueCents = 0;
-    for (const o of settledOrders) {
-      incomeCents += netRevenueCents(o);
-      stripeFeesCents += o.processingFeeCents;
-      if (o.fulfillmentMode === 'direct_ship') {
-        directShipShippingRevenueCents += netShippingRevenueCents(o);
-      }
-      for (const it of o.items) {
-        cogsCents += it.inventoryItem.acquisitionCostCents ?? 0;
-      }
-    }
-    // Fix correctness #3: los envíos también se acotan al periodo, por su fecha de
-    // liquidación (`pickingAt` = cuando payment_intent.succeeded los movió a picking).
-    const shipmentRange = range(from, to);
-    const shipments = await this.prisma.shipmentRequest.findMany({
-      where: {
-        status: { in: ['picking', 'guia', 'enviado', 'entregado'] },
-        ...(shipmentRange ? { pickingAt: shipmentRange } : {}),
-      },
-    });
-    // v1.4-finance: el envío separa INGRESO (shippingFeeCents, lo que paga el cliente) de
-    // COSTO (shippingCostCents, lo que la plataforma paga al carrier). Ambos se acotan al
-    // mismo periodo/conjunto de envíos (por `pickingAt`) para que caigan en el mismo lapso.
-    let shippingRevenueCents = directShipShippingRevenueCents;
-    let shippingCostCents = 0;
-    // ⭐ `API_CONTRACT §M10-IVA.8` / `IVA-11(b)` — **QUE EL `0` NO SIGNIFIQUE DOS COSAS.**
-    // `shippingCostCents` es `@default(0)`, así que «costó cero» y «no se capturó» son
-    // **indistinguibles** en las filas existentes. ⛔ No se hace nullable (exigiría un backfill que
-    // INVENTA la distinción): el contador la hace **visible** en vez de resolverla falsamente. *Es
-    // una señal para un humano —«estos N envíos no tienen costo: revísalos»—, ⛔ no una afirmación
-    // fiscal.* Un cero silencioso convierte el ingreso de ese envío en **ganancia fantasma**.
-    let shippingCostMissingCount = 0;
-    // 💰 D2f (§19.11): el seguro del periodo, INFORMATIVO (⛔ no se resta aparte: ya va DENTRO de `shippingCostCents`, que
-    // aquí es NETO). Por qué el neto lo contiene entero (techlead NT1-a sobre 7d930c4e): al capturar,
-    // `label-purchase.service.ts` `costOf` congela `shippingCostCents = totalCents + insuranceCostCents` y el IVA sale de
-    // `rate.breakdown.ivaCents` o de 16/116 sobre `totalCents − serviceFeeCents` — ⛔ nunca sobre el seguro. El seguro va
-    // SIN línea de IVA (§19.19.11), así que en `netShippingCostCents` su neto = su bruto. ⚠️ NO MEDIDO si Skydropx cobra IVA
-    // sobre la protección: depende de PS-SBX-4; si lo cobra, cambia la captura (no este sumador).
-    let shippingInsuranceCents = 0;
-    for (const s of shipments) {
-      // v1.64 (§4.44.j, sitio 2): neteado por la convención de ESTA `ShipmentRequest`. En el retiro
-      // de bóveda el «subtotal» del desglose ES la tarifa de envío (`computeShipmentBreakdown`
-      // devuelve `subtotalCents: shippingFeeCents`), así que la fila se lee con esa correspondencia.
-      // ⚠️ Helper PROPIO y no `netRevenueCents`: `ShipmentRequest` **no tiene `ivaRatePct`** y usar
-      // el dial vivo haría que un P&L histórico cambiara al mover `iva_pct` (incumple `IVA-5`).
-      shippingRevenueCents += shipmentNetRevenueCents(s);
-      // ⭐⭐ `API_CONTRACT §M10-IVA.8` / `IVA-11(a)` — **NETO contra NETO.** Sumar el costo **BRUTO**
-      // contra un ingreso **NETO** resta `2 800` de pérdida FANTASMA en cada envío, y evitar
-      // exactamente eso es lo que la decisión 68 del dueño dice (*«el costo de envío con el IVA que
-      // yo pague, trátalo como si no hubiera margen»*). El neto es una **RESTA** del crédito
-      // CONGELADO al capturar, ⛔ jamás una división por `(1+r)` ni una lectura del dial vivo.
-      shippingCostCents += netShippingCostCents(s);
-      // 💰 D2f (§19.11): una guía de Skydropx trae su costo de la respuesta del proveedor ⇒ ⛔ no es «costo sin capturar».
-      if (s.shippingCostCents === 0 && s.labelSource !== 'skydropx') shippingCostMissingCount += 1;
-      shippingInsuranceCents += s.insuranceCostCents ?? 0;
-      stripeFeesCents += s.processingFeeCents;
-    }
-    // 💰 D2f (§19.11, pregunta 89 DECIDIDA, `HECHOS.md:41`): los AJUSTES de costo (cargos extra, lo no devuelto de una
-    // cancelación) cuentan en el mes de su CARGO (`chargedAt`, ⛔ `observedAt`, ⛔ el `pickingAt` del envío), netos (resta
-    // del IVA congelado, ⛔ división), sin filtrar por el estado del envío (el dinero salió igual). Van DENTRO de
-    // `shippingCostCents` y aparte en `shippingAdjustmentsCents` («ajustes de paquetería») para verlos.
-    // ⛔ P-SDX-PNL-1 (huérfanas y duplicados) NO entra: sin respuesta del dueño, nada cambia (§19.33.3).
-    const adjustments = await this.prisma.shipmentCostAdjustment.findMany({
-      where: shipmentRange ? { chargedAt: shipmentRange } : {},
-      select: { amountCents: true, ivaCents: true },
-    });
-    const shippingAdjustmentsCents = adjustments.reduce((acc, a) => acc + a.amountCents - a.ivaCents, 0);
-    shippingCostCents += shippingAdjustmentsCents;
-    // ⭐ v1.80 / v1.80.2 (§M4-SHIP, PS-40) — EL DINERO QUE VUELVE resta en el periodo en que SALIÓ: las filas del
-    // libro aceptadas por Stripe (`submitted|succeeded`, por `submittedAt`) y las transferencias SPEI `paid` (por
-    // `paidAt`; ⛔ `pending` y `cancelled` no restan; la fila Stripe `failed` no resta y su sustituta SPEI no duplica).
-    // Componentes de venta NETOS (IVA fuera, como el ingreso); la comisión devuelta deja de compensar el costo de
-    // Stripe (se resta aparte); la compensación por carta perdida es RENGLÓN PROPIO (tratamiento fiscal ⛔ no
-    // decidido, §M4-SHIP.15.5). ⛔ NO MEDIDO por el arquitecto la forma del DTO: campos ADITIVOS, enrutados en
-    // BACKEND_NOTES.
-    const refunds = await this.refundsInPeriod(createdAt);
-    // ⛔ `profitCents` conserva sus cinco términos y resta lo devuelto (antes un reembolso parcial NO restaba nada).
-    const profitCents =
-      incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents -
-      refunds.refundsCents - refunds.refundedFeesCents - refunds.compensationsCents;
-    return {
-      incomeCents,
-      shippingRevenueCents,
-      cogsCents,
-      stripeFeesCents,
-      shippingCostCents,
-      shippingCostMissingCount,
-      shippingAdjustmentsCents,
-      shippingInsuranceCents,
-      refundsCents: refunds.refundsCents,
-      refundedFeesCents: refunds.refundedFeesCents,
-      compensationsCents: refunds.compensationsCents,
-      profitCents,
-    };
-  }
-
-  /**
-   * ⭐ v1.80.2 — un cuerpo para el P&L y el IVA: lo devuelto en el periodo. `refundsCents` = mercancía + envío NETOS;
-   * `refundedFeesCents` = comisión devuelta; `compensationsCents` = compensaciones por carta perdida; `ivaRefundedCents`
-   * = el IVA que iba dentro de lo devuelto.
-   */
-  private async refundsInPeriod(period?: Prisma.DateTimeFilter) {
-    const [stripeRows, speiRows] = await Promise.all([
-      this.prisma.paymentRefund.findMany({
-        where: { status: { in: ['submitted', 'succeeded'] }, ...(period ? { submittedAt: period } : {}) },
-        select: { merchandiseCents: true, merchandiseIvaCents: true, shippingCents: true, shippingIvaCents: true, processingFeeCents: true, compensationCents: true },
-      }),
-      this.prisma.manualRefund.findMany({
-        where: { status: 'paid', ...(period ? { paidAt: period } : {}) },
-        select: { merchandiseCents: true, merchandiseIvaCents: true, processingFeeCents: true, compensationCents: true },
-      }),
-    ]);
-    const acc = { refundsCents: 0, refundedFeesCents: 0, compensationsCents: 0, ivaRefundedCents: 0 };
-    for (const r of stripeRows) {
-      acc.refundsCents += r.merchandiseCents - r.merchandiseIvaCents + r.shippingCents - r.shippingIvaCents;
-      acc.refundedFeesCents += r.processingFeeCents;
-      acc.compensationsCents += r.compensationCents;
-      acc.ivaRefundedCents += r.merchandiseIvaCents + r.shippingIvaCents;
-    }
-    for (const r of speiRows) {
-      acc.refundsCents += r.merchandiseCents - r.merchandiseIvaCents;
-      acc.refundedFeesCents += r.processingFeeCents;
-      acc.compensationsCents += r.compensationCents;
-      acc.ivaRefundedCents += r.merchandiseIvaCents;
-    }
-    return acc;
+    // 💰 §AN fase B (API_CONTRACT §15.8, ARCHITECTURE §4.64.4): el cuerpo vive en `pnl-core.ts` (`pnlBuckets`), partido en
+    // cubos para la analítica de ventas. M7 = UN cubo con el MISMO `range()` de hoy (`{gte, lte}`, D-AN-2 sin cambio,
+    // criterio 613). La paridad bit a bit la fija AN-B-13 (`sales-analytics-pnl-parity.e2e-spec.ts`, instantánea tomada
+    // antes del refactor). 💰 Desde la fusión con #78 el cubo trae además las cuatro filas del buylist (§BSD.16, B-4) al final
+    // del objeto: la instantánea de AN-B-13 se re-tomó con el `pnl()` de #78 (sin partir) — sigue siendo «antes = después».
+    const buckets = await pnlBuckets(this.prisma, range(from, to), () => 'all');
+    return buckets.get('all') ?? zeroPnl();
   }
 
   /**
@@ -2011,7 +1881,7 @@ export class AdminService {
       status: o.status,
     }));
     // ⭐ v1.80 (§M4-SHIP): el IVA que iba DENTRO de lo devuelto (libro por `submittedAt`, SPEI `paid` por `paidAt`).
-    const { ivaRefundedCents } = await this.refundsInPeriod(settledAt);
+    const { ivaRefundedCents } = await refundsInPeriod(this.prisma, settledAt);
     return { ivaCollectedCents, ivaRefundedCents, ivaNetCents: ivaCollectedCents - ivaRefundedCents, byOrder };
   }
 
@@ -2023,10 +1893,13 @@ export class AdminService {
       return (
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
         'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,' +
-        'refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
+        'refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+        // 💰 §BSD.16: los cuatro del buylist, al final y en el orden del objeto.
+        'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\n' +
         `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
         `${p.shippingCostCents},${p.shippingCostMissingCount},${p.shippingAdjustmentsCents},${p.shippingInsuranceCents},` +
-        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
+        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents},` +
+        `${p.buylistShippingFeeRetainedCents},${p.buylistGuideCostCents},${p.buylistGuideMarginCents},${p.buylistGuideCostMissingCount}\n`
       );
     }
     if (report === 'iva') {
@@ -2064,7 +1937,7 @@ export class AdminService {
       this.prisma.order.count({ where: { status: 'settled', ...(r ? { settledAt: r } : {}) } }),
       this.prisma.sellRequest.count({ where: { status: 'pagada', ...(r ? { paidAt: r } : {}) } }),
       this.prisma.shipmentRequest.count({
-        where: { status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
+        where: { ...OUTBOUND_ONLY, status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
       }),
     ]);
     // Metas N/X/Y/Z: solo se fijan cuando el humano las define. Mientras no haya
@@ -2238,7 +2111,8 @@ export class AdminService {
             priceConvention: true,
           },
         }),
-        this.prisma.shipmentRequest.count({ where: { status: { in: ['solicitado', 'picking', 'guia'] } } }),
+        // rev BSD-1 (censo BSD-B23): el tablero cuenta envíos; la guía de ENTRADA se ve en M5.
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: { in: ['solicitado', 'picking', 'guia'] } } }),
         // v1.51 (M-46, §4.39c **SITIO 5**) — la cola de trabajo se define POR EXCLUSIÓN, no con una
         // lista de estados vivos. Codificaba `['cotizada','recibida','verificacion','aprobada']`, así
         // que M-46 la habría dejado **SUBCONTANDO el pipeline**: `ofertada`, `aceptada` y
@@ -2276,7 +2150,7 @@ export class AdminService {
         this.prisma.user.count({ where: { role: 'customer' } }),
         this.prisma.order.count({ where: { status: 'settled' } }),
         this.prisma.sellRequest.count({ where: { status: 'pagada' } }),
-        this.prisma.shipmentRequest.count({ where: { status: 'entregado' } }),
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: 'entregado' } }),
       ]);
 
     const periodFrom = period.gte?.toISOString();
@@ -2336,6 +2210,8 @@ export class AdminService {
         buylist: buylistQueue,
         disputes: disputesQueue,
         pendingPrices,
+        // 💰 rev BSD-1 (C-3, BSD-1.3 p. 4): los dos contadores del buylist con guía de entrada (para los dos roles).
+        ...(this.dashboardShipping ? await this.dashboardShipping.buylistQueue(new Date()) : {}),
         ...(await this.workQueueAdditions(role)),
       },
       buylistPeriod: { count: buylistPeriodCount, amountCents: buylistPeriodAgg._sum.approvedTotalCents ?? 0 },

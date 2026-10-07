@@ -43,11 +43,19 @@ export interface SealedFinalPricePiece {
 
 type Mode = 'publish' | 'save' | 'reprice';
 
-/** Qué hace el botón del editor (`DESIGN_SYSTEM §39.2 (a)`). `null` ⇒ solo lectura (el `422` es el candado). */
+/**
+ * Qué hace el botón del editor (`DESIGN_SYSTEM §39.2 (a)`). `null` ⇒ solo lectura (el `422` es el candado).
+ *
+ * ⭐ Errata SU-1 (`API_CONTRACT §M1-SU` SU.4, `ARCHITECTURE §4.65`): una pieza `in_stock` ofrece **siempre**
+ * «Guardar y publicar», tenga o no cajón. Guardar sin publicar una pieza sin cajón la dejaría con `missing = []`:
+ * fuera de la cola y sin publicar (prueba SU-F1). `hasLocation` ya no decide; la rama `'save'` queda **dormida**
+ * (inalcanzable, conservada para revertir y para no mover la paridad de i18n). Revertir = volver a
+ * `p.hasLocation ? 'publish' : 'save'`.
+ */
 export function sealedFinalPriceMode(p: Pick<SealedFinalPricePiece, 'status' | 'ownerType' | 'hasLocation'>): Mode | null {
   if (p.ownerType !== 'platform') return null;
   if (p.status === 'listed') return 'reprice';
-  if (p.status === 'in_stock') return p.hasLocation ? 'publish' : 'save';
+  if (p.status === 'in_stock') return 'publish';
   return null;
 }
 
@@ -72,10 +80,10 @@ export function parseFinalPrice(text: string): ParseResult {
  * criterio **255**). UN componente para los dos sitios (la cola «Listas para publicar» y el panel de «Sellado»):
  * la regla de botones no se duplica.
  *
- * - **«Guardar y publicar»** (pieza `in_stock` con ubicación) ⇒ `{ listPriceCents, status: 'listed' }` en **una**
- *   llamada: si no puede publicar no se guarda nada. Es el ÚNICO botón en ese caso: guardar sin publicar la sacaría de
- *   la cola sin estar a la venta (fase 8, «ninguna pieza adquirida se queda invisible»).
- * - **«Guardar precio»** (sin ubicación, o ya publicada) ⇒ `{ listPriceCents }`.
+ * - **«Guardar y publicar»** (pieza `in_stock`, con o sin ubicación — Errata SU-1) ⇒ `{ listPriceCents, status:
+ *   'listed' }` en **una** llamada: si no puede publicar no se guarda nada. Es el ÚNICO botón en ese caso: guardar sin
+ *   publicar la sacaría de la cola sin estar a la venta (fase 8, «ninguna pieza adquirida se queda invisible»).
+ * - **«Guardar precio»** (ya publicada) ⇒ `{ listPriceCents }`. La variante «sin ubicación» está dormida (SU.4).
  * - ⛔ **Nunca `listPriceCents: null`** (D-SFP-2): el tipo del verbo no lo admite y aquí no hay «volver al automático».
  * - La base del precio es la del servidor (`priceBasis`); ⛔ la UI no la deduce comparando cifras.
  *

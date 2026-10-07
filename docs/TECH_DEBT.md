@@ -9618,3 +9618,287 @@ esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
 - **Disparador:** respuesta del arquitecto a A-1, o el pase de §41.13.
 - **Comprobación:** la plantilla de MAIL-D2 renderiza un idioma, ML-5 la incluye en `CON_CTA` y la ruta está en
   `test/mail-links.frontend-routes.spec.ts`.
+
+## Backend · 2026-10-06 · Buylist × Skydropx (BSD) · gates de techlead y QA sobre `b6acea1e` (rama `claude/buylist-skydropx`)
+
+> Deuda no bloqueante del veredicto del techlead sobre `b6acea1e` (APROBADO CON CONDICIONES) y dos menores de QA del
+> mismo sha. Fichero:línea **re-medidos por backend el 2026-10-06** sobre el árbol de la rama en `b6acea1e`; donde la
+> línea se movió respecto del veredicto se dice. BSD-TL-D8 es de frontend y la anota frontend (hueco abajo).
+
+### BSD-TL-D1 · P1 · El orden de candados I-BSD-4 está escrito a mano en seis sitios (pagar ANTES del próximo stream que toque este flujo)
+- **Dueño:** backend.
+- **Dónde:** `backend/src/modules/shipments/label-subject.ts:193-196` (`lockSubjectRows`, el sitio canónico);
+  `backend/src/modules/shipments/inbound-close.ts:50-51`; `backend/src/jobs/buylist-sweep.service.ts:674-675`;
+  `backend/src/modules/buylist/buylist.service.ts:4992-4993`, `:5123-5124`, `:5277-5278` y `:5418` (este último solo
+  toma la `SellRequest`). El comentario de `label-subject.ts:182-183` («el orden de candados, en UN sitio») es **falso**.
+  Medido además: `backend/src/modules/shipments/inbound-shipment.service.ts:82` toma `SellRequest FOR UPDATE` a mano
+  (abre la fila de entrada; entra en el censo de la corrección aunque el veredicto no lo listaba).
+- **Impacto:** el orden (primero `SellRequest`, después `ShipmentRequest`) es lo único que evita el interbloqueo entre
+  el reclamo de guía, el barrido y los cierres del operador. Invertirlo en cualquiera de las copias da **40P01**
+  (deadlock): backend lo midió en **5/90 rondas** (autor backend, N=90). Una copia nueva escrita al revés no falla en
+  una tirada; falla en producción ~5 % de las veces.
+- **Corrección:** una sola función `lockSellRequestThenInbound(tx, sellRequestId)` (junto a `lockSubjectRows` en
+  `label-subject.ts`) que usen los seis sitios, y un **candado estructural** (spec que recorre `backend/src` y falla si
+  aparece `FOR UPDATE` crudo sobre `"SellRequest"`/`"ShipmentRequest" WHERE "sellRequestId"` fuera de ese fichero),
+  con su canario.
+- **Disparador:** la próxima transacción que tome solicitud **y** fila de entrada, o P-BSD-5. Se paga antes de abrir
+  el próximo stream que toque este flujo.
+- **Comprobación de cierre:** `rg -n 'FROM "SellRequest" WHERE id = .* FOR UPDATE|"sellRequestId" = .* FOR UPDATE' backend/src --glob '!*.spec.ts'`
+  ⇒ solo `label-subject.ts` (más los sitios de `buylist.service.ts` que solo toman la solicitud sin fila de entrada,
+  p. ej. `:7380` y `:7553`, que el censo debe listar como excepción nombrada); B31, B16 y B18 verdes con **N ≥ 10**
+  (proporción reportada).
+
+### BSD-TL-D2 · P2 · La coreografía «cerrar una aceptada» está duplicada y ya divergió
+- **Dueño:** backend.
+- **Dónde:** `backend/src/jobs/buylist-sweep.service.ts:665-704` (`closeWithGuideTask`, del barrido) frente a
+  `backend/src/modules/buylist/buylist.service.ts:5983-6026` (`adminDeclineAccepted`, «Declinar» del operador).
+- **Impacto:** las dos hacen lo mismo (candados → `closeInboundShipment` → después del commit `afterAutoCloseVia` /
+  `openGuideTaskIfCancelUnconfirmed` → correo «no continuamos») y ya no son idénticas; cada cambio de la regla de cierre
+  hay que hacerlo dos veces y una se olvida.
+- **Corrección:** `closeAcceptedTx(tx, …)` (lo que va dentro de la tx) + `afterAcceptedClose(…)` (lo de después del
+  commit), usadas por los dos.
+- **Disparador:** el próximo cambio en cualquiera de los dos cierres.
+- **Comprobación de cierre:** B25(b) exige esa función (los dos caminos pasan por `closeAcceptedTx`); `rg -n
+  "openGuideTaskIfCancelUnconfirmed\(" backend/src --glob '!*.spec.ts'` ⇒ solo dentro de `afterAcceptedClose`.
+
+### BSD-TL-D3 · P2 · El predicado «guía viva de Skydropx» tiene cuatro copias en backend y una distinta en frontend
+- **Dueño:** backend (la parte de frontend la decide el arquitecto).
+- **Dónde:** `backend/src/modules/shipments/inbound-close.ts:59`; `backend/src/modules/buylist/buylist.service.ts:5144`,
+  `:5296`, `:5431` (`labelSource === 'skydropx' ∧ providerShipmentId ≠ null ∧ providerCanceledAt = null`). En frontend,
+  `frontend/src/app/[locale]/(admin)/admin/m5/DeclineAcceptedDialog.tsx:19-22` decide **otra** cosa (`status === 'guia'`
+  y sin mirar `providerShipmentId`). Medido además: `label-inbound.ts:266-275` (`labelPdfAvailableOf`) contiene el
+  mismo núcleo más `status`/`trackingNumber`.
+- **Impacto:** cuatro definiciones que hoy coinciden y una que ya no; el diálogo puede prometer «se cancelará la guía»
+  en un caso en que el servidor no la ve viva, o al revés.
+- **Corrección:** `isLiveSkydropxGuide(row)` en `backend/src/modules/shipments/label-inbound.ts`, usada por los cuatro
+  (y por `labelPdfAvailableOf`); **propuesta al arquitecto** de un campo derivado del servidor (p. ej. `canGenerateGuide`
+  / `liveSkydropxGuide` en el DTO) para que frontend deje de decidirlo.
+- **Disparador:** el próximo cambio en el ciclo de la guía de entrada, o la respuesta del arquitecto.
+- **Comprobación de cierre:** `rg -n "labelSource === 'skydropx' && .*providerCanceledAt" backend/src/modules/{buylist,shipments}/{inbound-close,buylist.service}.ts`
+  ⇒ 0; la regla vive solo en `label-inbound.ts`.
+
+### BSD-TL-D4 · P3 · El motor de guías ramifica por presencia de `sellRequestId`
+- **Dueño:** backend.
+- **Dónde:** ~20 ramas en `backend/src/modules/shipments/label-purchase.service.ts`, `label-quote.service.ts`,
+  `label-cancel.service.ts`, `carrier-status.service.ts`, `shipment-address.service.ts` (menciones de `sellRequestId`
+  medidas: 13, 7, 6, 6 y 2); `insuredValueOf` (`label-quote.service.ts:480`) discrimina salida/entrada por `undefined`.
+  `locksSellRequestFirst` (`label-subject.ts`) es redundante con `sellRequestId != null`.
+- **Impacto:** la política por tipo de envío no vive en `LabelSubject`; un tercer tipo obligaría a recorrer todas las ramas.
+- **Corrección:** que las ramas consulten la política del sujeto (`subject.kind` / campos de `LabelSubject`), no la
+  presencia del id; quitar `locksSellRequestFirst`.
+- **Disparador:** un tercer `ShipmentKind`.
+- **Comprobación de cierre:** `rg -n "sellRequestId" backend/src/modules/shipments/label-*.service.ts` ⇒ solo lecturas
+  de datos, ninguna condición de flujo; `locksSellRequestFirst` ⇒ 0.
+
+### BSD-TL-D5 · P3 · `buylist.service.ts` tiene 8591 líneas
+- **Dueño:** backend.
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts` (`wc -l` ⇒ 8591 el 2026-10-06; ~112 métodos según el
+  techlead, 100 con un conteo grueso por regex).
+- **Impacto:** el ciclo de la aceptada (guía, envío, declinar, cierre) se mezcla con cotización, KYC y pago.
+- **Corrección:** extraer `BuylistAcceptedService` (lo posterior a `aceptada`), naturalmente junto con BSD-TL-D2.
+- **Disparador:** BSD-TL-D2 o el próximo método nuevo del ciclo de la aceptada.
+- **Comprobación de cierre:** `wc -l backend/src/modules/buylist/buylist.service.ts` < 6000.
+
+### BSD-TL-D6 · P3 · `P2002` de `ShipmentLabelAttempt(shipmentRequestId, since)` sin manejo (500 en vez de 409)
+- **Dueño:** backend.
+- **Dónde:** `backend/src/modules/shipments/label-purchase.service.ts:523` (`tx.shipmentLabelAttempt.create`).
+- **Impacto:** fail-closed y **sin gasto** (la tx se aborta antes de llamar al proveedor), pero responde 500. Solo es
+  alcanzable con los tres muros quitados o con un `since` igual al milisegundo tras un «deshacer» (medido en
+  `BACKEND_NOTES §78.B6`).
+- **Corrección:** `catch` **local** del `P2002` en esa sentencia → `409 purchase_in_flight`. ⛔ No por mapeo global de
+  `P2002`.
+- **Disparador:** cualquier cambio en los muros del reclamo o en cómo se fija `since`.
+- **Comprobación de cierre:** prueba que fuerza el `P2002` en `:523` y espera `409 purchase_in_flight`, con canario
+  (quitar el `catch` ⇒ 500).
+
+### BSD-TL-D7 · P3 · Las rutas solo-de-salida se protegen ruta por ruta con `assertOutboundRoute`
+- **Dueño:** backend.
+- **Dónde:** `backend/src/modules/shipments/admin-shipments.controller.ts:133`, `:166`, `:174`, `:182`, `:252`, `:271`.
+- **Impacto:** una ruta nueva de salida que olvide la llamada acepta una fila de entrada.
+- **Corrección:** guard/decorador `@OutboundOnly()`, o un censo que liste las rutas del controlador y exija la marca.
+- **Disparador:** la próxima ruta en `admin-shipments.controller.ts`.
+- **Comprobación de cierre:** `rg -n "assertOutboundRoute" backend/src/modules/shipments/admin-shipments.controller.ts`
+  ⇒ 0 (decorador) o censo verde con canario.
+
+### BSD-TL-D8 · P3 · La ventana «Capturar guía» en modo entrada: booleano `inbound` repartido, M5 colgado de `m4/` y un concepto del buylist en `m4/capture/`
+- **Dueño:** frontend.
+- **Dónde** (re-medido por frontend el 2026-10-06 sobre el árbol de trabajo encima de `04cb1186`):
+  - `frontend/src/app/[locale]/(admin)/admin/m4/CaptureLabelDialog.tsx`: **1412 líneas**; el modo entrada viaja como
+    booleano `inbound` a seis subcomponentes: `OptionsView` (`:1065`), `BuyView` (`:1077`), `LabelView` (`:1102`, prop
+    `:1169`/`:1179`), `PendingView` (`:1114`, prop `:1290`/`:1299`), `AddressForm` (`:1016`, objeto `{sellerName}`),
+    `AddressReadView` (`m4/capture/AddressStep.tsx:328`); además `RateLines` (`m4/capture/QuoteViews.tsx:23`) y
+    `CancelLabelDialog` (`m4/LabelActions.tsx:375`/`:384`).
+  - `frontend/src/app/[locale]/(admin)/admin/m5/AcceptedRequestPanel.tsx:14-18` importa cinco módulos internos de
+    `../m4/` (`CaptureLabelDialog`, `LabelActions`, `capture/label-pdf`, `capture/sdx-errors`, `capture/sell-status`);
+    `m5/DeclineAcceptedDialog.tsx:13` también `capture/sell-status`.
+  - `frontend/src/app/[locale]/(admin)/admin/m4/capture/sell-status.ts`: el rótulo del estado de una SOLICITUD DE VENTA
+    (concepto del buylist) vive en la carpeta de la ventana de M4.
+- **Impacto:** cada pantalla nueva que abra la ventana añade otro booleano por subcomponente (y otro `if` por texto);
+  el acoplamiento `m5 → m4` hace que mover o partir M4 rompa M5 sin que lo diga el árbol de carpetas.
+- **Corrección:** mover la ventana y sus piezas a `frontend/src/components/shipping-label/` (zona compartida: cuando un
+  stream tenga esa zona); un **objeto de modo** (`{ kind: 'outbound' } | { kind: 'inbound', sellRequestId, sellerName }`)
+  en vez del booleano; `sell-status.ts` a `frontend/src/lib/` (o junto al buylist).
+- **Disparador:** la próxima pantalla que use la ventana, o el próximo stream con `frontend/src/components/`.
+- **Comprobación de cierre:** `rg -n "from '\.\./m4/" frontend/src/app/[locale]/(admin)/admin/m5` ⇒ 0;
+  `rg -n "inbound(=|\?:|: boolean)" frontend/src/components/shipping-label` ⇒ 0; vitest de la ventana verde.
+- **Ya cerrado en esta misma vuelta (no es deuda):** el nombre del PDF de la guía de entrada se reimplementaba en M5
+  con `r.id.slice(0, 8)`. Ahora `m4/capture/label-pdf.ts` guarda con el `Content-Disposition` del servidor
+  (`sellerLabelFilenameOf` / el de la ruta admin) y `ref` es solo respaldo; M5 pasa el folio de la fila de entrada
+  (`m5/AcceptedRequestPanel.tsx`). Candado `m4/capture/label-pdf.test.ts` (mutación «nombre propio» muerde, N=1).
+
+### BSD-TL-D9 · P3 · La regla 10 repite el escritor «ÚNICO» de la tarea y la política de errores del barrido es mixta
+- **Dueño:** backend.
+- **Dónde:** `backend/src/jobs/buylist-sweep.service.ts:623-626` (regla 10, `updateMany` de `guideCancellationPendingAt`)
+  repite `backend/src/modules/buylist/inbound-cancel-task.ts:25-28`, cuyo comentario (`:10`) dice ser el «**ÚNICO
+  escritor**» (falso). Política de errores: `isolated(…)` (`buylist-sweep.service.ts:514`) envuelve las reglas 8–10
+  (`:117-119`) pero no las 1–7.
+- **Impacto:** dos escritores de la misma tarea con guardas que pueden divergir; una regla 1–7 que lanza tumba las
+  siguientes de la pasada.
+- **Corrección:** la regla 10 llama a la función de `inbound-cancel-task.ts`; decidir y aplicar una sola política
+  (todas aisladas, o ninguna, con el porqué).
+- **Disparador:** el próximo cambio en el barrido o en la tarea de cancelación.
+- **Comprobación de cierre:** `rg -n "guideCancellationPendingAt: now" backend/src --glob '!*.spec.ts'` ⇒ solo
+  `inbound-cancel-task.ts`; todas las reglas pasan (o ninguna) por `isolated`.
+
+### BSD-QA-M7 · P3 · El motivo de «Declinar» (aceptada) se audita después del commit
+- **Dueño:** backend.
+- **Dónde:** `backend/src/modules/buylist/admin-buylist.controller.ts:520-522` (`adminDeclineAccepted` primero,
+  `audit.log` con el `reason` después, fuera de la tx). Mismo patrón previo que D39.
+- **Impacto:** si el `audit.log` falla, el cierre quedó hecho y el motivo del operador se pierde.
+- **Corrección:** pasar `reason` al servicio y escribir la auditoría dentro de la tx del cierre.
+- **Disparador:** BSD-TL-D2 (la coreografía común) o el próximo cambio en «Declinar».
+- **Comprobación de cierre:** prueba que hace fallar la auditoría y espera rollback del cierre.
+
+### BSD-QA-M1 · P3 · Cotizar la guía de entrada exige el dial de salida `skydropx_origin_address_template_id`
+- **Dueño:** backend (la letra de §BSD.3 la confirma el arquitecto).
+- **Dónde:** `backend/src/modules/shipments/label-quote.service.ts:361-362` (`assertProviderConfigured` añade
+  `origin` si falta la plantilla), también en el camino de entrada.
+- **Impacto:** §BSD.3 solo nombra `origin_snapshot` para la entrada; sin el dial de salida, la entrada responde
+  `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['origin']}` sin necesitarlo. En producción el dial está puesto
+  (según QA; NO MEDIDO por backend), así que hoy no se manifiesta.
+- **Corrección:** que el camino de entrada no exija la plantilla de salida (o que el arquitecto ratifique que sí).
+- **Disparador:** un entorno nuevo sin la plantilla de salida, o la respuesta del arquitecto.
+- **Comprobación de cierre:** prueba de cotización de entrada sin el dial ⇒ no 409 `origin`.
+
+## Backend · 2026-10-06 · gates de QA y techlead sobre `76dd1ee9` (rama `claude/analitica-ventas`, §AN fases A y B)
+
+Deuda que el techlead dejó al backend de la analítica de ventas. Fichero:línea **re-medidos el 2026-10-06** sobre el árbol
+de esta rama con el arreglo de C-1 aplicado (las cifras del techlead eran sobre `76dd1ee9`). TD-AN-5, 6 y 7 se cerraron en
+este mismo pase porque eran baratas (BACKEND_NOTES §80.5).
+
+### TD-AN-1 · P3 · Sin índice en `Order.settledAt`
+- **Dueño:** backend (`prisma/schema.prisma:1404`); el cambio de esquema pasa por el arquitecto.
+- **Qué es:** R-2 lee pedidos por `settledAt` en el periodo (`sales-analytics.service.ts:121-124`) y M7 también
+  (`admin/pnl-core.ts:170-171`). Sin índice, cada informe es un barrido de `Order`. Con el volumen de hoy no se nota.
+- **Disparador:** el de `ARCHITECTURE §4.64.6` (rendimiento medido por encima de su umbral).
+- **Comprobación:** `@@index([settledAt])` (o compuesto con `status`) en `Order` y su migración; `EXPLAIN` del `findMany`
+  de R-2 con Index Scan.
+
+### TD-AN-2 · P3 · Doble resta de §W en M7 (= D-AN-1 de ARCHITECTURE, D-2/D-3 de PROJECT §W)
+- **Dueño:** backend (`admin/pnl-core.ts:170-171`).
+- **Qué es:** el ingreso de M7 solo cuenta pedidos `status: 'settled'` y además resta los reembolsos de M7: un pedido
+  reembolsado/contracargado sale del ingreso **y** su reembolso se resta otra vez (§W 277/278). La analítica lo hereda tal
+  cual (D-AN-1, «Ganancia (regla de Finanzas)»), y AN-B-3 lo documenta con su segundo término
+  (`+ Σ netRevenue(refunded|chargeback)`).
+- **Dirección:** cuando §W se decida: cambiar el predicado de M7, **regenerar AN-B-13 en el mismo commit con el motivo**
+  (cabecera de `sales-analytics-pnl-parity.e2e-spec.ts`) y llevar a 0 el segundo término de AN-B-3.
+- **Disparador:** decisión de §W 277/278 (arquitecto/dueño).
+- **Comprobación:** AN-B-3 con segundo término 0 y la instantánea regenerada con motivo en el mensaje del commit.
+
+### TD-AN-3 · P3 · Lecturas duplicadas por petición
+- **Dueño:** backend (`sales-analytics.service.ts`).
+- **Qué es:** `bucketFigures` lee pedidos, reembolsos, buylist y `pnlBuckets` (`:148-153`); `report` lo llama dos veces
+  (periodo y anterior, `:196-199`); `today` llama dos veces a `dayFigures` (`:259`), y cada una es un `bucketFigures`
+  completo con su P&L; `csv` llama a `report` entero (`:235`) aunque no usa lo más vendido, clientes ni mezcla. Correcto,
+  pero varias lecturas de M7 por petición.
+- **Disparador:** el de TD-AN-1 (rendimiento medido), o un tercer consumidor de `bucketFigures`.
+- **Comprobación:** `csv` sin `itemsOf`/`customers`; `today` sin P&L (o una sola lectura); número de consultas por petición
+  medido antes y después.
+
+### TD-AN-4 · P3 · `@Optional()` en la línea de ventas del resumen de las 08:00
+- **Dueño:** backend (`spend-alerts/spend-digest.service.ts:44-46`).
+- **Qué es:** `SalesAnalyticsService` entra con `@Optional()` solo para los dobles de las suites que construyen el servicio
+  a mano. En producción siempre está; pero si un día el módulo dejara de proveerlo, el resumen saldría **sin** la línea y
+  sin error. (El de `MAIL_PORT` es anterior y no es de esta deuda.)
+- **Dirección:** quitar `@Optional()` y pasar el doble en las suites que construyen el servicio.
+- **Disparador:** el próximo cambio de `SpendDigestService`.
+- **Comprobación:** `rg -n "@Optional\(\) private readonly sales" backend/src` vacío y las suites de 08:00 verdes.
+
+### TD-AN-5 · ✅ CERRADA en este pase (2026-10-06) · Válvula `AN_PARITY_WRITE` y hueco del seguro en AN-B-13
+- **Era:** `sales-analytics-pnl-parity.e2e-spec.ts:61-64` (en `76dd1ee9`) reescribía la instantánea con
+  `AN_PARITY_WRITE=1` también en CI; y la fixture tenía `insuranceCostCents = 0`, así que quitar
+  `b.shippingInsuranceCents += …` (`pnl-core.ts:203`) no ponía rojo nada.
+- **Hecho:** con `CI` definido y `AN_PARITY_WRITE=1` la prueba lanza (`:65-67`; medido: 1 roja, instantánea intacta). S2
+  lleva `insuranceCostCents: 580`; la instantánea se **regeneró con el código de `d644be0d`** (antes de `pnl-core`) sobre
+  la fixture nueva (solo cambian 8 campos de seguro) y el código actual la iguala. CONTROL nuevo
+  `shippingInsuranceCents = 580`. Mutación: quitar la línea del seguro ⇒ AN-B-13 2/2 rojas.
+
+### TD-AN-6 · ✅ CERRADA en este pase (2026-10-06) · `total.pnl` sumaba llaves fuera de los cubos
+- **Era:** `total.pnl = sumPnl(pnl.values())` sumaba todas las llaves de `pnlBuckets`; las filas solo las de sus cubos
+  (`pnl.get(b.from)`). Una llave ajena entraba al total y a ninguna fila.
+- **Hecho:** la misma comprobación que `accOf`: una llave fuera de los cubos lanza (`sales-analytics.service.ts:178`).
+  Prueba `test/sales-analytics.pnl-keys.spec.ts` (doble de `pnlBuckets`), roja sobre `76dd1ee9`.
+
+### TD-AN-7 · ✅ CERRADA en este pase (2026-10-06) · Predicado de estado explícito en R-2
+- **Era:** `ordersIn` filtraba solo por `settledAt` («cualquier estado de hoy», implícito).
+- **Hecho:** `status in (settled, refunded, chargeback)` (`sales-analytics.service.ts:122`, constante `SOLD_STATUSES`).
+  Prueba en `test/sales-analytics.pnl-keys.spec.ts`, roja sobre `76dd1ee9`. Sin cambio de cifras (la suite de integración
+  de la analítica sigue verde).
+
+### TD-AN-8..11 (frontend): cerradas en 8fb5d5a2, sin deuda.
+
+## Frontend · 2026-10-07 · gate de techlead sobre `2c516314` (rama `claude/sin-ubicacion`, §SU / SU.8)
+
+Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (`grep -rn "'pending-publish'" frontend/src`, sin tests).
+
+### TD-SU-D4a · P3 · El literal `['pending-publish']` repetido sin fábrica de claves de consulta
+- **Dueño:** frontend (`frontend/src/lib/` cuando se toque la zona compartida).
+- **Qué es:** la clave de la cola «Listas para publicar» se escribe a mano en **10 sitios de 8 ficheros** (el techlead
+  contó 9): `components/master-set/MasterSetPanel.tsx:143`, `m11/M11View.tsx:61`, `m10/sections/PremiumFloorSection.tsx:146`,
+  `m1/sealed-final-price.ts:21`, `m1/M1View.tsx:189`, `m1/PendingPublishQueue.tsx:206,224`, `m1/AddItemModal.tsx:185,229`,
+  `m1/QuickAdd.tsx:168`. Una errata en uno (o un cambio de forma de la clave en `PendingPublishQueue`) deja la cola sin
+  refrescar sin que nada falle; hoy lo vigila SU-UX-10 (`AltaPublica.su-ux.test.tsx`, `MasterSet.test.tsx`) solo en las altas.
+- **Disparador:** el próximo cambio que añada un sitio más o cambie la forma de la clave.
+- **Comprobación:** una fábrica (`queryKeys.pendingPublish()` o similar) y `grep -rn "'pending-publish'" frontend/src` sin
+  tests devuelve **un** sitio.
+
+### TD-SU-D4b · P3 · `onToast` de m1 con dos formas
+- **Dueño:** frontend (`m1/`).
+- **Qué es:** `AddItemModal.tsx:40` y `AddGradedModal.tsx:34` reciben un objeto `{variant, title, message, duration?}`;
+  `QuickAdd.tsx:65` y `VariantDrawer.tsx:81,410` reciben una cadena (el padre decide variante y título). Dos contratos para
+  el mismo gesto: quien cablea un componente nuevo no sabe cuál usar, y la variante «aún no» (info, 9 s) de §SU-UX.6 solo
+  la pueden expresar los de objeto.
+- **Disparador:** cuando QuickAdd o VariantDrawer necesiten avisar con una variante distinta de `success`.
+- **Comprobación:** las cuatro props con el mismo tipo (el de objeto) y `grep -n "onToast?: (msg: string)" frontend/src/app` vacío.
+
+## Backend · 2026-10-07 · gate de techlead sobre `2c516314` (aprobado con deuda) y arquitecto (rama `claude/sin-ubicacion`, §SU)
+
+Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (HEAD `695a3316`).
+
+### TD-SU-D1 · P3 · Los arneses unitarios de alta no simulan `findMany` ni los diales: el `catch` tapa el deterioro
+- **Dueño:** backend (`backend/test/`).
+- **Qué es:** `inventory.adjustments.spec.ts`, `inventory.batch.spec.ts` e `inventory.sealed-pending-dedup.spec.ts` no
+  simulan `findMany` ni los diales; el disparo de `publishCreated` (`backend/src/modules/inventory/inventory.service.ts:840-855`)
+  falla dentro del `catch` (best-effort, devuelve `[]`) y solo se nota por el `warn`. El `catch` tapa el deterioro del arnés:
+  una prueba puede seguir verde con el disparo roto.
+- **Disparador:** el próximo cambio en `publishCreated` / `reevaluateForPublication` o en esos tres arneses.
+- **Comprobación:** esos arneses con un doble explícito de `reevaluateForPublication`, o con una afirmación de que el `warn`
+  de `publishCreated` no ocurrió; y una mutación que rompa el disparo pone alguna roja.
+
+### TD-SU-D2 · P3 · `reevaluate-unlocated.ts` (barrido de una vez) arrastra `previewPublication` a producción y duplica el salto de URL
+- **Dueño:** backend (`backend/scripts/`, `inventory.service.ts`).
+- **Qué es:** `backend/scripts/reevaluate-unlocated.ts` es un barrido de una vez y arrastra a producción
+  `previewPublication` (`inventory.service.ts:3152-3188`), que solo usan el script y las pruebas. Además
+  `resolveDatabaseUrl`/`describeUrl` (`backend/scripts/reevaluate-unlocated.ts:46-77`) duplican `scripts/geo/import-sepomex.ts:200`
+  (raíz del repo, no `backend/`).
+- **Disparador:** decidir el barrido (API_CONTRACT §M1-SU SU.3-R: si corre la limpieza, el script no se usa más).
+- **Comprobación:** retirados script y método (y `test/reevaluate-unlocated.spec.ts`), o el salto de URL en un helper común
+  con `grep -rn "function resolveDatabaseUrl" --include=*.ts` en **un** sitio.
+
+### TD-SU-9 · P3 · Cambiar el precio de un sellado re-publica piezas retiradas a propósito (aceptada, no bloqueante)
+- **Dueño:** backend + decisión de schema del arquitecto (API_CONTRACT §M1-SU SU.9; misma clase que SU.3-R).
+- **Qué es:** `autoPublishAfterPrice` (`backend/src/modules/inventory/sealed-price.service.ts:385-391`) re-evalúa todas las
+  piezas `in_stock` del sellado; el estado `in_stock` no distingue «retenida» de «retirada a propósito», y no hay marca de
+  «retirada», así que una retirada deliberada vuelve a publicarse al cambiar el precio.
+- **Disparador:** el arquitecto decide la marca de «retirada» en el schema (zona compartida, regla 9), o una queja de operador.
+- **Comprobación:** prueba que fija precio sobre un sellado con una pieza retirada a propósito y esta sigue sin publicar.

@@ -121,6 +121,8 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/audit-log::action',
   'GET /admin/audit-log::entityType',
   'GET /admin/buylist::awaitingGuide',
+  // 💰 rev BSD-1.3 punto 4 (B-3): bandera `true` de las guías de entrada atascadas (clase L del contrato, como `offerReissueAlert`).
+  'GET /admin/buylist::inboundLabelAlert',
   'GET /admin/buylist::live',
   'GET /admin/buylist::offerReissueAlert',
   'GET /admin/buylist/pending-shipment-confirmation::onlyAlerts',
@@ -225,6 +227,14 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   // sube 44 → 46: pendiente de que el arquitecto lo ratifique (BACKEND_NOTES §58.6).
   'GET /admin/manual-refunds/withdrawal-delivered/preview::shipmentItemId',
   'GET /admin/manual-refunds/withdrawal-delivered/preview::amountCents',
+
+  // 💰 §AN (API_CONTRACT §15.2: «`C-EQ-1` gana … `from`/`to` en su lista de no-enums»): días de México `YYYY-MM-DD` de la
+  // analítica de ventas; fuera de forma o día imposible ⇒ `400 VALIDATION_ERROR {field}` sin `allowed` (`sales-period.ts`
+  // `readYmd`; medido en `test/sales-analytics.units.spec.ts` AN-B-14 y por HTTP en `sales-analytics.e2e-spec.ts`).
+  'GET /admin/reports/sales::from',
+  'GET /admin/reports/sales::to',
+  'GET /admin/reports/sales/export.csv::from',
+  'GET /admin/reports/sales/export.csv::to',
 ];
 
 /**

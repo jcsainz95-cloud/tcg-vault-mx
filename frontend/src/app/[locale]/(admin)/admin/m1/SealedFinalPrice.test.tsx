@@ -7,7 +7,7 @@ import { ApiClientError } from '@/lib/api-client';
 import type { InventoryItemDTO, PendingPublishRowDTO } from '@/types/contract';
 import { PendingPublishQueue } from './PendingPublishQueue';
 import { VariantDrawer } from './VariantDrawer';
-import { parseFinalPrice } from './SealedFinalPrice';
+import { parseFinalPrice, sealedFinalPriceMode } from './SealedFinalPrice';
 import { SEALED_FINAL_PRICE_INVALIDATES } from './sealed-final-price';
 
 /**
@@ -151,21 +151,33 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('INV-001950 publicada: MX$1,250.00 antes de IVA.');
   });
 
-  it('FP-3 · sellado SIN ubicación ⇒ «Guardar precio» y el cuerpo NO lleva `status`', async () => {
-    stub([sealedRow({ locationId: null, missing: ['location', 'price'] })]);
+  /**
+   * ⭐ **SU-F1 (Errata SU-1, `API_CONTRACT §M1-SU` SU.4/SU.6).** Sin cajón, la pieza `in_stock` se PUBLICA al guardar
+   * el precio: «Guardar precio» (sin `status`) la dejaría con `missing = []`, fuera de la cola y sin publicar. Muerde
+   * si `sealedFinalPriceMode` vuelve a `'save'` para `hasLocation:false`.
+   */
+  it('SU-F1 · `sealedFinalPriceMode({in_stock, platform, hasLocation:false})` ⇒ `publish`', () => {
+    expect(sealedFinalPriceMode({ status: 'in_stock', ownerType: 'platform', hasLocation: false })).toBe('publish');
+    expect(sealedFinalPriceMode({ status: 'in_stock', ownerType: 'platform', hasLocation: true })).toBe('publish');
+    expect(sealedFinalPriceMode({ status: 'listed', ownerType: 'platform', hasLocation: false })).toBe('reprice');
+    expect(sealedFinalPriceMode({ status: 'reserved', ownerType: 'platform', hasLocation: false })).toBeNull();
+    expect(sealedFinalPriceMode({ status: 'in_stock', ownerType: 'customer', hasLocation: false })).toBeNull();
+  });
+
+  it('SU-F1 · sellado SIN ubicación ⇒ «Guardar y publicar» es el único botón y el PATCH lleva `status:"listed"`', async () => {
+    stub([sealedRow({ locationId: null, missing: ['price'] })]);
     const patch = vi.spyOn(api, 'updateInventoryItem').mockResolvedValue({} as InventoryItemDTO);
     renderWithProviders(<PendingPublishQueue />, 'es');
     await openEditorAndType('INV-001950', '980.5');
     const editor = screen.getByTestId('sealed-final-price-editor-inv-s1');
-    expect(within(editor).queryByRole('button', { name: 'Guardar y publicar' })).toBeNull();
-    expect(editor).toHaveTextContent('Se publicará sola en cuanto le pongas ubicación.');
-    fireEvent.click(within(editor).getByRole('button', { name: 'Guardar precio' }));
+    expect(within(editor).queryByRole('button', { name: 'Guardar precio' })).toBeNull();
+    expect(editor).not.toHaveTextContent('ubicación');
+    fireEvent.click(within(editor).getByRole('button', { name: 'Guardar y publicar' }));
     const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveTextContent('No se publica todavía: le falta ubicación.');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar · MX$980.50 antes de IVA' }));
+    expect(dialog).not.toHaveTextContent('le falta ubicación');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Publicar · MX$980.50 antes de IVA' }));
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
-    expect(patch.mock.calls[0][1]).toEqual({ listPriceCents: 98_050 });
-    expect(Object.keys(patch.mock.calls[0][1])).not.toContain('status');
+    expect(patch.mock.calls[0]).toEqual(['inv-s1', { listPriceCents: 98_050, status: 'listed' }]);
   });
 
   it('FP-4 · `422 ITEM_NOT_ADJUSTABLE {status:"reserved"}` ⇒ el texto de «apartada» y el input CONSERVA lo tecleado', async () => {
@@ -231,13 +243,14 @@ describe('§39.2 · SealedFinalPrice en «Listas para publicar»', () => {
   });
 
   it('precio final ya puesto ⇒ «Cambiar precio», prellenado con él, base «a mano, antes de IVA»', async () => {
-    stub([sealedRow({ listPriceCents: 118_000, resolvedSalePriceCents: 118_000, priceBasis: 'override', missing: ['location'], locationId: null })]);
+    // Errata SU-1: el servidor ya no emite `"location"`; la fila de la cola solo puede traer `["price"]`.
+    stub([sealedRow({ listPriceCents: 118_000, resolvedSalePriceCents: 118_000, priceBasis: 'override', missing: ['price'], locationId: null })]);
     renderWithProviders(<PendingPublishQueue />, 'es');
     expect(await screen.findByTestId('sealed-final-price-inv-s1')).toHaveTextContent('MX$1,180.00 · a mano, antes de IVA');
     fireEvent.click(screen.getByRole('button', { name: 'Cambiar precio de INV-001950' }));
     expect((screen.getByLabelText('Precio antes de IVA (MXN)') as HTMLInputElement).value).toBe('1180.00');
     // Igual al actual ⇒ nada que guardar.
-    expect(screen.getByRole('button', { name: 'Guardar precio' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Guardar y publicar' })).toBeDisabled();
   });
 });
 

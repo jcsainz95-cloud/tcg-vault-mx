@@ -4,7 +4,20 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v6.1 (2026-10-05) — EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO CON IVA (§70 ajustada a la errata
+> Estado (rama `claude/buylist-skydropx`): **vBSD-1 (2026-10-06) — BUYLIST CON GUÍA SKYDROPX DE ENTRADA (§BSD-UX NUEVA,
+> al final del documento; `API_CONTRACT §BSD` rev BSD-1, `PROJECT §BSD`, criterios 532–550; `HECHOS.md:78-80`; ux-ui sin
+> Bash, sha NO MEDIDO por mí).** El correo «no continuamos» (BSD-M1) es/en; AV-7 con la etiqueta en PDF, sin adjunto y
+> «sustituye a la anterior»; AG-23 al dueño; el portal para `not_continued` y la descarga de la etiqueta; la ventana de
+> «Capturar guía» en modo entrada; «Declinar» en «Aceptada»; la marca «se cierra sola» en M5 y el tablero; los dos diales
+> de M10. Cero tokens nuevos, cero pares de contraste nuevos. Lo que sigue es la v6.1 sin más cambio que lo marcado en
+> §BSD-UX.0.
+> **vSU-1 (2026-10-07, rama `claude/sin-ubicacion`): §SU-UX NUEVA, al final.** Textos de la errata SU-1 (la ubicación
+> deja de ser requisito para publicar; `API_CONTRACT §M1-SU`, `ARCHITECTURE §4.65`): nota de «Listas para publicar»,
+> folio visible como enlace, aviso «no hay ubicaciones» en la ficha. Cero tokens nuevos.
+> **vSU-2 (2026-10-07):** §SU-UX.6–7 nuevas. El aviso tras el alta distingue «a la venta» de «aún no» según el
+> `status` de SU.8, la cola se refresca después del alta y hay candados SU-UX-7…11. Cero tokens nuevos.
+>
+> Estado anterior: **v6.1 (2026-10-05) — EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO CON IVA (§70 ajustada a la errata
 > `API_CONTRACT` v1.83.1 §M11-SP.12, `ARCHITECTURE §4.62.8`; `HECHOS.md:51` «Precio del sellado — respuestas a
 > P-SP-1/2/3», punto (3) «yo lo voy a meter con iva»; rama `claude/precio-sellado` — ux-ui sin Bash, sha NO MEDIDO por
 > mí).** Resumen en **§70.0-bis**. La regla dura 2 se invierte (lo que se escribe es lo que paga el cliente); la hoja
@@ -28403,3 +28416,1789 @@ Espacio **`auth.*`** (`es.json:1183`, `en.json:1183`). La clave sigue el patrón
 | **N-2** | arquitecto (informativo, no bloquea) | Si el refresh muere en una página **pública** de la tienda (sin guard), probablemente no hay redirección al login: las dos que encontré son `PrivateRouteGuard.tsx:77` y `AdminShell.tsx:70`
 (Grep en `components/layout/`; que no haya otra en todo `frontend/src` es **NO MEDIDO** — lo cierra un Grep de
 `pathname: '/login'` en todo el árbol). El contrato pide «el mismo flujo de hoy», así que este diseño **no añade** una redirección nueva ahí: el usuario verá la tienda deslogueada sin aviso. Si se quiere avisar también en ese caso, haría falta decidirlo (p. ej. un aviso en la tienda); no se diseña sin pedido |
+
+---
+
+## BSD-UX. 💰 Buylist con guía Skydropx de entrada — «no continuamos», AV-7 con la etiqueta, AG-23, el portal, la ventana en modo entrada, «Declinar» en «Aceptada» y la marca del cierre (vBSD-1, 2026-10-06 · `API_CONTRACT §BSD` rev BSD-1 · `PROJECT §BSD`, criterios 532–550)
+
+### BSD-UX.0 Fuente, lo leído, reglas duras y qué cambia de diseños previos
+
+**Fuentes, en este orden** (no se re-preguntan): `HECHOS.md:78` (2026-10-06, «Buylist: una solicitud ACEPTADA sin guía
+capturada en 7 días se CANCELA sola»; punto (d), palabras del dueño: *«pon que simplemente tras una revisión adicional
+decidimos no continuar con ese proceso de venta, algo así súper profesional»*); `HECHOS.md:79` (P-BUYLIST-SDX: la guía la
+paga la tienda y al vendedor se le descuenta la tarifa fija de siempre); `HECHOS.md:80` (respuestas a P-BSD-1…5: aviso del
+**día 5** en panel **y** correo al dueño; las abiertas cuentan **desde el despliegue**; **PDF adjunto** y **descargable en
+«Mi cuenta»**; preseleccionada **la más barata que entregue en la dirección de la tienda**; «en tránsito» automático
+**después**). Norma: `API_CONTRACT §BSD` (`API_CONTRACT.md:39713-40152`), en especial §BSD.5 (DTOs), §BSD.6 («Declinar»),
+§BSD.7 (barrido), §BSD.8 (correos), §BSD.9 (diales) y §BSD.11 (BSD-B21, BSD-F1…F9). `PROJECT.md:9085-9262`.
+
+**Lo que leí antes de redactar** (lectura de ficheros en `/home/user/tcg-bsdx`, 2026-10-06; ⛔ sin Bash, sha **NO MEDIDO**
+por mí):
+
+| Medición | Resultado |
+|---|---|
+| Plantilla de AV-7 hoy | `backend/src/modules/buylist/buylist-notice.templates.ts:94-161` (`sellGuideTemplate`): titular «Tu guía prepagada ya está lista», `monoRow` «Paquetería: … · Guía: …», `deadlineRow`, letra chica «Si ya lo depositaste…», CTA **bermellón** `IR A MI SOLICITUD`. Asunto todavía con prefijo `TCG HUNT —` (`:137`; §41.2 lo quita) |
+| Correos de cierre hoy | `buylist-mail.templates.ts:1069-1133` (5a/5b) y `:1152-1222` (6, «no procederemos»): eyebrow `SOLICITUD CERRADA`, CTA tinta `COTIZAR DE NUEVO` que apunta al **portal** (`portalUrl`) |
+| El folio de los correos de VENTA | `folio: req.id` (`buylist.service.ts:4525`, `:4634`, `:5107`) — el id entero. **BSD-M1 usa el mismo** (no se inventa un «folio corto» que ningún otro correo del ciclo usa) |
+| Insignia de `expirada` | `frontend/src/lib/status-map.ts:76-99`: se resuelve por `expiredReason` (`expirada_no_offer` neutral, `expirada_not_shipped` danger, fallback `expirada` neutral «Expirada»); rótulos en `status.sellRequestExpiry.*` (`es.json:5997-6001`) |
+| Cierre del portal | `SellRequestDetailView.tsx:558-570` (`closedNotShipped`, `closedNoOffer`, fallback `noLongerActive`); `:226` oculta el dinero **solo** con `no_offer` |
+| Dónde ve el vendedor su guía hoy | **En ningún sitio del portal**: `SellRequestDetailView.tsx` no lee `offer.carrier` ni `offer.trackingNumber` (`Grep 'tracking\|carrier'`) — solo el correo AV-7 |
+| M5 «Aceptada» hoy | `es.json:3012` `admin.m5.…readOnlyByStatus.aceptada` y `:3109` `admin.m5.acceptedNote`: **«ya no se cancela»**; captura manual en `admin.m5.shipment.*` (`:3018-3041`, paquetería + número) |
+| Ruta de una solicitud en M5 | Solo `frontend/src/app/[locale]/(admin)/admin/m5/page.tsx`; `M5View.tsx` no lee parámetros de URL (`Grep 'searchParams\|useSearchParams'` ⇒ 0); se localiza con el buscador (`jumpToRequest`, `:721`) |
+| Tablero | `AdminDashboard.tsx:237`: `workQueue.buylist` se usa como **número** (`count={…}`), igual que en el contrato (`API_CONTRACT.md:36081`) |
+| Ventana de captura | claves `admin.m4.tracking.sdx.*` (`es.json:1844-…`); diseño en §43.1–§43.5, §43.19 |
+| Diales del ciclo en M10 | §60 (b) F-9 (`DESIGN_SYSTEM.md`, tabla de diez diales) con el subtítulo **«Aplican a solicitudes nuevas: las que están en curso conservan los plazos…»** |
+
+**Cero tokens nuevos, cero pares de contraste nuevos, cero componentes nuevos** salvo el **modo entrada** de
+`CaptureLabelDialog` (una rama del mismo diálogo, SK1) y el bloque «Tu guía» del portal (composición de `Button` +
+`Banner` + texto).
+
+**Reglas duras de esta sección (se revisan en el PR):**
+
+| # | Regla | De dónde sale |
+|---|---|---|
+| **BX1** | **Un hecho, un correo.** El cierre automático y «Declinar» mandan **el mismo** BSD-M1, palabra por palabra. Ninguna superficie de cliente distingue el camino; la diferencia (`declinedBy`, motivo) vive solo en bitácora | §BSD.8.1, `PROJECT §BSD.4`, misma doctrina que §25.8 «declinar ahora» |
+| **BX2** | **Sin culpa.** `not_continued` se pinta **neutral** (⛔ `danger`, ⛔ icono de alerta), ⛔ «expirada», ⛔ «venció», ⛔ «no enviaste», ⛔ «plazo» en ninguna superficie del vendedor | `HECHOS.md:78` (b), `PROJECT §BSD.3.3`, BSD-F7 |
+| **BX3** | **Lo prohibido en BSD-M1** (asunto, preheader, HTML y texto): `guía\|guia\|plazo\|demora\|label\|deadline\|delay`, la paquetería, el número, días, el motivo interno, montos, dirección, teléfono, CLABE | §BSD.8.1, BSD-B21 |
+| **BX4** | **El destino no es un campo.** En modo entrada la tienda se pinta como **texto** (⛔ ningún `input`, `select` ni botón «Corregir» sobre ella) | I-BSD-5, criterio 532, BSD-F2 |
+| **BX5** | **La pantalla no calcula ni decide** (SK3 extendida): `guideDueAt`, `guideDueSoon`, `declineAcceptedAllowed`, `labelPdfAvailable`, tarifa, margen y valor asegurado llegan del servidor. ⛔ «N días» con un reloj propio (ver BSD-UX.6c) | §BSD.5 «⛔ Ninguno se persiste», BSD-F5/F6 |
+| **BX6** | **El motivo de «Declinar» es interno** y así se rotula; ⛔ nunca viaja a una superficie de cliente | §BSD.6 |
+| **BX7** | **El nombre sugerido no se escribe solo.** `sellerName` es una sugerencia que el operador **guarda con su clic** | §BSD.5 («⛔ nunca se escribe solo»), BSD-F2 |
+
+**Qué cambia de diseños previos** (cada fila, marcada ✏ en su sitio de abajo):
+
+| Diseño previo | Antes | Ahora | Por qué |
+|---|---|---|---|
+| §25.8 / `admin.m5.…readOnlyByStatus.aceptada` y `admin.m5.acceptedNote` | «Aceptada: ya no se cancela» | Se quita «ya no se cancela» (BSD-UX.6a) | `PROJECT §BSD.2.6`: «Declinar» existe en «Aceptada» |
+| §23.1d / `status-map.ts` | dos motivos de `expirada` + fallback | **tres** motivos: + `expirada_not_continued` neutral «No continuó» | BX2 |
+| §25.5f (cierre terminal del portal) | `not_shipped`, `no_offer` | + fila `not_continued`, **sin montos** (como `no_offer`) | BSD-UX.4a |
+| §25.4.5 (correo 4: ⛔ «después de revisar tu solicitud») | — | **No cambia el correo 4.** BSD-M1 sí dice «tras una revisión adicional»: es la frase **dictada por el dueño** (`HECHOS.md:78` (d)) y, como el texto es idéntico en los dos caminos (BX1), no delata cuál fue | Decisión del dueño |
+| §41.1 inventario de correos | 30 renders | + **BSD-M1** (VENTA, CTA **tinta**) y AV-7 (#10) gana tres variantes. ML-17 suma BSD-M1 a «tinta» | BSD-UX.1, .2 |
+| §43 (ventana «Capturar guía») | solo salida | + **modo entrada** (BSD-UX.5); SK7 y SK10 tienen su versión de entrada | §BSD.3, `PROJECT §BSD.1` |
+| §43.19.11–.12 (avisos AG, `AVG-1`) | AG-1…AG-22 | + **AG-23**; su `AVG-1` lleva CTA a «Solicitudes de venta», no a «Ver el aviso» | BSD-UX.3, C-2 |
+| §60 (b) F-9 (diales del ciclo en M10) | subtítulo «Aplican a solicitudes nuevas…» | los dos diales nuevos van en un subgrupo propio que dice que **aplican también a las en curso** | BSD-UX.6e |
+| §43.23.1 (P&L de M7: orden y número de renglones) | **ocho** renglones con signo, en el orden del objeto del servidor | **diez**: «+ Tarifa de envío descontada a vendedores» y «− Guías para recibir cartas de vendedores» van **justo debajo de «Costo de lo vendido»** (no al final, aunque en el objeto vengan al final); margen y aviso, **fuera** de la fórmula | BSD-UX.11; §BSD.16.1 y .6 («dentro de costo de compras; margen y contador como nota») |
+| §43.23.3 `admin.m7.pnl.formula` | ocho términos | diez términos (BSD-UX.11c); sigue nombrando a Stripe y a los «ajustes de paquetería» | BSD-UX.11 |
+| §43.23.6 UX-PNL-1 y UX-PNL-4 | «ocho `pnl-line`»; tres renglones en `0` siguen visibles | «**diez** `pnl-line`»; los dos nuevos también se pintan con `0` | BSD-UX.11, UX-BSD-11 |
+
+---
+
+### BSD-UX.1 BSD-M1 — «Decidimos no continuar con esta venta» (vendedor; cierre automático y «Declinar»)
+
+Plantilla nueva `sellRequestNotContinuedTemplate` (`buylist-mail.templates.ts`, §BSD.8.1) sobre `mailShell`, esqueleto de
+§31.3, familia **VENTA** (pie §41.6: «Recibes este correo porque tienes una solicitud de venta con nosotros.»), saludo por
+`greetingLine()` (§41.3), un idioma por correo (`User.locale`). **Mismo esqueleto que el correo 6** («no procederemos»):
+eyebrow, titular 22px, saludo, tres párrafos, CTA tinta, URL de respaldo, letra chica. ⛔ Sin montos, sin caja de términos,
+sin fecha límite.
+
+| Pieza | Clave (constante de la plantilla) | ES | EN |
+|---|---|---|---|
+| Asunto | `notContinued.subject` | No continuaremos con tu solicitud de venta | We won't be continuing with your sell request |
+| Preheader (§31.6a; = primera frase de `p2`) | `notContinued.preheader` | La solicitud queda cerrada y no se compró ninguna carta. *(55 car.)* | The request is closed and no card was purchased. *(48 car.)* |
+| Eyebrow | `notContinued.eyebrow` | `SOLICITUD CERRADA · <folio>` | `REQUEST CLOSED · <folio>` |
+| Titular (serif 22px) | `notContinued.title` | Decidimos no continuar con esta venta | We've decided not to continue with this sale |
+| Saludo | `greetingLine()` | Hola Ana: · Hola: | Hi Ana, · Hi, |
+| `p1` | `notContinued.p1` | Tras una revisión adicional, decidimos no continuar con el proceso de venta de tu solicitud {folio}. | After an additional review, we've decided not to continue with the sale process for your request {folio}. |
+| `p2` | `notContinued.p2` | La solicitud queda cerrada y no se compró ninguna carta. Por favor, no nos envíes tus cartas. | The request is closed and no card was purchased. Please don't send us your cards. |
+| `p3` | `notContinued.p3` | Gracias por considerarnos. Si más adelante quieres vender, puedes cotizar de nuevo cuando quieras. | Thank you for considering us. If you'd like to sell in the future, you can get a new quote whenever you like. |
+| CTA (**tinta**, §41.4) | `notContinued.cta` | `VER MI SOLICITUD` → `buylistPortalUrl(id, locale)` | `VIEW MY REQUEST` |
+| URL de respaldo (§31.6g) | — | la misma URL en mono 12px | idem |
+| Letra chica (tras el CTA) | `notContinued.small` | Si ya las habías enviado, escríbenos a {soporte}. | If you had already sent them, write to us at {support}. |
+
+- **`p1` es la frase del dueño**, completada solo con el sujeto («de tu solicitud {folio}») para que el vendedor sepa de
+  cuál se trata. «Súper profesional» se resuelve con tres cosas: primera persona del plural (decidimos), ninguna
+  justificación y ninguna disculpa que invente una causa (§25.4.5 fila 6: «perdón por la demora» delataría justo lo que
+  el dueño no quiere decir).
+- **`p2` reutiliza la frase dictada para 5a/5b** («La solicitud queda cerrada y no se compró ninguna carta», §31.10b): el
+  mismo hecho, la misma frase. **«Por favor, no nos envíes tus cartas»** es una **instrucción**, no una afirmación sobre una
+  guía: el vendedor **aceptó**, y con «Declinar» puede tener una guía en la mano (manual o de Skydropx, que se cancela sola).
+  Sin esa frase, el riesgo de 5b (cartas de una solicitud cerrada llegando a la bodega) vuelve. ⛔ No nombra la guía (BX3).
+- **`p3` — ¿vuelve a cotizar? Sí, como invitación en prosa, no como botón.** El CTA va al portal (§BSD.8.1) y su rótulo
+  **nombra ese destino** (§41.4: el rótulo dice a dónde lleva). El portal cerrado ya tiene «Cotizar de nuevo»
+  (`buylist.offer.quoteAgainCta`), así que la puerta abierta queda a un clic. *Por qué no `COTIZAR DE NUEVO` como en 5/6:*
+  esos dos apuntan hoy al portal con un rótulo que no lo dice (`buylist-mail.templates.ts:1096`, `:1184`); no repito el
+  desajuste en un correo nuevo. Si el dueño prefiere el rótulo de 5/6, cambian **cuerpo y CTA juntos** (§31.10b (a)).
+- **Letra chica:** el vendedor puede haber mandado el paquete **sin** pulsar «ya lo mandé» (que es lo que impide
+  «Declinar»). La frase le da salida sin acusarlo; `{soporte}` = `supportEmail()` (E-3 de §41.13). ⛔ No promete qué pasará
+  con las cartas.
+- **Palabras revisadas contra BX3** en las cuatro cadenas y en el preheader, ES y EN: ninguna contiene `guía`, `guia`,
+  `plazo`, `demora`, `label`, `deadline`, `delay`, «días», ni cifra alguna (ojo: «available», que no se usa, contendría
+  `lable`, no `label`).
+- **Parte de texto** (§31.12), en este orden: saludo · `EYEBROW · folio` · titular · `p1` · `p2` · `p3` · URL · letra chica ·
+  `TCG HUNT`.
+- **Accesibilidad del correo:** `html lang` = locale; un solo CTA; titular como texto vivo.
+
+### BSD-UX.2 AV-7 con la etiqueta — tres variantes y la línea «sustituye a la anterior»
+
+Mismo productor, mismo sello (`guideNoticeSentAt`), misma plantilla `sellGuideTemplate` con un parámetro de variante
+(§BSD.8.2). **La variante manual no cambia** (contrato: «Guía manual: sin cambio»). Q-BSD-2: **sí** lleva la línea de
+sustitución por defecto.
+
+| Variante | Cuándo | Adjunto |
+|---|---|---|
+| **M** (manual) | guía capturada a mano (`adminGuide`) | — (sin cambio) |
+| **S** | guía de entrada de Skydropx con número **y** el PDF descargado (≤ 5 MB) | `guia-<8 primeros del folio>.pdf`, `application/pdf` (el mismo nombre que la descarga del portal, §BSD.4.4) |
+| **S0** | guía de Skydropx y la descarga del PDF **falló** | ninguno; el cuerpo manda a «Mi cuenta» |
+| **+R** | S o S0 cuando la solicitud **ya tuvo otra guía de entrada cancelada por re-emisión** | (el de S, si lo hay) |
+
+Orden de bloques (§31.3), con lo nuevo en **negrita**: eyebrow `TU SOLICITUD DE VENTA · <folio>` · titular · saludo ·
+**[+R] línea de sustitución** · intro · regla · `monoRow` paquetería y guía · **[S/S0] sucursal** · **[S/S0, si hay liga]
+rastreo** · fecha límite (`deadlineRow`, sin cambio) · letra chica «Si ya lo depositaste…» · **[S] letra chica de volver a
+descargar** · CTA bermellón `IR A MI SOLICITUD` (sin cambio, §41.4 fila 10) + URL.
+
+| Pieza | Clave (constante) | ES | EN | Variante |
+|---|---|---|---|---|
+| Asunto | `guide.subject` (✅ §41.2 fila 10) | Tu guía prepagada | Your prepaid label | M, S, S0 |
+| Asunto | `guide.subjectReplaced` ⭐ | Tu nueva guía prepagada | Your new prepaid label | +R |
+| Titular | `guide.title` (✅) | Tu guía prepagada ya está lista | Your prepaid label is ready | M, S, S0 |
+| Titular | `guide.titleReplaced` ⭐ | Tu nueva guía prepagada ya está lista | Your new prepaid label is ready | +R |
+| Línea de sustitución (prosa en tinta, el **primer** párrafo tras el saludo) | `guide.replaced` ⭐ | Esta guía sustituye a la que te enviamos antes: no uses la anterior. | This label replaces the one we sent you before: don't use the old one. | +R |
+| Intro | `guide.intro` (✅) | La guía ya está pagada por nosotros. Entrega el paquete en la paquetería de abajo. | We already paid for the label. Drop the package off with the carrier below. | M |
+| Intro | `guide.sdx.intro` ⭐ | Ya pagamos tu guía; su costo es la tarifa fija de tu oferta, que se descuenta de tu pago. Va adjunta a este correo en PDF: imprímela y pégala en tu paquete. | We've already paid for your label; its cost is the fixed fee in your offer, deducted from your payment. It's attached to this email as a PDF: print it and stick it on your package. | S |
+| Intro | `guide.sdx.introNoPdf` ⭐ | Ya pagamos tu guía; su costo es la tarifa fija de tu oferta, que se descuenta de tu pago. No pudimos adjuntarla a este correo: descárgala en PDF desde tu solicitud, en «Mi cuenta», imprímela y pégala en tu paquete. | We've already paid for your label; its cost is the fixed fee in your offer, deducted from your payment. We couldn't attach it to this email: download the PDF from your request in “My account”, print it and stick it on your package. | S0 |
+| Dato (`monoRow`) | `guide.dato` (✅) | Paquetería: {carrier} · Guía: {trackingNumber} | Carrier: {carrier} · Tracking: {trackingNumber} | todas |
+| Sucursal | `guide.sdx.dropoff` ⭐ | Lleva el paquete a una sucursal de {carrier}: la paquetería no pasa a recogerlo. | Take the package to a {carrier} branch: the carrier won't pick it up. | S, S0 |
+| Rastreo (solo con `trackingUrl ≠ null`, en prosa con su URL; ⛔ segundo botón) | `guide.sdx.tracking` ⭐ | Puedes seguir tu paquete en la página de {carrier}: {trackingUrl} | You can follow your package on {carrier}'s website: {trackingUrl} | S, S0 |
+| Fecha límite | (✅ `deadlineRow`) | Tienes hasta el {fecha} para depositarlo. | You have until {date} to drop it off. | todas |
+| Letra chica | `guide.alreadySent` (✅) | Si ya lo depositaste, avísanos desde tu cuenta y detenemos el reloj. | If you already dropped it off, tell us from your account and we stop the clock. | todas |
+| Letra chica | `guide.sdx.redownload` ⭐ | Si pierdes el PDF, vuelve a descargarlo desde tu solicitud, en «Mi cuenta». | If you lose the PDF, download it again from your request in “My account”. | S |
+| Preheader | (✅) `{title}. {dato}` | — | — | M, S, S0 |
+| Preheader | `guide.replaced` | (la línea de sustitución, 66 car.) | (69 car.) | +R |
+
+- **Por qué la intro de Skydropx nombra el descuento** (y la manual no se toca): §25.4.7 (D43) — *donde aparezca «ponemos
+  la guía», viaja «y se descuenta»*. La intro de hoy («ya está pagada por nosotros») se lee como «gratis»; en la variante
+  nueva no repito el defecto. ⛔ **Sin cifra**: la tarifa ya está en la oferta (§41.7 fila 10: AV-7 no lleva montos). La
+  manual queda igual porque el contrato lo manda; **alinearla es decisión de product-owner** (BSD-UX.10, P-1).
+- **«la paquetería no pasa a recogerlo»** es cierto por construcción: el sistema no tiene verbo de recolección
+  (`PROJECT §BSD.6`, §43.3c «no se agenda desde aquí»). ⛔ No se afirma nada de lo que diga `pickup` en la tarifa (NM-4).
+- **La línea +R va arriba y en prosa**, no en letra chica: es la frase que impide que el vendedor imprima la guía
+  cancelada. Por eso también ocupa el preheader (es lo que se lee en la bandeja). ⛔ Sin el número de la guía anterior
+  (sería un segundo número que teclear por error).
+- **S0 no se reintenta** (§BSD.8.2): el sello ya se reclamó. La frase manda a «Mi cuenta», donde el botón de BSD-UX.4b
+  la sirve por proxy.
+- ⛔ **Los cinco prohibidos** (§31.0 regla 2) siguen: ni la dirección de la tienda ni la del vendedor (la lleva la
+  etiqueta, no el correo).
+- `{carrier}` es el nombre que lee una persona («99minutos», «Paquetexpress»), ⛔ nunca un código: ver C-6.
+
+### BSD-UX.3 AG-23 al dueño — «Solicitud de venta sin guía»
+
+Aviso nuevo de control del gasto (`SpendAlertKind = 'buylist_guide_due'`, código **AG-23**), inmediato, **solo al
+dueño** (§BSD.7.2). Textos en el mismo espacio que AG-1…AG-22 (§43.19.11). Datos: **solo** `facts = { sellRequestId,
+closesAt, offerGrossCents }` (GAS-4; ⛔ PII del vendedor, GAS-2).
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.spendAlerts.kind.AG-23.title` | Solicitud de venta sin guía | Sell request without a label |
+| `admin.spendAlerts.kind.AG-23.text` | La solicitud de venta {folio} sigue aceptada y sin guía: se cierra sola el {closesAt} si para entonces no tiene guía. Valor de sus cartas en la oferta: {gross}. | Sell request {folio} is still accepted and has no label: it closes on its own on {closesAt} if it still has no label by then. Value of its cards in the offer: {gross}. |
+| `admin.spendAlerts.fact.sellRequestId` | Solicitud de venta | Sell request |
+| `admin.spendAlerts.fact.closesAt` | Se cierra | Closes |
+| `admin.spendAlerts.fact.offerGrossCents` | Valor de las cartas en la oferta | Value of the cards in the offer |
+
+✏ vBSD-1.1 (2026-10-06, medido por frontend en `messages/es.json:5939-5941` y `:6070-6072`, releído por ux-ui): los datos
+del aviso viven en **`admin.spendAlerts.fact.*`** (⛔ `field.*`: ese espacio es el de los campos de domicilio de AG-1), y el
+argumento del monto es **`{gross}` en los dos idiomas** (ICU exige el mismo nombre en `es` y `en`; `{bruto}` era un error
+mío). `{folio}` = `sellRequestId` (el que M5 pinta y busca, `M5View.tsx:1179`); `{closesAt}` = fecha y hora en
+`America/Mexico_City`; `{gross}` = `formatMoneyCents` / `mailMoney` (`MX$`). En M10 «Avisos encendidos» (§43.19.10a (3)),
+si el contrato lo admite en `spendAlertsDisabled`, la casilla es **«AG-23 · Solicitud de venta sin guía»** con gravedad
+**«Correo inmediato»** (NO MEDIDO si es apagable: C-7). La lista blanca de `facts` del detalle (UX-GAS-6) gana esas tres
+claves y ninguna otra.
+
+**Correo `AVG-1` para AG-23** (§43.19.12, pie **GASTO**, saludo por `greetingName()`):
+
+| Pieza | ES | EN |
+|---|---|---|
+| Asunto | Solicitud de venta sin guía: se cierra sola el {fecha corta} — p. ej. «…el 12 de octubre» | Sell request without a label: closes on its own on {short date} — e.g. “…on October 12” |
+| Titular (serif) | Solicitud de venta sin guía | Sell request without a label |
+| Cuerpo | el `text` de arriba | idem EN |
+| Filas (mono, etiqueta–valor) | Solicitud de venta · Valor de las cartas en la oferta · Se cierra | Sell request · Value of the cards in the offer · Closes |
+| Remedio (prosa; constante de plantilla del **backend**, ⛔ clave de `messages/*.json`: `admin.spendAlerts.mail.*` en frontend es el estado del correo) | Para que no se cierre, genera su guía con Skydropx (o captúrala a mano) en «Solicitudes de venta»: búscala por su folio. Si ya no la quieres comprar, puedes declinarla ahí mismo; al vendedor le llega el mismo correo en los dos casos. | To keep it from closing, generate its label with Skydropx (or enter one by hand) in “Sell requests”: search for it by its ID. If you no longer want to buy it, you can decline it right there; the seller gets the same email either way. |
+| CTA (**bermellón**: no actuar pierde la compra; constante del backend) | `IR A SOLICITUDES DE VENTA` → `appUrl('admin/m5')` | `GO TO SELL REQUESTS` |
+| Frenar | ⛔ no lleva (no es gasto que frenar) | — |
+
+- ✏ **Cambia el encargo, no el contrato:** el encargo decía «lleva 5 días aceptada sin guía; se cierra sola en 2 días».
+  **«Lleva 5 días aceptada» no se puede escribir**: el reloj se ancla en `coalesce(inboundGuideClockStartedAt, acceptedAt)`
+  y ese ancla puede ser **el despliegue** (P-BSD-2: la del 15-sep lleva 21 días aceptada) o **una re-emisión**; además
+  `facts` no trae la fecha de aceptación. Lo que sí es cierto y está en `facts` es **cuándo se cierra**; eso dice el
+  contrato (§BSD.8.3) y eso dice el texto. «En 2 días» tampoco: es una cuenta con reloj (BX5); la fecha la sustituye.
+- ✏ **CTA distinto del resto de `AVG-1`** (que lleva `VER EL AVISO`): el dueño tiene que **actuar en M5**, no leer el aviso.
+  El contrato pide «enlace a la ficha de M5», pero **M5 no tiene ruta por solicitud** y PS-153 prohíbe `?` en estos correos
+  ⇒ va a la lista y el folio va en el cuerpo para el buscador. Ver C-2.
+- La fila del aviso en `/admin/spend-alerts` es historial: queda aunque la solicitud ya tenga guía o se haya cerrado. La
+  marca **viva** es la de M5 y el tablero (BSD-UX.6c), que desaparece sola.
+
+### BSD-UX.4 Portal del vendedor — el cierre «no continuamos» y la descarga de la etiqueta
+
+#### BSD-UX.4a `expiredReason = 'not_continued'`
+
+| Superficie | Clave | ES | EN |
+|---|---|---|---|
+| Insignia (lista «Mis ventas», portal, M5, «Cerradas») — fila nueva `expirada_not_continued` en `status-map.ts`: tono **neutral**, forma `soft`, **sin icono** | `status.sellRequestExpiry.not_continued` | No continuó | Not continued |
+| Frase de cierre del portal (`SellRequestDetailView`, junto a `closedNotShipped`/`closedNoOffer`) | `buylist.offer.closedNotContinued` | Tras una revisión adicional, decidimos no continuar con esta venta. La solicitud queda cerrada y no se compró ninguna carta. | After an additional review, we've decided not to continue with this sale. The request is closed and no card was purchased. |
+| CTA | `buylist.offer.quoteAgainCta` (existe) | Cotizar de nuevo | Get a new quote |
+
+- **Espejo del correo** (§25.5): la pantalla dice lo mismo que BSD-M1, con sus palabras (BX1).
+- **Sin dinero**: igual que `no_offer` (§25.5f), con `not_continued` se **ocultan los tres montos** y las cartas se listan
+  **sin importe** (✏ `SellRequestDetailView.tsx:226`: la condición de `hideMoney` gana `not_continued`). *Una oferta
+  aceptada con «Se te depositan MX$…» al lado de «decidimos no continuar» se lee como una deuda.*
+- ⛔ Ni bloque «Tu guía», ni dirección con «Cambiar», ni «ya lo mandé» (la solicitud está cerrada; `labelPdfAvailable` es
+  `false` fuera de `aceptada`).
+- El cierre del stepper (§25.2d) pinta la versalita **«No continuó»** + la fecha de `closedAt`.
+- ⛔ BX2: ni «Expirada» (el fallback `status.sellRequestExpiry.unknown` **no** puede alcanzar a `not_continued`: por eso la
+  fila refinada es obligatoria), ni «venció», ni «plazo», ni nada que hable del vendedor.
+- «No continuó» y no «No continuamos»: la misma insignia la lee el operador en M5, y en primera persona sonaría a que lo
+  dice él. Paralela a «No procedió».
+
+#### BSD-UX.4b «Tu guía» — la descarga de la etiqueta en «Mi cuenta»
+
+Se pinta **solo** con `labelPdfAvailable = true` (BX5; dónde vive el campo: C-1). Dos sitios, el mismo verbo:
+
+1. **El portal de la solicitud** (`/buylist/requests/[id]`, al que se llega desde «Mi cuenta › Compras y ventas ›
+   Ventas», §33.3): un bloque propio **encima de «Tus cartas»**, bajo la línea `acceptedOn`.
+2. **El renglón de la solicitud en «Ventas»** (`/orders?tab=ventas`): un enlace de texto, para no tener que entrar.
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Eyebrow del bloque | `buylist.offer.label.title` | Tu guía | Your label |
+| Cuerpo (con `offer.carrier`) | `buylist.offer.label.body` | Ya pagamos tu guía con {carrier}. Imprímela, pégala en tu paquete y llévalo a una sucursal de {carrier}. | We've already paid for your label with {carrier}. Print it, stick it on your package and take it to a {carrier} branch. |
+| Cuerpo (sin `carrier`) | `buylist.offer.label.bodyNoCarrier` | Ya pagamos tu guía. Imprímela, pégala en tu paquete y llévalo a una sucursal de la paquetería que dice la guía. | We've already paid for your label. Print it, stick it on your package and take it to a branch of the carrier shown on it. |
+| Número (mono, seleccionable; solo con `offer.trackingNumber`) | `buylist.offer.label.tracking` | Número de guía: {tracking} | Tracking number: {tracking} |
+| Botón (`primary`, es la única acción del bloque) | `buylist.offer.label.download` | Descargar mi guía (PDF) | Download my label (PDF) |
+| En curso (`loading`) | `buylist.offer.label.downloading` | Descargando… | Downloading… |
+| Nota (`text-sm text-muted`) | `buylist.offer.label.alsoInEmail` | También va adjunta en el correo que te mandamos. | It's also attached to the email we sent you. |
+| Enlace del renglón en «Ventas» | `buylist.offer.label.downloadShort` | Descargar guía (PDF) | Download label (PDF) |
+| `404 LABEL_NOT_AVAILABLE` **y** `404 NOT_FOUND` (mismo texto: sin oráculo, §25.5g-e) | `buylist.offer.label.errorUnavailable` | Esta guía ya no está disponible para descargar. Si la cambiamos, te mandamos la nueva por correo. | This label is no longer available to download. If we changed it, we've emailed you the new one. |
+| `502`, `409 SHIPPING_PROVIDER_NOT_CONFIGURED`, red | `buylist.offer.label.errorTemporary` | No pudimos traer tu guía en este momento. Vuelve a intentarlo en unos minutos; también va adjunta en el correo que te mandamos. | We couldn't get your label right now. Try again in a few minutes; it's also attached to the email we sent you. |
+
+- Descarga sobre `GET /api/v1/buylist/requests/:id/label.pdf` (proxy; ⛔ nunca un enlace a la URL de Skydropx). Cómo se
+  pasa la sesión a la descarga lo decide frontend (mismo NO MEDIDO que §43.5).
+- El error se pinta bajo el botón en `role="alert"`; el botón vuelve a estar activo (reintentar es un clic). Tras
+  `errorUnavailable`, se relee la solicitud: si `labelPdfAvailable` pasó a `false`, el bloque desaparece.
+- ⛔ Sin la dirección de la tienda en el bloque (la lleva la etiqueta; criterio 114 ya se cumplió al aceptar, pero el
+  bloque no la necesita).
+- Con guía **manual**, `labelPdfAvailable = false` ⇒ nada nuevo (como hoy).
+
+#### BSD-UX.4c El cambio de dirección del vendedor durante la compra
+
+✏ **vBSD-1.1 (2026-10-06): sin superficie hasta que se construya §25.5e; la clave se retira de `messages/*.json`.**
+
+**Lo medido.** Frontend (FRONTEND_NOTES §104, «Huecos medidos 2026-10-06»): `grep -rn "pickup-address" frontend/src` solo
+da un comentario. Releído por ux-ui en `/home/user/tcg-bsdx/frontend/src`: ni `pickup-address` ni `pickupLocked` aparecen
+en ningún componente del portal; solo `error-audience.ts`, `api.ts` (alta de la solicitud) y la prueba de paridad
+`lib/i18n-bsd.test.ts:17`. El endpoint del cliente **existe en el contrato** (`PATCH /buylist/requests/:id/pickup-address`,
+`API_CONTRACT.md:12667`).
+
+**No es una pantalla nueva:** la superficie ya está diseñada desde v1.51 — §25.5e (línea «(e) La dirección de origen, con su
+ventana de corrección»): «Cambiar» junto a la dirección en el portal mientras `guideSentAt === null`, y «Ya imprimimos la
+guía con esta dirección.» cuando ya hay guía. **Lo que falta es construirla** (hueco previo a BSD, no lo abre este
+diseño). Hasta entonces el `409 PICKUP_ADDRESS_LOCKED {reason:'label_in_progress'}` (§BSD.4.5) no tiene dónde pintarse.
+
+**Decisión:**
+- ✏ **Frontend retira `buylist.offer.pickupLockedInProgress`** de `es.json`/`en.json` y de `i18n-bsd.test.ts:17`. Una clave
+  sin superficie es copy que nadie lee ni prueba en contexto; mantenerla da paridad verde sobre nada.
+- El texto queda **aquí, dormido**, para el día que se construya §25.5e. Ese encargo (frontend, stream «Catálogo y
+  precios», portal del buylist) lo vuelve a crear con esta misma clave y estos textos:
+
+| Clave (se crea con §25.5e, ⛔ antes) | ES | EN |
+|---|---|---|
+| `buylist.offer.pickupLockedInProgress` | Estamos generando tu guía con esta dirección: ya no se puede cambiar. Si está mal, escríbenos a {email}. | We're generating your label with this address: it can't be changed now. If it's wrong, write to us at {email}. |
+
+- Dónde iría, para que el encargo de §25.5e no tenga que decidirlo: bajo la dirección, en `role="alert"`, tras el `409`
+  del `PATCH`; se relee la solicitud y «Cambiar» desaparece si el servidor ya no lo permite.
+- **Efecto sobre BSD-UX.5a:** `resyncNote` («Si el vendedor cambia su dirección antes de que compres la guía…») describe
+  una conducta del servidor que hoy **solo** se dispara si alguien llama al `PATCH` del cliente directamente, sin pantalla.
+  Se mantiene: es verdad del contrato, protege al operador si la llamada ocurre y será la conducta normal cuando exista
+  §25.5e. Solicitud al orquestador en BSD-UX.10 (N-5).
+
+### BSD-UX.5 La ventana de captura en **modo entrada** (`CaptureLabelDialog`, la misma)
+
+**Una ventana, dos sentidos** (SK1): M5 abre **el mismo** diálogo de §43 con `kind = 'buylist_inbound'`. Pasos, pie,
+cierre, «Capturar a mano», SK2–SK6, SK8 y SK9 **sin cambio**. Lo que cambia está en esta tabla y en las subsecciones;
+todo lo no nombrado se pinta como §43.1–§43.5 y §43.19. *Si el diálogo se mueve a `frontend/src/components/` para
+abrirlo desde M5, es zona compartida (§BSD.12.4).*
+
+**Apertura** (BSD-F1): en la ficha de M5 de una `aceptada` sin guía y con `inboundLabelOptions.provider = 'skydropx'`,
+botón **«Generar guía con Skydropx»** ⇒ `POST /admin/buylist/:id/inbound-shipment` (región de estado **«Preparando la
+guía…»**) ⇒ con `shipment.id`, `GET /admin/shipments/:id` ⇒ la ventana, en el paso que diga §43.1.
+
+| Pieza | Clave (`admin.m4.tracking.sdx.inbound.*`) | ES | EN |
+|---|---|---|---|
+| Título del `Modal` | `title` | Guía del vendedor a la tienda | Seller-to-store label |
+| Referencia (línea de §43.1 punto 2) | `ref` | Solicitud de venta {sellRequestId} · Envío {folio} | Sell request {sellRequestId} · Shipment {folio} |
+| Nombres de paso | (sin cambio) | Dirección · Opciones · Comprar · Guía | idem |
+
+#### BSD-UX.5a Paso 1 — origen editable, destino de solo lectura
+
+El cuerpo del paso tiene **dos bloques** (`<section>` con `aria-labelledby`), el origen arriba porque es lo único que se
+revisa:
+
+**(1) «Sale de · el vendedor»** — el modo leer/corregir de §43.2 **entero**, sobre `addressSnapshot` de la fila de entrada,
+con estos cambios:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Encabezado del bloque (`h3`, versalita) | `originTitle` | Sale de · el vendedor | From · the seller |
+| Rótulo de `recipientName` (modo leer y campo) | `sender` | Quién envía | Sender |
+| Ausencia (SK8, `text-accent`) | `senderMissing` | Falta quién envía | Sender missing |
+| Ayuda del campo | `senderHint` | Nombre de quien entrega el paquete. Va en la etiqueta. | Name of the person dropping off the package. It goes on the label. |
+| Sugerencia (con el campo vacío y `inbound.sellerName ≠ ''`; `text-sm text-text`, unida por `aria-describedby`) | `senderSuggestion` | Sugerencia: {sellerName} (el nombre de su cuenta). | Suggestion: {sellerName} (their account name). |
+| Botón fantasma junto a la sugerencia | `useSuggestion` | Usar este nombre | Use this name |
+| Frase de alcance (sustituye a la de §43.2b en este modo) | `scopeNote` | Esto corrige solo el origen de esta guía. La dirección guardada en la cuenta del vendedor y la de su solicitud no cambian. | This only corrects where this label starts from. The address saved on the seller's account and the one on their request don't change. |
+| Segunda línea (`text-sm text-muted`; `auditNote` de §43.2b sigue debajo) | `resyncNote` | Si el vendedor cambia su dirección antes de que compres la guía, esta corrección se sustituye por la suya. | If the seller changes their address before you buy the label, this correction is replaced by theirs. |
+| `400 VALIDATION_ERROR {field:'recipientName'}` | `senderRequired` | Escribe quién envía. | Enter who is sending it. |
+
+- **BX7:** «Usar este nombre» **solo rellena el campo** (y pone el foco en él); se guarda con «Guardar dirección» como
+  cualquier corrección (queda en bitácora a nombre del operador). ⛔ Nunca se manda sin ese clic; ⛔ la sugerencia no
+  aparece si el campo ya tiene texto.
+- Con `missing = ['recipientName']` la ventana abre en modo corregir con el foco en «Quién envía» (como §43.2a con
+  `missing`). El `422 SHIPMENT_ADDRESS_INCOMPLETE {missing:['recipientName']}` de cotizar cae aquí (tabla de BSD-UX.5d).
+- **Teléfono:** la línea «Teléfono: {phone}. No se corrige aquí.» de §43.2b, sin cambio (P-ADR-1); es el del vendedor.
+- *Por qué `resyncNote`:* §BSD.4.5 — si el vendedor cambia su dirección con la fila en `solicitado`, el servidor reemplaza
+  el snapshot (y la corrección del operador). Sin la frase, el operador vería desaparecer su cambio sin saber por qué.
+
+**(2) «Llega a · la tienda»** — **texto, nunca campos** (BX4), de `inbound.destination`:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Encabezado (`h3`, versalita) | `destinationTitle` | Llega a · la tienda | To · the store |
+| `<dl>` (etiqueta `text-sm text-muted`, valor `text-sm text-text`) | etiquetas de §43.2a | Nombre (`name`) · Calle y número (`street1`) · Colonia (`neighborhood`) · CP (`postalCode`, `tabular`) · Municipio o alcaldía (`city`) · Estado (`state`) | Name · Street and number · Neighborhood · Postal code · Municipality · State |
+| Nota (`text-sm text-muted`) | `destinationNote` | Es la dirección de la tienda en «Configuración › Envíos». Esta guía siempre llega ahí: no se cambia aquí. | It's the store address from “Settings › Shipping”. This label always goes there: it isn't changed here. |
+| Etiqueta nueva | `destinationName` | Nombre | Name |
+
+- ⛔ Ni `input`, ni `readonly input`, ni «Corregir» sobre este bloque (BSD-F2 lo mide por ausencia de controles).
+- `inbound.destination` ausente o con campos vacíos ⇒ «Sin dato» por campo (SK8); la cotización lo dirá con su error
+  (`missing:['origin_snapshot']`, BSD-UX.5d).
+
+#### BSD-UX.5b Paso 2 — la banda de tarifa y margen, y las opciones en sentido inverso
+
+**Cabecera de la cotización** (§43.3b): cambian dos líneas, el resto (empaque, seguro, vigencia) igual. Todo del DTO (BX5).
+
+| Línea | Clave | ES | EN | Fuente |
+|---|---|---|---|---|
+| ✏ sustituye a «Cobrado al cliente…» | `feeDeducted` | Se le descuenta al vendedor: {fee} (la tarifa fija de su oferta). | Deducted from the seller: {fee} (the fixed fee in their offer). | `charged.grossCents` (= `offerShippingFeeCents`, §BSD.3 «lo cobrado»: es la cifra contra la que el servidor calcula el margen) |
+| ✏ sustituye a «Lo que va en la caja vale…» | `boxValue` | Lo que va en la caja vale {valor}: lo que le vamos a pagar por las cartas. | What's in the box is worth {value}: what we'll pay for the cards. | `insurance.insuredValueCents` |
+
+La **banda** es esa primera línea, en `text-base text-text` y **encima** de las demás (es la referencia contra la que se lee
+cada fila). En cada fila (§43.3c plano 3) el margen se lee contra ella:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Margen | (`margin` de §43.3c) | Margen: {margen} | Margin: {margin} |
+| Margen negativo (`text-accent`) | `marginNegative` | Margen: −{abs} — esta guía cuesta más de lo que se le descuenta | Margin: −{abs} — this label costs more than what's deducted from them |
+| Recolección (origen = vendedor), `pickup = true` | `pickupYes` | Ofrece recolección (no se agenda: el vendedor lo lleva a sucursal) | Offers pickup (not scheduled: the seller takes it to a branch) |
+| `pickup = false` (en entrada `dropoff` es siempre `null`) | `pickupNo` | Sin recolección: el vendedor lo lleva a una sucursal de {carrierLabel} | No pickup: the seller takes it to a {carrierLabel} branch |
+| Entrega (destino = tienda), `deliveryKind = 'home'` | `deliveryHome` | Entrega en la tienda | Delivers to the store |
+| `'branch'` (`text-accent`) | `deliveryBranch` | No entrega en la tienda: habría que ir a recogerlo a una sucursal | Doesn't deliver to the store: someone would have to collect it at a branch |
+| Plegado (§43.3d) | `showBranch` / `hideBranch` | Ver también {count, plural, one {# opción que no entrega} other {# opciones que no entregan}} en la tienda · Ocultar las opciones que no entregan en la tienda | Also show {count, plural, one {# option that doesn't deliver} other {# options that don't deliver}} to the store · Hide the options that don't deliver to the store |
+| Sin recomendada (`recommendedRateId = null`), bajo la lista, `text-sm text-text` | `noRecommended` | Ninguna opción entrega en la tienda. Elige una sabiendo que habrá que ir a recogerla, o captura la guía a mano. | No option delivers to the store. Pick one knowing it will have to be collected, or enter the label by hand. |
+
+- **Preseleccionada:** `recommendedRateId` (la más barata que entrega en la tienda, P-BSD-4); la pantalla **no** la elige
+  (BSD-F3). El chip «Recomendada» es el de §43.3c.
+- Días, plan, «Promoción», excluidas, cero opciones y «Cambiar empaque»: §43.3 sin cambio.
+
+#### BSD-UX.5c Pasos 3 y 4
+
+**Paso 3** (§43.4): desglose, frase de dinero (SK2) y botón **sin cambio** (el saldo es el mismo). Cambian las dos
+confirmaciones en línea:
+
+| Clave | ES | EN |
+|---|---|---|
+| `confirmNegative` | Margen negativo: −{abs}. Esta guía cuesta más que la tarifa que se le descuenta al vendedor. Si compras, lo confirmas. | Negative margin: −{abs}. This label costs more than the fee deducted from the seller. If you buy, you confirm it. |
+| `confirmBranch` | Esta opción no entrega en la tienda: alguien tendrá que ir a recogerlo a una sucursal. Si compras, lo confirmas. | This option doesn't deliver to the store: someone will have to collect it at a branch. If you buy, you confirm it. |
+
+**Paso 4** (§43.5): «Guía comprada», paquetería, número con «Copiar», «Se cobraron…», liga de rastreo: sin cambio. Cambian:
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| ✏ sustituye a «Le mandamos al cliente el correo con su guía.» | `sentToSeller` | Le mandamos al vendedor su guía en PDF; desde ahora corre su plazo para enviarla. | We've emailed the seller their label as a PDF; their time to ship it starts now. |
+| Acciones | — | ✏ **solo «Descargar PDF»** (secundaria) + «Listo» (primaria). ⛔ «Imprimir etiqueta»: la imprime el vendedor | — |
+| «Guía en proceso» (nota bajo el texto de §43.5) | `processingNote` | Cuando llegue el número, le mandamos su guía al vendedor y empieza su plazo. Mientras, la solicitud no se cierra sola. | When the number arrives, we'll email the seller their label and their time starts. Meanwhile, the request won't close on its own. |
+| `Banner` de éxito en M5 | `bought` | Guía comprada para la solicitud {id}: {carrier} · {tracking}. Le mandamos su guía al vendedor. | Label bought for request {id}: {carrier} · {tracking}. We've emailed the seller their label. |
+
+*(La palabra «plazo» sí puede ir aquí: es pantalla del operador, no BSD-M1.)*
+
+**«Capturar a mano» en modo entrada:** el formulario es **el de M5** (`admin.m5.shipment.carrier` / `trackingNumber`,
+`POST /admin/buylist/:id/guide`), ⛔ no el de M4 (que lleva costo y va a otra ruta). Intro:
+
+| Clave | ES | EN |
+|---|---|---|
+| `manualIntro` | Para una guía que ya compraste en el panel de Skydropx o con otra paquetería. Al vendedor le llega por correo igual que hoy. | For a label you already bought in the Skydropx panel or with another carrier. The seller gets it by email, same as today. |
+
+«Volver a Skydropx» igual que §43.1. La fila de entrada que quede en `solicitado` no estorba (§BSD.4.5).
+
+#### BSD-UX.5d Errores propios del modo entrada (SK6: dicen qué no se escribió, qué no se cobró y el remedio)
+
+| Respuesta | Dónde | Clave (`…sdx.inbound.error.*`) | ES | EN | Después |
+|---|---|---|---|---|---|
+| `POST inbound-shipment` ⇒ `404 FEATURE_DISABLED` | M5, bajo el botón | `featureDisabled` | La compra de guías con Skydropx está apagada. No se abrió nada: captura la guía a mano. | Buying labels with Skydropx is switched off. Nothing was opened: enter the label by hand. | el botón desaparece |
+| `409 GUIDE_NOT_ALLOWED {reason:'status'\|'closed'}` | M5 / ventana | `notAccepted` | Esta solicitud ya no está aceptada ({estado}). No se abrió ni se cobró nada. | This request is no longer accepted ({status}). Nothing was opened or charged. | relee la ficha |
+| `409 GUIDE_NOT_ALLOWED {reason:'seller_declared_shipped'}` | M5 / ventana | `sellerShipped` | El vendedor ya dijo que mandó el paquete: ya no se genera guía. No se cobró nada. | The seller already said they shipped the package: no label is generated now. Nothing was charged. | «Cerrar» |
+| ✏ vBSD-1.1 · `409 GUIDE_NOT_ALLOWED {reason:'shipment_confirmed'}` | M5 / ventana | `shipmentConfirmed` | El envío de esta solicitud ya está confirmado: ya no se genera guía. No se abrió ni se cobró nada. Cuando llegue el paquete, recíbelo y revisa las cartas. | This request's shipment is already confirmed: no label is generated now. Nothing was opened or charged. When the package arrives, receive it and review the cards. | «Cerrar» y relee la ficha |
+| `409 SHIPMENT_ALREADY_LABELED {labelSource:'manual'}` | M5 / ventana | `manualExists` | Esta solicitud ya tiene una guía capturada a mano. No se cobró nada. | This request already has a label entered by hand. Nothing was charged. | «Cerrar» |
+| `422 PICKUP_ADDRESS_MISSING` | M5, bajo el botón | `noPickupAddress` | Esta solicitud no guardó la dirección del vendedor (es de antes de que se guardara) y Skydropx no cotiza sin ella. Captura la guía a mano. | This request didn't save the seller's address (it's from before addresses were saved) and Skydropx can't quote without it. Enter the label by hand. | «Capturar la guía» a mano queda a la vista |
+| `422 SHIPMENT_ADDRESS_INCOMPLETE {missing:['recipientName']}` | ventana, paso 1 | `senderMissingQuote` | Falta quién envía y Skydropx no cotiza sin ese dato. Escríbelo (puedes usar el nombre de su cuenta) y guarda. No se cotizó nada. | The sender is missing and Skydropx can't quote without it. Enter it (you can use their account name) and save. Nothing was quoted. | modo corregir, foco en «Quién envía» |
+| `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['origin_snapshot']}` | ventana | `storeAddressMissing` | Falta la dirección de la tienda en «Configuración › Envíos», y es el destino de esta guía. No se cotizó nada: complétala ahí o captura la guía a mano. | The store address is missing in “Settings › Shipping”, and it's this label's destination. Nothing was quoted: complete it there or enter the label by hand. | «Capturar a mano» primaria |
+| `400 VALIDATION_ERROR {reason:'destination_not_editable'}` | ventana | `destinationRejected` | El servidor rechazó la petición porque llevaba un destino: el de esta guía es siempre la tienda. No se cotizó ni se cobró nada. Recarga la página. | The server rejected the request because it carried a destination: this label always goes to the store. Nothing was quoted or charged. Reload the page. | (no debería ocurrir: es el canario de BSD-B6 visto desde la pantalla) |
+| `409 SHIPPING_PROVIDER_NOT_CONFIGURED {missing:['insurance_tier']}` | ventana | (el de §43.7, sin cambio) | — | — | — |
+
+**`GUIDE_NOT_ALLOWED` por motivo (vBSD-1.1, 2026-10-06).** Los cuatro motivos los emite `inboundGuideBlock`
+(`backend/src/modules/shipments/label-inbound.ts:47-60`, leído por ux-ui), en este orden: `status` → `closed` →
+`seller_declared_shipped` → `shipment_confirmed`. La pantalla elige el texto **por `details.reason`**, ⛔ por `status`:
+
+| `reason` | Clave |
+|---|---|
+| `status`, `closed` | `notAccepted` (con `{status}` = la insignia de la solicitud) |
+| `seller_declared_shipped` | `sellerShipped` |
+| `shipment_confirmed` | `shipmentConfirmed` |
+| otro / ausente | `notAccepted` (red de seguridad) |
+
+- ✏ **Frontend:** `m4/capture/sdx-errors.ts:94-96` gana la rama `shipment_confirmed` antes del `return` de `notAccepted`.
+  Hoy cae a «ya no está aceptada (Aceptada)», que **se contradice sola**: con este motivo la solicitud sigue en `aceptada`
+  (el guardia de `status` va primero).
+- *Por qué el remedio es «recíbelo»:* `confirm-shipment` es lo que marca que el paquete ya viene (D20); en el flujo normal
+  mueve la solicitud a `en_transito` y quien contesta es `status`. Este motivo solo se ve con una fila que tiene
+  `shipmentConfirmedAt` y sigue `aceptada` (NO MEDIDO si hoy existe alguna; lo cerraría un conteo en la base). Por eso el
+  texto no promete nada sobre la guía: dice qué no pasó y cuál es el siguiente paso real.
+- Mismo hecho («el envío … ya está confirmado») y mismo remedio («recíbelo y revisa las cartas») que
+  `admin.m5.declineAccepted.error.shipmentConfirmed` (BSD-UX.6b): el operador lee lo mismo en los dos sitios.
+
+### BSD-UX.6 M5, «Declinar», la marca del cierre, el tablero y los diales
+
+#### BSD-UX.6a La ficha de una solicitud `aceptada` en M5
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| ✏ Nota de estado (sustituye a «…ya no se cancela…») | `admin.m5.…readOnlyByStatus.aceptada` | El vendedor aceptó. Genera su guía para que mande las cartas; si ya no quieres comprarlas, puedes declinarla mientras no diga que ya las mandó. | The seller accepted. Generate their label so they can send the cards; if you no longer want to buy them, you can decline it as long as they haven't said they sent them. |
+| ✏ Nota corta (sustituye a «Aceptada: ya no se cancela. …») | `admin.m5.acceptedNote` | Aceptada. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, diciendo el motivo. | Accepted. If a card arrives in bad condition, you reject it during review, stating the reason. |
+| Botón (`primary`), BSD-F1 | `admin.m5.inbound.generate` | Generar guía con Skydropx | Generate label with Skydropx |
+| Guía de Skydropx viva (línea `text-sm`) | `admin.m5.inbound.summary` | Guía de Skydropx: {carrier} · {tracking} | Skydropx label: {carrier} · {tracking} |
+| Costo (línea `tabular`) | `admin.m5.inbound.cost` | Costo de la guía: {cost} | Label cost: {cost} |
+| En proceso | `admin.m5.inbound.processing` | Guía en proceso: el número llega solo. Mientras, la solicitud no se cierra sola. | Label in progress: the number arrives on its own. Meanwhile, the request won't close on its own. |
+| ✏ Confirmar envío con guía de Skydropx (sustituye al campo «Costo real de la etiqueta (opcional)») | `admin.m5.inbound.costFromProvider` | El costo de esta guía lo dio Skydropx ({cost}): no se captura aquí. | Skydropx provided this label's cost ({cost}): it isn't entered here. |
+| Captura a mano con guía de Skydropx viva ⇒ `409 SHIPMENT_ALREADY_LABELED {labelSource:'skydropx'}` | `admin.m5.inbound.alreadySkydropx` | Esta solicitud ya tiene una guía comprada en Skydropx. No se guardó la guía a mano: para cambiarla, cancélala y compra otra. | This request already has a label bought in Skydropx. The manual label wasn't saved: to change it, cancel it and buy another. |
+| `409 LABEL_IN_PROGRESS` | `admin.m5.inbound.inProgress` | Hay una compra de guía en curso para esta solicitud. No se guardó nada; espera a que termine. | A label purchase is in progress for this request. Nothing was saved; wait for it to finish. |
+| ✏ vBSD-1.1 · Región de estado (`role="status"`) mientras corre el `POST …/inbound-shipment` (ya citada en BSD-UX.5 «Apertura»; le faltaba clave) — **ratificada** | `admin.m5.inbound.preparing` | Preparando la guía… | Preparing the label… |
+| ✏ vBSD-1.1 · Botón fantasma junto a «Guía en proceso» y bajo la alerta de la guía (abre **la ventana**, no el PDF) | `admin.m5.inbound.openLabel` | Abrir la ventana de la guía | Open the label window |
+| ✏ vBSD-1.1 · Casilla de la lista de M5 (filtra por `inboundLabelAlert=true`) | `admin.m5.inbound.alertFilter` | Solo solicitudes con alerta en su guía | Only requests with a label alert |
+
+- **`openLabel` cambia** («Abrir guía» ⇒ «Abrir la ventana de la guía»): junto a «Descargar PDF», «Abrir guía» se lee como
+  «abrir el PDF». El botón abre `CaptureLabelDialog` sobre la fila de entrada existente; el nombre dice eso.
+- **`alertFilter` cambia** («…con alerta en su guía de entrada» ⇒ «…con alerta en su guía»): «de entrada» es vocabulario
+  del contrato, no del operador; en M5 la única guía que tiene una solicitud es la del vendedor. Mismas palabras que la
+  línea del tablero (abajo), para que el operador reconozca a dónde lo mandó. La casilla queda como está construida
+  (`label` envolviendo un `checkbox`, 44 px, `M5View.tsx:761-772`): ⛔ sin «✕» de quitar, la casilla ya se desmarca.
+- **`preparing`** se ratifica tal cual.
+
+- **Acciones con guía de Skydropx:** «Descargar PDF» (`GET /admin/shipments/:id/label.pdf`) y **«Cancelar guía y comprar
+  otra»** con el diálogo de §43.8, cuyo cuerpo en modo entrada es:
+  `admin.m4.tracking.sdx.inbound.reissueBody` — ES **«Se cancela en Skydropx y el saldo regresa; si Skydropx no devuelve
+  todo, la diferencia queda como ajuste. La solicitud vuelve a «sin guía»: el plazo del vendedor se detiene y la cuenta
+  para el cierre automático empieza de nuevo hoy. Cuando compres la nueva, al vendedor le llega con la nota de que
+  sustituye a la anterior.»** / EN “It's cancelled in Skydropx and the balance comes back; if Skydropx doesn't return all of
+  it, the difference is recorded as an adjustment. The request goes back to “no label”: the seller's time stops and the
+  count toward automatic closing starts again today. When you buy the new one, the seller gets it with a note that it
+  replaces the previous one.” `409 LABEL_NOT_CANCELLABLE`: `{reason:'sell_request_status'}` ⇒ **«La solicitud ya no está
+  aceptada ({estado}): la guía no se cambia desde aquí.»** / “The request is no longer accepted ({status}): the label isn't
+  changed from here.” (`…inbound.reissueNotAccepted`); `{reason:'seller_declared_shipped'}` ⇒ **«El vendedor ya dijo que
+  mandó el paquete: esta guía ya no se cambia.»** / “The seller already said they shipped the package: this label can't be
+  changed now.” (`…inbound.reissueSellerShipped`).
+- ✏ **vBSD-1.1 — tras re-emitir SÍ lleva frase** (hoy no pinta ninguna: `LabelActions.tsx:409-411` devuelve `''` en
+  entrada). La de salida (`admin.m4.label.cancel.done`, «El envío volvió a «preparado»») ⛔ no sirve: aquí no hay envío
+  preparado, y lo que el operador necesita saber es que **la cuenta del cierre empezó de nuevo**, que no se ve en la ficha
+  salvo por la fecha. `Banner success` en M5, el mismo sitio que `bought`:
+
+  | Resultado del `POST …/cancel` | Clave | ES | EN |
+  |---|---|---|---|
+  | `outcome = 'cancelled'` | `admin.m4.tracking.sdx.inbound.reissueDone` | Guía cancelada. La solicitud {id} volvió a «sin guía» y la cuenta para su cierre automático empieza de nuevo hoy. Ya puedes generar la nueva; al vendedor le llegará con la nota de que sustituye a la anterior. | Label cancelled. Request {id} is back to “no label” and the count toward automatic closing starts again today. You can now generate the new one; the seller will get it with a note that it replaces the previous one. |
+  | cualquier otro `outcome` (como hoy en `LabelActions.tsx:411`) | `admin.m4.label.cancel.already` (existe, sin cambio) | Esa guía ya estaba cancelada. No se hizo nada. | — |
+
+  `{id}` = `sellRequestId` (el mismo de `bought`). Lo compone el panel de M5, que conoce la solicitud (el diálogo no):
+  p. ej., `CancelLabelDialog` sigue devolviendo `''` en entrada y `AcceptedRequestPanel` pinta `reissueDone` cuando el
+  resultado es `''`. Cómo se cablea lo decide frontend. «Ya puedes generar la nueva» y ⛔ «con Skydropx»: si el proveedor
+  se apagó entre medias, el camino que queda es la captura a mano y la frase sigue siendo cierta.
+- **Captura a mano**: el formulario de hoy (`admin.m5.shipment.*`) sigue, como **secundario** del botón de Skydropx cuando
+  hay Skydropx, o como único camino si no. Con guía de Skydropx viva o reclamo vivo **no se pinta**.
+- `costCents` se pinta tal cual llega (con o sin IVA: C-5).
+
+#### BSD-UX.6b El diálogo «Declinar» en «Aceptada»
+
+Botón **`secondary`** (⛔ `destructive`: §25.8, contestarle al vendedor no destruye nada suyo) en la ficha, **solo** con
+`declineAcceptedAllowed = true` (BSD-F5: ⛔ por `status`). Abre `Dialog` §7.6:
+
+```
+Declinar esta solicitud aceptada
+Se cierra la solicitud y al vendedor le llega el correo de «no continuamos»,
+el mismo que si se cerrara sola. No se puede reabrir; si quiere vender,
+tendrá que cotizar de nuevo. No cuenta en su contra.
+[una línea según su guía, si tiene]
+Motivo (interno, obligatorio)  [                                    ]
+De 3 a 500 caracteres. Queda en la bitácora; el vendedor no lo verá.
+                                     [ Volver ]  [ Declinar y avisarle ]
+```
+
+| Pieza | Clave (`admin.m5.declineAccepted.*`) | ES | EN |
+|---|---|---|---|
+| Botón | `action` | Declinar | Decline |
+| Título | `title` | Declinar esta solicitud aceptada | Decline this accepted request |
+| Cuerpo | `body` | Se cierra la solicitud y al vendedor le llega el correo de «no continuamos», el mismo que si se cerrara sola. No se puede reabrir; si quiere vender, tendrá que cotizar de nuevo. No cuenta en su contra. | The request closes and the seller gets the “not continuing” email, the same one as if it closed on its own. It can't be reopened; if they want to sell, they'll need a new quote. It doesn't count against them. |
+| Con guía de Skydropx viva | `bodySdx` | Su guía de Skydropx ({carrier} · {tracking}) se cancela sola y el saldo regresa, si la paquetería todavía no la movió; si no se puede, queda en «Guías por cancelar». | Their Skydropx label ({carrier} · {tracking}) is cancelled automatically and the balance comes back, if the carrier hasn't moved it yet; if that's not possible, it goes to “Labels to cancel”. |
+| Con guía manual | `bodyManual` | Tiene una guía capturada a mano ({carrier} · {tracking}): queda en «Guías por cancelar» para que la canceles. | They have a label entered by hand ({carrier} · {tracking}): it goes to “Labels to cancel” for you to cancel it. |
+| Con compra en curso (`labelProcessing`) | `bodyInProgress` | Hay una compra de guía en curso: si termina, la guía se cancela sola. | A label purchase is in progress: if it completes, the label is cancelled automatically. |
+| Campo (`Textarea`, obligatorio, `aria-required`) | `reasonLabel` | Motivo (interno, obligatorio) | Reason (internal, required) |
+| Ayuda | `reasonHint` | De 3 a 500 caracteres. Queda en la bitácora; el vendedor no lo verá. | 3 to 500 characters. It's logged; the seller won't see it. |
+| Razón del botón apagado (`aria-describedby`) | `reasonTooShort` | Escribe el motivo (3 caracteres o más) para poder declinar. | Write the reason (3 characters or more) to decline. |
+| Más de 500 | (`admin.m5.reasonTooLong`, existe) | El motivo no puede pasar de 500 caracteres. | — |
+| Confirmar (`primary`) / salir | `confirm` / `back` | Declinar y avisarle / Volver | Decline and notify them / Back |
+| Hecho (`Banner success` en la ficha) | `done` | Solicitud {id} declinada: quedó cerrada y al vendedor le llega el correo de «no continuamos». | Request {id} declined: it's closed and the seller gets the “not continuing” email. |
+| `409 DECLINE_NOT_ALLOWED {reason:'status'}` | `error.status` | Esta solicitud ya no está aceptada ({estado}). No se declinó; abajo ves cómo quedó. | This request is no longer accepted ({status}). It wasn't declined; you can see below how it stands. |
+| `{reason:'seller_declared_shipped'}` | `error.sellerShipped` | El vendedor ya dijo que mandó el paquete: ya no se declina. Recíbelo y, si hace falta, rechaza las cartas al revisarlas. | The seller already said they shipped the package: it can't be declined now. Receive it and, if needed, reject the cards during review. |
+| `{reason:'shipment_confirmed'}` | `error.shipmentConfirmed` | El envío ya está confirmado: ya no se declina. Recíbelo y revisa las cartas. | The shipment is already confirmed: it can't be declined now. Receive it and review the cards. |
+| `400 VALIDATION_ERROR {field:'reason'}` | `error.reason` | Escribe el motivo: de 3 a 500 caracteres. No se declinó. | Write the reason: 3 to 500 characters. It wasn't declined. |
+| `403` | `error.forbidden` | Tu cuenta no puede declinar solicitudes. | Your account can't decline requests. |
+| `5xx` / red | `error.unknown` | No sabemos si se declinó: el servidor no respondió. Revisamos la solicitud… | We don't know whether it was declined: the server didn't respond. Checking the request… |
+
+- **Foco inicial en «Motivo»** (es lo único que falta para confirmar); Esc y «Volver» cierran sin escribir nada. Orden de
+  tabulación: Motivo → Volver → Declinar y avisarle.
+- **El botón de confirmar está deshabilitado** mientras `trim().length < 3` **o** `> 500`, con su razón visible y unida
+  (§15.9: ⛔ un botón apagado y mudo). La cuenta de 3 es formato del control, no regla de negocio: el `400` del servidor
+  sigue mandando.
+- Solo **una** de las tres líneas de guía (Skydropx viva > en curso > manual), según `inboundShipment` y la guía de la
+  solicitud. ⛔ Ninguna cifra del costo de la guía en el diálogo (no es una decisión de dinero; el saldo regresa solo).
+- **`5xx`/red ⇒ relectura** (`GET /admin/buylist/:id`, mismo patrón que SK5): si ya es `expirada`/`not_continued` ⇒ el
+  `done`; si sigue `aceptada` ⇒ «No se declinó: el servidor no respondió. Vuelve a intentarlo.» / “It wasn't declined: the
+  server didn't respond. Try again.” (`error.notDone`). ⛔ Un reintento a ciegas: el segundo `POST` daría `409`, no un
+  segundo correo, pero la pantalla no debe adivinar.
+- `409` ⇒ cierra el diálogo, relee la ficha y pinta el texto en `Banner warning` sobre ella.
+
+#### BSD-UX.6c La marca «se cierra sola» — M5 y tablero
+
+**En la ficha** (aceptada sin guía, `guideDueAt ≠ null`), bajo la nota de estado:
+
+| Pieza | Clave (`admin.m5.guideDue.*`) | ES | EN | Estilo |
+|---|---|---|---|---|
+| Línea, siempre que haya `guideDueAt` | `line` | Sin guía: se cierra sola el {fecha y hora} si para entonces no tiene guía. | No label: it closes on its own on {date and time} if it still has none by then. | `text-sm text-muted`; con `guideDueSoon` pasa a `text-text` y la fecha a `text-accent` (§31.6f llevado a pantalla: la frase porta, el color acompaña) |
+| Versalita (solo `guideDueSoon = true`) | `tag` | Se cierra sola | Closes on its own | `TAG text-accent` (como «Caduca hoy» de §25.8) |
+| Nota (solo `guideDueSoon = true`) | `note` | Al cerrarse, al vendedor le llega el correo de «no continuamos» y no cuenta en su contra. Para evitarlo, genera su guía o declínala tú. | When it closes, the seller gets the “not continuing” email and it doesn't count against them. To avoid it, generate their label or decline it yourself. | `text-sm text-text` |
+
+**En las filas de M5** (pestaña «Con el vendedor», §25.8a; y en cualquier lista de M5 que pinte la solicitud): la versalita
+`tag` junto a la insignia `ACEPTADA`, ⇔ `guideDueSoon`. *La pestaña agrupa; la versalita precisa* (§25.8a (b)).
+
+**En el tablero** (`AdminDashboard`, tarjeta «Cola de trabajo», bajo el `QueueLink` de Buylist): una línea-enlace a
+`/admin/m5`, **solo con el contador > 0**:
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.dashboard.buylistGuideDue` | {n, plural, one {# solicitud aceptada sin guía se cierra sola pronto} other {# solicitudes aceptadas sin guía se cierran solas pronto}} | {n, plural, one {# accepted request without a label closes on its own soon} other {# accepted requests without a label close on their own soon}} |
+
+`text-sm text-accent` (es un pendiente con reloj, como `toPrepare.overdue`); el número del contador lo da el servidor
+(nombre del campo: C-3). ⛔ Con 0, nada (ni «0 solicitudes»).
+
+✏ **vBSD-1.1 — segunda línea del tablero: guías de entrada con alerta** (`workQueue.buylistInboundLabelAlert`, contrato
+BSD-1.3 punto 4; construida en `AdminDashboard.tsx:251-259`). **Ratificada** tal como la puso frontend; misma forma que
+`buylistGuideDue` (enlace a `/admin/m5`, `text-sm text-accent`, solo con contador > 0, ⛔ con 0 nada):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.dashboard.buylistInboundLabelAlert` | {n, plural, one {# solicitud de venta con alerta en su guía} other {# solicitudes de venta con alerta en su guía}} | {n, plural, one {# sell request with a label alert} other {# sell requests with a label alert}} |
+
+Va **debajo** de `buylistGuideDue` (el cierre pierde la compra; la alerta, no todavía). El enlace lleva a la lista de M5
+sin filtro (M5 no lee la URL, C-2); al llegar, la casilla `alertFilter` (BSD-UX.6a) dice las mismas palabras.
+
+✏ **vBSD-1.1 — «en N días», ahora que el servidor lo manda** (C-8 resuelto por el contrato, `API_CONTRACT.md:40234-40236`:
+`guideDueInDays = ceil((guideDueAt − now) / 24 h)`, mínimo 0, solo con `guideDueSoon`; si no, `null`). Va **dentro de la
+versalita**, tras « · », y solo si llega número (`GuideDueMark.tsx:25-29`, construido así):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m5.guideDue.inDays` | {n, plural, =0 {en cualquier momento} one {en menos de 24 h} other {en # días}} | {n, plural, =0 {any moment now} one {in under 24 h} other {in # days}} |
+
+Se lee «SE CIERRA SOLA · EN 2 DÍAS». Cambia lo que puso frontend en dos ramas, porque la cuenta es un **techo** (`ceil`):
+- `=0` ⛔ «hoy»: con `ceil` y mínimo 0, `0` significa que `guideDueAt` **ya pasó** y el barrido aún no corre. «Hoy» sería
+  falso si pasó ayer a las 23:50; «en cualquier momento» es lo que de verdad ocurre.
+- `one` ⛔ «en 1 día»: `1` cubre de 1 minuto a 24 h. «En 1 día» con 3 horas por delante tranquiliza de más.
+- `other` se queda «en # días»: `2` = entre 24 y 48 h; la fecha exacta está en la línea de al lado, que manda.
+
+- **Fecha siempre; el «N» la acompaña, ⛔ la sustituye** (BX5): la línea `line` con `guideDueAt` sigue en la ficha. El
+  «N» va solo en la versalita (ficha y filas). La pantalla no resta nada: con `guideDueInDays = null` no hay frase.
+- ⛔ La marca **no** se deriva en el cliente (BSD-F6): solo `guideDueSoon` la enciende; la línea neutra solo mira si
+  `guideDueAt` existe.
+
+#### BSD-UX.6d «Guías por cancelar» y «Cerradas»
+
+- La columna «Por qué se cerró» (§25.8, `admin.m5.queues.pendingGuide.why`) pinta la insignia por motivo: con
+  `not_continued` sale **«No continuó»** (BSD-UX.4a). Sin texto nuevo.
+- «Cerradas» (§25.8a (d)): suma `NO CONTINUÓ` a las insignias que la fila puede llevar. Sin cambio de pestaña.
+
+#### BSD-UX.6e Los dos diales nuevos en M10
+
+✏ En el grupo «Ciclo de venta (solicitudes de venta)» de §60 (b), un **subgrupo nuevo** (`h3`) **después de «Plazos (días
+hábiles)»** — no dentro, porque estos son **naturales** y aplican **también a las en curso** (el subtítulo del grupo dice
+lo contrario para los demás):
+
+| Pieza | Clave | ES | EN |
+|---|---|---|---|
+| Subgrupo (`h3`) | `admin.m10.buylistCycle.groups.buylistGuideClose` | Cierre sin guía (días naturales) | Closing without a label (calendar days) |
+| Nota del subgrupo (`text-sm text-muted`) | `admin.m10.buylistCycle.groups.buylistGuideCloseNote` | Cuentan sábados y domingos. A diferencia del resto del grupo, aplican también a las solicitudes en curso: se leen cada día. | Saturdays and Sundays count. Unlike the rest of the group, they also apply to requests in progress: they're read every day. |
+| `buylistGuideCloseCalendarDays` — rótulo | `admin.m10.buylistCycle.labels.buylistGuideCloseCalendarDays` | Cierre de una aceptada sin guía | Closing an accepted request without a label |
+| ayuda | `admin.m10.buylistCycle.help.buylistGuideCloseCalendarDays` | Días naturales desde que el vendedor aceptó (o desde que se canceló su guía para cambiarla). Si para entonces no tiene guía, se cierra sola y le llega el correo de «no continuamos». No cuenta en su contra. | Calendar days since the seller accepted (or since their label was cancelled to replace it). If it still has no label by then, it closes on its own and they get the “not continuing” email. It doesn't count against them. |
+| regla (error del `422`) | `admin.m10.buylistCycle.rule.buylistGuideCloseCalendarDays` | Número entero, de 1 a 60. | Whole number, 1 to 60. |
+| `buylistGuideWarnDaysBeforeClose` — rótulo | `admin.m10.buylistCycle.labels.buylistGuideWarnDaysBeforeClose` | Aviso antes del cierre sin guía | Alert before closing without a label |
+| ayuda | `admin.m10.buylistCycle.help.buylistGuideWarnDaysBeforeClose` | Cuántos días naturales antes del cierre se marca la solicitud y te llega un correo. 0 = sin aviso. Si pones tantos días como el cierre o más, el aviso sale al día siguiente de aceptar. | How many calendar days before closing the request is flagged and you get an email. 0 = no alert. If you set as many days as the closing or more, the alert goes out the day after accepting. |
+| regla | `admin.m10.buylistCycle.rule.buylistGuideWarnDaysBeforeClose` | Número entero, de 0 a 30. | Whole number, 0 to 30. |
+
+`kind: 'int'`; `PUT` solo con las claves tocadas (M10-BL-2). ✏ *vBSD-1.1: nombres re-medidos por frontend y releídos por
+ux-ui en `messages/es.json:4936-4986` — el espacio real es `admin.m10.buylistCycle.{groups, labels, help, rule}`
+(⛔ `admin.m10.dials.{…, hints, rules}`, que era una suposición mía). Textos sin cambio.*
+
+### BSD-UX.7 Accesibilidad y contraste
+
+- **Ventana:** los dos bloques del paso 1 son `<section aria-labelledby>`; el destino es una `<dl>` sin controles, así que
+  el orden de tabulación del paso 1 es el de §43.2 sin paradas nuevas; «Usar este nombre» va **después** del campo
+  «Quién envía» en el orden de tabulación y devuelve el foco al campo.
+- **Portal:** el bloque «Tu guía» es una `<section aria-labelledby>` con el eyebrow como encabezado; el botón dice «(PDF)»
+  en su nombre accesible; el error, `role="alert"`; la descarga en curso, `aria-busy` en el botón.
+- **Marca de M5:** la versalita «Se cierra sola» **y** la frase con la fecha son el portador; el bermellón acompaña
+  (§2.4). En el tablero, la línea es un enlace con texto completo (⛔ un número solo).
+- **Diálogo «Declinar»:** `role="dialog"`, `aria-modal`, título como `aria-labelledby`; el campo con `aria-required` y
+  `aria-invalid` tras el `400`.
+- **Contraste — cero pares nuevos.** Bermellón sobre papel (~6.2:1) para la versalita, la fecha y la línea del tablero;
+  tinta y `text-muted` sobre papel/superficie (§10); insignia neutral `soft` (la misma de «No procedió»). Correos: los
+  pares de §31.11 / §41.12. ⛔ Ni verde ni amarillo para «se cierra sola»: lo dice la palabra.
+
+### BSD-UX.8 Inventario de claves (paridad ES/EN en el mismo commit)
+
+| Espacio | Nuevas / cambian | § |
+|---|---|---|
+| `status.sellRequestExpiry` | **nueva** `not_continued` | 4a |
+| `buylist.offer` | **nuevas** `closedNotContinued`, `label.{title, body, bodyNoCarrier, tracking, download, downloading, alsoInEmail, downloadShort, errorUnavailable, errorTemporary}`. ✏ vBSD-1.1: **se retira** `pickupLockedInProgress` (sin superficie hasta §25.5e; texto dormido en 4c) | 4a–4c |
+| `admin.m4.tracking.sdx.inbound` | **nuevas** `title`, `ref`, `originTitle`, `sender`, `senderMissing`, `senderHint`, `senderSuggestion`, `useSuggestion`, `scopeNote`, `resyncNote`, `senderRequired`, `destinationTitle`, `destinationName`, `destinationNote`, `feeDeducted`, `boxValue`, `marginNegative`, `pickupYes`, `pickupNo`, `deliveryHome`, `deliveryBranch`, `showBranch`, `hideBranch`, `noRecommended`, `confirmNegative`, `confirmBranch`, `sentToSeller`, `processingNote`, `bought`, `manualIntro`, `reissueBody`, `reissueNotAccepted`, `reissueSellerShipped`, ✏ vBSD-1.1 **`reissueDone`**, `error.{featureDisabled, notAccepted, sellerShipped, ✏ shipmentConfirmed, manualExists, noPickupAddress, senderMissingQuote, storeAddressMissing, destinationRejected}` | 5, 5d, 6a |
+| `admin.m5` | **cambian** `desk.readOnlyByStatus.aceptada`, `acceptedNote`; **nuevas** `inbound.{generate, summary, cost, processing, costFromProvider, alreadySkydropx, inProgress, preparing, openLabel, alertFilter}`, `declineAccepted.{action, title, body, bodySdx, bodyManual, bodyInProgress, reasonLabel, reasonHint, reasonTooShort, confirm, back, done, error.{status, sellerShipped, shipmentConfirmed, reason, forbidden, unknown, notDone}}`, `guideDue.{line, tag, note, inDays}`. ✏ vBSD-1.1: `preparing` ratificada; `openLabel`, `alertFilter` e `inDays` **cambian de texto** (6a, 6c) | 6a–6c |
+| `admin.dashboard` | **nuevas** `buylistGuideDue`, ✏ `buylistInboundLabelAlert` (ratificada) | 6c |
+| `admin.m10.buylistCycle` (✏ era `admin.m10.dials`) | **nuevas** `groups.buylistGuideClose`, `groups.buylistGuideCloseNote`, `labels/help/rule.buylistGuideCloseCalendarDays`, `labels/help/rule.buylistGuideWarnDaysBeforeClose` | 6e |
+| `admin.spendAlerts` | **nuevas** `kind.AG-23.{title, text}` (argumento `{gross}` en es y en), ✏ `fact.{sellRequestId, closesAt, offerGrossCents}` (era `field.*`). ⛔ `mail.AG-23.*`: no existe en frontend; remedio y CTA son constantes del backend (fila de abajo) | 3 |
+| `admin.m7.pnl` | **cambia** `formula`; **nuevas** `buylistFeeRetained`, `buylistGuideCost`, `buylistGuideMargin`, `buylistGuideMarginHelp`, `buylistGuideMarginNegative`, `buylistGuideCostMissing` | 11 |
+| Backend (constantes de plantilla, no `messages/*.json`) | `notContinued.*` (BSD-M1); `guide.{subjectReplaced, titleReplaced, replaced}`, `guide.sdx.{intro, introNoPdf, dropoff, tracking, redownload}` (AV-7); asunto, remedio y CTA de `AVG-1`/AG-23 en `modules/spend-alerts/` | 1–3 |
+
+### BSD-UX.9 Candados sugeridos (los escriben frontend y backend; ux-ui dice qué deben morder)
+
+| Id | Contrato | Qué afirma | Mutación que lo pone rojo |
+|---|---|---|---|
+| UX-BSD-1 | BSD-B21 | BSD-M1 ES y EN: asunto, preheader, HTML y texto **iguales** a las cadenas de BSD-UX.1; CTA tinta con `href` al portal; ninguna de las palabras de BX3 | meter «guía» en `p2`; CTA bermellón |
+| UX-BSD-2 | BSD-B8/B26 | AV-7: S lleva un adjunto `application/pdf` y `guide.sdx.intro`; S0 ninguno y `introNoPdf`; +R ⇒ asunto `subjectReplaced`, `guide.replaced` como primer párrafo y en el preheader; M byte a byte como hoy | mandar `intro` manual en S; +R sin la línea |
+| UX-BSD-3 | BSD-F7 | Portal con `expirada`+`not_continued`: texto `closedNotContinued`, insignia «No continuó» neutral, **cero** importes `MX$` en el DOM, `/expir\|venc\|plazo\|no enviaste/i` ⇒ 0 | mapear a `closedNotShipped`; dejar `hideMoney` solo en `no_offer` |
+| UX-BSD-4 | BSD-F7 | «Tu guía» y el enlace de «Ventas» existen ⇔ `labelPdfAvailable`; `404` ⇒ `errorUnavailable`, `502` ⇒ `errorTemporary` | leer `offer.trackingNumber` en vez del booleano |
+| UX-BSD-5 | BSD-F2 | Modo entrada: el bloque destino no contiene `input`, `select`, `textarea` ni botón; «Usar este nombre» rellena el campo y **0** `PUT …/address` hasta «Guardar dirección» | guardar al pulsar la sugerencia; pintar el destino como `input readonly` |
+| UX-BSD-6 | BSD-F3 | Cabecera con `feeDeducted` = `charged.grossCents` del fixture; preseleccionada = `recommendedRateId` aunque no sea la primera; `recommendedRateId:null` ⇒ ninguna marcada y `noRecommended` | preseleccionar la primera fila |
+| UX-BSD-7 | BSD-F5 | «Declinar» oculto con `declineAcceptedAllowed:false` aunque `status='aceptada'`; motivo `"  ab "` ⇒ botón apagado con razón; `"abc"` ⇒ `POST` con `{reason:'abc'}`; `5xx` ⇒ `GET` de relectura y **0** segundo `POST` | leer `status`; reintentar solo |
+| UX-BSD-8 | BSD-F6 | Con `guideDueSoon:true` ⇒ versalita y nota; con `false` y `guideDueAt` ⇒ solo la línea neutra; con el reloj falso movido 6 días la marca **no** cambia sin datos nuevos del servidor; tablero con contador 0 ⇒ ningún nodo | derivar `guideDueSoon` de `guideDueAt` en el cliente |
+| UX-BSD-9 | BSD-F8 | Paridad de todas las claves de BSD-UX.8 | borrar una de `en.json` |
+| UX-BSD-10 | — | M5 `aceptada`: el DOM no contiene «ya no se cancela» / «can no longer be cancelled» | dejar la copia vieja |
+| UX-BSD-11 | §BSD.16.2 | P&L con los cuatro campos ≠ 0: **diez** `pnl-line` en el orden de BSD-UX.11a (el 4.º `data-sign="+"` = `buylistShippingFeeRetainedCents`, el 5.º `"−"` = `buylistGuideCostCents`); Σ (signo × monto) = `profitCents` del fixture (UX-PNL-1 con diez). Con los dos en `0`: los dos renglones **siguen** con «MX$0.00» | quitar el renglón de la guía; darle `"−"` a la tarifa; pintarlos al final de la lista; esconderlos en `0` |
+| UX-BSD-12 | §BSD.16.2 | El margen **no** es parte de la fórmula: su nodo (`data-testid="pnl-buylist-margin"`) no es `pnl-line` ni `pnl-included`, no lleva `data-sign` ni «suma»/«resta», y no entra en la Σ de UX-BSD-11 | pintar el margen con `PnlLine` |
+| UX-BSD-13 | BX5 / GAS-4 | Fixture con tarifa 18 000, guía 21 552 y margen **1 517** ⇒ se pinta MX$15.17 (⛔ −35.52). Margen −3 552 ⇒ monto `formatMoneyCents(−3552)` tal cual, `text-danger`, y la frase `buylistGuideMarginNegative` en el DOM; margen ≥ 0 ⇒ ni la frase ni `text-danger` | calcular el margen como tarifa − guía en el cliente; `Math.abs` del margen; pintar el negativo sin la frase |
+| UX-BSD-14 | criterio 202(c) | `buylistGuideCostMissingCount = 0` ⇒ ningún nodo `pnl-buylist-guide-missing`; `= 2` ⇒ `Banner` `warning` con `role="status"` y el plural de 2; **cero** `<a>` y cero `button` dentro | pintarlo con `??` o con `!= null`; meterle un enlace |
+| UX-BSD-15 | criterio 202(c) | Tarifa 0, margen 0 y contador 0 ⇒ el bloque del margen **no** existe; tarifa > 0 y margen 0 ⇒ existe y dice «MX$0.00» | condicionar solo a `margen !== 0` |
+| UX-BSD-16 | paridad, P66-3, §29.4b | Las 6 claves nuevas de `admin.m7.pnl` en `es` y `en`; `formula` sigue con «Stripe» (ES y EN) y «ajustes de paquetería» (ES), y gana «descontada a vendedores» (ES) / «deducted from sellers» (EN); `/buylist\|M-?\d\|AG-\d\|AV-\d/i` sobre las claves nuevas ⇒ 0 | borrar una en `en.json`; escribir «buylist» en un rótulo |
+| UX-BSD-17 (✏ vBSD-1.1) | BSD-F6, §BSD.10 | `guideDueInDays` 0 ⇒ «en cualquier momento», 1 ⇒ «en menos de 24 h», 3 ⇒ «en 3 días», `null` ⇒ ningún « · » en la versalita; `GUIDE_NOT_ALLOWED {status:'aceptada', reason:'shipment_confirmed'}` ⇒ texto `shipmentConfirmed` y ⛔ «ya no está aceptada»; re-emitir en entrada con `outcome:'cancelled'` ⇒ `Banner` con `reissueDone` (⛔ «preparado») | volver a `=0 {hoy}`; quitar la rama `shipment_confirmed` de `sdx-errors.ts`; devolver `''` sin frase |
+| ML-30 (backend) | BSD-B20 | `AVG-1` de AG-23: asunto con la fecha corta de `closesAt`, CTA `IR A SOLICITUDES DE VENTA` → `/admin/m5` sin `?`, sin línea de «Frenar», sin PII del vendedor (fixture canaria de §41) | CTA a `spend-alerts`; interpolar el nombre del vendedor |
+
+### BSD-UX.10 Solicitudes y notas (ninguna bloquea el diseño; las del arquitecto **no las resuelvo yo**)
+
+| # | Para | Qué |
+|---|---|---|
+| **C-1** | arquitecto | **`guide.labelPdfAvailable` no tiene dónde vivir.** §BSD.5 lo pone en «`SellRequestDTO` del CLIENTE» como `guide.labelPdfAvailable`, pero ese DTO **no tiene objeto `guide`**: la guía del vendedor viaja en `offer` (`SellOfferPublicDTO.carrier/trackingNumber`, `API_CONTRACT.md:37180-37189`; `frontend/src/types/contract.ts:3033-3072`). Y `offer` solo va en el **detalle**; el enlace del renglón de «Ventas» (BSD-UX.4b punto 2) necesita el dato en la **lista**. Propuesta: `labelPdfAvailable: boolean` **plano** en `SellRequestDTO` (lista y detalle). El diseño asume eso; si va en `offer`, el enlace del renglón se cae y queda solo el portal |
+| **C-2** | arquitecto | **AG-23 «enlace a la ficha de M5» no es posible hoy:** M5 no tiene ruta por solicitud (solo `admin/m5/page.tsx`, sin lectura de URL) y PS-153 prohíbe `?` en los enlaces de estos correos. Default del diseño: CTA a `admin/m5` + folio en el cuerpo. Si se quiere el salto directo, hace falta una ruta `admin/m5/<sellRequestId>` (o permitir un parámetro) |
+| **C-3** | arquitecto | **`workQueue.buylist.guideDueSoon` choca con `workQueue.buylist: number`** (`API_CONTRACT.md:36081`, leído como número en `AdminDashboard.tsx:231-237`). Convertirlo en objeto rompe el contador de hoy. Propuesta: campo hermano `workQueue.buylistGuideDueSoon: number` |
+| **C-5** | arquitecto | `inboundShipment.costCents`: ¿con o sin IVA, con o sin seguro? Hace falta para rotular «Costo de la guía» en M5 sin afirmar de más. Mientras: se pinta tal cual, sin «con IVA» |
+| **C-6** | arquitecto / backend | Qué cadena guarda `writeSellRequestGuide` en `SellRequest.shipmentCarrier` para una guía de Skydropx: el correo y el portal dicen «llévalo a una sucursal de {carrier}», así que tiene que ser el nombre legible (`carrierLabel`), ⛔ un código. NO MEDIDO |
+| **C-7** | arquitecto | Si AG-23 entra en `spendAlertsDisabled` (apagable en M10) o es siempre encendido como AG-21/AG-22. El dial `warn = 0` ya lo apaga; el diseño pinta la casilla solo si el contrato la admite |
+| **C-8** | arquitecto (opcional) | ✏ **Resuelta** por el contrato (`API_CONTRACT.md:40234-40236`, `guideDueInDays`). Texto en BSD-UX.6c (vBSD-1.1): el «N» acompaña a la fecha, no la sustituye |
+| **P-1** | product-owner | La intro de AV-7 **manual** («La guía ya está pagada por nosotros…») no dice que se descuenta (regla D43, §25.4.7); la de Skydropx sí. El contrato dice «manual: sin cambio». ¿Se alinea la manual? Default: no se toca |
+| **P-2** | product-owner / dueño | BSD-M1 dice «Tras una revisión adicional» porque lo dictó el dueño, aunque §25.4.5 lo prohíbe en el correo 4. Queda así; el correo 4 no cambia |
+| **N-1** | orquestador | Encargo vs. contrato en AG-23: «lleva 5 días aceptada» no se escribe (el ancla puede ser el despliegue o una re-emisión; `facts` no trae la aceptación). El texto dice la fecha de cierre, como §BSD.8.3 |
+| **N-2** | orquestador | Zonas compartidas que toca el diseño: `frontend/src/components/` (si `CaptureLabelDialog` se mueve), `frontend/src/lib/status-map.ts`, `frontend/src/types/contract.ts`, `messages/*.json`. Un solo stream a la vez (`CLAUDE.md`) |
+| **N-3** | devops | La descarga del vendedor (`GET /buylist/requests/:id/label.pdf`) aparece en dos superficies (portal y «Ventas»): las dos al inventario de rutas del DAST como una sola ruta (§BSD.12.5) |
+| **C-9** | arquitecto / product-owner | **El aviso «guías hechas a mano sin costo» no tiene a dónde llevar.** El costo de una guía manual solo se captura al **confirmar el envío** (`POST /admin/buylist/:id/confirm-shipment`, `409 NOT_ACCEPTED` fuera de `aceptada`, `API_CONTRACT.md:33523-33548`) o al marcar una guía **cancelada** (`…/guide/cancellation-done`). Las solicitudes que cuenta `buylistGuideCostMissingCount` ya están **pagadas**: ningún verbo del contrato deja capturarles el costo, y M5 no tiene ruta por solicitud (C-2). Por eso el aviso de BSD-UX.11d **no lleva enlace** y dice la verdad: hoy no se puede corregir. Si el dueño quiere corregirlas, hace falta un verbo nuevo (p. ej. capturar o corregir `guideActualCostCents` en una solicitud pagada, con bitácora) y, para el enlace, una ruta o filtro en M5. ⛔ No lo resuelvo yo |
+| **N-5** | orquestador | ✏ vBSD-1.1: **§25.5e («Cambiar» la dirección de recolección en el portal) está diseñada y no construida** (medido por frontend, FRONTEND_NOTES §104; releído por ux-ui). Es hueco previo a BSD. Si se encarga, va a frontend en el stream del portal del buylist y recrea `buylist.offer.pickupLockedInProgress` con el texto dormido de BSD-UX.4c. Hasta entonces 4c no tiene superficie |
+| **N-4** | orquestador | BSD-UX.11 toca zonas compartidas: `frontend/src/types/contract.ts` (el `PnlDTO` gana los cuatro campos), `frontend/src/lib/mock/fixtures.ts` (`mockPnl`) y `messages/*.json`. Mismo stream que N-2 |
+
+### BSD-UX.11 💰 M7 — la tarifa descontada y las guías para recibir cartas en el estado de resultados (§BSD.16, errata BSD-1.2)
+
+**Fuentes** (no se re-preguntan): `HECHOS.md:81` (2026-10-06, «Q-BSD-1: el costo real de la guía de ENTRADA del buylist
+RESTA en la ganancia del reporte», palabras del dueño «que reste en el reporte»); la precisión «pero en muchos casos tendrá
+margen» la relaya el orquestador (`API_CONTRACT.md:25-28`), no está en `HECHOS.md` (de memoria del orquestador, no medido
+por mí). Norma: `API_CONTRACT §BSD.16` (`API_CONTRACT.md:40220-40276`) y errata BSD-1.3 punto 6 (sin efecto en pantalla:
+es la clase del censo del lector). Reglas de cálculo: `backend/src/modules/admin/pnl-buylist.ts` (entero); campos y CSV:
+`admin.service.ts:1826-1844` y `:2103-2107`. Pantalla de hoy: `(admin)/admin/m7/M7View.tsx` entero (263 líneas; `PnlLine`
+`:33-45`, `PnlIncluded` `:51-58`, renglones `:128-143`, aviso `shippingCostMissing` `:157-163`). Lectura del 2026-10-06 en
+`/home/user/tcg-bsdx`; ⛔ sin Bash, sha **NO MEDIDO** por mí (el encargo dice `88df74e6`).
+
+**Lo que manda de §43.23 y no cambia:** la ganancia es `profitCents` del servidor (GAS-4, ⛔ nunca la suma de lo pintado);
+los renglones con signo **son la fórmula** y se pintan siempre, también en `0`; signo visible `aria-hidden` + «suma»/«resta»
+`sr-only`; los montos con `formatMoneyCents` tal cual llegan; ⛔ códigos «M-n/AG-n/AV-n» en los textos (P66-3). **Cero
+tokens, pares de contraste o componentes nuevos:** se reusan `PnlLine` y `Banner`; el bloque del margen es texto.
+
+**En palabras del dueño (así se explica en la pantalla):** cuando le compramos cartas a alguien, le **descontamos** una
+tarifa fija por el envío, y nosotros **pagamos** la guía con la que nos manda el paquete. Lo descontado **suma** a la
+ganancia; lo que costaron las guías **resta**. La diferencia, solicitud por solicitud, es el **margen**: casi siempre a
+favor; si una guía salió más cara que lo descontado, en contra.
+
+#### BSD-UX.11a Dónde van y con qué signo
+
+```
+ESTADO DE RESULTADOS (P&L)
+Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para … ← pnl.formula
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ +  Ingresos (ventas)                                             MX$12,000.00 │
+│ +  Ingreso por envío (cobrado)                                      MX$900.00 │
+│ −  Costo de lo vendido                                            MX$7,000.00 │
+│ +  Tarifa de envío descontada a vendedores                          MX$540.00 │  ⭐ suma (text-text)
+│ −  Guías para recibir cartas de vendedores                          MX$495.17 │  ⭐ resta (text-danger)
+│ −  Comisiones Stripe                                                MX$420.00 │
+│ −  Costo de envío (paquetería, neto)                                MX$780.00 │
+│      Incluye ajustes de paquetería                                  MX$120.00 │
+│ −  Reembolsos (mercancía y envío, sin IVA)                          MX$500.00 │
+│ −  Comisión de plataforma devuelta                                   MX$30.00 │
+│ −  Compensaciones por carta perdida                                 MX$250.00 │
+│ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│ Margen de las guías de vendedores                                    MX$44.83 │  ⭐ nota, sin signo, text-xs
+│ Lo descontado menos lo que costó la guía, en las solicitudes pagadas…         │  ⭐ buylistGuideMarginHelp
+│ [aviso: N envíos liquidados no tienen costo de paquetería capturado…]         │  ← sin cambio
+│ [aviso: N solicitudes pagadas usaron guía hecha a mano sin costo…]            │  ⭐ solo si > 0
+│ ════════════════════════════════════════════════════════════════════════════ │
+│ ↗ Ganancia del periodo                                            MX$3,964.83 │  ← profitCents, tal cual
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+| Renglón | Campo | Signo | Cuándo se pinta | Componente |
+|---|---|---|---|---|
+| Tarifa de envío descontada a vendedores | `buylistShippingFeeRetainedCents` | **`+`** (monto `text-text`, signo `text-muted`, como «Ingresos») | **siempre**, también con `0` | `PnlLine sign="+"` |
+| Guías para recibir cartas de vendedores | `buylistGuideCostCents` | **`−`** (signo y monto `text-danger`) | **siempre**, también con `0` | `PnlLine sign="−"` |
+| Margen de las guías de vendedores | `buylistGuideMarginCents` | **ninguno** (no es parte de la fórmula: ya está dentro de los dos de arriba) | si `buylistShippingFeeRetainedCents > 0` **o** `buylistGuideMarginCents !== 0` | bloque propio (11b) |
+| Aviso de guías hechas a mano sin costo | `buylistGuideCostMissingCount` | — | **solo si `> 0`** | `Banner warning` (11d) |
+
+- **Orden:** los dos renglones nuevos van **justo debajo de «Costo de lo vendido»** y antes de «Comisiones Stripe», aunque
+  en el objeto del servidor vengan al final. *Por qué:* el contrato dice que la tarifa es un **descuento sobre lo que se le
+  paga al vendedor** y se presenta «dentro del bloque de costo de compras, nunca en ingresos» (§BSD.16.1); el renglón de
+  compras que hoy existe es «Costo de lo vendido». Así el dueño lee de corrido «lo que pagué por cartas, lo que me
+  descontaron de envío, lo que me costaron las guías». ✏ Corrige la regla de orden de §43.23.1 solo para estos dos.
+- **Cada uno es su propio renglón con signo** (hijo propio del `divide-y`, como «Comisiones Stripe»): ⛔ no son «Incluye…»
+  de «Costo de lo vendido», porque **no** están dentro de esa cifra (BSD-B35: el costo de cada carta sigue siendo el bruto).
+- *Por qué los dos se pintan con `0`:* son parte de la fórmula escrita encima (misma razón que §43.23.1). Un «+ MX$0.00»
+  en un mes sin compras es un dato.
+- **Montos tal cual llegan**, ⛔ la pantalla no niega, suma ni compara. Que la tarifa del mes menos las guías del mes **no**
+  dé el margen es correcto (se miden en días distintos); la ayuda lo dice (11b) y la pantalla ⛔ no lo «arregla».
+- **El CSV no cambia de diseño:** sus cuatro columnas nuevas son los nombres de los campos, al final y en el orden del
+  objeto (BSD-B36). Nada que rotular.
+
+#### BSD-UX.11b El margen — una nota, no un renglón
+
+Debajo del último renglón con signo, **fuera** del `divide-y`, separado por una línea punteada (`border-t border-dashed
+border-border`, `pt-2`), antes de los avisos:
+
+| Propiedad | Valor |
+|---|---|
+| Enganche | `data-testid="pnl-buylist-margin"`; ⛔ `pnl-line`, ⛔ `pnl-included`, ⛔ `data-sign` |
+| Línea 1 | rótulo `buylistGuideMargin` a la izquierda (`text-xs text-muted`), monto a la derecha (`text-xs tabular font-medium`) |
+| Color del monto | `≥ 0` ⇒ `text-text`; `< 0` ⇒ `text-danger`. ⛔ `text-success`: es una nota, no un logro, y no compite con la ganancia |
+| Línea 2 | `buylistGuideMarginHelp` (`text-xs text-muted`), siempre que el bloque se pinte |
+| Línea 3 (solo `< 0`) | `buylistGuideMarginNegative` (`text-xs text-danger`): el color nunca es la única señal |
+| Signo del número | el que dé `formatMoneyCents` sobre el valor negativo del servidor. ⛔ `Math.abs`, ⛔ anteponer `+` |
+| Lector de pantalla | se oye «Margen de las guías de vendedores, MX$44.83» y la ayuda; ⛔ «suma»/«resta» |
+
+- *Por qué no es tooltip:* M7 no tiene componente de tooltip (`Glob components/ui/*ooltip*` ⇒ 0), un tooltip no se ve en el
+  teléfono y añadiría una parada de tabulación por renglón. La ayuda va escrita, corta y siempre visible.
+- *Por qué la condición y no `> 0`:* un margen de **MX$0.00** con tarifa descontada es un dato (salimos tablas); sin
+  tarifa y sin margen el bloque sería un indicador vacío (criterio 202(c)). La condición no calcula nada: solo decide si
+  pintar.
+
+#### BSD-UX.11c Textos y claves (`admin.m7.pnl.*`)
+
+| Clave | ES | EN | Estado |
+|---|---|---|---|
+| `formula` | **Ingresos + ingreso por envío − costo de lo vendido + tarifa de envío descontada a vendedores − guías para recibir cartas de vendedores − comisiones Stripe − costo de envío − reembolsos − comisión de plataforma devuelta − compensaciones por carta perdida = ganancia. Los ajustes de paquetería (cargos extra que la paquetería cobra después, contados en el mes en que llegan) y el seguro ya van dentro del costo de envío.** | **Income + shipping revenue − cost of goods sold + shipping fee deducted from sellers − labels for receiving cards from sellers − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.** | **cambia el valor** |
+| `buylistFeeRetained` | Tarifa de envío descontada a vendedores | Shipping fee deducted from sellers | nueva |
+| `buylistGuideCost` | Guías para recibir cartas de vendedores | Labels for receiving cards from sellers | nueva |
+| `buylistGuideMargin` | Margen de las guías de vendedores | Margin on seller labels | nueva |
+| `buylistGuideMarginHelp` | Lo descontado menos lo que costó la guía, en las solicitudes pagadas en este periodo. Las guías de Skydropx cuentan sin IVA; las hechas a mano, con el costo que capturaste. Ya está dentro de los dos renglones de arriba y no se suma otra vez. No siempre coincide con restarlos: la guía cuenta el día que se compra y el descuento, el día que se paga. | The amount deducted minus what the label cost, for requests paid in this period. Skydropx labels count without VAT; manual ones, at the cost you entered. It's already included in the two lines above and isn't added again. It doesn't always match subtracting them: the label counts on the day it's bought and the deduction on the day the seller is paid. | nueva |
+| `buylistGuideMarginNegative` | En este periodo las guías costaron más de lo que se descontó a los vendedores. | In this period, the labels cost more than what was deducted from sellers. | nueva |
+| `buylistGuideCostMissing` | `{count, plural, one {# solicitud pagada usó una guía hecha a mano sin costo capturado: su guía cuenta como si hubiera costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.} other {# solicitudes pagadas usaron una guía hecha a mano sin costo capturado: sus guías cuentan como si hubieran costado MX$0 y su margen se ve mejor de lo que fue. El costo se captura al confirmar el envío en «Solicitudes de venta»; una vez pagada, ya no se puede añadir.}}` | `{count, plural, one {# paid request used a manual label with no cost entered: its label counts as if it cost MX$0 and its margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.} other {# paid requests used a manual label with no cost entered: their labels count as if they cost MX$0 and their margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.}}` | nueva |
+
+- *Por qué «descontada» y no «retenida»:* es la palabra que el dueño y el vendedor ya usan (`HECHOS.md:79`: «al vendedor se
+  le descuenta la tarifa fija»). *Por qué «guías para recibir cartas de vendedores» y no «guías de entrada» ni «de
+  compra»:* «entrada» es jerga interna y «guías de compra» se lee como «guías que compramos», que son todas. ⛔ La palabra
+  «buylist» en ningún texto de pantalla: el menú dice «Solicitudes de venta» / “Sell requests” (`es.json:1297`).
+- *Por qué el rótulo de la guía no dice «(sin IVA)»:* las de Skydropx cuentan sin IVA, pero las hechas a mano cuentan
+  **tal cual se capturaron** (§BSD.16.2 (b)); «sin IVA» en el rótulo afirmaría de más. Lo dice la ayuda.
+- **Fórmula:** el `+` de la tarifa es `+` normal; los `−`, U+2212 (como hoy). Sigue nombrando a Stripe (candado §29.4b,
+  `i18n-parity.test.ts`) y a los «ajustes de paquetería» (criterio 238).
+
+#### BSD-UX.11d El aviso de guías hechas a mano sin costo
+
+`Banner variant="warning" role="status"` envuelto en `data-testid="pnl-buylist-guide-missing"`, **debajo** del aviso de
+costo de paquetería que ya existe (`M7View.tsx:157-163`) y antes de la ganancia; **solo si
+`buylistGuideCostMissingCount > 0`** (⛔ `??`, ⛔ `!= null`). Mismo aspecto que el aviso de hoy.
+
+- **Sin enlace.** Medido: las solicitudes que cuenta ya están pagadas, y el contrato solo deja capturar el costo de una guía
+  manual al confirmar el envío (`409 NOT_ACCEPTED` después) o al marcarla cancelada; además M5 no tiene ruta por solicitud.
+  Un enlace llevaría a una pantalla donde **no se puede hacer** lo que el aviso pide. Por eso el texto dice dónde se
+  captura **para las próximas** y que estas ya no se corrigen. Solicitud al arquitecto en **C-9**. Si el contrato gana el
+  verbo y la ruta, el aviso gana un enlace `IR A SOLICITUDES DE VENTA` y se cambia la última frase; hasta entonces, no.
+- Las solicitudes con guía de **Skydropx** nunca cuentan aquí: su costo lo da Skydropx (`pnl-buylist.ts:72-74`).
+
+#### BSD-UX.11e Accesibilidad y contraste
+
+- Los dos renglones nuevos heredan de `PnlLine` el signo visible `aria-hidden` y el «suma»/«resta» `sr-only`: se oye
+  «suma, Tarifa de envío descontada a vendedores, MX$540.00» y «resta, Guías para recibir cartas de vendedores, MX$495.17».
+- El margen y el aviso no tienen texto de signo; el aviso es `role="status"` (no interrumpe). Sin elementos interactivos
+  nuevos: el orden de tabulación de M7 no cambia.
+- Móvil (≤ 390 px): los rótulos largos se parten en dos líneas, el monto arriba a la derecha; ⛔ truncar con «…».
+- **Contraste — cero pares nuevos:** `text-text`, `text-muted` y `text-danger` sobre `bg-surface`, los mismos que ya usa la
+  tarjeta (§43.23.7, verificados en §10 en claro y oscuro); el `Banner warning` es el del aviso de hoy.
+
+## AN-UX. Analítica de ventas del dueño — pestaña «Ventas» de Reportes (M9) y tarjeta «Ventas de hoy» del tablero (v7.0, 2026-10-06 · `API_CONTRACT §15` rev v1.85⟨ventas⟩ · `PROJECT §AN`, criterios 600–613 P1 y 620–624 P2)
+
+### AN-UX.0 Fuente, lo leído y las reglas duras
+
+**Norma:** `PROJECT.md §AN` (AN.1 definiciones, AN.2 P1, AN.3 P2, AN.4 quién lo ve) y criterios **600–613** y **620–624**;
+`API_CONTRACT §15` (endpoints §15.1, parámetros y `400` §15.2, reglas de conteo §15.3, **`SalesReportDTO` §15.4**,
+**`SalesTodayDTO` §15.5**, pruebas `AN-F-*` §15.6, CSV §15.7, P2 §15.8, preguntas P-AN-1..3 §15.9); `HECHOS.md` fila
+2026-10-06 «Analítica de ventas del dueño (§AN) — respuestas a P-ANA-1..3»: el reembolso se resta **el día en que se
+hace**; el ticket es **lo que pagó el cliente**; pestaña «Ventas» en Reportes + tarjeta en el tablero; **alcance completo
+P1 + P2** («Mete de una vez el scope completo»). Default de **P-AN-2** aplicado: la tarjeta compara contra el mismo día
+de la semana pasada **completo**.
+
+**Lo que leí** (2026-10-06, árbol `/home/user/tcg-ventas`, rama `claude/analitica-ventas`; ⛔ sin Bash, sha **NO MEDIDO**
+por mí): `(admin)/admin/m9/M9View.tsx` entero (139 líneas: **sin pestañas**; rango con `DateRangePresets` `:68` + dos
+`Input type="date"` `:70-71`; `StatCard` en retícula `:88`; exportes P&L/IVA/inventario `:105-135`); `m9/page.tsx`
+(`SuperAdminOnly`); `AdminSidebar.tsx:111` (`m9` con `superAdminOnly: true`); `AdminDashboard.tsx:147-260` (retícula
+`:155-156`, tarjeta «Ventas del periodo» `:209-227`, `useRole().isSuperAdmin` `:151`); `components/ui/StatCard.tsx`
+entero; `components/domain/DateRangePresets.tsx` entero (presets `week|month|quarter|year`, **no** los de §15.2);
+`messages/es.json:4935-4962` (`admin.m9.*`), `:1320-1323` (`admin.dashboard.sales*`), `:1028-1032` (`finish.*`), `:33-39`
+(`common.datePresets`). §7.7, §7.8, §7.17, §8.1, §8.2, §9.3, §10, §43.22, §43.23 y §80.4 de este documento.
+
+**Medido, que cambia el diseño:**
+1. **M9 no tiene pestañas hoy.** «Pestaña Ventas» significa introducir `Tabs` (§6.6) en M9: **«Ventas»** (nueva) y
+   **«Actividad»** (todo lo que M9 pinta hoy, **sin cambio**, incluidos su rango y sus tres exportes).
+2. **El selector de M9 no sirve tal cual:** `DateRangePresets` ofrece «Esta semana / Último mes / Este trimestre / Este
+   año» y calcula fechas en el navegador; §15.2 pide `today|yesterday|last7|last30|this_month|last_month|custom`
+   **resueltos por el servidor en hora de México**. La pestaña «Ventas» tiene **su propio** selector (AN-UX.2) y ⛔ no
+   toca `DateRangePresets` (lo usan M7 y la pestaña «Actividad»).
+3. **El tablero ya tiene una tarjeta «Ventas del periodo»** (`:209-227`, operador incluido, con bruto/neto). La nueva se
+   titula **«Ventas de hoy»** —otro rótulo, otro periodo— y ⛔ no sustituye ni toca la existente.
+4. **No existe modo oscuro.** El encargo pide contraste «en claro/oscuro»; el sistema es **tema único claro** (§2.3,
+   §10, §11.1: «No hay bloque `.dark`»). Todo se verifica sobre **papel** y **pozo** (AN-UX.13). Si algún día hay tema
+   oscuro, esta sección necesita su tabla; hoy no hay nada que medir.
+5. ~~Dos cifras que pide §AN.3 no vienen en el DTO~~ — **resuelto por la errata AN-1.1** (`API_CONTRACT §15.11`,
+   2026-10-06): `chargebacks` por cubo + `chargebacksUndatedCount` (fase C), `mix.byProductType` y
+   `shipping.resultNetCents` (fase B), y el **CSV en pesos** con dos decimales (fase A). Siguen bajo la regla «se pintan
+   solo si la clave llega». ⛔ El front no las deriva de otras cifras.
+
+**Reglas duras (se revisan en el PR):**
+- **AN-1 · Una cifra, una fuente (GAS-4).** Todo número sale **tal cual** del DTO. ⛔ El front no suma filas, no
+  recalcula totales, no calcula el ticket, no calcula diferencias ni porcentajes, no resta envío cobrado menos costo.
+  Si algo no viene, no se pinta (o se pinta «—»), y se pide.
+- **AN-2 · `null` es «—», nunca `0`.** `avgTicketCents`/`piecesPerOrder` `null` ⇒ «—» con texto `sr-only` «sin dato: no
+  hubo pedidos». ⛔ Ni «MX$0.00», ni `NaN`, ni `Infinity` (criterio 604).
+- **AN-3 · Unidades antes que porcentaje** (criterio 606): «+2 pedidos · +200 %», en ese orden y en la misma línea.
+- **AN-4 · El rótulo del periodo y sus cifras cambian juntos** (criterio 286): mientras carga un periodo nuevo se
+  sigue viendo el rótulo **viejo** con las cifras **viejas**; ⛔ nunca el rótulo nuevo sobre cifras viejas.
+- **AN-5 · Las fechas del periodo las dice el servidor** (`period.from/to`, `previousPeriod.from/to`). ⛔ El navegador
+  no resuelve «últimos 7 días» ni «mes pasado» (su zona horaria puede no ser la de México).
+- **AN-6 · El color no es portador.** Deltas con signo (`+`/`−` U+2212) y flecha (▲/▼) en texto; la gráfica es de **una
+  sola serie** a la vez, en tinta; los días en cero se ven como marca, no como hueco.
+- **AN-7 · Solo súper-admin** (criterio 613). La pestaña vive en una página ya `SuperAdminOnly`; la tarjeta del tablero
+  **no se monta** (ni pide `/today`) si `!isSuperAdmin` — ⛔ ni candado, ni «Solo súper-admin», ni celda vacía.
+- **AN-8 · Sin rastreo nuevo.** Ninguna librería de gráficas que cargue script, fuente o cookie de terceros; la gráfica
+  es SVG propio o una librería empaquetada en el bundle (criterio 613, `AN-F-4`).
+- **P66-3:** ⛔ ningún código «M-n», «AN-n», «P-AN-n» en textos de pantalla.
+
+**Cero tokens nuevos, cero pares de contraste nuevos** (AN-UX.13).
+
+---
+
+### AN-UX.1 Dónde vive — las pestañas de Reportes
+
+```
+REPORTES                                                         ← h1 = rótulo del menú (sin cambio, §37.2)
+[ Ventas ]  [ Actividad ]                                        ← Tabs §6.6; activa con subrayado 2px tinta
+─────────────────────────────────────────────────────────────────
+(contenido de la pestaña)
+```
+
+| Pestaña | Contenido | URL |
+|---|---|---|
+| **Ventas** (primera, **por defecto**) | AN-UX.2 … AN-UX.10 | `/admin/m9?tab=ventas` (y sin `tab`) |
+| **Actividad** | Lo de hoy, **idéntico**: «Rango de fechas», «Actividad de la tienda» (metas N/X/Y/Z), «Exportar» (P&L, IVA, inventario) | `/admin/m9?tab=actividad` |
+
+- *Por qué «Ventas» primero y por defecto:* es lo que el dueño viene a ver (pidió «cuántos pedidos tuve por día»); las
+  metas de lanzamiento son de consulta ocasional. Rompe la expectativa de quien abría M9 y veía las metas — por eso la
+  pestaña se llama con el mismo nombre que el `h2` que ya conoce («Actividad de la tienda»).
+- **El estado vive en la URL** (`tab`, `preset`, `from`, `to`, `groupBy`, `topSort`, y los locales `chart`, `cols`,
+  `top`): recargar o compartir el enlace deja la pantalla igual, y la tarjeta del tablero llega a
+  `?tab=ventas&preset=today`. Valores fuera de dominio en la URL ⇒ se ignoran y se usa el default (⛔ no se manda basura
+  al servidor para recibir un `400`).
+- Teclado de las pestañas: §6.6 (flechas, `aria-selected`, `role="tablist"` como en `M4View`). Cada pestaña monta su
+  consulta **solo cuando está activa** (la de «Actividad» no se pide mientras se ve «Ventas»).
+
+**Orden de la pestaña «Ventas»** (de arriba abajo; también el orden de tabulación):
+1. Selector de periodo y agrupación (AN-UX.2) + rótulo del periodo.
+2. Números grandes del periodo (AN-UX.3).
+3. Gráfica de barras (AN-UX.4).
+4. Tabla por día/semana/mes + «Descargar CSV» (AN-UX.5, AN-UX.9).
+4b. Totales P2 del periodo (envío, compras del buylist, ganancia — AN-UX.8c), solo si vienen.
+5. Lo más vendido (AN-UX.6).
+6. Cuándo se vende (P2, AN-UX.8a) y Cómo y a quién se vende (P2, AN-UX.8b).
+
+---
+
+### AN-UX.2 Selector de periodo (`SalesPeriodPicker`) y rótulo
+
+```
+PERIODO
+( Hoy )( Ayer )( Últimos 7 días )( Últimos 30 días )( Este mes )( Mes pasado )( Elegir fechas… )
+                                                               ↓ solo con «Elegir fechas…»
+  Desde [2026-09-01]   Hasta [2026-09-30]   [ Ver ]
+VER POR   ( Día )( Semana )( Mes )
+Del 30 sep al 6 oct 2026 · 7 días · hora del centro de México
+Se compara con: del 23 al 29 sep 2026                           ← text-sm muted
+```
+
+**Presets** — fila de chips (`Button` `ghost` `sm`; el activo `primary`, como el `RangeToggle` de §7.17), `role="group"`
+con `aria-label`, cada chip `aria-pressed`, ≥ 44 px de alto. En < `sm` la fila hace *wrap* (⛔ sin scroll horizontal:
+son 7 y el dueño debe verlos todos). Default **«Últimos 7 días»** (`last7`, §15.2).
+
+| Chip | `preset` |
+|---|---|
+| Hoy | `today` |
+| Ayer | `yesterday` |
+| Últimos 7 días | `last7` |
+| Últimos 30 días | `last30` |
+| Este mes | `this_month` |
+| Mes pasado | `last_month` |
+| Elegir fechas… | `custom` (abre los dos campos; no consulta hasta «Ver») |
+
+**Rango a mano** — dos `Input type="date"` («Desde», «Hasta») y un botón «Ver» (`secondary`). Se consulta **al pulsar
+«Ver»**, no a cada tecla (cada fecha a medio escribir sería un `400`). Validación en el navegador, **antes** de mandar,
+con el mismo texto que dará el servidor:
+
+| Caso | Dónde | Texto (clave `range.*`) |
+|---|---|---|
+| Falta una de las dos | bajo el campo vacío | «Elige las dos fechas.» |
+| Desde > Hasta | bajo «Desde» | «La fecha de inicio va antes que la de fin.» |
+| Hasta > hoy (México) | bajo «Hasta» | «No puede ser después de hoy.» |
+| Más de 366 días | bajo «Desde» | «Máximo un año (366 días). Acorta el rango.» |
+
+- `max` del `Input` = hoy en México (`Intl.DateTimeFormat('en-CA', {timeZone:'America/Mexico_City'})`). Es una **ayuda**,
+  no la regla: la regla es del servidor (AN-5).
+- Un `400 VALIDATION_ERROR` que llegue igual se pinta **bajo el campo que diga `details.field`** con el texto de la
+  tabla (por `field`; `preset`/`groupBy`/`topSort` ⇒ el genérico `range.invalid` «Ese periodo no es válido. Elige otro.»
+  en un `Banner` danger). `aria-invalid` + `aria-describedby` (§8.2).
+
+**Ver por** — segmentado «Día · Semana · Mes» (`groupBy`), `aria-pressed`, default «Día». Debajo, solo con «Semana»:
+nota `text-xs muted` «Semanas de lunes a domingo; la primera y la última pueden quedar cortadas por el periodo.»
+Cambiar la agrupación **no** cambia los números grandes (criterio 605) — no hace falta decirlo, pero el candado
+UX-AN-6 lo vigila.
+
+**Rótulo del periodo** (`aria-live="polite"`, se actualiza **con** los datos, AN-4): de `period` y `previousPeriod`.
+- Un día: «Hoy, lun 6 oct 2026» / «Ayer, dom 5 oct 2026» / «Lun 6 oct 2026» (custom de un día).
+- Varios: «Del 30 sep al 6 oct 2026 · 7 días · hora del centro de México».
+- Comparación: «Se compara con: del 23 al 29 sep 2026» (un día: «Se compara con: dom 5 oct 2026»).
+- Con «Mes pasado» la comparación son **los mismos días inmediatamente antes** (P-AN-3, default), así que el rótulo de
+  comparación **no** dice «agosto»: dice las fechas. Es justo para que el dueño no lea «contra agosto» donde no lo es.
+
+---
+
+### AN-UX.3 Los números grandes — ocho celdas con su comparación
+
+Retícula de `StatCard` igual que el tablero (§7.8; `grid sm:grid-cols-2 lg:grid-cols-4`, reglas por `divide-*`), **4 × 2**:
+
+| # | Rótulo | Cifra grande | Línea de apoyo | Comparación (`comparison.*`) |
+|---|---|---|---|---|
+| 1 | Pedidos | `totals.orders` | — | `orders` (unidad: pedido/pedidos) |
+| 2 | Cobrado (con IVA) | `chargedCents` | «Lo que pagaron los clientes: con IVA, envío y comisión.» | `chargedCents` |
+| 3 | Venta sin IVA | `netSalesCents` | «La misma cifra de ingresos que Finanzas.» | `netSalesCents` |
+| 4 | Reembolsos | `refunds.amountCents` | «{n} reembolsos · {card} con tarjeta · {spei} por SPEI» y, debajo, «Se restan {net} sin IVA» | `refundsAmountCents` |
+| 5 | Venta neta de reembolsos | `netSalesAfterRefundsCents` | «Venta sin IVA menos los reembolsos hechos en el periodo.» | `netSalesAfterRefundsCents` |
+| 6 | Ticket promedio | `avgTicketCents` o «—» | «Cobrado ÷ pedidos: lo que deja un cliente por compra.» | `avgTicketCents` |
+| 7 | Piezas por pedido | `piecesPerOrder` (1 decimal) o «—» | «{pieces} piezas vendidas» | `piecesPerOrder` |
+| 8 | Clientes | `customers.distinct` | «{new} nuevos · {returning} recurrentes» | ⛔ ninguna (no viene en el DTO; AN-1) |
+
+- Celda 4: «Reembolsos» con `refunds.count = 0` ⇒ cifra «MX$0.00» y apoyo «Sin reembolsos.» (un `0` con su nombre es
+  dato). Los reembolsos se cuentan **el día en que se hicieron** (HECHOS, P-ANA-1): el apoyo de la celda 5 lo dice con
+  «hechos en el periodo».
+- Celda 5 **negativa** (más reembolsos que ventas): «−MX$350.00» en **tinta** (⛔ sin rojo de alarma: es legítimo) y
+  una segunda línea «Negativa: los reembolsos del periodo pasan la venta.»
+- Celda 8: debajo, `text-xs muted`: «Nuevo: su primera compra pagada cae en este periodo. Se reconoce por correo,
+  también si compró como invitado.»
+- Dinero con `formatMoneyCents(valor, locale)` (§9.3). Piezas por pedido con 1 decimal en el formato del idioma («2.0»).
+
+**La línea de comparación** — `font-mono text-xs`, color **`text-muted` siempre** (⛔ ni verde ni rojo: que suban los
+reembolsos es malo y que suba la venta es bueno; pintar «bueno/malo» es opinar, y con pocas ventas el color dramatiza).
+La dirección la dicen el signo y la flecha, y el `sr-only`.
+
+| `Delta` | Situación | Texto |
+|---|---|---|
+| `diff > 0`, `pct` número | normal | «▲ +2 pedidos · +200 %» · «▲ +MX$850.00 · +12 %» |
+| `diff < 0`, `pct` número | normal | «▼ −1 pedido · −33 %» · «▼ −MX$120.00 · −8 %» |
+| `diff = 0` | sin cambio | «= Igual que el periodo anterior» |
+| `diff ≠ 0`, `pct = null` y `previousTotals.orders = 0` | criterio 606 | «▲ +3 pedidos · sin ventas en el periodo anterior» |
+| `diff ≠ 0`, `pct = null` y `previousTotals.orders > 0` | esa cifra fue 0 antes (p. ej. reembolsos) | «▲ +MX$500.00 · antes fue cero» |
+| `diff = null` y `previousTotals.orders = 0` | ticket/piezas sin anterior | «Sin ventas en el periodo anterior» |
+| `diff = null` y `totals.orders = 0` | ticket/piezas sin actual | «Antes: {valor anterior}» (de `previousTotals`, tal cual) |
+
+- Flecha `aria-hidden`; antes de ella un `sr-only` «subió»/«bajó»/«igual». Se oye: «subió, más 2 pedidos, más 200 por
+  ciento, contra el periodo anterior».
+- Signo menos: U+2212 «−» (como §43.23.3), también dentro del dinero («−MX$120.00»).
+- El `%` es **entero** tal cual llega (`pct`); ⛔ el front no lo redondea ni lo calcula.
+- `piecesPerOrder.diff` se pinta con 1 decimal («▲ +0.5 piezas por pedido»).
+
+---
+
+### AN-UX.4 Gráfica de barras (`SalesBarChart`)
+
+```
+PEDIDOS POR DÍA                          Ver: ( Pedidos )( Cobrado )
+ 3 ┤        ██
+ 2 ┤        ██        ██
+ 1 ┤  ██    ██        ██          ┌┐
+ 0 ┼──▁▁──██──██──▁▁──██──▁▁──└┘──      ← ▁ = día en cero (marca de 2 px) · └┘ = hoy, en curso (barra sin relleno)
+     lun   mar   mié   jue   vie   sáb   dom*
+                                     * Hoy sigue en curso.
+Los mismos números están en la tabla de abajo.
+```
+
+- **Una serie a la vez** (AN-6): conmutador «Ver: Pedidos · Cobrado» (segmentado, `aria-pressed`, URL `chart`). Dos
+  escalas distintas en una gráfica (doble eje) confunden; dos colores dependerían del color.
+- **Una barra por fila de `rows`, en el mismo orden** (criterio 609): ni se agregan, ni se saltan, ni se re-muestrean.
+  Mismo `groupBy` que la tabla.
+- **Barras:** relleno `--color-text` (tinta), sin radio (§4.2), separación ≥ 2 px. Valor encima de cada barra
+  (`font-mono text-xs`) **solo si hay ≤ 14 barras**; con más, solo en el tooltip.
+- **Día en cero:** marca de **2 px** de alto en `--color-text-muted` sobre la línea base, ocupando su hueco (⛔ hueco
+  vacío: «no se saltan», criterio 609).
+- **Hoy en curso** (la barra cuyo `to` es hoy en México, si el periodo incluye hoy): **sin relleno**, contorno de 2 px en
+  tinta, y su etiqueta del eje lleva «*» con la nota «* Hoy sigue en curso.» La forma, no el color, dice «incompleta».
+- **Ejes:** X con la etiqueta de cada cubo (día «6 oct» / «Oct 6»; semana «29 sep–5 oct»; mes «oct 2026»), y si hay
+  más de 14 barras, una de cada `ceil(n/7)` (las demás en el tooltip). Y con 3–4 marcas (`text-xs muted tabular-nums`;
+  dinero abreviado «MX$1.2k»). Líneas guía horizontales en `--color-border` (decorativas). Escala desde **0** siempre.
+- **Muchas barras:** con más de 62 cubos (p. ej. un año por día), las barras pueden quedar de 1–2 px. Encima de la
+  gráfica, `text-xs muted`: «Con tantos días, se lee mejor por semana o por mes.» + botón enlace «Ver por semana»
+  (cambia `groupBy`). ⛔ No se cambia la agrupación solo.
+- **Tooltip** (ratón y toque, ⛔ no es el único acceso): «Lun 6 oct · 3 pedidos · MX$1,250.00».
+- **Tamaño:** alto 200 px en < `md`, 240 px en ≥ `md`; ancho del contenedor.
+- **Movimiento:** ninguno (⛔ barras que «crecen» al cargar).
+
+**Accesibilidad — la tabla es la equivalencia.** La gráfica es un `<figure>`; el `svg` lleva `role="img"` y un
+`aria-label` de resumen construido con `rows` y `totals` (sin calcular nada nuevo salvo encontrar el máximo):
+«Pedidos por día, del 30 sep al 6 oct: 5 en total; el día con más, jueves 2 oct con 3; 4 días sin pedidos.» El
+`figcaption` visible dice «Los mismos números están en la tabla de abajo.» Las barras **no** son paradas de tabulación
+(hasta 366 trampas de Tab); quien usa teclado o lector lee la tabla (AN-UX.5), que es la misma información fila a fila.
+
+---
+
+### AN-UX.5 Tabla por día / semana / mes (`SalesDailyTable`)
+
+`DataTable` (§7.7), `<table>` con `<caption class="sr-only">` («Ventas por día, del 30 sep al 6 oct 2026»), cabecera
+pegajosa, números a la derecha con `tabular-nums`. **Todas las filas de `rows`, también las de cero** (criterio 605); al
+final, un `<tfoot>` «Total del periodo» con **`totals`** (⛔ nunca la suma de las filas, AN-1).
+
+**Conmutador de columnas** («Columnas: Ventas · Envíos, compras y ganancia», URL `cols`) — catorce columnas no caben;
+las dos vistas comparten la columna del día.
+
+*Vista «Ventas» (P1, por defecto):*
+
+| Columna | Campo | Vacío |
+|---|---|---|
+| Día / Semana / Mes | `from`–`to` | — |
+| Pedidos | `orders` | `0` |
+| Cobrado (con IVA) | `chargedCents` | `MX$0.00` |
+| Venta sin IVA | `netSalesCents` | `MX$0.00` |
+| Reembolsos | `refunds.count` · `refunds.amountCents` («1 · MX$400.00»; con 0: «0») | `0` |
+| Venta neta de reembolsos | `netSalesAfterRefundsCents` | `MX$0.00` |
+| Ticket promedio | `avgTicketCents` | «—» |
+| Piezas por pedido | `piecesPerOrder` | «—» |
+
+*Vista «Envíos, compras y ganancia» (P2):*
+
+| Columna | Campo | Notas |
+|---|---|---|
+| Día / Semana / Mes | `from`–`to` | — |
+| Envío cobrado (sin IVA) | `shipping.chargedNetCents` | — |
+| Costo de guías (sin IVA) | `shipping.costNetCents` | si `shipping.costMissingCount > 0`: «MX$300.00 ⚠ 2 sin costo» (icono `aria-hidden` + texto) |
+| Ajustes de paquetería | `shipping.adjustmentsCents` | encabezado `title`: «Ya van dentro del costo de guías» (mismo nombre que §43.23) |
+| Resultado del envío | `shipping.resultNetCents` (AN-1.1) | **tal cual del DTO** (⛔ restar las dos columnas de al lado). Con signo siempre: «+MX$120.00» / «−MX$80.00» / «MX$0.00», en **tinta** (⛔ verde/rojo, AN-6). Si `costMissingCount > 0` en la fila: tras la cifra «⚠» (`aria-hidden`) + `sr-only` «puede ser menor: hay envíos sin costo». Solo si la clave viene |
+| Ingreso por tarifa de buylist / Costo de guías de buylist | `shipping.buylistRevenueCents` / `buylistCostCents` | **solo si la clave viene** (§15.8: ausente hasta #78); ⛔ nunca «MX$0.00» inventado |
+| Compras del buylist | `buylist.paidCount` · `buylist.paidNetCents` («2 · MX$1,800.00») | si `paidWithoutPayoutCount > 0`: «⚠ 1 sin monto» |
+| Contracargos | `chargebacks.count` · `chargebacks.amountCents` (AN-1.1, fase C) — «1 · MX$400.00»; con 0: «0» | **la columna no existe** si la clave no viene. Cuenta el día en que **se abrió**; ⛔ no se resta de ninguna venta |
+| Ganancia (regla de Finanzas) | `profitCents` | negativa en tinta con «−» |
+
+- Si la vista P2 se abre y los campos P2 **no** vienen (servidor en fase A), el conmutador **no se muestra** (⛔ ni una
+  vista llena de «—»). Lo mismo para cada bloque P2 de AN-UX.8.
+- Debajo de la vista P2, `text-xs muted`, siempre: «La ganancia sigue la misma regla que Finanzas; cada día suma la
+  ganancia de Finanzas del periodo.» Y, solo si alguna fila tiene envíos sin costo: «⚠ Hay envíos sin costo de guía
+  capturado: el costo real puede ser mayor.» y si alguna tiene compras sin monto: «⚠ Hay compras del buylist pagadas
+  sin monto registrado: no están en la suma.» Con la columna «Resultado del envío»: «Resultado del envío = envío cobrado
+  menos costo de guías (los ajustes ya van dentro). Positivo: lo cobrado cubrió las guías; negativo: costaron más.» Con
+  la columna «Contracargos»: «Los contracargos cuentan el día en que se abrieron y no se restan de la venta.» y, solo si
+  `chargebacksUndatedCount > 0`: «⚠ {n} contracargos anteriores sin fecha: no aparecen en ningún día.»
+- **Etiqueta del día:** «lun 6 oct» (con día de la semana: ayuda a leer patrones); semana «29 sep – 5 oct» y, si está
+  cortada (menos de 7 días), «· 3 días»; mes «oct 2026» y, si cortado, «· del 1 al 6».
+- **Fila de cero** (`orders = 0` y `refunds.count = 0`): todo en `text-muted`. Sigue siendo una fila con sus ceros.
+- **Fila de hoy en curso:** tras la etiqueta, «· en curso» (`text-xs muted`).
+- **Escritorio:** la primera columna pegajosa a la izquierda si hay scroll horizontal. **Móvil (< `md`):** cada fila
+  colapsa a tarjeta (§7.7) con el día como título y las cifras de la vista como «rótulo: valor»; con 31 filas es
+  aceptable; con más de 31, aviso igual que la gráfica («se lee mejor por semana o por mes»).
+
+---
+
+### AN-UX.6 Lo más vendido (`SalesTopLists`)
+
+```
+LO MÁS VENDIDO                               Ordenar por: ( Venta sin IVA )( Piezas )
+[ Cartas ] [ Sets ] [ Sellados ]                                  ← Tabs §6.6
+ #  Carta                                    Piezas   Venta sin IVA
+ 1  Charizard ex · 199/165 · 151  [REVERSE]      3        MX$4,200.00
+ 2  Pikachu · 025 · Base  [GRADEADA]             1        MX$2,100.00
+ …  (hasta 10)
+No cuenta pedidos reembolsados completos; por eso su suma puede ser menor que la venta del periodo.
+```
+
+- **Orden:** `topSort` (`net` por defecto) — cambiarlo **vuelve a pedir** el informe (el orden lo da el servidor, ⛔ no se
+  reordena en el navegador). Mientras llega, la lista anterior se queda atenuada (AN-UX.10).
+- **Cartas** (`top.cards`): nombre + número + set (datos de catálogo, `lang="en"`, sin traducir, §9.2), y el acabado con
+  `FinishMark` (§16.6) usando `finish.*` (`es.json:1028-1032`); `productType = 'graded'` ⇒ chip «GRADEADA» en versalitas
+  (`Badge` neutro). Dos acabados de la misma carta = **dos renglones** (criterio 607): el acabado visible es lo que los
+  distingue.
+- **Sets** (`top.sets`): nombre del set, piezas, venta sin IVA.
+- **Sellados** (`top.sealed`): nombre del producto + set, piezas, venta sin IVA.
+- La columna por la que se ordena lleva `aria-sort="descending"` en su encabezado y va en `font-medium`.
+- **Hasta 10** por lista; menos si hay menos. Lista vacía: «Sin cartas vendidas en este periodo.» / «Sin sets…» /
+  «Sin sellados…» (texto, sin ilustración).
+- La nota del pie (siempre visible): «No cuenta pedidos reembolsados completos; por eso su suma puede ser menor que la
+  venta del periodo.» — evita que el dueño intente cuadrarla contra «Venta sin IVA» (§15.3: son para ordenar).
+- ⛔ Sin enlace a la ficha pública ni dato de cliente.
+
+---
+
+### AN-UX.7 Nuevos y recurrentes
+
+Vive en la celda 8 de AN-UX.3 (cifra = `customers.distinct`; apoyo «{new} nuevos · {returning} recurrentes»; nota de
+definición). ⛔ Sin gráfica de pastel ni porcentaje: son dos conteos y con pocos clientes un porcentaje engaña (la misma
+razón que AN-3). ⛔ Sin comparación contra el periodo anterior (no viene).
+
+---
+
+### AN-UX.8 Bloques de P2
+
+Cada bloque se pinta **solo si su campo viene** en el DTO (fase B/C, §15.8). Todos llevan `h2` propio y su tabla.
+
+#### AN-UX.8a «Cuándo se vende» — mejores días y horas (criterio 620)
+
+Dos gráficas pequeñas con el **mismo** patrón de AN-UX.4 (una serie, tinta, ceros visibles, escala desde 0, conmutador
+«Pedidos · Cobrado» compartido entre las dos, sin movimiento):
+- **Por día de la semana** (`bestDays.byWeekday`, siempre 7): lun … dom.
+- **Por hora** (`bestDays.byHour`, siempre 24, hora del centro de México): etiquetas cada 3 h («00», «03», … «21»).
+
+Equivalencia accesible: debajo de cada una, `<details>` «Ver como tabla» con su tabla (día/hora · pedidos · cobrado);
+hora en la tabla como «13:00–13:59». Resumen `aria-label` igual que AN-UX.4 («El día con más pedidos: viernes, 4»).
+
+Aviso de pocos datos (`text-xs muted`, encima, si `totals.orders < 30`): «Con pocos pedidos esto todavía no dice
+mucho: un solo día bueno lo cambia todo.» *(El umbral 30 es decisión de diseño, no regla de negocio; se puede mover.)*
+
+#### AN-UX.8b «Cómo y a quién se vende» — mezclas (criterio 621)
+
+Tres tablas cortas, cada una con su `caption` visible. Columnas: concepto · pedidos · cobrado. Una barra de proporción
+en tinta **decorativa** (`aria-hidden`, ancho = pedidos ÷ `totals.orders`, dibujo, no cifra) puede acompañar; ⛔ sin
+porcentaje escrito (AN-1).
+
+| Tabla | Filas |
+|---|---|
+| A dónde va | Envío a domicilio (`direct_ship`) · Bóveda (`vault`) |
+| Quién compra | Con cuenta (`account`) · Invitado (`guest`) |
+| Cómo paga | una por `byPaymentMethod`: `card` «Tarjeta», `oxxo` «OXXO», `customer_balance` «Transferencia», cualquier otro «Otro ({method})», `null` «Sin dato» |
+
+- Bajo «Cómo paga», si hay fila `null`: «Sin dato: pedidos pagados antes de que la tienda guardara el método de pago.»
+  Si la única fila no-`null` es «Tarjeta»: «Hoy la tienda solo cobra con tarjeta.» ⚠ **NO MEDIDO** qué métodos tiene
+  encendidos Stripe (§15.9): el texto sale del dato, no de una suposición.
+- **Cuarta tabla «Qué se vende»** (`mix.byProductType`, AN-1.1 fase B; **solo si la clave viene**). Columnas distintas
+  a las otras tres: concepto · **piezas** · **venta sin IVA** (`PieceCell.pieces` / `.netCents`, tal cual). Filas en
+  orden fijo: Cartas sueltas (`raw`) · Gradeadas (`graded`) · Sellado (`sealed`); las de 0 se pintan con sus ceros
+  (`text-muted`). Barra decorativa: piezas ÷ `totals.pieces`. Nota `text-xs muted` siempre: «Reparte la venta sin IVA
+  del periodo, también la de pedidos que luego se reembolsaron; por eso suma lo mismo que el resumen y no lo mismo que
+  “Lo más vendido”.» (⛔ el front no suma las filas para comprobarlo, AN-1.)
+
+#### AN-UX.8c Totales P2 del periodo
+
+Segunda retícula de `StatCard`, debajo de la tabla y antes de «Lo más vendido» **solo si los campos vienen**:
+
+| Rótulo | Cifra | Apoyo |
+|---|---|---|
+| Envío cobrado (sin IVA) | `totals.shipping.chargedNetCents` | — |
+| Costo de guías (sin IVA) | `totals.shipping.costNetCents` | «Incluye ajustes de paquetería {adj}» si `> 0`; «⚠ {n} envíos sin costo capturado» si `> 0` |
+| Compras del buylist | `totals.buylist.paidNetCents` | «{n} compras pagadas»; «⚠ {m} sin monto registrado» si `> 0` |
+| Resultado del envío | `totals.shipping.resultNetCents` (AN-1.1) | «Envío cobrado menos costo de guías.»; si `costMissingCount > 0`: «⚠ Puede ser menor: hay envíos sin costo capturado.» |
+| Ganancia (regla de Finanzas) | `totals.profitCents` | «La misma ganancia que Finanzas.» |
+| Contracargos | `totals.chargebacks.count` (cifra) y `amountCents` (2.ª línea) | «{open} abiertos · {won} ganados · {lost} perdidos» (de `byOutcome`, tal cual); «Cuentan el día en que se abrieron; no se restan de la venta.»; si `chargebacksUndatedCount > 0`: «⚠ {n} anteriores sin fecha, fuera de este conteo.» |
+
+- **Resultado del envío** (celda y columna): ⛔ el front **no resta** cobrado − costo; pinta `resultNetCents` (prueba
+  `AN-F-5`: con un DTO cuyo valor no es la resta, se ve el del DTO). Signo siempre visible (`+` / `−` U+2212), **tinta**
+  en los dos sentidos: perder en un envío no es error de la pantalla, y verde/rojo opinaría (igual que los deltas,
+  AN-UX.3). Con costos sin capturar la cifra es un **tope** (un costo faltante cuenta como 0, §15.11.3): por eso el aviso
+  dice «puede ser menor», ⛔ «es incorrecta».
+- **Contracargos** (fase C): cada celda/columna se monta solo si `chargebacks` llega; el aviso de «sin fecha» solo si
+  `chargebacksUndatedCount` llega **y** es `> 0` (es del histórico entero, no del periodo: ⛔ compararlo con el periodo
+  anterior ni ponerlo en la tabla por día).
+- Sin comparación contra el periodo anterior (`comparison` no trae estas cifras).
+
+#### AN-UX.8d Resumen diario por correo (criterio 624; lo construye backend)
+
+Línea nueva en el resumen de las 08:00 (patrón §41 / §43.19.12), con el dinero en la forma de §41.5:
+
+| Clave sugerida | ES | EN |
+|---|---|---|
+| `salesYesterday` | Ventas de ayer: {orders, plural, one {# pedido} other {# pedidos}} · {charged} · ticket {ticket} | Yesterday's sales: {orders, plural, one {# order} other {# orders}} · {charged} · avg. order {ticket} |
+
+`{ticket}` = «—» si `avgTicketCents` es `null`. Va **después** de los avisos (si hay) y antes del pie.
+
+---
+
+### AN-UX.9 Descargar CSV (criterio 610)
+
+Botón `secondary` `sm` con icono `DownloadCloud` en la cabecera de la tabla: «Descargar CSV». Pide
+`/sales/export.csv` con **el mismo** `preset`/`from`/`to`/`groupBy` que la pantalla (⛔ nunca otro periodo), `loading`
+mientras baja, y guarda con el nombre que da `Content-Disposition` (`ventas_<from>_<to>_<groupBy>.csv`). Debajo,
+`text-xs muted`: «Una fila por {día|semana|mes}, también las de cero, y una de total. Montos en pesos con dos
+decimales, sin signo de pesos ni comas de miles (MX$1,250.00 = 1250.00), para que Excel los sume. Sin datos de
+clientes.» (AN-1.1, `API_CONTRACT §15.7`: el CSV va en pesos; el JSON sigue en centavos — ⛔ ninguna mención de
+«centavos» al dueño.) Error ⇒ `Banner` danger `role="alert"` bajo el
+botón (§8.3, ⛔ solo toast). «Lo más vendido» **no** se exporta (§15.7).
+
+---
+
+### AN-UX.10 Estados — carga, vacío, error
+
+| Estado | Qué se ve |
+|---|---|
+| **Primera carga** | Esqueletos con la forma final: 8 celdas (cifra), rectángulo de la gráfica, 7 filas de tabla, 5 de «lo más vendido». Selector ya interactivo. ⛔ Spinner de página |
+| **Cambio de periodo / agrupación / orden** | Se **conservan** los datos anteriores (TanStack `placeholderData: keepPreviousData`) con `opacity-60` y `aria-busy="true"` en la región; texto `sr-only` «Actualizando…». El rótulo del periodo **no cambia** hasta que llegan los datos (AN-4) |
+| **Periodo sin ventas** (`totals.orders = 0` y `refunds.count = 0`) | `Banner` info arriba: «No hubo ventas en este periodo.» y **todo lo demás se pinta igual**: ceros, «—», filas de cero, barras-marca. ⛔ Ilustración de vacío que esconda la tabla: con pocas ventas, ver los días vacíos **es** la información (§AN.2 punto 4) |
+| **Sin ventas pero con reembolsos** | Sin banner; la celda 5 puede ser negativa (AN-UX.3) |
+| **Error de red / 5xx** | `QueryState` (§8.1): `Banner` danger «No se pudieron cargar las ventas.» + «Reintentar». Si había datos, se quedan visibles bajo el banner, atenuados |
+| **`400`** | En el campo del selector (AN-UX.2) |
+| **`403`** (rol perdido a media sesión) | `Banner` danger «Solo el súper-admin puede ver las ventas.» ⛔ sin reintentar |
+| **Bloque P2 sin campo** | El bloque no existe (AN-UX.8) |
+
+---
+
+### AN-UX.11 Tarjeta «Ventas de hoy» del tablero (`SalesTodayCard`, criterio 611)
+
+**Dónde:** `AdminDashboard.tsx`, **inmediatamente después** de «Ventas del periodo» (`:209-227`), dentro de la misma
+retícula. **Solo si `isSuperAdmin`** (AN-7): para el operador **no existe** (⛔ ni enmascarada, ni consulta).
+
+**Datos:** su propia consulta `GET /admin/reports/sales/today` (⛔ no viene en `/admin/dashboard`, §15.1), así que tiene
+**su propio** estado de carga y error dentro de la celda (a diferencia de §43.22.1, que comparte la consulta del
+tablero). Se refresca al volver a la pestaña del navegador (`refetchOnWindowFocus`); ⛔ sin temporizador de sondeo.
+
+```
+VENTAS DE HOY                                   ← eyebrow
+3 pedidos                                        ← cifra grande: today.orders con su unidad
+MX$1,250.00 cobrado                              ← today.chargedCents
+Hoy, lun 6 oct · va en curso                     ← rótulo del periodo (criterio 286)
+Lun 29 sep completo: 1 pedido · MX$400.00        ← sameWeekdayLastWeek
+▲ +2 pedidos · ▲ +MX$850.00                      ← comparison (unidades; % solo si cabe, ver abajo)
+Ver ventas                                       ← enlace → /admin/m9?tab=ventas&preset=today
+```
+
+- **Cifra grande** = pedidos de hoy («3 pedidos» / «1 pedido» / «0 pedidos»: con su unidad, para no confundirla con la
+  cifra de «Ventas del periodo» de al lado). Segunda línea, el cobrado.
+- **Rótulo del periodo** (criterio 286): «Hoy, {día} · va en curso» y la referencia «{día de la semana pasada} completo»
+  con su fecha. *Por qué «va en curso» y «completo»:* con el default de **P-AN-2** se compara un día a medias contra uno
+  entero; a las 10 de la mañana casi siempre irá «abajo». Decirlo evita que el dueño se alarme por la mañana. Si el
+  dueño cambia P-AN-2 a «hasta esta misma hora», el rótulo pasa a «hasta las {hora}» (otra clave, no se diseña más).
+- **Comparación:** las reglas de AN-UX.3 en versión corta — unidades primero; el `%` se añade **solo en ≥ `sm`** y solo
+  si no es `null` («▲ +2 pedidos (+200 %)»); si `sameWeekdayLastWeek.orders = 0`: «El lun 29 sep no hubo ventas.» sin %;
+  `diff = 0`: «= Igual que el lun 29 sep». Color `text-muted`, flecha `aria-hidden`, `sr-only` «subió/bajó».
+- **Enlace** «Ver ventas»: estilo de enlace de las demás tarjetas (`underline-offset-2 hover:underline
+  focus-visible:shadow-focus`, `:260`). ⛔ La celda entera no es clicable (la retícula no lo hace en ninguna otra).
+- **Carga:** `Skeleton h-16` dentro de la celda (como el esqueleto del tablero). **Error:** «No se pudieron cargar las
+  ventas de hoy.» + botón enlace «Reintentar» (⛔ banner grande: es una celda). El resto del tablero no se ve afectado.
+- **Cero ventas hoy:** «0 pedidos», «MX$0.00 cobrado» y la comparación normal (⛔ «sin ventas» como error).
+
+---
+
+### AN-UX.12 Accesibilidad (además de §8.2)
+
+- Encabezados: `h1` Reportes → pestañas → `h2` por bloque («Periodo», «Resumen del periodo», «Por día», «Lo más
+  vendido», «Cuándo se vende», «Cómo y a quién se vende»). El `h2` de la gráfica y de la tabla cambia con `groupBy`
+  («Por semana», «Por mes»).
+- Orden de tabulación = orden visual (AN-UX.1): presets → (fechas → Ver) → Ver por → conmutador de la gráfica →
+  columnas de la tabla → Descargar CSV → pestañas de lo más vendido → ordenar por → bloques P2.
+- La gráfica no recibe foco; la tabla es la equivalencia (AN-UX.4). Las gráficas P2 llevan su tabla en `<details>`.
+- Conmutadores segmentados: `role="group"` con `aria-label` y botones `aria-pressed` (no `radio`, igual que §7.17).
+- Cifras «—» con `sr-only` «sin dato: no hubo pedidos».
+- Deltas: flecha `aria-hidden` + `sr-only` «subió/bajó/igual»; el signo `−` es U+2212 (los lectores lo leen «menos»).
+- Iconos ⚠ siempre `aria-hidden` con texto al lado.
+- Objetivos táctiles ≥ 44 px en chips y conmutadores; foco con el anillo de §8.2.
+- `prefers-reduced-motion`: no hay movimiento que apagar (AN-UX.4).
+- **Móvil (≤ 390 px):** la pestaña se usa en el teléfono (el dueño revisa ventas fuera de la tienda): retícula de
+  celdas a 1 columna, chips con *wrap*, gráfica a todo el ancho con ≤ 14 etiquetas, tabla en tarjetas (§7.7). ⛔ Nunca
+  truncar con «…» un rótulo de dinero (§43.23.4).
+
+---
+
+### AN-UX.13 Contraste — cero pares nuevos (tema único claro)
+
+Valores reales de `globals.css` según §80.4: papel `#F4F1EA`, pozo `#EFEBE2`, tinta `#1A1A18`, muted `#6E695E`, acento
+`#B31217`.
+
+| Elemento | Par | Ratio aprox. | Cumple | Ya verificado en |
+|---|---|---|---|---|
+| Barra (relleno) y contorno de «hoy en curso» | tinta sobre papel / pozo | ~15.5:1 / ~14.7:1 | ≥ 3:1 UI | §10 |
+| Marca de día en cero | muted sobre papel / pozo | ~4.8:1 / ~4.6:1 | ≥ 3:1 UI | §10, §80.4 |
+| Valores sobre barras, ejes, deltas, notas `text-xs` | muted sobre papel / pozo | ~4.8:1 / ~4.6:1 | AA texto | §10, §43.22.9 |
+| Cifras, tabla | tinta sobre papel / pozo (fila hover) | ~15.5:1 / ~14.7:1 | AA/AAA | §10 |
+| Chip de preset activo | papel sobre tinta | ~15.5:1 | AA/AAA | §10 |
+| Anillo de foco | `#B31217` sobre papel / pozo | ~6.2:1 / ~5.9:1 | ≥ 3:1 UI | §80.4 |
+| Líneas guía | `--color-border` sobre papel | ~1.3:1 | decorativo (no portan dato) | §10 |
+
+- **Modo oscuro: no aplica** — no existe (§2.3, §11.1). Ninguna pieza de esta sección va sobre los paneles de tinta.
+- ⛔ Ningún verde/rojo nuevo: los deltas son `muted` y las barras, tinta. Sin colores, no hay par de daltonismo que
+  verificar; la forma (marca de cero, barra hueca de hoy) y el texto (signo, flecha, `sr-only`) llevan el significado.
+
+---
+
+### AN-UX.14 Textos ES / EN (paridad en el mismo cambio)
+
+Namespaces: `admin.m9.tabs.*`, `admin.m9.sales.*` (pestaña) y `admin.dashboard.salesToday.*` (tarjeta). Lo de
+`admin.m9.*` que ya existe **no cambia** (lo usa la pestaña «Actividad» y lo fijan `AdminPageTitles.test.tsx:236-242`).
+Plurales con ICU (§9.4). Fechas con `Intl.DateTimeFormat` en `timeZone: 'America/Mexico_City'` (⛔ la zona del navegador).
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m9.tabs.sales` | Ventas | Sales |
+| `admin.m9.tabs.activity` | Actividad | Activity |
+| `sales.period.title` | Periodo | Period |
+| `sales.period.presetsLabel` | Elegir periodo | Choose a period |
+| `sales.period.today` | Hoy | Today |
+| `sales.period.yesterday` | Ayer | Yesterday |
+| `sales.period.last7` | Últimos 7 días | Last 7 days |
+| `sales.period.last30` | Últimos 30 días | Last 30 days |
+| `sales.period.thisMonth` | Este mes | This month |
+| `sales.period.lastMonth` | Mes pasado | Last month |
+| `sales.period.custom` | Elegir fechas… | Pick dates… |
+| `sales.period.from` | Desde | From |
+| `sales.period.to` | Hasta | To |
+| `sales.period.apply` | Ver | Show |
+| `sales.range.bothRequired` | Elige las dos fechas. | Pick both dates. |
+| `sales.range.fromAfterTo` | La fecha de inicio va antes que la de fin. | The start date must come before the end date. |
+| `sales.range.toFuture` | No puede ser después de hoy. | It can't be later than today. |
+| `sales.range.tooLong` | Máximo un año (366 días). Acorta el rango. | One year at most (366 days). Shorten the range. |
+| `sales.range.invalid` | Ese periodo no es válido. Elige otro. | That period isn't valid. Pick another one. |
+| `sales.groupBy.label` | Ver por | Show by |
+| `sales.groupBy.day` | Día | Day |
+| `sales.groupBy.week` | Semana | Week |
+| `sales.groupBy.month` | Mes | Month |
+| `sales.groupBy.weekNote` | Semanas de lunes a domingo; la primera y la última pueden quedar cortadas por el periodo. | Weeks run Monday to Sunday; the first and last may be cut short by the period. |
+| `sales.label.oneDayToday` | Hoy, {date} | Today, {date} |
+| `sales.label.oneDayYesterday` | Ayer, {date} | Yesterday, {date} |
+| `sales.label.oneDay` | {date} | {date} |
+| `sales.label.range` | Del {from} al {to} · {days, plural, one {# día} other {# días}} · hora del centro de México | {from} to {to} · {days, plural, one {# day} other {# days}} · Central Mexico time |
+| `sales.label.compareRange` | Se compara con: del {from} al {to} | Compared with: {from} to {to} |
+| `sales.label.compareDay` | Se compara con: {date} | Compared with: {date} |
+| `sales.summary.title` | Resumen del periodo | Period summary |
+| `sales.card.orders` | Pedidos | Orders |
+| `sales.card.charged` | Cobrado (con IVA) | Collected (incl. VAT) |
+| `sales.card.chargedHelp` | Lo que pagaron los clientes: con IVA, envío y comisión. | What customers paid: VAT, shipping and fee included. |
+| `sales.card.netSales` | Venta sin IVA | Sales excl. VAT |
+| `sales.card.netSalesHelp` | La misma cifra de ingresos que Finanzas. | The same income figure as Finance. |
+| `sales.card.refunds` | Reembolsos | Refunds |
+| `sales.card.refundsDetail` | {count, plural, one {# reembolso} other {# reembolsos}} · {card} con tarjeta · {spei} por SPEI | {count, plural, one {# refund} other {# refunds}} · {card} by card · {spei} by SPEI |
+| `sales.card.refundsNet` | Se restan {amount} sin IVA | {amount} excl. VAT is subtracted |
+| `sales.card.refundsNone` | Sin reembolsos. | No refunds. |
+| `sales.card.netAfterRefunds` | Venta neta de reembolsos | Sales net of refunds |
+| `sales.card.netAfterRefundsHelp` | Venta sin IVA menos los reembolsos hechos en el periodo. | Sales excl. VAT minus refunds made in the period. |
+| `sales.card.netAfterRefundsNegative` | Negativa: los reembolsos del periodo pasan la venta. | Negative: refunds in the period exceed sales. |
+| `sales.card.avgTicket` | Ticket promedio | Average order |
+| `sales.card.avgTicketHelp` | Cobrado ÷ pedidos: lo que deja un cliente por compra. | Collected ÷ orders: what a customer spends per purchase. |
+| `sales.card.piecesPerOrder` | Piezas por pedido | Items per order |
+| `sales.card.pieces` | {count, plural, one {# pieza vendida} other {# piezas vendidas}} | {count, plural, one {# item sold} other {# items sold}} |
+| `sales.card.customers` | Clientes | Customers |
+| `sales.card.customersSplit` | {new, plural, one {# nuevo} other {# nuevos}} · {returning, plural, one {# recurrente} other {# recurrentes}} | {new} new · {returning} returning |
+| `sales.card.customersHelp` | Nuevo: su primera compra pagada cae en este periodo. Se reconoce por correo, también si compró como invitado. | New: their first paid purchase falls in this period. Recognized by email, even if they bought as a guest. |
+| `sales.noData` | sin dato: no hubo pedidos | no data: there were no orders |
+| `sales.delta.up` | subió | went up |
+| `sales.delta.down` | bajó | went down |
+| `sales.delta.same` | Igual que el periodo anterior | Same as the previous period |
+| `sales.delta.orders` | {diff, plural, one {# pedido} other {# pedidos}} | {diff, plural, one {# order} other {# orders}} |
+| `sales.delta.piecesPerOrder` | {diff} piezas por pedido | {diff} items per order |
+| `sales.delta.noPrevious` | sin ventas en el periodo anterior | no sales in the previous period |
+| `sales.delta.noPreviousAlone` | Sin ventas en el periodo anterior | No sales in the previous period |
+| `sales.delta.wasZero` | antes fue cero | it was zero before |
+| `sales.delta.before` | Antes: {value} | Before: {value} |
+| `sales.chart.titleOrders` | Pedidos por {unit, select, day {día} week {semana} other {mes}} | Orders by {unit, select, day {day} week {week} other {month}} |
+| `sales.chart.titleCharged` | Cobrado por {unit, select, day {día} week {semana} other {mes}} | Collected by {unit, select, day {day} week {week} other {month}} |
+| `sales.chart.metricLabel` | Ver | Show |
+| `sales.chart.metricOrders` | Pedidos | Orders |
+| `sales.chart.metricCharged` | Cobrado | Collected |
+| `sales.chart.caption` | Los mismos números están en la tabla de abajo. | The same numbers are in the table below. |
+| `sales.chart.inProgress` | * Hoy sigue en curso. | * Today is still in progress. |
+| `sales.chart.tooMany` | Con tantos días, se lee mejor por semana o por mes. | With this many days, it reads better by week or month. |
+| `sales.chart.switchToWeek` | Ver por semana | Show by week |
+| `sales.chart.summaryOrders` | {metric} del {from} al {to}: {total} en total; el día con más, {best} con {bestValue}; {zero, plural, =0 {ningún día sin pedidos} one {# día sin pedidos} other {# días sin pedidos}}. | {metric} from {from} to {to}: {total} in total; the busiest, {best} with {bestValue}; {zero, plural, =0 {no days without orders} one {# day without orders} other {# days without orders}}. |
+| `sales.table.title` | Por {unit, select, day {día} week {semana} other {mes}} | By {unit, select, day {day} week {week} other {month}} |
+| `sales.table.caption` | Ventas por {unit, select, day {día} week {semana} other {mes}}, del {from} al {to} | Sales by {unit, select, day {day} week {week} other {month}}, {from} to {to} |
+| `sales.table.colsLabel` | Columnas | Columns |
+| `sales.table.colsSales` | Ventas | Sales |
+| `sales.table.colsMoney` | Envíos, compras y ganancia | Shipping, purchases and profit |
+| `sales.table.colPeriod` | {unit, select, day {Día} week {Semana} other {Mes}} | {unit, select, day {Day} week {Week} other {Month}} |
+| `sales.table.total` | Total del periodo | Period total |
+| `sales.table.inProgress` | en curso | in progress |
+| `sales.table.partialDays` | {days, plural, one {# día} other {# días}} | {days, plural, one {# day} other {# days}} |
+| `sales.table.shippingCharged` | Envío cobrado (sin IVA) | Shipping charged (excl. VAT) |
+| `sales.table.shippingCost` | Costo de guías (sin IVA) | Label cost (excl. VAT) |
+| `sales.table.shippingAdjustments` | Ajustes de paquetería | Carrier adjustments |
+| `sales.table.shippingAdjustmentsHint` | Ya van dentro del costo de guías | Already included in label cost |
+| `sales.table.buylistRevenue` | Ingreso por tarifa de buylist | Buylist fee income |
+| `sales.table.buylistCost` | Costo de guías de buylist | Buylist label cost |
+| `sales.table.buylistPaid` | Compras del buylist | Buylist purchases |
+| `sales.table.chargebacks` | Contracargos | Chargebacks |
+| `sales.table.profit` | Ganancia (regla de Finanzas) | Profit (Finance rule) |
+| `sales.table.costMissing` | {count, plural, one {# sin costo} other {# sin costo}} | {count} without cost |
+| `sales.table.payoutMissing` | {count, plural, one {# sin monto} other {# sin monto}} | {count} without amount |
+| `sales.table.profitNote` | La ganancia sigue la misma regla que Finanzas; cada día suma la ganancia de Finanzas del periodo. | Profit follows the same rule as Finance; the days add up to Finance's profit for the period. |
+| `sales.table.costMissingNote` | Hay envíos sin costo de guía capturado: el costo real puede ser mayor. | Some shipments have no label cost recorded: the real cost may be higher. |
+| `sales.table.payoutMissingNote` | Hay compras del buylist pagadas sin monto registrado: no están en la suma. | Some paid buylist purchases have no amount recorded: they aren't in the total. |
+| `sales.table.shippingResult` | Resultado del envío | Shipping result |
+| `sales.table.shippingResultMaybeLower` | puede ser menor: hay envíos sin costo | may be lower: some shipments have no cost |
+| `sales.table.shippingResultNote` | Resultado del envío = envío cobrado menos costo de guías (los ajustes ya van dentro). Positivo: lo cobrado cubrió las guías; negativo: costaron más. | Shipping result = shipping charged minus label cost (adjustments already included). Positive: what you charged covered the labels; negative: they cost more. |
+| `sales.table.chargebacksNote` | Los contracargos cuentan el día en que se abrieron y no se restan de la venta. | Chargebacks count on the day they were opened and aren't subtracted from sales. |
+| `sales.chargebacks.undated` | {count, plural, one {# contracargo anterior sin fecha: no aparece en ningún día.} other {# contracargos anteriores sin fecha: no aparecen en ningún día.}} | {count, plural, one {# older chargeback has no date: it isn't on any day.} other {# older chargebacks have no date: they aren't on any day.}} |
+| `sales.table.tooMany` | Con tantos días, se lee mejor por semana o por mes. | With this many days, it reads better by week or month. |
+| `sales.top.title` | Lo más vendido | Best sellers |
+| `sales.top.sortLabel` | Ordenar por | Sort by |
+| `sales.top.sortNet` | Venta sin IVA | Sales excl. VAT |
+| `sales.top.sortPieces` | Piezas | Items |
+| `sales.top.cards` | Cartas | Cards |
+| `sales.top.sets` | Sets | Sets |
+| `sales.top.sealed` | Sellados | Sealed |
+| `sales.top.colRank` | # | # |
+| `sales.top.colCard` | Carta | Card |
+| `sales.top.colSet` | Set | Set |
+| `sales.top.colSealed` | Producto | Product |
+| `sales.top.colPieces` | Piezas | Items |
+| `sales.top.colNet` | Venta sin IVA | Sales excl. VAT |
+| `sales.top.graded` | Gradeada | Graded |
+| `sales.top.emptyCards` | Sin cartas vendidas en este periodo. | No cards sold in this period. |
+| `sales.top.emptySets` | Sin sets vendidos en este periodo. | No sets sold in this period. |
+| `sales.top.emptySealed` | Sin sellados vendidos en este periodo. | No sealed products sold in this period. |
+| `sales.top.note` | No cuenta pedidos reembolsados completos; por eso su suma puede ser menor que la venta del periodo. | Fully refunded orders aren't counted, so the total may be lower than the period's sales. |
+| `sales.when.title` | Cuándo se vende | When you sell |
+| `sales.when.byWeekday` | Por día de la semana | By day of the week |
+| `sales.when.byHour` | Por hora (centro de México) | By hour (Central Mexico) |
+| `sales.when.asTable` | Ver como tabla | Show as table |
+| `sales.when.fewData` | Con pocos pedidos esto todavía no dice mucho: un solo día bueno lo cambia todo. | With few orders this doesn't say much yet: a single good day changes everything. |
+| `sales.when.hourRange` | {from}:00–{from}:59 | {from}:00–{from}:59 |
+| `sales.mix.title` | Cómo y a quién se vende | How and to whom you sell |
+| `sales.mix.destination` | A dónde va | Where it goes |
+| `sales.mix.directShip` | Envío a domicilio | Home delivery |
+| `sales.mix.vault` | Bóveda | Vault |
+| `sales.mix.buyer` | Quién compra | Who buys |
+| `sales.mix.account` | Con cuenta | With an account |
+| `sales.mix.guest` | Invitado | Guest |
+| `sales.mix.payment` | Cómo paga | How they pay |
+| `sales.mix.method.card` | Tarjeta | Card |
+| `sales.mix.method.oxxo` | OXXO | OXXO |
+| `sales.mix.method.customer_balance` | Transferencia | Bank transfer |
+| `sales.mix.method.other` | Otro ({method}) | Other ({method}) |
+| `sales.mix.method.none` | Sin dato | No data |
+| `sales.mix.noneNote` | Sin dato: pedidos pagados antes de que la tienda guardara el método de pago. | No data: orders paid before the store recorded the payment method. |
+| `sales.mix.cardOnly` | Hoy la tienda solo cobra con tarjeta. | The store only takes cards today. |
+| `sales.mix.colOrders` | Pedidos | Orders |
+| `sales.mix.colCharged` | Cobrado | Collected |
+| `sales.mix.productType` | Qué se vende | What sells |
+| `sales.mix.raw` | Cartas sueltas | Single cards |
+| `sales.mix.graded` | Gradeadas | Graded |
+| `sales.mix.sealed` | Sellado | Sealed |
+| `sales.mix.colPieces` | Piezas | Items |
+| `sales.mix.colNet` | Venta sin IVA | Sales excl. VAT |
+| `sales.mix.productTypeNote` | Reparte la venta sin IVA del periodo, también la de pedidos que luego se reembolsaron; por eso suma lo mismo que el resumen y no lo mismo que «Lo más vendido». | Splits the period's sales excl. VAT, including orders later refunded; that's why it adds up to the summary and not to "Best sellers". |
+| `sales.p2.shippingCharged` | Envío cobrado (sin IVA) | Shipping charged (excl. VAT) |
+| `sales.p2.shippingCost` | Costo de guías (sin IVA) | Label cost (excl. VAT) |
+| `sales.p2.includesAdjustments` | Incluye ajustes de paquetería {amount} | Includes carrier adjustments {amount} |
+| `sales.p2.costMissing` | {count, plural, one {# envío sin costo capturado} other {# envíos sin costo capturado}} | {count, plural, one {# shipment without recorded cost} other {# shipments without recorded cost}} |
+| `sales.p2.buylistPaid` | Compras del buylist | Buylist purchases |
+| `sales.p2.buylistCount` | {count, plural, one {# compra pagada} other {# compras pagadas}} | {count, plural, one {# paid purchase} other {# paid purchases}} |
+| `sales.p2.payoutMissing` | {count} sin monto registrado | {count} without a recorded amount |
+| `sales.p2.profit` | Ganancia (regla de Finanzas) | Profit (Finance rule) |
+| `sales.p2.profitHelp` | La misma ganancia que Finanzas. | The same profit as Finance. |
+| `sales.p2.shippingResult` | Resultado del envío | Shipping result |
+| `sales.p2.shippingResultHelp` | Envío cobrado menos costo de guías. | Shipping charged minus label cost. |
+| `sales.p2.shippingResultMaybeLower` | Puede ser menor: hay envíos sin costo capturado. | May be lower: some shipments have no recorded cost. |
+| `sales.p2.chargebacks` | Contracargos | Chargebacks |
+| `sales.p2.chargebacksCount` | {count, plural, one {# contracargo} other {# contracargos}} | {count, plural, one {# chargeback} other {# chargebacks}} |
+| `sales.p2.chargebacksOutcome` | {open, plural, one {# abierto} other {# abiertos}} · {won, plural, one {# ganado} other {# ganados}} · {lost, plural, one {# perdido} other {# perdidos}} | {open} open · {won} won · {lost} lost |
+| `sales.p2.chargebacksHelp` | Cuentan el día en que se abrieron; no se restan de la venta. | Counted on the day they were opened; not subtracted from sales. |
+| `sales.p2.chargebacksUndated` | {count, plural, one {# anterior sin fecha, fuera de este conteo.} other {# anteriores sin fecha, fuera de este conteo.}} | {count, plural, one {# older one has no date and isn't counted here.} other {# older ones have no date and aren't counted here.}} |
+| `sales.csv.button` | Descargar CSV | Download CSV |
+| `sales.csv.help` | Una fila por {unit, select, day {día} week {semana} other {mes}}, también las de cero, y una de total. Montos en pesos con dos decimales, sin signo de pesos ni comas de miles (MX$1,250.00 = 1250.00), para que Excel los sume. Sin datos de clientes. | One row per {unit, select, day {day} week {week} other {month}}, including zero rows, plus a total row. Amounts in pesos with two decimals, no currency sign or thousands separators (MX$1,250.00 = 1250.00), so Excel can add them up. No customer data. |
+| `sales.csv.error` | No se pudo descargar el CSV. Intenta de nuevo. | The CSV couldn't be downloaded. Try again. |
+| `sales.state.updating` | Actualizando… | Updating… |
+| `sales.state.empty` | No hubo ventas en este periodo. | There were no sales in this period. |
+| `sales.state.error` | No se pudieron cargar las ventas. | Sales couldn't be loaded. |
+| `sales.state.forbidden` | Solo el súper-admin puede ver las ventas. | Only the super-admin can see sales. |
+| `admin.dashboard.salesToday.title` | Ventas de hoy | Today's sales |
+| `admin.dashboard.salesToday.orders` | {count, plural, one {# pedido} other {# pedidos}} | {count, plural, one {# order} other {# orders}} |
+| `admin.dashboard.salesToday.charged` | {amount} cobrado | {amount} collected |
+| `admin.dashboard.salesToday.today` | Hoy, {date} · va en curso | Today, {date} · in progress |
+| `admin.dashboard.salesToday.reference` | {date} completo: {orders, plural, one {# pedido} other {# pedidos}} · {amount} | {date}, full day: {orders, plural, one {# order} other {# orders}} · {amount} |
+| `admin.dashboard.salesToday.noReference` | El {date} no hubo ventas. | There were no sales on {date}. |
+| `admin.dashboard.salesToday.same` | = Igual que el {date} | = Same as {date} |
+| `admin.dashboard.salesToday.link` | Ver ventas | See sales |
+| `admin.dashboard.salesToday.error` | No se pudieron cargar las ventas de hoy. | Today's sales couldn't be loaded. |
+| `admin.dashboard.salesToday.retry` | Reintentar | Retry |
+
+(`sales.*` = `admin.m9.sales.*`.) Notas de copy:
+- «Cobrado» y no «Ventas brutas»: el dueño preguntó por «volumen de venta en dinero»; «cobrado» dice qué es sin
+  jerga. La tarjeta «Ventas del periodo» del tablero sigue diciendo «Bruto» (no se toca); son la misma suma de
+  `totalCents` con otro rótulo y otro periodo — si el dueño quiere un solo nombre, es una errata aparte (N-AN-5).
+- «Ticket promedio» en ES (es la palabra que usó el dueño); «Average order» en EN (lo natural en inglés).
+- Signo `−` U+2212 en todas las cadenas y en el formato de montos negativos.
+
+---
+
+### AN-UX.15 Candados sugeridos (los escribe frontend; Testing Library contra MSW; los que coinciden con §15.6 llevan su ID)
+
+Enganche sugerido (decisión de frontend): `data-testid="sales-card-<campo>"`, `sales-delta-<campo>`, `sales-bar` con
+`data-index`/`data-value`, `sales-row` con `data-from`, `sales-today-card`.
+
+| ID | Qué asevera | Canario (debe ponerla roja) |
+|---|---|---|
+| **UX-AN-1** (`AN-F-1`) | Fixture con `orders = 0`: ticket y piezas por pedido muestran «—» y su `sr-only`; ⛔ «MX$0.00», «NaN», «Infinity» en el DOM | `formatMoneyCents(avgTicketCents ?? 0)` |
+| **UX-AN-2** (`AN-F-1`) | 3 vs 1: el texto del delta de pedidos contiene «+2 pedidos» **antes** que «+200 %» (índice en el `textContent`); previo con 0 pedidos: contiene «sin ventas en el periodo anterior» y **no** contiene «%» | Invertir el orden; pintar `pct ?? 0` + «%» |
+| **UX-AN-3** (`AN-F-2`) | Nº de `sales-bar` = `rows.length`; cada `data-value` = el campo de su fila; con filas en cero, sus barras existen (marca de cero) | Filtrar las barras con valor 0 |
+| **UX-AN-4** | Nº de `sales-row` = `rows.length` (7 con ventas en 2); el `tfoot` muestra `totals` **aunque** el fixture tenga `totals ≠ Σ rows` (a propósito) | Sumar las filas en el cliente |
+| **UX-AN-5** | Mientras la consulta del periodo nuevo está pendiente, el rótulo del periodo sigue siendo el del anterior | Pintar el rótulo desde el estado del selector y no desde `period` |
+| **UX-AN-6** | Cambiar `groupBy` manda `groupBy` en la petición y las 8 celdas pintan los `totals` de la respuesta (iguales en el fixture) | Recalcular celdas desde las filas |
+| **UX-AN-7** | Rango a mano: los cuatro casos de AN-UX.2 muestran su texto y **no** hacen petición; un `400 {details:{field:'to'}}` pinta el texto bajo «Hasta» | Validar solo en el servidor; perder `field` |
+| **UX-AN-8** | `topSort` cambia ⇒ nueva petición con `topSort=pieces`; el orden en pantalla es el del fixture (aunque esté «desordenado» respecto a piezas, a propósito) | Reordenar en el cliente |
+| **UX-AN-9** | Dos acabados de la misma carta ⇒ dos filas, cada una con su `FinishMark` | Agrupar por `cardId` |
+| **UX-AN-10** (`AN-F-3`) | Con `vault_operator`: `sales-today-card` no está en el DOM y **no** hubo petición a `/sales/today` (espía de red) | Montar la tarjeta con `masked` |
+| **UX-AN-11** | Con súper-admin: la tarjeta pinta pedidos, cobrado, el rótulo «Hoy, …· va en curso», la referencia «… completo» con `sameWeekdayLastWeek.day`, y el enlace apunta a `/admin/m9?tab=ventas&preset=today` | Quitar el rótulo; enlazar a `/admin/m9` sin parámetros |
+| **UX-AN-12** | Error de `/sales/today` ⇒ la celda muestra su error y el resto del tablero sigue pintado | Propagar el error al `QueryState` del tablero |
+| **UX-AN-13** | Fixture sin campos P2 (`shipping`, `buylist`, `profitCents`, `bestDays`, `mix` ausentes): no existe el conmutador de columnas ni los bloques P2; con ellos, sí. Sin `buylistRevenueCents` ⇒ sin esa columna (⛔ «MX$0.00») | Pintar P2 con `?? 0` |
+| **UX-AN-14** | CSV: la petición lleva el mismo `preset`/`from`/`to`/`groupBy` que la pantalla | Exportar siempre `last7` |
+| **UX-AN-15** | Paridad: todas las claves de AN-UX.14 existen en `es` y `en`; `grep -nE '\b(M-?1?[0-9]\|AN-[0-9]+\|P-AN)\b'` sobre `admin.m9.sales.*` y `admin.dashboard.salesToday.*` ⇒ 0 (P66-3); las claves previas de `admin.m9.*` sin cambio (`AdminPageTitles.test.tsx:236-242` verde) | Borrar una en `en.json`; meter «AN-1» en un texto |
+| **UX-AN-16** (`AN-F-4`) | La pestaña no inyecta `<script>` externo ni cookie nueva (el candado del criterio 509 sigue verde sin tocar el aviso) | Cargar una librería de gráficas desde CDN |
+| **UX-AN-17** | Deltas: ningún delta tiene clase `text-success`/`text-danger`/`text-accent`; cada uno tiene `sr-only` «subió»/«bajó»/«igual» | Colorear por signo |
+| **UX-AN-18** (`AN-F-5`) | Fixture con `shipping.resultNetCents` que **no** es `chargedNetCents − costNetCents` ⇒ celda y columna pintan el del DTO; negativo con «−» U+2212 y positivo con «+»; ninguna con `text-success`/`text-danger`; con `costMissingCount > 0` aparece «Puede ser menor» | Restar en el cliente; colorear por signo |
+| **UX-AN-19** (`AN-F-5`) | Sin `mix.byProductType` / `chargebacks` / `chargebacksUndatedCount` ⇒ no existen la tabla «Qué se vende», la columna/celda «Contracargos» ni el aviso «sin fecha»; con `chargebacksUndatedCount = 0` tampoco hay aviso; con `3` el aviso dice 3 | `?? 0` y montar igual; aviso con `0` |
+| **UX-AN-20** | El DOM de la pestaña y `messages/{es,en}.json` bajo `admin.m9.sales.csv.*` no contienen «centavo»/«cents» | Restaurar el texto viejo de `sales.csv.help` |
+
+---
+
+### AN-UX.16 Lista de cambios para frontend (fichero:línea leídos el 2026-10-06 — re-medir antes de editar)
+
+| # | Fichero:línea | Cambio | § |
+|---|---|---|---|
+| FS-AN-1 | `(admin)/admin/m9/M9View.tsx:60-137` | Envolver lo de hoy en la pestaña «Actividad» (sin cambiar su contenido); `Tabs` «Ventas»/«Actividad» con `tab` en la URL; «Ventas» por defecto | AN-UX.1 |
+| FS-AN-2 | nuevo bajo `m9/` (p. ej. `SalesTab.tsx`, `SalesPeriodPicker.tsx`, `SalesBarChart.tsx`, `SalesDailyTable.tsx`, `SalesTopLists.tsx`) | La pestaña. ⛔ No tocar `components/domain/DateRangePresets.tsx` (M7 y «Actividad») | AN-UX.2–.10 |
+| FS-AN-3 | `(admin)/admin/AdminDashboard.tsx:227` (tras «Ventas del periodo») | `SalesTodayCard` solo con `isSuperAdmin`, consulta propia | AN-UX.11 |
+| FS-AN-4 | `lib/api.ts`, `types/contract.ts` (**zona compartida**, §15.10) | `getSalesReport`, `exportSalesCsv`, `getSalesToday`; `SalesReportDTO`, `SalesTodayDTO` con los campos P2 **opcionales** en el tipo del front (para que la ausencia se pueda pintar como ausencia) | AN-UX.8 |
+| FS-AN-5 | `messages/es.json:4935-4962` y `en.json` (mismo bloque) + `admin.dashboard` (`es.json:1320-1323`) | Claves de AN-UX.14 | AN-UX.14 |
+
+---
+
+### AN-UX.17 Solicitudes y notas a otros roles
+
+> **N-AN-1…4 cerradas** por la errata **AN-1.1** (`API_CONTRACT §15.11`, 2026-10-06; commit `edffe544` según el
+> orquestador, NO MEDIDO por ux-ui: sin Bash). Diseño de cada una ya incorporado en AN-UX.5, AN-UX.8b, AN-UX.8c, AN-UX.9
+> y AN-UX.14. Las filas siguientes quedan como registro.
+
+| # | Para | Qué |
+|---|---|---|
+| **N-AN-1** ✔ AN-1.1 | arquitecto | **Contracargos por día** (§AN.3, «como los cuenta §W.3 (c)») **no** están en `SalesFigures` (§15.4). Diseño listo: columna «Contracargos» en la vista P2 de la tabla y celda en AN-UX.8c, pintadas solo si el campo llega. Propuesta: `chargebacks: { count, amountCents }` por cubo |
+| **N-AN-2** ✔ AN-1.1 | arquitecto | **Mezcla por tipo de producto** (sueltas / gradeadas / sellado, en piezas y dinero; §AN.3) **no** está en `mix`. Propuesta: `mix.byProductType: { raw, graded, sealed: { pieces, netCents } }`. Se pintaría como cuarta tabla de AN-UX.8b |
+| **N-AN-3** ✔ AN-1.1 | arquitecto | «¿Me sale el envío?»: el DTO trae cobrado y costo, no la diferencia, y el front no resta (AN-1). Si se quiere la respuesta directa, un `shipping.resultNetCents` por cubo (con su regla para `costMissingCount > 0`). Mientras tanto, las dos cifras van lado a lado |
+| **N-AN-4** ✔ AN-1.1 | arquitecto (informativo) | El CSV en centavos es exacto pero raro para el dueño en Excel; la pantalla lo explica (`sales.csv.help`). Si se prefiere pesos con dos decimales, es un cambio de §15.7, no de diseño |
+| **N-AN-5** | product-owner (informativo) | La tarjeta existente «Ventas del periodo» dice «Bruto» para la misma suma que aquí se llama «Cobrado (con IVA)». No se toca aquí; si el dueño quiere un solo nombre, errata aparte |
+| **N-AN-6** | orquestador | Zonas compartidas que toca frontend: `lib/api.ts`, `types/contract.ts`, `messages/*.json` (§15.10). Un solo stream a la vez |
+| **N-AN-7** | orquestador | P-AN-2 aplicada con su default (día completo). Si el dueño elige «hasta esta misma hora», cambian solo dos textos de la tarjeta (`today`, `reference`) |
+
+---
+
+## SU-UX. Sin ubicación — textos de la errata SU-1 (vSU-1, 2026-10-07 · `API_CONTRACT §M1-SU` · `ARCHITECTURE §4.65`)
+
+**Norma:** `HECHOS.md:86`, fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Esta
+sección solo toca textos y dos detalles de presentación. ⛔ No rediseña pantallas ni añade tokens. Líneas leídas en
+`/home/user/tcg-ubic` el 2026-10-07 (ux-ui sin Bash: sha NO MEDIDO). Re-medir antes de editar.
+
+### SU-UX.1 La nota del pie de «Listas para publicar» (`admin.m1.publishQueue.note`, `es.json:1596`, `en.json:1596`)
+
+El texto de hoy es **falso para el sellado ligado a un producto**: ahí el editor fija el precio del **producto, con
+IVA**, para todas sus piezas (M-71, §70). Solo la pieza sellada **sin** producto lleva precio por pieza **antes de IVA**
+(D-SP-4). La primera frase es cierta y se conserva tal cual, así la aserción de `PendingPublishQueue.test.tsx:124` sigue
+valiendo. Cambia la segunda.
+
+| Clave | ES | EN |
+|---|---|---|
+| `note` **(cambia)** | Esta cola no captura precios de cartas sueltas ni gradeadas, y nunca hereda un precio del costo de compra. El sellado sí: si la pieza está ligada a un producto, pones el precio del producto, con IVA, y vale para todas sus piezas; si no lo está, pones el precio de esa pieza, antes de IVA. | This queue doesn't take prices for single or graded cards, and never inherits a price from the purchase cost. Sealed is the exception: if the item is linked to a product, you set the product's price, VAT included, and it applies to all its items; if it isn't, you set that item's price, before VAT. |
+
+«con IVA» repite la fórmula de la hoja «Precios del sellado» (`es.json:4359`, «Un precio por producto, con IVA»).
+
+### SU-UX.2 La cola sin «falta ubicación»
+
+- `subtitle` («…Salen solas de aquí en cuanto no les falta nada.») y `empty` **no cambian**: siguen siendo verdad y
+  no nombran la ubicación. Tampoco cambia `admin.m11.queue.subtitle` («…y qué les falta»).
+- **Quedan dormidas y NO se borran** (SU.2/SU.4 del contrato: reversibles y fuera de la paridad):
+  `publishQueue.missingLocation`, `publishQueue.reason.location`, `sealedFinalPrice.noLocationHint`,
+  `confirm.effectNoLocation`, `done.savedNoLocation` y la línea `missingLocation` del aviso de sellado (`es.json:6004`).
+  El servidor ya no emite `"location"`, así que no se pintan.
+- No hay ninguna otra mención activa de la ubicación como requisito para publicar en `es.json`. Lo medí con
+  `grep "(ubicación|cajón).*(publica|venta)"`: solo salen esas claves dormidas y `:1757`, que habla de mover de un
+  cajón de cliente y no aplica.
+
+### SU-UX.3 Descubribilidad (mínima, sin rediseño)
+
+**(a) El folio se ve como enlace** (`PendingPublishQueue.tsx:306-316`). Hoy solo se subraya al pasar el ratón. Pasa a
+estar **subrayado siempre**: `underline underline-offset-2 decoration-border hover:decoration-current`, con el mismo foco.
+Con `total > 0`, bajo el `subtitle` (`:255`) va una línea de ayuda `text-xs text-muted` con la clave nueva `openHint`.
+Con la cola vacía no se pinta.
+
+**(b) El selector de ubicación vacío** (`ItemDetailModal.tsx:186-188`, sección «Mover de ubicación» `:331-364`). Si
+`moveTargets.length === 0`, **en lugar** del `Select`, la nota y el botón «Mover» (que no servirían) se pinta un `<p
+className="text-sm text-muted">` con el aviso y debajo un enlace con el estilo de `detail.seeSheet` (`:251`). Hay dos
+casos, porque `moveTargets` excluye la ubicación actual:
+- sin **ninguna** ubicación `platform_stock` activa ⇒ `move.noTargets`;
+- la pieza ya está en la **única** que hay ⇒ `move.noOtherTarget`.
+
+El enlace lleva a `/admin/m1?locations=open`. `M1View` lee el parámetro al montar, abre `LocationsModal`
+(`setLocationsOpen(true)`, `:114`) y lo quita de la URL, igual que hace con `tab` (`:107-108`). Antes de navegar, el
+enlace cierra la ficha (`onClose`) para que no queden dos modales apilados cuando la ficha se abrió desde M1. Este es el
+único cambio fuera de textos. Si frontend prefiere no tocar `M1View`, el aviso sin enlace basta: ya dice dónde está.
+
+**(c) Claves nuevas** (paridad ES/EN en el mismo cambio):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m1.publishQueue.openHint` | Pulsa un folio para abrir la pieza y ver lo que puedes hacer con ella. | Click a folio to open the item and see what you can do with it. |
+| `admin.m1.move.noTargets` | No hay ubicaciones de stock creadas. No hacen falta para vender; si quieres ordenar el stock, créalas en Inventario › Ubicaciones. | There are no stock locations yet. They aren't needed to sell; if you want to organize stock, create them in Inventory › Locations. |
+| `admin.m1.move.noOtherTarget` | Esta es la única ubicación de stock. Para moverla, crea otra en Inventario › Ubicaciones. | This is the only stock location. To move it, create another one in Inventory › Locations. |
+| `admin.m1.move.manageLocations` | Ir a Ubicaciones | Go to Locations |
+
+«Inventario › Ubicaciones» nombra lo que el dueño ve: `admin.nav.m1` = «Inventario» (`es.json:1306`) y el botón
+`locations.button` = «Ubicaciones» (`:1564`). «No hacen falta para vender» es la fila de HECHOS dicha al dueño. Si la
+regla se revierte, se quita esa frase. Ruta del namespace `move.*`: es la misma de `move.title` que usa la ficha. La ruta
+exacta en `en.json` está **NO MEDIDA**.
+
+### SU-UX.4 Candados sugeridos (los escribe frontend)
+
+| ID | Qué asevera | Canario |
+|---|---|---|
+| **SU-UX-1** | `publishQueue.note`: ES contiene «con IVA» **y** «antes de IVA»; EN contiene «VAT included» **y** «before VAT»; ⛔ «Solo el producto sellado admite aquí» | Restaurar el texto viejo |
+| **SU-UX-2** | Ficha `in_stock` con `locations=[]` ⇒ texto `noTargets` y enlace `href` que termina en `/admin/m1?locations=open`; ⛔ `combobox` «Nueva ubicación» | Volver a pintar el `Select` vacío |
+| **SU-UX-3** | Ficha con `location` = la única activa ⇒ `noOtherTarget`; con ≥1 destino ⇒ ni `noTargets` ni `noOtherTarget`, y sí el `Select` | Un solo texto para los dos casos |
+| **SU-UX-4** | `M1View` montado con `?locations=open` ⇒ diálogo «Ubicaciones de bóveda» abierto | Ignorar el parámetro |
+| **SU-UX-5** | Botón del folio con clase `underline` sin prefijo `hover:`; `openHint` presente con filas y ausente con la cola vacía | Volver a `hover:underline` |
+| **SU-UX-6** | Paridad: las 4 claves nuevas y `note` existen en `es` y `en`; las dormidas de SU-UX.2 **siguen** existiendo | Borrar `reason.location` |
+
+### SU-UX.5 Notas
+
+- **Contraste:** sin pares nuevos. `text-muted` sobre `surface` (~4.8:1) y subrayado en `border`. El subrayado es
+  decorativo: el nombre accesible `openPiece` ya existía.
+- **N-SU-1 (product-owner, informativo):** `locations.subtitle` dice «Crea al menos una para poder dar de alta items»
+  (`es.json:1566`). Si el alta exige ubicación hoy está **NO MEDIDO**. No lo toco: la fila de HECHOS habla de publicar.
+- **N-SU-2 (orquestador):** quién puede crear ubicaciones (`POST /admin/locations`, `API_CONTRACT.md:14745`) no tiene rol
+  declarado. Si un `vault_operator` llega al enlace y no puede crear, verá el error del modal: **NO MEDIDO**.
+
+### SU-UX.6 El aviso tras el alta: «a la venta» o «aún no» (vSU-2, 2026-10-07 · `API_CONTRACT §M1-SU` SU.8.3–SU.8.5, SU-F2)
+
+**Norma:** la misma fila de HECHOS que SU-UX («La ubicación (cajón) NO es requisito para publicar, por ahora»,
+2026-10-07). Desde SU.8, el alta publica sola si la pieza tiene precio. El aviso tiene que decirle al dueño si la
+pieza **ya está a la venta**, y si no, dónde mirar. ⛔ Ningún texto de esta sección nombra la ubicación. Líneas leídas
+en `/home/user/tcg-ubic` el 2026-10-07 (ux-ui sin Bash: sha NO MEDIDO). Re-medir antes de editar.
+
+**Lo que hay hoy (leído):**
+- `AddItemModal.tsx:186-190`: el toast `success` dice «Pieza dada de alta · folio {folio}.» (`createToast`,
+  `es.json:1428`/`en.json:1428`), sea cual sea el `status`.
+- `AddGradedModal.tsx:64`: no avisa (solo `onCreated`). Su llamador `M1View.tsx:391-396` pasa `invalidateAggregates`, que
+  no pinta nada (`:180-188`). La clave `admin.inventory.addGraded.success` (`es.json:5462`) existe pero no la usa este
+  componente.
+- Lote: `AddItemModal.tsx:217-231` (`batchToastAllOk`/`batchToastPartial`, `es.json:1440-1441`) y `QuickAdd.tsx:183-191`
+  (`successOne`/`successSummary`, `es.json:5526-5527`). El servidor no da `status` por pieza en el lote (SU.8.3).
+- **Ninguna alta refresca la cola.** «Listas para publicar» usa `['pending-publish', …]` (`PendingPublishQueue.tsx:206`).
+  `AddItemModal.tsx:182-183,215-216`, `M1View.tsx:180-188` y `MasterSetPanel.tsx:138-142` no la invalidan. Sin ese cambio,
+  un aviso que diga «la encuentras en Listas para publicar» manda al dueño a una cola que todavía no la muestra.
+
+**(a) Regla de decisión (alta de una pieza).** Si `response.status === "listed"`, usar la variante **a la venta**.
+Con cualquier otro valor (`"in_stock"`, que incluye el fallo capturado de SU.8.2), usar la variante **aún no**.
+⛔ No se deduce del precio que mandó el formulario: manda el `status` que devolvió el servidor.
+
+**(b) Tono, con los tokens que ya existen (`Toast.tsx:17,77-81`). Cero tokens nuevos.**
+
+| Caso | `variant` | Regla e icono | `role` | `duration` |
+|---|---|---|---|---|
+| A la venta (`listed`) | `success` | `border-success` + `Check` | `status` | por defecto (6000) |
+| Aún no (`in_stock`) | `info` | `border-on-ink-rule`, sin icono | `status` | `9000` (texto más largo; igual que `batchToastPartial`, `AddItemModal.tsx:229`) |
+| Lote sin fallos | `success` (como hoy) | igual que hoy | `status` | `9000` |
+| Lote con fallos | `danger` (como hoy) | igual que hoy | `alert` | `9000` (como hoy) |
+
+«Aún no» **no es** `danger`: el alta salió bien y no hay nada roto. Es un pendiente normal, que la cola ya resuelve.
+El título de las dos variantes sigue siendo `createToastTitle` («Alta registrada» / «Item added»).
+
+**(c) Sin enlace en el aviso.** Hay tres motivos:
+1. El toast no admite enlaces. Su única acción es `undo` (`Toast.tsx:26-32`), y §28.6c la reserva para deshacer.
+2. La cola está en la misma pantalla. `PendingPublishQueue` se monta en `M1View.tsx:304`, encima de las pestañas, y los
+   dos modales de alta se abren desde ahí (`:387`, `:391`).
+3. Un enlace en un aviso que se cierra solo a los 6–9 s no es accesible: no da tiempo a tabular hasta él.
+
+Lo que sí se pide es que la cola **se refresque** (punto (e)), para que el dueño la vea al cerrar el modal.
+
+**(d) Textos (paridad ES/EN en el mismo cambio).**
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.m1.createToastListed` | Pieza dada de alta y a la venta · folio {folio}. | Item added and on sale · folio {folio}. |
+| `admin.m1.createToastNotListed` | Pieza dada de alta · folio {folio}. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar». | Item added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”. |
+| `admin.inventory.addGraded.successListed` | Gradeada dada de alta y a la venta · folio {folio}. | Graded card added and on sale · folio {folio}. |
+| `admin.inventory.addGraded.successNotListed` | Gradeada dada de alta · folio {folio}. Aún no está a la venta: si le falta precio, la encuentras en «Listas para publicar». | Graded card added · folio {folio}. It isn't on sale yet: if it's missing a price, you'll find it in “Ready to publish”. |
+| `admin.m1.batchPublishNote` | Las que tienen precio quedan a la venta; si a alguna le falta, la encuentras en «Listas para publicar». | Those with a price go on sale; if any is missing one, you'll find it in “Ready to publish”. |
+
+- **Por qué «si le falta precio» y no «le falta precio».** `in_stock` también sale cuando una guarda deja la pieza
+  `not_publishable` (p. ej. un slab sin identidad) o cuando falla el disparo. En esos casos la pieza puede no estar en
+  la cola (SU.8.2: «visible en `pending-publish` si le falta precio o en M1 si no»). La frase condicional es cierta en
+  todos los casos, y el caso normal (falta precio) queda dicho. «Listas para publicar» / «Ready to publish» es el
+  título literal de la cola (`es.json:1584`, `en.json:1584`).
+- **Lote.** `batchPublishNote` se añade **detrás** del mensaje de hoy, separado por un espacio, en:
+  `AddItemModal` lote (`batchToastAllOk` y `batchToastPartial`) y `QuickAdd` (`successOne` y `successSummary`; QuickAdd
+  la lee con `tRoot('admin.m1.batchPublishNote')`, `QuickAdd.tsx:94`). Los textos de hoy **no cambian**. Así las pruebas
+  que ya los buscan siguen valiendo.
+- **`AddGradedModal`:** recibe una prop opcional `onToast` con la misma forma que la de `AddItemModal`.
+  `M1View.tsx:391-396` le pasa `pushToast`. Se sigue llamando a `onCreated` como hoy.
+- **Dormidas:** `admin.m1.createToast` y `admin.inventory.addGraded.success` dejan de usarse. Se borran en el mismo
+  cambio solo si ninguna prueba las lee (NO MEDIDO). Si alguna las lee, se quedan dormidas.
+- **Fuera de este pase** (⛔ no se tocan, no bloquea): `MasterSetPanel` no muestra aviso de éxito (`:129-135`, leído), y
+  la «encontrada» de `CellDrawer.tsx:532-549` no la medí. Si se les da aviso, se usa `batchPublishNote`.
+
+**(e) Refresco de la cola.** Cuando un alta sale bien, se invalida `['pending-publish']` (por prefijo, así cubre también
+la cola de M11 de sellado). Los sitios son: `AddItemModal` (una y lote), `QuickAdd`, `M1View.invalidateAggregates`
+(gradeada) y `MasterSetPanel.invalidateAggregates`.
+
+**(f) Mock.** `api.ts:3885` devuelve hoy `status: 'in_stock'` fijo (SU.8.4). Tiene que poder devolver `"listed"`.
+Propuesta: `"listed"` si el alta trae `listPriceCents`. Lo decide frontend; lo que importa es que las dos variantes se
+puedan ver en el modo mock.
+
+### SU-UX.7 Candados sugeridos para SU-UX.6 (los escribe frontend; SU-UX-7 es el SU-F2 del contrato)
+
+| ID | Qué asevera | Canario |
+|---|---|---|
+| **SU-UX-7** | `AddItemModal`, alta de una pieza. Con `{status:"listed"}`: `onToast` recibe `variant:"success"` y un mensaje con el folio y «a la venta», sin «Aún no». Con `{status:"in_stock"}`: `variant:"info"` y un mensaje con «Aún no está a la venta» **y** «Listas para publicar». Los dos mensajes son distintos | Volver a `createToast` sin mirar `status` |
+| **SU-UX-8** | `AddGradedModal`: las mismas dos aserciones con `successListed`/`successNotListed`, y `onCreated` se sigue llamando | Quitar el `onToast` (la gradeada vuelve a no avisar) |
+| **SU-UX-9** | Lote: el toast de `AddItemModal` (todo bien **y** con fallos) y el de `QuickAdd` contienen `batchPublishNote` **y** el texto de hoy (`batchToastAllOk` / `successOne`…) | Reemplazar el texto de hoy en lugar de añadir la nota |
+| **SU-UX-10** | Tras un alta correcta, `invalidateQueries` se llama con `queryKey: ['pending-publish']` en `AddItemModal` (una y lote), `QuickAdd` y `M1View` (gradeada) | Quitar la invalidación de uno de ellos |
+| **SU-UX-11** | Paridad: las 5 claves nuevas existen en `es` y `en`, con el placeholder `{folio}` donde toca; ninguna contiene «ubicación» / «location» | Borrar una clave en `en` |
+
+Notas:
+- **Contraste:** no hay pares nuevos. Los tres tonos usan `text-on-ink-muted` sobre `ink`, que ya existe
+  (`Toast.tsx:99`). El tono no se cifra solo en el color: lo dicen el texto y el icono (`Check` solo en «a la venta»).
+- **N-SU-3 (orquestador / arquitecto, informativo):** que una pieza `not_publishable` aparezca en «Listas para
+  publicar» (con «Por revisar», `es.json:1593`) está **NO MEDIDO**. Por eso el texto dice «si le falta precio» y no
+  promete que la pieza esté en la cola.

@@ -5096,6 +5096,9 @@ supersede D5; **CORREGIDA en la 5ª por D31: se elimina el umbral**)**
       **eso es proyecto aparte, fuera de este alcance**. **El sistema solo guarda y muestra**: el número
       queda visible para el vendedor (para que pueda usarlo) y para el operador (para **conciliar** al
       recibir).
+      *(**⚠ CAMBIO 2026-10-06 — `HECHOS.md:79`** «Buylist con Skydropx de entrada (P-BUYLIST-SDX)»: la guía
+      **se cotiza y se compra en Skydropx** desde «Aceptada», con la dirección del vendedor como origen; la captura
+      a mano **queda como respaldo**. Lo que se descuenta al vendedor **no cambia** (tarifa congelada). §BSD.1.)*
 - [ ] **Quién marca «en tránsito»: el operador (D20)**: la solicitud pasa a **`en_transito`** cuando **el
       operador confirma el envío**. Ni la compra de la guía ni el aviso del vendedor mueven ese estado por sí
       solos. *(Ver §P.13: por eso el **reloj** y el **estado** se separan — el vendedor tiene un **«ya lo
@@ -5106,6 +5109,9 @@ supersede D5; **CORREGIDA en la 5ª por D31: se elimina el umbral**)**
       depende de nosotros. ~~En la banda donde **él paga su envío**, el plazo corre **desde la aceptación**.~~
       **⚠ RETIRADO en la 5ª ronda (D31): esa banda ya no existe**, así que el reloj arranca **siempre con la
       entrega de la guía**, sin excepciones ni casos.
+      *(**Nota 2026-10-06, `HECHOS.md:78`:** el reloj **del vendedor** no cambia. Se añade **otro reloj, de la
+      tienda**: 7 días **naturales** desde la aceptación para ponerle guía; si vence, la solicitud se cierra sin
+      culpa del vendedor. §BSD.3.)*
       Sin envío en el plazo, la oferta **`expira`**, la solicitud **se cancela** y **se le notifica al
       vendedor** por correo. El plazo es **dial de M10** (D8) y se comunica con **fecha y hora explícitas**.
 - [ ] **Guía emitida que no se usó: hay que cancelarla (D22)**: la etiqueta que compramos debe ser
@@ -5113,6 +5119,8 @@ supersede D5; **CORREGIDA en la 5ª por D31: se elimina el umbral**)**
       detalle operativo—, y cuando una solicitud **con guía emitida** vence o se cancela, el sistema **deja
       la tarea «cancelar guía no usada» en la cola del operador**, con el número a la vista. Una etiqueta
       comprada y olvidada es **dinero tirado que nadie ve**.
+      *(**Nota 2026-10-06, `HECHOS.md:59`** «REGLA GENERAL… LO MÁS AUTOMÁTICOS POSIBLE»: si la guía se compró en
+      Skydropx, **primero se cancela sola**; la tarea queda solo si la cancelación automática no se puede. §BSD.1.8.)*
 - [ ] **Aceptar no pone nada en camino.** Para el negocio —y para los conteos de la mesa de decisión
       (§P.2)—, **una carta solo «viene en camino» cuando la solicitud está `en_transito`**. Ni una solicitud
       **`aceptada`**, ni una con **guía emitida**, ni una con **«ya lo mandé»** del vendedor cuentan como
@@ -5869,6 +5877,12 @@ ronda por D31**)**
 > compramos la guía**, además nos costaría dinero.
 - [ ] **Requisito de negocio: un plazo del vendedor solo puede vencer por algo que dependa del vendedor.**
       Nuestra carga de trabajo **no puede cancelarle una venta**.
+      *(**⚠ CAMBIO 2026-10-06 — decisión del dueño, `HECHOS.md:78`** «Buylist: una solicitud ACEPTADA sin guía
+      capturada en 7 días se CANCELA sola»: «si no capturé guía en 7 días igual cancela aunque esté aceptada». La
+      **primera** frase sigue en pie: **el plazo del vendedor** (3 días hábiles desde la guía) solo vence por algo
+      suyo. La **segunda** deja de ser absoluta: si **la tienda** no le pone guía en **7 días naturales** desde que
+      aceptó, la solicitud **se cierra** — es una demora nuestra que cierra la venta, **no** un plazo del vendedor que
+      vence, y por eso **no cuenta contra él** y el correo no lo culpa. Detalle: **§BSD.3**, criterios 543–547.)*
 - [ ] **Se separan el reloj y el estado**:
       - el vendedor tiene un **«ya lo mandé»** que **DETIENE su reloj** pero **NO mueve el estado** — es su
         palabra, todavía sin confirmar;
@@ -8120,6 +8134,8 @@ guía y cómo se compra, ⛔ **no lo que se cobra**. La **tarifa en vivo en el c
 - **Cubeta de bóveda** (no lleva guía ni dinero; §S.4 sigue igual).
 - **Buylist** (la guía que le mandamos al vendedor, §P / D16 / D21 / D22): **posible fase posterior**; hoy sigue
   como está.
+  *(**Nota 2026-10-06:** ya no es fase posterior — `HECHOS.md:79` «Buylist con Skydropx de entrada… ANTES de cobrar
+  en real». Va en **§BSD**, que reusa esta ventana; §T no cambia para los envíos de salida.)*
 - **Tarifa en vivo en el checkout** (cobrar al cliente según destino/paquetería): fuera. La tarifa es fija.
 - **Recolección** (que la paquetería pase a la tienda): fuera, por la decisión 2 (*él lleva los paquetes*).
 - **Compra automática de guía** (sin que el operador elija): fuera, por la decisión 3. Queda como fase posterior
@@ -8921,11 +8937,17 @@ Para darte el servicio, compartimos datos con proveedores que los tratan **por c
 | Proveedor | Qué recibe | Para qué |
 |---|---|---|
 | **Stripe** | Monto y datos del pago que tú capturas en su formulario | Procesar el cobro y los reembolsos |
-| **Paqueterías** [y **Skydropx**, cuando opere] | Nombre de quien recibe, dirección y teléfono | Entregar o recoger el paquete |
+| **Paqueterías** | Nombre, dirección y teléfono de quien recibe; si nos vendes cartas, también tu nombre, dirección y teléfono como remitente | Entregar o recoger el paquete |
+| **Skydropx** | Nombre, dirección, teléfono y correo de quien recibe; si nos vendes cartas, también tu nombre, dirección y teléfono como remitente | Cotizar y generar la guía de envío con la paquetería |
 | **Resend** | Tu correo y el contenido del aviso | Enviarte los correos de la tienda |
 | **Cloudflare (R2)** | Imagen de tu INE | Guardarla en almacenamiento privado |
 | **Railway y Vercel** | Los datos de la tienda | Alojar el servidor, la base de datos y el sitio |
 | **Google** | Lo necesario para el acceso con Google | Iniciar sesión, si eliges esa opción |
+[*Nota de product-owner, 2026-10-06: filas de Paqueterías y Skydropx ampliadas al **remitente** porque la guía de
+ENTRADA del buylist (§BSD) manda a Skydropx y a la paquetería el nombre, la dirección y el teléfono del vendedor
+(`docs/SECURITY_NOTES.md` §BSD-S5.1). El correo de origen de esa guía es el de la tienda, no el del vendedor (medido
+por seguridad), por eso el correo solo figura para quien recibe. Skydropx queda en fila propia, como ya está en la
+tienda (`privacidad.es.ts:169`).*]
 Algunos de estos proveedores pueden guardar datos **fuera de México** [*nota para el abogado: confirmar país y
 contratos de cada uno*]. Además, entregamos datos a **autoridades** (por ejemplo, el SAT) cuando la ley lo exige.
 **No vendemos tus datos.** [*Nota para el abogado: decidir cuáles de estos son «remisiones» a encargados y cuáles
@@ -9065,6 +9087,289 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
 - Reescribir los términos aquí: va a frontend/ux-ui. T-4, T-5, T-6 y T-9 ya están decididos (`HECHOS.md` 2026-10-04
   «Disputas…» y 2026-10-05 «Términos tras quitar disputas…») y se pueden aplicar ya; T-1/T-2/T-3 esperan P-LEG-6
   (o su default) (criterio 510).
+
+### BSD. 💰 Buylist: guía Skydropx de entrada, «Declinar» y cierre automático (transversal — NUEVO 2026-10-06, sesión 6 · ⚠️ BORRADOR de product-owner, con preguntas P-BSD abiertas · ⛔ requisito ANTES de cobrar en real)
+
+> **Fuentes que mandan** (no se re-preguntan):
+> - `HECHOS.md:78` (2026-10-06) «Buylist: una solicitud ACEPTADA sin guía capturada en 7 días se CANCELA sola» —
+>   palabras del dueño: «si no capturé guía en 7 días igual cancela aunque esté aceptada»; «7 días naturales»; y el
+>   correo: «pon que simplemente tras una revisión adicional decidimos no continuar con ese proceso de venta, algo así
+>   súper profesional».
+> - `HECHOS.md:79` (2026-10-06) «Buylist con Skydropx de entrada (P-BUYLIST-SDX) — ANTES de cobrar en real; quién
+>   paga la guía» — «la voy a pagar yo pero se descuenta del saldo a pagar, ya lo tienes así en el desglose de pago»;
+>   «me gustaría antes de cobrar real».
+> - `HECHOS.md:59` (2026-10-04) «REGLA GENERAL: los procesos se diseñan LO MÁS AUTOMÁTICOS POSIBLE…».
+> - Skydropx: `HECHOS.md:34` (2026-09-29, «todo paquete va ASEGURADO»), `:35` («se prefiere UNA sola paquetería…»),
+>   `:36` («la paquetería la ELIGE EL OPERADOR…»), `:37` («LIGA DE RASTREO si Skydropx la da…»), `:38`/`:39`
+>   (correos «Entregado» / «en sucursal», del comprador), `:48` (2026-10-04, «Carta Porte… 49101600… Seguro… el que
+>   aplique»; llave de gasto), `:49` (2026-10-04, «Skydropx vive dentro de la ventana «Capturar guía»…»), `:58`
+>   (2026-10-04, «comprar y cancelar guías lo puede hacer TAMBIÉN EL PERSONAL»).
+> - Control del gasto: `HECHOS.md:62` (2026-10-04, «límites aceptados como se recomendaron…»), §Z.
+> - `PENDIENTES.md` fila **P-BUYLIST-SDX** (medida 2026-10-06 sobre production `36091259`).
+>
+> **Lo que pidió el dueño**, con captura de la solicitud `1ad4729a…` (aceptada el 15-sep, Morpeko ex MX$1,500, abierta
+> desde entonces): «en este apartado debe aplicar lo mismo de skydrop, debe de botarnos para elegirla con los datos del
+> cliente y también por si acaso quiero un botón aquí de declinar. Lo raro es que está aceptada el 15 de septiembre y no
+> se canceló… pensé que teníamos un temporizador de 7 días».
+
+#### BSD.0 Qué hay hoy (medido 2026-10-06 por product-owner sobre `claude/buylist-skydropx`, solo lectura)
+- **La guía del vendedor se captura a mano** (D19, §P.4): transportista + número; no hay compra en Skydropx en el
+  buylist (§T la dejó fuera: línea «Buylist … posible fase posterior» de §T.1).
+- **El plazo del vendedor arranca al entregarle la guía** (D31; `guideSentAt` ancla `shipDeadlineAt`,
+  `backend/prisma/schema.prisma:2212-2216`). **Sin guía, el reloj no corre** y el barrido no la ve: por eso la
+  solicitud del 15-sep sigue abierta (`PENDIENTES.md` P-BUYLIST-SDX).
+- **No hay «Declinar» en «Aceptada»**: la pantalla dice «Aceptada: ya no se cancela» (`PENDIENTES.md` P-BUYLIST-SDX);
+  el criterio 409(i) lo exige hoy por ausencia.
+- **Dónde vive la dirección del vendedor** (dato que pidió el encargo): es una **copia congelada** de una dirección de
+  su libreta, tomada **al crear la solicitud** — `SellRequest.pickupAddressSnapshot`
+  (`schema.prisma:2200-2207`), armada en `buylist.service.ts:4691-4705`. Lleva: calle (`line1`), interior
+  (`line2`, si hay), **colonia (`neighborhood`, solo si la dirección la tenía)**, ciudad, estado, **CP**, país,
+  **teléfono** del domicilio y el `addressId` de origen. **Comparada con la del cliente en envíos**
+  (`shipments.service.ts:549,559`, que copia también `recipientName` y `references`), **le faltan dos cosas**:
+  - **el nombre de quien envía** (`recipientName`): no se copia, aunque la libreta sí lo tiene (`schema.prisma:715`);
+  - **las referencias** para el repartidor (`references`, `schema.prisma:726`).
+  - Y la **colonia puede faltar** en solicitudes creadas antes de que la colonia fuera obligatoria (§T.2); cuántas hay
+    está **NO MEDIDO** (se mide con una consulta en la ventana de despliegue).
+  - Solicitudes **legadas** (antes de M-46) tienen la copia vacía (`null`) y hoy no se pueden ni ofertar
+    (`422 PICKUP_ADDRESS_MISSING`).
+  - Hoy **solo el vendedor** corrige su dirección mientras no haya guía; el admin solo puede **elegir otra de la
+    libreta del vendedor** (`buylist.service.ts:4731-4735`), no teclearla.
+- **Lo que se le descuenta al vendedor** es la **tarifa fija congelada al ofertar** (D16/D25/D31, línea «SIEMPRE
+  ponemos la guía…» de §E, MX$180 de seed), nunca el costo real (`schema.prisma:2237-2240`). Eso **no cambia**.
+
+#### BSD.1 💰 El asistente Skydropx en «Aceptada» — la misma ventana de «Capturar guía», pero de entrada
+1. En una solicitud **`aceptada` sin guía**, el operador (y el dueño) tiene **«Generar guía con Skydropx»**: abre **la
+   misma ventana** que «Capturar guía» de envíos (`HECHOS.md:49`; §T.3–§T.4), con estas diferencias:
+   - **Origen = la dirección del vendedor**, precargada de la copia de su solicitud (BSD.0). El operador la **revisa**
+     y, si falta algo que Skydropx exige (colonia, nombre de quien envía), **la completa o corrige** ahí mismo, igual
+     que en envíos (`HECHOS.md:50`, «Poder corregir todo»); queda registrado **quién, cuándo y antes/después**.
+     *(SUPUESTO: la corrección vale **para esta guía** y no cambia la libreta del vendedor — paridad con envíos.)*
+   - **Destino = la tienda**: la dirección de origen que el dueño ya configuró para los envíos (§T.9). ⛔ **No se edita
+     en la ventana** y el servidor rechaza cualquier otro destino. *Por qué:* es la única forma de que una guía
+     pagada por la tienda no pueda mandarse a otro lado.
+2. **Las opciones** se muestran como en §T.3: paquetería y servicio, **precio con IVA y seguro**, días, si el vendedor
+   **lleva el paquete a sucursal** o la paquetería recoge, y dónde se entrega en la tienda. Encima: **lo que se le
+   descuenta al vendedor** (la tarifa congelada de su oferta, p. ej. MX$180) y el **margen del envío** (tarifa
+   descontada − costo de la guía). **El operador elige** (`HECHOS.md:36`); queda en bitácora qué eligió, cuál era la
+   recomendada, quién y cuándo (§T.4.3). Cuál sale **preseleccionada** es **P-BSD-4**.
+3. **Seguro siempre** (`HECHOS.md:34`, `:48`): al escalón que cubra **el valor del paquete**. *(SUPUESTO: valor del
+   paquete = **el bruto ofertado** de las cartas compradas, `offerGrossCents` — lo que vamos a pagar por ellas.)*
+   Carta Porte con el código SAT **49101600** «Coleccionables» (`HECHOS.md:48`). Sin escalón que cubra ⇒ no se
+   cotiza por Skydropx y queda «Capturar a mano» (§T.3.3).
+4. **Comprar** gasta el **saldo de Skydropx de la tienda** y exige lo mismo que en envíos: el interruptor de compra
+   encendido por el dueño (§T.4.7) **y** la llave de gasto de producción (`SKYDROPX_ALLOW_SPEND`, `HECHOS.md:48`,
+   `:79` (c)). Sin ellos el operador **no ve** el botón de comprar y le queda «Capturar a mano». ⛔ Ninguna prueba,
+   CI ni agente compra (criterio 306). Doble clic o dos personas a la vez ⇒ **una** guía y **un** cargo.
+5. **La guía regresa en la misma ventana** (`HECHOS.md:49`): paquetería, número, «Imprimir etiqueta» y, si Skydropx
+   la da, la liga de rastreo (`HECHOS.md:37`). Si el número tarda («guía en proceso», §T.4.4), la solicitud queda
+   esperándolo y el sistema **vuelve a preguntar solo**.
+6. **Al guardarse la guía (con número) arranca el plazo de envío del vendedor**, exactamente como hoy al capturarla a
+   mano (D31; 3 días hábiles de seed): sale **el mismo correo de guía al vendedor** de hoy (criterio 199), una sola
+   vez. ⛔ «Guía en proceso» **no** arranca el plazo ni manda el correo. Cómo recibe el vendedor **la etiqueta para
+   imprimirla** es **P-BSD-3** (hoy el correo solo lleva transportista y número).
+7. **La captura a mano sigue** como respaldo, igual que hoy: si Skydropx no da opciones, falla, o la compra está
+   apagada.
+8. **Guía de entrada que ya no se va a usar se cancela sola** (`HECHOS.md:59`, automático primero; D22): si una
+   solicitud **con guía comprada en Skydropx** se declina (BSD.2) o vence porque el vendedor no envió
+   (`not_shipped`), el sistema **cancela la guía en Skydropx** si la paquetería aún no la ha movido, y el saldo
+   regresa. Si no se puede (ya escaneada, error), queda la tarea «cancelar guía no usada» de hoy (criterio 139). Que
+   la cancelación devuelva **todo** (seguro incluido) sigue **NO MEDIDO** (§T.14).
+
+#### BSD.1-bis 💰 El dinero: quién paga, qué se descuenta, dónde queda el costo
+- **La guía la paga la tienda** con su saldo de Skydropx (`HECHOS.md:79` (a)).
+- **Al vendedor se le descuenta la tarifa fija de siempre**, congelada al ofertar (D16/D25/D31) — **no** el costo
+  real de la guía, salga más cara o más barata. El neto que se le deposita por SPEI no cambia en nada.
+- **El costo real** (guía + seguro, con su IVA) se guarda **solo, desde la respuesta de Skydropx**, y va al reporte
+  (M7 / P&L) como costo de la compra de buylist — hoy ese dato se captura a mano y es opcional
+  (`schema.prisma:2237-2240`). Con guía manual, sigue como hoy.
+- **Controles del gasto de §Z** *(SUPUESTO: aplican igual que en envíos, porque es el mismo saldo — `HECHOS.md:62`)*:
+  la guía de entrada **cuenta** para el tope de **MX$2,500 por persona en 24 h** (TG-1) y para el límite de
+  **una re-emisión** por solicitud (TG-2); el aviso de **saldo bajo** (AG-7) lo ve igual. ⛔ **No aplican** a la
+  guía de entrada: el aviso de «cambió la dirección y compró» (AG-1, existe para evitar desviar mercancía nuestra;
+  aquí el destino es fijo, la tienda) ni el de «guía comprada que no sale en 3 días» (AG-10: ese caso ya lo cubre el
+  plazo del vendedor y, al vencer, BSD.1.8 cancela la guía).
+
+#### BSD.2 «Declinar» en «Aceptada»
+1. En una solicitud **`aceptada`**, el operador y el dueño tienen **«Declinar»**. Pide **motivo obligatorio** (mínimo 3
+   caracteres, como los demás motivos del panel) y confirmación.
+2. Al declinar: la solicitud **se cierra** (terminal, no se revive — §P), queda **auditado quién, cuándo y el motivo**,
+   y el vendedor recibe **el correo de BSD.4**. ⛔ El motivo **es interno**: no viaja al vendedor (mismo criterio que
+   el «declinar» de «cotizada», D39). *(SUPUESTO; si el dueño quiere decirle el motivo, es un cambio de correo.)*
+3. **No cuenta contra el vendedor** (BSD.3.3).
+4. Con guía de Skydropx ya comprada ⇒ BSD.1.8 (se cancela sola). Con guía manual ⇒ la tarea «cancelar guía no usada»
+   de hoy.
+5. **Cuándo NO se ofrece** *(SUPUESTO)*: si el vendedor ya dijo **«ya lo mandé»** o la solicitud ya está **en
+   tránsito**: las cartas pueden venir en camino, y declinar dejaría un paquete nuestro sin dueño. Ahí el camino sigue
+   siendo recibir y, si hace falta, rechazar las cartas en revisión (criterio 408).
+6. *Nota:* esto **sustituye en parte** `HECHOS.md:53` (2026-10-04, «Solicitud de venta aceptada: no se cancela…»)
+   **solo para la etapa «Aceptada»** (antes de que las cartas viajen), por la fila posterior `HECHOS.md:79` (b)
+   (2026-10-06). Lo que decía aquella fila para cartas **ya recibidas** en mala condición sigue igual.
+
+#### BSD.3 Cierre automático: aceptada sin guía en 7 días naturales
+1. Una solicitud **`aceptada` sin guía** (ni manual, ni de Skydropx, **ni compra en vuelo / «guía en proceso»**) a
+   los **7 días naturales** desde que el vendedor aceptó **se cierra sola** (`HECHOS.md:78`). *(SUPUESTO de borde:
+   «7 días naturales» = 7 × 24 h desde la hora de aceptación; se cierra en la siguiente pasada del barrido del
+   buylist.)*
+2. El 7 es un **dial de M10** (editable sin desplegar, auditado), en **días naturales**, a diferencia de los demás
+   diales del buylist, que son hábiles (`HECHOS.md:78` (c)). *(SUPUESTO: dial; el dueño dijo 7.)*
+3. **Es demora de la tienda, no del vendedor** (`HECHOS.md:78` (b)):
+   - el cierre se registra como **cerrado por la tienda**, distinguible en M5, en la ficha, en el portal del vendedor
+     y en M9 del «aceptaste y no mandaste» (`not_shipped`); *cómo se modela (estado o motivo) es del arquitecto*;
+   - **no cuenta en ninguna medida de conducta del vendedor** ni le impone espera para volver a vender; su
+     compromiso deja de contar para los topes como cualquier solicitud cerrada;
+   - el portal del vendedor no dice «expirada» ni «no enviaste»: dice, en el mismo tono del correo, que no se
+     continuó con la venta.
+4. Sale **el correo de BSD.4**, una sola vez.
+5. **Si se captura o se compra la guía antes del día 7**, no se cierra: corre el plazo del vendedor como hoy.
+6. ⛔ **Nunca queda una guía comprada sobre una solicitud cerrada**: si el cierre y una compra llegan a la vez, gana
+   uno; si aun así Skydropx cobró, se aplica BSD.1.8.
+
+#### BSD.3-bis Aviso antes del cierre (⚠️ pregunta abierta P-BSD-1)
+- **Propuesta:** el **día 5** la solicitud se marca en la cola de M5 y en el tablero («se cierra sola en 2 días si no
+  tiene guía») y sale **un correo al dueño**. *Al dueño, no al operador:* el personal no tiene correo
+  (`HECHOS.md:51`) y los avisos al personal por correo están fuera de alcance (§Z). El aviso desaparece al haber guía.
+  El día del aviso sería un dial.
+
+#### BSD.3-ter Las solicitudes ya abiertas al desplegar (⚠️ pregunta abierta P-BSD-2)
+- **Propuesta:** para las solicitudes que **ya** estén aceptadas sin guía al desplegar (entre ellas la del 15-sep),
+  **los 7 días cuentan desde el despliegue**, no desde su aceptación: nada se cierra el día del despliegue y el dueño
+  tiene una semana (con el aviso del día 5) para comprarles la guía con el asistente nuevo o declinarlas. *Por qué:*
+  cerrarlas en el acto mandaría un correo de «decidimos no continuar» a alguien a quien quizá sí le quieres comprar
+  (Morpeko ex a MX$1,500). Cuántas son está **NO MEDIDO**: se cuenta con una consulta antes del despliegue y se le
+  dice al dueño en la solicitud de fusión.
+
+#### BSD.4 El correo al vendedor (cierre automático y «Declinar»)
+- Tono profesional, **sin culpar al vendedor y sin mencionar la guía, la demora ni plazos**. Idea del dueño:
+  «tras una revisión adicional decidimos no continuar con ese proceso de venta» (`HECHOS.md:78` (d)). **Redacción
+  final de ux-ui**, con paridad es/en, con la plantilla de marca (`mailShell`) y su pie de privacidad.
+- *(SUPUESTO: **el mismo correo** sirve para «Declinar» y para el cierre automático. El vendedor recibe la misma
+  respuesta; lo que queda distinto es la bitácora interna — quién y por qué.)*
+- ⛔ Sin dirección, teléfono ni CLABE en el correo (como todos los del buylist).
+
+#### BSD.5 Reglas vigentes que esto cambia (cada una con su nota fechada, sin borrar el texto viejo)
+- §P.13, «un plazo del vendedor solo puede vencer por algo que dependa del vendedor» — nota 2026-10-06.
+- §P.4, D19 «la guía se genera a mano» y el reloj de D31 — notas 2026-10-06.
+- §P.4, D22 «guía no usada» — nota 2026-10-06 (primero se cancela sola).
+- Criterios 137, 138, 139 y 409(i) — notas 2026-10-06.
+- §T.1 «Fuera de este alcance: Buylist» — nota 2026-10-06.
+- «Fuera de alcance» de §V: «cancelar una solicitud de venta aceptada» — nota 2026-10-06.
+
+#### BSD.6 Fuera de alcance de §BSD
+- **Cambiar la tarifa fija** del buylist o descontar el costo real al vendedor.
+- **Cambiar el flujo de envíos de salida** (§T queda igual).
+- **Idiomas japonés y español** (§IDS, `HECHOS.md:77`).
+- **Recolección a domicilio del vendedor** (pedir que la paquetería pase): fuera, como en §T. El vendedor lleva su
+  paquete a la paquetería que diga la guía.
+- **Correos de rastreo al vendedor** («en camino», «entregado», «en sucursal», `HECHOS.md:38`/`:39`): son del
+  comprador; al vendedor le sigue llegando el acuse de recibido de hoy.
+- Pasar a «en tránsito» o «recibida» por los eventos de Skydropx: **no entra** salvo que el dueño diga sí a
+  **P-BSD-5**.
+
+- Criterios **532–550**.
+
+### AN. Analítica de ventas para el dueño — pedidos por día, venta en pesos, ticket promedio y lo que más se vende (transversal — NUEVO 2026-10-06 · ⚠️ BORRADOR de product-owner, con preguntas P-ANA abiertas)
+
+> **Fuente:** palabras del dueño (2026-10-06, textual): *«también quiero analítica para business owner cuántos
+> pedidos tuve por día, ticket, volumen de venta en dinero, eso lo tenemos en algún lado, analytics como para un
+> business owner, qué más agregas»*.
+>
+> **Lo que existe hoy** *(medido por el orquestador el 2026-10-06, NO re-medido por product-owner: no tengo Bash)*:
+> **M7** da el P&L de un periodo (ventas, costo, ganancia, IVA, CSV; `backend/src/modules/admin/admin.service.ts:1728`
+> `pnl`) y **M9** da «métricas de lanzamiento» (clientes nuevos, órdenes liquidadas, solicitudes de buylist pagadas y
+> envíos entregados en un periodo; `admin.service.ts:2146` `launchMetrics`). **No hay nada por día, ni ticket
+> promedio, ni gráficas.** Respuesta corta a «¿lo tenemos en algún lado?»: **el total del periodo sí (M7/M9); el día
+> a día, el ticket y lo más vendido, no.**
+>
+> **Letra y numeración:** §T…§Z y §LEG ya existen, por eso esta es **§AN**. **Criterios: bloque 600–624**
+> (medido el 2026-10-06 sobre este `PROJECT.md`: los bloques ocupados son hasta el **338**, **400–418** y
+> **500–511**; los huecos 339–399 y 512+ se dejan para que §Z y §LEG crezcan). **NO MEDIDO** si otra rama viva
+> usa el bloque 600 o la letra AN — lo comprueba el orquestador antes de fusionar.
+>
+> **Cómo encaja con lo que ya está anotado (no se duplica):**
+> - **§W (Finanzas)** — esta sección **usa** sus reglas, no las redefine: el día se corta en hora del centro de
+>   México y el último día cuenta entero (§W.2, criterio 275; default de P-FIN-1 **aceptado**, `HECHOS.md` fila
+>   2026-10-04 «Portada: se cobra el precio que el cliente VIO…»: *«Las demás preguntas P-FIN… quedan con su
+>   default»*), un reembolso total **no resta dos veces** (§W.3 (d)) y los contracargos cuentan como dice §W.3 (c).
+>   ⇒ **La zona horaria NO se le vuelve a preguntar al dueño.**
+> - **P-ANALYTICS-OPS** (visitas, de dónde llega la gente, carritos abandonados): **fuera de §AN**. Necesita medir
+>   lo que hace el visitante —hoy no se guarda— y toca el aviso de privacidad (criterio 509). §AN **solo** usa lo que
+>   la tienda ya guarda.
+> - **P-ANALYTICS-NEGOCIO** y `HECHOS.md` fila 2026-10-04 «Rotación nivel siguiente» (qué rota, qué se estanca, qué
+>   comprar, qué rematar): **fuera de §AN**. §AN dice **qué se vendió**; aquella dice **qué hacer con el
+>   inventario**. El «lo más vendido» de §AN es su primer ladrillo, no su sustituto.
+> - **P-WISHLIST**: fuera de §AN.
+> - **P-DB-LIMPIEZA**: mientras no se limpien los pedidos de prueba, **estas cifras los incluyen** (toda venta hasta
+>   hoy es de prueba, `HECHOS.md` fila 16). §AN no filtra «de prueba»: la limpieza lo resuelve una vez.
+>
+> 💰 Lee dinero (no lo mueve): sus cifras deben **cuadrar al centavo con M7**. El *cómo* (consultas, tablas,
+> endpoints) es del arquitecto y no se escribe aquí.
+
+#### AN.1 Qué significa cada número (una sola definición por cifra)
+
+| Cifra | Qué es, en llano | De dónde sale |
+|---|---|---|
+| **Pedidos** | Pedidos **pagados** (cobro confirmado) en el día. No cuentan los pagos fallidos ni los carritos que no se pagaron. Cuentan igual los de **envío** y los de **bóveda**, y los de **invitado**. | Pedidos liquidados (lo mismo que M9 llama «órdenes liquidadas») |
+| **Cobrado (con IVA)** | Lo que pagaron los clientes ese día: total del pedido, con IVA, envío y comisión de plataforma. | Pedidos liquidados |
+| **Venta sin IVA** | La **misma cifra de ingreso que M7**, partida por día. ⛔ No se inventa una fórmula nueva: si M7 cambia (§W), esta cambia con ella. | P&L de M7 (criterio 191: ingreso NETO, el IVA no es ingreso) |
+| **Reembolsos** | Cuántos reembolsos se hicieron y por cuánto (totales y de una carta, por tarjeta o SPEI). Se cuentan **en el día en que se hicieron** *(default de P-ANA-1)*. | Reembolsos registrados (§S.11, §V.2) |
+| **Venta neta de reembolsos** | Venta sin IVA − la parte sin IVA de los reembolsos del día. | Las dos de arriba |
+| **Ticket promedio** | Cobrado (con IVA) ÷ pedidos. Es «lo que deja un cliente por compra» *(default de P-ANA-2)*. | Calculado |
+| **Piezas por pedido** | Piezas vendidas ÷ pedidos. Un sellado cuenta como una pieza por unidad. | Renglones de los pedidos |
+| **Clientes nuevos / recurrentes** | **Nuevo**: su **primer** pedido pagado cae en el periodo. **Recurrente**: ya había comprado antes. Un invitado se reconoce por su **correo** *(SUPUESTO: mismo correo = mismo cliente, tenga o no cuenta)*. | Pedidos liquidados |
+
+#### AN.2 P1 — la primera versión, pequeña y útil aunque haya pocas ventas
+
+1. **Elegir periodo**: Hoy, Ayer, Últimos 7 días, Últimos 30 días, Este mes, Mes pasado y un rango a mano; y **ver
+   por día, por semana o por mes** *(SUPUESTO: la semana va de lunes a domingo)*.
+2. **Los números grandes del periodo**: pedidos, cobrado (con IVA), venta sin IVA, reembolsos (cuántos y cuánto),
+   venta neta de reembolsos, ticket promedio y piezas por pedido.
+3. **Contra el periodo anterior** del mismo largo (p. ej. «últimos 7 días» contra los 7 de antes): cada número grande
+   muestra la diferencia **en unidades** («+2 pedidos», «+MX$850») y en %. Con pocas ventas el porcentaje engaña
+   («+200 %» por pasar de 1 a 3 pedidos), por eso **la diferencia en unidades siempre va primero**; si el periodo
+   anterior fue cero, dice «sin ventas en el periodo anterior», sin porcentaje.
+4. **Tabla día por día** con **todos los días del periodo, también los de cero** (con pocas ventas, ver los días
+   vacíos es parte de la información), y una **gráfica de barras** sencilla de pedidos y de cobrado por día (o por
+   semana/mes según lo elegido).
+5. **Lo más vendido del periodo** (hasta 10 por lista): **cartas** (nombre, set y acabado), **sets** y **sellados**,
+   ordenables por **venta sin IVA** o por **piezas**. Una pieza cuyo pedido se reembolsó **completo** no cuenta como
+   vendida *(SUPUESTO)*.
+6. **Clientes nuevos vs. recurrentes** del periodo (cuántos de cada uno).
+7. **Exportar a CSV** la tabla por día (cuadra al centavo con la pantalla, §W.2). Sin datos personales.
+8. **Tarjeta en el tablero, «Ventas de hoy»**: pedidos y cobrado de hoy, contra el mismo día de la semana pasada, con
+   un enlace a la pantalla completa.
+9. **Ganancia por día** — entra en P1 **solo si** el arquitecto confirma que el P&L de M7 ya se puede pedir por día
+   sin un cálculo nuevo; si no, pasa a P2. Es la misma ganancia de M7, partida por día.
+
+#### AN.3 P2 — después (cuando haya ventas reales que comparar)
+
+- **Mejores días**: qué día de la semana y qué franja horaria vende más (con pocas ventas no dice nada; por eso P2).
+- **Cómo pagan y a dónde va**: mezcla por **método de pago** *(NO MEDIDO por product-owner qué métodos acepta hoy el
+  checkout de Stripe —tarjeta y si hay otros—; lo mide el arquitecto; si solo hay tarjeta, esta parte se reduce a
+  «destino»)*, por **destino** (envío a domicilio vs. bóveda) y **invitado vs. con cuenta**.
+- **Envíos**: cuánto se cobró de envío vs. cuánto costaron las guías (real de Skydropx o tarifa), por día — «¿me
+  sale el envío?». Sale de M7 (§T.7).
+- **Compras del buylist por día**: cuánto pagaste comprando (neto pagado), reutilizando el flujo SPEI de buylist por
+  periodo de §W.3 (e). Al lado de lo vendido, para ver si compras más de lo que vendes.
+- **Contracargos** por día (como los cuenta §W.3 (c)).
+- **Mezcla por tipo de producto**: sueltas vs. gradeadas vs. sellado, en piezas y en dinero.
+- **Ventas de ayer en el resumen diario por correo** que ya existe en §Z (08:00 hora del centro de México): una línea
+  con pedidos, cobrado y ticket de ayer.
+
+#### AN.4 Dónde se ve y quién lo ve
+
+- **Una pestaña «Ventas» dentro de Reportes (M9)** *(default de P-ANA-3)*, junto a las métricas de lanzamiento que
+  ya están ahí, más la tarjeta «Ventas de hoy» del tablero (AN.2 punto 8).
+- **Solo el súper-admin** (igual que M7/M9 hoy; regla de oro del back-office: el operador no ve dinero). *(El
+  permiso exacto de M9 hoy: NO MEDIDO por product-owner; lo confirma el arquitecto, como en §W.6.)*
+
+#### AN.5 Fuera de alcance de §AN
+
+- Visitas, de dónde llega la gente, conversión y carritos abandonados ⇒ **P-ANALYTICS-OPS**.
+- Rotación, inventario estancado, qué comprar y qué rematar ⇒ **P-ANALYTICS-NEGOCIO**.
+- Lista de deseos ⇒ **P-WISHLIST**.
+- Herramientas de terceros (Google Analytics u otras), cookies nuevas o rastreo del visitante: §AN no añade ninguna.
+- Pronósticos, metas nuevas (las de lanzamiento ya viven en M9) y reportes para el contador (son de §W.4).
+- Separar pedidos «de prueba» de los reales: lo resuelve **P-DB-LIMPIEZA**.
 
 ### AC. Accesorios — fundas, carpetas, energías y demás, con precio final del dueño (transversal — NUEVO 2026-10-06, sesión 6 · v2 2026-10-07 con respuestas del dueño · PARA APROBAR; quedan preguntas acotadas, ver «Preguntas — accesorios»)
 
@@ -9416,6 +9721,9 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
       sueltas: **P-EN-3**. Un deck **sin** energías básicas no muestra recuadro *(consecuencia de la regla 1)*.
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §BSD (buylist con guía Skydropx de entrada)** *(2026-10-06)*: cambiar la tarifa fija del buylist; cambiar los
+  envíos de salida; japonés y español; recolección a domicilio del vendedor; correos de rastreo al vendedor. Detalle
+  en **§BSD.6**.
 - **De §AC (accesorios)** *(2026-10-06, act. 2026-10-07)*: variantes de color/tamaño, combos y descuentos (salvo el
   paquete de energías del deck), galería de fotos, «avísame cuando vuelva», sugerencias inteligentes, accesorios en
   bóveda/portafolio/buylist/retiros, energías especiales o por set, compras a proveedores e importación por archivo.
@@ -9435,7 +9743,9 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
   con esquema propio (`D-DSP-1`); un formulario de contacto dentro de la app (es un correo a soporte); el
   reembolso **carta por carta** de un paquete **enviado que no se entregó** (si no llegó, es el total con «no
   llegó»); devolver a la **tarjeta** el dinero de un retiro de bóveda (va por SPEI, `HECHOS.md:44` (b)); y
-  «cancelar» una solicitud de venta **aceptada** (`HECHOS.md:45`). *(Corregido 2026-10-05: el reembolso por carta
+  «cancelar» una solicitud de venta **aceptada** (`HECHOS.md:45`). *(**Nota 2026-10-06:** la última deja de estar
+  fuera **solo en la etapa «Aceptada»** — `HECHOS.md:79` (b): botón «Declinar» con motivo, §BSD.2 — y el cierre
+  automático a los 7 días naturales sin guía, `HECHOS.md:78`, §BSD.3.)* *(Corregido 2026-10-05: el reembolso por carta
   **tras la entrega** ya NO está fuera de alcance — lo pidió el dueño, §V.2.)*
 - **De §U (usuarios de back-office sin correo)** *(2026-10-04)*: doble verificación para el staff (el dueño dijo
   «sin doble verificación»); que el staff recupere su contraseña por su cuenta (sin correo no hay canal: la
@@ -11235,16 +11545,24 @@ nuevo, no como parte de §R**:
     el número de la etiqueta que compró fuera del sistema. Verificable: **no hay** llamada a paquetería, **no
     hay** cotización de tarifas ni validación del número contra el transportista; el sistema **guarda y
     muestra** el número a las dos partes.
+    *(**Nota 2026-10-06:** «es manual» deja de valer — `HECHOS.md:79`; la guía se compra en Skydropx desde
+    «Aceptada» y la captura a mano queda de respaldo. Lo que sigue en pie: **ninguna guía mientras está `ofertada`**.
+    Criterios 532–540.)*
 138. **El operador marca «en tránsito»; el «ya lo mandé» detiene el reloj sin mover el estado (D20/§P.13)**:
     el aviso del vendedor **no cambia el estado** y **no suma al conteo de "en camino"**, pero **sí detiene
     su plazo**; la solicitud pasa a **`en_transito`** **solo** cuando el **operador confirma el envío**.
     Verificable con el caso que motiva la regla: vendedor que avisa **el último día del plazo** y operador
     que confirma **al día siguiente** ⇒ la solicitud **NO expira**. *(Requisito de negocio: nadie pierde su
     venta por una demora nuestra.)*
+    *(**Nota 2026-10-06, `HECHOS.md:78`:** el caso de este criterio no cambia. La frase entre paréntesis deja de
+    ser absoluta en **un** caso: sin guía en 7 días naturales desde la aceptación, la solicitud se cierra sin culpa del
+    vendedor — §BSD.3, criterios 543–547.)*
 139. **Guía emitida que no se usó deja tarea de cancelación (D22)**: cuando una solicitud **con guía emitida**
     **expira** o se cancela, aparece en la **cola del operador** la tarea **«cancelar guía no usada»** con el
     **número de guía** a la vista, y **no desaparece sola** hasta que alguien la marca. Verificable dejando
     vencer una solicitud con guía emitida.
+    *(**Nota 2026-10-06, `HECHOS.md:59`:** con guía de Skydropx, primero se cancela sola; la tarea solo aparece si
+    eso falla — criterio 540.)*
 140. **Rechazo total ⇒ absorbemos el envío, sin deuda del vendedor (D17)**: si **ninguna** carta pasa la
     verificación, el vendedor **cobra $0**, **no se le cobra el envío**, **no queda saldo negativo** ni cargo
     pendiente contra operaciones futuras. Verificable: tras el rechazo total, la cuenta del vendedor **no
@@ -13482,7 +13800,9 @@ de cobro MX$46.17, total MX$996.17. La carta de MX$300 se reembolsa con `30000 +
    rechazada** y el correo **lo dice**. Lo puede hacer el operador y el dueño. *(Contrato: BRJ-1, BRJ-2, BRJ-7,
    FE-BRJ-1.)*
 409. **PNL-4 · Las guardas del rechazo de varias** *(§V.10 a)*: (i) solicitud **aceptada** o **pagada** ⇒ no se puede
-   (solo en revisión) y **no** aparece ningún «cancelar» en una aceptada; (ii) si entre las marcadas hay una **«no
+   (solo en revisión) y **no** aparece ningún «cancelar» en una aceptada *(**nota 2026-10-06:** la parte «ningún
+   cancelar en una aceptada» queda sustituida por «Declinar» — `HECHOS.md:79` (b), criterios 541–542; el rechazo de
+   varias cartas sigue siendo solo en revisión)*; (ii) si entre las marcadas hay una **«no
    comprada»**, o una ya **pasada a inventario**, **ninguna** cambia (todo o nada) y la pantalla no deja marcar las «no
    compradas»; (iii) una carta de **otra** solicitud, una repetida o un motivo de menos de 3 caracteres ⇒ rechazado sin
    cambios; (iv) rechazar **una** carta a la vez sigue mandando **su** correo por carta; (v) rechazar y **aprobar** la
@@ -13614,6 +13934,180 @@ por criterio: `docs/API_CONTRACT.md §14.17` tabla E4-5 y las notas en 500, 501,
    solo añade páginas, enlaces y textos. Si el texto del aviso promete algo que el sistema no hace (p. ej. «INE
    cifrada», T-10), se corrige **el texto** o se enruta el cambio de sistema al arquitecto — nunca se publica la
    promesa sin la conducta.
+
+*(Criterios 532–550 **nuevos el 2026-10-06** — §BSD, buylist con guía Skydropx de entrada, «Declinar» y cierre
+automático. Numerados desde 532 por encargo: 512–531 los reservó §IDS en la rama `claude/idiomas-sellos`. ⛔ **Bloquean
+el paso a modo real de Stripe** (`HECHOS.md:79`, 2026-10-06: «me gustaría antes de cobrar real»). 💰 = toca dinero
+(compra de guía, descuento al vendedor o saldo de Skydropx). Toda prueba usa el **doble** del proveedor: ⛔ ninguna
+compra real (criterio 306).)*
+532. 💰 **El asistente abre con el origen y el destino correctos** *(§BSD.1.1)*: con una solicitud **aceptada sin
+   guía** cuya dirección de vendedor es conocida, el operador abre «Generar guía con Skydropx» desde la ficha de la
+   solicitud. **Cómo se verifica:** el origen precargado coincide campo por campo con la dirección que el vendedor
+   eligió al crear la solicitud (calle, interior, colonia, CP, ciudad, estado, teléfono); el destino es la dirección
+   de la tienda configurada para envíos y **no hay control para editarlo**; una petición al servidor con otro destino
+   se rechaza y no llama a Skydropx. El botón **no aparece** en solicitudes que no estén en «Aceptada».
+533. **Origen incompleto: se completa en la ventana y queda registrado** *(§BSD.0, §BSD.1.1)*: **cómo se verifica:**
+   con una solicitud cuya copia de dirección **no tiene colonia** (o sin nombre de quien envía), la ventana pide
+   completarla antes de cotizar; al guardar, la bitácora muestra **quién, cuándo y antes/después**; la libreta del
+   vendedor **no cambia**. Con una solicitud **legada sin dirección**, la ventana no cotiza, lo dice y ofrece
+   «Capturar a mano». Corregir el origen **no** dispara el aviso AG-1.
+534. 💰 **Opciones con seguro y con lo que se le descuenta al vendedor** *(§BSD.1.2–3)*: **cómo se verifica:** con el
+   doble de Skydropx devolviendo 4 tarifas, la lista muestra por fila paquetería, precio **con IVA y seguro**, días y
+   si hay que llevar el paquete a sucursal; encima, la **tarifa congelada de esa oferta** y el **margen** (tarifa −
+   costo) por fila. La cotización enviada al proveedor lleva seguro al escalón que cubre **el bruto ofertado** (p. ej.
+   bruto MX$1,500 ⇒ cobertura $2,500) y el código SAT 49101600. Con un bruto mayor que el escalón más alto ⇒ no se
+   cotiza y queda «Capturar a mano». La opción elegida, la recomendada, quién y cuándo quedan en bitácora.
+535. 💰 **Comprar: solo con interruptor y llave, y una sola vez** *(§BSD.1.4)*: **cómo se verifica:** (i) con el
+   interruptor apagado o sin llave de gasto, el operador **no ve** «Comprar guía» y sí «Capturar a mano», y una
+   llamada directa al servidor se rechaza **sin** llamar a comprar; (ii) con ambos, comprar guarda paquetería, número,
+   costo, IVA del costo, seguro, etiqueta PDF y liga de rastreo si viene; (iii) **doble clic y dos personas a la vez,
+   N ≥ 10 rondas** ⇒ en cada ronda **una** compra al doble del proveedor y **un** cargo; se reporta la proporción.
+536. 💰 **Al vendedor se le descuenta la tarifa fija, no el costo de la guía** *(§BSD.1-bis)*: **cómo se verifica:**
+   dos solicitudes con la misma oferta (bruto MX$1,500, tarifa congelada MX$180), una con guía de costo MX$150 y otra
+   de MX$250; al pagarlas, **las dos** depositan neto **MX$1,320** y el correo de oferta y el portal muestran las
+   mismas tres cifras que antes de la guía. El costo real (150 y 250, con su IVA y seguro) aparece en el reporte (M7)
+   como costo de esa compra de buylist; con guía manual sin costo capturado, el reporte usa la tarifa como hoy.
+537. **La guía guardada arranca el plazo del vendedor y manda el correo de guía una vez** *(§BSD.1.5–6)*: **cómo se
+   verifica:** al llegar el número de guía, la solicitud tiene la misma fecha límite de envío que tendría con la
+   captura a mano a esa hora (3 días hábiles de seed) y el vendedor recibe **un** correo de guía (criterio 199) con
+   lo que decida P-BSD-3; con la guía **en proceso** (sin número), **no** hay fecha límite ni correo, y el sistema
+   vuelve a consultar solo hasta tener número.
+538. 💰 **Los controles del gasto de §Z cuentan la guía de entrada** *(§BSD.1-bis)*: **cómo se verifica:** un operador
+   con MX$2,400 gastados hoy en guías de salida **no puede** comprar una de entrada de MX$150 (TG-1, sale AG-3); una
+   segunda re-emisión en la misma solicitud la bloquea TG-2 para el operador y no para el dueño; la guía de entrada
+   resta del saldo mostrado y puede disparar el aviso de saldo bajo. **No** sale AG-10 por una guía de entrada.
+539. **La captura a mano sigue funcionando** *(§BSD.1.7)*: **cómo se verifica:** en «Aceptada» se captura
+   transportista y número a mano, como hoy (mismas pruebas de §P en verde): arranca el plazo, sale el correo de guía
+   y no se llama a Skydropx. Con Skydropx caído o sin opciones, la ventana lo dice y lleva a «Capturar a mano».
+540. 💰 **Una guía de entrada que ya no se usará se cancela sola** *(§BSD.1.8)*: **cómo se verifica:** con una guía
+   comprada (doble del proveedor en estado «creada»), (i) declinar la solicitud y (ii) dejar vencer el plazo del
+   vendedor (`not_shipped`) ⇒ en ambos casos el sistema pide la cancelación al proveedor, la guía queda cancelada en
+   bitácora y **no** aparece la tarea «cancelar guía no usada»; si el doble responde que no se puede cancelar,
+   **sí** aparece la tarea (criterio 139) con el número a la vista.
+541. **«Declinar» en «Aceptada», con motivo y auditado** *(§BSD.2)*: **cómo se verifica:** en una solicitud aceptada
+   sin «ya lo mandé», el operador pulsa «Declinar»; sin motivo o con menos de 3 caracteres no se puede; con motivo, la
+   solicitud queda **cerrada** (no se revive), la bitácora tiene quién, cuándo y el motivo, y el vendedor recibe **un**
+   correo (criterio 548) que **no** contiene el motivo. Lo puede hacer el operador y el dueño; un cliente no (4xx).
+542. **Las guardas de «Declinar»** *(§BSD.2.5)*: **cómo se verifica:** (i) con «ya lo mandé» del vendedor, o en
+   tránsito, o en cualquier estado posterior, «Declinar» no aparece y el servidor lo rechaza sin cambios; (ii)
+   «Declinar» y comprar la guía a la vez, **N ≥ 10 rondas** ⇒ en cada ronda gana uno: o queda cerrada **sin** guía
+   comprada (o con la guía cancelada sola, criterio 540), o queda con guía y **sin** cerrar; nunca un correo de cierre
+   **y** uno de guía; proporción reportada.
+543. **Cierre automático a los 7 días naturales sin guía** *(§BSD.3.1–2)*: **cómo se verifica**, con el reloj del
+   servidor adelantado en una prueba: una solicitud aceptada sin guía a **6 días y 23 h** sigue abierta; a **7 días**
+   se cierra en la siguiente pasada del barrido, contando sábados y domingos. El dial de M10 muestra 7, en días
+   naturales; cambiarlo a 10 queda auditado y una solicitud a 8 días ya no se cierra.
+544. **El cierre automático no culpa ni castiga al vendedor** *(§BSD.3.3)*: **cómo se verifica:** tras el cierre, M5,
+   la ficha, M9 y el portal del vendedor muestran un desenlace **distinto** del de «aceptaste y no mandaste»; el portal
+   no dice «expirada» ni «no enviaste»; el mismo vendedor puede crear una solicitud nueva enseguida; su compromiso deja
+   de contar para los topes como en cualquier solicitud cerrada; y ninguna cifra o lista de conducta del vendedor lo
+   incluye (se verifica por ausencia).
+545. **Lo que detiene el cierre automático** *(§BSD.3.5–6)*: **cómo se verifica:** una solicitud con guía capturada
+   a mano el día 6, otra con guía de Skydropx el día 6 y otra con la compra **en proceso** el día 7 ⇒ **ninguna** se
+   cierra; las dos primeras siguen con el plazo del vendedor de hoy. Pasada del barrido y compra de guía a la vez,
+   **N ≥ 10 rondas** ⇒ nunca queda una guía comprada (sin cancelar) en una solicitud cerrada; proporción reportada.
+546. **Aviso antes del cierre** *(§BSD.3-bis; se ajusta a la respuesta de P-BSD-1)*: **cómo se verifica**, con el
+   default: el **día 5** sin guía, la solicitud aparece marcada en la cola de M5 y en el tablero con «se cierra sola en
+   2 días», y el dueño recibe **un** correo (uno por solicitud, aunque el barrido corra varias veces); al capturar o
+   comprar la guía, la marca desaparece. El personal no recibe correo.
+547. **Las solicitudes ya abiertas al desplegar** *(§BSD.3-ter; se ajusta a la respuesta de P-BSD-2)*: **cómo se
+   verifica**, con el default: antes del despliegue se cuenta cuántas solicitudes están aceptadas sin guía (y la del
+   15-sep entre ellas) y se anota en la solicitud de fusión; el día del despliegue **ninguna** se cierra ni recibe
+   correo; a los 5 días del despliegue tienen el aviso y a los 7 se cierran si siguen sin guía.
+548. **El correo al vendedor es profesional, único y sin culpa** *(§BSD.4)*: **cómo se verifica:** el correo del
+   cierre automático y el de «Declinar» se renderizan en es y en en con la plantilla de marca y el pie de privacidad;
+   **no** mencionan guía, demora, plazos, el motivo interno, ni la dirección, teléfono o CLABE; el texto es el que
+   apruebe ux-ui. Repetir la pasada del barrido o el clic de «Declinar» no manda un segundo correo.
+549. **Lo que NO cambia con §BSD — por ausencia** *(§BSD.6)*: la tarifa fija del buylist y su dial, el neto vinculante,
+   el plazo del vendedor tras la guía (3 días hábiles, «ya lo mandé», confirmación del operador), el rechazo de cartas
+   en revisión, y toda la ventana de «Capturar guía» de los **envíos de salida** se comportan igual que hoy (sus
+   pruebas en verde, sin editarlas).
+550. **Los tres recorridos de punta a punta** *(O-4)*: contra el stack corriendo y con el doble de Skydropx, QA
+   recorre: (i) solicitud aceptada ⇒ «Generar guía» ⇒ elige opción ⇒ compra ⇒ el vendedor recibe el correo de guía ⇒
+   corre su plazo ⇒ el operador confirma el envío ⇒ recibida ⇒ pagada con el neto de la oferta; (ii) solicitud
+   aceptada ⇒ «Declinar» con motivo ⇒ un correo ⇒ cerrada; (iii) solicitud aceptada sin guía ⇒ (reloj adelantado) día
+   5 aviso ⇒ día 7 cerrada ⇒ un correo ⇒ el vendedor ve en su portal que no se continuó, sin culpa.
+
+> **§AN — Analítica de ventas para el dueño (2026-10-06, BORRADOR).** Bloque **600–624**. Los **600–613** son la
+> **P1** (se verifican en la primera entrega; el **612** es condicional, ver su texto). Los **620–624** son **P2**:
+> quedan escritos para que no se pierdan, pero **QA no los verifica** hasta que el dueño los pida.
+
+600. **El día es el día de México** *(§AN.1; §W.2, criterio 275)*: con un pedido pagado a las **23:30** y otro a las
+   **00:10** del día siguiente (hora del centro de México), la tabla por día pone cada uno en **su** día; «Hoy» incluye
+   un pedido pagado hace un minuto; un rango «1 al 3» incluye el día 3 completo.
+601. **Qué pedido cuenta** *(§AN.1)*: con un pedido pagado de envío, uno pagado a bóveda, uno de invitado, un pago
+   **fallido** y un carrito **sin pagar** en el mismo día, la cifra «Pedidos» de ese día es **3**.
+602. 💰 **Cobrado y venta sin IVA cuadran con M7** *(§AN.1)*: para cualquier periodo, la suma de «Venta sin IVA» de la
+   tabla por día es **igual al centavo** al ingreso que M7 reporta para el mismo periodo; «Cobrado (con IVA)» es la
+   suma de lo que pagaron los clientes (con IVA, envío y comisión). Ejemplo: dos pedidos de MX$116.00 y MX$232.00
+   cobrados ⇒ Cobrado **MX$348.00**.
+   > **Nota 2026-10-06 (diseño del arquitecto, `API_CONTRACT §15` AN-2 / AN-B-3; `ARCHITECTURE §4.64`, D-AN-1):**
+   > con el `pnl()` de hoy, **602 y 603 no pueden estar en verde a la vez**: `pnl()` solo suma pedidos que **siguen**
+   > liquidados, así que un reembolso total haría la resta dos veces (§W, criterios 277/278, **no construidos**). Se
+   > mantiene **603** (palabra del dueño). Por eso **602 se verifica como IDENTIDAD exacta, al centavo**: *venta sin
+   > IVA del periodo = ingreso de `pnl()` del periodo + venta sin IVA de los pedidos cobrados en el periodo que hoy
+   > están reembolsados o en contracargo*. Sin pedidos así, el segundo término es 0 y vale la redacción literal de
+   > arriba. La diferencia se vuelve cero sola cuando se construya §W 277/278. M7 no cambia.
+603. 💰 **Reembolsos, una sola vez y en su día** *(§AN.1; §W.3 (d); default de P-ANA-1)*: un pedido cobrado el lunes y
+   reembolsado completo el miércoles deja el lunes **intacto** (1 pedido, su cobrado) y el miércoles muestra
+   **1 reembolso** por su monto y la venta neta de reembolsos del miércoles baja en la parte sin IVA. El reembolso de
+   **una carta** cuenta como reembolso y el pedido **sigue** contado. ⛔ Ningún reembolso resta dos veces, y la suma
+   del periodo cuadra con M7.
+604. **Ticket promedio y piezas por pedido** *(§AN.1; default de P-ANA-2)*: con pedidos cobrados de MX$100, MX$200 y
+   MX$300 y 1, 2 y 3 piezas ⇒ ticket **MX$200.00** y **2.0** piezas por pedido. Con **0 pedidos**, ambos muestran
+   «—»: ⛔ nunca MX$0, `NaN` ni `Infinity`.
+605. **Tabla por día completa, y agrupada** *(AN.2 puntos 1 y 4)*: un periodo de 7 días con ventas solo en 2 muestra
+   **7 filas** (las vacías en cero). Agrupado por semana (lunes a domingo) o por mes, cada total es la suma exacta de
+   sus días y el total del periodo no cambia al cambiar la agrupación.
+606. **Contra el periodo anterior** *(AN.2 punto 3)*: «últimos 7 días» con 3 pedidos contra 1 en los 7 anteriores
+   muestra **«+2 pedidos»** y **+200 %**, en ese orden; con 0 pedidos en el anterior dice «sin ventas en el periodo
+   anterior» y **no** muestra porcentaje.
+607. **Lo más vendido** *(AN.2 punto 5)*: con ventas conocidas, las listas de **cartas** (nombre, set y acabado),
+   **sets** y **sellados** salen en el orden correcto por venta sin IVA y, al cambiar, por piezas; muestran **hasta
+   10**; una carta de un pedido **reembolsado completo** no aparece contada; dos acabados de la misma carta son
+   **dos** renglones.
+608. **Nuevos vs. recurrentes** *(§AN.1)*: un cliente cuya primera compra es de este periodo cuenta como **nuevo**;
+   uno que ya compró en un periodo anterior, como **recurrente**; un invitado que compra con el correo de un cliente
+   con cuenta que ya compró antes cuenta como **recurrente**. Nuevos + recurrentes = clientes distintos que
+   compraron en el periodo.
+609. **La gráfica dice lo mismo que la tabla** *(AN.2 punto 4)*: cada barra corresponde a su fila (mismo día, mismo
+   valor); los días en cero aparecen como barra vacía, no se saltan.
+610. **CSV** *(AN.2 punto 7; §W.2)*: el CSV del periodo trae una fila por día (o semana/mes) con las cifras de AN.1 y
+   **cuadra al centavo** con la pantalla; **no** trae nombres, correos ni direcciones de clientes.
+611. **Tarjeta «Ventas de hoy» en el tablero** *(AN.2 punto 8)*: muestra pedidos y cobrado de hoy, contra el mismo día
+   de la semana pasada, con su periodo rotulado (criterio 286), y lleva a la pestaña «Ventas».
+612. **Ganancia por día — CONDICIONAL** *(AN.2 punto 9)*: **si** entra en P1, la ganancia de cada día suma **al
+   centavo** la ganancia de M7 para el mismo periodo. Si el arquitecto la manda a P2, este criterio no se verifica en
+   la primera entrega y así lo dice el informe de QA.
+   > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-3 y §15.8; D-AN-1):** **entra en P1**. Se calcula partiendo
+   > `pnl()` en cubos por día, así que la suma de los días es la de M7 por construcción. ⚠️ **Hereda la doble resta
+   > de hoy**: la ganancia del lunes **baja** si el miércoles hay un reembolso total de un pedido del lunes. Se rotula
+   > «Ganancia (regla de Finanzas)» y se alinea sola cuando §W 277/278 se construya. QA verifica la suma contra M7,
+   > ⛔ no que el lunes quede intacto (eso es 603, que es de la venta, no de la ganancia).
+613. **Quién lo ve, y lo que NO cambia** *(§AN.4, §AN.5; por ausencia)*: un **operador** no ve la pestaña ni la
+   tarjeta y su petición directa es rechazada; el súper-admin sí. Las cifras de **M7** y las **métricas de
+   lanzamiento** de M9 dan lo mismo que antes; la tienda **no** carga ningún script, cookie ni herramienta nueva de
+   analítica (criterio 509 sigue verde sin tocar el aviso de privacidad).
+
+*P2 — no se verifican hasta que el dueño los pida (§AN.3):*
+
+620. **Mejores días**: ventas por día de la semana y por franja horaria (hora de México) del periodo, que suman el
+   total del periodo.
+621. **Mezcla**: pedidos y cobrado por método de pago (los que el checkout acepte), por destino (envío/bóveda) y por
+   invitado/con cuenta; cada mezcla suma el total.
+   > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-4):** el **método de pago no se guarda hoy**; necesita una
+   > migración aditiva (**`M-AN-1`**, sin relleno) y va en una **fase posterior** a P1. Los pedidos anteriores a esa
+   > migración salen como «método desconocido». Destino e invitado/con cuenta ya se pueden calcular con lo guardado.
+622. 💰 **Envíos**: por día, envío cobrado vs. costo de guías, con el mismo costo que M7 (real o tarifa, §T.7).
+   > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-5 y §15.8):** **sin** las columnas de guías de **entrada del
+   > buylist** hasta que el **PR #78** esté publicado en `production`; hasta entonces esas cifras **no aparecen** (ni
+   > como cero).
+623. 💰 **Compras del buylist por día**: neto pagado por día, que cuadra con el flujo SPEI de buylist de §W.3 (e).
+624. **Resumen diario**: el correo de las 08:00 de §Z trae una línea con pedidos, cobrado y ticket de ayer, iguales a
+   la fila de ayer de la tabla.
+   > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-6; default de P-AN-1):** **hoy el resumen de las 08:00 no se
+   > manda si no hubo avisos**. Con el default de P-AN-1 se manda **también si ayer hubo ventas**; sin avisos y sin
+   > ventas, no llega (como hoy). Destinatarios sin cambio (solo el dueño).
 
 **Accesorios y energías (§AC, 2026-10-06 · v2 2026-10-07 — PARA APROBAR, criterios 700–749; los marcados 💰 son zona
 de dinero; los que dicen «según P-…» se ajustan a la respuesta o a su recomendación)**
@@ -17934,6 +18428,69 @@ ese frente:**
   cambio es de fondo** (nuevos usos o nuevos destinatarios); los cambios menores, solo con la fecha en la página.
 - **P-LEG-14 · ¿Publicamos también el aviso en inglés?** La tienda tiene versión en inglés. Default: **sí, traducido,
   y la versión en español es la que vale** si difieren.
+
+## Preguntas — buylist con guía Skydropx de entrada (§BSD, 2026-10-06, sesión 6) — ABIERTAS, cada una con su recomendación
+
+> Lo que ya dijiste **no se pregunta**: la guía la pagas tú y al vendedor se le descuenta la tarifa fija
+> (`HECHOS.md:79`); el cierre a los 7 días **naturales** sin guía y la idea del correo (`HECHOS.md:78`); seguro siempre,
+> eliges tú la paquetería y el personal también compra (`HECHOS.md:34`, `:36`, `:58`). Si no dices nada, se construye
+> con la recomendación. Además, **sin preguntarte**, quedan estos supuestos (dinos solo si alguno no te sirve): el
+> **mismo correo** para «Declinar» y para el cierre automático; el **motivo de declinar es interno** (no se le manda al
+> vendedor); **no se puede declinar** si el vendedor ya dijo «ya lo mandé»; el seguro cubre **lo que le vamos a pagar**
+> por las cartas; y la guía de entrada **cuenta para tu tope de MX$2,500 por persona al día**.
+
+- **P-BSD-1 · ¿Te avisamos antes de que una solicitud aceptada se cierre sola?** Recomendación: **sí, el día 5**:
+  se marca en el panel («se cierra sola en 2 días si no tiene guía») y **te llega un correo a ti** (el personal no
+  tiene correo). Así no se te cierra una compra que sí querías por un descuido. §BSD.3-bis, criterio 546.
+- **P-BSD-2 · ¿Qué hacemos con las que ya llevan más de 7 días aceptadas cuando salga esto?** Por ejemplo la del
+  15-sep (Morpeko ex, MX$1,500). Si contamos desde que se aceptaron, **se cierran el mismo día que publiquemos** y al
+  vendedor le llega «decidimos no continuar». Recomendación: **los 7 días cuentan desde que publiquemos**, para que
+  tengas una semana para comprarles la guía con el asistente nuevo o declinarlas. Antes de publicar te decimos
+  cuántas son. §BSD.3-ter, criterio 547.
+- **P-BSD-3 · ¿Cómo le llega al vendedor la etiqueta para imprimirla?** Hoy su correo solo trae paquetería y
+  número, porque la guía la comprabas fuera. Con Skydropx hay un **PDF de etiqueta**. Recomendación: **el correo de
+  guía lleva la etiqueta en PDF adjunta, y además puede descargarla desde su solicitud en «Mi cuenta»**, con la
+  indicación de a qué paquetería llevar el paquete. §BSD.1.6, criterio 537.
+- **P-BSD-4 · ¿Qué paquetería sale preseleccionada en las guías de entrada, y las quieres recibir en tu dirección o
+  en una sucursal?** Para tus envíos preferiste 99minutos porque **tú** llevas los paquetes a una sucursal cercana
+  (`HECHOS.md:35`); aquí quien lleva el paquete es **el vendedor**, desde cualquier parte del país, y quizá no tenga
+  un 99minutos cerca. Recomendación: **preseleccionar la más barata que entregue en tu dirección**; tú o el operador
+  pueden elegir otra (siempre se ve si el vendedor tiene que ir a sucursal). §BSD.1.2.
+- **P-BSD-5 · ¿Que la solicitud pase sola a «en tránsito» cuando la paquetería escanee el paquete?** Hoy lo marca el
+  operador a mano (o el vendedor dice «ya lo mandé»). Con guía de Skydropx sabemos cuándo la paquetería lo recibió.
+  Tu regla de automatizar (`HECHOS.md:59`) apunta a que sí. Recomendación: **sí, pero después de salir en real**
+  (no es necesario para cobrar y añade trabajo); el botón del operador se queda como respaldo. Si dices «ya», entra
+  en §BSD. §BSD.6.
+
+## Preguntas — analítica de ventas para el dueño (§AN, 2026-10-06) — ABIERTAS, cada una con su recomendación
+
+> Si no contestas, se construye con la recomendación. Ninguna bloquea al arquitecto. **No se pregunta** la zona
+> horaria: ya quedó en hora del centro de México (default de P-FIN-1 aceptado, `HECHOS.md` fila 2026-10-04
+> «Portada: se cobra el precio que el cliente VIO…»).
+
+- **P-ANA-1 · Si reembolsas el miércoles un pedido del lunes, ¿dónde se resta?** Recomendación: **el miércoles**
+  (el día en que sale el dinero). Así un día que ya cerraste no cambia después y cuadra con lo que ves en Stripe y en
+  el banco. La alternativa (restarlo al lunes) cambia cifras viejas cada vez que hay un reembolso. §AN.1, criterio 603.
+- **P-ANA-2 · El ticket promedio, ¿con todo lo que pagó el cliente (IVA, envío y comisión) o solo la mercancía sin
+  IVA?** Recomendación: **lo que pagó el cliente**, que es el número que se compara con otras tiendas y con lo que
+  ves en Stripe. La venta sin IVA sigue a la vista al lado. §AN.1, criterio 604.
+- **P-ANA-3 · ¿Lo pongo como pestaña «Ventas» dentro de Reportes, más una tarjeta «Ventas de hoy» en el tablero?**
+  Recomendación: **sí**. Alternativa: una sección nueva en el menú. §AN.4.
+- **P-ANA-4 · ¿Te sirve la primera versión (P1) así, o quieres adelantar algo de P2?** Recomendación: **P1 como está**
+  (pedidos, dinero, ticket, día por día, contra el periodo anterior, lo más vendido, nuevos vs. recurrentes, CSV y la
+  tarjeta del tablero); lo de P2 (mejores días, cómo pagan, envíos, compras del buylist, resumen por correo) cobra
+  sentido cuando haya ventas reales. Si una de P2 te urge, dime cuál. §AN.2, §AN.3.
+
+*Preguntas del arquitecto (2026-10-06, `API_CONTRACT §15`), con su default:*
+
+- **P-AN-1 · ¿El correo de las 08:00 debe llegar también los días sin avisos pero con ventas?** Default: **sí**; sin
+  avisos y sin ventas, no llega (como hoy). Criterio 624.
+- **P-AN-2 · La tarjeta «Ventas de hoy» compara contra el mismo día de la semana pasada completo. ¿O prefieres «hasta
+  esta misma hora»?** Default: **completo**. Criterio 611.
+- **P-AN-3 · «Mes pasado» se compara contra los mismos días inmediatamente anteriores (como dice §AN.2). ¿O contra el
+  mes calendario anterior?** Default: **como dice §AN.2** (mismos días inmediatamente anteriores). Criterio 606.
+- *Medición pendiente (no es pregunta):* qué métodos de pago tiene encendidos la cuenta de Stripe. Si solo hay
+  tarjeta, la mezcla por método de 621 no dice nada nuevo hasta que se encienda otro.
 
 ## Preguntas — accesorios y energías (§AC, v2 2026-10-07, sesión 6)
 

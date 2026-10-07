@@ -70,6 +70,11 @@ export interface VariantDrawerProps {
   /** Pieza a resaltar/enfocar (buscador por folio §16.1.1). */
   highlightFolio?: string;
   locations?: VaultLocationDTO[];
+  /**
+   * §SU-UX.3 (b): ¿`locations` ya llegó del servidor? Se reenvía a la ficha (`ItemDetailModal`), que solo dice
+   * «no hay ubicaciones» con `true`. Por defecto `false`: quien no lo sabe no lo afirma.
+   */
+  locationsReady?: boolean;
   onClose: () => void;
   /** Refresca agregados del binder/pestaña tras alta/publicación/merma/guardado de precios. */
   onChanged?: () => void;
@@ -91,6 +96,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
     marketCapturedDate,
     highlightFolio,
     locations = [],
+    locationsReady = false,
     onClose,
     onChanged,
     onToast,
@@ -354,6 +360,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
               showCert={productType === 'graded'}
               sealed={productType === 'sealed' ? { name: cardName, marketRefCents: marketRefCents ?? null } : null}
               locations={locations}
+              locationsReady={locationsReady}
               onToast={onToast}
               onChanged={() => {
                 void pieces.refetch();
@@ -381,6 +388,7 @@ function PiecesSection({
   showCert,
   sealed,
   locations,
+  locationsReady,
   onToast,
   onChanged,
 }: {
@@ -398,6 +406,7 @@ function PiecesSection({
    */
   sealed: { name: string; marketRefCents: number | null } | null;
   locations: VaultLocationDTO[];
+  locationsReady: boolean;
   onToast?: (msg: string) => void;
   onChanged: () => void;
 }) {
@@ -768,7 +777,7 @@ function PiecesSection({
         />
       )}
 
-      <ItemDetailModal itemId={detailId} onClose={() => setDetailId(null)} locations={locations} />
+      <ItemDetailModal itemId={detailId} onClose={() => setDetailId(null)} locations={locations} locationsReady={locationsReady} />
     </section>
   );
 }

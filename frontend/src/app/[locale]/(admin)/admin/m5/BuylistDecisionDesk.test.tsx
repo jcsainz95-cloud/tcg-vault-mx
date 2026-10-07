@@ -488,7 +488,8 @@ describe('BRJ-UI-2 · «Declinar» en la mesa', () => {
   });
 
   it.each([
-    ['aceptada', 'El vendedor aceptó: la solicitud ya no se cancela. Si al llegar alguna carta viene en mala condición, la rechazas al revisar, con su motivo.'],
+    // ✏ §BSD-UX.6a: la nota ya no dice «ya no se cancela» (en `aceptada` existe «Declinar» — el de la FICHA, no el de la mesa).
+    ['aceptada', 'El vendedor aceptó. Genera su guía para que mande las cartas; si ya no quieres comprarlas, puedes declinarla mientras no diga que ya las mandó.'],
     ['en_transito', 'El paquete viene en camino. Cuando llegue, pulsa «Recibida: empezar revisión» y rechaza ahí las cartas que vengan mal.'],
     ['verificacion', 'Está en revisión: aprueba o rechaza cada carta en la solicitud, o marca varias y «Rechazar seleccionadas».'],
     ['pagada', 'Esta solicitud ya no tiene nada que decidir aquí.'],

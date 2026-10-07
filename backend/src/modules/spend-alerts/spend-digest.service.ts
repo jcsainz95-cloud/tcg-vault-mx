@@ -9,8 +9,11 @@
  *    línea «N avisos apagados»). Cero ⇒ `status='empty'`, **sin correo**.
  *  - Si no ⇒ **un** correo `AVG-3` a cada dueño con `summarizeSpendAlerts` del día (el MISMO cuerpo que `GET …/summary`) y los
  *    🔴 no silenciados en una línea cada uno.
+ *  - 💰 §AN 624: el correo lleva además la línea «Ventas de ayer» (`SalesAnalyticsService.dayFigures`), y se manda también un
+ *    día SIN avisos pero CON pedidos (P-AN-1, default); sin avisos y sin pedidos ⇒ `empty`, como antes.
  *  - `run({ day })` explícito (el re-envío manual de C1) solo re-manda un día `failed`.
  *  - Sin dueño, o el puerto de correo falla ⇒ `status='failed'` (se puede re-mandar).
+ *  - La línea de ventas falla ⇒ con avisos sale sin ella; sin avisos ⇒ `failed` (re-enviable). ⛔ Nada deja la fila en `sending`.
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -24,6 +27,8 @@ import { spendDigestMail } from './spend-alert.mail';
 import { spendAlertTitle } from './spend-alert-text';
 import { SPEND_ALERT_CODE_OF } from './spend-alerts.service';
 import { SpendAlertKind } from '@prisma/client';
+import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.service';
+import type { SalesFigures } from '../sales-analytics/sales-figures';
 
 export type SpendDigestStatus = 'sent' | 'empty' | 'failed' | 'skipped';
 
@@ -37,6 +42,8 @@ export class SpendDigestService {
     private readonly prisma: PrismaService,
     @Inject(SPEND_ALERTS_CLOCK) private readonly clock: SpendClock,
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // 💰 §AN 624: la línea de ventas del día. `@Optional` para los dobles de las suites que construyen el servicio a mano.
+    @Optional() private readonly sales?: SalesAnalyticsService,
   ) {}
 
   async run(opts: { day?: string; now?: Date } = {}): Promise<{ day: string; status: SpendDigestStatus; alertCount: number }> {
@@ -64,12 +71,22 @@ export class SpendDigestService {
     });
     if (!claim) return { day, status: 'skipped', alertCount: 0 };
 
-    const alertCount = await this.prisma.spendAlert.count({ where: { firstOccurredAt: { gte: range.gte, lt: range.lt } } });
-    if (alertCount === 0) {
-      await this.prisma.spendDigestRun.update({ where: { day: dayDate }, data: { status: 'empty', alertCount: 0 } });
-      return { day, status: 'empty', alertCount: 0 };
-    }
+    // ⛔ Desde aquí la fila está en `sending`: TODO lo que pueda lanzar va dentro del `try`, o la fila se queda en `sending`
+    // para siempre (cron ⇒ skipped; re-envío ⇒ skipped). §80 de BACKEND_NOTES; prueba AN-B-18b.
+    let alertCount = 0;
     try {
+      alertCount = await this.prisma.spendAlert.count({ where: { firstOccurredAt: { gte: range.gte, lt: range.lt } } });
+      // 💰 §AN 624 (API_CONTRACT §15.8, P-AN-1 default): la fila del día de la tabla de «Ventas» (la MISMA `dayFigures`). Regla
+      // de envío: se manda si hubo avisos O pedidos; ni uno ni otro ⇒ `empty`, sin correo (como antes).
+      // La línea de ventas es un EXTRA: si su lectura falla, ⛔ no tumba el resumen de gasto. Con avisos ⇒ sale SIN la línea;
+      // sin avisos ⇒ no se sabe si hubo pedidos ⇒ `failed` (re-enviable), ⛔ nunca `empty` (que cerraría el día en silencio).
+      const sales = await this.salesLine(day);
+      if (alertCount === 0 && sales === 'failed') throw new Error('sin avisos y la línea de ventas no se pudo leer');
+      const line = sales === 'failed' ? null : sales;
+      if (alertCount === 0 && (line?.orders ?? 0) === 0) {
+        await this.prisma.spendDigestRun.update({ where: { day: dayDate }, data: { status: 'empty', alertCount: 0 } });
+        return { day, status: 'empty', alertCount: 0 };
+      }
       const recipients = await ownerRecipients(this.prisma);
       if (recipients.length === 0) throw new Error('sin cuenta de dueño con correo');
       if (!this.mail) throw new Error('MAIL_PORT no disponible');
@@ -85,13 +102,24 @@ export class SpendDigestService {
         const kind = KIND_OF_CODE.get(code);
         return kind ? spendAlertTitle({ kind, facts: {} }, l) : code;
       };
-      for (const r of recipients) await this.mail.send({ to: r.email, ...spendDigestMail(day, summary, immediates, r, titleOfCode) });
+      for (const r of recipients) await this.mail.send({ to: r.email, ...spendDigestMail(day, summary, immediates, r, titleOfCode, line) });
       await this.prisma.spendDigestRun.update({ where: { day: dayDate }, data: { status: 'sent', alertCount, sentAt: now } });
       return { day, status: 'sent', alertCount };
     } catch (e) {
       this.logger.error(`spend-digest ${day} falló: ${e instanceof Error ? e.message : String(e)}`);
       await this.prisma.spendDigestRun.update({ where: { day: dayDate }, data: { status: 'failed', alertCount } });
       return { day, status: 'failed', alertCount };
+    }
+  }
+
+  /** La línea de ventas del día, o `'failed'` si su lectura lanzó (se registra; el llamador decide). Sin servicio ⇒ `null`. */
+  private async salesLine(day: string): Promise<SalesFigures | null | 'failed'> {
+    if (!this.sales) return null;
+    try {
+      return await this.sales.dayFigures(day);
+    } catch (e) {
+      this.logger.error(`spend-digest ${day}: la línea de ventas falló: ${e instanceof Error ? e.message : String(e)}`);
+      return 'failed';
     }
   }
 }

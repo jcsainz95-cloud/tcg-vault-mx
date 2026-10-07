@@ -11,6 +11,7 @@
  */
 import { SellItemStatus } from '@prisma/client';
 import { withM61Defaults } from './helpers/m61-mock-defaults';
+import { withPnlBuylistDoubles } from './helpers/pnl-buylist-doubles';
 import { ConfigService } from '@nestjs/config';
 import {
   SELL_ITEM_VERDICT_STATES,
@@ -138,7 +139,7 @@ describe('⚠️⚠️ §11 / §M5-V.8(7) — la tarjeta del tablero SUMA `appro
       inventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = new AdminService(
-      withM61Defaults(prisma) as unknown as PrismaService,
+      withPnlBuylistDoubles(withM61Defaults(prisma)) as unknown as PrismaService,
       { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,

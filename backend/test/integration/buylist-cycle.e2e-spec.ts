@@ -1796,13 +1796,22 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       const inv = await h.prisma.inventoryItem.count({ where: { sourceSellRequestItemId: itemId } });
       expect(inv).toBe(0);
 
-      // Y el residual NOMBRADO de R.3: `reject` pre-recepción **sigue pasando**, a propósito.
+      // 💰 rev BSD-1.3 punto 1: el residual de R.3 se CIERRA en `aceptada` — rechazar una carta que no ha llegado manda el
+      // correo y los relojes de devolución sobre cartas que nunca recibimos. El remedio es «Declinar».
       const rej = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
         token: operatorToken,
         json: { decision: 'reject', reason: 'el paquete no llegó y el vendedor pide cerrar' },
       });
-      expect(rej.status).toBe(200);
-      expect(rej.body.itemStatus).toBe('rechazada');
+      expect(rej.status).toBe(422);
+      expect(rej.body.error).toMatchObject({ code: 'REQUEST_NOT_RECEIVED', details: { sellRequestId: srId, status: 'aceptada', remedy: 'decline_accepted' } });
+      // …y el remedio que nombra cierra la solicitud (sin él, su compromiso seguiría contando en el tope mensual del vendedor
+      // y las altas siguientes de esta suite chocarían con `BUYLIST_LIMIT_EXCEEDED`).
+      const dec = await h.api('POST', `/admin/buylist/${srId}/decline-accepted`, {
+        token: operatorToken,
+        json: { reason: 'el paquete no llegó y el vendedor pide cerrar' },
+      });
+      expect(dec.status).toBe(200);
+      expect(dec.body).toMatchObject({ status: 'expirada', expiredReason: 'not_continued' });
     });
 
     it('§M5-R · ⭐ EL CAMINO FELIZ: `receive` → `approve` → `convert-to-inventory`, los tres 200', async () => {

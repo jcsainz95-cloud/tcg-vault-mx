@@ -186,7 +186,34 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
   } as any);
   jest.spyOn(pricing, 'getVariantOverridesBatch').mockResolvedValue(new Map());
   // `getReference` delega en `getReferencesBatch`: un solo punto para «hay / no hay mercado».
-  const refsBatch = jest.spyOn(pricing, 'getReferencesBatch').mockResolvedValue(new Map());
+  // ⭐ SU.8 (API_CONTRACT §M1-SU): el alta dispara la publicación DESPUÉS del commit, y la publicación lee la
+  // referencia. Por defecto el doble responde lo que el propio alta escribió (el `PriceReference isManualOverride` de
+  // `manualMarketMxnCents`, misma clave), como hace la consulta real; sin eso, el doble afirmaría «no hay mercado»
+  // justo después de que el servicio lo escribió. Medido con Postgres real: `su8-alta-publica.e2e-spec.ts`
+  // «SU-B7 (extra)» (`listed`, 0 entradas). Sin overrides escritos ⇒ `Map` vacío, como antes.
+  const refsBatch = jest.spyOn(pricing, 'getReferencesBatch').mockImplementation(async (wanted) => {
+    const m = new Map<string, any>();
+    for (const w of wanted) {
+      const ref = [...priceRefs]
+        .reverse()
+        .find(
+          (p) =>
+            p.isManualOverride &&
+            p.cardId === w.cardId &&
+            p.productType === w.productType &&
+            p.gradeKey === w.gradeKey &&
+            p.finish === w.finish,
+        );
+      if (ref) {
+        m.set(`${w.cardId}|${w.productType}|${w.gradeKey}|${w.finish}`, {
+          status: 'priced',
+          referenceMxnCents: ref.priceMxnCents,
+          source: 'manual',
+        });
+      }
+    }
+    return m;
+  });
   const escalate = jest.spyOn(pricing, 'escalatePending');
 
   const svc = new InventoryService(prisma as PrismaService, pricing, settings);

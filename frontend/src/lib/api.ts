@@ -61,6 +61,7 @@ import type {
   VaultLocationDTO,
   VaultZone,
   AdminBuylistDTO,
+  OpenInboundShipmentRes,
   AdminSellerRef,
   RejectedSellItemDTO,
   AdminOrderDTO,
@@ -307,6 +308,8 @@ import type {
 import * as m4ship from './mock/m4-ship';
 import * as sdx from './mock/skydropx';
 import * as spendMock from './mock/spend-alerts';
+import * as salesMock from './mock/sales';
+import type { SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
 
@@ -2724,6 +2727,19 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
  * `isTerminal`. **Exige sesión del dueño**: una solicitud ajena responde `404` (no `403`, para
  * no confirmar que existe), así que la pantalla trata el 404 como «no encontrada» sin más.
  */
+/**
+ * 💰 rev BSD-1 (§BSD.4.4) — **la etiqueta del vendedor** (`GET /buylist/requests/:id/label.pdf`, el dueño). Proxy: la sesión
+ * viaja en la cabecera (`requestBlob`) y la pantalla guarda un `blob:` — ⛔ nunca la URL de Skydropx. Errores tal cual:
+ * `404 NOT_FOUND` / `404 LABEL_NOT_AVAILABLE`, `409 SHIPPING_PROVIDER_NOT_CONFIGURED`, `502 SHIPPING_PROVIDER_ERROR`.
+ */
+export async function fetchSellRequestLabelPdf(id: string): Promise<BlobResponse> {
+  if (!config.useMocks) return requestBlob(`/buylist/requests/${id}/label.pdf`);
+  const req = fx.mockSellRequests.find((r) => r.sellRequestId === id);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  if (req.labelPdfAvailable !== true) throw new ApiClientError(404, { code: 'LABEL_NOT_AVAILABLE', message: 'No label' });
+  return delay({ blob: new Blob(['%PDF-1.4 MOCK'], { type: 'application/pdf' }), filename: `guia-${id.slice(0, 8)}.pdf` });
+}
+
 export async function getSellRequest(id: string): Promise<SellRequestDetailDTO> {
   if (!config.useMocks) return apiRequest<SellRequestDetailDTO>(`/buylist/requests/${id}`);
   // MOCK: el servidor falso proyecta lo que el backend real deriva (`isTerminal`) y adjunta la
@@ -3862,11 +3878,18 @@ export async function createInventoryItem(
     });
   }
   // MOCK: pendiente de backend real — devuelve el shape 201 del contrato con folio simulado.
+  // §M1-SU SU.8.3: `status` es el estado RESULTANTE del alta (el disparo publica si hay precio). El mock lo aproxima
+  // para poder ver las dos variantes del aviso (§SU-UX.6 (f)): `listed` si el alta trae `listPriceCents > 0` o si la
+  // carta ya tiene referencia de mercado en los fixtures (precio que resuelve); si no, `in_stock`.
   const seq = String(fx.mockInventory.length + 1).padStart(6, '0');
+  const resolvesPrice =
+    (input.listPriceCents ?? 0) > 0 ||
+    (input.productType !== 'sealed' &&
+      fx.mockInventory.some((i) => i.card.id === input.cardId && i.referenceValue?.status === 'priced'));
   return delay({
     id: `inv-new-${seq}`,
     folio: `INV-${seq}`,
-    status: 'in_stock',
+    status: resolvesPrice ? 'listed' : 'in_stock',
     acquisitionCostCents: 0,
   });
 }
@@ -4767,6 +4790,11 @@ export interface AdminBuylistFilters {
   maxCents?: number;
   page?: number;
   pageSize?: number;
+  /**
+   * 💰 rev BSD-1 (errata BSD-1.3 punto 4): solo las solicitudes cuya guía de ENTRADA tiene `labelAlert ≠ null` (clase L,
+   * se intersecta con los demás). Solo `true` filtra; ausente ⇒ no viaja.
+   */
+  inboundLabelAlert?: boolean;
 }
 
 /**
@@ -4794,6 +4822,7 @@ export async function getAdminBuylist(
         maxCents: filters.maxCents,
         page: filters.page,
         pageSize: filters.pageSize,
+        inboundLabelAlert: filters.inboundLabelAlert === true ? 'true' : undefined,
       },
     });
   }
@@ -4809,6 +4838,8 @@ export async function getAdminBuylist(
   // derivar—, no contra una lista de estados vivos. Se intersecta con `status`, igual que el real.
   if (filters.live !== undefined) data = data.filter((r) => r.isTerminal !== filters.live);
   if (filters.userId) data = data.filter((r) => r.userId === filters.userId);
+  // MOCK: `?inboundLabelAlert=true` — el veredicto ya viene en la fila (`inboundShipment.labelAlert`), como en el real.
+  if (filters.inboundLabelAlert === true) data = data.filter((r) => !!r.inboundShipment?.labelAlert);
   const q = filters.q?.trim().toLowerCase();
   if (q) {
     data = data.filter(
@@ -5257,6 +5288,61 @@ export async function declineBuylistRequest(id: string, input: { reason?: string
 }
 
 /**
+ * 💰 rev BSD-1 (§BSD.5) — **detalle admin de una solicitud** (`GET /admin/buylist/:id`, operador+). Es la única fuente de
+ * `inboundLabelOptions` (por actor; la lista no lo trae) y de la ficha de una `aceptada` en M5.
+ */
+export async function getAdminBuylistRequest(id: string): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}`);
+  const req = mockFindBuylistRequest(id);
+  // MOCK: sin Skydropx en el servidor falso ⇒ `provider:'off'` (la ficha ofrece solo la captura a mano).
+  return delay({
+    ...fx.mockAdminBuylistDTO({ ...req, seller: req.seller ?? mockSellerFor(req.userId) }),
+    inboundLabelOptions: req.inboundLabelOptions ?? { provider: 'off', purchase: 'disabled', canPurchase: false },
+  });
+}
+
+/**
+ * 💰 rev BSD-1 (§BSD.4.1) — **abrir (o recuperar) la guía de ENTRADA** (`POST /admin/buylist/:id/inbound-shipment`,
+ * operador+, sin cuerpo, idempotente). Devuelve la fila de `ShipmentRequest` (`kind='buylist_inbound'`) que la ventana
+ * «Capturar guía» abre con `GET /admin/shipments/:id`. ⛔ No gasta: la compra es `POST /admin/shipments/:id/label`.
+ * Errores: `404 FEATURE_DISABLED`, `409 GUIDE_NOT_ALLOWED {status, reason}`, `409 SHIPMENT_ALREADY_LABELED
+ * {labelSource:'manual'}`, `422 PICKUP_ADDRESS_MISSING`.
+ */
+export async function openBuylistInboundShipment(id: string): Promise<OpenInboundShipmentRes> {
+  if (!config.useMocks) return apiRequest<OpenInboundShipmentRes>(`/admin/buylist/${id}/inbound-shipment`, { method: 'POST', body: {} });
+  // MOCK: el servidor falso no tiene Skydropx (ver `getAdminBuylistRequest`).
+  mockFindBuylistRequest(id);
+  throw new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'Skydropx is off (mock)' });
+}
+
+/**
+ * 💰 rev BSD-1 (§BSD.6) — **«Declinar» en «Aceptada»** (`POST /admin/buylist/:id/decline-accepted`, operador+). `reason`
+ * OBLIGATORIO (3–500 tras `trim`, interno: va a la bitácora, ⛔ nunca al vendedor). ⇒ `expirada` + `not_continued` y
+ * correo BSD-M1. ⛔ Sin `200` idempotente (segundo intento ⇒ `409 DECLINE_NOT_ALLOWED {status, reason}`). ⛔ Esta
+ * función NO reintenta: ante `5xx`/red la pantalla RELEE la solicitud (§BSD-UX.6b).
+ */
+export async function declineAcceptedBuylistRequest(id: string, input: { reason: string }): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/decline-accepted`, { method: 'POST', body: { reason: input.reason.trim() } });
+  }
+  const req = mockFindBuylistRequest(id);
+  const reason = input.reason.trim();
+  if (reason.length < 3 || reason.length > 500) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'reason', details: { field: 'reason' } });
+  }
+  if (req.status !== 'aceptada' || req.sellerShippedDeclaredAt) {
+    throw new ApiClientError(409, {
+      code: 'DECLINE_NOT_ALLOWED',
+      message: 'Sell request cannot be declined in its current state',
+      details: { status: req.status, reason: req.status !== 'aceptada' ? 'status' : 'seller_declared_shipped' },
+    });
+  }
+  req.status = 'expirada';
+  req.expiredReason = 'not_continued';
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
+}
+
+/**
  * **Cancelar la oferta** (contrato §M5 · `POST /admin/buylist/:id/offer/cancel`, criterio 145). La única vía para
  * corregir una oferta ya emitida: la solicitud **vuelve a `cotizada`** (correo 3 al vendedor si la oferta había
  * salido; D38 repone el reloj de emisión). Sin oferta viva o ya `aceptada` ⇒ **`409 OFFER_NOT_CANCELLABLE`**.
@@ -5431,7 +5517,7 @@ export async function getAdminRejectedBuylistItems(
         card: it.card,
         productType: it.productType,
         finish: it.finish,
-        quotedPriceCents: it.quotedPriceCents,
+        quotedPriceCents: it.quotedPriceCents ?? undefined,
         reason: it.rejectionReason ?? null,
         rejectedAt: it.rejectedAt ?? null,
         returnDeadlineAt: it.returnDeadlineAt ?? null,
@@ -6880,6 +6966,49 @@ export async function getLaunchMetrics(range: FinanceRange = {}): Promise<Launch
     });
   }
   return delay(fx.mockLaunchMetrics);
+}
+
+// ---------- Admin M9 · Ventas del dueño (contrato §15, rev v1.85⟨ventas⟩ + AN-1.1) ----------
+// Los tres endpoints son SOLO super_admin (operador ⇒ 403). El front pide lo que el contrato define y pinta el DTO
+// tal cual (DESIGN_SYSTEM §AN-UX AN-1). ⛔ Ninguna fecha del periodo se resuelve en el navegador (AN-5).
+
+/** Query de §15.2: con `from`/`to` va `preset=custom`; sin ellos, el preset (o nada ⇒ default del servidor). */
+function salesQuery(p: SalesReportParams): Record<string, string | undefined> {
+  const custom = !!(p.from && p.to);
+  return {
+    preset: custom ? 'custom' : p.preset,
+    from: custom ? p.from : undefined,
+    to: custom ? p.to : undefined,
+    groupBy: p.groupBy,
+    topSort: p.topSort,
+  };
+}
+
+/** `GET /admin/reports/sales` — pestaña «Ventas» de Reportes. */
+export async function getSalesReport(params: SalesReportParams = {}): Promise<SalesReportDTO> {
+  if (!config.useMocks) return apiRequest<SalesReportDTO>('/admin/reports/sales', { query: salesQuery(params) });
+  // Modo demo: servidor falso `mock/sales.ts`.
+  return mockSdx(() => salesMock.mockSalesReport(params));
+}
+
+/**
+ * `GET /admin/reports/sales/export.csv` (§15.7) con el MISMO periodo y agrupación que la pantalla. ⛔ `topSort` no viaja
+ * (lo más vendido no se exporta). El nombre lo da `Content-Disposition` (`ventas_<from>_<to>_<groupBy>.csv`).
+ */
+export async function exportSalesCsv(params: SalesReportParams = {}): Promise<BlobResponse> {
+  if (!config.useMocks) {
+    return requestBlob('/admin/reports/sales/export.csv', { query: salesQuery({ ...params, topSort: undefined }) });
+  }
+  return mockSdx(() => {
+    const { text, filename } = salesMock.mockSalesCsv(params);
+    return { blob: new Blob([text], { type: 'text/csv;charset=utf-8' }), filename };
+  });
+}
+
+/** `GET /admin/reports/sales/today` — tarjeta «Ventas de hoy» del tablero (solo se pide con súper-admin). */
+export async function getSalesToday(): Promise<SalesTodayDTO> {
+  if (!config.useMocks) return apiRequest<SalesTodayDTO>('/admin/reports/sales/today');
+  return mockSdx(() => salesMock.mockSalesToday());
 }
 
 // ============================================================================

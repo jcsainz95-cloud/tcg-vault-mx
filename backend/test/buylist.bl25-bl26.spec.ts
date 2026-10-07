@@ -140,7 +140,7 @@ describe('⚠️ BL-25 — el disparador (a): `convert-to-inventory` PIDE, no or
     expect(res.inventoryItemId).toBe('inv-1');
   });
 
-  it('⚠️ y el degradado dice «no sé», JAMÁS «ya está a la venta»', async () => {
+  it('⚠️ SU-B5 · y el degradado dice «no sé» = `["price"]` (§M1-SU), JAMÁS «ya está a la venta»', async () => {
     // Un `missing: []` inventado significaría *«se publicó sola»* y **sacaría la pieza de la única
     // pantalla donde se encontraría**. Se falla hacia visible.
     const { svc } = build({
@@ -151,8 +151,11 @@ describe('⚠️ BL-25 — el disparador (a): `convert-to-inventory` PIDE, no or
       },
     });
     const res: any = await svc.convertToInventory('sri-1', 'op-1');
-    expect(res.pendingPublish.missing).toEqual(['location', 'price']);
+    // ⭐ Errata SU-1 (§M1-SU, SU.2): «no sé» sigue siendo «todo lo que podría faltar», y hoy eso es solo el
+    // precio. Muerde si vuelve `['location','price']` o si sale `[]`.
+    expect(res.pendingPublish.missing).toEqual(['price']);
     expect(res.pendingPublish.missing).not.toEqual([]);
+    expect(res.pendingPublish.missing).not.toContain('location');
   });
 
   it('sin puerto cableado tampoco truena, y también dice «no sé»', async () => {
@@ -177,7 +180,8 @@ describe('⚠️ BL-25 — el disparador (a): `convert-to-inventory` PIDE, no or
       pii,
     );
     const res: any = await svc.convertToInventory('sri-1', 'op-1');
-    expect(res.pendingPublish.missing).toEqual(['location', 'price']);
+    // SU-B5 (puerto ausente): el mismo degradado que el puerto que lanza.
+    expect(res.pendingPublish.missing).toEqual(['price']);
   });
 
   it('⚠️ el REPLAY también dispara y también trae el deep-link', async () => {

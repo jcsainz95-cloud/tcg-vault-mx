@@ -84,6 +84,12 @@ interface FormProps {
   /** Falta la colonia (43.2c): el texto encima del formulario. */
   neighborhoodMissing: boolean;
   formId: string;
+  /**
+   * 💰 rev BSD-1 (DESIGN_SYSTEM §BSD-UX.5a) — **modo entrada**: el snapshot es el ORIGEN (el vendedor). «Destinatario» pasa a
+   * «Quién envía», la frase de alcance cambia y, con el campo vacío, se SUGIERE el nombre de la cuenta (`sellerName`).
+   * ⛔ BX7: «Usar este nombre» solo RELLENA el campo y le da el foco; se guarda con «Guardar dirección» (0 `PUT` antes).
+   */
+  inbound?: { sellerName: string } | null;
 }
 
 /**
@@ -97,10 +103,13 @@ interface FormProps {
  * «Guardar dirección» sin tocar la borraba. La regla vive en `useNeighborhoodMode` (la misma del cliente).
  */
 export const AddressForm = forwardRef<AddressFormHandle, FormProps>(function AddressForm(
-  { saved, draft, onPatch, fieldErrors, neighborhoodMissing, formId },
+  { saved, draft, onPatch, fieldErrors, neighborhoodMissing, formId, inbound },
   ref,
 ) {
   const t = useTranslations('admin.m4.tracking.sdx.address');
+  const ti = useTranslations('admin.m4.tracking.sdx.inbound');
+  const suggestionId = useId();
+  const recipientId = useId();
   const tg = useTranslations('addresses.geo');
   const tc = useTranslations('common');
   const noteId = useId();
@@ -140,25 +149,55 @@ export const AddressForm = forwardRef<AddressFormHandle, FormProps>(function Add
   const intro = mode === 'manualAll' ? (geo.manualAllChosen ? tg('manualAllIntro') : t('cpUnknown', { cp })) : null;
   const describedBy = [reason ? cpReasonId : null, intro ? introId : null, manual ? hintId : null].filter(Boolean).join(' ') || undefined;
   const linkBtn = 'min-h-6 py-1.5 text-left text-text underline underline-offset-2 hover:text-accent';
+  // BX7: la sugerencia solo con el campo VACÍO y un nombre de cuenta que sugerir.
+  const showSuggestion = !!inbound && inbound.sellerName.trim() !== '' && draft.recipientName.trim() === '';
   const label = manual ? t('neighborhoodManualLabel') : t('neighborhoodLabel', { cp: cpComplete ? cp : str(saved.postalCode) });
 
   return (
     <form id={formId} aria-describedby={noteId} className="flex flex-col gap-4" onSubmit={(e) => e.preventDefault()} noValidate>
       <div id={noteId} className="flex flex-col gap-1">
         {neighborhoodMissing && <p className="text-sm text-text">{t('neighborhoodMissing', { cp: str(saved.postalCode) })}</p>}
-        <p className="text-sm text-text">{t('scopeNote')}</p>
+        {inbound ? (
+          <>
+            <p className="text-sm text-text">{ti('scopeNote')}</p>
+            <p className="text-sm text-muted">{ti('resyncNote')}</p>
+          </>
+        ) : (
+          <p className="text-sm text-text">{t('scopeNote')}</p>
+        )}
         <p className="text-sm text-muted">{t('auditNote')}</p>
       </div>
       <Input
         ref={refs.recipientName}
-        label={t('field.recipient')}
+        label={inbound ? ti('sender') : t('field.recipient')}
         type="text"
         autoComplete="off"
-        hint={t('hint.recipient')}
+        hint={inbound ? ti('senderHint') : t('hint.recipient')}
         error={fieldErrors.recipientName}
         value={draft.recipientName}
         onChange={set('recipientName')}
+        id={recipientId}
+        // La sugerencia se une al campo SIN perder su ayuda/error (Input solo une el suyo).
+        aria-describedby={showSuggestion ? `${recipientId}-${fieldErrors.recipientName ? 'err' : 'hint'} ${suggestionId}` : undefined}
       />
+      {showSuggestion && (
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1" data-testid="sdx-inbound-suggestion">
+          <p id={suggestionId} className="text-sm text-text">
+            {ti('senderSuggestion', { sellerName: inbound!.sellerName })}
+          </p>
+          <button
+            type="button"
+            className={`${linkBtn} text-sm`}
+            onClick={() => {
+              onPatch({ recipientName: inbound!.sellerName });
+              refs.recipientName.current?.focus();
+            }}
+            data-testid="sdx-inbound-use-suggestion"
+          >
+            {ti('useSuggestion')}
+          </button>
+        </div>
+      )}
       <Input ref={refs.line1} label={t('field.line1')} type="text" error={fieldErrors.line1} value={draft.line1} onChange={set('line1')} />
       <Input ref={refs.line2} label={t('field.line2')} type="text" error={fieldErrors.line2} value={draft.line2} onChange={set('line2')} />
       <Input
@@ -286,8 +325,9 @@ export const AddressForm = forwardRef<AddressFormHandle, FormProps>(function Add
 });
 
 /** **Paso 1 · modo leer** (`§43.2a`): la `<dl>` del snapshot con cada ausencia nombrada (SK8). */
-export function AddressReadView({ shipment }: { shipment: AdminShipmentDTO }) {
+export function AddressReadView({ shipment, inbound = false }: { shipment: AdminShipmentDTO; inbound?: boolean }) {
   const t = useTranslations('admin.m4.tracking.sdx.address');
+  const ti = useTranslations('admin.m4.tracking.sdx.inbound');
   const locale = useLocale() as AppLocale;
   const snap = (shipment.addressSnapshot ?? {}) as AddressSnapshotDTO;
   const v = (k: string) => {
@@ -305,7 +345,8 @@ export function AddressReadView({ shipment }: { shipment: AdminShipmentDTO }) {
   const manualNeighborhood = flaggable && (check === 'not_in_postal_code_list' || check === 'postal_code_not_in_catalog');
   const manualAll = flaggable && check === 'postal_code_not_in_catalog';
   const rows: { label: string; value: string | null; none: string; tone: 'accent' | 'muted' | 'text'; tabular?: boolean; omitIfNull?: boolean; mark?: string }[] = [
-    { label: t('recipient'), value: v('recipientName'), none: t('recipientMissing'), tone: 'accent' },
+    // 💰 rev BSD-1 (§BSD-UX.5a): en modo entrada el snapshot es el ORIGEN ⇒ «Quién envía» / «Falta quién envía».
+    { label: inbound ? ti('sender') : t('recipient'), value: v('recipientName'), none: inbound ? ti('senderMissing') : t('recipientMissing'), tone: 'accent' },
     { label: t('line1'), value: v('line1'), none: t('noData'), tone: 'accent' },
     { label: t('line2'), value: v('line2'), none: '', tone: 'text', omitIfNull: true },
     { label: t('neighborhood'), value: v('neighborhood'), none: t('neighborhoodNone'), tone: 'accent', mark: manualNeighborhood ? t('manualMark', { cp: cpOf }) : undefined },

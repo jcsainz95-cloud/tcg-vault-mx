@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Prisma, SellRequestExpiryReason } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../modules/settings/settings.service';
@@ -8,13 +9,29 @@ import {
   sellOfferReminderTemplate,
   sellRequestExpiredTemplate,
   sellRequestNotPursuedTemplate,
+  sellRequestNotContinuedTemplate,
   buylistPortalUrl,
   OfferReminderKind,
   SellExpiredKind,
 } from '../modules/buylist/buylist-mail.templates';
 import { addBusinessDays, businessDaysSince } from '../common/business-days';
 import { SELL_REQUEST_LIVE_ADJUSTMENT_STATES } from '../modules/buylist/buylist-reject.constants';
+import { closeInboundShipment, InboundCloseResult, needsGuideCancelTask } from '../modules/shipments/inbound-close';
+import { afterAutoCloseVia } from '../modules/shipments/label-auto-close';
+import { INBOUND_ONLY } from '../modules/shipments/label-subject';
+import { openGuideTaskIfCancelUnconfirmed } from '../modules/buylist/inbound-cancel-task';
+import {
+  GUIDE_DAY_MS,
+  GuideClockDials,
+  guideAnchorOf,
+  guideCloseDueWhere,
+  guideWarnDueWhere,
+} from '../modules/buylist/guide-clock';
+import { SpendAlertsService } from '../modules/spend-alerts/spend-alerts.service';
+import { SpendMailService } from '../modules/spend-alerts/spend-mail.service';
 
+/** 💰 rev BSD-1 (§BSD.7.5): una cancelación de Skydropx sin confirmar pasada esta ventana abre la tarea (regla 10). */
+export const INBOUND_CANCEL_RECONCILE_MS = 60 * 60 * 1000;
 /**
  * `BuylistSweepJobService` — **los plazos del ciclo de adquisición, en SIETE reglas**
  * (ARCHITECTURE §4.39j, criterios 16/113/121/123/138/142/156).
@@ -34,6 +51,11 @@ import { SELL_REQUEST_LIVE_ADJUSTMENT_STATES } from '../modules/buylist/buylist-
  * | 5 | Ajuste sin responder a 7 días (**legacy, sin cambio**) | `rechazada` |
  * | 6 | Abandono a 30 días — **RE-ANCLADO en `receivedAt`** | `abandonada` |
  * | 7 | `cotizada` que **nadie ofertó** en 7 días hábiles ⚠️ **GATEADA** | `expirada`/`no_offer` + **correo 4** + **anula la oferta pendiente** |
+ * | 8 | 💰 rev BSD-1: `aceptada` **sin guía** a N días NATURALES del ancla (§BSD.7.1) | `expirada`/`not_continued` + **BSD-M1** + cierra la fila de entrada |
+ * | 9 | 💰 rev BSD-1: la misma, `warn` días antes del cierre (§BSD.7.2) | **AG-23** al dueño, uno por ancla |
+ * | 10 | 💰 rev BSD-1: guía de entrada cancelada en Skydropx sin confirmación tras 1 h (§BSD.7.5) | abre la tarea «cancelar guía no usada» |
+ *
+ * Orden dentro de `run()` (§BSD.7.6): 1, 2, recordatorios, 5, 6, 7, **9, 8, 10**.
  *
  * ### ⚠️ La regla 7 nace APAGADA (`buylist_no_offer_expiry_enabled`, seed `off`) — B-4
  * Es la única de las siete cuyo despliegue depende de un **paso operativo previo obligatorio** (el
@@ -65,6 +87,12 @@ export class BuylistSweepJobService {
     // Mismo régimen que en `buylist`: `@Optional` para que los tests unitarios que construyen el
     // servicio a mano no truenen, y envío best-effort.
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // 💰 rev BSD-1: AG-23 (regla 9) y su correo al dueño; `ModuleRef` para el post-commit de la cancelación automática de la
+    // guía de entrada (`afterAutoCloseVia`, §BSD.4.8). `@Optional()` por los unitarios que construyen a mano: sin ellos, AG-23
+    // no se levanta y la cancelación queda sellada para el reintento (regla 10 / «Reintentar en Skydropx»).
+    @Optional() private readonly alerts?: SpendAlertsService,
+    @Optional() private readonly spendMail?: SpendMailService,
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   async run(now = new Date()): Promise<{
@@ -74,6 +102,9 @@ export class BuylistSweepJobService {
     shipmentsExpired: number;
     remindersSent: number;
     notPursued: number;
+    guideWarned: number;
+    notContinued: number;
+    cancelTasksOpened: number;
   }> {
     const rule1 = await this.expireUnansweredOffers(now);
     const rule2 = await this.expireUnshippedPackages(now);
@@ -81,10 +112,16 @@ export class BuylistSweepJobService {
     const rule5 = await this.expireUnansweredAdjustments(now);
     const rule6 = await this.abandonUnreturned(now);
     const rule7 = await this.expireUnofferedRequests(now);
+    // 💰 rev BSD-1 (§BSD.7.6): 9 antes que 8 (si ya toca cerrar, la ventana de la 9 no casa), y 10 al final.
+    const dials = await this.guideClockDials();
+    const rule9 = dials ? await this.isolated('regla 9', () => this.warnUnguidedAccepted(now, dials)) : 0;
+    const rule8 = dials ? await this.isolated('regla 8', () => this.closeUnguidedAccepted(now, dials)) : 0;
+    const rule10 = await this.isolated('regla 10', () => this.reconcileInboundCancellations(now));
 
     this.logger.log(
       `buylist-sweep: ${rule1} ofertas vencidas, ${rule2} envíos vencidos, ${reminders} recordatorios, ` +
-        `${rule5} ajustes sin responder, ${rule6} abandonadas, ${rule7} sin oferta (no procederemos).`,
+        `${rule5} ajustes sin responder, ${rule6} abandonadas, ${rule7} sin oferta (no procederemos), ` +
+        `${rule9} avisos AG-23, ${rule8} sin guía (no continuamos), ${rule10} tareas de cancelación abiertas.`,
     );
     return {
       // `rejected` conserva su nombre y su significado histórico (la regla 5) para no romper a
@@ -95,6 +132,9 @@ export class BuylistSweepJobService {
       shipmentsExpired: rule2,
       remindersSent: reminders,
       notPursued: rule7,
+      guideWarned: rule9,
+      notContinued: rule8,
+      cancelTasksOpened: rule10,
     };
   }
 
@@ -449,6 +489,147 @@ export class BuylistSweepJobService {
   }
 
   // =========================================================================================
+  // 💰 rev BSD-1 — Reglas 8, 9 y 10: la `aceptada` SIN guía (API_CONTRACT §BSD.7)
+  // =========================================================================================
+
+  /**
+   * Los dos diales de §BSD.9, leídos UNA vez por pasada. ⚠️ Sin `SettingsService` (unitarios que construyen a mano) las reglas
+   * 8 y 9 quedan APAGADAS — el mismo lado seguro que la regla 7: *ante la duda, no se cierra y no sale correo.*
+   */
+  private async guideClockDials(): Promise<GuideClockDials | null> {
+    if (!this.settings) return null;
+    const [closeDays, warnDays] = await Promise.all([
+      this.settings.getNumber(SettingKey.BUYLIST_GUIDE_CLOSE_CALENDAR_DAYS),
+      this.settings.getNumber(SettingKey.BUYLIST_GUIDE_WARN_DAYS_BEFORE_CLOSE),
+    ]);
+    // Fail-closed ante un dial ilegible: un cierre con `NaN` días cerraría todo o nada sin que nadie lo decida.
+    if (!Number.isInteger(closeDays) || closeDays < 1 || !Number.isInteger(warnDays) || warnDays < 0) {
+      this.logger.error(`buylist-sweep: diales del cierre sin guía ilegibles (close=${closeDays}, warn=${warnDays}); reglas 8 y 9 omitidas`);
+      return null;
+    }
+    return { closeDays, warnDays };
+  }
+
+  /** Una regla nueva que falla NO tumba las demás de la pasada (se loggea `error`; la siguiente pasada la reintenta). */
+  private async isolated(name: string, run: () => Promise<number>): Promise<number> {
+    try {
+      return await run();
+    } catch (e) {
+      this.logger.error(`buylist-sweep: ${name} falló: ${e instanceof Error ? e.message : String(e)}`);
+      return 0;
+    }
+  }
+
+  /**
+   * **Regla 8 (§BSD.7.1) — cierre a N días NATURALES sin guía.** `expirada` + `not_continued` + `closedAt` + `declinedBy = null`
+   * (lo cerró el barrido), `closeInboundShipment(tx,'close')` en la MISMA transacción (I-BSD-1) y **BSD-M1** post-commit.
+   *
+   * ⚠️ El predicado (`guideCloseDueWhere`) es el MISMO en la lectura y en la escritura (B-1 del barrido): entre las dos puede
+   * llegar una guía, un reclamo de compra, un «ya lo mandé» o una confirmación, y la escritura tiene que volver a preguntarlo.
+   * Y la escritura corre DESPUÉS de tomar el candado de la solicitud (I-BSD-4): la compra de la guía de entrada lo toma
+   * primero, así que su reclamo ya está commiteado (y su `labelProcessingSince` visible) cuando el `updateMany` lo pregunta.
+   *
+   * ⛔ No culpa al vendedor (§BSD.7.4): `not_continued` no entra en ninguna cifra de conducta (hoy solo `not_shipped`).
+   */
+  private async closeUnguidedAccepted(now: Date, d: GuideClockDials): Promise<number> {
+    const where = guideCloseDueWhere(now, d);
+    const rows = await this.prisma.sellRequest.findMany({
+      where,
+      select: { id: true, user: { select: { name: true, email: true, locale: true } } },
+    });
+    let n = 0;
+    for (const req of rows) {
+      const moved = await this.closeWithGuideTask(req.id, now, where, {
+        status: 'expirada',
+        expiredReason: SellRequestExpiryReason.not_continued,
+        closedAt: now,
+        declinedBy: null,
+      });
+      if (!moved) continue;
+      n += 1;
+      // BSD-M1 — el MISMO correo que «Declinar». Uno por solicitud: lo garantiza el `count === 1` de arriba.
+      await this.sendMail(req.id, req.user, () =>
+        sellRequestNotContinuedTemplate(
+          { folio: req.id, portalUrl: buylistPortalUrl(req.id, req.user?.locale) },
+          req.user?.name ?? '',
+          req.user?.locale,
+        ),
+      );
+    }
+    return n;
+  }
+
+  /**
+   * **Regla 9 (§BSD.7.2) — AG-23 al dueño**, `warn` días antes del cierre. `dedupKey = ag23:<id>:<ancla ISO>` ⇒ UNO por ancla
+   * aunque el barrido corra varias veces (re-emitir re-ancla ⇒ puede volver a avisar). `facts` = `{ sellRequestId, closesAt,
+   * offerGrossCents }` y nada más (⛔ PII del vendedor, GAS-2). El correo sale por la tubería de avisos (solo el dueño;
+   * silenciable, BSD-1.1 C-7). La marca de M5 y del tablero es DERIVADA (`guideDueSoon`) y no depende de esto.
+   * @returns los avisos NUEVOS (una repetición no cuenta).
+   */
+  private async warnUnguidedAccepted(now: Date, d: GuideClockDials): Promise<number> {
+    if (!this.alerts) return 0;
+    const where = guideWarnDueWhere(now, d);
+    if (!where) return 0; // aviso efectivo 0 = sin aviso
+    const rows = await this.prisma.sellRequest.findMany({
+      where,
+      select: { id: true, inboundGuideClockStartedAt: true, acceptedAt: true, offerGrossCents: true },
+    });
+    let n = 0;
+    for (const r of rows) {
+      const anchor = guideAnchorOf(r);
+      if (!anchor) continue;
+      const closesAt = new Date(anchor.getTime() + d.closeDays * GUIDE_DAY_MS);
+      const alerts = this.alerts;
+      const raised = await this.prisma.$transaction((tx) =>
+        alerts.raise(
+          tx,
+          {
+            kind: 'buylist_guide_due',
+            severity: 'immediate',
+            dedupKey: `ag23:${r.id}:${anchor.toISOString()}`,
+            facts: { sellRequestId: r.id, closesAt: closesAt.toISOString(), offerGrossCents: r.offerGrossCents ?? 0 },
+          },
+          now,
+        ),
+      );
+      if (!raised?.created) continue;
+      n += 1;
+      // Outbox: el correo inmediato post-commit (⛔ nunca lanza; lo que quede `pending` lo recoge `spend-watch`).
+      if (this.spendMail) await this.spendMail.dispatchImmediate(raised.id);
+    }
+    return n;
+  }
+
+  /**
+   * **Regla 10 (§BSD.7.5) — reconciliación de cancelaciones.** Fila de entrada `cancelado` cuya guía se canceló en Skydropx
+   * hace más de 1 h sin confirmación (`providerCancelConfirmedAt IS NULL`), con la solicitud sin tarea abierta ⇒ se abre la
+   * tarea «cancelar guía no usada» (criterio 139). Cubre un proceso que murió entre el commit y el `cancel`.
+   * ⛔ No reabre una tarea ya cerrada (`guideCancellationDoneAt`).
+   */
+  private async reconcileInboundCancellations(now: Date): Promise<number> {
+    const rows = await this.prisma.shipmentRequest.findMany({
+      where: {
+        ...INBOUND_ONLY,
+        status: 'cancelado',
+        providerCanceledAt: { not: null, lte: new Date(now.getTime() - INBOUND_CANCEL_RECONCILE_MS) },
+        providerCancelConfirmedAt: null,
+        sellRequest: { is: { guideCancellationPendingAt: null, guideCancellationDoneAt: null } },
+      },
+      select: { sellRequestId: true },
+    });
+    let n = 0;
+    for (const r of rows) {
+      if (!r.sellRequestId) continue;
+      const opened = await this.prisma.sellRequest.updateMany({
+        where: { id: r.sellRequestId, guideCancellationPendingAt: null, guideCancellationDoneAt: null },
+        data: { guideCancellationPendingAt: now },
+      });
+      n += opened.count;
+    }
+    return n;
+  }
+
+  // =========================================================================================
   // Utilidades compartidas
   // =========================================================================================
 
@@ -475,33 +656,51 @@ export class BuylistSweepJobService {
    * **`count === 1` es el veredicto, no un detalle:** `false` ⇒ la fila se movió y **no se manda
    * correo ni se cuenta**. Es el mismo patrón del sello del recordatorio.
    *
-   * ⚠️ **Residual conocido y aceptado:** el `findUnique` de la etiqueta sigue siendo read-then-write.
-   * Su peor caso es **no abrir** una tarea operativa (fail-open sobre trabajo, no sobre dinero) y es
-   * casi inalcanzable —`shipDeadlineAt` solo existe si la guía YA se capturó—, así que no justifica
-   * partir la escritura en dos `updateMany`. Registrado en `docs/BACKEND_NOTES.md`.
+   * 💰 **rev BSD-1 — el residual de read-then-write se CIERRA.** Todo corre en UNA transacción bajo el candado de la solicitud
+   * (y luego el de su fila de entrada, I-BSD-4): la lectura de la etiqueta ya no puede quedar vieja. La tarea se abre en una
+   * segunda escritura (por id) porque depende de lo que devuelve `closeInboundShipment`, que corre DESPUÉS del cambio de estado
+   * (§BSD.4.8). Lo usan las reglas 1, 2 y 8 (la 1 nunca tiene fila de entrada: ⇒ `NO_ROW`, conducta de hoy).
+   * @returns el resultado de `closeInboundShipment` si la fila se movió; `null` si no (⇒ ni correo ni cuenta).
    */
   private async closeWithGuideTask(
     id: string,
     now: Date,
     guard: Prisma.SellRequestWhereInput,
     data: Prisma.SellRequestUpdateManyMutationInput,
-  ): Promise<boolean> {
-    const row = await this.prisma.sellRequest.findUnique({
-      where: { id },
-      select: { shipmentTrackingNumber: true, guideCancellationDoneAt: true },
+  ): Promise<InboundCloseResult | null> {
+    const closed = await this.prisma.$transaction(async (tx) => {
+      // 💰 rev BSD-1 (I-BSD-4): PRIMERO la solicitud y después la fila de entrada. Con el candado ya tomado, el `updateMany`
+      // de abajo lee el estado COMMITEADO de la fila de entrada (un reclamo de compra que ganó el candado ya es visible).
+      await tx.$queryRaw`SELECT id FROM "SellRequest" WHERE id = ${id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE "sellRequestId" = ${id} FOR UPDATE`;
+      const row = await tx.sellRequest.findUnique({
+        where: { id },
+        select: { shipmentTrackingNumber: true, guideCancellationDoneAt: true },
+      });
+      const res = await tx.sellRequest.updateMany({
+        // El predicado de la LECTURA, reafirmado en la ESCRITURA. `id` va después para que ningún
+        // fragmento del llamador pueda pisarlo.
+        where: { ...guard, id },
+        data,
+      });
+      if (res.count !== 1) return null;
+      // 💰 rev BSD-1 (I-BSD-1, §BSD.7.3): la fila de entrada sale con la solicitud, EN ESTA transacción: `solicitado|guia ⇒
+      // cancelado` y la guía viva de Skydropx sellada para cancelarse post-commit.
+      const inbound = await closeInboundShipment(tx, id, 'close', now);
+      // La tarea «cancelar guía no usada» SOLO con guía manual o guía de Skydropx que ya se movió (`live`). Con guía manual,
+      // bit a bit como hoy (criterio 549): `guideCancellationPendingAt = now` si no estaba cerrada.
+      if (row && needsGuideCancelTask(row, inbound)) {
+        await tx.sellRequest.updateMany({ where: { id }, data: { guideCancellationPendingAt: now } });
+      }
+      return inbound;
     });
-    const res = await this.prisma.sellRequest.updateMany({
-      // El predicado de la LECTURA, reafirmado en la ESCRITURA. `id` va después para que ningún
-      // fragmento del llamador pueda pisarlo.
-      where: { ...guard, id },
-      data: {
-        ...data,
-        ...(row?.shipmentTrackingNumber != null && row.guideCancellationDoneAt == null
-          ? { guideCancellationPendingAt: now }
-          : {}),
-      },
-    });
-    return res.count === 1;
+    // POST-commit (§BSD.4.8): la guía sellada se cancela en Skydropx, best-effort (⛔ nunca lanza); si Skydropx no la confirmó,
+    // la tarea «cancelar guía no usada» se abre ya (BSD-B14), no a la hora (regla 10).
+    if (closed?.outcome === 'sealed' && closed.shipmentId) {
+      await afterAutoCloseVia(this.moduleRef, [closed.shipmentId]);
+      await openGuideTaskIfCancelUnconfirmed(this.prisma, id, closed.shipmentId, now);
+    }
+    return closed;
   }
 
   /**

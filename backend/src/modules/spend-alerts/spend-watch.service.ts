@@ -27,6 +27,7 @@ import { SpendAlertsService, SpendFacts } from './spend-alerts.service';
 import { SpendMailService } from './spend-mail.service';
 import { ProviderBalanceService } from './provider-balance.service';
 import { SPEND_ALERTS_CLOCK, SPEND_WATCH_LOCK_KEY, SpendClock } from './spend-alerts.constants';
+import { OUTBOUND_ONLY } from '../shipments/label-subject';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 type Db = Prisma.TransactionClient | PrismaService;
@@ -214,6 +215,8 @@ export class SpendWatchService implements OnApplicationBootstrap {
     const days = await this.settings.getNumber(SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS);
     const candidates = await this.prisma.shipmentRequest.findMany({
       where: {
+        // rev BSD-1 (I-BSD-6, censo BSD-B23): AG-10 no es para la guía de ENTRADA (la lleva el vendedor; el plazo es suyo).
+        ...OUTBOUND_ONLY,
         labelSource: 'skydropx',
         status: 'guia',
         providerCanceledAt: null,
