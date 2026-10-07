@@ -244,7 +244,9 @@ export class FullRefundService {
     // (`afterShipment = false`, leído BAJO los candados de arriba) ⇒ los renglones `sold` vuelven a existencias
     // (`quantity − missingQty`; el paquete, por tipo). Con envío salido ⇒ nada vuelve. ⛔ Difiere de las cartas a propósito
     // (`ARCHITECTURE §4.AC (k)`). Idempotente por el CAS `sold → restocked` (la segunda pasada no repone).
-    const restocked = (row.status === 'settled' || row.status === 'refunded') && !afterShipment ? await restockAccessoriesOnFullRefund(tx, orderId, new Date()) : { lines: 0, units: 0 };
+    // (La bitácora `order.full_refund_closed` NO cambia de forma — I-AC-5 —: la reposición queda en los
+    // `AccessoryStockMovement` `restock` con `orderId`.)
+    if ((row.status === 'settled' || row.status === 'refunded') && !afterShipment) await restockAccessoriesOnFullRefund(tx, orderId, new Date());
     const sealedNow = row.fullRefundClosedAt === null;
     if (opts.shippedReason && (!sealedNow || !afterShipment)) {
       // Invariante: M3 decidió «enviado» bajo el MISMO candado y sobre una orden `settled` sin sello.
@@ -284,7 +286,6 @@ export class FullRefundService {
             afterShipment,
             shippedReason: opts.shippedReason?.reason ?? null,
             releasedItemIds,
-            restockedAccessoryLines: restocked.lines,
           },
         },
       });

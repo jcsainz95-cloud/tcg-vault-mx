@@ -9,6 +9,7 @@
  *
  * Las carreras se miden N=10 rondas y se reporta la proporción (O-3).
  */
+import { Prisma } from '@prisma/client';
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { AccDb, FUNDA_DIMS, HUGE_DIMS, PLAYMAT_DIMS } from './helpers/accessories-b-db';
@@ -629,6 +630,7 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
 
     it('AC-B34: el paquete cuesta el DIAL (leído en la sesión); ningún importe del cuerpo', async () => {
       const w = await deckWorld();
+      const prev = await h.prisma.configSetting.findUnique({ where: { key: 'energy_bundle_price_cents' } });
       await h.prisma.configSetting.upsert({ where: { key: 'energy_bundle_price_cents' }, create: { key: 'energy_bundle_price_cents', valueJson: 2500 }, update: { valueJson: 2500 } });
       try {
         const s = await db.session({ inventoryItemIds: w.items, deckPulls: [{ pullToken: w.token, withEnergyBundle: true, priceCents: 1 }] });
@@ -638,7 +640,9 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
         expect(line.unitPriceCents).toBe(2500);
         await db.failPayment(s.body.stripe.paymentIntentId);
       } finally {
-        await h.prisma.configSetting.deleteMany({ where: { key: 'energy_bundle_price_cents' } });
+        // Se devuelve el dial como estaba (`seed-e2e` lo siembra con el default): ⛔ no se borra una fila ajena.
+        if (prev) await h.prisma.configSetting.update({ where: { key: 'energy_bundle_price_cents' }, data: { valueJson: prev.valueJson as Prisma.InputJsonValue } });
+        else await h.prisma.configSetting.deleteMany({ where: { key: 'energy_bundle_price_cents' } });
       }
     });
 

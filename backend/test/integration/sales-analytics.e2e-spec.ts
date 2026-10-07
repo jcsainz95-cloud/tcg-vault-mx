@@ -339,6 +339,8 @@ describe('§AN fase B — ganancia, envíos, buylist, mejores días, mezcla (Pos
       raw: { pieces: 1 + 1 + 2 + 1 + 1, netCents: 10000 + 10001 + 20000 + 5000 + 3000 },
       graded: { pieces: 1, netCents: 8000 },
       sealed: { pieces: 1, netCents: 12000 },
+      // 💰 v1.86⟨accesorios⟩ (§AC.12; §AC.15 «cambian por norma»): la cuarta celda; este fixture no tiene accesorios.
+      accessory: { pieces: 0, netCents: 0 },
     });
     // Las otras mezclas suman los totales; el método de pago (fase C) ⛔ no viaja.
     const m = r.mix;
@@ -365,7 +367,8 @@ describe('§AN fase B — ganancia, envíos, buylist, mejores días, mezcla (Pos
       }
       const r = await svc.report({ from: '2021-04-20', to: '2021-04-20' }, mx('2021-04-21', 12));
       expect(r.totals.netSalesCents).toBe(25862);
-      expect(r.mix.byProductType).toEqual({ raw: { pieces: 1, netCents: 8621 }, graded: { pieces: 1, netCents: 8621 }, sealed: { pieces: 1, netCents: 8620 } });
+      // 💰 v1.86⟨accesorios⟩ (§AC.12; §AC.15 «cambian por norma»): + la celda `accessory` (vacía en este ejemplo).
+      expect(r.mix.byProductType).toEqual({ raw: { pieces: 1, netCents: 8621 }, graded: { pieces: 1, netCents: 8621 }, sealed: { pieces: 1, netCents: 8620 }, accessory: { pieces: 0, netCents: 0 } });
     } finally {
       await w.h.prisma.orderItem.deleteMany({ where: { orderId } });
       await w.h.prisma.order.deleteMany({ where: { id: orderId } });
