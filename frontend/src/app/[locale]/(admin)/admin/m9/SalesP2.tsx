@@ -311,8 +311,9 @@ export function SalesMix({ mix, totalOrders, totalPieces }: { mix: SalesMixDTO; 
                 </tr>
               </thead>
               <tbody>
-                {(['raw', 'graded', 'sealed'] as const).map((k) => {
-                  const c = pt[k];
+                {/* §AC.12: `accessory` es aditiva; sin la llave (servidor anterior) no hay fila (⛔ no se inventa un 0). */}
+                {(['raw', 'graded', 'sealed', ...(pt.accessory ? (['accessory'] as const) : [])] as const).map((k) => {
+                  const c = pt[k]!;
                   return (
                     <tr key={k} className={`border-b border-border ${c.pieces === 0 ? 'text-muted' : ''}`}>
                       <th scope="row" className="py-2 text-left text-sm font-normal">

@@ -34,6 +34,10 @@ export interface GuestCheckoutFormProps {
   shippingFeeLabel?: string;
   onDismissUpsell: () => void;
   onAccountReady: () => void;
+  /** §AC-UX.7: carrito sin cartas ni sellado ⇒ la opción de bóveda no se pinta (no hay nada que guardar). */
+  vaultAvailable?: boolean;
+  /** §AC-UX.7 / AC-F8: el bloque «NO VAN A LA BÓVEDA» dentro del panel de bóveda. */
+  vaultNotice?: React.ReactNode;
   /**
    * Un `400 VALIDATION_ERROR {field, max}` de la sesión sobre la colonia, el municipio o el estado, pintado
    * BAJO su campo (§43.18m.7, `geo.tooLong`). Lo retira quien monta al tocar ese campo. v1.80.12.5
@@ -102,6 +106,8 @@ export function GuestCheckoutForm({
   onDestinationChange,
   upsellOpen,
   shippingFeeLabel,
+  vaultAvailable = true,
+  vaultNotice,
   onDismissUpsell,
   onAccountReady,
   serverAddressError = null,
@@ -354,6 +360,7 @@ export function GuestCheckoutForm({
            * candado ni tooltip de error: la micro-etiqueta "REQUIERE CUENTA" es honestidad
            * previa, y al elegirla se despliega el upsell (§15.4).
            */}
+          {vaultAvailable && (
           <label className="flex min-h-[44px] cursor-pointer items-start gap-4 border-y border-border py-4">
             <input
               ref={vaultRadioRef}
@@ -374,6 +381,7 @@ export function GuestCheckoutForm({
               </span>
             </span>
           </label>
+          )}
 
           <div id="vault-upsell-panel">
             {upsellOpen && (
@@ -384,6 +392,7 @@ export function GuestCheckoutForm({
                 onDismiss={onDismissUpsell}
                 onAccountReady={onAccountReady}
                 onEscape={() => vaultRadioRef.current?.focus()}
+                notice={vaultNotice}
               />
             )}
           </div>

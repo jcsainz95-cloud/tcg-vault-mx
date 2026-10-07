@@ -20584,3 +20584,81 @@ días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 defa
   «no hay ubicaciones») y lo reenvía a `ItemDetailModal`; `M1View` y `M11View` pasan `locations.isSuccess`.
 - **Techlead D3.** SU-UX-10 en `MasterSet.test.tsx`: carrito y `encontrada` invalidan `['pending-publish']`.
 - **Techlead D4** registrada en `TECH_DEBT.md` (TD-SU-D4a/b).
+
+## §107 · 💰 **§AC — accesorios, energías y paquete de energías del deck** (2026-10-07, rama `claude/accesorios`, base `69fe60a`; `API_CONTRACT §AC` v1.86 + erratas v1.86.1 y v1.86.2 · `DESIGN_SYSTEM §AC-UX` vAC-1)
+
+**Orden de trabajo.** Pruebas primero (AC-F1…F13, F15…F18, candados AC-UX-1…14), corridas en rojo antes del código: **91 de
+107 rojas** en 16 archivos (las 16 verdes eran vacuas: paridad sobre espacios de nombres aún inexistentes, que su prueba
+hermana «existe» ya ponía en rojo, y «sin `accessory` ⇒ sin fila» en Ventas). La errata v1.86.2 llegó a mitad: AC-F13 se
+reescribió como AC-F19 antes de construir M3 (7/7 rojas). ⛔ Ningún importe se calcula en el cliente: renglones, paquete,
+envío, reembolsos por unidad y `refundPreviewCents` salen del servidor; la pantalla solo suma lo que el diseño pide sumar de
+cifras ya calculadas (`{amount}` del aviso de bóveda = Σ `lineTotalCents` + Σ `priceCents`, §AC-UX.7).
+
+**Carrito v3 (AC-F1).** `lib/cart.ts`: registro plano `{ ids, accessories: {id, qty}[], deckPulls: {token, slug,
+withEnergyBundle, deckName?}[], updatedAt }`. `lib/local-store.ts` gana la opción aditiva `flat` (el valor va al nivel del
+registro; `field` sigue siendo la llave que lo reconoce): un v2 `{ids, updatedAt}` se lee como v3 **conservando su
+caducidad**; v1 (array) migra como antes. `count` = piezas + unidades + paquetes; `isEmpty` ignora decks sin paquete.
+«La oferta del paquete, una vez» vive aparte: `tcg.cart.bundleOfferSeen` (`{slugs}`), como recomienda §AC-UX.8b.
+`cart.test.ts` cambió por norma (forma exacta v2 ⇒ v3).
+
+**Tienda.** `StoreTabs` 4.ª pestaña `/accesorios`; listado `(storefront)/accesorios` (categoría en URL, búsqueda con
+debounce 300 ms reflejada en la URL, categoría inválida ⇒ «Todo» y se limpia) y ficha `accesorios/[id]` con
+`QuantityStepper` (nuevo, `components/domain/accessories/`) topado en `maxQty − enCarrito`. P-AC-1 con su recomendación:
+con sesión, sin «Agregar» y `SignedInAccessoryNotice` (`role="note"`), ⛔ sin «cerrar sesión» (candado en
+`i18n-accessories.test.ts`).
+
+**Carrito (invitado).** `GuestCheckoutView` manda `accessoryLines` y `deckPulls` en la cotización (todos) y en la sesión
+(solo los paquetes: con `false` la sesión no valida nada). Corrección automática + avisos en `accessory-notice.ts`
+(store de módulo, como `unavailable-notice.ts`; `CheckoutView` lo limpia al salir). Un `deckPull` **sin** paquete que se
+invalida sale en silencio. `invalid_token` con `deckSlug: null`: sale el `deckPull` que la respuesta no nombra.
+Renglones (`AccessoryCartLines`), oferta del paquete (`BundleOffers`), «¿Te falta algo?» (`AccessorySuggestions`: lo
+agregado en la visita no entra en `exclude`, así la lista no salta). Envío: `AmountBreakdown` gana `productsSubtotal` y
+`shippingNote` (aditivas); «El envío cambió a…» en región `aria-live`. Bóveda: `vaultExcludesAccessories` ⇒ bloque «NO VAN
+A LA BÓVEDA» dentro del panel; sin cartas, la opción de bóveda no se pinta (formulario y resumen). Errores de sesión
+`ACCESSORY_UNAVAILABLE` / `ACCESSORY_INSUFFICIENT_STOCK` (renglón suelto o componente de paquete) / `ENERGY_BUNDLE_INVALID`
+⇒ Banner `danger`, carrito corregido y re-cotización por cambio de clave.
+- ⭐ **F-SP-5 construido aquí (AC-F9), solo en `GuestCheckoutView`:** el botón no pinta importe sin sesión
+  (`checkout.payNoAmount`) y, con sesión, pinta `outcome.breakdown.totalCents`; el `amountLabel` del modal es el de la
+  sesión. Cambiaron por norma `GuestCheckoutDestinationBreakdown.test.tsx` (2) y `CheckoutRetry.test.tsx` (1).
+  **`CheckoutView` (con cuenta) NO se tocó** en esto: queda pendiente (no compra accesorios; fuera de §AC).
+- **Con cuenta (AC-F7):** el checkout con cuenta solo cotiza y paga `ids`; los accesorios del carrito local van en
+  `SignedInAccessoriesBlock` («NO VAN EN ESTE PAGO», nombre y foto de `GET /accessories/:id`, «Quitar», ⛔ sin precio). Solo
+  accesorios ⇒ sin cotización ni botón.
+- **Textos nuevos sin diseño literal** (ux-ui debe ratificar): avisos con nombre de v1.86.1 (`inactiveNamed`,
+  `soldOutNamed`, `insufficientNoName`), sugerencia de `deckAllMissing` (`admin.m4.prep.ship.accessory.deckAllMissing`),
+  importe por renglón en el diálogo de preparado (`dialogLine*`), nota y «el importe cambió» de M3 (`admin.m3.accessories.*`).
+
+**Deck.** `DeckAvailability` gana `deck` y `energyBundle` (solo el detalle; «Pegar lista» no los pasa ⇒ sin recuadro).
+Energías ligadas (`basicEnergy`) con «Agregar ×{qty}»; recuadro del paquete con botón propio apagado hasta tener todas las
+piezas del jalón; «Agregar de jalón» guarda el `deckPull` con `withEnergyBundle: false` (⛔ nunca `true`).
+
+**Panel.** `/admin/accessories` (lista + bloque ★ de diales `energyBundlePriceCents`/`accessorySuggestionCount` — nombres
+medidos en `backend/src/modules/settings/settings.constants.ts:1302-1303`), `new` y `[id]` (bloques Datos, Foto, Precio ★,
+Existencias, Publicación ★, Borrar ★). Pesos ⇄ centavos en `accessories/money-input.ts` (enteros, sin coma flotante).
+Menú: «Accesorios» tras «Sellado» (cambiaron por norma `AdminPageTitles.test.tsx` y `AdminSidebar.test.tsx`).
+Empaques: columna «Tarifa al cliente»; vacía ⇒ `null` en el `PUT`. Preparación: `ShipAccessoryLines.tsx` (caja, renglones,
+palomeo por cantidad, paquete entero, `deckAllMissing` solo sugiere), «Pedido preparado» apagado con cualquier accesorio
+pendiente, diálogo con el importe por renglón y título = `refundPreviewCents` leído; hoja imprimible con caja y casillas.
+M3: renglones + «Reembolsar unidades» (AC-F19: `deliveredRefund` del servidor, nota obligatoria, `expectedRefundCents`,
+`409 REFUND_PREVIEW_STALE` reconfirma). Ventas: fila «Accesorios» si llega `byProductType.accessory`. Seguimiento del
+invitado: renglones de accesorio.
+
+**Fotos.** El backend sirve `photo.url` como **ruta** (`/api/v1/accessories/…`, `backend/.../accessory-dto.ts:76-81`) y el
+frontend no tiene `rewrites` (`next.config.mjs`): `resolveApiAssetUrl` la ancla al origen de `NEXT_PUBLIC_API_BASE_URL`
+(un solo sitio: `AccessoryPhoto`). CSP: `img-src 'self' data: blob: https:` (`src/security/csp.ts:128`) ⇒ en producción
+(https) pasa; con la API local en `http:` y CSP en `enforce` la foto se bloquearía — **NO MEDIDO en navegador**.
+`remotePatterns` no aplica (`<img>` crudo, como `CardImage`). M10 no pinta diales de forma genérica (lista explícita en
+`M10View.tsx`): los dos diales viven solo en el bloque ★ del panel de accesorios.
+
+**Respuestas que el contrato no especifica** (se tipan `unknown` y la pantalla re-lee): `PATCH/activate/deactivate/stock`
+de `/admin/accessories` y `PATCH …/prep-accessory-lines/:lineId`. `OrderAccessoryLineDTO.id`/`kind` (§AC.12 no los
+enumera) se tipan opcionales: sin `id` no hay botón de reembolso.
+
+**Mock (`lib/mock/accessories.ts`).** Simulador del servidor para modo mock: catálogo, panel, existencias, energías
+ligadas, `pullToken` legible (`mock-pull:<slug>:<ids>`), cotización con poda y sesión estricta. Simplificaciones: sin cajas
+con tarifa (`shippingBox: null`), sin la regla P-AC-4 de medio deck, sin «más vendidos», preparación y reembolsos de
+accesorio no simulados (aceptan y se re-lee).
+
+**E2E.** `e2e/accessories.spec.ts`: smoke **mock** en ES y EN (pestaña, listado, ficha, carrito con sugerencia, recuadro
+del paquete). ⛔ **Los recorridos de punta a punta de los criterios 724 y 748 contra el stack NO están escritos**: necesitan
+el backend de compra/preparación de §AC (stream B), que aún no existe.

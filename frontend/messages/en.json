@@ -218,7 +218,8 @@
     "label": "Store",
     "singles": "Single cards",
     "sealed": "Sealed product",
-    "graded": "Graded"
+    "graded": "Graded",
+    "accessories": "Accessories"
   },
   "stock": {
     "lastOne": "Only 1 left",
@@ -588,6 +589,67 @@
       "retrySoon": "Retry in a moment",
       "ownActive": "This cart is already reserved for you ({orderNumber}): paying resumes that same order, with no double charge.",
       "ownExpired": "Your previous reservation ({orderNumber}) expired: paying renews it with a new order and cancels the previous attempt."
+    },
+    "subtotalHintProducts": "Sale price of your products, VAT included.",
+    "payNoAmount": "Pay",
+    "accessories": {
+      "groupAccessories": "ACCESSORIES",
+      "groupBundles": "ENERGY BUNDLES",
+      "unitPrice": "{price} each",
+      "quantityAria": "Quantity of {name}",
+      "removeAria": "Remove {name}",
+      "bundleTitle": "Energy bundle — {deck}",
+      "bundleLoose": "One by one: {amount}",
+      "bundlePhotoFallback": "ENERGY",
+      "notInThisPayment": "NOT IN THIS PAYMENT",
+      "qty": "×{qty}",
+      "boxHint": "Based on the size of box your order needs.",
+      "shippingChanged": "Shipping changed to {amount} because of your order's size.",
+      "vaultEyebrow": "NOT GOING TO THE VAULT",
+      "vaultNotice": "Accessories and energy cards only ship to your home. If you keep your cards in the vault, the accessories ({n}, {amount}) aren't part of this purchase: they stay in your cart."
+    },
+    "suggestions": {
+      "title": "Anything else?",
+      "subtitle": "Accessories that go in the same shipment.",
+      "add": "Add",
+      "addAria": "Add {name} to cart",
+      "inCart": "In cart",
+      "dismiss": "No, thanks"
+    },
+    "bundleOffer": {
+      "title": "Energy bundle",
+      "line": "Add the energy bundle for {deck}? {n} energy cards for {price} (one by one: {loose}).",
+      "add": "Add bundle",
+      "dismiss": "No, thanks"
+    },
+    "accessoryNotice": {
+      "inactiveNamed": "{name} is no longer for sale, so we removed it from your cart.",
+      "inactiveOne": "One accessory in your cart is no longer for sale, so we removed it.",
+      "inactiveMany": "{n} accessories in your cart are no longer for sale, so we removed them.",
+      "soldOutNamed": "{name} sold out, so we removed it from your cart.",
+      "soldOutOne": "An accessory in your cart sold out, so we removed it.",
+      "insufficient": "There are only {n} of {name}. We've adjusted the quantity.",
+      "insufficientNoName": "There are only {n} left of an accessory in your cart. We've adjusted the quantity.",
+      "bundleDeckIncomplete": "The energy bundle for {deck} left your cart: not all of the deck's cards are in it anymore.",
+      "bundleDeckIncompleteNoName": "An energy bundle left your cart: not all of the deck's cards are in it anymore.",
+      "bundleNoStock": "The energy bundle for {deck} left your cart: we no longer have all its energy cards. You can add the ones we have one by one from the deck.",
+      "bundleNoStockNoName": "An energy bundle left your cart: we no longer have all its energy cards. You can add the ones we have one by one from the deck.",
+      "bundleExpired": "The energy bundle for {deck} expired. Add it again from the deck.",
+      "bundleExpiredNoName": "An energy bundle expired. Add it again from the deck.",
+      "bundleUnavailable": "The energy bundle for {deck} is no longer available and left your cart.",
+      "bundleUnavailableNoName": "An energy bundle is no longer available and left your cart.",
+      "bundleInvalid": "An energy bundle is no longer valid and left your cart.",
+      "seeDeck": "See the deck",
+      "dismiss": "Dismiss notice"
+    },
+    "accessoryPayError": {
+      "unavailable": "An accessory in your cart is no longer for sale. You weren't charged. We removed it: check your cart and pay again.",
+      "insufficient": "There aren't enough {name} left: {n} remaining. You weren't charged. We adjusted the quantity: check it and pay again.",
+      "insufficientNoName": "There aren't enough of an accessory in your cart: {n} remaining. You weren't charged. We adjusted the quantity: check it and pay again.",
+      "soldOut": "{name} sold out while you were paying. You weren't charged. We removed it: check your cart and pay again.",
+      "soldOutNoName": "An accessory sold out while you were paying. You weren't charged. We removed it: check your cart and pay again.",
+      "bundle": "The energy bundle for {deck} can no longer be paid for. You weren't charged. We removed it from your cart; you can add the energy cards one by one from the deck.",
+      "bundleNoName": "An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart; you can add the energy cards one by one from the deck."
     }
   },
   "vault": {
@@ -1321,7 +1383,8 @@
       "manualRefundsBadge": "{count, plural, one {# pending transfer} other {# pending transfers}}",
       "refunds": "Refunds",
       "spendAlerts": "Spending alerts",
-      "spendAlertsBadge": "{count, plural, one {# unseen immediate alert} other {# unseen immediate alerts}}"
+      "spendAlertsBadge": "{count, plural, one {# unseen immediate alert} other {# unseen immediate alerts}}",
+      "accessories": "Accessories"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
@@ -1857,6 +1920,26 @@
           "invalidNote": "Say what happened (3 to 500 characters).",
           "conflict": "The refund couldn't be calculated without exceeding what was charged. Nothing was done. Tell the tech team."
         }
+      },
+      "accessories": {
+        "title": "Accessories",
+        "line": "{name} ×{n} · {total}",
+        "bundleLine": "Energy bundle — {deck} · {total}",
+        "refunded": "{k} refunded",
+        "refundCta": "Refund units",
+        "dialogTitle": "Refund units of {name}",
+        "howMany": "How many",
+        "reasonLegend": "Reason (required)",
+        "note": "Note (required)",
+        "confirm": "Refund {k} · {amount}",
+        "cancel": "Cancel",
+        "done": "Refund requested. The detail was updated.",
+        "exceeds": "Only {n} left to refund on this line. Nothing was done.",
+        "bundleRequiresDeck": "The bundle is refunded whole, and only once all the cards of its deck have been refunded. Nothing was done.",
+        "reasonMissing": "Choose a reason.",
+        "noteHelp": "3 to 500 characters. It stays in the log; the customer doesn't see it.",
+        "amount": "{amount} will be refunded (with its share of the fee).",
+        "stale": "The amount changed to {amount}. Nothing was done. Review it and confirm again."
       }
     },
     "m4": {
@@ -2515,7 +2598,47 @@
             "empty": "Nothing to print: the queue is empty.",
             "card": "Card"
           },
-          "addressCorrected": "Address corrected"
+          "addressCorrected": "Address corrected",
+          "accessory": {
+            "group": "ACCESSORIES",
+            "box": "Box: {label} · {dims} cm · accessories {kg} kg",
+            "review": "CHECK BOX",
+            "reviewBody": "It didn't fit in any registered box: the largest one was charged. Decide how to pack it (two packages or a special box). What was charged doesn't change.",
+            "qty": "×{n}",
+            "bundleTitle": "Energy bundle — {deck}",
+            "pick": "I have it",
+            "pickMany": "I have them",
+            "pickBundle": "I have it complete",
+            "miss": "Not found",
+            "damaged": "Arrived damaged",
+            "missSome": "Some missing…",
+            "missBundle": "Bundle missing",
+            "howMany": "How many are missing?",
+            "reasonLegend": "Reason",
+            "reasonNotFound": "Not found",
+            "reasonDamaged": "Arrived damaged",
+            "markCta": "Mark",
+            "cancel": "Cancel",
+            "undo": "Undo",
+            "picked": "Picked",
+            "missingOf": "{k} of {n} missing",
+            "missing": "Missing",
+            "damagedTag": "Damaged",
+            "noStock": "NO STOCK WHEN CHARGED",
+            "noStockBody": "It was charged when there was no stock left. If you can't find it, mark it as missing.",
+            "bundlePartHelp": "If only part is missing, complete it from the shelf: the energy cards were already reserved.",
+            "refundedLocked": "Already refunded; the mark is fixed.",
+            "deckAllMissing": "All the cards of this deck are missing: mark the bundle as missing too.",
+            "refundPreview": "{amount} will be refunded when the order is marked prepared.",
+            "refundDone": "Refunded: {amount}.",
+            "actionAria": "{action}: {name} ×{n}",
+            "dialogLine": "{name} — {k} of {n} missing · {amount}",
+            "dialogLineDamaged": "{name} — {k} of {n} missing · arrived damaged · {amount}",
+            "dialogBundle": "Energy bundle — {deck} — missing · {amount}",
+            "dialogBundleDamaged": "Energy bundle — {deck} — arrived damaged · {amount}",
+            "dialogNotRefundable": "{name} — {k} of {n} missing",
+            "pendingLines": "{n, plural, one {# accessory} other {# accessories}} still to check off."
+          }
         },
         "locate": {
           "action": "Locate",
@@ -4825,7 +4948,12 @@
           "providerOption": "{code} · {name}",
           "length": "Length",
           "width": "Width",
-          "height": "Height"
+          "height": "Height",
+          "customerFee": "Customer fee (VAT included)",
+          "noFee": "Not charged",
+          "feeRule": "Boxes with a fee are only used when the order has accessories with dimensions. The system picks the smallest one they fit in and charges the higher of the flat shipping fee and that box's fee. If they don't fit in any, it charges the largest one and the order arrives flagged “Check box”.",
+          "noneCharges": "No box has a fee yet: orders with accessories pay the usual flat shipping fee.",
+          "feeRange": "Enter a fee between $0.01 and $100,000."
         },
         "carriers": {
           "label": "Preferred carrier (in order)",
@@ -5272,7 +5400,8 @@
           "sealed": "Sealed",
           "colPieces": "Items",
           "colNet": "Sales excl. VAT",
-          "productTypeNote": "Splits the period's sales excl. VAT, including orders later refunded; that's why it adds up to the summary and not to \"Best sellers\"."
+          "productTypeNote": "Splits the period's sales excl. VAT, including orders later refunded; that's why it adds up to the summary and not to \"Best sellers\".",
+          "accessory": "Accessories"
         },
         "p2": {
           "shippingCharged": "Shipping charged (excl. VAT)",
@@ -6310,6 +6439,184 @@
     },
     "mobile": {
       "desktopOnly": "This section is designed for a computer. On your phone, use <link>“Orders to prepare”</link>."
+    },
+    "accessories": {
+      "title": "Accessories",
+      "subtitle": "Sleeves, binders, energy cards and more. No photo, no listing.",
+      "new": "New accessory",
+      "back": "Back to accessories",
+      "status": {
+        "published": "LISTED",
+        "unpublished": "NOT LISTED",
+        "soldOut": "SOLD OUT"
+      },
+      "noPhoto": "NO PHOTO",
+      "noPrice": "NO PRICE",
+      "suggested": "SUGGESTED",
+      "stockSub": "{reserved} reserved · {available} available",
+      "categoryEnergy": "Energy · {type}",
+      "loadError": "We couldn't load the accessories.",
+      "retry": "Retry",
+      "emptyFiltered": "No accessories match these filters.",
+      "clearFilters": "Clear filters",
+      "notFound": "That accessory no longer exists.",
+      "filters": {
+        "category": "Category",
+        "allCategories": "All",
+        "search": "Search by name",
+        "status": "Status",
+        "statusAll": "All",
+        "statusPublished": "Listed",
+        "statusUnpublished": "Not listed",
+        "soldOutOnly": "Sold out only"
+      },
+      "cols": {
+        "photo": "Photo",
+        "name": "Name",
+        "category": "Category",
+        "price": "Price",
+        "stock": "Stock",
+        "status": "Status",
+        "suggested": "Suggested"
+      },
+      "form": {
+        "dataTitle": "Details",
+        "saveData": "Save details",
+        "saved": "Details saved.",
+        "name": "Name",
+        "nameCount": "{n}/120",
+        "nameRequired": "Write a name (1 to 120 characters).",
+        "category": "Category",
+        "categoryPlaceholder": "Choose a category",
+        "energyType": "Energy type",
+        "description": "Description",
+        "descriptionCount": "{n}/500",
+        "dimsHelp": "Of the item packed as it's sold. Used to choose the shipping box.",
+        "length": "Length (mm)",
+        "width": "Width (mm)",
+        "height": "Height (mm)",
+        "weight": "Weight (g)",
+        "energyNoDims": "Energy cards don't need dimensions: they travel with the cards.",
+        "invalidNumber": "Write a whole number."
+      },
+      "created": "Accessory created. Upload its photo so it can be listed.",
+      "categoryLocked": "To change the category of a listed accessory, remove it from the store first.",
+      "forbiddenField": "You're not allowed to change {fields}. Nothing was saved.",
+      "fieldNames": {
+        "priceCents": "the price",
+        "unitCostCents": "the cost",
+        "suggested": "“Suggested”",
+        "active": "the listing"
+      },
+      "photo": {
+        "title": "Photo",
+        "choose": "Choose photo",
+        "change": "Change photo",
+        "help": "PNG, JPG or WebP up to 10 MB. We fit it automatically: square, without cropping the product and without location data.",
+        "uploading": "Uploading and fitting the photo…",
+        "saved": "Photo saved.",
+        "none": "No photo yet.",
+        "errors": {
+          "too_large": "The photo is larger than 10 MB. Nothing was saved.",
+          "unsupported_type": "That file isn't a PNG, JPG or WebP. Nothing was saved.",
+          "too_many_pixels": "The photo has too many pixels. Shrink it and upload it again. Nothing was saved.",
+          "not_image": "We couldn't open that file as an image. Nothing was saved."
+        }
+      },
+      "price": {
+        "title": "Price and cost",
+        "price": "Sale price (VAT included)",
+        "priceHelp": "What the customer sees and pays. The platform fee is added on top.",
+        "cost": "Unit cost",
+        "costHelp": "What it cost you. Only you can see it; it's used for the margin in Finance.",
+        "save": "Save price",
+        "saved": "Price saved.",
+        "invalid": "Write an amount in pesos, for example 89.00.",
+        "readOnly": "Sale price: {price}",
+        "readOnlyNone": "No price yet. The owner sets it."
+      },
+      "publish": {
+        "title": "Listing",
+        "missing": "To list it, it still needs: {list}.",
+        "ready": "Ready to list.",
+        "activate": "List in the store",
+        "deactivate": "Remove from the store",
+        "deactivateNote": "Carts that have it lose it on the next quote, with a notice.",
+        "notPublished": "It wasn't listed.",
+        "energyTaken": "Another “{type} Energy” is already listed. Remove it from the store first; there can only be one per type.",
+        "seeOther": "See the other one",
+        "suggested": "Suggested in the cart",
+        "suggestedHelp": "Shows up first in “Anything else?”.",
+        "suggestedEnergy": "Energy cards aren't suggested in the cart: they're offered with the decks.",
+        "missingItem": {
+          "price": "price",
+          "photo": "photo",
+          "dimensions": "dimensions",
+          "weight": "weight",
+          "energy_type": "energy type"
+        }
+      },
+      "delete": {
+        "hasSales": "It has been sold: it can't be deleted. Remove it from the store so it stops showing.",
+        "button": "Delete accessory",
+        "title": "Delete {name}?",
+        "body": "It's deleted with its photo and stock history. This can't be undone.",
+        "confirm": "Delete",
+        "cancel": "Cancel"
+      },
+      "stock": {
+        "title": "Stock: {n}",
+        "sub": "{reserved} reserved in orders in progress · {available} available",
+        "systemNote": "Sales, reservations and returns are moved by the system.",
+        "receive": "Received",
+        "receiveQty": "Quantity",
+        "receiveNote": "Note (optional)",
+        "receiveConfirm": "Add {n}",
+        "receiveDone": "Added {n}. There are now {stock}.",
+        "adjust": "Adjustment (count)",
+        "adjustReal": "Actual stock",
+        "adjustReason": "Reason",
+        "adjustReasonHint": "For example “physical count” or “shrinkage”.",
+        "adjustConfirm": "Adjust to {n}",
+        "adjustSame": "That's the same number as now.",
+        "adjustDone": "Stock adjusted to {n}.",
+        "conflict": "Stock changed while you were adjusting: there are now {n}. Nothing was changed. Check and try again.",
+        "belowReserved": "{n} are reserved in orders in progress: stock can't go below that. Nothing was changed.",
+        "reasonShort": "Write a reason of at least 3 characters.",
+        "cancel": "Cancel",
+        "history": {
+          "title": "Stock history",
+          "date": "Date",
+          "movement": "Movement",
+          "change": "Change",
+          "beforeAfter": "Before → after",
+          "who": "Who",
+          "reasonOrder": "Reason / order",
+          "system": "The system",
+          "order": "Order {orderNumber}",
+          "empty": "No movements yet."
+        },
+        "kind": {
+          "initial": "Initial",
+          "receive": "Received",
+          "adjust": "Adjustment",
+          "sale": "Sale",
+          "restock": "Restocked",
+          "settle_recovery": "Sale (late payment)"
+        }
+      },
+      "settings": {
+        "title": "Fixed prices and suggestions",
+        "bundlePrice": "Energy bundle price (VAT included)",
+        "bundlePriceHelp": "What the customer pays for all of a meta deck's energy cards. The platform fee is added on top.",
+        "suggestionCount": "Accessories suggested in the cart",
+        "suggestionCountHelp": "0 turns off “Anything else?”.",
+        "save": "Save",
+        "saved": "Accessory settings saved.",
+        "bundlePriceRange": "Enter a price between $0.01 and $1,000.",
+        "countRange": "Enter a number from 0 to 6."
+      },
+      "energyPricesDiffer": "Not all energy cards have the same price."
     }
   },
   "locale": {
@@ -6720,7 +7027,13 @@
       "support": "Need help? Write to us at {contact}."
     },
     "temporaryLinkNotice": "This link is temporary and expires in a few hours. Your order's tracking link arrives by email; if you don't see it, request a new one.",
-    "trackingLink": "Track with the carrier"
+    "trackingLink": "Track with the carrier",
+    "accessories": {
+      "label": "ACCESSORIES",
+      "line": "{name} ×{n} · {total}",
+      "bundleLine": "Energy bundle — {deck} · {total}",
+      "refunded": "{k} refunded"
+    }
   },
   "sealed": {
     "title": "Sealed",
@@ -6881,6 +7194,26 @@
       "clear": "Clear",
       "emptyTitle": "Paste a list to get started",
       "emptyBody": "You haven't pasted anything yet. Copy your list and paste it above."
+    },
+    "energy": {
+      "name": "{type} Energy",
+      "unitPrice": "{price} each",
+      "add": "Add ×{qty}",
+      "addAria": "Add {qty} {type} Energy to cart",
+      "soldOut": "Sold out",
+      "inBundle": "It's in your energy bundle.",
+      "inCart": "In cart"
+    },
+    "bundle": {
+      "eyebrow": "ENERGY BUNDLE",
+      "headline": "All {n} energy cards for this deck for {price}",
+      "loose": "One by one they'd cost {amount}.",
+      "note": "Fixed price, VAT included. Home delivery only, with the complete deck in your cart.",
+      "add": "Add bundle",
+      "inCart": "In cart",
+      "remove": "Remove bundle",
+      "needsDeck": "First add the deck with “Add the whole deck”: the bundle only comes with the complete deck.",
+      "noStock": "Energy bundle not available: we don't have all the energy cards this deck needs. Add the ones we have one by one, below."
     }
   },
   "support": {
@@ -6908,6 +7241,66 @@
       "checkout": "What we do with your data: <privacy>Privacy notice</privacy>.",
       "sellForm": "We use your CLABE to pay you by bank transfer in your name, and your ID (if we ask for it) to verify your identity. Details in the <privacy>Privacy notice</privacy>.",
       "accountIne": "What we use your ID for and when we delete it: <privacy>Privacy notice</privacy>."
+    }
+  },
+  "accessories": {
+    "eyebrow": "ACCESSORIES",
+    "title": "Accessories",
+    "subtitle": "Sleeves, binders, energy cards and everything you need to protect and play your cards. Shipped to your home.",
+    "categoriesLabel": "Accessory categories",
+    "all": "All",
+    "searchLabel": "Search accessories",
+    "searchPlaceholder": "Search by name…",
+    "clearSearch": "Clear search",
+    "add": "Add",
+    "addAria": "Add {name} to cart",
+    "vatIncluded": "VAT included",
+    "quantity": "Quantity",
+    "maxHint": "You can add up to {n}.",
+    "addToCart": "Add to cart",
+    "allInCart": "Your cart already has all we have.",
+    "goToCart": "Go to cart",
+    "shipsHome": "Shipped to your home. Accessories aren't kept in the vault.",
+    "soldOut": "SOLD OUT",
+    "soldOutBody": "Sold out. Check back soon.",
+    "back": "Back to accessories",
+    "notFoundTitle": "This accessory is no longer for sale",
+    "notFoundCta": "See accessories",
+    "emptyTitle": "Accessories are coming soon",
+    "emptyBody": "Meanwhile, browse our cards and sealed product.",
+    "emptyCta": "See single cards",
+    "emptyCategory": "No {category} right now.",
+    "seeAll": "See all accessories",
+    "emptySearch": "We couldn't find accessories matching “{q}”.",
+    "loadError": "We couldn't load the accessories.",
+    "retry": "Retry",
+    "signedInNotice": "Accessories are bought with home delivery. Soon from your account too.",
+    "addedToast": "Added to cart",
+    "categoryWithType": "{category} · {type}",
+    "energyName": "{type} Energy",
+    "energyQty": "{type} ×{qty}",
+    "stepper": {
+      "decrease": "Remove one",
+      "increase": "Add one"
+    },
+    "category": {
+      "sleeves": "Sleeves / penny sleeves",
+      "toploaders": "Toploaders",
+      "binders": "Binders",
+      "deck_boxes": "Deck boxes",
+      "playmats": "Playmats",
+      "energy": "Energy",
+      "other": "Other"
+    },
+    "energyType": {
+      "grass": "Grass",
+      "fire": "Fire",
+      "water": "Water",
+      "lightning": "Lightning",
+      "psychic": "Psychic",
+      "fighting": "Fighting",
+      "darkness": "Darkness",
+      "metal": "Metal"
     }
   }
 }

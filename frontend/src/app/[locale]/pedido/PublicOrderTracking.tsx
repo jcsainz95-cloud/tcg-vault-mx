@@ -6,6 +6,7 @@ import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { GuestOrderTrackingDTO } from '@/types/contract';
 import { formatDate, formatMoneyCents } from '@/lib/format';
+import { energyBreakdown } from '@/lib/accessories';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { CardImage } from '@/components/ui/CardImage';
@@ -55,6 +56,7 @@ export function PublicOrderTracking({
 }: PublicOrderTrackingProps) {
   const t = useTranslations('track');
   const tRoot = useTranslations();
+  const ta = useTranslations('accessories');
   const locale = useLocale() as AppLocale;
   const [copied, setCopied] = useState<'order' | 'tracking' | null>(null);
 
@@ -188,6 +190,23 @@ export function PublicOrderTracking({
             </li>
           ))}
         </ul>
+        {/* §AC.12 / §AC-UX.13: accesorios después de las cartas. ⛔ Sin costo ni ids internos. */}
+        {(data.accessoryLines?.length ?? 0) > 0 && (
+          <ul className="mt-2" data-testid="tracking-accessories" aria-label={t('accessories.label')}>
+            {data.accessoryLines!.map((l, i) => {
+              const total = formatMoneyCents(l.lineTotalCents, locale);
+              return (
+                <li key={`${l.name}-${i}`} className="flex flex-col gap-1 border-b border-border py-4">
+                  <p className="text-[15px] text-text">
+                    {l.deckName !== null ? t('accessories.bundleLine', { deck: l.deckName, total }) : t('accessories.line', { name: l.name, n: l.quantity, total })}
+                  </p>
+                  {l.components.length > 0 && <p className="font-mono text-xs text-muted">{energyBreakdown(l.components, ta)}</p>}
+                  {l.refundedQty > 0 && <p className="font-mono text-xs text-muted">{t('accessories.refunded', { k: l.refundedQty })}</p>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       {/* 5 · Total pagado — el mismo desglose que recibió por correo, en solo lectura. */}

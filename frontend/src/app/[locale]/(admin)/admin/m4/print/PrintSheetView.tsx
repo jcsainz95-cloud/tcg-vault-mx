@@ -14,6 +14,8 @@ import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { PreparationDestination, PreparationOrderDTO } from '@/types/contract';
 import { useZonedLabel } from '../prep-shared';
+import { ShipBoxBlock } from '../ShipAccessoryLines';
+import { sortByEnergyType } from '@/lib/accessories';
 
 const DASH = '—';
 
@@ -29,6 +31,7 @@ const DASH = '—';
 export function PrintSheetView({ destination, shipmentId, placementId }: { destination?: PreparationDestination; shipmentId?: string; placementId?: string }) {
   const t = useTranslations('admin.m4.prep');
   const ts = useTranslations('admin.m4.prep.ship');
+  const ta = useTranslations('accessories');
   const tm4 = useTranslations('admin.m4');
   const locale = useLocale() as AppLocale;
   const zoned = useZonedLabel();
@@ -97,6 +100,12 @@ export function PrintSheetView({ destination, shipmentId, placementId }: { desti
                       </>
                     )}
                   </dl>
+                  {/* §AC-UX.12: la caja y «REVISAR CAJA» en la cabecera del pedido. */}
+                  {o.destination === 'ship' && o.box && (
+                    <div className="mt-2">
+                      <ShipBoxBlock box={o.box} shipmentId={o.shipmentId} />
+                    </div>
+                  )}
                   <table className="mt-3 w-full border-collapse text-sm text-text">
                     <thead>
                       <tr className="border-y border-border font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
@@ -135,6 +144,30 @@ export function PrintSheetView({ destination, shipmentId, placementId }: { desti
                           </tr>
                         );
                       })}
+                      {/* §AC-UX.12: accesorios con la misma casilla de papel, la cantidad grande y, en el paquete, los
+                          tipos uno por línea. ⛔ Sin importes ni marcas ya hechas. */}
+                      {o.destination === 'ship' &&
+                        (o.accessoryLines ?? []).map((l) => (
+                          <tr key={l.id} className="border-b border-border" data-testid={`print-acc-${l.id}`}>
+                            <td className="py-2 pr-3 align-top">
+                              <span aria-hidden className="inline-block h-4 w-4 border border-text" />
+                            </td>
+                            <td className="tabular py-2 pr-3 align-top font-mono text-[16px]">{ts('accessory.qty', { n: l.quantity })}</td>
+                            <td className="py-2 pr-3 align-top" colSpan={3}>
+                              {l.kind === 'energy_bundle' && l.deckName ? ts('accessory.bundleTitle', { deck: l.deckName }) : l.name}
+                              {l.components.length > 0 && (
+                                <ul className="mt-1">
+                                  {sortByEnergyType(l.components).map((c) => (
+                                    <li key={c.energyType} className="tabular font-mono text-[12px]">
+                                      <span aria-hidden className="mr-2 inline-block h-3 w-3 border border-text align-middle" />
+                                      {ta('energyQty', { type: ta(`energyType.${c.energyType}`), qty: c.quantity })}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </li>

@@ -8,7 +8,7 @@ import { cn } from '@/lib/cn';
 /**
  * Sub-navegación de la «Tienda» (artboard 2a, dirección 1a «Conservadora»):
  * Cartas sueltas (/catalog) · Producto sellado (/sellado) · Gradeadas
- * (/catalog?type=graded). La pestaña activa lleva subrayado rojo de 2px y
+ * (/catalog?type=graded) · Accesorios (/accesorios, §AC-UX.1). La pestaña activa lleva subrayado rojo de 2px y
  * versalitas con tracking de etiqueta; el resto queda en muted.
  *
  * «Gradeadas» no es una ruta propia: es el catálogo con el filtro
@@ -28,6 +28,8 @@ export function StoreTabs() {
     { key: 'singles', href: '/catalog', label: t('singles'), active: inCatalog && !graded },
     { key: 'sealed', href: '/sellado', label: t('sealed'), active: pathname.startsWith('/sellado') },
     { key: 'graded', href: '/catalog?type=graded', label: t('graded'), active: inCatalog && graded },
+    // §AC-UX.1: cuarta pestaña AL FINAL (no mueve lo que el cliente ya conoce); ruta en español como /sellado.
+    { key: 'accessories', href: '/accesorios', label: t('accessories'), active: pathname.startsWith('/accesorios') },
   ];
 
   // R4 (a11y): esto es NAVEGACIÓN entre rutas, no un tab-panel ARIA — sin

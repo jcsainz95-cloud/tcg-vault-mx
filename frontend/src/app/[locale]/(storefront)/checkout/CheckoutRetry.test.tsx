@@ -413,6 +413,7 @@ describe('checkout de invitado · el token es la llave del reintento (§4-R.3)',
     expect(block).toHaveTextContent('con este correo');
     expect(within(block).queryByRole('link')).toBeNull();
     expect(within(block).getByRole('button', { name: 'Reintentar en un momento' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Pagar MX\$/ })).toBeDisabled();
+    // 💰 F-SP-5: sin sesión creada el botón del invitado no pinta importe («Pagar» a secas).
+    expect(within(screen.getByRole('complementary')).getByRole('button', { name: /^Pagar$/ })).toBeDisabled();
   });
 });

@@ -16,6 +16,8 @@ export interface VaultUpsellPanelProps {
   onAccountReady: () => void;
   /** `Esc` NO descarta datos: devuelve el foco al radio de destino sin cambiar nada. */
   onEscape?: () => void;
+  /** §AC-UX.7 (AC-F8): «NO VAN A LA BÓVEDA», antes del formulario. ⛔ Ningún botón «quitar accesorios». */
+  notice?: React.ReactNode;
 }
 
 /**
@@ -38,6 +40,7 @@ export function VaultUpsellPanel({
   onDismiss,
   onAccountReady,
   onEscape,
+  notice,
 }: VaultUpsellPanelProps) {
   const t = useTranslations('checkout.vaultUpsell');
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -71,6 +74,7 @@ export function VaultUpsellPanel({
       >
         {t('title')}
       </h3>
+      {notice}
 
       <ul className="mt-5">
         <li className="border-t border-border py-3 text-sm leading-relaxed text-text">

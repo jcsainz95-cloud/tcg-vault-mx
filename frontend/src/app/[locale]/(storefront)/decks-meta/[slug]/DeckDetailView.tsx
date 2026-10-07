@@ -72,7 +72,7 @@ function Detail({ detail }: { detail: DeckMetaDetailResponse }) {
       </header>
 
       <div className="mt-6">
-        <DeckAvailability groups={detail.groups} />
+        <DeckAvailability groups={detail.groups} deck={{ slug: detail.slug, name: detail.name }} energyBundle={detail.energyBundle} />
       </div>
     </div>
   );
