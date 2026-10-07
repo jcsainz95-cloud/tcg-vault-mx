@@ -30314,3 +30314,8 @@ comprobada limpia con `git status` de la copia):
 | M39d | el guard rechaza con `401` si la firma no verifica | T39 (c) **roja** («firma mala» ⇒ 401) |
 | M40 | FK puesta a mano en `RESTRICT` (= M-74 vieja) | T40 **2/2 rojas** |
 | M41a / M41b | `wishlist-notify` / `sealed-restock-notify` ignoran el candado (`if (!locked) return null` fuera) | T41 **roja** en su caso, 1/1 cada una |
+
+**Medición final** (copia `git archive HEAD` del árbol ENTERO en `521c18b`; el commit siguiente solo añade este párrafo):
+unitaria completa `--maxWorkers=2` **446/446 suites, 8048/8048 pruebas** (incluidas las de paridad `enum-values-parity`,
+`enum-parity-lock-canary`, `enum-query-census-canary`, `address-dto.parity`, `pricing.sale-queue-key.parity`); integración §WSH
+(`wishlist*`, `sealed-restock-armed`, `enum-query-axes`) en el esquema propio `wsh_be2` **6/6 suites, 634/634 pruebas**.
