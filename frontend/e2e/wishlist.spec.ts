@@ -1,25 +1,98 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, mockOnly } from './utils/auth';
+import { IS_REAL, loginAs, mockOnly, needsSeed } from './utils/auth';
+import { apiAsOk } from './utils/env';
+import { WISHLIST_PRIVACY_EN, WISHLIST_PRIVACY_ES } from '../src/content/legal/privacy-wishlist';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────────────
- * §WSH · Lista de deseos — WSH-F1…F9 (API_CONTRACT §WSH.9 + errata v1.87.1; DESIGN_SYSTEM §WSH-UX).
+ * §WSH · Lista de deseos — WSH-F1…F10 (API_CONTRACT §WSH.9 + erratas v1.87.1–v1.87.3; DESIGN_SYSTEM §WSH-UX).
  *
- * TODOS `mockOnly`, y el motivo es concreto (no «no supe escribirlo agnóstico»): el módulo `wishlist` del backend se
- * construye EN PARALELO a este spec y el seed real no tiene ni el dial encendido ni deseos ni la lista de compra; los
- * casos usan el estado del servidor FALSO (`src/lib/mock/wishlist.ts`, banderas en `localStorage`, token `mock-token`)
- * y cartas del fixture (`c-pikachu`, `c-cel25-7`). El día que exista el backend, la versión `@real` se escribe contra
- * datos sembrados por `POST /wishlist` (NO MEDIDO hoy: no hay backend que medir).
+ * AGNÓSTICO al entorno (FRONTEND_NOTES §108.v1.87.3; I-1 de QA / C1 de techlead sobre 503cf07): el mismo caso corre
+ * en mocks y contra el stack real; lo único que cambia es CÓMO se prepara el estado:
+ *   - mock: servidor falso de `src/lib/mock/wishlist.ts` (banderas en `localStorage`) y cartas del fixture;
+ *   - real: por la API del contrato (`POST/DELETE /wishlist` como `customer2`, `PUT /admin/settings` como súper-admin)
+ *     y cartas del seed `seed-e2e` descubiertas por nombre en `GET /buylist/cards?q=` (sus ids son aleatorios).
+ * Las cartas tienen la MISMA forma en los dos mundos: una con {normal con mercado, reverse_holo sin mercado}
+ * (Pikachu / E2E Reverse Bird), una sin mercado (Zapdos / E2E Order Two) y una que la tienda nunca tuvo
+ * (Celebrations #7 / E2E Order Ten). En real los diales del módulo se fotografían en `beforeAll`, se reponen antes de
+ * cada caso y al final, y la lista de `customer2` se vacía; los casos corren EN ORDEN en un worker
+ * (`mode: 'default'`) porque comparten diales globales.
  *
- * Cifras: las del contrato (M = MX$1,000.00 ⇒ 5/10/16 % = MX$1,050 / 1,100 / 1,160 con IVA dentro, WSH-T31). El
- * spec las LEE de la pantalla y las compara entre sí (preview = guardado): no las recalcula.
+ * Queda `mockOnly` SOLO lo que necesita el token firmado de un correo (WSH-F3/F9 «confirmar»: el HMAC lo firma el
+ * servidor y el arnés no lee el buzón). WSH-F5 es `needsSeed` (el seed no siembra ningún sellado a la venta). Cifras:
+ * las del servidor; el spec las LEE de la pantalla y las compara entre sí (preview = guardado): no las recalcula.
  * ─────────────────────────────────────────────────────────────────────────────────────
  */
 
 const W = (k: string, vars?: Record<string, string | number>) => t('es', `wishlist.${k}`, vars);
 const B = (k: string, vars?: Record<string, string | number>) => t('es', `admin.m9.buyList.${k}`, vars);
+const F = (finish: string) => t('es', `finish.${finish}`);
 
+/** Cabecera literal del CSV (`API_CONTRACT §WSH.8` v1.87.2; el simulador se ancla al contrato en `wishlist-csv.test.ts`). */
+const CSV_HEAD =
+  'carta,set,numero,acabado,la_buscan,cuentas_16,max_16,techo_16,cuentas_10,max_10,techo_10,cuentas_5,max_5,techo_5,' +
+  'techo_principal,mercado,normal_sin_iva,normal_con_iva,pagan_normal,margen_mercado,margen_mercado_pct,buylist_hoy';
+const CSV_SEALED_HEAD = 'producto,presentacion,condicion,esperan';
+
+/** Cuenta del cliente de estos casos (en real, sus deseos se borran antes de cada caso). */
+const ROLE = 'customer2' as const;
+
+type CardKey = 'two' | 'noMarket' | 'never';
+/** Mock: ids del fixture. Real: nombres del seed; el id se resuelve en `beforeAll`. */
+const CARDS: Record<CardKey, { id: string; name: string }> = IS_REAL
+  ? {
+      two: { id: '', name: 'E2E Reverse Bird' }, // normal con mercado, reverse_holo sin mercado, sin piezas
+      noMarket: { id: '', name: 'E2E Order Two' }, // sin mercado en ningún acabado
+      never: { id: '', name: 'E2E Order Ten' }, // nunca tuvo piezas; solo `normal`
+    }
+  : {
+      two: { id: 'c-pikachu', name: 'Pikachu' }, // normal con mercado, reverse_holo sin mercado (a la venta)
+      noMarket: { id: 'c-zapdos', name: 'Zapdos' },
+      never: { id: 'c-cel25-7', name: 'Celebrations #7' }, // Celebrations, sin piezas; solo `holofoil`
+    };
+const NEVER_FINISH = IS_REAL ? 'normal' : 'holofoil';
+
+// ── Preparación REAL (solo con IS_REAL) ─────────────────────────────────────────────────────────────────
+interface Dials {
+  wishlistEnabled: 'on' | 'off';
+  wishlistMaxPerAccount: number;
+}
+let originalDials: Dials | null = null;
+
+async function putDials(d: Partial<Dials>): Promise<void> {
+  await apiAsOk('admin', 'PUT', '/admin/settings', d);
+}
+async function clearRealList(): Promise<void> {
+  const list = await apiAsOk<{ items: { id: string }[] }>(ROLE, 'GET', '/wishlist');
+  for (const it of list.items) await apiAsOk(ROLE, 'DELETE', `/wishlist/${it.id}`);
+}
+
+interface Wish {
+  card: CardKey;
+  finish: string;
+  maxPct: 5 | 10 | 16;
+}
+
+/**
+ * Deja el servidor (falso o real) con `items` en la lista de `ROLE`, el tope `limit` y el dial `off`.
+ * DEBE llamarse antes del primer `page.goto` (en mock usa `addInitScript`).
+ */
+async function arrange(page: Page, o: { items?: Wish[]; limit?: number; off?: boolean } = {}): Promise<void> {
+  if (!IS_REAL) {
+    const items = (o.items ?? []).map((w, i) => stored(`w-${i}`, CARDS[w.card].id, w.finish, w.maxPct));
+    await seedWishlist(page, { items, limit: o.limit, off: o.off });
+    return;
+  }
+  await clearRealList();
+  for (const w of o.items ?? []) {
+    await apiAsOk(ROLE, 'POST', '/wishlist', { cardId: CARDS[w.card].id, finish: w.finish, maxPct: w.maxPct });
+  }
+  if (o.limit !== undefined) await putDials({ wishlistMaxPerAccount: o.limit });
+  if (o.off) await putDials({ wishlistEnabled: 'off' });
+}
+
+// ── Servidor FALSO (solo en mock) ───────────────────────────────────────────────────────────────────────
 /** Estado inicial del servidor falso, aplicado UNA vez (las navegaciones siguientes no lo pisan). */
 async function seedWishlist(page: Page, opts: { items?: unknown[]; off?: boolean; limit?: number; paused?: boolean } = {}) {
   await page.addInitScript((o) => {
@@ -42,20 +115,54 @@ const stored = (id: string, cardId: string, finish: string, maxPct: number) => (
 });
 
 const block = (page: Page) => page.getByTestId('wishlist-block');
+/** Token con la forma del real (43 caracteres base64url) que ningún servidor firmó. */
+const BOGUS_TOKEN = 'x'.repeat(43);
+const BOGUS_ID = '00000000-0000-4000-8000-000000000000';
 
-test.describe('§WSH · lista de deseos (mock)', () => {
-  test('WSH-F1 · ficha: solo los acabados de la carta, 5/10/16 con 10 marcado, botón con el acabado; invitado ⇒ a entrar', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; estado del servidor falso');
+test.describe('§WSH · lista de deseos', () => {
+  // En real los casos comparten diales globales (`wishlist_enabled`, tope): en orden, en un worker. ⚠️ Por lo mismo,
+  // `--repeat-each` necesita `--workers=1` (cada repetición es otra copia del fichero y correría en paralelo).
+  test.describe.configure({ mode: 'default' });
+
+  test.beforeAll(async () => {
+    if (!IS_REAL) return;
+    for (const key of Object.keys(CARDS) as CardKey[]) {
+      const q = encodeURIComponent(CARDS[key].name);
+      const res = await apiAsOk<{ data: { id: string; name: string }[] }>(ROLE, 'GET', `/buylist/cards?q=${q}&pageSize=10`);
+      const hit = res.data.find((c) => c.name === CARDS[key].name);
+      if (!hit) throw new Error(`seed-e2e sin la carta «${CARDS[key].name}» (¿corrió prisma/seed-e2e.ts?)`);
+      CARDS[key].id = hit.id;
+    }
+    const s = await apiAsOk<Dials>('admin', 'GET', '/admin/settings');
+    originalDials = { wishlistEnabled: s.wishlistEnabled, wishlistMaxPerAccount: s.wishlistMaxPerAccount };
+  });
+
+  test.beforeEach(async () => {
+    if (!IS_REAL) return;
+    // Encendido y tope de fábrica antes de CADA caso: uno que falla a mitad no contagia al siguiente.
+    await putDials({ wishlistEnabled: 'on', wishlistMaxPerAccount: originalDials?.wishlistMaxPerAccount ?? 20 });
+    await clearRealList();
+  });
+
+  test.afterAll(async () => {
+    if (!IS_REAL || !originalDials) return;
+    // Con el dial apagado `GET /wishlist` es 404: se enciende, se vacía la lista y se reponen los diales de antes.
+    await putDials({ wishlistEnabled: 'on' });
+    await clearRealList();
+    await putDials(originalDials);
+  });
+
+  test('@real WSH-F1 · ficha: solo los acabados de la carta, 5/10/16 con 10 marcado, botón con el acabado; invitado ⇒ a entrar', async ({ page }) => {
+    await arrange(page);
     // Invitado primero: sin chips, con `next` de vuelta a la ficha.
-    await seedWishlist(page);
-    await page.goto('/es/catalog/c-pikachu');
+    await page.goto(`/es/catalog/${CARDS.two.id}`);
     const guest = block(page);
     await expect(guest).toBeVisible();
     await expect(guest.getByRole('radio')).toHaveCount(0);
     const login = guest.getByRole('link', { name: W('guest.login') });
-    expect(decodeURIComponent((await login.getAttribute('href')) ?? '')).toContain('next=/catalog/c-pikachu');
+    expect(decodeURIComponent((await login.getAttribute('href')) ?? '')).toContain(`next=/catalog/${CARDS.two.id}`);
 
-    await loginAs(page, 'customer');
+    await loginAs(page, ROLE);
     await page.reload();
     const b = block(page);
     const finishes = b.getByRole('radiogroup', { name: W('block.finishLegend') }).getByRole('radio');
@@ -68,119 +175,156 @@ test.describe('§WSH · lista de deseos (mock)', () => {
     expect(await pcts.evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))).toEqual(['5', '10', '16']);
     await expect(pcts.nth(1)).toBeChecked();
     await expect(b.locator('select')).toHaveCount(0);
-    await expect(b.getByRole('button', { name: W('block.add', { finish: t('es', 'finish.normal') }) })).toBeVisible();
-    await b.getByText(t('es', 'finish.reverse_holo'), { exact: true }).click();
-    await expect(b.getByRole('button', { name: W('block.add', { finish: t('es', 'finish.reverse_holo') }) })).toBeVisible();
+    // B-3: la ficha preselecciona el primer acabado A LA VENTA (en el fixture, `reverse_holo`; en el seed, sin piezas,
+    // el primero de la carta). Sea cual sea, el botón nombra EXACTAMENTE el acabado marcado…
+    const checked = await finishes.evaluateAll((els) => (els as HTMLInputElement[]).find((e) => e.checked)?.value);
+    expect(['normal', 'reverse_holo']).toContain(checked);
+    await expect(b.getByRole('button', { name: W('block.add', { finish: F(checked!) }) })).toBeVisible();
+    // …y sigue al acabado que se elige, en los dos sentidos.
+    await b.getByText(F('normal'), { exact: true }).click();
+    await expect(b.getByRole('button', { name: W('block.add', { finish: F('normal') }) })).toBeVisible();
+    await b.getByText(F('reverse_holo'), { exact: true }).click();
+    await expect(b.getByRole('button', { name: W('block.add', { finish: F('reverse_holo') }) })).toBeVisible();
+    await expect(b.getByRole('button', { name: W('block.add', { finish: F('normal') }) })).toHaveCount(0);
   });
 
-  test('WSH-F1 · tope y duplicado se explican: lista llena ⇒ cómo liberar lugar; ya en la lista ⇒ cambiar el %', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; estado del servidor falso');
-    await loginAs(page, 'customer');
-    await seedWishlist(page, { items: [stored('w-ya', 'c-pikachu', 'normal', 16)], limit: 1 });
-    await page.goto('/es/catalog/c-pikachu');
+  test('@real WSH-F1 · tope y duplicado se explican: lista llena ⇒ cómo liberar lugar; ya en la lista ⇒ cambiar el %', async ({ page }) => {
+    await loginAs(page, ROLE);
+    await arrange(page, { items: [{ card: 'two', finish: 'normal', maxPct: 16 }], limit: 1 });
+    await page.goto(`/es/catalog/${CARDS.two.id}`);
     const b = block(page);
-    // El acabado guardado ⇒ estado «ya en tu lista» con su %.
-    await expect(b.getByText(W('block.inList', { finish: t('es', 'finish.normal'), pct: 16 }))).toBeVisible();
+    // B-3: se ELIGE el acabado guardado (no se da por hecho cuál viene marcado) ⇒ «ya en tu lista» con su %.
+    await b.getByText(F('normal'), { exact: true }).click();
+    await expect(b.getByText(W('block.inList', { finish: F('normal'), pct: 16 }))).toBeVisible();
     await expect(b.getByRole('button', { name: W('block.saveChange') })).toBeDisabled();
     // Otro acabado con la lista llena ⇒ el estado (c), con enlace a la lista y sin «Agregar».
-    await b.getByText(t('es', 'finish.reverse_holo'), { exact: true }).click();
+    await b.getByText(F('reverse_holo'), { exact: true }).click();
     await expect(b.getByText(W('full.title', { count: 1, limit: 1 }))).toBeVisible();
     await expect(b.getByRole('link', { name: W('seeList') })).toHaveAttribute('href', /\/account\/wishlist$/);
     await expect(b.getByRole('button', { name: /Agregar/ })).toHaveCount(0);
   });
 
-  test('WSH-F7 · los pesos bajo cada % son los del servidor y la cifra al guardar es la misma; sin mercado ⇒ sin cifra', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; estado del servidor falso');
-    await loginAs(page, 'customer');
-    await seedWishlist(page);
-    await page.goto('/es/catalog/c-pikachu');
+  test('@real WSH-F7 · los pesos bajo cada % son los del servidor y la cifra al guardar es la misma; sin mercado ⇒ sin cifra', async ({ page }) => {
+    await loginAs(page, ROLE);
+    await arrange(page);
+    await page.goto(`/es/catalog/${CARDS.two.id}`);
     const b = block(page);
     const group = b.getByRole('radiogroup', { name: W('block.pctLegend') });
+    // B-3: el acabado con mercado se ELIGE; no se asume que venga marcado.
+    await b.getByText(F('normal'), { exact: true }).click();
     await expect(group.getByText(/^hasta MX\$/)).toHaveCount(3);
     const tenPesos = (await group.locator('label').nth(1).getByText(/^hasta MX\$/).textContent())!.replace('hasta ', '');
     await expect(b.getByText(t('es', 'common.ivaIncluded', { rate: 16 })).first()).toBeVisible();
     // Acabado sin mercado: ni una cifra.
-    await b.getByText(t('es', 'finish.reverse_holo'), { exact: true }).click();
+    await b.getByText(F('reverse_holo'), { exact: true }).click();
     await expect(group.getByText(/MX\$/)).toHaveCount(0);
     await expect(b.getByText(W('block.noMarketLong'))).toBeVisible();
     // Vuelta al acabado con precio, guardar al 10 %: la cifra guardada = la del preview.
-    await b.getByText(t('es', 'finish.normal'), { exact: true }).click();
-    await b.getByRole('button', { name: W('block.add', { finish: t('es', 'finish.normal') }) }).click();
+    await b.getByText(F('normal'), { exact: true }).click();
+    await b.getByRole('button', { name: W('block.add', { finish: F('normal') }) }).click();
     await expect(b.getByText(W('maxToday', { amount: tenPesos }))).toBeVisible();
   });
 
-  test('WSH-F2 · «Mi lista»: columnas, «aproximado», «sin precio de mercado», cambiar % y quitar', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; estado del servidor falso');
-    await loginAs(page, 'customer');
-    await seedWishlist(page, {
-      items: [stored('w-pika', 'c-pikachu', 'normal', 10), stored('w-zap', 'c-zapdos', 'normal', 5)],
+  test('@real WSH-F2 · «Mi lista»: columnas, «aproximado», «sin precio de mercado», cambiar % y quitar', async ({ page }) => {
+    await loginAs(page, ROLE);
+    await arrange(page, {
+      items: [
+        { card: 'two', finish: 'normal', maxPct: 10 },
+        { card: 'noMarket', finish: 'normal', maxPct: 5 },
+      ],
     });
     await page.goto('/es/account/wishlist');
     await expect(page.getByRole('heading', { level: 1, name: W('page.title') })).toBeVisible();
-    const pika = page.getByTestId('wishlist-row').filter({ has: page.getByRole('heading', { name: 'Pikachu' }) });
-    const zap = page.getByTestId('wishlist-row').filter({ has: page.getByRole('heading', { name: 'Zapdos' }) });
-    await expect(pika.getByText(W('row.maxPct', { pct: 10 }))).toBeVisible();
-    await expect(pika.getByText(/^Hoy: hasta MX\$/)).toBeVisible();
-    await expect(pika.getByText(W('approx'), { exact: true })).toBeVisible();
-    await expect(zap.getByText(W('noMarket'), { exact: true })).toBeVisible();
-    await expect(zap).not.toContainText('MX$0.00');
+    const rows = page.getByTestId('wishlist-row');
+    await expect(rows).toHaveCount(2);
+    const priced = rows.filter({ has: page.getByRole('heading', { name: CARDS.two.name }) });
+    const bare = rows.filter({ has: page.getByRole('heading', { name: CARDS.noMarket.name }) });
+    await expect(priced.getByText(W('row.maxPct', { pct: 10 }))).toBeVisible();
+    await expect(priced.getByText(/^Hoy: hasta MX\$/)).toBeVisible();
+    await expect(priced.getByText(W('approx'), { exact: true })).toBeVisible();
+    await expect(bare.getByText(W('noMarket'), { exact: true })).toBeVisible();
+    await expect(bare).not.toContainText('MX$0.00');
 
     // Cambiar el %: el select no guarda; «Guardar» sí.
-    const before = await pika.getByText(/^Hoy: hasta MX\$/).textContent();
-    await pika.getByLabel(W('row.pctLabel')).selectOption('16');
-    await expect(pika.getByText(before!)).toBeVisible();
-    await pika.getByRole('button', { name: W('row.save') }).click();
-    await expect(pika.getByText(W('saved'))).toBeVisible();
-    await expect(pika.getByText(W('row.maxPct', { pct: 16 }))).toBeVisible();
+    const before = await priced.getByText(/^Hoy: hasta MX\$/).textContent();
+    await priced.getByLabel(W('row.pctLabel')).selectOption('16');
+    await expect(priced.getByText(before!)).toBeVisible();
+    await priced.getByRole('button', { name: W('row.save') }).click();
+    await expect(priced.getByText(W('saved'))).toBeVisible();
+    await expect(priced.getByText(W('row.maxPct', { pct: 16 }))).toBeVisible();
+    await expect(priced.getByText(before!)).toHaveCount(0);
 
     // Quitar con «Deshacer».
-    await zap.getByRole('button', { name: W('row.removeLabel', { card: 'Zapdos', finish: t('es', 'finish.normal') }) }).click();
-    await expect(page.getByRole('heading', { name: 'Zapdos' })).toHaveCount(0);
+    await bare
+      .getByRole('button', { name: W('row.removeLabel', { card: CARDS.noMarket.name, finish: F('normal') }) })
+      .click();
+    await expect(page.getByRole('heading', { name: CARDS.noMarket.name })).toHaveCount(0);
     await page.getByRole('button', { name: W('row.undo') }).click();
-    await expect(page.getByRole('heading', { name: 'Zapdos' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: CARDS.noMarket.name })).toBeVisible();
   });
 
-  test('WSH-F6 · buscar una carta que la tienda nunca tuvo, abrir su ficha y agregarla; el buscador no pinta precios', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; carta del fixture (Celebrations, sin piezas)');
-    await loginAs(page, 'customer');
-    await seedWishlist(page);
+  test('@real WSH-F6 · buscar una carta que la tienda nunca tuvo, abrir su ficha y agregarla; el buscador no pinta precios', async ({ page }) => {
+    await loginAs(page, ROLE);
+    await arrange(page);
     await page.goto('/es/account/wishlist');
-    await page.getByLabel(W('page.searchLabel')).fill('Celebrations #7');
+    await page.getByLabel(W('page.searchLabel')).fill(CARDS.never.name);
     const results = page.getByTestId('wishlist-search-results');
-    const link = results.getByRole('link', { name: /Celebrations #7/ }).first();
+    const link = results.getByRole('link', { name: new RegExp(CARDS.never.name) }).first();
     await expect(link).toBeVisible();
     await expect(results).not.toContainText('MX$');
     await link.click();
-    await expect(page).toHaveURL(/\/catalog\/c-cel25-7$/);
+    await expect(page).toHaveURL(new RegExp(`/catalog/${CARDS.never.id}$`));
     await expect(page.getByText(W('card.notHere'))).toBeVisible();
     const b = block(page);
-    await b.getByRole('button', { name: W('block.add', { finish: t('es', 'finish.holofoil') }) }).click();
-    await expect(b.getByText(W('block.inList', { finish: t('es', 'finish.holofoil'), pct: 10 }))).toBeVisible();
+    await b.getByRole('button', { name: W('block.add', { finish: F(NEVER_FINISH) }) }).click();
+    await expect(b.getByText(W('block.inList', { finish: F(NEVER_FINISH), pct: 10 }))).toBeVisible();
     await page.goto('/es/account/wishlist');
-    await expect(page.getByRole('heading', { name: 'Celebrations #7' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: CARDS.never.name })).toBeVisible();
   });
 
-  test('WSH-F3 · la página del enlace pide UN clic, sin sesión, y confirma; el token sale de la barra', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; token del servidor falso (`mock-token`)');
-    await seedWishlist(page, { items: [stored('w-del', 'c-pikachu', 'normal', 10)] });
+  test('@real WSH-F3 · la página del enlace pide UN clic, sin sesión; nada al cargar; el token sale de la barra; enlace no firmado ⇒ «no funciona»', async ({ page }) => {
     let posted = 0;
     page.on('request', (r) => {
       if (r.method() === 'POST' && r.url().includes('/wishlist/mail-actions')) posted++;
     });
-    await page.goto('/es/lista-de-deseos/aviso?a=remove&id=w-del&t=mock-token');
+    await page.goto(`/es/lista-de-deseos/aviso?a=remove&id=${BOGUS_ID}&t=${BOGUS_TOKEN}`);
     await expect(page.getByRole('heading', { level: 1, name: W('mailAction.removeTitle') })).toBeVisible();
     await expect(page).not.toHaveURL(/t=/);
     expect(posted).toBe(0);
-    await page.getByRole('button', { name: W('mailAction.removeCta') }).click();
-    await expect(page.getByText(W('mailAction.removed'))).toBeVisible();
-    await expect(page.getByRole('button', { name: W('mailAction.removeCta') })).toHaveCount(0);
     const robots = await page.locator('meta[name="robots"]').getAttribute('content');
     expect(robots).toContain('noindex');
     await expect(page.locator('meta[name="referrer"]')).toHaveAttribute('content', 'no-referrer');
+    // Un clic ⇒ el servidor no reconoce la firma ⇒ el texto de enlace inválido, nunca «quitada».
+    await page.getByRole('button', { name: W('mailAction.removeCta') }).click();
+    await expect(page.getByText(W('mailAction.invalid'))).toBeVisible();
+    await expect(page.getByText(W('mailAction.removed'))).toHaveCount(0);
   });
 
-  test('WSH-F9 · con el dial apagado, la página del enlace sigue pidiendo el clic y confirma «quitada» / «pausada»', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; dial apagado del servidor falso');
+  test('WSH-F3 · confirmar: con el token válido, un clic quita la carta y el botón desaparece', async ({ page }) => {
+    mockOnly('token firmado por el servidor (HMAC): solo existe dentro del correo y el arnés no lee el buzón');
+    await seedWishlist(page, { items: [stored('w-del', 'c-pikachu', 'normal', 10)] });
+    await page.goto('/es/lista-de-deseos/aviso?a=remove&id=w-del&t=mock-token');
+    await page.getByRole('button', { name: W('mailAction.removeCta') }).click();
+    await expect(page.getByText(W('mailAction.removed'))).toBeVisible();
+    await expect(page.getByRole('button', { name: W('mailAction.removeCta') })).toHaveCount(0);
+  });
+
+  test('@real WSH-F9 · con el dial apagado: el enlace del correo sigue pidiendo el clic; la lista y el bloque de la ficha no existen', async ({ page }) => {
+    await arrange(page, { off: true });
+    await page.goto(`/es/lista-de-deseos/aviso?a=pause&id=${BOGUS_ID}&t=${BOGUS_TOKEN}`);
+    await expect(page.getByRole('heading', { level: 1, name: W('mailAction.pauseTitle') })).toBeVisible();
+    await expect(page.getByRole('button', { name: W('mailAction.pauseCta') })).toBeEnabled();
+    // Y en el mismo estado la lista con sesión no existe (WSH-5), ni el bloque de la ficha.
+    await loginAs(page, ROLE);
+    await page.goto('/es/account/wishlist');
+    await expect(page.getByText(W('page.disabled'))).toBeVisible();
+    await page.goto(`/es/catalog/${CARDS.two.id}`);
+    await expect(page.getByRole('heading', { level: 1, name: CARDS.two.name })).toBeVisible();
+    await expect(block(page)).toHaveCount(0);
+  });
+
+  test('WSH-F9 · confirmar con el dial apagado: «quitada» / «pausada»', async ({ page }) => {
+    mockOnly('token firmado por el servidor (HMAC): solo existe dentro del correo y el arnés no lee el buzón');
     await seedWishlist(page, { items: [stored('w-off', 'c-pikachu', 'normal', 10)], off: true });
     await page.goto('/es/lista-de-deseos/aviso?a=remove&id=w-off&t=mock-token');
     await page.getByRole('button', { name: W('mailAction.removeCta') }).click();
@@ -188,57 +332,94 @@ test.describe('§WSH · lista de deseos (mock)', () => {
     await page.goto('/es/lista-de-deseos/aviso?a=pause&id=mail-1&t=mock-token');
     await page.getByRole('button', { name: W('mailAction.pauseCta') }).click();
     await expect(page.getByText(W('mailAction.paused'))).toBeVisible();
-    // Y en el mismo estado la lista con sesión no existe (WSH-5).
-    await loginAs(page, 'customer');
-    await page.goto('/es/account/wishlist');
-    await expect(page.getByText(W('page.disabled'))).toBeVisible();
   });
 
-  test('WSH-F4 / WSH-F8 · M9 «Lista de compra»: solo súper-admin, orden, sin datos personales, filtro en pantalla y CSV completo', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; filas del servidor falso');
+  test('@real WSH-F4 / WSH-F8 · M9 «Lista de compra»: orden, sin datos personales, filtro en pantalla y CSV completo con su cabecera', async ({ page }) => {
+    // Demanda: `customer2` busca dos cartas sin piezas, una con mercado y otra sin él (en mock: las filas del fixture).
     await loginAs(page, 'admin');
+    await arrange(page, {
+      items: [
+        { card: 'two', finish: 'normal', maxPct: 10 },
+        { card: 'noMarket', finish: 'normal', maxPct: 5 },
+      ],
+    });
+    const real = IS_REAL
+      ? await apiAsOk<{ rows: unknown[]; sealed: unknown[] }>('admin', 'GET', '/admin/reports/wishlist-demand')
+      : null;
+    const total = real ? real.rows.length : 3; // fixture: 3 filas (src/lib/mock/wishlist.ts DEMAND_ROWS)
+    const sealedCount = real ? real.sealed.length : 1; // fixture: 1 sellado
+    expect(total).toBeGreaterThanOrEqual(2);
+    // Un nombre que aparece en UNA sola fila sirve de filtro.
+    const needle = IS_REAL ? CARDS.two.name : 'Classic';
+    const needleCell = IS_REAL ? `"${CARDS.two.name}"` : '"Classic Collection #3"';
+
     await page.goto('/es/admin/m9?tab=compra');
     await expect(page.getByRole('heading', { level: 2, name: B('title') })).toBeVisible();
     const articles = page.locator('article');
-    await expect(articles).toHaveCount(3);
-    // Orden por defecto del servidor: la fila sin mercado al final.
+    await expect(articles).toHaveCount(total);
+    // Orden por defecto del servidor: la fila sin mercado al final, sin «MX$0.00».
     await expect(articles.last()).toContainText(B('noMarket'));
     await expect(articles.last()).not.toContainText('MX$0.00');
-    // pct en puntos porcentuales, tal cual.
-    await expect(page.getByText('Si la pagas a mercado: pierdes MX$94.83 (−9.5 %)')).toBeVisible();
+    if (!IS_REAL) {
+      // Oráculo del FIXTURE (pct en puntos porcentuales, tal cual): la cifra solo existe en el servidor falso.
+      await expect(page.getByText('Si la pagas a mercado: pierdes MX$94.83 (−9.5 %)')).toBeVisible();
+    }
     // Sin datos personales.
     expect(await page.locator('main').innerHTML()).not.toContain('@');
-    // Filtro en el navegador ⇒ menos filas; el CSV trae TODAS.
-    await page.getByLabel(B('search')).fill('Classic');
+    // Filtro en el navegador ⇒ menos filas; el CSV trae TODAS (criterio 822 compara contra la pantalla sin filtros).
+    await page.getByLabel(B('search')).fill(needle);
     await expect(articles).toHaveCount(1);
-    await expect(page.getByText(B('filtered', { shown: 1, total: 3 }))).toBeVisible();
+    await expect(page.getByText(B('filtered', { shown: 1, total }))).toBeVisible();
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: B('csv') }).click()]);
-    const csv = await (await download.createReadStream())?.toArray();
-    const text = Buffer.concat((csv ?? []) as Buffer[]).toString('utf8');
-    expect(text.trim().split('\n')).toHaveLength(1 + 3);
-    expect(text).toContain('-9.5');
+    const chunks = await (await download.createReadStream())?.toArray();
+    const text = Buffer.concat((chunks ?? []) as Buffer[]).toString('utf8');
+    const lines = text.replace(/\n$/, '').split('\n');
+    // C2: cabecera literal de §WSH.8, las filas, una línea vacía, `sellados`, su cabecera y una línea por sellado.
+    expect(lines[0]).toBe(CSV_HEAD);
+    expect(lines).toHaveLength(1 + total + 3 + sealedCount);
+    expect(lines[1 + total]).toBe('');
+    expect(lines[2 + total]).toBe('sellados');
+    expect(lines[3 + total]).toBe(CSV_SEALED_HEAD);
+    expect(text).toContain(needleCell);
+    expect(text).not.toContain('@');
+    if (!IS_REAL) expect(text).toContain('-9.5');
     // Orden: un chip manda `sort` en la URL.
     await page.getByLabel(B('search')).fill('');
     await page.getByRole('button', { name: B('sort.wanted') }).click();
     await expect(page).toHaveURL(/sort=wanted/);
   });
 
-  test('WSH-F4 · el operador no ve «Lista de compra» (M9 es solo súper-admin)', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; sesión del arnés mock');
+  test('@real WSH-F4 · el operador no ve «Lista de compra» (M9 es solo súper-admin)', async ({ page }) => {
     await loginAs(page, 'operator');
     await page.goto('/es/admin/m9?tab=compra');
+    await expect(page.getByRole('tab', { name: t('es', 'admin.m9.tabs.buyList') })).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 2, name: B('title') })).toHaveCount(0);
   });
 
   test('WSH-F5 · ficha de sellado sin botón de deseos', async ({ page }) => {
-    mockOnly('el backend de §WSH se construye en paralelo; sellado del fixture');
-    await loginAs(page, 'customer');
-    await seedWishlist(page);
+    needsSeed('seed-e2e no siembra ningún sellado a la venta: `/sellado` real está vacío (petición en FRONTEND_NOTES §108.v1.87.3)');
+    await loginAs(page, ROLE);
+    await arrange(page);
     await page.goto('/es/sellado');
     const first = page.locator('a[href*="/sellado/"]').first();
     await first.click();
     await expect(page).toHaveURL(/\/sellado\/[^/]+$/);
     await expect(page.getByTestId('wishlist-block')).toHaveCount(0);
     await expect(page.getByText(W('eyebrow'), { exact: true })).toHaveCount(0);
+  });
+
+  test('@real WSH-F10 · criterio 824: /es/privacidad y /en/privacidad, sin sesión, traen el párrafo «Lista de deseos» literal', async ({ page }) => {
+    const plain = (s: string) => s.replace(/\*\*/g, '');
+    await page.goto('/es/privacidad');
+    const es = page.locator('article p').filter({ hasText: 'Lista de deseos.' });
+    await expect(es).toHaveCount(1);
+    await expect(es).toHaveText(plain(WISHLIST_PRIVACY_ES));
+    await expect(page.locator('article p[lang="en"]').filter({ hasText: 'Wishlist.' })).toHaveCount(0);
+    await page.goto('/en/privacidad');
+    const en = page.locator('article p[lang="en"]').filter({ hasText: 'Wishlist.' });
+    await expect(en).toHaveCount(1);
+    await expect(en).toHaveText(plain(WISHLIST_PRIVACY_EN));
+    // El aviso (en español) sigue completo en inglés, con el mismo párrafo.
+    await expect(page.locator('article p').filter({ hasText: 'Lista de deseos.' })).toHaveText(plain(WISHLIST_PRIVACY_ES));
   });
 });
