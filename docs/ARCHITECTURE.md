@@ -4,6 +4,12 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.86.2⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `4e06c7e` según el orquestador;
+> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.18`; el porqué en **§4.AC (o)**. Responde a `BACKEND_NOTES
+> §83.3/§83.4`. Cinco líneas de enums en §0 del contrato. 💰 `M-73` (sin fusionar) reescribe dos CHECK de `PaymentRefund`
+> de M-61/M-70 y añade `payment_refund_accessory_shape`, para que quepan las filas de accesorio. El entregado de accesorio
+> pide nota y `expectedRefundCents`, como el de la carta. Ratifica las 5 decisiones de backend.
+>
 > **Errata v1.86.1⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `ba795ee` según el orquestador;
 > ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC` (marcas «v1.86.1»); el porqué en **§4.AC (n)**. ⛔ Sin schema
 > ni cambio a `M-73`. Cierra Q-AC-UX-2…5 de `DESIGN_SYSTEM §AC-UX.18` y dos dudas del product-owner (energías sin medidas;
@@ -29243,6 +29249,33 @@ para todo producto (`D-SP-2`). Esta rama no lo cierra ni lo empeora.
   hoy. El criterio 728 da la más grande «centavo a centavo», y eso solo vale si esa tarifa es ≥ la de hoy. Lo resuelve la
   respuesta del dueño a P-AC-2; no hace falta errata.
 
+**(o) Errata v1.86.2 — lo que encontró el backend al construir `M-73` (2026-10-07).** Norma: `API_CONTRACT §AC.18`.
+- **Enums.** v1.86 nombró los 5 enums en §AC.1 pero no les escribió línea canónica en §0. La banda 3 universal existe
+  justo para esto (v1.80.7.1): un enum del schema sin línea es rojo. Se cierra en el contrato, no en la prueba.
+- 💰 **Los CHECK de la carta rechazaban al accesorio.** M-61 escribió `item_missing` ⇔ «carta, línea de envío y motivo»,
+  y M-70 la forma de `item_delivered` con carta y línea. §AC.1 añadió columnas de accesorio sin tocar esas dos formas.
+  Resultado: ningún reembolso de accesorio podía escribirse. Se decidió:
+  - **Reescribirlos en `M-73`**, no en `M-73b`: `M-73` no está fusionada, y una sola migración deja una sola reversa.
+  - **Mismos nombres.** Una prueba existente y los mensajes de error ya los usan.
+  - **Dos ramas por CHECK (carta | accesorio), cada una con el lado contrario en nulo.** Así el CHECK sigue siendo
+    bicondicional: toda fila con forma de faltante es `item_missing` y al revés.
+  - **El faltante de accesorio lleva `missingReason`.** Es el discriminante entre faltante y entregado, y lo leen el
+    estado público y el correo.
+  - **El entregado de accesorio no lleva `shipmentAccessoryLineId`.** Esa columna es `@unique` y es de la fila de
+    faltante. Con ella, un renglón no podría tener un faltante y luego un entregado, ni dos entregados.
+  - **`payment_refund_accessory_shape`:** un renglón solo aparece en esas dos formas y nunca junto a un nodo de carta.
+    Cierra «una fila apunta a ambos» sin depender del orden de los demás CHECK.
+- 💰 **El entregado de accesorio se iguala al de la carta.** El CHECK de M-70 exige `reason` (la nota), y §AC.10 (2) la
+  dejaba opcional. Además le faltaba `expectedRefundCents`: §PNL.2 lo exige porque nadie reembolsa una cifra que no vio.
+  Relajar el CHECK para el accesorio habría dejado dinero saliendo sin nota y sin confirmar. Por eso la nota es
+  obligatoria, entra la confirmación, y M3 recibe la tabla de importes por cantidad (`amountByQtyCents`, el mismo patrón
+  de §AC.9: la comisión prorrateada no es lineal en k).
+- ⚠️ **La reversa tenía una trampa.** `DROP COLUMN` borra sin aviso todo CHECK que nombre la columna. Si la reversa de
+  `M-73` quita las columnas de accesorio sin reponer antes los textos de M-61/M-70, `PaymentRefund` se queda **sin** las
+  formas de la carta, y nada falla. La reversa repone primero (§AC.18.4), y AC-B51 lo vigila.
+- **Las 5 decisiones de backend (§83.3) se ratifican.** La única afirmación que dependía de algo no medido era «el modo
+  del pedido no cambia». Se midió con Grep: una sola escritura, el `create`.
+
 ---
 
 ## 5. Decisiones transversales
@@ -32705,6 +32738,9 @@ productivas); las migraciones solo redefinen esquema.~~
 - **Semilla:** las 8 «Energía <tipo>», **inactivas**, MX$5 (`priceCents = 500`, F1), existencias 0 y sin foto.
 - **Reversa:** primero el código. Con pedidos que tengan renglones de accesorio, **no** se revierte: borraría el detalle
   de lo cobrado. Se desactivan los accesorios y se deja la tabla.
+- ⭐ **v1.86.2:** `M-73` también reescribe `PaymentRefund_item_missing_chk` (M-61) y `PaymentRefund_item_delivered_shape_chk`
+  (M-70) y añade `payment_refund_accessory_shape` (`API_CONTRACT §AC.18.3`). Las filas existentes cumplen sin relleno. La
+  reversa repone los textos de M-61/M-70 **antes** de quitar columnas (§AC.18.4).
 
 ### rev BSD-1 (**M-72 provisional**: guía de entrada del buylist — **DDL ADITIVO + 1 enum nuevo + 2 valores de enum + 3 columnas + 2 CHECK + FK + 2 índices + relleno ACOTADO de una columna nueva**, §4.BSD)
 - **Carpeta:** `prisma/migrations/20261025120000_m72_bsd_inbound_label/` (posterior a `M-71` `20261021120000`, medido con

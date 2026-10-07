@@ -10,6 +10,16 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata v1.86.2⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `4e06c7e` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.1, vigente entera salvo esto. Origen: `BACKEND_NOTES §83.3/§83.4`
+> (medido por backend con `psql`). Norma: **§AC.18**; porqué: `ARCHITECTURE §4.AC (o)`.
+> - §0: las 5 líneas canónicas de los enums de accesorios (cierra 11 rojas de paridad).
+> - 💰 `M-73` (aún sin fusionar, ⛔ sin `M-73b`) reescribe `PaymentRefund_item_missing_chk` y
+>   `PaymentRefund_item_delivered_shape_chk` para la forma de accesorio y añade `payment_refund_accessory_shape`.
+> - 💰 §AC.10 (2): `note` pasa a obligatoria y entra `expectedRefundCents`; M3 gana `deliveredRefund` por renglón (§AC.12).
+>   Cambia conducta de un verbo aún no construido.
+> - Ratifica las 5 decisiones de backend (§AC.18.6). Pruebas nuevas AC-B47…52 y AC-F19.
+>
 > **Errata v1.86.1⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `ba795ee` según el
 > orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: **v1.86⟨accesorios⟩, vigente entera salvo lo que esta errata toca**.
 > Origen: `DESIGN_SYSTEM §AC-UX.18` (Q-AC-UX-2…5) y `PROJECT.md §AC` reconciliado (`f8f4d2d`). ⛔ **Sin schema, sin cambio a
@@ -8410,6 +8420,13 @@ SealedPriceOrigin   = product | piece | automatic | pending   // v1.83 (§M11-SP
                     // de una pieza sellada. CLASE L (unión pura, ⛔ sin columna). ADMIN-ONLY (M1/M11), ⛔ nunca en /catalog.
                     // product = SealedProduct.ownerSalePriceCents · piece = InventoryItem.listPriceCents (legado)
                     // automatic = mercado × spread · pending = sin precio (PRICE_PENDING).
+AccessoryCategory   = sleeves | toploaders | binders | deck_boxes | playmats | energy | other // v1.86 (M-73, §AC.1). Clase E. ⛔ El ORDEN es el de la tienda (AC-B2 lo fija).
+EnergyType          = grass | fire | water | lightning | psychic | fighting | darkness | metal // v1.86 (M-73, §AC.1). Clase E. P-EN-1 (F3).
+AccessoryLineKind   = accessory | energy_bundle             // v1.86 (M-73, §AC.1). Clase E. Renglón suelto o paquete de energías del deck.
+AccessoryLineStatus = reserved | released | sold | restocked // v1.86 (M-73, §AC.1). Clase E. reserved ⇒ released | sold ⇒ restocked.
+AccessoryStockMovementKind = initial | receive | adjust | sale | restock | settle_recovery // v1.86 (M-73, §AC.1). Clase E. Solo cambios de stockQty.
+                    // v1.86.2: las cinco líneas faltaban en v1.86 (BACKEND_NOTES §83.4 (a)); espejan `schema.prisma` y
+                    // `common/enum-values.ts` de `4e06c7e`.
 ```
 
 ### DTOs base (compartidos)
@@ -41538,7 +41555,7 @@ Nada más se construye.
 
 ---
 
-## <a id="AC"></a>AC. 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + errata v1.86.1, 2026-10-07, **NORMATIVA**)
+## <a id="AC"></a>AC. 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + erratas v1.86.1 y v1.86.2, 2026-10-07, **NORMATIVA**)
 
 > Norma de `PROJECT.md §AC` (AC.1–AC.10) y criterios 700–749, **con `HECHOS.md:90` mandando donde choca**:
 > - la fila «"Termina wishlist y accesorios"» (2026-10-07) es posterior a `PROJECT.md §AC`;
@@ -41669,7 +41686,7 @@ model OrderAccessoryLine {
   metaDeckListId   String?             // la lista FIRMADA en el pullToken (inmutable)
   deckSlug         String?
   deckName         String?
-  deckOrderItemIds String[]            // los OrderItem del deck (P-EN-4); vacío ⇔ kind = accessory
+  deckOrderItemIds String[] @default([]) // los OrderItem del deck (P-EN-4); vacío ⇔ kind = accessory (v1.86.2: default ratificado)
   // --- apartado y venta ---
   status           AccessoryLineStatus @default(reserved)
   reservedUntil    DateTime            // = el vencimiento de la reserva del pedido (renovación incluida)
@@ -41725,6 +41742,8 @@ model ShipmentAccessoryLine {      // el nodo que se palomea; nace en el settle 
 - `PaymentRefund.shipmentAccessoryLineId String? @unique` (FK Restrict): el faltante al preparar, una fila por línea.
 - `PaymentRefund.accessoryQty Int?`. CHECKs: `(accessoryQty IS NULL) = (orderAccessoryLineId IS NULL)`, `accessoryQty ≥ 1`,
   `NOT (orderItemId IS NOT NULL AND orderAccessoryLineId IS NOT NULL)`, `shipmentAccessoryLineId ⇒ orderAccessoryLineId`.
+  - ⭐ **v1.86.2:** `M-73` además **reescribe** `PaymentRefund_item_missing_chk` (M-61) y `PaymentRefund_item_delivered_shape_chk`
+    (M-70) para que acepten la forma de accesorio, y añade `payment_refund_accessory_shape`. SQL exacto: **§AC.18**.
 
 **CHECKs de `Accessory`** (SQL crudo en la migración, con nombre):
 - `accessory_energy_type`: `(category = 'energy') = (energyType IS NOT NULL)`.
@@ -41737,7 +41756,8 @@ model ShipmentAccessoryLine {      // el nodo que se palomea; nace en el settle 
 **Índice único parcial:** `accessory_energy_type_active_key ON "Accessory"("energyType") WHERE active AND "energyType" IS
 NOT NULL`. No puede haber dos productos activos del mismo tipo (criterio 732).
 
-**I-AC-4 en BD:** `CONSTRAINT TRIGGER` `order_accessory_line_direct_ship` `AFTER INSERT ON "OrderAccessoryLine"`. Rechaza
+**I-AC-4 en BD:** `CONSTRAINT TRIGGER` `order_accessory_line_direct_ship` `AFTER INSERT OR UPDATE OF "orderId" ON
+"OrderAccessoryLine"` (v1.86.2: `UPDATE OF` ratificado, §AC.18.6). Rechaza
 (`RAISE EXCEPTION`) si el `Order` no es `direct_ship`. Es un CHECK entre tablas: Postgres no admite subconsultas en CHECK.
 - **Semilla (misma migración):** 8 filas `Accessory`, `category = 'energy'`, una por `EnergyType`, nombre «Energía Planta» …
   «Energía Metálica», `priceCents = 500` (F1), `active = false`, `stockQty = 0` y sin foto.
@@ -42110,8 +42130,12 @@ energyBundle: {
 1. **Faltante al preparar:** §AC.9.
 2. **Entregado (§V.2):** `POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered`, `@MoneyOut()` (súper-admin;
    el operador recibe `403 MONEY_OUT_FORBIDDEN` auditado).
-   - Cuerpo `{ quantity: number; reason: ShippedRefundReason; note?: string }`, validado entero por el servicio, igual
-     que `items/:orderItemId/refund-delivered` (`admin-orders.controller.ts:346-355`).
+   - ~~Cuerpo `{ quantity: number; reason: ShippedRefundReason; note?: string }`~~ ⭐ **v1.86.2:** cuerpo
+     `{ quantity: number; reason: ShippedRefundReason; note: string /* OBLIGATORIA, 3–500 tras trim() */; expectedRefundCents: number /* entero ≥ 1 */ }`,
+     validado entero por el servicio, igual que `items/:orderItemId/refund-delivered` (`admin-orders.controller.ts:346-355`).
+     `note` va a `PaymentRefund.reason` (el CHECK lo exige, §AC.18). `expectedRefundCents ≠ A` ⇒ `409 REFUND_PREVIEW_STALE
+     { refundCents: A }`, cero escrituras; `A` sale de `deliveredRefund.amountByQtyCents[quantity − 1]` del detalle M3
+     (§AC.12). Pasos 2–10 del verbo de la carta (§PNL.2) valen igual, cambiando la carta por el renglón.
    - Precondición: las mismas que la de la carta (pedido directo entregado, etc.).
    - Fila `item_delivered` con `idempotencyKey = 'acc-delivered:<lineId>:<refundedQty tras el acto>'`,
      `deliveredReason = reason` y componentes `itemMissingRefundComponents(order, quantity × unitPriceCents)`.
@@ -42201,6 +42225,17 @@ interface AdminAccessoryDTO {
   /orders/guest/track`) y el correo AV-2 ganan `accessoryLines` con nombre, foto, cantidad, `unitPriceCents`,
   `lineTotalCents`, `refundedQty` y, en paquete, `deckName` y `components`.
   - Lista blanca, sin costo. En M3, cada renglón muestra la acción de §AC.10 (2).
+  - ⭐ **v1.86.2 — solo M3:** cada renglón gana el importe que el súper-admin confirma (mismo cuerpo que el verbo, sin
+    candados; ⛔ la pantalla no lo calcula):
+    ```ts
+    deliveredRefund:
+      | { kind: 'refundable';
+          refundableQty: number;          // = quantity − refundedQty (paquete: 1)
+          amountByQtyCents: number[] }    // largo = refundableQty; [k−1] = itemMissingRefundComponents(order, k × unitPriceCents).amount
+      | { kind: 'not_refundable'; reason: 'order_not_settled' | 'not_delivered' | 'fully_refunded' | 'bundle_requires_deck' }
+    ```
+    `not_delivered` ⇔ el `ShipmentRequest` de su `ShipmentAccessoryLine` no está `entregado`. `bundle_requires_deck` ⇔
+    regla de §AC.10 (3). Al operador se le envía igual (lectura); la pantalla no le ofrece el botón.
 - **P&L** (`pnl-core.ts:189-203`):
   - el ingreso **no cambia de fórmula** (ya sale de `subtotalCents`);
   - `cogsCents += Σ unitCostCents × (quantity − missingQty)` de renglones `sold` y, en paquetes, `Σ componente.unitCostCents
@@ -42335,6 +42370,7 @@ Cada una con su mutación, que debe ponerla roja. Las de carrera reportan propor
 - **AC-B46** 💰 *(v1.86.1)* `review` no retiene: pedido de 3 playmats que no caben ⇒ `review = true`, cobro =
   `max(E_base, tarifa de la mayor)`, liquida, aparece en la hoja con `box.review = true`, se prepara y se cotiza guía con
   otra caja sin que cambie `Order.totalCents` ni se cree cargo alguno.
+- **AC-B47…AC-B52** 💰 *(v1.86.2)*: formas de `PaymentRefund` para accesorios y verbo de entregado. Texto en §AC.18.5.
 
 **Frontend** (`frontend/…`, Vitest y Playwright):
 - **AC-F1** Carrito v3: `{ ids, accessories: {id, qty}[], deckPulls: {token, slug, withEnergyBundle}[] }`. Migra v2 sin
@@ -42367,6 +42403,9 @@ Cada una con su mutación, que debe ponerla roja. Las de carrera reportan propor
   solo. Con `false`, sin sugerencia.
 - **AC-F18** *(v1.86.1)* Carrito: avisos de `unavailableAccessories` con nombre (y el texto sin nombre cuando `name =
   null`); renglón del paquete con las fotos de `energies[].photo`.
+- **AC-F19** 💰 *(v1.86.2)* M3, «Reembolsar» de un renglón: solo con `deliveredRefund.kind = 'refundable'` y súper-admin;
+  selector 1..`refundableQty`; importe = `amountByQtyCents[k−1]` leído; nota obligatoria (3–500); envía
+  `expectedRefundCents` = ese importe. `409 REFUND_PREVIEW_STALE` ⇒ muestra `refundCents` y pide confirmar de nuevo.
 
 ### AC.15 Lo que se rompe de lo existente y el censo de lectores
 
@@ -42472,3 +42511,143 @@ está escrito con la recomendación.** El orquestador las lleva; el arquitecto n
   - **Product-owner:** reconcilia `D-AC-1…3` en `PROJECT.md`.
 - **Gates:** QA (unitarias + contrato + E2E de 724 y 748) y techlead por stream. Seguridad en la fase de release: fotos
   públicas, `pullToken` y nuevas rutas de dinero.
+
+### AC.18 Errata v1.86.2 — enums de §0 y formas de `PaymentRefund` para accesorios (2026-10-07)
+
+Origen: `BACKEND_NOTES §83.3` y `§83.4`, medido por backend sobre `4e06c7e`. Porqué: `ARCHITECTURE §4.AC (o)`.
+
+#### AC.18.1 Enums
+Las 5 líneas `Nombre = …` están en «Enums (fuente de verdad)» (§0), con los valores de §AC.1. Cierra las 11 rojas de
+`test/enum-values-parity.spec.ts` (banda 3 y banda 3 universal). ⛔ `SIN_LINEA_CANONICA` no cambia.
+
+#### AC.18.2 💰 La forma de una fila de accesorio
+
+| `kind` | Carta (sin cambio) | Accesorio |
+|---|---|---|
+| `item_missing` | `orderItemId`, `shipmentItemId`, `missingReason` | `orderAccessoryLineId`, `shipmentAccessoryLineId`, `accessoryQty` (= `missingQty`), **`missingReason`** (copia de `ShipmentAccessoryLine.missingReason`) |
+| `item_delivered` | `orderItemId`, `shipmentItemId`, `deliveredReason`, `reason` (nota), sin `missingReason` | `orderAccessoryLineId`, `accessoryQty`, `deliveredReason`, `reason` (nota, **obligatoria**), sin `missingReason`, **sin `shipmentAccessoryLineId`** |
+| cualquier otro | — | ⛔ nunca lleva `orderAccessoryLineId` |
+
+- **Sí lleva `missingReason`** el faltante de accesorio: es lo que distingue `item_missing` de `item_delivered` en el
+  CHECK, y lo leen `order-public-status.ts` (`missing_at_prep`) y AV-12 (el motivo del correo).
+- **El entregado no lleva `shipmentAccessoryLineId`:** esa columna es `@unique` y pertenece a la **única** fila de
+  faltante de la línea. Con ella, el segundo entregado del mismo renglón chocaría con `P2002`.
+- **Nunca apunta a carta y accesorio a la vez:** cada rama del CHECK exige nulo el lado contrario, y
+  `payment_refund_accessory_shape` exige nulos `orderItemId`, `shipmentItemId` y `replacementCaseId` en toda fila con
+  renglón. Junto con `payment_refund_card_xor_accessory` y `payment_refund_accessory_shipment_line` (ya en `M-73`), no
+  queda combinación mixta.
+- Que el renglón sea **de la misma orden** que `PaymentRefund.orderId` es regla entre tablas: la garantiza la
+  aplicación, como en la carta (⛔ sin disparador).
+
+#### AC.18.3 💰 SQL — va en `M-73` (no `M-73b`), sección «PaymentRefund», después de los cuatro CHECK de accesorio
+```sql
+-- v1.86.2: las formas de M-61/M-70 aceptan el renglón de accesorio. Filas existentes: todas de carta, con las 3 columnas
+-- de accesorio en NULL ⇒ cumplen la rama de carta (que es la de antes más «accesorio nulo»).
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_missing_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_missing_chk"
+  CHECK (("kind"::text = 'item_missing') = (
+    "missingReason" IS NOT NULL AND (
+      ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+        AND "orderAccessoryLineId" IS NULL AND "shipmentAccessoryLineId" IS NULL)
+      OR
+      ("orderAccessoryLineId" IS NOT NULL AND "shipmentAccessoryLineId" IS NOT NULL
+        AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL))));
+
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_delivered_shape_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_delivered_shape_chk"
+  CHECK ("kind"::text <> 'item_delivered' OR (
+    "missingReason" IS NULL AND "reason" IS NOT NULL AND "orderId" IS NOT NULL AND (
+      ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+        AND "orderAccessoryLineId" IS NULL)
+      OR
+      ("orderAccessoryLineId" IS NOT NULL AND "shipmentAccessoryLineId" IS NULL
+        AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL))));
+
+-- Un renglón de accesorio solo aparece en las dos formas de arriba, y nunca junto a un nodo de carta.
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shape";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "payment_refund_accessory_shape"
+  CHECK ("orderAccessoryLineId" IS NULL OR (
+    "kind"::text IN ('item_missing', 'item_delivered') AND "orderId" IS NOT NULL
+    AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL AND "replacementCaseId" IS NULL));
+```
+- Los nombres de M-61/M-70 **se conservan**: `pnl-delivered-refunds.e2e-spec.ts:490` busca
+  `PaymentRefund_item_delivered_shape_chk` y debe seguir verde sin tocarla.
+- `"kind"::text` como en M-70. No hay valor de enum nuevo; el cast solo uniforma.
+- Lo que el CHECK **no** comprueba: `accessoryQty = ShipmentAccessoryLine.missingQty` y el renglón de la misma orden.
+  Son reglas entre tablas; las cubren AC-B19 y AC-B52.
+
+#### AC.18.4 Reversa de `M-73` (se añade al bloque «REVERSA» de la migración)
+⚠️ `DROP COLUMN` de una columna de accesorio **borra en silencio** todo CHECK que la nombre, incluidos los dos de
+M-61/M-70 reescritos aquí: la tabla quedaría **sin** las formas de la carta. Por eso, **antes** de quitar las columnas
+de `PaymentRefund`:
+```sql
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shape";
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_missing_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_missing_chk"
+  CHECK (("kind" = 'item_missing') = ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL AND "missingReason" IS NOT NULL));
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_delivered_shape_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_delivered_shape_chk"
+  CHECK ("kind"::text <> 'item_delivered' OR ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+    AND "missingReason" IS NULL AND "reason" IS NOT NULL AND "orderId" IS NOT NULL));
+```
+(textos literales de `m61…/migration.sql:256-257` y `m70…/migration.sql:60-62`). La condición previa de la reversa no
+cambia: con 0 `OrderAccessoryLine` no puede haber filas de accesorio en `PaymentRefund` (FK).
+
+#### AC.18.5 Pruebas que deben fallar hoy (backend, integración sobre la BD con `M-73`; cada caso en tx deshecha)
+Fixture: pedido `direct_ship` liquidado con 1 `OrderItem` + su `ShipmentItem`, y 1 `OrderAccessoryLine` (`quantity 3`) +
+su `ShipmentAccessoryLine`. Un caso «rechaza» afirma `23514` **y** el nombre del CHECK en el mensaje. Si la fila viola
+varios, se afirma que el nombre está en el conjunto dado (Postgres informa uno solo).
+- **AC-B47** 💰 `item_missing`:
+  - entran: (1) carta (CONTROL); (2) accesorio `{orderAccessoryLineId, shipmentAccessoryLineId, accessoryQty: 1, missingReason}`;
+  - rechazan: (3) accesorio sin `missingReason` ⇒ `PaymentRefund_item_missing_chk`; (4) accesorio sin
+    `shipmentAccessoryLineId` ⇒ `PaymentRefund_item_missing_chk`; (5) accesorio sin `accessoryQty` ⇒
+    `payment_refund_accessory_qty_pair`; (6) carta completa + `orderAccessoryLineId` + `accessoryQty` ⇒ ∈
+    {`payment_refund_card_xor_accessory`, `PaymentRefund_item_missing_chk`, `payment_refund_accessory_shape`};
+    (7) accesorio + `shipmentItemId` ⇒ ∈ {`PaymentRefund_item_missing_chk`, `payment_refund_accessory_shape`};
+    (8) `kind = order_remaining` con `missingReason` + renglón + línea ⇒ ∈ {`PaymentRefund_item_missing_chk`,
+    `payment_refund_accessory_shape`}.
+- **AC-B48** 💰 `item_delivered`:
+  - entran: (1) carta (CONTROL); (2) accesorio `{orderAccessoryLineId, accessoryQty: 1, deliveredReason, reason: 'nota'}`;
+    (3) **dos** filas como (2) del mismo renglón con llaves distintas ⇒ ambas entran;
+  - rechazan, todas con nombre exacto: (4) accesorio con `shipmentAccessoryLineId` ⇒
+    `PaymentRefund_item_delivered_shape_chk`; (5) accesorio con `missingReason` ⇒ `PaymentRefund_item_delivered_shape_chk`;
+    (6) accesorio con `reason` NULL ⇒ `PaymentRefund_item_delivered_shape_chk`; (7) accesorio sin `deliveredReason` ⇒
+    `PaymentRefund_item_delivered_chk`.
+- **AC-B49** Ningún otro `kind` lleva renglón: `order_remaining` y `order_full` con `orderAccessoryLineId` + `accessoryQty`
+  (sin `missingReason`) ⇒ `payment_refund_accessory_shape` exacto.
+- **AC-B50** Migración: el texto de `M-73` lleva `DROP`/`ADD` de los tres nombres; `pg_get_constraintdef` de
+  `PaymentRefund_item_missing_chk` y `_item_delivered_shape_chk` nombra `orderAccessoryLineId`; segunda aplicación sin
+  error; sobre una BD en `M-72` con una fila de carta de **cada** `kind` (`item_missing`, `item_delivered`, `order_full`,
+  `order_remaining`, `case_refund`, `shipment_fee`), aplicar `M-73` no falla (el `ADD CONSTRAINT` valida las filas).
+  `pnl-delivered-refunds.e2e-spec.ts:490` sigue verde.
+- **AC-B51** Reversa (esquema desechable, como AC-B1): con 0 renglones, ejecutar el bloque de reversa entero ⇒
+  `PaymentRefund_item_missing_chk` y `_item_delivered_shape_chk` **existen** y su definición no nombra columnas de
+  accesorio; una fila de carta `item_missing` sin `missingReason` ⇒ `23514`.
+- **AC-B52** 💰 Verbo de §AC.10 (2): sin `note` o con 2 caracteres ⇒ `400 {field:'note'}`; `expectedRefundCents = A − 1`
+  ⇒ `409 REFUND_PREVIEW_STALE {refundCents: A}` y cero filas; correcto ⇒ `201`, fila con `reason = note`, `missingReason`
+  y `shipmentAccessoryLineId` nulos. `A` = `deliveredRefund.amountByQtyCents[quantity − 1]` del detalle M3 para k = 1..3.
+  Renglón con `refundedQty = quantity` ⇒ `deliveredRefund.reason = 'fully_refunded'`.
+
+**Mutaciones** (cada una pone roja al menos la prueba nombrada; deterministas, una corrida sobre copia del árbol entero):
+- reponer el texto de M-61 en `PaymentRefund_item_missing_chk` ⇒ AC-B47 (2);
+- mover `"missingReason" IS NOT NULL` solo a la rama de carta ⇒ AC-B47 (3);
+- quitar `"shipmentAccessoryLineId" IS NULL` de la rama de accesorio del entregado ⇒ AC-B48 (4);
+- quitar `"reason" IS NOT NULL` ⇒ AC-B48 (6) y `pnl-delivered-refunds:490`;
+- borrar `payment_refund_accessory_shape` ⇒ AC-B49;
+- borrar del bloque de reversa la reposición de los dos CHECK ⇒ AC-B51;
+- quitar la comparación de `expectedRefundCents` ⇒ AC-B52.
+
+#### AC.18.6 Lo que ratifica de `BACKEND_NOTES §83.3`
+1. **Disparador con `UPDATE OF "orderId"`: ratificado.** Sin eso, la invariante I-AC-4 se salta moviendo un renglón.
+   Que no vigile `Order.fulfillmentMode` se acepta porque el modo no cambia después de crear el pedido. Medido con
+   Grep en `backend/src` (sin `*.spec.ts`, 2026-10-07): la única escritura es el `create` de
+   `guest-checkout.service.ts:245`; las demás apariciones son lecturas o filtros, y no hay `SET "fulfillmentMode"` en
+   SQL crudo. Si algún día un `update` lo escribe, el disparador se amplía a `Order`.
+2. **CHECKs extra: ratificados los cinco.** Son la letra de §AC.1 (comentarios) hecha candado. El paquete sin
+   `unitCostCents` propio evita contar su costo dos veces en el P&L (§AC.12). «Accesorio ⇒ campos de deck nulos» cierra
+   un hueco de la letra «todas no nulas ⇔ paquete».
+3. **`deckOrderItemIds @default([])`: ratificado.** Se corrige §AC.1 en ese sentido. El `COALESCE` del CHECK se queda
+   como red.
+4. **`@@index([orderAccessoryLineId])` en `PaymentRefund`: ratificado.** Lo leen el CAS de `refundedQty`, la agrupación
+   por renglón y `deliveredRefund`.
+5. **Semilla idempotente por tipo: ratificada.** Es la que respeta el renombre del dueño.
