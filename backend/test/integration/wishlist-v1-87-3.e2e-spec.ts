@@ -170,12 +170,19 @@ describe('WSH-T42 — el «avísame» con el cuerpo de la pantalla avisa de verd
       // el de las pruebas viejas, con la pieza al lado
       { json: { email: `t42-old2-${w.run}@e2e.local`, inventoryItemId: piece, tcgplayerProductId: p.tcg }, field: ['tcgplayerProductId'] },
     ];
+    // Se miden TODOS los casos antes de afirmar: un rojo dice qué devolvió cada cuerpo (p. ej. `202` y fila con `@Body()` a secas).
+    const got = [];
     for (const c of cases) {
       const r = await postRestockExpectingRejection(w.h, c.json);
-      expect({ status: r.status, code: r.body?.error?.code }).toEqual({ status: 400, code: 'VALIDATION_ERROR' });
-      expect(c.field).toContain(r.body.error.details.field);
-      expect(await w.h.prisma.sealedRestockSubscription.count({ where: { email: c.json.email as string } })).toBe(0);
+      const field = r.body?.error?.details?.field;
+      got.push({
+        status: r.status,
+        code: r.body?.error?.code,
+        fieldIsUnknownOne: c.field.includes(field),
+        rows: await w.h.prisma.sealedRestockSubscription.count({ where: { email: c.json.email as string } }),
+      });
     }
+    expect(got).toEqual(cases.map(() => ({ status: 400, code: 'VALIDATION_ERROR', fieldIsUnknownOne: true, rows: 0 })));
     // `inventoryItemId` ausente o no-uuid ⇒ 400 {field:'inventoryItemId'}
     for (const json of [{ email: `t42-noid-${w.run}@e2e.local` }, { email: `t42-noid-${w.run}@e2e.local`, inventoryItemId: 'no-es-uuid' }]) {
       const r = await postRestockExpectingRejection(w.h, json);
