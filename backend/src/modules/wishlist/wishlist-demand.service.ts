@@ -22,7 +22,7 @@ import { listedPiecesForKeys } from './wishlist-pieces';
 
 export const WISHLIST_DEMAND_SORTS = ['wanted', 'ceiling', 'margin', 'market', 'normal', 'buyers', 'buylist'] as const;
 export type WishlistDemandSort = (typeof WISHLIST_DEMAND_SORTS)[number];
-const DIRS = ['asc', 'desc'] as const;
+export const WISHLIST_DEMAND_DIRS = ['asc', 'desc'] as const;
 
 export interface WishlistDemandTierDTO {
   maxPct: WishlistPct;
@@ -67,7 +67,7 @@ export class WishlistDemandService {
 
   parseQuery(q: { sort?: unknown; dir?: unknown }): { sort: WishlistDemandSort; dir: 'asc' | 'desc' | null } {
     const sort = parseEnumFilter('sort', q.sort, WISHLIST_DEMAND_SORTS) ?? 'wanted';
-    const dir = parseEnumFilter('dir', q.dir, DIRS) ?? null;
+    const dir = parseEnumFilter('dir', q.dir, WISHLIST_DEMAND_DIRS) ?? null;
     return { sort, dir };
   }
 

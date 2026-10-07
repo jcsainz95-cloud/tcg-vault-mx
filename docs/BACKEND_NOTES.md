@@ -30158,3 +30158,118 @@ db 14).**
 - **NO MEDIDO:** la rama P2002 con disparo (no hay mutación que la ejercite sin carrera; por lectura no llega a
   `publishCreated`); el replay de «encontrada» con disparo (SU-B10 es solo del lote); E2E de frontend (por lectura, ninguna
   spec de `frontend/e2e` da de alta y luego espera `in_stock`; la semilla E2E crea con Prisma directo, no por el alta).
+
+---
+
+## 84 · §WSH lista de deseos construida (💰) — M-74, módulo `wishlist`, job `wishlist-notify`, lista de compra del dueño y «avísame» de sellados agendado con armado (2026-10-07, rama `claude/wishlist`, sobre `de751da`; código en `3615dbf`, `c61f1f0`, `c933461`, `c0667e6`)
+
+Norma: `API_CONTRACT §WSH` con la errata v1.87.1 (el contrato manda). Decisiones del dueño: `HECHOS.md` filas 2026-10-07
+«Respuestas a P-WSH-1…6» y «P-WSH-1 aclarada y P-WSH-4 cerrada». Numeración reservada por el orquestador: `M-74`, §84.
+
+### 84.0 Commits (en orden)
+| Commit | Qué |
+|---|---|
+| `3615dbf` M-74 | esquema aditivo (3 tablas, enum, 4 columnas, índice) + `20261027120000_m74_wishlist/migration.sql` (2 CHECK, siembra de los 8 diales `ON CONFLICT DO NOTHING`), idempotente (re-aplicada a mano: 0 errores) |
+| `c61f1f0` pruebas | WSH-T1…T37 escritas ANTES del código: unit 4/4 suites rojas (24 rojas / 2 verdes), e2e 4/4 suites rojas (49 rojas / 1 verde) |
+| `c933461` diales + aritmética | `settings.constants.ts` (8 claves, seeds, dominios, `SETTING_DTO_MAP`), `error-codes.ts` (3 códigos), `common/wishlist-math.ts` |
+| `c0667e6` módulo | `modules/wishlist/*`, catálogo, pagos, admin, planificador, disparo manual, adaptación de pruebas existentes |
+
+
+### 84.1 Qué hay y dónde
+- `src/common/wishlist-math.ts` — `maxDisplay`, `fits`, `tope`, `ceiling`, `marginAtMarket`, `demandRowMath`. `BigInt`, un solo
+  redondeo por cifra (`halfDiv`). `pct` en puntos con un decimal, redondeo simétrico.
+- `src/modules/wishlist/` — `wishlist.service.ts` (CRUD, preview, alertas, `mail-actions`, `consumeForSettledOrder`),
+  `wishlist-notify.service.ts` (el job), `wishlist-demand.service.ts` (JSON + CSV), `wishlist-market.service.ts` (UNA lectura de
+  `M` y del precio normal), `wishlist-pieces.ts` (el predicado único en SQL), `wishlist-mail.ts` (render puro, foto filtrada),
+  `wishlist-dials.ts`, `wishlist.constants.ts`, `dto/wishlist.dto.ts` (`StrictBodyPipe`), `wishlist.controller.ts` (3 controladores).
+- `CatalogService.sellableByIds(ids)` (`catalog.service.ts`, junto a `fetchSellable`): mismo cuerpo que la ficha.
+- `GET /catalog/cards/:cardId` gana `wishlistEnabled` en la raíz — se añade en el CONTROLADOR (`catalog.controller.ts` `getCard`),
+  no en el servicio: los dobles de `SettingsService` de 9 suites unitarias del catálogo no tienen `getString`, y el censo de
+  consultas de `graded-estimate.composition.spec.ts` («la ficha cuesta 1 query de config») sigue exacto.
+- Planificador: `wishlist-notify` y `sealed-restock-notify` cada 5 min (`WISHLIST_NOTIFY_CRON`, `SEALED_RESTOCK_NOTIFY_CRON`,
+  sufijo `-cron`), `scheduler.service.ts:286-287` y `case` en `:407-410`. Disparo manual `POST /admin/jobs/wishlist-notify`
+  (`200`, auditado `jobs.wishlist_notify.run`).
+
+### 84.2 D-WSH-1…7 — cierre
+| # | Cerrado en | Prueba |
+|---|---|---|
+| D-WSH-1 (job sin agendar) | `scheduler.service.ts:286-287`, `:407-410` | WSH-T24 unit + e2e (AppModule real) |
+| D-WSH-2 (correo sin enlace) | `sealed-restock-notify.service.ts:177` (`sendRestockEmail`, `appUrl('sellado/{id}','es')`) | WSH-T25, unit (e) |
+| D-WSH-3 (dos filas ⇒ dos correos) | capa 1 `sealed-catalog.service.ts:526` (no crea la 2.ª pendiente); capa 2 agrupado por correo `sealed-restock-notify.service.ts:138-161` | WSH-T25 (fila duplicada sembrada a mano ⇒ 1 correo) |
+| D-WSH-4 (avisaría sin agotarse) | armado `sealed-restock-notify.service.ts:127` + `ready` exige `armedAt` y ventana `:138` | WSH-T26; mutación M7b roja |
+| D-WSH-5 (PII en suscripciones) | borrado suave `admin.service.ts:1683` (y lista + correos); **también** el duro `:1639` | WSH-T17, `admin.user-management.spec.ts` |
+| D-WSH-6 (pipe global se come campos) | `StrictBodyPipe` por PARÁMETRO (`dto/wishlist.dto.ts`) — ver 84.3 (1) | WSH-T1 |
+| D-WSH-7 (bandera en memoria) | `pg_try_advisory_xact_lock` en `wishlist-notify.service.ts:68` y `sealed-restock-notify.service.ts:80` — ver 84.3 (3) | unit «candado tomado ⇒ no corre» |
+
+### 84.3 Desviaciones y huecos para el arquitecto (el contrato NO se tocó)
+1. **El pipe estricto «a nivel de controlador» (§WSH.4) no puede rechazar nada.** Nest corre los pipes global → controlador →
+   parámetro; el global (`main.ts:54`, `whitelist:true`) entrega el cuerpo YA sin los campos desconocidos. Se implementó en el
+   parámetro: `@Body(new StrictBodyPipe(Dto)) dto: Record<string, unknown>` (con tipo no-clase el global no valida y pasa el
+   cuerpo crudo). Medición: ver 84.5 (M0). Propuesta: que §WSH.4 diga «por parámetro».
+2. **`sellableByIds` devuelve `{ inventoryItemId, displayPriceCents }`**, no `salePriceCents`: desde §M10-IVA.3 `salePriceCents`
+   ya no existe en `ListingDTO` y en el código significa `L`. El valor es `P` (con IVA), el que pide el contrato.
+3. **Candado consultivo:** `pg_try_advisory_xact_lock` dentro de una transacción «portadora» que dura la corrida (Prisma no fija
+   una conexión fuera de una transacción, así que `pg_try_advisory_lock` + `unlock` no es seguro). Coste: 1 conexión del pool
+   retenida mientras corre el job (timeout 10 min). Equivalente en efecto: se suelta al terminar, cubre N instancias.
+4. **`@Public()` no lee el token** (`jwt-auth.guard.ts:28-32`): «con sesión se usa el correo de la cuenta» (§WSH.7 (b)) era
+   imposible sin un guard. Nuevo `catalog/optional-session.guard.ts` (mismas comprobaciones que el global; nunca rechaza),
+   SOLO en `POST /catalog/sealed/restock-subscriptions`. Una cuenta sin correo (staff) se trata como invitado.
+5. **`WishlistNotice.inventoryItemId` es `RESTRICT`** (forma de §WSH.1): un borrado DURO de `InventoryItem` falla si la pieza tiene
+   avisos. ⚠️ `HECHOS` 2026-10-07 «CAMBIO P-DB-LIMPIEZA: también se BORRA el inventario»: el script de limpieza tendrá que borrar
+   `WishlistNotice` antes (o el arquitecto cambia a `Cascade`). NO MEDIDO contra ese script (es de otra rama).
+6. Pieza detectada que queda `listed` pero sin precio vendible ⇒ el aviso **espera** (como `reserved`); el contrato solo nombra
+   `reserved`. Cualquier otro estado ⇒ `skipped/unavailable`.
+7. `WishlistNotifyResult.sent` = avisos (filas) marcados `sent`, no correos.
+8. `fits` de la foto queda `null` sin mercado (como `availableNow.fits`).
+9. Orden de guardas en `/wishlist*`: dial (`404 FEATURE_DISABLED`) antes que staff sin correo (`403`).
+10. CSV: el contrato fija solo las columnas por nivel; el resto de nombres (`carta,set,numero,…,buylist_hoy`) y la sección
+    `sellados` los fijó backend; celdas de texto entre comillas y sin fórmulas (`= + - @` ⇒ `'`).
+11. Sellados en la demanda: `productName` = `sealedProductName` de la pieza más reciente de ese `tcgplayerProductId`, si no el
+    nombre de la carta ancla.
+12. Correo de reposición: `mailShell` con las frases de `DESIGN_SYSTEM §WSH-UX.8 (b)`; `mail-shell.ts` ganó `thumbUrl` opcional en
+    `cardLineRows` (sin él, salida byte a byte igual) y `smallLinkRow`.
+
+### 84.4 Pruebas
+- Unit nuevas: `wishlist-math.spec.ts` (T22, T35), `wishlist-mail.spec.ts` (T13, T36), `wishlist.scheduler.spec.ts` (T24),
+  `wishlist.settings.spec.ts` (T30). Reescrita: `sealed-restock-notify.spec.ts` (la conducta vieja —avisar sin armado, un correo
+  por fila— es justo D-WSH-3/4).
+- E2E nuevas: `wishlist.e2e-spec.ts`, `wishlist-notify.e2e-spec.ts`, `wishlist-demand.e2e-spec.ts`, `sealed-restock-armed.e2e-spec.ts`
+  + arnés `helpers/wishlist-db.ts` (reloj por el token `'WISHLIST_CLOCK'`, correo que captura).
+- Censos tocados, cada uno con su porqué en la línea: PF-11 (`wishlist-market` lee la política de VENTA para el precio normal),
+  criterio 209 (`wishlist-demand` emite `ivaTransferPct` solo en `/admin/reports/*`), censo de `saleDisplayCentsOf(`.
+- WSH-T9: alta suelta y `bulk-publish` por HTTP real; conversión de buylist y liberación de reserva **simuladas** escribiendo el
+  estado resultante (la detección es por estado, ARCHITECTURE §4.WSH (b)). WSH-T16 envío directo: pedido sintético con `userId`
+  (hoy un directo con cuenta solo existe si se reclama antes del webhook; frecuencia NO MEDIDA).
+
+### 84.5 Mediciones (2026-10-07, máquina compartida de 4 CPU con carga 10–18 de otros agentes)
+- **Antes del código** (`c61f1f0` sobre `3615dbf`): unit 4/4 suites rojas (24/26 rojas); e2e 4/4 suites rojas (49/50 rojas),
+  rojas por conducta (`404` en las rutas, `201` esperado) y por módulos inexistentes.
+- **Suite unitaria completa** sobre copia `git archive HEAD` del árbol ENTERO en `c0667e6`: **445/445 suites, 8043/8043 pruebas**.
+- **Integración completa** sobre la misma copia (esquema propio `wsh_be` del Postgres compartido): 111/120 suites, 2283/2317.
+  De las 9 rojas: 1 era mía (`enum-query-axes`, C-EQ-1: los `?sort=`/`?dir=` de la demanda sin clase) ⇒ cerrada en este pase
+  (registro + fixture (m); 571/571 en el árbol vivo). Las otras 8 (`bsd-m72-migration`, `iva-price-convention`,
+  `replacement-cases`, `stf-errata-v1-80-9-1`, `sdx-c-address`, `sdx-d-schema`, `sdx-d2bc-migrations`, `telemetry`) son de
+  **entorno**: dos esquemas en la misma BD. Medido: el CHECK `shipment_label_source_iff_provider_id` existe en `public` y NO
+  en `wsh_be` (`pg_constraint` por `connamespace`: `public|1`) — las migraciones idempotentes buscan el nombre sin filtrar
+  esquema y se saltan la creación; `telemetry` cuenta tablas de `information_schema` sin esquema y tropieza con `"Accessory"`
+  (tabla de M-73 en `public`). El orquestador avisó de 4 de ellas; las 4 `sdx-*`/`telemetry` son la misma clase. Las mide él
+  en una BD sin esquemas ajenos.
+- **Carrera del tope (WSH-T3)**: con `FOR UPDATE`, 30/30 rondas con exactamente un ganador (3 corridas × N=10). Mutante sin
+  `FOR UPDATE` (M4): 4/10, 7/10, 3/10, 6/10 rondas correctas ⇒ la prueba roja **4/4 corridas** (N=10 cada una).
+- **Mutaciones** (sobre copia, cada una revertida y comprobada con `diff -rq`):
+  | # | Mutación | Resultado |
+  |---|---|---|
+  | M0 | pipe estricto a nivel de CONTROLADOR (lo que dice §WSH.4) | `POST /wishlist` con `maxPriceCents` ⇒ **201 y fila creada** (1/1): confirma 84.3 (1) |
+  | M1 | `ceiling` redondea el «sin IVA» intermedio | WSH-T22 **rojo** (2 pruebas: 78710 ≠ 78711) |
+  | M2 | `pct` como fracción | WSH-T35 **rojo** (4 pruebas) |
+  | M3a / M3b | `?utm_source=` en la foto / sin filtro de host | WSH-T36 **rojo** (2 y 2 pruebas) |
+  | M4 | sin `FOR UPDATE` | WSH-T3 **rojo** 4/4 (arriba) |
+  | M5 | `mail-actions` exige el dial | WSH-T34 **rojo** |
+  | M6 | sin la llamada de la rama envío directo | WSH-T16 (directo) **rojo** |
+  | M7 / M7b | sin armado ni ventana / solo sin `armedAt` | WSH-T26 **rojo** / **rojo** |
+- **NO MEDIDO:** canario «quitar `@@unique([userId, inventoryItemId])` ⇒ T10 rojo» (exige migrar un esquema mutado; no se
+  corrió); el candado consultivo con DOS instancias reales (solo por diseño + la unitaria «candado tomado ⇒ no corre»);
+  `REDIS_URL` en producción (sin él el planificador no programa NADA, `scheduler.service.ts:142-149`; lo cierra la línea
+  «Scheduler activo (BullMQ)» en Railway tras desplegar); cuántas `SealedRestockSubscription` hay en producción (consulta en
+  `API_CONTRACT §WSH.1`); qué hosts tiene hoy `Card.imageSmallUrl` (otro host ⇒ correo sin foto, no fuga); si `resend` 4.8.0
+  rechaza algo del HTML nuevo; la suite E2E de frontend (no es de este rol).

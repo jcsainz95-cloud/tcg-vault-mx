@@ -135,6 +135,8 @@ import { PORTFOLIO_HISTORY_RANGE_VALUES } from '../../src/modules/vault/vault.se
 import { SPEND_ALERT_MUTED_FILTER_VALUES, SPEND_ALERT_UNSEEN_FILTER_VALUES } from '../../src/modules/spend-alerts/spend-alerts-panel.service';
 // 💰 §AN (API_CONTRACT §15.2) — los ejes L de la analítica de ventas.
 import { SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } from '../../src/modules/sales-analytics/sales-period';
+// 💰 rev v1.87⟨wishlist⟩ (§WSH.8): `?sort=`/`?dir=` de la lista de compra del dueño (y su CSV).
+import { WISHLIST_DEMAND_DIRS, WISHLIST_DEMAND_SORTS } from '../../src/modules/wishlist/wishlist-demand.service';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -357,6 +359,20 @@ const OBS_SALES_CSV: Obs = {
 const OBS_HISTORY: Obs = {
   huella: (res) => JSON.stringify((res.body as unknown as { points?: unknown[] })?.points ?? null),
   hayDatos: (res) => ((res.body as unknown as { points?: unknown[] })?.points?.length ?? 0) > 0,
+};
+
+/**
+ * 💰 rev v1.87⟨wishlist⟩ (§WSH.8) — `GET /admin/reports/wishlist-demand`: `rows` en el orden pedido. ⛔ Sin `generatedAt` (es
+ * `now()`: la huella cambiaría en cada petición y `filtra` sería verde por ruido).
+ */
+const OBS_WISHLIST: Obs = {
+  huella: (res) => JSON.stringify((res.body as unknown as { rows?: { cardId: string }[] })?.rows?.map((r) => r.cardId) ?? null),
+  hayDatos: (res) => ((res.body as unknown as { rows?: unknown[] })?.rows?.length ?? 0) > 0,
+};
+/** 💰 rev v1.87⟨wishlist⟩ — su CSV: el texto entero (sin marca de tiempo en el cuerpo). */
+const OBS_WISHLIST_CSV: Obs = {
+  huella: (res) => res.text,
+  hayDatos: (res) => res.text.trim().split('\n').length > 1,
 };
 
 /** Las respuestas extra que la propiedad `filtra` necesita (no filtrar, y el token alterno). */
@@ -716,6 +732,17 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/reports/sales', param: 'topSort', clazz: 'L', allowed: SALES_TOP_SORT_VALUES, valid: 'pieces', alterno: 'net', obs: OBS_SALES, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/sales/export.csv', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/sales/export.csv', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, extra: () => 'from=2021-01-20&to=2021-03-10' },
+
+  // ==========================================================================================
+  // 💰 rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.8) — `?sort=` (clase L, dicho en la línea del endpoint) y `?dir=` de la lista de
+  // compra del dueño y de su CSV (las MISMAS dos claves, «los mismos»). ⚠️ Sin fila en la tabla de §0-Q punto 4 ⇒
+  // `PENDIENTE-ARQUITECTO` (BACKEND_NOTES §84.3). Fixture (m): tres cartas CEQ1-WSH con demanda 3/2/1 y mercado 100/3000/1000 ⇒
+  // el orden por defecto (`wanted` ↓) ≠ `market` ↓, y `dir=asc` ≠ `desc`.
+  // ==========================================================================================
+  { route: 'GET /admin/reports/wishlist-demand', param: 'sort', clazz: 'L', allowed: WISHLIST_DEMAND_SORTS, valid: 'market', alterno: 'wanted', obs: OBS_WISHLIST, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/reports/wishlist-demand', param: 'dir', clazz: 'L', allowed: WISHLIST_DEMAND_DIRS, valid: 'asc', alterno: 'desc', obs: OBS_WISHLIST, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/reports/wishlist-demand/export.csv', param: 'sort', clazz: 'L', allowed: WISHLIST_DEMAND_SORTS, valid: 'market', alterno: 'wanted', obs: OBS_WISHLIST_CSV, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/reports/wishlist-demand/export.csv', param: 'dir', clazz: 'L', allowed: WISHLIST_DEMAND_DIRS, valid: 'asc', alterno: 'desc', obs: OBS_WISHLIST_CSV, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
 ];
 
 /**
@@ -810,7 +837,12 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   await h.prisma.inventoryItem.deleteMany({ where: { folio: { startsWith: 'CEQ1-' } } });
   // ⭐ `EQ-D1` LOTE 2 — cartas del índice master set: DESPUÉS de sus piezas (FK `cardId`), ANTES de sus
   //    sets (FK `setId`). Barrido por `externalId` prefijo `CEQ1-`.
+  // 💰 rev v1.87⟨wishlist⟩ — (m): deseos y mercados de las cartas CEQ1-WSH (FK `cardId` RESTRICT) antes de las cartas; las
+  //    tres cuentas propias después (sus deseos caen en cascada).
+  await h.prisma.wishlistItem.deleteMany({ where: { card: { externalId: { startsWith: 'CEQ1-WSH-' } } } });
+  await h.prisma.priceReference.deleteMany({ where: { card: { externalId: { startsWith: 'CEQ1-WSH-' } } } });
   await h.prisma.card.deleteMany({ where: { externalId: { startsWith: 'CEQ1-' } } });
+  await h.prisma.user.deleteMany({ where: { email: { startsWith: 'ceq1-wsh-' } } });
   // ⭐ `EQ-D1` LOTE 2 — los dos clientes propios de `?sort=` de `/admin/vaults`: sus piezas ya cayeron
   //    arriba (folio `CEQ1-`); ahora los usuarios. Sus snapshots caen por `onDelete: Cascade`.
   await h.prisma.user.deleteMany({ where: { email: { in: CEQ1_VAULT_CUSTOMER_EMAILS } } });
@@ -1150,6 +1182,26 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
     ],
   });
 
+  // (m) 💰 rev v1.87⟨wishlist⟩ · `GET /admin/reports/wishlist-demand?sort=|dir=` — tres cartas sin piezas, deseadas por 3/2/1
+  //     cuentas, mercado 100 / 3,000 / 1,000 pesos. Ningún otro eje lee estas tablas.
+  const wshUsers = await Promise.all(
+    [1, 2, 3].map((n) => h.prisma.user.create({ data: { role: 'customer', name: `CEQ1 deseos ${n}`, email: `ceq1-wsh-${n}@e2e.local`, emailVerified: true } })),
+  );
+  const wshCards = await Promise.all(
+    [
+      { n: 1, m: 10_000, wanted: 3 },
+      { n: 2, m: 300_000, wanted: 2 },
+      { n: 3, m: 100_000, wanted: 1 },
+    ].map(async (x) => {
+      const c = await h.prisma.card.create({ data: { externalId: `CEQ1-WSH-${x.n}`, setId: set.id, name: `CEQ1 deseada ${x.n}`, number: `W${x.n}`, rarity: 'Common', rarityCanonical: 'Common' } });
+      await h.prisma.priceReference.create({ data: { cardId: c.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'manual', isManualOverride: true, priceMxnCents: x.m, capturedDate: new Date('2026-10-01') } });
+      return { id: c.id, wanted: x.wanted };
+    }),
+  );
+  await h.prisma.wishlistItem.createMany({
+    data: wshCards.flatMap((c) => wshUsers.slice(0, c.wanted).map((u) => ({ userId: u.id, cardId: c.id, finish: 'normal' as const, maxPct: 10 }))),
+  });
+
   return { setId: set.id, userId: cliente.id };
 }
 
@@ -1371,6 +1423,12 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       // v1.78.1**: el arquitecto escribió su fila en §0-Q punto 4 (`API_CONTRACT.md:5231`). Es el
       // movimiento que esta lista existe para hacer visible — una pendiente se cierra **por el
       // contrato**, no borrándola de aquí.
+      // 💰 rev v1.87⟨wishlist⟩ (§WSH.8): la lista de compra del dueño y su CSV — clase L dicha en la línea del endpoint, sin
+      // fila en la tabla de §0-Q punto 4 (BACKEND_NOTES §84.3).
+      'GET /admin/reports/wishlist-demand/export.csv?dir=',
+      'GET /admin/reports/wishlist-demand/export.csv?sort=',
+      'GET /admin/reports/wishlist-demand?dir=',
+      'GET /admin/reports/wishlist-demand?sort=',
       'GET /admin/vaults/:userId/master-sets?sort=',
       'GET /admin/vaults/:userId/sealed?condition=',
       'GET /admin/vaults/:userId/sealed?sealedSubtype=',
@@ -1525,8 +1583,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // el arquitecto escriba las cinco filas).
     // ⭐ AN-1.2 (`API_CONTRACT §15.12`, `50b5faeb`) — 64 fijo y 23 → **18**: el arquitecto escribió las cinco filas en §0-Q
     // punto 4. Se pagó una deuda; no salió ningún eje.
-    expect(REGISTRO.length).toBe(64);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
+    // 💰 rev v1.87⟨wishlist⟩ (§WSH.8): 64 → **68** y 18 → **22** — `?sort=`/`?dir=` de `GET /admin/reports/wishlist-demand` y de su
+    // CSV, clase L, SIN fila en la tabla de §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO (bajan a 18 cuando el arquitecto la escriba).
+    expect(REGISTRO.length).toBe(68);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(22);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
