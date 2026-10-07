@@ -10,6 +10,15 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata v1.86.4⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `bc128c4` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.3 (§AC.19, que no tenía línea aquí), vigente entera salvo esto.
+> Origen: `BACKEND_NOTES §83.B`. Norma: **§AC.20**; porqué: `ARCHITECTURE §4.AC (q)`. ⛔ Sin schema ni cambio de conducta.
+> - 💰 Carrera del paquete: valen los dos códigos, cada uno ligado al paso que detecta la falta; sin traducción. El
+>   frontend ya los trata igual.
+> - El dial `energy_bundle_price_cents` puede tener fila o no; una prueba de C se corrige para fijar su propio estado.
+> - 💰 La reposición de accesorios al reembolso total se queda en la tx1 de M3, también si Stripe rechaza.
+> - Pruebas AC-B61…B63 y AC-F23 (candados de conducta construida, con mutación).
+>
 > **Errata v1.86.2⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `4e06c7e` según el
 > orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.1, vigente entera salvo esto. Origen: `BACKEND_NOTES §83.3/§83.4`
 > (medido por backend con `psql`). Norma: **§AC.18**; porqué: `ARCHITECTURE §4.AC (o)`.
@@ -41555,7 +41564,11 @@ Nada más se construye.
 
 ---
 
-## <a id="AC"></a>AC. 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + erratas v1.86.1, v1.86.2 y v1.86.3, 2026-10-07, **NORMATIVA**)
+## <a id="AC"></a>AC. 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + erratas v1.86.1, v1.86.2, v1.86.3 y v1.86.4, 2026-10-07, **NORMATIVA**)
+
+> ⭐ **v1.86.4 (§AC.20):** en la carrera del paquete valen `409 ACCESSORY_INSUFFICIENT_STOCK` y `422
+> ENERGY_BUNDLE_INVALID/insufficient_stock`, sin traducción; el dial puede tener fila o no y ninguna prueba supone cuál;
+> la reposición al reembolso total se queda en la tx1 de M3.
 
 > ⭐ **v1.86.3 (§AC.19) manda sobre §AC.3–§AC.12 donde choque:** foto como ruta sin host y versión vigente en el
 > pedido; respuestas del panel y del `PATCH` de preparación; `index` en `unavailableBundles`; orden «paquetes primero»
@@ -41945,6 +41958,7 @@ Todas reciben el `tx` del llamador. Ninguna lee y luego escribe: la condición v
    - Con envío salido ⇒ nada vuelve (criterio 717).
    - Pedido nunca liquidado ⇒ lo cubre (2) vía `release-unsettled-refund.ts`.
    - ⛔ Difiere de las cartas a propósito (`ARCHITECTURE §4.AC (k)`).
+   - ⭐ v1.86.4: el momento (tx1 de M3, no la confirmación) se ratifica, y también el caso de Stripe rechazando: §AC.20.3.
 6. **Conteo de reconciliación** (`accessoryStockAudit`, solo lectura): para cada `Accessory`, `reservedQty` = Σ de lo
    `reserved`. Si no cuadra ⇒ `logger.error` + bitácora `accessory.reserved_drift`. Corre en el barrido; ⛔ no corrige.
 7. **Contracargo:** no mueve existencias por sí solo (AC.4, supuesto). `chargebackInventory` (`admin-orders.controller.ts:296`)
@@ -42345,6 +42359,8 @@ Cada una con su mutación, que debe ponerla roja. Las de carrera reportan propor
 - **AC-B32** 💰 Paquete en `quote`/`session`: deck incompleto ⇒ `deck_incomplete` / `422`; duplicado ⇒ `422`; precio =
   dial; componentes por tipo apartados (criterios 736, 738).
 - **AC-B33** 💰 Carrera del paquete: 8 «Fuego», dos sesiones que piden 8 ⇒ una gana. **N = 10, 10/10** (criterio 741).
+  ⭐ v1.86.4: la que pierde recibe `409 ACCESSORY_INSUFFICIENT_STOCK` **o** `422 ENERGY_BUNDLE_INVALID/insufficient_stock`
+  (§AC.20.1).
 - **AC-B34** El paquete cuesta el dial con o sin descuento; ningún cálculo de base de descuento lo incluye (criterio 739,
   hoy trivial).
 - **AC-B35** 💰 Reembolso del paquete: sin deck reembolsado ⇒ `409 BUNDLE_REFUND_REQUIRES_DECK`; con el deck entero ⇒
@@ -42916,3 +42932,118 @@ interface OrderAccessoryLineDTO {          // M3 (`GET /admin/orders/:id`) y seg
   `withEnergyBundle:true`. *Mutación:* emparejar por `deckSlug` / «el que la respuesta no nombra» ⇒ rojo.
 - **AC-F22** `OrderAccessoryLineDTO.id`/`kind` obligatorios: M3 pinta «Reembolsar unidades» con la llave `id` y titula el
   paquete por `kind` (no por `deckName !== null`).
+
+### AC.20 Errata v1.86.4 — los tres puntos que dejó abiertos el stream B (2026-10-07)
+Origen: `BACKEND_NOTES §83.B.1` (1) y (7), `§83.B.5` y `§83.B.6`. ⛔ Sin schema, sin cambio a `M-73` y sin cambio de
+conducta en producción: ratifica lo construido y corrige una prueba. Porqué: `ARCHITECTURE §4.AC (q)`.
+
+#### AC.20.1 💰 Carrera del paquete: valen los DOS códigos y ⛔ no se traduce uno al otro
+**Qué código da `session`.** Depende del paso de §AC.19.4 que detecta la falta, no de que haya carrera:
+
+| Paso que la detecta | Cuándo | Respuesta |
+|---|---|---|
+| **3** (validador, lee con `tx`) | un paquete **por sí solo** no cabe en lo disponible al leer | `422 ENERGY_BUNDLE_INVALID {index, deckSlug, reason:'insufficient_stock'}` |
+| **5** (apartado único, `UPDATE … WHERE`) | cada cosa cabe sola pero no todas juntas (AC-B56), **o** otra sesión apartó entre el paso 3 y el 5 | `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId, availableQty}` |
+
+- En una carrera, quien pierde ve uno u otro según si su paso 3 leyó antes o después del commit de quien gana (medido por
+  backend: `409` en 49/50 y `422` en 1/50, N=50, `§83.B.3`). En los dos: cero filas, cero PaymentIntent, nada cobrado.
+- ⛔ **No se unifica.** El `422 insufficient_stock` no es exclusivo de la carrera: es la respuesta normal cuando las
+  existencias ya eran cortas al pagar. Traducir `409 → 422` exigiría adivinar el `index` de un `accessoryId` que puede estar
+  en dos paquetes o en un paquete y un renglón suelto. Traducir `422 → 409` borraría el `index` y obligaría a inventar un
+  `availableQty` para un paquete.
+- **Frontend: ya cumple; no cambia nada** (`GuestCheckoutView.tsx:351-357`, `:413`, `:419-422`; textos
+  `DESIGN_SYSTEM §AC-UX.5`, líneas 30421-30431):
+  - `422 ENERGY_BUNDLE_INVALID` con cualquier `reason` ⇒ sale el paquete de la posición `index` en la lista que se mandó;
+    se pinta la fila «El paquete de energías de {deck} ya no se puede pagar…».
+  - `409 ACCESSORY_INSUFFICIENT_STOCK` cuyo `accessoryId` es **solo** componente de un paquete ⇒ **lo mismo** (misma fila,
+    mismo paquete fuera). Así las dos salidas de la carrera se ven idénticas para el cliente.
+  - `409` de un renglón suelto ⇒ cantidad a `availableQty`, o fuera si es 0 (sin cambio).
+  - Después se re-cotiza, y la cotización decide el carrito final («paquetes primero», §AC.19.4). ⛔ La pantalla no
+    calcula existencias con la carga del error.
+- **QA, criterio 741:** la proporción cuenta «una sesión `201`, la otra `409 ACCESSORY_INSUFFICIENT_STOCK` **o** `422
+  ENERGY_BUNDLE_INVALID/insufficient_stock`, sin PaymentIntent, `reservedQty = 8`». El reparto entre los dos códigos se
+  informa aparte, como dato; no decide el veredicto. **AC-B33 se ratifica** con el predicado que dejó backend (`§83.B.2`).
+
+#### AC.20.2 El dial `energy_bundle_price_cents`: la fila puede existir o no; ninguna prueba supone cuál
+- **Norma:**
+  - Ninguna migración siembra la fila. `M-73` siembra solo las 8 `Accessory` (§AC.1).
+  - En producción la fila no existe hasta que el súper-admin guarda el dial (`PUT /admin/settings`).
+  - `seed-e2e` sí la siembra, porque siembra todos los `SETTING_DEFAULTS` (medido por backend: `2000`, `§83.B.5`).
+  - Los dos estados son válidos y dan el mismo precio. El lector único es `loadEnergyBundlePriceCents`
+    (`decks-meta.service.ts:341-343`, normaliza en `:67-69`): fila ausente o fuera de `1..100_000` ⇒
+    `SETTING_DEFAULTS` = 2000.
+- ⛔ **Ninguna prueba de integración supone el estado de la fila en el entorno.** Cada caso fija el estado que necesita, y
+  la suite devuelve al terminar el estado que encontró. Es el patrón ya construido en
+  `accessories-checkout.e2e-spec.ts:633-645`.
+- **Corrección de `test/integration/decks-meta-energy.e2e-spec.ts`** (código del stream C; la hace backend):
+  1. `beforeAll`: se guarda `prev = findUnique(key)`. Las líneas `:79-80` (`expect(dialExisted).toBe(false)`) se
+     sustituyen por `deleteMany(key)`: el estado base de la suite es «ausente», **puesto por la suite**.
+  2. `:170` y `:181`: `create` ⇒ `upsert`. Con la fila sembrada, `create` da `P2002`.
+  3. `afterAll` (`:94`): restaura `prev`. Si existía, se recrea con su `valueJson`; si no, `deleteMany`. ⛔ Borrar sin
+     más deja sin fila a las suites que corren después.
+  4. Se añade **AC-B63** (abajo). Con eso la suite mide más que antes: «ausente ⇒ 2000» y «presente ⇒ se lee», en vez de un
+     2000 que no distingue entre leer la fila y caer al valor por defecto.
+- La misma regla vale para `accessories-panel.e2e-spec.ts:49` (`DIAL_KEYS`). ⛔ NO MEDIDO cómo maneja hoy el estado
+  previo; backend lo revisa con la misma corrección si hace falta.
+
+#### AC.20.3 💰 Reponer al reembolso total: se ratifica el momento (tx1 de M3 y tx de `charge.refunded`)
+- **Norma (sin cambio, §AC.6 (5)):** `restockAccessoriesOnFullRefund` corre dentro de `closeShipmentsOnFullRefund`, rama
+  directo:
+  - en la **tx1 de M3**, la que crea la fila `order_full` y cierra los envíos, y en la tx del `charge.refunded` total;
+  - con los mismos candados (envíos → `Order` → renglón), la orden `settled|refunded` y `afterShipment` leído bajo el
+    candado de los envíos.
+  - ⛔ No se mueve a la transacción que **confirma** el reembolso.
+- **Coherente con `HECHOS.md` 2026-10-04 «Cartas apartadas (SSL-R1) — detalles»:**
+  - **4b**, «enviado ⇒ no vuelven», en cualquier reembolso total: con `afterShipment = true` no vuelve nada. La misma tx
+    pasa a `cancelado` los envíos `picking|guia`, y `cancelado` no se reabre (§M4-SHIP.17.2 (3)). Así ningún envío puede
+    salir después y contradecir lo decidido en la tx1.
+  - **4a**, no enviado: las cartas vuelven solas o con un clic. Los accesorios vuelven solos aunque estuvieran palomeados
+    o empacados. Ya está decidido (`ARCHITECTURE §4.AC (k)`: son intercambiables; criterio 717 literal).
+- **Si Stripe rechaza la fila (`failed`):** las unidades ya volvieron al estante. Se acepta, y amplía el residual
+  declarado de §M4-SHIP.17.2 (3):
+  - el envío quedó cerrado y no se reabre, así que esas unidades no van a salir con ese pedido;
+  - lo que se le debe al cliente es dinero, no mercancía, y se ve en `summary.stuckRefunds`.
+  - Mientras dure, el P&L ve el renglón `restocked` sin costo, y la orden sigue `settled` con su ingreso. Es transitorio:
+    se resuelve cuando el reembolso se completa.
+- **Por qué no esperar a la confirmación**, como en bóveda (§M4-SHIP.18.3):
+  - En bóveda, la carta está en custodia del cliente: devolverla antes de que se mueva el dinero le quita algo. Aquí las
+    unidades nunca salieron del almacén.
+  - Si se esperara, con un reembolso atascado las unidades seguirían físicamente en el estante pero sin poder venderse
+    (`sold`).
+  - Además, la decisión `afterShipment` se partiría entre dos transacciones.
+- **Idempotencia:** un `charge.refunded` posterior (por ejemplo, el reembolso rehecho desde el panel de Stripe) no repone
+  dos veces, por el CAS `sold → restocked`.
+
+#### AC.20.4 Pruebas (siguientes libres)
+Son candados de conducta **ya construida**. ⛔ No se espera que fallen hoy: cada una se entrega con su mutación roja como
+prueba de que muerde.
+
+**Backend:**
+- **AC-B61** 💰 (B) Código determinista de la falta en `session`, sin carrera:
+  - (a) el deck pide 8 «Fuego» y hay 5 disponibles ⇒ `422 ENERGY_BUNDLE_INVALID {index:0, reason:'insufficient_stock'}`,
+    cero `OrderAccessoryLine`, `reservedQty` sin cambio, sin PaymentIntent;
+  - (b) 10 disponibles y dos paquetes de 8 (decks distintos) ⇒ `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId: Fuego,
+    availableQty: 10}`, cero filas (es el tercer punto de AC-B56; se aserta la carga).
+  - *Mutación:* traducir el `insufficient_stock` del validador a `409` ⇒ (a) rojo. *Mutación:* llamar al validador
+    después del apartado ⇒ (a) da `409`, rojo.
+- **AC-B62** 💰 (B) Reponer con el reembolso rechazado:
+  - directo no enviado con «Penny sleeves» ×3 vendidas (`stockQty` 10 → 7); M3 total con el doble de Stripe rechazando
+    ⇒ fila `order_full` `failed`, envío `cancelado`, renglón `restocked`, `stockQty = 10`, un movimiento `restock`;
+  - después, `charge.refunded` total del mismo PI ⇒ `stockQty = 10` y sigue habiendo **un** movimiento.
+  - *Mutación:* quitar `status = 'sold'` del CAS ⇒ 13, rojo. *Mutación:* mover la reposición a la confirmación ⇒ 7 tras
+    el `failed`, rojo.
+  - ⛔ NO MEDIDO que el doble del arnés sepa rechazar un reembolso. Si no sabe, se le añade en `backend/test/`.
+- **AC-B63** (C) El dial se lee y su ausencia cae a 2000, con el estado puesto por la prueba (§AC.20.2):
+  - fila ausente (`deleteMany`) ⇒ `energyBundle.priceCents = 2000`;
+  - fila `2300` (≠ default, con `upsert`) ⇒ `priceCents = 2300` y `offered: true` (5000 > 2300);
+  - al terminar, la fila vuelve a `prev`.
+  - *Mutación:* que el lector devuelva siempre el default ⇒ el caso 2300 rojo. *Mutación:* quitar el respaldo de
+    ausente ⇒ el caso ausente rojo.
+
+**Frontend:**
+- **AC-F23** 💰 Las dos salidas de la carrera se ven iguales. Carrito con el paquete del deck X y sin «Fuego» suelto:
+  - (a) `session` ⇒ `422 ENERGY_BUNDLE_INVALID {index:0, deckSlug:X, reason:'insufficient_stock'}`;
+  - (b) `session` ⇒ `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId: <Fuego, solo componente>, availableQty: 3}`.
+  - En los dos: el paquete sale, se pinta el mismo texto `bundle` con el nombre del deck, se re-cotiza, y ⛔ no aparece un
+    renglón suelto de «Fuego».
+  - *Mutación:* tratar el `409` de un componente como renglón suelto (`setAccessoryQty`) ⇒ (b) rojo.

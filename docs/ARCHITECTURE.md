@@ -4,6 +4,15 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.86.4⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `bc128c4` según el orquestador;
+> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.20`; el porqué en **§4.AC (q)**. ⛔ Sin schema, sin cambio a
+> `M-73` y sin cambio de conducta. Cierra los tres puntos abiertos de `BACKEND_NOTES §83.B`:
+> - En la carrera del paquete valen `409` y `422 insufficient_stock`, sin traducción. El frontend ya los trata igual.
+> - El dial del paquete puede tener fila o no. La prueba de C fija su propio estado y deja el entorno como lo encontró.
+> - La reposición al reembolso total se queda en la tx1 de M3, también si Stripe rechaza.
+>
+> Pruebas AC-B61…B63 y AC-F23.
+>
 > **Errata v1.86.3⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `bb5147b` según el orquestador;
 > ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.19`; el porqué en **§4.AC (p)**. ⛔ Sin schema ni cambio a
 > `M-73`. Ratifica lo construido por A (`BACKEND_NOTES §83.A.1`) y C (`§83.C.3`). Un ajuste a A: la bitácora del borrado
@@ -29312,6 +29321,34 @@ para todo producto (`D-SP-2`). Esta rama no lo cierra ni lo empeora.
 - **Lo de A y C se ratifica casi entero.** Cada decisión cierra un hueco de la letra en la dirección más estricta: `422`
   en vez de `500`, `deck_unpublished` ante una lista ajena, firma antes que vigencia. Ninguna cambia dinero ni forma
   pública.
+
+**(q) Errata v1.86.4 — lo que dejó abierto el stream B (2026-10-07).** Norma: `API_CONTRACT §AC.20`.
+- 💰 **Dos códigos en la carrera del paquete, a propósito.** Cada código nombra el paso que vio la falta. El validador
+  (`422`, con `index`) ve un paquete que no cabe solo; el apartado (`409`, con `accessoryId`) ve una suma que no cabe. La
+  carrera solo decide cuál de los dos llega primero.
+  - Unificarlos obliga a fabricar un dato. Para pasar de `409` a `422` habría que adivinar un `index`, ambiguo si el
+    accesorio está en dos paquetes. Para pasar de `422` a `409` se perdería el `index` y habría que inventar un
+    `availableQty` de paquete.
+  - El cliente no nota la diferencia: el frontend ya lleva las dos al mismo aviso y re-cotiza, y la cotización es la
+    fuente de verdad del carrito.
+  - Lo que importa para el dinero (nadie cobrado, `reservedQty` exacto) se cumple en los dos casos, y es lo que mide el
+    criterio 741.
+- **El dial y su fila.** El dial puede no tener fila (producción, hasta que se edita) o tenerla con su valor por defecto
+  (`seed-e2e`). El lector ya trata los dos casos igual.
+  - La prueba de C fallaba por suponer el estado del entorno, no por un defecto.
+  - Corregirla debilitándola (quitar el `expect`) no basta. Cada caso fija su estado y la suite restaura el que encontró.
+  - Además se mide «presente con un valor distinto del default ⇒ se lee»: con 2000 sembrado, «ausente ⇒ 2000» y «se leyó
+    la fila» no se distinguían.
+- 💰 **Reponer en la tx1, no al confirmar.** El momento que importa a `HECHOS.md` (2026-10-04, 4b) es «¿salió el envío?», y
+  esa pregunta se contesta una sola vez: bajo el candado de los envíos, en la misma tx que los cancela. Después, ninguno
+  puede salir (`cancelado` no se reabre).
+  - Si Stripe rechaza, la mercancía está físicamente en el estante y ese pedido ya no puede llevársela. La deuda es de
+    dinero, visible en `stuckRefunds`.
+  - Esperar a la confirmación dejaría unidades presentes sin poder venderse mientras dure el atasco, y partiría la
+    decisión en dos transacciones.
+  - Bóveda es distinto (allí se espera a la confirmación) porque la carta está en custodia del cliente.
+  - Costo aceptado y transitorio: con el reembolso atascado, el P&L no ve costo en ese renglón mientras la orden sigue
+    `settled`.
 
 ---
 
