@@ -4,6 +4,11 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.86.1⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `ba795ee` según el orquestador;
+> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC` (marcas «v1.86.1»); el porqué en **§4.AC (n)**. ⛔ Sin schema
+> ni cambio a `M-73`. Cierra Q-AC-UX-2…5 de `DESIGN_SYSTEM §AC-UX.18` y dos dudas del product-owner (energías sin medidas;
+> `review` como aviso). Q-AC-UX-1 queda al dueño (§AC.16).
+>
 > **Rev v1.86⟨accesorios⟩ — 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK** (2026-10-07, arquitecto, worktree
 > `/home/user/tcg-accesorios`, rama `claude/accesorios`; HEAD `1a5f8c04` según el encargo; ⛔ sha NO MEDIDO por mí: sin Bash).
 > Norma en `API_CONTRACT §AC` ([#AC](API_CONTRACT.md#AC)); el porqué en **§4.AC**; desviaciones `D-AC-1…3` en §9; migración
@@ -29213,6 +29218,30 @@ para todo producto (`D-SP-2`). Esta rama no lo cierra ni lo empeora.
 - Si `decks-meta` está publicado en producción: **NO MEDIDO** (`PROJECT.md:9683-9689`). Sin la ficha pública no hay
   token, así que no hay paquete (criterio 746, por construcción).
 - La CSP o `images` de Next deben admitir el origen de la API para las fotos: **NO MEDIDO**; frontend lo verifica.
+
+**(n) Errata v1.86.1 — los huecos que encontró el diseño (2026-10-07).** Todo es lectura derivada; ⛔ ni schema ni `M-73`.
+- **Importe por renglón al preparar (Q-AC-UX-2).** Las cartas ya traen `refund` (§M4-SHIP.3) porque el operador
+  confirma dinero (CA #16). El accesorio lo necesita igual, con una diferencia: la cantidad faltante se elige. La
+  comisión prorrateada (`floor(F×P/G)`, `money.ts:1057-1081`) no es lineal en `k`, así que «importe por unidad × k» se
+  desviaría por centavos. Por eso viaja la tabla entera `amountByQtyCents` (≤ 99 números) y la pantalla solo la lee.
+  - `refundPreviewCents` suma los accesorios: si no, dejaría de ser el `expectedRefundCents` que el servidor acepta y el
+    operador no podría preparar (§M4-SHIP.5). Vista y plan salen del mismo cuerpo, así que no pueden divergir.
+- **El deck del paquete (Q-AC-UX-3).** `deckOrderItemIds` son `OrderItem`, y la pantalla de preparación habla en
+  `ShipmentItem`. Se traduce en el servidor (por `inventoryItemId`) a `deckShipmentItemIds`. Va también `deckAllMissing`
+  ya calculado, para que la regla «todas faltan o están bloqueadas» viva en un solo sitio. Es solo sugerencia: P-AC-3
+  dice que marcar el paquete es decisión de quien prepara.
+- **Nombre y foto en el carrito (Q-AC-UX-4/5).** El carrito local guarda ids, no nombres (`cart.ts`). Sin `name`, el
+  aviso de «ya no está» no dice qué quitó. El nombre de un inactivo no es secreto (ya se mostró en la tienda). Con
+  `not_found` no hay nada que decir: `null`. La foto de cada energía sale del producto activo, que por CHECK siempre la
+  tiene.
+- **Energías sin medidas (product-owner).** Ya lo decía el CHECK `accessory_active_ready`; la fila del activar listaba
+  `dimensions`/`weight` sin excepción y se podía leer como que también aplican a energías. Ahora lo dice. Coherente con
+  P-AC-5: lo que no entra a la caja no necesita medidas.
+- **`review` (product-owner).** PROJECT: «se cobra la más grande y lo resuelve quien prepara». El contrato ya elegía la
+  más grande; `review` es el «lo resuelve quien prepara» hecho dato. Se aclara que no retiene nada ni abre otro cobro.
+  Matiz que queda: con `max` (P-AC-2), si la tarifa de la caja más grande fuera **menor** que la de hoy, se cobra la de
+  hoy. El criterio 728 da la más grande «centavo a centavo», y eso solo vale si esa tarifa es ≥ la de hoy. Lo resuelve la
+  respuesta del dueño a P-AC-2; no hace falta errata.
 
 ---
 

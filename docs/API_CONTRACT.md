@@ -10,6 +10,16 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata v1.86.1⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `ba795ee` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: **v1.86⟨accesorios⟩, vigente entera salvo lo que esta errata toca**.
+> Origen: `DESIGN_SYSTEM §AC-UX.18` (Q-AC-UX-2…5) y `PROJECT.md §AC` reconciliado (`f8f4d2d`). ⛔ **Sin schema, sin cambio a
+> §AC.1 ni a `M-73`**: todo lo nuevo es lectura derivada. Porqué: `ARCHITECTURE §4.AC (n)`.
+> - §AC.9: cada renglón de accesorio trae `refund` (con `amountByQtyCents`), `deckShipmentItemIds` y `deckAllMissing`;
+>   `refundPreviewCents` suma los accesorios faltantes (Q-AC-UX-2, Q-AC-UX-3).
+> - §AC.4: `unavailableAccessories[].name` y `EnergyBundleDTO.energies[].photo` (Q-AC-UX-4, Q-AC-UX-5).
+> - §AC.11: las energías se activan sin medidas ni peso (ratifica el CHECK). §AC.7: `review` es solo aviso, nunca retiene.
+> - §AC.16 gana Q-AC-UX-1 (pregunta al dueño). Pruebas nuevas AC-B41…46 y AC-F16…18.
+>
 > **Rev v1.86⟨accesorios⟩ — 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL META BATTLE DECK (2026-10-07, arquitecto,
 > worktree `/home/user/tcg-accesorios`, rama `claude/accesorios`, HEAD `1a5f8c04` según el orquestador; ⛔ sha NO MEDIDO: sin
 > Bash).** Norma entera: **[§AC](#AC)**. Porqué: `ARCHITECTURE §4.AC`. Migración **`M-73`**. Versión reservada:
@@ -41528,7 +41538,7 @@ Nada más se construye.
 
 ---
 
-## <a id="AC"></a>AC. 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩, 2026-10-07, **NORMATIVA**)
+## <a id="AC"></a>AC. 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + errata v1.86.1, 2026-10-07, **NORMATIVA**)
 
 > Norma de `PROJECT.md §AC` (AC.1–AC.10) y criterios 700–749, **con `HECHOS.md:90` mandando donde choca**:
 > - la fila «"Termina wishlist y accesorios"» (2026-10-07) es posterior a `PROJECT.md §AC`;
@@ -41817,7 +41827,8 @@ deckPulls?: { pullToken: string /* ≤ 4096 */; withEnergyBundle: boolean }[];  
   accessoryLines: QuoteAccessoryLineDTO[];   // { accessoryId, name, category, energyType, unitPriceCents, quantity, lineTotalCents, photo }
   energyBundles: EnergyBundleDTO[];          // los que van en el pedido
   energyBundleOffers: EnergyBundleDTO[];     // decks del carrito SIN paquete que sí se ofrecen (regla 3)
-  unavailableAccessories: { accessoryId: string; reason: 'not_found' | 'inactive' | 'sold_out' | 'insufficient'; availableQty?: number }[];
+  unavailableAccessories: { accessoryId: string; name: string | null; reason: 'not_found' | 'inactive' | 'sold_out' | 'insufficient'; availableQty?: number }[];
+  //   v1.86.1: `name` = Accessory.name si la fila existe (también inactiva); null ⇔ not_found. Lista blanca: ⛔ nada más de la fila.
   unavailableBundles: { deckSlug: string | null; reason: BundleReason }[];
   shippingBox: { code: string; label: string; review: boolean } | null;   // null ⇔ tarifa de hoy
   vaultExcludesAccessories: boolean;          // true ⇔ hay accesorios o paquetes (el upsell de bóveda no los lleva)
@@ -41826,7 +41837,8 @@ deckPulls?: { pullToken: string /* ≤ 4096 */; withEnergyBundle: boolean }[];  
     deckSlug: string; deckName: string;
     priceCents: number;                       // el dial
     looseTotalCents: number;                  // Σ need × precio de cada energía (referencia, regla 2)
-    energies: { energyType: EnergyType; quantity: number; accessoryId: string }[];
+    energies: { energyType: EnergyType; quantity: number; accessoryId: string; photo: AccessoryPhotoDTO }[];
+    //   v1.86.1: `photo` = la del producto activo de ese tipo. Nunca null: activo ⇒ foto (CHECK `accessory_active_ready`).
   }
   type BundleReason = 'invalid_token' | 'expired' | 'deck_incomplete' | 'deck_unpublished' | 'not_offered' | 'insufficient_stock' | 'duplicate';
   ```
@@ -41930,13 +41942,25 @@ function chooseBox(units: FitUnit[], boxes: FitBox[]): { box: FitBox; review: bo
   - `Σ volumen(unidades) ≤ volumen(caja)`.
 - Se elige la que sirve con menor volumen; desempate por `customerFeeCents`, `sortOrder` y `code`.
 - Ninguna sirve ⇒ la de **mayor** volumen (desempate igual) con `review = true` (F3).
+  - **v1.86.1 — qué es `review` y qué no.** Es la forma en datos de «se cobra la más grande y lo resuelve quien prepara»
+    (`PROJECT.md:9548-9549`, criterio 728): **solo un aviso** para quien prepara («REVISAR CAJA»).
+    - ⛔ No retiene nada: ni `quote`, ni `session`, ni el cobro, ni la liquidación, ni la preparación, ni la guía.
+      Ningún estado de pedido ni cola nueva lo lee.
+    - ⛔ No genera cargo posterior: no existe ruta que cobre envío después de la sesión. Dos paquetes o una caja especial
+      son costo del dueño.
+    - Lo cobrado es la tarifa de la caja más grande pasada por la misma regla que cualquier caja:
+      `max(E_base, customerFeeCents)` (P-AC-2). Si el dueño contesta P-AC-2 «la de la caja», queda la de la caja más
+      grande, literal.
+    - En `quote`, `shippingBox.review` llega al navegador solo para que la pantalla no prometa una caja; el texto al
+      cliente lo decide `DESIGN_SYSTEM` y ⛔ no anuncia cargos extra.
 - **Tarifa al cliente:** `E_base = shippingFeeDisplayCentsOf(shipping_fee_cents, ivaDials)`, el número de hoy
   (`guest-checkout.service.ts:591-594`).
   - `null` ⇒ `E_base`.
   - Con caja ⇒ `max(E_base, box.customerFeeCents)`. El `max` está pendiente de **P-AC-2**; si el dueño dice «la de la
     caja», se quita el `max` y nada más cambia.
 - Se calcula en `quote` y en `session` desde la BD. ⛔ Ningún monto de envío del cuerpo cuenta (criterio 727). La sesión
-  congela `shippingBoxSnapshot` con `baseFeeCents = E_base` y `contentWeightG = Σ weightG`.
+  congela `shippingBoxSnapshot` con `baseFeeCents = E_base` y `contentWeightG = Σ weightG` de las `units` (v1.86.1: sin
+  energías).
 - **Cajas en el panel:** `GET/PUT /admin/shipping/packages` (existentes; `PUT` solo súper-admin) ganan `customerFeeCents:
   number | null` en `ShippingPackageDTO`.
   - Fuera de rango ⇒ `400 {field:'customerFeeCents', index}`.
@@ -42023,9 +42047,25 @@ energyBundle: {
     components: { energyType: EnergyType; quantity: number }[];   // [] en accessory (criterio 743)
     prepStatus: 'pending' | 'picked' | 'missing'; missingQty: number; missingReason: MissingReason | null;
     settledWithoutStock: boolean;        // «sin existencias al liquidar»: revisar
-    refunded: boolean;                   // ya tiene fila de faltante
+    refunded: boolean;                   // ya tiene fila de faltante (≡ refund.kind === 'refunded')
+    // ⭐ v1.86.1 (Q-AC-UX-2) — lo que se reembolsaría, calculado por el servidor. ⛔ La pantalla no lo calcula.
+    refund:
+      | { kind: 'refundable';
+          amountByQtyCents: number[];    // largo = quantity; [k−1] = itemMissingRefundComponents(order, k × unitPriceCents).amount
+          amountCents: number }          // = amountByQtyCents[(prepStatus==='missing' ? missingQty : quantity) − 1]
+      | { kind: 'refunded'; refund: PaymentRefundDTO }                    // la fila `acc-item:<id>` (cualquier estado)
+      | { kind: 'not_refundable'; reason: 'order_not_settled' };          // misma regla que la carta (§M4-SHIP.3)
+    // ⭐ v1.86.1 (Q-AC-UX-3) — solo energy_bundle; en accessory: [] y false.
+    deckShipmentItemIds: string[];       // los ShipmentItem DE ESTE ENVÍO cuyas piezas son las deckOrderItemIds
+                                         // (OrderItem.inventoryItemId = ShipmentItem.inventoryItemId). Casan con items[].shipmentItemId
+    deckAllMissing: boolean;             // deckShipmentItemIds ≠ [] ∧ cada uno está `missing` o `blocked`
   }[]
   ```
+  - **Paquete:** `amountByQtyCents` tiene un solo elemento, `itemMissingRefundComponents(order, 1 × unitPriceCents)`
+    (P-AC-3, entero).
+  - `amountByQtyCents` se arma con el **mismo** cuerpo que el plan de `prepared` (abajo): el número que ve el operador es
+    el que se escribe. Es una lectura derivada, ⛔ sin columna nueva.
+  - `deckAllMissing` es lectura derivada para la **sugerencia** de la pantalla (abajo). ⛔ El servidor no actúa con él.
 - **`PATCH /admin/shipments/:id/prep-accessory-lines/:lineId`** (operador+, misma guarda de ruta de salida
   `assertOutboundRoute`).
   - Cuerpo `{ status: 'pending' | 'picked' | 'missing'; missingQty?: number; missingReason?: MissingReason }`.
@@ -42046,8 +42086,17 @@ energyBundle: {
   - La identidad de cierre `Σ amount = totalCents` y `Σ IVA = ivaCents` (±0) sigue igual; `orderRemainingRefundComponents`
     no cambia.
   - Las filas cuentan para el tope del operador en 24 h, como hoy (criterio 716).
-  - Bundle con todas las cartas de su deck faltantes: el operador lo marca faltante también (la pantalla lo sugiere).
-    ⛔ No es automático.
+  - ⭐ **v1.86.1 — `refundPreviewCents` suma los accesorios.** En `ShipPreparationStateDTO` (§M4-SHIP.3) pasa a ser:
+
+        Σ refund.amountCents de las cartas `missing` sin fila
+      + Σ refund.amountCents de las líneas de accesorio `missing` sin fila   (paquete incluido)
+      + el cierre `order_remaining` si «nada sale» (definición de arriba)
+
+    - Sigue siendo **exactamente** el `expectedRefundCents` que `POST …/prepared` acepta (regla de §M4-SHIP.5 sin
+      cambio): plan y vista salen del mismo cuerpo.
+    - Un directo sin accesorios: idéntico a hoy (I-AC-5).
+  - Bundle con todas las cartas de su deck faltantes: el operador lo marca faltante también (la pantalla lo sugiere con
+    `deckAllMissing`, v1.86.1). ⛔ No es automático: el servidor no marca ni reembolsa nada por ese campo.
 - **`DELETE /admin/shipments/:id/prepared`:** sin cambio de regla. Las filas ya creadas no se deshacen, igual que las de
   cartas.
 - **Seguro:** `insuredValueOf` (`label-quote.service.ts:483`), rama `guest_direct_ship`, suma además
@@ -42110,6 +42159,12 @@ interface AdminAccessoryDTO {
 }
 ```
 
+- ⭐ **v1.86.1 — Energías: sin medidas ni peso para activarse** (`PROJECT.md:9434-9435`, `:9544-9545`; P-AC-5).
+  - Con `category = energy`, `missing` de `ACCESSORY_NOT_ACTIVATABLE` **nunca** lleva `dimensions` ni `weight`: solo
+    `price`, `photo` y `energy_type`. Es lo que ya dice el CHECK `accessory_active_ready` de §AC.1 (⛔ sin cambio de schema).
+  - Porqué: la energía no entra a `chooseBox` (§AC.7), así que sus medidas no deciden nada. Pedirlas sería pedir un dato
+    que nadie lee.
+  - Si se capturan, se guardan y se muestran en el panel, pero ⛔ no entran a la caja ni a `contentWeightG`.
 - **Existencias.**
   - `receive` ⇒ `stockQty += quantity`.
   - `adjust` ⇒ CAS `WHERE stockQty = expectedStockQty`. Si no casa ⇒ `409 STOCK_CONFLICT {stockQty}`.
@@ -42261,6 +42316,25 @@ Cada una con su mutación, que debe ponerla roja. Las de carrera reportan propor
 - **AC-B38** Reuso con carrito de accesorios distinto ⇒ sustitución y apartado soltado.
 - **AC-B39** Foto pública: cabeceras `immutable` + `nosniff`; versión vieja ⇒ `404`.
 - **AC-B40** `PUT /admin/shipping/packages` con `customerFeeCents`: rango, bitácora antes y después, operador `403`.
+- **AC-B41** 💰 *(v1.86.1)* Importe por renglón y `refundPreviewCents`: envío con 1 carta + funda ×3 + paquete. Marcar
+  2 fundas y el paquete faltantes ⇒ `refund.amountCents` = `amountByQtyCents[1]` y `[0]`, iguales a
+  `itemMissingRefundComponents(order, 2×P)` y `(order, 2000)`; `refundPreviewCents` = Σ de esas dos + la carta si falta;
+  `POST prepared` con `expectedRefundCents = refundPreviewCents` ⇒ ok, y con `refundPreviewCents − 1` ⇒ el rechazo de
+  §M4-SHIP.5. Tras preparar, `refund.kind = 'refunded'` con la fila `acc-item:<id>`. Directo sin accesorios ⇒ el mismo
+  número que hoy. *Mutación:* quitar el término de accesorios de la vista (el `prepared` lo sigue sumando) ⇒ rojo.
+- **AC-B42** *(v1.86.1)* `deckShipmentItemIds` / `deckAllMissing`: los ids casan con `items[].shipmentItemId` de las
+  piezas firmadas; con todas `missing` o `blocked` ⇒ `true`; con una `picked` o `pending` ⇒ `false`; `accessory` ⇒ `[]`
+  y `false`. Con `deckAllMissing = true` el servidor **no** marca el paquete (sigue `pending`).
+- **AC-B43** *(v1.86.1)* `unavailableAccessories[].name`: inactivo ⇒ su nombre; inexistente ⇒ `null`; ninguna otra llave
+  de la fila (costo, existencias, medidas). *Mutación:* `spread` de la fila.
+- **AC-B44** *(v1.86.1)* `EnergyBundleDTO.energies[].photo` = la foto del producto activo de cada tipo (versión vigente),
+  en `energyBundles` y `energyBundleOffers`.
+- **AC-B45** *(v1.86.1)* Energía: activar con precio y foto, sin medidas ni peso ⇒ ok; sin foto ⇒ `422 {missing:['photo']}`
+  exacto (⛔ sin `dimensions`/`weight`). Energía **con** medidas capturadas en el carrito ⇒ `chooseBox` no la ve: misma
+  caja, misma tarifa y mismo `contentWeightG` que sin ella. *Mutación:* quitar el filtro `category ≠ energy` de `units`.
+- **AC-B46** 💰 *(v1.86.1)* `review` no retiene: pedido de 3 playmats que no caben ⇒ `review = true`, cobro =
+  `max(E_base, tarifa de la mayor)`, liquida, aparece en la hoja con `box.review = true`, se prepara y se cotiza guía con
+  otra caja sin que cambie `Order.totalCents` ni se cree cargo alguno.
 
 **Frontend** (`frontend/…`, Vitest y Playwright):
 - **AC-F1** Carrito v3: `{ ids, accessories: {id, qty}[], deckPulls: {token, slug, withEnergyBundle}[] }`. Migra v2 sin
@@ -42286,6 +42360,13 @@ Cada una con su mutación, que debe ponerla roja. Las de carrera reportan propor
 - **AC-F13** M3: renglones y reembolso por unidad.
 - **AC-F14** E2E de los criterios 724 y 748, en ES y EN, contra el stack corriendo.
 - **AC-F15** Ventas: celda «Accesorios».
+- **AC-F16** 💰 *(v1.86.1)* Diálogo de «Pedido preparado»: cada fila de accesorio muestra `refund.amountCents` del
+  servidor; al cambiar «faltan k» el importe sale de `amountByQtyCents[k−1]`; la cifra del título es `refundPreviewCents`
+  leída, ⛔ nunca sumada en el navegador.
+- **AC-F17** *(v1.86.1)* Con `deckAllMissing = true` el paquete muestra la sugerencia de marcarlo faltante; no se marca
+  solo. Con `false`, sin sugerencia.
+- **AC-F18** *(v1.86.1)* Carrito: avisos de `unavailableAccessories` con nombre (y el texto sin nombre cuando `name =
+  null`); renglón del paquete con las fotos de `energies[].photo`.
 
 ### AC.15 Lo que se rompe de lo existente y el censo de lectores
 
@@ -42357,6 +42438,11 @@ está escrito con la recomendación.** El orquestador las lleva; el arquitecto n
   suyo.
   - **Recomendación:** aceptarlo en esta versión. Si después quiere que el sellado cuente, se le pediría capturar las
     medidas de cada presentación.
+- **Q-AC-UX-1 · ¿Un precio para las 8 energías, o uno por energía?** *(v1.86.1; de `DESIGN_SYSTEM §AC-UX.18`; el
+  arquitecto no lo decide.)* Hoy el contrato tiene uno por energía (§AC.2 (3)): subir de MX$5 a MX$6 son 8 ediciones.
+  - **Recomendación (ux-ui):** uno por energía, como está, con el aviso «Las energías no tienen todas el mismo precio».
+  - Si el dueño pide uno solo: sería un dial nuevo y cambio de §AC.2 (3), de la sesión y de la semilla. ⛔ Sin schema
+    (`ConfigSetting` ya existe), pero sí errata de contrato antes de construir.
 
 **NO MEDIDO** (y qué lo cierra):
 - proveedor y bucket de archivos en producción: devops lee `S3_*` en Railway (no bloquea: las fotos van en Postgres);
