@@ -22,6 +22,7 @@
 > | SU-3 | Piezas retenidas hoy | Barrido único con el mismo cuerpo (`reevaluateForPublication`) sobre `platform ∧ in_stock ∧ locationId IS NULL` | **Sí** (publica el rezago) | backend (+ quién lo corre: orquestador) |
 > | SU-4 | Sellado en la cola | `sealedFinalPriceMode`: `in_stock` ⇒ siempre «Guardar y publicar» | Sí | frontend |
 > | SU-5 | Texto | `es.json:1596` dice «antes de IVA» para todo el sellado; el precio del producto es **con IVA** (M-71) | Texto | ux-ui → frontend |
+> | SU-8 | Alta (una, lote, «encontrada») | Tras el commit llama a `reevaluateForPublication(ids creados)`, best-effort con `try/catch`, nunca en replay. `201` del alta suelta: `status` = estado resultante. Sin campo nuevo | **Sí**: lo dado de alta con precio sale a la venta sin `bulk-publish` | backend (+ texto: ux-ui → frontend) |
 >
 > **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2 (2026-10-06, arquitecto, árbol `/home/user/tcg-ventas`,
 > rama `claude/analitica-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash).** Norma
@@ -14016,6 +14017,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - `productType=raw` → `rawCondition` solo `NM` (v1.1). `productType=sealed` → `sealedSubtype?` (opcional) + **`sealedCondition?` (v1.23, default `mint`; `mint | minor_box_damage`, visible al comprador)**, **sin** `rawCondition`/grade/rareza/cert; `listPriceCents` (override MXN) es **opcional** (v1.23): si se omite, el sellado se auto-precia por `mercado TCGCSV × spread` cuando está mapeado y el dial `sealedPriceSource=tcgcsv` (ARCHITECTURE §4.23b); sin mercado ni override queda `PRICE_PENDING` (no publicable). **`sealedCondition` en raw/graded → `422 VALIDATION_ERROR`.** `productType=graded` → `gradingCompany` + `gradeValue` + **`certNumber` (nº de certificado PSA/CGC, string) — REQUERIDO para publicar una gradeada** (v1.2). Sin validación automática contra la graduadora (fuera de alcance); es un dato capturado a mano.
   Para `aportacion_en_especie`: el costo se calcula = **referencia del día × pct** (default 70, editable). El item nace `ownerType=platform`.
   Res `201`: `{ id, folio: "INV-000123", status: "in_stock", acquisitionCostCents }`
+  ⭐ **Errata SU-1, SU.8 ([§M1-SU](#M1-SU)):** tras el commit el alta dispara la publicación; `status` es el estado
+  **resultante** (`"listed"` si se publicó, `"in_stock"` si no). Igual disparan `items/batch` y `adjustments(encontrada)`,
+  que no cambian de forma.
   Err `422 PRICE_PENDING` (si aportación en especie y no hay referencia → cola de precio pendiente), `422 VALIDATION_ERROR` (p. ej. `sealed` con `rawCondition`, `raw` con `rawCondition != NM`, o **`graded` sin `certNumber`**).
 - `GET /api/v1/admin/inventory/items` — query `?status=&cardId=&ownerType=&locationId=&zone=&q=&page=&finish=&productType=`
   - **`status?`, `ownerType?` y `zone?` — [§0-Q](#enum-query-filter) (v1.72, P-84; el contrato CALLABA en los tres y aquí se decide).** Los **tres son clase E** (ARCHITECTURE §4.37), dominio = el enum **completo** derivado de Prisma, **nunca una lista escrita a mano**:
@@ -14148,6 +14152,8 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   >   (`status:'listed'` o `bulk-publish`) o si el operador publica a mano desde M1. Lo cierra leer la pantalla de alta de
   >   M1 y su llamada, o dar de alta una pieza en local y ver su `status`. Esto también matiza el «fuera de toda pantalla»
   >   de arriba. Una pieza `in_stock` sigue en el listado de M1 (NO MEDIDO por pantalla). Lo que pierde es la cola.
+  >   ⭐ **Cerrado por SU.8 (abajo):** medido por lectura que ninguna pantalla de alta publica después; el alta pasa a
+  >   disparar la publicación.
   > - **Alternativa sin script:** el botón «Publicar todo» de M1 (`POST /admin/inventory/publish-all`, `M1View.tsx:313`).
   >   Publica el rezago, pero también **re-publica las piezas `in_stock` CON ubicación que alguien retiró de la venta a
   >   propósito** (`ItemDetailModal` «Retirar de venta»). Cuántas hay: **NO MEDIDO**. Se mide con
@@ -14230,6 +14236,97 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > 3. **Añadidos de backend no previstos**: `previewPublication` y `loadPublishRunDials`. Quedan nombrados en SU.3 con la
   >    condición «solo informa».
   > 4. **Dónde corre el script y en qué orden respecto a la limpieza de base**: en SU.3, «Quién lo corre».
+  >
+  > **SU.8 · El alta dispara la publicación (2026-10-07, arquitecto; cierra el NO MEDIDO de SU.3 (b)).**
+  > **El hueco, medido por lectura (orquestador y arquitecto, 2026-10-07; no ejecutado):** antes de SU-1 el camino del
+  > dueño era «alta sin cajón → cola "Sin ubicación" → mover a cajón → el `move` publica» (`tryAutoPublish(id,'move')`,
+  > `inventory.service.ts:3327`). Con SU-1 una pieza dada de alta **con precio** queda `missing = []`: fuera de la cola y
+  > sin publicar. Ningún alta llama al cuerpo: los únicos llamadores son `move` (`:3327`), `sealed-price.service.ts:391`
+  > y `buylist.service.ts:8088`. Ninguna pantalla de alta publica después (`grep publish` en `AddItemModal.tsx`,
+  > `AddGradedModal.tsx`, `QuickAdd.tsx`, `SealedAddFlow.tsx`: 0; `MasterSetPanel.tsx:320` solo es el callback del botón
+  > manual). QA tuvo que hacer `bulk-publish` tras dar de alta por la API (dato del orquestador). La fila de HECHOS
+  > («La ubicación (cajón) NO es requisito para publicar, por ahora», 2026-10-07) pide vender sin poner cajón: eso
+  > exige que el alta sea el disparador que antes era el `move`.
+  >
+  > **SU.8.1 · Las tres altas del servidor que crean `platform ∧ in_stock`** (`buildItemData`, `:1371-1372`; son los
+  > únicos `inventoryItem.create` de `inventory/`, más la conversión de buylist, que ya dispara):
+  > | Alta | Servidor | Pantallas que la usan |
+  > |---|---|---|
+  > | (A) `POST /admin/inventory/items` | `createItem` `:769-816` | `AddItemModal.tsx:168` (una carta), `AddGradedModal.tsx:55` |
+  > | (B) `POST /admin/inventory/items/batch` | `batchCreate` `:1400-1531` | `AddItemModal.tsx:209` (lote); `QuickAdd.tsx:157`, montado en `SealedAddFlow.tsx:407`, `SealedTab.tsx:370` y `VariantDrawer.tsx:270`; `MasterSetPanel.tsx:127` (carrito del binder, `CellDrawer.tsx:96`) |
+  > | (C) `POST /admin/inventory/adjustments` `reason:'encontrada'` | `adjustFound` `:3472-3590` | `CellDrawer.tsx:532-549` |
+  > `VariantDrawer.tsx:793` también llama a `adjustments`, pero con `inventoryItemId` (motivos sobre una pieza que ya
+  > existe): no es alta y no entra.
+  >
+  > **SU.8.2 · La regla.** Después del **commit** de la transacción del alta, se llama **al mismo cuerpo**
+  > (`reevaluateForPublication(ids)`, `:3052`) con los ids que **esta** petición acaba de crear. ⛔ Sin copia del pipeline,
+  > sin precio ni `status` pasados por el llamador. Decide `reevaluateOne` (`:3233`): con precio ⇒ `published` (`listed`);
+  > sin precio ⇒ escala a M2 y la pieza se queda en `pending-publish` con `missing` exactamente `["price"]` y su
+  > `pendingPriceEntryId`; guardas (p. ej. slab sin identidad) ⇒ `not_publishable`, sigue `in_stock`.
+  > - (A) un id; (B) todos los `inventoryItemIds` de las líneas `ok:true`, en **una** llamada (trocea y carga los
+  >   diales una vez, `:3058-3069`); (C) los `inventoryItemIds` de la respuesta.
+  > - **Solo en el procesamiento fresco.** El replay idempotente de (B) y (C) (fast-path `:1408-1409`, `:3489-3494`, y la
+  >   rama P2002 `:1519-1527`, `:3581-3589`) **no** dispara. Si disparara, re-publicaría una pieza que el operador
+  >   retiró de la venta entre la primera petición y el replay.
+  > - **Best-effort, y más estricto que el `move`.** Un fallo del disparo **no** cambia la respuesta del alta: se
+  >   captura, se registra (`logger.warn` con el folio) y la pieza queda `in_stock`, visible en `pending-publish` si le
+  >   falta precio o en M1 si no. Motivo: `tryAutoPublish` (`:3019-3035`) **no captura**; tras el `move` un `500` se
+  >   reintenta sin daño, pero (A) **no tiene clave de idempotencia** y un `500` después del commit invita a reintentar
+  >   ⇒ **pieza duplicada**. Forma recomendada (firma, no código): un helper privado
+  >   `publishCreated(ids: string[], trigger: 'alta' | 'alta_lote' | 'encontrada'): Promise<PublishReevaluationResult[]>`
+  >   que envuelve `reevaluateForPublication` en `try/catch` y devuelve `[]` si falla. ⛔ El `move` no cambia aquí.
+  > - Escalada de M2: el sellado sin precio ya escalaba en el alta (`escalateSealedAltaIfPriceless`, `:786-790`) con la
+  >   misma clave que la publicación, así que el disparo **no** abre una segunda entrada (dedupe por clave, `:777-785`).
+  >   **Nuevo:** raw/graded de **compra** sin precio hoy no escalan en el alta (solo la aportación, `:818-823`, y esa
+  >   lanza `422` sin crear); con SU.8 escalan por `reevaluateOne`. Es lo que pide la fase 8: *un pendiente visible*.
+  >
+  > **SU.8.3 · Respuestas. Sin campo nuevo.**
+  > - (A) `201 { id, folio, status, acquisitionCostCents }`: **`status` pasa a ser el estado resultante**, `"listed"` si
+  >   el disparo devolvió `published` y `"in_stock"` en cualquier otro caso (incluido el fallo capturado). El tipo ya era
+  >   `InventoryStatus`; lo que cambia es que deja de ser siempre `"in_stock"`. Es el mismo patrón que el `move` (S49-R4,
+  >   `:3328`).
+  > - (B) y (C) **no cambian de forma**: `BatchLineResult` y `InventoryAdjustmentResponse` se guardan dentro de la
+  >   transacción como fuente del replay (`resultJson`, `:1508-1515`, `:3569-3577`), **antes** del disparo. Un `status` por
+  >   pieza ahí sería falso en el replay, o exigiría reescribir `resultJson` después del commit. Se descarta.
+  >   `InventoryAdjustmentResponse.toStatus: "in_stock"` se queda: describe la fila `InventoryAdjustment`, no el estado
+  >   vivo de la pieza.
+  >
+  > **SU.8.4 · Frontend (texto; decide ux-ui la redacción).**
+  > - `AddItemModal.tsx:186-190` y `AddGradedModal.tsx:64`: con `status === "listed"`, decir que **quedó a la venta**;
+  >   con `"in_stock"`, que **aún no está a la venta** y se revisa en «Listas para publicar». Hoy `createToast`
+  >   (`es.json:1428`) solo dice «dada de alta». `AddGradedModal` no muestra aviso propio (solo `onCreated`); NO MEDIDO qué
+  >   pinta su llamador `M1View.tsx:391`.
+  > - Lote y «encontrada» (`batchToastAllOk` `es.json:1440`, `successOne`/`successSummary` `:5526-5527`): no hay dato por
+  >   pieza. Si se cambia el texto, que sea verdadero sin él: «las que tienen precio ya están a la venta; las demás,
+  >   en "Listas para publicar"». ⛔ No bloquea.
+  > - Mock: `api.ts:3885` devuelve `status: 'in_stock'` fijo. Si el texto depende de `status`, el mock debe poder dar
+  >   `"listed"`.
+  >
+  > **SU.8.5 · Pruebas.** Deben estar **rojas** sobre el código de hoy, salvo las marcadas *canario* (verdes hoy; fijan
+  > que la implementación no rompa algo):
+  > | # | Prueba | Espera | Muerde si |
+  > |---|---|---|---|
+  > | SU-B7 | (A) sin `locationId`, con precio que resuelve, tres casos: raw con `listPriceCents`; graded con cert + identidad de slab + precio; sellado sin producto con `listPriceCents` | `201`, `status:"listed"` en la respuesta **y** en BD | el alta no dispara, o la respuesta no relee el estado |
+  > | SU-B8 | (A) raw `compra` sin precio ni referencia | `201`, `status:"in_stock"`; en `pending-publish`, `missing` **exactamente** `["price"]` y `pendingPriceEntryId` no nulo | no escala (hoy no escala, por lectura) |
+  > | SU-B9 | (B) un lote con dos líneas: una con precio y otra sin él | la primera `listed`, la segunda `in_stock` con `["price"]`; `reevaluateForPublication` se llama **una** vez con exactamente los ids `ok:true` | no dispara, o dispara por pieza |
+  > | SU-B10 | (B) replay: tras la 1.ª corrida se retira de la venta la pieza publicada (`PATCH status:"in_stock"`); se repite el mismo `batchKey` | `idempotentReplay:true`, la pieza sigue `in_stock`, el cuerpo **no** se llama | el replay dispara (*canario*: verde hoy) |
+  > | SU-B11 | (C) `encontrada` raw con referencia | piezas `listed` | `adjustFound` no dispara |
+  > | SU-B12 | (A) y (B) con el cuerpo que lanza (`pricing.loadPricingCurve` rechaza) | `201` / `200`, la pieza existe `in_stock`, respuesta de (A) con `status:"in_stock"` | el fallo del disparo tumba el alta (*canario*: verde hoy) |
+  > | SU-F2 | `AddItemModal`: respuesta con `status:"listed"` y luego con `"in_stock"` | dos textos distintos (a la venta / aún no) | el aviso ignora `status` |
+  > El candado de dedupe `inventory.sealed-pending-dedup.spec.ts:216-236` (alta de sellado sin precio ⇒ **exactamente
+  > una** `PendingPriceEntry`) debe seguir verde **sin cambios**: con SU.8 el alta escala dos veces con la misma clave.
+  > **Pruebas de hoy que pueden cambiar, NO MEDIDO por ejecución** (candidatas por lectura; la lista exacta la mide
+  > backend corriendo la suite):
+  > - las que dan de alta con precio y aseveran `in_stock`, o que `inventoryItem.updateMany` no se llamó:
+  >   `inventory.adjustments.spec.ts:215`, `:355`, `:374`; `inventory.batch.spec.ts:363`, `:407`, `:431`;
+  >   `inventory.sealed-pending-dedup.spec.ts:247` (sin precio: no debería cambiar).
+  > - los arneses unitarios de alta que no simulan `inventoryItem.findMany` ni los diales: el disparo lanzará dentro del
+  >   `try/catch` y seguirán verdes, pero **sin probar nada**. SU-B7…B12 necesitan un arnés que sí los simule.
+  > - `integration/sealed-price.e2e-spec.ts:730` (alta del dueño con `listPriceCents: 5000`) y `:755` (SP-9,
+  >   «encontrada» con precio): esas piezas nacerán `listed`. Lo que aseveran hoy (código, `productType`,
+  >   `listPriceCents`) no depende del `status`, pero no lo he corrido.
+  > - E2E de QA: el `bulk-publish` tras el alta deja de hacer falta. Si se queda, sigue verde: re-publicar una `listed`
+  >   es no-op `ok:true` (`api.ts:3959-3961`).
   > **⚠️ v1.73 — `?missing=`, `?acquisitionType=` y `?productType=` los norma [§0-Q](#enum-query-filter)** (conducta ante
   > vacío, `400 VALIDATION_ERROR` con `details.field` + `details.allowed`). **`?missing=` es CLASE L** (§0-Q punto 3): su
   > dominio **`location | price`** no existe en el schema —no nombra un estado persistido, nombra **qué le falta a la

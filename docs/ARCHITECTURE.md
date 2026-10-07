@@ -7,7 +7,8 @@
 > **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
 > `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
 > porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
-> para el rezago y una línea de frontend.
+> para el rezago y una línea de frontend. **SU.8** (§4.65 (h)): el alta (suelta, lote, «encontrada») dispara la
+> publicación con el mismo cuerpo.
 >
 > **Rev v1.85⟨ventas⟩ — 💰 ANALÍTICA DE VENTAS DEL DUEÑO, P1 + P2** (2026-10-06, arquitecto, rama `claude/analitica-ventas`
 > en `/home/user/tcg-ventas`, base `production` sin `M-72` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). `API_CONTRACT`
@@ -28984,7 +28985,24 @@ de publicar»). `basis.manual` (`es.json:1599`, «a mano, antes de IVA») es cor
 - Si la limpieza de base (`HECHOS`, «también se BORRA el inventario») borra todo el inventario de plataforma, el rezago
   de (c) desaparece con él. El orden lo decide el dueño.
 - Queda abierto y **NO MEDIDO**: si la pieza que el dueño vuelva a subir por el alta de M1 se publica sin más pasos.
-  El alta no dispara la publicación (`inventory.service.ts:769-815`).
+  El alta no dispara la publicación (`inventory.service.ts:769-815`). ⭐ **Cerrado por (h).**
+
+**(h) Errata SU.8 — el alta pasa a ser disparador (2026-10-07; detalle en `API_CONTRACT §M1-SU` SU.8).**
+- **Medido por lectura, no ejecutado:** ninguna de las tres altas de servidor (`createItem`, `batchCreate`,
+  `adjustFound`) llama al cuerpo, y ninguna pantalla de alta publica después. Antes de SU-1 el `move` hacía de
+  disparador porque el cajón era lo último que faltaba. Con SU-1 ya no lo es, y el disparador se quedó sin momento: la
+  pieza con precio nace `missing = []`, fuera de la cola y sin publicar.
+- **Decisión:** el alta se suma a los disparadores (a)–(c) de §4.39m.2 como **(d) alta**, con el mismo cuerpo
+  (`reevaluateForPublication`). Dispara después del commit, solo en el procesamiento fresco (nunca en el replay
+  idempotente, que re-publicaría una pieza retirada) y con `try/catch`: el alta suelta no tiene clave de idempotencia y
+  un `500` después del commit invita a duplicar la pieza.
+- **Descartado: publicar desde el frontend tras el alta** (`bulk-publish` encadenado). Serían dos peticiones y el hueco
+  volvería en cada pantalla nueva, además de en la API, que es donde lo pisó QA.
+- **Descartado: un campo nuevo en la respuesta del lote.** El resultado del lote es la fuente del replay y se guarda
+  antes del disparo. Solo el alta suelta devuelve el estado resultante, en el campo `status` que ya tenía.
+- **Revertir** (si el cajón vuelve a ser requisito): no hace falta quitar las llamadas. Con la regla vieja, la pieza sin
+  cajón saldría `missing_location` y la que nace con cajón y precio se publicaría al alta, que es lo que «ubicación +
+  precio ⇒ publicada» ya pedía.
 
 ---
 
