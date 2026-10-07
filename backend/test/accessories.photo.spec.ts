@@ -11,7 +11,7 @@
  */
 import { createHash } from 'node:crypto';
 import { crc32 } from 'node:zlib';
-import sharp from 'sharp';
+import sharp, { type Color } from 'sharp';
 import { processAccessoryPhoto, sniffImageType, PHOTO_MAX_BYTES } from '../src/modules/accessories/accessory-photo';
 import { BusinessException } from '../src/common/business.exception';
 
@@ -30,7 +30,7 @@ async function reason(p: Promise<unknown>): Promise<string> {
   throw new Error('no lanzó');
 }
 
-const solid = (w: number, h: number, bg: sharp.Color, channels: 3 | 4 = 3) =>
+const solid = (w: number, h: number, bg: Color, channels: 3 | 4 = 3) =>
   sharp({ create: { width: w, height: h, channels, background: bg } });
 
 async function pixel(webp: Buffer, x: number, y: number): Promise<number[]> {

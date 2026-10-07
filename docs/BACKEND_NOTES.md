@@ -30717,3 +30717,21 @@ cada una se entrega con su mutación roja. Ninguna prueba demostró un defecto.
 #### 83.v1.86.4.6 NO MEDIDO
 - La integración completa (todas las suites): solo las cuatro de arriba.
 - El reparto `409`/`422` bajo carrera (AC-B33): no se re-midió aquí; es de QA (criterio 741).
+
+### 83.sharp `sharp` 0.34.5 → 0.35.5 (aviso alto de `npm audit`, DEVOPS_NOTES §93) (2026-10-07, rama `claude/accesorios`, sobre `fbb21087`)
+- **Qué:** `"sharp": "^0.35.5"` en `backend/package.json`; lock regenerado con `npm install`. Diff del lock medido
+  entrada a entrada (`packages`): **28 entradas**, todas `sharp` / `@img/sharp-*` / `@img/sharp-libvips-*`
+  (0.34.5→0.35.5 y libvips 1.2.4→1.3.4; dos nuevas opcionales `@img/sharp-freebsd-wasm32` y
+  `@img/sharp-webcontainers-wasm32`) más la raíz `""` (el rango). Nada más se movió.
+- `npm audit --omit=dev --audit-level=high` ⇒ **rc=0**.
+- **Tipos en 0.35:** el paquete publica `dist/index.d.mts` (vía `types`) y nuestro `tsconfig` (CommonJS, resolución
+  clásica) lo resuelve: ahí `sharp` es `export default` y los tipos son **exportaciones con nombre**, no un namespace.
+  Por eso `sharp.Color` daba `TS2503`. Arreglo en la prueba: `import sharp, { type Color } from 'sharp'`; la prueba no
+  cambia de conducta. `src/modules/accessories/accessory-photo.ts` no usa tipos del namespace: sin cambios. El
+  runtime sigue cargando `dist/index.cjs` (`require`), sin avisos de obsolescencia en `rotate()`, `failOn`,
+  `limitInputPixels`.
+- **Mutación** (copia `git archive` del árbol entero): añadir `.withMetadata()` tras `.rotate()` ⇒ «⛔ sin EXIF ni GPS»
+  roja **3/3** (`m.exif` llega con `Exif…`); el resto 12/12 verde. Restaurado ⇒ 13/13.
+- **Suites** (misma copia, `node_modules` enlazado): `tsc --noEmit` rc=0; unitaria entera **454/454 suites,
+  8243/8243**; integración `accessories-panel` (esquema `acc_sharp`) **1/1, 32/32**.
+- **NO MEDIDO:** la imagen Docker (musl, canario de §93) con 0.35 — es de devops/CI (`trivy-image`).
