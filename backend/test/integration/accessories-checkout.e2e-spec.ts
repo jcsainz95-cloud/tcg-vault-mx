@@ -5,7 +5,8 @@
  *  AC-B10 precio del servidor · AC-B11 pedido mixto, un cobro · AC-B12 importes de línea · AC-B13 carrera de la última
  *  unidad (N=10) · AC-B14 soltar · AC-B15 liquidar · AC-B16 / 749 sin bóveda y con sesión se rechaza · AC-B24/B25/B45/B46
  *  la caja · AC-B32/B34 paquete · AC-B33 carrera del paquete (N=10) · AC-B38 reuso · AC-B43 `unavailableAccessories` ·
- *  AC-B44 fotos del paquete · AC-B56 orden de existencias · AC-B57 `unavailableBundles[].index`.
+ *  AC-B44 fotos del paquete · AC-B56 orden de existencias · AC-B57 `unavailableBundles[].index` · AC-B61 (v1.86.4, §AC.20.1)
+ *  el código de la falta SIN carrera: paquete que no cabe solo ⇒ `422 …/insufficient_stock`; cada uno cabe pero no juntos ⇒ `409`.
  *
  * Las carreras se miden N=10 rondas y se reporta la proporción (O-3).
  */
@@ -710,6 +711,44 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
       });
       expect(code(s)).toBe('422:ENERGY_BUNDLE_INVALID');
       expect(s.body.error.details).toEqual({ index: 0, deckSlug: deck2.slug, reason: 'deck_incomplete' });
+    });
+
+    describe('AC-B61 💰 código determinista de la falta en session, SIN carrera (§AC.20.1)', () => {
+      const snapshot = async (fire: string) => ({
+        orders: await h.prisma.order.count(),
+        lines: await h.prisma.orderAccessoryLine.count(),
+        comps: await h.prisma.orderEnergyBundleComponent.count(),
+        intents: h.stripe.createdIntents.length,
+        fire: await db.stockOf(fire),
+      });
+
+      it('(a) el deck pide 8 Fuego y hay 5 ⇒ 422 ENERGY_BUNDLE_INVALID {index:0, insufficient_stock} (paso 3); nada creado, sin PI', async () => {
+        const w = await deckWorld(5);
+        const before = await snapshot(w.fire);
+        const s = await db.session({ inventoryItemIds: w.items, deckPulls: [{ pullToken: w.token, withEnergyBundle: true }] });
+        expect(code(s)).toBe('422:ENERGY_BUNDLE_INVALID');
+        expect(s.body.error.details).toEqual({ index: 0, deckSlug: w.deck.slug, reason: 'insufficient_stock' });
+        expect(await snapshot(w.fire)).toEqual({ ...before, fire: { stockQty: 5, reservedQty: 0 } });
+        for (const id of w.items) expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id } })).status).toBe('listed');
+      });
+
+      it('(b) 10 Fuego y dos paquetes de 8 (decks distintos): cada uno cabe solo ⇒ 409 ACCESSORY_INSUFFICIENT_STOCK {Fuego, 10} (paso 5); nada creado', async () => {
+        const w = await deckWorld(10);
+        const deck2 = await db.mkDeck({ cards: 2, energies: [{ rawName: 'Basic {R} Energy', quantity: 8 }] });
+        const i3 = await db.mkItem();
+        const i4 = await db.mkItem();
+        const before = await snapshot(w.fire);
+        const s = await db.session({
+          inventoryItemIds: [...w.items, i3.id, i4.id],
+          deckPulls: [
+            { pullToken: w.token, withEnergyBundle: true },
+            { pullToken: db.token(deck2, [i3.id, i4.id]), withEnergyBundle: true },
+          ],
+        });
+        expect(code(s)).toBe('409:ACCESSORY_INSUFFICIENT_STOCK');
+        expect(s.body.error.details).toEqual({ accessoryId: w.fire, availableQty: 10 });
+        expect(await snapshot(w.fire)).toEqual({ ...before, fire: { stockQty: 10, reservedQty: 0 } });
+      });
     });
 
     it(`AC-B33 💰 carrera del paquete: 8 Fuego, dos sesiones que piden 8 ⇒ una gana (criterio 741, N=${N})`, async () => {

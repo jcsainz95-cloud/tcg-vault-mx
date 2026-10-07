@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
-import { EnergyType } from '@prisma/client';
+import { EnergyType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { PiiCryptoService } from '../../src/common/crypto/pii-crypto.service';
 import { CatalogService, DeckMetaUnitDTO } from '../../src/modules/catalog/catalog.service';
@@ -14,7 +14,8 @@ import { MetaDeckLineDTO } from '../../src/modules/decks-meta/decks-meta.dto';
  * 💰 §AC.8 (stream C) contra Postgres REAL con `M-73`: AC-B29 (`basicEnergy` ligado), AC-B30 (`energyBundle` de la ficha,
  * `paste` sin token), AC-B36 («Agregar de jalón» igual) y AC-B32 en su parte de lectura (el validador del servicio lee la
  * lista FIRMADA, el deck publicado, las existencias y el dial de la BD). El catálogo de piezas se stubea como en
- * `decks-meta-persistence.e2e-spec.ts`.
+ * `decks-meta-persistence.e2e-spec.ts`. AC-B63 (v1.86.4, §AC.20.2): el dial se lee y su ausencia cae a 2000; la suite pone
+ * el estado del dial que necesita y devuelve el que encontró (⛔ no supone si `seed-e2e` lo sembró).
  */
 describe('decks-meta energías y paquete (§AC.8, integración)', () => {
   const prisma = new PrismaService();
@@ -50,7 +51,19 @@ describe('decks-meta energías y paquete (§AC.8, integración)', () => {
 
   let energyIds: Record<EnergyType, string>;
   const PHOTO_V = '0123456789abcdef';
-  let dialExisted = false;
+  /**
+   * §AC.20.2 (v1.86.4) — el dial `energy_bundle_price_cents` puede existir o no en el entorno (`seed-e2e` lo siembra;
+   * producción no hasta que el súper-admin lo guarda). ⛔ Ninguna prueba supone cuál: la suite guarda lo que encontró,
+   * pone su estado base «ausente» y lo devuelve al terminar.
+   */
+  let prevDial: { valueJson: Prisma.JsonValue; updatedBy: string | null } | null = null;
+  const setDial = (valueJson: number) =>
+    prisma.configSetting.upsert({
+      where: { key: ENERGY_BUNDLE_PRICE_KEY },
+      create: { key: ENERGY_BUNDLE_PRICE_KEY, valueJson, updatedBy: 'test' },
+      update: { valueJson, updatedBy: 'test' },
+    });
+  const clearDial = () => prisma.configSetting.deleteMany({ where: { key: ENERGY_BUNDLE_PRICE_KEY } });
 
   async function setEnergy(t: EnergyType, data: { active?: boolean; stockQty?: number; reservedQty?: number; priceCents?: number | null }) {
     // Orden seguro para el CHECK accessory_stock: reservado nunca > existencias.
@@ -76,8 +89,8 @@ describe('decks-meta energías y paquete (§AC.8, integración)', () => {
     for (const t of ['psychic', 'darkness'] as EnergyType[]) {
       await prisma.accessory.update({ where: { id: energyIds[t] }, data: { priceCents: 500, photoVersion: PHOTO_V, stockQty: 40, reservedQty: 0, active: true } });
     }
-    dialExisted = !!(await prisma.configSetting.findUnique({ where: { key: ENERGY_BUNDLE_PRICE_KEY } }));
-    expect(dialExisted).toBe(false); // esquema propio: el dial no existe ⇒ default 2000
+    prevDial = await prisma.configSetting.findUnique({ where: { key: ENERGY_BUNDLE_PRICE_KEY }, select: { valueJson: true, updatedBy: true } });
+    await clearDial(); // estado base de la suite: «ausente» (⇒ default 2000), PUESTO por la suite (§AC.20.2 (1))
 
     await prisma.cardSet.create({ data: { id: setId, externalId: `ext-${tag}`, name: `Set ${tag}`, ptcgoCode: code } });
     await prisma.card.create({ data: { id: cardX, externalId: `${tag}-1`, setId, name: 'Carta X', number: '1', supertype: 'Pokémon' } });
@@ -91,7 +104,13 @@ describe('decks-meta energías y paquete (§AC.8, integración)', () => {
     for (const t of Object.values(EnergyType)) {
       await prisma.accessory.update({ where: { id: energyIds[t] }, data: { active: false, reservedQty: 0, stockQty: 0, priceCents: 500, photoVersion: null } });
     }
-    await prisma.configSetting.deleteMany({ where: { key: ENERGY_BUNDLE_PRICE_KEY } });
+    // §AC.20.2 (3): el dial vuelve a lo que la suite encontró (⛔ borrar sin más deja sin fila a las suites siguientes).
+    await clearDial();
+    if (prevDial) {
+      await prisma.configSetting.create({
+        data: { key: ENERGY_BUNDLE_PRICE_KEY, valueJson: prevDial.valueJson as Prisma.InputJsonValue, updatedBy: prevDial.updatedBy },
+      });
+    }
     const decks = await prisma.metaDeck.findMany({ where: { slug: { contains: tag } } });
     for (const d of decks) {
       await prisma.metaDeck.update({ where: { id: d.id }, data: { currentListId: null } });
@@ -167,23 +186,40 @@ describe('decks-meta energías y paquete (§AC.8, integración)', () => {
     });
 
     it('el dial manda: energy_bundle_price_cents = 6000 ⇒ 5000 ≤ 6000 ⇒ not_offered (P-EN-3)', async () => {
-      await prisma.configSetting.create({ data: { key: ENERGY_BUNDLE_PRICE_KEY, valueJson: 6000, updatedBy: 'test' } });
+      await setDial(6000);
       try {
         const d = await service.getBySlug(slug);
         expect(d.energyBundle).toMatchObject({ offered: false, reason: 'not_offered', priceCents: 6000 });
         expect(typeof d.energyBundle.pullToken).toBe('string'); // SIEMPRE presente
       } finally {
-        await prisma.configSetting.deleteMany({ where: { key: ENERGY_BUNDLE_PRICE_KEY } });
+        await clearDial();
       }
     });
 
     it('dial fuera de rango ⇒ se usa el default 2000 (no se cobra un valor corrupto)', async () => {
-      await prisma.configSetting.create({ data: { key: ENERGY_BUNDLE_PRICE_KEY, valueJson: 0, updatedBy: 'test' } });
+      await setDial(0);
       try {
         expect((await service.getBySlug(slug)).energyBundle.priceCents).toBe(2000);
       } finally {
-        await prisma.configSetting.deleteMany({ where: { key: ENERGY_BUNDLE_PRICE_KEY } });
+        await clearDial();
       }
+    });
+
+    describe('AC-B63 el dial se lee y su ausencia cae a 2000, con el estado puesto por la prueba (§AC.20.2)', () => {
+      it('fila AUSENTE (deleteMany) ⇒ energyBundle.priceCents = 2000 (SETTING_DEFAULTS)', async () => {
+        await clearDial();
+        expect(await prisma.configSetting.count({ where: { key: ENERGY_BUNDLE_PRICE_KEY } })).toBe(0);
+        expect((await service.getBySlug(slug)).energyBundle).toMatchObject({ offered: true, reason: null, priceCents: 2000 });
+      });
+
+      it('fila 2300 (≠ default, upsert) ⇒ priceCents = 2300 y offered:true (looseTotal 5000 > 2300)', async () => {
+        await setDial(2300);
+        try {
+          expect((await service.getBySlug(slug)).energyBundle).toMatchObject({ offered: true, reason: null, priceCents: 2300, looseTotalCents: 5000 });
+        } finally {
+          await clearDial();
+        }
+      });
     });
 
     it('existencias cortas ⇒ insufficient_stock (6 Psíquica pedidas, 5 disponibles)', async () => {

@@ -47,7 +47,7 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
   const created: string[] = [];
   let packagesBefore: unknown;
   const DIAL_KEYS = ['energy_bundle_price_cents', 'accessory_suggestion_count'];
-  let dialsBefore: { key: string; valueJson: unknown }[] = [];
+  let dialsBefore: { key: string; valueJson: unknown; updatedBy: string | null }[] = [];
 
   beforeAll(async () => {
     h = await E2EHarness.create();
@@ -59,8 +59,9 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
     JPG = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#0c0' } }).jpeg().toBuffer();
     WEBP = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#00c' } }).webp().toBuffer();
     packagesBefore = (await h.api('GET', '/admin/shipping/packages', { token: admin })).body;
-    // Los diales pueden venir sembrados (`seed-e2e` siembra todos los defaults): se guardan y se reponen al final.
-    dialsBefore = await h.prisma.configSetting.findMany({ where: { key: { in: DIAL_KEYS } }, select: { key: true, valueJson: true } });
+    // Los diales pueden venir sembrados (`seed-e2e` siembra todos los defaults): se guardan y se reponen al final, con su
+    // `updatedBy` (§AC.20.2 v1.86.4: la suite devuelve el estado que encontró, no solo el valor).
+    dialsBefore = await h.prisma.configSetting.findMany({ where: { key: { in: DIAL_KEYS } }, select: { key: true, valueJson: true, updatedBy: true } });
   });
 
   afterAll(async () => {
@@ -77,7 +78,7 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
     await h.prisma.accessory.deleteMany({ where: { id: { in: ids } } });
     if (packagesBefore) await h.api('PUT', '/admin/shipping/packages', { token: admin, json: packagesBefore });
     await h.prisma.configSetting.deleteMany({ where: { key: { in: DIAL_KEYS } } });
-    for (const d of dialsBefore) await h.prisma.configSetting.create({ data: { key: d.key, valueJson: d.valueJson as never } });
+    for (const d of dialsBefore) await h.prisma.configSetting.create({ data: { key: d.key, valueJson: d.valueJson as never, updatedBy: d.updatedBy } });
     await h.close();
   });
 

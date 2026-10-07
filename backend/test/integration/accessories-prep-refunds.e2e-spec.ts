@@ -5,7 +5,8 @@
  *  AC-B18 renglones en el detalle y la hoja · AC-B19 «faltó 1 de 3» · AC-B20 reembolso total según si salió ·
  *  AC-B21 cierre `order_remaining` con accesorios · AC-B22 entregado por unidad + carrera (N=10) · AC-B35 paquete ·
  *  AC-B41 importe por renglón y `refundPreviewCents` · AC-B42 `deckShipmentItemIds`/`deckAllMissing` · AC-B52 el verbo
- *  · AC-B55 foto vigente · AC-B58 el PATCH · AC-B59 conteos · AC-B60 `OrderAccessoryLineDTO` en M3 y seguimiento.
+ *  · AC-B55 foto vigente · AC-B58 el PATCH · AC-B59 conteos · AC-B60 `OrderAccessoryLineDTO` en M3 y seguimiento
+ *  · AC-B62 (v1.86.4, §AC.20.3) Stripe rechaza el reembolso total y luego llega `charge.refunded` ⇒ se repone UNA vez.
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
@@ -334,6 +335,37 @@ describe('💰 Accesorios (B) — preparación y reembolsos (Postgres real)', ()
         data: { object: { id: `ch_${RUN}_${Date.now()}`, object: 'charge', payment_intent: p.s.body.stripe.paymentIntentId, amount: p.total, amount_refunded: p.total } },
       });
       expect(await db.stockOf(p.funda.id)).toEqual({ stockQty: before.funda.stockQty + 2, reservedQty: 0 });
+    });
+
+    it('AC-B62 💰 Stripe RECHAZA el reembolso total y después llega charge.refunded ⇒ las fundas vuelven UNA sola vez (§AC.20.3)', async () => {
+      const funda = await db.mkAccessory({ name: `Penny sleeves ${RUN} B62`, priceCents: 8900, stockQty: 10, unitCostCents: 3000, dims: FUNDA_DIMS });
+      const item = await db.mkItem({ listPriceCents: 30000 });
+      const p = await db.paidOrder({ inventoryItemIds: [item.id], accessoryLines: [{ accessoryId: funda.id, quantity: 3 }] });
+      expect(await db.stockOf(funda.id)).toEqual({ stockQty: 7, reservedQty: 0 });
+      const restocks = () => h.prisma.accessoryStockMovement.findMany({ where: { orderId: p.orderId, kind: 'restock' } });
+
+      // (1) M3 total, NO enviado, con el doble de Stripe rechazando (StripeInvalidRequestError ⇒ fila `failed`).
+      h.stripe.refundOutcome = 'definitive';
+      await db.fullRefund(p.orderId, { reason: 'el cliente canceló' });
+      const row = await h.prisma.paymentRefund.findFirstOrThrow({ where: { orderId: p.orderId, kind: 'order_full' } });
+      expect(row.status).toBe('failed');
+      // Las unidades volvieron en la tx1 de M3 (no en la confirmación, que no llegó): 7 → 10 aunque Stripe rechazó.
+      expect(await db.stockOf(funda.id)).toEqual({ stockQty: 10, reservedQty: 0 });
+      expect((await h.prisma.shipmentRequest.findUniqueOrThrow({ where: { id: p.shipmentId } })).status).toBe('cancelado');
+      const line = await h.prisma.orderAccessoryLine.findFirstOrThrow({ where: { orderId: p.orderId } });
+      expect(line.status).toBe('restocked');
+      expect((await restocks()).map((m) => [m.accessoryId, m.delta, m.stockBefore, m.stockAfter])).toEqual([[funda.id, 3, 7, 10]]);
+
+      // (2) El reembolso se rehace fuera (panel de Stripe) ⇒ charge.refunded TOTAL del mismo PI: ⛔ no repone otra vez.
+      h.stripe.refundOutcome = 'ok';
+      const wh = await h.sendStripeWebhook({
+        type: 'charge.refunded',
+        data: { object: { id: `ch_${RUN}_b62_${Date.now()}`, object: 'charge', payment_intent: p.s.body.stripe.paymentIntentId, amount: p.total, amount_refunded: p.total } },
+      });
+      expect(wh.status).toBe(200);
+      expect((await h.prisma.order.findUniqueOrThrow({ where: { id: p.orderId } })).status).toBe('refunded');
+      expect(await db.stockOf(funda.id)).toEqual({ stockQty: 10, reservedQty: 0 });
+      expect(await restocks()).toHaveLength(1);
     });
 
     it('ENVIADO ⇒ nada vuelve (y M3 pide el motivo «tras envío»)', async () => {
