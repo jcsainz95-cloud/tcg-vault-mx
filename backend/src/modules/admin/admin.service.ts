@@ -30,12 +30,8 @@ import { BusinessException } from '../../common/business.exception';
 import { variantKey } from '../../common/variant-key';
 import { toAddressDTO } from '../users/address-dto';
 import { UsersService } from '../users/users.service';
-import {
-  netRevenueCents,
-  netShippingCostCents,
-  netShippingRevenueCents,
-  shipmentNetRevenueCents,
-} from '../../common/money';
+import { netRevenueCents, netShippingRevenueCents } from '../../common/money';
+import { pnlBuckets, refundsInPeriod, zeroPnl } from './pnl-core';
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -52,9 +48,8 @@ import {
   isValidEmailFormat,
   normalizeEmail,
 } from '../../common/validation/credentials';
-import { INBOUND_ONLY, OUTBOUND_ONLY } from '../shipments/label-subject';
+import { OUTBOUND_ONLY } from '../shipments/label-subject';
 import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
-import { guideCostOfRequest, isSkydropxInbound, retainedShippingFeeCents, skydropxInboundGuideCostCents } from './pnl-buylist';
 
 /**
  * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
@@ -1726,221 +1721,13 @@ export class AdminService {
    * ⚠️ **Esta cifra del reporte SÍ cambia con este pase, y debe cambiar**: hoy falta un sumando.
    */
   async pnl(from?: string, to?: string) {
-    const createdAt = range(from, to);
-    const settledOrders = await this.prisma.order.findMany({
-      where: { status: 'settled', ...(createdAt ? { settledAt: createdAt } : {}) },
-      include: { items: { include: { inventoryItem: true } } },
-    });
-    let incomeCents = 0;
-    let stripeFeesCents = 0;
-    let cogsCents = 0;
-    // `D-IVA-5`: el ingreso de envío cobrado DENTRO de la orden (`direct_ship`). Se acumula aparte
-    // porque es INGRESO DE ENVÍO, no ingreso de mercancía: va a `shippingRevenueCents`, jamás a
-    // `incomeCents`. Se acota por `settledAt` (el mismo predicado del `findMany` de arriba), que es
-    // lo que el contrato dice: «órdenes settled del periodo».
-    let directShipShippingRevenueCents = 0;
-    for (const o of settledOrders) {
-      incomeCents += netRevenueCents(o);
-      stripeFeesCents += o.processingFeeCents;
-      if (o.fulfillmentMode === 'direct_ship') {
-        directShipShippingRevenueCents += netShippingRevenueCents(o);
-      }
-      for (const it of o.items) {
-        cogsCents += it.inventoryItem.acquisitionCostCents ?? 0;
-      }
-    }
-    // Fix correctness #3: los envíos también se acotan al periodo, por su fecha de
-    // liquidación (`pickingAt` = cuando payment_intent.succeeded los movió a picking).
-    const shipmentRange = range(from, to);
-    const shipments = await this.prisma.shipmentRequest.findMany({
-      where: {
-        // 💰 rev BSD-1 (§BSD.5, censo BSD-B23): sin esto una guía de ENTRADA en `guia` entraría como costo de envío de venta.
-        ...OUTBOUND_ONLY,
-        status: { in: ['picking', 'guia', 'enviado', 'entregado'] },
-        ...(shipmentRange ? { pickingAt: shipmentRange } : {}),
-      },
-    });
-    // v1.4-finance: el envío separa INGRESO (shippingFeeCents, lo que paga el cliente) de
-    // COSTO (shippingCostCents, lo que la plataforma paga al carrier). Ambos se acotan al
-    // mismo periodo/conjunto de envíos (por `pickingAt`) para que caigan en el mismo lapso.
-    let shippingRevenueCents = directShipShippingRevenueCents;
-    let shippingCostCents = 0;
-    // ⭐ `API_CONTRACT §M10-IVA.8` / `IVA-11(b)` — **QUE EL `0` NO SIGNIFIQUE DOS COSAS.**
-    // `shippingCostCents` es `@default(0)`, así que «costó cero» y «no se capturó» son
-    // **indistinguibles** en las filas existentes. ⛔ No se hace nullable (exigiría un backfill que
-    // INVENTA la distinción): el contador la hace **visible** en vez de resolverla falsamente. *Es
-    // una señal para un humano —«estos N envíos no tienen costo: revísalos»—, ⛔ no una afirmación
-    // fiscal.* Un cero silencioso convierte el ingreso de ese envío en **ganancia fantasma**.
-    let shippingCostMissingCount = 0;
-    // 💰 D2f (§19.11): el seguro del periodo, INFORMATIVO (⛔ no se resta aparte: ya va DENTRO de `shippingCostCents`, que
-    // aquí es NETO). Por qué el neto lo contiene entero (techlead NT1-a sobre 7d930c4e): al capturar,
-    // `label-purchase.service.ts` `costOf` congela `shippingCostCents = totalCents + insuranceCostCents` y el IVA sale de
-    // `rate.breakdown.ivaCents` o de 16/116 sobre `totalCents − serviceFeeCents` — ⛔ nunca sobre el seguro. El seguro va
-    // SIN línea de IVA (§19.19.11), así que en `netShippingCostCents` su neto = su bruto. ⚠️ NO MEDIDO si Skydropx cobra IVA
-    // sobre la protección: depende de PS-SBX-4; si lo cobra, cambia la captura (no este sumador).
-    let shippingInsuranceCents = 0;
-    for (const s of shipments) {
-      // v1.64 (§4.44.j, sitio 2): neteado por la convención de ESTA `ShipmentRequest`. En el retiro
-      // de bóveda el «subtotal» del desglose ES la tarifa de envío (`computeShipmentBreakdown`
-      // devuelve `subtotalCents: shippingFeeCents`), así que la fila se lee con esa correspondencia.
-      // ⚠️ Helper PROPIO y no `netRevenueCents`: `ShipmentRequest` **no tiene `ivaRatePct`** y usar
-      // el dial vivo haría que un P&L histórico cambiara al mover `iva_pct` (incumple `IVA-5`).
-      shippingRevenueCents += shipmentNetRevenueCents(s);
-      // ⭐⭐ `API_CONTRACT §M10-IVA.8` / `IVA-11(a)` — **NETO contra NETO.** Sumar el costo **BRUTO**
-      // contra un ingreso **NETO** resta `2 800` de pérdida FANTASMA en cada envío, y evitar
-      // exactamente eso es lo que la decisión 68 del dueño dice (*«el costo de envío con el IVA que
-      // yo pague, trátalo como si no hubiera margen»*). El neto es una **RESTA** del crédito
-      // CONGELADO al capturar, ⛔ jamás una división por `(1+r)` ni una lectura del dial vivo.
-      shippingCostCents += netShippingCostCents(s);
-      // 💰 D2f (§19.11): una guía de Skydropx trae su costo de la respuesta del proveedor ⇒ ⛔ no es «costo sin capturar».
-      if (s.shippingCostCents === 0 && s.labelSource !== 'skydropx') shippingCostMissingCount += 1;
-      shippingInsuranceCents += s.insuranceCostCents ?? 0;
-      stripeFeesCents += s.processingFeeCents;
-    }
-    // 💰 D2f (§19.11, pregunta 89 DECIDIDA, `HECHOS.md:41`): los AJUSTES de costo (cargos extra, lo no devuelto de una
-    // cancelación) cuentan en el mes de su CARGO (`chargedAt`, ⛔ `observedAt`, ⛔ el `pickingAt` del envío), netos (resta
-    // del IVA congelado, ⛔ división), sin filtrar por el estado del envío (el dinero salió igual). Van DENTRO de
-    // `shippingCostCents` y aparte en `shippingAdjustmentsCents` («ajustes de paquetería») para verlos.
-    // ⛔ P-SDX-PNL-1 (huérfanas y duplicados) NO entra: sin respuesta del dueño, nada cambia (§19.33.3).
-    const adjustments = await this.prisma.shipmentCostAdjustment.findMany({
-      where: shipmentRange ? { chargedAt: shipmentRange } : {},
-      select: { amountCents: true, ivaCents: true },
-    });
-    const shippingAdjustmentsCents = adjustments.reduce((acc, a) => acc + a.amountCents - a.ivaCents, 0);
-    shippingCostCents += shippingAdjustmentsCents;
-    // ⭐ v1.80 / v1.80.2 (§M4-SHIP, PS-40) — EL DINERO QUE VUELVE resta en el periodo en que SALIÓ: las filas del
-    // libro aceptadas por Stripe (`submitted|succeeded`, por `submittedAt`) y las transferencias SPEI `paid` (por
-    // `paidAt`; ⛔ `pending` y `cancelled` no restan; la fila Stripe `failed` no resta y su sustituta SPEI no duplica).
-    // Componentes de venta NETOS (IVA fuera, como el ingreso); la comisión devuelta deja de compensar el costo de
-    // Stripe (se resta aparte); la compensación por carta perdida es RENGLÓN PROPIO (tratamiento fiscal ⛔ no
-    // decidido, §M4-SHIP.15.5). ⛔ NO MEDIDO por el arquitecto la forma del DTO: campos ADITIVOS, enrutados en
-    // BACKEND_NOTES.
-    const refunds = await this.refundsInPeriod(createdAt);
-    // 💰 rev BSD-1, errata BSD-1.2 (§BSD.16): la tarifa retenida a los vendedores SUMA (reduce el costo de compra) y la
-    // guía de entrada RESTA. ⛔ `shippingCostCents` (envío de VENTA) no cambia: su sumador sigue `OUTBOUND_ONLY`.
-    const buylist = await this.pnlBuylistGuides(createdAt);
-    // ⛔ `profitCents` conserva sus cinco términos y resta lo devuelto (antes un reembolso parcial NO restaba nada).
-    const profitCents =
-      incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents -
-      refunds.refundsCents - refunds.refundedFeesCents - refunds.compensationsCents +
-      buylist.buylistShippingFeeRetainedCents - buylist.buylistGuideCostCents;
-    return {
-      incomeCents,
-      shippingRevenueCents,
-      cogsCents,
-      stripeFeesCents,
-      shippingCostCents,
-      shippingCostMissingCount,
-      shippingAdjustmentsCents,
-      shippingInsuranceCents,
-      refundsCents: refunds.refundsCents,
-      refundedFeesCents: refunds.refundedFeesCents,
-      compensationsCents: refunds.compensationsCents,
-      profitCents,
-      // 💰 §BSD.16: AL FINAL del objeto y, en el mismo orden, al final del CSV.
-      buylistShippingFeeRetainedCents: buylist.buylistShippingFeeRetainedCents,
-      buylistGuideCostCents: buylist.buylistGuideCostCents,
-      buylistGuideMarginCents: buylist.buylistGuideMarginCents,
-      buylistGuideCostMissingCount: buylist.buylistGuideCostMissingCount,
-    };
-  }
-
-  /**
-   * 💰 rev BSD-1, errata BSD-1.2 (API_CONTRACT §BSD.16, ARCHITECTURE §4.BSD (l)) — los cuatro renglones del buylist.
-   * Las reglas por fila viven en `pnl-buylist.ts`; aquí solo se lee y se suma, cada renglón con SU fecha:
-   *  - `buylistShippingFeeRetainedCents` (suma a la ganancia): lo retenido de las solicitudes `pagada`, por `paidAt`.
-   *  - `buylistGuideCostCents` (resta): (a) guías de Skydropx de ENTRADA por `labelPurchasedAt`, netas, ⛔ las de
-   *    cancelación confirmada (lo no devuelto ya está en «ajustes de paquetería»); (b) guías MANUALES con costo
-   *    capturado, por `coalesce(guideSentAt, shipmentConfirmedAt)`, de solicitudes SIN guía de Skydropx de entrada.
-   *  - `buylistGuideMarginCents` (informativo): Σ (retenido − costo de SU guía) de las pagadas en el periodo. Se mide
-   *    POR SOLICITUD y no como resta de los dos renglones: viven en periodos distintos, y una guía de una solicitud que
-   *    nunca se pagó cuesta sin retener nada.
-   *  - `buylistGuideCostMissingCount` (informativo): pagadas en el periodo con guía manual sin costo capturado.
-   *  - (b) va por `coalesce(guideSentAt, shipmentConfirmedAt)` (errata BSD-1.4 punto 12).
-   * Censo BSD-B23 (BSD-1.3 punto 6): el lector de (a) es `inbound_only`; las lecturas de `SellRequest` quedan fuera.
-   */
-  private async pnlBuylistGuides(period?: Prisma.DateTimeFilter) {
-    const inboundRow = { select: { labelSource: true, providerCancelConfirmedAt: true, shippingCostCents: true, shippingCostIvaCents: true } } as const;
-    const [skydropxGuides, manualGuides, paid] = await Promise.all([
-      // (a) — `inbound_only`. La cancelación confirmada la decide `skydropxInboundGuideCostCents` (una sola regla, la
-      // misma que el margen por solicitud).
-      this.prisma.shipmentRequest.findMany({
-        where: { ...INBOUND_ONLY, labelSource: 'skydropx', ...(period ? { labelPurchasedAt: period } : {}) },
-        select: inboundRow.select,
-      }),
-      // (b) — la fila de entrada viaja para descartar las de Skydropx con la MISMA regla (`isSkydropxInbound`).
-      // ⭐ Errata BSD-1.4 punto 12 (`API_CONTRACT §BSD.18`): periodo = `coalesce(guideSentAt, shipmentConfirmedAt)`.
-      // `adminConfirmShipment` (el único escritor de `guideActualCostCents`) acepta el costo SIN guía (`guideMissing`) y lo
-      // escribe en el mismo `updateMany` que `shipmentConfirmedAt`: sin la segunda rama ese costo no entraba en ningún mes
-      // y la suma de los meses no daba el total (BSD-B43). Los dos nulos ⇒ solo en el P&L sin periodo (hoy no ocurre).
-      this.prisma.sellRequest.findMany({
-        where: {
-          guideActualCostCents: { not: null },
-          ...(period ? { OR: [{ guideSentAt: period }, { guideSentAt: null, shipmentConfirmedAt: period }] } : {}),
-        },
-        select: { guideActualCostCents: true, inboundShipment: { select: { labelSource: true } } },
-      }),
-      this.prisma.sellRequest.findMany({
-        where: { status: 'pagada', ...(period ? { paidAt: period } : {}) },
-        select: {
-          approvedTotalCents: true,
-          offerGrossCents: true,
-          quotedTotalCents: true,
-          payoutNetCents: true,
-          guideSentAt: true,
-          guideActualCostCents: true,
-          inboundShipment: inboundRow,
-        },
-      }),
-    ]);
-    let buylistGuideCostCents = 0;
-    for (const g of skydropxGuides) buylistGuideCostCents += skydropxInboundGuideCostCents(g);
-    for (const sr of manualGuides) {
-      if (!isSkydropxInbound(sr.inboundShipment)) buylistGuideCostCents += sr.guideActualCostCents ?? 0;
-    }
-    let buylistShippingFeeRetainedCents = 0;
-    let buylistGuideMarginCents = 0;
-    let buylistGuideCostMissingCount = 0;
-    for (const sr of paid) {
-      const retained = retainedShippingFeeCents(sr);
-      const guide = guideCostOfRequest(sr);
-      buylistShippingFeeRetainedCents += retained;
-      buylistGuideMarginCents += retained - guide.costCents;
-      if (guide.missing) buylistGuideCostMissingCount += 1;
-    }
-    return { buylistShippingFeeRetainedCents, buylistGuideCostCents, buylistGuideMarginCents, buylistGuideCostMissingCount };
-  }
-
-  /**
-   * ⭐ v1.80.2 — un cuerpo para el P&L y el IVA: lo devuelto en el periodo. `refundsCents` = mercancía + envío NETOS;
-   * `refundedFeesCents` = comisión devuelta; `compensationsCents` = compensaciones por carta perdida; `ivaRefundedCents`
-   * = el IVA que iba dentro de lo devuelto.
-   */
-  private async refundsInPeriod(period?: Prisma.DateTimeFilter) {
-    const [stripeRows, speiRows] = await Promise.all([
-      this.prisma.paymentRefund.findMany({
-        where: { status: { in: ['submitted', 'succeeded'] }, ...(period ? { submittedAt: period } : {}) },
-        select: { merchandiseCents: true, merchandiseIvaCents: true, shippingCents: true, shippingIvaCents: true, processingFeeCents: true, compensationCents: true },
-      }),
-      this.prisma.manualRefund.findMany({
-        where: { status: 'paid', ...(period ? { paidAt: period } : {}) },
-        select: { merchandiseCents: true, merchandiseIvaCents: true, processingFeeCents: true, compensationCents: true },
-      }),
-    ]);
-    const acc = { refundsCents: 0, refundedFeesCents: 0, compensationsCents: 0, ivaRefundedCents: 0 };
-    for (const r of stripeRows) {
-      acc.refundsCents += r.merchandiseCents - r.merchandiseIvaCents + r.shippingCents - r.shippingIvaCents;
-      acc.refundedFeesCents += r.processingFeeCents;
-      acc.compensationsCents += r.compensationCents;
-      acc.ivaRefundedCents += r.merchandiseIvaCents + r.shippingIvaCents;
-    }
-    for (const r of speiRows) {
-      acc.refundsCents += r.merchandiseCents - r.merchandiseIvaCents;
-      acc.refundedFeesCents += r.processingFeeCents;
-      acc.compensationsCents += r.compensationCents;
-      acc.ivaRefundedCents += r.merchandiseIvaCents;
-    }
-    return acc;
+    // 💰 §AN fase B (API_CONTRACT §15.8, ARCHITECTURE §4.64.4): el cuerpo vive en `pnl-core.ts` (`pnlBuckets`), partido en
+    // cubos para la analítica de ventas. M7 = UN cubo con el MISMO `range()` de hoy (`{gte, lte}`, D-AN-2 sin cambio,
+    // criterio 613). La paridad bit a bit la fija AN-B-13 (`sales-analytics-pnl-parity.e2e-spec.ts`, instantánea tomada
+    // antes del refactor). 💰 Desde la fusión con #78 el cubo trae además las cuatro filas del buylist (§BSD.16, B-4) al final
+    // del objeto: la instantánea de AN-B-13 se re-tomó con el `pnl()` de #78 (sin partir) — sigue siendo «antes = después».
+    const buckets = await pnlBuckets(this.prisma, range(from, to), () => 'all');
+    return buckets.get('all') ?? zeroPnl();
   }
 
   /**
@@ -2094,7 +1881,7 @@ export class AdminService {
       status: o.status,
     }));
     // ⭐ v1.80 (§M4-SHIP): el IVA que iba DENTRO de lo devuelto (libro por `submittedAt`, SPEI `paid` por `paidAt`).
-    const { ivaRefundedCents } = await this.refundsInPeriod(settledAt);
+    const { ivaRefundedCents } = await refundsInPeriod(this.prisma, settledAt);
     return { ivaCollectedCents, ivaRefundedCents, ivaNetCents: ivaCollectedCents - ivaRefundedCents, byOrder };
   }
 

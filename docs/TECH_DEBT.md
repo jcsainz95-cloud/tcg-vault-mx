@@ -9779,3 +9779,70 @@ esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
 - **Corrección:** que el camino de entrada no exija la plantilla de salida (o que el arquitecto ratifique que sí).
 - **Disparador:** un entorno nuevo sin la plantilla de salida, o la respuesta del arquitecto.
 - **Comprobación de cierre:** prueba de cotización de entrada sin el dial ⇒ no 409 `origin`.
+
+## Backend · 2026-10-06 · gates de QA y techlead sobre `76dd1ee9` (rama `claude/analitica-ventas`, §AN fases A y B)
+
+Deuda que el techlead dejó al backend de la analítica de ventas. Fichero:línea **re-medidos el 2026-10-06** sobre el árbol
+de esta rama con el arreglo de C-1 aplicado (las cifras del techlead eran sobre `76dd1ee9`). TD-AN-5, 6 y 7 se cerraron en
+este mismo pase porque eran baratas (BACKEND_NOTES §80.5).
+
+### TD-AN-1 · P3 · Sin índice en `Order.settledAt`
+- **Dueño:** backend (`prisma/schema.prisma:1404`); el cambio de esquema pasa por el arquitecto.
+- **Qué es:** R-2 lee pedidos por `settledAt` en el periodo (`sales-analytics.service.ts:121-124`) y M7 también
+  (`admin/pnl-core.ts:170-171`). Sin índice, cada informe es un barrido de `Order`. Con el volumen de hoy no se nota.
+- **Disparador:** el de `ARCHITECTURE §4.64.6` (rendimiento medido por encima de su umbral).
+- **Comprobación:** `@@index([settledAt])` (o compuesto con `status`) en `Order` y su migración; `EXPLAIN` del `findMany`
+  de R-2 con Index Scan.
+
+### TD-AN-2 · P3 · Doble resta de §W en M7 (= D-AN-1 de ARCHITECTURE, D-2/D-3 de PROJECT §W)
+- **Dueño:** backend (`admin/pnl-core.ts:170-171`).
+- **Qué es:** el ingreso de M7 solo cuenta pedidos `status: 'settled'` y además resta los reembolsos de M7: un pedido
+  reembolsado/contracargado sale del ingreso **y** su reembolso se resta otra vez (§W 277/278). La analítica lo hereda tal
+  cual (D-AN-1, «Ganancia (regla de Finanzas)»), y AN-B-3 lo documenta con su segundo término
+  (`+ Σ netRevenue(refunded|chargeback)`).
+- **Dirección:** cuando §W se decida: cambiar el predicado de M7, **regenerar AN-B-13 en el mismo commit con el motivo**
+  (cabecera de `sales-analytics-pnl-parity.e2e-spec.ts`) y llevar a 0 el segundo término de AN-B-3.
+- **Disparador:** decisión de §W 277/278 (arquitecto/dueño).
+- **Comprobación:** AN-B-3 con segundo término 0 y la instantánea regenerada con motivo en el mensaje del commit.
+
+### TD-AN-3 · P3 · Lecturas duplicadas por petición
+- **Dueño:** backend (`sales-analytics.service.ts`).
+- **Qué es:** `bucketFigures` lee pedidos, reembolsos, buylist y `pnlBuckets` (`:148-153`); `report` lo llama dos veces
+  (periodo y anterior, `:196-199`); `today` llama dos veces a `dayFigures` (`:259`), y cada una es un `bucketFigures`
+  completo con su P&L; `csv` llama a `report` entero (`:235`) aunque no usa lo más vendido, clientes ni mezcla. Correcto,
+  pero varias lecturas de M7 por petición.
+- **Disparador:** el de TD-AN-1 (rendimiento medido), o un tercer consumidor de `bucketFigures`.
+- **Comprobación:** `csv` sin `itemsOf`/`customers`; `today` sin P&L (o una sola lectura); número de consultas por petición
+  medido antes y después.
+
+### TD-AN-4 · P3 · `@Optional()` en la línea de ventas del resumen de las 08:00
+- **Dueño:** backend (`spend-alerts/spend-digest.service.ts:44-46`).
+- **Qué es:** `SalesAnalyticsService` entra con `@Optional()` solo para los dobles de las suites que construyen el servicio
+  a mano. En producción siempre está; pero si un día el módulo dejara de proveerlo, el resumen saldría **sin** la línea y
+  sin error. (El de `MAIL_PORT` es anterior y no es de esta deuda.)
+- **Dirección:** quitar `@Optional()` y pasar el doble en las suites que construyen el servicio.
+- **Disparador:** el próximo cambio de `SpendDigestService`.
+- **Comprobación:** `rg -n "@Optional\(\) private readonly sales" backend/src` vacío y las suites de 08:00 verdes.
+
+### TD-AN-5 · ✅ CERRADA en este pase (2026-10-06) · Válvula `AN_PARITY_WRITE` y hueco del seguro en AN-B-13
+- **Era:** `sales-analytics-pnl-parity.e2e-spec.ts:61-64` (en `76dd1ee9`) reescribía la instantánea con
+  `AN_PARITY_WRITE=1` también en CI; y la fixture tenía `insuranceCostCents = 0`, así que quitar
+  `b.shippingInsuranceCents += …` (`pnl-core.ts:203`) no ponía rojo nada.
+- **Hecho:** con `CI` definido y `AN_PARITY_WRITE=1` la prueba lanza (`:65-67`; medido: 1 roja, instantánea intacta). S2
+  lleva `insuranceCostCents: 580`; la instantánea se **regeneró con el código de `d644be0d`** (antes de `pnl-core`) sobre
+  la fixture nueva (solo cambian 8 campos de seguro) y el código actual la iguala. CONTROL nuevo
+  `shippingInsuranceCents = 580`. Mutación: quitar la línea del seguro ⇒ AN-B-13 2/2 rojas.
+
+### TD-AN-6 · ✅ CERRADA en este pase (2026-10-06) · `total.pnl` sumaba llaves fuera de los cubos
+- **Era:** `total.pnl = sumPnl(pnl.values())` sumaba todas las llaves de `pnlBuckets`; las filas solo las de sus cubos
+  (`pnl.get(b.from)`). Una llave ajena entraba al total y a ninguna fila.
+- **Hecho:** la misma comprobación que `accOf`: una llave fuera de los cubos lanza (`sales-analytics.service.ts:178`).
+  Prueba `test/sales-analytics.pnl-keys.spec.ts` (doble de `pnlBuckets`), roja sobre `76dd1ee9`.
+
+### TD-AN-7 · ✅ CERRADA en este pase (2026-10-06) · Predicado de estado explícito en R-2
+- **Era:** `ordersIn` filtraba solo por `settledAt` («cualquier estado de hoy», implícito).
+- **Hecho:** `status in (settled, refunded, chargeback)` (`sales-analytics.service.ts:122`, constante `SOLD_STATUSES`).
+  Prueba en `test/sales-analytics.pnl-keys.spec.ts`, roja sobre `76dd1ee9`. Sin cambio de cifras (la suite de integración
+  de la analítica sigue verde).
+
+### TD-AN-8..11 (frontend): cerradas en 8fb5d5a2, sin deuda.

@@ -36,8 +36,9 @@ const K = 'by_key' as const;
 const CENSUS: Record<string, readonly [Clase, string]> = {
   // ---------------------------------------------------------------- admin
   'src/modules/admin/admin.service.ts deleteUser#count#1': [K, 'userId: la fila de entrada lleva userId NULL (CHECK); el vendedor cuenta por sellRequest.count'],
-  'src/modules/admin/admin.service.ts pnl#findMany#1': [O, 'P&L de M7 (§BSD.5): una guía de entrada en `guia` NO es costo de envío de venta'],
-  'src/modules/admin/admin.service.ts pnlBuylistGuides#findMany#1': [I, 'P&L de M7 (§BSD.16 (a), BSD-1.3 punto 6): costo de las guías de Skydropx de ENTRADA'],
+  // 💰 Fusión analítica + #78: el cuerpo de `pnl()` vive en `pnl-core.ts` (`pnlBuckets`, §AN fase B); M7 y la analítica lo leen.
+  'src/modules/admin/pnl-core.ts pnlBuckets#findMany#1': [O, 'P&L de M7 y analítica (§BSD.5): una guía de entrada en `guia` NO es costo de envío de venta'],
+  'src/modules/admin/pnl-core.ts buylistRowsInPeriod#findMany#1': [I, 'P&L de M7 y analítica (§BSD.16 (a), BSD-1.3 punto 6): costo de las guías de Skydropx de ENTRADA'],
   'src/modules/admin/admin.service.ts launchMetrics#count#1': [O, 'métrica de lanzamiento: envíos entregados'],
   'src/modules/admin/admin.service.ts dashboard#count#1': [O, 'tablero: envíos por atender'],
   'src/modules/admin/admin.service.ts dashboard#count#2': [O, 'tablero: envíos entregados'],
@@ -154,7 +155,7 @@ const MINIMO_OUTBOUND_ONLY = [
   'src/modules/shipments/shipment-prep.service.ts summary#count#1', // y sus conteos
   'src/modules/shipments/departure.service.ts board#findMany#1', // salida de hoy
   'src/modules/admin/admin.service.ts dashboard#count#1', // tablero
-  'src/modules/admin/admin.service.ts pnl#findMany#1', // P&L
+  'src/modules/admin/pnl-core.ts pnlBuckets#findMany#1', // P&L (M7 y analítica)
   'src/modules/payments/refunds/refund-reports.service.ts operatorSummary#findMany#1', // reportes de reembolsos
   'src/modules/spend-alerts/spend-watch.service.ts sweepNotShipped#findMany#1', // AG-10
   'src/modules/shipments/tracking-poll.job.ts run#findMany#1', // sondeo de rastreo
@@ -162,7 +163,7 @@ const MINIMO_OUTBOUND_ONLY = [
 ];
 /** BSD-1.3 punto 6: el lector de guías de entrada de `pnl()` es `inbound_only`. */
 const MINIMO_INBOUND_ONLY = [
-  'src/modules/admin/admin.service.ts pnlBuylistGuides#findMany#1',
+  'src/modules/admin/pnl-core.ts buylistRowsInPeriod#findMany#1',
   // BSD-1.3 punto 4 (B-3): el lector del contador `workQueue.buylistInboundLabelAlert` y del filtro de M5.
   'src/modules/buylist/inbound-view.ts inboundLabelAlertSellRequestIds#findMany#1',
 ];

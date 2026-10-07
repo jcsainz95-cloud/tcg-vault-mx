@@ -57,7 +57,9 @@ import M6Page from './m6/page';
 // eslint-disable-next-line import/first
 import M7Page from './m7/page';
 // eslint-disable-next-line import/first
-import M9Page from './m9/page';
+import { M9View } from './m9/M9View';
+// eslint-disable-next-line import/first
+import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
 // eslint-disable-next-line import/first
 import M10Page from './m10/page';
 // eslint-disable-next-line import/first
@@ -95,6 +97,15 @@ function SpendAlertsPage() {
 /** v4.12 (§40.3 b): `m3/page.tsx` también es de servidor asíncrono (lee `?refundReview=`); se mide sin el parámetro. */
 function M3Page() {
   return <M3View initialRefundReview={parseRefundReview(undefined)} />;
+}
+
+/** §AN-UX.1: `m9/page.tsx` también es de servidor asíncrono (lee `?tab=` y el estado de «Ventas»); se mide sin ellos. */
+function M9Page() {
+  return (
+    <SuperAdminOnly>
+      <M9View />
+    </SuperAdminOnly>
+  );
 }
 
 /** La página que sirve cada `href` del menú (la misma que monta el App Router). */

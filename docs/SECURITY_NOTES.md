@@ -1,3 +1,88 @@
+# VEREDICTO BLUE TEAM — **RELEASE «Analítica de ventas del dueño» (§AN)** · SHA **`c78f8a24`** (rama `claude/analitica-ventas`) · 2026-10-06
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `c78f8a24`
+>
+> 0 críticas, 0 altas, 0 medias abiertas en el delta. Una baja (AN-5) **aceptada como deuda** con disparador medible
+> (§AN.3). No exijo la fase en vivo del pentester (§AN.4). Nada de seguridad bloquea la solicitud `main → production`.
+>
+> **Sobre qué medí** (todo en `/home/user/tcg-ventas`, 2026-10-06): `origin/production` es ancestro de `c78f8a24`
+> (`git merge-base --is-ancestor`, medido). `git diff --stat c78f8a24 6609060f` ⇒ solo `docs/PENTEST_NOTES.md` (medido):
+> el código juzgado es `c78f8a24`. Delta revisado: `git diff --stat origin/production c78f8a24 -- backend/src frontend/src
+> scripts security` ⇒ **37 ficheros, +4999/−166**. Marcas de origen: **[pentester]** (caja blanca sobre `c78f8a24`, sin fase
+> en vivo), **[QA]** (en vivo sobre `76dd1ee9`, APROBADO CON CONDICIONES); no lo volví a medir.
+
+## §AN.1 Hallazgos del red team, consolidados
+
+| Id | Sev. | Mi juicio | Evidencia mía |
+|---|---|---|---|
+| AN-1 authz vertical | Info | **Confirmado.** `@Roles(Role.super_admin)` de clase en `AdminReportsController` cubre las tres rutas nuevas; guardas globales Throttler→Jwt→PasswordChange→Roles (`app.module.ts:82-85`). En vivo **[QA]**: 401/403/200. | `admin.controller.ts` diff (rutas `sales`, `sales/export.csv`, `sales/today` dentro de la clase) |
+| AN-2 PII | Info | **Confirmado.** El correo del cliente se usa como llave en memoria (`customerKeyOf`) y en el `where` de `customers()` (`sales-analytics.service.ts:321-340`); no viaja al DTO ni al CSV. **[QA]** en vivo: CSV sin `@`/nombres/dirección/orderNumber/ids. | lectura del service |
+| AN-3 CSV-fórmula | Info | **Confirmado.** Sin columnas de texto libre en el CSV. `filename` se arma de `from`/`to` (`isYmd`, regex anclada + fecha real, `spend-alerts/mx-day.ts:33`) y `groupBy` (lista blanca) ⇒ sin CRLF en `Content-Disposition`. | `sales-period.ts` `readYmd`, `resolvePeriod` |
+| AN-4 SQL | Info | **Confirmado.** Sin `$queryRaw`/`Prisma.sql` en el delta; `typeof !== 'string'` ⇒ 400 también para `?from=a&from=b` (array). **[QA]**: 13 casos de 400, incl. inyección en `from`. | `sales-period.ts` `readYmd` |
+| AN-5 DoS por rango | **Baja** | **Confirmado y ampliado** (ver §AN.3). Aceptado como deuda. | service `:194-227`, `:321-347` |
+| AN-6 correo 08:00 | Info | **Confirmado.** Destinatarios = `ownerRecipients` (`isOwner`); la línea solo lleva 3 números. Si `dayFigures` falla, el log lleva `e.message` del error (sin cifras de cliente). | `spend-digest.service.ts` diff |
+| AN-7 refactor pnl | Info | **Confirmado.** `pnl-core.ts` es puro; `GET /admin/finance/pnl` sigue `super_admin`. | diff `admin.controller.ts` (sin cambios de guarda) |
+
+## §AN.2 Lo que revisé yo y el pentester no cubrió
+
+- **Delta `76dd1ee9 → c78f8a24`** (lo que entró después de la evidencia en vivo de QA): `git diff --stat` ⇒ 10 ficheros,
+  +101/−32 (medido). **Ninguno toca guardas, rutas ni DTO de salida**: el service solo añade `status in
+  [settled, refunded, chargeback]` (TD-AN-7, *estrecha* lo leído) y un `throw` de coherencia (TD-AN-6) que sale como
+  `500 INTERNAL "Internal server error"` sin el mensaje interno (`all-exceptions.filter.ts:82-83`); el digest mueve el
+  conteo dentro del `try` (C-1). Por eso la evidencia en vivo de QA sobre `76dd1ee9` sigue valiendo para authz/PII/400.
+- **Manifiesto de secretos** (`security/secretos-publicados.sha256`, commit `7768d811`): las 2 líneas nuevas son
+  exactamente `sha256("re_an_fix_o3")` y `sha256("re_an_fix_o4")` (medido con `sha256sum`), ids de reembolso **de
+  prueba** de `backend/test/integration/helpers/sales-db.ts:289,294`. Correcto: no es un secreto real, y listarlo solo
+  hace que el preflight rechace ese literal como valor de entorno.
+- **`scripts/stack-native.sh`** (Redis `--save ""` desde `/`, `CONFIG SET save ""` si MISCONF): solo afecta al Redis
+  local de pruebas; no toca config de deploy. Sin efecto de seguridad en producción.
+- **Dependencias:** `npm audit --omit=dev --package-lock-only` sobre `c78f8a24` (copia en scratchpad, borrada):
+  frontend **0 vulnerabilidades** (sharp 0.35.5 cierra GHSA-wq5f-xc86-pv6w); backend **2 moderadas**, y
+  `backend/package*.json` **no cambia** en el delta (`git diff --stat` vacío) ⇒ son las de RL-DEP-1, ya registradas.
+- **Frontend:** sin `dangerouslySetInnerHTML`/`innerHTML`/`eval` en los ficheros nuevos (grep, medido). El único
+  `localStorage` (`tcg.salesPhase`) vive en `lib/mock/sales.ts`, solo en modo demo (`config.useMocks`). La tarjeta
+  «Ventas de hoy» se monta solo con `isSuperAdmin` (`AdminDashboard.tsx:231`) — eso es UX; la frontera real es el 403
+  del servidor (**[QA]** en vivo).
+- **Rate limiting:** las rutas heredan el throttler global (300/min por IP, `app.module.ts:46`); no tienen
+  `ActorThrottlerGuard`. Relevante solo para AN-5.
+
+## §AN.3 AN-5 — decisión: **ACEPTADO como deuda Baja, sin medir antes de publicar**
+
+**Ampliación mía:** además de `ordersIn`/`itemsOf`, `customers()` (`service:326-335`) trae **todas las órdenes previas**
+de los clientes del periodo sin `take` (y con listas `in` del tamaño del periodo). Es la consulta que más crece con la
+antigüedad de la tienda, no con el rango.
+
+**Por qué no bloquea:** (1) solo `super_admin`, que hoy es el dueño; un atacante necesita su sesión, y con su sesión
+tiene cosas peores que un GET lento; (2) solo lectura, no mueve dinero ni deja estado a medias; (3) el throttler
+global limita la ráfaga; (4) el volumen actual de la tienda es pequeño frente a lo que una agregación en memoria
+aguanta — **NO MEDIDO** con cifra; no lo medí contra producción (⛔ fuera de alcance).
+
+**Disparador (cualquiera de los tres) ⇒ backend mide y acota:**
+1. Cuando los pedidos cobrados (`settled/refunded/chargeback`) en cualquier ventana de 366 días pasen de **10 000**, o
+   los `OrderItem` de esa ventana de **50 000** (lo mide el dueño o devops con un `count` de solo lectura).
+2. Cualquier 5xx/timeout o p95 > 3 s en `GET /admin/reports/sales*` en los registros de Railway.
+3. Antes de dar `super_admin` a una segunda persona o de exponer el reporte a otro rol.
+
+**Medición que lo cierra** (la del pentester): sembrar el umbral del punto 1 en local y cronometrar
+`GET /admin/reports/sales?preset=custom&from=…&to=…&groupBy=day` (N≥5, reportar mediana y máximo, y RSS del proceso).
+**Arreglo esperado si muerde:** agregación en BD (`groupBy`/sumas por día) o tope de rango menor para `groupBy=day`, y
+`customers()` resuelto con `EXISTS`/`distinct` en vez de traer filas. Dueño: **backend**.
+
+## §AN.4 ¿Es aceptable que el pentester no hiciera fase en vivo? **Sí.**
+
+Lo que una fase en vivo habría probado ya lo midió **[QA]** en vivo sobre `76dd1ee9`: 401/403/200 en las tres rutas,
+`no-store` en los 200, CSV sin PII, 13 casos de 400 (incl. inyección en `from`), operador sin pestaña ni petición a
+`/sales`, correo 08:00 solo a `isOwner`. Y el delta `76dd1ee9 → c78f8a24` no toca nada de eso (§AN.2, medido). Lo único
+que la fase en vivo añadiría es el tiempo de AN-5, que queda como deuda con disparador. **No exijo otra medición** para
+este release.
+
+## §AN.5 Banderas para el humano
+- Sin cambios respecto al veredicto «listo-real» de abajo: **CL-1/CL-2/CL-3** siguen siendo condiciones antes de
+  `sk_live_`; este release no las abre ni las cierra (no medido su estado hoy: lo dirá el siguiente pase).
+- El reporte de ventas expone cifras de negocio completas: la sesión del dueño vale más que antes. Nada nuevo que hacer,
+  pero suma un argumento a la 2FA de `super_admin`, que §4 de abajo deja como P1 **después** de salir a cobro real (no
+  cambio esa decisión).
+
 # VEREDICTO BLUE TEAM — **RELEASE «Buylist con guía Skydropx de entrada» (BSD)** · SHA **`64877aad`** (rama `claude/buylist-skydropx`) · 2026-10-06
 
 > ## VEREDICTO: ✅ **APROBADO** sobre `64877aad` (con un aceptado y dos pendientes no bloqueantes)
