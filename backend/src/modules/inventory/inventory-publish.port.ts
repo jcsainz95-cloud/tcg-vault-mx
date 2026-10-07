@@ -106,11 +106,6 @@ export interface PublishReevaluationResult {
   missing: ('location' | 'price')[];
   /** Deep-link a la cola de precio pendiente de M2, cuando el disparo la abrió o la encontró abierta. */
   pendingPriceEntryId?: string;
-  /**
-   * Solo en `not_publishable`: el motivo legible de la guarda que la paró (p. ej. «graded items require certNumber…»).
-   * Aditivo e informativo (P-DB-LIMPIEZA: `limpieza:republicar` se lo enseña al dueño); nadie decide con él.
-   */
-  detail?: string;
 }
 
 /**

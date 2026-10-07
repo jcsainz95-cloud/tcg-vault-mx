@@ -3033,24 +3033,6 @@ export class InventoryService {
   async reevaluateForPublication(
     inventoryItemIds: string[],
   ): Promise<PublishReevaluationResult[]> {
-    return this.reevaluateMany(inventoryItemIds, false);
-  }
-
-  /**
-   * 💰 P-DB-LIMPIEZA (§4.5, `limpieza:republicar` en SIMULACRO) — **qué haría `reevaluateForPublication` con estas
-   * piezas, sin escribir NADA**: ni `listed`, ni la escalada a la cola de precio pendiente (usa
-   * `derivePublishSalePrice`, el cuerpo de la cola `pending-publish`, en vez de `resolvePublishSalePrice`).
-   * Es el MISMO recorrido (`reevaluateMany` → `reevaluateOne`) con `dryRun`: no hay una segunda copia de la regla.
-   * `outcome: 'published'` aquí significa «se publicaría». Fuera del puerto a propósito: solo lo usa el comando.
-   */
-  async previewPublication(inventoryItemIds: string[]): Promise<PublishReevaluationResult[]> {
-    return this.reevaluateMany(inventoryItemIds, true);
-  }
-
-  private async reevaluateMany(
-    inventoryItemIds: string[],
-    dryRun: boolean,
-  ): Promise<PublishReevaluationResult[]> {
     const ids = [...new Set(inventoryItemIds)].filter((x) => typeof x === 'string' && x.length > 0);
     if (ids.length === 0) return [];
     const out: PublishReevaluationResult[] = [];
@@ -3071,7 +3053,7 @@ export class InventoryService {
       }
       const ctx = await this.loadPublishPricingCtx(items, { curve, premiumFloorPolicy, sealed, ivaDials });
       for (const item of items) {
-        out.push(await this.reevaluateOne(item, ctx, dryRun));
+        out.push(await this.reevaluateOne(item, ctx));
       }
     }
     return out;
@@ -3175,8 +3157,6 @@ export class InventoryService {
   private async reevaluateOne(
     item: PublishableItem,
     ctx: PublishPricingCtx,
-    // 💰 P-DB-LIMPIEZA: `true` ⇒ mismo recorrido SIN escribir (precio por `derive…`, sin `claimListed`).
-    dryRun = false,
   ): Promise<PublishReevaluationResult> {
     const id = item.id;
     // Idempotencia observable: una pieza ya a la venta no se vuelve a publicar ni se re-resuelve.
@@ -3195,20 +3175,10 @@ export class InventoryService {
       // Status de origen no publicable o inventario que no es de plataforma. **Correcto y esperado**:
       // el puerto NUNCA fuerza. Se registra porque un disparo sobre algo ajeno es señal de un bug
       // del llamador, y un no-op mudo lo escondería.
-      const detail = e instanceof Error ? e.message : String(e);
-      if (!dryRun) this.logger.warn(`publish trigger: ${item.folio} no publicable (${detail})`);
-      return { inventoryItemId: id, outcome: 'not_publishable', missing: state.missing, detail };
-    }
-    if (dryRun) {
-      const derived = this.derivePublishSalePrice(item, null, ctx);
-      if (!derived.ok) {
-        return {
-          inventoryItemId: id,
-          outcome: 'price_pending',
-          missing: state.missing.includes('price') ? state.missing : [...state.missing, 'price'],
-        };
-      }
-      return { inventoryItemId: id, outcome: 'published', missing: [] };
+      this.logger.warn(
+        `publish trigger: ${item.folio} no publicable (${e instanceof Error ? e.message : String(e)})`,
+      );
+      return { inventoryItemId: id, outcome: 'not_publishable', missing: state.missing };
     }
     const resolved = await this.resolvePublishSalePrice(item, null, ctx);
     if (!resolved.ok) {
@@ -3227,9 +3197,10 @@ export class InventoryService {
     } catch (e) {
       // La guarda atómica perdió la carrera (un checkout la reservó entre medias). Es la conducta
       // CORRECTA (anti-double-sell) y no se convierte en error del llamador.
-      const detail = e instanceof Error ? e.message : String(e);
-      this.logger.warn(`publish trigger: ${item.folio} perdió la carrera al publicar (${detail})`);
-      return { inventoryItemId: id, outcome: 'not_publishable', missing: state.missing, detail };
+      this.logger.warn(
+        `publish trigger: ${item.folio} perdió la carrera al publicar (${e instanceof Error ? e.message : String(e)})`,
+      );
+      return { inventoryItemId: id, outcome: 'not_publishable', missing: state.missing };
     }
     this.logger.log(`publish trigger: ${item.folio} publicada`);
     return { inventoryItemId: id, outcome: 'published', missing: [] };

@@ -29870,6 +29870,11 @@ solo con `frontend/` y `docs/FRONTEND_NOTES.md` (`git diff --stat 2ae42e77 30a64
 Diseño: `docs/specs/LIMPIEZA_DB.md`. Lo corre **el dueño** en Railway; aquí solo hay ficheros y pruebas. Ninguno lleva
 host, usuario ni contraseña.
 
+> ⚠️ **v2 (2026-10-07) — §79.5 manda sobre lo de abajo.** El dueño pidió borrar también el inventario (`HECHOS.md:80`;
+> spec §14). B ya no restaura piezas (adiós P-1, P-2, G-4, G-6, lista 2.4/2.5/2.7, cajón de vuelta, movimientos de
+> cierre); C se llama `…_3_folios.sql` y reinicia también `INV-`; **el paso E (`limpieza:republicar`) se retiró del
+> código**. Las filas B, C y E de la tabla y las decisiones 1, 2 y 5+ de abajo describen v1 (histórico).
+
 **Artefactos** (`backend/prisma/data-repair/`, patrón del precedente `20260912_p79d_*`):
 
 | # | Fichero | Qué hace | Usuario |
@@ -30072,6 +30077,59 @@ generado en la copia, BD propia `tcg_be_limpieza2`):
   `Order` cualquier otra guarda sería adivinar).
 - Medido (copia entera de `9352915c` + cambios, BD propia): 50/50; tsc y eslint exit 0. Mutaciones 1/1 rojas: volver a
   poner `psql "$URL"` en el encabezado de C; romper el formato del `\copy`.
+
+### 79.5 · v2 — también se BORRA el inventario (2026-10-07, spec `LIMPIEZA_DB.md` §14, `HECHOS.md:80`; sobre `87ddf21c`)
+
+**Artefactos v2** (`backend/prisma/data-repair/`):
+
+| # | Fichero | v2 |
+|---|---|---|
+| A | `20261006_pdblimpieza_1_censo.sql` | Sin G-4/P-1. Añade G-9 en modo informe (cartas de cliente), total del inventario que se borra, **A.5 custodia por dueño** (correo, nombre, rol, cartas, pedidos, id) y A.6 resumen tipo × estado × dueño. |
+| B | `20261006_pdblimpieza_2_limpieza.sql` | §14.3. Dos `\set` ✏️: `respaldo_manual` y **`cuentas_prueba`** (correos o ids, coma). `LOCK` + `InventoryBatch`, `PendingPriceEntry`. Orden: … `ShipmentRequest` → `Order` (9) → `SellRequest` (10) → **`DELETE FROM "InventoryItem"`** (11, cascada movimientos y levantamientos) → `InventoryBatch` y `PendingPriceEntry` `inventory`/`portfolio` (12) → avisos, portafolio, bounties (13) → bitácora (14). Listas: pedidos, envíos, solicitudes, **2.4 custodia por dueño** (con «declarada de prueba: sí / NO — falta en ✏️ 2»), **2.5 resumen del inventario** (tipo × estado × de quién, total, lotes, huecos de precio), 2.6 bounties. Sin lista por pieza. Sin `setval`/`nextval` (prueba estática). |
+| C | `20261006_pdblimpieza_3_folios.sql` (renombrado; el viejo `…_3_folio_pedidos.sql` se borró) | `LOCK "Order", "InventoryItem"`. Guardas **independientes**: `Order` vacía ⇒ `TCG-000001`; `InventoryItem` vacía ⇒ `INV-000001`; la que no se puede dice «NO se toca: ya hay N …; no pasa nada». Ambas llenas ⇒ aborta (sin rastro: «corre primero la limpieza»; con rastro, QA-8: «la limpieza YA se hizo… el primero, TCG-…»). `ENV-` **nunca** (§5.2). Imprime antes/después y el próximo folio de los tres. |
+| D | `20261006_pdblimpieza_4_verificacion.sql` | Patrón «0 anteriores al rastro» también para `InventoryItem`, `InventoryMovement`, `InventoryAdjustment`, `InventoryBatch` (`createdAt`) y `PendingPriceEntry` `inventory`/`portfolio`. INFO: `User`, `Card`, `PriceReference`, `ConfigSetting`, `VaultLocation`, `SealedProduct`, `VariantPriceOverride`, cola `catalog`/`buylist`. Nuevas: «contador de inventario: el siguiente es INV-000001, o la primera carta subida es INV-000001» (exige rastro) y **«ningún folio por delante de su contador»** para `INV-` y `TCG-` (`max` numérico del folio < próximo valor). Fuera: «mismo conteo InventoryItem» y «inventory_folio_seq igual que en la limpieza»; `shipment_folio_seq` igual que en el rastro se queda. |
+| E | — | **Retirado** (§14.7). Medido con `rg` en `backend/` (2026-10-07): `previewPublication` solo lo usaba `modules/inventory/limpieza-republicar.ts:130`, y el campo `detail?` de `PublishReevaluationResult` solo lo leía ese mismo fichero (`:85`). Se borraron `src/cli/limpieza-republicar.ts`, `src/modules/inventory/limpieza-republicar.ts`, `test/limpieza-republicar.cli.spec.ts` y el script `limpieza:republicar` de `package.json`; `inventory.service.ts` e `inventory-publish.port.ts` vuelven **exactos** a su estado anterior a `82f32691` (`git diff 82f32691~1 -- <esos dos>` vacío): sin `previewPublication`, sin `dryRun` en `reevaluateOne`, sin `detail`. Nada de esto llegó a `production`. |
+
+**Decisiones de implementación (para que el arquitecto las ratifique):**
+1. **G-9, dos momentos.** La *errata* (un elemento de `cuentas_prueba` que no es ningún `User`, ni por `lower(email)` ni por
+   `id`) aborta **al principio**, como el folio erróneo de P-2 en v1. La *discrepancia* (cartas `customer` de una cuenta
+   no declarada, o con `ownerUserId` nulo) se comprueba **al final**, junto a `respaldo_manual`, para que el ensayo
+   enseñe la lista 2.4 antes de pedirla; el mensaje nombra solo a quienes faltan (correo, o id si no tiene).
+   Correo sin distinguir mayúsculas. ⚠️ Una carta de cliente sin dueño **no se puede fabricar**: la base la rechaza
+   (`InventoryItem_customer_has_owner_chk`, medido al intentar sembrarla); el guion la trata igual por si acaso.
+2. **`PendingPriceEntry` esperado = antes − filas `inventory`/`portfolio` contadas ANTES de borrar** (tabla `lz_cola`),
+   no lo que devolvió el `DELETE`: así G-5 caza un borrado que se pase a `catalog`/`buylist`.
+3. **Clasificación G-8/G-7 v2:** `InventoryItem`, `InventoryMovement`, `InventoryAdjustment`, `InventoryBatch` pasan a
+   `borrar` (y por eso G-7 se niega tras volver a subir, §14.3); `PendingPriceEntry` a `ajustar`.
+4. **Rastro v2:** fuera `piezasRestauradas`/`piezasExcluidas`/`piezasBuylist*`; dentro `inventarioBorrado {total, porTipo
+   {raw, graded, sealed}, custodiaPorUsuario {<userId>: n}}` y `cuentasPrueba` (cuentas distintas declaradas). Sin
+   correos ni folios (la prueba lo comprueba sobre el JSON).
+5. **`lz_t` se queda solo para G-1…G-3** (sin `corte`: ya no hay movimientos de cierre).
+
+**Pruebas** (`test/integration/pdb-limpieza.e2e-spec.ts`, 45 casos; fixture ampliado: `SealedProduct` con precio del dueño
+e imagen, pieza sellada P14, dos `InventoryBatch`, cola de los cuatro contextos, segundo cliente con custodia P13/O5):
+§9.2 reescrita (0 filas por medición directa en el inventario y lo transaccional; **contenido** idéntico de toda tabla no
+tocada —`User`, `Card`, `CardSet`, `SealedProduct`, `PriceReference`, `VaultLocation`, `ConfigSetting`… con filas
+exigidas—; cola `catalog`/`buylist` idéntica; `VariantPriceOverride` idéntica salvo bounty/`updatedAt`); G-9 ×5 (no
+declarado nombra al cliente, errata por correo, errata por id, ambos declarados por correo en mayúsculas y por id, sin
+custodia y lista vacía); G-7 tras volver a subir (no borra la pieza nueva); D tras alta por la app (`nextFolios` ⇒
+`INV-000001…3`, TODO OK) y con folio por delante (`INV-000050`, FALLA en esa línea); C v2 ×5 (§9.6 con ambas tablas,
+sin nada, solo piezas, solo pedidos, QA-8). Se borraron §4.4, §9.5, P-1 ×2, P-2, G-4 ×2, M3 y todo QA-1 · E.
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `87ddf21c` + cambios en el scratchpad `be-limpieza-v2`, `node_modules`
+propio con `@prisma`/`.prisma` copiados y `prisma generate` dentro, esquemas propios `lz…` en la BD local):
+- Rojo antes de tocar los guiones: 38/45 rojas (las nuevas y todas las que corren B con `cuentas_prueba`; las 7 verdes
+  eran estáticas o de A/D/CS-1 que no cambian de conducta).
+- Verde: 45/45 integración `pdb-limpieza`; `tsc --noEmit` y eslint de lo tocado exit 0; unitaria completa 439/439
+  suites, 7949/7949 pruebas (y, tras escribir estas notas, las 18 suites que leen `BACKEND_NOTES`/`TECH_DEBT`: 18/18).
+- Mutaciones (copia aparte del árbol, SQL restaurado entre una y otra):
+  - **M-v2-1b** (sin `DELETE` de piezas + `InventoryItem/Movement/Adjustment` reclasificadas a `conservar`, G-5 de B
+    pasa): §9.2 roja por **medición directa** (`InventoryItem` n = 14 ≠ 0, B terminó en COMMIT) y D roja
+    («0 filas anteriores… InventoryItem: 14 anteriores»). 1/1 (determinista).
+  - **M-v2-2a** (C hace `setval('shipment_folio_seq', 1, false)`): §9.7 «sin reiniciar ENV-» con huérfana falsa en
+    **6/6 esquemas** (2 corridas × N = 3: `1/1` en cada uno) y §9.6 «ENV- igual» roja 2/2.
+  - **Propia** (G-7 con la clasificación v1: ignora `Inventory*`): «G-7 tras volver a subir» roja (B sale 0 y borraría la
+    pieza re-subida); las otras dos de G-7 siguen verdes, como debe ser. 1/1.
 
 ## 80 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
 

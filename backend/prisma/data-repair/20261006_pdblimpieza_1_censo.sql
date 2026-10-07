@@ -1,11 +1,12 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · A · EL CENSO (SOLO LECTURA) — se corre ANTES de todo
---  Fecha: 2026-10-06 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR de la base
---  Diseño: docs/specs/LIMPIEZA_DB.md §8.1 (A) y §8.2 paso 2 · Notas: BACKEND_NOTES §79
+--  Fecha: 2026-10-06 · v2: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR
+--  Diseño: docs/specs/LIMPIEZA_DB.md §14.8 paso 3 (v2) y §8.1 (A) · Notas: BACKEND_NOTES §79 y §79.5
 -- =====================================================================================
 --
 --  QUÉ HACE: cuenta lo que hay en cada tabla, enseña las llaves (FK) reales de la base, avisa de lo que pararía la
---  limpieza (G-1…G-4), y apunta dónde están los tres contadores (TCG-, ENV-, INV-). NO ESCRIBE NADA.
+--  limpieza (G-1…G-3), te enseña quién tiene cartas EN CUSTODIA (G-9: tendrás que declarar las cuentas de prueba) y
+--  el inventario que se va a borrar, y apunta dónde están los tres contadores (TCG-, ENV-, INV-). NO ESCRIBE NADA.
 --
 --  POR QUÉ CON EL ADMINISTRADOR Y NO CON `tcg_readonly`: ese usuario solo puede leer seis tablas, así que este censo
 --  se pararía en la primera consulta que toca otra. Y darle lectura de todo le abriría también contraseñas cifradas,
@@ -31,7 +32,8 @@
 --   ⛔ NUNCA lo pegues en la ventana de psql: si algo falla, seguiría con las demás líneas y el motivo se pierde.
 --
 --  Qué mirar: si las guardas G-1, G-2 o G-3 dan algo distinto de 0, PARA y pregunta antes de seguir.
---  G-4 dice cuántas cartas entraron desde solicitudes de venta de prueba: si es > 0 tienes que contestar P-1.
+--  La lista A.5 (custodia por dueño) es la que tendrás que declarar en la limpieza (✏️ 2, cuentas_prueba): si ves la
+--  cuenta de un cliente REAL, PARA y pregunta.
 -- =====================================================================================
 
 \set ON_ERROR_STOP on
@@ -79,7 +81,7 @@ ORDER BY 1;
 \echo '=== A.3b · La referencia de guía más alta que viajó a Skydropx (ENV- sigue desde aquí, NO se reinicia) ==='
 SELECT max("providerReference") AS max_referencia_skydropx FROM "ShipmentLabelAttempt";
 
-\echo '=== A.4 · GUARDAS EN MODO INFORME (G-1, G-2, G-3 deben dar 0; G-4 > 0 ⇒ contesta P-1) ==='
+\echo '=== A.4 · GUARDAS EN MODO INFORME (G-1, G-2, G-3 deben dar 0; G-9 = cartas en custodia de clientes: lista A.5) ==='
 WITH t AS (
   SELECT "inventoryItemId" AS item_id FROM "OrderItem"
   UNION SELECT "inventoryItemId" FROM "ShipmentItem"
@@ -89,7 +91,7 @@ WITH t AS (
   UNION SELECT "inventoryItemId" FROM "Dispute"
   UNION SELECT id FROM "InventoryItem" WHERE "reservedByOrderId" IS NOT NULL
 )
-SELECT 'G-0 · piezas tocadas por pruebas (vuelven a inventario)' AS guarda, (SELECT count(*) FROM t) AS cuantas
+SELECT 'G-0 · piezas tocadas por pruebas' AS guarda, (SELECT count(*) FROM t) AS cuantas
 UNION ALL
 SELECT 'G-1 · piezas de CLIENTE que no vienen de ningún pedido',
        (SELECT count(*) FROM "InventoryItem" i WHERE i."ownerType"::text = 'customer' AND i.id NOT IN (SELECT item_id FROM t))
@@ -101,8 +103,11 @@ SELECT 'G-3 · movimientos de venta/retiro/caso fuera de pedidos',
        (SELECT count(*) FROM "InventoryMovement" m WHERE m.reason::text IN ('sale','settle','chargeback_return','withdrawal','refund_return','refund_release','replacement')
           AND m."itemId" NOT IN (SELECT item_id FROM t))
 UNION ALL
-SELECT 'G-4 · cartas nacidas de solicitudes de venta (P-1)',
-       (SELECT count(*) FROM "InventoryItem" WHERE "sourceSellRequestItemId" IS NOT NULL)
+SELECT 'G-9 · cartas EN CUSTODIA de clientes (se borran: declara las cuentas de prueba)',
+       (SELECT count(*) FROM "InventoryItem" WHERE "ownerType"::text = 'customer')
+UNION ALL
+SELECT 'Inventario · cartas que se BORRAN (todas: tuyas, de clientes y sellado)',
+       (SELECT count(*) FROM "InventoryItem")
 UNION ALL
 SELECT 'R-6 · expedientes con INE guardada (no bloquea; ver TECH_DEBT)',
        (SELECT count(*) FROM "KycProfile" WHERE "ineFrontKey" IS NOT NULL OR "ineBackKey" IS NOT NULL)
@@ -110,10 +115,16 @@ UNION ALL
 SELECT 'Rastro · limpiezas ya hechas (maintenance.test_data_purge)',
        (SELECT count(*) FROM "AuditLog" WHERE action = 'maintenance.test_data_purge');
 
-\echo '=== A.5 · (P-1) Cartas nacidas de solicitudes de venta — ¿existen de verdad en tu estante? ==='
-SELECT i.folio, c.name AS carta, i.status::text AS estado, (i."acquisitionCostCents" / 100.0)::numeric(14,2) AS costo_mxn, i."createdAt" AS alta
-FROM "InventoryItem" i JOIN "Card" c ON c.id = i."cardId"
-WHERE i."sourceSellRequestItemId" IS NOT NULL
-ORDER BY i.folio;
+\echo '=== A.5 · (G-9) CUSTODIA DE CLIENTES por dueño — estas cuentas las declaras en la limpieza (✏️ 2) si son DE PRUEBA ==='
+SELECT coalesce(u.email, '(sin correo)') AS correo, coalesce(u.name, '') AS nombre, coalesce(u.role::text, '(SIN DUEÑO)') AS rol,
+       count(*) AS cartas, (SELECT count(*) FROM "Order" o WHERE o."userId" = i."ownerUserId") AS pedidos, i."ownerUserId" AS id_usuario
+FROM "InventoryItem" i LEFT JOIN "User" u ON u.id = i."ownerUserId"
+WHERE i."ownerType"::text = 'customer'
+GROUP BY u.email, u.name, u.role, i."ownerUserId"
+ORDER BY 1, i."ownerUserId";
+
+\echo '=== A.6 · El inventario que se borra, por tipo, estado y de quién es (descarga antes tu Excel de M1) ==='
+SELECT i."productType"::text AS tipo, i.status::text AS estado, i."ownerType"::text AS de, count(*) AS cartas
+FROM "InventoryItem" i GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;
 
 ROLLBACK;

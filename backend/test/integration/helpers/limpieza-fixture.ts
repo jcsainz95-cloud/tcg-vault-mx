@@ -18,6 +18,10 @@
  *    FALLIDO O4 que la apartó y la soltó: sigue `listed` en A2 con precio. Es a la vez «pieza de buylist en T» (P-1
  *    «borrar» con conteos ≠ 0) y el caso E2E-LST-0002 de QA (B la baja a `in_stock`; E tiene que devolverla a la venta).
  *  - Aviso de gasto, portafolio, bitácora, y lo que se CONSERVA (precio, dial, KYC con INE, eventos de Stripe…).
+ *  v2 (§14.9, también se borra el inventario): un `SealedProduct` con precio del dueño e imagen y una pieza SELLADA (P14)
+ *  con `sealedProductId`/`sealedImageUrl`; dos `InventoryBatch`; `PendingPriceEntry` de los CUATRO contextos (las de
+ *  `inventory`/`portfolio` se borran, las de `catalog`/`buylist` se quedan); y custodia de DOS clientes: el comprador
+ *  (P1, P4, P5, P11) y `client2` (P13, pedido de bóveda O5) — G-9 exige declararlos en `cuentas_prueba`.
  */
 import { PrismaClient } from '@prisma/client';
 
@@ -28,15 +32,15 @@ export interface Fixture {
   staff: string;
   buyer: string;
   seller: string;
+  client2: string;
+  email: { buyer: string; client2: string };
   loc: { A1: string; A2: string; C1: string; C2: string };
-  piece: Record<'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8' | 'P9' | 'P10' | 'P11' | 'P12', { id: string; folio: string }>;
-  orders: { O1: string; O2: string; O3: string; O4: string };
+  piece: Record<'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8' | 'P9' | 'P10' | 'P11' | 'P12' | 'P13' | 'P14', { id: string; folio: string }>;
+  orders: { O1: string; O2: string; O3: string; O4: string; O5: string };
+  sealedProduct: string;
   directShipFolio: string;
   bounty: { completed: string; open: string; sellOnly: string };
 }
-
-/** Las piezas que la limpieza tiene que restaurar (el conjunto `T` de §4.1). */
-export const T_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P7', 'P11', 'P12'] as const;
 
 export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Promise<Fixture> {
   const run = Math.random().toString(36).slice(2, 8);
@@ -273,6 +277,35 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   await mv(P10.id, { reason: 'adjustment', fromStatus: 'damaged', toStatus: 'in_stock', note: 'levantamiento', createdAt: d(4) });
   await db.inventoryAdjustment.create({ data: { inventoryItemId: P10.id, reason: 'encontrada', fromStatus: 'damaged', toStatus: 'in_stock', note: 'levantamiento' } as any });
 
+  // ---- v2 (§14.9): custodia de un 2.º cliente (pedido de bóveda O5 → P13 en C2)
+  const client2 = await db.user.create({ data: { email: `cliente2.${run}@lz.local`, name: 'Cliente Dos', role: 'customer', emailVerified: true } });
+  const P13 = await piece('E', { ownerType: 'customer', ownerUserId: client2.id, ownershipStatus: 'settled', status: 'in_custody', locationId: C2 });
+  const O5 = await db.order.create({
+    data: { userId: client2.id, orderNumber: await nextOrder(), fulfillmentMode: 'vault', status: 'settled', createdAt: d(7), settledAt: d(7), paymentMethodLast4: '4242', ...money },
+  });
+  await db.orderItem.create({ data: { orderId: O5.id, inventoryItemId: P13.id, cardSnapshot: snap, unitPriceCents: 1000 } });
+  await mv(P13.id, { reason: 'sale', fromStatus: 'listed', toStatus: 'reserved', createdAt: d(7) });
+  await mv(P13.id, { reason: 'settle', fromStatus: 'reserved', toStatus: 'in_custody', createdAt: d(7) });
+
+  // ---- v2: sellado (producto con precio del dueño e imagen; pieza con su copia de la imagen), lotes y la cola de precio
+  const sp = await db.sealedProduct.create({
+    data: {
+      setId: set.id, tcgplayerProductId: 900_000_000 + Math.floor(Math.random() * 99_999_999), tcgplayerGroupId: 1, name: 'ETB LZ', subtype: 'etb',
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/lz_200w.jpg', ownerDisplayPriceCents: 159900,
+    },
+  });
+  const P14 = await piece('A', {
+    productType: 'sealed', rawCondition: null, sealedSubtype: 'etb', sealedCondition: 'mint', sealedProductId: sp.id, sealedImageUrl: sp.imageUrl,
+    sealedProductName: sp.name, status: 'listed', locationId: A1, listPriceCents: 159900,
+  });
+  await db.inventoryBatch.create({ data: { id: `batch-${run}-1`, kind: 'create', requested: 1, createdItems: 1, failedLines: 0, resultJson: { items: [{ id: P9.id, folio: P9.folio }] } } });
+  await db.inventoryBatch.create({ data: { id: `batch-${run}-2`, kind: 'publish', requested: 1, createdItems: 0, failedLines: 0, resultJson: { folios: [P14.folio] } } });
+  await db.pendingPriceEntry.create({ data: { cardId: cards.J, productType: 'raw', gradeKey: 'raw:NM', context: 'catalog' } });
+  await db.pendingPriceEntry.create({ data: { cardId: cards.I, productType: 'raw', gradeKey: 'raw:NM', context: 'inventory' } });
+  await db.pendingPriceEntry.create({ data: { cardId: cards.H, productType: 'raw', gradeKey: 'raw:NM', context: 'inventory', reason: 'no_market' } });
+  await db.pendingPriceEntry.create({ data: { cardId: cards.A, productType: 'sealed', gradeKey: 'sealed', context: 'inventory', sealedProductId: sp.id } });
+  await db.pendingPriceEntry.create({ data: { cardId: cards.D, productType: 'raw', gradeKey: 'raw:NM', context: 'portfolio' } });
+
   // ---- Bounties
   const bCompleted = await db.variantPriceOverride.create({
     data: { cardId: cards.F, bountyEnabled: false, bountyPriceCents: 900, bountyTargetQty: 1, bountyAcquiredQty: 1, bountyCompletedAt: d(-5) },
@@ -293,9 +326,12 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
     staff: staff.id,
     buyer: buyer.id,
     seller: seller.id,
+    client2: client2.id,
+    email: { buyer: buyer.email!, client2: client2.email! },
     loc: { A1, A2, C1, C2 },
-    piece: { P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12 },
-    orders: { O1: O1.id, O2: O2.id, O3: O3.id, O4: O4.id },
+    piece: { P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14 },
+    orders: { O1: O1.id, O2: O2.id, O3: O3.id, O4: O4.id, O5: O5.id },
+    sealedProduct: sp.id,
     directShipFolio: SR3.folio,
     bounty: { completed: bCompleted.id, open: bOpen.id, sellOnly: bSell.id },
   };

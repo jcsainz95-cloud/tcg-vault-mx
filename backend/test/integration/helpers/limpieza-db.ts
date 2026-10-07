@@ -21,7 +21,7 @@ export const REPAIR_DIR = join(BACKEND_DIR, 'prisma', 'data-repair');
 export const FILES = {
   censo: '20261006_pdblimpieza_1_censo.sql',
   limpieza: '20261006_pdblimpieza_2_limpieza.sql',
-  folio: '20261006_pdblimpieza_3_folio_pedidos.sql',
+  folio: '20261006_pdblimpieza_3_folios.sql',
   verificacion: '20261006_pdblimpieza_4_verificacion.sql',
 } as const;
 
@@ -232,8 +232,8 @@ export async function snapshot(admin: PrismaClient, schema: string): Promise<Sna
   return { tables, sequences };
 }
 
-/** El guion B con las variables del dueño escritas en su sitio (las tres líneas `\set` de arriba). */
-export function limpiezaSql(opts: { respaldo?: string; fueraDeVenta?: string; buylist?: string; commit?: boolean }): string {
+/** El guion B con las variables del dueño escritas en su sitio (las dos líneas `\set` ✏️ de arriba, v2 §14.3). */
+export function limpiezaSql(opts: { respaldo?: string; cuentas?: string; commit?: boolean }): string {
   let sql = readRepair('limpieza');
   const put = (name: string, value: string) => {
     const line = `\\set ${name} ''`;
@@ -242,8 +242,7 @@ export function limpiezaSql(opts: { respaldo?: string; fueraDeVenta?: string; bu
     sql = sql.replace(line, `\\set ${name} '${value.replace(/'/g, "''")}'`);
   };
   put('respaldo_manual', opts.respaldo ?? '');
-  put('fuera_de_venta', opts.fueraDeVenta ?? '');
-  put('buylist_piezas', opts.buylist ?? '');
+  put('cuentas_prueba', opts.cuentas ?? '');
   if (opts.commit) sql = toCommit(sql);
   return sql;
 }

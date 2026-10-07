@@ -1,7 +1,7 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · D · LA VERIFICACIÓN (SOLO LECTURA) — se corre DESPUÉS del fichero 2 (COMMIT) y del fichero 3
---  Fecha: 2026-10-06 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR de la base
---  Diseño: docs/specs/LIMPIEZA_DB.md §8.3 · Notas: BACKEND_NOTES §79
+--  Fecha: 2026-10-06 · v2: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR
+--  Diseño: docs/specs/LIMPIEZA_DB.md §14.7 (v2) y §8.3 · Notas: BACKEND_NOTES §79 y §79.5
 -- =====================================================================================
 --
 --  QUÉ HACE: comprueba, una por una, que la base quedó como dice el diseño. Cada línea sale «OK» o «FALLA» (o
@@ -32,7 +32,9 @@
 --   ⛔ NUNCA lo pegues en la ventana de psql: si algo falla, seguiría con las demás líneas y el motivo se pierde.
 --
 --  Lo que la app escribe entre la limpieza y esta verificación (un cliente que se registra, un precio nuevo, el
---  portafolio del job diario) es REAL y NO cuenta como falla: sale como INFO.
+--  portafolio del job diario, las cartas que ya volviste a subir) es REAL y NO cuenta como falla: sale como INFO o
+--  como «posteriores». Del inventario se exige que no quede NADA anterior a la limpieza, que el folio empiece en
+--  INV-000001 y que ningún folio vaya por delante de su contador.
 --  ⚠️ Córrelo ANTES de abrir la tienda a pedidos reales: un pedido nuevo haría fallar «0 filas en Order» (correcto:
 --     la verificación es de la base recién limpiada).
 -- =====================================================================================
@@ -61,28 +63,61 @@ vacias AS (
     'ShipmentRequest','ShipmentItem','ShipmentQuote','ShipmentCarrierEvent','ShipmentAddressRevision','ShipmentCostAdjustment',
     'ShipmentLabelAttempt','ShipmentPaidLabel','Dispute','SellRequest','SellRequestItem']) AS x
 ),
--- QA-7 · el portafolio y los avisos de gasto los escriben jobs DIARIOS: lo posterior a la limpieza es real. Se exige 0
--- solo en lo ANTERIOR al rastro, y lo posterior sale de dato.
+-- QA-7 · el portafolio y los avisos de gasto los escriben jobs DIARIOS, y el inventario lo vuelves a subir tú: lo
+-- posterior a la limpieza es real. Se exige 0 solo en lo ANTERIOR al rastro, y lo posterior sale de dato (v2 §14.7).
 jobs AS (
-  SELECT 'PortfolioSnapshot' AS tabla,
+  SELECT 1 AS o, 'PortfolioSnapshot' AS tabla,
          (SELECT count(*) FROM "PortfolioSnapshot" x, rastro WHERE x."createdAt" < rastro.t) AS antes_del_rastro,
          (SELECT count(*) FROM "PortfolioSnapshot" x, rastro WHERE x."createdAt" >= rastro.t) AS despues
   UNION ALL
-  SELECT 'SpendAlert',
+  SELECT 2, 'SpendAlert',
          (SELECT count(*) FROM "SpendAlert" x, rastro WHERE x."firstOccurredAt" < rastro.t),
          (SELECT count(*) FROM "SpendAlert" x, rastro WHERE x."firstOccurredAt" >= rastro.t)
+  UNION ALL
+  SELECT 3, 'InventoryItem',
+         (SELECT count(*) FROM "InventoryItem" x, rastro WHERE x."createdAt" < rastro.t),
+         (SELECT count(*) FROM "InventoryItem" x, rastro WHERE x."createdAt" >= rastro.t)
+  UNION ALL
+  SELECT 4, 'InventoryMovement',
+         (SELECT count(*) FROM "InventoryMovement" x, rastro WHERE x."createdAt" < rastro.t),
+         (SELECT count(*) FROM "InventoryMovement" x, rastro WHERE x."createdAt" >= rastro.t)
+  UNION ALL
+  SELECT 5, 'InventoryAdjustment',
+         (SELECT count(*) FROM "InventoryAdjustment" x, rastro WHERE x."createdAt" < rastro.t),
+         (SELECT count(*) FROM "InventoryAdjustment" x, rastro WHERE x."createdAt" >= rastro.t)
+  UNION ALL
+  SELECT 6, 'InventoryBatch',
+         (SELECT count(*) FROM "InventoryBatch" x, rastro WHERE x."createdAt" < rastro.t),
+         (SELECT count(*) FROM "InventoryBatch" x, rastro WHERE x."createdAt" >= rastro.t)
+  UNION ALL
+  SELECT 7, 'PendingPriceEntry (inventory/portfolio)',
+         (SELECT count(*) FROM "PendingPriceEntry" x, rastro WHERE x.context::text IN ('inventory', 'portfolio') AND x."createdAt" < rastro.t),
+         (SELECT count(*) FROM "PendingPriceEntry" x, rastro WHERE x.context::text IN ('inventory', 'portfolio') AND x."createdAt" >= rastro.t)
 ),
--- C-4 / QA-6 · «mismo conteo» se EXIGE solo en lo que el fichero 2 modifica (InventoryItem). Usuarios, cartas, precios
--- y diales los sigue escribiendo la app: se enseñan (INFO) y no cuentan como falla.
-iguales AS (
-  SELECT x AS tabla, x = 'InventoryItem' AS exige,
-         (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I', x), false, true, '')))[1]::text::bigint AS ahora,
-         (SELECT (r -> CASE WHEN x = 'InventoryItem' THEN 'conteosDespues' ELSE 'conteosAntes' END ->> x)::bigint FROM rastro) AS rastro
-  FROM unnest(ARRAY['User','Card','PriceReference','ConfigSetting','InventoryItem']) AS x
+-- C-4 / QA-6 · Usuarios, cartas, precios, diales, cajones, sellado y overrides los sigue escribiendo la app: se
+-- enseñan (INFO) y no cuentan como falla. (v2: ya no se exige «mismo conteo» de InventoryItem: lo vuelves a subir.)
+info AS (
+  SELECT x AS tabla, (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I', x), false, true, '')))[1]::text::bigint AS ahora,
+         (SELECT (r -> 'conteosAntes' ->> x)::bigint FROM rastro) AS rastro
+  FROM unnest(ARRAY['User','Card','PriceReference','ConfigSetting','VaultLocation','SealedProduct','VariantPriceOverride']) AS x
+  UNION ALL
+  SELECT 'PendingPriceEntry (catalog/buylist)', (SELECT count(*) FROM "PendingPriceEntry" WHERE context::text IN ('catalog', 'buylist')), NULL
 ),
 sec AS (
   SELECT sequencename AS s, last_value
   FROM pg_sequences WHERE schemaname = current_schema()
+),
+-- El próximo número de cada contador, y el mayor número ya usado (folios con el formato de la app: PREFIJO-nnnnnn).
+folios AS (
+  SELECT 'INV-' AS pre,
+         (SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM inventory_folio_seq) AS proximo,
+         (SELECT max(substring(folio FROM 5)::bigint) FROM "InventoryItem" WHERE folio ~ '^INV-[0-9]+$') AS mayor,
+         (SELECT min(folio) FROM "InventoryItem") AS menor
+  UNION ALL
+  SELECT 'TCG-',
+         (SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM order_number_seq),
+         (SELECT max(substring("orderNumber" FROM 5)::bigint) FROM "Order" WHERE "orderNumber" ~ '^TCG-[0-9]+$'),
+         (SELECT min("orderNumber") FROM "Order")
 ),
 c AS (
   SELECT 10 AS ord, '0 filas en ' || tabla AS comprobacion,
@@ -92,7 +127,7 @@ c AS (
   UNION ALL
   SELECT 11, '0 filas anteriores a la limpieza en ' || tabla,
          CASE WHEN (SELECT count(*) FROM rastro) = 1 AND antes_del_rastro = 0 THEN 'OK' ELSE 'FALLA' END,
-         coalesce(antes_del_rastro::text, 'sin rastro') || ' anteriores · ' || coalesce(despues::text, '?') || ' posteriores (reales, de los jobs)'
+         coalesce(antes_del_rastro::text, 'sin rastro') || ' anteriores · ' || coalesce(despues::text, '?') || ' posteriores (reales)'
   FROM jobs
   UNION ALL
   SELECT 20, 'AuditLog: exactamente 1 rastro maintenance.test_data_purge',
@@ -120,19 +155,32 @@ c AS (
          CASE WHEN n = 0 THEN 'OK' ELSE 'FALLA' END, n::text
   FROM (SELECT count(*) AS n FROM "InventoryItem" WHERE "sourceSellRequestItemId" IS NOT NULL) z
   UNION ALL
-  SELECT 40, CASE WHEN exige THEN 'mismo conteo que tras la limpieza: ' ELSE 'conteo (la app lo sigue escribiendo): ' END || tabla,
-         CASE WHEN NOT exige THEN 'INFO' WHEN rastro IS NOT NULL AND ahora = rastro THEN 'OK' ELSE 'FALLA' END,
-         'ahora ' || coalesce(ahora::text, '?') || ' · rastro ' || coalesce(rastro::text, 'sin rastro')
-  FROM iguales
+  SELECT 40, 'conteo (la app lo sigue escribiendo): ' || tabla, 'INFO',
+         'ahora ' || coalesce(ahora::text, '?') || CASE WHEN rastro IS NULL THEN '' ELSE ' · antes de la limpieza ' || rastro END
+  FROM info
   UNION ALL
   SELECT 50, 'contador de pedidos: el siguiente es TCG-000001',
          CASE WHEN (SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM order_number_seq) = 1 THEN 'OK' ELSE 'FALLA' END,
          (SELECT 'siguiente ' || CASE WHEN is_called THEN last_value + 1 ELSE last_value END FROM order_number_seq)
   UNION ALL
-  SELECT 51, 'contador ' || s || ' igual que en la limpieza (NO se reinicia)',
+  -- v2 (§14.7): INV- reinicia en C. Sin cartas, el siguiente es 1; si ya volviste a subir, la primera fue INV-000001.
+  SELECT 51, 'contador de inventario: el siguiente es INV-000001, o la primera carta subida es INV-000001',
+         CASE WHEN (SELECT count(*) FROM rastro) = 1 AND ((f.menor IS NULL AND f.proximo = 1) OR f.menor = 'INV-000001') THEN 'OK' ELSE 'FALLA' END,
+         CASE WHEN f.menor IS NULL THEN 'sin cartas · siguiente INV-' || lpad(f.proximo::text, 6, '0')
+              ELSE 'primera carta ' || f.menor || ' · siguiente INV-' || lpad(f.proximo::text, 6, '0') END
+  FROM folios f WHERE f.pre = 'INV-'
+  UNION ALL
+  -- R-12 (§14.5): un alta que tomara número entre la guarda de C y su setval dejaría una pieza POR DELANTE del contador
+  -- (el día que el contador la alcance, la siguiente alta choca). Ídem pedidos.
+  SELECT 52, 'ningún folio por delante de su contador: ' || f.pre,
+         CASE WHEN f.mayor IS NULL OR f.mayor < f.proximo THEN 'OK' ELSE 'FALLA' END,
+         'mayor usado ' || coalesce(f.pre || lpad(f.mayor::text, 6, '0'), '(ninguno)') || ' · siguiente ' || f.pre || lpad(f.proximo::text, 6, '0')
+  FROM folios f
+  UNION ALL
+  SELECT 53, 'contador ' || s || ' igual que en la limpieza (NO se reinicia)',
          CASE WHEN (SELECT (r -> 'secuencias' ->> s)::bigint FROM rastro) = sec.last_value THEN 'OK' ELSE 'FALLA' END,
          'ahora ' || coalesce(sec.last_value::text, '?') || ' · rastro ' || coalesce((SELECT r -> 'secuencias' ->> s FROM rastro), 'sin rastro')
-  FROM sec WHERE s IN ('shipment_folio_seq', 'inventory_folio_seq')
+  FROM sec WHERE s = 'shipment_folio_seq'
   UNION ALL
   SELECT 60, 'bounties: comprado = 0 en todas las filas',
          CASE WHEN n = 0 THEN 'OK' ELSE 'FALLA' END, n::text

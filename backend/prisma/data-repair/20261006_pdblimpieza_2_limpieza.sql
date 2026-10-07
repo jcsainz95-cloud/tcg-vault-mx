@@ -1,19 +1,23 @@
 -- =====================================================================================
---  P-DB-LIMPIEZA · B · LA LIMPIEZA (guion principal)
---  Fecha: 2026-10-06 · Lo escribió: backend · Lo ejecuta: EL DUEÑO (usuario ADMINISTRADOR de la base)
---  Diseño: docs/specs/LIMPIEZA_DB.md (§2 tablas, §4 inventario, §6 bitácora, §7 orden) · Notas: BACKEND_NOTES §79
+--  P-DB-LIMPIEZA · B · LA LIMPIEZA (guion principal) — v2: TAMBIÉN SE BORRA EL INVENTARIO
+--  Fecha: 2026-10-06 · v2: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO (usuario ADMINISTRADOR de la base)
+--  Diseño: docs/specs/LIMPIEZA_DB.md §14 (v2, manda sobre v1), §2.4–§2.7, §6 · Notas: BACKEND_NOTES §79 y §79.5 (v2)
 -- =====================================================================================
 --
 --  QUÉ HACE ESTO, EN CASTELLANO
 --  ----------------------------
 --  Borra de la base TODO lo que dejaron las pruebas: pedidos, pagos y reembolsos, SPEI manuales, casos
 --  «Por reponer», colocaciones de bóveda, envíos y todo lo de Skydropx, disputas, solicitudes de venta (buylist),
---  avisos de gasto, portafolios y la bitácora. NO toca usuarios, catálogo, precios, diales ni tu inventario real.
---  Las cartas que tocaron las pruebas VUELVEN a ser tuyas: sin dueño cliente, sin apartado, en estado
---  «en inventario» (in_stock) — también las que estaban a la venta y solo tocaron un pedido fallido.
---  Este fichero NO las publica (SQL no sabe calcular precios). Las vuelve a poner a la venta el paso E (el comando
---  `limpieza:republicar`, BACKEND_NOTES §79): publica las que tienen precio y cajón, y deja las demás en M1
---  «Listas para publicar» con lo que les falta. Al final deja UNA fila en la bitácora con lo que se hizo.
+--  avisos de gasto, portafolios y la bitácora. Y como pediste, también BORRA TODO tu inventario: cartas sueltas,
+--  gradeadas y sellado, las tuyas y las que estaban en custodia de clientes, con su historial de movimientos y
+--  levantamientos, los lotes de alta y los «sin precio» de inventario. Después lo vuelves a subir en M1.
+--  NO toca: usuarios, catálogo (cartas, sets, imágenes), precios (referencias de mercado y tus precios por variante),
+--  el sellado del catálogo (con tu precio por producto y su imagen), tus cajones (vacíos) ni los diales.
+--  Al final deja UNA fila en la bitácora con lo que se hizo (sin correos ni folios).
+--
+--  ANTES DE EMPEZAR: descarga el Excel de tu inventario (M1 → exportar) y guárdalo. Es tu lista para volver a subir.
+--  Sus folios (INV-…) son los VIEJOS: después de esto el folio vuelve a empezar en INV-000001, así que úsalo como
+--  lista de cartas, no de folios.
 --
 --  QUÉ NECESITAS
 --  -------------
@@ -41,41 +45,19 @@
 --   SI AL FINAL VES ROLLBACK, NO SE APLICÓ NADA. Solo se aplicó si la última palabra que sale es COMMIT.
 --
 --   PASO 1 · Córrelo TAL CUAL. Termina en ROLLBACK («deshaz todo»): no escribe nada. Te enseña los pedidos,
---            envíos, solicitudes, las cartas que vuelven (y a qué cajón) y las cartas que nacieron de solicitudes de
---            venta de prueba. Al final se para con un mensaje que dice qué falta decidir (las tres líneas ✏️ de
---            abajo). Eso es lo esperado en el ensayo.
---   PASO 2 · Abre el fichero en un editor de texto y escribe tus respuestas en las TRES líneas «✏️» de abajo (entre
---            las comillas simples). Guarda.
+--            envíos y solicitudes que se borran, la CUSTODIA DE CLIENTES por dueño (correo, nombre, piezas, pedidos)
+--            y el RESUMEN del inventario que se borra (por tipo, estado y dueño). Al final se para con un mensaje que
+--            dice qué falta decidir (las dos líneas ✏️ de abajo). Eso es lo esperado en el ensayo.
+--   PASO 2 · Abre el fichero en un editor de texto y escribe tus respuestas en las DOS líneas «✏️» de abajo (entre
+--            las comillas simples): el respaldo manual y cuentas_prueba (las cuentas de prueba que tienen cartas en
+--            custodia, de la lista del paso 1). Guarda.
 --   PASO 3 · Córrelo otra vez (sigue terminando en ROLLBACK). Esta vez debe llegar hasta el final sin error,
 --            enseñarte la tabla «tabla · antes · después · esperado» y terminar con la palabra ROLLBACK.
 --   PASO 4 · Si estás de acuerdo: cambia la ÚLTIMA línea del fichero, donde dice  ROLLBACK;  por  COMMIT;
 --            guarda y córrelo otra vez. Debe terminar con la palabra COMMIT. **Copia el «PUNTO PITR» que sale al
 --            principio**: es el instante al que restauras si hubiera que deshacerlo (Railway → Postgres → Backups).
---   PASO 5 · Corre el fichero 3 (folio de pedidos), luego el 4 (verificación) y luego el paso E (abajo).
---
---  PASO E · RE-PUBLICAR (NO es psql: es un programa de la app). Primero SIN --apply (simulacro: no escribe y te dice
---  qué haría con cada carta); si te cuadra, otra vez CON --apply. Elige UNA forma, en este orden:
---   (a) (recomendada) Consola/shell del contenedor de la API en Railway (ahí NO hay npm ni tecleas ninguna URL):
---         node dist/cli/limpieza-republicar.js
---         node dist/cli/limpieza-republicar.js --apply
---       Usa la base de la API tal cual (su DATABASE_URL).
---   (b) (recomendada) Desde tu máquina con el CLI de Railway, que pone la URL por ti (nada que teclear):
---         cd backend && npm ci && npm run build
---         railway run --service <servicio-de-la-API> node dist/cli/limpieza-republicar.js
---         railway run --service <servicio-de-la-API> node dist/cli/limpieza-republicar.js --apply
---       Si la URL que inyecta es la interna (*.railway.internal) y existe DATABASE_PUBLIC_URL, el comando usa la
---       pública solo.
---   (c) A mano, solo si no puedes (a) ni (b): mismo build, y la URL PÚBLICA (Railway → Postgres → Connect →
---       «Public Network») sin que quede en el historial ni en `ps`:
---         read -rs DATABASE_URL        (introduce la URL y pulsa Enter: no se ve ni se guarda en el historial)
---         export DATABASE_URL
---         node dist/cli/limpieza-republicar.js
---         node dist/cli/limpieza-republicar.js --apply
---         unset DATABASE_URL
---       ⛔ Nunca `DATABASE_URL='postgresql://…' node …` en la misma línea: queda en el historial. Si la tecleaste o
---       pegaste así (o en un chat), CAMBIA la contraseña de Postgres en Railway cuando termines.
---   Que (a), (b) y `railway connect` funcionen así en tu cuenta: NO MEDIDO por el equipo.
---   Termina con «Resumen · a la venta: … · SIN RESOLVER: …». Si hay «SIN RESOLVER», corrígelas en M1 y repite.
+--   PASO 5 · Corre el fichero 3 (folios) ANTES de volver a subir nada, y luego el 4 (verificación).
+--   PASO 6 · Vuelve a subir tu inventario en M1: la primera carta debe salir INV-000001.
 --
 --  ¿QUIERES CONSERVAR LA BITÁCORA? Este fichero la BORRA entera (queda solo en el respaldo de Railway). Si quieres una
 --  copia en tu computadora, ANTES del COMMIT abre psql (como arriba) y escribe esta línea; deja el fichero
@@ -89,11 +71,12 @@
 --  estado a medias: o se hace entero o no se hace nada.
 --
 --  ⛔ Este fichero NO lleva ni host, ni usuario, ni contraseña. Te conectas con lo tuyo.
---  ⛔ No reinicia NINGÚN contador. El de pedidos (TCG-) lo reinicia el fichero 3, DESPUÉS del COMMIT de éste.
---     El de envíos (ENV-) y el de inventario (INV-) NO se reinician nunca (por qué: LIMPIEZA_DB.md §5).
+--  ⛔ No reinicia NINGÚN contador (un contador no se deshace con ROLLBACK). Los de pedidos (TCG-) e inventario (INV-)
+--     los reinicia el fichero 3, DESPUÉS del COMMIT de éste. El de envíos (ENV-) NO se reinicia nunca (por qué:
+--     LIMPIEZA_DB.md §5.2).
 --  Correrlo dos veces no hace daño: la segunda no encuentra nada que cambiar y no cambia nada. Y si ya se hizo y
---  después apareció CUALQUIER fila nueva en lo que se borra (un pedido real, un portafolio del job diario…), se NIEGA
---  a correr (G-7): eso ya es real.
+--  después apareció CUALQUIER fila nueva en lo que se borra (un pedido real, una carta que ya volviste a subir, un
+--  portafolio del job diario…), se NIEGA a correr (G-7): eso ya es real.
 -- =====================================================================================
 
 \set ON_ERROR_STOP on
@@ -105,14 +88,11 @@
 -- ✏️ 1 · Nombre y hora del RESPALDO MANUAL que tomaste justo antes (Railway → Postgres → Backups → Create backup).
 --        Obligatorio para el COMMIT. Ejemplo:  \set respaldo_manual 'manual 2026-10-08 09:15'
 \set respaldo_manual ''
--- ✏️ 2 · (P-2) Cartas tocadas por las pruebas que YA NO están físicamente. Folios separados por coma; quedan fuera de
---        venta («withdrawn»). Añade «:damaged» si se dañó de verdad. Vacío = todas vuelven a tu inventario.
---        Ejemplo:  \set fuera_de_venta 'INV-000123, INV-000456:damaged'
-\set fuera_de_venta ''
--- ✏️ 3 · (P-1) Cartas que entraron a tu inventario desde solicitudes de venta DE PRUEBA: escribe  borrar  (no existen
---        en tu estante) o  conservar  (sí existen: se quedan, sin el vínculo a la solicitud). Si no hay ninguna, déjalo
---        vacío. Ejemplo:  \set buylist_piezas 'conservar'
-\set buylist_piezas ''
+-- ✏️ 2 · (G-9) Las cuentas DE PRUEBA que tienen cartas en custodia (lista «2.4 · CUSTODIA» del ensayo): sus correos,
+--        o su id si la cuenta no tiene correo, separados por coma. Si una cuenta de esa lista es de un cliente REAL,
+--        NO sigas: pregunta. Si la lista sale vacía, déjalo vacío.
+--        Ejemplo:  \set cuentas_prueba 'yo+prueba1@gmail.com, yo+prueba2@gmail.com'
+\set cuentas_prueba ''
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -121,10 +101,11 @@ BEGIN ISOLATION LEVEL REPEATABLE READ;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
--- Nadie escribe a la mitad: si un job o un webhook tiene estas tablas, en 5 s se rinde sin tocar nada.
-LOCK TABLE "Order", "ShipmentRequest", "SellRequest", "InventoryItem", "PaymentRefund", "ManualRefund" IN SHARE ROW EXCLUSIVE MODE;
+-- Nadie escribe a la mitad: si un job o un webhook tiene estas tablas, en 5 s se rinde sin tocar nada. (v2: también
+-- los lotes de alta y la cola de precio, que el job de precios escribe leyendo piezas.)
+LOCK TABLE "Order", "ShipmentRequest", "SellRequest", "InventoryItem", "PaymentRefund", "ManualRefund", "InventoryBatch", "PendingPriceEntry" IN SHARE ROW EXCLUSIVE MODE;
 
--- Estados en castellano para las listas (función temporal: desaparece al cerrar la sesión).
+-- Estados y tipos en castellano para las listas (función temporal: desaparece al cerrar la sesión).
 CREATE FUNCTION pg_temp.lz_es(s text) RETURNS text LANGUAGE sql IMMUTABLE AS $f$
   SELECT CASE s
     WHEN 'in_stock' THEN 'en inventario'   WHEN 'listed' THEN 'a la venta'      WHEN 'reserved' THEN 'apartada'
@@ -134,6 +115,8 @@ CREATE FUNCTION pg_temp.lz_es(s text) RETURNS text LANGUAGE sql IMMUTABLE AS $f$
     WHEN 'pending' THEN 'pendiente'        WHEN 'settled' THEN 'pagado'         WHEN 'failed' THEN 'fallido'
     WHEN 'refunded' THEN 'reembolsado'     WHEN 'chargeback' THEN 'contracargo'
     WHEN 'vault' THEN 'bóveda'             WHEN 'direct_ship' THEN 'envío directo'
+    WHEN 'raw' THEN 'suelta'               WHEN 'graded' THEN 'gradeada'        WHEN 'sealed' THEN 'sellado'
+    WHEN 'platform' THEN 'tienda'          WHEN 'customer' THEN 'cliente'
     ELSE s END $f$;
 
 -- ------------------------------------------------------------------------------------
@@ -148,16 +131,22 @@ SELECT current_database() AS base_de_datos,
 
 CREATE TEMP TABLE lz_param ON COMMIT DROP AS
 SELECT btrim(:'respaldo_manual')            AS respaldo,
-       btrim(:'fuera_de_venta')             AS fuera_de_venta,
-       lower(btrim(:'buylist_piezas'))      AS buylist,
+       btrim(:'cuentas_prueba')             AS cuentas,
        to_char(now() AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS fecha,
        now()                                AS punto_pitr;
+
+-- G-9: la lista ✏️ 2 ya leída. Cada elemento se busca como correo (sin distinguir mayúsculas) o como id de usuario;
+-- user_id NULL = no existe en la base (errata).
+CREATE TEMP TABLE lz_cuentas ON COMMIT DROP AS
+SELECT x.token, u.id AS user_id
+FROM (SELECT DISTINCT btrim(t) AS token FROM lz_param, unnest(string_to_array(cuentas, ',')) AS t WHERE btrim(t) <> '') x
+LEFT JOIN "User" u ON lower(u.email) = lower(x.token) OR u.id = x.token;
 
 -- Cuánto cambió cada paso (para la idempotencia: si todo da 0, no se escribe rastro nuevo).
 CREATE TEMP TABLE lz_cambio (paso text NOT NULL, filas bigint NOT NULL) ON COMMIT DROP;
 
 -- ------------------------------------------------------------------------------------
--- 1 · CONTEOS ANTES (todas las tablas de §2; las que no existan en esta versión salen vacías)
+-- 1 · CONTEOS ANTES (todas las tablas; las que no existan en esta versión salen vacías) — clasificación v2 (§14.2)
 -- ------------------------------------------------------------------------------------
 CREATE TEMP TABLE lz_conteo (tabla text PRIMARY KEY, grupo text NOT NULL, antes bigint, despues bigint, esperado bigint) ON COMMIT DROP;
 INSERT INTO lz_conteo (tabla, grupo)
@@ -165,14 +154,15 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   'ManualRefund','PaymentRefund','ReplacementCase','Dispute','VaultPlacementItem','VaultPlacement',
   'ShipmentCostAdjustment','ShipmentPaidLabel','ShipmentLabelAttempt','ShipmentRequest','ShipmentItem','ShipmentQuote',
   'ShipmentCarrierEvent','ShipmentAddressRevision','Order','OrderItem','OrderAccessToken','SellRequest','SellRequestItem',
+  'InventoryItem','InventoryMovement','InventoryAdjustment','InventoryBatch',
   'SpendAlert','PortfolioSnapshot','AuditLog']) AS t
 UNION ALL
-SELECT t, 'ajustar' FROM unnest(ARRAY['InventoryItem','InventoryMovement','InventoryAdjustment','VariantPriceOverride']) AS t
+SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry']) AS t
 UNION ALL
 SELECT t, 'conservar' FROM unnest(ARRAY[
   'User','KycProfile','KycUploadGrant','BillingProfile','Address','AuthToken','CardSet','SealedSetGroup','SealedProduct','Card',
-  'CardProduct','PostalCode','ShippingPackage','PriceReference','FxRate','SetValueSnapshot','PendingPriceEntry','ConfigSetting',
-  'VaultLocation','InventoryBatch','ProcessedStripeEvent','SpendDigestRun','SpendOwnerWatch','SealedRestockSubscription',
+  'CardProduct','PostalCode','ShippingPackage','PriceReference','FxRate','SetValueSnapshot','ConfigSetting',
+  'VaultLocation','ProcessedStripeEvent','SpendDigestRun','SpendOwnerWatch','SealedRestockSubscription',
   'MetaDeck','MetaDeckList','MetaDeckCard','MetaFetchRun']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
@@ -202,84 +192,38 @@ BEGIN
 END $$;
 
 -- ------------------------------------------------------------------------------------
--- 2 · EL CONJUNTO T (piezas tocadas por pruebas), SU DESTINO, LAS GUARDAS Y TODO LO QUE SE VA A HACER, A LA VISTA
+-- 2 · LO QUE SE VA A BORRAR, LAS GUARDAS Y TODO A LA VISTA (se calcula AHORA: después de borrar ya no se podría)
 -- ------------------------------------------------------------------------------------
 -- T = piezas referidas por cualquier pedido, envío, colocación, caso o disputa, o apartadas por un pedido (§4.1).
--- corte = el instante más antiguo de lo que la toca (§4.4). Se calcula AHORA: después de borrar ya no se podría.
+-- En v2 ya no es un plan de restauración: solo sirve a G-1…G-3 (lo que el modelo no conoce, para).
 CREATE TEMP TABLE lz_t ON COMMIT DROP AS
-WITH refs AS (
-  SELECT oi."inventoryItemId" AS item_id, o."createdAt" AS t FROM "OrderItem" oi JOIN "Order" o ON o.id = oi."orderId"
-  UNION ALL SELECT si."inventoryItemId", sr."requestedAt" FROM "ShipmentItem" si JOIN "ShipmentRequest" sr ON sr.id = si."shipmentRequestId"
-  UNION ALL SELECT vpi."inventoryItemId", vp."createdAt" FROM "VaultPlacementItem" vpi JOIN "VaultPlacement" vp ON vp.id = vpi."placementId"
-  UNION ALL SELECT rc."originalInventoryItemId", rc."openedAt" FROM "ReplacementCase" rc
-  UNION ALL SELECT rc."replacementInventoryItemId", rc."openedAt" FROM "ReplacementCase" rc WHERE rc."replacementInventoryItemId" IS NOT NULL
-  UNION ALL SELECT dp."inventoryItemId", dp."createdAt" FROM "Dispute" dp
-  UNION ALL SELECT i.id, o."createdAt" FROM "InventoryItem" i JOIN "Order" o ON o.id = i."reservedByOrderId"
-)
-SELECT item_id, min(t) AS corte FROM refs GROUP BY item_id;
+SELECT DISTINCT item_id FROM (
+  SELECT oi."inventoryItemId" AS item_id FROM "OrderItem" oi
+  UNION ALL SELECT si."inventoryItemId" FROM "ShipmentItem" si
+  UNION ALL SELECT vpi."inventoryItemId" FROM "VaultPlacementItem" vpi
+  UNION ALL SELECT rc."originalInventoryItemId" FROM "ReplacementCase" rc
+  UNION ALL SELECT rc."replacementInventoryItemId" FROM "ReplacementCase" rc WHERE rc."replacementInventoryItemId" IS NOT NULL
+  UNION ALL SELECT dp."inventoryItemId" FROM "Dispute" dp
+  UNION ALL SELECT i.id FROM "InventoryItem" i WHERE i."reservedByOrderId" IS NOT NULL
+) refs;
 ALTER TABLE lz_t ADD PRIMARY KEY (item_id);
 
--- P-2: la lista de exclusión, ya leída (folio → withdrawn | damaged).
-CREATE TEMP TABLE lz_excl ON COMMIT DROP AS
-SELECT btrim(split_part(x, ':', 1)) AS folio,
-       coalesce(nullif(lower(btrim(split_part(x, ':', 2))), ''), 'withdrawn') AS destino
-FROM lz_param, unnest(string_to_array(fuera_de_venta, ',')) AS x
-WHERE btrim(x) <> '';
-
--- El plan por pieza (§4.3). Cajón: si está en un cajón de CUSTODIA, vuelve al cajón de PLATAFORMA del que salió en su
--- colocación más antigua (el `move` más antiguo que la metió en custodia); si ese origen no es de plataforma, sin cajón.
-CREATE TEMP TABLE lz_plan ON COMMIT DROP AS
-SELECT i.id                       AS item_id,
-       i.folio,
-       c.name                     AS carta,
-       i."ownerType"::text        AS dueno_antes,
-       i.status                   AS status_antes,
-       CASE WHEN e.folio IS NULL THEN 'in_stock' ELSE e.destino END AS status_destino,
-       e.folio IS NOT NULL        AS excluida,
-       i."locationId"             AS loc_antes,
-       CASE
-         WHEN la.zone::text = 'customer_custody' THEN
-           (SELECT CASE WHEN fl.zone::text = 'platform_stock' THEN fl.id END
-              FROM "InventoryMovement" m
-              JOIN "VaultLocation" tl ON tl.id = m."toLocationId" AND tl.zone::text = 'customer_custody'
-              LEFT JOIN "VaultLocation" fl ON fl.id = m."fromLocationId"
-             WHERE m."itemId" = i.id AND m.reason::text = 'move'
-             ORDER BY m."createdAt" ASC, m.id ASC
-             LIMIT 1)
-         ELSE i."locationId"
-       END                        AS loc_destino,
-       t.corte
-FROM lz_t t
-JOIN "InventoryItem" i ON i.id = t.item_id
-JOIN "Card" c ON c.id = i."cardId"
-LEFT JOIN "VaultLocation" la ON la.id = i."locationId"
-LEFT JOIN lz_excl e ON e.folio = i.folio;
-
--- Movimientos que se van a borrar (§4.4): los de pedido/retiro/caso, y los lost/damaged/move desde el corte.
-CREATE TEMP TABLE lz_mov_borrar ON COMMIT DROP AS
-SELECT m.id, m."itemId", m.reason::text AS reason, m."createdAt", m.note
-FROM "InventoryMovement" m
-JOIN lz_t t ON t.item_id = m."itemId"
-WHERE m.reason::text IN ('sale','settle','chargeback_return','withdrawal','refund_return','refund_release','replacement')
-   OR (m.reason::text IN ('lost','damaged','move') AND m."createdAt" >= t.corte);
-
--- Piezas nacidas de solicitudes de venta (todas las solicitudes son de prueba ⇒ todas cuelgan de algo que se borra).
-CREATE TEMP TABLE lz_buylist ON COMMIT DROP AS
-SELECT i.id AS item_id, i.folio, c.name AS carta, i.status::text AS status, i."acquisitionCostCents",
-       (i.id IN (SELECT item_id FROM lz_t)) AS en_t,
-       (SELECT count(*) FROM "InventoryMovement" m WHERE m."itemId" = i.id) AS movimientos,
-       (SELECT count(*) FROM "InventoryAdjustment" a WHERE a."inventoryItemId" = i.id) AS ajustes
-FROM "InventoryItem" i JOIN "Card" c ON c.id = i."cardId"
-WHERE i."sourceSellRequestItemId" IS NOT NULL;
+-- Custodia de clientes por dueño (G-9) y el inventario por tipo (para el rastro), ANTES de borrar.
+CREATE TEMP TABLE lz_custodia ON COMMIT DROP AS
+SELECT i."ownerUserId" AS user_id, count(*) AS piezas
+FROM "InventoryItem" i WHERE i."ownerType"::text = 'customer' GROUP BY 1;
+CREATE TEMP TABLE lz_inv_tipo ON COMMIT DROP AS
+SELECT i."productType"::text AS tipo, count(*) AS piezas FROM "InventoryItem" i GROUP BY 1;
+-- Huecos de precio que se van (§14.2: solo los de inventario/portafolio; los de catálogo y cotizador se quedan).
+CREATE TEMP TABLE lz_cola ON COMMIT DROP AS
+SELECT count(*) AS n FROM "PendingPriceEntry" WHERE context::text IN ('inventory', 'portfolio');
 
 -- ---- Guardas que paran TODO de inmediato (el modelo no las conoce: no se adivina)
 DO $$
-DECLARE n bigint; ej text; p record;
+DECLARE n bigint; ej text;
 BEGIN
-  SELECT * INTO p FROM lz_param;
-
-  -- G-7 · La limpieza ya se hizo y DESPUÉS apareció cualquier fila en lo que se borra (un pedido real, el portafolio o
-  -- un aviso que escribe un job diario…): eso ya es real. Se niega ENTERO: ni borra nada ni escribe otro rastro.
+  -- G-7 · La limpieza ya se hizo y DESPUÉS apareció cualquier fila en lo que se borra (un pedido real, una carta que
+  -- ya volviste a subir, el portafolio o un aviso que escribe un job diario…): eso ya es real. Se niega ENTERO.
   SELECT string_agg(tabla || ' (' || antes || ')', ', ' ORDER BY tabla) INTO ej
     FROM lz_conteo WHERE grupo = 'borrar' AND tabla <> 'AuditLog' AND antes > 0;
   IF EXISTS (SELECT 1 FROM "AuditLog" WHERE action = 'maintenance.test_data_purge') AND ej IS NOT NULL THEN
@@ -287,7 +231,7 @@ BEGIN
       (SELECT to_char(max("createdAt"), 'YYYY-MM-DD HH24:MI') FROM "AuditLog" WHERE action = 'maintenance.test_data_purge'), ej;
   END IF;
 
-  -- G-1 · Pieza de CLIENTE que no vino de ningún pedido/envío/caso/disputa.
+  -- G-1 · Pieza de CLIENTE que no vino de ningún pedido/envío/caso/disputa: origen desconocido, no se borra a ciegas.
   SELECT count(*), string_agg(folio, ', ' ORDER BY folio) INTO n, ej FROM (
     SELECT i.folio FROM "InventoryItem" i WHERE i."ownerType"::text = 'customer' AND i.id NOT IN (SELECT item_id FROM lz_t) LIMIT 20) x;
   IF n > 0 THEN
@@ -311,16 +255,10 @@ BEGIN
     RAISE EXCEPTION 'G-3 · Hay % movimiento(s) de venta/retiro/caso sobre piezas que no vienen de ningún pedido (p. ej. %). No se escribió nada.', n, ej;
   END IF;
 
-  -- P-1 · respuesta mal escrita (un error tipográfico no puede decidir borrar cartas).
-  IF p.buylist NOT IN ('', 'borrar', 'conservar') THEN
-    RAISE EXCEPTION 'buylist_piezas · La respuesta a P-1 debe ser «borrar» o «conservar» (escribiste «%»). No se escribió nada.', p.buylist;
-  END IF;
-
-  -- P-2 · folios de exclusión: cada uno debe ser una pieza tocada por pruebas, y el destino withdrawn|damaged.
-  SELECT count(*), string_agg(folio || ':' || destino, ', ') INTO n, ej FROM lz_excl
-   WHERE destino NOT IN ('withdrawn','damaged') OR folio NOT IN (SELECT folio FROM lz_plan);
-  IF n > 0 THEN
-    RAISE EXCEPTION 'fuera_de_venta · % folio(s) no son cartas tocadas por pruebas o traen un destino que no es «damaged» (%). Revisa la lista del ensayo. No se escribió nada.', n, ej;
+  -- G-9 (errata) · un correo/id de ✏️ 2 que no es ninguna cuenta: un error al escribir no decide qué se borra.
+  SELECT string_agg(token, ', ' ORDER BY token) INTO ej FROM lz_cuentas WHERE user_id IS NULL;
+  IF ej IS NOT NULL THEN
+    RAISE EXCEPTION 'G-9 · cuentas_prueba: «%» no es ninguna cuenta de la base (ni correo ni id). Revisa lo que escribiste en la línea ✏️ 2 contra la lista 2.4 del ensayo. No se escribió nada.', ej;
   END IF;
 END $$;
 
@@ -339,27 +277,21 @@ SELECT r.id AS solicitud, r.status::text AS estado, r."createdAt" AS creada, (r.
        (SELECT count(*) FROM "SellRequestItem" x WHERE x."sellRequestId" = r.id) AS lineas
 FROM "SellRequest" r ORDER BY r."createdAt", r.id;
 
-\echo '=== 2.4 · CARTAS QUE VUELVEN A TU INVENTARIO (y a qué cajón — mueve la carta física si el cajón cambia) ==='
-SELECT p.folio, p.carta, CASE p.dueno_antes WHEN 'customer' THEN 'cliente' ELSE 'tienda' END AS era_de,
-       pg_temp.lz_es(p.status_antes::text) || ' → ' || pg_temp.lz_es(p.status_destino) AS estado,
-       coalesce(la.label, '(sin cajón)') || ' → ' || coalesce(ld.label, '(sin cajón)') AS cajon,
-       concat_ws(' · ',
-         CASE WHEN p.excluida THEN 'FUERA DE VENTA (P-2)' END,
-         CASE WHEN NOT p.excluida AND p.status_antes::text IN ('lost', 'damaged')
-              THEN '¿EXISTE Y ESTÁ BIEN? era ' || pg_temp.lz_es(p.status_antes::text) || ': si no, ponla en ✏️ 2 (P-2)' END,
-         CASE WHEN p.loc_antes IS DISTINCT FROM p.loc_destino THEN 'MUEVE LA CARTA' END) AS ojo
-FROM lz_plan p
-LEFT JOIN "VaultLocation" la ON la.id = p.loc_antes
-LEFT JOIN "VaultLocation" ld ON ld.id = p.loc_destino
-ORDER BY p.folio;
+\echo '=== 2.4 · CUSTODIA DE CLIENTES por dueño — cartas de clientes que se BORRAN. Escribe en ✏️ 2 las cuentas DE PRUEBA; si alguna es REAL, NO sigas ==='
+SELECT coalesce(u.email, '(sin correo)') AS correo, coalesce(u.name, '') AS nombre, coalesce(u.role::text, '(SIN DUEÑO)') AS rol,
+       c.piezas, (SELECT count(*) FROM "Order" o WHERE o."userId" = c.user_id) AS pedidos,
+       CASE WHEN c.user_id IS NOT NULL AND c.user_id IN (SELECT user_id FROM lz_cuentas WHERE user_id IS NOT NULL)
+            THEN 'sí' ELSE 'NO — falta en ✏️ 2' END AS declarada_de_prueba,
+       c.user_id AS id_usuario
+FROM lz_custodia c LEFT JOIN "User" u ON u.id = c.user_id
+ORDER BY 1, c.user_id;
 
-\echo '=== 2.5 · (P-1) CARTAS QUE ENTRARON DESDE SOLICITUDES DE VENTA DE PRUEBA ==='
-SELECT b.folio, b.carta, pg_temp.lz_es(b.status) AS estado, (b."acquisitionCostCents" / 100.0)::numeric(14,2) AS costo_mxn, b.en_t AS tocada_por_pedido,
-       CASE (SELECT buylist FROM lz_param)
-         WHEN 'borrar' THEN 'SE BORRA'
-         WHEN 'conservar' THEN 'SE QUEDA (sin vínculo a la solicitud)'
-         ELSE 'FALTA TU RESPUESTA (P-1)' END AS que_va_a_pasar
-FROM lz_buylist b ORDER BY b.folio;
+\echo '=== 2.5 · RESUMEN DEL INVENTARIO QUE SE BORRA (por tipo, estado y de quién es; vuelves a subir el tuyo desde tu Excel) ==='
+SELECT pg_temp.lz_es(i."productType"::text) AS tipo, pg_temp.lz_es(i.status::text) AS estado, pg_temp.lz_es(i."ownerType"::text) AS de,
+       count(*) AS piezas
+FROM "InventoryItem" i GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;
+SELECT (SELECT count(*) FROM "InventoryItem") AS total_cartas, (SELECT count(*) FROM "InventoryBatch") AS lotes_de_alta,
+       (SELECT n FROM lz_cola) AS sin_precio_de_inventario;
 
 \echo '=== 2.6 · BOUNTIES: lo comprado por buylist de prueba vuelve a 0 (si alguno se apagó solo, queda apagado: lo re-enciendes en un clic) ==='
 SELECT c.name AS carta, v."gradeKey", v.finish::text AS acabado, v."bountyEnabled" AS encendido, v."bountyAcquiredQty" AS comprado,
@@ -367,12 +299,6 @@ SELECT c.name AS carta, v."gradeKey", v.finish::text AS acabado, v."bountyEnable
 FROM "VariantPriceOverride" v JOIN "Card" c ON c.id = v."cardId"
 WHERE v."bountyAcquiredQty" <> 0 OR v."bountyCompletedAt" IS NOT NULL
 ORDER BY c.name;
-
-\echo '=== 2.7 · MOVIMIENTOS lost/damaged/move POSTERIORES AL CORTE que se borran (si alguno fue un ajuste REAL tuyo de M1, aquí se ve) ==='
-SELECT i.folio, b.reason AS motivo, b."createdAt" AS fecha, b.note AS nota
-FROM lz_mov_borrar b JOIN "InventoryItem" i ON i.id = b."itemId"
-WHERE b.reason IN ('lost','damaged','move')
-ORDER BY i.folio, b."createdAt";
 
 -- ------------------------------------------------------------------------------------
 -- 3 · SPEI manuales (ManualRefund), por HOJAS: primero los que nadie re-emite (la cadena «reissuedFrom» es RESTRICT)
@@ -391,7 +317,7 @@ BEGIN
   INSERT INTO lz_cambio VALUES ('3 ManualRefund', total);
 END $$;
 
--- 4 · 5 · 6 · 7 — reembolsos de Stripe, casos, disputas, colocaciones
+-- 4 · 5 · 6 · 7 — reembolsos de Stripe, casos, disputas, colocaciones (todos RESTRICT hacia las piezas: van antes)
 WITH x AS (DELETE FROM "PaymentRefund" RETURNING 1) INSERT INTO lz_cambio SELECT '4 PaymentRefund', count(*) FROM x;
 WITH x AS (DELETE FROM "ReplacementCase" RETURNING 1) INSERT INTO lz_cambio SELECT '5 ReplacementCase', count(*) FROM x;
 WITH x AS (DELETE FROM "Dispute" RETURNING 1) INSERT INTO lz_cambio SELECT '6 Dispute', count(*) FROM x;
@@ -405,74 +331,40 @@ WITH x AS (DELETE FROM "ShipmentPaidLabel" RETURNING 1) INSERT INTO lz_cambio SE
 WITH x AS (DELETE FROM "ShipmentLabelAttempt" RETURNING 1) INSERT INTO lz_cambio SELECT '8 ShipmentLabelAttempt', count(*) FROM x;
 WITH x AS (DELETE FROM "ShipmentRequest" RETURNING 1) INSERT INTO lz_cambio SELECT '8 ShipmentRequest', count(*) FROM x;
 
--- ------------------------------------------------------------------------------------
--- 9 · Las piezas de T vuelven a la plataforma: sin dueño, sin apartado, in_stock (o lo que diga P-2), su cajón
---     ⛔ Nunca «listed» aquí: publicar exige resolver el precio, y eso lo hace la app (M1).
--- ------------------------------------------------------------------------------------
-WITH x AS (
-  UPDATE "InventoryItem" i
-     SET "ownerType" = 'platform', "ownerUserId" = NULL, "ownershipStatus" = NULL,
-         "reservedByOrderId" = NULL, "reservedUntil" = NULL,
-         status = p.status_destino::"InventoryStatus", "locationId" = p.loc_destino, "updatedAt" = now()
-    FROM lz_plan p
-   WHERE p.item_id = i.id
-  RETURNING 1)
-INSERT INTO lz_cambio SELECT '9 InventoryItem restauradas', count(*) FROM x;
+-- 9 · Pedidos (cascada: líneas y tokens de invitado). Las líneas apuntan a las piezas con RESTRICT: van ANTES.
+WITH x AS (DELETE FROM "Order" RETURNING 1) INSERT INTO lz_cambio SELECT '9 Order', count(*) FROM x;
 
--- 10 · Movimientos: fuera los de prueba; UNO de cierre por pieza (sin fila de levantamiento: no lo es).
-WITH x AS (DELETE FROM "InventoryMovement" m USING lz_mov_borrar b WHERE m.id = b.id RETURNING 1)
-INSERT INTO lz_cambio SELECT '10 InventoryMovement borrados', count(*) FROM x;
-WITH x AS (
-  INSERT INTO "InventoryMovement" (id, "itemId", "fromLocationId", "toLocationId", "fromStatus", "toStatus", reason, "actorUserId", note, "createdAt")
-  SELECT gen_random_uuid()::text, p.item_id,
-         CASE WHEN p.loc_antes IS DISTINCT FROM p.loc_destino THEN p.loc_antes END,
-         CASE WHEN p.loc_antes IS DISTINCT FROM p.loc_destino THEN p.loc_destino END,
-         p.status_antes, p.status_destino::"InventoryStatus", 'adjustment', NULL,
-         'P-DB-LIMPIEZA ' || (SELECT fecha FROM lz_param) || ': pruebas borradas; '
-           || CASE WHEN p.excluida THEN 'fuera de venta (P-2)' ELSE 'vuelve a inventario' END,
-         now()
-  FROM lz_plan p
-  RETURNING 1)
-INSERT INTO lz_cambio SELECT '10 InventoryMovement de cierre', count(*) FROM x;
+-- 10 · Solicitudes de venta (cascada: sus líneas).
+WITH x AS (DELETE FROM "SellRequest" RETURNING 1) INSERT INTO lz_cambio SELECT '10 SellRequest', count(*) FROM x;
 
--- 11 · Pedidos (cascada: líneas y tokens de invitado).
-WITH x AS (DELETE FROM "Order" RETURNING 1) INSERT INTO lz_cambio SELECT '11 Order', count(*) FROM x;
+-- 11 · EL INVENTARIO, ENTERO (plataforma, custodia y sellado). Cascada: movimientos y levantamientos.
+--      El sellado del catálogo (SealedProduct) NO se toca: la pieza apunta a él con SET NULL.
+WITH x AS (DELETE FROM "InventoryItem" RETURNING 1) INSERT INTO lz_cambio SELECT '11 InventoryItem', count(*) FROM x;
 
--- 12 · (P-1) Piezas nacidas del buylist de prueba. Sin respuesta, no se toca nada aquí y el paso 16 aborta.
-WITH x AS (
-  DELETE FROM "InventoryItem" i USING lz_buylist b, lz_param p
-   WHERE i.id = b.item_id AND p.buylist = 'borrar'
-  RETURNING 1)
-INSERT INTO lz_cambio SELECT '12 InventoryItem buylist borradas', count(*) FROM x;
-WITH x AS (
-  UPDATE "InventoryItem" i SET "sourceSellRequestItemId" = NULL, "updatedAt" = now()
-    FROM lz_buylist b, lz_param p
-   WHERE i.id = b.item_id AND p.buylist = 'conservar'
-  RETURNING 1)
-INSERT INTO lz_cambio SELECT '12 InventoryItem buylist desligadas', count(*) FROM x;
+-- 12 · Lotes de alta (guardan folios de piezas que ya no existen) y los «sin precio» de inventario/portafolio.
+WITH x AS (DELETE FROM "InventoryBatch" RETURNING 1) INSERT INTO lz_cambio SELECT '12 InventoryBatch', count(*) FROM x;
+WITH x AS (DELETE FROM "PendingPriceEntry" WHERE context::text IN ('inventory', 'portfolio') RETURNING 1)
+INSERT INTO lz_cambio SELECT '12 PendingPriceEntry inventario', count(*) FROM x;
 
--- 13 · Solicitudes de venta (cascada: sus líneas).
-WITH x AS (DELETE FROM "SellRequest" RETURNING 1) INSERT INTO lz_cambio SELECT '13 SellRequest', count(*) FROM x;
-
--- 14 · Avisos de gasto, portafolios y bounties.
-WITH x AS (DELETE FROM "SpendAlert" RETURNING 1) INSERT INTO lz_cambio SELECT '14 SpendAlert', count(*) FROM x;
-WITH x AS (DELETE FROM "PortfolioSnapshot" RETURNING 1) INSERT INTO lz_cambio SELECT '14 PortfolioSnapshot', count(*) FROM x;
+-- 13 · Avisos de gasto, portafolios y bounties.
+WITH x AS (DELETE FROM "SpendAlert" RETURNING 1) INSERT INTO lz_cambio SELECT '13 SpendAlert', count(*) FROM x;
+WITH x AS (DELETE FROM "PortfolioSnapshot" RETURNING 1) INSERT INTO lz_cambio SELECT '13 PortfolioSnapshot', count(*) FROM x;
 WITH x AS (
   UPDATE "VariantPriceOverride" SET "bountyAcquiredQty" = 0, "bountyCompletedAt" = NULL, "updatedAt" = now()
    WHERE "bountyAcquiredQty" <> 0 OR "bountyCompletedAt" IS NOT NULL
   RETURNING 1)
-INSERT INTO lz_cambio SELECT '14 VariantPriceOverride bounties', count(*) FROM x;
+INSERT INTO lz_cambio SELECT '13 VariantPriceOverride bounties', count(*) FROM x;
 
--- 15 · Bitácora: fuera todo lo anterior a esta limpieza. Si ya hubo una limpieza, lo POSTERIOR a ella es real y se queda.
+-- 14 · Bitácora: fuera todo lo anterior a esta limpieza. Si ya hubo una limpieza, lo POSTERIOR a ella es real y se queda.
 WITH x AS (
   DELETE FROM "AuditLog" a
    WHERE a.action <> 'maintenance.test_data_purge'
      AND a."createdAt" < coalesce((SELECT max(z."createdAt") FROM "AuditLog" z WHERE z.action = 'maintenance.test_data_purge'), 'infinity'::timestamp)
   RETURNING 1)
-INSERT INTO lz_cambio SELECT '15 AuditLog', count(*) FROM x;
+INSERT INTO lz_cambio SELECT '14 AuditLog', count(*) FROM x;
 
 -- ------------------------------------------------------------------------------------
--- 16 · CONTEOS DESPUÉS, lo ESPERADO y las guardas de cierre (G-5, G-6) — luego el rastro
+-- 15 · CONTEOS DESPUÉS, lo ESPERADO y la guarda de cierre (G-5) — luego el rastro
 -- ------------------------------------------------------------------------------------
 DO $$
 DECLARE r record; c bigint;
@@ -487,21 +379,9 @@ END $$;
 
 UPDATE lz_conteo SET esperado = 0 WHERE grupo = 'borrar' AND tabla <> 'AuditLog';
 UPDATE lz_conteo SET esperado = antes WHERE grupo = 'conservar' OR tabla = 'VariantPriceOverride';
-UPDATE lz_conteo SET esperado = antes - CASE WHEN (SELECT buylist FROM lz_param) = 'borrar' THEN (SELECT count(*) FROM lz_buylist) ELSE 0 END
- WHERE tabla = 'InventoryItem';
-UPDATE lz_conteo SET esperado = antes - CASE WHEN (SELECT buylist FROM lz_param) = 'borrar' THEN (SELECT coalesce(sum(ajustes), 0) FROM lz_buylist) ELSE 0 END
- WHERE tabla = 'InventoryAdjustment';
-UPDATE lz_conteo SET esperado = antes
-       - (SELECT filas FROM lz_cambio WHERE paso = '10 InventoryMovement borrados')
-       + (SELECT filas FROM lz_cambio WHERE paso = '10 InventoryMovement de cierre')
- WHERE tabla = 'InventoryMovement';
--- Movimientos que se fueron por cascada con las piezas de P-1 «borrar»: los que tenían antes, menos los que ya contó el paso 10, más su cierre.
-UPDATE lz_conteo SET esperado = esperado - (
-         SELECT coalesce(sum(b.movimientos), 0)
-              - (SELECT count(*) FROM lz_mov_borrar mb WHERE mb."itemId" IN (SELECT item_id FROM lz_buylist))
-              + (SELECT count(*) FROM lz_plan pl WHERE pl.item_id IN (SELECT item_id FROM lz_buylist))
-           FROM lz_buylist b)
- WHERE tabla = 'InventoryMovement' AND (SELECT buylist FROM lz_param) = 'borrar';
+-- La cola: antes − las de inventario/portafolio contadas ANTES de borrar (no lo que dijo el DELETE: así G-5 caza un
+-- borrado que se pase de largo).
+UPDATE lz_conteo SET esperado = antes - (SELECT n FROM lz_cola) WHERE tabla = 'PendingPriceEntry';
 
 DO $$
 DECLARE n bigint; ej text;
@@ -516,31 +396,24 @@ BEGIN
               AND a."createdAt" < coalesce((SELECT max(z."createdAt") FROM "AuditLog" z WHERE z.action = 'maintenance.test_data_purge'), 'infinity'::timestamp)) THEN
     RAISE EXCEPTION 'G-5 · Quedó bitácora anterior a la limpieza. Se deshace TODO.';
   END IF;
-
-  -- G-6 · Cada pieza restaurada tiene EXACTAMENTE la forma de §4.3.
-  SELECT count(*), string_agg(p.folio, ', ') INTO n, ej
-    FROM lz_plan p JOIN "InventoryItem" i ON i.id = p.item_id
-   WHERE NOT (i."ownerType"::text = 'platform' AND i."ownerUserId" IS NULL AND i."ownershipStatus" IS NULL
-              AND i."reservedByOrderId" IS NULL AND i."reservedUntil" IS NULL
-              AND i.status::text = p.status_destino AND i."locationId" IS NOT DISTINCT FROM p.loc_destino);
-  IF n > 0 THEN
-    RAISE EXCEPTION 'G-6 · Piezas que no quedaron como debían: %. Se deshace TODO.', ej;
-  END IF;
 END $$;
 
--- El RASTRO (§6.3): una fila, sin datos personales. Solo si esta corrida cambió algo (idempotencia).
+-- El RASTRO (§6.3 + §14.3): una fila, sin datos personales (ids, ni correos ni folios). Solo si esta corrida cambió
+-- algo (idempotencia).
 INSERT INTO "AuditLog" (id, "actorUserId", "actorRole", action, "entityType", "entityId", "after", "createdAt")
 SELECT gen_random_uuid()::text, NULL, NULL, 'maintenance.test_data_purge', 'Database', 'P-DB-LIMPIEZA',
        jsonb_build_object(
          'conteosAntes',   (SELECT jsonb_object_agg(tabla, antes) FROM lz_conteo WHERE antes IS NOT NULL),
          'conteosDespues', (SELECT jsonb_object_agg(tabla, CASE WHEN tabla = 'AuditLog' THEN despues + 1 ELSE despues END) FROM lz_conteo WHERE despues IS NOT NULL),
-         'piezasRestauradas', coalesce((SELECT jsonb_agg(jsonb_build_object('id', p.item_id, 'folio', p.folio) ORDER BY p.folio)
-                                          FROM lz_plan p WHERE NOT p.excluida AND p.item_id NOT IN (
-                                            SELECT item_id FROM lz_buylist WHERE (SELECT buylist FROM lz_param) = 'borrar')), '[]'::jsonb),
-         'piezasExcluidas', coalesce((SELECT jsonb_agg(p.folio ORDER BY p.folio) FROM lz_plan p WHERE p.excluida), '[]'::jsonb),
-         CASE WHEN (SELECT buylist FROM lz_param) = 'borrar' THEN 'piezasBuylistBorradas' ELSE 'piezasBuylistConservadas' END,
-                          coalesce((SELECT jsonb_agg(b.folio ORDER BY b.folio) FROM lz_buylist b), '[]'::jsonb),
-         'bountiesAjustados', (SELECT filas FROM lz_cambio WHERE paso = '14 VariantPriceOverride bounties'),
+         'inventarioBorrado', jsonb_build_object(
+            'total',   (SELECT coalesce(sum(piezas), 0) FROM lz_inv_tipo),
+            'porTipo', jsonb_build_object(
+               'raw',    (SELECT coalesce(sum(piezas), 0) FROM lz_inv_tipo WHERE tipo = 'raw'),
+               'graded', (SELECT coalesce(sum(piezas), 0) FROM lz_inv_tipo WHERE tipo = 'graded'),
+               'sealed', (SELECT coalesce(sum(piezas), 0) FROM lz_inv_tipo WHERE tipo = 'sealed')),
+            'custodiaPorUsuario', coalesce((SELECT jsonb_object_agg(coalesce(user_id, '(sin dueño)'), piezas) FROM lz_custodia), '{}'::jsonb)),
+         'cuentasPrueba', (SELECT count(DISTINCT user_id) FROM lz_cuentas WHERE user_id IS NOT NULL),
+         'bountiesAjustados', (SELECT filas FROM lz_cambio WHERE paso = '13 VariantPriceOverride bounties'),
          'secuencias', jsonb_build_object(
             'order_number_seq',    (SELECT last_value FROM order_number_seq),
             'shipment_folio_seq',  (SELECT last_value FROM shipment_folio_seq),
@@ -554,25 +427,30 @@ WHERE (SELECT coalesce(sum(filas), 0) FROM lz_cambio) > 0;
 -- La bitácora se recuenta con el rastro ya dentro (1 fila si esta corrida cambió algo).
 UPDATE lz_conteo SET despues = (SELECT count(*) FROM "AuditLog") WHERE tabla = 'AuditLog';
 
-\echo '=== 16 · CONTEOS: tabla · antes · después · esperado ==='
+\echo '=== 15 · CONTEOS: tabla · antes · después · esperado ==='
 SELECT tabla, grupo, antes, despues AS "después", esperado,
        CASE WHEN tabla = 'AuditLog' THEN 'queda el rastro'
             WHEN esperado IS NULL OR despues = esperado THEN '' ELSE '⚠️' END AS ojo
 FROM lz_conteo ORDER BY CASE grupo WHEN 'borrar' THEN 1 WHEN 'ajustar' THEN 2 ELSE 3 END, tabla;
 
-\echo '=== 16 · QUÉ CAMBIÓ ESTA CORRIDA (todo en 0 = ya estaba limpio; no se escribe rastro nuevo) ==='
+\echo '=== 15 · QUÉ CAMBIÓ ESTA CORRIDA (todo en 0 = ya estaba limpio; no se escribe rastro nuevo) ==='
 SELECT paso, filas FROM lz_cambio ORDER BY split_part(paso, ' ', 1)::int, paso;
 
 -- Lo que falta DECIDIR se comprueba al final, para que el ensayo te enseñe todo antes de pedírtelo.
 DO $$
-DECLARE p record; faltan text := '';
+DECLARE p record; faltan text := ''; sin_declarar text;
 BEGIN
   SELECT * INTO p FROM lz_param;
   IF p.respaldo = '' THEN
     faltan := faltan || E'\n  · respaldo_manual: escribe el nombre y la hora del respaldo manual que tomaste justo antes (línea ✏️ 1).';
   END IF;
-  IF p.buylist = '' AND EXISTS (SELECT 1 FROM lz_buylist) THEN
-    faltan := faltan || format(E'\n  · G-4 / P-1: hay %s carta(s) que entraron desde solicitudes de venta de prueba (lista 2.5). Escribe «borrar» o «conservar» (línea ✏️ 3).', (SELECT count(*) FROM lz_buylist));
+  -- G-9 · cartas en custodia de una cuenta que NO declaraste de prueba (o de ninguna cuenta): no se borra a ciegas.
+  SELECT string_agg(quien || ' (' || piezas || ' carta(s))', ', ' ORDER BY quien) INTO sin_declarar
+    FROM (SELECT coalesce(u.email, c.user_id, '(cartas de cliente SIN dueño)') AS quien, c.piezas
+            FROM lz_custodia c LEFT JOIN "User" u ON u.id = c.user_id
+           WHERE c.user_id IS NULL OR c.user_id NOT IN (SELECT user_id FROM lz_cuentas WHERE user_id IS NOT NULL)) z;
+  IF sin_declarar IS NOT NULL THEN
+    faltan := faltan || format(E'\n  · G-9 / cuentas_prueba: hay cartas EN CUSTODIA de cuentas que no declaraste de prueba: %s. Si son tuyas de prueba, escribe su correo (o su id) en la línea ✏️ 2. Si alguna es de un cliente REAL, NO sigas: pregunta.', sin_declarar);
   END IF;
   IF faltan <> '' THEN
     RAISE EXCEPTION 'Falta tu decisión; no se escribió nada:%', faltan;
@@ -580,7 +458,7 @@ BEGIN
 END $$;
 
 \echo '=== FIN · Si esto era el ensayo, la línea de abajo deshace todo. Para aplicarlo, cámbiala por COMMIT; ==='
-\echo '=== Recuerda el PUNTO PITR del paso 0. Después: fichero 3 (folio de pedidos), fichero 4 (verificación) y el paso E. ==='
+\echo '=== Recuerda el PUNTO PITR del paso 0. Después: fichero 3 (folios) ANTES de subir nada, y fichero 4 (verificación). ==='
 \echo '=== La última palabra de abajo dice qué pasó: ROLLBACK = NO se aplicó nada · COMMIT = aplicado. ==='
 \set QUIET off
 ROLLBACK;

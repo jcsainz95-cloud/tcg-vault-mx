@@ -1,29 +1,29 @@
 /**
- * pdb-limpieza.e2e-spec.ts — 💰🔒 P-DB-LIMPIEZA contra Postgres REAL (docs/specs/LIMPIEZA_DB.md §9). Propiedad: backend.
+ * pdb-limpieza.e2e-spec.ts — 💰🔒 P-DB-LIMPIEZA contra Postgres REAL (docs/specs/LIMPIEZA_DB.md §9 y **§14 v2**, que manda
+ * sobre v1). Propiedad: backend.
  *
  * Prueba los CUATRO guiones de `prisma/data-repair/20261006_pdblimpieza_*` tal como los corre el dueño (el texto del
  * fichero por psql), cada caso en un esquema propio recién migrado y sembrado con `limpieza-fixture.ts`:
  *
  *  §9.1 el ensayo (termina en ROLLBACK) deja la base IDÉNTICA — contenido de cada tabla y las tres secuencias;
- *  §9.2 la corrida (COMMIT) aplica: §8.3 entero, conteos esperados, piezas restauradas, rastro;
- *  §9.3 idempotencia: la segunda corrida no cambia NADA;
- *  §9.4 las guardas muerden (G-1, G-3, G-4, respaldo vacío, folio de exclusión desconocido; y G-7, añadida aquí);
- *  §9.5 ninguna pieza queda `listed` por SQL;
- *  §9.6 el reinicio de `TCG-` aborta con pedidos y deja `TCG-000001` sin ellos;
+ *  §9.2 (v2) la corrida vacía lo transaccional Y EL INVENTARIO ENTERO (plataforma, custodia, sellado, lotes, cola de
+ *       precio `inventory`/`portfolio`) y conserva el CONTENIDO (no solo el conteo) de catálogo, precios, sellado,
+ *       cajones, usuarios, diales, cola `catalog`/`buylist` y overrides (salvo las columnas de bounty);
+ *  §9.3 idempotencia; §9.4 las guardas muerden (G-1, G-2, G-3, G-7 —también tras volver a subir inventario—, G-9 y
+ *       respaldo vacío); A y D de solo lectura, D muerde (también «folio por delante de su contador»);
+ *  §9.6 (v2) C reinicia `TCG-` e `INV-` con guardas INDEPENDIENTES y nunca `ENV-`;
  *  §9.7 con `ENV-` SIN reiniciar, la guía vieja `ENV-000003-01` no produce huérfana; con la secuencia reiniciada SÍ
  *       (la mutación, N = 3 esquemas);
  *  §9.8 sin M-72 el guion corre igual (y no nombra columnas de M-72).
- *  P-1 «borrar» y «conservar», P-2 (exclusión), bounty ⇒ `apagada`, cajón de vuelta.
+ *  v2 retira el paso E (`limpieza:republicar`), P-1, P-2, G-4, G-6 y las pruebas que los cubrían (§14.7, §14.9).
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { loadavg, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
-import { Test, TestingModule } from '@nestjs/testing';
-import { Fixture, T_KEYS, d, seedFixture } from './helpers/limpieza-fixture';
+import { Fixture, d, seedFixture } from './helpers/limpieza-fixture';
 import {
-  BACKEND_DIR,
   FILES,
   Snapshot,
   assertConstraintsComplete,
@@ -43,27 +43,23 @@ import {
 import { ShipmentOrphanService } from '../../src/modules/shipments/orphan-reconcile.service';
 import { deriveBountyState } from '../../src/modules/pricing/bounty-state';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { InventoryService } from '../../src/modules/inventory/inventory.service';
-import { LimpiezaRepublicarModule } from '../../src/cli/limpieza-republicar';
-import { republicarPiezasRestauradas } from '../../src/modules/inventory/limpieza-republicar';
 
 jest.setTimeout(180_000);
 
 const RUN = `lz${Date.now().toString(36)}`;
 let n = 0;
 
-/** Tablas que la limpieza vacía (§8.3). */
+/** Tablas que la limpieza v2 VACÍA (§2.4–§2.7 + §14.2). `AuditLog` aparte: queda el rastro. */
 const EMPTIED = [
   'Order', 'OrderItem', 'OrderAccessToken', 'PaymentRefund', 'ManualRefund', 'ReplacementCase', 'VaultPlacement', 'VaultPlacementItem',
   'ShipmentRequest', 'ShipmentItem', 'ShipmentQuote', 'ShipmentCarrierEvent', 'ShipmentAddressRevision', 'ShipmentCostAdjustment',
   'ShipmentLabelAttempt', 'ShipmentPaidLabel', 'Dispute', 'SellRequest', 'SellRequestItem', 'SpendAlert', 'PortfolioSnapshot',
+  'InventoryItem', 'InventoryMovement', 'InventoryAdjustment', 'InventoryBatch',
 ];
-/** Tablas que la limpieza NO toca (contenido idéntico, no solo el conteo). */
-const KEPT = [
-  'User', 'KycProfile', 'KycUploadGrant', 'BillingProfile', 'Address', 'AuthToken', 'Card', 'CardSet', 'SealedProduct', 'PriceReference',
-  'PendingPriceEntry', 'FxRate', 'ConfigSetting', 'VaultLocation', 'InventoryBatch', 'InventoryAdjustment', 'ProcessedStripeEvent',
-  'SpendDigestRun', 'SpendOwnerWatch', 'SealedRestockSubscription', 'SetValueSnapshot', '_prisma_migrations',
-];
+/** Tablas que la limpieza toca EN PARTE (se comprueban por separado); todas las demás: contenido idéntico. */
+const PARTIAL = ['VariantPriceOverride', 'PendingPriceEntry', 'AuditLog'];
+/** Las conservadas que el encargo nombra: deben tener filas en el fixture, o «idéntico» no probaría nada. */
+const KEY_KEPT = ['User', 'Card', 'CardSet', 'SealedProduct', 'PriceReference', 'VaultLocation', 'ConfigSetting'];
 
 interface Env {
   schema: string;
@@ -93,12 +89,31 @@ function ok(r: { status: number | null; stdout: string; stderr: string }) {
 }
 
 const RESPALDO = 'manual 2026-10-06 10:00 (prueba)';
-const commit = (e: Env, extra: { buylist?: string; fueraDeVenta?: string } = {}) =>
-  ok(psql(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: extra.buylist ?? 'conservar', fueraDeVenta: extra.fueraDeVenta, commit: true })));
+/** Las dos cuentas con custodia del fixture (comprador y cliente 2), como las escribiría el dueño. */
+const cuentasDe = (e: Env) => `${e.fx.email.buyer}, ${e.fx.email.client2}`;
+const commitSql = (e: Env, cuentas?: string) => limpiezaSql({ respaldo: RESPALDO, cuentas: cuentas ?? cuentasDe(e), commit: true });
+const drySql = (e: Env) => limpiezaSql({ respaldo: RESPALDO, cuentas: cuentasDe(e) });
+const commit = (e: Env, cuentas?: string) => ok(psql(e.schema, commitSql(e, cuentas)));
 
 function expectSame(a: Snapshot, b: Snapshot) {
   expect(b.sequences).toEqual(a.sequences);
   expect(b.tables).toEqual(a.tables);
+}
+
+/** Conteo + md5 del contenido de una consulta (una fila = un `jsonb` `j`), para las tablas que se tocan en parte. */
+async function hashOf(schema: string, sql: string): Promise<{ n: number; h: string }> {
+  const [r] = await admin.$queryRawUnsafe<{ n: number; h: string }[]>(
+    `SELECT count(*)::int AS n, md5(coalesce(string_agg(j::text, '|' ORDER BY j::text), '')) AS h FROM (${sql.replace(/\$S/g, `"${schema}"`)}) z`,
+  );
+  return r;
+}
+async function partial(schema: string) {
+  return {
+    ppeKept: await hashOf(schema, `SELECT to_jsonb(p) AS j FROM $S."PendingPriceEntry" p WHERE p.context::text IN ('catalog', 'buylist')`),
+    ppeGone: await hashOf(schema, `SELECT to_jsonb(p) AS j FROM $S."PendingPriceEntry" p WHERE p.context::text IN ('inventory', 'portfolio')`),
+    // §14.9: los overrides del dueño se conservan salvo las dos columnas de bounty (y su `updatedAt`).
+    vpo: await hashOf(schema, `SELECT to_jsonb(v) - 'bountyAcquiredQty' - 'bountyCompletedAt' - 'updatedAt' AS j FROM $S."VariantPriceOverride" v`),
+  };
 }
 
 /** URL para psql (sin `?schema=`), como en el arnés. */
@@ -108,8 +123,27 @@ function libpqUrlForTest(): string {
   return u.toString();
 }
 
-async function pieces(e: Env) {
-  return e.db.inventoryItem.findMany({ orderBy: { folio: 'asc' } });
+/** El alta como la hace la APP: folio por `PrismaService.nextFolios` (no por SQL). */
+async function altaPorApp(e: Env, k: number): Promise<string[]> {
+  const prisma = new PrismaService({ datasources: { db: { url: schemaUrl(e.schema) } } } as any);
+  try {
+    const folios = await prisma.nextFolios(k);
+    const card = await prisma.card.findFirstOrThrow();
+    for (const folio of folios) {
+      await prisma.inventoryItem.create({
+        data: { folio, cardId: card.id, productType: 'raw', rawCondition: 'NM', acquisitionType: 'compra', acquisitionCostCents: 300, status: 'in_stock' } as any,
+      });
+    }
+    return folios;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/** El siguiente valor de una secuencia SIN consumirlo. */
+async function nextOf(e: Env, seq: string): Promise<number> {
+  const [r] = await admin.$queryRawUnsafe<{ v: string; c: boolean }[]>(`SELECT last_value::text AS v, is_called AS c FROM "${e.schema}".${seq}`);
+  return Number(r.v) + (r.c ? 1 : 0);
 }
 
 beforeAll(() => {
@@ -124,94 +158,92 @@ afterAll(async () => {
   cleanupMigrations();
 });
 
-describe('💰 P-DB-LIMPIEZA · guion B (limpieza)', () => {
-  it('§9.1 el ENSAYO (ROLLBACK) deja la base IDÉNTICA — tablas y las tres secuencias — y lista lo que haría', async () => {
+describe('💰 P-DB-LIMPIEZA · guion B (limpieza, v2: también el inventario)', () => {
+  it('§9.1 el ENSAYO (ROLLBACK) deja la base IDÉNTICA — tablas y las tres secuencias — y enseña pedidos, envíos, custodia por dueño y el RESUMEN del inventario (sin lista por pieza)', async () => {
     const e = await fresh();
     const before = await snapshot(admin, e.schema);
-    const r = ok(psql(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar' })));
+    const r = ok(psql(e.schema, drySql(e)));
     expect(r.stdout).toMatch(/PUNTO PITR/);
     expect(r.stdout).toContain('TCG-000001');
     expect(r.stdout).toContain(e.fx.directShipFolio);
-    expect(r.stdout).toContain(e.fx.piece.P7.folio);
-    expect(r.stdout).toContain('M1 · ajuste de cajón'); // el `move` real posterior al corte se ENSEÑA antes de borrarse
+    expect(r.stdout).toContain(e.fx.email.buyer);
+    expect(r.stdout).toContain(e.fx.email.client2);
+    expect(r.stdout).toMatch(/RESUMEN DEL INVENTARIO QUE SE BORRA/);
+    expect(r.stdout).toMatch(/sellado/);
+    // ⛔ sin lista por pieza (§14.3: miles de filas): ni el folio de una pieza que no toca nada sale
+    expect(r.stdout).not.toContain(e.fx.piece.P9.folio);
     expect(r.stdout).toMatch(/ROLLBACK/);
     expectSame(before, await snapshot(admin, e.schema));
   });
 
-  it('§9.1 el ensayo SIN variables (tal cual, paso 4 del dueño) enseña todo y aborta al final pidiendo lo que falta — base IDÉNTICA', async () => {
+  it('§9.1 el ensayo SIN variables (tal cual, paso 5 del dueño) enseña la custodia y aborta AL FINAL pidiendo respaldo y cuentas — base IDÉNTICA', async () => {
     const e = await fresh();
     const before = await snapshot(admin, e.schema);
     const r = psql(e.schema, readRepair('limpieza'));
     expect(r.status).not.toBe(0);
-    expect(r.stdout).toContain(e.fx.piece.P6.folio); // la pieza del buylist sale en la lista (P-1 se contesta con esto)
+    expect(r.stdout).toContain(e.fx.email.client2); // la lista de custodia sale ANTES de pedir la respuesta
     expect(r.stderr).toMatch(/respaldo_manual/);
-    expect(r.stderr).toMatch(/P-1/);
+    expect(r.stderr).toMatch(/cuentas_prueba/);
     expectSame(before, await snapshot(admin, e.schema));
   });
 
-  it('§9.2 la CORRIDA aplica: vacía lo transaccional, conserva usuarios/catálogo/precios, restaura T y deja UN rastro', async () => {
+  it('§9.1 B no lleva ningún setval/nextval (las secuencias no se deshacen con ROLLBACK: van en C)', () => {
+    const code = readRepair('limpieza').replace(/--.*$/gm, '');
+    expect(code).not.toMatch(/\bsetval\b|\bnextval\b/i);
+  });
+
+  it('§9.2 la CORRIDA vacía lo transaccional y el inventario ENTERO (plataforma, custodia, sellado, lotes, cola inventory/portfolio) y conserva el CONTENIDO de lo demás', async () => {
     const e = await fresh();
     const before = await snapshot(admin, e.schema);
+    const pBefore = await partial(e.schema);
+    // Lo que se va a borrar EXISTE (si fuera 0, «queda en 0» no probaría nada): los tres tipos y los dos dueños.
+    for (const t of ['InventoryItem', 'InventoryMovement', 'InventoryAdjustment', 'InventoryBatch']) expect({ t, n: before.tables[t].n > 0 }).toEqual({ t, n: true });
+    expect(await e.db.inventoryItem.count({ where: { productType: 'sealed' } })).toBe(1);
+    expect(await e.db.inventoryItem.count({ where: { ownerType: 'customer' } })).toBe(5);
+    expect(await e.db.inventoryItem.count({ where: { ownerType: 'platform' } })).toBeGreaterThan(0);
+    expect(pBefore.ppeGone.n).toBe(4);
+    expect(pBefore.ppeKept.n).toBe(2);
+
     commit(e);
     const after = await snapshot(admin, e.schema);
+    // Medición DIRECTA (no la guarda G-5 del guion): cada tabla vaciada tiene 0 filas.
     for (const t of EMPTIED) expect({ t, n: after.tables[t].n }).toEqual({ t, n: 0 });
-    for (const t of KEPT) expect({ t, s: after.tables[t] }).toEqual({ t, s: before.tables[t] });
+    expect(await e.db.inventoryItem.count()).toBe(0);
+
+    // Todo lo que no se vacía ni se toca en parte: CONTENIDO idéntico (md5 de cada fila), no solo el conteo.
+    const kept = Object.keys(before.tables).filter((t) => !EMPTIED.includes(t) && !PARTIAL.includes(t));
+    for (const t of KEY_KEPT) expect({ t, conservada: kept.includes(t), conFilas: before.tables[t].n > 0 }).toEqual({ t, conservada: true, conFilas: true });
+    for (const t of kept) expect({ t, s: after.tables[t] }).toEqual({ t, s: before.tables[t] });
     expect(after.sequences).toEqual(before.sequences); // ⛔ B no toca secuencias (R-3)
-    expect(after.tables.InventoryItem.n).toBe(before.tables.InventoryItem.n);
+
+    const pAfter = await partial(e.schema);
+    expect(pAfter.ppeKept).toEqual(pBefore.ppeKept); // cola de catálogo y cotizador: idéntica
+    expect(pAfter.ppeGone.n).toBe(0);
+    expect(pAfter.vpo).toEqual(pBefore.vpo); // overrides del dueño intactos salvo bounty
+    expect(await e.db.sealedProduct.findUniqueOrThrow({ where: { id: e.fx.sealedProduct } })).toMatchObject({
+      imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/lz_200w.jpg',
+      ownerDisplayPriceCents: 159900,
+    });
+    expect(await e.db.vaultLocation.count()).toBe(4);
 
     const audit = await e.db.auditLog.findMany();
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({ actorUserId: null, actorRole: null, action: 'maintenance.test_data_purge', entityType: 'Database', entityId: 'P-DB-LIMPIEZA' });
     const trace = audit[0].after as any;
     expect(trace.respaldoManual).toBe(RESPALDO);
-    expect(trace.conteosAntes.Order).toBe(4);
+    expect(trace.conteosAntes.Order).toBe(5);
     expect(trace.conteosDespues.Order).toBe(0);
+    expect(trace.conteosDespues.InventoryItem).toBe(0);
     expect(typeof trace.puntoPitr).toBe('string');
-    expect(trace.piezasRestauradas.map((p: any) => p.id).sort()).toEqual(T_KEYS.map((k) => e.fx.piece[k].id).sort());
-
-    const byId = new Map((await pieces(e)).map((p) => [p.id, p]));
-    for (const k of T_KEYS) {
-      const p = byId.get(e.fx.piece[k].id)!;
-      expect({ k, ownerType: p.ownerType, ownerUserId: p.ownerUserId, ownershipStatus: p.ownershipStatus, reservedByOrderId: p.reservedByOrderId, reservedUntil: p.reservedUntil, status: p.status })
-        .toEqual({ k, ownerType: 'platform', ownerUserId: null, ownershipStatus: null, reservedByOrderId: null, reservedUntil: null, status: 'in_stock' });
-    }
-    // §4.3 cajón: P1 vuelve al de plataforma del que salió su colocación MÁS ANTIGUA; custodia sin origen ⇒ NULL; plataforma se queda.
-    expect(byId.get(e.fx.piece.P1.id)!.locationId).toBe(e.fx.loc.A1);
-    expect(byId.get(e.fx.piece.P4.id)!.locationId).toBeNull();
-    expect(byId.get(e.fx.piece.P5.id)!.locationId).toBeNull();
-    expect(byId.get(e.fx.piece.P11.id)!.locationId).toBeNull();
-    expect(byId.get(e.fx.piece.P3.id)!.locationId).toBe(e.fx.loc.A2);
-    expect(byId.get(e.fx.piece.P7.id)!.locationId).toBe(e.fx.loc.A2);
-    // Fuera de T: idénticas (P8 perdida en M1 sigue perdida).
-    expect(byId.get(e.fx.piece.P8.id)!.status).toBe('lost');
-    expect(byId.get(e.fx.piece.P9.id)!.status).toBe('listed');
-    // P-1 «conservar»: la pieza del buylist se queda, sin vínculo.
-    expect(byId.get(e.fx.piece.P6.id)!).toMatchObject({ sourceSellRequestItemId: null, acquisitionType: 'buylist', acquisitionCostCents: 500, status: 'listed' });
-    // C-5: la de buylist que TAMBIÉN está en T (pedido fallido O4) se desliga y se restaura como el resto; su cajón de plataforma se queda.
-    expect(byId.get(e.fx.piece.P12.id)!).toMatchObject({ sourceSellRequestItemId: null, acquisitionType: 'buylist', status: 'in_stock', locationId: e.fx.loc.A2 });
-  });
-
-  it('§4.4 movimientos: se borran los de prueba (y los lost/damaged/move desde el corte), se conservan los anteriores y los de fuera de T, y entra UNO de cierre por pieza', async () => {
-    const e = await fresh();
-    commit(e);
-    const mv = await e.db.inventoryMovement.findMany({ orderBy: { createdAt: 'asc' } });
-    const of = (k: keyof Fixture['piece']) => mv.filter((m) => m.itemId === e.fx.piece[k].id);
-    expect(mv.filter((m) => ['sale', 'settle', 'chargeback_return', 'withdrawal', 'refund_return', 'refund_release', 'replacement'].includes(m.reason))).toEqual([]);
-    expect(of('P1').map((m) => [m.reason, m.note])).toEqual([
-      ['alta', null],
-      ['move', 'M1 · reacomodo'],
-      ['adjustment', expect.stringMatching(/^P-DB-LIMPIEZA \d{4}-\d{2}-\d{2}: pruebas borradas; vuelve a inventario$/)],
-    ]);
-    const close = of('P1')[2];
-    expect(close).toMatchObject({ fromStatus: 'in_custody', toStatus: 'in_stock', fromLocationId: e.fx.loc.C1, toLocationId: e.fx.loc.A1, actorUserId: null });
-    for (const k of ['P2', 'P3', 'P4', 'P5', 'P7', 'P11'] as const) expect({ k, r: of(k).map((m) => m.reason) }).toEqual({ k, r: ['alta', 'adjustment'] });
-    expect(of('P7')[1]).toMatchObject({ fromStatus: 'damaged', toStatus: 'in_stock', fromLocationId: null, toLocationId: null });
-    expect(of('P8').map((m) => m.reason)).toEqual(['alta', 'lost']);
-    expect(of('P10').map((m) => m.reason)).toEqual(['alta', 'adjustment']);
-    expect(of('P6').map((m) => m.reason)).toEqual(['buylist_convert']);
-    expect(of('P12').map((m) => m.reason)).toEqual(['buylist_convert', 'adjustment']); // el `sale` del pedido fallido se va
-    expect(of('P12')[1]).toMatchObject({ fromStatus: 'listed', toStatus: 'in_stock', fromLocationId: null, toLocationId: null });
-    expect(await e.db.inventoryAdjustment.count()).toBe(2); // el cierre NO es un levantamiento (P10 y P12 ya los tenían)
+    expect(trace.inventarioBorrado).toEqual({
+      total: before.tables.InventoryItem.n,
+      porTipo: { raw: before.tables.InventoryItem.n - 1, graded: 0, sealed: 1 },
+      custodiaPorUsuario: { [e.fx.buyer]: 4, [e.fx.client2]: 1 },
+    });
+    expect(trace.cuentasPrueba).toBe(2);
+    expect(Object.keys(trace.secuencias).sort()).toEqual(['inventory_folio_seq', 'order_number_seq', 'shipment_folio_seq']);
+    for (const k of ['piezasRestauradas', 'piezasExcluidas', 'piezasBuylistBorradas', 'piezasBuylistConservadas']) expect(trace).not.toHaveProperty(k);
+    expect(JSON.stringify(trace)).not.toMatch(/INV-\d|@/); // ids, sin folios ni correos (§14.3)
   });
 
   it('§2.2 bounty: adquirido ⇒ 0, sello de completado ⇒ NULL, `bountyEnabled` intacto ⇒ el estado derivado es `apagada`', async () => {
@@ -234,46 +266,6 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza)', () => {
     expectSame(once, await snapshot(admin, e.schema));
   });
 
-  it('§9.5 fail-closed de precio: ninguna pieza de T queda `listed`; las publicadas son exactamente las que ya lo estaban fuera de T', async () => {
-    const e = await fresh();
-    commit(e);
-    const listed = (await pieces(e)).filter((p) => p.status === 'listed').map((p) => p.id).sort();
-    expect(listed).toEqual([e.fx.piece.P6.id, e.fx.piece.P9.id].sort());
-  });
-
-  it('P-1 «borrar» (C-5): las piezas nacidas del buylist de prueba se borran — también la que está en T (P12, pedido fallido), con movimientos, levantamiento y cierre ≠ 0 — y G-5 cuadra', async () => {
-    const e = await fresh();
-    const before = await snapshot(admin, e.schema);
-    // C-5: los conteos que entran en la cuenta de G-5 para la pieza de buylist en T NO son 0 (si lo fueran, la fórmula no se prueba).
-    expect(await e.db.inventoryMovement.count({ where: { itemId: e.fx.piece.P12.id } })).toBe(2); // buylist_convert + sale
-    expect(await e.db.inventoryAdjustment.count({ where: { inventoryItemId: e.fx.piece.P12.id } })).toBe(1);
-    const movBefore = await e.db.inventoryMovement.count();
-    const r = commit(e, { buylist: 'borrar' });
-    expect(r.stdout).toMatch(/InventoryMovement\s*\|\s*ajustar\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*\d+/);
-    for (const k of ['P6', 'P12'] as const) {
-      expect(await e.db.inventoryItem.findUnique({ where: { id: e.fx.piece[k].id } })).toBeNull();
-      expect(await e.db.inventoryMovement.count({ where: { itemId: e.fx.piece[k].id } })).toBe(0);
-    }
-    expect(await e.db.inventoryItem.count()).toBe(before.tables.InventoryItem.n - 2);
-    expect(await e.db.inventoryAdjustment.count()).toBe(before.tables.InventoryAdjustment.n - 1);
-    // Movimientos: los de prueba de T se van, entra uno de cierre por pieza de T que SIGUE existiendo; los de P6/P12 caen enteros.
-    expect(await e.db.inventoryMovement.count()).toBeLessThan(movBefore);
-    const trace = (await e.db.auditLog.findFirstOrThrow()).after as any;
-    expect(trace.piezasBuylistBorradas).toEqual([e.fx.piece.P6.folio, e.fx.piece.P12.folio].sort());
-    expect(trace.piezasRestauradas.map((p: any) => p.id)).not.toContain(e.fx.piece.P12.id);
-  });
-
-  it('P-2 exclusión: `fuera_de_venta` deja esas piezas de plataforma, sin reserva, `withdrawn` (o `damaged` si se dice)', async () => {
-    const e = await fresh();
-    commit(e, { fueraDeVenta: ` ${e.fx.piece.P7.folio} , ${e.fx.piece.P4.folio}:damaged` });
-    const p7 = await e.db.inventoryItem.findUniqueOrThrow({ where: { id: e.fx.piece.P7.id } });
-    const p4 = await e.db.inventoryItem.findUniqueOrThrow({ where: { id: e.fx.piece.P4.id } });
-    expect(p7).toMatchObject({ status: 'withdrawn', ownerType: 'platform', reservedByOrderId: null });
-    expect(p4).toMatchObject({ status: 'damaged', ownerType: 'platform', ownerUserId: null });
-    const trace = (await e.db.auditLog.findFirstOrThrow()).after as any;
-    expect(trace.piezasExcluidas.sort()).toEqual([e.fx.piece.P4.folio, e.fx.piece.P7.folio].sort());
-  });
-
   describe('§9.4 las guardas MUERDEN (abortan y la base queda IDÉNTICA)', () => {
     async function aborts(e: Env, sql: string, msg: RegExp) {
       const before = await snapshot(admin, e.schema);
@@ -281,37 +273,26 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza)', () => {
       expect(r.status).not.toBe(0);
       expect(r.stderr).toMatch(msg);
       expectSame(before, await snapshot(admin, e.schema));
+      return r;
     }
     it('G-1: una pieza de cliente que no vino de ningún pedido', async () => {
       const e = await fresh();
       await e.db.inventoryItem.update({ where: { id: e.fx.piece.P10.id }, data: { ownerType: 'customer', ownerUserId: e.fx.buyer, ownershipStatus: 'settled' } });
-      await aborts(e, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }), /G-1/);
+      await aborts(e, commitSql(e), /G-1/);
     });
     it('G-2: una pieza `in_custody` fuera de T', async () => {
       const e = await fresh();
       await e.db.inventoryItem.update({ where: { id: e.fx.piece.P10.id }, data: { status: 'in_custody' } });
-      await aborts(e, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }), /G-2/);
+      await aborts(e, commitSql(e), /G-2/);
     });
     it('G-3: un movimiento `settle` sobre una pieza fuera de T', async () => {
       const e = await fresh();
       await e.db.inventoryMovement.create({ data: { itemId: e.fx.piece.P9.id, reason: 'settle', createdAt: d(4) } });
-      await aborts(e, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }), /G-3/);
-    });
-    it('G-4: pieza nacida del buylist y P-1 sin contestar', async () => {
-      const e = await fresh();
-      await aborts(e, limpiezaSql({ respaldo: RESPALDO, commit: true }), /G-4.*P-1/s);
-    });
-    it('G-4: respuesta de P-1 que no es «borrar» ni «conservar»', async () => {
-      const e = await fresh();
-      await aborts(e, limpiezaSql({ respaldo: RESPALDO, buylist: 'si', commit: true }), /buylist_piezas/);
+      await aborts(e, commitSql(e), /G-3/);
     });
     it('respaldo_manual vacío', async () => {
       const e = await fresh();
-      await aborts(e, limpiezaSql({ buylist: 'conservar', commit: true }), /respaldo_manual/);
-    });
-    it('P-2: un folio de exclusión que no es una pieza tocada por pruebas (errata)', async () => {
-      const e = await fresh();
-      await aborts(e, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', fueraDeVenta: e.fx.piece.P9.folio, commit: true }), /fuera_de_venta/);
+      await aborts(e, limpiezaSql({ cuentas: cuentasDe(e), commit: true }), /respaldo_manual/);
     });
     it('G-7: la limpieza YA se hizo y después hubo un pedido ⇒ no se vuelve a correr', async () => {
       const e = await fresh();
@@ -319,31 +300,77 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza)', () => {
       await e.db.order.create({
         data: { userId: e.fx.buyer, orderNumber: 'TCG-000001', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE' },
       });
-      await aborts(e, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }), /G-7/);
+      await aborts(e, commitSql(e), /G-7/);
+    });
+    it('G-7 (v2): B (COMMIT) + C + el dueño vuelve a subir UNA pieza ⇒ una 2.ª corrida de B se niega y NO borra la pieza nueva', async () => {
+      const e = await fresh();
+      commit(e);
+      ok(psql(e.schema, readRepair('folio')));
+      const [folio] = await altaPorApp(e, 1);
+      expect(folio).toBe('INV-000001');
+      await aborts(e, commitSql(e), /G-7[^\n]*InventoryItem/);
+      expect(await e.db.inventoryItem.findUnique({ where: { folio } })).not.toBeNull();
+    });
+
+    it('G-9: pieza en custodia de un cliente NO declarado en `cuentas_prueba` ⇒ aborta y el mensaje NOMBRA al cliente', async () => {
+      const e = await fresh();
+      const r = await aborts(e, commitSql(e, e.fx.email.buyer), /G-9/);
+      expect(r.stderr).toContain(e.fx.email.client2);
+      expect(r.stderr).not.toContain(e.fx.email.buyer);
+    });
+    it('G-9: errata — un correo de la lista que NO existe ⇒ aborta (un error tipográfico no decide borrar nada)', async () => {
+      const e = await fresh();
+      const r = await aborts(e, commitSql(e, `${cuentasDe(e)}, nadie.${e.schema}@lz.local`), /G-9/);
+      expect(r.stderr).toContain(`nadie.${e.schema}@lz.local`);
+    });
+    // (Una pieza de cliente SIN dueño no se puede fabricar: la base la rechaza con el CHECK
+    // `InventoryItem_customer_has_owner_chk` — medido 2026-10-07. El guion la trata igual como «no declarada».)
+    it('G-9: errata por id — un id que no es ninguna cuenta ⇒ aborta', async () => {
+      const e = await fresh();
+      await aborts(e, commitSql(e, `${e.fx.email.buyer}, ${e.fx.client2}, id-que-no-existe`), /G-9[^\n]*id-que-no-existe/);
+    });
+    it('G-9: con AMBOS clientes declarados (uno por correo en MAYÚSCULAS, otro por id) ⇒ pasa y su custodia se borra', async () => {
+      const e = await fresh();
+      commit(e, `${e.fx.email.buyer.toUpperCase()} , ${e.fx.client2}`);
+      expect(await e.db.inventoryItem.count()).toBe(0);
+      expect(((await e.db.auditLog.findFirstOrThrow()).after as any).cuentasPrueba).toBe(2);
+    });
+    it('G-9: sin piezas de cliente y la lista vacía ⇒ pasa', async () => {
+      const e = await fresh();
+      await e.db.inventoryItem.updateMany({ where: { ownerType: 'customer' }, data: { ownerType: 'platform', ownerUserId: null, ownershipStatus: null } });
+      commit(e, '');
+      expect(await e.db.inventoryItem.count()).toBe(0);
     });
   });
 });
 
 describe('💰 P-DB-LIMPIEZA · A (censo) y D (verificación) son de SOLO LECTURA; D muerde', () => {
-  it('A informa conteos, FK, guardas, secuencias y M-72 sin cambiar nada', async () => {
+  it('A informa conteos, FK, guardas, custodia por dueño, secuencias y M-72 sin cambiar nada', async () => {
     const e = await fresh();
     const before = await snapshot(admin, e.schema);
     const r = ok(psql(e.schema, readRepair('censo')));
-    expect(r.stdout).toMatch(/order_number_seq\s*\|\s*4/);
+    expect(r.stdout).toMatch(/order_number_seq\s*\|\s*5/);
     expect(r.stdout).toMatch(/shipment_folio_seq\s*\|\s*3/);
     expect(r.stdout).toContain('ManualRefund_reissuedFromId_fkey');
-    expect(r.stdout).toMatch(/G-4/);
+    expect(r.stdout).toMatch(/G-9/);
+    expect(r.stdout).not.toMatch(/G-4|P-1/);
+    expect(r.stdout).toContain(e.fx.email.client2);
     expect(r.stdout).toMatch(/m72_aplicada\s*\|?\s*\n[-+]+\n\s*t/);
     expect(r.stdout).toContain('ENV-000003-01');
     expectSame(before, await snapshot(admin, e.schema));
   });
 
-  it('D sobre la base SIN limpiar ⇒ HAY FALLAS (la verificación muerde); tras B + C ⇒ TODO OK; y no escribe', async () => {
+  it('D sobre la base SIN limpiar ⇒ HAY FALLAS (cada línea muerde); tras B + C ⇒ TODO OK; y no escribe', async () => {
     const e = await fresh();
     const dirty = psql(e.schema, readRepair('verificacion'));
     expect(dirty.stdout).toMatch(/HAY FALLAS/);
-    // y cada comprobación muerde por sí sola, no solo el total
-    for (const line of ['0 filas en Order', '0 filas en ShipmentRequest', '0 filas en SellRequest', 'AuditLog: exactamente 1 rastro', '0 piezas de cliente', '0 movimientos de venta', '0 piezas ligadas', 'contador de pedidos', 'bounties: comprado = 0']) {
+    for (const line of [
+      '0 filas en Order', '0 filas en ShipmentRequest', '0 filas en SellRequest', 'AuditLog: exactamente 1 rastro', '0 piezas de cliente',
+      '0 movimientos de venta', '0 piezas ligadas', 'contador de pedidos', 'contador de inventario', 'bounties: comprado = 0',
+      '0 filas anteriores a la limpieza en InventoryItem', '0 filas anteriores a la limpieza en InventoryMovement',
+      '0 filas anteriores a la limpieza en InventoryAdjustment', '0 filas anteriores a la limpieza en InventoryBatch',
+      '0 filas anteriores a la limpieza en PendingPriceEntry',
+    ]) {
       expect({ line, falla: new RegExp(`FALLA\\s*\\|\\s*${line}`).test(dirty.stdout) }).toEqual({ line, falla: true });
     }
     commit(e);
@@ -352,30 +379,101 @@ describe('💰 P-DB-LIMPIEZA · A (censo) y D (verificación) son de SOLO LECTUR
     const r = ok(psql(e.schema, readRepair('verificacion')));
     expect(r.stdout).toMatch(/VERIFICACION: TODO OK/);
     expect(r.stdout).not.toMatch(/\bFALLA\b/);
+    expect(r.stdout).toMatch(/OK\s*\|\s*ningún folio por delante de su contador: INV-/);
+    expect(r.stdout).toMatch(/OK\s*\|\s*ningún folio por delante de su contador: TCG-/);
     expectSame(before, await snapshot(admin, e.schema));
+  });
+
+  it('D (v2): tras B + C + alta de 3 piezas por la APP (`PrismaService.nextFolios`) ⇒ las piezas son INV-000001…3 y D sigue en TODO OK', async () => {
+    const e = await fresh();
+    commit(e);
+    ok(psql(e.schema, readRepair('folio')));
+    expect(await altaPorApp(e, 3)).toEqual(['INV-000001', 'INV-000002', 'INV-000003']);
+    const r = ok(psql(e.schema, readRepair('verificacion')));
+    expect(r.stdout).toMatch(/VERIFICACION: TODO OK/);
+  });
+
+  it('D (v2): una pieza con folio POR DELANTE de su contador (INV-000050 con el contador en 1) ⇒ FALLA en esa línea', async () => {
+    const e = await fresh();
+    commit(e);
+    ok(psql(e.schema, readRepair('folio')));
+    const card = await e.db.card.findFirstOrThrow();
+    await e.db.inventoryItem.create({ data: { folio: 'INV-000050', cardId: card.id, productType: 'raw', rawCondition: 'NM', acquisitionType: 'compra', acquisitionCostCents: 1 } as any });
+    const r = ok(psql(e.schema, readRepair('verificacion')));
+    expect(r.stdout).toMatch(/FALLA\s*\|\s*ningún folio por delante de su contador: INV-/);
+    expect(r.stdout).toMatch(/OK\s*\|\s*ningún folio por delante de su contador: TCG-/);
+    expect(r.stdout).toMatch(/HAY FALLAS/);
   });
 });
 
-describe('💰 P-DB-LIMPIEZA · C (folio de pedidos)', () => {
-  it('§9.6 con pedidos ⇒ ABORTA y la secuencia no se mueve', async () => {
+describe('💰 P-DB-LIMPIEZA · C v2 (folios TCG- e INV-, guardas independientes; ENV- nunca)', () => {
+  it('§9.6 con pedidos Y piezas (sin limpiar) ⇒ ABORTA y ninguna secuencia se mueve', async () => {
     const e = await fresh();
     const before = await snapshot(admin, e.schema);
     const r = psql(e.schema, readRepair('folio'));
     expect(r.status).not.toBe(0);
     expect(r.stderr).toMatch(/Order/);
+    expect(r.stderr).toMatch(/[Cc]orre primero la limpieza/);
     expectSame(before, await snapshot(admin, e.schema));
   });
 
-  it('§9.6 sin pedidos ⇒ el siguiente número es TCG-000001; ENV- e INV- siguen donde estaban', async () => {
+  it('§9.6 sin pedidos ni piezas ⇒ TCG-000001 e INV-000001; ENV- sigue donde estaba', async () => {
     const e = await fresh();
     commit(e);
     const before = await snapshot(admin, e.schema);
-    ok(psql(e.schema, readRepair('folio')));
+    const r = ok(psql(e.schema, readRepair('folio')));
     const after = await snapshot(admin, e.schema);
     expect(after.sequences.shipment_folio_seq).toEqual(before.sequences.shipment_folio_seq);
+    expect(await nextOf(e, 'order_number_seq')).toBe(1);
+    expect(await nextOf(e, 'inventory_folio_seq')).toBe(1);
+    expect(r.stdout).toContain('TCG-000001');
+    expect(r.stdout).toContain('INV-000001');
+  });
+
+  it('§9.6 con piezas nuevas y sin pedidos ⇒ TCG- se reinicia, INV- NO se mueve y lo dice; ENV- igual', async () => {
+    const e = await fresh();
+    commit(e);
+    const card = await e.db.card.findFirstOrThrow();
+    const [{ v }] = await e.db.$queryRawUnsafe<{ v: bigint }[]>(`SELECT nextval('inventory_folio_seq') AS v`);
+    await e.db.inventoryItem.create({ data: { folio: `INV-${String(Number(v)).padStart(6, '0')}`, cardId: card.id, productType: 'raw', rawCondition: 'NM', acquisitionType: 'compra', acquisitionCostCents: 1 } as any });
+    const before = await snapshot(admin, e.schema);
+    const r = ok(psql(e.schema, readRepair('folio')));
+    const after = await snapshot(admin, e.schema);
     expect(after.sequences.inventory_folio_seq).toEqual(before.sequences.inventory_folio_seq);
-    const [r] = await e.db.$queryRawUnsafe<{ n: bigint }[]>(`SELECT nextval('order_number_seq') AS n`);
-    expect(`TCG-${String(Number(r.n)).padStart(6, '0')}`).toBe('TCG-000001');
+    expect(after.sequences.shipment_folio_seq).toEqual(before.sequences.shipment_folio_seq);
+    expect(await nextOf(e, 'order_number_seq')).toBe(1);
+    expect(r.stdout).toMatch(/ya hay 1 pieza/);
+  });
+
+  it('§9.6 con pedidos y sin piezas ⇒ INV- se reinicia, TCG- NO se mueve y lo dice; ENV- igual', async () => {
+    const e = await fresh();
+    commit(e);
+    await e.db.order.create({
+      data: { userId: e.fx.buyer, orderNumber: 'TCG-000099', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE' },
+    });
+    const before = await snapshot(admin, e.schema);
+    const r = ok(psql(e.schema, readRepair('folio')));
+    const after = await snapshot(admin, e.schema);
+    expect(after.sequences.order_number_seq).toEqual(before.sequences.order_number_seq);
+    expect(after.sequences.shipment_folio_seq).toEqual(before.sequences.shipment_folio_seq);
+    expect(await nextOf(e, 'inventory_folio_seq')).toBe(1);
+    expect(r.stdout).toMatch(/ya hay 1 pedido/);
+  });
+
+  it('QA-8 · C tras la limpieza con un pedido REAL y una pieza REAL ⇒ se niega SIN decir «corre primero la limpieza»', async () => {
+    const e = await fresh();
+    commit(e);
+    ok(psql(e.schema, readRepair('folio')));
+    await e.db.order.create({
+      data: { userId: e.fx.buyer, orderNumber: 'TCG-000001', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE' },
+    });
+    await altaPorApp(e, 1);
+    const before = await snapshot(admin, e.schema);
+    const r = psql(e.schema, readRepair('folio'));
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).not.toMatch(/[Cc]orre primero la limpieza/);
+    expect(r.stderr).toMatch(/limpieza YA se hizo[^\n]*TCG-000001/);
+    expectSame(before, await snapshot(admin, e.schema));
   });
 });
 
@@ -461,12 +559,12 @@ describe('💰 §9.8 / §11 · sin M-72', () => {
     const census = ok(psql(e.schema, readRepair('censo')));
     expect(census.stdout).toMatch(/m72_aplicada\s*\|?\s*\n[-+]+\n\s*f/);
     const before = await snapshot(admin, e.schema);
-    ok(psql(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true })));
+    commit(e);
     ok(psql(e.schema, readRepair('folio')));
     const r = ok(psql(e.schema, readRepair('verificacion')));
     expect(r.stdout).toMatch(/VERIFICACION: TODO OK/);
     const after = await snapshot(admin, e.schema);
-    for (const t of ['Order', 'ShipmentRequest', 'SellRequest', 'ManualRefund']) expect(after.tables[t].n).toBe(0);
+    for (const t of ['Order', 'ShipmentRequest', 'SellRequest', 'ManualRefund', 'InventoryItem']) expect(after.tables[t].n).toBe(0);
     expect(after.tables.User).toEqual(before.tables.User);
   });
 });
@@ -488,26 +586,18 @@ describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qu�
     expect(h).toMatch(/cliente `?psql`?/);
     expect(h).toMatch(/\\set.*\\if.*\\gset/);
     expect(h).toMatch(/railway connect[^\n]*\n?[^\n]*NO MEDIDO/);
+    // v2 (§14.7): el paso E se retiró — ningún guion manda al dueño a correr `limpieza:republicar`.
+    expect(h).not.toMatch(/republicar|PASO E/);
   });
 
-  it('B: el encabezado dice «si al final ves ROLLBACK, NO se aplicó» y ya no manda a publicar a mano en M1', () => {
+  it('B (v2): el encabezado dice «si al final ves ROLLBACK, NO se aplicó», que se BORRA el inventario, que descargue el Excel antes y que C va ANTES de re-subir', () => {
     const h = header(readRepair('limpieza'));
     expect(h).toMatch(/si al final ves ROLLBACK, NO se aplicó/i);
-    expect(h).toContain('limpieza:republicar');
-    expect(h).not.toMatch(/eso lo haces tú desde M1/);
-  });
-
-  it('E1 · B dice la orden EXACTA del paso E y dónde: `node dist/cli/limpieza-republicar.js` (sin npm en el contenedor) y, fuera de Railway, con la URL PÚBLICA', () => {
-    const h = header(readRepair('limpieza'));
-    expect(h.split('\n').filter((l) => l.includes('node dist/cli/limpieza-republicar.js')).length).toBeGreaterThanOrEqual(2);
-    expect(h).toMatch(/node dist\/cli\/limpieza-republicar\.js --apply/);
-    expect(h).toMatch(/cd backend && npm ci && npm run build/);
-    expect(h).toMatch(/railway run --service <servicio-de-la-API> node dist\/cli\/limpieza-republicar\.js/);
-    // CS-1: la URL a mano, solo con `read -rs` + `export` (fuera del historial y de `ps`), y el aviso de rotar la contraseña.
-    expect(h).toMatch(/read -rs DATABASE_URL[^\n]*\n--\s+export DATABASE_URL\n--\s+node dist\/cli\/limpieza-republicar\.js/);
-    expect(h).toMatch(/DATABASE_PUBLIC_URL/);
-    expect(h).toMatch(/CAMBIA la contraseña de Postgres/);
-    expect(h).not.toMatch(/npm run limpieza:republicar/);
+    expect(h).toMatch(/BORRA[^\n]*inventario/);
+    expect(h).toMatch(/Excel/);
+    expect(h).toMatch(/cuentas_prueba/);
+    expect(h).toMatch(/fichero 3[^\n]*ANTES de (volver a subir|dar de alta)/);
+    expect(h).not.toMatch(/fuera_de_venta|buylist_piezas|P-1|P-2/);
   });
 
   it('CS-1 · B dice cómo conservar la bitácora antes de borrarla, y esa línea `\\copy` funciona tal cual (CSV con cabecera y todas las filas)', async () => {
@@ -530,16 +620,6 @@ describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qu�
     }
   });
 
-  it('M3 · la lista 2.4 marca en «ojo» las perdidas/dañadas que vuelven a inventario (candidatas a P-2), y no las demás', async () => {
-    const e = await fresh();
-    const r = ok(psql(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar' })));
-    const row = (k: keyof Fixture['piece']) => r.stdout.split('\n').find((l) => l.trimStart().startsWith(e.fx.piece[k].folio + ' ')) ?? '';
-    expect(row('P5')).toMatch(/¿EXISTE Y ESTÁ BIEN\? era perdida/);
-    expect(row('P4')).toMatch(/era dañada/);
-    expect(row('P7')).toMatch(/era dañada/);
-    for (const k of ['P1', 'P2', 'P3', 'P11', 'P12'] as const) expect({ k, ojo: /EXISTE Y ESTÁ BIEN/.test(row(k)) }).toEqual({ k, ojo: false });
-  });
-
   it.each(['censo', 'verificacion'] as const)('C-2 · %s: se corre con el ADMINISTRADOR en READ ONLY; ninguna receta GRANT; sin la frase falsa «el resto del censo sale igual»', (f) => {
     const sql = readRepair(f);
     expect(sql).not.toMatch(/GRANT/i);
@@ -552,7 +632,7 @@ describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qu�
     const e = await fresh();
     await e.db.inventoryItem.update({ where: { id: e.fx.piece.P10.id }, data: { ownerType: 'customer', ownerUserId: e.fx.buyer, ownershipStatus: 'settled' } });
     const before = await snapshot(admin, e.schema);
-    const r = psqlFile(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }));
+    const r = psqlFile(e.schema, commitSql(e));
     expect(r.status).not.toBe(0);
     const lines = r.out.split('\n').map((x) => x.trim()).filter(Boolean);
     expect(lines[lines.length - 1]).toMatch(/ERROR:\s+G-1 ·/);
@@ -562,10 +642,10 @@ describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qu�
 
   it('C-1 · el ensayo con `psql -f` termina con la palabra ROLLBACK a la vista (y la corrida con COMMIT)', async () => {
     const e = await fresh();
-    const dry = psqlFile(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar' }));
+    const dry = psqlFile(e.schema, drySql(e));
     expect(dry.status).toBe(0);
     expect(dry.out.trim().split('\n').pop()!.trim()).toBe('ROLLBACK');
-    const wet = psqlFile(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }));
+    const wet = psqlFile(e.schema, commitSql(e));
     expect(wet.status).toBe(0);
     expect(wet.out.trim().split('\n').pop()!.trim()).toBe('COMMIT');
   });
@@ -575,9 +655,9 @@ describe('🔒 C-1 / C-2 / QA-9 · cómo se corre cada guion (y cómo NO), y qu�
     const r = commit(e);
     const tags = r.stdout.split('\n').filter((l) => /^(INSERT \d|DELETE \d|UPDATE \d|SELECT \d|DO$|CREATE |ALTER |LOCK |SET$|BEGIN$)/.test(l.trim()));
     expect(tags).toEqual([]);
-    expect(r.stdout).toMatch(/en custodia → en inventario/);
-    expect(r.stdout).toMatch(/a la venta → en inventario/); // P12 (pedido fallido)
-    expect(r.stdout).not.toMatch(/in_custody → in_stock/);
+    expect(r.stdout).toMatch(/en custodia/);
+    expect(r.stdout).toMatch(/a la venta/);
+    expect(r.stdout).not.toMatch(/\bin_custody\b|\blisted\b/);
   });
 });
 
@@ -586,7 +666,7 @@ describe('🔒 C-3 · B aborta si el esquema tiene una tabla que el diseño no c
     const e = await fresh();
     await admin.$executeRawUnsafe(`CREATE TABLE "${e.schema}"."TablaNueva" (id text PRIMARY KEY)`);
     const before = await snapshot(admin, e.schema);
-    const r = psql(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }));
+    const r = psql(e.schema, commitSql(e));
     expect(r.status).not.toBe(0);
     expect(r.stderr).toMatch(/G-8[^\n]*TablaNueva/);
     expectSame(before, await snapshot(admin, e.schema));
@@ -609,10 +689,10 @@ describe('🔒 C-4 / QA-6 · escrituras ajenas concurrentes no dan aborto ni FAL
   it('un alta de usuario MIENTRAS B corre (B esperando un candado de fila) ⇒ B termina con COMMIT (foto REPEATABLE READ), sin G-5 falso', async () => {
     const e = await fresh();
     const usersBefore = await e.db.user.count();
-    // Un tercero sostiene ~3 s el candado de una fila de bounty que B actualiza en el paso 14 (< lock_timeout de 5 s).
+    // Un tercero sostiene ~3 s el candado de una fila de bounty que B actualiza (< lock_timeout de 5 s).
     const holder = psqlAsync(e.schema, `BEGIN; SELECT 1 FROM "VariantPriceOverride" WHERE id = '${e.fx.bounty.completed}' FOR UPDATE; SELECT pg_sleep(3); ROLLBACK;`);
     await new Promise((res) => setTimeout(res, 700));
-    const run = psqlAsync(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }));
+    const run = psqlAsync(e.schema, commitSql(e));
     let waited = false;
     for (let i = 0; i < 40 && !waited; i++) {
       await new Promise((res) => setTimeout(res, 100));
@@ -632,7 +712,7 @@ describe('🔒 C-4 / QA-6 · escrituras ajenas concurrentes no dan aborto ni FAL
   });
 });
 
-describe('🔒 QA-7 / QA-8 · después de la limpieza, lo nuevo es real', () => {
+describe('🔒 QA-7 · después de la limpieza, lo nuevo es real', () => {
   it('QA-7 · B otra vez tras un job diario (portafolio y aviso de gasto nuevos) ⇒ G-7 se niega: no borra nada ni escribe un 2.º rastro; D sigue en TODO OK', async () => {
     const e = await fresh();
     commit(e);
@@ -640,184 +720,12 @@ describe('🔒 QA-7 / QA-8 · después de la limpieza, lo nuevo es real', () => 
     await e.db.portfolioSnapshot.create({ data: { userId: e.fx.buyer, asOfDate: d(40), totalValueMxnCents: 1 } });
     await e.db.spendAlert.create({ data: { kind: 'label_charged_unexplained', severity: 'immediate', dedupKey: `real:${e.schema}`, facts: {}, mailStatus: 'sent' } as any });
     const before = await snapshot(admin, e.schema);
-    const r = psql(e.schema, limpiezaSql({ respaldo: RESPALDO, buylist: 'conservar', commit: true }));
+    const r = psql(e.schema, commitSql(e));
     expect(r.status).not.toBe(0);
     expect(r.stderr).toMatch(/G-7[^\n]*PortfolioSnapshot/);
     expectSame(before, await snapshot(admin, e.schema));
     expect(await e.db.auditLog.count({ where: { action: 'maintenance.test_data_purge' } })).toBe(1);
     const v = ok(psql(e.schema, readRepair('verificacion')));
     expect(v.stdout).toMatch(/VERIFICACION: TODO OK/);
-  });
-
-  it('QA-8 · C tras la limpieza con un pedido REAL ya hecho ⇒ se niega SIN decir «corre primero la limpieza»', async () => {
-    const e = await fresh();
-    commit(e);
-    ok(psql(e.schema, readRepair('folio')));
-    await e.db.order.create({
-      data: { userId: e.fx.buyer, orderNumber: 'TCG-000001', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE' },
-    });
-    const r = psql(e.schema, readRepair('folio'));
-    expect(r.status).not.toBe(0);
-    expect(r.stderr).not.toMatch(/[Cc]orre primero la limpieza/);
-    expect(r.stderr).toMatch(/limpieza YA se hizo[^\n]*TCG-000001/);
-  });
-});
-
-describe('💰🔒 QA-1 · E · `limpieza:republicar` — ninguna pieza restaurada se queda fuera de venta SIN aviso', () => {
-  const mods: TestingModule[] = [];
-  afterAll(async () => {
-    for (const m of mods) await m.close();
-  });
-  async function app(e: Env) {
-    const prisma = new PrismaService({ datasources: { db: { url: schemaUrl(e.schema) } } } as any);
-    const mod = await Test.createTestingModule({ imports: [LimpiezaRepublicarModule] }).overrideProvider(PrismaService).useValue(prisma).compile();
-    await mod.init();
-    mods.push(mod);
-    return { prisma, inventory: mod.get(InventoryService) };
-  }
-  async function queue(inventory: InventoryService) {
-    const r = await inventory.pendingPublish({ page: 1, pageSize: 500 });
-    return new Map(r.data.map((x: any) => [x.inventoryItemId as string, x.missing as string[]]));
-  }
-  /** La comprobación del encargo: cada pieza de `piezasRestauradas` está `listed` o en «Listas para publicar» con motivo. */
-  async function lost(e: Env, inventory: InventoryService) {
-    const trace = (await e.db.auditLog.findFirstOrThrow({ where: { action: 'maintenance.test_data_purge' } })).after as any;
-    const q = await queue(inventory);
-    const out: string[] = [];
-    for (const p of trace.piezasRestauradas as { id: string; folio: string }[]) {
-      const it = await e.db.inventoryItem.findUniqueOrThrow({ where: { id: p.id } });
-      if (it.status === 'listed') continue;
-      if ((q.get(p.id) ?? []).length > 0) continue;
-      out.push(`${p.folio} ${it.status}`);
-    }
-    return out;
-  }
-
-  it('el HUECO (medido por QA): tras B sola, P3 (publicada antes, con precio y cajón) y P12 (pedido fallido) quedan in_stock fuera de venta Y fuera de la cola', async () => {
-    const e = await fresh();
-    commit(e);
-    const { inventory } = await app(e);
-    expect((await lost(e, inventory)).sort()).toEqual(
-      [`${e.fx.piece.P1.folio} in_stock`, `${e.fx.piece.P3.folio} in_stock`, `${e.fx.piece.P7.folio} in_stock`, `${e.fx.piece.P12.folio} in_stock`].sort(),
-    );
-  });
-
-  it('tras B (COMMIT) + `limpieza:republicar --apply`: TODA pieza restaurada acaba `listed` o en «Listas para publicar» con su motivo', async () => {
-    const e = await fresh();
-    commit(e);
-    const { prisma, inventory } = await app(e);
-    const rep = await republicarPiezasRestauradas({ prisma, inventory }, { apply: true });
-    expect(await lost(e, inventory)).toEqual([]);
-    const st = new Map((await pieces(e)).map((p) => [p.id, p.status]));
-    for (const k of ['P1', 'P3', 'P7', 'P12'] as const) expect({ k, s: st.get(e.fx.piece[k].id) }).toEqual({ k, s: 'listed' });
-    const q = await queue(inventory);
-    for (const k of ['P2', 'P4', 'P5', 'P11'] as const) expect({ k, m: q.get(e.fx.piece[k].id) }).toEqual({ k, m: ['location'] });
-    expect(rep.resumen).toEqual({ aLaVenta: 4, enCola: 4, otroEstado: 0, sinResolver: 0 });
-  });
-
-  it('simulacro (sin --apply): NO escribe nada y predice exactamente lo que después hace --apply; una 2.ª corrida no cambia nada', async () => {
-    const e = await fresh();
-    commit(e);
-    const { prisma, inventory } = await app(e);
-    const before = await snapshot(admin, e.schema);
-    const dry = await republicarPiezasRestauradas({ prisma, inventory }, { apply: false });
-    expectSame(before, await snapshot(admin, e.schema));
-    const wet = await republicarPiezasRestauradas({ prisma, inventory }, { apply: true });
-    expect(dry.filas.map((f) => [f.folio, f.destino])).toEqual(wet.filas.map((f) => [f.folio, f.destino]));
-    expect(dry.resumen).toEqual(wet.resumen);
-    expect(dry.filas.filter((f) => f.destino === 'a_la_venta').map((f) => f.motivo)).toEqual(Array(4).fill('se publicaría'));
-    const once = await snapshot(admin, e.schema);
-    const again = await republicarPiezasRestauradas({ prisma, inventory }, { apply: true });
-    expectSame(once, await snapshot(admin, e.schema));
-    expect(again.resumen).toEqual(wet.resumen);
-  });
-
-  it('lo que el pipeline no puede publicar NI la cola enseña (gradeada sin certificado) sale «SIN RESOLVER» con su motivo; lo que cambió de estado después se informa y no se toca', async () => {
-    const e = await fresh();
-    commit(e);
-    await e.db.inventoryItem.update({ where: { id: e.fx.piece.P7.id }, data: { productType: 'graded', rawCondition: null, gradingCompany: 'PSA', gradeValue: '10', certNumber: null } as any });
-    await e.db.inventoryItem.update({ where: { id: e.fx.piece.P2.id }, data: { status: 'lost' } });
-    const { prisma, inventory } = await app(e);
-    const rep = await republicarPiezasRestauradas({ prisma, inventory }, { apply: true });
-    const f7 = rep.filas.find((f) => f.inventoryItemId === e.fx.piece.P7.id)!;
-    expect(f7).toMatchObject({ destino: 'sin_resolver' });
-    expect(f7.motivo).toMatch(/certNumber/);
-    expect(rep.filas.find((f) => f.inventoryItemId === e.fx.piece.P2.id)).toMatchObject({ destino: 'otro_estado' });
-    expect(rep.resumen.sinResolver).toBe(1);
-  });
-
-  it('sin rastro de limpieza ⇒ se niega (no hay de dónde sacar las piezas)', async () => {
-    const e = await fresh();
-    const { prisma, inventory } = await app(e);
-    await expect(republicarPiezasRestauradas({ prisma, inventory }, { apply: false })).rejects.toThrow(/rastro/);
-  });
-
-  /**
-   * M2 (QA re-pase): el comando se prueba DOS veces — con ts-node y COMPILADO (`tsc -p tsconfig.build.json`, el mismo
-   * árbol que `nest build` deja en `dist/`), que es lo que el dueño corre (`node dist/cli/limpieza-republicar.js`).
-   * M1: la salida no lleva el ruido de arranque de Nest (`[Nest]`, `NO_OWNER_ACCOUNT`).
-   */
-  describe('el COMANDO como lo corre el dueño (proceso aparte, DATABASE_URL del entorno)', () => {
-    const distDir = join(BACKEND_DIR, `.lz-dist-${RUN}`);
-    beforeAll(() => {
-      const r = spawnSync(
-        process.execPath,
-        [join(BACKEND_DIR, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', 'tsconfig.build.json', '--outDir', distDir, '--incremental', 'false', '--declaration', 'false', '--sourceMap', 'false'],
-        { cwd: BACKEND_DIR, encoding: 'utf8', timeout: 600_000 },
-      );
-      if (r.status !== 0) throw new Error(`no compila (tsc ${r.status}):\n${r.stdout}\n${r.stderr}`);
-    }, 620_000);
-    afterAll(() => rmSync(distDir, { recursive: true, force: true }));
-
-    const runners: [string, (args: string[]) => string[]][] = [
-      ['ts-node', (args) => ['-r', 'ts-node/register', join(BACKEND_DIR, 'src', 'cli', 'limpieza-republicar.ts'), ...args]],
-      ['compilado (dist/cli/limpieza-republicar.js)', (args) => [join(distDir, 'cli', 'limpieza-republicar.js'), ...args]],
-    ];
-    it.each(runners)('%s: simulacro ⇒ sale 0 y no escribe; --apply ⇒ sale 0 y publica; sin ruido de Nest', async (name, argvOf) => {
-      // Diagnóstico permanente (O-3, la intermitente 1/6 del 2026-10-06 sin reproducir en 19 corridas): cada paso y cada
-      // proceso hijo deja en el mensaje de fallo su código, señal, error de spawn, duración, carga y las colas de su salida.
-      const t0 = Date.now();
-      const step = async <T>(label: string, f: () => T | Promise<T>): Promise<T> => {
-        try {
-          return await f();
-        } catch (err) {
-          throw new Error(`[${name}] paso «${label}» falló a los ${Date.now() - t0} ms (carga ${loadavg().map((x) => x.toFixed(2)).join(' ')}): ${(err as Error).message}`);
-        }
-      };
-      const e = await step('fresh', () => fresh());
-      await step('B COMMIT', () => commit(e));
-      const cli = (args: string[]) => {
-        const t = Date.now();
-        const r = spawnSync(process.execPath, argvOf(args), {
-          cwd: BACKEND_DIR,
-          encoding: 'utf8',
-          env: { ...process.env, DATABASE_URL: schemaUrl(e.schema), DATABASE_PUBLIC_URL: '', TS_NODE_TRANSPILE_ONLY: '1', REDIS_URL: '' },
-          timeout: 120_000,
-        });
-        return {
-          args: args.join(' ') || '(simulacro)',
-          status: r.status,
-          signal: r.signal,
-          spawnError: r.error?.message ?? null,
-          ms: Date.now() - t,
-          load: loadavg().map((x) => x.toFixed(2)).join(' '),
-          stdout: (r.stdout ?? '').slice(-1500),
-          stderr: (r.stderr ?? '').slice(-1500),
-        };
-      };
-      const before = await snapshot(admin, e.schema);
-      const dry = cli([]);
-      expect(dry).toMatchObject({ status: 0, spawnError: null });
-      expect(dry.stdout).toMatch(/SIMULACRO/);
-      expect(dry.stdout).toContain(e.fx.piece.P3.folio);
-      expectSame(before, await snapshot(admin, e.schema));
-      const wet = cli(['--apply']);
-      expect(wet).toMatchObject({ status: 0, spawnError: null });
-      expect(wet.stdout).toMatch(/a la venta: 4/);
-      for (const out of [dry, wet]) {
-        expect({ args: out.args, ruido: /\[Nest\]|NO_OWNER_ACCOUNT|ERROR/.test(out.stdout + out.stderr), out }).toMatchObject({ ruido: false });
-      }
-      expect((await e.db.inventoryItem.findUniqueOrThrow({ where: { id: e.fx.piece.P3.id } })).status).toBe('listed');
-    });
   });
 });

@@ -9829,17 +9829,17 @@ esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
 - **Comprobación de cierre:** `rg -n "scopedMigrations|GUARD" backend/test/integration/helpers/limpieza-db.ts` vacío y la
   suite verde.
 
-### PDB-TD3 · P3 · Qué hacer con la suite de la limpieza (y con `limpieza:republicar`) después de la corrida real
-- **Dueño:** backend (decide el arquitecto). Origen: condición TD-3 del techlead.
-- **Dónde:** `backend/test/integration/pdb-limpieza.e2e-spec.ts` (46 casos, ~2.5 min, crea ~40 esquemas),
-  `backend/prisma/data-repair/20261006_pdblimpieza_*`, `backend/src/cli/limpieza-republicar.ts` +
-  `backend/src/modules/inventory/limpieza-republicar.ts`.
+### PDB-TD3 · P3 · Qué hacer con la suite de la limpieza después de la corrida real
+- **Dueño:** backend (decide el arquitecto). Origen: condición TD-3 del techlead. (2026-10-07, v2: el comando
+  `limpieza:republicar` ya se retiró del código —LIMPIEZA_DB §14.7, BACKEND_NOTES §79.5—; queda solo la suite y los SQL.)
+- **Dónde:** `backend/test/integration/pdb-limpieza.e2e-spec.ts` (45 casos en v2, ~2 min, crea ~45 esquemas),
+  `backend/prisma/data-repair/20261006_pdblimpieza_*`.
 - **Impacto:** tras el COMMIT en producción los guiones son de un solo uso; la suite sigue costando tiempo de CI y se
   rompe con cada tabla nueva (G-8, a propósito). Borrarla sin más deja guiones en el repo sin prueba.
 - **Corrección (propuesta):** tras la corrida real y la verificación D en verde, mover los cuatro `.sql` a un archivo de
-  histórico, retirar la suite y el comando en el mismo commit, y dejar en BACKEND_NOTES §79 el sha de la última versión
+  histórico, retirar la suite en el mismo commit, y dejar en BACKEND_NOTES §79 el sha de la última versión
   probada. Hasta entonces, G-8 obliga a clasificar cada tabla nueva en B (eso es lo que se quiere mientras no se corra).
-- **Disparador:** el COMMIT de la limpieza en producción + D «TODO OK» + E sin «SIN RESOLVER».
+- **Disparador:** el COMMIT de la limpieza en producción + D «TODO OK».
 - **Comprobación de cierre:** los ficheros movidos o borrados en un commit que cita esta entrada.
 
 ### PDB-TD4 · P3 · G-7 depende del rastro: antes del primer COMMIT de B, una venta real no se distingue de una de prueba (LZ-S2)
