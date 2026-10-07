@@ -1,4 +1,86 @@
-# VEREDICTO BLUE TEAM — **P-DB-LIMPIEZA «Limpieza de la base antes de cobrar en real»** · SHA **`00ec3888`** (rama `claude/limpieza-db`) · 2026-10-06
+# VEREDICTO BLUE TEAM — **P-DB-LIMPIEZA v2.1 «también se borra el inventario»** · SHA **`37f7a450`** (rama `claude/limpieza-db`) · 2026-10-07
+
+> ## VEREDICTO: ✅ **APROBADO** sobre `37f7a450` — 0 críticas · 0 altas · 0 medias abiertas · 3 bajas (aceptadas, abajo)
+>
+> - **Sustituye** al veredicto v1 sobre `00ec3888` (sección siguiente, conservada como historia). v1 describía el paso E
+>   (`limpieza:republicar`), que v2 **retiró**: `git grep "limpieza-republicar|limpieza:republicar|previewPublication"` en
+>   `backend/src`, `backend/package.json`, `scripts/`, `.github/` = **0 aciertos** (medido por mí en `37f7a450`). Con E se
+>   van LZ-6 y la parte de LZ-1 sobre el comando.
+> - **Condición media de v1 (LZ-S1 / CS-1) sigue CERRADA.** Los cuatro guiones (`…_1_censo.sql:22-32`,
+>   `…_2_limpieza.sql:32-44`, `…_3_folios.sql:29-40`, `…_4_verificacion.sql:23-33`) recomiendan `railway connect` + `\i`,
+>   o `psql "postgresql://USUARIO@HOST:PUERTO/BASE"` **sin** contraseña (psql la pide sin eco), prohíben `URL=…` y la URL
+>   con contraseña, y piden rotar si se tecleó/pegó. Ningún guion lleva host, usuario ni contraseña (grep medido). CS-2
+>   (rotación y respaldo real) sigue siendo procedimiento del dueño: banderas abajo.
+> - **Repo público:** el diff `00ec3888..37f7a450` no añade credenciales (`grep` de `postgres://user:pw@`, `sk_live_`,
+>   `sk_test_…`, `whsec_…`, `AKIA`, `BEGIN … KEY`, hosts `rlwy.net`/`railway.app` = solo el texto-ejemplo
+>   `usuario:CONTRASEÑA@…` de los encabezados). Correos añadidos: solo `yo+prueba1/2@gmail.com` (ejemplo del encabezado,
+>   `…_2_limpieza.sql:96`) y `*@example.test` (fixtures). `security/secretos-publicados.sha256` +1 línea: un **hash** de
+>   prefijo, no un valor. El rastro de B no guarda correos ni folios (`…_2_limpieza.sql:405-427`: ids, conteos,
+>   secuencias, `respaldoManual`, `puntoPitr`, `ejecutadoCon = current_user`).
+
+## LZ2-1. Que nada borre a un cliente real en custodia o con pedido real
+
+- **G-9** (`…_2_limpieza.sql:140-145` lista, `:260-264` errata, `:449-456` custodia no declarada): aborta si hay **una**
+  pieza `ownerType='customer'` de una cuenta no declarada en ✏️ `cuentas_prueba`, o si un token no es ninguna cuenta.
+  La custodia solo se fija junto con su dueño (`orders.service.ts:1518`, `shipment-prep.service.ts:560`,
+  `vault-placement.rules.ts:53`) y la base rechaza custodia sin dueño (CHECK `InventoryItem_customer_has_owner_chk`, nota
+  de la suite `pdb-limpieza.e2e-spec.ts:325-326`). El correo se normaliza a minúsculas en el alta
+  (`auth.service.ts:161, 497`), así que el casado `lower(email)` no puede declarar dos cuentas a la vez. ✅
+- **G-1/G-2/G-3** se conservan (pieza de cliente o en custodia/camino sin pedido que la explique ⇒ aborta). ✅
+- **G-7** (`:227-234`): con rastro previo y **cualquier** fila en una tabla BORRAR (ahora incluye `InventoryItem` e
+  `InventoryBatch`) ⇒ se niega. El rastro es durable: **ningún** camino de la app borra `AuditLog` ni escribe
+  `maintenance.test_data_purge` (`grep` en `backend/src` = 0), así que G-7 no se puede desactivar desde la aplicación. ✅
+- **G-8** (`:170-183`): tabla no clasificada ⇒ aborta. ✅
+- **Medición propia (red team, sobre copia del árbol ENTERO `git archive 37f7a450`, cliente Prisma generado en la copia,
+  esquemas propios `sec<run>_n` en `tcg_marketplace`, borrados al terminar; deterministas ⇒ N=1 por sonda):**
+  | Sonda | Resultado |
+  |---|---|
+  | RT-1 pegado **sin** `ON_ERROR_STOP`, `COMMIT` al final, cliente 2 sin declarar | base **idéntica** (tablas + 3 secuencias) — 1/1 |
+  | RT-2 «herramienta que no es psql»: sin `BEGIN`, sin `ON_ERROR_STOP`, autocommit | base **idéntica** — 1/1. **Canario:** un `DELETE` desacoplado de `lz_cambio` lo pone en **rojo** 1/1 (cada DML de B depende de una tabla temporal `ON COMMIT DROP`: fuera de una transacción psql, nada borra) |
+  | RT-3 inyección en `cuentas_prueba` (`x'); DELETE FROM "User"; --`) | aborta G-9 (errata), `User` intacto — 1/1 (`:'var'` se cita como literal) |
+  | RT-4 separador `;` en vez de `,` | aborta G-9 — 1/1 |
+  | RT-5 comodines `%`, `*`, `%@%` | abortan — 3/3 |
+  | RT-6 tras COMMIT, pedido nuevo y la lista entera declarada | G-7 se niega, base idéntica — 1/1 |
+  Fichero de sondas y logs: `scratchpad/sec-lz4/` (la copia del árbol se borra al terminar). **NO MEDIDO por mí:** la
+  suite completa `pdb-limpieza.e2e-spec.ts` (me apoyo en el pase de QA sobre este sha) y las mutaciones M-v2/M-N1.
+
+## LZ2-2. Hallazgos (todos BAJA, aceptados; ninguno bloquea)
+
+- **LZ2-S1 · BAJA · la salida del ensayo B ahora trae PII.** La lista 2.4 imprime **correo, nombre y rol** de los clientes
+  con custodia (`…_2_limpieza.sql:282-289`) y los mensajes de G-9 nombran el correo (`:263`, `:455`). Contradice la nota
+  v1 «salida de B/D sin PII» (LZ-1). Es el operador viendo sus propios clientes (legítimo y necesario para G-9), pero el
+  dueño suele **pegar la salida en el chat** para pedir ayuda. Dueño: **backend** (una línea en el encabezado: «no pegues
+  la lista 2.4 ni los mensajes G-9 en chats ni en el repositorio») + **dueño**. Disparador: antes de que el dueño corra el
+  ensayo; sube a media si la custodia incluye cuentas ajenas al equipo.
+- **LZ2-S2 · BAJA · G-9 es declarativa (hereda LZ-S3).** Para casos de error de dedo es infalible (RT-3/4/5, errata), pero si el
+  dueño **declara** de prueba a un cliente real, B lo borra; SQL no puede saberlo (no hay `livemode` ni marca de cuenta de
+  prueba: `schema.prisma:555-619`). Mitigación: la lista 2.4 enseña rol y nº de pedidos; `HECHOS.md:16` (nunca hubo
+  dinero real). Dueño: **dueño** (procedimiento).
+- **LZ2-S3 · BAJA · pedidos reales antes del primer COMMIT (= LZ-S2 / `TECH_DEBT` PDB-TD4, sin cambio).** Los pedidos de
+  envío directo no pasan por G-9; antes del rastro, B no distingue uno real de uno de prueba. v2 no lo empeora para pedidos
+  (ya se borraban todos) y G-9 cubre la custodia. Disparador vigente: cualquier retraso de B más allá de `sk_live_`.
+- **LZ-S4 (base equivocada)** sigue igual: aceptable (no hay staging, `HECHOS.md:17`).
+- **C** (`…_3_folios.sql:63-99`): con pedidos **y** piezas se niega; nunca toca `ENV-`; el `AVISO` v2.1 es texto, sin
+  efecto de seguridad. ✅
+
+## LZ2-3. Banderas para el humano
+
+1. **Simulacro de restauración PITR (P-3) antes del COMMIT** — en v2 pesa más: se va **todo** el inventario y la única
+   marcha atrás es PITR, que nadie ha ensayado.
+2. **Respaldo manual de verdad** y anotar el PUNTO PITR (la guarda solo mira que el texto no esté vacío).
+3. **`cuentas_prueba`: escribe solo cuentas que sabes tuyas de prueba**; si en 2.4 aparece alguien que no reconoces, para.
+4. **No pegues la salida 2.4 / G-9 en chats** (LZ2-S1).
+5. **Rota la contraseña de Postgres** si la tecleaste o pegaste en algún sitio (CS-2).
+6. **No pasar a `sk_live_` antes** de B (COMMIT) + C + D; PDB-R6 (INE sin purga) cerrado antes de abrir el buylist real.
+
+> **Mínimo para seguir aprobado:** nada bloqueante. LZ2-S1 es una línea de encabezado (backend), recomendable antes del
+> ensayo del dueño.
+
+---
+
+# ~~VEREDICTO BLUE TEAM — P-DB-LIMPIEZA v1~~ **SUSTITUIDO** por el veredicto v2.1 sobre `37f7a450` (arriba) · SHA **`00ec3888`** (rama `claude/limpieza-db`) · 2026-10-06
+
+> ⚠️ **Sección histórica.** Describe el paso E (`limpieza:republicar`), retirado en v2; LZ-S1/CS-1 se cerró en `df931a9e`.
 
 > ## VEREDICTO: ⚠️ **APROBADO CON CONDICIONES** sobre `00ec3888`
 >
