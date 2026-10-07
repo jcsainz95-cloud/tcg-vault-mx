@@ -14488,3 +14488,49 @@ excepción nueva en `.trivyignore`.
 
 **Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
 externa va fijada». Lo dejo propuesto, no lo cambio.
+
+## §90 · Redis local en MISCONF: `dir` en un scratchpad borrado (2026-10-06, rama `claude/buylist-skydropx`)
+
+**Síntoma (B-2/B-3/B-4, 2026-10-06):** `auth-password-attempts-redis` y `reset-admin-password-lock` rojas en todos
+los árboles con `MISCONF ... unable to persist to disk`.
+
+**Causa medida (devops, 2026-10-06):** `redis-server` (pid 20394, arrancado `--daemonize yes` sin `--dir`) tenía
+`dir`/cwd = `scratchpad/qa-mail-7aa2/new (deleted)` (`ls -l /proc/<pid>/cwd`). Al borrarse ese scratchpad (O-20)
+el BGSAVE no puede crear el RDB → `rdb_last_bgsave_status:err` → con `stop-writes-on-bgsave-error yes` rechaza toda
+escritura. No era el disco (88 %, 4.8 GB libres). `CONFIG SET dir` falla: `can't set protected config` (Redis 7).
+
+**Arreglo en caliente:** `redis-cli CONFIG SET save ""` (sin snapshots; el Redis local es efímero de pruebas,
+DBSIZE 0). Reversible con `CONFIG SET save "3600 1 300 100 60 10000"`. No reinicia ni pierde claves.
+Antes: 3/3 corridas rojas (31/31 fallan). Después: 5/5 verdes (31/31). N y logs del agente devops.
+
+**Candado en tooling (`scripts/stack-native.sh` `start_infra`):** Redis se arranca desde `/` con `--save ""`; y si
+ya está arriba con `rdb_last_bgsave_status:err`, aplica el mismo `CONFIG SET save ""` y avisa.
+Rollback: revertir el commit.
+
+**Para los gates:** no arranquéis `redis-server` a mano desde vuestro scratchpad; usad `stack-native.sh up --infra`.
+
+## §91 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
+
+**Causa (medida el 2026-10-06 sobre `production` `a884a2ec`).** Ninguna PR cambió dependencias. Se publicó un
+aviso sobre la versión que ya estaba en el lockfile: `sharp@0.35.4`, GHSA-wq5f-xc86-pv6w / CVE-2026-96889
+(vulnerabilidad en la dependencia `librsvg`), severidad **high**, corregido en 0.35.5. `sharp` es dependencia
+**directa** del frontend (`"sharp": "^0.35.4"`, la usa `next/image`). El backend no se toca: sigue con las 2
+moderate ya registradas (RL-DEP-1).
+
+**Arreglo.** Igual que en §89: `npm update sharp --package-lock-only` en `frontend/`. El rango `^0.35.4` ya admite
+0.35.5, así que no hace falta tocar `package.json` ni añadir `overrides`. En el lockfile cambian 27 entradas, todas
+de la familia `sharp`: `sharp` 0.35.4 → 0.35.5, los binarios `@img/sharp-*` 0.35.4 → 0.35.5 y
+`@img/sharp-libvips-*` 1.3.3 → 1.3.4. Ninguna otra entrada cambia (comprobado con un diff de `packages`,
+entrada por entrada). El lockfile se generó en una copia del frontend en el scratchpad, no en el
+`node_modules` compartido.
+
+**Antes → después, con la misma invocación:**
+- `npm audit --omit=dev --audit-level=high` en `frontend/`: rc=1 (`sharp <0.35.5`, 1 high) → rc=0 (`found 0
+  vulnerabilities`).
+- `AUDIT_LEVEL=high ./security/scripts/audit-npm.sh`: rc=1 → rc=0.
+- `npm ci` del lockfile nuevo: rc=0. `sharp.versions.sharp` = 0.35.5 (vips 8.18.7, rsvg 2.63.2), y codifica un
+  PNG de prueba.
+- `next build` del frontend en esa copia: rc=0.
+- `trivy-fs`: **NO MEDIDO** aquí, porque `trivy` no está instalado en este entorno. Lo medirá el CI de la PR.
+
+**Rollback:** revertir el commit. `npm-audit` vuelve a ponerse en rojo.

@@ -1003,7 +1003,20 @@
       "notFoundBody": "Check the link in your email, or sign in with the account you used to create the request.",
       "loginTitle": "Sign in to see your offer",
       "loginBody": "You will sign in with your account: this offer is not accepted from an email link.",
-      "viewRequestCta": "View this request"
+      "viewRequestCta": "View this request",
+      "closedNotContinued": "After an additional review, we've decided not to continue with this sale. The request is closed and no card was purchased.",
+      "label": {
+        "title": "Your label",
+        "body": "We've already paid for your label with {carrier}. Print it, stick it on your package and take it to a {carrier} branch.",
+        "bodyNoCarrier": "We've already paid for your label. Print it, stick it on your package and take it to a branch of the carrier shown on it.",
+        "tracking": "Tracking number: {tracking}",
+        "download": "Download my label (PDF)",
+        "downloading": "Downloading…",
+        "alsoInEmail": "It's also attached to the email we sent you.",
+        "downloadShort": "Download label (PDF)",
+        "errorUnavailable": "This label is no longer available to download. If we changed it, we've emailed you the new one.",
+        "errorTemporary": "We couldn't get your label right now. Try again in a few minutes; it's also attached to the email we sent you."
+      }
     },
     "adjust": {
       "title": "Proposed price adjustment",
@@ -1373,7 +1386,9 @@
         "processing": "{n, plural, one {# label in progress} other {# labels in progress}}",
         "lowBalance": "Skydropx balance is low: buying labels may fail until it's topped up.",
         "seeBalance": "See the balance"
-      }
+      },
+      "buylistGuideDue": "{n, plural, one {# accepted request without a label closes on its own soon} other {# accepted requests without a label close on their own soon}}",
+      "buylistInboundLabelAlert": "{n, plural, one {# sell request with a label alert} other {# sell requests with a label alert}}"
     },
     "m1": {
       "title": "Inventory",
@@ -2128,6 +2143,53 @@
             "not_calibrated": "We can't yet check on our own that a label wasn't created.",
             "duplicate": "Skydropx created two labels for this same purchase.",
             "none": "We're still finishing the check."
+          },
+          "inbound": {
+            "title": "Seller-to-store label",
+            "ref": "Sell request {sellRequestId} · Shipment {folio}",
+            "originTitle": "From · the seller",
+            "sender": "Sender",
+            "senderMissing": "Sender missing",
+            "senderHint": "Name of the person dropping off the package. It goes on the label.",
+            "senderSuggestion": "Suggestion: {sellerName} (their account name).",
+            "useSuggestion": "Use this name",
+            "scopeNote": "This only corrects where this label starts from. The address saved on the seller's account and the one on their request don't change.",
+            "resyncNote": "If the seller changes their address before you buy the label, this correction is replaced by theirs.",
+            "senderRequired": "Enter who is sending it.",
+            "destinationTitle": "To · the store",
+            "destinationName": "Name",
+            "destinationNote": "It's the store address from “Settings › Shipping”. This label always goes there: it isn't changed here.",
+            "feeDeducted": "Deducted from the seller: {fee} (the fixed fee in their offer).",
+            "boxValue": "What's in the box is worth {value}: what we'll pay for the cards.",
+            "marginNegative": "Margin: −{abs} — this label costs more than what's deducted from them",
+            "pickupYes": "Offers pickup (not scheduled: the seller takes it to a branch)",
+            "pickupNo": "No pickup: the seller takes it to a {carrierLabel} branch",
+            "deliveryHome": "Delivers to the store",
+            "deliveryBranch": "Doesn't deliver to the store: someone would have to collect it at a branch",
+            "showBranch": "Also show {count, plural, one {# option that doesn't deliver} other {# options that don't deliver}} to the store",
+            "hideBranch": "Hide the options that don't deliver to the store",
+            "noRecommended": "No option delivers to the store. Pick one knowing it will have to be collected, or enter the label by hand.",
+            "confirmNegative": "Negative margin: −{abs}. This label costs more than the fee deducted from the seller. If you buy, you confirm it.",
+            "confirmBranch": "This option doesn't deliver to the store: someone will have to collect it at a branch. If you buy, you confirm it.",
+            "sentToSeller": "We've emailed the seller their label as a PDF; their time to ship it starts now.",
+            "processingNote": "When the number arrives, we'll email the seller their label and their time starts. Meanwhile, the request won't close on its own.",
+            "bought": "Label bought for request {id}: {carrier} · {tracking}. We've emailed the seller their label.",
+            "manualIntro": "For a label you already bought in the Skydropx panel or with another carrier. The seller gets it by email, same as today.",
+            "reissueBody": "It's cancelled in Skydropx and the balance comes back; if Skydropx doesn't return all of it, the difference is recorded as an adjustment. The request goes back to “no label”: the seller's time stops and the count toward automatic closing starts again today. When you buy the new one, the seller gets it with a note that it replaces the previous one.",
+            "reissueNotAccepted": "The request is no longer accepted ({status}): the label isn't changed from here.",
+            "reissueSellerShipped": "The seller already said they shipped the package: this label can't be changed now.",
+            "error": {
+              "featureDisabled": "Buying labels with Skydropx is switched off. Nothing was opened: enter the label by hand.",
+              "notAccepted": "This request is no longer accepted ({status}). Nothing was opened or charged.",
+              "sellerShipped": "The seller already said they shipped the package: no label is generated now. Nothing was charged.",
+              "manualExists": "This request already has a label entered by hand. Nothing was charged.",
+              "noPickupAddress": "This request didn't save the seller's address (it's from before addresses were saved) and Skydropx can't quote without it. Enter the label by hand.",
+              "senderMissingQuote": "The sender is missing and Skydropx can't quote without it. Enter it (you can use their account name) and save. Nothing was quoted.",
+              "storeAddressMissing": "The store address is missing in “Settings › Shipping”, and it's this label's destination. Nothing was quoted: complete it there or enter the label by hand.",
+              "destinationRejected": "The server rejected the request because it carried a destination: this label always goes to the store. Nothing was quoted or charged. Reload the page.",
+              "shipmentConfirmed": "This request's shipment is already confirmed: no label is generated now. Nothing was opened or charged. When the package arrives, receive it and review the cards."
+            },
+            "reissueDone": "Label cancelled. Request {id} is back to “no label” and the count toward automatic closing starts again today. You can now generate the new one; the seller will get it with a note that it replaces the previous one."
           }
         }
       },
@@ -3009,7 +3071,7 @@
         "reasonTooLong": "The reason cannot be longer than 500 characters.",
         "readOnlyByStatus": {
           "ofertada": "The offer is out and the seller has it. To change or close it, use “Cancel the offer” on the request.",
-          "aceptada": "The seller accepted: the request can no longer be cancelled. If a card arrives in bad condition, you reject it during review, with its reason.",
+          "aceptada": "The seller accepted. Generate their label so they can send the cards; if you no longer want to buy them, you can decline it as long as they haven't said they sent them.",
           "en_transito": "The package is on its way. When it arrives, press “Received: start review” and reject there any cards that arrive in bad shape.",
           "review": "It's under review: approve or reject each card on the request, or select several and “Reject selected”.",
           "done": "There's nothing left to decide here for this request."
@@ -3106,7 +3168,7 @@
         "goVerifying": "Go to “Verifying”",
         "verifyFailed": "We marked it as received, but the review couldn't be opened. Press “Start verification”."
       },
-      "acceptedNote": "Accepted: it can no longer be cancelled. If a card arrives in bad condition, you reject it during review, stating the reason.",
+      "acceptedNote": "Accepted. If a card arrives in bad condition, you reject it during review, stating the reason.",
       "notBought": {
         "tag": "NOT BOUGHT",
         "note": "It was marked as not bought when the offer went out: it isn't approved or rejected."
@@ -3132,6 +3194,47 @@
           "closed": "This request is already closed: its cards can't be changed. Nothing was saved.",
           "notFound": "A card no longer belongs to this request. We've refreshed the list. Nothing was saved."
         }
+      },
+      "inbound": {
+        "generate": "Generate label with Skydropx",
+        "summary": "Skydropx label: {carrier} · {tracking}",
+        "cost": "Label cost: {cost}",
+        "processing": "Label in progress: the number arrives on its own. Meanwhile, the request won't close on its own.",
+        "costFromProvider": "Skydropx provided this label's cost ({cost}): it isn't entered here.",
+        "alreadySkydropx": "This request already has a label bought in Skydropx. The manual label wasn't saved: to change it, cancel it and buy another.",
+        "inProgress": "A label purchase is in progress for this request. Nothing was saved; wait for it to finish.",
+        "preparing": "Preparing the label…",
+        "alertFilter": "Only requests with a label alert",
+        "openLabel": "Open the label window"
+      },
+      "declineAccepted": {
+        "action": "Decline",
+        "title": "Decline this accepted request",
+        "body": "The request closes and the seller gets the “not continuing” email, the same one as if it closed on its own. It can't be reopened; if they want to sell, they'll need a new quote. It doesn't count against them.",
+        "bodySdx": "Their Skydropx label ({carrier} · {tracking}) is cancelled automatically and the balance comes back, if the carrier hasn't moved it yet; if that's not possible, it goes to “Labels to cancel”.",
+        "bodyManual": "They have a label entered by hand ({carrier} · {tracking}): it goes to “Labels to cancel” for you to cancel it.",
+        "bodyInProgress": "A label purchase is in progress: if it completes, the label is cancelled automatically.",
+        "reasonLabel": "Reason (internal, required)",
+        "reasonHint": "3 to 500 characters. It's logged; the seller won't see it.",
+        "reasonTooShort": "Write the reason (3 characters or more) to decline.",
+        "confirm": "Decline and notify them",
+        "back": "Back",
+        "done": "Request {id} declined: it's closed and the seller gets the “not continuing” email.",
+        "error": {
+          "status": "This request is no longer accepted ({status}). It wasn't declined; you can see below how it stands.",
+          "sellerShipped": "The seller already said they shipped the package: it can't be declined now. Receive it and, if needed, reject the cards during review.",
+          "shipmentConfirmed": "The shipment is already confirmed: it can't be declined now. Receive it and review the cards.",
+          "reason": "Write the reason: 3 to 500 characters. It wasn't declined.",
+          "forbidden": "Your account can't decline requests.",
+          "unknown": "We don't know whether it was declined: the server didn't respond. Checking the request…",
+          "notDone": "It wasn't declined: the server didn't respond. Try again."
+        }
+      },
+      "guideDue": {
+        "line": "No label: it closes on its own on {datetime} if it still has none by then.",
+        "tag": "Closes on its own",
+        "note": "When it closes, the seller gets the “not continuing” email and it doesn't count against them. To avoid it, generate their label or decline it yourself.",
+        "inDays": "{n, plural, =0 {any moment now} one {in under 24 h} other {in # days}}"
       }
     },
     "m2": {
@@ -4837,7 +4940,9 @@
         "groups": {
           "deadlines": "Deadlines (business days)",
           "amounts": "Amounts (MX$)",
-          "alerts": "Alerts and suggestions"
+          "alerts": "Alerts and suggestions",
+          "buylistGuideClose": "Closing without a label (calendar days)",
+          "buylistGuideCloseNote": "Saturdays and Sundays count. Unlike the rest of the group, they also apply to requests in progress: they're read every day."
         },
         "labels": {
           "buylistOfferIssueDeadlineBusinessDays": "Deadline to send the offer",
@@ -4849,7 +4954,9 @@
           "buylistOperatorOfferCapCents": "Maximum offer without approval",
           "buylistShipmentConfirmAlertBusinessDays": "Unconfirmed shipment alert",
           "buylistOfferReissueAlertCount": "Cancelled offers alert",
-          "buylistVariantPositionCap": "Copies per variant cap (suggestion)"
+          "buylistVariantPositionCap": "Copies per variant cap (suggestion)",
+          "buylistGuideCloseCalendarDays": "Closing an accepted request without a label",
+          "buylistGuideWarnDaysBeforeClose": "Alert before closing without a label"
         },
         "help": {
           "buylistOfferIssueDeadlineBusinessDays": "Business days we have to make the offer. If they run out, the request closes and the seller gets the “we won't proceed” email.",
@@ -4861,7 +4968,9 @@
           "buylistOperatorOfferCapCents": "Above this gross, the super-admin approves the offer before it goes out. The exact amount goes out without approval.",
           "buylistShipmentConfirmAlertBusinessDays": "Business days after “I sent it” to flag the request. Nothing expires.",
           "buylistOfferReissueAlertCount": "From how many cancellations of an already-sent offer the request is flagged. It doesn't block or show in emails.",
-          "buylistVariantPositionCap": "At this quantity, the desk suggests “don't buy” for cards without a bounty. It never blocks."
+          "buylistVariantPositionCap": "At this quantity, the desk suggests “don't buy” for cards without a bounty. It never blocks.",
+          "buylistGuideCloseCalendarDays": "Calendar days since the seller accepted (or since their label was cancelled to replace it). If it still has no label by then, it closes on its own and they get the “not continuing” email. It doesn't count against them.",
+          "buylistGuideWarnDaysBeforeClose": "How many calendar days before closing the request is flagged and you get an email. 0 = no alert. If you set as many days as the closing or more, the alert goes out the day after accepting."
         },
         "rule": {
           "buylistOfferIssueDeadlineBusinessDays": "Whole number, 1 or more.",
@@ -4873,7 +4982,9 @@
           "buylistOperatorOfferCapCents": "In pesos, 0 or more.",
           "buylistShipmentConfirmAlertBusinessDays": "Whole number, 1 or more.",
           "buylistOfferReissueAlertCount": "Whole number, 1 or more.",
-          "buylistVariantPositionCap": "Whole number, 1 or more."
+          "buylistVariantPositionCap": "Whole number, 1 or more.",
+          "buylistGuideCloseCalendarDays": "Whole number, 1 to 60.",
+          "buylistGuideWarnDaysBeforeClose": "Whole number, 0 to 30."
         },
         "checkFields": "Check the marked fields. Nothing was saved.",
         "cross": "The label fee deducted ({fee}) plus the minimum the seller receives ({net}) can't exceed the minimum to quote ({min}). Nothing was saved.",
@@ -4892,7 +5003,7 @@
       },
       "pnl": {
         "title": "Profit & loss (P&L)",
-        "formula": "Income + shipping revenue − cost of goods sold − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.",
+        "formula": "Income + shipping revenue − cost of goods sold + shipping fee deducted from sellers − labels for receiving cards from sellers − Stripe fees − shipping cost − refunds − platform fees refunded − lost-card compensation = profit. Carrier adjustments (extra charges the carrier bills later, counted in the month they arrive) and insurance are already included in shipping cost.",
         "income": "Income (sales)",
         "shippingRevenue": "Shipping revenue (collected)",
         "cogs": "Cost of goods sold",
@@ -4906,7 +5017,13 @@
         "refundedFees": "Platform fees refunded",
         "compensations": "Lost-card compensation",
         "signAdds": "adds",
-        "signSubtracts": "subtracts"
+        "signSubtracts": "subtracts",
+        "buylistFeeRetained": "Shipping fee deducted from sellers",
+        "buylistGuideCost": "Labels for receiving cards from sellers",
+        "buylistGuideMargin": "Margin on seller labels",
+        "buylistGuideMarginHelp": "The amount deducted minus what the label cost, for requests paid in this period. Skydropx labels count without VAT; manual ones, at the cost you entered. It's already included in the two lines above and isn't added again. It doesn't always match subtracting them: the label counts on the day it's bought and the deduction on the day the seller is paid.",
+        "buylistGuideMarginNegative": "In this period, the labels cost more than what was deducted from sellers.",
+        "buylistGuideCostMissing": "{count, plural, one {# paid request used a manual label with no cost entered: its label counts as if it cost MX$0 and its margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.} other {# paid requests used a manual label with no cost entered: their labels count as if they cost MX$0 and their margin looks better than it was. The cost is entered when confirming the shipment in “Sell requests”; once paid, it can no longer be added.}}"
       },
       "values": {
         "title": "Inventory and custody value",
@@ -5819,7 +5936,10 @@
         "cancelKind": "How it was cancelled",
         "cause": "Cause",
         "status": "Carrier status",
-        "providerReference": "Skydropx reference"
+        "providerReference": "Skydropx reference",
+        "sellRequestId": "Sell request",
+        "closesAt": "Closes",
+        "offerGrossCents": "Value of the cards in the offer"
       },
       "noData": "no data",
       "ref": {
@@ -5947,6 +6067,10 @@
         "generic": {
           "title": "Alert {code}",
           "text": "Open the alert to see the details."
+        },
+        "AG-23": {
+          "title": "Sell request without a label",
+          "text": "Sell request {folio} is still accepted and has no label: it closes on its own on {closesAt} if it still has no label by then. Value of its cards in the offer: {gross}."
         }
       },
       "prev": "Previous",
@@ -5997,7 +6121,8 @@
     "sellRequestExpiry": {
       "not_shipped": "Not shipped",
       "no_offer": "Not pursued",
-      "unknown": "Expired"
+      "unknown": "Expired",
+      "not_continued": "Not continued"
     },
     "sellItem": {
       "cotizada": "Quoted",

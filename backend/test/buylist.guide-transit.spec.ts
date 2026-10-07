@@ -105,6 +105,9 @@ function build(opts: Opts = {}) {
       }),
     },
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
+    // rev BSD-1 (B-3): `adminGuide`/`adminConfirmShipment` toman los candados de I-BSD-4 (`FOR UPDATE`) y
+    // `closeInboundShipment` busca la fila de entrada (aquí no hay ⇒ vacío).
+    $queryRaw: jest.fn(async () => []),
   };
   const settings = { getNumber: jest.fn(async (k: any) => DIALS[k as string] ?? 0) };
   const svc = new BuylistService(

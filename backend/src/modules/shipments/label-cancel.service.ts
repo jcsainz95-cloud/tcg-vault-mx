@@ -25,6 +25,7 @@ import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
 import { LabelActor, ShipmentLabelService } from './label-purchase.service';
 import { asRate } from './label-view';
 import { LabelAutoCloser } from './label-auto-close';
+import { LABEL_SUBJECT_SELECT, LabelSubject, labelSubjectOf, lockSubjectRows } from './label-subject';
 
 type Tx = Prisma.TransactionClient;
 const TX = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -65,12 +66,14 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
     const { reason } = parseCancelBody(raw);
     // SEC-SDX-12: con `off` sigue; sin credenciales ⇒ 409 {missing:['env']}.
     if (this.selection.kind === 'noop') throw ShippingProviderError.notConfigured(['env']).toBusinessException();
-    const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true } });
+    const exists = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true, ...LABEL_SUBJECT_SELECT } });
     if (!exists) throw BusinessException.notFound();
+    // rev BSD-1 (§BSD.4.6): la política de la fila (la guía de ENTRADA bajo los dos candados, I-BSD-4).
+    const subject = labelSubjectOf(exists);
 
     const sealedAt = this.clock.now();
     const sealed = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${shipmentId} FOR UPDATE`;
+      await lockSubjectRows(tx, subject, shipmentId);
       const row = await tx.shipmentRequest.findUniqueOrThrow({ where: { id: shipmentId } });
       if (row.labelSource !== 'skydropx' || row.providerShipmentId === null) {
         throw new BusinessException('LABEL_NOT_CANCELLABLE', 409, 'Only a Skydropx label can be cancelled', { reason: 'not_provider' });
@@ -84,7 +87,9 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
       // Ya sellada (por el verbo o por la cancelación automática) ⇒ `200 already_cancelled` (PS-83: «`label/cancel` sobre él
       // ⇒ `already_cancelled`»), sin red.
       if (row.providerCanceledAt !== null) return { kind: 'already' as const, row };
-      if (row.status !== 'picking' && row.status !== 'guia') {
+      // ⭐ rev BSD-1 (§BSD.4.6): re-emitir una guía de entrada exige la solicitud `aceptada` y sin «ya lo mandé» (bajo su candado).
+      if (subject.sellRequestId) await this.assertInboundReissuable(tx, subject.sellRequestId);
+      if (row.status !== subject.openStatus && row.status !== subject.labeledStatus) {
         throw new BusinessException('LABEL_NOT_CANCELLABLE', 409, 'The shipment is not in preparation', { reason: 'status', status: row.status });
       }
       const cas = await tx.shipmentRequest.updateMany({
@@ -136,7 +141,7 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
       await this.labels.audit(this.prisma, actor, shipmentId, 'shipment.label_cancelled', { reason, refundedCents: res.refundedCents, retryOf: 'auto_close', ...(via ? { via } : {}) }, this.clock.now(), { providerShipmentId });
       return { outcome: 'cancelled', shipment: (await this.labels.respond(shipmentId, actor, 'in_progress')).shipment };
     }
-    await this.applyReissue(shipmentId, providerShipmentId, sealedAt, sealed.row, res.refundedCents, reason, actor, via);
+    await this.applyReissue(shipmentId, providerShipmentId, sealedAt, sealed.row, res.refundedCents, reason, actor, via, subject);
     return { outcome: 'cancelled', shipment: (await this.labels.respond(shipmentId, actor, 'in_progress')).shipment };
   }
 
@@ -158,7 +163,27 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
     });
   }
 
-  /** Aceptada (§19.8): `guia → picking` conservando `preparedAt`, todo lo de la guía a `NULL`, costo 0; libro y avisos. */
+  /**
+   * ⭐ rev BSD-1 (§BSD.4.6) — guardas añadidas a la re-emisión de una guía de ENTRADA, bajo los dos candados: la solicitud
+   * fuera de `aceptada` ⇒ `409 LABEL_NOT_CANCELLABLE {reason:'sell_request_status', status}`; con «ya lo mandé» ⇒ `409
+   * LABEL_NOT_CANCELLABLE {reason:'seller_declared_shipped'}`.
+   */
+  private async assertInboundReissuable(tx: Tx, sellRequestId: string): Promise<void> {
+    const sr = await tx.sellRequest.findUniqueOrThrow({ where: { id: sellRequestId }, select: { status: true, closedAt: true, sellerShippedDeclaredAt: true } });
+    if (sr.status !== 'aceptada' || sr.closedAt !== null) {
+      throw new BusinessException('LABEL_NOT_CANCELLABLE', 409, 'The sell request is not accepted anymore', { reason: 'sell_request_status', status: sr.status });
+    }
+    if (sr.sellerShippedDeclaredAt !== null) {
+      throw new BusinessException('LABEL_NOT_CANCELLABLE', 409, 'The seller already declared the package as shipped', { reason: 'seller_declared_shipped' });
+    }
+  }
+
+  /**
+   * Aceptada (§19.8): `guia → <abierta>` conservando `preparedAt`, todo lo de la guía a `NULL`, costo 0; libro y avisos.
+   * ⭐ rev BSD-1 (§BSD.4.6): la guía de entrada vuelve a `solicitado` y, en la MISMA tx, la solicitud vuelve a «sin guía»
+   * (paquetería, número, `guideSentAt`, `shipDeadlineAt`, `guideNoticeSentAt`, `shipReminderSentAt` ⇒ `null`) y se
+   * RE-ANCLA el cierre (`inboundGuideClockStartedAt = now`: *el vendedor no paga por una corrección nuestra*, D38).
+   */
   private async applyReissue(
     shipmentId: string,
     providerShipmentId: string,
@@ -167,17 +192,21 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
     refundedCents: number | null,
     reason: string,
     actor: LabelActor,
-    via: 'provider_already_cancelled' | null = null,
+    via: 'provider_already_cancelled' | null,
+    policy: LabelSubject,
   ): Promise<void> {
     const now = this.clock.now();
     await this.prisma.$transaction(async (tx) => {
+      // rev BSD-1 (I-BSD-4): la guía de entrada toma PRIMERO la solicitud y después la fila.
+      if (policy.locksSellRequestFirst) await lockSubjectRows(tx, policy, shipmentId);
       // Libro, ajuste por lo no devuelto (SEC-SDX-11) y AG-8 (a): UN cuerpo con la cancelación automática.
       await this.labels.confirmCancellation(shipmentId, providerShipmentId, refundedCents, 'reissue', actor.id, reason, tx);
-      // ⚠️ `status:'picking'` desde `guia`: el ÚNICO retroceso del sistema (`C-SDX-4`), con la precondición en el `WHERE`.
+      // ⚠️ `guia → <abierta>` (salida: la cola de preparación; entrada: `solicitado`): el ÚNICO retroceso del sistema
+      // (`C-SDX-4`), con la precondición en el `WHERE`. El estado sale de la política de la clase (BSD-1.3 punto 5).
       const r = await tx.shipmentRequest.updateMany({
-        where: { id: shipmentId, status: { in: ['guia', 'picking'] }, providerShipmentId, providerCanceledAt: sealedAt },
+        where: { id: shipmentId, status: { in: [policy.labeledStatus, policy.openStatus] }, providerShipmentId, providerCanceledAt: sealedAt },
         data: {
-          status: 'picking',
+          status: policy.reissueStatus,
           labelSource: null,
           providerShipmentId: null,
           carrier: null,
@@ -197,6 +226,23 @@ export class ShipmentLabelCancelService implements LabelAutoCloser {
           shippingIvaSource: null,
         },
       });
+      if (r.count === 1 && policy.sellRequestId) {
+        // ⭐ rev BSD-1 (§BSD.4.6): la solicitud vuelve a «sin guía» y se re-ancla el cierre. Guarda en el `WHERE` (aceptada y
+        // abierta): I-BSD-1 garantiza que con la fila en `guia` la solicitud lo está; si no casa, se avisa en el log.
+        const sr = await tx.sellRequest.updateMany({
+          where: { id: policy.sellRequestId, status: 'aceptada', closedAt: null },
+          data: {
+            shipmentCarrier: null,
+            shipmentTrackingNumber: null,
+            guideSentAt: null,
+            shipDeadlineAt: null,
+            guideNoticeSentAt: null,
+            shipReminderSentAt: null,
+            inboundGuideClockStartedAt: now,
+          },
+        });
+        if (sr.count !== 1) this.logger.error(`label/cancel: la solicitud ${policy.sellRequestId} no estaba aceptada al re-emitir su guía de entrada ${shipmentId}`);
+      }
       if (r.count !== 1) {
         // Otro camino movió la fila (p. ej. un contracargo la cerró): la guía YA está cancelada en Skydropx; se deja el
         // sello confirmado y la fila como está.

@@ -52,6 +52,9 @@ import {
   isValidEmailFormat,
   normalizeEmail,
 } from '../../common/validation/credentials';
+import { INBOUND_ONLY, OUTBOUND_ONLY } from '../shipments/label-subject';
+import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
+import { guideCostOfRequest, isSkydropxInbound, retainedShippingFeeCents, skydropxInboundGuideCostCents } from './pnl-buylist';
 
 /**
  * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
@@ -1671,6 +1674,9 @@ export class AdminService {
       await tx.shipmentAddressRevision.deleteMany({
         where: { shipmentRequest: { OR: [{ userId: id }, { order: { userId: id } }] } },
       });
+      // 💰 rev BSD-1 (BSD-B27): las guías de ENTRADA de sus solicitudes de venta nacen con `userId` NULO (CHECK
+      // `shipment_kind_link`) ⇒ el borrado de arriba no las alcanza: su domicilio y sus revisiones se vacían aquí (un cuerpo, de B-2).
+      await scrubInboundShipmentPii(tx, id);
       await tx.user.update({
         where: { id },
         data: {
@@ -1748,6 +1754,8 @@ export class AdminService {
     const shipmentRange = range(from, to);
     const shipments = await this.prisma.shipmentRequest.findMany({
       where: {
+        // 💰 rev BSD-1 (§BSD.5, censo BSD-B23): sin esto una guía de ENTRADA en `guia` entraría como costo de envío de venta.
+        ...OUTBOUND_ONLY,
         status: { in: ['picking', 'guia', 'enviado', 'entregado'] },
         ...(shipmentRange ? { pickingAt: shipmentRange } : {}),
       },
@@ -1808,10 +1816,14 @@ export class AdminService {
     // decidido, §M4-SHIP.15.5). ⛔ NO MEDIDO por el arquitecto la forma del DTO: campos ADITIVOS, enrutados en
     // BACKEND_NOTES.
     const refunds = await this.refundsInPeriod(createdAt);
+    // 💰 rev BSD-1, errata BSD-1.2 (§BSD.16): la tarifa retenida a los vendedores SUMA (reduce el costo de compra) y la
+    // guía de entrada RESTA. ⛔ `shippingCostCents` (envío de VENTA) no cambia: su sumador sigue `OUTBOUND_ONLY`.
+    const buylist = await this.pnlBuylistGuides(createdAt);
     // ⛔ `profitCents` conserva sus cinco términos y resta lo devuelto (antes un reembolso parcial NO restaba nada).
     const profitCents =
       incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents -
-      refunds.refundsCents - refunds.refundedFeesCents - refunds.compensationsCents;
+      refunds.refundsCents - refunds.refundedFeesCents - refunds.compensationsCents +
+      buylist.buylistShippingFeeRetainedCents - buylist.buylistGuideCostCents;
     return {
       incomeCents,
       shippingRevenueCents,
@@ -1825,7 +1837,78 @@ export class AdminService {
       refundedFeesCents: refunds.refundedFeesCents,
       compensationsCents: refunds.compensationsCents,
       profitCents,
+      // 💰 §BSD.16: AL FINAL del objeto y, en el mismo orden, al final del CSV.
+      buylistShippingFeeRetainedCents: buylist.buylistShippingFeeRetainedCents,
+      buylistGuideCostCents: buylist.buylistGuideCostCents,
+      buylistGuideMarginCents: buylist.buylistGuideMarginCents,
+      buylistGuideCostMissingCount: buylist.buylistGuideCostMissingCount,
     };
+  }
+
+  /**
+   * 💰 rev BSD-1, errata BSD-1.2 (API_CONTRACT §BSD.16, ARCHITECTURE §4.BSD (l)) — los cuatro renglones del buylist.
+   * Las reglas por fila viven en `pnl-buylist.ts`; aquí solo se lee y se suma, cada renglón con SU fecha:
+   *  - `buylistShippingFeeRetainedCents` (suma a la ganancia): lo retenido de las solicitudes `pagada`, por `paidAt`.
+   *  - `buylistGuideCostCents` (resta): (a) guías de Skydropx de ENTRADA por `labelPurchasedAt`, netas, ⛔ las de
+   *    cancelación confirmada (lo no devuelto ya está en «ajustes de paquetería»); (b) guías MANUALES con costo
+   *    capturado, por `coalesce(guideSentAt, shipmentConfirmedAt)`, de solicitudes SIN guía de Skydropx de entrada.
+   *  - `buylistGuideMarginCents` (informativo): Σ (retenido − costo de SU guía) de las pagadas en el periodo. Se mide
+   *    POR SOLICITUD y no como resta de los dos renglones: viven en periodos distintos, y una guía de una solicitud que
+   *    nunca se pagó cuesta sin retener nada.
+   *  - `buylistGuideCostMissingCount` (informativo): pagadas en el periodo con guía manual sin costo capturado.
+   *  - (b) va por `coalesce(guideSentAt, shipmentConfirmedAt)` (errata BSD-1.4 punto 12).
+   * Censo BSD-B23 (BSD-1.3 punto 6): el lector de (a) es `inbound_only`; las lecturas de `SellRequest` quedan fuera.
+   */
+  private async pnlBuylistGuides(period?: Prisma.DateTimeFilter) {
+    const inboundRow = { select: { labelSource: true, providerCancelConfirmedAt: true, shippingCostCents: true, shippingCostIvaCents: true } } as const;
+    const [skydropxGuides, manualGuides, paid] = await Promise.all([
+      // (a) — `inbound_only`. La cancelación confirmada la decide `skydropxInboundGuideCostCents` (una sola regla, la
+      // misma que el margen por solicitud).
+      this.prisma.shipmentRequest.findMany({
+        where: { ...INBOUND_ONLY, labelSource: 'skydropx', ...(period ? { labelPurchasedAt: period } : {}) },
+        select: inboundRow.select,
+      }),
+      // (b) — la fila de entrada viaja para descartar las de Skydropx con la MISMA regla (`isSkydropxInbound`).
+      // ⭐ Errata BSD-1.4 punto 12 (`API_CONTRACT §BSD.18`): periodo = `coalesce(guideSentAt, shipmentConfirmedAt)`.
+      // `adminConfirmShipment` (el único escritor de `guideActualCostCents`) acepta el costo SIN guía (`guideMissing`) y lo
+      // escribe en el mismo `updateMany` que `shipmentConfirmedAt`: sin la segunda rama ese costo no entraba en ningún mes
+      // y la suma de los meses no daba el total (BSD-B43). Los dos nulos ⇒ solo en el P&L sin periodo (hoy no ocurre).
+      this.prisma.sellRequest.findMany({
+        where: {
+          guideActualCostCents: { not: null },
+          ...(period ? { OR: [{ guideSentAt: period }, { guideSentAt: null, shipmentConfirmedAt: period }] } : {}),
+        },
+        select: { guideActualCostCents: true, inboundShipment: { select: { labelSource: true } } },
+      }),
+      this.prisma.sellRequest.findMany({
+        where: { status: 'pagada', ...(period ? { paidAt: period } : {}) },
+        select: {
+          approvedTotalCents: true,
+          offerGrossCents: true,
+          quotedTotalCents: true,
+          payoutNetCents: true,
+          guideSentAt: true,
+          guideActualCostCents: true,
+          inboundShipment: inboundRow,
+        },
+      }),
+    ]);
+    let buylistGuideCostCents = 0;
+    for (const g of skydropxGuides) buylistGuideCostCents += skydropxInboundGuideCostCents(g);
+    for (const sr of manualGuides) {
+      if (!isSkydropxInbound(sr.inboundShipment)) buylistGuideCostCents += sr.guideActualCostCents ?? 0;
+    }
+    let buylistShippingFeeRetainedCents = 0;
+    let buylistGuideMarginCents = 0;
+    let buylistGuideCostMissingCount = 0;
+    for (const sr of paid) {
+      const retained = retainedShippingFeeCents(sr);
+      const guide = guideCostOfRequest(sr);
+      buylistShippingFeeRetainedCents += retained;
+      buylistGuideMarginCents += retained - guide.costCents;
+      if (guide.missing) buylistGuideCostMissingCount += 1;
+    }
+    return { buylistShippingFeeRetainedCents, buylistGuideCostCents, buylistGuideMarginCents, buylistGuideCostMissingCount };
   }
 
   /**
@@ -2023,10 +2106,13 @@ export class AdminService {
       return (
         'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
         'shippingCostMissingCount,shippingAdjustmentsCents,shippingInsuranceCents,' +
-        'refundsCents,refundedFeesCents,compensationsCents,profitCents\n' +
+        'refundsCents,refundedFeesCents,compensationsCents,profitCents,' +
+        // 💰 §BSD.16: los cuatro del buylist, al final y en el orden del objeto.
+        'buylistShippingFeeRetainedCents,buylistGuideCostCents,buylistGuideMarginCents,buylistGuideCostMissingCount\n' +
         `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
         `${p.shippingCostCents},${p.shippingCostMissingCount},${p.shippingAdjustmentsCents},${p.shippingInsuranceCents},` +
-        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents}\n`
+        `${p.refundsCents},${p.refundedFeesCents},${p.compensationsCents},${p.profitCents},` +
+        `${p.buylistShippingFeeRetainedCents},${p.buylistGuideCostCents},${p.buylistGuideMarginCents},${p.buylistGuideCostMissingCount}\n`
       );
     }
     if (report === 'iva') {
@@ -2064,7 +2150,7 @@ export class AdminService {
       this.prisma.order.count({ where: { status: 'settled', ...(r ? { settledAt: r } : {}) } }),
       this.prisma.sellRequest.count({ where: { status: 'pagada', ...(r ? { paidAt: r } : {}) } }),
       this.prisma.shipmentRequest.count({
-        where: { status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
+        where: { ...OUTBOUND_ONLY, status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
       }),
     ]);
     // Metas N/X/Y/Z: solo se fijan cuando el humano las define. Mientras no haya
@@ -2238,7 +2324,8 @@ export class AdminService {
             priceConvention: true,
           },
         }),
-        this.prisma.shipmentRequest.count({ where: { status: { in: ['solicitado', 'picking', 'guia'] } } }),
+        // rev BSD-1 (censo BSD-B23): el tablero cuenta envíos; la guía de ENTRADA se ve en M5.
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: { in: ['solicitado', 'picking', 'guia'] } } }),
         // v1.51 (M-46, §4.39c **SITIO 5**) — la cola de trabajo se define POR EXCLUSIÓN, no con una
         // lista de estados vivos. Codificaba `['cotizada','recibida','verificacion','aprobada']`, así
         // que M-46 la habría dejado **SUBCONTANDO el pipeline**: `ofertada`, `aceptada` y
@@ -2276,7 +2363,7 @@ export class AdminService {
         this.prisma.user.count({ where: { role: 'customer' } }),
         this.prisma.order.count({ where: { status: 'settled' } }),
         this.prisma.sellRequest.count({ where: { status: 'pagada' } }),
-        this.prisma.shipmentRequest.count({ where: { status: 'entregado' } }),
+        this.prisma.shipmentRequest.count({ where: { ...OUTBOUND_ONLY, status: 'entregado' } }),
       ]);
 
     const periodFrom = period.gte?.toISOString();
@@ -2336,6 +2423,8 @@ export class AdminService {
         buylist: buylistQueue,
         disputes: disputesQueue,
         pendingPrices,
+        // 💰 rev BSD-1 (C-3, BSD-1.3 p. 4): los dos contadores del buylist con guía de entrada (para los dos roles).
+        ...(this.dashboardShipping ? await this.dashboardShipping.buylistQueue(new Date()) : {}),
         ...(await this.workQueueAdditions(role)),
       },
       buylistPeriod: { count: buylistPeriodCount, amountCents: buylistPeriodAgg._sum.approvedTotalCents ?? 0 },

@@ -130,6 +130,7 @@ export class AdminShipmentsController {
   @UseGuards(ShipmentThrottlerGuard)
   @Throttle({ default: { ttl: 60_000, limit: 6 } })
   async refreshTracking(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    await this.shipments.assertOutboundRoute(id);
     await this.trackingPoll.refreshOne(id);
     return this.shipments.adminGet(id, user, (actor, shipmentId) => this.labels.labelOptionsFor(actor, shipmentId));
   }
@@ -156,26 +157,29 @@ export class AdminShipmentsController {
 
   /** ⭐ v1.80 (§M4-SHIP.5) — palomear / marcar faltante (con motivo) / deshacer UNA carta de un envío. */
   @Patch(':id/prep-items/:shipmentItemId')
-  markItem(
+  async markItem(
     @Param('id') id: string,
     @Param('shipmentItemId') shipmentItemId: string,
     @Body() body: unknown,
     @CurrentUser() user: { id: string; role: Role },
   ) {
+    await this.shipments.assertOutboundRoute(id);
     return this.prep.markItem(id, shipmentItemId, body, user);
   }
 
   /** 💰 ⭐ v1.80 (§M4-SHIP.5) — dar por preparado (y reembolsar lo que falta / abrir casos en un retiro). */
   @Post(':id/prepared')
   @HttpCode(200)
-  prepare(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+  async prepare(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
+    await this.shipments.assertOutboundRoute(id);
     return this.prep.prepare(id, body, user);
   }
 
   /** ⭐ v1.80 (§M4-SHIP.5) — deshacer «preparado» (🔒 v1.80.5: en un retiro reclama lo que un reembolso total cerró). */
   @Delete(':id/prepared')
   @HttpCode(200)
-  unprepare(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+  async unprepare(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    await this.shipments.assertOutboundRoute(id);
     return this.prep.unprepare(id, user);
   }
 
@@ -245,6 +249,7 @@ export class AdminShipmentsController {
     @Body() dto: UpdateStatusDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
+    await this.shipments.assertOutboundRoute(id);
     const res = await this.shipments.updateStatus(id, dto.to);
     await this.audit.log({
       actorUserId: user.id,
@@ -263,6 +268,7 @@ export class AdminShipmentsController {
     @Body() dto: TrackingDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
+    await this.shipments.assertOutboundRoute(id);
     const res = await this.shipments.setTracking(
       id,
       dto.carrier,

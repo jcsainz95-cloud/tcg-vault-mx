@@ -258,6 +258,19 @@ enum ShipmentStatus {
   cancelado
 }
 
+// 💰 rev BSD-1 (M-72, API_CONTRACT §BSD.1) — QUÉ es una fila de `ShipmentRequest`. Clase E (banda 3 universal).
+//   outbound        = todo lo de hoy (retiro de bóveda y envío directo; `orderId` sigue distinguiéndolos)
+//   buylist_inbound = la guía de ENTRADA de una solicitud de venta aceptada (vendedor → tienda): `sellRequestId` poblado,
+//                     `userId`/`orderId`/PaymentIntent nulos y montos en 0 (CHECK `shipment_kind_link`).
+// ⛔ La conducta por `kind` vive en UN fichero (`shipments/label-subject.ts`, candado BSD-B25); los lectores por filtro de
+// la tabla están clasificados en el censo BSD-B23 (`test/bsd.reader-census.spec.ts`).
+// ⚠️ No confundir con el tipo TS `ShipmentKind` de `shipments.service.ts` ('vault_withdrawal' | 'guest_direct_ship'): ése
+// es DERIVADO de `Order.fulfillmentMode` y es otra cosa.
+enum ShipmentKind {
+  outbound
+  buylist_inbound
+}
+
 // v1.51 (M-46, §4.39a / PROJECT §P.1, criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`,
 // `en_transito`, `expirada`. Pipeline feliz:
 //   cotizada → ofertada → aceptada → en_transito → recibida → verificacion → aprobada → pagada
@@ -300,6 +313,10 @@ enum SellOfferState {
 enum SellRequestExpiryReason {
   no_offer
   not_shipped
+  // 💰 rev BSD-1 (M-72, API_CONTRACT §BSD.1, ARCHITECTURE §4.BSD (c)): la solicitud ACEPTADA la cerramos NOSOTROS (a mano con
+  // «Declinar», o sola a los N días naturales sin guía). ⛔ NO culpa al vendedor: no entra en ninguna cifra de conducta
+  // (eso es `not_shipped`). Viaja al cliente y gobierna su copy.
+  not_continued
 }
 
 // v1.51 (M-46, §P.2) — cherry-pick AL OFERTAR, por línea (`SellRequestItem.offerDecision`). Una línea
@@ -1632,6 +1649,14 @@ model ShipmentRequest {
   providerCancelReason      String? // 'reissue' | 'auto_close'
   providerCancelConfirmedAt DateTime? // ⭐ v1.80.12 (§19.20.2): la escribe SOLO el `ok` de `port.cancel`
 
+  // 💰 rev BSD-1 (M-72, API_CONTRACT §BSD.1). `kind` NOT NULL con DEFAULT `outbound`: las filas existentes quedan `outbound`
+  // por el DEFAULT (sin UPDATE). `sellRequestId` SOLO en `buylist_inbound` (CHECK `shipment_kind_link`); `@unique` = a lo
+  // sumo UNA fila de entrada por solicitud (I-BSD-3; la re-emisión reutiliza la misma). CHECK `shipment_inbound_status`:
+  // una fila de entrada solo vive en `solicitado | guia | cancelado`.
+  kind          ShipmentKind @default(outbound)
+  sellRequestId String?      @unique
+  sellRequest   SellRequest? @relation(fields: [sellRequestId], references: [id], onDelete: Restrict)
+
   costAdjustments ShipmentCostAdjustment[]
   // 💰 v1.80.12.9 (M-68 = `M-GAS-1`, §19.29.2): el libro de intentos de compra (uno por reclamo, ⛔ sin purga).
   labelAttempts   ShipmentLabelAttempt[]
@@ -1651,6 +1676,8 @@ model ShipmentRequest {
   @@index([providerShipmentId])
   @@index([status, labelSource, carrierPolledAt])
   @@index([labelProcessingSince])
+  // rev BSD-1 (M-72): los lectores `outbound_only` filtran por `kind` y casi todos por `status` (censo BSD-B23).
+  @@index([kind, status])
 }
 
 // ⭐💰 v1.81 (M-66 = `M-SDX-D`, §19.2 + delta §19.19.14 + §19.20.1) — la COTIZACIÓN (efímera, 24 h). ⭐ v1.80.11:
@@ -1802,6 +1829,7 @@ enum SpendAlertKind {
   stuck_refund // AG-20 — reservado
   owner_account_changed // AG-21 (v1.80.12.10)
   staff_control_by_non_owner // AG-22 (v1.80.12.10)
+  buylist_guide_due // AG-23 (rev BSD-1, M-72): «esta solicitud aceptada se cierra sola en N días si no tiene guía»
 }
 
 // Clase E. 🔴 inmediato / 🟡 resumen (Z.2).
@@ -2243,6 +2271,14 @@ model SellRequest {
   // Lo que SALIÓ por SPEI = max(0, brutoAprobado − envío), sellado en la MISMA transacción que
   // `pagada`. Es la fuente de la caja de M7, distinta del acumulado de COMPROMISO (brutos).
   payoutNetCents Int?
+
+  // --- 💰 rev BSD-1 (M-72, API_CONTRACT §BSD.1/§BSD.7, ARCHITECTURE §4.BSD (d)) — la guía de ENTRADA ---
+  // Ancla RE-ANCLABLE del cierre a N días naturales sin guía (regla 8 del barrido): `coalesce(esto, acceptedAt)`.
+  // La escriben SOLO: M-72 (las abiertas al desplegar, P-BSD-2) y la re-emisión de una guía de entrada (§BSD.4.6).
+  // ⛔ Nunca la aceptación (para eso está `acceptedAt`). Admin-only interno: ⛔ fuera de todo DTO (cliente y admin).
+  inboundGuideClockStartedAt DateTime?
+  // Back-relation de `ShipmentRequest.sellRequestId` (a lo sumo una fila `buylist_inbound`).
+  inboundShipment            ShipmentRequest?
 
   items SellRequestItem[]
 

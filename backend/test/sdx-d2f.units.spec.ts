@@ -19,6 +19,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { withM61Defaults } from './helpers/m61-mock-defaults';
+import { withPnlBuylistDoubles } from './helpers/pnl-buylist-doubles';
 import { stripComments } from './helpers/strip-comments';
 import { SPEND_CONTROL_EXCLUDED_KINDS, unseenSpendAlertsWhere } from '../src/modules/spend-alerts/spend-control';
 import { parseConsignmentDescription, parsePackagesBody } from '../src/modules/admin/shipping-config';
@@ -112,7 +113,7 @@ describe('💰 P&L (§19.11, §M10-IVA.8) — ajustes por `chargedAt`, seguro in
         ]),
       },
     };
-    service = new AdminService(withM61Defaults(prisma) as unknown as PrismaService, {} as PricingService, new PiiCryptoService(new ConfigService({})), {} as any);
+    service = new AdminService(withPnlBuylistDoubles(withM61Defaults(prisma)) as unknown as PrismaService, {} as PricingService, new PiiCryptoService(new ConfigService({})), {} as any);
   });
 
   it('shippingCostCents = Σ neto de envíos + Σ neto de ajustes; las dos cifras nuevas; faltantes sin Skydropx', async () => {

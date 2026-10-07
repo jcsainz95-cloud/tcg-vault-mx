@@ -27,6 +27,12 @@ export class ResendMailAdapter implements MailPort {
       subject: msg.subject,
       html: msg.html,
       text: msg.text,
+      // ⭐ rev BSD-1 (§BSD.8.2): el SDK fijado (`resend` 4.8.0) acepta `attachments: { filename, content: Buffer, contentType }[]`
+      // (leído en sus tipos, NM-5 por lectura; el correo de prueba a una cuenta del equipo sigue NO MEDIDO). Sin adjuntos ⇒ la
+      // clave no viaja (el cuerpo de hoy, bit a bit).
+      ...(msg.attachments && msg.attachments.length > 0
+        ? { attachments: msg.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })) }
+        : {}),
     });
     if (error) {
       // El caller (AuthService) decide si el fallo aborta o es best-effort (registro/reenvío/olvido).

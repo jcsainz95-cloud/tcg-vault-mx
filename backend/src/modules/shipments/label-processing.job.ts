@@ -4,7 +4,8 @@
  * `POST /admin/jobs/shipment-label-processing`). No-op con `shipping_provider='off'` y con el adaptador `noop`.
  *
  * En cada corrida, en este orden:
- *  1. **Guía en proceso** (`picking` con id y sin número): `getShipment` ⇒ si trae número, `applyCarrierStatus(created…)`
+ *  1. **Guía en proceso** («abierta sin guía» de su clase —`picking` en salida, `solicitado` en la guía de entrada— con id y
+ *     sin número): `getShipment` ⇒ si trae número, `applyCarrierStatus(created…)`
  *     (`setTrackingFromProvider`, AV-4 una vez). Más de 30 min ⇒ la alerta `label_processing_stuck` la DERIVA el DTO.
  *  2. **Compra en vuelo** (reclamo sin id): `recoverInFlightLabel` — el SEGUNDO llamador (`C-SDX-5`) — desde `since +
  *     PURCHASE_MAX_LIFE` cada minuto hasta `T_UNKNOWN`, luego cada 10 min hasta `since + T_VERIFY_TAIL`. `found` ⇒ adopta
@@ -30,6 +31,7 @@ import { RecentShipmentsResult } from '../shipping-provider/shipping-provider.po
 import { ShippingProviderError } from '../shipping-provider/shipping-provider.errors';
 import { dayMx } from '../spend-alerts/spend-alerts.service';
 import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
+import { openForLabelWhere } from './label-subject';
 import { ShipmentCarrierService } from './carrier-status.service';
 import { ShipmentLabelRecoveryService } from './label-recovery.service';
 import { ReconcileResult, ShipmentOrphanService } from './orphan-reconcile.service';
@@ -109,7 +111,9 @@ export class ShipmentLabelProcessingJob {
     const rows = await this.prisma.shipmentRequest.findMany({
       where: {
         labelSource: 'skydropx',
-        status: 'picking',
+        // ⭐ rev BSD-1 (BSD-1.3 punto 5): «abierta sin guía» de CUALQUIER clase — la guía de entrada en proceso vive en
+        // `solicitado` (`all_kinds`, censo BSD-B23). ⛔ Ningún literal de estado aquí (BSD-B25 (c)).
+        ...openForLabelWhere(),
         providerShipmentId: { not: null },
         labelProcessingSince: { not: null },
         trackingNumber: null,

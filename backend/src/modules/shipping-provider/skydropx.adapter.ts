@@ -79,7 +79,16 @@ export function buildQuotationBody(input: QuoteInput): Record<string, unknown> {
   assertPositiveInt('weightKg', input.parcel.weightKg);
   return {
     quotation: {
-      address_from: { address_template_id: input.from.templateId },
+      address_from:
+        'address' in input.from
+          ? {
+              country_code: 'MX',
+              postal_code: input.from.address.postalCode,
+              area_level1: input.from.address.state,
+              area_level2: input.from.address.city,
+              area_level3: input.from.address.neighborhood,
+            }
+          : { address_template_id: input.from.templateId },
       address_to: {
         country_code: 'MX',
         postal_code: input.to.postalCode,
@@ -104,8 +113,27 @@ export function buildQuotationBody(input: QuoteInput): Record<string, unknown> {
 /** Cuerpo de `POST /api/v2/shipments` (§19.19.8). PII saliente = exactamente la de T.11 + SEC-SDX-7. */
 export function buildPurchaseBody(input: PurchaseInput): Record<string, unknown> {
   assertPositiveInt('coverageCents', input.package.coverageCents);
-  const addressFrom: Obj = { address_template_id: input.from.templateId };
-  if (input.from.snapshot) {
+  let addressFrom: Obj;
+  if ('address' in input.from) {
+    // ⭐ rev BSD-1 (§BSD.3): el remitente EXPLÍCITO (el vendedor), sin plantilla. ⚠️ NM-2: NO MEDIDO contra Skydropx.
+    const a = input.from.address;
+    addressFrom = {
+      street1: a.street1,
+      name: a.name,
+      company: a.company,
+      phone: a.phone,
+      email: a.email,
+      postal_code: a.postalCode,
+      area_level1: a.areaLevel1,
+      area_level2: a.areaLevel2,
+      area_level3: a.areaLevel3,
+      country_code: 'MX',
+    };
+    if (a.furtherInformation) addressFrom.further_information = a.furtherInformation;
+  } else {
+    addressFrom = { address_template_id: input.from.templateId };
+  }
+  if (!('address' in input.from) && input.from.snapshot) {
     const s = input.from.snapshot;
     Object.assign(addressFrom, {
       street1: s.street1,
@@ -126,6 +154,16 @@ export function buildPurchaseBody(input: PurchaseInput): Record<string, unknown>
     reference: input.to.reference,
   };
   if (input.to.furtherInformation) addressTo.further_information = input.to.furtherInformation;
+  // ⭐ rev BSD-1: el destino explícito (la tienda) de la guía de entrada; en salida estas claves no existen (sin cambio).
+  if (input.to.postalCode !== undefined) {
+    Object.assign(addressTo, {
+      postal_code: input.to.postalCode,
+      area_level1: input.to.areaLevel1 ?? '',
+      area_level2: input.to.areaLevel2 ?? '',
+      area_level3: input.to.areaLevel3 ?? '',
+      country_code: 'MX',
+    });
+  }
   return {
     shipment: {
       rate_id: input.rateId,

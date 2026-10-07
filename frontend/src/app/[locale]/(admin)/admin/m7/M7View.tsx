@@ -128,6 +128,11 @@ export function M7View() {
                 <PnlLine sign="+" srSign={adds} label={t('pnl.income')} value={formatMoneyCents(pnl.data.incomeCents, locale)} />
                 <PnlLine sign="+" srSign={adds} label={t('pnl.shippingRevenue')} value={formatMoneyCents(pnl.data.shippingRevenueCents, locale)} />
                 <PnlLine sign="−" srSign={subtracts} label={t('pnl.cogs')} value={formatMoneyCents(pnl.data.cogsCents, locale)} />
+                {/* 💰 rev BSD-1 (§BSD.16, DESIGN_SYSTEM §BSD-UX.11a): justo debajo de «Costo de lo vendido» (son del bloque de
+                    COSTO DE COMPRAS, ⛔ ingresos), cada uno su propio renglón con signo, SIEMPRE (también en 0). Montos tal
+                    cual (⛔ la pantalla no niega, suma ni compara). */}
+                <PnlLine sign="+" srSign={adds} label={t('pnl.buylistFeeRetained')} value={formatMoneyCents(pnl.data.buylistShippingFeeRetainedCents, locale)} />
+                <PnlLine sign="−" srSign={subtracts} label={t('pnl.buylistGuideCost')} value={formatMoneyCents(pnl.data.buylistGuideCostCents, locale)} />
                 <PnlLine sign="−" srSign={subtracts} label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.stripeFeesCents, locale)} />
                 <div>
                   <PnlLine sign="−" srSign={subtracts} label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.shippingCostCents, locale)} />
@@ -154,10 +159,43 @@ export function M7View() {
                * la clase de defecto del criterio **202(c)** (*«falla si queda un indicador
                * vacío»*). El `> 0` es la condición, no un `??`.
                */}
+              {/*
+               * 💰 rev BSD-1 (§BSD-UX.11b) — el MARGEN de las guías de vendedores: una NOTA, no un renglón (⛔ `pnl-line`,
+               * ⛔ `data-sign`, ⛔ «suma»/«resta»): ya está dentro de los dos renglones de arriba. El número es el del
+               * SERVIDOR (⛔ tarifa − guía en el cliente, ⛔ `Math.abs`). Se pinta si hubo tarifa o si el margen no es 0
+               * (la condición solo decide si pintar; no calcula nada).
+               */}
+              {(pnl.data.buylistShippingFeeRetainedCents > 0 || pnl.data.buylistGuideMarginCents !== 0) && (
+                <div data-testid="pnl-buylist-margin" className="flex flex-col gap-1 border-t border-dashed border-border pt-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-xs text-muted">{t('pnl.buylistGuideMargin')}</span>
+                    <span
+                      data-testid="pnl-buylist-margin-amount"
+                      className={`tabular text-xs font-medium ${pnl.data.buylistGuideMarginCents < 0 ? 'text-danger' : 'text-text'}`}
+                    >
+                      {formatMoneyCents(pnl.data.buylistGuideMarginCents, locale)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted">{t('pnl.buylistGuideMarginHelp')}</p>
+                  {pnl.data.buylistGuideMarginCents < 0 && (
+                    <p className="text-xs text-danger" data-testid="pnl-buylist-margin-negative">
+                      {t('pnl.buylistGuideMarginNegative')}
+                    </p>
+                  )}
+                </div>
+              )}
               {pnl.data.shippingCostMissingCount > 0 && (
                 <div data-testid="shipping-cost-missing">
                   <Banner variant="warning" role="status">
                     {t('pnl.shippingCostMissing', { count: pnl.data.shippingCostMissingCount })}
+                  </Banner>
+                </div>
+              )}
+              {/* 💰 rev BSD-1 (§BSD-UX.11d): solo si `> 0` (⛔ `??`); SIN enlace (BSD-1.4 punto 15: no hay verbo para corregirlas). */}
+              {pnl.data.buylistGuideCostMissingCount > 0 && (
+                <div data-testid="pnl-buylist-guide-missing">
+                  <Banner variant="warning" role="status">
+                    {t('pnl.buylistGuideCostMissing', { count: pnl.data.buylistGuideCostMissingCount })}
                   </Banner>
                 </div>
               )}
