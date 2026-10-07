@@ -3,8 +3,47 @@
 > **Cómo se usa (regla O-5):** un pendiente **afirma su fecha de medición o no afirma nada**. Antes de enrutar
 > trabajo a partir de uno, **se re-mide** (el comando o `fichero:línea` de la columna «Comprobación» es por dónde
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
-> Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
+> Última limpieza: **2026-10-07** (orquestador, sesión 6, al preparar el traspaso a la sesión 7; antes: 2026-09-29). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
+
+## Recuento 2026-10-07 (cierre de la sesión 6, sobre production `74996a24`) — MANDA sobre todo lo de abajo
+
+> Medido por el orquestador el 2026-10-07: estado de las PR con `gh api repos/.../pulls/<n>` y ramas con
+> `git merge-base --is-ancestor origin/<rama> origin/production`. Antes de enrutar trabajo desde una fila, **se re-mide** (O-5, O-18).
+
+### Fusionado hoy en `production` (no rehacer)
+| PR | Qué | Fusión |
+|---|---|---|
+| #78 | Buylist con guía Skydropx de entrada, «Declinar», cierre automático a 7 días | 2026-10-07 05:29 UTC |
+| #79 | Analítica de ventas del dueño (pestaña «Ventas», tarjeta «Ventas de hoy», «Ventas de ayer» en el correo de las 8:00) | 05:33 UTC |
+| #81 | Catálogo SEPOMEX en el repo, con huella fijada (`scripts/check-sepomex-pin.sh`, job `sepomex-pin`) | 06:13 UTC |
+| #82 | Vender sin cajón (§M1-SU, SU.1–SU.9): la ubicación ya no es requisito; las altas publican solas (SU.8) | 15:23 UTC |
+
+### Reservas de números vigentes (O-24)
+| Rama | Migración | Contrato | Criterios `PROJECT.md` |
+|---|---|---|---|
+| `claude/accesorios` | **M-73** | **v1.86⟨accesorios⟩** | 700–749 |
+| `claude/wishlist` | **M-74** | **v1.87⟨wishlist⟩** | 800–827 |
+| production | última: M-72 | última: v1.85⟨ventas⟩ | — |
+
+### Abiertos
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| P-S6-80 | **PR #80, limpieza de la base (v2.1 `773746d2`): LISTA para fusionar.** CI 77/77 verde; QA, techlead y seguridad aprobaron; el cuerpo explica qué se borra (también el inventario) y qué se conserva (usuarios, catálogo, precios, fotos, cajones). **Fusionar no borra nada.** | dueño (fusiona) | 2026-10-07 15:56 UTC | `gh api .../pulls/80 --jq .merged` |
+| P-S6-LIMP-RUN | **Correr la limpieza** (guiones A→B→C→D de `backend/prisma/data-repair/20261006_pdblimpieza_*`). **Antes, el dueño:** (1) lista `cuentas_prueba`; (2) ¿tiene CLI de Railway?; (3) ensayo de restaurar respaldo (recomendado sí; también es CL-3); (4) respaldo manual justo antes; (5) exportar bitácora si la quiere. **No correr** `reevaluate-unlocated.ts --apply` (SU.3-R, C-SU-1): tras la limpieza basta el ensayo en seco con `selected: 0` | dueño + orquestador | 2026-10-07 | D da «TODO OK» (los AVISO no son fallas) |
+| P-S6-SEPOMEX | **Cargar las colonias a la base:** `railway run scripts/geo/import-sepomex.sh import --file scripts/geo/data/CPdescarga.txt` (devops midió 158,322 filas, 7.2 s, y que resuelve el CP 01780). Necesita el CLI de Railway (sin respuesta del dueño) | dueño | 2026-10-07 | consulta del CP 01780 en la tienda |
+| P-S6-82-VERIF | Pruebas del dueño tras la #82: alta con precio sin cajón ⇒ «a la venta» y aparece en la tienda; alta sin precio ⇒ «Listas para publicar» por precio | dueño | 2026-10-07 (sin respuesta) | su confirmación |
+| P-S6-ACC | **Accesorios + energías + paquete de energías del Meta Battle Deck.** `PROJECT.md §AC` aprobable (criterios 700–749); decisiones en **5 filas de `HECHOS.md` de la rama** (2026-10-07). Arquitecto **lanzado** en la sesión 6 sobre `1a5f8c04` (ya unida a production) | arquitecto → ux-ui → backend ∥ frontend → gates | 2026-10-07 | `git log origin/claude/accesorios` trae el commit del arquitecto |
+| P-S6-WSH | **Lista de deseos.** `PROJECT.md §WSH` aprobable (criterios 800–827); decisiones en 2 filas de `HECHOS.md` de la rama. P-WSH-7/8/9 van con la recomendación del PO (margen sobre lo que paga, 15 %, dial; arrancar con IVA, dial a sin IVA; sellados solo con conteo). Arquitecto **lanzado** sobre `c36f0dea` | igual | 2026-10-07 | igual en `claude/wishlist` |
+| P-S6-WSH-IVA | ⚠️ Con el máximo leído **con IVA**, el precio normal casi nunca cabe (mercado +33 % contra un máximo de +16 %, cuenta del PO con los diales iniciales de §N.2; **NO MEDIDO** contra producción). Se le explicó al dueño con un ejemplo en pesos; queda como dial | dueño (si quiere cambiar el dial) | 2026-10-07 | — |
+| P-S6-RESTOCK | El «avísame cuando vuelva» de sellados **no envía solo** (no está agendado; `sealed-restock-notify.service.ts:28-29`, nada en `scheduler.service.ts`) y el correo no lleva enlace. Va dentro de §WSH (criterio 823) | backend (en §WSH) | 2026-10-07 (PO) | criterio 823 verde |
+| P-S6-RESTOCK-SEC | Un invitado puede apuntar al «avísame» un correo ajeno sin verificarlo (`catalog.controller.ts:116`, límite de 5 por minuto) | arquitecto propone, pentester en el gate de §WSH | 2026-10-07 (PO) | hallazgo cerrado o aceptado en SECURITY_NOTES |
+| P-S6-LIVE | **Para cobrar en real (`sk_live_`)**, además de la limpieza: **CL-1** CSP en `enforce` (hoy `report-only`, `frontend/src/security/csp.ts:32`; la sesión 6 la planeó para el **2026-10-09 ~03:45 UTC**, tras 72 h en report-only, hora **NO re-medida** contra `SECURITY_NOTES §14.3`); **CL-2** parece cerrada (`security/gitleaks.toml:150`, 2026-10-05) pero **falta el veredicto** de seguridad; **CL-3** C6, DAST `full` sobre el sha en producción, C3=0 y simulacro de restauración (vacío en `DEVOPS_NOTES`, «no hecho»); **P-SHIP-C1-3**; aviso de privacidad con el abogado; claves live y webhook live (las pone el dueño, nunca por chat). Recomendado: pentest de tercero (`SECURITY_NOTES:305`) | devops, frontend, backend, seguridad, dueño | 2026-10-07 | `SECURITY_NOTES` CL-1..3 cerradas con sha |
+| P-S6-SEP15 | Una solicitud de venta **aceptada del 15 de septiembre, sin colonia**: se sugirió declinarla si es de prueba (la limpieza la borra de todas formas) | dueño | 2026-10-07 | — |
+| P-S6-DEUDA | Deuda nueva de la sesión 6 en `TECH_DEBT.md`: TD-SU-D1, D2, D4a/b, 9; TD-AN-1..7; las 9 de §BSD. Bajas aceptadas de seguridad: SU-S2 (precio tecleado sin segunda mirada), SU-S3 (alta suelta no idempotente), LZ2-S1..S3 | rol dueño de cada una | 2026-10-07 | cierre según su entrada |
+| P-S6-CENSO | El script de baseline del censo E2E **borra las líneas de motivo anteriores** al registrar uno nuevo (visto en #78) | devops | 2026-10-07 (de memoria de la sesión, **NO re-medido**) | correr el script dos veces y ver que conserva ambos motivos |
+| P-S6-AN-C | Analítica fase C: método de pago por pedido y contracargos por día (`M-AN-1`, migración aparte); buylist en el bloque «Envío» (criterio 622) | arquitecto → backend | 2026-10-07 | cuerpo de la #79 |
+| P-S6-LUEGO | Después de salir en vivo (decisión del dueño del 2026-10-06): idiomas y sellos (`claude/idiomas-sellos` `faf6b517`, §IDS con 10 preguntas), P-ANALYTICS-OPS, P-ANALYTICS-NEGOCIO, P-SDX-EXTCANCEL, envío a domicilio para clientes con cuenta (hoy solo invitado: `guest-checkout.dto.ts:130`) | — | 2026-10-07 | — |
 
 ## Orden de fusión de las ramas vivas (2026-10-05, sesión 5) — para no pisarse
 
