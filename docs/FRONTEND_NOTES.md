@@ -20510,3 +20510,23 @@ censo sin cambio).
 
 **Pendiente / fuera de alcance.** El resumen de las 08:00 (AN-UX.8d) es de backend. «Mes pasado» compara con los mismos
 días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 default): si el dueño cambia, son textos.
+
+## §106 · ⭐ **Errata SU-1 — la ubicación deja de ser requisito para publicar** (2026-10-07, rama `claude/sin-ubicacion`; `API_CONTRACT §M1-SU` SU.4/SU.6, `ARCHITECTURE §4.65`)
+
+- **`sealedFinalPriceMode`** (`m1/SealedFinalPrice.tsx`): `in_stock` ⇒ `'publish'` **siempre**. Antes, sin cajón,
+  devolvía `'save'` («Guardar precio» sin `status`): con SU.1 eso dejaba la pieza con `missing = []`, fuera de la cola
+  y sin publicar. `hasLocation` se conserva en la firma (dormido) para que revertir sea una línea
+  (`p.hasLocation ? 'publish' : 'save'`). La rama `'save'` y sus textos (`noLocationHint`, `effectNoLocation`,
+  `savedNoLocation`, `reason.location`) quedan **dormidos** — inalcanzables, sin borrar (paridad i18n intacta).
+- **Prueba SU-F1** (`SealedFinalPrice.test.tsx`): unitaria sobre `sealedFinalPriceMode` + DOM en la cola (sin cajón
+  ⇒ único botón «Guardar y publicar», `PATCH {listPriceCents, status:'listed'}`). Sustituye a la antigua FP-3.
+- **Cola** (`PendingPublishQueue.tsx`): sin cambio de conducta; las ramas `'location'` de `MissingCell`/`ReasonLines`
+  se conservan dormidas (el tipo no cambia). Comentario de cabecera actualizado.
+- **Fixtures y pruebas a la forma nueva** (`missing ⊆ ["price"]`): `lib/mock/fixtures.ts` `inv-pub-1` (sin cajón,
+  ahora **sin precio**, `ppe-76`) e `inv-pub-3`; `PendingPublishQueue.test.tsx` (fila base y aserción
+  «⛔ nunca "Ubicación"»).
+- **Revisado sin cambio:** `AddItemModal` (cajón ya opcional), `ItemDetailModal`, `SealedPriceSavedNotice`
+  (`missingLocation` vale 0 ⇒ no se pinta), E2E `precios-s5.spec.ts` (usa una pieza con cajón) y `admin.spec.ts @real`
+  (depende de que la semilla E2E de backend deje ≥1 pieza en la cola: SU.6 «Semilla E2E», del lado backend).
+- **Pendiente segunda vuelta:** los textos de ux-ui (`es.json` «antes de IVA», avisos de cajones vacíos,
+  descubribilidad del folio) cuando `DESIGN_SYSTEM.md` los publique.

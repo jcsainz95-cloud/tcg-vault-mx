@@ -178,7 +178,11 @@ function PieceCell({ row }: { row: PendingPublishRowDTO }) {
  * ⚠️ **Alcance: SOLO VISIBILIDAD (D10) — salvo el precio final del SELLADO** (`DESIGN_SYSTEM §39.2`, criterio
  * **255**, `HECHOS.md` 2026-10-04 (b)). No captura precios de cartas sueltas ni gradeadas, no los sugiere y **no los
  * hereda del costo de compra**. La pieza **sale sola** en cuanto no le falta nada; el sellado admite aquí su precio
- * final a mano (`SealedFinalPrice`), que con ubicación ES el gesto de publicar.
+ * final a mano (`SealedFinalPrice`), que ES el gesto de publicar (con o sin ubicación).
+ *
+ * ⭐ Errata SU-1 (`API_CONTRACT §M1-SU`, `ARCHITECTURE §4.65`): la ubicación **no** es requisito para publicar; a la
+ * fila solo le puede faltar el precio (`missing ⊆ ["price"]`). Las ramas `'location'` de `MissingCell`/`ReasonLines`
+ * se conservan dormidas (el tipo no cambia) y no se pintan porque el servidor ya no emite ese valor.
  */
 /**
  * `productType` (opcional, §diseño §iii) — filtra la cola a un tipo de producto reusando el
