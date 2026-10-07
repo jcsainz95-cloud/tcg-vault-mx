@@ -17,6 +17,11 @@ import {
   ManualRefundStatus,
   SpendAlertKind,
   SpendAlertSeverity,
+  AccessoryCategory,
+  EnergyType,
+  AccessoryLineKind,
+  AccessoryLineStatus,
+  AccessoryStockMovementKind,
 } from '@prisma/client';
 
 /**
@@ -157,3 +162,13 @@ export const MANUAL_REFUND_STATUS_VALUES = Object.values(ManualRefundStatus);
 // tiene que poder filtrarse). Tres bandas en `test/enum-values-parity.spec.ts`.
 export const SPEND_ALERT_KIND_VALUES = Object.values(SpendAlertKind);
 export const SPEND_ALERT_SEVERITY_VALUES = Object.values(SpendAlertSeverity);
+
+// 💰 v1.86⟨accesorios⟩ (M-73, API_CONTRACT §AC.1, AC-B2): los CINCO enums de accesorios — clase **E** (el dominio entero
+// es la regla: filtro `?category=` de la tienda y del panel, tipo de energía, renglón, estado y movimiento de
+// existencias). Tres bandas en `test/enum-values-parity.spec.ts`.
+/** Categorías en el ORDEN de la pestaña de la tienda (`Object.values` respeta el orden del schema). */
+export const ACCESSORY_CATEGORY_VALUES = Object.values(AccessoryCategory);
+export const ENERGY_TYPE_VALUES = Object.values(EnergyType);
+export const ACCESSORY_LINE_KIND_VALUES = Object.values(AccessoryLineKind);
+export const ACCESSORY_LINE_STATUS_VALUES = Object.values(AccessoryLineStatus);
+export const ACCESSORY_STOCK_MOVEMENT_KIND_VALUES = Object.values(AccessoryStockMovementKind);

@@ -30158,3 +30158,74 @@ db 14).**
 - **NO MEDIDO:** la rama P2002 con disparo (no hay mutación que la ejercite sin carrera; por lectura no llega a
   `publishCreated`); el replay de «encontrada» con disparo (SU-B10 es solo del lote); E2E de frontend (por lectura, ninguna
   spec de `frontend/e2e` da de alta y luego espera `in_stock`; la semilla E2E crea con Prisma directo, no por el alta).
+
+## 83 · v1.86⟨accesorios⟩ — zona compartida: schema + `M-73` + `enum-values.ts` con AC-B1/AC-B2 (2026-10-07, rama `claude/accesorios`, sobre `c7cc8a90`)
+
+**Alcance (§AC.17 «zona compartida primero»):** solo `prisma/schema.prisma`, la migración
+`prisma/migrations/20261026120000_m73_accessories/` (número y carpeta reservados) y `common/enum-values.ts`, con sus
+pruebas. ⛔ Ningún servicio, controlador ni DTO: eso es (A)/(B)/(C).
+
+### 83.1 Qué hay
+- **Schema:** 5 enums (`AccessoryCategory` en el orden de la tienda, `EnergyType`, `AccessoryLineKind`,
+  `AccessoryLineStatus`, `AccessoryStockMovementKind`); 6 modelos (`Accessory`, `AccessoryPhoto`, `AccessoryStockMovement`,
+  `OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine`); `Order.shippingBoxSnapshot/shippingBoxReview`
+  (+ relación `accessoryLines`), `ShipmentRequest.accessoryLines`, `ShippingPackage.customerFeeCents`,
+  `PaymentRefund.orderAccessoryLineId/shipmentAccessoryLineId/accessoryQty`. Diff del schema: **solo inserciones** (0 líneas
+  existentes tocadas; `prisma format` NO se dejó aplicado porque realineaba 25 bloques ajenos).
+- **Migración:** DDL generado con `prisma migrate diff` (BD en M-72 → schema nuevo) + CHECKs, índice parcial, disparador y
+  semilla a mano. Idempotente (medido: segunda aplicación con `psql` sobre un esquema recién migrado ⇒ sin error, 8 filas).
+- **`enum-values.ts`:** `ACCESSORY_CATEGORY_VALUES`, `ENERGY_TYPE_VALUES`, `ACCESSORY_LINE_KIND_VALUES`,
+  `ACCESSORY_LINE_STATUS_VALUES`, `ACCESSORY_STOCK_MOVEMENT_KIND_VALUES` (clase E).
+
+### 83.2 Restricciones con nombre (las que (A)/(B) verán en un error 23514)
+| Tabla | CHECK |
+|---|---|
+| `Accessory` | `accessory_stock` (I-AC-2), `accessory_energy_type`, `accessory_energy_not_suggested`, `accessory_active_ready`, `accessory_price_range` (1..1e8), `accessory_cost_range` (0..1e8), `accessory_dims_range` (1..2000), `accessory_weight_range` (1..50000), `accessory_name_length` (1..120 y no solo espacios), `accessory_description_length` (≤ 500) |
+| `AccessoryStockMovement` | `accessory_movement_identity` (after = before + delta, ambos ≥ 0), `accessory_movement_delta` (≠ 0), `accessory_movement_adjust_reason` (`adjust` ⇒ 3..200) |
+| `OrderAccessoryLine` | `order_accessory_line_kind_accessory`, `_quantity` (1..99; paquete = 1), `_bundle_shape`, `_money` (precio ≥ 1, costo ≥ 0, paquete sin costo propio), `_sold_at`, `_restocked_at`, `_refunded_qty` (0..quantity) |
+| `OrderEnergyBundleComponent` | `order_energy_bundle_component_quantity` (≥ 1, costo ≥ 0) |
+| `ShipmentAccessoryLine` | `shipment_accessory_line_quantity` (≥ 1), `shipment_accessory_line_missing` |
+| `Order` | `order_shipping_box_review` |
+| `ShippingPackage` | `shipping_package_customer_fee` (NULL o 1..1e7) |
+| `PaymentRefund` | `payment_refund_accessory_qty_pair`, `_accessory_qty_min`, `_card_xor_accessory`, `_accessory_shipment_line` |
+
+Índice único parcial `accessory_energy_type_active_key` (criterio 732; error 23505). CONSTRAINT TRIGGER
+`order_accessory_line_direct_ship` (I-AC-4; error `check_violation` con ese nombre en el mensaje).
+
+### 83.3 Decisiones que NO están literales en §AC.1 (para que el arquitecto las ratifique o las tumbe)
+1. **El disparador cubre también `UPDATE OF "orderId"`**, no solo `AFTER INSERT`: sin eso, mover un renglón a un pedido
+   `vault` saltaba I-AC-4. ⛔ No cubre cambiar `Order.fulfillmentMode` con renglones dentro (el modo no cambia en la
+   aplicación; un disparador en `Order`, tabla caliente, no lo pide el contrato).
+2. **CHECKs sobre comentarios del contrato no marcados «(CHECK)»:** `delta ≠ 0`, `quantity ≥ 1` de componente y de línea
+   de envío, `unitPriceCents ≥ 1`, costos ≥ 0, **paquete sin `unitCostCents`** (si no, el P&L contaría su costo dos veces),
+   y en `_bundle_shape` el lado **accesorio ⇒ todos los campos de deck nulos** (la letra «todas no nulas ⇔ paquete»
+   admitía un accesorio con `metaDeckId`).
+3. **`deckOrderItemIds String[] @default([])`** (§AC.1 no pone default). Sin él, un `create` de Prisma que omite el campo
+   guarda NULL; el CHECK lee NULL como vacío (`COALESCE(cardinality(…),0)`) de todos modos.
+4. **`@@index([orderAccessoryLineId])` en `PaymentRefund`**: la FK no tiene índice propio y el CAS/agrupación por renglón
+   lo lee.
+5. **Semilla idempotente por TIPO** (`WHERE NOT EXISTS` por `energyType`, no por nombre: si el dueño renombra, no duplica).
+
+### 83.4 ⛔ Bloqueos para el arquitecto (medidos)
+- **(a) AC-B2 banda 3:** `docs/API_CONTRACT.md` no tiene línea canónica `Nombre = a | b …` en «Enums (fuente de verdad)»
+  para los 5 enums nuevos (`grep -nE '^(AccessoryCategory|EnergyType|AccessoryLineKind|AccessoryLineStatus|AccessoryStockMovementKind)\s+='`
+  ⇒ 0). Resultado: `test/enum-values-parity.spec.ts` **11 rojas** (5 de banda 3 + 5 de banda 3 universal + «SIN línea
+  EXACTAMENTE»). Bandas 1 y 2: verdes. Lo cierra el arquitecto con 5 líneas en §0 (no se tocó la prueba para tapar el hueco).
+- **(b) 💰 Los CHECK de M-61/M-70 sobre `PaymentRefund` rechazan las filas de accesorio que §AC.9/§AC.10 piden.** Medido con
+  `psql` (tx deshecha) sobre la BD con M-73:
+  - `item_missing` de §AC.9 (`orderAccessoryLineId`, `shipmentAccessoryLineId`, `accessoryQty`, sin `orderItemId`) ⇒
+    `violates check constraint "PaymentRefund_item_missing_chk"` (exige `orderItemId ∧ shipmentItemId ∧ missingReason`).
+  - `item_delivered` de §AC.10 (2) ⇒ `violates check constraint "PaymentRefund_item_delivered_shape_chk"` (exige
+    `orderItemId ∧ shipmentItemId`).
+  §AC.1 no los modifica. Sin esa decisión del arquitecto (ampliar esos dos CHECK en `M-73` o una `M-73b`, y si la fila de
+  accesorio lleva `missingReason`), el stream (B) no puede escribir ningún reembolso de accesorio.
+
+### 83.5 Pruebas
+- **AC-B1** `test/integration/accessories-m73-migration.e2e-spec.ts` (104 casos): texto de la migración (cada CHECK con
+  nombre, índice parcial, disparador), catálogo de la BD, semilla, columnas nuevas, y conducta (cada CHECK con su caso que
+  revienta y su CONTROL que entra). Antes: 104/104 rojas (sin carpeta ni tablas). Después: 104/104 verdes.
+  Mutaciones (deterministas, 1 corrida cada una, sobre copia del árbol y esquema propio): sin `accessory_stock` ⇒ 3 rojas
+  (texto + 2 de I-AC-2); sin el disparador ⇒ 3 rojas (texto + 2 de I-AC-4).
+- **AC-B2** `test/enum-values-parity.spec.ts`: 5 enums en el ancla, en `PRISMA_ENUMS` y en `DERIVED_VALUES`, más el orden
+  exacto de `AccessoryCategory`. Antes: la suite no compilaba (TS2305 ×10). Después: bandas 1-2 y orden verdes; banda 3 roja
+  por 83.4 (a).
