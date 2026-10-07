@@ -231,7 +231,7 @@ describe('WSH-T8 — el IVA del máximo es un dial (808)', () => {
     expect(after.body.ivaMode).toBe('without_iva');
     expect(after.body.items[0].maxToday.maxDisplayCents).toBe(127600);
     const log = await w.h.prisma.auditLog.findFirst({ where: { action: 'settings.update', createdAt: { gte: since } }, orderBy: { createdAt: 'desc' } });
-    expect(JSON.stringify(log?.after ?? {})).toContain('wishlist_max_iva_mode');
+    expect(log?.after).toEqual(expect.objectContaining({ wishlistMaxIvaMode: 'without_iva' }));
 
     const bad = await w.h.api('PUT', '/admin/settings', { token: w.adminToken, json: { wishlistMaxIvaMode: 'con_iva' } });
     expect(bad.status).toBe(422);

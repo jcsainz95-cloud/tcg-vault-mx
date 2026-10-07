@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, MONEY_REF_WHERE, toPublicPriceInfo } from '../pricing/pricing.service';
@@ -142,6 +142,8 @@ interface PricedSealed {
  */
 @Injectable()
 export class SealedCatalogService {
+  private readonly logger = new Logger('SealedCatalogService');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
@@ -464,10 +466,17 @@ export class SealedCatalogService {
     if ((await this.settings.getString(SettingKey.SEALED_RESTOCK_ALERTS)) !== 'on') {
       throw BusinessException.notFound('FEATURE_DISABLED', 'sealed restock alerts are disabled');
     }
-    const email = typeof dto.email === 'string' ? dto.email.trim().toLowerCase() : '';
+    // rev v1.87⟨wishlist⟩ (§WSH.7 (b)): con sesión el servidor IGNORA `dto.email` y usa el correo de la cuenta (cierra «apuntar
+    // un correo ajeno» para quien tiene cuenta). Una cuenta sin correo (staff) se trata como invitado.
+    const account = userId
+      ? await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+      : null;
+    const accountEmail = account?.email?.trim().toLowerCase() ?? null;
+    const email = accountEmail ?? (typeof dto.email === 'string' ? dto.email.trim().toLowerCase() : '');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw BusinessException.validation('VALIDATION_ERROR', 'valid email is required', { field: 'email' });
     }
+    const target = { email, userId: accountEmail ? (userId as string) : null };
     if (dto.tcgplayerProductId == null && (dto.cardId == null || dto.cardId === '')) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
@@ -502,14 +511,31 @@ export class SealedCatalogService {
     if (cardId != null) {
       const card = await this.prisma.card.findUnique({ where: { id: cardId }, select: { id: true } });
       if (card) {
+        const tcgplayerProductId = dto.tcgplayerProductId ?? null;
+        const sealedCondition = dto.sealedCondition as SealedCondition;
+        // rev v1.87⟨wishlist⟩ (§WSH.7 (b), D-WSH-3 capa 1): misma identidad ya pendiente para este correo ⇒ no se crea otra;
+        // y un correo con `sealed_restock_max_pending_per_email` pendientes ya no gana filas. Ambas, `202` NEUTRO (no se
+        // distingue «ya estabas» de «nuevo»). La capa que cuenta es la del envío (agrupa por correo): ésta tiene carrera.
+        const sameIdentity: Prisma.SealedRestockSubscriptionWhereInput =
+          tcgplayerProductId != null ? { tcgplayerProductId } : { tcgplayerProductId: null, cardId, sealedSubtype };
+        const already = await this.prisma.sealedRestockSubscription.count({
+          where: { email: target.email, notifiedAt: null, sealedCondition, ...sameIdentity },
+        });
+        const pendingForEmail = await this.prisma.sealedRestockSubscription.count({ where: { email: target.email, notifiedAt: null } });
+        const cap = await this.settings.getNumber(SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL);
+        if (already > 0) return { subscribed: true };
+        if (pendingForEmail >= cap) {
+          this.logger.warn(`restock-subscriptions: tope de ${cap} pendientes alcanzado para un correo; no se crea fila (202 neutro).`);
+          return { subscribed: true };
+        }
         await this.prisma.sealedRestockSubscription.create({
           data: {
-            email,
-            userId: userId ?? null,
+            email: target.email,
+            userId: target.userId,
             cardId,
             sealedSubtype,
-            tcgplayerProductId: dto.tcgplayerProductId ?? null,
-            sealedCondition: dto.sealedCondition as SealedCondition,
+            tcgplayerProductId,
+            sealedCondition,
             notifiedAt: null,
           },
         });

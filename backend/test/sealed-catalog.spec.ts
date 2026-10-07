@@ -81,7 +81,9 @@ function build(opts: {
         return rows.filter(Boolean);
       }),
     },
-    sealedRestockSubscription: { create: jest.fn(async () => ({ id: 's1' })) },
+    // rev v1.87⟨wishlist⟩ (§WSH.7 (b)): el alta cuenta pendientes (misma identidad y tope por correo) antes de crear.
+    sealedRestockSubscription: { create: jest.fn(async () => ({ id: 's1' })), count: jest.fn(async () => 0) },
+    user: { findUnique: jest.fn(async () => null) },
   } as unknown as PrismaService;
 
   const pricing = {
@@ -119,6 +121,7 @@ function build(opts: {
       if (key === 'sealed_restock_alerts') return opts.restock ?? 'off';
       return 'off';
     }),
+    getNumber: jest.fn(async () => 5), // rev v1.87⟨wishlist⟩: `sealed_restock_max_pending_per_email` (seed 5)
     // ⭐ D56: `fromPriceCents` se DERIVA con los dos diales (§M10-IVA.3). Neutro: t=100, r=16.
     ...ivaDialsStub(),
   } as unknown as SettingsService;

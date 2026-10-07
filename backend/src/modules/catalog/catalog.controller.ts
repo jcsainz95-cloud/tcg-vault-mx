@@ -1,4 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Optional, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { SettingsService } from '../settings/settings.service';
+import { SettingKey } from '../settings/settings.constants';
+import { OptionalSessionGuard } from './optional-session.guard';
 import { Throttle } from '@nestjs/throttler';
 import { IsIn, IsInt, IsOptional, IsString } from 'class-validator';
 import { SealedCondition, SealedSubtype } from '@prisma/client';
@@ -24,6 +27,9 @@ export class CatalogController {
     private readonly catalog: CatalogService,
     private readonly setValue: SetValueService,
     private readonly sealed: SealedCatalogService,
+    // rev v1.87⟨wishlist⟩ (§WSH.4): el dial de la lista de deseos para la ficha. `@Optional()` por los tests que construyen el
+    // controlador a mano; sin él ⇒ `false` (fail-closed).
+    @Optional() private readonly settings?: SettingsService,
   ) {}
 
   @Public()
@@ -117,14 +123,20 @@ export class CatalogController {
   @HttpCode(202)
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('sealed/restock-subscriptions')
+  // rev v1.87⟨wishlist⟩ (§WSH.7 (b)): con sesión el servidor usa el correo de la CUENTA (el `@Public` global no lee el token).
+  @UseGuards(OptionalSessionGuard)
   subscribeRestock(@Body() dto: RestockSubscriptionDto, @CurrentUser('id') userId?: string) {
     return this.sealed.subscribeRestock(dto, userId);
   }
 
   @Public()
   @Get('cards/:cardId')
-  getCard(@Param('cardId') cardId: string) {
-    return this.catalog.getCard(cardId);
+  async getCard(@Param('cardId') cardId: string) {
+    const detail = await this.catalog.getCard(cardId);
+    // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.4, campo ADITIVO en la raíz): ¿se ofrece «Agregar a mi lista»? = dial
+    // `wishlist_enabled`. ⛔ Solo el booleano: los pesos de cada % viven en `GET /wishlist/preview` (con sesión).
+    const wishlistEnabled = this.settings ? (await this.settings.getString(SettingKey.WISHLIST_ENABLED)) === 'on' : false;
+    return { ...detail, wishlistEnabled };
   }
 
   @Public()

@@ -679,6 +679,20 @@ export class CatalogService {
   }
 
   /**
+   * rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.1 «A la venta») — **¿cuáles de estas piezas están a la venta AHORA y a qué `P`?**
+   * El MISMO cuerpo que el catálogo (`fetchSellable` → `toListingRow`: `listed` de plataforma ∧ `sellable` ∧ `L` resuelto):
+   * el módulo `wishlist` no recalcula precios. `displayPriceCents` es el `ListingDTO.displayPriceCents` público (P, con IVA)
+   * — el contrato lo llama `salePriceCents` (nombre previo a §M10-IVA.3); ver BACKEND_NOTES §84.
+   */
+  async sellableByIds(ids: string[]): Promise<{ inventoryItemId: string; displayPriceCents: number }[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.fetchSellable(this.publishedWhere({ id: { in: [...new Set(ids)] } }));
+    return rows
+      .filter((r) => r.dto.displayPriceCents != null)
+      .map((r) => ({ inventoryItemId: r.item.id, displayPriceCents: r.dto.displayPriceCents as number }));
+  }
+
+  /**
    * Trae items publicados que efectivamente son comprables (precio resoluble).
    *
    * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza la curva de precios **una vez** por

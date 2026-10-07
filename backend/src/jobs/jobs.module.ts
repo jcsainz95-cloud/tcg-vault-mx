@@ -20,6 +20,9 @@ import { ShipmentsModule } from '../modules/shipments/shipments.module';
 // 💰 C1 (API_CONTRACT §M4-SHIP.19.33.9): `spend-watch` y `spend-digest` viven en `spend-alerts/` (su dominio) y se exportan desde
 // `SpendAlertsModule`; aquí solo se programan y se disparan. Sin ciclo: `SpendAlertsModule` no importa `JobsModule`.
 import { SpendAlertsModule } from '../modules/spend-alerts/spend-alerts.module';
+// rev v1.87⟨wishlist⟩ (§WSH.5): `wishlist-notify` vive en `wishlist/` y se exporta desde `WishlistModule`; aquí solo se programa y se
+// dispara. Sin ciclo: `WishlistModule` no importa `JobsModule`.
+import { WishlistModule } from '../modules/wishlist/wishlist.module';
 
 /**
  * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention,
@@ -33,7 +36,7 @@ import { SpendAlertsModule } from '../modules/spend-alerts/spend-alerts.module';
   // OrdersModule: `order-reservation-sweep` (v1.68) delega en OrdersService (barrido por
   // `reservedUntil`, dos rutas) y en GuestCheckoutService (rama legada). Sin ciclo: OrdersModule no
   // importa JobsModule.
-  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule],
+  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule, WishlistModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,

@@ -23,6 +23,7 @@ import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job'
 import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 import { isYmd } from '../modules/spend-alerts/mx-day';
+import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 
 /**
  * Body opcional del disparo de `spend-digest` (💰 C1, API_CONTRACT §M4-SHIP.19.33.9): `day?: 'YYYY-MM-DD'` re-manda el resumen de
@@ -96,6 +97,8 @@ export class AdminJobsController {
     // 💰 C1 (§M4-SHIP.19.33.9): los dos jobs de avisos al dueño (D2g). `@Optional()` como los de D2d; sin ellos ⇒ `404`.
     @Optional() private readonly spendWatch?: SpendWatchService,
     @Optional() private readonly spendDigest?: SpendDigestService,
+    // rev v1.87⟨wishlist⟩ (§WSH.5): el aviso «ya la tenemos». `@Optional()` como los de arriba; sin él ⇒ `404`.
+    @Optional() private readonly wishlistNotify?: WishlistNotifyService,
   ) {}
 
   private need<T>(svc: T | undefined): T {
@@ -404,6 +407,25 @@ export class AdminJobsController {
         ...(result.reason ? { reason: result.reason } : {}),
         ...(result.notified != null ? { notified: result.notified } : {}),
       },
+    });
+    return result;
+  }
+
+  /**
+   * rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.5 «Disparo manual (QA)») — corre `wishlist-notify` una vez, con el mismo cuerpo
+   * que el cron (candado consultivo incluido). `super_admin`, auditado como los demás. `200` con el resultado del job.
+   */
+  @Post('wishlist-notify')
+  @HttpCode(200)
+  async runWishlistNotify(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.need(this.wishlistNotify).run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.wishlist_notify.run',
+      entityType: 'Job',
+      entityId: 'wishlist-notify',
+      after: { ...result },
     });
     return result;
   }

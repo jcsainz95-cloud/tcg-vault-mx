@@ -17,6 +17,7 @@ import { FullRefundService } from './refunds/full-refund.service';
 import { afterAutoCloseVia, cancelProviderLabelIfAny } from '../shipments/label-auto-close';
 import { ModuleRef } from '@nestjs/core';
 import { RefundLedgerService } from './refunds/refund-ledger.service';
+import { WishlistService } from '../wishlist/wishlist.service';
 import { currentPiecesOf, resolveOriginsBatch } from './refunds/origin';
 
 /**
@@ -45,7 +46,23 @@ export class PaymentsService {
     @Optional() private readonly ledger?: RefundLedgerService,
     // 💰 v1.81 (§M4-SHIP.19.8): el post-commit de la cancelación automática de la guía (por token; ⛔ ciclo de módulos).
     @Optional() private readonly moduleRef?: ModuleRef,
+    // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.5 «Se quita sola al pagar», 816): `@Optional()` por los tests unitarios que
+    // construyen este servicio a mano. Se llama POST-COMMIT y best-effort (⛔ jamás tumba el webhook).
+    @Optional() private readonly wishlist?: WishlistService,
   ) {}
+
+  /**
+   * rev v1.87⟨wishlist⟩ (§WSH.5, 816) — tras el commit de **las dos** liquidaciones: el deseo cumplido desaparece. Best-effort:
+   * un fallo se loguea y ⛔ no propaga (un 5xx haría que Stripe reintentara un settle ya aplicado). Invitado ⇒ nada.
+   */
+  private async consumeWishlist(orderId: string): Promise<void> {
+    if (!this.wishlist) return;
+    try {
+      await this.wishlist.consumeForSettledOrder(orderId);
+    } catch (e) {
+      this.logger.error(`wishlist: no se pudieron quitar los deseos cumplidos del pedido ${orderId}: ${(e as Error).message}`);
+    }
+  }
 
   /**
    * ⭐ **§R — el envoltorio best-effort de los dos avisos de pedido.** Post-commit, nunca propaga, y
@@ -351,6 +368,8 @@ export class PaymentsService {
       // aquí, `direct_ship` en `settleDirectShipOrder`): el criterio 200 no distingue por ruta de
       // fulfillment, distingue por **quién recibe**.
       await this.notifyOrderSettled(order);
+      // rev v1.87⟨wishlist⟩ (816): rama BÓVEDA.
+      await this.consumeWishlist(order.id);
       return;
     }
     // ¿Es el pago de un envío? Avanza a picking.
@@ -600,6 +619,8 @@ export class PaymentsService {
     // envíos son mutuamente excluyentes por construcción (`guestEmail` poblado ⇔ el de arriba;
     // `guestEmail` nulo ⇔ éste), así que ⛔ nadie recibe dos confirmaciones.
     await this.notifyOrderSettled(order);
+    // rev v1.87⟨wishlist⟩ (816): rama ENVÍO DIRECTO.
+    await this.consumeWishlist(order.id);
   }
 
   /** payment_intent.payment_failed → Order failed + libera reserva (reserved→listed). */

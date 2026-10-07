@@ -87,8 +87,8 @@ describe('WSH-T13 — el correo dice lo que tiene que decir (criterio 813)', () 
     const m = renderWishlistMail(input('en', [line({ fits: true, maxDisplayCents: 134560 })]));
     expect(m.subject).toBe('We found a card from your wishlist: Charizard ex');
     for (const s of [
-      'Price: $1,334.00 VAT included',
-      'Your max today: $1,345.60 VAT included',
+      'Price: MX$1,334.00 VAT included',
+      'Your max today: MX$1,345.60 VAT included',
       'It fits your max.',
       "We don't hold it for you: if several people are waiting, whoever pays first gets it.",
       'See the card',

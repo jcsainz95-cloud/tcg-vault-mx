@@ -108,6 +108,10 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
       shipmentAddressRevision: { deleteMany: jest.fn(async () => ({})) },
       // rev BSD-1 (BSD-B27): el borrado suave vacía el domicilio de las guías de ENTRADA del vendedor (`scrubInboundShipmentPii`).
       shipmentRequest: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      // rev v1.87⟨wishlist⟩ (§WSH.5, 817; D-WSH-5): la lista de deseos, sus correos y las suscripciones «avísame».
+      wishlistItem: { deleteMany: jest.fn(async () => ({ count: 0 })) },
+      wishlistMail: { deleteMany: jest.fn(async () => ({ count: 0 })) },
+      sealedRestockSubscription: { deleteMany: jest.fn(async () => ({ count: 0 })) },
       user: { update: jest.fn(async () => ({})) },
     };
     const prisma: any = {
@@ -121,6 +125,8 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
       shipmentRequest: { count: jest.fn(async () => c.shipmentRequest ?? 0) },
       dispute: { count: jest.fn(async () => c.dispute ?? 0) },
       inventoryItem: { count: jest.fn(async () => c.inventoryItem ?? 0) },
+      // rev v1.87⟨wishlist⟩ (D-WSH-5): el borrado DURO también quita las suscripciones «avísame» (SetNull conservaba el correo).
+      sealedRestockSubscription: { deleteMany: jest.fn(async () => ({ count: 0 })) },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
     return { prisma, tx };
@@ -142,6 +148,8 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
     const res = await svc(prisma, uploads).deleteUser('u1', 'admin');
     expect(res).toEqual({ userId: 'u1', mode: 'hard' });
     expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'u1' } });
+    // rev v1.87⟨wishlist⟩ (D-WSH-5): sin correo en la fila ⇒ solo por `userId`.
+    expect(prisma.sealedRestockSubscription.deleteMany).toHaveBeenCalledWith({ where: { OR: [{ userId: 'u1' }] } });
     // Purgó ambas imágenes de INE del storage.
     expect(uploads.deleteObject).toHaveBeenCalledWith('ine/f');
     expect(uploads.deleteObject).toHaveBeenCalledWith('ine/b');
@@ -151,12 +159,16 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
 
   it('CON historial económico → SOFT delete: anonimiza PII, conserva filas, revoca login', async () => {
     const { prisma, tx } = prismaWith({
-      user: { id: 'u1', status: 'active', kycProfile: { id: 'k', ineFrontKey: 'ine/f', ineBackKey: null } },
+      user: { id: 'u1', email: ' Ana@Example.test ', status: 'active', kycProfile: { id: 'k', ineFrontKey: 'ine/f', ineBackKey: null } },
       counts: { order: 2 },
     });
     users.eraseClabe.mockClear();
     const res = await svc(prisma).deleteUser('u1', 'admin');
     expect(res).toEqual({ userId: 'u1', mode: 'soft' });
+    // rev v1.87⟨wishlist⟩ (817, D-WSH-5): lista, correos y suscripciones de la cuenta Y de su correo PREVIO (normalizado).
+    expect(tx.wishlistItem.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+    expect(tx.wishlistMail.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+    expect(tx.sealedRestockSubscription.deleteMany).toHaveBeenCalledWith({ where: { OR: [{ userId: 'u1' }, { email: 'ana@example.test' }] } });
     // No hard-delete.
     expect(prisma.user.delete).not.toHaveBeenCalled();
     // 🔒 v1.80.7: la CLABE la anula el módulo dueño, dentro de la MISMA tx (mutación: escribir `clabeEnc: null` aquí ⇒ el censo C-CLABE-1 rojo).

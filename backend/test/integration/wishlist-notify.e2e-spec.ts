@@ -392,6 +392,8 @@ describe('WSH-T16 — se quita sola al pagar, por las DOS liquidaciones (816)', 
       data: {
         userId: a.id,
         fulfillmentMode: 'direct_ship',
+        // un pedido de envío directo con cuenta (p. ej. reclamado antes de que llegara el webhook); el CHECK exige domicilio
+        shippingAddressSnapshot: { street: 'Calle 1', postalCode: '01000' },
         status: 'pending',
         subtotalCents: 104400,
         processingFeeCents: 0,
@@ -417,9 +419,10 @@ describe('WSH-T16 — se quita sola al pagar, por las DOS liquidaciones (816)', 
 
 describe('WSH-T24 (e2e) — el planificador del AppModule real tiene y enruta los dos jobs (823)', () => {
   it('`process({name:"wishlist-notify"})` corre el job (deja `sent` lo pendiente) y `sealed-restock-notify` responde', async () => {
-    const sched = w.h.app.get(SchedulerService) as unknown as Record<string, unknown> & SchedulerService;
-    expect(sched.wishlistNotify).toBeDefined();
-    expect(sched.sealedRestockNotify).toBeDefined();
+    const sched = w.h.app.get(SchedulerService);
+    const fields = sched as unknown as Record<string, unknown>;
+    expect(fields.wishlistNotify).toBeDefined();
+    expect(fields.sealedRestockNotify).toBeDefined();
     const a = await w.customer();
     const c = await w.card();
     await w.market(c.id, 'normal', 100000);
