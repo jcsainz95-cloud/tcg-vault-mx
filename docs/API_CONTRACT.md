@@ -27,6 +27,23 @@
 > | WSH-6 | Sellados | `sealed-restock-notify` **agendado**, con enlace, un correo por correo y producto, armado al agotarse, topes anti-abuso | **Sí** | backend |
 > | WSH-7 | Bajas | Se quita sola al pagar (las dos ramas de liquidación); el borrado suave borra lista **y** suscripciones de sellado | Sí | backend |
 >
+> **Errata v1.87.1⟨wishlist⟩ — huecos que encontró ux-ui (`DESIGN_SYSTEM §WSH-UX.14`, Q-WSH-UX-1…9)** (2026-10-07,
+> arquitecto, árbol `/home/user/tcg-wishlist`, HEAD dado por el orquestador `00ddca8`; ⛔ sha NO MEDIDO: sin Bash). Norma en
+> **[§WSH.10](#WSH)**, con los cambios hechos en su sitio (WSH.3, .4, .6, .8, .9). `M-74` **no cambia** (sin columnas
+> nuevas). Todo es aditivo sobre v1.87, que aún no está construido.
+>
+> | # | Hueco | Decisión |
+> |---|---|---|
+> | Q-WSH-UX-1 | Pesos de cada % antes de guardar | **Ruta nueva** `GET /wishlist/preview?cardId=` (con sesión y con el dial), misma aritmética `maxDisplay` |
+> | Q-WSH-UX-2 | Tasa de IVA para el rótulo | `WishlistResponse.ivaRatePct` (y en el preview) |
+> | Q-WSH-UX-3 | «Si cabe» en la lista | `availableNow.fits: boolean \| null`, calculado en el servidor |
+> | Q-WSH-UX-4 | Encontrar una carta sin piezas | Se reutiliza `GET /buylist/cards` sin cambios; la ficha `/catalog/cards/:cardId` ya responde para cualquier carta |
+> | Q-WSH-UX-5 | Enlaces del correo con el dial apagado | **Funcionan**: `POST /wishlist/mail-actions` no depende de `wishlistEnabled` |
+> | Q-WSH-UX-6 | Staff con lista | El servidor no cambia (igual que `checkout`); la UI no ofrece nada al staff. Pregunta al dueño, con recomendación |
+> | Q-WSH-UX-7 | Filtros de la lista de compra | En el navegador; el contrato no gana filtros; el CSV es siempre completo |
+> | Q-WSH-UX-8 | Unidad de `marginAtMarket.pct` | **Puntos porcentuales con un decimal** (`-9.5` = −9.5 %) |
+> | Q-WSH-UX-9 | Foto en el correo | Sí (criterio 813), **solo** con la URL de catálogo tal cual, de hosts en lista cerrada; sin proxy, sin parámetros, `alt=""` |
+>
 > **Errata SU-1 — LA UBICACIÓN DEJA DE SER REQUISITO PARA PUBLICAR, POR AHORA (2026-10-07, arquitecto, árbol
 > `/home/user/tcg-ubic`, rama `claude/sin-ubicacion`; ⛔ sha NO MEDIDO: sin Bash; numeración NO MEDIDA contra ramas vivas).**
 > Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Norma entera en
@@ -41660,8 +41677,16 @@ ceiling(p) =
   cost : half( tope(p) · 10000 / ((100+r)·(100+m)) )                     // «puedes pagar hasta», sin IVA
   sale : half( tope(p) · (100−m) / (100+r) )
 mainCeiling     = ceiling del nivel más alto con ≥ 1 cuenta
-marginAtMarket  = half(tope(pTop)·100/(100+r)) − M   ;  pct = marginAtMarket / M (1 decimal)
+marginAtMarket  = half(tope(pTop)·100/(100+r)) − M
+pct             = sign(marginAtMarket) · half(|marginAtMarket| · 1000 / M) / 10     // ⭐ v1.87.1: PUNTOS porcentuales, 1 decimal
 ```
+
+- ⭐ **v1.87.1 (Q-WSH-UX-8) — unidad de `pct`:** número en **puntos porcentuales** con un decimal: `-9.5` significa
+  «−9.5 %», ⛔ no `-0.095`. El redondeo es a la mitad **alejándose de cero** (simétrico para negativos), un solo
+  redondeo. Ejemplo con `M = 100000`, `r = 16`, una sola cuenta al 5 % `with_iva`: `tope = 105000`,
+  `half(105000·100/116) = 90517` ⇒ `marginAtMarket = { cents: -9483, pct: -9.5 }`; con el 16 % ⇒ `{ cents: 0, pct: 0 }`.
+  El frontend formatea el número tal cual (no multiplica por 100). El CSV escribe el mismo número con un decimal.
+  `M ≤ 0` no debería existir; si llega, `marginAtMarket = null` (nunca división entre cero).
 
 - ⭐ **Un solo redondeo por cifra.** Redondear el «sin IVA» intermedio a centavos y luego dividir entre `1.15` da
   **$787.10** donde el criterio 827 exige **$787.11**. La fórmula de arriba reproduce las doce cifras de 827 al centavo
@@ -41674,8 +41699,12 @@ marginAtMarket  = half(tope(pTop)·100/(100+r)) − M   ;  pct = marginAtMarket 
 ### WSH.4 Endpoints del cliente (`/api/v1/wishlist`)
 
 Sesión obligatoria (`401 UNAUTHENTICATED` sin ella, criterio 802). Cualquier rol con correo; una cuenta de staff sin
-correo ⇒ `403 FORBIDDEN`. Con `wishlistEnabled = off` ⇒ `404 FEATURE_DISABLED` (código existente,
-`error-codes.ts:655`). ⛔ **Cuerpo estricto**: estas rutas usan `ValidationPipe({ whitelist: true,
+correo ⇒ `403 FORBIDDEN`. ⭐ v1.87.1 (Q-WSH-UX-6): el servidor **no** cambia por rol, igual que `checkout`, que hoy
+admite `customer`, `vault_operator` y `super_admin` (`orders.controller.ts:14`). Que la UI no ofrezca la lista al staff es
+decisión de pantalla (`DESIGN_SYSTEM §WSH-UX.1`). Si el dueño decide otra cosa, basta cambiar el guard de roles, sin
+migración (ver `ARCHITECTURE §4.WSH` (j)). Con `wishlistEnabled = off` ⇒ `404 FEATURE_DISABLED` (código existente,
+`error-codes.ts:655`) en **las seis rutas con sesión de esta tabla** (incluida `GET /wishlist/preview`). ⭐ v1.87.1
+(Q-WSH-UX-5): `POST /wishlist/mail-actions` (WSH.6) **no** depende del dial. ⛔ **Cuerpo estricto**: estas rutas usan `ValidationPipe({ whitelist: true,
 forbidNonWhitelisted: true })` a nivel de controlador, porque el global **descarta** campos desconocidos en silencio
 (`main.ts:54`, `forbidNonWhitelisted: false`) y 801 exige **rechazar** un precio o una condición ⇒ `400 VALIDATION_ERROR`
 `details: { field }`.
@@ -41688,17 +41717,34 @@ WishlistItemDTO = {
   maxPct: 5 | 10 | 16,
   maxToday: { status: 'priced', maxDisplayCents: number, approximate: true }   // «se recalcula el día que la consigamos»
           | { status: 'no_market' },                                            // 807: sin cifra, ni 0
-  availableNow: { count: number, fromDisplayCents: number } | null,             // piezas vendibles hoy (enlace: ficha de la carta)
+  availableNow: { count: number, fromDisplayCents: number,
+                  fits: boolean | null } | null,                                // piezas vendibles hoy (enlace: ficha de la carta)
+                                                                                // ⭐ v1.87.1 fits = fits(fromDisplayCents, M de hoy, maxPct) de WSH.3; null ⇔ sin mercado
   lastNotifiedAt: string | null,                                                // ISO
   createdAt: string,
 }
 WishlistResponse = { items: WishlistItemDTO[], count: number, limit: number,
-                     alertsPaused: boolean, emailVerified: boolean, ivaMode: 'with_iva' | 'without_iva' }
+                     alertsPaused: boolean, emailVerified: boolean, ivaMode: 'with_iva' | 'without_iva',
+                     ivaRatePct: number }                                       // ⭐ v1.87.1: dial `iva_pct` vigente (entero, p. ej. 16)
+
+// ⭐ v1.87.1 (Q-WSH-UX-1): pesos de cada % ANTES de guardar
+WishlistPreviewResponse = {
+  cardId: string,
+  ivaMode: 'with_iva' | 'without_iva',
+  ivaRatePct: number,
+  finishes: {                                   // uno por `Card.availableFinishes`, en el orden en que los guarda la carta
+    finish: Finish,
+    maxToday: { status: 'priced', approximate: true,
+                tiers: { maxPct: 5 | 10 | 16, maxDisplayCents: number }[] }   // siempre los tres, orden 5 → 10 → 16
+            | { status: 'no_market' },                                        // 807: sin cifra, ni 0
+  }[],
+}
 ```
 
 | Método y ruta | Cuerpo | Éxito | Errores |
 |---|---|---|---|
 | `GET /wishlist` | — | `200 WishlistResponse` (orden `createdAt` desc) | `401`, `404 FEATURE_DISABLED` |
+| ⭐ `GET /wishlist/preview?cardId=` (v1.87.1; `@Throttle` 60/min, como `GET /buylist/cards`) | — | `200 WishlistPreviewResponse`, `Cache-Control: no-store` | `400 VALIDATION_ERROR {field:'cardId'}` (falta o vacío); `401`; `403` (staff sin correo); `404 FEATURE_DISABLED`; `404 NOT_FOUND` (carta) |
 | `POST /wishlist` | `{ cardId: string, finish: Finish, maxPct: 5\|10\|16 }` | `201 WishlistItemDTO` | `400 VALIDATION_ERROR` (forma, `maxPct` fuera de 5/10/16, campo extra); `404 NOT_FOUND` (carta); `422 FINISH_NOT_AVAILABLE` (acabado ∉ `Card.availableFinishes`, SEC-A1); `409 WISHLIST_DUPLICATE` `{ wishlistItemId, maxPct }` (criterio 804: el front ofrece cambiar el %); `422 WISHLIST_LIMIT_REACHED` `{ limit, count }` (803) |
 | `PATCH /wishlist/:id` | `{ maxPct: 5\|10\|16 }` | `200 WishlistItemDTO` | `400`; `404 NOT_FOUND` si no es de la cuenta (⛔ no `403`: no se confirma que exista, 805) |
 | `DELETE /wishlist/:id` | — | `204` | `404 NOT_FOUND` igual que arriba |
@@ -41712,8 +41758,23 @@ WishlistResponse = { items: WishlistItemDTO[], count: number, limit: number,
 - `availableNow` y `maxToday` se calculan al leer, con los diales vigentes (808: mover el dial cambia la cifra sin
   desplegar).
 - **Ficha de la carta:** `GET /catalog/cards/:cardId` gana en la raíz de su `200` el campo aditivo
-  `wishlistEnabled: boolean`. El botón usa `GET /wishlist` (≤ 20 filas) para saber qué acabados ya están; ⛔ no hay ruta
-  nueva por carta. El sellado **no** muestra el botón (823).
+  `wishlistEnabled: boolean`. El botón usa `GET /wishlist` (≤ 20 filas) para saber qué acabados ya están ~~; ⛔ no hay ruta
+  nueva por carta~~ y ⭐ v1.87.1 `GET /wishlist/preview?cardId=` para los pesos de cada % antes de guardar. El sellado
+  **no** muestra el botón (823).
+- ⭐ **v1.87.1 — `GET /wishlist/preview` (Q-WSH-UX-1).** Solo lee; ⛔ 0 escrituras. Usa **la misma** función
+  `maxDisplay(M,p)` de `common/wishlist-math.ts` y la misma lectura de `M` que `maxToday` (una fuente: la cifra del preview
+  para un `(cardId, finish, p)` es idéntica a `maxToday.maxDisplayCents` del deseo recién guardado con ese `p`, mismo
+  instante y mismos diales). ⛔ No va en la ficha pública ni en `GET /catalog/cards/:cardId`: con sesión no se expone nada
+  que `GET /wishlist` no exponga ya (de un máximo guardado se deduce `M`), sin sesión sí sería publicar el mercado.
+- ⭐ **v1.87.1 — `availableNow.fits` (Q-WSH-UX-3).** Lo calcula el servidor con `fits` de WSH.3 sobre la pieza más barata
+  (`fromDisplayCents`) y el `M` de **hoy**; `null` si no hay mercado. Es aproximado como `maxToday`: el que cuenta es el del
+  correo (WSH.5). ⛔ El frontend no compara pesos por su cuenta.
+- ⭐ **v1.87.1 — Cómo se encuentra una carta que no tenemos (Q-WSH-UX-4).** Sin ruta nueva: el buscador de «Mi lista» usa
+  `GET /buylist/cards` (§6, `public`, todo el catálogo, 60/min por IP, `buylist-catalog.controller.ts:20-22`; ya trae
+  `availableFinishes`) y lleva a `/catalog/{cardId}`. La ficha responde `200` con `listings: []` para cualquier `Card`
+  (`catalog.service.ts:1496-1503`, leído por el arquitecto) y lleva `wishlistEnabled`. ⛔ El buscador no pinta precios
+  (ese DTO no los tiene). Usar una ruta del módulo `buylist` desde otra superficie no cambia su contrato: si algún día
+  cambia la forma de `GET /buylist/cards`, la prueba WSH-F6 lo detecta.
 
 ### WSH.5 El aviso «ya la tenemos» — job `wishlist-notify`
 
@@ -41778,6 +41839,29 @@ nunca un `href` a medias).
   `We don't hold it for you: if several people are waiting, whoever pays first gets it.` y enlace `Dejar de recibir
   estos avisos` · `Stop these alerts`.
 - ⛔ No va en la campana (§R). ⛔ No dice cuántas personas la esperan.
+- ⭐ **v1.87.1 — La foto (Q-WSH-UX-9).** Se pone (criterio 813, `PROJECT` manda), con estas reglas de privacidad:
+  - `src` = `Card.imageSmallUrl` **byte a byte**. ⛔ Ningún parámetro, fragmento ni ruta añadidos: la URL es la misma
+    para todos los destinatarios, así que no identifica a nadie ni sirve de píxel de apertura. Nosotros no medimos
+    aperturas.
+  - Solo si la URL es `https:`, sin puerto ni credenciales, y su host está en la **lista cerrada** de hosts de catálogo
+    (`SET_IMAGE_HOSTS`, `catalog-sync.service.ts:285`; hoy `images.pokemontcg.io` e `images.scrydex.com`, espejo de
+    `frontend/next.config.mjs:115-118`). Cualquier otra cosa, o `null` ⇒ la línea va **sin** `<img>` y el texto queda
+    igual. ⛔ Nunca un hueco roto. Esa lista nació para logos de set (`:1393`); qué hosts tiene hoy `Card.imageSmallUrl`
+    está **NO MEDIDO** (lo cierra `SELECT substring("imageSmallUrl" from '^https?://[^/]+'), count(*) FROM "Card" GROUP
+    BY 1`). Si sale otro host, la consecuencia es «correo sin foto», no una fuga; ampliar la lista sigue el procedimiento
+    del comentario de `SET_IMAGE_HOSTS`.
+  - `<img … width="56" height="78" alt="">`. La carta se identifica **por texto** (nombre, set, número, acabado), así
+    que con las imágenes bloqueadas el correo dice lo mismo.
+  - ⛔ **Sin proxy propio** (`/_next/image` o una ruta del backend): sería el proxy de imágenes abierto que
+    `next.config.mjs:85-90` cerró. ⛔ **Sin adjunto incrustado (`cid:`)**: el puerto de correo no lo soporta
+    (`mail.port.ts:23` solo `attachments` sin `contentId`; NO MEDIDO si `resend` 4.8.0 lo acepta) y un correo de 200
+    cartas pesaría megas.
+  - **Lo que ve el tercero** cuando el lector abre el correo **y** su cliente carga imágenes remotas sin proxy: IP, hora y
+    qué carta. Es el mismo tercero y el mismo dato que ya recibe al navegar la tienda (el arte de carta es `<img>` crudo
+    de esos hosts, `next.config.mjs:101-104`). Lo revisa seguridad en la fase por release; si lo marca alto, la salida es
+    quitar el `<img>` (una línea) y que product-owner ajuste el criterio 813.
+  - `cardLineRows` (`mail-shell.ts:281-307`) no tiene celda de imagen: backend añade al esqueleto una variante con
+    miniatura opcional (o la construye en `wishlist/`), con el mismo escape S15-B1.
 
 **Enlaces sin sesión (814).** El correo apunta a una página del front, `/{locale}/lista-de-deseos/aviso?a=&id=&t=`, que
 pide **un clic** para confirmar. ⛔ Nunca un `GET` que modifique: los antivirus de correo abren los enlaces solos.
@@ -41791,6 +41875,10 @@ pide **un clic** para confirmar. ⛔ Nunca un `GET` que modifique: los antivirus
   llave, prefijo de dominio, ⛔ ningún secreto nuevo). Comparación en tiempo constante. Un `id` de otra cuenta con el
   token de la propia no cuadra ⇒ `404`, nada cambia.
 - Reanudar: `PUT /wishlist/alerts { paused:false }` desde «Mi cuenta».
+- ⭐ **v1.87.1 — Con `wishlistEnabled = off` esta ruta SIGUE funcionando (Q-WSH-UX-5).** Quitar una carta o pausar los
+  avisos debe poder hacerse siempre; un correo enviado antes de apagar el dial sigue en el buzón del cliente. Misma
+  respuesta, mismos errores, mismo throttle. No envía correo ni dispara el job. La página
+  `/{locale}/lista-de-deseos/aviso` tampoco depende del dial.
 
 ### WSH.7 «Avísame cuando vuelva» de sellados: encendido y completo (criterio 823)
 
@@ -41876,6 +41964,13 @@ WishlistDemandResponse = {
   `wishlistItemId`, ni correo, ni nombre, ni fechas por cuenta. El CSV lleva columnas fijas por nivel
   (`cuentas_16`, `max_16`, `techo_16`, … `_10`, `_5`) y la sección de sellados aparte.
 - `buylistTodayCents`: lotes de ≤ 50 (`BuylistQuoteItemDTO`, `API_CONTRACT §6`); `precio_pendiente` ⇒ `null`.
+- ⭐ **v1.87.1 — `marginAtMarket.pct`** en puntos porcentuales con un decimal (WSH.3, Q-WSH-UX-8).
+- ⭐ **v1.87.1 — Filtros (Q-WSH-UX-7): el contrato no gana parámetros.** Solo `sort`/`dir`; un parámetro desconocido
+  sigue la regla de §0-Q de siempre. Los filtros (texto, «sin mercado») se aplican **en el navegador** sobre `rows`. El
+  CSV es **siempre la lista completa** con el orden activo (criterio 822 compara contra la pantalla **sin filtros**), y
+  la pantalla lo dice junto al botón de exportar. Por qué: un filtro en servidor duplica la lógica en JSON y CSV y abre
+  una clase de defecto («el CSV no filtra igual»), y la lista está acotada por la demanda real (como mucho 20 deseos por
+  cuenta, solo cartas sin piezas a la venta). Si un día pesa, se añade `q` a las dos rutas a la vez, con la prueba de 822.
 
 ### WSH.9 Pruebas que deben fallar hoy (2026-10-07; todas rojas porque nada de esto existe: `grep -i wishlist` en `backend/src` y `frontend/src` = 0 según PO sobre `abb435d3`, NO re-medido por el arquitecto)
 
@@ -41916,7 +42011,41 @@ WishlistDemandResponse = {
 | WSH-F3 | 814 | la página del enlace pide un clic y confirma; sin sesión | Playwright |
 | WSH-F4 | 818–822 | M9: solo súper-admin, orden, sin datos personales, exporta | Playwright |
 | WSH-F5 | 823 | ficha de sellado sin botón de deseos; formulario visible con el dial `on` | Playwright |
+| ⭐ WSH-T31 | 800, 807, 808 (v1.87.1, Q-WSH-UX-1) | `GET /wishlist/preview?cardId=` con `M = 100000`, `r=16`, `t=100`: `with_iva` ⇒ tiers `105000/110000/116000`; `without_iva` ⇒ `121800/127600/134560`; acabado en «precio pendiente» ⇒ `{status:'no_market'}` sin clave `tiers`; `finishes` = exactamente `availableFinishes`; la cifra del 10 % = `maxToday.maxDisplayCents` del deseo guardado al 10 % justo después; sin sesión ⇒ 401; dial `off` ⇒ 404 `FEATURE_DISABLED`; carta inexistente ⇒ 404 `NOT_FOUND`; conteo de `WishlistItem`/`WishlistNotice` igual antes y después | backend e2e |
+| ⭐ WSH-T32 | 805 (Q-WSH-UX-2) | `GET /wishlist` y el preview traen `ivaRatePct` = dial `iva_pct`; con el dial movido a otro valor en la prueba, la respuesta lo sigue | backend e2e |
+| ⭐ WSH-T33 | 805, 825 (Q-WSH-UX-3) | `M = 100000`, pieza con P `133400`: deseo al 16 % `with_iva` ⇒ `availableNow.fits=false`; dial a `without_iva` ⇒ `true` (`134560 ≥ 133400`); `P = maxDisplay` exacto ⇒ `true`; variante pendiente ⇒ `fits=null`; sin piezas ⇒ `availableNow=null` | backend e2e |
+| ⭐ WSH-T34 | 814 (Q-WSH-UX-5) | dial `off`: `remove` y `pause` con token válido ⇒ 200 y el efecto ocurre; en el mismo estado `GET /wishlist` ⇒ 404 `FEATURE_DISABLED`; 0 correos enviados | backend e2e |
+| ⭐ WSH-T35 | 819 (Q-WSH-UX-8) | demanda con `M = 100000`, `r=16`, una cuenta al 5 % `with_iva` ⇒ `marginAtMarket = {cents:-9483, pct:-9.5}`; una al 16 % ⇒ `{0, 0}`; el CSV escribe `-9.5` | backend unit (`wishlist-math`) + e2e |
+| ⭐ WSH-T36 | 813 (Q-WSH-UX-9) | render del correo: `<img src>` = `Card.imageSmallUrl` byte a byte, `alt=""`, `width`/`height` fijos; URL con host fuera de `SET_IMAGE_HOSTS`, `http:`, con puerto o `null` ⇒ la línea sin `<img>` y con el mismo texto; ningún `<img>` del correo lleva query ni fragmento; los únicos hosts de imagen son el de la mira y los de la lista | backend unit |
+| ⭐ WSH-T37 | 800 (Q-WSH-UX-4) | carta **sin** piezas: `GET /buylist/cards?q=` la encuentra con `availableFinishes`, y `GET /catalog/cards/:cardId` responde 200 con `listings: []` y `wishlistEnabled` | backend e2e |
+| ⭐ WSH-F6 | 800 (Q-WSH-UX-4) | en «Mi lista», buscar una carta que la tienda nunca tuvo, abrir su ficha y agregarla; el buscador no muestra precios | Playwright |
+| ⭐ WSH-F7 | 800, 805 (Q-WSH-UX-1/2/3) | la ficha muestra bajo cada % los pesos del preview, iguales a la cifra que aparece al guardar; acabado sin mercado ⇒ sin cifra; el rótulo de IVA sale de `ivaRatePct`; «cabe» sale de `fits`. Candado de fuente: 0 apariciones de `* 1.05`, `* 1.1`, `* 1.16`, `/ 1.16`, `* 116` o `/ 116` (con o sin espacios) en `WishlistBlock`, `PctChoice`, `WishlistRow` y `BuyListTab` | Playwright + candado de `grep` |
+| ⭐ WSH-F8 | 819, 822 (Q-WSH-UX-7/8) | M9: filtrar por texto reduce filas en pantalla; el CSV exportado con filtro activo trae todas las filas; `pct = -9.5` se pinta «−9.5 %» (sin multiplicar) | Playwright |
+| ⭐ WSH-F9 | 814 (Q-WSH-UX-5) | con el dial `off`, la página `/lista-de-deseos/aviso` pide el clic y confirma «quitada» / «pausada» | Playwright |
 
 Canarios de mutación (los corre backend y los repite el orquestador sobre copia, O-9): quitar el `@@unique([userId,
 inventoryItemId])` ⇒ T10 rojo; quitar el `FOR UPDATE` del tope ⇒ T3 rojo con proporción; redondear el intermedio a
 centavos ⇒ T22 rojo; quitar la condición `armedAt` ⇒ T26 rojo; quitar una de las dos llamadas de liquidación ⇒ T16 rojo.
+⭐ v1.87.1: calcular el preview con una copia de la fórmula que redondee el intermedio ⇒ T31 rojo en `without_iva`;
+poner `wishlistEnabled` como guard de `mail-actions` ⇒ T34 rojo; `pct` como fracción (`/M` sin `·1000/10`) ⇒ T35 rojo;
+añadir `?utm_source=` a la URL de la imagen o quitar el filtro de host ⇒ T36 rojo.
+
+### WSH.10 Errata v1.87.1⟨wishlist⟩ — huecos de ux-ui (`DESIGN_SYSTEM §WSH-UX.14`), 2026-10-07
+
+Cambios ya escritos en su sitio (marcados ⭐ v1.87.1); aquí, el índice. Sin cambio de esquema (`M-74` igual), sin dial
+nuevo (WSH-T30 sigue con ocho claves). Todo aditivo.
+
+| Pregunta | Dónde quedó | Decisión |
+|---|---|---|
+| Q-WSH-UX-1 | WSH.4 (DTO, tabla, viñeta) | `GET /wishlist/preview?cardId=` con sesión y dial; misma `maxDisplay`; 0 escrituras |
+| Q-WSH-UX-2 | WSH.4 (DTO) | `ivaRatePct` en `WishlistResponse` y en el preview |
+| Q-WSH-UX-3 | WSH.4 (DTO, viñeta) | `availableNow.fits` del servidor |
+| Q-WSH-UX-4 | WSH.4 (viñeta) | `GET /buylist/cards` + ficha existente; sin ruta nueva |
+| Q-WSH-UX-5 | WSH.4 (cabecera), WSH.6 | `mail-actions` y su página no dependen del dial |
+| Q-WSH-UX-6 | WSH.4 (cabecera) | Servidor sin cambio por rol; UI sin superficie para staff; pregunta al dueño (`ARCHITECTURE §4.WSH` (j)) |
+| Q-WSH-UX-7 | WSH.8 | Filtros en el navegador; CSV completo |
+| Q-WSH-UX-8 | WSH.3, WSH.8 | `pct` en puntos porcentuales, 1 decimal, redondeo simétrico |
+| Q-WSH-UX-9 | WSH.6 | Foto con la URL de catálogo tal cual, hosts en lista cerrada, sin proxy ni `cid:` |
+
+Pruebas nuevas: WSH-T31…T37 y WSH-F6…F9 (tabla de WSH.9). ⛔ No se renumera ninguna anterior. WSH-T2 («las cinco rutas»)
+se lee ahora como «las seis rutas con sesión», preview incluido; WSH-T31 lo afirma para la nueva.

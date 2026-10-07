@@ -10,6 +10,13 @@
 > **D-WSH-1…7** en §9. Módulo nuevo `wishlist`; el aviso sale de un barrido por estado con deduplicación por
 > `(cuenta, pieza)`, no de un evento por escritor.
 >
+> **Errata v1.87.1⟨wishlist⟩ — huecos de ux-ui** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD dado por el
+> orquestador `00ddca8`; ⛔ sha NO MEDIDO: sin Bash). Responde a `DESIGN_SYSTEM §WSH-UX.14` (Q-WSH-UX-1…9). Norma en
+> `API_CONTRACT §WSH.10` (índice) y en su sitio (WSH.3/.4/.6/.8/.9); porqué en **§4.WSH (j)**. Una ruta nueva de lectura
+> (`GET /wishlist/preview`), dos campos aditivos (`ivaRatePct`, `availableNow.fits`), unidad de `pct` fijada, foto del
+> correo con reglas de privacidad, enlaces del correo independientes del dial. `M-74` sin cambio. Pruebas WSH-T31…T37 y
+> WSH-F6…F9. Queda una pregunta al dueño (staff con lista).
+>
 > **Errata SU-1 — la ubicación deja de ser requisito para publicar, por ahora** (2026-10-07, arquitecto, rama
 > `claude/sin-ubicacion` en `/home/user/tcg-ubic`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §M1-SU`; el
 > porqué está en **§4.65**. Sin schema ni migración. El vocabulario `location` se conserva dormido. Hay un barrido único
@@ -29091,6 +29098,43 @@ con conteo de correos distintos pendientes (P-WSH-9, recomendación del PO).
 - P-WSH-7/8/9 quedan como diales (`wishlist_target_margin_pct` 15, `wishlist_margin_basis` `cost`,
   `wishlist_max_iva_mode` `with_iva`) y como sección separable de la respuesta (`sealed`). Si el dueño responde distinto,
   basta mover un dial, sin desplegar.
+
+**(j) Errata v1.87.1 — los huecos que encontró ux-ui (2026-10-07).** Norma: `API_CONTRACT §WSH.10`.
+- **Pesos antes de guardar (Q-WSH-UX-1): ruta nueva y no cálculo en el navegador.** Calcular `M·1.10` en el front sería
+  *dos fuentes para un precio*, y el modo `without_iva` además necesita los dos diales de IVA. `GET /wishlist/preview`
+  llama a la **misma** `maxDisplay`. Exposición: con sesión no revela nada que `GET /wishlist` no revele ya (de un máximo
+  guardado se despeja `M`); por eso va con sesión, con el dial y con throttle, y ⛔ nunca en la ficha pública, donde sí
+  publicaría el mercado de cartas sin precio. Descartado: meterlo en `GET /catalog/cards/:cardId` (una ruta `@Public` cuya
+  respuesta pasaría a depender de la sesión; si tiene caché o no, NO MEDIDO).
+- **`ivaRatePct` y `fits` (Q-WSH-UX-2/3):** campos del servidor para que el front no haga cuentas (regla WSH-2 de ux-ui).
+  `fits` usa el `M` de hoy y es aproximado, igual que `maxToday`; el que cuenta es la foto del correo.
+- **Carta que no tenemos (Q-WSH-UX-4):** `GET /buylist/cards` ya es la búsqueda pública de todo el catálogo, sin precios,
+  con `availableFinishes`. Una segunda búsqueda igual en `catalog` sería código duplicado. Riesgo aceptado: el buscador
+  depende de una ruta de otro módulo; lo vigila WSH-F6.
+- **Enlaces del correo con el dial apagado (Q-WSH-UX-5):** el dial apaga la función, no el derecho a pararla. Un correo
+  enviado antes de apagar sigue en el buzón; si «quitar» respondiera 404, el cliente no podría hacer lo que el correo le
+  promete (criterio 814).
+- **Staff (Q-WSH-UX-6):** el servidor queda como `checkout`, que hoy acepta a los tres roles (`orders.controller.ts:14`):
+  restringir solo aquí crearía una regla de negocio («el staff no desea») que nadie dio. La UI no la ofrece al staff
+  (`DESIGN_SYSTEM §33.6`, «el operador no compra»). **Pregunta al dueño (vía orquestador), con recomendación:**
+  *«¿Tú y tu equipo deben poder tener lista de deseos?»* **Recomendación: no mostrarla** (es lo diseñado). Ejemplo para
+  preguntarle: si el operador agrega una carta, saldría como «1 la busca» en tu lista de compra, igual que un cliente.
+  Si dice «sí», se añade la pantalla; si dice «nunca», el guard pasa a `customer` y la lista de compra filtra por rol.
+  Ninguna de las dos lleva migración.
+- **Filtros (Q-WSH-UX-7):** en el navegador. Un filtro en servidor tendría que ser idéntico en JSON y CSV; hoy no hace
+  falta porque la lista está acotada por la demanda real.
+- **Unidad de `pct` (Q-WSH-UX-8):** puntos porcentuales con un decimal. Es lo que se lee de pie en una mesa («−9.5 %»)
+  y evita que el front multiplique. El redondeo es simétrico para que `+9.5` y `−9.5` salgan del mismo `|x|`.
+- **Foto del correo (Q-WSH-UX-9), con criterio de privacidad.** Opciones:
+  - **Proxy propio:** descartado. Es el proxy de imágenes abierto que `next.config.mjs:85-90` cerró por seguridad.
+  - **Adjunto incrustado (`cid:`):** descartado. El puerto de correo no lo soporta (`mail.port.ts:23`), y 200 cartas
+    serían megas por correo.
+  - **Sin foto:** la opción más privada, pero contradice el criterio 813, y `PROJECT` manda sobre el contrato.
+  - **Elegida: URL de catálogo tal cual.** Es idéntica para todos, así que no es un píxel por destinatario y nosotros no
+    medimos aperturas. Solo hosts en lista cerrada y `alt=""`; la carta se identifica por texto. Lo que aprende el tercero
+    (IP y hora de quien abre con imágenes remotas sin proxy) es lo mismo que ya aprende cuando esa persona navega la tienda.
+  - Si seguridad lo marca alto, se quita el `<img>` y product-owner ajusta 813. Que el aviso de privacidad (824) mencione
+    al proveedor de imágenes es cosa del product-owner y del abogado del dueño, no del contrato.
 
 ---
 
