@@ -193,12 +193,15 @@ export function PublicOrderTracking({
         {/* §AC.12 / §AC-UX.13: accesorios después de las cartas. ⛔ Sin costo ni ids internos. */}
         {(data.accessoryLines?.length ?? 0) > 0 && (
           <ul className="mt-2" data-testid="tracking-accessories" aria-label={t('accessories.label')}>
-            {data.accessoryLines!.map((l, i) => {
+            {data.accessoryLines!.map((l) => {
               const total = formatMoneyCents(l.lineTotalCents, locale);
+              // v1.86.3 (§AC.19.6): `id` (llave de lista) y `kind` obligatorios; el paquete se reconoce por `kind`.
               return (
-                <li key={`${l.name}-${i}`} className="flex flex-col gap-1 border-b border-border py-4">
+                <li key={l.id} className="flex flex-col gap-1 border-b border-border py-4">
                   <p className="text-[15px] text-text">
-                    {l.deckName !== null ? t('accessories.bundleLine', { deck: l.deckName, total }) : t('accessories.line', { name: l.name, n: l.quantity, total })}
+                    {l.kind === 'energy_bundle'
+                      ? t('accessories.bundleLine', { deck: l.deckName ?? l.name, total })
+                      : t('accessories.line', { name: l.name, n: l.quantity, total })}
                   </p>
                   {l.components.length > 0 && <p className="font-mono text-xs text-muted">{energyBreakdown(l.components, ta)}</p>}
                   {l.refundedQty > 0 && <p className="font-mono text-xs text-muted">{t('accessories.refunded', { k: l.refundedQty })}</p>}

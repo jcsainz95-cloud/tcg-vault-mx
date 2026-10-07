@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { PreparationQueue } from './PreparationQueue';
 import * as api from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
 import { shipAccLine } from '@/test/accessories.testkit';
 import type { ShipAccessoryLineDTO, ShipPreparationOrderDTO } from '@/types/contract';
 
@@ -27,7 +28,8 @@ beforeEach(() => vi.restoreAllMocks());
 const BUNDLE = shipAccLine({
   id: 'sal-b',
   kind: 'energy_bundle',
-  name: 'Paquete de energías — Dragapult ex',
+  // v1.86.3 (§AC.19.5): en paquete `name = deckName`; el título «Paquete de energías» lo pone la pantalla por `kind`.
+  name: 'Dragapult ex',
   deckName: 'Dragapult ex',
   photo: null,
   components: [
@@ -100,7 +102,7 @@ describe('AC-UX-13 (AC-F12) · renglones de accesorio y caja', () => {
 
   it('paquete: «Falta el paquete» manda missingQty: 1 (el paquete entero)', async () => {
     serve(order([BUNDLE]));
-    const spy = vi.spyOn(api, 'setShipPrepAccessoryLine').mockResolvedValue(undefined);
+    const spy = vi.spyOn(api, 'setShipPrepAccessoryLine').mockReturnValue(new Promise(() => {}));
     renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
     const b = within(await card()).getByTestId('prep-acc-sal-b');
     expect(within(b).getByText('Si falta solo una parte, complétala del estante: las energías ya estaban apartadas.')).toBeInTheDocument();
@@ -112,7 +114,7 @@ describe('AC-UX-13 (AC-F12) · renglones de accesorio y caja', () => {
 
   it('accesorio ×1: «Lo tengo» / «No lo encontré» / «Llegó dañado»', async () => {
     serve(order([shipAccLine({ id: 'sal-1', name: 'Deck box' })]));
-    const spy = vi.spyOn(api, 'setShipPrepAccessoryLine').mockResolvedValue(undefined);
+    const spy = vi.spyOn(api, 'setShipPrepAccessoryLine').mockReturnValue(new Promise(() => {}));
     renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
     const row = within(await card()).getByTestId('prep-acc-sal-1');
     const group = within(row).getByRole('group');
@@ -125,7 +127,7 @@ describe('AC-UX-13 (AC-F12) · renglones de accesorio y caja', () => {
 
   it('AC-F16 · ×3: «Faltan…» abre en la fila el stepper; el importe sale de amountByQtyCents[k−1]', async () => {
     serve(order([SLEEVES]));
-    const spy = vi.spyOn(api, 'setShipPrepAccessoryLine').mockResolvedValue(undefined);
+    const spy = vi.spyOn(api, 'setShipPrepAccessoryLine').mockReturnValue(new Promise(() => {}));
     renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
     const row = within(await card()).getByTestId('prep-acc-sal-s');
     fireEvent.click(within(row).getByRole('button', { name: /^Faltan…/ }));
@@ -220,5 +222,46 @@ describe('AC-F17 · sugerencia del paquete con todo su deck faltante', () => {
     renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
     const b = within(await card()).getByTestId('prep-acc-sal-b');
     expect(within(b).queryByText(/Faltan todas las cartas de este deck/)).toBeNull();
+  });
+});
+
+describe('v1.86.3 (§AC.19.5) · respuesta del PATCH y PREPARATION_INCOMPLETE', () => {
+  it('el PATCH devuelve {changed, line, preparation}: se pinta lo devuelto, ⛔ sin volver a pedir la cola', async () => {
+    const line = shipAccLine({ id: 'sal-1', name: 'Deck box' });
+    serve(order([line]));
+    const queue = vi.mocked(api.getAdminPreparationQueue);
+    const spy = vi.spyOn(api, 'setShipPrepAccessoryLine').mockResolvedValue({
+      changed: true,
+      line: { ...line, prepStatus: 'picked' },
+      preparation: { status: 'in_progress', refundPreviewCents: 0, total: 0, pending: 0, picked: 0, missing: 0, blocked: 0 },
+    });
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
+    const row = within(await card()).getByTestId('prep-acc-sal-1');
+    expect(queue).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(within(row).getByRole('group')).getByRole('button', { name: /^Lo tengo/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('prep-acc-sal-1')).toHaveAttribute('data-prep-status', 'picked'));
+    expect(queue).toHaveBeenCalledTimes(1);
+  });
+
+  it('el título del paquete sale de `kind` + deckName (name = deckName)', async () => {
+    serve(order([BUNDLE]));
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
+    const b = within(await card()).getByTestId('prep-acc-sal-b');
+    expect(within(b).getByText(/Paquete de energías.*Dragapult ex/)).toBeInTheDocument();
+  });
+
+  it('409 PREPARATION_INCOMPLETE {pendingCount:0, pendingAccessoryCount:1} ⇒ habla del accesorio, ⛔ no de «0 cartas»', async () => {
+    serve(order([shipAccLine({ id: 'sal-1', name: 'Deck box', prepStatus: 'picked' })]));
+    vi.spyOn(api, 'prepareShipment').mockRejectedValue(
+      new ApiClientError(409, { code: 'PREPARATION_INCOMPLETE', message: 'x', details: { pendingCount: 0, pendingAccessoryCount: 1 } }),
+    );
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
+    const c = await card();
+    fireEvent.click(within(c).getByRole('button', { name: 'Pedido preparado' }));
+    const confirm = await screen.findByTestId('ship-prepare-confirm').catch(() => null);
+    if (confirm) fireEvent.click(confirm);
+    expect(await screen.findByText(/Falta 1 accesorio por palomear\./)).toBeInTheDocument();
+    expect(screen.queryByText(/falta 0|faltan 0/i)).toBeNull();
   });
 });

@@ -33,9 +33,11 @@ const DTO: GuestOrderTrackingDTO = {
   support: { evidenceContact: 'evidencias@ejemplo.test', disputeWindowDays: 7 },
   tokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60_000).toISOString(),
   accessoryLines: [
-    { name: 'Penny sleeves x100', photo: photo('acc-1'), quantity: 2, unitPriceCents: 8_900, lineTotalCents: 17_800, refundedQty: 1, deckName: null, components: [] },
+    { id: 'oal-1', kind: 'accessory', name: 'Penny sleeves x100', photo: photo('acc-1'), quantity: 2, unitPriceCents: 8_900, lineTotalCents: 17_800, refundedQty: 1, deckName: null, components: [] },
     {
-      name: 'Paquete de energías',
+      id: 'oal-2',
+      kind: 'energy_bundle',
+      name: 'Dragapult ex', // v1.86.3 (§AC.19.6): en paquete `name = deckName`
       photo: null,
       quantity: 1,
       unitPriceCents: 2_000,
@@ -61,5 +63,23 @@ describe('§AC-UX.13 · seguimiento del invitado con accesorios', () => {
     expect(within(list).getByText('1 reembolsadas')).toBeInTheDocument();
     expect(within(list).getByText(/Paquete de energías — Dragapult ex · .*20\.00/)).toBeInTheDocument();
     expect(within(list).getByText('Fuego ×8 · Agua ×4')).toBeInTheDocument();
+  });
+
+  it('AC-F22 (v1.86.3, §AC.19.6): el paquete se titula por `kind`, no por `deckName !== null`', () => {
+    // ⚠️ Sonda fuera de contrato a propósito: un `accessory` con deckName. Si la pantalla discrimina por deckName,
+    // lo pintaría como paquete.
+    const probe: GuestOrderTrackingDTO = {
+      ...DTO,
+      accessoryLines: [
+        { id: 'oal-9', kind: 'accessory', name: 'Deck box', photo: null, quantity: 1, unitPriceCents: 9_900, lineTotalCents: 9_900, refundedQty: 0, deckName: 'Dragapult ex', components: [] },
+      ],
+    };
+    renderWithProviders(
+      <PublicOrderTracking data={probe} updatedAt={new Date()} isRefreshing={false} onRefresh={vi.fn()} onResendLink={vi.fn()} />,
+      'es',
+    );
+    const list = screen.getByTestId('tracking-accessories');
+    expect(within(list).getByText(/Deck box ×1 · .*99\.00/)).toBeInTheDocument();
+    expect(within(list).queryByText(/Paquete de energías/)).toBeNull();
   });
 });

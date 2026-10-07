@@ -10,7 +10,7 @@ import { useCart } from '@/lib/cart';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
-import type { GuestAddressInput, GuestCheckoutQuoteResponse, GuestCheckoutSessionResponse } from '@/types/contract';
+import type { GuestAddressInput, GuestCheckoutQuoteResponse, GuestCheckoutSessionResponse, UnavailableBundleDTO } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { AccessoryCartLines } from './AccessoryCartLines';
 import { AccessoryCartNotices } from './AccessoryCartNotices';
@@ -167,8 +167,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
    */
   const quoteData = query.data;
   const { removeAccessory, setAccessoryQty, removeDeckPull, deckPulls: localPulls } = cart;
+  const quoteIsPlaceholder = query.isPlaceholderData;
   useEffect(() => {
-    if (!quoteData) return;
+    // Una respuesta de una clave anterior (`keepPreviousData`) no describe el carrito de ahora: sus `index` no casan.
+    if (!quoteData || quoteIsPlaceholder) return;
     const out: AccessoryNotice[] = [];
     for (const u of quoteData.unavailableAccessories ?? []) {
       if (u.reason === 'insufficient' && (u.availableQty ?? 0) > 0) {
@@ -179,28 +181,27 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         out.push({ kind: 'removed', reason: u.reason === 'insufficient' ? 'sold_out' : u.reason, accessoryId: u.accessoryId, name: u.name });
       }
     }
-    const bad = quoteData.unavailableBundles ?? [];
-    const mentioned = new Set(
-      [...(quoteData.energyBundles ?? []), ...(quoteData.energyBundleOffers ?? [])].map((b) => b.deckSlug).concat(bad.map((b) => b.deckSlug ?? '')),
-    );
-    for (const b of bad) {
-      if (b.reason === 'duplicate' || !b.deckSlug) continue;
-      const local = localPulls.find((p) => p.slug === b.deckSlug);
-      if (!local) continue;
-      removeDeckPull(local.slug);
-      if (local.withEnergyBundle) out.push({ kind: 'bundle', reason: b.reason, slug: local.slug, deckName: local.deckName ?? null });
+    // v1.86.3 (§AC.19.4, AC-F21): cada `unavailableBundles[i].index` es la posición en los `deckPulls` que se
+    // mandaron, y esos salen de `cart.deckPulls` en el mismo orden (`quotePulls`). ⛔ Sin emparejar por `deckSlug`
+    // (un `invalid_token` no lo trae) ni por «el que la respuesta no nombra». El aviso lo decide el
+    // `withEnergyBundle` de la respuesta: un `deckPull` sin paquete sale en silencio (no se perdió nada).
+    const targets = new Map<string, { pull: (typeof localPulls)[number]; bad: UnavailableBundleDTO }>();
+    for (const b of quoteData.unavailableBundles ?? []) {
+      if (b.reason === 'duplicate') continue; // el carrito ya es único por deck; quitar por slug borraría el bueno
+      const local = localPulls[b.index];
+      if (!local || targets.has(local.slug)) continue;
+      targets.set(local.slug, { pull: local, bad: b });
     }
-    // `invalid_token` sin `deckSlug`: el servidor no pudo leer el token ⇒ sale el `deckPull` que la respuesta no nombra.
-    if (bad.some((b) => !b.deckSlug)) {
-      for (const local of localPulls.filter((p) => !mentioned.has(p.slug))) {
-        removeDeckPull(local.slug);
-        if (local.withEnergyBundle) out.push({ kind: 'bundle', reason: 'invalid_token', slug: null, deckName: null });
+    for (const { pull, bad: b } of targets.values()) {
+      removeDeckPull(pull.slug);
+      if (b.withEnergyBundle && b.reason !== 'duplicate') {
+        out.push({ kind: 'bundle', reason: b.reason, slug: pull.slug, deckName: pull.deckName ?? null });
       }
     }
     pushAccessoryNotices(out);
     // `localPulls` se lee al llegar la respuesta; no debe re-disparar la corrección por sí solo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quoteData, removeAccessory, setAccessoryQty, removeDeckPull]);
+  }, [quoteData, quoteIsPlaceholder, removeAccessory, setAccessoryQty, removeDeckPull]);
 
   // §AC-UX.7: «El envío cambió a {amount}…» entre dos cotizaciones; se borra en la siguiente sin cambio.
   const prevShipping = useRef<number | undefined>(undefined);
@@ -301,10 +302,14 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     setCreating(true);
     setPaymentInProgress(false);
     setAccessoryPayError(null);
+    let sentBundlePulls: typeof cart.deckPulls = [];
     try {
       // §4-R.3: el token del intento anterior (si sigue vivo) es el reclamo de la reserva propia.
       const retryOfCheckoutToken = readGuestRetryToken() ?? undefined;
-      const sessionPulls = cart.deckPulls.filter((p) => p.withEnergyBundle).map((p) => ({ pullToken: p.token, withEnergyBundle: true }));
+      // v1.86.3 (§AC.19.4): el `index` de un `422 ENERGY_BUNDLE_INVALID` es la posición en ESTA lista (solo los que
+      // llevan paquete), no en el carrito: se guarda para traducirlo.
+      sentBundlePulls = cart.deckPulls.filter((p) => p.withEnergyBundle);
+      const sessionPulls = sentBundlePulls.map((p) => ({ pullToken: p.token, withEnergyBundle: true }));
       const res = await createGuestCheckoutSession({
         inventoryItemIds: cart.ids,
         email: form.email.trim(),
@@ -349,7 +354,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       ) {
         // 💰 §AC.4 / §AC-UX.5: la sesión valida ANTES de crear nada ⇒ «No se cobró nada» es verdad. El carrito se
         // corrige y la clave nueva re-cotiza sola.
-        setAccessoryPayError(accessoryPayErrorOf(e));
+        setAccessoryPayError(accessoryPayErrorOf(e, sentBundlePulls));
       } else if (
         e instanceof ApiClientError &&
         (e.code === 'ITEM_UNAVAILABLE' || e.code === 'NOT_FOUND')
@@ -390,10 +395,13 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   }
 
   /** §AC-UX.5 «Errores al pagar»: corrige el carrito y devuelve el texto (⛔ sin cifras propias). */
-  function accessoryPayErrorOf(e: ApiClientError): string {
+  function accessoryPayErrorOf(e: ApiClientError, sentBundlePulls: typeof cart.deckPulls): string {
     const d = e.details ?? {};
     const accessoryId = typeof d.accessoryId === 'string' ? d.accessoryId : null;
-    const deckSlug = typeof d.deckSlug === 'string' ? d.deckSlug : null;
+    // v1.86.3 (§AC.19.4): `index` manda (con `invalid_token` el `deckSlug` es null); `deckSlug` es el respaldo de un
+    // servidor anterior sin `index`.
+    const byIndex = typeof d.index === 'number' ? sentBundlePulls[d.index] : undefined;
+    const deckSlug = byIndex?.slug ?? (typeof d.deckSlug === 'string' ? d.deckSlug : null);
     const lines = query.data?.accessoryLines ?? [];
     const bundles = query.data?.energyBundles ?? [];
     const bundleError = (slug: string | null) => {

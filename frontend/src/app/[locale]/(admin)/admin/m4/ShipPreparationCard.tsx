@@ -166,7 +166,8 @@ export function ShipPreparationCard({
   const refetchQueue = () => qc.invalidateQueries({ queryKey: QUEUE_KEY });
 
   // ---------- Palomear un accesorio (§AC.9 PATCH …/prep-accessory-lines/:lineId) ----------
-  // La respuesta no está en el contrato ⇒ no se lee: la cola se re-lee (estado optimista: no, §36.5).
+  // v1.86.3 (§AC.19.5): la respuesta `{changed, line, preparation}` se aplica a la cola, como `prep-items`
+  // (estado optimista: no, §36.5). `preparation.refundPreviewCents` ya trae el cambio.
   const [accBusy, setAccBusy] = useState<string | null>(null);
   const [accErrors, setAccErrors] = useState<Record<string, string>>({});
   const markAccessory = useMutation({
@@ -179,7 +180,13 @@ export function ShipPreparationCard({
         return next;
       });
     },
-    onSuccess: () => void refetchQueue(),
+    onSuccess: (res) => {
+      patchShip(qc, shipmentId, (o) => ({
+        ...o,
+        preparation: res.preparation,
+        accessoryLines: (o.accessoryLines ?? []).map((l) => (l.id === res.line.id ? res.line : l)),
+      }));
+    },
     onError: (e, v) => {
       const err = asApiError(e);
       const shown = err?.status === 409 && err.code === 'PREPARATION_CLOSED' ? ts('error.closed') : commonError(e, 'mark', () => markAccessory.mutate(v))?.text;
@@ -393,11 +400,13 @@ export function ShipPreparationCard({
       }
       setConfirmOpen(false);
       if (err?.status === 409 && err.code === 'PREPARATION_INCOMPLETE') {
-        setFooterError({
-          text: ts('error.incomplete', {
-            pendingCount: Number(err.details?.pendingCount ?? 0),
-          }),
-        });
+        // v1.86.3 (§AC.19.5): `pendingCount` son cartas; `pendingAccessoryCount` (aditivo) son renglones.
+        const pendingCount = Number(err.details?.pendingCount ?? 0);
+        const pendingAccessoryCount = Number(err.details?.pendingAccessoryCount ?? 0);
+        const parts: string[] = [];
+        if (pendingCount > 0 || !(pendingAccessoryCount > 0)) parts.push(ts('error.incomplete', { pendingCount }));
+        if (pendingAccessoryCount > 0) parts.push(ts('accessory.pendingLines', { n: pendingAccessoryCount }));
+        setFooterError({ text: parts.join(' ') });
         void refetchQueue();
         return;
       }

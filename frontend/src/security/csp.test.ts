@@ -72,7 +72,8 @@ describe('LIVE-3 · política objetivo (§14.3), producción', () => {
     const d = directives();
     expect(d['default-src']).toEqual(["'self'"]);
     expect(d['style-src']).toEqual(["'self'", "'unsafe-inline'", 'https://accounts.google.com/gsi/style']);
-    expect(d['img-src']).toEqual(["'self'", 'data:', 'blob:', 'https:']);
+    // v1.86.3 (§AC.19.1, AC-F20): + origen de la API (la foto del accesorio es una ruta de la API).
+    expect(d['img-src']).toEqual(["'self'", 'data:', 'blob:', 'https:', 'https://api.tcghunt.mx']);
     expect(d['font-src']).toEqual(["'self'", 'data:']);
     expect(d['worker-src']).toEqual(["'self'", 'blob:']);
     expect(d['object-src']).toEqual(["'none'"]);
@@ -185,6 +186,24 @@ describe('LIVE-3 · entornos', () => {
     expect(local['connect-src']).toContain('http://localhost:3001');
     expect(local['report-uri']).toEqual(['http://localhost:3001/api/v1/telemetry/csp']);
     expect(directives()['upgrade-insecure-requests']).toEqual([]);
+  });
+
+  it('AC-F20 (v1.86.3, §AC.19.1): img-src lleva el origen de la API (sin ruta), como connect-src', () => {
+    const local = directives({ ...PROD, apiBaseUrl: 'http://localhost:3001/api/v1', vercelEnv: undefined });
+    expect(local['img-src']).toContain('http://localhost:3001');
+    expect(local['img-src']).not.toContain('http:');
+    expect(local['img-src'].some((t) => t.includes('/api/v1'))).toBe(false);
+    const https = directives({ ...PROD, apiBaseUrl: 'https://api.x/api/v1' });
+    expect(https['img-src']).toContain('https://api.x');
+    // Sin API configurada (o inválida) ⇒ igual que antes de v1.86.3.
+    for (const apiBaseUrl of [undefined, '', 'not a url', 'javascript:alert(1)']) {
+      expect(directives({ ...PROD, apiBaseUrl } as CspEnv)['img-src'], String(apiBaseUrl)).toEqual([
+        "'self'",
+        'data:',
+        'blob:',
+        'https:',
+      ]);
+    }
   });
 
   it('API base relativa o inválida ⇒ connect-src sin ella y report-uri relativo al propio origen no se inventa', () => {

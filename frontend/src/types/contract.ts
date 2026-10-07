@@ -7066,8 +7066,11 @@ export interface GuestOrderTrackingDTO {
   claim: { available: boolean };
   support: { evidenceContact: string; disputeWindowDays: number; disputeDeadlineAt?: string };
   tokenExpiresAt: string;
-  /** 💰 §AC.12 (aditivo): renglones de accesorio. ⛔ Sin costo ni ids internos. */
-  accessoryLines?: Omit<OrderAccessoryLineDTO, 'id' | 'kind' | 'deliveredRefund'>[];
+  /**
+   * 💰 §AC.12 (aditivo): renglones de accesorio. ⛔ Sin costo. v1.86.3 (§AC.19.6): con `id` (uuid opaco, llave de
+   * lista) y `kind`; ⛔ `deliveredRefund` solo en M3.
+   */
+  accessoryLines?: Omit<OrderAccessoryLineDTO, 'deliveredRefund'>[];
 }
 
 /** POST /orders/guest/resend-link — unión discriminada; `email` SOLO nunca se acepta (§4-G.4). */
@@ -7590,6 +7593,10 @@ export interface UnavailableAccessoryDTO {
   availableQty?: number;
 }
 export interface UnavailableBundleDTO {
+  /** v1.86.3 (§AC.19.4): posición en `deckPulls` de la petición (0-based). Con `invalid_token` es la única llave. */
+  index: number;
+  /** v1.86.3 (§AC.19.4): lo que pedía ese `deckPull`. Decide si el aviso de paquete aparece. */
+  withEnergyBundle: boolean;
   deckSlug: string | null;
   reason: BundleReason;
 }
@@ -7665,7 +7672,7 @@ export interface ShipAccessoryLineDTO {
   deckAllMissing: boolean;
 }
 
-/** `PATCH /admin/shipments/:id/prep-accessory-lines/:lineId` (§AC.9). Respuesta: NO especificada (se re-lee la cola). */
+/** `PATCH /admin/shipments/:id/prep-accessory-lines/:lineId` (§AC.9; respuesta v1.86.3, §AC.19.5). */
 export interface SetShipPrepAccessoryLineRequest {
   status: PreparationItemStatus;
   /** 1..quantity; en energy_bundle solo 1. Obligatorio con `missing`. */
@@ -7673,15 +7680,32 @@ export interface SetShipPrepAccessoryLineRequest {
   missingReason?: MissingReason;
 }
 
-/** §AC.12 — renglón de accesorio en M3 / seguimiento / AV-2. Lista blanca, ⛔ sin costo. */
+/**
+ * v1.86.3 (§AC.19.5) — `200` del `PATCH …/prep-accessory-lines/:lineId`. `preparation.refundPreviewCents` ya incluye
+ * el cambio; `changed:false` ⇔ el cuerpo era igual a lo vigente (sin escritura). Los conteos son SOLO cartas.
+ */
+export interface SetShipPrepAccessoryLineResponse {
+  changed: boolean;
+  line: ShipAccessoryLineDTO;
+  preparation: ShipPreparationStateDTO;
+}
+
+/**
+ * v1.86.3 (§AC.19.5) — `details` de `409 PREPARATION_INCOMPLETE`: `pendingCount` son cartas (como hoy);
+ * `pendingAccessoryCount` es aditivo (renglones de accesorio `pending`). Opcional por tolerancia a un servidor anterior.
+ */
+export interface PreparationIncompleteDetails {
+  pendingCount: number;
+  pendingAccessoryCount?: number;
+}
+
+/** §AC.12 (+ v1.86.3, §AC.19.6) — renglón de accesorio en M3 / seguimiento. Lista blanca, ⛔ sin costo. */
 export interface OrderAccessoryLineDTO {
-  /**
-   * La llave de `…/accessory-lines/:lineId/refund-delivered`. §AC.12 no la enumera ⇒ opcional (solicitud al
-   * arquitecto, FRONTEND_NOTES §107): sin ella no hay botón de reembolso.
-   */
-  id?: string;
-  /** Idem: si falta, el paquete se infiere de `deckName !== null`. */
-  kind?: AccessoryLineKind;
+  /** v1.86.3 (§AC.19.6): `OrderAccessoryLine.id`, obligatorio. La llave de `…/accessory-lines/:lineId/refund-delivered`. */
+  id: string;
+  /** v1.86.3 (§AC.19.6): obligatorio. El paquete se reconoce por `kind` (⛔ no por `deckName !== null`). */
+  kind: AccessoryLineKind;
+  /** `snapshot.name`; en paquete = `deckName` (el título «Paquete de energías» lo pone la pantalla por `kind`). */
   name: string;
   photo: AccessoryPhotoDTO | null;
   quantity: number;

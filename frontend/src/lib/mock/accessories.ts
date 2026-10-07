@@ -334,28 +334,30 @@ export function mockQuoteAccessories(
     });
   }
   const seen = new Set<string>();
-  for (const p of pulls) {
+  // v1.86.3 (§AC.19.4): `index` = posición en `deckPulls` de la petición; `withEnergyBundle` = lo que pedía.
+  for (const [index, p] of pulls.entries()) {
+    const at = { index, withEnergyBundle: p.withEnergyBundle };
     const parsed = parsePull(p.pullToken);
     if (!parsed) {
-      out.unavailableBundles.push({ deckSlug: null, reason: 'invalid_token' });
+      out.unavailableBundles.push({ ...at, deckSlug: null, reason: 'invalid_token' });
       continue;
     }
     const detail = decks(parsed.slug);
     if (!detail) {
-      out.unavailableBundles.push({ deckSlug: parsed.slug, reason: 'deck_unpublished' });
+      out.unavailableBundles.push({ ...at, deckSlug: parsed.slug, reason: 'deck_unpublished' });
       continue;
     }
     if (!parsed.ids.every((id) => inventoryItemIds.includes(id))) {
-      out.unavailableBundles.push({ deckSlug: parsed.slug, reason: 'deck_incomplete' });
+      out.unavailableBundles.push({ ...at, deckSlug: parsed.slug, reason: 'deck_incomplete' });
       continue;
     }
     if (p.withEnergyBundle && seen.has(parsed.slug)) {
-      out.unavailableBundles.push({ deckSlug: parsed.slug, reason: 'duplicate' });
+      out.unavailableBundles.push({ ...at, deckSlug: parsed.slug, reason: 'duplicate' });
       continue;
     }
     const b = bundleFor(mockDecorateGroups(detail.groups));
     if (!b.offered) {
-      out.unavailableBundles.push({ deckSlug: parsed.slug, reason: b.reason === 'insufficient_stock' ? 'insufficient_stock' : 'not_offered' });
+      out.unavailableBundles.push({ ...at, deckSlug: parsed.slug, reason: b.reason === 'insufficient_stock' ? 'insufficient_stock' : 'not_offered' });
       continue;
     }
     const dto: EnergyBundleDTO = {

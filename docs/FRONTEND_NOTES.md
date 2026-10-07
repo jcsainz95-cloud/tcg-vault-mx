@@ -20662,3 +20662,41 @@ accesorio no simulados (aceptan y se re-lee).
 **E2E.** `e2e/accessories.spec.ts`: smoke **mock** en ES y EN (pestaña, listado, ficha, carrito con sugerencia, recuadro
 del paquete). ⛔ **Los recorridos de punta a punta de los criterios 724 y 748 contra el stack NO están escritos**: necesitan
 el backend de compra/preparación de §AC (stream B), que aún no existe.
+
+### §107.v1.86.3 · Errata v1.86.3 (`API_CONTRACT §AC.19`) aplicada al frontend (2026-10-07, rama `claude/accesorios`, base `4dd5649`)
+
+Sustituye, donde choque, los párrafos «Fotos» (CSP) y «Respuestas que el contrato no especifica» de arriba.
+
+- **AC-F20 · CSP.** `img-src` gana el origen de la API (`buildCsp`, `src/security/csp.ts`), el mismo `apiOrigin` que ya
+  usa `connect-src`: sin ruta, solo si `NEXT_PUBLIC_API_BASE_URL` es una URL http(s) válida; sin API (o inválida) la
+  directiva queda igual que antes. Es más estrecho que abrir `http:` y cierra el caso local (`http://localhost:3001`).
+  Único cambio en ese fichero; `scripts/check-csp-zap-parity.sh` sigue en rc 0 (`CSP_MODE` intacto, `report-only`).
+- **AC-F21 · corrección del carrito por `index`.** `UnavailableBundleDTO` gana `index` y `withEnergyBundle`. El efecto de
+  `GuestCheckoutView` quita `cart.deckPulls[index]` (la cotización manda los `deckPulls` en ese orden) y el aviso sale
+  solo si **la respuesta** dice `withEnergyBundle:true`. Se retiró la heurística «emparejar por `deckSlug`» / «el que la
+  respuesta no nombra». La corrección no corre con datos de relleno (`isPlaceholderData`, clave anterior): sus `index`
+  no describen el carrito actual. `duplicate` se sigue ignorando (el carrito es único por deck; quitar por slug borraría
+  el bueno). `422 ENERGY_BUNDLE_INVALID {index}` se traduce contra la lista que mandó la **sesión** (solo los que llevan
+  paquete); `deckSlug` queda de respaldo. El mock (`lib/mock/accessories.ts`) emite `index`/`withEnergyBundle`.
+- **AC-F22 · `OrderAccessoryLineDTO.id`/`kind` obligatorios.** M3 y el seguimiento reconocen el paquete por `kind`
+  (⛔ ya no por `deckName !== null`), usan `id` como llave y el botón de reembolso ya no depende de que exista `id`. El
+  seguimiento se tipa `Omit<OrderAccessoryLineDTO, 'deliveredRefund'>` (`deliveredRefund` solo en M3). En paquete
+  `name = deckName`: M4 (renglón, hoja imprimible y diálogo «no reembolsable») titula «Paquete de energías — {deck}» por
+  `kind`.
+- **Respuestas del panel tipadas** (`200 AdminAccessoryDTO` en `PATCH`, `activate`, `deactivate`, `stock`; la foto ya lo
+  estaba). La ficha se pinta con la fila devuelta (`setQueryData`, ⛔ sin volver a pedir `GET /admin/accessories/:id`); la
+  lista y el historial de movimientos sí se invalidan (otros recursos). «Sumamos n. Ahora hay N» toma `N` de la fila
+  devuelta (antes `stockQty + n`, que mentía con una entrada concurrente).
+- **`PATCH …/prep-accessory-lines/:lineId` ⇒ `{changed, line, preparation}`** (`SetShipPrepAccessoryLineResponse`): se
+  aplica a la cola como `prep-items` (reemplaza el renglón por `line.id` y `preparation`), sin re-leer. Mock: el simulador
+  de preparación no modela renglones de accesorio, así que responde `404 NOT_FOUND` (antes aceptaba en vacío).
+- **`409 PREPARATION_INCOMPLETE {pendingCount, pendingAccessoryCount}`** (`PreparationIncompleteDetails`): con cartas
+  pendientes, el texto de hoy; con renglones pendientes se añade `accessory.pendingLines` («Falta 1 accesorio por
+  palomear.»); con solo accesorios ya no dice «faltan 0 cartas». Sin copy nuevo: reusa los dos textos existentes (con
+  solo accesorios se pierde la coletilla «Puede que alguien acabe de deshacer una marca»; si ux-ui la quiere, es un copy).
+- **E2E.** `e2e/accessories.spec.ts:31`: `getByText('ACCESORIOS')` sin `exact` chocaba (strict mode) con el subtítulo de
+  «¿Te falta algo?» cuando las sugerencias llegaban antes del aserto. Medido N=10 (5 repeticiones × es/en): HEAD
+  `4dd5649` 9/10 verdes, este árbol sin el arreglo 7/10; con `{ exact: true }` 10/10. El caso «deck: Agregar de jalón…»
+  (`:39`) falla también en HEAD `4dd5649` (no encuentra «Ver deck» en `/decks-meta` mock): previo, **no tocado**.
+- **NO MEDIDO:** la foto con la API en `http:` y la CSP en `enforce` en un navegador real (la prueba es de la función pura);
+  ninguna de las respuestas nuevas contra el backend real (stream B aún no las sirve en este árbol).

@@ -247,6 +247,7 @@ import type {
   AdminAccessoryListResponse,
   AdminAccessoryWriteFields,
   SetShipPrepAccessoryLineRequest,
+  SetShipPrepAccessoryLineResponse,
   RefundAccessoryLineDeliveredRequest,
   RefundAccessoryLineDeliveredResponse,
   GuestCheckoutSessionResponse,
@@ -7227,7 +7228,7 @@ export async function createGuestCheckoutSession(
   );
   const badBundle = accSession.unavailableBundles[0];
   if (badBundle) {
-    throw new ApiClientError(422, { code: 'ENERGY_BUNDLE_INVALID', message: 'bundle', details: { deckSlug: badBundle.deckSlug, reason: badBundle.reason } });
+    throw new ApiClientError(422, { code: 'ENERGY_BUNDLE_INVALID', message: 'bundle', details: { index: badBundle.index, deckSlug: badBundle.deckSlug, reason: badBundle.reason } });
   }
   const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0) + accSession.extraSubtotalCents;
   // v1.68 (§4-R.3): la reserva propia existe SOLO con `retryOfCheckoutToken` válido y el mismo
@@ -7491,21 +7492,24 @@ export async function createAdminAccessory(body: AdminAccessoryCreateRequest): P
   return mockAccCall(() => mockAcc.mockAdminCreate(body, !mockRoleIsOperator()));
 }
 
-/** `PATCH /admin/accessories/:id` (§AC.11). Respuesta no especificada ⇒ quien llama re-lee la ficha. */
-export async function updateAdminAccessory(id: string, body: AdminAccessoryWriteFields): Promise<unknown> {
-  if (!config.useMocks) return apiRequest<unknown>(`/admin/accessories/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+/** `PATCH /admin/accessories/:id` (§AC.11). v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO` (sin cambios ⇒ la fila tal cual). */
+export async function updateAdminAccessory(id: string, body: AdminAccessoryWriteFields): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}`, { method: 'PATCH', body });
   return mockAccCall(() => mockAcc.mockAdminPatch(id, body, !mockRoleIsOperator()));
 }
 
-/** `POST /admin/accessories/:id/activate` (★). `422 ACCESSORY_NOT_ACTIVATABLE {missing}` · `409 ENERGY_TYPE_TAKEN`. */
-export async function activateAdminAccessory(id: string): Promise<unknown> {
-  if (!config.useMocks) return apiRequest<unknown>(`/admin/accessories/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+/**
+ * `POST /admin/accessories/:id/activate` (★). `422 ACCESSORY_NOT_ACTIVATABLE {missing}` · `409 ENERGY_TYPE_TAKEN`.
+ * v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO` (ya activo ⇒ idempotente).
+ */
+export async function activateAdminAccessory(id: string): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/activate`, { method: 'POST' });
   return mockAccCall(() => mockAcc.mockAdminActivate(id, true));
 }
 
-/** `POST /admin/accessories/:id/deactivate` (★). Siempre. */
-export async function deactivateAdminAccessory(id: string): Promise<unknown> {
-  if (!config.useMocks) return apiRequest<unknown>(`/admin/accessories/${encodeURIComponent(id)}/deactivate`, { method: 'POST' });
+/** `POST /admin/accessories/:id/deactivate` (★). Siempre. v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO`. */
+export async function deactivateAdminAccessory(id: string): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/deactivate`, { method: 'POST' });
   return mockAccCall(() => mockAcc.mockAdminActivate(id, false));
 }
 
@@ -7525,9 +7529,9 @@ export async function uploadAccessoryPhoto(id: string, file: File): Promise<Admi
   return mockAccCall(() => mockAcc.mockAdminPhoto(id, file));
 }
 
-/** `POST /admin/accessories/:id/stock` (operador+). Respuesta no especificada ⇒ re-lectura. */
-export async function postAccessoryStock(id: string, body: AccessoryStockRequest): Promise<unknown> {
-  if (!config.useMocks) return apiRequest<unknown>(`/admin/accessories/${encodeURIComponent(id)}/stock`, { method: 'POST', body });
+/** `POST /admin/accessories/:id/stock` (operador+). v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO`. */
+export async function postAccessoryStock(id: string, body: AccessoryStockRequest): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/stock`, { method: 'POST', body });
   return mockAccCall(() => mockAcc.mockAdminStock(id, body, getStoredUser()?.name ?? null));
 }
 
@@ -7541,18 +7545,24 @@ export async function listAccessoryStockMovements(id: string, page = 1): Promise
 
 /**
  * `PATCH /admin/shipments/:id/prep-accessory-lines/:lineId` (§AC.9, operador+). ⛔ No mueve dinero ni
- * existencias. Respuesta no especificada ⇒ la tarjeta re-lee la cola.
+ * existencias. v1.86.3 (§AC.19.5): `200 {changed, line, preparation}` — la tarjeta aplica lo devuelto.
  */
 export async function setShipPrepAccessoryLine(
   shipmentId: string,
   lineId: string,
   body: SetShipPrepAccessoryLineRequest,
-): Promise<unknown> {
+): Promise<SetShipPrepAccessoryLineResponse> {
   if (!config.useMocks) {
-    return apiRequest<unknown>(`/admin/shipments/${shipmentId}/prep-accessory-lines/${lineId}`, { method: 'PATCH', body });
+    return apiRequest<SetShipPrepAccessoryLineResponse>(`/admin/shipments/${shipmentId}/prep-accessory-lines/${lineId}`, {
+      method: 'PATCH',
+      body,
+    });
   }
-  // MOCK: el simulador de preparación no modela renglones de accesorio; acepta y la cola se re-lee.
-  return delay(undefined);
+  // MOCK: el simulador de preparación no modela renglones de accesorio (la cola mock no trae ninguno), así que
+  // ningún renglón existe: `404`, como respondería el servidor con una línea que no es de ese envío (§AC.19.5 paso 2).
+  return delay(undefined).then(() => {
+    throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Accessory line not found' });
+  });
 }
 
 /**

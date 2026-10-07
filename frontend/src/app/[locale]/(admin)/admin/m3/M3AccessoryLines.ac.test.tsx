@@ -48,7 +48,8 @@ const DETAIL: AdminOrderDetailDTO = {
       deliveredRefund: { kind: 'refundable', refundableQty: 2, amountByQtyCents: [9_311, 18_622] },
     },
     {
-      id: 'oal-2', kind: 'energy_bundle', name: 'Paquete de energías', photo: null, quantity: 1, unitPriceCents: 2_000,
+      id: 'oal-2', kind: 'energy_bundle', name: 'Dragapult ex', // v1.86.3 (§AC.19.6): name = deckName
+      photo: null, quantity: 1, unitPriceCents: 2_000,
       lineTotalCents: 2_000, refundedQty: 0, deckName: 'Dragapult ex',
       components: [
         { energyType: 'fire', quantity: 8 },
@@ -186,5 +187,26 @@ describe('AC-F19 · «Reembolsar unidades» con el importe del servidor', () => 
     renderWithProviders(<M3OrderDetailView orderId="ord-8001" />, 'es');
     await screen.findByTestId('m3-accessory-oal-1');
     expect(screen.queryByTestId('m3-accessory-refund-oal-1')).toBeNull();
+  });
+});
+
+describe('AC-F22 (v1.86.3, §AC.19.6) · id y kind obligatorios', () => {
+  it('el paquete se titula por `kind` (no por `deckName !== null`) y «Reembolsar unidades» usa la llave `id`', async () => {
+    const d = fresh();
+    // ⚠️ Sonda fuera de contrato a propósito: un `accessory` con deckName. Discriminar por deckName lo haría paquete.
+    d.accessoryLines = [{ ...d.accessoryLines![0], id: 'oal-7', deckName: 'Dragapult ex' }];
+    vi.spyOn(api, 'getAdminOrder').mockResolvedValue(d);
+    const post = vi.spyOn(api, 'refundAccessoryLineDelivered').mockResolvedValue({ refund: {} as never });
+    renderWithProviders(<M3OrderDetailView orderId="ord-8001" />, 'es');
+    const row = await screen.findByTestId('m3-accessory-oal-7');
+    expect(within(row).getByText(/Penny sleeves x100 ×3/)).toBeInTheDocument();
+    expect(within(row).queryByText(/Paquete de energías/)).toBeNull();
+    const dialog = await openDialog('oal-7');
+    // Renglón suelto ⇒ con stepper (un paquete no lo lleva).
+    expect(within(dialog).getByRole('spinbutton', { name: 'Cuántas' })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('radio', { name: /No llegó/ }));
+    fillNote(dialog);
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Reembolsar 1/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('ord-8001', 'oal-7', expect.objectContaining({ quantity: 1 })));
   });
 });

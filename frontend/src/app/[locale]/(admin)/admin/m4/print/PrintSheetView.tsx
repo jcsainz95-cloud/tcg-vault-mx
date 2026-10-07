@@ -154,7 +154,7 @@ export function PrintSheetView({ destination, shipmentId, placementId }: { desti
                             </td>
                             <td className="tabular py-2 pr-3 align-top font-mono text-[16px]">{ts('accessory.qty', { n: l.quantity })}</td>
                             <td className="py-2 pr-3 align-top" colSpan={3}>
-                              {l.kind === 'energy_bundle' && l.deckName ? ts('accessory.bundleTitle', { deck: l.deckName }) : l.name}
+                              {l.kind === 'energy_bundle' ? ts('accessory.bundleTitle', { deck: l.deckName ?? l.name }) : l.name}
                               {l.components.length > 0 && (
                                 <ul className="mt-1">
                                   {sortByEnergyType(l.components).map((c) => (

@@ -63,7 +63,8 @@ export function ShipAccessoryRow({
   const [k, setK] = useState(1);
   const [reason, setReason] = useState<MissingReason>('not_found');
   const isBundle = line.kind === 'energy_bundle';
-  const title = isBundle && line.deckName ? t('bundleTitle', { deck: line.deckName }) : line.name;
+  // v1.86.3 (§AC.19.5): en paquete `name = deckName`; el título lo pone la pantalla por `kind`.
+  const title = isBundle ? t('bundleTitle', { deck: line.deckName ?? line.name }) : line.name;
   const locked = line.refunded || line.refund.kind === 'refunded';
   const aria = (action: string) => t('actionAria', { action, name: title, n: line.quantity });
   const mark = (status: PreparationItemStatus, missingQty?: number, missingReason?: MissingReason) =>
@@ -229,7 +230,8 @@ export function accessoryDialogLine(
   locale: AppLocale,
 ): string {
   const damaged = l.missingReason === 'damaged';
-  if (l.refund.kind !== 'refundable') return t('dialogNotRefundable', { name: l.name, k: l.missingQty, n: l.quantity });
+  const name = l.kind === 'energy_bundle' ? t('bundleTitle', { deck: l.deckName ?? l.name }) : l.name;
+  if (l.refund.kind !== 'refundable') return t('dialogNotRefundable', { name, k: l.missingQty, n: l.quantity });
   const amount = formatMoneyCents(l.refund.amountCents, locale);
   if (l.kind === 'energy_bundle') return t(damaged ? 'dialogBundleDamaged' : 'dialogBundle', { deck: l.deckName ?? l.name, amount });
   return t(damaged ? 'dialogLineDamaged' : 'dialogLine', { name: l.name, k: l.missingQty, n: l.quantity, amount });

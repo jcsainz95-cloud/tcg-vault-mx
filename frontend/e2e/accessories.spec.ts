@@ -28,7 +28,7 @@ for (const locale of LOCALES) {
       await page.getByRole('button', { name: t(locale, 'accessories.addToCart') }).click();
 
       await page.goto(`/${locale}/checkout`);
-      await expect(page.getByText(t(locale, 'checkout.accessories.groupAccessories'))).toBeVisible();
+      await expect(page.getByText(t(locale, 'checkout.accessories.groupAccessories'), { exact: true })).toBeVisible();
       await expect(page.getByTestId('cart-accessory-acc-sleeves')).toBeVisible();
       const suggestions = page.getByRole('region', { name: t(locale, 'checkout.suggestions.title') });
       await expect(suggestions).toBeVisible();

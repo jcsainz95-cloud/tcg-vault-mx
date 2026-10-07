@@ -367,12 +367,13 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                   <section className="flex flex-col gap-2" data-testid="m3-accessories">
                     <h2 className="text-h2 font-semibold">{tacc('title')}</h2>
                     <ul className="flex flex-col divide-y divide-border border-y border-border">
-                      {o.accessoryLines!.map((l, i) => {
-                        const isBundle = l.kind === 'energy_bundle' || (l.kind === undefined && l.deckName !== null);
-                        const key = l.id ?? `acc-${i}`;
+                      {o.accessoryLines!.map((l) => {
+                        // v1.86.3 (§AC.19.6): `id` y `kind` obligatorios; el paquete se reconoce por `kind`.
+                        const isBundle = l.kind === 'energy_bundle';
+                        const key = l.id;
                         const total = formatMoneyCents(l.lineTotalCents, locale);
                         const dr = l.deliveredRefund;
-                        const canRefund = isSuperAdmin && !!l.id && dr?.kind === 'refundable' && dr.amountByQtyCents.length > 0;
+                        const canRefund = isSuperAdmin && dr?.kind === 'refundable' && dr.amountByQtyCents.length > 0;
                         return (
                           <li key={key} data-testid={`m3-accessory-${key}`} className="flex flex-wrap items-baseline justify-between gap-2 py-3 text-sm text-text">
                             <span className="flex flex-col">
@@ -391,7 +392,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                                   setError(null);
                                   setAccTarget({
                                     orderId,
-                                    lineId: l.id!,
+                                    lineId: l.id,
                                     name: isBundle && l.deckName ? tacc('bundleLine', { deck: l.deckName, total }) : l.name,
                                     isBundle,
                                     amountByQtyCents: dr.amountByQtyCents,

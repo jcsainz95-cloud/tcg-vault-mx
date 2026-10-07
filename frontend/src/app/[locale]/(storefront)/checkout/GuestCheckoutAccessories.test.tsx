@@ -167,7 +167,7 @@ describe('AC-F18 · avisos de la cotización (el carrito se corrige solo)', () =
       deckPulls: [{ token: 'tok', slug: 'dragapult-ex', withEnergyBundle: true, deckName: 'Dragapult ex' }],
     });
     vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(
-      guestQuote({ unavailableBundles: [{ deckSlug: 'dragapult-ex', reason: 'deck_incomplete' }] }),
+      guestQuote({ unavailableBundles: [{ index: 0, withEnergyBundle: true, deckSlug: 'dragapult-ex', reason: 'deck_incomplete' }] }),
     );
     render();
     expect(
@@ -182,7 +182,7 @@ describe('AC-F18 · avisos de la cotización (el carrito se corrige solo)', () =
   it('un deckPull sin paquete que se invalida se quita EN SILENCIO (no había nada que perder)', async () => {
     seedCart({ ids: ['inv-1002'], deckPulls: [{ token: 'tok', slug: 'dragapult-ex', withEnergyBundle: false, deckName: 'Dragapult ex' }] });
     vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(
-      guestQuote({ unavailableBundles: [{ deckSlug: 'dragapult-ex', reason: 'deck_incomplete' }] }),
+      guestQuote({ unavailableBundles: [{ index: 0, withEnergyBundle: false, deckSlug: 'dragapult-ex', reason: 'deck_incomplete' }] }),
     );
     render();
     await waitFor(() => expect(cart().deckPulls).toEqual([]));
@@ -393,6 +393,82 @@ describe('AC-F9 · F-SP-5: el importe del botón y del modal sale de la SESIÓN'
     expect(alert.closest('[role="alert"]')).not.toBeNull();
     await waitFor(() => expect(cart().deckPulls).toEqual([]));
   });
+});
+
+describe('AC-F21 (v1.86.3, §AC.19.4) · el carrito se corrige por `index` de unavailableBundles', () => {
+  const A = { token: 'tok-a', slug: 'charizard-ex', withEnergyBundle: false, deckName: 'Charizard ex' };
+  const B = { token: 'tok-b-roto', slug: 'dragapult-ex', withEnergyBundle: true, deckName: 'Dragapult ex' };
+
+  it('dos deckPulls e invalid_token en index 1 (deckSlug null) ⇒ sale SOLO el segundo, con aviso (llevaba paquete)', async () => {
+    seedCart({ ids: ['inv-1002'], deckPulls: [A, B] });
+    // ⚠️ A no aparece en energyBundles ni en energyBundleOffers: la heurística «el que la respuesta no nombra» lo
+    // quitaría también. Con `index` solo sale B.
+    // La re-cotización (carrito ya corregido) llega limpia: un mock fijo volvería a señalar la MISMA posición.
+    vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(guestQuote()).mockResolvedValueOnce(
+      guestQuote({ unavailableBundles: [{ index: 1, withEnergyBundle: true, deckSlug: null, reason: 'invalid_token' }] }),
+    );
+    render();
+    await waitFor(() => expect(cart().deckPulls.map((p: { slug: string }) => p.slug)).toEqual(['charizard-ex']));
+    expect(await screen.findByText(/salió del carrito/)).toBeInTheDocument();
+  });
+
+  it('invalid_token en index 0 sin paquete ⇒ sale el primero EN SILENCIO; el segundo se queda', async () => {
+    seedCart({ ids: ['inv-1002'], deckPulls: [A, B] });
+    // La re-cotización (carrito ya corregido) llega limpia: un mock fijo volvería a señalar la MISMA posición.
+    vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(guestQuote()).mockResolvedValueOnce(
+      guestQuote({ unavailableBundles: [{ index: 0, withEnergyBundle: false, deckSlug: null, reason: 'invalid_token' }] }),
+    );
+    render();
+    await waitFor(() => expect(cart().deckPulls.map((p: { slug: string }) => p.slug)).toEqual(['dragapult-ex']));
+    expect(screen.queryByText(/salió del carrito/)).toBeNull();
+  });
+
+  it('el aviso lo decide `withEnergyBundle` de la respuesta (aunque el carrito local diga otra cosa)', async () => {
+    seedCart({ ids: ['inv-1002'], deckPulls: [A, { ...B, token: 'tok-b' }] });
+    // La re-cotización (carrito ya corregido) llega limpia: un mock fijo volvería a señalar la MISMA posición.
+    vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(guestQuote()).mockResolvedValueOnce(
+      guestQuote({ unavailableBundles: [{ index: 0, withEnergyBundle: true, deckSlug: 'charizard-ex', reason: 'deck_incomplete' }] }),
+    );
+    render();
+    expect(
+      await screen.findByText('El paquete de energías de Charizard ex salió del carrito: ya no están todas las cartas del deck.'),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(cart().deckPulls.map((p: { slug: string }) => p.slug)).toEqual(['dragapult-ex']));
+  });
+
+  it('422 ENERGY_BUNDLE_INVALID {index, deckSlug:null}: sale el deckPull de esa posición entre los que se mandaron', async () => {
+    const usr = userEvent.setup();
+    const C = { token: 'tok-c-roto', slug: 'gardevoir-ex', withEnergyBundle: true, deckName: 'Gardevoir ex' };
+    // La sesión manda SOLO los que llevan paquete: [B, C] ⇒ index 1 = C.
+    seedCart({ ids: ['inv-1002'], deckPulls: [A, { ...B, token: 'tok-b' }, C] });
+    vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(guestQuote({ energyBundles: [bundle()] }));
+    const post = vi.spyOn(api, 'createGuestCheckoutSession').mockRejectedValue(
+      new ApiClientError(422, { code: 'ENERGY_BUNDLE_INVALID', message: 'x', details: { index: 1, deckSlug: null, reason: 'invalid_token' } }),
+    );
+    render();
+    await fillGuestForm(usr);
+    await usr.click(within(screen.getByRole('complementary')).getByRole('button', { name: /^Pagar/ }));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(post.mock.calls[0][0].deckPulls).toEqual([
+      { pullToken: 'tok-b', withEnergyBundle: true },
+      { pullToken: 'tok-c-roto', withEnergyBundle: true },
+    ]);
+    expect(await screen.findByText(/El paquete de energías de Gardevoir ex ya no se puede pagar\. No se cobró nada\./)).toBeInTheDocument();
+    await waitFor(() => expect(cart().deckPulls.map((p: { slug: string }) => p.slug)).toEqual(['charizard-ex', 'dragapult-ex']));
+  });
+
+  async function fillGuestForm(usr: ReturnType<typeof userEvent.setup>) {
+    await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
+    await usr.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
+    await usr.click(screen.getByRole('checkbox', { name: /Confirmo que/ }));
+    await usr.type(screen.getByLabelText('Nombre de quien recibe'), 'Juan Pérez');
+    await usr.type(screen.getByLabelText('Calle y número'), 'Av. Reforma 123');
+    await usr.type(screen.getByLabelText('Código postal'), '06600');
+    await screen.findByRole('option', { name: 'Juárez' });
+    await usr.selectOptions(screen.getByRole('combobox', { name: 'Colonia' }), 'Juárez');
+    await usr.type(screen.getByLabelText('Teléfono'), '5512345678');
+    await usr.click(screen.getByRole('checkbox', { name: /Acepto los términos/ }));
+  }
 });
 
 // Tipado: que el testkit produzca la forma del contrato.

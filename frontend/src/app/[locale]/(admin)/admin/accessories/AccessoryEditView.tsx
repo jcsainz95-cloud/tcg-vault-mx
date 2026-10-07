@@ -65,7 +65,8 @@ export function activationMissing(a: AdminAccessoryDTO): AccessoryActivationMiss
  * Alta y edición de un accesorio (`API_CONTRACT §AC.11`, `DESIGN_SYSTEM §AC-UX.9b/.9c`). Una página por accesorio,
  * en bloques con su propio guardar (un error de foto no tira lo escrito en los datos). ★ (solo súper-admin): precio
  * y costo editables, publicación, «Sugerido» y borrar; al operador ⛔ ni el costo aparece (el DTO no lo trae).
- * Las respuestas que el contrato no especifica no se leen: se re-lee la ficha.
+ * v1.86.3 (§AC.19.2): PATCH, activar, desactivar, existencias y foto responden `200 AdminAccessoryDTO`; la ficha
+ * se pinta con esa fila (⛔ sin volver a pedirla). La lista y el historial sí se invalidan: son otros recursos.
  */
 export function AccessoryEditView({ id }: { id?: string }) {
   const t = useTranslations('admin.accessories');
@@ -143,6 +144,16 @@ function useInvalidate(id?: string) {
   };
 }
 
+/** v1.86.3 (§AC.19.2): la fila devuelta ES la ficha; solo la lista y el historial se re-leen. */
+function useApplyAccessory(id: string) {
+  const qc = useQueryClient();
+  return (dto: AdminAccessoryDTO) => {
+    qc.setQueryData(['admin-accessory', id], dto);
+    void qc.invalidateQueries({ queryKey: ['admin-accessories'] });
+    void qc.invalidateQueries({ queryKey: ['accessory-stock-movements', id] });
+  };
+}
+
 /** Texto de `403 FORBIDDEN_FIELD {fields}` (defensa: la pantalla no ofrece esos campos al operador). */
 function useForbiddenText() {
   const t = useTranslations('admin.accessories');
@@ -166,6 +177,7 @@ function DataBlock({ a }: { a?: AdminAccessoryDTO }) {
   const getError = useErrorMessage('operator');
   const forbidden = useForbiddenText();
   const invalidate = useInvalidate(a?.id);
+  const apply = useApplyAccessory(a?.id ?? '');
   const [name, setName] = useState(a?.name ?? '');
   const [category, setCategory] = useState<AccessoryCategory | ''>(a?.category ?? '');
   const [energyType, setEnergyType] = useState<EnergyType | ''>(a?.energyType ?? '');
@@ -202,20 +214,20 @@ function DataBlock({ a }: { a?: AdminAccessoryDTO }) {
       // ⛔ Sin campos ★ en el alta: nace inactiva y sin precio para el operador (§AC.11).
       const body = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as AdminAccessoryWriteFields;
       if (!a) return { created: await createAdminAccessory(body as AdminAccessoryWriteFields & { name: string; category: AccessoryCategory }) };
-      await updateAdminAccessory(a.id, body);
-      return { created: null };
+      return { created: null, updated: await updateAdminAccessory(a.id, body) };
     },
     onMutate: () => {
       setError(null);
       setSaved(false);
     },
-    onSuccess: ({ created }) => {
+    onSuccess: ({ created, updated }) => {
       if (created) {
         router.push(`/admin/accessories/${created.id}?created=1`);
         return;
       }
       setSaved(true);
-      invalidate();
+      if (updated) apply(updated);
+      else invalidate();
     },
     onError: (e) => {
       const err = asApiError(e);
@@ -313,13 +325,13 @@ function DataBlock({ a }: { a?: AdminAccessoryDTO }) {
 function PhotoBlock({ a, headingRef }: { a: AdminAccessoryDTO; headingRef: React.Ref<HTMLElement> }) {
   const t = useTranslations('admin.accessories.photo');
   const getError = useErrorMessage('operator');
-  const invalidate = useInvalidate(a.id);
+  const apply = useApplyAccessory(a.id);
   const inputId = useId();
   const [error, setError] = useState<string | null>(null);
   const upload = useMutation({
     mutationFn: (file: File) => uploadAccessoryPhoto(a.id, file),
     onMutate: () => setError(null),
-    onSuccess: () => invalidate(),
+    onSuccess: (dto) => apply(dto),
     onError: (e) => {
       const err = asApiError(e);
       const reason = String(err?.details?.reason ?? '');
@@ -378,7 +390,7 @@ function PriceBlock({ a, canEdit }: { a: AdminAccessoryDTO; canEdit: boolean }) 
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage('operator');
   const forbidden = useForbiddenText();
-  const invalidate = useInvalidate(a.id);
+  const apply = useApplyAccessory(a.id);
   const [price, setPrice] = useState(centsToPesosInput(a.priceCents));
   const [cost, setCost] = useState(centsToPesosInput(a.unitCostCents ?? null));
   const [error, setError] = useState<string | null>(null);
@@ -388,7 +400,7 @@ function PriceBlock({ a, canEdit }: { a: AdminAccessoryDTO; canEdit: boolean }) 
   const save = useMutation({
     mutationFn: () => updateAdminAccessory(a.id, { priceCents, unitCostCents: costCents }),
     onMutate: () => setError(null),
-    onSuccess: () => invalidate(),
+    onSuccess: (dto) => apply(dto),
     onError: (e) => {
       const err = asApiError(e);
       setError(err?.code === 'FORBIDDEN_FIELD' ? forbidden(err.details?.fields) : getError(e));
@@ -449,6 +461,7 @@ function StockBlock({ a }: { a: AdminAccessoryDTO }) {
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage('operator');
   const invalidate = useInvalidate(a.id);
+  const apply = useApplyAccessory(a.id);
   const [open, setOpen] = useState<'receive' | 'adjust' | null>(null);
   const [qty, setQty] = useState('');
   const [note, setNote] = useState('');
@@ -473,10 +486,11 @@ function StockBlock({ a }: { a: AdminAccessoryDTO }) {
         ? postAccessoryStock(a.id, { kind: 'receive', quantity: receiveN as number, ...(note.trim() ? { note: note.trim() } : {}) })
         : postAccessoryStock(a.id, { kind: 'adjust', newStockQty: realN as number, expectedStockQty: expected, reason: reason.trim() }),
     onMutate: () => setDialogError(null),
-    onSuccess: () => {
-      setDone(open === 'receive' ? t('receiveDone', { n: receiveN as number, stock: a.stockQty + (receiveN as number) }) : t('adjustDone', { n: realN as number }));
+    onSuccess: (dto) => {
+      // «Ahora hay N» = lo que respondió el servidor (⛔ no `stockQty + n`: pudo entrar otra cosa a la vez).
+      setDone(open === 'receive' ? t('receiveDone', { n: receiveN as number, stock: dto.stockQty }) : t('adjustDone', { n: realN as number }));
       setOpen(null);
-      invalidate();
+      apply(dto);
     },
     onError: (e) => {
       const err = asApiError(e);
@@ -626,7 +640,7 @@ function PublishBlock({ a }: { a: AdminAccessoryDTO }) {
   const t = useTranslations('admin.accessories.publish');
   const ta = useTranslations('accessories');
   const getError = useErrorMessage('operator');
-  const invalidate = useInvalidate(a.id);
+  const apply = useApplyAccessory(a.id);
   const reasonId = useId();
   const suggestedId = useId();
   const [serverMissing, setServerMissing] = useState<string[] | null>(null);
@@ -644,7 +658,7 @@ function PublishBlock({ a }: { a: AdminAccessoryDTO }) {
       setTaken(null);
       setError(null);
     },
-    onSuccess: () => invalidate(),
+    onSuccess: (dto) => apply(dto),
     onError: (e) => {
       const err = asApiError(e);
       if (err?.code === 'ACCESSORY_NOT_ACTIVATABLE' && Array.isArray(err.details?.missing)) {
@@ -656,7 +670,7 @@ function PublishBlock({ a }: { a: AdminAccessoryDTO }) {
   });
   const suggest = useMutation({
     mutationFn: (next: boolean) => updateAdminAccessory(a.id, { suggested: next }),
-    onSuccess: () => invalidate(),
+    onSuccess: (dto) => apply(dto),
     onError: (e) => setError(getError(e)),
   });
 

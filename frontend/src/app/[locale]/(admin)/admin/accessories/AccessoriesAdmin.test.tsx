@@ -150,7 +150,7 @@ describe('AC-UX-10 · lo que ve el operador y lo que ve el súper-admin en la fi
   it('súper-admin: precio y costo editables, «Sugerido», «Quitar de la tienda» y PATCH con centavos', async () => {
     const user = userEvent.setup();
     vi.spyOn(api, 'getAdminAccessory').mockResolvedValue(SLEEVES);
-    const patch = vi.spyOn(api, 'updateAdminAccessory').mockResolvedValue(undefined);
+    const patch = vi.spyOn(api, 'updateAdminAccessory').mockResolvedValue({ ...SLEEVES, priceCents: 9550 });
     renderWithProviders(<AccessoryEditView id="acc-1" />, 'es');
     const price = await screen.findByLabelText('Precio de venta (con IVA)');
     expect(screen.getByLabelText('Costo por unidad')).toHaveValue('40.00');
@@ -267,7 +267,7 @@ describe('AC-F10 · existencias con motivo', () => {
     vi.spyOn(api, 'getAdminAccessory').mockResolvedValue(SLEEVES);
     const stock = vi
       .spyOn(api, 'postAccessoryStock')
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(SLEEVES)
       .mockRejectedValueOnce(new ApiClientError(409, { code: 'STOCK_CONFLICT', message: 'x', details: { stockQty: 25 } }))
       .mockRejectedValueOnce(new ApiClientError(409, { code: 'STOCK_BELOW_RESERVED', message: 'x', details: { reservedQty: 3 } }));
     renderWithProviders(<AccessoryEditView id="acc-1" />, 'es');
@@ -322,5 +322,47 @@ describe('AC-F10 · existencias con motivo', () => {
     expect(within(hist).getByText('Pedido TCG-000201')).toBeInTheDocument();
     expect(within(hist).getByText('+2')).toBeInTheDocument();
     expect(within(hist).getByText('conteo físico')).toBeInTheDocument();
+  });
+});
+
+describe('v1.86.3 (§AC.19.2) · el panel usa la fila devuelta (200 AdminAccessoryDTO), ⛔ sin releer la ficha', () => {
+  it('activar: pinta lo devuelto y no vuelve a pedir GET /admin/accessories/:id', async () => {
+    const user = userEvent.setup();
+    const get = vi.spyOn(api, 'getAdminAccessory').mockResolvedValue({ ...SLEEVES, active: false });
+    vi.spyOn(api, 'activateAdminAccessory').mockResolvedValue({ ...SLEEVES, active: true });
+    renderWithProviders(<AccessoryEditView id="acc-1" />, 'es');
+    await user.click(await screen.findByRole('button', { name: 'Publicar en la tienda' }));
+    expect(await screen.findByRole('button', { name: 'Quitar de la tienda' })).toBeInTheDocument();
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('existencias: «Ahora hay N» y el contador salen de la fila devuelta (⛔ no de stock + n)', async () => {
+    const user = userEvent.setup();
+    const get = vi.spyOn(api, 'getAdminAccessory').mockResolvedValue(SLEEVES);
+    // ⚠️ 31 ≠ 20 + 5: otra entrada concurrente. La pantalla dice lo que respondió el servidor.
+    vi.spyOn(api, 'postAccessoryStock').mockResolvedValue({ ...SLEEVES, stockQty: 31, availableQty: 28 });
+    renderWithProviders(<AccessoryEditView id="acc-1" />, 'es');
+    expect(await screen.findByText('Existencias: 20')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Entraron' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Cantidad'), '5');
+    await user.click(within(dialog).getByRole('button', { name: 'Sumar 5' }));
+    expect(await screen.findByText('Sumamos 5. Ahora hay 31.')).toBeInTheDocument();
+    expect(await screen.findByText('Existencias: 31')).toBeInTheDocument();
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('PATCH (precio): no vuelve a pedir la ficha', async () => {
+    const user = userEvent.setup();
+    const get = vi.spyOn(api, 'getAdminAccessory').mockResolvedValue(SLEEVES);
+    vi.spyOn(api, 'updateAdminAccessory').mockResolvedValue({ ...SLEEVES, priceCents: 9550 });
+    renderWithProviders(<AccessoryEditView id="acc-1" />, 'es');
+    const price = await screen.findByLabelText('Precio de venta (con IVA)');
+    await user.clear(price);
+    await user.type(price, '95.50');
+    await user.click(screen.getByRole('button', { name: 'Guardar precio' }));
+    await waitFor(() => expect(api.updateAdminAccessory).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(get).toHaveBeenCalledTimes(1);
   });
 });
