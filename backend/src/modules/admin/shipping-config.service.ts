@@ -32,6 +32,7 @@ const PACKAGE_SELECT = {
   providerPackageType: true,
   active: true,
   sortOrder: true,
+  customerFeeCents: true, // v1.86⟨accesorios⟩ (§AC.7): la tarifa entra sola a `shipping.packages_updated {before, after}`
 } as const;
 
 export interface ShippingCatalogsDTO {

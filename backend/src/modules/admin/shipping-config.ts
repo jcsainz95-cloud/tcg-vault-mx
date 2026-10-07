@@ -20,6 +20,10 @@ export interface ShippingPackageDTO {
   providerPackageType: string;
   active: boolean;
   sortOrder: number;
+  // 💰 v1.86⟨accesorios⟩ (§AC.7 «Cajas en el panel»): lo que paga el CLIENTE por esta caja, IVA dentro. `null` ⇒ la caja no
+  // cuenta para el cobro. Rango del CHECK `shipping_package_customer_fee` (1..10_000_000). AUSENTE en el cuerpo ⇒ `null`
+  // (el `PUT` es reemplazo entero: lo que no viene no se conserva — BACKEND_NOTES §83.A).
+  customerFeeCents: number | null;
 }
 
 export const MAX_PACKAGES = 50;
@@ -27,6 +31,7 @@ const CODE_MAX = 40;
 const LABEL_MAX = 80;
 const PROVIDER_TYPE_MAX = 20;
 const DIM_MAX = 1000;
+export const CUSTOMER_FEE_MAX = 10_000_000;
 
 const bad = (field: string, extra: Record<string, unknown> = {}) =>
   BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field}`, { field, ...extra });
@@ -60,6 +65,8 @@ export function parsePackagesBody(body: unknown): ShippingPackageDTO[] {
     if (providerPackageType === null) throw bad('providerPackageType', { index });
     if (typeof r.active !== 'boolean') throw bad('active', { index });
     if (typeof r.sortOrder !== 'number' || !Number.isInteger(r.sortOrder) || Math.abs(r.sortOrder) > 1_000_000) throw bad('sortOrder', { index });
+    const fee = r.customerFeeCents;
+    if (fee !== undefined && fee !== null && !isPosInt(fee, CUSTOMER_FEE_MAX)) throw bad('customerFeeCents', { index });
     out.push({
       code,
       label,
@@ -70,6 +77,7 @@ export function parsePackagesBody(body: unknown): ShippingPackageDTO[] {
       providerPackageType,
       active: r.active,
       sortOrder: r.sortOrder,
+      customerFeeCents: fee === undefined || fee === null ? null : (fee as number),
     });
   });
   if (!out.some((p) => p.active && p.providerPackageType.length > 0)) throw bad('packages', { reason: 'no_active_package' });
