@@ -8,6 +8,13 @@
 > (`/home/user/tcg-bsdx/backend/prisma/schema.prisma`, rama `claude/buylist-skydropx`). Qué cambia sin M-72: §11.
 > **Todas las citas `fichero:línea` de código** son sobre el árbol de `/home/user/tcg-bsdx` (PR #78), medidas el
 > 2026-10-06. Lo no medido va marcado **NO MEDIDO**.
+>
+> ⚠️ **REVISIÓN v2 (2026-10-07) — §14 MANDA SOBRE ESTE TEXTO.** El dueño cambió de decisión: **también se borra el
+> inventario** (`HECHOS.md:80`). Quedan **sustituidos** por §14: §1 puntos 2–4, §2.3, la fila `InventoryBatch` y
+> `PendingPriceEntry` de §2.2/§2.3, §4 entero (conjunto `T` como plan de restauración, estado destino, movimientos de
+> cierre, re-publicación, P-1), §5.3, G-4 y G-6, el paso E de §8, §8.3 en lo de inventario, §9.2/§9.5 y P-1/P-2 de §10.
+> Lo demás (§2.1, §2.4–§2.7, §3, §5.1–§5.2, §5.4, §6, §8.4–§8.5, §11) sigue vigente. Las citas de §14 son sobre
+> `/home/user/tcg-limpieza` (rama `claude/limpieza-db`, HEAD `c313d73f` según el encargo; el sha **no lo medí yo**).
 
 ---
 
@@ -478,3 +485,272 @@ Si aun así quieres otra cosa, dilo y se rediseña.
   en la etiqueta; cómo restaura Railway; retención de los respaldos de Railway; efecto de borrar `SpendDigestRun` /
   `SpendOwnerWatch` (por eso se conservan); estado derivado exacto del bounty tras el ajuste; existencia de otro lector
   que exija `InventoryAdjustment` junto a un movimiento `adjustment`.
+
+---
+
+## 14. REVISIÓN v2 (2026-10-07) — también se borra el inventario
+
+> **Fuente:** `HECHOS.md:80` (2026-10-07, «quiero que borres inventario también»), con los supuestos del orquestador
+> comunicados al dueño: **todo** el inventario (plataforma, custodia de bóveda y sellado); se conservan catálogo,
+> precios, cajones, usuarios y diales; `INV-` reinicia; P-1 deja de aplicar. Corrección posterior del dueño (2026-10-07,
+> relayada por el orquestador): **«deja las fotos de las cartas»** — ver §14.6: no hay fotos de piezas que borrar.
+> **Base de esta revisión (medida en `/home/user/tcg-limpieza`, 2026-10-07):** `schema.prisma`, los cuatro guiones
+> `backend/prisma/data-repair/20261006_pdblimpieza_{1_censo,2_limpieza,3_folio_pedidos,4_verificacion}.sql`, el comando
+> `src/cli/limpieza-republicar.ts` + `src/modules/inventory/limpieza-republicar.ts`, `BACKEND_NOTES.md` §79 (:29868-) y
+> `test/integration/pdb-limpieza.e2e-spec.ts`.
+
+### 14.1 Qué cambia en una frase
+
+El guion deja de **restaurar** piezas y pasa a **vaciar** el inventario: desaparecen el plan por pieza, el cajón
+propuesto, los movimientos de cierre, P-1, P-2 y la re-publicación. Se añade una guarda de **custodia de clientes**
+(§14.4) y el reinicio de `INV-` en el paso aparte de folios (§14.5). Lo transaccional (§2.4–§2.7) no cambia.
+
+### 14.2 Tablas que cambian de acción
+
+| Tabla | v1 | **v2** | Por qué (medido) |
+|---|---|---|---|
+| `InventoryItem` | AJUSTAR | **BORRAR todas** (plataforma, `customer` y `sealed`) | `HECHOS.md:80`. |
+| `InventoryMovement` | AJUSTAR | **BORRAR** (cae por `CASCADE` con la pieza, `schema.prisma:1150`) | Historial de piezas que dejan de existir. |
+| `InventoryAdjustment` | CONSERVAR | **BORRAR** (cascada, `schema.prisma:1171`) | Idem. |
+| `InventoryBatch` | CONSERVAR | **BORRAR todas** | Sin FK, pero `resultJson` guarda ids y **folios** de las piezas creadas (`schema.prisma:1188-1200`; lo lee el replay idempotente, `inventory.service.ts:1391, 1554, 2390, 3444, 3690`). Con `INV-` reiniciado, un `INV-000001` de ahí nombraría a otra pieza. Tras borrar todo, lo que queda son recibos de altas que ya no existen. |
+| `PendingPriceEntry` | CONSERVAR | **BORRAR solo `context ∈ {inventory, portfolio}`**; **conservar** `catalog` y `buylist` | Las filas `inventory` son por **variante**, no por pieza (`refId` siempre `undefined` en ese eje: `inventory.service.ts:927, 1054, 1813`; `price-ingest.service.ts:1043`) y describen «una pieza mía de esta variante no tiene precio». Sin piezas, son ruido en M2: el barrido VQ solo cierra las `reason IS NULL` (`price-sync.service.ts:181-237`), así que las `no_market`/`premium_at_floor` se quedarían abiertas para variantes que nadie tiene. `portfolio`: ningún escritor en `src` (medido: solo aparece en tipos), se borra por coherencia (era el eje de piezas de clientes). `catalog`/`buylist` son huecos de precio del **catálogo** y del cotizador, válidos sin inventario. Al re-subir, el alta vuelve a abrir la fila si hace falta (`escalatePending` deduplica, `pricing.service.ts:2045-2053`). |
+| `VaultLocation` | CONSERVAR | **CONSERVAR** (sin cambio) | Cajones físicos. La ocupación **no** es una tabla: es `InventoryItem.locationId` (`schema.prisma:1031-1032`); las colocaciones (`VaultPlacement*`) ya se borraban en v1. Al borrar las piezas, todos los cajones quedan vacíos. |
+| `VariantPriceOverride` | AJUSTAR (bounty) | **sin cambio respecto a v1** | `sellOverrideCents`/`buyOverrideCents`/bounty del dueño se conservan; solo `bountyAcquiredQty=0` y `bountyCompletedAt=NULL` como en §2.2. |
+| `SealedProduct` | CONSERVAR | **CONSERVAR** (sin cambio) | Incluye el precio del dueño por producto (`ownerDisplayPriceCents`, `schema.prisma:860`) y la imagen (`imageUrl`, `:853`). FK desde la pieza es `SetNull` (`:1086`): borrar piezas no toca el producto. |
+| `PortfolioSnapshot` | BORRAR | BORRAR (sin cambio) | Ya estaba. |
+| Fotos de piezas | — | **No existen** | §14.6. |
+
+Todo lo demás de §2 queda igual. `SellRequestItem.inventoryItemId` y `InventoryItem.sourceSellRequestItemId` **no son FK**
+(`schema.prisma:2341`, `:1049`) y ambas puntas se borran: nada queda colgando y **P-1 desaparece**.
+
+**Lo que el dueño pierde al re-subir (informativo, no bloquea):** por pieza — precio manual (`listPriceCents`), costo y
+tipo de adquisición, cajón, acabado, certificado (`schema.prisma:1030-1045`). **Se conserva** lo que es por variante o
+por producto: overrides de venta/compra y bounties (`VariantPriceOverride`), precio del sellado por producto
+(`SealedProduct.ownerDisplayPriceCents`), referencias de mercado (`PriceReference`) y las imágenes del catálogo.
+Recomendación operativa (§14.8 paso 2): **descargar el `.xlsx` de inventario antes** (`GET /admin/inventory/export.xlsx`,
+`inventory.controller.ts:557-562`, una fila por pieza) como chuleta para re-subir. ⚠️ Sus folios son los **viejos**.
+
+### 14.3 Orden de borrado (una transacción) y guardas
+
+`LOCK TABLE` de v1 **más** `"InventoryBatch"` y `"PendingPriceEntry"` (el `price-ingest` escribe en la cola leyendo
+piezas, `price-ingest.service.ts:1043`; sin el candado podría colar una fila `inventory` a mitad).
+
+| Paso | Qué | FK que lo ordena |
+|---|---|---|
+| 0–1 | Igual que v1 (dónde estoy, conteos antes, G-8 con la clasificación nueva de §14.2). | — |
+| 2 | Guardas G-7, G-1, G-2, G-3, **G-9** (§14.4) y **listas**: pedidos, envíos, solicitudes (como v1); **custodia por dueño** (correo, nombre, nº piezas, nº pedidos); **resumen del inventario que se borra** por `productType × status × ownerType` y total; bounties. ⛔ Sin lista por pieza (miles de filas, `HECHOS.md:54`): resumen. | — |
+| 3–8 | `ManualRefund` por hojas → `PaymentRefund` → `ReplacementCase` → `Dispute` → `VaultPlacementItem` → `VaultPlacement` → `Shipment*` → `ShipmentRequest` (igual que v1). | RESTRICT hacia `InventoryItem`: `ReplacementCase` ×2 (`schema.prisma:2046, 2059`), `Dispute` (`:2387`), `VaultPlacementItem` (`:1531`), `ShipmentItem` (`:1959`, cae con `ShipmentRequest`). |
+| 9 | `Order` (cascada `OrderItem`, `OrderAccessToken`). | `OrderItem → InventoryItem` es RESTRICT (`:1463`, relación obligatoria sin `onDelete`): **`Order` va antes que las piezas**. `InventoryItem.reservedByOrderId` es `SET NULL` (`:1094`): inocuo. |
+| 10 | `SellRequest` (cascada `SellRequestItem`). | Tras 8 (M-72). |
+| 11 | **`DELETE FROM "InventoryItem"`** (todas; cascada movimientos y levantamientos). | Ya sin referencias RESTRICT. |
+| 12 | `InventoryBatch` (todas); `PendingPriceEntry WHERE context IN ('inventory','portfolio')`. | Sin FK. |
+| 13 | `SpendAlert`, `PortfolioSnapshot`, bounties (igual que v1). | — |
+| 14 | `AuditLog` (igual que v1) + rastro. | — |
+| 15 | Conteos después + **G-5** + comprobación final de variables (`respaldo_manual`, `cuentas_prueba`). | — |
+| 16 | `ROLLBACK;` (el dueño lo cambia a `COMMIT;`). | — |
+
+**Desaparecen de B:** `lz_plan`, `lz_mov_borrar`, `lz_buylist`, `lz_excl`; los pasos 9, 10 y 12 de v1 (restaurar,
+movimientos de cierre, P-1); las variables ✏️ 2 `fuera_de_venta` y ✏️ 3 `buylist_piezas`; las listas 2.4, 2.5 y 2.7.
+`lz_t` (el conjunto `T`) **se queda solo para G-1…G-3** (ya no es plan de nada).
+
+**Guardas — qué pasa con cada una:**
+
+| Guarda | v2 |
+|---|---|
+| G-1 (pieza `customer` fuera de `T`) | **Se queda.** Una pieza de cliente que no vino de un pedido tiene origen desconocido; borrarla a ciegas es justo lo que no se hace. |
+| G-2, G-3 | **Se quedan** (misma razón: el modelo de la base no es el que el diseño conoce ⇒ se para). |
+| G-4 (P-1) | **Desaparece** (P-1 no aplica, `HECHOS.md:80`). |
+| G-5 | **Cambia el esperado:** `0` en todo el grupo `borrar` (que ahora incluye `InventoryItem`, `InventoryMovement`, `InventoryAdjustment`, `InventoryBatch`); `PendingPriceEntry` = antes − filas `inventory`/`portfolio`; el resto como v1. |
+| G-6 (forma de la pieza restaurada) | **Desaparece** (no hay restauración). La sustituye G-5 (`InventoryItem` = 0). |
+| G-7 | **Se queda y gana alcance solo:** `InventoryItem` e `InventoryBatch` pasan al grupo `borrar`, así que **tras re-subir inventario una 2.ª corrida de B se niega**. Es exactamente lo que tiene que pasar. |
+| G-8 | Se queda; la clasificación de tablas se actualiza con §14.2. |
+| **G-9 (nueva)** | Custodia de clientes, §14.4. |
+| P-2 / `fuera_de_venta` | **Desaparece.** |
+| `respaldo_manual` | Se queda (obligatorio para el COMMIT). |
+
+**Rastro (§6.3):** se quitan `piezasRestauradas`, `piezasExcluidas`, `piezasBuylist*`. Se añaden
+`inventarioBorrado: {total, porTipo: {raw, graded, sealed}, custodiaPorUsuario: {<userId>: n}}` (ids, sin correos ni
+folios) y `cuentasPrueba: <número de cuentas declaradas>`. `secuencias` se sigue escribiendo (D lo usa para `ENV-`).
+
+### 14.4 Custodia de clientes: guarda G-9
+
+**Por qué es improbable que haya algo real, y por qué igual se guarda.** Una pieza solo pasa a `ownerType='customer'`
+por un pedido de bóveda pagado (G-1 lo exige), y **ningún pedido fue real**: siempre modo prueba de Stripe
+(`HECHOS.md:16`, `:119-122`). Pero la base **no guarda** si un pago fue de prueba o real (sin `livemode` en el schema ni
+en el código: `rg livemode backend` = 0, medido), y **no existe marca de «cuenta de prueba»** en `User`
+(`schema.prisma:555-619`). La única fuente de verdad sobre quién es de prueba es el dueño.
+
+**Diseño (recomendado; no hace falta pregunta, es un paso del guion):**
+- Variable nueva ✏️ `cuentas_prueba`: correos (o ids de usuario, para cuentas anonimizadas sin correo) separados por coma.
+- El ensayo imprime **la lista de custodia por dueño** (correo, nombre, rol, nº de piezas, nº de pedidos).
+- **G-9 aborta** si existe **cualquier** pieza `ownerType='customer'` cuyo `ownerUserId` no esté en `cuentas_prueba`
+  (incluye `ownerUserId` nulo). Con 0 piezas de cliente pasa con la lista vacía.
+- **Errata:** un correo/id de la lista que **no existe** en `User` también aborta (mismo criterio que el folio erróneo de
+  P-2 en v1: un error tipográfico no decide borrar nada).
+- Igual que `respaldo_manual`, la falta de respuesta se comprueba **al final** (decisión 1 de `BACKEND_NOTES` §79, que
+  ratifico), para que el ensayo enseñe la lista antes de pedirla; la discrepancia (pieza de alguien no declarado) aborta
+  también al final con la lista de quiénes faltan.
+- ⛔ No se infiere «de prueba» por dominio de correo, por rol ni por fecha: sería adivinar.
+
+### 14.5 Folio `INV-`: reinicio
+
+**Dónde se genera (medido):** solo `inventory_folio_seq` (creada en `migrations/0000000000000_init/migration.sql:620`),
+vía `PrismaService.nextFolio()` / `nextFolios(n)` (`backend/src/prisma/prisma.service.ts:15-35`). Llamadores:
+`inventory.service.ts:775` (alta), `:1441` (lote), `:3468` (encontrada); `buylist.service.ts:7937` (conversión). Ningún
+otro sitio fabrica `INV-` (`rg "INV-|nextFolio" backend/src`, el resto de aciertos son nombres de invariantes `INV-D`,
+`INV-FX`…).
+
+**Cómo:** `setval('inventory_folio_seq', 1, false)` ⇒ el siguiente `nextval` es 1 ⇒ `INV-000001`. **En el fichero C**
+(post-COMMIT), nunca en B: §5.4 sigue mandando (las secuencias no se deshacen con `ROLLBACK`; B no lleva ningún
+`setval`/`nextval`).
+
+**Fichero C v2** (`…_3_folios.sql`; el nombre lo elige backend y se ajustan las pruebas):
+- `LOCK TABLE "Order", "InventoryItem" IN SHARE ROW EXCLUSIVE MODE`.
+- **Cada contador con su propia guarda, independientes:** `TCG-` solo si `Order` está vacía (como v1); `INV-` solo si
+  `InventoryItem` está vacía. Si una tabla ya tiene filas, **ese** contador no se toca y lo dice en castellano («ya hay N
+  piezas: tus folios siguen desde INV-00xxxx; no pasa nada»); el otro se reinicia igual. Si **ninguno** se puede, aborta
+  (mensaje de QA-8 adaptado). Motivo de la independencia: si el dueño re-sube inventario antes de correr C, no debe
+  perder el reinicio de `TCG-`, y un `INV-` sin reiniciar es inocuo.
+- ⛔ `ENV-` sigue **sin** reiniciarse (§5.2 intacto, medido y con prueba §9.7).
+- Imprime `last_value`/`is_called` antes/después y el próximo folio de cada uno.
+
+**Carrera residual:** un alta que tome `nextval` entre la comprobación y el `setval` dejaría una pieza con folio
+**adelante** del contador ⇒ `P2002` el día que el contador lo alcance. Mitigación: el candado (bloquea el `INSERT`, no el
+`nextval`), la instrucción «C antes de re-subir» y una línea nueva de D (§14.7): **ningún folio por delante de su
+contador**, para `INV-` y `TCG-`.
+
+**¿`INV-` es llave en algún sitio externo? (medido)**
+
+| Sitio | ¿Lleva `INV-`? | Riesgo tras reiniciar |
+|---|---|---|
+| Etiquetas físicas | No: «las cartas no tienen folio» (`HECHOS.md:79` (b)). | Ninguno. |
+| Skydropx | **No.** A Skydropx solo viaja `address_to.reference = "Pedido ENV-…-NN"` (`shipping-provider/skydropx.adapter.ts:153-154`). | Ninguno. |
+| Stripe | No hallado: en `modules/payments` `folio` solo aparece en DTOs de pantallas de reembolso (`admin-refunds.controller.ts:89-108`, `manual-refund.service.ts:252-342`), no en metadatos. | Ninguno (y esas filas se borran). |
+| Correos ya enviados | Medido sin `INV-`: envíos (`shipment-notice.templates.ts:114-121`, `ENV-`/número de pedido), disputas (id de la disputa, `disputes.service.ts:128`), buylist (id de la solicitud). Correos de **pedido** que listen piezas por folio: **NO MEDIDO** (en `modules/orders` no hay plantillas con `folio`). | Bajo: si un correo viejo de prueba cita `INV-000123`, el cliente ya no tiene esa pieza. |
+| Export `.xlsx` ya descargado | **Sí**, una fila por folio (`inventory.controller.ts:557-562`). No hay importación que lea folios (`rg import.xlsx|importXlsx` en `inventory` = 0). | **Confusión humana:** tras reiniciar, `INV-000001` del Excel viejo ≠ `INV-000001` nuevo. Mitigación: el guion del dueño lo dice; el Excel viejo se usa como chuleta de cartas, no de folios. |
+| Bitácora | Sí (p. ej. `inventory.bulk_remove` guarda `folios`, `inventory.controller.ts:550`). | Se borra entera en B; el CSV opcional y el respaldo de Railway la conservan con folios **viejos**. El rastro v2 no lleva folios (§14.3). |
+| «Mi bóveda» del cliente | Sí (`VaultView.tsx:428`, `ShipmentsView.tsx:285`). | Ninguno: las piezas de custodia se borran. |
+| `InventoryBatch.resultJson` | Sí. | Se borra (§14.2). |
+
+### 14.6 Fotos: no hay nada que borrar ni que listar en R2
+
+Medido: las piezas **no tienen fotos propias** — M-13 eliminó `frontPhotoKey/backPhotoKey/extraPhotoKeys`
+(`schema.prisma:1028-1029`: «la imagen es la de catálogo remota»); tampoco el buylist (`:2342`) ni las disputas
+(`:2391`). El único escritor del bucket es `uploads.service.ts` y solo admite `purpose="kyc_ine"` (`:159-167`, llave
+`kyc_ine/<fecha>/<uuid>`, `:220`); el único `PutObjectCommand` de `backend/src` está ahí (`:221`). En el front,
+`PhotoUploader` solo se usa con `purpose="kyc_ine"` (`KycSection.tsx:229-230`, `BuylistKycForm.tsx:521-527`).
+⇒ **Se retira el supuesto «fotos huérfanas en R2»** de `HECHOS.md:80`: no hay listado previo que hacer y el guion no
+toca el bucket. Las imágenes viven en el catálogo, que se conserva: `Card.imageSmallUrl/imageLargeUrl`
+(`schema.prisma:882-883`) y `SealedProduct.imageUrl` (`:853`).
+
+**`InventoryItem.sealedImageUrl` sí vive en la fila de la pieza** (`schema.prisma:1077`) y se pierde al borrarla. Se
+repone sola al re-subir: el alta de sellado con `sealedProductId` la **copia de `SealedProduct.imageUrl`**
+(`inventory.service.ts:1081-1100`, «los 4 campos M-37 sueltos se IGNORAN… se sobreescriben desde el SealedProduct»), y
+`SealedProduct` se conserva. El alta legada sin `sealedProductId` la toma de la petición, saneada contra la lista de hosts
+(`inventory.service.ts:1238-1262`); que el front la mande en ese camino: **NO MEDIDO** (es el camino legado).
+
+(R-6 —INE de vendedores de prueba sin purga— sigue igual: es el único contenido real del bucket y no lo toca esta
+limpieza.)
+
+### 14.7 Paso E y verificación D
+
+**Paso E (`limpieza:republicar`): sobra — se RETIRA, no se deja inerte.** Sin piezas restauradas no tiene entrada; el
+rastro v2 no trae `piezasRestauradas`, así que inerte saldría con «sin rastro» / código 1 y confundiría al dueño, y
+dejaría código de un solo uso sin uso (deuda). Retirar (backend, con `rg` antes de borrar):
+`src/cli/limpieza-republicar.ts`, `src/modules/inventory/limpieza-republicar.ts`, el script `limpieza:republicar` de
+`package.json:28`, `test/limpieza-republicar.cli.spec.ts`, el bloque «QA-1 · E» y la prueba «E1» de
+`pdb-limpieza.e2e-spec.ts`, y el texto del paso E en el encabezado de B. `InventoryService.previewPublication`
+(`inventory.service.ts:3040-3046`) y el campo aditivo `detail?` (`inventory-publish.port.ts:111`) se retiran **si**
+`limpieza-republicar` es su único consumidor (`previewPublication`: medido 2026-10-07 con `rg` en `backend/`, solo
+su definición y `limpieza-republicar.ts:130`; `detail?`: **NO MEDIDO**; backend re-mide ambos antes de borrar). Si alguno ya está en
+`production`, se retira igual por el flujo normal. La pregunta abierta de `BACKEND_NOTES` §79.2 («¿`listed` se queda
+`listed`?») **queda sin objeto**.
+
+**D v2 (cambios):**
+- Pasan al patrón «0 filas **anteriores al rastro**» (como `PortfolioSnapshot`/`SpendAlert`, QA-7), para que D siga
+  valiendo tras re-subir: `InventoryItem`, `InventoryMovement`, `InventoryAdjustment`, `InventoryBatch` (todas por
+  `createdAt`), y `PendingPriceEntry` con `context IN ('inventory','portfolio')`.
+- `PendingPriceEntry` `catalog`/`buylist` y `VaultLocation`, `SealedProduct`, `VariantPriceOverride`: INFO de conteo.
+- Se quitan: «mismo conteo que tras la limpieza: InventoryItem» y «contador `inventory_folio_seq` igual que en la
+  limpieza».
+- Se añaden: «siguiente `INV-` = `INV-000001`, **o** ya hay piezas nuevas y el folio mínimo es `INV-000001`»;
+  «**ningún folio por delante de su contador**» (`max` numérico de `InventoryItem.folio` ≤ `last_value` de
+  `inventory_folio_seq` si `is_called`; ídem `Order.orderNumber` / `order_number_seq`).
+- `shipment_folio_seq` igual que en el rastro: **se queda**.
+
+### 14.8 Guion del dueño v2 (sustituye §8.2)
+
+1. Terminan las pruebas (como v1).
+2. **Descarga el Excel de inventario** (M1 → exportar) y guárdalo: es tu lista para volver a subir. Sus folios son los
+   viejos.
+3. Corre **A** (censo). Si G-1…G-3 dan algo ≠ 0, para y pregunta.
+4. Respaldo manual en Railway.
+5. Corre **B** tal cual (ROLLBACK). Lee: pedidos, envíos, solicitudes, **custodia por dueño** y el **resumen del
+   inventario que se borra**.
+6. Escribe ✏️ `respaldo_manual` y ✏️ `cuentas_prueba`; vuelve a correr (ROLLBACK, debe llegar al final); cambia a
+   `COMMIT;` y córrelo. Copia el punto PITR.
+7. Corre **C** (folios: `TCG-000001` e `INV-000001`) — **antes** de dar de alta nada.
+8. Corre **D**: todo OK.
+9. Re-sube tu inventario en M1 (la primera pieza debe salir `INV-000001`).
+10. `sk_live_` y primera compra (debe salir `TCG-000001`).
+
+### 14.9 Pruebas (§9) — qué cambia y qué es nuevo
+
+**Fixture:** añadir una pieza **sellada** con `sealedProductId` y `sealedImageUrl`, un `SealedProduct` con
+`ownerDisplayPriceCents`, filas `InventoryBatch`, `PendingPriceEntry` de los **cuatro** contextos, cajones de las dos
+zonas, y piezas de custodia de **dos** clientes (uno se declarará de prueba y otro no). Lo de P-1/P-2/Cinccino-a-venta
+deja de ser necesario como caso (se puede quedar en el fixture: se borra igual).
+
+| Prueba existente | v2 |
+|---|---|
+| §9.1 ensayo ×2 (foto de contenido + tres secuencias idénticas) | **Igual.** Es la que garantiza que B no toca contadores. |
+| §9.2 corrida | **Reescribir:** 0 filas en `InventoryItem/Movement/Adjustment/Batch` y en `PendingPriceEntry` `inventory/portfolio`; **foto de contenido idéntica** (no solo conteo) de `Card`, `CardSet`, `SealedProduct` (incl. `imageUrl`, `ownerDisplayPriceCents`), `PriceReference`, `VaultLocation`, `ConfigSetting`, `User`, `PendingPriceEntry` `catalog/buylist`, y `VariantPriceOverride` salvo las dos columnas de bounty. |
+| §4.4 movimientos de cierre | **Se borra.** |
+| §2.2 bounty, §9.3 idempotencia, CS-1 `\copy`, C-1/QA-9 salida, C-3/G-8, C-4/QA-6 concurrencia, QA-7 | **Igual** (G-8 con la clasificación nueva). |
+| §9.5 fail-closed de precio, P-1 ×1, P-2 ×1, G-4 ×2, folio de exclusión, M3 (lista 2.4), QA-1 · E entero, E1 | **Se borran.** |
+| G-1, G-2, G-3, respaldo vacío, G-7 | **Igual.** |
+| A/D | D sin limpiar ⇒ FALLA; tras B + C ⇒ OK. **Nuevo:** tras B + C + alta de 3 piezas por la **app** (`PrismaService.nextFolios`, no SQL) ⇒ D sigue OK y las piezas son `INV-000001…3`. |
+| §9.6 C | Con pedidos ⇒ `TCG-` no se mueve. **Nuevo:** con piezas y sin pedidos ⇒ `TCG-` se reinicia, `INV-` **no** y lo dice; con ambas tablas llenas ⇒ aborta; sin nada ⇒ `TCG-000001` e `INV-000001`, `ENV-` igual. |
+| §9.7 ENV- (N = 3 esquemas) y §9.8 sin M-72 | **Igual.** |
+| QA-8 | Mensaje adaptado a C v2. |
+
+**Nuevas:**
+1. **G-9 muerde:** pieza de custodia de un cliente no declarado ⇒ aborta, base idéntica, el mensaje nombra al cliente.
+   Con ambos declarados ⇒ pasa y sus piezas se borran. Correo inexistente en la lista ⇒ aborta (errata). Sin piezas de
+   cliente y lista vacía ⇒ pasa.
+2. **G-7 tras re-subir:** B (COMMIT) + alta de 1 pieza ⇒ B se niega y no borra la pieza nueva.
+3. **D: folio por delante:** se fuerza una pieza `INV-000050` con el contador en 1 ⇒ D da FALLA en esa línea.
+
+**Mutaciones obligatorias** (en copia del árbol **entero**, O-9; proporción con su N, O-3):
+
+| # | Mutación | Debe poner en rojo |
+|---|---|---|
+| M-v2-1a | B sin el `DELETE FROM "InventoryItem"` | §9.2 (B aborta por G-5). |
+| M-v2-1b | **«no se borró el inventario» sin que B lo note:** sin el `DELETE` **y** con `InventoryItem` reclasificada a `conservar` (G-5 de B pasa) | §9.2 por **medición directa** de la prueba (no por la guarda de B) **y** D («0 anteriores al rastro»). Si solo cae por G-5, la prueba no muerde. |
+| M-v2-1c | `DELETE` acotado a `ownerType='platform'` (deja la custodia) | §9.2 y D. |
+| M-v2-2a | **«se reinició `ENV-`»:** C añade `setval('shipment_folio_seq', 1, false)` | §9.6 («`ENV-` igual») y el control de §9.7 — **N ≥ 3 esquemas**, reportar `k/N`. |
+| M-v2-2b | B hace `setval` de `inventory_folio_seq` | §9.1 ×2 (el ensayo movería un contador). |
+| M-v2-3 | C reinicia `INV-` sin mirar si hay piezas | §9.6 nuevo «con piezas, `INV-` no se mueve». |
+| M-v2-4 | G-9 desactivada | Nueva 1. |
+| M-v2-5 | el borrado de la cola incluye `catalog`/`buylist` | §9.2 (foto de `PendingPriceEntry` conservada). |
+| M-v2-6 | D sin la línea «folio por delante» | Nueva 3. |
+
+### 14.10 Riesgos nuevos
+
+| # | Riesgo | Mitigación |
+|---|---|---|
+| R-10 | El dueño pierde por pieza precio manual, costo, cajón y certificado. | Es la decisión (`HECHOS.md:80`); Excel previo (§14.8 paso 2); lo de variante/producto se conserva (§14.2). |
+| R-11 | `INV-` viejos en Excel, CSV de bitácora y respaldo nombran otra pieza tras reiniciar. | §14.5 tabla; el guion lo avisa. Ninguna importación lee folios. |
+| R-12 | Alta entre la guarda y el `setval` de C ⇒ `P2002` futuro. | Candado + «C antes de re-subir» + D «ningún folio por delante». |
+| R-13 | Al re-subir sellado, las suscripciones de reposición pendientes (`SealedRestockSubscription`, se conservan) casarían en masa y, **si** el dial `sealed_restock_alerts` está `on` y se dispara el job (manual), saldrían correos (`sealed-restock-notify.service.ts:20-29, 75-99`). | Informativo. Estado del dial en producción: **NO MEDIDO** (seed `off`). Si está `on`, no disparar el job hasta terminar de re-subir. |
+| R-14 | Custodia real borrada. | G-9 (§14.4) + `HECHOS.md:16,119-122`. |
+
+### 14.11 Preguntas para el dueño
+
+**Ninguna bloquea.** P-1 y P-2 desaparecen. Quedan:
+- **P-3** (simulacro de restauración antes) — igual que v1, recomendación **sí**; con v2 pesa más: lo borrado ahora
+  incluye tu inventario entero y la única marcha atrás es PITR.
+- `cuentas_prueba` no es pregunta: el ensayo te enseña quién tiene piezas en custodia y tú escribes la lista.
+- Los supuestos de `HECHOS.md:80` («pendientes de que los corrija») se dan por buenos; si el dueño quisiera conservar el
+  **sellado** o la **custodia**, cambian §14.2 (borrado acotado por `productType`/`ownerType`), G-9 y C (con piezas
+  vivas `INV-` no podría reiniciarse: §5.3 volvería a aplicar).

@@ -29668,7 +29668,8 @@ Riesgos técnicos:
   `docs/specs/LIMPIEZA_DB.md`. Tres reglas que valen fuera de ese guion: (1) **`setval`/`nextval` no se deshacen con
   `ROLLBACK`** ⇒ ningún ensayo en seco puede tocar secuencias; (2) **el folio `ENV-` no se reinicia nunca** mientras
   existan en Skydropx guías con nuestra referencia: `detectLate` las atribuiría como huérfanas a un intento nuevo
-  (`orphan-reconcile.service.ts:64-121`); (3) **`INV-` no se reinicia** con piezas vivas (`folio @unique`). Ninguna
+  (`orphan-reconcile.service.ts:64-121`); (3) **`INV-` no se reinicia** con piezas vivas (`folio @unique`); v2 (2026-10-07, `HECHOS.md:80`: se borra todo
+  el inventario) lo reinicia **solo con `InventoryItem` vacía**, en el paso aparte post-COMMIT (`LIMPIEZA_DB.md` §14.5). Ninguna
   pieza se pasa a `listed` por SQL: la publicación pasa por el pipeline de precio de la app.
 
 ---
