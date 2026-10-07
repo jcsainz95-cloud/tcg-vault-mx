@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
 import { PROVISIONAL_FISCAL_TEXT, privacyNoticeEs } from '@/content/legal/privacidad.es';
+import { WISHLIST_PRIVACY_EN, WISHLIST_PRIVACY_ES } from '@/content/legal/privacy-wishlist';
 import { PrivacyNoticeView } from './PrivacyNoticeView';
 
 const NOT_FOUND = new Error('NEXT_NOT_FOUND');
@@ -72,5 +73,28 @@ describe('PrivacyNoticeView', () => {
     expect(screen.getByText('Ejemplo S.A.').tagName).toBe('STRONG');
     expect(screen.getByRole('table')).toBeInTheDocument();
     expect(screen.getByText(/5 de octubre de 2026/)).toBeInTheDocument();
+  });
+});
+
+describe('824 · el párrafo «Lista de deseos» se ve en /es/privacidad y en /en/privacidad, sin sesión', () => {
+  const plain = (s: string) => s.replace(/\*\*/g, '');
+
+  it('es: el párrafo español literal, y no el inglés', async () => {
+    const ui = await PrivacyPage({ params: params('es') });
+    const { container } = renderWithIntl(ui);
+    const text = container.textContent ?? '';
+    expect(text).toContain(plain(WISHLIST_PRIVACY_ES));
+    expect(text).not.toContain(plain(WISHLIST_PRIVACY_EN));
+    expect(screen.getByText('Lista de deseos.', { selector: 'strong' })).toBeInTheDocument();
+  });
+
+  it('en: el párrafo inglés literal (lang="en") junto al aviso en español', async () => {
+    const ui = await PrivacyPage({ params: params('en') });
+    const { container } = renderWithIntl(ui, 'en');
+    const text = container.textContent ?? '';
+    expect(text).toContain(plain(WISHLIST_PRIVACY_EN));
+    expect(text).toContain(plain(WISHLIST_PRIVACY_ES));
+    const en = screen.getByText('Wishlist.', { selector: 'strong' }).closest('p');
+    expect(en).toHaveAttribute('lang', 'en');
   });
 });

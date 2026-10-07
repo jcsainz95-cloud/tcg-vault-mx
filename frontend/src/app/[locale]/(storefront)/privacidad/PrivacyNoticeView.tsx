@@ -94,14 +94,25 @@ function Block({ block }: { block: LegalBlock }) {
   );
 }
 
+/**
+ * Párrafo en inglés que acompaña a un apartado del aviso (en español) en /en. Hoy solo §WSH.5 (criterio 824), cuyo
+ * texto inglés literal da PROJECT.md; el aviso en sí sigue en español (ARCHITECTURE §4.63.7).
+ */
+export interface EnglishAddendum {
+  sectionId: string;
+  text: string;
+}
+
 export function PrivacyNoticeView({
   doc,
   draft,
   showSpanishOnly,
+  englishAddenda = [],
 }: {
   doc: LegalDocument;
   draft: boolean;
   showSpanishOnly: boolean;
+  englishAddenda?: readonly EnglishAddendum[];
 }) {
   const t = useTranslations('privacy');
   return (
@@ -133,6 +144,13 @@ export function PrivacyNoticeView({
           {s.blocks.map((b, i) => (
             <Block key={i} block={b} />
           ))}
+          {englishAddenda
+            .filter((a) => a.sectionId === s.id)
+            .map((a, i) => (
+              <p key={`en-${i}`} lang="en" className="text-sm leading-relaxed text-text/90">
+                <Inline text={a.text} />
+              </p>
+            ))}
         </section>
       ))}
     </article>
