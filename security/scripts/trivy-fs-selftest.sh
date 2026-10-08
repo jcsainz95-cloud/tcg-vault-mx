@@ -138,7 +138,11 @@ printf '#!/usr/bin/env bash\n# fixture del self-test: NO es una clave\nCLAVE_FIC
   "$(printf '0%.0s' $(seq 1 40))" > "${CANARY_SECRET}"
 
 SALIDA_CANARIO="$(gate 2>&1)"; RC_CANARIO=$?
-echo "${SALIDA_CANARIO}"
+# Se reimprime con los comandos de workflow DESACTIVADOS (`::error` → `[canario] ::error`):
+# la anotación del gate es parte de lo que se comprueba en (3bis), pero si se
+# reimprime tal cual GitHub la registra como error de un job VERDE (medido en
+# 1c133193, run 37707384065). Las comprobaciones leen SALIDA_CANARIO, no esto.
+sed -E 's/^::(error|warning|notice)/[canario] ::\1/' <<<"${SALIDA_CANARIO}"
 
 if [ "${RC_CANARIO}" -eq 0 ]; then
   fail "EL CANDADO NO MUERDE: con ${CANARY_LOCK} plantado (dicer@0.3.0 + minimist@1.2.0) el gate salió VERDE. O el directorio está excluido del escaneo, o el ignorefile es demasiado ancho, o la severidad está mal puesta. Un verde que no puede volverse rojo no es una medición."

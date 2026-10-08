@@ -14749,10 +14749,15 @@ arreglo, dos registros sobre la copia del baseline vivo dejan 5 + 1 motivos.
   hallazgo) y el rojo publica una anotación con ficheros y avisos. Los reintentos son solo de la descarga, jamás del
   escaneo. Candado: caso **3bis** de `trivy-fs-selftest.sh` (canario ⇒ rc=1 con anotación; base inalcanzable ⇒ rc=2).
   Con el gate viejo el 3bis cae (1/1); con el nuevo, el self-test entero pasa (1/1, determinista).
+  Medido en CI sobre `1c133193` (run 37707384065): `trivy-fs` **success** en los tres pasos. Efecto secundario cazado
+  ahí: el self-test reimprimía la salida del canario y su `::error` salía como anotación de error en un job verde;
+  ahora se reimprime con los comandos de workflow desactivados (`[canario] ::error`), y las comprobaciones siguen
+  leyendo la salida original (local: 0 `::error` sueltos, self-test rc=0).
 - **Imagen de frontend**: no corría desde `1bde01de` (el escaneo de backend caía antes). Con el `Dockerfile.frontend` real
   salvo el `apk` (403 aquí), sobre `git archive f76fe398` y los mismos `--build-arg`, **construye rc=0**. Sin registro no
   se puede atribuir el rojo de CI; el paso ahora publica la etapa y las líneas de error en una anotación
   (probado forzando el fallo del `apk` aquí). La siguiente corrida dirá si fue transitorio o de código.
+  En CI sobre `1c133193` construyó y se escaneó (**success**): el rojo de `f76fe398` no se repitió (N=1, causa sin atribuir).
 
 **Rollback.** `git revert` del commit: devuelve el baseline anterior (el gate vuelve a rc=1), el script de censo sin
 conservar motivos, `trivy-fs.sh` sin la descarga aparte y el paso de imagen sin anotación. No toca imágenes ni datos.
