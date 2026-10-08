@@ -74,6 +74,46 @@ else
   ARGS+=(--format table)
 fi
 
+# ---------------------------------------------------------------------------
+# BASE DE VULNERABILIDADES APARTE (devops 2026-10-08, DEVOPS_NOTES §93.6)
+# ---------------------------------------------------------------------------
+# `trivy fs --exit-code 1` devuelve 1 tanto si ENCUENTRA un HIGH/CRITICAL como si
+# NO PUDO BAJAR la base: dos hechos opuestos con el mismo color. Y los registros de
+# CI no se pueden leer desde las sesiones de trabajo (solo las anotaciones), así
+# que un rojo sin anotación es un rojo que nadie puede atribuir. Medido en
+# `f76fe398` (run 37705396860): el paso del gate falló en 2 s y el siguiente
+# (devDeps) tardó 5 s — al revés que en las corridas verdes (4-5 s / 1-2 s) —, y
+# el mismo árbol en local daba 0 hallazgos. Por eso:
+#   · la base se baja ANTES y aparte, con reintentos; si no baja ⇒ rc=2
+#     «NO CONCLUYENTE» (nunca 0: sin base no hay medición, y el gate sigue rojo);
+#   · el escaneo corre con --skip-db-update ⇒ su rc=1 solo puede ser hallazgo;
+#   · el rojo publica en una anotación QUÉ fichero y QUÉ avisos.
+# Los reintentos son SOLO de la descarga, jamás del escaneo: reintentar un
+# escaneo rojo hasta que salga verde sería apagar el gate.
+if [[ "${TRIVY_SKIP_DB_UPDATE:-false}" != "true" ]]; then
+  DB_OK=0
+  for intento in 1 2 3; do
+    if trivy fs --download-db-only --no-progress; then DB_OK=1; break; fi
+    echo "::warning title=trivy-fs · base de vulnerabilidades::intento ${intento}/3 de descarga fallido; reintento."
+    sleep "$(( ${TRIVY_DB_RETRY_SLEEP:-10} * intento ))"
+  done
+  if [[ "${DB_OK}" -ne 1 ]]; then
+    echo "::error title=trivy-fs NO CONCLUYENTE (no es un hallazgo)::no se pudo bajar la base de vulnerabilidades de trivy en 3 intentos (repositorio: ${TRIVY_DB_REPOSITORY:-por defecto}). No se escaneó nada: el gate queda en rojo hasta que se repita la corrida. Dueño: devops."
+    exit 2
+  fi
+fi
+
 echo "→ Trivy fs (vuln, HIGH/CRITICAL) sobre ${TARGET} ..."
-trivy "${ARGS[@]}" "${TARGET}"
+SALIDA_TMP="$(mktemp)"; trap 'rm -f "${SALIDA_TMP}"' EXIT
+set +e
+trivy "${ARGS[@]}" --skip-db-update "${TARGET}" 2>&1 | tee "${SALIDA_TMP}"
+RC=${PIPESTATUS[0]}
+set -e
+if [[ "${RC}" -ne 0 ]]; then
+  # Una anotación por corrida: ficheros con hallazgos (fila del resumen con >0) y los avisos.
+  FICHEROS="$(grep -E '│ .+ │ [a-z]+ +│ +[1-9][0-9]* +│' "${SALIDA_TMP}" | sed -E 's/│ *//; s/ *│.*//' | tr '\n' ' ' || true)"
+  AVISOS="$(grep -oE '(CVE-[0-9]{4}-[0-9]+|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})' "${SALIDA_TMP}" | sort -u | tr '\n' ' ' || true)"
+  echo "::error title=trivy-fs · HIGH/CRITICAL en runtime (rc=${RC})::ficheros: ${FICHEROS:-no identificados} · avisos: ${AVISOS:-no identificados}. El arreglo es de quien sea dueño del lockfile (backend/ o frontend/); una excepción va en security/.trivyignore con su ficha."
+  exit "${RC}"
+fi
 echo "✓ Trivy fs OK (sin HIGH/CRITICAL en dependencias de runtime)."

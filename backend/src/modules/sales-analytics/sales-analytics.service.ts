@@ -63,12 +63,18 @@ const ORDER_SELECT = {
   userId: true,
   user: { select: { email: true } },
   _count: { select: { items: true } },
+  // 💰 v1.86⟨accesorios⟩ (§AC.12 analítica): unidades de renglones `accessory` + 1 por paquete cuentan como piezas.
+  accessoryLines: { select: { id: true, kind: true, quantity: true, unitPriceCents: true } },
 } as const;
 
 interface OrderRow extends OrderLite {
   userId: string | null;
   userEmail: string | null;
+  accessoryLines: { id: string; kind: string; quantity: number; unitPriceCents: number }[];
 }
+
+/** 💰 §AC.12: piezas de un renglón de accesorio — sus unidades; un paquete cuenta 1. */
+const accessoryPiecesOf = (l: { kind: string; quantity: number }) => (l.kind === 'energy_bundle' ? 1 : l.quantity);
 
 /** §15.3 — llave del cliente: correo de la cuenta (normalizado), si no el del invitado, si no `user:<id>`. */
 export function customerKeyOf(o: { userId: string | null; userEmail: string | null; guestEmail: string | null }): string {
@@ -134,7 +140,9 @@ export class SalesAnalyticsService {
       guestEmail: o.guestEmail,
       userId: o.userId,
       userEmail: o.user?.email ?? null,
-      pieces: o._count.items,
+      // 💰 v1.86⟨accesorios⟩: `totals.pieces` incluye las unidades de accesorio (+1 por paquete).
+      pieces: o._count.items + (o.accessoryLines ?? []).reduce((a, l) => a + accessoryPiecesOf(l), 0),
+      accessoryLines: o.accessoryLines ?? [],
     }));
   }
 
@@ -298,7 +306,9 @@ export class SalesAnalyticsService {
       b.chargedCents += o.totalCents;
     }
     const piece = (): PieceCell => ({ pieces: 0, netCents: 0 });
-    const byProductType = { raw: piece(), graded: piece(), sealed: piece() };
+    // 💰 v1.86⟨accesorios⟩ (§AC.12): cuarta celda `accessory`; la venta sin IVA se reparte por renglón con la MISMA regla
+    // de §15.11.2 (peso = lo cobrado por la línea: `unitPriceCents × quantity`) ⇒ Σ celdas = totales, al centavo.
+    const byProductType = { raw: piece(), graded: piece(), sealed: piece(), accessory: piece() };
     const itemsByOrder = new Map<string, ItemRow[]>();
     for (const it of items) {
       const list = itemsByOrder.get(it.orderId);
@@ -307,11 +317,19 @@ export class SalesAnalyticsService {
     }
     for (const o of orders) {
       const its = itemsByOrder.get(o.id) ?? [];
-      const share = allocateByWeight(netRevenueCents(o), its.map((it) => ({ id: it.id, w: it.unitPriceCents })));
+      const acc = o.accessoryLines ?? [];
+      const share = allocateByWeight(netRevenueCents(o), [
+        ...its.map((it) => ({ id: it.id, w: it.unitPriceCents })),
+        ...acc.map((l) => ({ id: `acc:${l.id}`, w: l.unitPriceCents * l.quantity })),
+      ]);
       for (const it of its) {
         const c = byProductType[it.inventoryItem.productType];
         c.pieces += 1;
         c.netCents += share.get(it.id)!;
+      }
+      for (const l of acc) {
+        byProductType.accessory.pieces += accessoryPiecesOf(l);
+        byProductType.accessory.netCents += share.get(`acc:${l.id}`)!;
       }
     }
     return { ...out, byProductType };

@@ -217,7 +217,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   const set = await prisma.cardSet.upsert({
     where: { externalId: E2E_SET.externalId },
     create: { ...E2E_SET },
-    update: {},
+    // §83.seed: una BD sembrada antes de v1.86 tiene el set con `ptcgoCode` null ⇒ se CORRIGE, no se deja.
+    update: { ptcgoCode: E2E_SET.ptcgoCode },
   });
   // v1.22-variantes-orden (§4.22e): SEGUNDO set, dedicado al orden natural ("2" < "10" < "TG01").
   const orderSet = await prisma.cardSet.upsert({
@@ -361,6 +362,9 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // automático y el `isManual: false` del diagnóstico solo existían en unitarios con dobles: el
   // override manual escribe siempre manual y siempre con fecha de hoy.
   priceRef(E2E_CARDS.staleest.externalId, 'raw', 'raw:NM', E2E_CARDS.staleest.refNmCents);
+  // v1.86 (§83.seed) — las dos cartas del deck de energías de E2E: solo su raw NM (MX$50, la más barata).
+  priceRef(E2E_CARDS.deckember.externalId, 'raw', 'raw:NM', E2E_CARDS.deckember.refNmCents);
+  priceRef(E2E_CARDS.deckspark.externalId, 'raw', 'raw:NM', E2E_CARDS.deckspark.refNmCents);
   for (const e of E2E_STALE_ESTIMATES) {
     priceRefs.push({
       cardId: cardIds[E2E_CARDS.staleest.externalId],
@@ -594,6 +598,31 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     },
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
   );
+
+  // v1.86 (§83.seed) — DOS piezas `listed` de plataforma por carta del deck de energías de E2E (FRONTEND_NOTES
+  // §107.real). Se RESETEAN a plataforma/listed en cada corrida, como el resto de `E2E-LST-*`: un caso que dejó una
+  // apartada por una sesión de pago no contamina la siguiente corrida.
+  for (const [folio, cardExt] of [
+    [E2E_FOLIOS.listedDeckEmber1, E2E_CARDS.deckember.externalId],
+    [E2E_FOLIOS.listedDeckEmber2, E2E_CARDS.deckember.externalId],
+    [E2E_FOLIOS.listedDeckSpark1, E2E_CARDS.deckspark.externalId],
+    [E2E_FOLIOS.listedDeckSpark2, E2E_CARDS.deckspark.externalId],
+  ] as const) {
+    await upsertItem(
+      folio,
+      {
+        cardId: cardIds[cardExt],
+        productType: 'raw',
+        rawCondition: 'NM',
+        ownerType: 'platform',
+        status: 'listed',
+        acquisitionType: 'compra',
+        acquisitionCostCents: 2000,
+        locationId: platformLoc.id,
+      },
+      { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+    );
+  }
 
   // ⚠️ v2.1.10 — LA ÚNICA PIEZA `in_stock` DEL FIXTURE: la que habita la COLA DE «LISTAS PARA
   // PUBLICAR» (§4.39m.1, criterio 125). Ver el porqué largo en `E2E_FOLIOS.pendingPublishNoLocation`.

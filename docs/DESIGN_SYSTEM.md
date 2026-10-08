@@ -30202,3 +30202,863 @@ Notas:
 - **N-SU-3 (orquestador / arquitecto, informativo):** que una pieza `not_publishable` aparezca en «Listas para
   publicar» (con «Por revisar», `es.json:1593`) está **NO MEDIDO**. Por eso el texto dice «si le falta precio» y no
   promete que la pieza esté en la cola.
+
+---
+
+## AC-UX. 💰 Accesorios, energías y paquete de energías del deck — la pestaña, la ficha, el carrito, el panel y la preparación (vAC-1, 2026-10-07 · `API_CONTRACT §AC` rev v1.86⟨accesorios⟩ · `ARCHITECTURE §4.AC` · `PROJECT §AC`, criterios 700–749)
+
+**Norma, en este orden:** `HECHOS.md` filas del 2026-10-07 (sesión 6): **F1** `:88` «Respuestas a P-ACC-1…9…», **F2**
+`:89` «Confirmaciones de accesorios, energías y paquete…» y **F3** `:90` «"Termina wishlist y accesorios"», que **manda**
+donde choca. Luego `API_CONTRACT §AC` (`API_CONTRACT.md:41531-42389`). Donde `PROJECT §AC` choca con el contrato
+(`D-AC-1…3`, en corrección por product-owner), sigue el contrato. Las preguntas P-AC-1…5 del contrato (§AC.16,
+`API_CONTRACT.md:42328-42359`) se diseñan **con su recomendación**, como manda el propio contrato.
+
+Leído con Read/Grep en `/home/user/tcg-accesorios` el 2026-10-07 (ux-ui sin Bash: **sha NO MEDIDO**). Toda cita
+`fichero:línea` es de ese árbol y se re-mide antes de editar.
+
+**Reglas duras de esta sección:**
+1. **Cero tokens nuevos, cero pares de contraste nuevos.** Todo sale de §2.3, §3.2, §6, §20.6, §20.13, §20.14, §37.
+2. **Los accesorios sí tienen foto propia.** Es la **única excepción** a §1.1 y §5 («no hay fotos propias del
+   producto»): la foto la sube el dueño y el servidor la deja cuadrada (`API_CONTRACT §AC.11`, «Foto»). Cartas y
+   sellado siguen como están.
+3. **El dinero lo dice el servidor.** Ningún importe del carrito, del envío ni del paquete se calcula en el navegador
+   para cobrar: se pinta lo que devuelve `quote`, y el botón de pago enseña el total de la sesión (F-SP-5, §70.4).
+4. **Nunca se pierde nada en silencio.** Todo lo que sale del carrito (accesorio agotado, paquete sin su deck,
+   accesorios que no van a bóveda) sale **con aviso**.
+5. ⛔ **Nunca** «cierra sesión para comprar» ni nada que lo sugiera (P-AC-1, `API_CONTRACT.md:42339`).
+
+### AC-UX.0 Dónde vive cada pieza
+
+| Pieza | Ruta / componente | Sección |
+|---|---|---|
+| Pestaña «Accesorios» de la Tienda | `StoreTabs` (`components/domain/StoreTabs.tsx:27-31`) gana la 4.ª pestaña → `/accesorios` | AC-UX.1 |
+| Listado | `(storefront)/accesorios` (`GET /accessories`) | AC-UX.2 |
+| Ficha | `(storefront)/accesorios/[id]` (`GET /accessories/:id`) | AC-UX.3 |
+| Cliente con sesión | las tres superficies de arriba + carrito + ficha del deck | AC-UX.4 |
+| Carrito: renglones, «¿Te falta algo?», envío por caja, avisos | `/checkout` (la página «Tu carrito», `es.json:454`) | AC-UX.5–AC-UX.7 |
+| Energías ligadas y recuadro del paquete | `DeckAvailability.tsx` (ficha del deck; «Pegar lista» solo energías sueltas) | AC-UX.8 |
+| Panel «Accesorios» | `/admin/accessories` (grupo «Existencias», tras «Sellado») | AC-UX.9 |
+| Cajas con tarifa | «Configuración › Envíos › Empaques» (§43.10d) | AC-UX.10 |
+| Precio del paquete y nº de sugerencias | bloque súper-admin del panel «Accesorios» | AC-UX.11 |
+| Preparación | tarjeta de ENVÍO de «Pedidos por preparar» (§37.3) + hoja imprimible (§37.11c) | AC-UX.12 |
+| Pedido (M3), seguimiento del invitado, AV-2 | renglones de accesorio (`API_CONTRACT §AC.12`) | AC-UX.13 |
+
+### AC-UX.1 La pestaña «Accesorios» en la Tienda
+
+- `StoreTabs` pasa de tres a **cuatro** pestañas, en este orden: **Cartas sueltas · Producto sellado · Gradeadas ·
+  Accesorios**. Se añade al final para no mover lo que el cliente ya conoce.
+- `{ key: 'accessories', href: '/accesorios', active: pathname.startsWith('/accesorios') }`. Mismo `<nav>` con
+  `aria-current="page"` (R4 de `FRONTEND_NOTES.md:8544`), mismo subrayado de 2 px en `border-accent`, mismo
+  `overflow-x-auto` (en 390 px la cuarta pestaña se alcanza deslizando; no se parte en dos líneas).
+- Ruta en español como `/sellado`. La ficha es `/accesorios/{id}`.
+- Funciona **sin cuenta** y con cuenta (con cuenta, ver AC-UX.4).
+
+### AC-UX.2 Listado — `GET /accessories?category=&q=&page=&pageSize=24`
+
+**Cabecera.** `StoreTabs` → `eyebrow` **«ACCESORIOS»** → `h1` serif **«Accesorios»** → subtítulo `text-sm text-muted`
+**«Fundas, carpetas, energías y lo que necesitas para cuidar y jugar tus cartas. Se envían a domicilio.»**
+
+**Filtro por categoría (una fila, enlaces con `?category=`).** Lista horizontal de enlaces de texto con la misma forma
+que `StoreTabs` pero en `text-sm` sans y sin la regla inferior gruesa: **Todo · Fundas / penny sleeves · Toploaders ·
+Carpetas · Cajas de mazo · Playmats · Energías · Otros**. Orden = orden del enum `AccessoryCategory`
+(`API_CONTRACT.md:41581`). La activa lleva `aria-current="true"`, `text-text` y subrayado `border-accent` de 2 px; las
+demás `text-muted hover:text-text`. Envuelta en `<nav aria-label="Categorías de accesorios">`. En móvil, desliza
+(`overflow-x-auto`, sin cortar palabras). Cambiar categoría vuelve a la página 1 y conserva `q`.
+
+**Búsqueda.** `Input` (§6.2) con icono lupa, `label` visible-solo-lector **«Buscar accesorios»**, placeholder **«Buscar
+por nombre…»**. Espera 300 ms tras teclear (el patrón de búsqueda de la tienda). Tope 60 caracteres (`maxLength=60`, el
+servidor da `400` arriba de eso). Vacío ⇒ sin `q`. Botón «×» para limpiar con `aria-label` **«Limpiar búsqueda»**.
+
+**Retícula.** La del catálogo (§4.4): 2 col → 3 (sm) → 4 (lg) → 5 (xl). El servidor ya ordena (disponibles primero,
+agotados al final, `API_CONTRACT.md:41780`); ⛔ la pantalla no reordena.
+
+**Teja (`AccessoryTile`, nueva; mismas piezas que la teja de sellado §7.1b).**
+1. Foto `thumbUrl`, **`aspect-square`**, `object-contain`, borde 1 px `--color-border`, fondo `surface-2` mientras
+   carga, `loading="lazy"`, `alt` = nombre. Si la imagen falla: el mismo respaldo de §5 (recuadro `surface-2` con el
+   nombre en `text-xs text-muted`), nunca un icono roto.
+2. `eyebrow` mono con la **categoría** (en energías, «ENERGÍAS»).
+3. Nombre, sans 15 px `text-text`, dos líneas como máximo (`line-clamp-2`), con `title` del nombre entero.
+4. Precio con la voz «precio display» de §20.14 (sans 500, `tabular-nums`). Debajo, `text-xs text-muted` **«IVA
+   incluido»** solo en la ficha, no en la teja (la tienda entera ya muestra precios con IVA, §Q).
+5. Acción: **«Agregar»** (`Button secondary size="sm"`, área táctil 44 px) que suma **1** unidad al carrito y dispara el
+   `CartAddedToast` que ya existe (`DeckAvailability.tsx:18`). `aria-label` **«Agregar {nombre} al carrito»**.
+   Si el carrito ya tiene esa cantidad o más de lo que se puede (no lo sabe la teja), se deja que la cotización lo
+   ajuste (AC-UX.5).
+6. **Agotado** (`soldOut: true`): distintivo de §20.6 **«AGOTADO»** (`text-muted`, mono), foto con `opacity-60`, **sin
+   botón** (criterio 705–706; AC-F2). El enlace a la ficha sigue vivo.
+
+Toda la teja es enlace a la ficha **excepto** el botón (dos objetivos separados; el botón no está dentro del `<a>`).
+
+**Paginación.** El paginador sobrio de §20.12. `pageSize` 24.
+
+**Estados.**
+
+| Estado | Qué se pinta |
+|---|---|
+| Cargando | 8 tejas `Skeleton` con foto cuadrada |
+| Error de red / `5xx` | `Banner variant="danger"` **«No pudimos cargar los accesorios.»** + botón **«Reintentar»** |
+| `total = 0` sin filtro ni búsqueda | Vacío centrado: `h3` **«Pronto tendremos accesorios aquí»** + `text-sm text-muted` **«Mientras tanto, mira las cartas y el producto sellado.»** + enlace **«Ver cartas sueltas»** |
+| `total = 0` con categoría | **«No hay {categoría} por ahora.»** + enlace **«Ver todos los accesorios»** |
+| `total = 0` con búsqueda | **«No encontramos accesorios con «{q}».»** + botón fantasma **«Limpiar búsqueda»** |
+| `400` por `category` inválida en la URL | se trata como «Todo» y se limpia el parámetro (es un enlace viejo o tecleado, no un error del cliente) |
+
+### AC-UX.3 Ficha — `GET /accessories/:id`
+
+**Disposición.** La de la ficha de sellado (§20.13): en `lg+`, dos columnas (foto 1:1 a la izquierda, datos a la
+derecha); en móvil, apilado. Enlace de vuelta **«Volver a accesorios»** (conserva la categoría de la que vino si la hay).
+
+**Columna de foto.** `photo.url` (la de 1200 px), `aspect-square`, `object-contain`, borde de regla. Mismo respaldo de
+§5 si falla.
+
+**Columna de datos.**
+1. `eyebrow` categoría · en energías, además, el tipo: **«ENERGÍAS · FUEGO»**.
+2. `h1` serif con el nombre.
+3. Precio display 30 px (§20.13) + `text-xs text-muted` **«IVA incluido»**.
+4. Descripción (`text-base`, texto simple; `white-space: pre-line` para respetar saltos). Sin descripción: no se pinta
+   nada (ni «Sin descripción»).
+5. **Cantidad** (`QuantityStepper`, nuevo pero hecho de piezas de §6): botón «−» · `input type="number"` · botón «+»,
+   cada uno de 44 px, `label` visible **«Cantidad»**. Mínimo 1, máximo `maxQty − (lo que ya tiene en el carrito)`.
+   «−» y «+» se apagan en los límites. Escribir fuera de rango se corrige al salir del campo, con la nota `text-xs
+   text-muted` unida por `aria-describedby`: **«Puedes agregar hasta {n}.»** ⛔ No se muestra el número exacto de
+   existencias como dato propio (PROJECT AC.3: «no se muestra el número exacto»); el tope del selector es lo único que lo
+   insinúa, y lo exige el contrato (`maxQty`, `API_CONTRACT.md:41770, 41774-41775`).
+6. **«Agregar al carrito»** (`Button primary`, ancho completo en móvil). Suma la cantidad elegida; dispara
+   `CartAddedToast`. Con ya `maxQty` en el carrito: botón apagado y razón unida por `aria-describedby`: **«Ya tienes en
+   tu carrito todas las que hay.»** + enlace **«Ir al carrito»**.
+7. Nota `text-sm text-muted`, siempre: **«Se envía a tu domicilio. Los accesorios no se guardan en la bóveda.»**
+8. **Agotado** (`soldOut`, `maxQty = 0`): en lugar de 5 y 6, el distintivo **«AGOTADO»** y `text-sm text-muted` **«Se
+   agotó. Vuelve pronto.»** ⛔ Sin «Avísame cuando vuelva» (fuera de alcance, PROJECT AC.8).
+
+**`404 ACCESSORY_NOT_FOUND`** (inexistente o despublicado; el servidor no distingue): página de vacío con `h1`
+**«Este accesorio ya no está a la venta»** + enlace **«Ver accesorios»**. ⛔ No decir «no existe»: puede volver.
+
+### AC-UX.4 Cliente con sesión abierta — P-AC-1 con su recomendación
+
+Hecho que lo obliga: el checkout con cuenta **rechaza** accesorios (`422 ACCESSORIES_REQUIRE_DIRECT_SHIP`,
+`API_CONTRACT.md:41860-41869`) y la compra de invitado rechaza una sesión (`ARCHITECTURE.md:29047`). F3: solo invitado
+con envío.
+
+**Lo que ve** (en todas las superficies, el mismo texto):
+
+| Superficie | Sin sesión | Con sesión |
+|---|---|---|
+| Pestaña y listado | igual | **Igual** (fotos, precios, filtro, búsqueda). La teja **no** lleva «Agregar» |
+| Ficha | stepper + «Agregar al carrito» | sin stepper ni botón; en su lugar el **aviso** |
+| Ficha del deck: energías ligadas y recuadro del paquete | botones | precios visibles; en lugar de los botones, el **aviso** (una vez por bloque, no por línea) |
+| Carrito | renglones, «¿Te falta algo?», paquete | **sin** «¿Te falta algo?» y **sin** oferta de paquete; accesorios que ya estuvieran en el carrito local, aparte (abajo) |
+
+**El aviso** (`Banner variant="info"`, sin relleno, regla superior `border-strong`, `role="note"`; ⛔ no `warning` ni
+`danger`: no hay error):
+
+| Clave | ES | EN |
+|---|---|---|
+| `accessories.signedInNotice` | **Los accesorios se compran con envío a domicilio. Pronto también desde tu cuenta.** | **Accessories are bought with home delivery. Soon from your account too.** |
+
+En el listado, el aviso va **una vez**, bajo el subtítulo, no en cada teja.
+
+**Accesorios ya en el carrito local al iniciar sesión** (el carrito vive en el navegador, `cart.ts`): no se borran. En
+`/checkout` con sesión se pintan **aparte**, bajo los renglones que sí se pagan, en un bloque `surface-2` con `eyebrow`
+**«NO VAN EN ESTE PAGO»** / “NOT IN THIS PAYMENT”, el aviso de arriba y cada renglón con **«Quitar»**. No suman al
+total; ⛔ el checkout con cuenta nunca los manda (AC-F7). Si el carrito solo tiene accesorios: el botón de pago no
+aparece y queda el bloque con el aviso.
+
+⛔ Ninguna variante del texto menciona cerrar sesión, salir, ni «comprar como invitado».
+
+### AC-UX.5 El carrito — renglones, avisos y errores de pago (compra de invitado)
+
+El carrito pasa a v3 `{ ids, accessories: {id, qty}[], deckPulls: {token, slug, withEnergyBundle}[] }` (AC-F1, lo
+implementa frontend). `quote` recibe `accessoryLines` y `deckPulls` (`API_CONTRACT.md:41802-41812`).
+
+**Orden de los renglones:** cartas → sellado → **accesorios** → **paquetes de energías**, con un `eyebrow` por grupo
+(**«ACCESORIOS»**, **«PAQUETES DE ENERGÍAS»**) solo si el grupo tiene algo. El carrito puede tener **solo**
+accesorios.
+
+**Renglón de accesorio** (`accessoryLines[]` de la cotización; forma de §20.13 «Carrito»):
+- miniatura **92×92** (la del sellado) con `photo.thumbUrl`;
+- nombre serif 19 px; debajo, mono muted la categoría (y el tipo en energías);
+- `QuantityStepper` compacto (AC-UX.3) con `aria-label` **«Cantidad de {nombre}»**; cambiar cantidad re-cotiza;
+- a la derecha: total del renglón `lineTotalCents` (precio display) y, si `quantity > 1`, `text-xs text-muted`
+  **«{precio} c/u»**;
+- **«Quitar»** mono muted como hoy (`checkout.removeItem`), `aria-label` **«Quitar {nombre}»**.
+
+**Renglón de paquete** (`energyBundles[]`):
+- miniatura 92×92: la foto de la energía del tipo con más cantidad (si ninguna trae foto en la cotización, recuadro
+  `surface-2` con `eyebrow` «ENERGÍAS»);
+- título serif **«Paquete de energías — {deckName}»** (texto fijado por F2 regla 3);
+- debajo, mono `text-xs`: el desglose **«Fuego ×8 · Agua ×4»** (orden del enum `EnergyType`);
+- precio `priceCents` y, en `text-xs text-muted`, **«Sueltas: {looseTotal}»** (referencia, no tachado: ⛔ sin precio
+  tachado, PROJECT AC.8);
+- sin stepper (uno por deck); **«Quitar»** pone `withEnergyBundle: false` en su `deckPull`.
+
+**Avisos de la cotización** (encima de los renglones, `Banner` sin relleno, `role="status"`, botón **«Cerrar aviso»**
+como `checkout.unavailable.dismiss`). El carrito **se corrige solo** con lo que dice el servidor y el aviso lo cuenta:
+
+| De la cotización | El carrito hace | ES | EN |
+|---|---|---|---|
+| `unavailableAccessories` · `not_found` \| `inactive` | quita el accesorio | **Un accesorio de tu carrito ya no está a la venta y lo quitamos.** (plural: **{n} accesorios de tu carrito ya no están a la venta y los quitamos.**) | One accessory in your cart is no longer for sale, so we removed it. / {n} accessories… |
+| `· sold_out` | quita el accesorio | **Un accesorio de tu carrito se agotó y lo quitamos.** | An accessory in your cart sold out, so we removed it. |
+| `· insufficient` + `availableQty` | baja la cantidad a `availableQty` | **Solo hay {n} de {nombre}. Ajustamos la cantidad.** | There are only {n} of {name}. We've adjusted the quantity. |
+| `unavailableBundles` · `deck_incomplete` | `withEnergyBundle: false` y quita el `deckPull` | **El paquete de energías de {deck} salió del carrito: ya no están todas las cartas del deck.** | The energy bundle for {deck} left your cart: not all of the deck's cards are in it anymore. |
+| `· insufficient_stock` | ídem | **El paquete de energías de {deck} salió del carrito: ya no tenemos todas sus energías. Puedes agregar sueltas las que haya desde el deck.** + enlace **«Ver el deck»** | …: we no longer have all its energy cards. You can add the ones we have one by one from the deck. |
+| `· expired` | ídem | **El paquete de energías de {deck} venció. Vuelve a agregarlo desde el deck.** + enlace | The energy bundle for {deck} expired. Add it again from the deck. |
+| `· deck_unpublished` \| `not_offered` | ídem | **El paquete de energías de {deck} ya no está disponible y salió del carrito.** | The energy bundle for {deck} is no longer available and left your cart. |
+| `· duplicate` | quita el repetido | *(sin aviso: es un repetido del propio carrito; queda uno)* | |
+| `· invalid_token` (o `deckSlug: null`) | quita el `deckPull` | **Un paquete de energías ya no es válido y salió del carrito.** | An energy bundle is no longer valid and left your cart. |
+
+`{deck}` = `deckName` si lo hay en el carrito local; si no, el `deckSlug` no se muestra crudo: se usa la variante sin
+nombre **«Un paquete de energías…»**. *(Por qué el mismo texto para «quitaste una carta» y «una carta se agotó»: el
+servidor no los distingue y la frase es verdad en los dos casos. Es la «aviso» de F2 regla 4.)*
+
+**Subtotal.** Con accesorios o paquetes en la cotización, la ayuda del subtotal pasa de «Precio de venta de las cartas,
+con IVA incluido» (`checkout.subtotalHintIvaIncluded`, `es.json:461`) a la clave nueva
+`checkout.subtotalHintProducts`: **«Precio de venta de tus productos, con IVA incluido.»** / “Sale price of your
+products, VAT included.” El resto del desglose (comisión de plataforma §29, IVA incluido, total) **no cambia**.
+
+**Errores al pagar** (`POST /checkout/guest/session`; `Banner variant="danger"` junto al botón, `role="alert"`; el
+carrito se re-cotiza solo después de pintar el aviso). En todos se dice **«No se cobró nada»**, que es verdad: el
+servidor valida antes de crear nada (`API_CONTRACT.md:41842-41851`).
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `409 ACCESSORY_UNAVAILABLE` | **Un accesorio de tu carrito ya no está a la venta. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.** | An accessory in your cart is no longer for sale. You weren't charged. We removed it: check your cart and pay again. |
+| `409 ACCESSORY_INSUFFICIENT_STOCK` con `availableQty > 0` | **Ya no hay suficientes {nombre}: quedan {n}. No se cobró nada. Ajustamos la cantidad: revisa y vuelve a pagar.** | There aren't enough {name} left: {n} remaining. You weren't charged. We adjusted the quantity: check it and pay again. |
+| ídem con `availableQty = 0` | **{nombre} se agotó mientras pagabas. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.** | {name} sold out while you were paying. You weren't charged. We removed it: check your cart and pay again. |
+| `422 ENERGY_BUNDLE_INVALID` | **El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito; las energías las puedes agregar sueltas desde el deck.** | The energy bundle for {deck} can no longer be paid for. You weren't charged. We removed it from your cart; you can add the energy cards one by one from the deck. |
+| `422 ACCESSORIES_REQUIRE_DIRECT_SHIP` (checkout con cuenta; defensa, no debería llegar) | el aviso de AC-UX.4 | |
+
+Cuando el `409` de existencias es de un **componente de paquete** (`accessoryId` de una energía que no está como
+renglón suelto), se usa la fila de `422 ENERGY_BUNDLE_INVALID`. `{nombre}` sale del renglón de la cotización con ese
+`accessoryId`; si no está, la variante sin nombre: **«Un accesorio…»**.
+
+### AC-UX.6 «¿Te falta algo?» — `GET /accessories/suggestions?exclude=…`
+
+**Cuándo aparece (todas):** compra de invitado sin sesión · el carrito tiene algo · el destino elegido es **envío a
+domicilio** · la respuesta trae `items.length ≥ 1`. `exclude` = los `id` de accesorios del carrito. Con `0` del dial
+`accessory_suggestion_count` el servidor devuelve `[]` y no hay recuadro. ⛔ Nunca recuadro vacío. ⛔ Energías: nunca
+(las filtra el servidor, P-EN-2 de F3; la pantalla no añade nada).
+
+**Dónde:** en la columna de renglones, **debajo** de los renglones y **antes** de los avisos legales; ⛔ nunca en la
+columna del resumen ni encima del botón de pago. En móvil queda antes del resumen, en el flujo (no flotante). ⛔ No es
+modal ni hoja (AC-F4).
+
+**Anatomía:** `section` con `aria-labelledby` del `h2`. Bloque `surface-2` con regla superior `border-strong` (la del
+panel de bóveda §15.4, sin sombra, radio 0).
+- `h2` serif `text-h3`: **«¿Te falta algo?»** / “Anything else?”
+- Sub, `text-sm text-muted`: **«Accesorios que se van en el mismo envío.»** / “Accessories that go in the same
+  shipment.”
+- Hasta N filas (no tejas: caben mejor junto al carrito): miniatura 64×64 · nombre (sans 15) · precio display ·
+  **«Agregar»** (`secondary sm`, `aria-label` **«Agregar {nombre} al carrito»**). Suma **1** unidad (criterio 719).
+  Tras agregar, la fila se queda y su botón pasa a **«En el carrito»** con icono `Check` (deshabilitado), para que la
+  lista no salte bajo el dedo; en la siguiente visita ya no aparece (va en `exclude`).
+- Pie: botón fantasma **«No, gracias»** / “No, thanks”. Oculta el recuadro **en esta visita al carrito** (estado del
+  componente; al volver a entrar a `/checkout` reaparece si hay sugerencias). Al ocultarse, el foco va al primer
+  control siguiente en el orden de tabulación.
+- Cargando: no se pinta nada (ni esqueleto): es secundario y no debe empujar el carrito. Error: no se pinta nada.
+
+**Envío al agregar:** agregar re-cotiza; si el envío cambia, lo dice AC-UX.7.
+
+### AC-UX.7 El envío por caja en el resumen
+
+- La fila **«Envío»** del resumen pinta `breakdown.shippingFeeCents` de la cotización, como hoy. ⛔ El navegador no
+  calcula cajas.
+- Si `shippingBox !== null` (el pedido lleva accesorios con medidas y hay cajas con tarifa), bajo la cifra va
+  `text-xs text-muted`: **«Calculado por el tamaño de la caja que necesita tu pedido.»** / “Based on the size of box
+  your order needs.” ⛔ No se muestra `label` ni el código de la caja: son nombres internos del dueño. ⛔ `review` no se
+  muestra al cliente (es trabajo de quien prepara).
+- **Si el envío cambia entre dos cotizaciones** (agregar o quitar un accesorio), una región `aria-live="polite"` junto
+  al desglose dice: **«El envío cambió a {amount} por el tamaño de tu pedido.»** / “Shipping changed to {amount}
+  because of your order's size.” La cifra de la fila se actualiza a la vez. Se borra en la siguiente cotización sin
+  cambio.
+- **Selector de destino** (§15.4): la micro-etiqueta de «Envío a mi domicilio» (`checkout.destination.shipFeeHint`, «+
+  {amount}») pinta el `shippingFeeCents` de la **cotización**, no el dial fijo.
+- El botón **«Pagar {amount}»** sigue mostrando el total de la sesión (§70.4, F-SP-5); si la sesión trae un total
+  distinto del cotizado, aplica el aviso «el total cambió» de §70.4 sin cambios.
+
+**Destino «Guardar en mi bóveda» con accesorios** (P-ACC-11 con su recomendación, `PROJECT.md:18534-18537`; AC-F8;
+`vaultExcludesAccessories: true`):
+- Dentro del panel de bóveda (§15.4), **antes** del formulario, un bloque con `eyebrow` **«NO VAN A LA BÓVEDA»** y:
+  **«Los accesorios y las energías solo se envían a domicilio. Si guardas tus cartas en la bóveda, los accesorios
+  ({n}, {amount}) no van en esta compra: se quedan en tu carrito.»** / “Accessories and energy cards only ship to your
+  home. If you keep your cards in the vault, the accessories ({n}, {amount}) aren't part of this purchase: they stay in
+  your cart.” `{amount}` = Σ `lineTotalCents` de accesorios + paquetes de la cotización.
+- Las dos salidas de §15.4 **ya son** las dos opciones de la recomendación: **«Crear cuenta y guardar en bóveda»**
+  (las cartas a la bóveda; los accesorios se quedan en el carrito y quedan bajo AC-UX.4) y **«Seguir con envío a
+  domicilio»** (todo a domicilio). ⛔ Ningún botón «quitar accesorios» aparte: no se pierden, se quedan.
+- **Carrito sin cartas ni sellado** (solo accesorios o paquetes): la opción «Guardar en mi bóveda» **no se pinta**
+  (no habría nada que guardar). Es la única excepción a «la opción de bóveda nunca se oculta» de §15.4, y es por
+  ausencia de objeto, no por barrera.
+
+### AC-UX.8 Ficha del deck — energías ligadas y el recuadro del paquete
+
+**Energías ligadas** (`MetaDeckLineDTO.basicEnergy`, `API_CONTRACT.md:41963-41970`). En el grupo «Energía», una línea
+con `basicEnergy !== null` deja de verse como «Energía básica» sin precio:
+- miniatura cuadrada 48×48 con `basicEnergy.photo.thumbUrl` (en lugar del recuadro punteado de hoy,
+  `DeckAvailability.tsx:134`);
+- nombre: el del producto en el idioma de la tienda, **«Energía {tipo}»** / “{Type} Energy” (tipos en AC-UX.15), con la
+  cantidad de la lista delante (`×8`, como hoy);
+- badge **«DISPONIBLE»** (success) o **«AGOTADA»** (neutral) según `soldOut`;
+- precio **«{price} c/u»** (precio display 15 px);
+- acción **«Agregar ×{qty}»** (`primary sm`) que suma `quantity` unidades de esa energía al carrito; si el disponible
+  es menor, la cotización lo ajusta con «Solo hay N…» (AC-UX.5). `aria-label` **«Agregar {qty} Energía {tipo} al
+  carrito»**. Con la cantidad del carrito ≥ `quantity`: **«En el carrito»** (secundario, lleva a `/checkout`, como
+  `LineCta`). Agotada: sin botón.
+- **Si el paquete de este deck ya está en el carrito:** en lugar del botón, `text-sm text-muted` **«Va en tu paquete
+  de energías.»** ⛔ No se ofrece comprarla suelta encima del paquete.
+- `basicEnergy === null`: la línea se pinta **como hoy** (criterio 734).
+
+**El recuadro del paquete** (`energyBundle` en la raíz de `GET /decks-meta/:slug`, `API_CONTRACT.md:41972-41988`).
+Va **justo debajo** de la barra de «Agregar de jalón» (`DeckAvailability.tsx:73-80`), como bloque hermano, no dentro del
+botón. Bloque con regla `border-strong` arriba y abajo, fondo `surface` (papel), sin sombra.
+
+| `energyBundle` | Qué se pinta |
+|---|---|
+| `offered: true` | el recuadro completo (abajo) |
+| `reason: 'insufficient_stock'` | una sola línea `text-sm text-muted`: **«Paquete de energías no disponible: no tenemos todas las que pide este deck. Agrega sueltas las que haya, abajo.»** (F2 regla 5) |
+| `reason: 'no_basic_energy'` \| `'not_offered'` | **nada** (P-EN-3: con pocas energías el paquete no ahorra; P-AC-4: deck casi vacío) |
+
+**Recuadro completo:**
+1. `eyebrow` **«PAQUETE DE ENERGÍAS»** / “ENERGY BUNDLE”.
+2. Línea principal, sans 15 px: **«Las {n} energías de este deck por {price}»** / “All {n} energy cards for this deck
+   for {price}” — `{n}` = Σ `energies[].quantity`, `{price}` = `priceCents`.
+3. Desglose mono `text-xs`: **«Fuego ×8 · Agua ×4»**.
+4. Referencia `text-sm text-muted`: **«Sueltas costarían {looseTotal}.»** / “One by one they'd cost {looseTotal}.” (F2
+   regla 2: «precio suelto de referencia»; ⛔ sin tachar, sin «ahorras», sin porcentaje).
+5. Nota `text-xs text-muted`: **«Precio fijo, IVA incluido. Solo con envío a domicilio y con el deck completo en tu
+   carrito.»**
+6. Botón propio **«Agregar paquete»** (`secondary sm`). **No viene marcado** y «Agregar de jalón» **no** lo agrega (F2
+   regla 2; AC-F6; criterio 735). ⛔ Sin casilla preseleccionada, sin interruptor.
+
+**Cuándo se puede pulsar «Agregar paquete»:** cuando el deck ya está en el carrito, es decir, **todas** las piezas que
+mete «Agregar de jalón» (`pullableItemIds`) están en el carrito (P-EN-4 de F3). Mientras no, el botón va apagado con la
+razón unida por `aria-describedby`: **«Primero agrega el deck con «Agregar de jalón»: el paquete solo va con el deck
+completo.»** / “First add the deck with “Add the whole deck”: the bundle only comes with the complete deck.” Al
+pulsarlo, el carrito guarda (o actualiza) el `deckPull` `{ token: energyBundle.pullToken, slug, withEnergyBundle: true }`
+y dispara `CartAddedToast`. «Agregar de jalón» también guarda el `deckPull` con `withEnergyBundle: false` (para que el
+carrito pueda **ofrecerlo**, AC-UX.8b).
+
+Con el paquete en el carrito: el botón pasa a **«En el carrito»** (secundario, `Check`, lleva a `/checkout`) y al lado
+un fantasma **«Quitar paquete»**.
+
+**AC-UX.8b La oferta del paquete en el carrito** (`energyBundleOffers[]`; F2 regla 3: «el carrito lo sugiere una vez»).
+- Va **encima** de «¿Te falta algo?», con su misma anatomía (bloque `surface-2`, no modal). Una fila por deck ofrecido:
+  **«¿Agregas el paquete de energías de {deckName}? {n} energías por {price} (sueltas: {looseTotal}).»** + **«Agregar
+  paquete»** (`secondary sm`) + **«No, gracias»** (fantasma).
+- **«Una vez»:** la fila de un deck desaparece para siempre (mientras ese deck siga en el carrito) cuando el cliente
+  pulsa **cualquiera** de los dos botones. Si solo la ignora, sigue apareciendo. Dónde se guarda «ya respondió» lo
+  decide frontend; recomendación: una llave aparte del carrito (`tcg.cart.bundleOfferSeen`, por `slug`), para no
+  cambiar la forma v3 que fija AC-F1.
+- Con sesión o con destino bóveda: no aparece.
+
+**«Pegar lista»** (P-EN-7 de F3): energías ligadas igual que arriba (con su botón suelto); **sin** recuadro del paquete
+(el servidor no emite `energyBundle`, `API_CONTRACT.md:41989`).
+
+### AC-UX.9 Panel «Accesorios» — `/admin/accessories` (operador+; ★ = solo súper-admin)
+
+**Menú** (§38 (b)): entrada nueva **«Accesorios»** / “Accessories” en el grupo **«Existencias»**, **justo tras
+«Sellado»**. Sin marca SÚPER (el operador entra). Título de la página = rótulo del menú (§38 (a) regla 2).
+Subtítulo `text-sm text-muted`: **«Fundas, carpetas, energías y demás. Sin foto no se publica.»**
+
+#### AC-UX.9a Lista — `GET /admin/accessories?category=&q=&active=&soldOut=&page=`
+
+Filtros en una fila: `Select` **«Categoría»** (Todas + las 7) · búsqueda **«Buscar por nombre»** · `Select` **«Estado»**
+(Todos · Publicados · No publicados) · casilla **«Solo agotados»**. Botón primario **«Nuevo accesorio»** a la derecha.
+
+Tabla (en `< md`, cada fila es una tarjeta con las mismas piezas apiladas):
+
+| Columna | Contenido |
+|---|---|
+| Foto | miniatura 48×48 (`photo.thumbUrl`); sin foto: recuadro punteado `border-border` con mono `text-[10px]` **«SIN FOTO»** en `text-accent` (es lo que impide publicar) |
+| Nombre | enlace a la ficha del panel |
+| Categoría | texto; en energías, **«Energías · {tipo}»** |
+| Precio | precio con IVA (`priceCents`, mono `tabular`); `null` ⇒ mono **«SIN PRECIO»** en `text-accent` |
+| Existencias | **«{stockQty}»** y debajo `text-xs text-muted` **«{reservedQty} apartadas · {availableQty} disponibles»** (solo si `reservedQty > 0`) |
+| Estado | versalita: **«PUBLICADO»** (success) · **«NO PUBLICADO»** (neutral, muted) · **«AGOTADO»** (accent) si publicado y `availableQty = 0` |
+| Sugerido | **«SUGERIDO»** mono muted si `suggested`; vacío si no |
+
+Las 8 energías aparecen desde el primer día (las crea la migración inactivas, MX$5, sin foto, `API_CONTRACT.md:41732-41733`):
+el dueño las ve con «SIN FOTO» y «NO PUBLICADO», que es exactamente lo que le falta.
+
+Vacío con filtros: **«Ningún accesorio con estos filtros.»** + **«Quitar filtros»**. Error: `Banner danger` **«No
+pudimos cargar los accesorios.»** + **«Reintentar»**.
+
+#### AC-UX.9b Alta y edición — `/admin/accessories/new` y `/admin/accessories/{id}`
+
+Una sola página por accesorio, en bloques separados por reglas (§16), cada uno con su propio guardar (así un error de
+foto no tira lo escrito en los datos). Orden:
+
+**1 · Datos** (`POST` al crear, `PATCH` al editar; botón **«Guardar datos»**):
+- **Nombre** (obligatorio, 1..120, contador). **Categoría** (`Select`, obligatoria, las 7).
+- **Tipo de energía** (`Select` de los 8): solo si la categoría es **Energías**; obligatorio para publicar.
+- **Descripción** (`Textarea`, opcional, contador **«{n}/500»**, texto simple).
+- **Medidas y peso** (no se pintan en Energías; en su lugar `text-sm text-muted` **«Las energías no llevan medidas: viajan
+  con las cartas.»**): **Largo**, **Ancho**, **Alto** en **mm** y **Peso** en **g**, enteros, con la ayuda **«Del
+  artículo empacado como se vende. Sirven para elegir la caja del envío.»**
+- Al **crear**: nace sin publicar. Respuesta `201` ⇒ se navega a la ficha del panel con el aviso `success`
+  **«Accesorio creado. Sube su foto para poder publicarlo.»** y el foco en el bloque de foto.
+- Categoría de uno publicado a/desde Energías ⇒ `409 ACCESSORY_ACTIVE`: **«Para cambiar la categoría de un accesorio
+  publicado, primero quítalo de la tienda.»** (y el `Select` lo sugiere: la opción queda deshabilitada con esa razón
+  mientras esté publicado).
+
+**2 · Foto** (`POST …/photo`, `multipart`, campo `file`; operador+):
+- Zona de soltar + botón **«Elegir foto»** (`input type="file" accept="image/png,image/jpeg,image/webp"`). Con foto:
+  la vista previa (`photo.url`, 1:1, 240 px) y el botón cambia a **«Cambiar foto»**.
+- Ayuda `text-sm text-muted`: **«PNG, JPG o WebP de hasta 10 MB. La acomodamos sola: queda cuadrada, sin recortar el
+  producto y sin datos de ubicación.»**
+- Subiendo: botón en `loading` con **«Subiendo y acomodando la foto…»**; la foto anterior sigue visible hasta que
+  llegue la nueva.
+- Antes de subir, si el archivo pasa de 10 MiB, el mismo mensaje de `too_large` **sin** enviar.
+- Errores (`422 PHOTO_INVALID {reason}`), bajo la zona, `role="alert"`; en todos: **«No se guardó nada.»** al final:
+
+| `reason` | ES | EN |
+|---|---|---|
+| `too_large` | **La foto pesa más de 10 MB. No se guardó nada.** | The photo is larger than 10 MB. Nothing was saved. |
+| `unsupported_type` | **Ese archivo no es PNG, JPG ni WebP. No se guardó nada.** | That file isn't a PNG, JPG or WebP. Nothing was saved. |
+| `too_many_pixels` | **La foto es demasiado grande en píxeles. Redúcela y vuelve a subirla. No se guardó nada.** | The photo has too many pixels. Shrink it and upload it again. Nothing was saved. |
+| `not_image` | **No pudimos abrir ese archivo como imagen. No se guardó nada.** | We couldn't open that file as an image. Nothing was saved. |
+
+**3 · Precio y costo** ★ (`PATCH` con `priceCents`, `unitCostCents`):
+- Súper-admin: **«Precio de venta (con IVA)»** — `MoneyInput` en pesos con centavos, con la ayuda **«Es lo que ve y
+  paga el cliente. La comisión de plataforma se suma aparte.»** · **«Costo por unidad»** (opcional) con la ayuda **«Lo
+  que te costó a ti. Solo lo ves tú; sirve para el margen en Finanzas.»** · botón **«Guardar precio»**.
+- Operador: el bloque se pinta **solo lectura**: **«Precio de venta: {precio}»** o **«Sin precio. Lo pone el
+  dueño.»**. ⛔ El costo **no aparece** en ninguna forma (el DTO no lo trae para el operador, `API_CONTRACT.md:42107`).
+- `403 FORBIDDEN_FIELD` (defensa): **«No tienes permiso para cambiar {campos}. No se guardó nada.»**
+
+**4 · Existencias** (operador+; ver AC-UX.9c).
+
+**5 · Publicación** ★:
+- **Lista de lo que falta**, calculada del DTO (precio, foto, medidas, peso o tipo de energía según la categoría):
+  **«Para publicarlo falta: {foto, precio, …}.»** en `text-accent`, o **«Listo para publicar.»** en `text-text`.
+- Botón **«Publicar en la tienda»** (`primary`), apagado con esa razón por `aria-describedby` mientras falte algo.
+  Publicado: **«Quitar de la tienda»** (`secondary`), sin confirmación (reversible), con la nota **«Los carritos que lo
+  tengan lo pierden en la siguiente cotización, con aviso.»**
+- **«Sugerido en el carrito»** (`Switch`), con la ayuda **«Aparece primero en «¿Te falta algo?».»**. En Energías el
+  `Switch` va apagado con la razón **«Las energías no se sugieren en el carrito: se ofrecen en los decks.»**
+- Respuestas: `422 ACCESSORY_NOT_ACTIVATABLE {missing}` ⇒ la lista de arriba con los faltantes del servidor y **«No se
+  publicó.»** · `409 ENERGY_TYPE_TAKEN {accessoryId}` ⇒ **«Ya hay otra «Energía {tipo}» publicada. Quítala de la tienda
+  primero; solo puede haber una por tipo.»** + enlace **«Ver la otra»**.
+- Rótulos de `missing`: `price` «precio» · `photo` «foto» · `dimensions` «medidas» · `weight` «peso» · `energy_type`
+  «tipo de energía» (EN price · photo · dimensions · weight · energy type).
+
+**6 · Borrar** ★ (al final, separado por regla): si `hasSales`: solo texto `text-sm text-muted` **«Ya se vendió: no se
+puede borrar. Quítalo de la tienda para que deje de verse.»**. Si no: botón `destructive` **«Borrar accesorio»** con
+el `Dialog` de §7.6: título **«¿Borrar {nombre}?»**, cuerpo **«Se borra con su foto y su historial de existencias. No se
+puede deshacer.»**, confirmar **«Borrar»**. `409 ACCESSORY_HAS_SALES` (carrera) ⇒ el texto de `hasSales`.
+
+#### AC-UX.9c Existencias — `POST …/stock` y `GET …/stock-movements`
+
+Cabecera del bloque: **«Existencias: {stockQty}»** (mono grande) y debajo **«{reservedQty} apartadas en pedidos en
+curso · {availableQty} disponibles»**. Nota: **«Las ventas, los apartados y las devoluciones las mueve el sistema
+solo.»**
+
+Dos botones secundarios, cada uno abre un `Dialog` (§7.6) pequeño:
+- **«Entraron»** — **Cantidad** (1..10 000) · **Nota** (opcional). Confirmar **«Sumar {n}»**. Hecho ⇒ toast `success`
+  **«Sumamos {n}. Ahora hay {stock}.»**
+- **«Ajuste (conteo)»** — **Existencias reales** (entero ≥ 0) · **Motivo** (obligatorio, 3..200, p. ej. «conteo
+  físico», «merma»). Se manda `expectedStockQty` = el número que el diálogo enseñaba al abrirse. Confirmar **«Ajustar a
+  {n}»**; apagado si el número es el mismo de hoy, con la razón **«Es el mismo número de hoy.»**
+
+| Respuesta | ES | EN |
+|---|---|---|
+| `409 STOCK_CONFLICT {stockQty}` | **Las existencias cambiaron mientras ajustabas: ahora hay {n}. No se cambió nada. Revisa y vuelve a intentarlo.** (el diálogo se queda abierto con el número nuevo) | Stock changed while you were adjusting: there are now {n}. Nothing was changed. Check and try again. |
+| `409 STOCK_BELOW_RESERVED {reservedQty}` | **Hay {n} apartadas en pedidos en curso: las existencias no pueden quedar por debajo. No se cambió nada.** | {n} are reserved in orders in progress: stock can't go below that. Nothing was changed. |
+| `400` (motivo corto) | bajo el campo: **«Escribe un motivo de al menos 3 letras.»** | Write a reason of at least 3 characters. |
+
+**Historial** (tabla paginada, la más reciente arriba): **Fecha** · **Movimiento** · **Cambio** (`+5` / `−3`, mono, con
+signo; ⛔ sin color como único canal) · **Antes → después** · **Quién** (`actor.name`; `null` ⇒ **«El sistema»**) ·
+**Motivo / pedido** (`reason` o **«Pedido {orderNumber}»**). Rótulos de `kind`:
+
+| `kind` | ES | EN |
+|---|---|---|
+| `initial` | Alta | Initial |
+| `receive` | Entrada | Received |
+| `adjust` | Ajuste | Adjustment |
+| `sale` | Venta | Sale |
+| `restock` | Devuelto a existencias | Restocked |
+| `settle_recovery` | Venta (pago tardío) | Sale (late payment) |
+
+### AC-UX.10 Cajas con tarifa — «Configuración › Envíos › Empaques» (§43.10d; `PUT` solo súper-admin)
+
+La tabla de §43.10d gana **una columna** al final, antes de «Activo»: **«Tarifa al cliente (con IVA)»** — `MoneyInput`
+opcional (`customerFeeCents`, 1..10 000 000 centavos). Vacía ⇒ en la celda, placeholder **«No cobra»**.
+
+Notas bajo la tabla (`text-sm text-muted`), **además** de las de §43.10d:
+- **«Las cajas con tarifa se usan solo cuando el pedido lleva accesorios con medidas. El sistema elige la más chica en
+  la que caben y cobra lo mayor entre la tarifa fija de envío y la de esa caja. Si no caben en ninguna, cobra la más
+  grande y el pedido llega marcado «Revisar caja».»** *(La frase «lo mayor entre…» depende de P-AC-2; si el dueño
+  elige «la de la caja», se cambia por «cobra la tarifa de esa caja».)*
+- Si **ninguna** caja activa tiene tarifa (el arranque, F3): una línea más **«Ninguna caja cobra todavía: los pedidos
+  con accesorios pagan la tarifa fija de envío de siempre.»** (no es error; ⛔ no `warning`).
+- Error de rango (`400 {field:'customerFeeCents', index}`), bajo la celda de esa fila: **«Escribe una tarifa entre
+  $0.01 y $100,000.»** / “Enter a fee between $0.01 and $100,000.”
+
+### AC-UX.11 Precio del paquete y número de sugerencias (★, `PUT /admin/settings`)
+
+Bloque al principio de la página «Accesorios», **solo para súper-admin**, plegado por defecto, con `h2` **«Precios
+fijos y sugerencias»**:
+- **«Precio del paquete de energías (con IVA)»** — `MoneyInput` (`energy_bundle_price_cents`, 1..100 000 centavos;
+  arranca en MX$20). Ayuda: **«Lo que paga el cliente por todas las energías de un deck del meta. La comisión de
+  plataforma va aparte.»**
+- **«Accesorios sugeridos en el carrito»** — número 0..6 (`accessory_suggestion_count`; arranca en 3). Ayuda: **«0
+  apaga «¿Te falta algo?».»**
+- **«Guardar»** ⇒ toast **«Ajustes de accesorios guardados.»**; error de validación bajo su campo.
+- **El precio de cada energía suelta (MX$5)** se edita en la ficha de cada «Energía {tipo}» (bloque 3), porque es el
+  precio de ese producto (`API_CONTRACT.md:41747-41748`). En la lista filtrada por Energías, si no tienen todas el
+  mismo precio, una línea `text-sm text-muted`: **«Las energías no tienen todas el mismo precio.»** (dato, no error).
+  Ver Q-AC-UX-1.
+
+### AC-UX.12 Preparación — la tarjeta de ENVÍO con accesorios y paquetes (§37.3; `accessoryLines` y `box`)
+
+**Caja** (plano 3 de la tarjeta, bajo la dirección; solo si `box !== null`):
+- `text-sm`: **«Caja: {label} · {l}×{a}×{h} cm · accesorios {kg} kg»** (`contentWeightG` en kg con un decimal).
+- `review: true`: versalita **«REVISAR CAJA»** en `text-accent` + `text-sm`: **«No cupo en ninguna caja registrada: se
+  cobró la más grande. Decide cómo empacarlo (dos paquetes o una caja especial). Lo cobrado no cambia.»**
+- La ventana «Capturar guía» preselecciona `code` en «Empaque» si sigue activa (§43.3b; `API_CONTRACT.md:41950`).
+
+**Renglones** — un grupo **«ACCESORIOS»** (`eyebrow`) **después** de las cartas, con la misma tabla de §36.5 / §37.3b:
+- miniatura 48×48 (`photo.thumbUrl`; sin foto, recuadro punteado);
+- nombre en sans 15 y la **cantidad grande**, mono 20 px: **«×3»** (es lo que se cuenta con la mano);
+- **paquete**: título **«Paquete de energías — {deckName}»** y debajo, **una línea por tipo** (no en una sola línea:
+  se junta tipo por tipo): **«Fuego ×8»**, **«Agua ×4»** (criterio 743);
+- **`settledWithoutStock: true`**: versalita **«SIN EXISTENCIAS AL COBRAR»** en `text-accent` + **«Se cobró cuando ya
+  no había existencias. Si no lo encuentras, márcalo como faltante.»**
+
+**Palomear** (`PATCH …/prep-accessory-lines/:lineId`; misma forma de §37.3b, botones `sm` de 44 px):
+
+| Renglón | Botones | Al marcar faltante |
+|---|---|---|
+| accesorio, `quantity = 1` | **«Lo tengo»** · **«No lo encontré»** · **«Llegó dañado»** | se manda `missingQty: 1` |
+| accesorio, `quantity > 1` | **«Los tengo»** · **«Faltan…»** | se abre **en la fila** (no diálogo): stepper **«¿Cuántas faltan?»** 1..`quantity` + radios **«No las encontré»** / **«Llegaron dañadas»** + **«Marcar»** |
+| paquete | **«Lo tengo completo»** · **«Falta el paquete»** · **«Llegó dañado»** | siempre `missingQty: 1` (el paquete entero, P-AC-3). Ayuda `text-xs text-muted` bajo la fila: **«Si falta solo una parte, complétala del estante: las energías ya estaban apartadas.»** |
+
+Marcas: **«Tomado»** (tinta) · **«Faltan {k} de {n}»** / **«Faltante»** (`text-accent`) · **«Dañado»** (`text-accent`).
+`aria-label` con el nombre: **«Lo tengo: {nombre} ×{n}»**, etc. Marcar no mueve dinero ni existencias (como §37.3b): sin
+confirmación, con **«Deshacer»** hasta el preparado. `refunded: true` ⇒ sin «Deshacer», texto **«Ya se reembolsó; la
+marca es fija.»**
+
+**Conteo del paso 1** (§37.3c): los renglones de accesorio cuentan como líneas en «{picked} tomadas · {missing}
+faltantes o dañadas · {pending} por palomear».
+
+**«Pedido preparado»** (§37.4): apagado mientras haya cualquier línea `pending`, cartas **o** accesorios (el servidor da
+`409`, `API_CONTRACT.md:42036-42037`). En el diálogo de dinero, las líneas de accesorio entran en la lista como
+**«{nombre} — faltan {k} de {n}{ · llegaron dañadas}»** y el paquete como **«Paquete de energías — {deck} — no está»**.
+La cifra del título sigue siendo `refundPreviewCents` del servidor. Ver Q-AC-UX-2: la cifra **por renglón** de accesorio
+no viene en el DTO, así que esas filas van **sin** importe propio.
+
+**Paquete con todo su deck faltante** (`API_CONTRACT.md:42049`: «la pantalla lo sugiere»): ver Q-AC-UX-3 (el DTO no dice
+qué cartas son del deck). Mientras no se cierre, no se pinta sugerencia.
+
+**Hoja imprimible** (§37.11c): los renglones de accesorio con la misma casilla vacía de papel, la cantidad en mono
+grande y, en el paquete, los tipos uno por línea. La caja y «REVISAR CAJA» van en la cabecera del pedido.
+
+### AC-UX.13 El pedido después — M3, seguimiento del invitado y AV-2 (`API_CONTRACT §AC.12`)
+
+- **Seguimiento del invitado** y **correo AV-2** (patrón de §41): los renglones de accesorio después de las cartas,
+  **«{nombre} ×{n} · {lineTotal}»**; el paquete como **«Paquete de energías — {deck} · {price}»** con el desglose por
+  tipo en una segunda línea `text-xs`. Si `refundedQty > 0`: **«{k} reembolsadas»** en mono muted. ⛔ Sin costo.
+- **M3 (detalle del pedido):** los mismos renglones. Para súper-admin, en un pedido entregado, cada renglón con
+  unidades por reembolsar lleva **«Reembolsar unidades»** (fantasma) → `Dialog` con **«Cuántas»** (stepper 1..`quantity
+  − refundedQty`), **«Motivo»** (los `ShippedRefundReason` de §40) y **«Nota»** opcional. Confirmar **«Reembolsar
+  {k}»**. Respuestas: `201` ⇒ el renglón se actualiza; `409 ACCESSORY_REFUND_EXCEEDS {refundableQty}` ⇒ **«Solo quedan
+  {n} por reembolsar en este renglón. No se hizo nada.»**; `409 BUNDLE_REFUND_REQUIRES_DECK` ⇒ **«El paquete se
+  reembolsa entero y solo cuando todas las cartas de su deck ya se reembolsaron. No se hizo nada.»**; `403
+  MONEY_OUT_FORBIDDEN` ⇒ el texto que ya existe para operador. En el paquete, el stepper no se pinta (siempre 1).
+
+### AC-UX.14 Accesibilidad
+
+- Todo control nuevo con `focus-visible` del anillo bermellón (§4.3) y área táctil ≥ 44 px.
+- Fotos: `alt` = nombre del producto. En la teja, el nombre ya está como texto: la imagen lleva `alt=""` para no
+  leerlo dos veces **si** la teja entera es el enlace con el nombre dentro.
+- `QuantityStepper`: `role="group"` con `aria-labelledby` de su `label`; «−»/«+» con `aria-label` **«Quitar una»** /
+  **«Agregar una»**; el valor se anuncia por `aria-live="polite"` en el carrito (re-cotiza).
+- Avisos de carrito: `role="status"` (no interrumpen). Errores de pago: `role="alert"`.
+- «¿Te falta algo?» y la oferta del paquete: `section` con nombre; no atrapan foco; «No, gracias» devuelve el foco al
+  siguiente control.
+- Estados en versalita siempre con texto (PUBLICADO, AGOTADO, SIN FOTO, REVISAR CAJA): el color es redundante (§2.4).
+- Orden de tabulación de la ficha: foto (no enfocable) → cantidad → «Agregar al carrito» → nota.
+
+### AC-UX.15 Textos (ES / EN, paridad en el mismo cambio; claves propuestas, frontend las acomoda)
+
+**Categorías y tipos** (`API_CONTRACT.md:41587-41589`; EN las fija ux-ui aquí):
+
+| Enum | ES | EN |
+|---|---|---|
+| `sleeves` | Fundas / penny sleeves | Sleeves / penny sleeves |
+| `toploaders` | Toploaders | Toploaders |
+| `binders` | Carpetas | Binders |
+| `deck_boxes` | Cajas de mazo | Deck boxes |
+| `playmats` | Playmats | Playmats |
+| `energy` | Energías | Energy |
+| `other` | Otros | Other |
+| `grass` · `fire` · `water` · `lightning` | Planta · Fuego · Agua · Rayo | Grass · Fire · Water · Lightning |
+| `psychic` · `fighting` · `darkness` · `metal` | Psíquica · Lucha · Oscura · Metálica | Psychic · Fighting · Darkness · Metal |
+
+Nombre de energía en la tienda: **«Energía {tipo}»** / **“{Type} Energy”**.
+
+**Tienda** (además de las tablas de AC-UX.2–AC-UX.8):
+
+| Clave | ES | EN |
+|---|---|---|
+| `storeTabs.accessories` | Accesorios | Accessories |
+| `accessories.eyebrow` | ACCESORIOS | ACCESSORIES |
+| `accessories.title` | Accesorios | Accessories |
+| `accessories.subtitle` | Fundas, carpetas, energías y lo que necesitas para cuidar y jugar tus cartas. Se envían a domicilio. | Sleeves, binders, energy cards and everything you need to protect and play your cards. Shipped to your home. |
+| `accessories.categoriesLabel` | Categorías de accesorios | Accessory categories |
+| `accessories.all` | Todo | All |
+| `accessories.searchLabel` / `searchPlaceholder` / `clearSearch` | Buscar accesorios / Buscar por nombre… / Limpiar búsqueda | Search accessories / Search by name… / Clear search |
+| `accessories.add` / `addAria` | Agregar / Agregar {name} al carrito | Add / Add {name} to cart |
+| `accessories.vatIncluded` | IVA incluido | VAT included |
+| `accessories.quantity` / `maxHint` | Cantidad / Puedes agregar hasta {n}. | Quantity / You can add up to {n}. |
+| `accessories.addToCart` | Agregar al carrito | Add to cart |
+| `accessories.allInCart` / `goToCart` | Ya tienes en tu carrito todas las que hay. / Ir al carrito | Your cart already has all we have. / Go to cart |
+| `accessories.shipsHome` | Se envía a tu domicilio. Los accesorios no se guardan en la bóveda. | Shipped to your home. Accessories aren't kept in the vault. |
+| `accessories.soldOutBody` | Se agotó. Vuelve pronto. | Sold out. Check back soon. |
+| `accessories.back` | Volver a accesorios | Back to accessories |
+| `accessories.notFoundTitle` / `notFoundCta` | Este accesorio ya no está a la venta / Ver accesorios | This accessory is no longer for sale / See accessories |
+| `accessories.emptyTitle` / `emptyBody` / `emptyCta` | Pronto tendremos accesorios aquí / Mientras tanto, mira las cartas y el producto sellado. / Ver cartas sueltas | Accessories are coming soon / Meanwhile, browse our cards and sealed product. / See single cards |
+| `accessories.emptyCategory` / `seeAll` | No hay {category} por ahora. / Ver todos los accesorios | No {category} right now. / See all accessories |
+| `accessories.emptySearch` | No encontramos accesorios con «{q}». | We couldn't find accessories matching “{q}”. |
+| `accessories.loadError` / `retry` | No pudimos cargar los accesorios. / Reintentar | We couldn't load the accessories. / Retry |
+| `accessories.signedInNotice` | Los accesorios se compran con envío a domicilio. Pronto también desde tu cuenta. | Accessories are bought with home delivery. Soon from your account too. |
+| `checkout.accessories.groupAccessories` / `groupBundles` | ACCESORIOS / PAQUETES DE ENERGÍAS | ACCESSORIES / ENERGY BUNDLES |
+| `checkout.accessories.unitPrice` | {price} c/u | {price} each |
+| `checkout.accessories.quantityAria` / `removeAria` | Cantidad de {name} / Quitar {name} | Quantity of {name} / Remove {name} |
+| `checkout.accessories.bundleTitle` | Paquete de energías — {deck} | Energy bundle — {deck} |
+| `checkout.accessories.bundleLoose` | Sueltas: {amount} | One by one: {amount} |
+| `checkout.accessories.notInThisPayment` | NO VAN EN ESTE PAGO | NOT IN THIS PAYMENT |
+| `checkout.subtotalHintProducts` | Precio de venta de tus productos, con IVA incluido. | Sale price of your products, VAT included. |
+| `checkout.accessories.boxHint` | Calculado por el tamaño de la caja que necesita tu pedido. | Based on the size of box your order needs. |
+| `checkout.accessories.shippingChanged` | El envío cambió a {amount} por el tamaño de tu pedido. | Shipping changed to {amount} because of your order's size. |
+| `checkout.accessories.vaultEyebrow` | NO VAN A LA BÓVEDA | NOT GOING TO THE VAULT |
+| `checkout.accessories.vaultNotice` | Los accesorios y las energías solo se envían a domicilio. Si guardas tus cartas en la bóveda, los accesorios ({n}, {amount}) no van en esta compra: se quedan en tu carrito. | Accessories and energy cards only ship to your home. If you keep your cards in the vault, the accessories ({n}, {amount}) aren't part of this purchase: they stay in your cart. |
+| `checkout.suggestions.title` / `subtitle` | ¿Te falta algo? / Accesorios que se van en el mismo envío. | Anything else? / Accessories that go in the same shipment. |
+| `checkout.suggestions.add` / `inCart` / `dismiss` | Agregar / En el carrito / No, gracias | Add / In cart / No, thanks |
+| `checkout.bundleOffer.line` | ¿Agregas el paquete de energías de {deck}? {n} energías por {price} (sueltas: {loose}). | Add the energy bundle for {deck}? {n} energy cards for {price} (one by one: {loose}). |
+| `checkout.bundleOffer.add` / `dismiss` | Agregar paquete / No, gracias | Add bundle / No, thanks |
+| `decksMeta.energy.name` | Energía {type} | {type} Energy |
+| `decksMeta.energy.unitPrice` | {price} c/u | {price} each |
+| `decksMeta.energy.add` / `addAria` | Agregar ×{qty} / Agregar {qty} Energía {type} al carrito | Add ×{qty} / Add {qty} {type} Energy to cart |
+| `decksMeta.energy.soldOut` | Agotada | Sold out |
+| `decksMeta.energy.inBundle` | Va en tu paquete de energías. | It's in your energy bundle. |
+| `decksMeta.bundle.eyebrow` | PAQUETE DE ENERGÍAS | ENERGY BUNDLE |
+| `decksMeta.bundle.headline` | Las {n} energías de este deck por {price} | All {n} energy cards for this deck for {price} |
+| `decksMeta.bundle.loose` | Sueltas costarían {amount}. | One by one they'd cost {amount}. |
+| `decksMeta.bundle.note` | Precio fijo, IVA incluido. Solo con envío a domicilio y con el deck completo en tu carrito. | Fixed price, VAT included. Home delivery only, with the complete deck in your cart. |
+| `decksMeta.bundle.add` / `inCart` / `remove` | Agregar paquete / En el carrito / Quitar paquete | Add bundle / In cart / Remove bundle |
+| `decksMeta.bundle.needsDeck` | Primero agrega el deck con «Agregar de jalón»: el paquete solo va con el deck completo. | First add the deck with “Add the whole deck”: the bundle only comes with the complete deck. |
+| `decksMeta.bundle.noStock` | Paquete de energías no disponible: no tenemos todas las que pide este deck. Agrega sueltas las que haya, abajo. | Energy bundle not available: we don't have all the energy cards this deck needs. Add the ones we have one by one, below. |
+
+`decksMeta.bundle.needsDeck` cita el rótulo real del botón: «Agregar de jalón» (`es.json:6870`) / “Add the whole deck”
+(`en.json:6870`).
+
+**Panel** (`admin.accessories.*`; los de las tablas de AC-UX.9–AC-UX.12 más estos):
+
+| Clave | ES | EN |
+|---|---|---|
+| `admin.nav.accessories` / `title` | Accesorios | Accessories |
+| `subtitle` | Fundas, carpetas, energías y demás. Sin foto no se publica. | Sleeves, binders, energy cards and more. No photo, no listing. |
+| `new` | Nuevo accesorio | New accessory |
+| `status.published` / `unpublished` / `soldOut` | PUBLICADO / NO PUBLICADO / AGOTADO | LISTED / NOT LISTED / SOLD OUT |
+| `noPhoto` / `noPrice` / `suggested` | SIN FOTO / SIN PRECIO / SUGERIDO | NO PHOTO / NO PRICE / SUGGESTED |
+| `stockSub` | {reserved} apartadas · {available} disponibles | {reserved} reserved · {available} available |
+| `form.dataTitle` / `saveData` | Datos / Guardar datos | Details / Save details |
+| `form.name` / `category` / `energyType` / `description` | Nombre / Categoría / Tipo de energía / Descripción | Name / Category / Energy type / Description |
+| `form.dimsHelp` | Del artículo empacado como se vende. Sirven para elegir la caja del envío. | Of the item packed as it's sold. Used to choose the shipping box. |
+| `form.length` / `width` / `height` / `weight` | Largo (mm) / Ancho (mm) / Alto (mm) / Peso (g) | Length (mm) / Width (mm) / Height (mm) / Weight (g) |
+| `form.energyNoDims` | Las energías no llevan medidas: viajan con las cartas. | Energy cards don't need dimensions: they travel with the cards. |
+| `created` | Accesorio creado. Sube su foto para poder publicarlo. | Accessory created. Upload its photo so it can be listed. |
+| `categoryLocked` | Para cambiar la categoría de un accesorio publicado, primero quítalo de la tienda. | To change the category of a listed accessory, remove it from the store first. |
+| `photo.title` / `choose` / `change` / `help` / `uploading` | Foto / Elegir foto / Cambiar foto / PNG, JPG o WebP de hasta 10 MB. La acomodamos sola: queda cuadrada, sin recortar el producto y sin datos de ubicación. / Subiendo y acomodando la foto… | Photo / Choose photo / Change photo / PNG, JPG or WebP up to 10 MB. We fit it automatically: square, without cropping the product and without location data. / Uploading and fitting the photo… |
+| `price.title` / `price` / `priceHelp` | Precio y costo / Precio de venta (con IVA) / Es lo que ve y paga el cliente. La comisión de plataforma se suma aparte. | Price and cost / Sale price (VAT included) / What the customer sees and pays. The platform fee is added on top. |
+| `price.cost` / `costHelp` / `save` | Costo por unidad / Lo que te costó a ti. Solo lo ves tú; sirve para el margen en Finanzas. / Guardar precio | Unit cost / What it cost you. Only you can see it; it's used for the margin in Finance. / Save price |
+| `price.readOnly` / `readOnlyNone` | Precio de venta: {price} / Sin precio. Lo pone el dueño. | Sale price: {price} / No price yet. The owner sets it. |
+| `forbiddenField` | No tienes permiso para cambiar {fields}. No se guardó nada. | You're not allowed to change {fields}. Nothing was saved. |
+| `publish.title` / `missing` / `ready` | Publicación / Para publicarlo falta: {list}. / Listo para publicar. | Listing / To list it, it still needs: {list}. / Ready to list. |
+| `publish.activate` / `deactivate` / `deactivateNote` | Publicar en la tienda / Quitar de la tienda / Los carritos que lo tengan lo pierden en la siguiente cotización, con aviso. | List in the store / Remove from the store / Carts that have it lose it on the next quote, with a notice. |
+| `publish.notPublished` | No se publicó. | It wasn't listed. |
+| `publish.energyTaken` / `seeOther` | Ya hay otra «Energía {type}» publicada. Quítala de la tienda primero; solo puede haber una por tipo. / Ver la otra | Another “{type} Energy” is already listed. Remove it from the store first; there can only be one per type. / See the other one |
+| `publish.suggested` / `suggestedHelp` / `suggestedEnergy` | Sugerido en el carrito / Aparece primero en «¿Te falta algo?». / Las energías no se sugieren en el carrito: se ofrecen en los decks. | Suggested in the cart / Shows up first in “Anything else?”. / Energy cards aren't suggested in the cart: they're offered with the decks. |
+| `delete.hasSales` | Ya se vendió: no se puede borrar. Quítalo de la tienda para que deje de verse. | It has been sold: it can't be deleted. Remove it from the store so it stops showing. |
+| `delete.button` / `title` / `body` / `confirm` | Borrar accesorio / ¿Borrar {name}? / Se borra con su foto y su historial de existencias. No se puede deshacer. / Borrar | Delete accessory / Delete {name}? / It's deleted with its photo and stock history. This can't be undone. / Delete |
+| `stock.title` / `sub` / `systemNote` | Existencias: {n} / {reserved} apartadas en pedidos en curso · {available} disponibles / Las ventas, los apartados y las devoluciones las mueve el sistema solo. | Stock: {n} / {reserved} reserved in orders in progress · {available} available / Sales, reservations and returns are moved by the system. |
+| `stock.receive` / `receiveConfirm` / `receiveDone` | Entraron / Sumar {n} / Sumamos {n}. Ahora hay {stock}. | Received / Add {n} / Added {n}. There are now {stock}. |
+| `stock.adjust` / `adjustReal` / `adjustReason` / `adjustConfirm` / `adjustSame` | Ajuste (conteo) / Existencias reales / Motivo / Ajustar a {n} / Es el mismo número de hoy. | Adjustment (count) / Actual stock / Reason / Adjust to {n} / That's the same number as now. |
+| `stock.history.*` | Fecha · Movimiento · Cambio · Antes → después · Quién · Motivo / pedido · El sistema · Pedido {orderNumber} | Date · Movement · Change · Before → after · Who · Reason / order · The system · Order {orderNumber} |
+| `settings.title` / `bundlePrice` / `bundlePriceHelp` | Precios fijos y sugerencias / Precio del paquete de energías (con IVA) / Lo que paga el cliente por todas las energías de un deck del meta. La comisión de plataforma va aparte. | Fixed prices and suggestions / Energy bundle price (VAT included) / What the customer pays for all of a meta deck's energy cards. The platform fee is added on top. |
+| `settings.suggestionCount` / `suggestionCountHelp` / `saved` | Accesorios sugeridos en el carrito / 0 apaga «¿Te falta algo?». / Ajustes de accesorios guardados. | Accessories suggested in the cart / 0 turns off “Anything else?”. / Accessory settings saved. |
+| `energyPricesDiffer` | Las energías no tienen todas el mismo precio. | Not all energy cards have the same price. |
+| `admin.settings.shipping.packages.customerFee` / `noFee` | Tarifa al cliente (con IVA) / No cobra | Customer fee (VAT included) / Not charged |
+| `…packages.feeRule` | (texto de AC-UX.10) | Boxes with a fee are only used when the order has accessories with dimensions. The system picks the smallest one they fit in and charges the higher of the flat shipping fee and that box's fee. If they don't fit in any, it charges the largest one and the order arrives flagged “Check box”. |
+| `…packages.noneCharges` | Ninguna caja cobra todavía: los pedidos con accesorios pagan la tarifa fija de envío de siempre. | No box has a fee yet: orders with accessories pay the usual flat shipping fee. |
+| `…packages.feeRange` | Escribe una tarifa entre $0.01 y $100,000. | Enter a fee between $0.01 and $100,000. |
+| `admin.m4.prep.ship.accessory.*` | ACCESORIOS · Caja: {label} · {dims} cm · accesorios {kg} kg · REVISAR CAJA · (texto de AC-UX.12) · Lo tengo · Los tengo · No lo encontré · Llegó dañado · Faltan… · ¿Cuántas faltan? · No las encontré · Llegaron dañadas · Marcar · Lo tengo completo · Falta el paquete · Tomado · Faltan {k} de {n} · Faltante · Dañado · SIN EXISTENCIAS AL COBRAR · Se cobró cuando ya no había existencias. Si no lo encuentras, márcalo como faltante. · Si falta solo una parte, complétala del estante: las energías ya estaban apartadas. · Ya se reembolsó; la marca es fija. | ACCESSORIES · Box: {label} · {dims} cm · accessories {kg} kg · CHECK BOX · It didn't fit in any registered box: the largest one was charged. Decide how to pack it (two packages or a special box). What was charged doesn't change. · I have it · I have them · Not found · Arrived damaged · Some missing… · How many are missing? · Not found · Arrived damaged · Mark · I have it complete · Bundle missing · Picked · {k} of {n} missing · Missing · Damaged · NO STOCK WHEN CHARGED · It was charged when there was no stock left. If you can't find it, mark it as missing. · If only part is missing, complete it from the shelf: the energy cards were already reserved. · Already refunded; the mark is fixed. |
+
+### AC-UX.16 Candados sugeridos (los escribe frontend; los que coinciden con §AC.14 llevan su ID)
+
+| ID | Qué asevera | Canario |
+|---|---|---|
+| **AC-UX-1** (AC-F2) | `StoreTabs` tiene 4 enlaces en el orden de AC-UX.1; `/accesorios` marca «Accesorios» con `aria-current="page"` | Quitar la pestaña |
+| **AC-UX-2** (AC-F2) | Teja con `soldOut: true` ⇒ texto «AGOTADO» y **ningún** botón «Agregar» | Pintar el botón apagado |
+| **AC-UX-3** (AC-F3) | Ficha: el stepper no pasa de `maxQty − enCarrito`; `insufficient` en la cotización baja la cantidad y pinta «Solo hay {n}…» | Tope fijo de 99 |
+| **AC-UX-4** (AC-F7) | Con sesión: ni la teja ni la ficha tienen «Agregar»; aparece `signedInNotice`; ⛔ el DOM no contiene «cerrar sesión» / «sign out» / «invitado» en ese aviso; el `POST /checkout/session` no lleva `accessoryLines` | Mostrar el botón con sesión |
+| **AC-UX-5** (AC-F4) | «¿Te falta algo?»: no es `dialog`; no está en la columna del resumen; «No, gracias» lo oculta; «Agregar» suma exactamente 1; con `items: []` no hay `section` | Ponerlo como modal |
+| **AC-UX-6** (AC-F5) | `deck_incomplete` ⇒ el renglón del paquete desaparece **y** aparece el aviso con el nombre del deck | Quitar sin aviso |
+| **AC-UX-7** (AC-F6) | «Agregar de jalón» no pone `withEnergyBundle: true`; el botón del paquete está apagado hasta que todas las piezas del jalón están en el carrito; ningún control del recuadro viene marcado | Agregar el paquete con el jalón |
+| **AC-UX-8** (AC-F9) | La fila «Envío» pinta `shippingFeeCents` de la cotización; con `shippingBox` aparece `boxHint` y ⛔ no aparece `label`; al cambiar entre cotizaciones aparece `shippingChanged` | Usar el dial fijo |
+| **AC-UX-9** (AC-F8) | Panel de bóveda con `vaultExcludesAccessories` ⇒ `vaultNotice` con `{n}` y `{amount}`; tras crear cuenta los accesorios siguen en el carrito local | Vaciar los accesorios |
+| **AC-UX-10** (AC-F10) | Operador: sin campo de precio editable, sin costo en el DOM, sin `Switch` de sugerido ni «Publicar»; súper-admin: los tiene | Pintar el costo al operador |
+| **AC-UX-11** (AC-F10) | Foto: cada `reason` de `PHOTO_INVALID` pinta su texto; >10 MiB no hace la petición | Mandar el archivo grande |
+| **AC-UX-12** (AC-F11) | Empaques: columna «Tarifa al cliente»; vacío ⇒ `null` en el `PUT`; todas `null` ⇒ `noneCharges` | Mandar 0 en vez de `null` |
+| **AC-UX-13** (AC-F12) | Preparación: renglón de paquete con una línea por tipo; `review` ⇒ «REVISAR CAJA»; paquete «Falta el paquete» manda `missingQty: 1`; «Pedido preparado» apagado con un accesorio `pending` | Dejar preparar con un accesorio pendiente |
+| **AC-UX-14** | Paridad: toda clave de AC-UX.15 existe en `es` y `en` con los mismos marcadores | Borrar una en `en` |
+
+Probar a 390×844 y 1280×800, en ES y EN (AC-F14).
+
+### AC-UX.17 Contraste — cero pares nuevos
+
+Todos los textos usan pares ya verificados en §10: tinta sobre papel y pozo (~15.5:1 / ~14.7:1), `text-muted` sobre
+papel y pozo (~4.8:1 / ~4.6:1), bermellón para SIN FOTO, SIN PRECIO, AGOTADO (panel), REVISAR CAJA y SIN EXISTENCIAS
+(~4.65:1), verde solo en versalitas con texto (PUBLICADO, DISPONIBLE; ~4.4:1, §10 «el texto en versalitas es el
+portador»). La foto con fondo blanco sobre papel no es par de texto: lleva regla de 1 px para que el borde se lea.
+
+### AC-UX.18 Preguntas abiertas y huecos del contrato
+
+**Para el dueño (con recomendación; si no contesta, se construye con ella):**
+- **Q-AC-UX-1 · ¿Un solo precio para las 8 energías?** El contrato hace del MX$5 el precio de **cada** producto
+  «Energía {tipo}» (`API_CONTRACT.md:41747-41748`): cambiarlo son 8 ediciones. **Recomendación:** dejarlo así en esta
+  versión (8 ediciones, con el aviso «no tienen todas el mismo precio»). Un campo único exigiría un dial nuevo del
+  arquitecto, y el dueño no lo pidió.
+
+**Para el arquitecto (huecos del contrato; el diseño va sin ellos mientras tanto):**
+- **Q-AC-UX-2 · Importe por renglón de accesorio al preparar.** `accessoryLines` de `GET /admin/shipments/:id` no trae
+  la cifra a devolver por renglón (`API_CONTRACT.md:42018-42027`); las cartas sí (`items[].refund`, §37.3c). El diálogo
+  de «Pedido preparado» lista los accesorios faltantes **sin importe** y el total sale de `refundPreviewCents`. Si
+  `refundPreviewCents` ya incluye los accesorios faltantes: **NO MEDIDO** (`API_CONTRACT.md:42036-42042` no lo dice).
+  **Recomendación:** añadir `refundPreviewCents` por renglón y confirmar que el total lo suma.
+- **Q-AC-UX-3 · Qué cartas son del deck del paquete, en preparación.** §AC.9 dice «la pantalla lo sugiere» cuando
+  faltan todas las cartas del deck (`API_CONTRACT.md:42049`), pero `accessoryLines` no trae `deckOrderItemIds`
+  (`:42018-42027`). **Recomendación:** añadirlo (o un booleano `deckAllMissing`); mientras, no se sugiere nada.
+- **Q-AC-UX-4 · Nombre del accesorio en `unavailableAccessories`.** Solo trae `accessoryId` (`API_CONTRACT.md:41820`) y
+  el carrito local no guarda nombres: los avisos de `not_found`/`inactive`/`sold_out` van **sin nombre**.
+  **Recomendación:** añadir `name` (lista blanca, sin costo). No bloquea.
+- **Q-AC-UX-5 · Foto del paquete en el carrito.** `EnergyBundleDTO.energies` no trae foto (`API_CONTRACT.md:41825-41830`);
+  el renglón usa el recuadro «ENERGÍAS» si la energía no está también suelta en la cotización. No bloquea.
+
+**NO MEDIDO por mí (frontend lo verifica al construir):**
+- si «Configuración» (M10) pinta todos los diales de `GET /admin/settings` de forma genérica; si lo hace, los dos diales
+  de AC-UX.11 saldrán también ahí, y está bien (es el mismo dato);
+- si el operador puede leer `GET /admin/shipping/packages` (A-3 de §43.17 sigue abierta): afecta solo a la
+  preselección de caja en «Capturar guía»;
+- la CSP / `images` de Next para el origen de las fotos de la API (`ARCHITECTURE.md:29215`).
+
+### AC-UX.v1.86.4 Errata de copy — el paquete que sale por existencias no promete energías sueltas (2026-10-07)
+
+**Origen.** `FRONTEND_NOTES §107.e2e`, «Para ux-ui»: con `reason:'insufficient_stock'`, la coletilla «las energías las
+puedes agregar sueltas desde el deck» puede prometer energías que **tampoco hay sueltas**. Es así: `insufficient_stock`
+significa que falta existencia de **al menos un** tipo, y puede faltar de todos (o el último pudo irse en la misma
+carrera, `API_CONTRACT §AC.20.1`).
+
+**Regla en la que se apoya (no se añade ninguna).** `HECHOS.md`, fila 2026-10-07 «Confirmaciones de accesorios,
+energías y paquete…», punto (5): «si falta existencia de algún tipo, el paquete no se ofrece y se venden sueltas a MX$5
+**las que haya**». El copy solo puede decir lo que esa frase garantiza: que lo que quede se vende suelto, **no** que
+quede algo. La ficha del deck ya enseña cuáles quedan (badge «DISPONIBLE»/«AGOTADA», AC-UX.8), así que el texto manda
+ahí con un condicional, sin afirmar existencias.
+
+**Claves que cambian** (paridad es/en en el mismo cambio; ⛔ sin marcadores nuevos ni quitados; el enlace «Ver el deck»
+y todo lo demás de AC-UX.5/AC-UX.8 sigue igual):
+
+| Clave (`frontend/messages/*.json`) | ES nuevo | EN nuevo |
+|---|---|---|
+| `checkout.accessoryPayError.bundle` (fila `422 ENERGY_BUNDLE_INVALID` de AC-UX.5, y el `409` de componente que la reutiliza) | El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck. | The energy bundle for {deck} can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck. |
+| `checkout.accessoryPayError.bundleNoName` | Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck. | An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck. |
+| `checkout.accessoryNotice.bundleNoStock` (fila `· insufficient_stock` de AC-UX.5) | El paquete de energías de {deck} salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck. | The energy bundle for {deck} left your cart: we no longer have all its energy cards. If we still have some left, you can add them one by one from the deck. |
+| `checkout.accessoryNotice.bundleNoStockNoName` | Un paquete de energías salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck. | An energy bundle left your cart: we no longer have all its energy cards. If we still have some left, you can add them one by one from the deck. |
+| `decksMeta.bundle.noStock` (fila `reason: 'insufficient_stock'` de AC-UX.8; misma promesa: «Agrega sueltas las que haya» con todas agotadas) | Paquete de energías no disponible: no tenemos todas las que pide este deck. Abajo ves cuáles nos quedan para agregarlas sueltas. | Energy bundle not available: we don't have all the energy cards this deck needs. Below you can see which ones we still have to add one by one. |
+
+Las filas correspondientes de AC-UX.5 (líneas `· insufficient_stock` y `422 ENERGY_BUNDLE_INVALID`), de AC-UX.8
+(`reason: 'insufficient_stock'`) y de AC-UX.15 (`decksMeta.bundle.noStock`) quedan **sustituidas** por esta tabla.
+
+**Por qué el texto del `422` es uno solo para cualquier `reason`.** La pantalla pinta la misma fila con cualquier
+`reason` y con el `409` de componente (`API_CONTRACT §AC.20.1`, «las dos salidas de la carrera se ven idénticas»). El
+condicional es verdad en todos: con `deck_incomplete`, `expired` o `not_offered` las energías sueltas siguen a la venta
+si hay; con `insufficient_stock` puede no haber ninguna. ⛔ No se separa el texto por `reason` (rompería la
+equivalencia que fija AC-F23).
+
+**Revisadas y sin cambio** (no prometen existencias): `bundleDeckIncomplete*`, `bundleExpired*` («Vuelve a agregarlo
+desde el deck»: si el paquete ya no se ofrece, la ficha lo dice con `noStock`), `bundleUnavailable*`, `bundleInvalid`,
+`accessoryPayError.insufficient*` y `soldOut*` (dan la cifra del servidor o dicen «se agotó»).
+
+**Candado sugerido** (lo escribe frontend, en `GuestCheckoutAccessories.test.tsx` o el de paridad): en `es` y `en`, las
+cinco claves de arriba ⛔ no contienen «las energías las puedes agregar» / «las que haya» / “you can add the energy
+cards” / “the ones we have”. *Mutación:* restaurar el texto viejo en una ⇒ rojo.
+
+### AC-UX.gates Textos de accesorio en los diálogos de dinero — ratificación de `FRONTEND_NOTES §107.gates` (2026-10-08)
+
+**Origen.** QA (condición MENOR sobre `dd26ae79`): AC-UX.12–13 daban filas y botones pero no cuerpo, firma ni ayuda de
+motivo para accesorios. Frontend los redactó en neutro (`d11be7bf`). Aquí se ratifican o se fijan. Base medida:
+`frontend/messages/{es,en}.json` en el árbol de `claude/accesorios` el 2026-10-08 (es.json:1836-1856 y 2521-2536).
+
+**Hechos en que se apoya el copy** (no se añade ninguna regla):
+- un accesorio faltante al preparar **no** cambia existencias (`API_CONTRACT §AC`, PATCH prep-accessory-lines paso 7:
+  «cero dinero y cero existencias»); no hay «merma» de accesorio ⇒ la firma de solo-accesorios no la menciona;
+- con el envío ya salido **nada vuelve**, ni cartas ni accesorios (criterio 717; `API_CONTRACT.md:41998`, AC-B20);
+- en el panel, el inventario de accesorios se llama **«Existencias»** (AC-UX.9c); el de cartas, «inventario». El copy
+  respeta esa distinción.
+
+#### 1 · Preparación — `admin.m4.prep.ship.confirmRefund.*`
+
+| Clave | Veredicto |
+|---|---|
+| `bodyAccessories` | **Ratificado** es/en. |
+| `bodyMixed` | **Ratificado** es/en. |
+| `signatureAccessories` | **Ratificado** es/en. (Correcto que no diga «merma»: el accesorio no pasa a merma.) |
+| `signatureMixed` | **Ratificado** es/en. |
+| `bodyNothingShipsAccessories` | **Ratificado** es/en. «Accesorio» incluye el paquete de energías (es un renglón de accesorio, AC-UX.12). |
+| `bodyNothingShipsMixed` | **Ratificado** es/en. |
+
+Reglas de selección de frontend (cuerpo/firma por lo que falta en la lista; «no sale nada» por lo que trae el pedido;
+solo cartas ⇒ claves de §37.4 sin cambio): **ratificadas**.
+
+#### 2 · Motivo tras el envío — `admin.m3.shippedReason.hintItem.*`
+
+| Clave | ES | EN |
+|---|---|---|
+| `hintItem.not_arrived` | **Ratificado** («El paquete se perdió o el cliente no lo recibió.») | **Ratificado** |
+| `hintItem.arrived_damaged` | **Nuevo:** Llegó, pero el producto no estaba como se vendió. | **New:** It arrived, but the item wasn't as sold. |
+
+Por qué: «Llegó, pero no estaba como se vendió» deja el sujeto implícito y se lee como si hablara del **paquete** de
+paquetería (la frase de arriba, `not_arrived`, habla de él). «El producto» / “the item” lo pone en el renglón,
+y sirve igual para un accesorio, varias unidades o el paquete de energías. Paralelo exacto a `hint.arrived_damaged`
+(«…las cartas no estaban como se vendieron»).
+
+#### 3 · Reembolso total tras el envío — `admin.m3.shippedRefund.*` (pendiente que dejó frontend)
+
+**Decisión: el actual NO basta.** En un pedido de **solo accesorios** «las cartas no vuelven a inventario» es falso por
+el sujeto (no hay cartas) y no responde a la pregunta que el súper-admin tiene en ese momento («¿me regresan las
+existencias?»). En uno **mixto** es incompleto. Se añaden variantes; las claves actuales quedan **igual** para pedidos
+solo de cartas.
+
+**Selección:** por **lo que trae el pedido** (no por lo que queda por reembolsar): solo cartas ⇒ claves actuales;
+solo accesorios ⇒ `…Accessories`; ambos ⇒ `…Mixed`. ⛔ Sin marcadores nuevos ni quitados (`done` conserva `{ref}` y
+`{reason}`). El `ShippedReasonFieldset` de este diálogo pasa `subject: 'item'` en solo-accesorios **y** en mixto
+(«el producto» cubre cartas y accesorios); en solo cartas sigue `cards`.
+
+| Clave nueva | ES | EN |
+|---|---|---|
+| `shippedRefund.warningAccessories` | Los accesorios no vuelven a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición. | The accessories don't go back into stock: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition. |
+| `shippedRefund.warningMixed` | Ni las cartas vuelven a inventario ni los accesorios a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición. | Neither the cards go back into inventory nor the accessories into stock: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition. |
+| `shippedRefund.bodyAccessories` | Se devuelve lo que queda del cobro. El envío no se toca y los accesorios no vuelven a existencias ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre. | What's left of the charge is refunded. The shipment isn't touched and the accessories don't go back into stock or on sale. The reason is saved under your name. The customer gets the usual refund email. |
+| `shippedRefund.bodyMixed` | Se devuelve lo que queda del cobro. El envío no se toca y ni las cartas ni los accesorios vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre. | What's left of the charge is refunded. The shipment isn't touched and neither the cards nor the accessories go back into inventory or on sale. The reason is saved under your name. The customer gets the usual refund email. |
+| `shippedRefund.doneAccessories` | Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Los accesorios no vuelven a existencias. | Order {ref} refunded. Reason saved: “{reason}”. The accessories don't go back into stock. |
+| `shippedRefund.doneMixed` | Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Ni las cartas ni los accesorios vuelven a inventario. | Order {ref} refunded. Reason saved: “{reason}”. Neither the cards nor the accessories go back into inventory. |
+
+Sin cambio en `title`, `legend`, `pickOne`, `noteLabel`, `noteHint` ni `error.*` (no nombran cartas).
+
+**Candado sugerido** (lo escribe frontend, junto a `M3AccessoryLines.ac.test.tsx`): `RefundOrderDialog` con un pedido
+solo de accesorios ⇒ en `es` y `en` el diálogo y el aviso de hecho ⛔ no contienen «carta» / “card”; mixto ⇒ contienen
+«accesorios» / “accessories”; solo cartas ⇒ texto idéntico al de hoy. *Mutación:* elegir siempre la clave de cartas ⇒
+rojo. Paridad es/en de las seis claves nuevas en el candado AC-UX-14.
+
+**Hueco para el arquitecto (no bloquea):** si el DTO del detalle de pedido (M3) ya permite saber, sin otra llamada, si el
+pedido trae renglones de accesorio — **NO MEDIDO** por mí; AC-UX.13 asume que M3 pinta esos renglones (`API_CONTRACT
+§AC.12`), así que debería bastar con que la lista no venga vacía.

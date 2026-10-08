@@ -14619,3 +14619,145 @@ reimplementación aproximada de la regla `generic-api-key` en Python da **0** co
 
 `git revert` del commit: se van archivo, huellas, `.gitattributes`, la excepción de `.gitignore`, candado y job. No toca imagen, `CMD` ni
 migraciones. Datos: este cambio no escribe en ninguna base; si el `import` ya se corrió, la tabla se queda (§79.9).
+
+---
+## §93 · `sharp` en la imagen del backend (fotos de accesorios, §AC.11) — candado G-SHARP (2026-10-07, rama `claude/accesorios`)
+
+Norma: `API_CONTRACT §AC.11` (fotos procesadas con `sharp`) y `§AC.16` («que la imagen de Railway instala `sharp`:
+devops, con un arranque»). Dependencia añadida por backend en `44175fd` (`backend/package.json`: `"sharp": "^0.34.5"`).
+
+### 93.0 Estado en una línea
+
+Railway construye con **`Dockerfile.backend`** (`railway.json`: `"builder": "DOCKERFILE"`, no Nixpacks), base
+`node:24-alpine` (**musl**). Con el lockfile actual, `npm ci` en esa base instala y **carga** el binario musl de
+`sharp`, y el backend **arranca** y lo tiene cargado en memoria. **No hace falta cambiar el Dockerfile.** Lo nuevo es
+un candado (G-SHARP) en el job `trivy-image`, sobre la MISMA imagen que se escanea. **Bloqueo aparte, de backend:**
+`sharp 0.34.5` pone en rojo `npm-audit`, `trivy-fs` y `trivy-image` (93.3).
+
+### 93.1 Por qué no cambia el Dockerfile
+
+- El lockfile fija `sharp` y **todos** los binarios `@img/sharp-*` / `@img/sharp-libvips-*` con `resolved` +
+  `integrity` (registro npm). Las entradas no llevan `libc`, así que en Linux x64 npm instala **las dos** variantes
+  (glibc y musl); `sharp` elige en tiempo de ejecución la de la libc real. Medido en la imagen:
+  `node_modules/@img/` = `sharp-linux-x64`, `sharp-linuxmusl-x64`, `sharp-libvips-linux-x64`,
+  `sharp-libvips-linuxmusl-x64`, y el proceso carga **`sharp-linuxmusl-x64.node`** + `libvips-cpp.so.8.17.3`
+  (leído de `/proc/<pid>/maps`, no del paquete).
+- El script de instalación de `sharp` (`node install/check.js || npm run build`) no descarga nada: comprueba que el
+  binario precompilado está y sale. Nada fuera del lockfile entra en la imagen por `sharp`.
+- No hacen falta `--os/--cpu/--libc`: construir **dentro** de la base Alpine ya es la plataforma de destino. Esos
+  flags solo harían falta si alguien generara `node_modules` fuera y lo copiara, que este Dockerfile no hace.
+
+### 93.2 Mediciones (2026-10-07, devops, copia `git archive 4d15501f` en el scratchpad)
+
+Docker sí arranca aquí y `docker pull` de Docker Hub funciona, pero **`dl-cdn.alpinelinux.org` da 403** (política de
+salida del sandbox). Por eso la imagen se construyó con una **variante de medición** del Dockerfile (solo en el
+scratchpad): CA del proxy añadida, y el `apk upgrade && apk add libc6-compat openssl` sustituido por un `openssl`
+falso que solo responde a `openssl version` (para que Prisma elija su motor `linux-musl-openssl-3.0.x`, el mismo que
+elige la imagen real; `libssl.so.3` ya viene en `node:24-alpine`). Todo lo demás, igual que el Dockerfile real.
+
+| Medida | Resultado |
+|---|---|
+| Build de la variante (etapas deps/build/runtime, guards de npm y de Prisma) | rc=0 |
+| `require('sharp')` como `nestjs`, `--network none` | OK, `sharp 0.34.5`, `vips 8.17.3`, binario `linuxmusl-x64` |
+| Tubería de §AC.11 (`limitInputPixels`, `failOn:'error'`, `metadata`, `rotate`, `resize contain`, `webp`) | OK |
+| **Arranque** con el `CMD` real (preflights + `migrate deploy` + `node dist/main.js`) contra Postgres 16 y Redis 7 desechables (red Docker propia, sin puertos al host, secretos aleatorios) | `/api/v1/health` = `{"status":"ok","db":"up","redis":"up"}` a los 9 s; rutas `/api/v1/admin/accessories/:id/photo` mapeadas; el PID 1 tiene `sharp-linuxmusl-x64.node` cargado |
+| `./scripts/check-image-sharp.sh` | verde |
+| `./scripts/check-image-sharp-canary.sh` | **5/5** (V1 verde; R1 sin addon musl, R2 sin libvips musl, R3 sin `accessory-photo.js`, R4 libc equivocada: rojos) |
+| CI en glibc: job `backend` de CI sobre `8ab4c88d` (con `sharp`) | success (ubuntu instala `@img/sharp-linux-x64` del lockfile) |
+
+### 93.3 Bloqueo de backend: `sharp 0.34.5` tiene un aviso HIGH
+
+`npm audit --omit=dev --audit-level=high` sobre `backend/` (lockfile de `4d15501f`): **1 high** en `sharp <=0.35.5-rc.1`
+(GHSA-f88m-g3jw-g9cj, GHSA-rgj7-g3m4-5g8c, GHSA-wq5f-xc86-pv6w — el mismo de §91 en el frontend). Coincide con CI:
+`Security SAST` pasó de **success** en `e0bcba7c` (antes de `44175fd`) a **failure** desde `1bde01de` (primer push con
+`sharp`) con `npm-audit`, `trivy-fs` y `trivy-image` en rojo. Los registros de CI no se pueden leer desde aquí (403 del
+almacén de logs); la causa está medida en local, no en el log.
+
+El arreglo es de **backend** (`backend/package.json` es suyo): `"sharp": "^0.35.5"` y regenerar el lockfile. Medido en
+una copia (sin tocar el árbol vivo):
+- `npm install sharp@^0.35.5 --save --package-lock-only`: 28 entradas cambian, todas de la familia `sharp`
+  (más la raíz). `npm audit --omit=dev --audit-level=high` ⇒ rc=0.
+- Imagen con 0.35.5: G-SHARP verde (`sharp-linuxmusl-x64-0.35.5.node`, vips 8.18.7) y **arranque** OK (health 6 s).
+- `tsc -p tsconfig.build.json` (código de producción): rc=0.
+- **Pero** `test/accessories.photo.spec.ts:33` deja de compilar: `TS2503: Cannot find namespace 'sharp'` (usa
+  `sharp.Color`; en 0.35 los tipos ya no se exponen como espacio de nombres). `accessories.photo-isolation.spec.ts`
+  pasa. Ese ajuste de la prueba es de backend.
+
+### 93.4 Lo que queda NO MEDIDO hasta el primer despliegue en Railway
+
+1. **Que el build de Railway pase** con `sharp` (en particular el `apk` real con `libc6-compat`, que aquí no se pudo
+   instalar). Lo medirá antes el job `trivy-image` + G-SHARP en CI, que construye el Dockerfile real con `apk`.
+2. **Que Railway construya en `linux/amd64`.** G-SHARP comprueba la arquitectura que tenga el contenedor; el lockfile
+   también trae `linuxmusl-arm64`, así que en arm64 tampoco faltaría el binario, pero no está medido.
+3. **Cómo se comprueba en Railway** (servicio backend, proyecto `marvelous-kindness`):
+   - *Build Logs*: la línea `npm warn install-scripts   sharp@0.3x.x (install: node install/check.js || npm run build)`
+     y **ninguna** línea de `node-gyp`/`gyp ERR!`/`sharp: Attempting to build from source` (eso significaría que no
+     encontró el binario y que intentó compilarlo).
+   - *Deploy Logs*: aparecen `Mapped {/api/v1/admin/accessories/:id/photo, POST} route` y
+     `Nest application successfully started`, y el healthcheck `/api/v1/health` pasa. Si `sharp` no cargara, el
+     proceso moriría antes con `Could not load the "sharp" module using the linuxmusl-x64 runtime` (el módulo lo
+     importa al cargar), y Railway lo dejaría en `ON_FAILURE`.
+   - Prueba funcional: subir una foto a un accesorio desde el panel y ver que se sirve como WebP.
+
+### 93.5 Rollback
+
+`git revert` del commit de este § quita el paso de CI y los dos scripts; no toca imagen, `CMD` ni datos. Si en Railway
+el backend no arranca por `sharp`: *Redeploy* del despliegue anterior desde la pestaña Deployments de Railway y revisar el *Build Log* según 93.4.
+
+### 93.6 Censo E2E y CI de la rama antes del gate de QA (2026-10-08, devops, sobre `f76fe398`)
+
+*(Encargado como «§93.2 · censo y CI»; ese número ya lo usa «Mediciones», así que va como 93.6.)*
+
+**Censo de salvaguardas E2E.** `scripts/check-e2e-skip-census.sh` salía **rc=1** en `f76fe398` (y en CI, job
+`e2e-skip-census`, runs 37704549788 y 37705396919): `skipIfSeedMissing` 15→18 (7→8 ficheros) y `realOnly` 22→24 (7→8),
+todo de `frontend/e2e/accessories.spec.ts` (`FRONTEND_NOTES §107.real`). Baseline regenerado con `--update --motivo`;
+el gate queda **rc=0**. Los 3 `skipIfSeedMissing` son condicionales (`deckScenario().ready`); backend ya siembra las
+filas que los disparaban (`f76fe398`, `BACKEND_NOTES §83.seed`: `ptcgoCode EEB`, cartas #40/#41, cuatro piezas
+`listed`), así que por lectura del seed quedan **latentes** (NO MEDIDO contra el stack: lo mide el pase real de QA).
+Si frontend los convierte en fallo duro, el censo baja a 15/7 y el techo se regenera a la baja.
+
+**P-S6-CENSO — medido: era verdad.** Sobre una copia del baseline vivo (4 líneas de motivo), dos `--update` seguidos
+dejaron **1** línea de motivo (`logs/p-s6-censo-medicion.log` del scratchpad `devops-ac2`): el bloque `--update`
+reescribía el fichero con solo el motivo nuevo. Arreglo en `check-e2e-skip-census.sh`: conserva las líneas
+`# AAAA-MM-DD …` anteriores y añade la nueva (escritura atómica por `mktemp`+`mv`). Prueba: caso **9bis** del canario
+(`check-e2e-skip-census-canary.sh`): segundo `--update` conserva el motivo del primero y deja 5 líneas de conteo.
+Contra el script viejo: **rojo** (16/17); con el arreglo: **17/17**, N=5 corridas, 5/5 rc=0 (determinista). Tras el
+arreglo, dos registros sobre la copia del baseline vivo dejan 5 + 1 motivos.
+
+**CI de la rama en `f76fe398`** (runs 37705396919 CI, 37705396860 Security SAST, 37705396828 E2E):
+
+| Job | Estado | Dueño | Evidencia |
+|---|---|---|---|
+| CI · `e2e-skip-census` (y `ci-ok` por él) | failure | devops | anotación «2 categorías CRECIERON»; cerrado aquí |
+| SAST · `npm-audit` | **success** | — | `sharp 0.35.5` (`882f0629`) cierra el aviso de 93.3 |
+| SAST · `trivy-image` › backend + **G-SHARP** + Trivy image backend | **success** | — | pasos 4-6 del job 113078843423 |
+| SAST · `trivy-image` › Build imagen **frontend** | failure | devops (por atribuir) | ver abajo |
+| SAST · `trivy-fs` › runtime | failure | devops (por atribuir) | ver abajo |
+| E2E · `backend-e2e` (y `e2e-ok` por él) | failure | **backend** (clase: arquitecto) | ver abajo |
+| E2E · `frontend-e2e` | success | — | — |
+
+- **`backend-e2e`**: 1 de 2507 rojo, `test/integration/enum-query-axes.e2e-spec.ts:1465` («ningún `@Query` fuera de las
+  CINCO listas»). Reproducido en local sobre `git archive f76fe398` (solo ese describe, sin BD): 4 `@Query` de §AC sin
+  clase declarada — `GET /accessories::<sin nombre>`, `GET /accessories/suggestions::exclude`,
+  `GET /admin/accessories::<sin nombre>`, `GET /admin/accessories/:id/stock-movements::<sin nombre>`. El mismo rojo
+  estaba ya en `4d15501f` (run 37702884504). No es de tooling: lo cierra backend, con la clase que decida el arquitecto.
+- **`trivy-fs` runtime**: en local, trivy 0.69.3 en contenedor sobre el mismo árbol ⇒ **0 hallazgos** (backend,
+  frontend, s3-local). Indicio (no prueba): el paso tardó 2 s y el siguiente 5 s, al revés que en las verdes
+  (4-5 s / 1-2 s), compatible con que falló la **descarga de la base**. Medido: el gate viejo devolvía **rc=1 también
+  sin base** — mismo color que un hallazgo. Arreglo en `security/scripts/trivy-fs.sh`: la base se baja aparte con 3
+  reintentos (si no baja ⇒ rc=2 «NO CONCLUYENTE», nunca 0), el escaneo corre con `--skip-db-update` (rc=1 solo es
+  hallazgo) y el rojo publica una anotación con ficheros y avisos. Los reintentos son solo de la descarga, jamás del
+  escaneo. Candado: caso **3bis** de `trivy-fs-selftest.sh` (canario ⇒ rc=1 con anotación; base inalcanzable ⇒ rc=2).
+  Con el gate viejo el 3bis cae (1/1); con el nuevo, el self-test entero pasa (1/1, determinista).
+  Medido en CI sobre `1c133193` (run 37707384065): `trivy-fs` **success** en los tres pasos. Efecto secundario cazado
+  ahí: el self-test reimprimía la salida del canario y su `::error` salía como anotación de error en un job verde;
+  ahora se reimprime con los comandos de workflow desactivados (`[canario] ::error`), y las comprobaciones siguen
+  leyendo la salida original (local: 0 `::error` sueltos, self-test rc=0).
+- **Imagen de frontend**: no corría desde `1bde01de` (el escaneo de backend caía antes). Con el `Dockerfile.frontend` real
+  salvo el `apk` (403 aquí), sobre `git archive f76fe398` y los mismos `--build-arg`, **construye rc=0**. Sin registro no
+  se puede atribuir el rojo de CI; el paso ahora publica la etapa y las líneas de error en una anotación
+  (probado forzando el fallo del `apk` aquí). La siguiente corrida dirá si fue transitorio o de código.
+  En CI sobre `1c133193` construyó y se escaneó (**success**): el rojo de `f76fe398` no se repitió (N=1, causa sin atribuir).
+
+**Rollback.** `git revert` del commit: devuelve el baseline anterior (el gate vuelve a rc=1), el script de censo sin
+conservar motivos, `trivy-fs.sh` sin la descarga aparte y el paso de imagen sin anotación. No toca imágenes ni datos.

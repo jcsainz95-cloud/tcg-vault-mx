@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { createGuestCheckoutSession, getGuestCheckoutQuote } from '@/lib/api';
@@ -10,7 +10,13 @@ import { useCart } from '@/lib/cart';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
-import type { GuestAddressInput, GuestCheckoutSessionResponse } from '@/types/contract';
+import type { GuestAddressInput, GuestCheckoutQuoteResponse, GuestCheckoutSessionResponse, UnavailableBundleDTO } from '@/types/contract';
+import { Banner } from '@/components/ui/Banner';
+import { AccessoryCartLines } from './AccessoryCartLines';
+import { AccessoryCartNotices } from './AccessoryCartNotices';
+import { AccessorySuggestions } from './AccessorySuggestions';
+import { BundleOffers } from './BundleOffers';
+import { pushAccessoryNotices, type AccessoryNotice } from './accessory-notice';
 import type { NeighborhoodMode } from '@/hooks/useNeighborhoodMode';
 import { CardImage } from '@/components/ui/CardImage';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
@@ -85,6 +91,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   /** v1.68: último desenlace de la session, separado del modal (ver `CheckoutView`). */
   const [outcome, setOutcome] = useState<GuestCheckoutSessionResponse | null>(null);
   const [paymentInProgress, setPaymentInProgress] = useState(false);
+  /** §AC-UX.5: error de pago por accesorios/paquete (Banner danger junto al botón). */
+  const [accessoryPayError, setAccessoryPayError] = useState<string | null>(null);
+  const tp = useTranslations('checkout.accessoryPayError');
+  const tacc = useTranslations('checkout.accessories');
   const [paid, setPaid] = useState<GuestCheckoutSessionResponse | null>(null);
   /**
    * v1.80.12.5 (§M4-SHIP.19.25): ⛔ sin `422` geográficos. Lo único que la sesión puede devolver sobre la
@@ -110,10 +120,22 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const quoteEmail = confirmedEmail || retry?.email || '';
   const quoteRetry =
     retry && quoteEmail ? { retryOfCheckoutToken: retry.token, email: quoteEmail } : undefined;
+  // 💰 §AC.4: accesorios y decks del carrito v3 viajan en la cotización (⛔ sin importes; el servidor los pone).
+  const accessoryLines = useMemo(() => cart.accessories.map((a) => ({ accessoryId: a.id, quantity: a.qty })), [cart.accessories]);
+  const quotePulls = useMemo(
+    () => cart.deckPulls.map((p) => ({ pullToken: p.token, withEnergyBundle: p.withEnergyBundle })),
+    [cart.deckPulls],
+  );
   const query = useQuery({
-    queryKey: ['guest-checkout-quote', cart.ids, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null],
-    queryFn: () => getGuestCheckoutQuote(cart.ids, undefined, quoteRetry),
-    enabled: cart.ids.length > 0,
+    queryKey: ['guest-checkout-quote', cart.ids, accessoryLines, quotePulls, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null],
+    queryFn: () =>
+      getGuestCheckoutQuote(
+        cart.ids,
+        undefined,
+        quoteRetry,
+        accessoryLines.length || quotePulls.length ? { accessoryLines, deckPulls: quotePulls } : undefined,
+      ),
+    enabled: !cart.isEmpty,
     // Al aparecer el token (tras la primera session) la clave cambia: se conserva el quote anterior
     // mientras llega el nuevo para no desmontar formulario y botón en plena re-cotización.
     placeholderData: keepPreviousData,
@@ -137,6 +159,60 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     pushUnavailableNotice(dead);
     prune(dead.map((u) => u.inventoryItemId));
   }, [unavailable, quoteItems, prune]);
+
+  /**
+   * §AC-UX.5 / AC-F18 — el carrito SE CORRIGE SOLO con lo que dice el servidor, y el aviso lo cuenta. Efecto
+   * idempotente (como la poda de piezas): tras corregir, la clave cambia, se re-cotiza y la respuesta nueva ya no
+   * trae nada que corregir. Un `deckPull` sin paquete que se invalida se quita en silencio (no se perdió nada).
+   */
+  const quoteData = query.data;
+  const { removeAccessory, setAccessoryQty, removeDeckPull, deckPulls: localPulls } = cart;
+  const quoteIsPlaceholder = query.isPlaceholderData;
+  useEffect(() => {
+    // Una respuesta de una clave anterior (`keepPreviousData`) no describe el carrito de ahora: sus `index` no casan.
+    if (!quoteData || quoteIsPlaceholder) return;
+    const out: AccessoryNotice[] = [];
+    for (const u of quoteData.unavailableAccessories ?? []) {
+      if (u.reason === 'insufficient' && (u.availableQty ?? 0) > 0) {
+        setAccessoryQty(u.accessoryId, u.availableQty!);
+        out.push({ kind: 'insufficient', accessoryId: u.accessoryId, name: u.name, availableQty: u.availableQty! });
+      } else {
+        removeAccessory(u.accessoryId);
+        out.push({ kind: 'removed', reason: u.reason === 'insufficient' ? 'sold_out' : u.reason, accessoryId: u.accessoryId, name: u.name });
+      }
+    }
+    // v1.86.3 (§AC.19.4, AC-F21): cada `unavailableBundles[i].index` es la posición en los `deckPulls` que se
+    // mandaron, y esos salen de `cart.deckPulls` en el mismo orden (`quotePulls`). ⛔ Sin emparejar por `deckSlug`
+    // (un `invalid_token` no lo trae) ni por «el que la respuesta no nombra». El aviso lo decide el
+    // `withEnergyBundle` de la respuesta: un `deckPull` sin paquete sale en silencio (no se perdió nada).
+    const targets = new Map<string, { pull: (typeof localPulls)[number]; bad: UnavailableBundleDTO }>();
+    for (const b of quoteData.unavailableBundles ?? []) {
+      if (b.reason === 'duplicate') continue; // el carrito ya es único por deck; quitar por slug borraría el bueno
+      const local = localPulls[b.index];
+      if (!local || targets.has(local.slug)) continue;
+      targets.set(local.slug, { pull: local, bad: b });
+    }
+    for (const { pull, bad: b } of targets.values()) {
+      removeDeckPull(pull.slug);
+      if (b.withEnergyBundle && b.reason !== 'duplicate') {
+        out.push({ kind: 'bundle', reason: b.reason, slug: pull.slug, deckName: pull.deckName ?? null });
+      }
+    }
+    pushAccessoryNotices(out);
+    // `localPulls` se lee al llegar la respuesta; no debe re-disparar la corrección por sí solo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteData, quoteIsPlaceholder, removeAccessory, setAccessoryQty, removeDeckPull]);
+
+  // §AC-UX.7: «El envío cambió a {amount}…» entre dos cotizaciones; se borra en la siguiente sin cambio.
+  const prevShipping = useRef<number | undefined>(undefined);
+  const [shippingChangedTo, setShippingChangedTo] = useState<number | null>(null);
+  useEffect(() => {
+    const fee = quoteData?.breakdown.shippingFeeCents;
+    if (fee === undefined) return;
+    if (prevShipping.current !== undefined && prevShipping.current !== fee) setShippingChangedTo(fee);
+    else if (prevShipping.current === fee) setShippingChangedTo(null);
+    prevShipping.current = fee;
+  }, [quoteData]);
 
   const own = query.data?.ownReservation ?? null;
   const notice: CheckoutRetryOutcome | null =
@@ -225,9 +301,15 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
     setCreating(true);
     setPaymentInProgress(false);
+    setAccessoryPayError(null);
+    let sentBundlePulls: typeof cart.deckPulls = [];
     try {
       // §4-R.3: el token del intento anterior (si sigue vivo) es el reclamo de la reserva propia.
       const retryOfCheckoutToken = readGuestRetryToken() ?? undefined;
+      // v1.86.3 (§AC.19.4): el `index` de un `422 ENERGY_BUNDLE_INVALID` es la posición en ESTA lista (solo los que
+      // llevan paquete), no en el carrito: se guarda para traducirlo.
+      sentBundlePulls = cart.deckPulls.filter((p) => p.withEnergyBundle);
+      const sessionPulls = sentBundlePulls.map((p) => ({ pullToken: p.token, withEnergyBundle: true }));
       const res = await createGuestCheckoutSession({
         inventoryItemIds: cart.ids,
         email: form.email.trim(),
@@ -236,6 +318,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         acceptedTerms: true,
         fulfillmentMode: 'direct_ship',
         ...(retryOfCheckoutToken ? { retryOfCheckoutToken } : {}),
+        // 💰 §AC.4: ⛔ sin importes. Con `withEnergyBundle:false` la sesión no valida nada: solo van los paquetes.
+        ...(accessoryLines.length ? { accessoryLines } : {}),
+        ...(sessionPulls.length ? { deckPulls: sessionPulls } : {}),
       });
       // El token recién emitido (también en el `200` de reuso) sustituye al anterior: es la
       // llave del reintento siguiente, con su propio vencimiento.
@@ -265,6 +350,13 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         setPaymentInProgress(true);
       } else if (
         e instanceof ApiClientError &&
+        (e.code === 'ACCESSORY_UNAVAILABLE' || e.code === 'ACCESSORY_INSUFFICIENT_STOCK' || e.code === 'ENERGY_BUNDLE_INVALID')
+      ) {
+        // 💰 §AC.4 / §AC-UX.5: la sesión valida ANTES de crear nada ⇒ «No se cobró nada» es verdad. El carrito se
+        // corrige y la clave nueva re-cotiza sola.
+        setAccessoryPayError(accessoryPayErrorOf(e, sentBundlePulls));
+      } else if (
+        e instanceof ApiClientError &&
         (e.code === 'ITEM_UNAVAILABLE' || e.code === 'NOT_FOUND')
       ) {
         // v1.21.3-F2 — carrera "pieza vendida ENTRE el quote y el pago": la session
@@ -282,6 +374,61 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     } finally {
       setCreating(false);
     }
+  }
+
+  /**
+   * §AC-UX.7 / AC-F8: con accesorios o paquetes, el panel de bóveda avisa qué NO va a la bóveda. `{n}` cuenta
+   * unidades (+1 por paquete); `{amount}` es la suma de importes YA calculados por el servidor (⛔ sin precio propio).
+   */
+  function vaultNoticeFor(q: GuestCheckoutQuoteResponse) {
+    if (!q.vaultExcludesAccessories) return undefined;
+    const lines = q.accessoryLines ?? [];
+    const bundles = q.energyBundles ?? [];
+    const n = lines.reduce((acc, l) => acc + l.quantity, 0) + bundles.length;
+    const amount = lines.reduce((acc, l) => acc + l.lineTotalCents, 0) + bundles.reduce((acc, b) => acc + b.priceCents, 0);
+    return (
+      <div className="mt-4 border-t border-border pt-4">
+        <p className="eyebrow">{tacc('vaultEyebrow')}</p>
+        <p className="mt-2 text-sm leading-relaxed text-text">{tacc('vaultNotice', { n, amount: formatMoneyCents(amount, locale) })}</p>
+      </div>
+    );
+  }
+
+  /** §AC-UX.5 «Errores al pagar»: corrige el carrito y devuelve el texto (⛔ sin cifras propias). */
+  function accessoryPayErrorOf(e: ApiClientError, sentBundlePulls: typeof cart.deckPulls): string {
+    const d = e.details ?? {};
+    const accessoryId = typeof d.accessoryId === 'string' ? d.accessoryId : null;
+    // v1.86.3 (§AC.19.4): `index` manda (con `invalid_token` el `deckSlug` es null); `deckSlug` es el respaldo de un
+    // servidor anterior sin `index`.
+    const byIndex = typeof d.index === 'number' ? sentBundlePulls[d.index] : undefined;
+    const deckSlug = byIndex?.slug ?? (typeof d.deckSlug === 'string' ? d.deckSlug : null);
+    const lines = query.data?.accessoryLines ?? [];
+    const bundles = query.data?.energyBundles ?? [];
+    const bundleError = (slug: string | null) => {
+      const pull = slug ? cart.deckPulls.find((p) => p.slug === slug) : undefined;
+      const deck = pull?.deckName ?? bundles.find((b) => b.deckSlug === slug)?.deckName ?? null;
+      if (slug) cart.removeDeckPull(slug);
+      return deck ? tp('bundle', { deck }) : tp('bundleNoName');
+    };
+    if (e.code === 'ENERGY_BUNDLE_INVALID') return bundleError(deckSlug);
+    if (e.code === 'ACCESSORY_UNAVAILABLE') {
+      if (accessoryId) cart.removeAccessory(accessoryId);
+      return tp('unavailable');
+    }
+    // ACCESSORY_INSUFFICIENT_STOCK: ¿renglón suelto o componente de un paquete?
+    const line = accessoryId ? lines.find((l) => l.accessoryId === accessoryId) : undefined;
+    if (!line && accessoryId) {
+      const owner = bundles.find((b) => b.energies.some((x) => x.accessoryId === accessoryId));
+      if (owner) return bundleError(owner.deckSlug);
+    }
+    const n = typeof d.availableQty === 'number' ? d.availableQty : 0;
+    const name = line?.name ?? null;
+    if (n > 0) {
+      if (accessoryId) cart.setAccessoryQty(accessoryId, n);
+      return name ? tp('insufficient', { name, n }) : tp('insufficientNoName', { n });
+    }
+    if (accessoryId) cart.removeAccessory(accessoryId);
+    return name ? tp('soldOut', { name }) : tp('soldOutNoName');
   }
 
   function onConfirmed() {
@@ -307,6 +454,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       {/* Aviso informativo de poda (v1.21.3), FUERA de QueryState: sobrevive al estado
           de carga de la re-cotización que la propia poda dispara. */}
       <UnavailableItemsNotice className="gutter mb-6 max-w-[680px]" />
+      <AccessoryCartNotices className="gutter mb-6 max-w-[680px]" />
 
       <QueryState
         isLoading={query.isLoading}
@@ -374,6 +522,27 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                 ))}
               </ul>
 
+              {/* 💰 §AC-UX.5: accesorios y paquetes después de cartas y sellado; cifras de la cotización. */}
+              <AccessoryCartLines
+                lines={query.data.accessoryLines ?? []}
+                bundles={query.data.energyBundles ?? []}
+                qtyOf={(id) => cart.accessories.find((a) => a.id === id)?.qty}
+                onQty={(id, q) => cart.setAccessoryQty(id, q)}
+                onRemove={(id) => cart.removeAccessory(id)}
+                onRemoveBundle={(slug) => cart.setBundle(slug, false)}
+              />
+
+              {/* §AC-UX.8b y §AC-UX.6: solo con envío a domicilio; ⛔ nunca modales, nunca en el resumen. */}
+              {destination === 'ship' && (
+                <>
+                  <BundleOffers offers={query.data.energyBundleOffers ?? []} onAdd={(slug) => cart.setBundle(slug, true)} />
+                  <AccessorySuggestions
+                    exclude={cart.accessories.map((a) => a.id)}
+                    onAdd={(id) => cart.addAccessory(id, 1)}
+                  />
+                </>
+              )}
+
               {identity === 'guest' && (
                 <div className="pt-10">
                   <GuestCheckoutForm
@@ -394,6 +563,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                       setDestination('ship');
                     }}
                     onAccountReady={() => onAccountReady({ fromVaultUpsell: true })}
+                    vaultAvailable={query.data.items.length > 0}
+                    vaultNotice={vaultNoticeFor(query.data)}
                     serverAddressError={serverAddressError}
                     onGeoModeChange={setGeoMode}
                   />
@@ -422,13 +593,24 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                 <AmountBreakdown
                   breakdown={activeBreakdown ?? query.data.breakdown}
                   variant="purchase"
+                  productsSubtotal={(query.data.accessoryLines?.length ?? 0) + (query.data.energyBundles?.length ?? 0) > 0}
+                  // §AC-UX.7: ⛔ ni `label` ni `code` ni `review` de la caja: solo que el envío sale de su tamaño.
+                  shippingNote={query.data.shippingBox ? tacc('boxHint') : undefined}
                 />
+              </div>
+              <div role="status" aria-live="polite" className="text-xs text-muted">
+                {shippingChangedTo !== null && tacc('shippingChanged', { amount: formatMoneyCents(shippingChangedTo, locale) })}
               </div>
 
               {payError && (
                 <p role="alert" className="mt-6 font-mono text-xs text-accent">
                   {payError}
                 </p>
+              )}
+              {accessoryPayError && (
+                <Banner variant="danger" role="alert" className="mt-6">
+                  {accessoryPayError}
+                </Banner>
               )}
               {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R.3). */}
               <CheckoutRetryNotice outcome={notice} className="mt-6" />
@@ -449,7 +631,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                       role="radiogroup"
                       aria-label={t('destination.eyebrow')}
                     >
-                      {(['ship', 'vault'] as const).map((opt) => (
+                      {/* §AC-UX.7: sin cartas ni sellado no hay nada que guardar ⇒ sin opción de bóveda. */}
+                      {(query.data.items.length > 0 ? (['ship', 'vault'] as const) : (['ship'] as const)).map((opt) => (
                         <button
                           key={opt}
                           type="button"
@@ -475,14 +658,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                     onClick={pay}
                     className="mt-5 min-h-[54px] w-full tracking-eyebrow"
                   >
+                    {/* 💰 F-SP-5 (AC-F9): el importe del botón es el de la SESIÓN; sin sesión, sin importe. */}
                     {creating
                       ? t('preparing')
-                      : t('pay', {
-                          amount: formatMoneyCents(
-                            (activeBreakdown ?? query.data.breakdown).totalCents,
-                            locale,
-                          ),
-                        })}
+                      : outcome
+                        ? t('pay', { amount: formatMoneyCents(outcome.breakdown.totalCents, locale) })
+                        : t('payNoAmount')}
                   </Button>
                   {/* Nunca un botón apagado y mudo: la condición se explica (§15.9). */}
                   {payBlockedReason && (
@@ -525,9 +706,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
           session?.checkoutToken ?? '',
         )}`}
         title={t('payTitle')}
-        amountLabel={
-          activeBreakdown ? formatMoneyCents(activeBreakdown.totalCents, locale) : undefined
-        }
+        // 💰 F-SP-5: el modal enseña el total de la SESIÓN (lo que Stripe cobra), ⛔ nunca el de la cotización.
+        amountLabel={session ? formatMoneyCents(session.breakdown.totalCents, locale) : undefined}
         onConfirmed={onConfirmed}
       />
     </div>

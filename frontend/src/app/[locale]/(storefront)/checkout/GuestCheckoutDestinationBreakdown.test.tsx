@@ -97,7 +97,9 @@ describe('GuestCheckoutView · resumen reactivo al destino (v1.21.4-dual-breakdo
     expect(within(breakdown).getByText('Envío')).toBeInTheDocument();
     // El total del resumen y el del botón usan el desglose de ENVÍO.
     expect(within(breakdown).getByText('MX$512.00')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Pagar/ })).toHaveTextContent('MX$512.00');
+    // 💰 F-SP-5 (AC-F9, `API_CONTRACT` SP.6 reescrita): sin sesión el botón NO pinta importe — el de la
+    // cotización ya no se promete; el total lo dice el resumen y, al pagar, la sesión.
+    expect(screen.getByRole('button', { name: /Pagar/ })).toHaveTextContent(/^Pagar$/);
   });
 
   it('destino=bóveda: el resumen QUITA la línea de envío y el total = vaultBreakdown.totalCents', async () => {
@@ -113,7 +115,9 @@ describe('GuestCheckoutView · resumen reactivo al destino (v1.21.4-dual-breakdo
     // Total del resumen y del botón = total de BÓVEDA (menor, sin envío).
     expect(within(breakdown).getByText('MX$304.00')).toBeInTheDocument();
     expect(within(breakdown).queryByText('MX$512.00')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Pagar/ })).toHaveTextContent('MX$304.00');
+    // 💰 F-SP-5 (AC-F9, `API_CONTRACT` SP.6 reescrita): sin sesión el botón NO pinta importe — el de la
+    // cotización ya no se promete; el total lo dice el resumen y, al pagar, la sesión.
+    expect(screen.getByRole('button', { name: /Pagar/ })).toHaveTextContent(/^Pagar$/);
   });
 
   it('alternar destino es INSTANTÁNEO y no dispara un nuevo fetch (ambos desgloses en la misma respuesta)', async () => {

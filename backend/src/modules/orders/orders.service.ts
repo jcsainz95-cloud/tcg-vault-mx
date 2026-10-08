@@ -33,6 +33,7 @@ import {
   reservedUntilFrom,
 } from './reservation';
 import { lockReservedOfOrder, releaseReservedOfUnsettledRefund } from '../payments/refunds/release-unsettled-refund';
+import { accessoryReservedDrift, expiredAccessoryOrderIds, releaseAccessoryReservations, renewAccessoryReservations } from './accessory-stock';
 import {
   computeCartBreakdown,
   BreakdownDTO,
@@ -929,6 +930,8 @@ export class OrdersService {
           where: { id: { in: itemIds }, ...reservationGuard(orderId) },
           data: releaseReservationData,
         });
+        // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): los apartados de accesorio de la orden, en la MISMA tx (candado AC-B37).
+        await releaseAccessoryReservations(tx, orderId);
         await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
       })
       .catch(() => undefined);
@@ -1032,6 +1035,8 @@ export class OrdersService {
       where: { reservedByOrderId: orderId, status: 'reserved' },
       data: { reservedUntil },
     });
+    // 💰 v1.86⟨accesorios⟩ (§AC.6 (3)): el reuso renueva también `reservedUntil` de los renglones de accesorio.
+    await renewAccessoryReservations(tx, orderId, reservedUntil);
     return reservedUntil;
   }
 
@@ -1075,6 +1080,8 @@ export class OrdersService {
       },
       data: releaseReservationData,
     });
+    // 💰 v1.86⟨accesorios⟩ (§AC.4 reuso, §AC.6 (2)): la sustitución suelta también los apartados de accesorio.
+    await releaseAccessoryReservations(tx, order.id);
     await tx.order.update({ where: { id: order.id }, data: { status: 'failed' } });
   }
 
@@ -1181,6 +1188,11 @@ export class OrdersService {
       legacy += itemIds.length;
       byOrder.set(orderId, [...(byOrder.get(orderId) ?? []), ...itemIds]);
     }
+    // 💰 v1.86⟨accesorios⟩ (§AC.6 (3)) — SEGUNDA FUENTE: renglones de accesorio `reserved` vencidos en pedidos `pending`
+    // (un pedido SOLO de accesorios no tiene piezas que lo traigan aquí). Misma puerta: B3 primero, luego soltar.
+    for (const orderId of await expiredAccessoryOrderIds(this.prisma, now)) {
+      if (!byOrder.has(orderId)) byOrder.set(orderId, []);
+    }
     let swept = 0;
     let skipped = 0;
     let noop = 0;
@@ -1226,10 +1238,12 @@ export class OrdersService {
           where: { id: { in: itemIds }, ...reservationGuard(orderId) },
           data: releaseReservationData,
         });
+        // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)/(3)): mismo cuerpo de soltar, misma tx. Cuenta como liberado.
+        const acc = order.status === 'pending' ? await releaseAccessoryReservations(tx, orderId) : { lines: 0 };
         if (order.status === 'pending') {
           await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
         }
-        return count;
+        return count + acc.lines;
       });
       if (released > 0) swept += 1;
       else noop += 1;
@@ -1244,6 +1258,7 @@ export class OrdersService {
       this.logger.warn(`order-reservation-sweep: ${skipped} pedidos NO barridos (PaymentIntent vivo).`);
     }
     if (swept > 0) this.logger.log(`order-reservation-sweep: ${swept} reservas vencidas liberadas.`);
+    await this.auditAccessoryReservedDrift();
     if (legacy > 0) {
       // SEC-SB-1: se cuenta APARTE porque es una población que se AGOTA. Mientras este número no
       // sea 0 en una pasada, la rama `IS NULL` de `reservationGuard` NO se puede retirar (`RSV-L1`).
@@ -1253,6 +1268,25 @@ export class OrdersService {
       );
     }
     return { swept, skipped, legacy };
+  }
+
+  /**
+   * 💰 v1.86⟨accesorios⟩ (§AC.6 (6)) — conteo de reconciliación, en cada barrido: `reservedQty` de cada accesorio vs Σ
+   * de lo `reserved`. Si no cuadra ⇒ `logger.error` + bitácora `accessory.reserved_drift`. ⛔ No corrige. Best-effort: un
+   * fallo aquí no tumba el barrido (que ya soltó lo vencido).
+   */
+  private async auditAccessoryReservedDrift(): Promise<void> {
+    try {
+      const drift = await accessoryReservedDrift(this.prisma);
+      for (const d of drift) {
+        this.logger.error(`accessory.reserved_drift: ${d.accessoryId} reservedQty=${d.reservedQty} ≠ Σ reserved=${d.countedQty}`);
+        await this.prisma.auditLog.create({
+          data: { actorUserId: null, actorRole: null, action: 'accessory.reserved_drift', entityType: 'Accessory', entityId: d.accessoryId, after: { reservedQty: d.reservedQty, countedQty: d.countedQty } },
+        });
+      }
+    } catch (e) {
+      this.logger.error(`accessory.reserved_drift: el conteo falló (${(e as Error).message})`);
+    }
   }
 
   /**

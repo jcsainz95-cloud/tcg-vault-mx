@@ -1,4 +1,5 @@
-import { MetaCardGroup, MetaMatchStatus } from '@prisma/client';
+import { EnergyType, MetaCardGroup, MetaMatchStatus } from '@prisma/client';
+import type { AccessoryPhotoDTO, EnergyBundleOfferReason } from './energy-bundle';
 
 /**
  * DECKS-META §13 (Fase 1) — DTOs PÚBLICOS. Las FORMAS son contrato: el frontend de Fase 1 (ya
@@ -42,6 +43,33 @@ export interface MetaDeckLineDTO {
   unitInventoryItemIds: string[];
   /** OPCIONAL (Fase 3): otra impresión LEGAL de la misma carta en stock. Ausente en Fase 1. */
   substitute?: MetaSubstituteDTO;
+  /**
+   * 💰 §AC.8 (v1.86, aditivo): la energía básica ligada a su producto «Energía <tipo>». No nulo ⇔
+   * `matchStatus = unmatched_basic_energy` ∧ `energyTypeOf(rawName) ≠ null` ∧ hay producto ACTIVO de ese tipo. El
+   * servidor lo manda `null` en toda otra línea. ⛔ No toca `unitInventoryItemIds`/`availableQty`/`unitPriceMxnCents`.
+   */
+  basicEnergy?: MetaBasicEnergyDTO | null;
+}
+
+/** §AC.8 — la energía suelta que se puede agregar por línea. */
+export interface MetaBasicEnergyDTO {
+  energyType: EnergyType;
+  accessoryId: string;
+  unitPriceCents: number;
+  soldOut: boolean;
+  photo: AccessoryPhotoDTO;
+}
+
+/** §AC.8 — el paquete de energías del deck (solo en `GET /decks-meta/:slug`; ⛔ nunca en `paste`). */
+export interface MetaEnergyBundleDTO {
+  offered: boolean;
+  /** `null` ⇔ `offered`. */
+  reason: EnergyBundleOfferReason | null;
+  priceCents: number;
+  looseTotalCents: number;
+  energies: { energyType: EnergyType; quantity: number; accessoryId: string | null }[];
+  /** SIEMPRE presente: firma la unión que «Agregar de jalón» mete HOY. ⛔ Nunca en URL. */
+  pullToken: string;
 }
 
 export interface MetaDeckGroupsDTO {
@@ -61,6 +89,8 @@ export interface MetaDeckDetailDTO {
   sourceUrl?: string;
   sourceTournament?: string;
   groups: MetaDeckGroupsDTO;
+  /** 💰 §AC.8 (v1.86, aditivo, en la raíz). */
+  energyBundle: MetaEnergyBundleDTO;
 }
 
 /** Teja del top-10: `GET /decks-meta` (envelope `data[]`). */

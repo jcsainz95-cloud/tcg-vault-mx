@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { prepareShipment, retryRefund, setShipPrepItem, unprepareShipment } from '@/lib/api';
+import { prepareShipment, retryRefund, setShipPrepAccessoryLine, setShipPrepItem, unprepareShipment } from '@/lib/api';
 import { asApiError } from '@/lib/api-client';
 import { useErrorMessage } from '@/components/ui/QueryState';
 import { Badge } from '@/components/ui/Badge';
@@ -20,6 +20,8 @@ import type {
   PreparationItemStatus,
   PreparationOrderDTO,
   RefundNotAvailableDetails,
+  SetShipPrepAccessoryLineRequest,
+  ShipAccessoryLineDTO,
   ShipPreparationItemDTO,
   ShipPreparationOrderDTO,
   WithdrawalLineOriginRefundedDetails,
@@ -28,6 +30,7 @@ import { AgeStamp, CardInfo, DASH, LABEL, TAG } from './prep-shared';
 import type { QueueNotice } from './VaultPlacementCard';
 import { LocateItemControl } from './LocateItemControl';
 import { LabelAlertBlock, useSince } from './LabelActions';
+import { ShipAccessoryRow, ShipBoxBlock, accessoryDialogLine } from './ShipAccessoryLines';
 
 /**
  * **La tarjeta de ENVÍO, interactiva** (`DESIGN_SYSTEM §37.3–§37.5` · contrato `§M4-SHIP.3/.5/.6`,
@@ -132,10 +135,20 @@ export function ShipPreparationCard({
   const openReplacements = preparation.status === 'prepared' ? preparation.openReplacements : 0;
   const refundPreviewCents = preparation.status === 'in_progress' ? preparation.refundPreviewCents : 0;
   const newMissing = order.items.filter(isNewMissing);
-  const missingNotRefundable = !isWithdrawal && newMissing.some((i) => i.refund.kind === 'not_refundable');
+  // 💰 §AC.9: renglones de accesorio (solo envío directo). Sin la llave (servidor anterior) ⇒ como hoy (I-AC-5).
+  const accLines = order.accessoryLines ?? [];
+  const accPending = accLines.filter((l) => l.prepStatus === 'pending').length;
+  const accNewMissing = accLines.filter((l) => l.prepStatus === 'missing' && l.refund.kind !== 'refunded');
+  const accShips = accLines.some((l) => l.prepStatus !== 'missing' || l.missingQty < l.quantity);
+  const missingNotRefundable =
+    !isWithdrawal && (newMissing.some((i) => i.refund.kind === 'not_refundable') || accNewMissing.some((l) => l.refund.kind === 'not_refundable'));
   const availableItems = order.items.filter((i) => i.availability.kind === 'available');
-  const nothingShips = availableItems.length === 0 && order.items.length > 0;
-  const allMissing = availableItems.length > 0 && availableItems.every((i) => i.prepStatus === 'missing');
+  const nothingShips = availableItems.length === 0 && order.items.length > 0 && !accShips;
+  const allMissing =
+    (availableItems.length > 0 || accLines.length > 0) && availableItems.every((i) => i.prepStatus === 'missing') && !accShips;
+  // §AC (QA §AC.gates): los textos de dinero hablan de lo que de verdad falta o no sale — cartas, accesorios o ambos.
+  const orderSubject = prepSubject(order.items.length > 0, accLines.length > 0);
+  const missingSubject = prepSubject(newMissing.length > 0, accNewMissing.length > 0);
   // Líneas bloqueadas cuyo cobro sigue vivo: el preparado las rechaza (`PREPARATION_HAS_BLOCKED_LINES`).
   // ⛔ No se decide aquí quién está `settled`: se apaga solo lo que el servidor ya rechazó una vez.
 
@@ -154,6 +167,36 @@ export function ShipPreparationCard({
   const [retryBusy, setRetryBusy] = useState<string | null>(null);
 
   const refetchQueue = () => qc.invalidateQueries({ queryKey: QUEUE_KEY });
+
+  // ---------- Palomear un accesorio (§AC.9 PATCH …/prep-accessory-lines/:lineId) ----------
+  // v1.86.3 (§AC.19.5): la respuesta `{changed, line, preparation}` se aplica a la cola, como `prep-items`
+  // (estado optimista: no, §36.5). `preparation.refundPreviewCents` ya trae el cambio.
+  const [accBusy, setAccBusy] = useState<string | null>(null);
+  const [accErrors, setAccErrors] = useState<Record<string, string>>({});
+  const markAccessory = useMutation({
+    mutationFn: (v: { lineId: string; body: SetShipPrepAccessoryLineRequest }) => setShipPrepAccessoryLine(shipmentId, v.lineId, v.body),
+    onMutate: (v) => {
+      setAccBusy(v.lineId);
+      setAccErrors((r) => {
+        const next = { ...r };
+        delete next[v.lineId];
+        return next;
+      });
+    },
+    onSuccess: (res) => {
+      patchShip(qc, shipmentId, (o) => ({
+        ...o,
+        preparation: res.preparation,
+        accessoryLines: (o.accessoryLines ?? []).map((l) => (l.id === res.line.id ? res.line : l)),
+      }));
+    },
+    onError: (e, v) => {
+      const err = asApiError(e);
+      const shown = err?.status === 409 && err.code === 'PREPARATION_CLOSED' ? ts('error.closed') : commonError(e, 'mark', () => markAccessory.mutate(v))?.text;
+      if (shown) setAccErrors((r) => ({ ...r, [v.lineId]: shown }));
+    },
+    onSettled: () => setAccBusy(null),
+  });
 
   const stepRef = useRef<HTMLParagraphElement>(null);
   const prevStep = useRef(step);
@@ -360,11 +403,13 @@ export function ShipPreparationCard({
       }
       setConfirmOpen(false);
       if (err?.status === 409 && err.code === 'PREPARATION_INCOMPLETE') {
-        setFooterError({
-          text: ts('error.incomplete', {
-            pendingCount: Number(err.details?.pendingCount ?? 0),
-          }),
-        });
+        // v1.86.3 (§AC.19.5): `pendingCount` son cartas; `pendingAccessoryCount` (aditivo) son renglones.
+        const pendingCount = Number(err.details?.pendingCount ?? 0);
+        const pendingAccessoryCount = Number(err.details?.pendingAccessoryCount ?? 0);
+        const parts: string[] = [];
+        if (pendingCount > 0 || !(pendingAccessoryCount > 0)) parts.push(ts('error.incomplete', { pendingCount }));
+        if (pendingAccessoryCount > 0) parts.push(ts('accessory.pendingLines', { n: pendingAccessoryCount }));
+        setFooterError({ text: parts.join(' ') });
         void refetchQueue();
         return;
       }
@@ -595,6 +640,9 @@ export function ShipPreparationCard({
         )}
       </div>
 
+      {/* 💰 §AC-UX.12: la caja congelada en la sesión (solo con accesorios con medidas y cajas con tarifa). */}
+      {order.box && <ShipBoxBlock box={order.box} shipmentId={shipmentId} />}
+
       {/* Plano 3 · paso actual y conteo (§37.3a / §37.3c). */}
       <div className="flex flex-col gap-1 border-t border-border pt-3 print:hidden">
         <p
@@ -617,10 +665,11 @@ export function ShipPreparationCard({
         </p>
         <div role="status" aria-live="polite" data-testid={`ship-live-${shipmentId}`} className="flex flex-col gap-1">
           <p className="tabular text-sm text-text">
+            {/* §AC-UX.12: los renglones de accesorio cuentan como líneas (los conteos del servidor son de `items[]`). */}
             {ts('count', {
-              picked: preparation.picked,
-              missing: preparation.missing,
-              pending: preparation.pending,
+              picked: preparation.picked + accLines.filter((l) => l.prepStatus === 'picked').length,
+              missing: preparation.missing + accNewMissing.length + accLines.filter((l) => l.prepStatus === 'missing' && l.refund.kind === 'refunded').length,
+              pending: preparation.pending + accPending,
             })}
             {preparation.blocked > 0 && <> {ts('countBlocked', { blocked: preparation.blocked })}</>}
           </p>
@@ -724,6 +773,25 @@ export function ShipPreparationCard({
         </ul>
       </div>
 
+      {accLines.length > 0 && (
+        <div className="flex flex-col gap-3 border-t border-border pt-3" data-testid={`prep-accessories-${shipmentId}`}>
+          <p className="eyebrow">{ts('accessory.group')}</p>
+          <ul className="flex flex-col gap-3">
+            {accLines.map((line: ShipAccessoryLineDTO) => (
+              <ShipAccessoryRow
+                key={line.id}
+                line={line}
+                editable={step === 'collect'}
+                busy={accBusy === line.id}
+                error={accErrors[line.id] ?? null}
+                locale={locale}
+                onMark={(body) => markAccessory.mutate({ lineId: line.id, body })}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Plano 5 · pie de acción: una acción principal por paso (V5). */}
       <div
         data-testid={`ship-footer-${shipmentId}`}
@@ -734,21 +802,24 @@ export function ShipPreparationCard({
         {step === 'collect' ? (
           <>
             {!isWithdrawal && allMissing && preparation.pending === 0 && (
-              <p className="text-sm text-text">{ts('confirmRefund.bodyNothingShips')}</p>
+              <p className="text-sm text-text">{ts(nothingShipsKey(orderSubject))}</p>
             )}
             <Button
               variant="primary"
               className="self-start min-h-[44px]"
-              disabled={preparation.pending > 0 || missingNotRefundable}
+              // §AC-UX.12: apagado con CUALQUIER línea pendiente, cartas o accesorios (el servidor da `409`).
+              disabled={preparation.pending > 0 || accPending > 0 || missingNotRefundable}
               loading={prepare.isPending}
-              aria-describedby={preparation.pending > 0 || missingNotRefundable ? prepareReasonId : undefined}
+              aria-describedby={preparation.pending > 0 || accPending > 0 || missingNotRefundable ? prepareReasonId : undefined}
               onClick={onPrepareClick}
             >
               {prepare.isPending ? ts('prepare.saving') : ts('prepare.cta')}
             </Button>
-            {preparation.pending > 0 ? (
+            {preparation.pending > 0 || accPending > 0 ? (
               <p id={prepareReasonId} className="text-sm text-text">
-                {ts('prepare.pending', { pending: preparation.pending })}
+                {preparation.pending > 0 && ts('prepare.pending', { pending: preparation.pending })}
+                {preparation.pending > 0 && accPending > 0 && ' '}
+                {accPending > 0 && ts('accessory.pendingLines', { n: accPending })}
               </p>
             ) : missingNotRefundable ? (
               <p id={prepareReasonId} className="text-sm text-text">
@@ -800,7 +871,10 @@ export function ShipPreparationCard({
         isWithdrawal={isWithdrawal}
         amountCents={confirmAmount}
         lines={newMissing}
+        accessoryLines={accNewMissing.map((l) => accessoryDialogLine(l, (k, v) => ts(`accessory.${k}`, v), locale))}
         nothingShips={!isWithdrawal ? allMissing || nothingShips : nothingShips}
+        orderSubject={orderSubject}
+        missingSubject={missingSubject}
         pending={prepare.isPending}
         locale={locale}
         onCancel={() => setConfirmOpen(false)}
@@ -1139,6 +1213,18 @@ function RefundLine({
 }
 
 /**
+ * De qué habla un texto de dinero de la preparación: solo cartas (los textos de §37.4 de siempre), solo accesorios o
+ * ambos. Sin nada que nombrar ⇒ `cards` (el texto de siempre).
+ */
+type PrepSubject = 'cards' | 'accessories' | 'mixed';
+const SUBJECT_SUFFIX: Record<PrepSubject, string> = { cards: '', accessories: 'Accessories', mixed: 'Mixed' };
+function prepSubject(hasCards: boolean, hasAccessories: boolean): PrepSubject {
+  if (hasAccessories && hasCards) return 'mixed';
+  return hasAccessories ? 'accessories' : 'cards';
+}
+const nothingShipsKey = (s: PrepSubject) => `confirmRefund.bodyNothingShips${SUBJECT_SUFFIX[s]}`;
+
+/**
  * §37.4 — el diálogo de «Pedido preparado» con consecuencias: 💰 la cifra del servidor en el botón
  * (directo) o los casos que se abren (retiro). Botones neutros, foco inicial en «Cancelar».
  */
@@ -1147,7 +1233,10 @@ function PrepareDialog({
   isWithdrawal,
   amountCents,
   lines,
+  accessoryLines = [],
   nothingShips,
+  orderSubject = 'cards',
+  missingSubject = 'cards',
   pending,
   locale,
   onCancel,
@@ -1158,7 +1247,13 @@ function PrepareDialog({
   isWithdrawal: boolean;
   amountCents: number;
   lines: ShipPreparationItemDTO[];
+  /** 💰 §AC-F16: una línea por accesorio faltante, ya con su importe del servidor (`refund.amountCents`). */
+  accessoryLines?: string[];
   nothingShips: boolean;
+  /** Qué trae el pedido (para «no sale nada»). */
+  orderSubject?: PrepSubject;
+  /** Qué falta en la lista del diálogo (para el cuerpo y la firma). */
+  missingSubject?: PrepSubject;
   pending: boolean;
   locale: AppLocale;
   onCancel: () => void;
@@ -1197,8 +1292,13 @@ function PrepareDialog({
       }
     >
       <div className="flex flex-col gap-3 text-sm text-text">
-        {lines.length > 0 && (
+        {lines.length + accessoryLines.length > 0 && (
           <ul className="flex flex-col gap-1">
+            {accessoryLines.map((text, i) => (
+              <li key={`acc-${i}`} className="tabular">
+                {text}
+              </li>
+            ))}
             {lines.map((i) => (
               <li key={i.shipmentItemId} className="tabular" lang="en">
                 {casesMode || i.refund.kind !== 'refundable'
@@ -1221,8 +1321,8 @@ function PrepareDialog({
           <p>{ts('confirmCases.body')}</p>
         ) : (
           <>
-            <p>{nothingShips ? ts('confirmRefund.bodyNothingShips') : ts('confirmRefund.body')}</p>
-            <p className="text-muted">{ts('confirmRefund.signature')}</p>
+            <p>{nothingShips ? ts(nothingShipsKey(orderSubject)) : ts(`confirmRefund.body${SUBJECT_SUFFIX[missingSubject]}`)}</p>
+            <p className="text-muted">{ts(`confirmRefund.signature${SUBJECT_SUFFIX[missingSubject]}`)}</p>
           </>
         )}
       </div>

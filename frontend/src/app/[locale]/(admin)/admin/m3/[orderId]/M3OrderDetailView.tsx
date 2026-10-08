@@ -20,10 +20,12 @@ import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO, ShippedRefundReason, VaultPieceDTO } from '@/types/contract';
-import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail } from '../RefundOrderDialog';
+import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail, shippedRefundKey } from '../RefundOrderDialog';
 import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
 import { RefundDeliveredItemDialog, type DeliveredRefundTarget } from '../RefundDeliveredItemDialog';
+import { RefundAccessoryLineDialog, type AccessoryRefundTarget } from '../RefundAccessoryLineDialog';
+import { energyBreakdown } from '@/lib/accessories';
 
 const DASH = '—';
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
@@ -72,6 +74,10 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
   // §60.3 — «Reembolsar esta carta» (pedido directo ENTREGADO, súper-admin).
   const [deliveredTarget, setDeliveredTarget] = useState<DeliveredRefundTarget | null>(null);
   const tdr = useTranslations('admin.m3.deliveredRefund');
+  // 💰 §AC.10 (2) + v1.86.2 — «Reembolsar unidades» de un renglón de accesorio entregado (súper-admin).
+  const [accTarget, setAccTarget] = useState<AccessoryRefundTarget | null>(null);
+  const tacc = useTranslations('admin.m3.accessories');
+  const taccessories = useTranslations('accessories');
   // §40.3 (c) — registro ÚNICO del motivo de un reembolso tras el envío hecho desde Stripe.
   const [reviewReason, setReviewReason] = useState<ShippedRefundReason | null>(null);
   const [reviewNote, setReviewNote] = useState('');
@@ -355,6 +361,54 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                   </ul>
                 </section>
 
+                {/* 💰 §AC.12 / §AC-UX.13 — renglones de accesorio y paquetes. ⛔ Sin costo. El botón SOLO con
+                    `deliveredRefund.kind = 'refundable'` y súper-admin (AC-F19); el importe es del servidor. */}
+                {(o.accessoryLines?.length ?? 0) > 0 && (
+                  <section className="flex flex-col gap-2" data-testid="m3-accessories">
+                    <h2 className="text-h2 font-semibold">{tacc('title')}</h2>
+                    <ul className="flex flex-col divide-y divide-border border-y border-border">
+                      {o.accessoryLines!.map((l) => {
+                        // v1.86.3 (§AC.19.6): `id` y `kind` obligatorios; el paquete se reconoce por `kind`.
+                        const isBundle = l.kind === 'energy_bundle';
+                        const key = l.id;
+                        const total = formatMoneyCents(l.lineTotalCents, locale);
+                        const dr = l.deliveredRefund;
+                        const canRefund = isSuperAdmin && dr?.kind === 'refundable' && dr.amountByQtyCents.length > 0;
+                        return (
+                          <li key={key} data-testid={`m3-accessory-${key}`} className="flex flex-wrap items-baseline justify-between gap-2 py-3 text-sm text-text">
+                            <span className="flex flex-col">
+                              <span>{isBundle ? tacc('bundleLine', { deck: l.deckName ?? l.name, total }) : tacc('line', { name: l.name, n: l.quantity, total })}</span>
+                              {isBundle && l.components.length > 0 && (
+                                <span className="font-mono text-xs text-muted">{energyBreakdown(l.components, taccessories)}</span>
+                              )}
+                              {l.refundedQty > 0 && <span className="font-mono text-xs text-muted">{tacc('refunded', { k: l.refundedQty })}</span>}
+                            </span>
+                            {canRefund && dr?.kind === 'refundable' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                data-testid={`m3-accessory-refund-${l.id}`}
+                                onClick={() => {
+                                  setError(null);
+                                  setAccTarget({
+                                    orderId,
+                                    lineId: l.id,
+                                    name: isBundle && l.deckName ? tacc('bundleLine', { deck: l.deckName, total }) : l.name,
+                                    isBundle,
+                                    amountByQtyCents: dr.amountByQtyCents,
+                                  });
+                                }}
+                              >
+                                {tacc('refundCta')}
+                              </Button>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                )}
+
                 {/* §37.10b — solo órdenes `vault`. */}
                 {isVault && o.vaultPieces && o.vaultPieces.length > 0 && (
                   <section className="flex flex-col gap-3" data-testid="m3-vault-pieces">
@@ -510,9 +564,19 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
           setNotice({
             role: 'status',
             text: info.shippedReason
-              ? t('shippedRefund.done', { ref: o?.orderNumber ?? res.orderId, reason: tsr(info.shippedReason) })
+              ? t(`shippedRefund.${shippedRefundKey('done', info.contents)}`, { ref: o?.orderNumber ?? res.orderId, reason: tsr(info.shippedReason) })
               : t('refundDone', { orderId: res.orderId }),
           });
+        }}
+      />
+
+      <RefundAccessoryLineDialog
+        target={accTarget}
+        onClose={() => setAccTarget(null)}
+        onDone={() => {
+          setAccTarget(null);
+          setNotice({ role: 'status', text: tacc('done') });
+          refresh();
         }}
       />
 

@@ -68,7 +68,8 @@ export interface SalesReportDTO {
   mix: {
     byDestination: { vault: MixCell; direct_ship: MixCell };
     byBuyer: { account: MixCell; guest: MixCell };
-    byProductType: { raw: PieceCell; graded: PieceCell; sealed: PieceCell };
+    /** 💰 v1.86⟨accesorios⟩ (§AC.12): + `accessory` (unidades de renglones de accesorio + 1 por paquete). */
+    byProductType: { raw: PieceCell; graded: PieceCell; sealed: PieceCell; accessory: PieceCell };
   };
 }
 

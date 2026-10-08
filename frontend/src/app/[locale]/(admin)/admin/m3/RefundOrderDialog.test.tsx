@@ -83,7 +83,7 @@ describe('PS-UI-14 · reembolso total de bóveda', () => {
     // §40.10: `onDone(res, { shippedReason })` — bóveda nunca lleva motivo de envío (P-S11-4).
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(onDone.mock.calls[0][0]).toEqual(expect.objectContaining({ orderId: 'ord-9001', status: 'refunded' }));
-    expect(onDone.mock.calls[0][1]).toEqual({ shippedReason: null });
+    expect(onDone.mock.calls[0][1]).toEqual({ shippedReason: null, contents: 'cards' });
   });
 
   it('`409 VAULT_PIECE_IN_PACKED_WITHDRAWAL {items}` ⇒ el alert nombra el retiro con enlace y pide deshacer el preparado', async () => {

@@ -89,6 +89,34 @@ export function zeroPnl(): PnlComponents {
 
 type Db = Pick<PrismaService, 'order' | 'shipmentRequest' | 'shipmentCostAdjustment' | 'paymentRefund' | 'manualRefund' | 'sellRequest'>;
 
+/**
+ * 💰 v1.86⟨accesorios⟩ (§AC.12) — costo de venta de los renglones `sold` de una orden: `Σ unitCostCents × (quantity −
+ * missingQty)` del suelto y, en paquete, `Σ componente.unitCostCents × quantity` (entero o nada: el paquete faltante al
+ * preparar no salió). `null ⇒ 0`. ⛔ El paquete NO tiene costo propio (CHECK `order_accessory_line_money`): su costo vive
+ * SOLO en los componentes, así no se cuenta dos veces.
+ */
+export function accessoryCogsCents(
+  lines: readonly {
+    kind: string;
+    quantity: number;
+    unitCostCents: number | null;
+    shipmentLine: { missingQty: number } | null;
+    components: readonly { quantity: number; unitCostCents: number | null }[];
+  }[],
+): number {
+  let cogs = 0;
+  for (const l of lines) {
+    const out = Math.max(0, l.quantity - (l.shipmentLine?.missingQty ?? 0));
+    if (out === 0) continue;
+    if (l.kind === 'energy_bundle') {
+      for (const c of l.components) cogs += (c.unitCostCents ?? 0) * c.quantity;
+    } else {
+      cogs += (l.unitCostCents ?? 0) * out;
+    }
+  }
+  return cogs;
+}
+
 /** Una fila de dinero devuelto, con la fecha que la pone en su periodo. */
 export interface RefundRow {
   channel: 'card' | 'spei';
@@ -188,10 +216,25 @@ export async function pnlBuckets(
   // acota por `settledAt` (el mismo predicado de la orden).
   const settledOrders = await db.order.findMany({
     where: { status: 'settled', ...(range ? { settledAt: range } : {}) },
-    include: { items: { include: { inventoryItem: true } } },
+    include: {
+      items: { include: { inventoryItem: true } },
+      // 💰 v1.86⟨accesorios⟩ (§AC.12, criterio 723): los renglones VENDIDOS con su costo congelado, su faltante y, en
+      // paquete, el costo de cada componente. ⛔ `restocked`/`released` no cuentan.
+      accessoryLines: {
+        where: { status: 'sold' },
+        select: {
+          kind: true,
+          quantity: true,
+          unitCostCents: true,
+          shipmentLine: { select: { missingQty: true } },
+          components: { select: { quantity: true, unitCostCents: true } },
+        },
+      },
+    },
   });
   for (const o of settledOrders) {
     const b = at(o.settledAt);
+    // El ingreso NO cambia de fórmula: `subtotalCents` ya incluye accesorios y paquetes (I-AC-1).
     b.incomeCents += netRevenueCents(o);
     b.stripeFeesCents += o.processingFeeCents;
     if (o.fulfillmentMode === 'direct_ship') {
@@ -200,6 +243,7 @@ export async function pnlBuckets(
     for (const it of o.items) {
       b.cogsCents += it.inventoryItem.acquisitionCostCents ?? 0;
     }
+    b.cogsCents += accessoryCogsCents(o.accessoryLines ?? []);
   }
 
   // Fix correctness #3: los envíos se acotan por su liquidación (`pickingAt`). v1.4-finance: INGRESO (lo que paga el

@@ -69,6 +69,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  AccessoryCategory,
   AcquisitionType,
   DisputeStatus,
   Finish,
@@ -135,6 +136,8 @@ import { PORTFOLIO_HISTORY_RANGE_VALUES } from '../../src/modules/vault/vault.se
 import { SPEND_ALERT_MUTED_FILTER_VALUES, SPEND_ALERT_UNSEEN_FILTER_VALUES } from '../../src/modules/spend-alerts/spend-alerts-panel.service';
 // 💰 §AN (API_CONTRACT §15.2) — los ejes L de la analítica de ventas.
 import { SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } from '../../src/modules/sales-analytics/sales-period';
+// 💰 v1.86.5⟨accesorios⟩ (§AC.11): dominio L `true | false` de `?active=`/`?soldOut=` del panel de accesorios.
+import { ACCESSORY_BOOLEAN_FILTER_VALUES } from '../../src/modules/accessories/accessory-input';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -357,6 +360,19 @@ const OBS_SALES_CSV: Obs = {
 const OBS_HISTORY: Obs = {
   huella: (res) => JSON.stringify((res.body as unknown as { points?: unknown[] })?.points ?? null),
   hayDatos: (res) => ((res.body as unknown as { points?: unknown[] })?.points?.length ?? 0) > 0,
+};
+
+/**
+ * 💰 rev v1.86⟨accesorios⟩ (§AC.3/§AC.11) — `GET /accessories` y `GET /admin/accessories` responden `{items, page, pageSize,
+ * total}` (⛔ sin `data`: `OBS_LISTA` daría `n=total|null` y la huella no vería QUÉ filas vuelven). Se observan el total y los
+ * ids en orden (deterministas: orden por categoría, `lower(name)`, `id`; ⛔ sin `now()` en la huella).
+ */
+const OBS_ACCESORIOS: Obs = {
+  huella: (res) => {
+    const b = res.body as unknown as { total?: number; items?: { id: string }[] };
+    return `n=${b?.total ?? -1}|${JSON.stringify(b?.items?.map((i) => i.id) ?? null)}`;
+  },
+  hayDatos: (res) => ((res.body as unknown as { total?: number })?.total ?? 0) > 0,
 };
 
 /** Las respuestas extra que la propiedad `filtra` necesita (no filtrar, y el token alterno). */
@@ -716,6 +732,21 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/reports/sales', param: 'topSort', clazz: 'L', allowed: SALES_TOP_SORT_VALUES, valid: 'pieces', alterno: 'net', obs: OBS_SALES, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/sales/export.csv', param: 'preset', clazz: 'L', allowed: SALES_PRESET_VALUES, valid: 'last30', alterno: 'today', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/sales/export.csv', param: 'groupBy', clazz: 'L', allowed: SALES_GROUP_BY_VALUES, valid: 'week', alterno: 'month', obs: OBS_SALES_CSV, auth: 'admin', echoValue: false, extra: () => 'from=2021-01-20&to=2021-03-10' },
+
+  // ==========================================================================================
+  // 💰 rev v1.86⟨accesorios⟩ (§AC.3 «`category` ∈ enum, si no ⇒ `400 VALIDATION_ERROR`»; §AC.11 `?category=`) — clase **E**
+  // derivada de `enum AccessoryCategory` (`rg 'enum AccessoryCategory' schema.prisma` ⇒ 1: si existe la columna, existe la
+  // clase E y ⛔ no se transcribe). Nacieron `PENDIENTE-ARQUITECTO` (§83.ceq1) y pasan a `transcrita` (el default) con la
+  // errata v1.86.5: el arquitecto escribió sus filas en §0-Q punto 4 (commit `179d8163`). ⛔ Sin `echoValue`: ejes nuevos,
+  // el público incluido. Fixture (n): dos accesorios ACTIVOS `CEQ1-` de `sleeves`, uno de `playmats` y uno INACTIVO agotado
+  // de `binders` ⇒ sin filtro ≠ `playmats` ≠ `sleeves`.
+  // 💰 v1.86.5 — `?active=` y `?soldOut=` del panel: clase **L** `true | false` (canónico en §AC.11), ⛔ no banderas
+  // (`NO_ENUM_POR_RUTA` ya no los lista). `active=false` y `soldOut=true` devuelven solo la fila inactiva agotada del fixture.
+  // ==========================================================================================
+  { route: 'GET /accessories', param: 'category', clazz: 'E', allowed: Object.values(AccessoryCategory), valid: 'playmats', alterno: 'sleeves', obs: OBS_ACCESORIOS, auth: 'public', echoValue: false },
+  { route: 'GET /admin/accessories', param: 'category', clazz: 'E', allowed: Object.values(AccessoryCategory), valid: 'playmats', alterno: 'sleeves', obs: OBS_ACCESORIOS, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/accessories', param: 'active', clazz: 'L', allowed: ACCESSORY_BOOLEAN_FILTER_VALUES, valid: 'false', alterno: 'true', obs: OBS_ACCESORIOS, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/accessories', param: 'soldOut', clazz: 'L', allowed: ACCESSORY_BOOLEAN_FILTER_VALUES, valid: 'true', alterno: 'false', obs: OBS_ACCESORIOS, auth: 'admin', echoValue: false },
 ];
 
 /**
@@ -822,6 +853,8 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   await h.prisma.sealedProduct.deleteMany({ where: { tcgplayerProductId: { in: [...CEQ1_SEALED_PRODUCT_IDS, ...CEQ1_PRICE_PRODUCT_IDS] } } });
   await h.prisma.cardSet.deleteMany({ where: { externalId: { in: [CEQ1_SET_EXTERNAL_ID, ...CEQ1_PRICE_SET_EXTERNAL_IDS, ...CEQ1_MS_SET_EXTERNAL_IDS] } } });
   await h.prisma.variantPriceOverride.deleteMany({ where: { bountyPriceCents: { in: CEQ1_BOUNTY_PRICES } } });
+  // (n) 💰 rev v1.86⟨accesorios⟩ — los accesorios del fixture (sin movimientos ni ventas: nada los referencia).
+  await h.prisma.accessory.deleteMany({ where: { name: { startsWith: 'CEQ1-' } } });
 }
 
 /** Siembra y devuelve el contexto de rutas (`setId` propio + el `userId` del cliente del fixture). */
@@ -1150,6 +1183,20 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
     ],
   });
 
+  // (n) 💰 rev v1.86⟨accesorios⟩ · `?category=` de `GET /accessories` y `GET /admin/accessories` — tres accesorios ACTIVOS
+  //     (el público solo lista activos): dos `sleeves` y un `playmats`. `photoVersion` sentinela sin fila de foto: el CHECK
+  //     `accessory_active_ready` pide la versión, no los bytes, y ninguna de estas dos rutas los lee.
+  await h.prisma.accessory.createMany({
+    data: [
+      { name: 'CEQ1-acc fundas A', category: 'sleeves' as const },
+      { name: 'CEQ1-acc fundas B', category: 'sleeves' as const },
+      { name: 'CEQ1-acc tapete', category: 'playmats' as const },
+    ].map((a) => ({ ...a, active: true, priceCents: 9_900, photoVersion: 'ceq1ceq1ceq1ceq1', lengthMm: 100, widthMm: 100, heightMm: 10, weightG: 50, stockQty: 5 })),
+  });
+  //     v1.86.5 · `?active=`/`?soldOut=` — un accesorio INACTIVO y AGOTADO (`stockQty` 0): el único de `active=false` y de
+  //     `soldOut=true` en el fixture (el público no lo ve: solo lista activos).
+  await h.prisma.accessory.create({ data: { name: 'CEQ1-acc carpeta inactiva', category: 'binders', active: false, stockQty: 0 } });
+
   return { setId: set.id, userId: cliente.id };
 }
 
@@ -1349,6 +1396,8 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   it('⭐ las filas SIN fila en §0-Q punto 4 están NOMBRADAS (⇒ arquitecto, regla 9)', () => {
     const pendientes = REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO').map(idOf).sort();
     expect(pendientes).toEqual([
+      // ⛔ `GET /accessories?category=` y `GET /admin/accessories?category=` estuvieron aquí en §83.ceq1 y **SALIERON en
+      // v1.86.5** (`179d8163`): el arquitecto escribió sus filas en §0-Q punto 4.
       // ⭐ `EQ-D1` lote 2 (este pase): 5 ejes de ORDEN/RANGO cuya CONDUCTA ya conforma pero cuya fila
       // de §0-Q punto 4 sigue pendiente del arquitecto (regla 9).
       // ⭐ §M4-SHIP (QA BLOQ-2(a), v1.80.7.1 `D-EQ-4`): los SIETE ejes del stream «Pedidos por preparar» — clase
@@ -1525,7 +1574,12 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // el arquitecto escriba las cinco filas).
     // ⭐ AN-1.2 (`API_CONTRACT §15.12`, `50b5faeb`) — 64 fijo y 23 → **18**: el arquitecto escribió las cinco filas en §0-Q
     // punto 4. Se pagó una deuda; no salió ningún eje.
-    expect(REGISTRO.length).toBe(64);
+    // 💰 rev v1.86⟨accesorios⟩ (BACKEND_NOTES §83.ceq1): 64 → **66** y 18 → **20** — `?category=` de `GET /accessories` y de
+    // `GET /admin/accessories`, clase E (`AccessoryCategory`), SIN fila en la tabla de §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO
+    // (bajan a 18 cuando el arquitecto la escriba).
+    // 💰 v1.86.5⟨accesorios⟩ (`179d8163`): 66 → **68** y 20 → **18** — el arquitecto escribió las filas de `?category=` (se
+    // pagó la deuda) y entran YA `transcrita` `?active=`/`?soldOut=` del panel (clase L, salen de `NO_ENUM_POR_RUTA`).
+    expect(REGISTRO.length).toBe(68);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
@@ -1580,7 +1634,14 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // 💰 **55 → 59 (§AN, API_CONTRACT §15.2: «`from`/`to` en su lista de no-enums»; era «54 → 58» en la rama de la analítica,
     // renumerado en la fusión analítica + #78):** `from`/`to` de `GET /admin/reports/sales` y de su `/export.csv` — días MX
     // `YYYY-MM-DD` (fuera de forma ⇒ `400 {field}` sin `allowed`).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(59);
+    // 💰 **59 → 62 (rev v1.86⟨accesorios⟩, BACKEND_NOTES §83.ceq1; ⚠️ PENDIENTE de ratificar por el arquitecto):**
+    // `GET /accessories/suggestions::exclude` (CSV de ≤ 50 UUID, §AC.3) y las dos banderas `true|false` de
+    // `GET /admin/accessories` (`active`, `soldOut`; §AC.11 no declara su dominio). Ninguna es un conjunto de tokens con
+    // `allowed`: fuera de forma ⇒ `400 {field}`. ⛔ `QUERY_SIN_NOMBRE` NO sube: los tres `@Query()` enteros de accesorios
+    // pasaron a llaves con nombre, así que el censo ve cada eje (y por eso `?category=` sale al `REGISTRO`).
+    // 💰 **62 → 60 (v1.86.5, `179d8163`):** `?active=`/`?soldOut=` del panel son clase L (`true|false`) ⇒ salen de aquí al
+    // `REGISTRO`. `?exclude=` se queda, ratificado («⛔ no es §0-Q — formato, no tokens; punto 7»).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(60);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`
@@ -1732,6 +1793,15 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         // ⛔ Si mañana existe `enum PreparationDestination` (o cualquier homónimo), el literal deja
         // de ser legítimo: sería clase E y esto es el bug de `SealedSubtype`/`upc` esperando.
         enunciado: /enum\s+\w*[Dd]estination\w*\s*\{/,
+      },
+      // 💰 v1.86.5⟨accesorios⟩ — `?active=`/`?soldOut=` de `GET /admin/accessories`: un solo dominio, canónico en la fila de
+      // §AC.11 («`active` y `soldOut` clase **L**, dominio canónico `true \| false`»). La regex ancla en los DOS nombres y la
+      // clase. Homónimo: un enum de filtro de accesorio (`AccessoryActive…`, `…SoldOut…`) ⇒ sería clase E.
+      {
+        param: 'active|soldOut (accesorios)',
+        literal: ACCESSORY_BOOLEAN_FILTER_VALUES,
+        re: /`active` y `soldOut` clase \*\*L\*\*, dominio canónico `([a-z \\|]+)`/,
+        enunciado: /enum\s+\w*(AccessoryActive|SoldOut|AccessoryFilter)\w*\s*\{/,
       },
     ];
 

@@ -35,6 +35,13 @@ export interface AmountBreakdownProps {
   breakdown: BreakdownView;
   /** en retiros, subtotalCents = tarifa de envío (contrato §5) */
   variant?: 'purchase' | 'shipment';
+  /**
+   * §AC-UX.5 (aditivo): con accesorios o paquetes en la cotización, la ayuda del subtotal dice «tus productos»
+   * (`checkout.subtotalHintProducts`) en lugar de «las cartas». Sin la prop, nada cambia.
+   */
+  productsSubtotal?: boolean;
+  /** §AC-UX.7 (aditivo): nota bajo la fila «Envío» (p. ej. «Calculado por el tamaño de la caja…»). */
+  shippingNote?: React.ReactNode;
 }
 
 function Line({
@@ -98,7 +105,7 @@ function Line({
  * llamándose `processingFeeCents` a propósito (§29.5): es nombre de API, no de rótulo.
  * El candado del copy vive en `src/lib/i18n-parity.test.ts`.
  */
-export function AmountBreakdown({ breakdown, variant = 'purchase' }: AmountBreakdownProps) {
+export function AmountBreakdown({ breakdown, variant = 'purchase', productsSubtotal, shippingNote }: AmountBreakdownProps) {
   const t = useTranslations('checkout');
   const locale = useLocale() as AppLocale;
 
@@ -124,7 +131,9 @@ export function AmountBreakdown({ breakdown, variant = 'purchase' }: AmountBreak
           variant === 'shipment'
             ? undefined
             : ivaIncluded
-              ? t('subtotalHintIvaIncluded')
+              ? productsSubtotal
+                ? t('subtotalHintProducts')
+                : t('subtotalHintIvaIncluded')
               : t('subtotalHint')
         }
         locale={locale}
@@ -137,6 +146,11 @@ export function AmountBreakdown({ breakdown, variant = 'purchase' }: AmountBreak
        */}
       {breakdown.shippingFeeCents != null && (
         <Line label={t('shipping')} amount={breakdown.shippingFeeCents} locale={locale} />
+      )}
+      {breakdown.shippingFeeCents != null && shippingNote && (
+        <div data-testid="amount-breakdown-shipping-note" className="-mt-1 pb-2 text-xs leading-relaxed text-muted">
+          {shippingNote}
+        </div>
       )}
       {/*
        * ⛔⛔ **EL RENGLÓN DE IVA: bajo `IVA_INCLUSIVE` INFORMA, NO SUMA** (criterio **189**,

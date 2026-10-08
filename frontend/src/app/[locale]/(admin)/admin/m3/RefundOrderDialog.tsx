@@ -41,9 +41,28 @@ export function refundDialogOrderOfDetail(o: AdminOrderDetailDTO): RefundDialogO
   return { id: o.id, totalCents: o.breakdown.totalCents, fulfillmentMode: o.fulfillmentMode, orderNumber: o.orderNumber };
 }
 
+/**
+ * Qué trae el pedido (`DESIGN_SYSTEM §AC-UX.gates §3`): decide la variante de `admin.m3.shippedRefund.*`. Se lee del
+ * detalle M3 que el diálogo ya pide — `items` (cartas) y `accessoryLines` (`API_CONTRACT §AC.12`) —, sin otra llamada.
+ * Sin detalle o sin renglones ⇒ `cards`: las claves de hoy, sin cambio.
+ */
+export type OrderContents = 'cards' | 'accessories' | 'mixed';
+
+export function orderContentsOf(d: Pick<AdminOrderDetailDTO, 'items' | 'accessoryLines'> | undefined): OrderContents {
+  if (!(d?.accessoryLines?.length ?? 0)) return 'cards';
+  return (d?.items?.length ?? 0) > 0 ? 'mixed' : 'accessories';
+}
+
+/** `warning`/`body`/`done` ⇒ la clave de `shippedRefund` según lo que trae el pedido (cartas ⇒ la de hoy). */
+export function shippedRefundKey(base: 'warning' | 'body' | 'done', contents: OrderContents): string {
+  return contents === 'cards' ? base : contents === 'accessories' ? `${base}Accessories` : `${base}Mixed`;
+}
+
 /** Lo que el diálogo sabe y el servidor no devuelve: el motivo que se eligió (`DESIGN_SYSTEM §40.2 (b)` «Éxito»). */
 export interface RefundDoneInfo {
   shippedReason: ShippedRefundReason | null;
+  /** AC-UX.gates §3: para que quien pinta el «hecho» elija `done` / `doneAccessories` / `doneMixed`. */
+  contents: OrderContents;
 }
 
 /**
@@ -101,6 +120,7 @@ export function RefundOrderDialog({
   // §40.2: con el detalle en error el diálogo se comporta como «no enviado» y el `422` es la red.
   const shipped = !isVault && (serverShipped ?? detail.data?.shipmentShipped === true);
   const piecesRequired = required?.required.includes('pieces_with_customer') ?? false;
+  const contents = orderContentsOf(detail.data);
 
   useEffect(() => {
     if (open) {
@@ -131,7 +151,7 @@ export function RefundOrderDialog({
       void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
       void qc.invalidateQueries({ queryKey: PICKING_SUMMARY_KEY });
       void qc.invalidateQueries({ queryKey: ['dashboard'] });
-      onDone(res, { shippedReason: shipped ? shippedReason : null });
+      onDone(res, { shippedReason: shipped ? shippedReason : null, contents });
     },
     onError: (e) => {
       const err = e instanceof ApiClientError ? e : null;
@@ -208,7 +228,7 @@ export function RefundOrderDialog({
         <p>{t('refundQuestion')}</p>
         {shipped && (
           <Banner variant="warning" title={ts('title')}>
-            <span data-testid="m3-shipped-warning">{ts('warning')}</span>
+            <span data-testid="m3-shipped-warning">{ts(shippedRefundKey('warning', contents))}</span>
           </Banner>
         )}
         {detail.isLoading ? (
@@ -216,7 +236,7 @@ export function RefundOrderDialog({
         ) : (
           <>
             <p className="tabular text-sm text-text">{tv('remaining', { amount: formatMoneyCents(remaining, locale) })}</p>
-            <p className="text-sm text-text">{shipped ? ts('body') : isVault ? tv('body') : tv('directBody')}</p>
+            <p className="text-sm text-text">{shipped ? ts(shippedRefundKey('body', contents)) : isVault ? tv('body') : tv('directBody')}</p>
             {isVault && detail.data?.vaultPieces && detail.data.vaultPieces.length > 0 && (
               <div className="flex flex-col gap-1">
                 <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">{tv('piecesTitle')}</p>
@@ -234,6 +254,7 @@ export function RefundOrderDialog({
               value={shippedReason}
               onChange={setShippedReason}
               testId="m3-refund-shipped-reason"
+              subject={contents === 'cards' ? 'cards' : 'item'}
             />
             {shippedReason === null && <p className="text-xs text-muted">{ts('pickOne')}</p>}
             <Textarea

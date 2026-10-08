@@ -87,6 +87,8 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
       // inventario y cola); el panel de diales (iv) se gatea DENTRO de la vista con SuperAdminOnly.
       // Por eso el nav-item va SIN `superAdminOnly` — a diferencia de Catálogo y precios/Configuración.
       { href: '/admin/m11', key: 'm11' },
+      // §AC-UX.9: «Accesorios» justo tras «Sellado», operador+ (★ se gatea DENTRO de la vista), sin marca SÚPER.
+      { href: '/admin/accessories', key: 'accessories' },
       // v1.20: bóvedas de clientes (vista (ii) del master set, `vault_operator+`, lectura).
       { href: '/admin/vaults', key: 'vaults' },
     ],

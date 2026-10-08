@@ -14,6 +14,7 @@
  */
 import { Prisma } from '@prisma/client';
 import { releaseReservationData } from '../../orders/reservation';
+import { releaseAccessoryReservations } from '../../orders/accessory-stock';
 
 type Tx = Prisma.TransactionClient;
 
@@ -70,5 +71,8 @@ export async function releaseReservedOfUnsettledRefund(
     });
     released.push(id);
   }
+  // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)/(5)): «pedido nunca liquidado ⇒ lo cubre (2)»: sus apartados de accesorio vuelven en
+  // la MISMA tx (candado AC-B37). Idempotente: el `WHERE status = 'reserved'` del soltar.
+  await releaseAccessoryReservations(tx, orderId);
   return released;
 }

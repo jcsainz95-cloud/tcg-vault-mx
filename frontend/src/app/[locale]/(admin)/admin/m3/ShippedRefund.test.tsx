@@ -86,7 +86,7 @@ describe('§40.2 · el diálogo de reembolso total (M3)', () => {
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1]).toEqual({ reason: 'guía sin movimiento 10 días', shippedReason: 'not_arrived' });
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
-    expect(onDone.mock.calls[0][1]).toEqual({ shippedReason: 'not_arrived' });
+    expect(onDone.mock.calls[0][1]).toEqual({ shippedReason: 'not_arrived', contents: 'cards' });
   });
 
   it.each([

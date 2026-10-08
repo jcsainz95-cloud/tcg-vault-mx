@@ -31,6 +31,12 @@ export function withM61Defaults<T extends Record<string, any>>(db: T): T {
   d.shipmentLabelAttempt ??= {};
   d.shipmentLabelAttempt.findUnique ??= jest.fn(async () => null);
   d.shipmentLabelAttempt.findFirst ??= jest.fn(async () => null);
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.9/§AC.6): los renglones de accesorio que leen la preparación y el soltar. Sin
+  // renglones ⇒ la conducta de hoy (I-AC-5).
+  d.shipmentAccessoryLine ??= {};
+  d.shipmentAccessoryLine.findMany ??= jest.fn(async () => []);
+  d.orderAccessoryLine ??= {};
+  d.orderAccessoryLine.findMany ??= jest.fn(async () => []);
   d.$queryRaw ??= jest.fn(async () => [{ status: 'settled' }]);
   // El candado de fila vive dentro de `$transaction`: si la suite no modela la tx, el propio doble hace de tx.
   d.$transaction ??= jest.fn(async (cb: (tx: unknown) => unknown) => cb(d));

@@ -355,6 +355,12 @@ export const SettingKey = {
   SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS: 'spend_alert_extra_charge_immediate_cents', // AG-6
   SPEND_ALERT_CANCEL_REFUND_DAYS: 'spend_alert_cancel_refund_days', // AG-8 (b)
   SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS: 'spend_alert_label_not_shipped_days', // AG-10
+
+  // ===== 💰 v1.86⟨accesorios⟩ (§AC.2 (2), §AC.3, §AC.11) — sin semilla en BD: el default de código manda hasta el primer PUT =====
+  // Precio del paquete de energías del deck, IVA dentro (F1/F2: MX$20). Lo LEE la sesión (stream B) y lo congela.
+  ENERGY_BUNDLE_PRICE_CENTS: 'energy_bundle_price_cents',
+  // Cuántas sugerencias da «¿Te falta algo?» (0 apaga el recuadro).
+  ACCESSORY_SUGGESTION_COUNT: 'accessory_suggestion_count',
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -569,6 +575,8 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS]: 15000,
   [SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS]: 3,
   [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: 3,
+  [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: 2000, // MX$20 (F1/F2)
+  [SettingKey.ACCESSORY_SUGGESTION_COUNT]: 3,
 };
 
 /**
@@ -1199,6 +1207,9 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS]: validateNonNegIntCents,
   [SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS]: validateIntRange(1, 30),
   [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: validateIntRange(1, 30),
+  // 💰 v1.86⟨accesorios⟩ (§AC.11): rangos del contrato.
+  [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: validateIntRange(1, 100_000),
+  [SettingKey.ACCESSORY_SUGGESTION_COUNT]: validateIntRange(0, 6),
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
@@ -1287,6 +1298,9 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   spendAlertExtraChargeImmediateCents: SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS,
   spendAlertCancelRefundDays: SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS,
   spendAlertLabelNotShippedDays: SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS,
+  // 💰 v1.86⟨accesorios⟩ (§AC.11): los edita el súper-admin; ⛔ NO son diales del dueño (no van a OWNER_ONLY_SETTING_KEYS).
+  energyBundlePriceCents: SettingKey.ENERGY_BUNDLE_PRICE_CENTS,
+  accessorySuggestionCount: SettingKey.ACCESSORY_SUGGESTION_COUNT,
 };
 
 /**

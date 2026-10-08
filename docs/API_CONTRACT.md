@@ -10,6 +10,75 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata v1.86.6⟨accesorios⟩** (2026-10-08, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `dd26ae79` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.5, vigente entera salvo esto. Origen: veredicto de techlead sobre
+> `dd26ae79` (TD-AC-1, TD-AC-8, TD-AC-9). Norma: **§AC.21**; porqué: `ARCHITECTURE §4.AC (r)`. ⛔ Sin schema ni `M-73`.
+> - 💰 **TD-AC-1:** un renglón `reserved` cuyo contador no lo respalda ⛔ ya no tumba la liquidación. Cae a la recuperación
+>   (existencias libres ⇒ `settle_recovery`) o a `settledWithoutStock`, con bitácora ruidosa, y las cartas se liquidan como
+>   siempre. **Cambia conducta (backend):** hoy `throw` ⇒ pedido pagado en `pending`; con la errata ⇒ `settled`.
+> - **TD-AC-8:** §AC.6/§AC.7 nombran los ficheros reales (`orders/accessory-stock.ts`, `orders/box-fit.ts`) y la función
+>   real (`accessoryReservedDrift`), y las líneas de los llamadores de §AC.6 (2) se re-miden. Solo documento.
+> - **TD-AC-9:** dos riesgos aceptados en `ARCHITECTURE §4.AC (r)` y §8: fotos sin CDN y `pullToken` atado a `PII_HMAC_KEY`.
+> - Pruebas AC-B64…B66 con mutación.
+>
+> **Errata v1.86.5⟨accesorios⟩** (2026-10-08, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `d8ff897a` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.4, vigente entera salvo esto. Origen: `BACKEND_NOTES §83.ceq1`
+> (regla 9). Toca [§0-Q](#enum-query-filter) punto 4, §AC.3 y §AC.11. ⛔ Sin schema.
+> - `?category=` de `GET /accessories` y `GET /admin/accessories`: filas **E** (`AccessoryCategory`) en el registro.
+> - `?active=` y `?soldOut=` de `GET /admin/accessories`: **clase L**, `true | false`, con fila; ⛔ no banderas tri-estado.
+>   Por qué: el código ya devuelve `400` ante basura (`boolParam`), así que la norma D tri-estado («no filtra, no falla»)
+>   habría cambiado conducta hacia el silencio; y el eje booleano de panel más reciente (`?muted=`) es L. La norma D
+>   sigue rigiendo sus cinco ejes nombrados (`live`, `awaitingGuide`, `offerReissueAlert`, `guest`, `needsManual`), sin
+>   reclasificarlos. ⚠️ Eso deja **dos** reglas vivas para booleanos de filtro; los ejes booleanos nuevos van **L**.
+>   **Cambia conducta (backend):** `?active=%20` ⇒ no filtra (hoy `400`) y el `400` gana `allowed: ['true','false']`.
+> - `?exclude=` de `GET /accessories/suggestions`: ⛔ no es §0-Q (lista de ≤ 50 UUID; punto 7). Ratificado en
+>   `NO_ENUM_POR_RUTA`.
+>
+> **Errata v1.86.4⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `bc128c4` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.3 (§AC.19, que no tenía línea aquí), vigente entera salvo esto.
+> Origen: `BACKEND_NOTES §83.B`. Norma: **§AC.20**; porqué: `ARCHITECTURE §4.AC (q)`. ⛔ Sin schema ni cambio de conducta.
+> - 💰 Carrera del paquete: valen los dos códigos, cada uno ligado al paso que detecta la falta; sin traducción. El
+>   frontend ya los trata igual.
+> - El dial `energy_bundle_price_cents` puede tener fila o no; una prueba de C se corrige para fijar su propio estado.
+> - 💰 La reposición de accesorios al reembolso total se queda en la tx1 de M3, también si Stripe rechaza.
+> - Pruebas AC-B61…B63 y AC-F23 (candados de conducta construida, con mutación).
+>
+> **Errata v1.86.2⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `4e06c7e` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.1, vigente entera salvo esto. Origen: `BACKEND_NOTES §83.3/§83.4`
+> (medido por backend con `psql`). Norma: **§AC.18**; porqué: `ARCHITECTURE §4.AC (o)`.
+> - §0: las 5 líneas canónicas de los enums de accesorios (cierra 11 rojas de paridad).
+> - 💰 `M-73` (aún sin fusionar, ⛔ sin `M-73b`) reescribe `PaymentRefund_item_missing_chk` y
+>   `PaymentRefund_item_delivered_shape_chk` para la forma de accesorio y añade `payment_refund_accessory_shape`.
+> - 💰 §AC.10 (2): `note` pasa a obligatoria y entra `expectedRefundCents`; M3 gana `deliveredRefund` por renglón (§AC.12).
+>   Cambia conducta de un verbo aún no construido.
+> - Ratifica las 5 decisiones de backend (§AC.18.6). Pruebas nuevas AC-B47…52 y AC-F19.
+>
+> **Errata v1.86.1⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `ba795ee` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: **v1.86⟨accesorios⟩, vigente entera salvo lo que esta errata toca**.
+> Origen: `DESIGN_SYSTEM §AC-UX.18` (Q-AC-UX-2…5) y `PROJECT.md §AC` reconciliado (`f8f4d2d`). ⛔ **Sin schema, sin cambio a
+> §AC.1 ni a `M-73`**: todo lo nuevo es lectura derivada. Porqué: `ARCHITECTURE §4.AC (n)`.
+> - §AC.9: cada renglón de accesorio trae `refund` (con `amountByQtyCents`), `deckShipmentItemIds` y `deckAllMissing`;
+>   `refundPreviewCents` suma los accesorios faltantes (Q-AC-UX-2, Q-AC-UX-3).
+> - §AC.4: `unavailableAccessories[].name` y `EnergyBundleDTO.energies[].photo` (Q-AC-UX-4, Q-AC-UX-5).
+> - §AC.11: las energías se activan sin medidas ni peso (ratifica el CHECK). §AC.7: `review` es solo aviso, nunca retiene.
+> - §AC.16 gana Q-AC-UX-1 (pregunta al dueño). Pruebas nuevas AC-B41…46 y AC-F16…18.
+>
+> **Rev v1.86⟨accesorios⟩ — 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL META BATTLE DECK (2026-10-07, arquitecto,
+> worktree `/home/user/tcg-accesorios`, rama `claude/accesorios`, HEAD `1a5f8c04` según el orquestador; ⛔ sha NO MEDIDO: sin
+> Bash).** Norma entera: **[§AC](#AC)**. Porqué: `ARCHITECTURE §4.AC`. Migración **`M-73`**. Versión reservada:
+> `v1.86⟨accesorios⟩` (`v1.87`/`M-74` son de `claude/wishlist`). Fuentes: `HECHOS.md:88-90` (filas del 2026-10-07).
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | AC-1 | Modelo | `Accessory` (cantidad), `AccessoryPhoto`, `AccessoryStockMovement`, `OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine`; `M-73` aditiva | No en filas existentes | backend |
+> | AC-2 | Tienda | `GET /accessories`, `/accessories/:id`, `/accessories/suggestions`, foto pública | Aditivo | backend + frontend |
+> | AC-3 | 💰 Compra | Solo `POST /checkout/guest/{quote,session}` gana `accessoryLines` y `deckPulls`; el checkout con cuenta los rechaza `422 ACCESSORIES_REQUIRE_DIRECT_SHIP` | Sí (pedidos con accesorios) | backend + frontend |
+> | AC-4 | 💰 Existencias | Apartado por contador con condición en el `UPDATE`; vender, soltar y devolver por CAS del renglón | Sí | backend |
+> | AC-5 | 💰 Envío | `ShippingPackage.customerFeeCents`; caja más chica donde caben los accesorios; tarifa `max(hoy, caja)`; sin cajas con tarifa ⇒ hoy | Solo con accesorios | backend + frontend |
+> | AC-6 | 💰 Paquete de energías | `pullToken` firmado en `GET /decks-meta/:slug`; renglón `energy_bundle` a precio de dial `energy_bundle_price_cents` | Aditivo | backend + frontend |
+> | AC-7 | 💰 Preparación y reembolsos | Renglones de accesorio en «Pedidos por preparar», faltante por unidad, entregado por unidad, reembolso total con devolución a existencias | Sí | backend + frontend |
+> | AC-8 | Panel y reportes | `/admin/accessories/*`, P&L con costo, analítica con `accessory` | Sí | backend + frontend |
+>
 > **Errata SU-1 — LA UBICACIÓN DEJA DE SER REQUISITO PARA PUBLICAR, POR AHORA (2026-10-07, arquitecto, árbol
 > `/home/user/tcg-ubic`, rama `claude/sin-ubicacion`; ⛔ sha NO MEDIDO: sin Bash; numeración NO MEDIDA contra ramas vivas).**
 > Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Norma entera en
@@ -7419,6 +7488,10 @@
   | `GET /admin/reports/sales` (§15) | `topSort` **(ORDEN, AN-1.2)** | `net \| pieces` — canónico en **§15.2**; default `net` (punto 6) | **L** |
   | `GET /admin/reports/sales/export.csv` (§15) | `preset` **(AN-1.2)** | el mismo dominio y default que `/sales` — canónico en **§15.2** | **L** |
   | `GET /admin/reports/sales/export.csv` (§15) | `groupBy` **(AN-1.2)** | el mismo dominio y default que `/sales` — canónico en **§15.2** | **L** |
+  | `GET /accessories` (§AC.3) | `category` **(v1.86.5)** | `AccessoryCategory` (§Enums). Escalar; solo espacios ⇒ no filtra; fuera ⇒ `400 {field, allowed}`, ⛔ sin `details.value` (eje nuevo, punto 2) | **E** |
+  | `GET /admin/accessories` (§AC.11) | `category` **(v1.86.5)** | `AccessoryCategory` (§Enums); misma conducta que la fila de arriba | **E** |
+  | `GET /admin/accessories` (§AC.11) | `active` **(v1.86.5)** | `true \| false` — canónico en **§AC.11**; ausente/vacío/solo espacios ⇒ los dos. Unión pura, ⛔ sin enum (la columna es `Boolean`). Mismo criterio que `?muted=` | **L** |
+  | `GET /admin/accessories` (§AC.11) | `soldOut` **(v1.86.5)** | `true \| false` — canónico en **§AC.11** (`true` ⇔ `stockQty − reservedQty = 0`); ausente/vacío/solo espacios ⇒ los dos. Partición computada, ⛔ sin columna | **L** |
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
   >
@@ -8384,6 +8457,13 @@ SealedPriceOrigin   = product | piece | automatic | pending   // v1.83 (§M11-SP
                     // de una pieza sellada. CLASE L (unión pura, ⛔ sin columna). ADMIN-ONLY (M1/M11), ⛔ nunca en /catalog.
                     // product = SealedProduct.ownerSalePriceCents · piece = InventoryItem.listPriceCents (legado)
                     // automatic = mercado × spread · pending = sin precio (PRICE_PENDING).
+AccessoryCategory   = sleeves | toploaders | binders | deck_boxes | playmats | energy | other // v1.86 (M-73, §AC.1). Clase E. ⛔ El ORDEN es el de la tienda (AC-B2 lo fija).
+EnergyType          = grass | fire | water | lightning | psychic | fighting | darkness | metal // v1.86 (M-73, §AC.1). Clase E. P-EN-1 (F3).
+AccessoryLineKind   = accessory | energy_bundle             // v1.86 (M-73, §AC.1). Clase E. Renglón suelto o paquete de energías del deck.
+AccessoryLineStatus = reserved | released | sold | restocked // v1.86 (M-73, §AC.1). Clase E. reserved ⇒ released | sold ⇒ restocked.
+AccessoryStockMovementKind = initial | receive | adjust | sale | restock | settle_recovery // v1.86 (M-73, §AC.1). Clase E. Solo cambios de stockQty.
+                    // v1.86.2: las cinco líneas faltaban en v1.86 (BACKEND_NOTES §83.4 (a)); espejan `schema.prisma` y
+                    // `common/enum-values.ts` de `4e06c7e`.
 ```
 
 ### DTOs base (compartidos)
@@ -41509,3 +41589,1617 @@ citados); el arquitecto no midió ninguna. Manda sobre §BSD.18 donde choquen.
 
 **Pruebas que cambian en esta errata:** B9 (mutación de tres muros y conjunto de respuestas) y B16 (código del modo 2).
 Nada más se construye.
+
+---
+
+## <a id="AC"></a>AC. 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + erratas v1.86.1, v1.86.2, v1.86.3 y v1.86.4, 2026-10-07, **NORMATIVA**)
+
+> ⭐ **v1.86.6 (§AC.21) manda sobre §AC.6 (4) donde choque:** liquidar ⛔ nunca lanza por un renglón de accesorio; un
+> `reserved` sin respaldo cae a la recuperación o a `settledWithoutStock`, con bitácora. Ficheros reales en `orders/`.
+
+> ⭐ **v1.86.4 (§AC.20):** en la carrera del paquete valen `409 ACCESSORY_INSUFFICIENT_STOCK` y `422
+> ENERGY_BUNDLE_INVALID/insufficient_stock`, sin traducción; el dial puede tener fila o no y ninguna prueba supone cuál;
+> la reposición al reembolso total se queda en la tx1 de M3.
+
+> ⭐ **v1.86.3 (§AC.19) manda sobre §AC.3–§AC.12 donde choque:** foto como ruta sin host y versión vigente en el
+> pedido; respuestas del panel y del `PATCH` de preparación; `index` en `unavailableBundles`; orden «paquetes primero»
+> en `quote`; conteos de preparación solo de cartas; `id`/`kind` en los renglones del pedido; AV-2 sin foto.
+
+> Norma de `PROJECT.md §AC` (AC.1–AC.10) y criterios 700–749, **con `HECHOS.md:90` mandando donde choca**:
+> - la fila «"Termina wishlist y accesorios"» (2026-10-07) es posterior a `PROJECT.md §AC`;
+> - los choques están en `ARCHITECTURE §9` (`D-AC-1…3`).
+>
+> Filas del dueño, citadas como en `ARCHITECTURE §4.AC` (a):
+> - **F1** = `HECHOS.md:88` «Respuestas a P-ACC-1…9…»;
+> - **F2** = `:89` «Confirmaciones de accesorios…»;
+> - **F3** = `:90` «"Termina wishlist y accesorios"».
+>
+> Leído con Read/Grep/Glob en `/home/user/tcg-accesorios`: ⛔ sha NO MEDIDO. Toda cita `fichero:línea` es de ese árbol el
+> 2026-10-07. Lo marcado **NO MEDIDO** dice qué lo cierra.
+
+### AC.0 Invariantes (cada una es prueba en §AC.14)
+
+**I-AC-1 · Identidad del subtotal.** En todo `Order`:
+
+    subtotalCents = Σ OrderItem.unitPriceCents + Σ OrderAccessoryLine.unitPriceCents × quantity
+
+- Se cumple al crear el pedido y no cambia después.
+- Las fórmulas de `money.ts` no cambian: el subtotal **ya** incluye accesorios y paquetes, así que `computeDirectShipBreakdown`,
+  `ivaCents` (residual del agregado) y `grossUpTotal` siguen siendo las de hoy.
+
+**I-AC-2 · Existencias.** `0 ≤ reservedQty ≤ stockQty` en todo `Accessory` (CHECK).
+- `reservedQty` = Σ de las cantidades de renglones `reserved` que tocan ese accesorio: renglones sueltos y componentes de
+  paquete.
+- El barrido de §AC.6 (6) lo verifica por cuenta.
+
+**I-AC-3 · Precio del servidor.**
+- Ningún importe sale del cuerpo de una petición: precio, envío ni paquete.
+- El DTO no tiene campos de precio. Llaves extra ⇒ se ignoran (`main.ts:54`). La prueba manda un precio falso y afirma que
+  no cambia nada.
+
+**I-AC-4 · Sin bóveda.**
+- Ningún renglón de accesorio pertenece a un `Order` con `fulfillmentMode = vault`. Lo garantizan la aplicación y un
+  CHECK por disparador (§AC.1).
+- Ningún accesorio aparece en `VaultPlacementItem`, `ShipmentItem` de retiro, portafolio ni buylist.
+
+**I-AC-5 · Pedido sin accesorios = hoy, bit a bit.** Un pedido solo de cartas, sellado o ambos tiene la misma tarifa de
+envío, desglose, preparación y reembolsos que hoy, haya o no cajas con tarifa (criterio 725).
+
+**I-AC-6 · Fotos separadas de la INE.**
+- El código de fotos no importa `@aws-sdk/client-s3` ni `UploadsService`.
+- Ninguna llave `kyc_ine/…` se sirve sin sesión de súper-admin, igual que hoy.
+
+### AC.1 Modelo de datos — migración `M-73` (`prisma/migrations/20261026120000_m73_accessories/`)
+
+**Enums nuevos** (clase E; van a `common/enum-values.ts` y al ancla de `test/enum-values-parity.spec.ts`):
+```prisma
+enum AccessoryCategory { sleeves toploaders binders deck_boxes playmats energy other }   // orden = orden de la tienda
+enum EnergyType { grass fire water lightning psychic fighting darkness metal }          // P-EN-1 (F3)
+enum AccessoryLineKind { accessory energy_bundle }
+enum AccessoryLineStatus { reserved released sold restocked }
+enum AccessoryStockMovementKind { initial receive adjust sale restock settle_recovery }
+```
+Etiquetas ES/EN de las categorías (ux-ui): Fundas / penny sleeves · Toploaders · Carpetas · Cajas de mazo · Playmats ·
+Energías · Otros. Las de los tipos: Planta, Fuego, Agua, Rayo, Psíquica, Lucha, Oscura, Metálica / Grass, Fire, Water,
+Lightning, Psychic, Fighting, Darkness, Metal.
+
+**Tablas nuevas:**
+```prisma
+model Accessory {
+  id            String             @id @default(uuid())
+  name          String             // 1..120 tras trim
+  description   String?            // ≤ 500, texto simple
+  category      AccessoryCategory
+  energyType    EnergyType?        // ⇔ category = energy (CHECK)
+  lengthMm      Int?               // 1..2000; medidas del artículo empacado como se vende
+  widthMm       Int?
+  heightMm      Int?
+  weightG       Int?               // 1..50000
+  priceCents    Int?               // 💰 lo que paga el cliente, IVA DENTRO, exactamente lo tecleado. 1..100_000_000. Solo super_admin
+  unitCostCents Int?               // 💰 costo del dueño por unidad. 0..100_000_000. Solo super_admin lo ve y lo escribe
+  stockQty      Int      @default(0) // existencias (bajan AL PAGARSE)
+  reservedQty   Int      @default(0) // apartado vivo. CHECK 0 ≤ reservedQty ≤ stockQty
+  active        Boolean  @default(false)
+  suggested     Boolean  @default(false) // «Sugerido» (AC.5). CHECK NOT (category = energy AND suggested) — F3 P-EN-2
+  photoVersion  String?            // 16 hex del sha256 de la variante `full`; null ⇔ sin foto
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  photo         AccessoryPhoto?
+  movements     AccessoryStockMovement[]
+  orderLines    OrderAccessoryLine[]
+  bundleComponents OrderEnergyBundleComponent[]
+  @@index([active, category])
+}
+
+model AccessoryPhoto {            // bytea en Postgres; ⛔ nunca S3 (ARCHITECTURE §4.AC (g))
+  accessoryId      String   @id
+  accessory        Accessory @relation(fields: [accessoryId], references: [id], onDelete: Cascade)
+  version          String   // = Accessory.photoVersion (se escriben en la misma tx)
+  fullWebp         Bytes    // 1200×1200
+  thumbWebp        Bytes    // 400×400
+  sourceMime       String   // image/png | image/jpeg | image/webp (detectado por firma, ⛔ nunca por extensión)
+  sourceBytes      Int
+  uploadedByUserId String   // de la sesión; sin FK dura (patrón AuditLog)
+  uploadedAt       DateTime @default(now())
+}
+
+model AccessoryStockMovement {     // ⛔ sin purga; solo cambios de `stockQty` (apartar y soltar no son existencias)
+  id          String   @id @default(uuid())
+  accessoryId String
+  accessory   Accessory @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  kind        AccessoryStockMovementKind
+  delta       Int      // ≠ 0 salvo `adjust` sin cambio (se rechaza: 400)
+  stockBefore Int
+  stockAfter  Int      // CHECK stockAfter = stockBefore + delta, stockAfter ≥ 0
+  reason      String?  // OBLIGATORIO en `adjust` (3..200, CHECK); opcional en `receive`
+  actorUserId String?  // null ⇔ lo movió el sistema (sale/restock/settle_recovery)
+  orderId     String?  // en sale/restock/settle_recovery
+  createdAt   DateTime @default(now())
+  @@index([accessoryId, createdAt])
+}
+
+model OrderAccessoryLine {
+  id               String              @id @default(uuid())
+  orderId          String
+  order            Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  kind             AccessoryLineKind
+  accessoryId      String?             // ⇔ kind = accessory (CHECK)
+  accessory        Accessory?          @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  quantity         Int                 // 1..99; energy_bundle ⇒ 1 (CHECK)
+  unitPriceCents   Int                 // 💰 CONGELADO al crear la sesión (IVA dentro). ≥ 1
+  unitCostCents    Int?                // 💰 costo CONGELADO (accesorio); en paquete = null (el costo está en sus componentes)
+  snapshot         Json                // { name, category, energyType, photoVersion } — lo que se mostró; ⛔ sin precio ni costo
+  // --- solo energy_bundle (CHECK: todas no nulas ⇔ kind = energy_bundle) ---
+  metaDeckId       String?
+  metaDeckListId   String?             // la lista FIRMADA en el pullToken (inmutable)
+  deckSlug         String?
+  deckName         String?
+  deckOrderItemIds String[] @default([]) // los OrderItem del deck (P-EN-4); vacío ⇔ kind = accessory (v1.86.2: default ratificado)
+  // --- apartado y venta ---
+  status           AccessoryLineStatus @default(reserved)
+  reservedUntil    DateTime            // = el vencimiento de la reserva del pedido (renovación incluida)
+  soldAt           DateTime?           // ⇔ status ∈ {sold, restocked}
+  settledWithoutStock Boolean @default(false) // liquidado tarde sin existencias para recuperar (§AC.6 (4))
+  restockedAt      DateTime?           // ⇔ status = restocked
+  refundedQty      Int      @default(0) // CHECK 0 ≤ refundedQty ≤ quantity
+  createdAt        DateTime @default(now())
+  components       OrderEnergyBundleComponent[]
+  shipmentLine     ShipmentAccessoryLine?
+  refunds          PaymentRefund[]
+  @@index([orderId])
+  @@index([status, reservedUntil])
+  @@index([accessoryId])
+}
+
+model OrderEnergyBundleComponent { // una fila por TIPO de energía del paquete
+  id            String     @id @default(uuid())
+  lineId        String
+  line          OrderAccessoryLine @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  accessoryId   String     // el producto «Energía <tipo>» activo al crear la sesión
+  accessory     Accessory  @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  energyType    EnergyType
+  quantity      Int        // ≥ 1
+  unitCostCents Int?       // costo CONGELADO del producto de energía
+  @@unique([lineId, energyType])
+}
+
+model ShipmentAccessoryLine {      // el nodo que se palomea; nace en el settle del directo, en su misma tx
+  id                  String   @id @default(uuid())
+  shipmentRequestId   String
+  shipmentRequest     ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  orderAccessoryLineId String  @unique   // un renglón ⇒ a lo más UNA línea de envío (⛔ re-expedición: fuera de v1)
+  orderAccessoryLine  OrderAccessoryLine @relation(fields: [orderAccessoryLineId], references: [id], onDelete: Restrict)
+  quantity            Int      // copia de OrderAccessoryLine.quantity
+  prepStatus          PreparationItemStatus @default(pending)
+  missingQty          Int      @default(0) // CHECK: prepStatus = missing ⇔ missingQty ≥ 1 ∧ missingReason NOT NULL; missingQty ≤ quantity
+  missingReason       MissingReason?
+  prepMarkedAt        DateTime?
+  prepMarkedByUserId  String?  // de la sesión; sin FK dura
+  refund              PaymentRefund? @relation("AccessoryMissingRefund")
+  @@index([shipmentRequestId])
+}
+```
+
+**Columnas nuevas en tablas existentes** (todas aditivas, sin relleno):
+- `Order.shippingBoxSnapshot Json?`: `{ code, label, lengthCm, widthCm, heightCm, customerFeeCents, baseFeeCents,
+  contentWeightG }` congelado en la sesión. `null` ⇔ tarifa fija de hoy (sin accesorios con medidas o sin cajas con tarifa).
+- `Order.shippingBoxReview Boolean @default(false)`: «revisar caja», porque no cupo en ninguna. CHECK `true ⇒ shippingBoxSnapshot NOT NULL`.
+- `ShippingPackage.customerFeeCents Int?`: lo que paga el cliente por esa caja, IVA dentro. CHECK `NULL OR 1..10_000_000`.
+  `null` ⇒ la caja no cuenta para el cobro.
+- `PaymentRefund.orderAccessoryLineId String?` (FK Restrict, **sin** `@unique`: varias filas por renglón, una por acto).
+- `PaymentRefund.shipmentAccessoryLineId String? @unique` (FK Restrict): el faltante al preparar, una fila por línea.
+- `PaymentRefund.accessoryQty Int?`. CHECKs: `(accessoryQty IS NULL) = (orderAccessoryLineId IS NULL)`, `accessoryQty ≥ 1`,
+  `NOT (orderItemId IS NOT NULL AND orderAccessoryLineId IS NOT NULL)`, `shipmentAccessoryLineId ⇒ orderAccessoryLineId`.
+  - ⭐ **v1.86.2:** `M-73` además **reescribe** `PaymentRefund_item_missing_chk` (M-61) y `PaymentRefund_item_delivered_shape_chk`
+    (M-70) para que acepten la forma de accesorio, y añade `payment_refund_accessory_shape`. SQL exacto: **§AC.18**.
+
+**CHECKs de `Accessory`** (SQL crudo en la migración, con nombre):
+- `accessory_energy_type`: `(category = 'energy') = (energyType IS NOT NULL)`.
+- `accessory_energy_not_suggested`: `NOT (category = 'energy' AND suggested)`.
+- `accessory_stock`: `stockQty >= 0 AND reservedQty >= 0 AND reservedQty <= stockQty`.
+- `accessory_active_ready`: `NOT active OR (priceCents IS NOT NULL AND photoVersion IS NOT NULL AND (category = 'energy'
+  OR (lengthMm IS NOT NULL AND widthMm IS NOT NULL AND heightMm IS NOT NULL AND weightG IS NOT NULL)))`.
+- Rangos de `priceCents`, `unitCostCents`, medidas, peso, `char_length(name)` y `char_length(description)`.
+
+**Índice único parcial:** `accessory_energy_type_active_key ON "Accessory"("energyType") WHERE active AND "energyType" IS
+NOT NULL`. No puede haber dos productos activos del mismo tipo (criterio 732).
+
+**I-AC-4 en BD:** `CONSTRAINT TRIGGER` `order_accessory_line_direct_ship` `AFTER INSERT OR UPDATE OF "orderId" ON
+"OrderAccessoryLine"` (v1.86.2: `UPDATE OF` ratificado, §AC.18.6). Rechaza
+(`RAISE EXCEPTION`) si el `Order` no es `direct_ship`. Es un CHECK entre tablas: Postgres no admite subconsultas en CHECK.
+- **Semilla (misma migración):** 8 filas `Accessory`, `category = 'energy'`, una por `EnergyType`, nombre «Energía Planta» …
+  «Energía Metálica», `priceCents = 500` (F1), `active = false`, `stockQty = 0` y sin foto.
+  - `id = gen_random_uuid()`, nativo desde Postgres 13. La versión de Postgres en Railway: **NO MEDIDO**; si falla, el id
+    va literal en el SQL.
+  - Un `AccessoryStockMovement` `initial` por fila no hace falta: con 0 no hay movimiento.
+- **Reversa:** primero el código. Con algún `OrderAccessoryLine` presente, ⛔ no se revierte (§11 de `ARCHITECTURE`).
+
+### AC.2 💰 Dinero — las reglas
+
+1. **Precio del accesorio:** `Accessory.priceCents` leído **en la sesión** y congelado en `OrderAccessoryLine.unitPriceCents`.
+   - No se le aplica markup, spread, redondeo de cartas ni piso de MX$25 (AC.1).
+   - La pantalla de pago muestra el total **de la sesión** (F-SP-5, `API_CONTRACT.md:36832-36835`). Es la misma regla que
+     las cartas; «se cobra el precio que vio» sigue en §X (`D-SP-2`).
+2. **Precio del paquete:** el dial `energy_bundle_price_cents` (con IVA dentro; default `2000`, F1/F2), leído en la
+   sesión y congelado. Lo edita el súper-admin desde `PUT /admin/settings` (P-EN-6, F3). Rango 1..100_000. Bitácora como
+   todo dial.
+3. **Precio de la energía suelta:** el `priceCents` de su `Accessory` (semilla 500; lo edita el súper-admin, P-EN-6).
+4. **IVA y comisión:**
+   - El subtotal incluye accesorios y paquetes (I-AC-1), así que `inclusiveBreakdown` informa el IVA **dentro** y suma
+     la comisión aparte, como hoy (P-ACC-2, F1).
+   - El IVA informado de **una línea** (criterios 701/731/736) es `lineTotal − taxBaseCentsOf(lineTotal, r)`. Ejemplos:
+     8900 ⇒ 1228; 4000 ⇒ 552; 2000 ⇒ 276.
+5. **Envío:** §AC.7. Entra al agregado `G = S + E` como hoy.
+6. **El paquete y el descuento del deck (5 %/3 %):** el descuento no existe hoy (`PROJECT.md:9678-9682`). Cuando exista,
+   su base **excluye** todo renglón `energy_bundle`. La regla queda viva en el criterio 739.
+
+### AC.3 Tienda — endpoints públicos (`@Public()`, sin sesión)
+
+```ts
+interface AccessoryPhotoDTO { url: string; thumbUrl: string }        // rutas absolutas de la API, con versión, SIN host (v1.86.3, §AC.19.1)
+interface AccessoryCardDTO {
+  id: string; name: string; category: AccessoryCategory; energyType: EnergyType | null;
+  priceCents: number;              // con IVA dentro (§Q: precio exhibido)
+  soldOut: boolean;                // stockQty − reservedQty = 0
+  photo: AccessoryPhotoDTO;
+}
+interface AccessoryDetailDTO extends AccessoryCardDTO {
+  description: string | null;
+  maxQty: number;                  // min(stockQty − reservedQty, 99); 0 ⇔ soldOut
+}
+```
+⛔ Ninguna respuesta pública lleva `unitCostCents`, `stockQty`, `reservedQty`, `suggested` ni medidas. La lista blanca
+del DTO se arma campo por campo, sin `spread` (criterio 730). `maxQty` es el único rastro del disponible: lo exige el
+selector de AC.3.
+
+- **`GET /api/v1/accessories?category=&q=&page=1&pageSize=24`**
+  - Solo `active`. `q`: `ILIKE` sobre el nombre, 1..60 caracteres. `category` ∈ enum, si no ⇒ `400 VALIDATION_ERROR`
+    (v1.86.5: [§0-Q](#enum-query-filter) clase E, fila en el punto 4). `pageSize` ≤ 60.
+  - Orden: disponibles primero (`soldOut` al final, AC.3), luego categoría (orden del enum), `lower(name)` e `id`.
+  - Res `200 { items: AccessoryCardDTO[]; page; pageSize; total }`.
+- **`GET /api/v1/accessories/:id`**
+  - Activo ⇒ `200 AccessoryDetailDTO`. Inexistente o inactivo ⇒ `404 ACCESSORY_NOT_FOUND` (no distingue los dos casos).
+- **`GET /api/v1/accessories/suggestions?exclude=<id>,<id>`** (AC.5)
+  - `exclude` ≤ 50 uuid, si no ⇒ `400` (v1.86.5: ⛔ no es §0-Q — formato, no tokens; punto 7. Va a `NO_ENUM_POR_RUTA`). Res `200 { items: AccessoryCardDTO[] }`, como mucho `accessory_suggestion_count`
+    (dial, default 3, rango 0..6; 0 apaga el recuadro).
+  - **Regla** (pura, `accessories/suggestion-rule.ts`): candidatos = `active ∧ disponible > 0 ∧ category ≠ energy ∧ id ∉
+    exclude`. El orden es:
+    1. los `suggested`, por `lower(name)`;
+    2. los más vendidos en 30 días: Σ `quantity` de renglones `accessory` en pedidos `settled` con `settledAt ≥ now − 30 d`,
+       descendente, desempate por `lower(name)`;
+    3. el resto, por `lower(name)`.
+  - Se corta en N. Las energías **nunca** entran (P-EN-2, F3; `D-AC-3`).
+  - `Cache-Control: public, max-age=60`.
+- **`GET /api/v1/accessories/:id/photo/:version/:variant`**
+  - `variant` ∈ {`full`, `thumb`}. `version` ≠ `Accessory.photoVersion` ⇒ `404`.
+  - Res `200 image/webp` con `Cache-Control: public, max-age=31536000, immutable` y `X-Content-Type-Options: nosniff`.
+  - Se sirve aunque el accesorio esté inactivo: la foto es pública por diseño (AC.2) y la usan el historial y el panel.
+
+### AC.4 💰 Compra de invitado — `POST /checkout/guest/quote` y `POST /checkout/guest/session`
+
+**Cuerpo (aditivo en `GuestQuoteDto` y `GuestSessionDto`):**
+```ts
+inventoryItemIds?: string[];       // pasa a OPCIONAL (default []); tope GUEST_MAX_ITEMS sin cambio
+accessoryLines?: { accessoryId: string /* uuid */; quantity: number /* entero 1..99 */ }[]; // ≤ 20; accessoryId sin repetir
+deckPulls?: { pullToken: string /* ≤ 4096 */; withEnergyBundle: boolean }[];              // ≤ 10
+```
+- **Carrito vacío** (sin piezas ni accesorios) ⇒ `400 VALIDATION_ERROR` **en el DTO**, con un validador de clase. Así
+  `test/guest-checkout.contract.spec.ts:118-127` (con el servicio simulado) sigue verde.
+- `accessoryId` repetido ⇒ `400 {field:'accessoryLines'}`.
+- Las energías sueltas viajan como cualquier accesorio.
+- `deckPulls` con `withEnergyBundle:false` solo sirve para **ofrecer** el paquete en el carrito (regla 3).
+
+**`quote` (solo lectura, poda y `200`):**
+- Respuesta = la de hoy más:
+  ```ts
+  accessoryLines: QuoteAccessoryLineDTO[];   // { accessoryId, name, category, energyType, unitPriceCents, quantity, lineTotalCents, photo }
+  energyBundles: EnergyBundleDTO[];          // los que van en el pedido
+  energyBundleOffers: EnergyBundleDTO[];     // decks del carrito SIN paquete que sí se ofrecen (regla 3)
+  unavailableAccessories: { accessoryId: string; name: string | null; reason: 'not_found' | 'inactive' | 'sold_out' | 'insufficient'; availableQty?: number }[];
+  //   v1.86.1: `name` = Accessory.name si la fila existe (también inactiva); null ⇔ not_found. Lista blanca: ⛔ nada más de la fila.
+  unavailableBundles: { deckSlug: string | null; reason: BundleReason }[];   // ⭐ v1.86.3: + index, withEnergyBundle (§AC.19.4)
+  shippingBox: { code: string; label: string; review: boolean } | null;   // null ⇔ tarifa de hoy
+  vaultExcludesAccessories: boolean;          // true ⇔ hay accesorios o paquetes (el upsell de bóveda no los lleva)
+
+  interface EnergyBundleDTO {
+    deckSlug: string; deckName: string;
+    priceCents: number;                       // el dial
+    looseTotalCents: number;                  // Σ need × precio de cada energía (referencia, regla 2)
+    energies: { energyType: EnergyType; quantity: number; accessoryId: string; photo: AccessoryPhotoDTO }[];
+    //   v1.86.1: `photo` = la del producto activo de ese tipo. Nunca null: activo ⇒ foto (CHECK `accessory_active_ready`).
+  }
+  type BundleReason = 'invalid_token' | 'expired' | 'deck_incomplete' | 'deck_unpublished' | 'not_offered' | 'insufficient_stock' | 'duplicate';
+  ```
+- Cada renglón pedido mayor que el disponible ⇒ se cotiza con el disponible y viaja en `unavailableAccessories` con
+  `insufficient` y `availableQty` («Solo hay N disponibles», AC.3).
+- Disponible = `stockQty − reservedQty`, más lo apartado por la **propia** reserva cuando viene `retryOfCheckoutToken`
+  válido (§4-R.5).
+- `breakdown.subtotalCents` = I-AC-1 sobre lo cotizable. `breakdown.shippingFeeCents` sale de §AC.7. `vaultBreakdown` =
+  solo cartas, como hoy.
+- Carrito 100 % podado ⇒ ceros, como hoy.
+
+**`session` (estricta, nunca poda):**
+- **Validaciones, todas antes de crear nada:**
+  - accesorio inexistente, inactivo o sin precio ⇒ `409 ACCESSORY_UNAVAILABLE {accessoryId, reason}`;
+  - paquete con `withEnergyBundle:true` inválido ⇒ `422 ENERGY_BUNDLE_INVALID {deckSlug, reason: BundleReason}`.
+- **En la transacción de hoy** (`guest-checkout.service.ts:197-281`), después de `reserveItems`:
+  1. crea los `OrderAccessoryLine` (y los componentes de cada paquete) con precio, costo y snapshot congelados, y
+     `reservedUntil` igual al de las piezas;
+  2. aparta por accesorio, sumando renglones y componentes, en orden `accessoryId` ascendente, con
+     `UPDATE … WHERE "stockQty" - "reservedQty" >= q`. 0 filas ⇒ `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId, availableQty}`
+     y se revierte toda la transacción, piezas incluidas;
+  3. escribe en `Order` el `shippingBoxSnapshot` y el `shippingBoxReview` (§AC.7).
+- **`deckOrderItemIds`:** los `OrderItem` de las piezas firmadas. Se leen en la misma transacción por `inventoryItemId`
+  tras el `create` anidado.
+- **Reuso (`retryOfCheckoutToken`, §4-R.3):** `isReusable` exige además el **mismo** multiconjunto `(accessoryId, quantity)`
+  y el **mismo** conjunto de paquetes (por `deckSlug`). Si no ⇒ se sustituye, y `supersedeOwnOrder` suelta también los
+  apartados de accesorio (§AC.6 (2)).
+- **Respuesta:** aditiva, con `accessoryLines`, `energyBundles` y `shippingBox` de lo creado.
+- **`fulfillmentMode: 'vault'`** sigue dando `422 VAULT_REQUIRES_ACCOUNT` antes de todo (sin cambio).
+
+### AC.5 💰 Compra con cuenta — se rechazan accesorios
+
+- `QuoteDto` y `SessionDto` (`orders/dto/orders.dto.ts:47-55`) **declaran** `accessoryLines?` y `deckPulls?` con la misma
+  forma que §AC.4.
+- No vacíos ⇒ `422 ACCESSORIES_REQUIRE_DIRECT_SHIP` en `POST /checkout/quote` y `POST /checkout/session`. ⛔ Se rechazan,
+  no se ignoran (criterio 713; `ARCHITECTURE §4.AC (j)`).
+- **Consecuencia (F3, P-ACC-10 (a)):** con sesión abierta no se compran accesorios. Lo que ve el cliente es **P-AC-1**
+  (§AC.16).
+- El criterio 749 cambia de sentido (`D-AC-1`): «un cliente con sesión **no** puede pagar accesorios; el servidor los
+  rechaza».
+
+### AC.6 💰 Existencias — un cuerpo por verbo (`orders/accessory-stock.ts`)
+
+> v1.86.6 (TD-AC-8): el fichero vive en `backend/src/modules/orders/`, no en `accessories/` como decía v1.86. Se alinea el
+> contrato con el código: el verbo es de pedido (lo llaman `orders` y `payments`), y `accessories/` es el catálogo.
+
+Todas reciben el `tx` del llamador. Ninguna lee y luego escribe: la condición va en el `UPDATE`.
+
+1. **`reserveAccessories(tx, orderId, wants)`:** §AC.4 paso 2.
+2. **`releaseAccessoryReservations(tx, orderId)`:**
+   - por renglón: `UPDATE "OrderAccessoryLine" SET status='released' WHERE orderId=$1 AND status='reserved' RETURNING …`;
+   - luego, por accesorio en orden ascendente: `reservedQty -= Σ`.
+   - **Llamadores obligatorios:** son los mismos sitios que hoy sueltan piezas con `releaseReservationData`.
+     ⭐ v1.86.6 (TD-AC-8): líneas re-medidas con Grep el 2026-10-08 sobre el árbol de `dd26ae79` (⛔ sha NO MEDIDO por mí;
+     el backend de C-1 trabaja en el mismo árbol, así que pueden correrse unas líneas: manda el nombre de la función):
+     - `payments.service.ts:682` (`failAndRelease`, que sirve a `onPaymentFailed` y `onPaymentCanceled`) y `:964`
+       (`onChargeDisputeDirectShip`);
+     - `orders.service.ts:934` (`releaseReservation`, que incluye la compensación del PaymentIntent de `attachPaymentIntent`,
+       `:1408`), `:1084` (`supersedeOwnOrder`) y `:1242` (`sweepExpiredReservations`);
+     - `guest-checkout.service.ts:697` (`sweepStaleGuestOrders`): ⛔ no llama directo; delega en
+       `orders.releaseReservation` (`orders.service.ts:934`), que sí suelta;
+     - `payments/refunds/release-unsettled-refund.ts:76` (reembolso total de un pedido nunca liquidado).
+   - El candado **AC-B37** lo vigila: todo fichero de `src/` que use `releaseReservationData` llama también a
+     `releaseAccessoryReservations`.
+3. **Barrido de pedidos solo de accesorios.**
+   - `sweepExpiredReservations` hoy elige pedidos por `InventoryItem.reservedUntil`. Gana una segunda fuente:
+     `OrderAccessoryLine.status='reserved' ∧ reservedUntil < now` en pedidos `pending`.
+   - Se aplica la **misma** regla de cancelar el PaymentIntent primero: si no se puede cancelar, ⛔ no se suelta.
+   - `renewReservation` renueva también `reservedUntil` de los renglones.
+4. **`settleAccessories(tx, order)`:** en `settleDirectShipOrder`, dentro de su transacción y después del bucle de
+   piezas. Por renglón:
+   - **CAS** `reserved → sold` (`soldAt = now`) y `stockQty -= q, reservedQty -= q` (por componente si es paquete).
+     Movimiento `sale`.
+   - Si el renglón ya estaba `released` (el barrido ganó y el pago llegó tarde): **recuperación**, igual que las piezas
+     (`payments.service.ts:482-505`). Se intenta `UPDATE … SET stockQty = stockQty − q WHERE stockQty − reservedQty ≥ q`.
+     - Con éxito ⇒ `sold`, movimiento `settle_recovery`.
+     - Si no ⇒ `sold` con `settledWithoutStock = true`, sin tocar existencias. Queda la bitácora
+       `order.settle_accessory_unbacked {lineId, accessoryId, quantity}` fuera de la transacción. Quien prepara lo ve
+       marcado y lo resuelve como faltante.
+   - En la misma transacción se crean las `ShipmentAccessoryLine`, una por renglón, en el `ShipmentRequest` que ya nace
+     ahí.
+   - ⭐ **v1.86.6 (§AC.21):** un renglón `reserved` cuyo contador no lo respalda ⛔ no lanza: cae a la recuperación de
+     arriba y, si tampoco hay, a `settledWithoutStock`. Liquidar ⛔ nunca falla por un renglón de accesorio.
+5. **`restockAccessoriesOnFullRefund(tx, orderId)`:** en `closeShipmentsOnFullRefund`, rama directo, bajo los mismos
+   candados.
+   - Solo si **ningún** envío propio está `enviado|entregado` (`afterShipment = false`).
+   - Por renglón `sold` ⇒ CAS a `restocked` y `stockQty += quantity − missingQty` (de su `ShipmentAccessoryLine`; 0 si
+     `settledWithoutStock`). Movimiento `restock`.
+   - Con envío salido ⇒ nada vuelve (criterio 717).
+   - Pedido nunca liquidado ⇒ lo cubre (2) vía `release-unsettled-refund.ts`.
+   - ⛔ Difiere de las cartas a propósito (`ARCHITECTURE §4.AC (k)`).
+   - ⭐ v1.86.4: el momento (tx1 de M3, no la confirmación) se ratifica, y también el caso de Stripe rechazando: §AC.20.3.
+6. **Conteo de reconciliación** (`accessoryReservedDrift`, `orders/accessory-stock.ts`, solo lectura; v1.86.6: v1.86 lo
+   llamaba `accessoryStockAudit`): para cada `Accessory`, `reservedQty` = Σ de lo `reserved` (sueltos + componentes). Si
+   no cuadra ⇒ `logger.error` + bitácora `accessory.reserved_drift`. Corre en `sweepExpiredReservations`
+   (`orders.service.ts:1261`, que llama a `auditAccessoryReservedDrift`, `:1278`); ⛔ no corrige.
+7. **Contracargo:** no mueve existencias por sí solo (AC.4, supuesto). `chargebackInventory` (`admin-orders.controller.ts:296`)
+   no cambia.
+
+### AC.7 💰 La caja decide el envío (`orders/box-fit.ts`, puro)
+
+> v1.86.6 (TD-AC-8): `chooseBox` vive en `backend/src/modules/orders/box-fit.ts:82`; su único llamador es
+> `orders/guest-accessory-cart.ts:109`. v1.86 decía `accessories/`.
+
+```ts
+interface FitUnit { lengthMm: number; widthMm: number; heightMm: number; weightG: number }
+interface FitBox  { code: string; label: string; lengthCm: number; widthCm: number; heightCm: number; customerFeeCents: number; sortOrder: number }
+function chooseBox(units: FitUnit[], boxes: FitBox[]): { box: FitBox; review: boolean } | null
+```
+- **`units`:** una por **unidad** de cada renglón `accessory` con `category ≠ energy`. Cartas, sellado, energías sueltas y
+  paquetes **no** entran: no tienen medidas en la BD y F3 prohíbe inventarlas (`ARCHITECTURE §4.AC (f)`; P-AC-5).
+- **`boxes`:** las `ShippingPackage` con `active ∧ customerFeeCents IS NOT NULL`.
+- `units` vacío **o** `boxes` vacío ⇒ `null`: tarifa de hoy, bit a bit (I-AC-5, criterio 725).
+- **Una caja sirve** si:
+  - cada unidad, con sus medidas ordenadas, es ≤ las medidas ordenadas de la caja (en mm, `cm × 10`), **y**
+  - `Σ volumen(unidades) ≤ volumen(caja)`.
+- Se elige la que sirve con menor volumen; desempate por `customerFeeCents`, `sortOrder` y `code`.
+- Ninguna sirve ⇒ la de **mayor** volumen (desempate igual) con `review = true` (F3).
+  - **v1.86.1 — qué es `review` y qué no.** Es la forma en datos de «se cobra la más grande y lo resuelve quien prepara»
+    (`PROJECT.md:9548-9549`, criterio 728): **solo un aviso** para quien prepara («REVISAR CAJA»).
+    - ⛔ No retiene nada: ni `quote`, ni `session`, ni el cobro, ni la liquidación, ni la preparación, ni la guía.
+      Ningún estado de pedido ni cola nueva lo lee.
+    - ⛔ No genera cargo posterior: no existe ruta que cobre envío después de la sesión. Dos paquetes o una caja especial
+      son costo del dueño.
+    - Lo cobrado es la tarifa de la caja más grande pasada por la misma regla que cualquier caja:
+      `max(E_base, customerFeeCents)` (P-AC-2). Si el dueño contesta P-AC-2 «la de la caja», queda la de la caja más
+      grande, literal.
+    - En `quote`, `shippingBox.review` llega al navegador solo para que la pantalla no prometa una caja; el texto al
+      cliente lo decide `DESIGN_SYSTEM` y ⛔ no anuncia cargos extra.
+- **Tarifa al cliente:** `E_base = shippingFeeDisplayCentsOf(shipping_fee_cents, ivaDials)`, el número de hoy
+  (`guest-checkout.service.ts:591-594`).
+  - `null` ⇒ `E_base`.
+  - Con caja ⇒ `max(E_base, box.customerFeeCents)`. El `max` está pendiente de **P-AC-2**; si el dueño dice «la de la
+    caja», se quita el `max` y nada más cambia.
+- Se calcula en `quote` y en `session` desde la BD. ⛔ Ningún monto de envío del cuerpo cuenta (criterio 727). La sesión
+  congela `shippingBoxSnapshot` con `baseFeeCents = E_base` y `contentWeightG = Σ weightG` de las `units` (v1.86.1: sin
+  energías).
+- **Cajas en el panel:** `GET/PUT /admin/shipping/packages` (existentes; `PUT` solo súper-admin) ganan `customerFeeCents:
+  number | null` en `ShippingPackageDTO`.
+  - Fuera de rango ⇒ `400 {field:'customerFeeCents', index}`.
+  - La bitácora `shipping.packages_updated` ya guarda antes y después: la tarifa entra sola.
+  - La regla `no_active_package` no cambia.
+- **Quien prepara ve la caja:** el detalle del envío (`GET /admin/shipments/:id`) y la hoja de «Pedidos por preparar»
+  (`GET /admin/shipments/picking-list`) ganan:
+
+      box: { code, label, lengthCm, widthCm, heightCm, review, contentWeightG } | null
+
+  Lo leen de `Order.shippingBoxSnapshot`. El frontend preselecciona `code` en la cotización de guía si esa caja sigue
+  activa. ⛔ El backend de cotización (`label-quote.service.ts`) **no** cambia de regla. Usar otra caja no toca lo cobrado.
+
+### AC.8 💰 Energías del deck y paquete (`decks-meta`)
+
+**Tipo de energía:** `energyTypeOf(rawName): EnergyType | null` (puro, `decks-meta/energy-type.ts`).
+- Diccionario sin distinguir mayúsculas, sobre palabras completas, con o sin «Basic»:
+  - `grass`, `fire`, `water`, `lightning`, `psychic`, `fighting`;
+  - `darkness|dark`, `metal`;
+  - los símbolos `{G} {R} {W} {L} {P} {F} {D} {M}`.
+- Sin coincidencia, o con más de una ⇒ `null`.
+- Solo se aplica a líneas `matchStatus = unmatched_basic_energy`.
+
+**`MetaDeckLineDTO` (aditivo):**
+```ts
+basicEnergy?: { energyType: EnergyType; accessoryId: string; unitPriceCents: number; soldOut: boolean; photo: AccessoryPhotoDTO } | null
+```
+- Presente y no nulo ⇔ `energyTypeOf(rawName) ≠ null` ∧ existe el producto **activo** de ese tipo. Si no ⇒ `null`, y la
+  línea se pinta como hoy (criterio 734).
+- `unitInventoryItemIds`, `availableQty` y `unitPriceMxnCents` **no cambian** para ninguna línea. «Agregar de jalón»
+  agrega exactamente lo de hoy (criterio 747).
+
+**`GET /decks-meta/:slug` (aditivo, en la raíz):**
+```ts
+energyBundle: {
+  offered: boolean; reason: 'no_basic_energy' | 'not_offered' | 'insufficient_stock' | null;  // null ⇔ offered
+  priceCents: number; looseTotalCents: number;
+  energies: { energyType: EnergyType; quantity: number; accessoryId: string | null }[];
+  pullToken: string;              // SIEMPRE presente: firma la unión que «Agregar de jalón» mete HOY
+}
+```
+- **`energies`:** Σ `quantity` por tipo de las líneas con tipo reconocido de la lista **vigente**.
+- **`offered`** ⇔ se cumplen las cuatro:
+  - hay al menos un tipo;
+  - cada tipo tiene producto activo con disponible ≥ lo pedido (regla 5);
+  - `looseTotalCents > priceCents` (P-EN-3: con 4 energías o menos a MX$5 no se ofrece, criterio 745);
+  - (recomendación de **P-AC-4**) Σ copias de los `unitInventoryItemIds` firmados ≥ ⌈½ × Σ `quantity` de las líneas que no
+    son energía básica⌉. Si no ⇒ `reason: 'not_offered'`.
+  - Si no se ofrece, las energías se siguen pudiendo agregar sueltas por línea.
+- **`POST /decks-meta/paste` no emite `pullToken` ni `energyBundle`** (P-EN-7, F3). Sí trae `basicEnergy` por línea, así
+  que en «Pegar lista» las energías se ven ligadas y se agregan sueltas.
+- **`pullToken`:** `base64url(JSON{ v:1, slug, listId, ids: string[] /* ordenados */, iat: segundos })` + `"."` +
+  `domainHmac('deck-pull:v1:', <parte 1>)` (`common/crypto/pii-crypto.service.ts:268`).
+  - Se compara en tiempo constante (`blindIndexEquals`).
+  - Vigencia: 30 días desde `iat` (= vida del carrito).
+  - ⛔ Nunca en URL; viaja solo en el cuerpo.
+
+**En `quote`/`session` (§AC.4), por cada `deckPulls[i]`:**
+1. Firma inválida ⇒ `invalid_token`. Vencido ⇒ `expired`.
+2. `MetaDeck` con ese `slug` publicado y sin pausa (`published ∧ ¬pausedByOperator`), si no ⇒ `deck_unpublished`.
+   - Las energías se leen de la lista **firmada** (`listId`, inmutable), ⛔ no del navegador ni de la vigente.
+3. **P-EN-4 (F3):** todo id firmado ∈ `inventoryItemIds` de la petición, después de la poda en `quote`. Si no ⇒
+   `deck_incomplete`. Esto implementa «si sale el deck, sale el paquete, con aviso» (regla 4).
+4. Dos `deckPulls` del mismo `slug` con `withEnergyBundle:true` ⇒ el segundo es `duplicate` (uno por deck, regla 4).
+5. `offered` recalculado como arriba ⇒ si no, `not_offered` o `insufficient_stock`.
+6. Si es válido:
+   - con `withEnergyBundle:true` ⇒ renglón `energy_bundle` (componentes por tipo con el producto activo de cada tipo);
+   - con `false` ⇒ va a `energyBundleOffers` (el carrito lo sugiere **una vez**, regla 3; lo de «una vez» lo lleva el
+     frontend).
+- En `quote` todo inválido va a `unavailableBundles`. En `session`, `withEnergyBundle:true` inválido ⇒ `422
+  ENERGY_BUNDLE_INVALID`; con `false` no se valida.
+- **Apartado del paquete:** por tipo, sumado con las energías sueltas del mismo pedido (§AC.4 paso 2). Faltan ⇒ `409
+  ACCESSORY_INSUFFICIENT_STOCK` **antes** de cobrar (criterio 741).
+
+### AC.9 💰 Preparación (§S) y envío
+
+- **`GET /admin/shipments/:id`** y **`GET /admin/shipments/picking-list`** ganan, por envío directo:
+  ```ts
+  accessoryLines: {
+    id: string;                          // ShipmentAccessoryLine.id
+    kind: 'accessory' | 'energy_bundle';
+    name: string; photo: AccessoryPhotoDTO | null; quantity: number;
+    deckName: string | null;
+    components: { energyType: EnergyType; quantity: number }[];   // [] en accessory (criterio 743)
+    prepStatus: 'pending' | 'picked' | 'missing'; missingQty: number; missingReason: MissingReason | null;
+    settledWithoutStock: boolean;        // «sin existencias al liquidar»: revisar
+    refunded: boolean;                   // ya tiene fila de faltante (≡ refund.kind === 'refunded')
+    // ⭐ v1.86.1 (Q-AC-UX-2) — lo que se reembolsaría, calculado por el servidor. ⛔ La pantalla no lo calcula.
+    refund:
+      | { kind: 'refundable';
+          amountByQtyCents: number[];    // largo = quantity; [k−1] = itemMissingRefundComponents(order, k × unitPriceCents).amount
+          amountCents: number }          // = amountByQtyCents[(prepStatus==='missing' ? missingQty : quantity) − 1]
+      | { kind: 'refunded'; refund: PaymentRefundDTO }                    // la fila `acc-item:<id>` (cualquier estado)
+      | { kind: 'not_refundable'; reason: 'order_not_settled' };          // misma regla que la carta (§M4-SHIP.3)
+    // ⭐ v1.86.1 (Q-AC-UX-3) — solo energy_bundle; en accessory: [] y false.
+    deckShipmentItemIds: string[];       // los ShipmentItem DE ESTE ENVÍO cuyas piezas son las deckOrderItemIds
+                                         // (OrderItem.inventoryItemId = ShipmentItem.inventoryItemId). Casan con items[].shipmentItemId
+    deckAllMissing: boolean;             // deckShipmentItemIds ≠ [] ∧ cada uno está `missing` o `blocked`
+  }[]
+  ```
+  - **Paquete:** `amountByQtyCents` tiene un solo elemento, `itemMissingRefundComponents(order, 1 × unitPriceCents)`
+    (P-AC-3, entero).
+  - `amountByQtyCents` se arma con el **mismo** cuerpo que el plan de `prepared` (abajo): el número que ve el operador es
+    el que se escribe. Es una lectura derivada, ⛔ sin columna nueva.
+  - `deckAllMissing` es lectura derivada para la **sugerencia** de la pantalla (abajo). ⛔ El servidor no actúa con él.
+- **`PATCH /admin/shipments/:id/prep-accessory-lines/:lineId`** (operador+, misma guarda de ruta de salida
+  `assertOutboundRoute`).
+  - Cuerpo `{ status: 'pending' | 'picked' | 'missing'; missingQty?: number; missingReason?: MissingReason }`.
+  - `missing` exige `missingQty` 1..quantity y motivo. En `energy_bundle`, `missingQty` solo puede ser 1 (el paquete
+    entero, P-AC-3). Si no ⇒ `400 {field}`.
+  - Envío ya preparado ⇒ `409` (misma regla que `prep-items`). Bitácora `shipment.accessory_line_marked`.
+  - ⛔ No mueve dinero ni existencias.
+- **`POST /admin/shipments/:id/prepared`** (existente):
+  - exige además que ninguna `ShipmentAccessoryLine` esté `pending`;
+  - **el plan** (`shipment-prep.service.ts:348-394`) gana, por cada línea `missing` sin fila, una fila `item_missing` con:
+    - `idempotencyKey = 'acc-item:<shipmentAccessoryLineId>'`, `orderAccessoryLineId`, `shipmentAccessoryLineId`,
+      `accessoryQty = missingQty`;
+    - componentes `itemMissingRefundComponents(order, missingQty × unitPriceCents)`;
+    - y `refundedQty += missingQty` del renglón por CAS (`WHERE refundedQty + k ≤ quantity`).
+  - **Cierre `order_remaining`:** «nada sale» ⇔ ninguna línea de carta `picked` disponible **y** ninguna línea de
+    accesorio con `quantity − missingQty > 0`. «Todo cubierto» ⇔ toda `OrderItem` reembolsada (como hoy) **y** todo
+    renglón de accesorio con `refundedQty = quantity`.
+  - La identidad de cierre `Σ amount = totalCents` y `Σ IVA = ivaCents` (±0) sigue igual; `orderRemainingRefundComponents`
+    no cambia.
+  - Las filas cuentan para el tope del operador en 24 h, como hoy (criterio 716).
+  - ⭐ **v1.86.1 — `refundPreviewCents` suma los accesorios.** En `ShipPreparationStateDTO` (§M4-SHIP.3) pasa a ser:
+
+        Σ refund.amountCents de las cartas `missing` sin fila
+      + Σ refund.amountCents de las líneas de accesorio `missing` sin fila   (paquete incluido)
+      + el cierre `order_remaining` si «nada sale» (definición de arriba)
+
+    - Sigue siendo **exactamente** el `expectedRefundCents` que `POST …/prepared` acepta (regla de §M4-SHIP.5 sin
+      cambio): plan y vista salen del mismo cuerpo.
+    - Un directo sin accesorios: idéntico a hoy (I-AC-5).
+  - Bundle con todas las cartas de su deck faltantes: el operador lo marca faltante también (la pantalla lo sugiere con
+    `deckAllMissing`, v1.86.1). ⛔ No es automático: el servidor no marca ni reembolsa nada por ese campo.
+- **`DELETE /admin/shipments/:id/prepared`:** sin cambio de regla. Las filas ya creadas no se deshacen, igual que las de
+  cartas.
+- **Seguro:** `insuredValueOf` (`label-quote.service.ts:483`), rama `guest_direct_ship`, suma además
+  `(quantity − missingQty) × unitPriceCents` de cada `ShipmentAccessoryLine` con `prepStatus ∈ {picked, missing}` (el
+  paquete entra entero o nada). Criterio 714.
+- **Carta Porte:** sin cambio en v1. Si Skydropx admite un segundo concepto o cuál corresponde: **NO MEDIDO**
+  (`ARCHITECTURE §4.AC (m)`).
+
+### AC.10 💰 Reembolsos
+
+1. **Faltante al preparar:** §AC.9.
+2. **Entregado (§V.2):** `POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered`, `@MoneyOut()` (súper-admin;
+   el operador recibe `403 MONEY_OUT_FORBIDDEN` auditado).
+   - ~~Cuerpo `{ quantity: number; reason: ShippedRefundReason; note?: string }`~~ ⭐ **v1.86.2:** cuerpo
+     `{ quantity: number; reason: ShippedRefundReason; note: string /* OBLIGATORIA, 3–500 tras trim() */; expectedRefundCents: number /* entero ≥ 1 */ }`,
+     validado entero por el servicio, igual que `items/:orderItemId/refund-delivered` (`admin-orders.controller.ts:346-355`).
+     `note` va a `PaymentRefund.reason` (el CHECK lo exige, §AC.18). `expectedRefundCents ≠ A` ⇒ `409 REFUND_PREVIEW_STALE
+     { refundCents: A }`, cero escrituras; `A` sale de `deliveredRefund.amountByQtyCents[quantity − 1]` del detalle M3
+     (§AC.12). Pasos 2–10 del verbo de la carta (§PNL.2) valen igual, cambiando la carta por el renglón.
+   - Precondición: las mismas que la de la carta (pedido directo entregado, etc.).
+   - Fila `item_delivered` con `idempotencyKey = 'acc-delivered:<lineId>:<refundedQty tras el acto>'`,
+     `deliveredReason = reason` y componentes `itemMissingRefundComponents(order, quantity × unitPriceCents)`.
+   - CAS `refundedQty + quantity ≤ quantity del renglón`; si no ⇒ `409 ACCESSORY_REFUND_EXCEEDS {refundableQty}`.
+     Dos actos simultáneos sobre la última unidad: uno `201`, otro `409`.
+   - Res `201 { refund }`, como la carta.
+3. **Paquete (P-EN-5, F3):** fuera del reembolso total, el renglón `energy_bundle` se reembolsa **entero** (`quantity:
+   1`), y solo si cada `deckOrderItemIds` ya tiene una fila no fallida (`item_missing`, `item_delivered` o `case_refund`).
+   Si no ⇒ `409 BUNDLE_REFUND_REQUIRES_DECK`.
+   - **Al preparar** (con la recomendación de **P-AC-3**): un paquete marcado faltante **entero** se reembolsa en el plan
+     de §AC.9 **sin** exigir el deck.
+   - Si el dueño decide lo contrario, el `PATCH` de §AC.9 rechaza `missing` en un paquete cuyo deck no esté entero
+     faltante (`409 BUNDLE_REFUND_REQUIRES_DECK`). Solo cambia esa guarda.
+4. **Reembolso total** (M3 `refund`, `charge.refunded`): sin cambio de importes (es «lo que queda»). Existencias según
+   §AC.6 (5).
+5. **Lectores de `PaymentRefund` que asumen carta** (se ajustan; censo §AC.15):
+   - `shipment-prep.service.ts:380` (`orderItemId as string`);
+   - `refund-ledger.service.ts:534-553` (agrupación de AV-12 por carta);
+   - `order-public-status.ts:91`;
+   - `payments/refunds/mail/refund-notice.templates.ts:90,143` (el correo nombra el accesorio y la cantidad: «Penny
+     sleeves ×1»).
+
+### AC.11 Panel — `/admin/accessories` (operador+ salvo lo marcado ★ = solo `super_admin`)
+
+| Método y ruta | Quién | Cuerpo / respuesta |
+|---|---|---|
+| `GET /admin/accessories?category=&q=&active=&soldOut=&page=` | operador+ | `{ items: AdminAccessoryDTO[]; page; pageSize; total }`. v1.86.5: `category` clase E; `active` y `soldOut` clase **L**, dominio canónico `true \| false` (ausente ⇒ los dos; otro valor ⇒ `400 {field, allowed}`), [§0-Q](#enum-query-filter) punto 4 |
+| `GET /admin/accessories/:id` | operador+ | `AdminAccessoryDTO` |
+| `POST /admin/accessories` | operador+ | alta. `priceCents`, `unitCostCents`, `suggested` y `active` ★: un operador que los manda ⇒ `403 FORBIDDEN_FIELD {fields}` y no se escribe nada. Nace **inactivo**. `201 AdminAccessoryDTO` |
+| `PATCH /admin/accessories/:id` | operador+ | `name, description, category, energyType, lengthMm, widthMm, heightMm, weightG`; ★ `priceCents, unitCostCents, suggested`. Mismo `403 FORBIDDEN_FIELD`. Cambiar la categoría de un activo a `energy` (o al revés) ⇒ `409 ACCESSORY_ACTIVE` (primero se desactiva) |
+| `POST /admin/accessories/:id/activate` | ★ | Falta algo ⇒ `422 ACCESSORY_NOT_ACTIVATABLE {missing: ('price' \| 'photo' \| 'dimensions' \| 'weight' \| 'energy_type')[]}`. Ya hay otro activo del mismo tipo ⇒ `409 ENERGY_TYPE_TAKEN {accessoryId}` (también si el índice parcial lanza `P2002`) |
+| `POST /admin/accessories/:id/deactivate` | ★ | Siempre. Los carritos con él se podan en `quote` |
+| `DELETE /admin/accessories/:id` | ★ | Con cualquier `OrderAccessoryLine` u `OrderEnergyBundleComponent` que lo nombre ⇒ `409 ACCESSORY_HAS_SALES`. Si no ⇒ `204` |
+| `POST /admin/accessories/:id/photo` | operador+ | `multipart/form-data`, campo `file`. Ver abajo |
+| `POST /admin/accessories/:id/stock` | operador+ | `{ kind:'receive', quantity: 1..10000, note? }` o `{ kind:'adjust', newStockQty: ≥0, expectedStockQty, reason: 3..200 }` |
+| `GET /admin/accessories/:id/stock-movements?page=` | operador+ | `{ items: { kind, delta, stockBefore, stockAfter, reason, actor: {userId, name} \| null, orderNumber, createdAt }[] … }` |
+
+```ts
+interface AdminAccessoryDTO {
+  id; name; description; category; energyType; lengthMm; widthMm; heightMm; weightG;
+  priceCents: number | null;
+  unitCostCents?: number | null;     // ★ AUSENTE (no null) para el operador
+  stockQty; reservedQty; availableQty; active; suggested; photo: AccessoryPhotoDTO | null;
+  hasSales: boolean; createdAt; updatedAt;
+}
+```
+
+- ⭐ **v1.86.1 — Energías: sin medidas ni peso para activarse** (`PROJECT.md:9434-9435`, `:9544-9545`; P-AC-5).
+  - Con `category = energy`, `missing` de `ACCESSORY_NOT_ACTIVATABLE` **nunca** lleva `dimensions` ni `weight`: solo
+    `price`, `photo` y `energy_type`. Es lo que ya dice el CHECK `accessory_active_ready` de §AC.1 (⛔ sin cambio de schema).
+  - Porqué: la energía no entra a `chooseBox` (§AC.7), así que sus medidas no deciden nada. Pedirlas sería pedir un dato
+    que nadie lee.
+  - Si se capturan, se guardan y se muestran en el panel, pero ⛔ no entran a la caja ni a `contentWeightG`.
+- **Existencias.**
+  - `receive` ⇒ `stockQty += quantity`.
+  - `adjust` ⇒ CAS `WHERE stockQty = expectedStockQty`. Si no casa ⇒ `409 STOCK_CONFLICT {stockQty}`.
+  - `newStockQty < reservedQty` ⇒ `409 STOCK_BELOW_RESERVED {reservedQty}`.
+  - `adjust` sin motivo o con `newStockQty = stockQty` ⇒ `400`.
+  - Cada acto escribe `AccessoryStockMovement` (con actor de la sesión, antes y después) y bitácora en la misma
+    transacción (criterio 721).
+- **Foto.**
+  - Límite de `multer`: 10 MiB. Si se pasa ⇒ `422 PHOTO_INVALID {reason:'too_large'}` (⛔ no el `413` por defecto).
+  - Tipo detectado por firma (`file-type`) ∈ {png, jpeg, webp}; si no ⇒ `reason:'unsupported_type'`.
+  - `sharp` con `limitInputPixels: 40_000_000` (si se pasa ⇒ `too_many_pixels`); si no decodifica ⇒ `not_image`.
+  - Proceso:
+    - `rotate()`: orientación EXIF;
+    - `resize(1200, 1200, { fit: 'contain', background })`, con fondo transparente si la fuente tiene alfa y blanco si
+      no ⇒ cuadrada **sin recortar**;
+    - WebP calidad 82, y la miniatura de 400;
+    - ⛔ sin `withMetadata()`: EXIF y GPS fuera (criterio 703).
+  - `version` = 16 hex del sha256 de `full`. Upsert de `AccessoryPhoto` y `Accessory.photoVersion` en una transacción con
+    bitácora `accessory.photo_replaced {before: version, after: version}`.
+  - En cualquier rechazo no se escribe nada (criterio 702).
+  - Res `200 AdminAccessoryDTO`.
+- **Bitácora** (`AuditLog`, actor de la sesión):
+  - `accessory.created`;
+  - `accessory.updated {before, after}` de los campos tocados (⛔ `unitCostCents` solo en `after` si el actor es ★);
+  - `accessory.price_changed`, `accessory.activated` y `accessory.deactivated`;
+  - `accessory.photo_replaced`, `accessory.stock_received`, `accessory.stock_adjusted` y `accessory.deleted`.
+- **Diales nuevos** en `PUT /admin/settings` (súper-admin, validación por clave como hoy): `energy_bundle_price_cents`
+  (1..100_000, default 2000) y `accessory_suggestion_count` (0..6, default 3). ⛔ No van a `OWNER_ONLY_SETTING_KEYS` (no
+  lo pidió el dueño).
+
+### AC.12 Pedido, correos y reportes
+
+- **Lectura del pedido:** el detalle admin (M3, `GET /admin/orders/:id`), el seguimiento del invitado (`POST
+  /orders/guest/track`) y el correo AV-2 ganan `accessoryLines` con nombre, foto, cantidad, `unitPriceCents`,
+  `lineTotalCents`, `refundedQty` y, en paquete, `deckName` y `components`.
+  - Lista blanca, sin costo. En M3, cada renglón muestra la acción de §AC.10 (2).
+  - ⭐ **v1.86.3:** forma exacta con `id` y `kind` en §AC.19.6; foto **vigente** (§AC.19.1); el correo AV-2 **sin** foto.
+  - ⭐ **v1.86.2 — solo M3:** cada renglón gana el importe que el súper-admin confirma (mismo cuerpo que el verbo, sin
+    candados; ⛔ la pantalla no lo calcula):
+    ```ts
+    deliveredRefund:
+      | { kind: 'refundable';
+          refundableQty: number;          // = quantity − refundedQty (paquete: 1)
+          amountByQtyCents: number[] }    // largo = refundableQty; [k−1] = itemMissingRefundComponents(order, k × unitPriceCents).amount
+      | { kind: 'not_refundable'; reason: 'order_not_settled' | 'not_delivered' | 'fully_refunded' | 'bundle_requires_deck' }
+    ```
+    `not_delivered` ⇔ el `ShipmentRequest` de su `ShipmentAccessoryLine` no está `entregado`. `bundle_requires_deck` ⇔
+    regla de §AC.10 (3). Al operador se le envía igual (lectura); la pantalla no le ofrece el botón.
+- **P&L** (`pnl-core.ts:189-203`):
+  - el ingreso **no cambia de fórmula** (ya sale de `subtotalCents`);
+  - `cogsCents += Σ unitCostCents × (quantity − missingQty)` de renglones `sold` y, en paquetes, `Σ componente.unitCostCents
+    × quantity`; `null ⇒ 0`;
+  - en los pedidos con `restocked` no se cuenta costo. Criterio 723.
+- **IVA:** sin cambio. Sale de `Order.ivaCents` (`admin.service.ts:1864-1885`).
+- **Analítica (§15):** `mix.byProductType` gana `accessory: PieceCell`.
+  - `pieces` = unidades de renglones `accessory` + 1 por paquete; `netCents` = venta sin IVA repartida por renglón, con
+    la misma regla de §15.11.2.
+  - `totals.pieces` incluye esas unidades. Las invariantes de `API_CONTRACT.md:40270-40276` siguen valiendo, ahora con
+    cuatro celdas.
+- **Inventario del panel:** los accesorios viven en su propia sección (§AC.11). ⛔ No entran a `GET
+  /admin/inventory/export.xlsx` en v1.
+
+### AC.13 Códigos de error nuevos
+
+| Código | HTTP | Dónde |
+|---|---|---|
+| `ACCESSORY_NOT_FOUND` | 404 | ficha pública |
+| `ACCESSORY_UNAVAILABLE` | 409 | sesión: inexistente, inactivo o sin precio `{accessoryId, reason}` |
+| `ACCESSORY_INSUFFICIENT_STOCK` | 409 | sesión: apartado sin existencias `{accessoryId, availableQty}` |
+| `ACCESSORIES_REQUIRE_DIRECT_SHIP` | 422 | checkout con cuenta |
+| `ENERGY_BUNDLE_INVALID` | 422 | sesión `{index, deckSlug, reason}` (⭐ `index` v1.86.3, §AC.19.4) |
+| `ACCESSORY_NOT_ACTIVATABLE` | 422 | activar `{missing}` |
+| `ENERGY_TYPE_TAKEN` | 409 | activar |
+| `ACCESSORY_ACTIVE` | 409 | cambiar la categoría de uno activo |
+| `ACCESSORY_HAS_SALES` | 409 | borrar |
+| `FORBIDDEN_FIELD` | 403 | operador con campo ★ `{fields}` |
+| `STOCK_CONFLICT` / `STOCK_BELOW_RESERVED` | 409 | ajuste |
+| `PHOTO_INVALID` | 422 | foto `{reason}` |
+| `ACCESSORY_REFUND_EXCEEDS` | 409 | entregado por unidad |
+| `BUNDLE_REFUND_REQUIRES_DECK` | 409 | paquete sin su deck reembolsado |
+
+### AC.14 Pruebas que deben fallar hoy (escritas **antes** del código; modelo fuerte)
+
+Cada una con su mutación, que debe ponerla roja. Las de carrera reportan proporción con N (O-3).
+
+**Backend** (`backend/test/…` e integración):
+- **AC-B1** `M-73`: existen los CHECKs, el índice parcial y el disparador de §AC.1. Insertar `reservedQty > stockQty`,
+  activar sin foto, dos activos `fire`, una línea en pedido `vault` ⇒ error de BD. *Mutación:* quitar un CHECK de la
+  migración.
+- **AC-B2** Paridad de enums: los 5 nuevos en `enum-values.ts`, el ancla y este contrato.
+- **AC-B3** Público: inactivos fuera; agotados al final; ninguna llave de costo, existencias, `suggested` ni medidas en
+  lista, ficha, sugerencias, `quote` o `track` (criterios 705, 706, 707, 730). *Mutación:* `spread` de la fila.
+- **AC-B4** Foto: PNG, JPG y WebP aceptados; texto renombrado `.png` ⇒ `422`; 10 MiB + 1 ⇒ `422 too_large`; nada
+  persistido en rechazo. 3000×2000 ⇒ 1200×1200 con relleno (las esquinas son fondo); `full` más chica que la original;
+  sin EXIF ni GPS (criterios 702, 703).
+- **AC-B5** Separación: el módulo de fotos no importa S3 (candado de importaciones). Las pruebas de la INE siguen verdes
+  (criterio 704).
+- **AC-B6** Activar: sin precio, foto o medidas ⇒ `422 {missing}` exacto; energía sin medidas ⇒ ok (criterios 700, 729).
+- **AC-B7** Permisos: operador ⇒ `403 FORBIDDEN_FIELD` en precio, costo y «Sugerido»; `403` en activar, desactivar,
+  borrar, `PUT` de cajas y diales. Operador ⇒ ok en alta sin precio, foto, medidas y existencias. `unitCostCents`
+  ausente para el operador (criterio 720).
+- **AC-B8** Existencias: `adjust` sin motivo ⇒ `400`; CAS ⇒ `409 STOCK_CONFLICT`; bajo lo apartado ⇒ `409`;
+  movimiento con actor, antes y después (criterio 721).
+- **AC-B9** Borrar con ventas ⇒ `409`; sin ventas ⇒ `204` (criterio 722).
+- **AC-B10** I-AC-3: `quote`/`session` con `priceCents`, `unitPriceCents` y `shippingFeeCents` falsos en el cuerpo ⇒ los
+  importes no cambian (criterios 709, 727).
+- **AC-B11** I-AC-1 en pedido mixto (1 carta + 1 sellado + 2 accesorios): un PaymentIntent; total = Σ exhibidos +
+  comisión + envío; `amount` del PI = `totalCents` (criterio 708).
+- **AC-B12** IVA informado: 8900 ⇒ 1228; 4000 ⇒ 552; 2000 ⇒ 276 (criterios 701, 731, 736).
+- **AC-B13** 💰 Carrera de la última unidad: `stockQty=1`, dos sesiones simultáneas ⇒ una `201` y una `409
+  ACCESSORY_INSUFFICIENT_STOCK`; nunca dos apartados. **N = 10, se espera 10/10** (criterio 710). *Mutación:* quitar
+  `AND "stockQty" - "reservedQty" >= q` ⇒ se reporta la proporción roja.
+- **AC-B14** Soltar: `payment_failed`, vencimiento (pedido **solo de accesorios**), sustitución por reintento y
+  reembolso total nunca liquidado ⇒ `reservedQty` vuelve. Dos soltadas del mismo pedido ⇒ una sola resta (criterio 711).
+  *Mutación:* quitar `status='reserved'` del `WHERE`.
+- **AC-B15** Liquidar: 20 − 3 ⇒ 17, `reservedQty` 0, movimiento `sale` (criterio 712). Pago tardío tras el barrido, con
+  existencias ⇒ `settle_recovery`; sin existencias ⇒ `settledWithoutStock` + bitácora.
+- **AC-B16** Sin bóveda: checkout con cuenta con accesorios ⇒ `422 ACCESSORIES_REQUIRE_DIRECT_SHIP` (`quote` y
+  `session`); invitado con `vault` ⇒ `422 VAULT_REQUIRES_ACCOUNT`; ningún `VaultPlacementItem` (criterios 713, 742,
+  749 reescrito).
+- **AC-B17** Seguro: `insuredValueOf` suma accesorios y paquete (criterio 714).
+- **AC-B18** Preparación: el detalle y la hoja listan renglones; `PATCH` marca; `prepared` con una línea `pending` ⇒
+  `409` (criterios 715, 743).
+- **AC-B19** 💰 «Faltó 1 de 3»: fila con importe = `itemMissingRefundComponents(order, 1×P)`; llave
+  `acc-item:<id>`; cuenta en el tope de 24 h; el pedido sigue (criterio 716).
+- **AC-B20** 💰 Reembolso total: no enviado ⇒ vuelven `quantity − missingQty`; enviado ⇒ nada vuelve (criterios 717,
+  744). *Mutación:* quitar la condición `afterShipment = false`.
+- **AC-B21** 💰 Cierre `order_remaining` con accesorios, cuando nada sale ⇒ `Σ amount = totalCents` y `Σ IVA = ivaCents`
+  (±0).
+- **AC-B22** 💰 Entregado por unidad: `refundedQty` nunca pasa de `quantity`. Dos actos simultáneos sobre la última
+  unidad ⇒ uno `201`, otro `409`. **N = 10, 10/10.** *Mutación:* quitar el CAS de `refundedQty`.
+- **AC-B23** Sugerencias: 2 «Sugerido» + 5 activos ⇒ esos 2 + el más vendido en 30 días; nunca inactivo, agotado,
+  excluido ni energía; el dial cambia N (criterios 718, 719).
+- **AC-B24** 💰 Caja (`box-fit.ts`, unitaria con tabla de casos + integración):
+  - sin cajas con tarifa ⇒ envío de hoy exacto (725);
+  - playmat que no cabe en «chica» ⇒ «grande» y cobro = lo mostrado (726);
+  - quitar el playmat ⇒ vuelve (727);
+  - nada cabe ⇒ la mayor + `review` (728);
+  - `max(E_base, caja)`;
+  - pedido solo de cartas con cajas registradas ⇒ hoy (I-AC-5).
+- **AC-B25** La caja congelada en `Order` y presente en el detalle y la hoja (criterio 728).
+- **AC-B26** P&L: el ingreso incluye accesorios; el costo usa el congelado; `restocked` no cuenta (criterio 723).
+- **AC-B27** Analítica: `byProductType.accessory`; Σ celdas = totales con un pedido con accesorios.
+- **AC-B28** `energyTypeOf`: tabla de nombres ⇒ tipo; ambiguo o desconocido ⇒ `null`.
+- **AC-B29** `MetaDeckLineDTO.basicEnergy`: ligado; con producto inactivo ⇒ `null` (criterio 734).
+- **AC-B30** `energyBundle` de la ficha: `offered`, `looseTotal`, P-EN-3 (4 × 500 ≤ 2000 ⇒ no se ofrece), existencias
+  cortas ⇒ no, y jalón con menos de la mitad del deck ⇒ no (P-AC-4); `paste` sin token (criterios 735, 740, 745).
+- **AC-B31** `pullToken`: quitar o agregar un id, cambiar `slug` o `listId`, vencido, o un token `mr-reveal` ⇒ rechazado.
+  *Mutación:* comparar sin el `domain`.
+- **AC-B32** 💰 Paquete en `quote`/`session`: deck incompleto ⇒ `deck_incomplete` / `422`; duplicado ⇒ `422`; precio =
+  dial; componentes por tipo apartados (criterios 736, 738).
+- **AC-B33** 💰 Carrera del paquete: 8 «Fuego», dos sesiones que piden 8 ⇒ una gana. **N = 10, 10/10** (criterio 741).
+  ⭐ v1.86.4: la que pierde recibe `409 ACCESSORY_INSUFFICIENT_STOCK` **o** `422 ENERGY_BUNDLE_INVALID/insufficient_stock`
+  (§AC.20.1).
+- **AC-B34** El paquete cuesta el dial con o sin descuento; ningún cálculo de base de descuento lo incluye (criterio 739,
+  hoy trivial).
+- **AC-B35** 💰 Reembolso del paquete: sin deck reembolsado ⇒ `409 BUNDLE_REFUND_REQUIRES_DECK`; con el deck entero ⇒
+  `201` con `itemMissingRefundComponents(order, 2000)`; total no enviado ⇒ vuelven las 12 por tipo (criterio 744).
+- **AC-B36** «Agregar de jalón» igual: `unitInventoryItemIds` idénticos antes y después; las pruebas de `decks-meta`
+  existentes siguen verdes (criterio 747).
+- **AC-B37** Censo: todo fichero de `src/` con `releaseReservationData` llama a `releaseAccessoryReservations`; los sitios
+  de §AC.15 leen renglones de accesorio (lista estática con canario). *Mutación:* quitar una llamada.
+- **AC-B38** Reuso con carrito de accesorios distinto ⇒ sustitución y apartado soltado.
+- **AC-B39** Foto pública: cabeceras `immutable` + `nosniff`; versión vieja ⇒ `404`.
+- **AC-B40** `PUT /admin/shipping/packages` con `customerFeeCents`: rango, bitácora antes y después, operador `403`.
+- **AC-B41** 💰 *(v1.86.1)* Importe por renglón y `refundPreviewCents`: envío con 1 carta + funda ×3 + paquete. Marcar
+  2 fundas y el paquete faltantes ⇒ `refund.amountCents` = `amountByQtyCents[1]` y `[0]`, iguales a
+  `itemMissingRefundComponents(order, 2×P)` y `(order, 2000)`; `refundPreviewCents` = Σ de esas dos + la carta si falta;
+  `POST prepared` con `expectedRefundCents = refundPreviewCents` ⇒ ok, y con `refundPreviewCents − 1` ⇒ el rechazo de
+  §M4-SHIP.5. Tras preparar, `refund.kind = 'refunded'` con la fila `acc-item:<id>`. Directo sin accesorios ⇒ el mismo
+  número que hoy. *Mutación:* quitar el término de accesorios de la vista (el `prepared` lo sigue sumando) ⇒ rojo.
+- **AC-B42** *(v1.86.1)* `deckShipmentItemIds` / `deckAllMissing`: los ids casan con `items[].shipmentItemId` de las
+  piezas firmadas; con todas `missing` o `blocked` ⇒ `true`; con una `picked` o `pending` ⇒ `false`; `accessory` ⇒ `[]`
+  y `false`. Con `deckAllMissing = true` el servidor **no** marca el paquete (sigue `pending`).
+- **AC-B43** *(v1.86.1)* `unavailableAccessories[].name`: inactivo ⇒ su nombre; inexistente ⇒ `null`; ninguna otra llave
+  de la fila (costo, existencias, medidas). *Mutación:* `spread` de la fila.
+- **AC-B44** *(v1.86.1)* `EnergyBundleDTO.energies[].photo` = la foto del producto activo de cada tipo (versión vigente),
+  en `energyBundles` y `energyBundleOffers`.
+- **AC-B45** *(v1.86.1)* Energía: activar con precio y foto, sin medidas ni peso ⇒ ok; sin foto ⇒ `422 {missing:['photo']}`
+  exacto (⛔ sin `dimensions`/`weight`). Energía **con** medidas capturadas en el carrito ⇒ `chooseBox` no la ve: misma
+  caja, misma tarifa y mismo `contentWeightG` que sin ella. *Mutación:* quitar el filtro `category ≠ energy` de `units`.
+- **AC-B46** 💰 *(v1.86.1)* `review` no retiene: pedido de 3 playmats que no caben ⇒ `review = true`, cobro =
+  `max(E_base, tarifa de la mayor)`, liquida, aparece en la hoja con `box.review = true`, se prepara y se cotiza guía con
+  otra caja sin que cambie `Order.totalCents` ni se cree cargo alguno.
+- **AC-B47…AC-B52** 💰 *(v1.86.2)*: formas de `PaymentRefund` para accesorios y verbo de entregado. Texto en §AC.18.5.
+
+**Frontend** (`frontend/…`, Vitest y Playwright):
+- **AC-F1** Carrito v3: `{ ids, accessories: {id, qty}[], deckPulls: {token, slug, withEnergyBundle}[] }`. Migra v2 sin
+  perder nada (como hizo v1→v2, `cart.ts:20-36`).
+- **AC-F2** Pestaña «Accesorios» / «Accessories» en Comprar; lista, filtro y búsqueda; «Agotado» sin botón (criterios
+  705, 706).
+- **AC-F3** Ficha: selector 1..`maxQty`; «Solo hay N disponibles» ajusta la cantidad con `insufficient`.
+- **AC-F4** «¿Te falta algo?»: no es modal, no tapa pagar, «No, gracias» oculta en la visita, «Agregar» suma 1 (criterio
+  719).
+- **AC-F5** Paquete en el carrito: línea propia; sugerencia una vez por deck; con `deck_incomplete` sale el paquete con
+  aviso (criterios 736–738).
+- **AC-F6** Ficha del deck: energías ligadas con precio y botón; recuadro del paquete sin marcar; «Agregar de jalón» no
+  agrega el paquete (criterios 734, 735).
+- **AC-F7** Con sesión: el checkout con cuenta **nunca** manda accesorios; la tienda se comporta según P-AC-1.
+- **AC-F8** Oferta de bóveda del invitado con accesorios: aviso y elegir (P-ACC-11, recomendación de
+  `PROJECT.md:18529-18532`).
+- **AC-F9** El checkout muestra el envío de la caja; el importe del botón sale del total de la sesión (F-SP-5).
+- **AC-F10** Panel de accesorios: alta y edición, foto con sus errores, existencias con motivo; el operador no ve precio
+  editable, costo ni «Sugerido».
+- **AC-F11** Panel de cajas: campo «Tarifa al cliente».
+- **AC-F12** Preparación: renglones con foto y cantidad, faltante por cantidad, desglose del paquete, caja y «revisar
+  caja».
+- **AC-F13** M3: renglones y reembolso por unidad.
+- **AC-F14** E2E de los criterios 724 y 748, en ES y EN, contra el stack corriendo.
+- **AC-F15** Ventas: celda «Accesorios».
+- **AC-F16** 💰 *(v1.86.1)* Diálogo de «Pedido preparado»: cada fila de accesorio muestra `refund.amountCents` del
+  servidor; al cambiar «faltan k» el importe sale de `amountByQtyCents[k−1]`; la cifra del título es `refundPreviewCents`
+  leída, ⛔ nunca sumada en el navegador.
+- **AC-F17** *(v1.86.1)* Con `deckAllMissing = true` el paquete muestra la sugerencia de marcarlo faltante; no se marca
+  solo. Con `false`, sin sugerencia.
+- **AC-F18** *(v1.86.1)* Carrito: avisos de `unavailableAccessories` con nombre (y el texto sin nombre cuando `name =
+  null`); renglón del paquete con las fotos de `energies[].photo`.
+- **AC-F19** 💰 *(v1.86.2)* M3, «Reembolsar» de un renglón: solo con `deliveredRefund.kind = 'refundable'` y súper-admin;
+  selector 1..`refundableQty`; importe = `amountByQtyCents[k−1]` leído; nota obligatoria (3–500); envía
+  `expectedRefundCents` = ese importe. `409 REFUND_PREVIEW_STALE` ⇒ muestra `refundCents` y pide confirmar de nuevo.
+
+### AC.15 Lo que se rompe de lo existente y el censo de lectores
+
+**Previsto por lectura.** Qué pruebas existentes se ponen rojas: **NO MEDIDO**. Lo cierra correr la suite entera sobre
+una copia del árbol **entero** (O-9) con la rama ya construida.
+- `test/enum-values-parity.spec.ts`: rojo hasta añadir los 5 enums al ancla (esperado: es el candado).
+- Pruebas que fijan la forma exacta de `byProductType` (`{raw, graded, sealed}`) ⇒ cambian por norma (§AC.12).
+- Pruebas que fijan la forma exacta de `ShippingPackageDTO` o de las respuestas de `quote`/`session` con `toEqual` ⇒
+  cambian por las llaves aditivas. Las que usan `toMatchObject` siguen verdes.
+- Pruebas de frontend de `lineState 'basic_energy'` («no identificada») ⇒ cambian donde hay producto activo.
+- `test/guest-checkout.contract.spec.ts:118-127` **no** se rompe si el «carrito vacío» sigue en el DTO (§AC.4).
+- Pedido solo de cartas: preparación, reembolsos, P&L e IVA **sin cambio** (I-AC-5). Si alguna prueba de esos módulos
+  se pone roja con un pedido sin accesorios, es un defecto, no un ajuste.
+
+**Censo de sitios que recorren líneas del pedido o filas del libro** (Grep 2026-10-07; cada uno lee también renglones
+de accesorio o declara por qué no):
+
+| Sitio | Qué cambia |
+|---|---|
+| `orders/guest-checkout.service.ts:100-149, 158-330, 579-620` | `quote`/`session`/caja (§AC.4, §AC.7) |
+| `orders/orders.service.ts:930, 1076, 1163-1227, 1374` | soltar, sustituir, barrer, renovar (§AC.6) |
+| `payments/payments.service.ts:438-505, 606-640, 904` | liquidar y soltar (§AC.6) |
+| `payments/refunds/full-refund.service.ts:185-…` (rama directo) | devolver a existencias (§AC.6 (5)) |
+| `payments/refunds/release-unsettled-refund.ts:55` | soltar (§AC.6 (2)) |
+| `payments/refunds/origin.ts` | lo pagado por línea (incluir renglones) |
+| `payments/refunds/refund-ledger.service.ts:96-97, 534-553` | AV-12 y reintentos por tipo de línea |
+| `payments/refunds/mail/refund-notice.templates.ts:90, 143` | nombrar accesorio y cantidad |
+| `orders/order-public-status.ts:91` | `missing_at_prep`/`after_delivery` también para renglones |
+| `orders/order-refund.service.ts:191, 328, 430` | reembolso total y entregado (ruta nueva §AC.10 (2)) |
+| `shipments/shipment-prep.service.ts:342-394, 790` | plan y cierre (§AC.9) |
+| `shipments/shipments.service.ts` (detalle y hoja) | `accessoryLines` y `box` (§AC.9, §AC.7) |
+| `shipments/label-quote.service.ts:480-484` | seguro (§AC.9) |
+| `admin/pnl-core.ts:189-203` | costo (§AC.12) |
+| `admin/admin.service.ts` (detalle M3) | `accessoryLines` |
+| `sales-analytics/sales-analytics.service.ts` | `byProductType.accessory` |
+| `orders/mail/guest-order.templates.ts` / `order-notice.templates.ts` | AV-2 con renglones |
+| `decks-meta/decks-meta.service.ts` | `basicEnergy`, `energyBundle`, `pullToken` (§AC.8) |
+| `admin/shipping-config.ts:13-77` | `customerFeeCents` |
+
+### AC.16 Preguntas para el dueño (con recomendación) y lo NO MEDIDO
+
+Si el dueño no contesta, se construye con la recomendación, como en las preguntas de product-owner. **El contrato ya
+está escrito con la recomendación.** El orquestador las lleva; el arquitecto no decide.
+
+- **P-AC-1 · Cliente con sesión en «Accesorios».** Con F3 (solo invitado), quien tiene la sesión abierta no puede pagar
+  accesorios (`reject-authenticated.guard.ts:57-62`).
+  - **Recomendación:** la pestaña se ve igual (fotos y precios), pero «Agregar» se cambia por un aviso: «Los accesorios
+    se compran con envío a domicilio. Pronto también desde tu cuenta». El carrito con cuenta no muestra «¿Te falta
+    algo?» ni el paquete de energías.
+  - Alternativa: esconder la pestaña con sesión.
+  - ⛔ No se recomienda decir «cierra sesión para comprar».
+- **P-AC-2 · ¿Agregar un accesorio puede bajar el envío?** Si una caja con tarifa cuesta menos que la tarifa de hoy
+  (MX$175 por defecto, criterio 9), un pedido con cartas y una funda pagaría menos envío que uno solo de cartas.
+  - **Recomendación:** no. Se cobra lo mayor entre la tarifa de hoy y la de la caja (`max`, §AC.7).
+- **P-AC-3 · Paquete de energías que falta al preparar.** F3 dice «completo solo si se devuelve el deck completo», y
+  eso habla de devoluciones.
+  - **Recomendación:** si al preparar falta el paquete, quien prepara lo marca faltante **entero** y se reembolsan los
+    MX$20 con su parte de la comisión, aunque el deck sí salga: el cliente no recibió las energías.
+  - Si falta solo una parte, se completa del estante (las energías ya estaban apartadas). ⛔ Sin reembolso proporcional.
+- **P-AC-4 · Mínimo de deck para el paquete.** Con P-EN-4, si «Agregar de jalón» solo puede meter 1 carta (el resto
+  agotado), esa carta sola «es el deck» y se lleva 12+ energías por MX$20.
+  - **Recomendación:** ofrecer el paquete solo si «Agregar de jalón» mete al menos la **mitad** de las cartas que no son
+    energía (contadas por copias).
+  - Ya está en `offered` (§AC.8, cuarta condición). Si el dueño dice «sin mínimo», se quita esa condición y nada más
+    cambia.
+- **P-AC-5 · Cartas y sellado no cuentan para la caja.** No hay medidas de cartas ni de sellado en el sistema, y F3 dice
+  «sin medidas inventadas». La caja se elige solo con los accesorios que no son energía. Un pedido con 3 cajas de
+  sobres y una funda podría quedar en una caja chica en el sistema; quien prepara usa otra, y la diferencia es costo
+  suyo.
+  - **Recomendación:** aceptarlo en esta versión. Si después quiere que el sellado cuente, se le pediría capturar las
+    medidas de cada presentación.
+- **Q-AC-UX-1 · ¿Un precio para las 8 energías, o uno por energía?** *(v1.86.1; de `DESIGN_SYSTEM §AC-UX.18`; el
+  arquitecto no lo decide.)* Hoy el contrato tiene uno por energía (§AC.2 (3)): subir de MX$5 a MX$6 son 8 ediciones.
+  - **Recomendación (ux-ui):** uno por energía, como está, con el aviso «Las energías no tienen todas el mismo precio».
+  - Si el dueño pide uno solo: sería un dial nuevo y cambio de §AC.2 (3), de la sesión y de la semilla. ⛔ Sin schema
+    (`ConfigSetting` ya existe), pero sí errata de contrato antes de construir.
+
+**NO MEDIDO** (y qué lo cierra):
+- proveedor y bucket de archivos en producción: devops lee `S3_*` en Railway (no bloquea: las fotos van en Postgres);
+- que la imagen de Railway instala `sharp`: devops, con un arranque;
+- versión de Postgres para `gen_random_uuid()`: `SELECT version()`;
+- Carta Porte con más de un concepto: sandbox de Skydropx;
+- energías básicas que **sí** casaron como carta en los decks publicados: consulta a `MetaDeckCard ⋈ Card`;
+- `decks-meta` al público en producción: `git show origin/production:frontend/src/components/layout/StorefrontHeader.tsx`;
+- CSP o `images` de Next para el origen de la API: frontend;
+- fecha de carpeta de `M-74` en `claude/wishlist`: orquestador.
+
+### AC.17 Reparto y orden
+
+- **Zona compartida primero (serializada):** `backend/prisma/schema.prisma` + `M-73`, y `common/enum-values.ts`.
+  - Un solo agente backend **fuerte** lo escribe con AC-B1/AC-B2 y lo commitea antes de abrir lo demás.
+  - `claude/wishlist` toca el mismo fichero de schema: el orquestador serializa la fusión. Qué toca wishlist en
+    checkout o carrito: **NO MEDIDO**.
+- **Después, en paralelo (módulos disjuntos):**
+  - **(A)** backend: `accessories/` (catálogo, panel, fotos, existencias manuales). Sin dinero de cobro.
+  - **(B)** backend **fuerte**: compra, apartado, liquidación, caja, preparación y reembolsos (`orders`, `payments`,
+    `shipments`, `admin/pnl-core`, `sales-analytics`) 💰.
+  - **(C)** backend **fuerte**: `decks-meta` (tipo, ligado, `pullToken`) 💰. Toca (B) en §AC.8 «En quote/session»; ese
+    punto lo cablea (B) llamando al validador puro de (C).
+  - **Frontend:** contra este contrato y `DESIGN_SYSTEM` (ux-ui diseña antes la pestaña, la ficha, el recuadro, el
+    paquete, el panel y la preparación).
+  - **Devops:** `sharp` en la imagen. Nada más: sin bucket ni secreto nuevo.
+  - **Product-owner:** reconcilia `D-AC-1…3` en `PROJECT.md`.
+- **Gates:** QA (unitarias + contrato + E2E de 724 y 748) y techlead por stream. Seguridad en la fase de release: fotos
+  públicas, `pullToken` y nuevas rutas de dinero.
+
+### AC.18 Errata v1.86.2 — enums de §0 y formas de `PaymentRefund` para accesorios (2026-10-07)
+
+Origen: `BACKEND_NOTES §83.3` y `§83.4`, medido por backend sobre `4e06c7e`. Porqué: `ARCHITECTURE §4.AC (o)`.
+
+#### AC.18.1 Enums
+Las 5 líneas `Nombre = …` están en «Enums (fuente de verdad)» (§0), con los valores de §AC.1. Cierra las 11 rojas de
+`test/enum-values-parity.spec.ts` (banda 3 y banda 3 universal). ⛔ `SIN_LINEA_CANONICA` no cambia.
+
+#### AC.18.2 💰 La forma de una fila de accesorio
+
+| `kind` | Carta (sin cambio) | Accesorio |
+|---|---|---|
+| `item_missing` | `orderItemId`, `shipmentItemId`, `missingReason` | `orderAccessoryLineId`, `shipmentAccessoryLineId`, `accessoryQty` (= `missingQty`), **`missingReason`** (copia de `ShipmentAccessoryLine.missingReason`) |
+| `item_delivered` | `orderItemId`, `shipmentItemId`, `deliveredReason`, `reason` (nota), sin `missingReason` | `orderAccessoryLineId`, `accessoryQty`, `deliveredReason`, `reason` (nota, **obligatoria**), sin `missingReason`, **sin `shipmentAccessoryLineId`** |
+| cualquier otro | — | ⛔ nunca lleva `orderAccessoryLineId` |
+
+- **Sí lleva `missingReason`** el faltante de accesorio: es lo que distingue `item_missing` de `item_delivered` en el
+  CHECK, y lo leen `order-public-status.ts` (`missing_at_prep`) y AV-12 (el motivo del correo).
+- **El entregado no lleva `shipmentAccessoryLineId`:** esa columna es `@unique` y pertenece a la **única** fila de
+  faltante de la línea. Con ella, el segundo entregado del mismo renglón chocaría con `P2002`.
+- **Nunca apunta a carta y accesorio a la vez:** cada rama del CHECK exige nulo el lado contrario, y
+  `payment_refund_accessory_shape` exige nulos `orderItemId`, `shipmentItemId` y `replacementCaseId` en toda fila con
+  renglón. Junto con `payment_refund_card_xor_accessory` y `payment_refund_accessory_shipment_line` (ya en `M-73`), no
+  queda combinación mixta.
+- Que el renglón sea **de la misma orden** que `PaymentRefund.orderId` es regla entre tablas: la garantiza la
+  aplicación, como en la carta (⛔ sin disparador).
+
+#### AC.18.3 💰 SQL — va en `M-73` (no `M-73b`), sección «PaymentRefund», después de los cuatro CHECK de accesorio
+```sql
+-- v1.86.2: las formas de M-61/M-70 aceptan el renglón de accesorio. Filas existentes: todas de carta, con las 3 columnas
+-- de accesorio en NULL ⇒ cumplen la rama de carta (que es la de antes más «accesorio nulo»).
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_missing_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_missing_chk"
+  CHECK (("kind"::text = 'item_missing') = (
+    "missingReason" IS NOT NULL AND (
+      ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+        AND "orderAccessoryLineId" IS NULL AND "shipmentAccessoryLineId" IS NULL)
+      OR
+      ("orderAccessoryLineId" IS NOT NULL AND "shipmentAccessoryLineId" IS NOT NULL
+        AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL))));
+
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_delivered_shape_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_delivered_shape_chk"
+  CHECK ("kind"::text <> 'item_delivered' OR (
+    "missingReason" IS NULL AND "reason" IS NOT NULL AND "orderId" IS NOT NULL AND (
+      ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+        AND "orderAccessoryLineId" IS NULL)
+      OR
+      ("orderAccessoryLineId" IS NOT NULL AND "shipmentAccessoryLineId" IS NULL
+        AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL))));
+
+-- Un renglón de accesorio solo aparece en las dos formas de arriba, y nunca junto a un nodo de carta.
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shape";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "payment_refund_accessory_shape"
+  CHECK ("orderAccessoryLineId" IS NULL OR (
+    "kind"::text IN ('item_missing', 'item_delivered') AND "orderId" IS NOT NULL
+    AND "orderItemId" IS NULL AND "shipmentItemId" IS NULL AND "replacementCaseId" IS NULL));
+```
+- Los nombres de M-61/M-70 **se conservan**: `pnl-delivered-refunds.e2e-spec.ts:490` busca
+  `PaymentRefund_item_delivered_shape_chk` y debe seguir verde sin tocarla.
+- `"kind"::text` como en M-70. No hay valor de enum nuevo; el cast solo uniforma.
+- Lo que el CHECK **no** comprueba: `accessoryQty = ShipmentAccessoryLine.missingQty` y el renglón de la misma orden.
+  Son reglas entre tablas; las cubren AC-B19 y AC-B52.
+
+#### AC.18.4 Reversa de `M-73` (se añade al bloque «REVERSA» de la migración)
+⚠️ `DROP COLUMN` de una columna de accesorio **borra en silencio** todo CHECK que la nombre, incluidos los dos de
+M-61/M-70 reescritos aquí: la tabla quedaría **sin** las formas de la carta. Por eso, **antes** de quitar las columnas
+de `PaymentRefund`:
+```sql
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "payment_refund_accessory_shape";
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_missing_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_missing_chk"
+  CHECK (("kind" = 'item_missing') = ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL AND "missingReason" IS NOT NULL));
+ALTER TABLE "PaymentRefund" DROP CONSTRAINT IF EXISTS "PaymentRefund_item_delivered_shape_chk";
+ALTER TABLE "PaymentRefund" ADD CONSTRAINT "PaymentRefund_item_delivered_shape_chk"
+  CHECK ("kind"::text <> 'item_delivered' OR ("orderItemId" IS NOT NULL AND "shipmentItemId" IS NOT NULL
+    AND "missingReason" IS NULL AND "reason" IS NOT NULL AND "orderId" IS NOT NULL));
+```
+(textos literales de `m61…/migration.sql:256-257` y `m70…/migration.sql:60-62`). La condición previa de la reversa no
+cambia: con 0 `OrderAccessoryLine` no puede haber filas de accesorio en `PaymentRefund` (FK).
+
+#### AC.18.5 Pruebas que deben fallar hoy (backend, integración sobre la BD con `M-73`; cada caso en tx deshecha)
+Fixture: pedido `direct_ship` liquidado con 1 `OrderItem` + su `ShipmentItem`, y 1 `OrderAccessoryLine` (`quantity 3`) +
+su `ShipmentAccessoryLine`. Un caso «rechaza» afirma `23514` **y** el nombre del CHECK en el mensaje. Si la fila viola
+varios, se afirma que el nombre está en el conjunto dado (Postgres informa uno solo).
+- **AC-B47** 💰 `item_missing`:
+  - entran: (1) carta (CONTROL); (2) accesorio `{orderAccessoryLineId, shipmentAccessoryLineId, accessoryQty: 1, missingReason}`;
+  - rechazan: (3) accesorio sin `missingReason` ⇒ `PaymentRefund_item_missing_chk`; (4) accesorio sin
+    `shipmentAccessoryLineId` ⇒ `PaymentRefund_item_missing_chk`; (5) accesorio sin `accessoryQty` ⇒
+    `payment_refund_accessory_qty_pair`; (6) carta completa + `orderAccessoryLineId` + `accessoryQty` ⇒ ∈
+    {`payment_refund_card_xor_accessory`, `PaymentRefund_item_missing_chk`, `payment_refund_accessory_shape`};
+    (7) accesorio + `shipmentItemId` ⇒ ∈ {`PaymentRefund_item_missing_chk`, `payment_refund_accessory_shape`};
+    (8) `kind = order_remaining` con `missingReason` + renglón + línea ⇒ ∈ {`PaymentRefund_item_missing_chk`,
+    `payment_refund_accessory_shape`}.
+- **AC-B48** 💰 `item_delivered`:
+  - entran: (1) carta (CONTROL); (2) accesorio `{orderAccessoryLineId, accessoryQty: 1, deliveredReason, reason: 'nota'}`;
+    (3) **dos** filas como (2) del mismo renglón con llaves distintas ⇒ ambas entran;
+  - rechazan, todas con nombre exacto: (4) accesorio con `shipmentAccessoryLineId` ⇒
+    `PaymentRefund_item_delivered_shape_chk`; (5) accesorio con `missingReason` ⇒ `PaymentRefund_item_delivered_shape_chk`;
+    (6) accesorio con `reason` NULL ⇒ `PaymentRefund_item_delivered_shape_chk`; (7) accesorio sin `deliveredReason` ⇒
+    `PaymentRefund_item_delivered_chk`.
+- **AC-B49** Ningún otro `kind` lleva renglón: `order_remaining` y `order_full` con `orderAccessoryLineId` + `accessoryQty`
+  (sin `missingReason`) ⇒ `payment_refund_accessory_shape` exacto.
+- **AC-B50** Migración: el texto de `M-73` lleva `DROP`/`ADD` de los tres nombres; `pg_get_constraintdef` de
+  `PaymentRefund_item_missing_chk` y `_item_delivered_shape_chk` nombra `orderAccessoryLineId`; segunda aplicación sin
+  error; sobre una BD en `M-72` con una fila de carta de **cada** `kind` (`item_missing`, `item_delivered`, `order_full`,
+  `order_remaining`, `case_refund`, `shipment_fee`), aplicar `M-73` no falla (el `ADD CONSTRAINT` valida las filas).
+  `pnl-delivered-refunds.e2e-spec.ts:490` sigue verde.
+- **AC-B51** Reversa (esquema desechable, como AC-B1): con 0 renglones, ejecutar el bloque de reversa entero ⇒
+  `PaymentRefund_item_missing_chk` y `_item_delivered_shape_chk` **existen** y su definición no nombra columnas de
+  accesorio; una fila de carta `item_missing` sin `missingReason` ⇒ `23514`.
+- **AC-B52** 💰 Verbo de §AC.10 (2): sin `note` o con 2 caracteres ⇒ `400 {field:'note'}`; `expectedRefundCents = A − 1`
+  ⇒ `409 REFUND_PREVIEW_STALE {refundCents: A}` y cero filas; correcto ⇒ `201`, fila con `reason = note`, `missingReason`
+  y `shipmentAccessoryLineId` nulos. `A` = `deliveredRefund.amountByQtyCents[quantity − 1]` del detalle M3 para k = 1..3.
+  Renglón con `refundedQty = quantity` ⇒ `deliveredRefund.reason = 'fully_refunded'`.
+
+**Mutaciones** (cada una pone roja al menos la prueba nombrada; deterministas, una corrida sobre copia del árbol entero):
+- reponer el texto de M-61 en `PaymentRefund_item_missing_chk` ⇒ AC-B47 (2);
+- mover `"missingReason" IS NOT NULL` solo a la rama de carta ⇒ AC-B47 (3);
+- quitar `"shipmentAccessoryLineId" IS NULL` de la rama de accesorio del entregado ⇒ AC-B48 (4);
+- quitar `"reason" IS NOT NULL` ⇒ AC-B48 (6) y `pnl-delivered-refunds:490`;
+- borrar `payment_refund_accessory_shape` ⇒ AC-B49;
+- borrar del bloque de reversa la reposición de los dos CHECK ⇒ AC-B51;
+- quitar la comparación de `expectedRefundCents` ⇒ AC-B52.
+
+#### AC.18.6 Lo que ratifica de `BACKEND_NOTES §83.3`
+1. **Disparador con `UPDATE OF "orderId"`: ratificado.** Sin eso, la invariante I-AC-4 se salta moviendo un renglón.
+   Que no vigile `Order.fulfillmentMode` se acepta porque el modo no cambia después de crear el pedido. Medido con
+   Grep en `backend/src` (sin `*.spec.ts`, 2026-10-07): la única escritura es el `create` de
+   `guest-checkout.service.ts:245`; las demás apariciones son lecturas o filtros, y no hay `SET "fulfillmentMode"` en
+   SQL crudo. Si algún día un `update` lo escribe, el disparador se amplía a `Order`.
+2. **CHECKs extra: ratificados los cinco.** Son la letra de §AC.1 (comentarios) hecha candado. El paquete sin
+   `unitCostCents` propio evita contar su costo dos veces en el P&L (§AC.12). «Accesorio ⇒ campos de deck nulos» cierra
+   un hueco de la letra «todas no nulas ⇔ paquete».
+3. **`deckOrderItemIds @default([])`: ratificado.** Se corrige §AC.1 en ese sentido. El `COALESCE` del CHECK se queda
+   como red.
+4. **`@@index([orderAccessoryLineId])` en `PaymentRefund`: ratificado.** Lo leen el CAS de `refundedQty`, la agrupación
+   por renglón y `deliveredRefund`.
+5. **Semilla idempotente por tipo: ratificada.** Es la que respeta el renombre del dueño.
+
+### AC.19 Errata v1.86.3 — lo que fijaron los streams A y C y el frontend, y lo que recibe el stream B (2026-10-07)
+
+Origen: `BACKEND_NOTES §83.A.1` (A), `§83.C.2/§83.C.3` (C) y `FRONTEND_NOTES §107` (frontend), leídos con Read/Grep en
+`/home/user/tcg-accesorios` el 2026-10-07 (HEAD `bb5147b` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). Porqué:
+`ARCHITECTURE §4.AC (p)`. ⛔ **Sin schema ni cambio a `M-73`.** Donde choque con §AC.3–§AC.12, manda esta sección.
+
+#### AC.19.1 URL de la foto: ruta de la API, sin host (se ratifica lo construido)
+- `AccessoryPhotoDTO.url` / `.thumbUrl` = **ruta absoluta de la API, sin esquema ni host**:
+  `/api/v1/accessories/<id>/photo/<version>/full|thumb` (un solo constructor: `photoDTO`, `accessory-dto.ts:79-82`). Vale
+  para **toda** respuesta que lleve `AccessoryPhotoDTO`: tienda, panel, `quote`/`session`, `decks-meta`, preparación, M3 y
+  seguimiento. ⛔ El contrato no pide host.
+- **El cliente la ancla al origen de la API** (`new URL(NEXT_PUBLIC_API_BASE_URL).origin` + ruta), en un solo sitio
+  (`frontend/src/lib/accessories.ts:30-40`, usado por `AccessoryPhoto`). Ya construido.
+- **Por qué no con host:** el backend no conoce su propio origen público. `APP_BASE_URL` es la lista de orígenes de la
+  **tienda** para CORS (`main.ts:17-25`), no el de la API. Un host en el DTO exigiría una variable nueva por entorno, y
+  un error en ella rompería todas las fotos a la vez. El frontend ya tiene el dato y es su único consumidor.
+- **Cabeceras de la foto** (se ratifica A, `§83.A.1` (2)): `Cross-Origin-Resource-Policy: cross-origin` **solo** en
+  `GET /accessories/:id/photo/:version/:variant`. Sin ella, `helmet()` pone `same-origin` y el `<img>` de la tienda (otro
+  origen) se bloquea. Junto a `immutable` y `nosniff` de §AC.3.
+- **CSP:** `img-src 'self' data: blob: https:` (`frontend/src/security/csp.ts:128`) deja pasar la API en https. Con la
+  API local en `http:` y la CSP en `enforce`, la foto se bloquearía. ⭐ **El frontend añade el origen de la API a
+  `img-src`**, igual que ya hace en `connect-src` (`csp.ts:103-104`). Es más estrecho que abrir `http:` y cierra el caso
+  local (AC-F20).
+- ⭐ **La versión de la foto en lecturas del pedido es la VIGENTE.** `GET …/photo/:version/…` responde `404` si la versión
+  no es `Accessory.photoVersion` (§AC.3). Por eso la preparación (§AC.9), M3 y el seguimiento (§AC.12) arman `photo` con
+  el `photoVersion` **actual** del accesorio, ⛔ no con `OrderAccessoryLine.snapshot.photoVersion`. Si se usara el
+  snapshot, una foto reemplazada tras la venta dejaría el historial con imágenes rotas. `snapshot.photoVersion` se
+  conserva como registro de lo que se mostró; ningún lector lo convierte en URL.
+  - Renglón `energy_bundle` ⇒ `photo: null` (el paquete no tiene foto propia; la pantalla pinta su sustituto).
+  - Renglón `accessory` ⇒ la foto vigente. `null` solo si el accesorio no tiene foto (no ocurre con uno que se vendió:
+    activar exige foto y no existe verbo para borrarla).
+- ⭐ **El correo AV-2 no lleva foto.** Corrige §AC.12 («… y el correo AV-2 ganan `accessoryLines` con nombre, foto …»): en
+  el correo van nombre, cantidad, precio unitario, total de línea y, en paquete, deck y componentes. Motivo: el correo
+  necesita URL con host, que el backend no tiene (arriba), y hoy ningún correo de pedido lleva imágenes (Grep `<img` en
+  `orders/mail/`: 0).
+
+#### AC.19.2 Las 13 decisiones de A (`§83.A.1`): se ratifican, con un ajuste en el borrado
+1. Foto sin host: §AC.19.1.
+2. CORP `cross-origin` en la foto: ratificada (§AC.19.1).
+3. **Tipo por firma, a mano** (números mágicos PNG/JPEG/WebP): ratificada. La norma de §AC.11 era «por firma, ⛔ nunca por
+   extensión»; `file-type` era el medio, no la regla. Se lee así §AC.11 «Tipo detectado por firma (`file-type`)».
+4. multer en memoria; sin archivo o multipart roto ⇒ `400 VALIDATION_ERROR {field:'file'}`: ratificada.
+5. **Alta con `active`:** súper-admin ⇒ se **ignora** (nace inactivo; activar es su verbo con su `422`); operador ⇒ `403
+   FORBIDDEN_FIELD` con los demás ★. «Mandar» = llave presente con valor ≠ `undefined`. Ratificada.
+6. **`PATCH` que dejaría a un activo sin lo que exige activarse** ⇒ `422 ACCESSORY_NOT_ACTIVATABLE {missing}`, cero
+   escrituras: ratificada y **se añade a §AC.11** (antes era un `500` del CHECK `accessory_active_ready`). Mismo `missing`
+   que `activate` (energía: nunca `dimensions` ni `weight`). Las reglas de coherencia (categoría no-energía sin
+   `energyType` ⇒ se limpia; energía sin tipo, tipo sin energía o «Sugerido» en energía ⇒ `400 {field}`) también se
+   ratifican.
+7. **Borrar sin ventas borra sus `AccessoryStockMovement`:** ratificada con un ajuste. `AccessoryStockMovement` es «sin
+   purga» (§AC.1). Sin borrarlos, el `204` del contrato es imposible (FK `Restrict`). Para no perder el registro:
+   ⭐ la bitácora `accessory.deleted` lleva, además de la fila, **la lista entera** de movimientos borrados: `before.movements:
+   { kind, delta, stockBefore, stockAfter, reason, actorUserId, createdAt }[]`, en orden de `createdAt`, con
+   `movementsDeleted` = su largo. Hoy guarda solo la cuenta (`admin-accessories.service.ts:291,300`) ⇒ **A ajusta**
+   (AC-B53). Un renglón creado en paralelo gana por la FK (`P2003` ⇒ `409 ACCESSORY_HAS_SALES`): ratificado.
+8. **`POST …/stock` ⇒ `200 AdminAccessoryDTO`:** ratificada. `adjust` con `newStockQty = expectedStockQty` ⇒ `400
+   {field:'newStockQty', reason:'no_change'}` (se compara con lo que vio el operador; corrige la letra «`= stockQty`» de
+   §AC.11). CAS `WHERE stockQty = expected AND reservedQty <= new`; si no casa, se relee y se distingue `STOCK_CONFLICT
+   {stockQty}` de `STOCK_BELOW_RESERVED {reservedQty}`. `receive.note` (≤ 200) ⇒ `AccessoryStockMovement.reason`.
+9. Panel: `pageSize` default 50 (≤ 100); orden categoría → nombre → id; movimientos más recientes primero. Ratificada.
+10. **Cajas: `customerFeeCents` ausente en el `PUT` ⇒ `null`.** Ratificada: `PUT /admin/shipping/packages` es reemplazo
+    entero de la lista, y una llave ausente es «sin tarifa», igual que las demás columnas anulables. Consecuencia que se
+    acepta: un cliente que no conozca la columna borra las tarifas. Hoy el único cliente es el panel, y manda la columna
+    (`FRONTEND_NOTES §107`, «vacía ⇒ `null`»).
+11. Diales sin fila en la migración; el operador recibe el `403 MONEY_OUT_FORBIDDEN` de clase: ratificada.
+12. Sugerencias: «más vendidos» = pedidos `status = settled` con `settledAt` en 30 d; desempate final por `id`. Ratificada.
+13. `404` de la foto con `NOT_FOUND`, no `ACCESSORY_NOT_FOUND`: ratificada.
+
+**Respuestas del panel que el contrato no fijaba** (se fija lo construido, `admin-accessories.controller.ts:66-103`):
+
+| Verbo | Respuesta |
+|---|---|
+| `PATCH /admin/accessories/:id` | `200 AdminAccessoryDTO` (sin cambios ⇒ `200` con la fila tal cual, ⛔ sin bitácora) |
+| `POST …/:id/activate` | `200 AdminAccessoryDTO`. Ya activo ⇒ `200` idempotente, ⛔ sin bitácora |
+| `POST …/:id/deactivate` | `200 AdminAccessoryDTO`. Ya inactivo ⇒ `200` idempotente, ⛔ sin bitácora |
+| `POST …/:id/stock` | `200 AdminAccessoryDTO` |
+| `POST …/:id/photo` | `200 AdminAccessoryDTO` (ya en §AC.11) |
+
+El frontend puede tipar estas respuestas y usar la fila devuelta en vez de releer. Releer sigue siendo correcto.
+
+#### AC.19.3 Las 12 decisiones de C (`§83.C.3`): se ratifican todas
+1. **Precedencia de `reason` en la oferta:** ningún tipo ⇒ `no_basic_energy`; algún tipo sin producto activo ⇒
+   `not_offered`; P-EN-3 ⇒ `not_offered`; P-AC-4 ⇒ `not_offered`; existencias ⇒ `insufficient_stock`. Lo estructural va
+   antes que las existencias, porque reponer no lo arregla. En el validador, `no_basic_energy` ⇒ `not_offered`
+   (`BundleReason` no lo tiene).
+2. **P-AC-4:** denominador = Σ `quantity` de líneas con `matchStatus ≠ unmatched_basic_energy`. Una energía especial de
+   tipo desconocido no cuenta. Una energía básica que casó como carta sí cuenta, y no entra a `energies`.
+3. **`looseTotalCents` parcial** cuando falta un producto: ratificada. Ese caso ya es `offered:false`, y ⭐ **la cifra
+   solo se muestra con `offered = true`** (así está construido: `DeckAvailability.tsx:437-439`).
+4. «Copias firmadas» = número de ids firmados, sin repetir (un `InventoryItem` es una copia). En la ficha se firma la
+   unión de los `unitInventoryItemIds` de la lista vigente.
+5. **`deck_incomplete` también con `withEnergyBundle:false`:** ratificada. Es la letra de §AC.8 («por cada
+   `deckPulls[i]`»). Que el aviso salga callado es decisión de la pantalla (ya construido: un `deckPull` sin paquete que se
+   invalida sale en silencio, `FRONTEND_NOTES §107`). Para que la pantalla no tenga que adivinar, ver AC.19.4 (`index`).
+6. **Duplicados e `ignored`:** el duplicado se cuenta entre los `true` que pasaron los pasos 1–3. Los `false` se evalúan
+   después de todos los `true`: deck que ya lleva paquete ⇒ `ignored:'bundled'`; oferta ya hecha ⇒
+   `ignored:'offer_repeated'`. **`ignored` es interno: B no lo expone** en ninguna respuesta (ni `unavailableBundles` ni
+   `energyBundleOffers`).
+7. Lista firmada de otro deck, o inexistente ⇒ `deck_unpublished`.
+8. Carga estricta (`v, slug, listId, ids, iat`; `ids` en orden estricto, sin repetidos; `iat` entero ≥ 0 y ≤ ahora + 5
+   min). Orden texto → firma → carga → vigencia. Con firma mala nunca se dice `expired` ni se consulta la BD con datos del
+   token.
+9. Vigencia: vale mientras `now − iat ≤ 30 días`.
+10. El dial `energy_bundle_price_cents` se lee directo de `ConfigSetting` (`loadEnergyBundlePriceCents(db)`), con
+    fallback 2000 si falta o está fuera de rango. ⭐ En `session`, **B lo lee con el cliente de la transacción** (vía
+    `evaluateDeckPulls(…, { db: tx })`) y ese número se congela en `unitPriceCents`. ⛔ No `SettingsService` ni caché.
+11. `basicEnergy: null` explícito en toda línea no ligada.
+12. Foto: un solo constructor (`photoDTO` de A). §AC.19.1.
+
+#### AC.19.4 💰 Lo que recibe el stream B — cableado de `quote`/`session`
+Firma: `DecksMetaService.evaluateDeckPulls(pulls, opts)` (`BACKEND_NOTES §83.C.2`). B importa `DecksMetaModule` en el
+módulo de órdenes. ⛔ B no reimplementa nada de §AC.8: llama al validador y traduce.
+
+**`quote` — orden normativo:**
+1. DTO (carrito vacío ⇒ `400` en el DTO, §AC.4).
+2. Poda de piezas, como hoy ⇒ `prunedInventoryItemIds`.
+3. `evaluateDeckPulls(deckPulls, { requestInventoryItemIds: prunedInventoryItemIds, db: this.prisma,
+   extraAvailableByAccessoryId })`. `extraAvailableByAccessoryId` = lo apartado por la propia reserva si viene
+   `retryOfCheckoutToken` válido (§AC.4), si no `undefined`.
+4. **Existencias por accesorio, en este orden** (el validador mide cada paquete solo; la suma es de B):
+   1. **paquetes primero**, en el orden de la petición: un paquete entra solo si **todos** sus componentes caben en lo que
+      queda; si no ⇒ `unavailableBundles` con `insufficient_stock` y no descuenta nada;
+   2. **luego los renglones sueltos** con el remanente: cada uno se cotiza con `min(pedido, remanente)` y, si es menor,
+      va a `unavailableAccessories`: remanente 0 ⇒ `sold_out` (el renglón no se cotiza); 0 < remanente < pedido ⇒
+      `insufficient` con `availableQty` = remanente.
+   - *Por qué paquetes primero:* el paquete es todo o nada y el renglón suelto se puede recortar. Así se vende lo más
+     posible sin partir el paquete. Ejemplo: 10 «Fuego» disponibles, paquete con 8 + 3 sueltas ⇒ entra el paquete y
+     las sueltas bajan a 2 («Solo hay 2 disponibles»).
+5. Traducción: `bundle` ⇒ `energyBundles`; `offer` ⇒ `energyBundleOffers`; `invalid` ⇒ `unavailableBundles`; `ignored`
+   ⇒ nada.
+6. Caja (§AC.7) y desglose con lo que quedó.
+
+⭐ **`unavailableBundles` gana dos llaves** (aditivo; corrige la forma de §AC.4):
+```ts
+unavailableBundles: { index: number; withEnergyBundle: boolean; deckSlug: string | null; reason: BundleReason }[];
+//   index = posición en `deckPulls` de la petición (0-based). Con `invalid_token`, `deckSlug` es null y `index` es la
+//   única forma de saber cuál falló. Un `insufficient_stock` del paso 4.1 también lleva su `index`.
+```
+
+**`session` — orden normativo:**
+1. DTO; `vault` ⇒ `422 VAULT_REQUIRES_ACCOUNT` (sin cambio).
+2. Validación de accesorios sueltos ⇒ `409 ACCESSORY_UNAVAILABLE` (§AC.4).
+3. Dentro de la transacción de hoy, **antes de crear nada**: `evaluateDeckPulls(deckPulls, { requestInventoryItemIds:
+   inventoryItemIds /* de la petición: la sesión no poda */, db: tx, extraAvailableByAccessoryId })`.
+   - El **primer** `invalid` con `withEnergyBundle:true`, en orden de `index` ⇒ `422 ENERGY_BUNDLE_INVALID {index,
+     deckSlug, reason}` (⭐ `index` aditivo). Se deshace todo.
+   - `invalid` con `false`, `offer` e `ignored` ⇒ nada (la sesión no ofrece).
+4. `reserveItems` (hoy), luego los `OrderAccessoryLine`:
+   - por cada `bundle`: renglón `energy_bundle` con `unitPriceCents = bundle.priceCents` (el dial leído en el paso 3, con
+     `tx`), `metaDeckId`, `metaDeckListId` (la firmada), `deckSlug`, `deckName`, y `deckOrderItemIds` = los `OrderItem.id`
+     de `signedInventoryItemIds`, leídos en la misma tx por `inventoryItemId` tras el `create` anidado (§AC.4).
+     Componentes = `bundle.energies[]` (`accessoryId`, `energyType`, `quantity`) con `unitCostCents` congelado del
+     producto;
+   - por cada renglón suelto: §AC.4.
+5. Apartado único por accesorio (Σ sueltos + Σ componentes), `accessoryId` ascendente, `UPDATE … WHERE "stockQty" -
+   "reservedQty" >= q`. 0 filas ⇒ `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId, availableQty}` y se deshace todo. La
+   sesión **no** aplica el orden «paquetes primero»: es estricta, todo o nada.
+6. `shippingBoxSnapshot` / `shippingBoxReview` (§AC.7).
+
+**Respuesta de `session`:** `energyBundles` lleva solo los renglones creados. ⛔ Sin `energyBundleOffers` ni
+`unavailableBundles`.
+
+#### AC.19.5 Preparación: respuesta del `PATCH`, conteos y forma del renglón
+**`PATCH /admin/shipments/:id/prep-accessory-lines/:lineId`** — mismo esqueleto que `prep-items` (§M4-SHIP.5):
+1. Dominio ⇒ `400 {field}`:
+   - `missing` sin `missingQty` (1..`quantity`) o sin `missingReason`;
+   - `missingQty` o `missingReason` presentes con `pending`/`picked`;
+   - `energy_bundle` con `missingQty ≠ 1`.
+2. Envío inexistente, o la línea no es de ese envío ⇒ `404`.
+3. `$transaction` + candado de fila del envío; `assertOutboundRoute`.
+4. Bajo el candado:
+   - `status ≠ 'picking'` ⇒ `409 SHIPMENT_NOT_IN_PREPARATION`;
+   - `preparedAt` no nulo ⇒ `409 PREPARATION_CLOSED {preparedAt}`;
+   - la línea ya tiene fila `acc-item:<id>` ⇒ `409 PREP_ITEM_REFUNDED {refundId}`.
+5. Igual a lo actual (`prepStatus`, `missingQty` y `missingReason`) ⇒ `200 changed:false`, ⛔ sin escribir ni bitácora.
+6. CAS sobre lo leído; bitácora `shipment.accessory_line_marked {shipmentAccessoryLineId, before, after}` en la tx.
+7. ⛔ Cero dinero y cero existencias. `settledWithoutStock` no bloquea ningún estado: quien prepara decide.
+
+**Res `200`:** `{ changed: boolean; line: ShipAccessoryLineDTO; preparation: ShipPreparationStateDTO }`.
+`ShipAccessoryLineDTO` es el elemento de `accessoryLines` de §AC.9, con ese nombre. `preparation.refundPreviewCents`
+ya incluye el cambio.
+
+⭐ **Conteos: `ShipPreparationCounts` cuenta SOLO cartas, sin cambio** (`total`, `pending`, `picked`, `missing`,
+`blocked`). Los renglones de accesorio se cuentan desde `accessoryLines[].prepStatus`.
+- Motivos:
+  - un directo sin accesorios sigue idéntico (I-AC-5);
+  - un renglón no es una pieza (tiene cantidad y faltante parcial: no cabe en `missing: number`);
+  - la pantalla construida ya suma así sin contar dos veces (`ShipPreparationCard.tsx:658-660, 799`).
+- ⛔ Contar los renglones dentro de `ShipPreparationCounts` lo contaría dos veces en esa pantalla.
+- Es conteo, no dinero: la pantalla puede sumar conteos. El dinero (`refundPreviewCents`) sigue llegando sumado del
+  servidor.
+- **`POST …/prepared` con renglón `pending`** ⇒ `409 PREPARATION_INCOMPLETE {pendingCount, pendingAccessoryCount}`.
+  `pendingCount` son cartas, como hoy; `pendingAccessoryCount` es aditivo. Con solo accesorios pendientes:
+  `{pendingCount: 0, pendingAccessoryCount: n}`.
+- La frase de §M4-SHIP.3 «Se puede dar por preparado ⇔ in_progress ∧ pending===0» gana «∧ ningún
+  `accessoryLines[].prepStatus === 'pending'`».
+
+**Nombre del paquete en `ShipAccessoryLineDTO`:** en `energy_bundle`, `name = deckName` (el título «Paquete de energías»
+lo pone la pantalla por `kind`, con i18n). En `accessory`, `name = snapshot.name` (lo que se compró).
+
+#### AC.19.6 Renglones del pedido (§AC.12): forma exacta, con `id` y `kind`
+```ts
+interface OrderAccessoryLineDTO {          // M3 (`GET /admin/orders/:id`) y seguimiento (`POST /orders/guest/track`)
+  id: string;                              // OrderAccessoryLine.id — la llave de …/accessory-lines/:lineId/refund-delivered
+  kind: 'accessory' | 'energy_bundle';
+  name: string;                            // snapshot.name; en paquete = deckName (como §AC.19.5)
+  photo: AccessoryPhotoDTO | null;         // VIGENTE (§AC.19.1); null en paquete
+  quantity: number; unitPriceCents: number; lineTotalCents: number; refundedQty: number;
+  deckName: string | null;                 // ⇔ energy_bundle
+  components: { energyType: EnergyType; quantity: number }[];   // [] en accessory
+  deliveredRefund?: …;                     // SOLO M3 (v1.86.2). ⛔ Ausente en el seguimiento
+}
+```
+- `id` y `kind` son **obligatorios** en las dos lecturas. En el seguimiento, `id` es un uuid opaco que solo sirve de llave
+  de lista y no habilita nada sin sesión de súper-admin.
+- Lista blanca campo por campo: ⛔ ni `unitCostCents`, ni `snapshot`, ni `accessoryId`, ni `status`, ni
+  `settledWithoutStock` en el seguimiento.
+- El frontend deja de tiparlos opcionales (`types/contract.ts:7682-7684`).
+
+#### AC.19.7 Pruebas que deben fallar hoy (siguientes libres)
+**Backend:**
+- **AC-B53** (A) Borrar sin ventas con 3 movimientos (`initial`, `receive`, `adjust`) ⇒ `204`; la bitácora
+  `accessory.deleted` lleva `before.movements` con los 3, en orden y con `kind/delta/stockBefore/stockAfter/reason/
+  actorUserId/createdAt` exactos, y `movementsDeleted = 3`. *Mutación:* guardar solo la cuenta ⇒ rojo.
+- **AC-B54** (A) `PATCH` de un activo con `priceCents: null` (súper-admin) ⇒ `422 ACCESSORY_NOT_ACTIVATABLE
+  {missing:['price']}` y la fila sin cambio. Energía activa con `weightG: null` ⇒ `200`. *Mutación:* quitar la
+  comprobación ⇒ `500` (rojo).
+- **AC-B55** (B) Foto vigente en lecturas del pedido: vender, reemplazar la foto y leer preparación, M3 y seguimiento ⇒
+  `photo.url` lleva la versión **nueva** y `GET` a esa URL da `200`. Paquete ⇒ `photo: null`. *Mutación:* armar con
+  `snapshot.photoVersion` ⇒ la URL da `404` (rojo).
+- **AC-B56** 💰 (B) `quote`, orden de existencias: 10 «Fuego» disponibles.
+  - Paquete de 8 + 3 sueltas ⇒ paquete en `energyBundles`; sueltas cotizadas con 2 y `insufficient {availableQty: 2}`.
+  - Dos paquetes de 8 (decks distintos) ⇒ el de menor `index` entra y el otro sale en `unavailableBundles
+    {index, reason:'insufficient_stock'}`.
+  - La misma petición en `session` ⇒ `409 ACCESSORY_INSUFFICIENT_STOCK`, cero filas.
+  - *Mutación:* sueltos antes que paquetes ⇒ rojo.
+- **AC-B57** (B) `unavailableBundles[].index`/`withEnergyBundle`: tres `deckPulls` (token roto, deck incompleto con
+  `false`, válido) ⇒ `[{index:0, deckSlug:null, reason:'invalid_token'}, {index:1, withEnergyBundle:false,
+  reason:'deck_incomplete'}]`. Ningún `ignored` aparece en la respuesta. `session` con dos `true` inválidos ⇒ `422
+  {index}` del primero.
+- **AC-B58** (B) `PATCH …/prep-accessory-lines/:lineId`:
+  - respuesta `{changed, line, preparation}` y `preparation.refundPreviewCents` ya con el faltante;
+  - repetir el mismo cuerpo ⇒ `changed:false` y cero filas de bitácora nuevas;
+  - línea con fila `acc-item` ⇒ `409 PREP_ITEM_REFUNDED`; envío preparado ⇒ `409 PREPARATION_CLOSED`;
+  - `energy_bundle` con `missingQty: 2` ⇒ `400`; `picked` con `missingReason` ⇒ `400`.
+- **AC-B59** (B) Conteos: directo con 2 cartas y 1 renglón ⇒ `preparation.total = 2`. Directo sin accesorios ⇒ conteos
+  idénticos a hoy. Cartas palomeadas y renglón `pending` ⇒ `POST prepared` da `409 PREPARATION_INCOMPLETE
+  {pendingCount:0, pendingAccessoryCount:1}`. *Mutación:* sumar renglones a `total` ⇒ rojo.
+- **AC-B60** (B) `OrderAccessoryLineDTO` en M3 y seguimiento: llaves **exactas** de §AC.19.6 (`id`, `kind` presentes;
+  `deliveredRefund` solo en M3). El correo AV-2 con un accesorio no lleva `<img`. *Mutación:* `spread` del renglón ⇒ rojo.
+
+**Frontend:**
+- **AC-F20** CSP: con `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api/v1`, `img-src` contiene
+  `http://localhost:3001`; con `https://api.x/api/v1`, contiene `https://api.x`. Sin API configurada, igual que hoy.
+- **AC-F21** Corrección del carrito por `index`: dos `deckPulls` y `unavailableBundles [{index:1, deckSlug:null,
+  reason:'invalid_token'}]` ⇒ sale **solo** el segundo; el aviso de paquete aparece solo si ese llevaba
+  `withEnergyBundle:true`. *Mutación:* emparejar por `deckSlug` / «el que la respuesta no nombra» ⇒ rojo.
+- **AC-F22** `OrderAccessoryLineDTO.id`/`kind` obligatorios: M3 pinta «Reembolsar unidades» con la llave `id` y titula el
+  paquete por `kind` (no por `deckName !== null`).
+
+### AC.20 Errata v1.86.4 — los tres puntos que dejó abiertos el stream B (2026-10-07)
+Origen: `BACKEND_NOTES §83.B.1` (1) y (7), `§83.B.5` y `§83.B.6`. ⛔ Sin schema, sin cambio a `M-73` y sin cambio de
+conducta en producción: ratifica lo construido y corrige una prueba. Porqué: `ARCHITECTURE §4.AC (q)`.
+
+#### AC.20.1 💰 Carrera del paquete: valen los DOS códigos y ⛔ no se traduce uno al otro
+**Qué código da `session`.** Depende del paso de §AC.19.4 que detecta la falta, no de que haya carrera:
+
+| Paso que la detecta | Cuándo | Respuesta |
+|---|---|---|
+| **3** (validador, lee con `tx`) | un paquete **por sí solo** no cabe en lo disponible al leer | `422 ENERGY_BUNDLE_INVALID {index, deckSlug, reason:'insufficient_stock'}` |
+| **5** (apartado único, `UPDATE … WHERE`) | cada cosa cabe sola pero no todas juntas (AC-B56), **o** otra sesión apartó entre el paso 3 y el 5 | `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId, availableQty}` |
+
+- En una carrera, quien pierde ve uno u otro según si su paso 3 leyó antes o después del commit de quien gana (medido por
+  backend: `409` en 49/50 y `422` en 1/50, N=50, `§83.B.3`). En los dos: cero filas, cero PaymentIntent, nada cobrado.
+- ⛔ **No se unifica.** El `422 insufficient_stock` no es exclusivo de la carrera: es la respuesta normal cuando las
+  existencias ya eran cortas al pagar. Traducir `409 → 422` exigiría adivinar el `index` de un `accessoryId` que puede estar
+  en dos paquetes o en un paquete y un renglón suelto. Traducir `422 → 409` borraría el `index` y obligaría a inventar un
+  `availableQty` para un paquete.
+- **Frontend: ya cumple; no cambia nada** (`GuestCheckoutView.tsx:351-357`, `:413`, `:419-422`; textos
+  `DESIGN_SYSTEM §AC-UX.5`, líneas 30421-30431):
+  - `422 ENERGY_BUNDLE_INVALID` con cualquier `reason` ⇒ sale el paquete de la posición `index` en la lista que se mandó;
+    se pinta la fila «El paquete de energías de {deck} ya no se puede pagar…».
+  - `409 ACCESSORY_INSUFFICIENT_STOCK` cuyo `accessoryId` es **solo** componente de un paquete ⇒ **lo mismo** (misma fila,
+    mismo paquete fuera). Así las dos salidas de la carrera se ven idénticas para el cliente.
+  - `409` de un renglón suelto ⇒ cantidad a `availableQty`, o fuera si es 0 (sin cambio).
+  - Después se re-cotiza, y la cotización decide el carrito final («paquetes primero», §AC.19.4). ⛔ La pantalla no
+    calcula existencias con la carga del error.
+- **QA, criterio 741:** la proporción cuenta «una sesión `201`, la otra `409 ACCESSORY_INSUFFICIENT_STOCK` **o** `422
+  ENERGY_BUNDLE_INVALID/insufficient_stock`, sin PaymentIntent, `reservedQty = 8`». El reparto entre los dos códigos se
+  informa aparte, como dato; no decide el veredicto. **AC-B33 se ratifica** con el predicado que dejó backend (`§83.B.2`).
+
+#### AC.20.2 El dial `energy_bundle_price_cents`: la fila puede existir o no; ninguna prueba supone cuál
+- **Norma:**
+  - Ninguna migración siembra la fila. `M-73` siembra solo las 8 `Accessory` (§AC.1).
+  - En producción la fila no existe hasta que el súper-admin guarda el dial (`PUT /admin/settings`).
+  - `seed-e2e` sí la siembra, porque siembra todos los `SETTING_DEFAULTS` (medido por backend: `2000`, `§83.B.5`).
+  - Los dos estados son válidos y dan el mismo precio. El lector único es `loadEnergyBundlePriceCents`
+    (`decks-meta.service.ts:341-343`, normaliza en `:67-69`): fila ausente o fuera de `1..100_000` ⇒
+    `SETTING_DEFAULTS` = 2000.
+- ⛔ **Ninguna prueba de integración supone el estado de la fila en el entorno.** Cada caso fija el estado que necesita, y
+  la suite devuelve al terminar el estado que encontró. Es el patrón ya construido en
+  `accessories-checkout.e2e-spec.ts:633-645`.
+- **Corrección de `test/integration/decks-meta-energy.e2e-spec.ts`** (código del stream C; la hace backend):
+  1. `beforeAll`: se guarda `prev = findUnique(key)`. Las líneas `:79-80` (`expect(dialExisted).toBe(false)`) se
+     sustituyen por `deleteMany(key)`: el estado base de la suite es «ausente», **puesto por la suite**.
+  2. `:170` y `:181`: `create` ⇒ `upsert`. Con la fila sembrada, `create` da `P2002`.
+  3. `afterAll` (`:94`): restaura `prev`. Si existía, se recrea con su `valueJson`; si no, `deleteMany`. ⛔ Borrar sin
+     más deja sin fila a las suites que corren después.
+  4. Se añade **AC-B63** (abajo). Con eso la suite mide más que antes: «ausente ⇒ 2000» y «presente ⇒ se lee», en vez de un
+     2000 que no distingue entre leer la fila y caer al valor por defecto.
+- La misma regla vale para `accessories-panel.e2e-spec.ts:49` (`DIAL_KEYS`). ⛔ NO MEDIDO cómo maneja hoy el estado
+  previo; backend lo revisa con la misma corrección si hace falta.
+
+#### AC.20.3 💰 Reponer al reembolso total: se ratifica el momento (tx1 de M3 y tx de `charge.refunded`)
+- **Norma (sin cambio, §AC.6 (5)):** `restockAccessoriesOnFullRefund` corre dentro de `closeShipmentsOnFullRefund`, rama
+  directo:
+  - en la **tx1 de M3**, la que crea la fila `order_full` y cierra los envíos, y en la tx del `charge.refunded` total;
+  - con los mismos candados (envíos → `Order` → renglón), la orden `settled|refunded` y `afterShipment` leído bajo el
+    candado de los envíos.
+  - ⛔ No se mueve a la transacción que **confirma** el reembolso.
+- **Coherente con `HECHOS.md` 2026-10-04 «Cartas apartadas (SSL-R1) — detalles»:**
+  - **4b**, «enviado ⇒ no vuelven», en cualquier reembolso total: con `afterShipment = true` no vuelve nada. La misma tx
+    pasa a `cancelado` los envíos `picking|guia`, y `cancelado` no se reabre (§M4-SHIP.17.2 (3)). Así ningún envío puede
+    salir después y contradecir lo decidido en la tx1.
+  - **4a**, no enviado: las cartas vuelven solas o con un clic. Los accesorios vuelven solos aunque estuvieran palomeados
+    o empacados. Ya está decidido (`ARCHITECTURE §4.AC (k)`: son intercambiables; criterio 717 literal).
+- **Si Stripe rechaza la fila (`failed`):** las unidades ya volvieron al estante. Se acepta, y amplía el residual
+  declarado de §M4-SHIP.17.2 (3):
+  - el envío quedó cerrado y no se reabre, así que esas unidades no van a salir con ese pedido;
+  - lo que se le debe al cliente es dinero, no mercancía, y se ve en `summary.stuckRefunds`.
+  - Mientras dure, el P&L ve el renglón `restocked` sin costo, y la orden sigue `settled` con su ingreso. Es transitorio:
+    se resuelve cuando el reembolso se completa.
+- **Por qué no esperar a la confirmación**, como en bóveda (§M4-SHIP.18.3):
+  - En bóveda, la carta está en custodia del cliente: devolverla antes de que se mueva el dinero le quita algo. Aquí las
+    unidades nunca salieron del almacén.
+  - Si se esperara, con un reembolso atascado las unidades seguirían físicamente en el estante pero sin poder venderse
+    (`sold`).
+  - Además, la decisión `afterShipment` se partiría entre dos transacciones.
+- **Idempotencia:** un `charge.refunded` posterior (por ejemplo, el reembolso rehecho desde el panel de Stripe) no repone
+  dos veces, por el CAS `sold → restocked`.
+
+#### AC.20.4 Pruebas (siguientes libres)
+Son candados de conducta **ya construida**. ⛔ No se espera que fallen hoy: cada una se entrega con su mutación roja como
+prueba de que muerde.
+
+**Backend:**
+- **AC-B61** 💰 (B) Código determinista de la falta en `session`, sin carrera:
+  - (a) el deck pide 8 «Fuego» y hay 5 disponibles ⇒ `422 ENERGY_BUNDLE_INVALID {index:0, reason:'insufficient_stock'}`,
+    cero `OrderAccessoryLine`, `reservedQty` sin cambio, sin PaymentIntent;
+  - (b) 10 disponibles y dos paquetes de 8 (decks distintos) ⇒ `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId: Fuego,
+    availableQty: 10}`, cero filas (es el tercer punto de AC-B56; se aserta la carga).
+  - *Mutación:* traducir el `insufficient_stock` del validador a `409` ⇒ (a) rojo. *Mutación:* llamar al validador
+    después del apartado ⇒ (a) da `409`, rojo.
+- **AC-B62** 💰 (B) Reponer con el reembolso rechazado:
+  - directo no enviado con «Penny sleeves» ×3 vendidas (`stockQty` 10 → 7); M3 total con el doble de Stripe rechazando
+    ⇒ fila `order_full` `failed`, envío `cancelado`, renglón `restocked`, `stockQty = 10`, un movimiento `restock`;
+  - después, `charge.refunded` total del mismo PI ⇒ `stockQty = 10` y sigue habiendo **un** movimiento.
+  - *Mutación:* quitar `status = 'sold'` del CAS ⇒ 13, rojo. *Mutación:* mover la reposición a la confirmación ⇒ 7 tras
+    el `failed`, rojo.
+  - ⛔ NO MEDIDO que el doble del arnés sepa rechazar un reembolso. Si no sabe, se le añade en `backend/test/`.
+- **AC-B63** (C) El dial se lee y su ausencia cae a 2000, con el estado puesto por la prueba (§AC.20.2):
+  - fila ausente (`deleteMany`) ⇒ `energyBundle.priceCents = 2000`;
+  - fila `2300` (≠ default, con `upsert`) ⇒ `priceCents = 2300` y `offered: true` (5000 > 2300);
+  - al terminar, la fila vuelve a `prev`.
+  - *Mutación:* que el lector devuelva siempre el default ⇒ el caso 2300 rojo. *Mutación:* quitar el respaldo de
+    ausente ⇒ el caso ausente rojo.
+
+**Frontend:**
+- **AC-F23** 💰 Las dos salidas de la carrera se ven iguales. Carrito con el paquete del deck X y sin «Fuego» suelto:
+  - (a) `session` ⇒ `422 ENERGY_BUNDLE_INVALID {index:0, deckSlug:X, reason:'insufficient_stock'}`;
+  - (b) `session` ⇒ `409 ACCESSORY_INSUFFICIENT_STOCK {accessoryId: <Fuego, solo componente>, availableQty: 3}`.
+  - En los dos: el paquete sale, se pinta el mismo texto `bundle` con el nombre del deck, se re-cotiza, y ⛔ no aparece un
+    renglón suelto de «Fuego».
+  - *Mutación:* tratar el `409` de un componente como renglón suelto (`setAccessoryQty`) ⇒ (b) rojo.
+
+### AC.21 Errata v1.86.6 — liquidar nunca cae por un accesorio; ficheros reales (2026-10-08)
+
+Origen: veredicto de techlead sobre `dd26ae79` (TD-AC-1, TD-AC-8). Porqué: `ARCHITECTURE §4.AC (r)`. ⛔ Sin schema, sin
+`M-73`, sin forma pública nueva. Manda sobre §AC.6 (4) donde choque.
+
+#### AC.21.1 💰 El defecto (TD-AC-1)
+
+- `settleAccessories` (`orders/accessory-stock.ts:119-135` en `dd26ae79`) gana el CAS `reserved → sold` y luego, por
+  componente, hace `UPDATE … WHERE reservedQty ≥ q AND stockQty ≥ q`. Con 0 filas lanza `Error`.
+- Ese `throw` deshace la tx entera del settle (`payments.service.ts:452-558`): el CAS del pedido, las cartas
+  (`reserved → picking`) y el `ShipmentRequest`.
+- Consecuencia: el pedido **pagado** se queda `pending`. Stripe reintenta y vuelve a caer igual. El barrido no lo
+  cancela, porque el PaymentIntent ya está cobrado. Nadie lo prepara.
+- Las cartas no se tratan así (B3, `payments.service.ts:487-521`): una pieza que no está donde debía se recupera o se
+  anota, y el settle sigue. El accesorio tiene que seguir la misma regla.
+
+#### AC.21.2 💰 Norma — por renglón `reserved`, tras ganar su CAS `reserved → sold`
+
+Por cada componente, en el orden de candados vigente (por `accessoryId` ascendente; si C-1 lo cambia, manda C-1 — los
+pasos (b) y (c) tocan solo filas que el paso (a) ya intentó, así que no añaden orden nuevo):
+
+- **(a) Venta normal**, igual que hoy: `stockQty −= q, reservedQty −= q WHERE reservedQty ≥ q AND stockQty ≥ q`.
+  Si escribe ⇒ componente `sale`.
+- **(b) Si (a) da 0 filas ⇒ recuperación**, el mismo `UPDATE` de la rama `released`:
+  `stockQty −= q WHERE stockQty − reservedQty ≥ q`. ⛔ No toca `reservedQty`. Si escribe ⇒ componente `settle_recovery`.
+  - Porqué no toca `reservedQty`: (a) falló porque el contador ya no cuenta este renglón entero. Lo que queda en
+    `reservedQty` puede ser de otro pedido, y restarlo dejaría vender lo apartado. Restar de menos es el lado seguro
+    (misma regla que `releaseAccessoryReservations`, `accessory-stock.ts:80-81`).
+- **(c) Si (b) también da 0 filas ⇒ el renglón entero queda sin respaldo** (el paquete es todo o nada). Se para el
+  bucle y, para cada componente del renglón:
+  - ya escrito en (a) o (b): `stockQty += q` (⛔ sin tocar `reservedQty`). Neto: existencias intactas, y si fue por (a)
+    su apartado queda **soltado**, porque el renglón ya no está `reserved`;
+  - el que falló: nada (su contador no lo contaba entero);
+  - aún no alcanzado: se suelta su apartado como en §AC.6 (2), `reservedQty −= q WHERE reservedQty ≥ q`, ⛔ sin tocar
+    `stockQty`. Sin esto, su apartado quedaría contado para un renglón que ya no está `reserved`.
+  - Estado final, sea cual sea el orden de los ids: `stockQty` de todos los componentes como antes del settle;
+    `reservedQty` −q en cada componente que sí tenía su apartado contado.
+  - El renglón queda `sold` con `settledWithoutStock = true`, sin movimientos.
+- **Movimientos** (`AccessoryStockMovement`): solo si el renglón quedó respaldado, uno por componente, con su `kind`
+  (`sale` o `settle_recovery`). ⛔ Ninguno para lo deshecho en (c).
+- La `ShipmentAccessoryLine` nace en los tres casos (como hoy en la rama `released`).
+- ⛔ `settleAccessories` no lanza por existencias en ningún caso. Los errores de base de datos (conexión, CHECK) sí
+  siguen propagándose: esos no son «falta de existencias» y deben verse en el webhook.
+
+Resultado `{ unbacked }` pasa a `{ anomalies }`:
+
+```ts
+interface AccessorySettleAnomaly {
+  lineId: string;
+  accessoryId: string | null;        // null ⇔ paquete
+  quantity: number;
+  was: 'reserved' | 'released';      // de qué estado venía el renglón
+  recovered: boolean;                // true ⇔ salió de existencias libres (algún componente por (b))
+}
+```
+
+- `was = 'released'`, `recovered = true`: es la recuperación normal del pago tardío. ⛔ No es anomalía; no entra en la
+  lista (conducta de hoy).
+- `was = 'reserved'`, `recovered = true`: anomalía recuperada.
+- `recovered = false` (cualquier `was`): sin respaldo, `settledWithoutStock = true`.
+
+#### AC.21.3 Quién ve qué
+
+| Caso | Renglón | Quien prepara (§AC.9) | Dueño | Bitácora (fuera de la tx, best-effort, `.catch` como B3) |
+|---|---|---|---|---|
+| `reserved`, recuperado | `sold`, movimiento `settle_recovery` | Nada distinto: hay mercancía | `logger.error` + bitácora en M10; el conteo de §AC.6 (6) lo vuelve a decir si el contador quedó corrido | `order.settle_accessory_anomaly {lineId, accessoryId, quantity, was:'reserved', recovered:true}` |
+| sin respaldo (`reserved` o `released`) | `sold` + `settledWithoutStock` | `settledWithoutStock: true` («sin existencias al liquidar: revisar»); lo busca en el estante y, si no está, lo marca faltante (§AC.9) | `logger.error` + bitácora en M10 | `order.settle_accessory_unbacked {lineId, accessoryId, quantity, was}` (⭐ gana `was`; sin él, `'released'`) |
+
+- El pedido queda `settled`, las cartas en `picking` (o su anomalía B3), el envío nace, el cliente recibe su correo de
+  confirmación. Stripe recibe `2xx`.
+- ⛔ No hay reembolso automático por `settledWithoutStock`. La señal «no hay» viene del contador que acaba de mostrarse
+  equivocado; la fuente de verdad es el estante. Si falta, el faltante de preparación (§AC.9, §AC.10) ya calcula y
+  reembolsa el importe solo. Es el único paso manual, y es una comprobación física.
+
+#### AC.21.4 Cómo se reconcilia
+
+- **El renglón:** se reconcilia solo. O se descontó de existencias (y el reembolso total lo repone, §AC.6 (5)), o quedó
+  `settledWithoutStock` (y el reembolso total no repone nada, `accessory-stock.ts:198`).
+- **El contador `reservedQty`:** si quedó corrido, el conteo de §AC.6 (6) lo denuncia en cada barrido. ⛔ Sigue sin
+  corregir: la corrección automática es la propuesta TD-AC-10 de `ARCHITECTURE §4.AC (r)`, no esta errata.
+- **Idempotencia:** el CAS por renglón (`status = 'reserved'` / `'released'`) hace que un reintento de Stripe no repita
+  nada. El perdedor del CAS del pedido no escribe ni avisa (v1.79.4, sin cambio).
+
+#### AC.21.5 Pruebas (siguientes libres)
+
+Integración, contra BD real. Cada caso: pedido directo de invitado con **1 carta** y el renglón de accesorio, apartado por
+`session`; luego se rompe el contador a mano y llega `payment_intent.succeeded`.
+
+- **AC-B64** 💰 Recuperado: «Penny sleeves» ×3, `stockQty = 10`; se fuerza `reservedQty = 0`.
+  - Webhook ⇒ `2xx`; pedido `settled`; carta `picking`; envío creado con su `ShipmentAccessoryLine`.
+  - Renglón `sold`, `settledWithoutStock = false`; `stockQty = 7`, `reservedQty = 0`; **un** movimiento
+    `settle_recovery` −3; una bitácora `order.settle_accessory_anomaly` con `was:'reserved', recovered:true`.
+  - Mismo evento otra vez ⇒ nada nuevo (un movimiento, una bitácora).
+  - *Mutación:* reponer el `throw` ⇒ rojo (pedido `pending`, carta `reserved`). *Mutación:* saltar (b) e ir directo a
+    (c) ⇒ rojo (`settledWithoutStock = true`, `stockQty = 10`).
+- **AC-B65** 💰 Sin respaldo, suelto: «Penny sleeves» ×3, se fuerza `stockQty = 3, reservedQty = 2`.
+  - Pedido `settled`; carta `picking`; renglón `sold` + `settledWithoutStock = true`; `stockQty = 3`, `reservedQty = 2`;
+    cero movimientos; bitácora `order.settle_accessory_unbacked` con `was:'reserved'`.
+  - El detalle de preparación (§AC.9) trae ese renglón con `settledWithoutStock: true`.
+  - *Mutación:* reponer el `throw` ⇒ rojo. *Mutación:* en (b), condición `stockQty ≥ q` en vez de
+    `stockQty − reservedQty ≥ q` ⇒ rojo (`stockQty = 0`: se vendió lo apartado por otro).
+- **AC-B66** 💰 Sin respaldo, paquete (todo o nada): paquete con 8 «Fuego» (contador sano) y 8 «Agua»; se fuerza para
+  «Agua» `stockQty = 8, reservedQty = 2`. Dos sub-casos, con los ids elegidos por la prueba: (i) «Fuego» ordena antes que
+  «Agua»; (ii) «Agua» ordena antes que «Fuego».
+  - En los dos: renglón `settledWithoutStock = true`. «Fuego»: `stockQty` igual que antes, `reservedQty` −8 (soltado).
+    «Agua»: sin cambio. Cero movimientos. Pedido `settled`, carta `picking`.
+  - *Mutación:* en (c), deshacer también `reservedQty` (`+= q`) ⇒ (i) rojo («Fuego» con el apartado contado de más).
+    *Mutación:* no deshacer los componentes ya escritos ⇒ (i) rojo («Fuego» `stockQty` −8). *Mutación:* no soltar los
+    componentes no alcanzados ⇒ (ii) rojo («Fuego» `reservedQty` sin bajar).
+- Cada una se entrega con su mutación roja medida (O-3 no aplica: no hay carrera; N = 1 por mutación basta).

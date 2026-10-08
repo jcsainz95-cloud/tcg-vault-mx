@@ -1,13 +1,17 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
 import type { AppLocale } from '@/i18n/routing';
-import type { MetaCardGroup, MetaDeckGroupsDTO, MetaDeckLineDTO } from '@/types/contract';
+import type { DeckEnergyBundleDTO, MetaCardGroup, MetaDeckGroupsDTO, MetaDeckLineDTO } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
 import { useCart } from '@/lib/cart';
+import { useSession } from '@/lib/session';
+import { energyBreakdown, totalQuantity } from '@/lib/accessories';
 import { useRouter } from '@/i18n/navigation';
+import { AccessoryPhoto } from '@/components/domain/accessories/AccessoryPhoto';
+import { SignedInAccessoryNotice } from '@/components/domain/accessories/SignedInNotice';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -43,15 +47,28 @@ export function pullableItemIds(groups: MetaDeckGroupsDTO): string[] {
  * (§13: `paste` devuelve la MISMA forma que `groups`). Deja CLARO qué tenemos disponible, qué está
  * agotado y qué no se identificó, y ofrece «agregar de jalón» lo disponible.
  */
-export function DeckAvailability({ groups }: { groups: MetaDeckGroupsDTO }) {
+export function DeckAvailability({
+  groups,
+  deck,
+  energyBundle,
+}: {
+  groups: MetaDeckGroupsDTO;
+  /** §AC.8: el deck del top-10 (ausente en «Pegar lista»). Lo nombra en el carrito y firma el `deckPull`. */
+  deck?: { slug: string; name: string };
+  /** §AC.8: recuadro del paquete. ⛔ `paste` no lo emite (P-EN-7) ⇒ sin recuadro. */
+  energyBundle?: DeckEnergyBundleDTO;
+}) {
   const t = useTranslations('decksMeta');
   const cart = useCart();
+  const { isAuthenticated } = useSession();
   const [addedSignal, setAddedSignal] = useState(0);
   const dismissToast = useCallback(() => setAddedSignal(0), []);
 
   const pullable = useMemo(() => pullableItemIds(groups), [groups]);
   // Lo que aún NO está en el carrito (idempotente: re-agregar no cuenta).
   const remaining = pullable.filter((id) => !cart.ids.includes(id));
+  const deckPull = deck ? cart.deckPulls.find((p) => p.slug === deck.slug) : undefined;
+  const bundleInCart = deckPull?.withEnergyBundle === true;
 
   const onAdd = useCallback(
     (id: string) => {
@@ -64,8 +81,26 @@ export function DeckAvailability({ groups }: { groups: MetaDeckGroupsDTO }) {
   const onAddAll = useCallback(() => {
     if (remaining.length === 0) return;
     for (const id of remaining) cart.add(id);
+    // §AC-UX.8: el jalón guarda el `deckPull` SIN paquete (para que el carrito pueda OFRECERLO). ⛔ Nunca
+    // `withEnergyBundle: true` desde aquí (AC-UX-7, criterio 735); si ya estaba en el carrito, se conserva.
+    if (deck && energyBundle) {
+      cart.upsertDeckPull({
+        token: energyBundle.pullToken,
+        slug: deck.slug,
+        withEnergyBundle: deckPull?.withEnergyBundle ?? false,
+        deckName: deck.name,
+      });
+    }
     setAddedSignal(Date.now());
-  }, [cart, remaining]);
+  }, [cart, remaining, deck, energyBundle, deckPull]);
+
+  const onAddEnergy = useCallback(
+    (accessoryId: string, qty: number) => {
+      cart.addAccessory(accessoryId, qty);
+      setAddedSignal(Date.now());
+    },
+    [cart],
+  );
 
   return (
     <div>
@@ -79,6 +114,20 @@ export function DeckAvailability({ groups }: { groups: MetaDeckGroupsDTO }) {
         </Button>
       </div>
 
+      {deck && energyBundle && (
+        <EnergyBundleBox
+          bundle={energyBundle}
+          deckReady={pullable.length > 0 && remaining.length === 0}
+          inCart={bundleInCart}
+          signedIn={isAuthenticated}
+          onAdd={() => {
+            cart.upsertDeckPull({ token: energyBundle.pullToken, slug: deck.slug, withEnergyBundle: true, deckName: deck.name });
+            setAddedSignal(Date.now());
+          }}
+          onRemove={() => cart.setBundle(deck.slug, false)}
+        />
+      )}
+
       {GROUP_ORDER.map((groupKey) => {
         const lines = groups[groupKey] ?? [];
         if (lines.length === 0) return null;
@@ -87,10 +136,24 @@ export function DeckAvailability({ groups }: { groups: MetaDeckGroupsDTO }) {
             <h2 className="font-serif text-[22px] leading-tight text-text">
               {t(`detail.groups.${groupKey}`)}
             </h2>
+            {/* §AC-UX.4: con sesión, el aviso UNA vez por bloque (no por línea). */}
+            {isAuthenticated && lines.some((l) => l.basicEnergy) && <SignedInAccessoryNotice className="mt-3" />}
             <div className="mt-3 border-t border-border">
-              {lines.map((line, i) => (
-                <DeckLineRow key={`${groupKey}-${i}`} line={line} cartIds={cart.ids} onAdd={onAdd} />
-              ))}
+              {lines.map((line, i) =>
+                line.basicEnergy ? (
+                  <EnergyLineRow
+                    key={`${groupKey}-${i}`}
+                    line={line}
+                    energy={line.basicEnergy}
+                    inCartQty={cart.accessories.find((a) => a.id === line.basicEnergy!.accessoryId)?.qty ?? 0}
+                    inBundle={bundleInCart}
+                    signedIn={isAuthenticated}
+                    onAdd={onAddEnergy}
+                  />
+                ) : (
+                  <DeckLineRow key={`${groupKey}-${i}`} line={line} cartIds={cart.ids} onAdd={onAdd} />
+                ),
+              )}
             </div>
           </section>
         );
@@ -270,5 +333,143 @@ function Substitute({
         {label}
       </Button>
     </div>
+  );
+}
+
+/**
+ * §AC-UX.8 — energía básica ligada a su producto activo (`MetaDeckLineDTO.basicEnergy`). Precio del servidor
+ * («{price} c/u»); «Agregar ×{qty}» suma `quantity` unidades (la cotización ajusta si hay menos).
+ */
+function EnergyLineRow({
+  line,
+  energy,
+  inCartQty,
+  inBundle,
+  signedIn,
+  onAdd,
+}: {
+  line: MetaDeckLineDTO;
+  energy: NonNullable<MetaDeckLineDTO['basicEnergy']>;
+  inCartQty: number;
+  inBundle: boolean;
+  signedIn: boolean;
+  onAdd: (accessoryId: string, qty: number) => void;
+}) {
+  const t = useTranslations('decksMeta');
+  const ta = useTranslations('accessories');
+  const locale = useLocale() as AppLocale;
+  const router = useRouter();
+  const type = ta(`energyType.${energy.energyType}`);
+  const name = t('energy.name', { type });
+
+  let action: React.ReactNode = null;
+  if (inBundle) action = <p className="text-sm text-muted">{t('energy.inBundle')}</p>;
+  else if (signedIn || energy.soldOut) action = null;
+  else if (inCartQty >= line.quantity)
+    action = (
+      <Button variant="secondary" size="sm" onClick={() => router.push('/checkout')}>
+        <Check size={14} aria-hidden />
+        {t('energy.inCart')}
+      </Button>
+    );
+  else
+    action = (
+      <Button
+        variant="primary"
+        size="sm"
+        aria-label={t('energy.addAria', { qty: line.quantity, type })}
+        onClick={() => onAdd(energy.accessoryId, line.quantity)}
+      >
+        {t('energy.add', { qty: line.quantity })}
+      </Button>
+    );
+
+  return (
+    <div data-testid={`deck-energy-${energy.energyType}`} className="flex flex-wrap items-center gap-4 border-b border-border py-4">
+      <AccessoryPhoto src={energy.photo.thumbUrl} alt={name} fallbackText={name} className="h-12 w-12 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="font-mono text-[11px] tabular text-muted">{t('detail.quantity', { qty: line.quantity })}</span>
+          <span className="text-[15px] text-text">{name}</span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+          {energy.soldOut ? (
+            <Badge tone="neutral">{t('energy.soldOut')}</Badge>
+          ) : (
+            <Badge tone="success">{t('line.available')}</Badge>
+          )}
+          <span className="tabular text-[15px] font-medium leading-none text-text">
+            {t('energy.unitPrice', { price: formatMoneyCents(energy.unitPriceCents, locale) })}
+          </span>
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+/**
+ * §AC-UX.8 — el recuadro del paquete de energías. ⛔ Nada viene marcado y «Agregar de jalón» no lo agrega
+ * (AC-UX-7, criterio 735). El botón propio se habilita solo con el deck completo en el carrito (P-EN-4).
+ * Cifras del servidor: `priceCents` y `looseTotalCents` (referencia, ⛔ sin tachar ni «ahorras»).
+ */
+function EnergyBundleBox({
+  bundle,
+  deckReady,
+  inCart,
+  signedIn,
+  onAdd,
+  onRemove,
+}: {
+  bundle: DeckEnergyBundleDTO;
+  deckReady: boolean;
+  inCart: boolean;
+  signedIn: boolean;
+  onAdd: () => void;
+  onRemove: () => void;
+}) {
+  const t = useTranslations('decksMeta.bundle');
+  const ta = useTranslations('accessories');
+  const locale = useLocale() as AppLocale;
+  const router = useRouter();
+  const reasonId = useId();
+
+  if (!bundle.offered) {
+    return bundle.reason === 'insufficient_stock' ? <p className="mt-4 text-sm text-muted">{t('noStock')}</p> : null;
+  }
+  return (
+    <section data-testid="deck-energy-bundle" className="mt-4 flex flex-col gap-2 border-y border-border-strong bg-surface py-5">
+      <p className="eyebrow">{t('eyebrow')}</p>
+      <p className="text-[15px] text-text">
+        {t('headline', { n: totalQuantity(bundle.energies), price: formatMoneyCents(bundle.priceCents, locale) })}
+      </p>
+      <p className="font-mono text-xs text-muted">{energyBreakdown(bundle.energies, ta)}</p>
+      <p className="text-sm text-muted">{t('loose', { amount: formatMoneyCents(bundle.looseTotalCents, locale) })}</p>
+      <p className="text-xs text-muted">{t('note')}</p>
+      {signedIn ? (
+        <SignedInAccessoryNotice className="mt-2" />
+      ) : inCart ? (
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <Button variant="secondary" size="sm" onClick={() => router.push('/checkout')}>
+            <Check size={14} aria-hidden />
+            {t('inCart')}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onRemove}>
+            {t('remove')}
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-col items-start gap-2">
+          <Button variant="secondary" size="sm" disabled={!deckReady} aria-describedby={!deckReady ? reasonId : undefined} onClick={onAdd}>
+            {t('add')}
+          </Button>
+          {!deckReady && (
+            <p id={reasonId} className="text-xs text-muted">
+              {t('needsDeck')}
+            </p>
+          )}
+        </div>
+      )}
+    </section>
   );
 }

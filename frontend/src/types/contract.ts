@@ -1745,6 +1745,11 @@ export interface ShippingPackageDTO {
   providerPackageType: string | null;
   active: boolean;
   sortOrder: number;
+  /**
+   * 💰 §AC.7 (aditivo): lo que paga el cliente por esta caja, IVA dentro; 1..10_000_000. `null` ⇒ la caja no
+   * cuenta para el cobro. Opcional por tolerancia a un servidor anterior a M-73; el `PUT` siempre lo manda.
+   */
+  customerFeeCents?: number | null;
 }
 
 /** `GET /admin/shipping/catalogs` (§19.19.6, súper-admin). */
@@ -1890,6 +1895,10 @@ export interface ShipPreparationOrderDTO {
   labelAlert?: LabelAlertDTO | null;
   /** 🔒💰 v1.80.12.8 (§19.28.11): folio del envío (`ENV-000045`), de admin. Opcional: servidor anterior a `M-67`. */
   folio?: string;
+  /** 💰 §AC.9 (aditivo, solo envío directo): renglones de accesorio y paquetes. */
+  accessoryLines?: ShipAccessoryLineDTO[];
+  /** 💰 §AC.7: la caja congelada en la sesión; `null` ⇔ tarifa de hoy. */
+  box?: ShipmentBoxDTO | null;
 }
 
 export interface VaultPreparationOrderDTO {
@@ -2792,6 +2801,8 @@ export interface AdminOrderDetailDTO {
   }[];
   vaultPlacement?: { id: string; status: VaultPlacementStatus } | null;
   vaultPieces?: VaultPieceDTO[]; // solo órdenes `vault`
+  /** 💰 §AC.12 (aditivo): renglones de accesorio y paquetes. ⛔ Sin costo. */
+  accessoryLines?: OrderAccessoryLineDTO[];
 }
 
 // ---- Cliente (§M4-SHIP.10 / .15.13 / .16) ----
@@ -6049,6 +6060,13 @@ export interface SettingsDTO {
   buylistGuideCloseCalendarDays?: number;
   /** 💰 rev BSD-1 (§BSD.9): días naturales antes del cierre para AG-23 y `guideDueSoon` (0..30, default 2; 0 = sin aviso). */
   buylistGuideWarnDaysBeforeClose?: number;
+  /**
+   * 💰 §AC.11 (aditivos): diales `energy_bundle_price_cents` (1..100_000, default 2000) y
+   * `accessory_suggestion_count` (0..6, default 3). El nombre camelCase sigue la convención de `SETTING_DTO_MAP`
+   * (§AC.11 no lo enumera: solicitud al arquitecto en FRONTEND_NOTES §107). Opcionales: servidor anterior a M-73.
+   */
+  energyBundlePriceCents?: number;
+  accessorySuggestionCount?: number;
   fxBufferPct: number;
   fxManualOverrideRate?: number;
   pricingProviderRaw: string;
@@ -6776,7 +6794,13 @@ export interface SalesMixDTO {
   /** fase C (M-AN-1); `method: null` = «sin dato». Cadena ABIERTA (no enum). Opcional en el front: fase B no la trae. */
   byPaymentMethod?: Array<{ method: string | null; orders: number; chargedCents: number }>;
   /** ⭐ AN-1.1 (N-AN-2, §15.11.2, fase B): incluye los `refunded`; Σ = `totals.pieces` / `totals.netSalesCents`. */
-  byProductType?: { raw: SalesPieceCellDTO; graded: SalesPieceCellDTO; sealed: SalesPieceCellDTO };
+  byProductType?: {
+    raw: SalesPieceCellDTO;
+    graded: SalesPieceCellDTO;
+    sealed: SalesPieceCellDTO;
+    /** §AC.12 (aditivo): unidades de renglones `accessory` + 1 por paquete. Ausente ⇒ servidor anterior. */
+    accessory?: SalesPieceCellDTO;
+  };
 }
 
 export type SalesRowDTO = { from: SalesYmd; to: SalesYmd } & SalesFiguresDTO;
@@ -6910,6 +6934,14 @@ export interface GuestCheckoutQuoteResponse {
    * nunca error.
    */
   unavailableItems: UnavailableCartItemDTO[];
+  /** 💰 §AC.4 (aditivas). Opcionales solo por tolerancia a un servidor anterior a M-73. */
+  accessoryLines?: QuoteAccessoryLineDTO[];
+  energyBundles?: EnergyBundleDTO[];
+  energyBundleOffers?: EnergyBundleDTO[];
+  unavailableAccessories?: UnavailableAccessoryDTO[];
+  unavailableBundles?: UnavailableBundleDTO[];
+  shippingBox?: QuoteShippingBoxDTO | null;
+  vaultExcludesAccessories?: boolean;
 }
 
 /** POST /checkout/guest/session. §4-G.2 */
@@ -6931,6 +6963,9 @@ export interface GuestCheckoutSessionRequest {
    * en **`sessionStorage`** (ámbito pestaña; ⛔ nunca `localStorage`) y viaja SOLO en el body.
    */
   retryOfCheckoutToken?: string;
+  /** 💰 §AC.4 (aditivas). ⛔ Sin importes: precio, envío y paquete los pone el servidor (I-AC-3). */
+  accessoryLines?: AccessoryLineInput[];
+  deckPulls?: DeckPullInput[];
 }
 
 export interface GuestCheckoutSessionResponse {
@@ -6958,6 +6993,10 @@ export interface GuestCheckoutSessionResponse {
   reused?: boolean;
   reservedUntil?: string;
   supersededOrderIds?: string[];
+  /** 💰 §AC.4 (aditiva): lo creado en la sesión. */
+  accessoryLines?: QuoteAccessoryLineDTO[];
+  energyBundles?: EnergyBundleDTO[];
+  shippingBox?: QuoteShippingBoxDTO | null;
 }
 
 /** Estado público derivado (§4-G.5). El texto legible vive en i18n del front. */
@@ -7027,6 +7066,11 @@ export interface GuestOrderTrackingDTO {
   claim: { available: boolean };
   support: { evidenceContact: string; disputeWindowDays: number; disputeDeadlineAt?: string };
   tokenExpiresAt: string;
+  /**
+   * 💰 §AC.12 (aditivo): renglones de accesorio. ⛔ Sin costo. v1.86.3 (§AC.19.6): con `id` (uuid opaco, llave de
+   * lista) y `kind`; ⛔ `deliveredRefund` solo en M3.
+   */
+  accessoryLines?: Omit<OrderAccessoryLineDTO, 'deliveredRefund'>[];
 }
 
 /** POST /orders/guest/resend-link — unión discriminada; `email` SOLO nunca se acepta (§4-G.4). */
@@ -7263,6 +7307,11 @@ export interface MetaDeckLineDTO {
   /** Hasta `availableQty`, cheapest-first — las piezas del «de jalón». */
   unitInventoryItemIds: string[];
   substitute?: MetaDeckLineSubstituteDTO;
+  /**
+   * 💰 §AC.8 (aditivo): presente y no nulo ⇔ energía básica reconocida con producto ACTIVO de su tipo.
+   * `null`/ausente ⇒ la línea se pinta como hoy (criterio 734).
+   */
+  basicEnergy?: MetaDeckBasicEnergyDTO | null;
 }
 
 /** §13 — las líneas del deck agrupadas por sección. Misma forma en el detalle y en `paste`. */
@@ -7309,6 +7358,8 @@ export interface DeckMetaDetailResponse {
   sourceUrl?: string;
   sourceTournament?: string;
   groups: MetaDeckGroupsDTO;
+  /** 💰 §AC.8 (aditivo, en la raíz). ⛔ `POST /decks-meta/paste` no lo emite (P-EN-7). */
+  energyBundle?: DeckEnergyBundleDTO;
 }
 
 /**
@@ -7435,3 +7486,334 @@ export interface DecksMetaDialUpdateRequest {
   autofetch?: DecksMetaAutofetch;
   autopublish?: boolean;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────
+ * 💰 §AC — ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + errata v1.86.1).
+ * Espejo de `API_CONTRACT §AC.1–§AC.13`. ⛔ Ningún DTO público lleva costo, existencias, `suggested` ni
+ * medidas (I-AC-3, criterio 730). Lo que el contrato declara aditivo en DTOs existentes va como opcional
+ * (`?`) para tolerar un servidor anterior a M-73; la pantalla lee `?? []` / `?? null` (FRONTEND_NOTES §107).
+ * ────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** Enum de Prisma (clase E). Orden = orden de la tienda (§AC.1). */
+export const ACCESSORY_CATEGORIES = ['sleeves', 'toploaders', 'binders', 'deck_boxes', 'playmats', 'energy', 'other'] as const;
+export type AccessoryCategory = (typeof ACCESSORY_CATEGORIES)[number];
+/** Enum de Prisma (clase E), P-EN-1. Orden = el de los desgloses «Fuego ×8 · Agua ×4». */
+export const ENERGY_TYPES = ['grass', 'fire', 'water', 'lightning', 'psychic', 'fighting', 'darkness', 'metal'] as const;
+export type EnergyType = (typeof ENERGY_TYPES)[number];
+export type AccessoryLineKind = 'accessory' | 'energy_bundle';
+export type AccessoryLineStatus = 'reserved' | 'released' | 'sold' | 'restocked';
+export type AccessoryStockMovementKind = 'initial' | 'receive' | 'adjust' | 'sale' | 'restock' | 'settle_recovery';
+
+/** §AC.3 — rutas absolutas de la API, con versión (`/accessories/:id/photo/:version/:variant`). */
+export interface AccessoryPhotoDTO {
+  url: string;
+  thumbUrl: string;
+}
+
+/** §AC.3 — teja pública. `priceCents` con IVA dentro (precio exhibido). */
+export interface AccessoryCardDTO {
+  id: string;
+  name: string;
+  category: AccessoryCategory;
+  energyType: EnergyType | null;
+  priceCents: number;
+  /** `stockQty − reservedQty = 0`. */
+  soldOut: boolean;
+  photo: AccessoryPhotoDTO;
+}
+
+/** §AC.3 — ficha pública. `maxQty = min(disponible, 99)`; 0 ⇔ soldOut. Único rastro del disponible. */
+export interface AccessoryDetailDTO extends AccessoryCardDTO {
+  description: string | null;
+  maxQty: number;
+}
+
+/** `GET /accessories?category=&q=&page=&pageSize=` (§AC.3). */
+export interface AccessoryListResponse {
+  items: AccessoryCardDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+/** `GET /accessories/suggestions?exclude=` (§AC.3). `[]` ⇔ dial en 0 o sin candidatos. */
+export interface AccessorySuggestionsResponse {
+  items: AccessoryCardDTO[];
+}
+
+/** §AC.4 — cuerpo aditivo de `quote`/`session`. ⛔ Sin precio: el servidor ignora llaves extra (I-AC-3). */
+export interface AccessoryLineInput {
+  accessoryId: string;
+  /** Entero 1..99. */
+  quantity: number;
+}
+/** §AC.4/§AC.8 — el `pullToken` viaja SOLO en el cuerpo (⛔ nunca en URL). */
+export interface DeckPullInput {
+  pullToken: string;
+  withEnergyBundle: boolean;
+}
+
+/** §AC.4 — renglón de accesorio cotizado. `lineTotalCents` lo calcula el servidor. */
+export interface QuoteAccessoryLineDTO {
+  accessoryId: string;
+  name: string;
+  category: AccessoryCategory;
+  energyType: EnergyType | null;
+  unitPriceCents: number;
+  quantity: number;
+  lineTotalCents: number;
+  photo: AccessoryPhotoDTO;
+}
+
+/** §AC.4 (+ v1.86.1: `photo` por energía, nunca null). */
+export interface EnergyBundleDTO {
+  deckSlug: string;
+  deckName: string;
+  /** El dial `energy_bundle_price_cents`. */
+  priceCents: number;
+  /** Referencia: Σ need × precio de cada energía (F2 regla 2). ⛔ Sin tachar. */
+  looseTotalCents: number;
+  energies: { energyType: EnergyType; quantity: number; accessoryId: string; photo: AccessoryPhotoDTO }[];
+}
+
+export type BundleReason =
+  | 'invalid_token'
+  | 'expired'
+  | 'deck_incomplete'
+  | 'deck_unpublished'
+  | 'not_offered'
+  | 'insufficient_stock'
+  | 'duplicate';
+
+/** §AC.4 (+ v1.86.1: `name`, `null` ⇔ not_found). */
+export interface UnavailableAccessoryDTO {
+  accessoryId: string;
+  name: string | null;
+  reason: 'not_found' | 'inactive' | 'sold_out' | 'insufficient';
+  availableQty?: number;
+}
+export interface UnavailableBundleDTO {
+  /** v1.86.3 (§AC.19.4): posición en `deckPulls` de la petición (0-based). Con `invalid_token` es la única llave. */
+  index: number;
+  /** v1.86.3 (§AC.19.4): lo que pedía ese `deckPull`. Decide si el aviso de paquete aparece. */
+  withEnergyBundle: boolean;
+  deckSlug: string | null;
+  reason: BundleReason;
+}
+/** §AC.4/§AC.7 — `null` ⇔ tarifa de hoy. ⛔ `label`/`code`/`review` no se pintan al cliente (§AC-UX.7). */
+export interface QuoteShippingBoxDTO {
+  code: string;
+  label: string;
+  review: boolean;
+}
+
+/** §AC.8 — energía básica ligada a su producto activo (aditivo en `MetaDeckLineDTO`). */
+export interface MetaDeckBasicEnergyDTO {
+  energyType: EnergyType;
+  accessoryId: string;
+  unitPriceCents: number;
+  soldOut: boolean;
+  photo: AccessoryPhotoDTO;
+}
+
+/** §AC.8 — raíz de `GET /decks-meta/:slug`. `pullToken` SIEMPRE presente. ⛔ `paste` no lo emite. */
+export interface DeckEnergyBundleDTO {
+  offered: boolean;
+  reason: 'no_basic_energy' | 'not_offered' | 'insufficient_stock' | null;
+  priceCents: number;
+  looseTotalCents: number;
+  energies: { energyType: EnergyType; quantity: number; accessoryId: string | null }[];
+  pullToken: string;
+}
+
+/** §AC.7 — la caja congelada que ve quien prepara (detalle del envío y hoja). */
+export interface ShipmentBoxDTO {
+  code: string;
+  label: string;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  review: boolean;
+  contentWeightG: number;
+}
+
+/** §AC.9 (+ v1.86.1) — lo que se reembolsaría por el renglón, calculado por el servidor. */
+export type ShipAccessoryRefundInfo =
+  | {
+      kind: 'refundable';
+      /** largo = quantity; `[k−1]` = importe de «faltan k». Paquete: un solo elemento. */
+      amountByQtyCents: number[];
+      /** = amountByQtyCents[(missing ? missingQty : quantity) − 1]. */
+      amountCents: number;
+    }
+  | { kind: 'refunded'; refund: PaymentRefundDTO }
+  | { kind: 'not_refundable'; reason: 'order_not_settled' };
+
+/** §AC.9 — renglón de accesorio en «Pedidos por preparar» (`ShipmentAccessoryLine`). */
+export interface ShipAccessoryLineDTO {
+  /** `ShipmentAccessoryLine.id` — el nodo que se palomea. */
+  id: string;
+  kind: AccessoryLineKind;
+  name: string;
+  photo: AccessoryPhotoDTO | null;
+  quantity: number;
+  deckName: string | null;
+  /** `[]` en `accessory` (criterio 743). */
+  components: { energyType: EnergyType; quantity: number }[];
+  prepStatus: PreparationItemStatus;
+  missingQty: number;
+  missingReason: MissingReason | null;
+  settledWithoutStock: boolean;
+  refunded: boolean;
+  refund: ShipAccessoryRefundInfo;
+  /** v1.86.1 — solo energy_bundle: los `ShipmentItem` de este envío que son el deck. */
+  deckShipmentItemIds: string[];
+  /** v1.86.1 — sugerencia de la pantalla; ⛔ el servidor no actúa con él. */
+  deckAllMissing: boolean;
+}
+
+/** `PATCH /admin/shipments/:id/prep-accessory-lines/:lineId` (§AC.9; respuesta v1.86.3, §AC.19.5). */
+export interface SetShipPrepAccessoryLineRequest {
+  status: PreparationItemStatus;
+  /** 1..quantity; en energy_bundle solo 1. Obligatorio con `missing`. */
+  missingQty?: number;
+  missingReason?: MissingReason;
+}
+
+/**
+ * v1.86.3 (§AC.19.5) — `200` del `PATCH …/prep-accessory-lines/:lineId`. `preparation.refundPreviewCents` ya incluye
+ * el cambio; `changed:false` ⇔ el cuerpo era igual a lo vigente (sin escritura). Los conteos son SOLO cartas.
+ */
+export interface SetShipPrepAccessoryLineResponse {
+  changed: boolean;
+  line: ShipAccessoryLineDTO;
+  preparation: ShipPreparationStateDTO;
+}
+
+/**
+ * v1.86.3 (§AC.19.5) — `details` de `409 PREPARATION_INCOMPLETE`: `pendingCount` son cartas (como hoy);
+ * `pendingAccessoryCount` es aditivo (renglones de accesorio `pending`). Opcional por tolerancia a un servidor anterior.
+ */
+export interface PreparationIncompleteDetails {
+  pendingCount: number;
+  pendingAccessoryCount?: number;
+}
+
+/** §AC.12 (+ v1.86.3, §AC.19.6) — renglón de accesorio en M3 / seguimiento. Lista blanca, ⛔ sin costo. */
+export interface OrderAccessoryLineDTO {
+  /** v1.86.3 (§AC.19.6): `OrderAccessoryLine.id`, obligatorio. La llave de `…/accessory-lines/:lineId/refund-delivered`. */
+  id: string;
+  /** v1.86.3 (§AC.19.6): obligatorio. El paquete se reconoce por `kind` (⛔ no por `deckName !== null`). */
+  kind: AccessoryLineKind;
+  /** `snapshot.name`; en paquete = `deckName` (el título «Paquete de energías» lo pone la pantalla por `kind`). */
+  name: string;
+  photo: AccessoryPhotoDTO | null;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+  refundedQty: number;
+  deckName: string | null;
+  components: { energyType: EnergyType; quantity: number }[];
+  /**
+   * 💰 v1.86.2 (§AC.12) — SOLO M3: lo que el súper-admin confirma, calculado por el servidor (⛔ la pantalla no
+   * lo calcula). Opcional por tolerancia a un servidor anterior: ausente ⇒ sin botón.
+   */
+  deliveredRefund?: AccessoryDeliveredRefundDTO;
+}
+
+/** v1.86.2 (§AC.12): `amountByQtyCents[k−1]` = importe de reembolsar k unidades; largo = `refundableQty`. */
+export type AccessoryDeliveredRefundDTO =
+  | { kind: 'refundable'; refundableQty: number; amountByQtyCents: number[] }
+  | { kind: 'not_refundable'; reason: 'order_not_settled' | 'not_delivered' | 'fully_refunded' | 'bundle_requires_deck' };
+
+/**
+ * `POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered` (§AC.10 (2) + v1.86.2, `@MoneyOut`).
+ * `expectedRefundCents` = el importe que el súper-admin VIO (`amountByQtyCents[quantity − 1]`); si no cuadra ⇒
+ * `409 REFUND_PREVIEW_STALE { refundCents }`, cero escrituras.
+ */
+export interface RefundAccessoryLineDeliveredRequest {
+  quantity: number;
+  reason: ShippedRefundReason;
+  /** OBLIGATORIA, 3–500 tras `trim()` (v1.86.2). */
+  note: string;
+  expectedRefundCents: number;
+}
+export interface RefundAccessoryLineDeliveredResponse {
+  refund: PaymentRefundDTO;
+}
+
+/** §AC.11 — DTO del panel. `unitCostCents` AUSENTE (no null) para el operador. */
+export interface AdminAccessoryDTO {
+  id: string;
+  name: string;
+  description: string | null;
+  category: AccessoryCategory;
+  energyType: EnergyType | null;
+  lengthMm: number | null;
+  widthMm: number | null;
+  heightMm: number | null;
+  weightG: number | null;
+  priceCents: number | null;
+  unitCostCents?: number | null;
+  stockQty: number;
+  reservedQty: number;
+  availableQty: number;
+  active: boolean;
+  suggested: boolean;
+  photo: AccessoryPhotoDTO | null;
+  hasSales: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface AdminAccessoryListResponse {
+  items: AdminAccessoryDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+export interface AdminAccessoryListParams {
+  category?: AccessoryCategory;
+  q?: string;
+  active?: boolean;
+  soldOut?: boolean;
+  page?: number;
+}
+/** Campos de alta/edición. ★ = solo súper-admin (`priceCents`, `unitCostCents`, `suggested`). */
+export interface AdminAccessoryWriteFields {
+  name?: string;
+  description?: string | null;
+  category?: AccessoryCategory;
+  energyType?: EnergyType | null;
+  lengthMm?: number | null;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  weightG?: number | null;
+  priceCents?: number | null;
+  unitCostCents?: number | null;
+  suggested?: boolean;
+}
+export type AdminAccessoryCreateRequest = AdminAccessoryWriteFields & { name: string; category: AccessoryCategory };
+/** `ACCESSORY_NOT_ACTIVATABLE.details.missing` (§AC.11). */
+export type AccessoryActivationMissing = 'price' | 'photo' | 'dimensions' | 'weight' | 'energy_type';
+/** `POST /admin/accessories/:id/stock` (§AC.11). Respuesta: NO especificada (se re-lee la ficha). */
+export type AccessoryStockRequest =
+  | { kind: 'receive'; quantity: number; note?: string }
+  | { kind: 'adjust'; newStockQty: number; expectedStockQty: number; reason: string };
+export interface AccessoryStockMovementDTO {
+  kind: AccessoryStockMovementKind;
+  delta: number;
+  stockBefore: number;
+  stockAfter: number;
+  reason: string | null;
+  actor: { userId: string; name: string | null } | null;
+  orderNumber: string | null;
+  createdAt: string;
+}
+export interface AccessoryStockMovementsResponse {
+  items: AccessoryStockMovementDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+/** `PHOTO_INVALID.details.reason` (§AC.11). */
+export type AccessoryPhotoInvalidReason = 'too_large' | 'unsupported_type' | 'too_many_pixels' | 'not_image';

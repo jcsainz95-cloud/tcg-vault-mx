@@ -73,6 +73,8 @@ function buildOrders(stripe: Partial<Record<keyof StripeService, jest.Mock>> = {
     // `pending` que aún retienen piezas sin dueño. Por defecto, ninguna.
     order: { findUnique: jest.fn(), findMany: jest.fn(async () => []), update: jest.fn(async () => ({})) },
     inventoryItem: { updateMany: jest.fn(async () => ({ count: 1 })), findMany: jest.fn(async () => []) },
+    // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)/(3)): sustitución y barrido sueltan también los renglones de accesorio (aquí, ninguno).
+    orderAccessoryLine: { findMany: jest.fn(async () => []), updateMany: jest.fn(async () => ({ count: 0 })) },
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
   const svc = new OrdersService(

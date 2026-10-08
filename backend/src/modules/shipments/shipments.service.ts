@@ -67,6 +67,7 @@ import { OrderMailLinkTarget, OrderMailNotice, orderMailLinkOf, safeErrorTag } f
 import { OrderAccessTokenService } from '../orders/order-access-token.service';
 import { CUSTOMER_TIMELINE_EVENTS_SELECT, providerTrackingUrlOf, toCustomerTimeline } from './customer-timeline';
 import { CustomerRefDTO, ShipPreparationItemDTO, ShipPreparationStateDTO, ShipmentPrepService } from './shipment-prep.service';
+import { ShipAccessoryLineDTO } from './accessory-prep';
 import { CustomerTransferView, ManualRefundService } from '../payments/refunds/manual-refund.service';
 import { PaymentRefundDTO, RefundLedgerService } from '../payments/refunds/refund-ledger.service';
 import { customerDisplayName } from '../vault/customer-display-name';
@@ -231,6 +232,35 @@ export interface ShipPreparationOrderDTO {
   /** ⭐ v1.80 (§M4-SHIP.3) — la preparación (marcas, conteos, `refundPreviewCents` del servidor). */
   preparation: ShipPreparationStateDTO;
   items: ShipPreparationItemDTO[];
+  /** 💰 v1.86⟨accesorios⟩ (§AC.9): renglones de accesorio (`[]` en un retiro o sin accesorios). */
+  accessoryLines: ShipAccessoryLineDTO[];
+  /** 💰 v1.86⟨accesorios⟩ (§AC.7): la caja congelada en la sesión; `null` ⇔ tarifa de hoy. */
+  box: ShipmentBoxDTO | null;
+}
+
+/** 💰 v1.86⟨accesorios⟩ (§AC.7) — lo que ve quien prepara de `Order.shippingBoxSnapshot` (+ «revisar caja»). */
+export interface ShipmentBoxDTO {
+  code: string;
+  label: string;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  review: boolean;
+  contentWeightG: number;
+}
+
+export function shipmentBoxOf(order: { shippingBoxSnapshot: Prisma.JsonValue | null; shippingBoxReview: boolean } | null | undefined): ShipmentBoxDTO | null {
+  const snap = order?.shippingBoxSnapshot as { code?: string; label?: string; lengthCm?: number; widthCm?: number; heightCm?: number; contentWeightG?: number } | null | undefined;
+  if (!snap || typeof snap.code !== 'string') return null;
+  return {
+    code: snap.code,
+    label: snap.label ?? snap.code,
+    lengthCm: snap.lengthCm ?? 0,
+    widthCm: snap.widthCm ?? 0,
+    heightCm: snap.heightCm ?? 0,
+    review: order?.shippingBoxReview ?? false,
+    contentWeightG: snap.contentWeightG ?? 0,
+  };
 }
 
 /**
@@ -1068,6 +1098,13 @@ export class ShipmentsService {
       },
     });
     if (!shipment) throw BusinessException.notFound();
+    // 💰 v1.86⟨accesorios⟩ (§AC.9, §AC.7): renglones de accesorio (el MISMO cuerpo que la hoja y los verbos) y la caja.
+    // (Lectura aparte: el `order` del detalle conserva su forma de siempre.)
+    const directPrep =
+      shipment.orderId && shipment.order?.fulfillmentMode === 'direct_ship'
+        ? await this.requirePrep().buildView(this.prisma, (await this.requirePrep().loadRow(this.prisma, id))!)
+        : null;
+    const accessoryLines = directPrep?.accessoryLines ?? [];
     // ⭐ v1.80 (§M4-SHIP.10) — el detalle gana además `refunds: PaymentRefundDTO[]` e `items[].prepStatus/missingReason`.
     const refundRows = await this.prisma.paymentRefund.findMany({
       where: { OR: [{ shipmentRequestId: id }, { shipmentItem: { shipmentRequestId: id } }] },
@@ -1087,6 +1124,8 @@ export class ShipmentsService {
       ...(actor && labelOptionsFor ? { labelOptions: await labelOptionsFor(actor, id) } : {}),
       refunds,
       items: shipment.items.map((si) => ({ ...si, prepStatus: si.prepStatus, missingReason: si.missingReason })),
+      accessoryLines,
+      box: shipmentBoxOf(directPrep?.shipment.order),
     };
   }
 
@@ -1415,6 +1454,8 @@ export class ShipmentsService {
       shipTo: { ...snapshot, addressCorrected: s.addressCorrectedAt != null },
       preparation: view.preparation,
       items,
+      accessoryLines: view.accessoryLines,
+      box: shipmentBoxOf(view.shipment.order),
     };
   }
 

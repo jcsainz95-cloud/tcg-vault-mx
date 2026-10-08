@@ -71,6 +71,8 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
       update: jest.fn(async () => ({})),
       findMany: jest.fn(async () => []),
     },
+    // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): la compensación suelta también los renglones de accesorio (aquí, ninguno).
+    orderAccessoryLine: { findMany: jest.fn(async () => []) },
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
   const settings: any = {
