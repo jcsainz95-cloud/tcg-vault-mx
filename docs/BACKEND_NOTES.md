@@ -30815,3 +30815,38 @@ respuesta es `{items,…}` sin `data`).
   filtrar). No la toca este cambio y no se repitió: 1 roja en 9 corridas sobre el mismo esquema. Causa **NO MEDIDA**.
 - Unitarias: `enum-query-census-canary`, `enum-values-parity`, `enum-filter`, `enum-parity-lock-canary` y las 10 de
   accesorios, 342/342; unitaria completa 454 suites / 8243 pruebas. Integración `accessories-*` 7 suites / 221.
+
+#### 83.ceq1.v1.86.5 Errata v1.86.5 aplicada — `?category=` transcrita, `?active=`/`?soldOut=` clase L (2026-10-08, rama `claude/accesorios`, sobre `179d8163`)
+
+**Qué cambió** (`API_CONTRACT` errata v1.86.5, §0-Q punto 4 y §AC.11):
+- `?category=` de `GET /accessories` y `GET /admin/accessories`: las dos filas del `REGISTRO` pasan a `transcrita`.
+- `?active=` y `?soldOut=` del panel: clase **L** `true | false` (`ACCESSORY_BOOLEAN_FILTER_VALUES`, `accessory-input.ts`),
+  por `parseEnumFilter`. **Cambio de conducta:** solo espacios ⇒ no filtra (antes `400`); fuera del dominio ⇒ `400 {field,
+  allowed: ['true','false']}` (antes sin `allowed`), ⛔ sin `echoValue`. Salen de `NO_ENUM_POR_RUTA` y entran al
+  `REGISTRO` con paridad a dos bandas contra la fila de §AC.11. El parser booleano anterior (`boolParam`) se retiró: no
+  quedaba otro llamador.
+- `?exclude=` sigue en `NO_ENUM_POR_RUTA` (ratificado).
+- Fixture (n) gana un accesorio `CEQ1-` **inactivo y agotado** (`binders`, `stockQty` 0): es el único de `active=false` y de
+  `soldOut=true`.
+
+**Topes medidos:** `REGISTRO` 66 → **68**, pendientes 20 → **18**, `NO_ENUM_POR_RUTA` ≤ 62 → **≤ 60** (coinciden con el
+cálculo del arquitecto).
+
+**Frontend** (solo lectura, `frontend/src/lib/api.ts` `listAdminAccessories`): manda `active` como `String(boolean)` u
+omitido, y `soldOut` como `'true'` u omitido. Ambos dentro del dominio ⇒ compatible, sin cambio en el frontend.
+
+**Medido** (esquema `acc_ceq`):
+- La prueba antes que el código: con las filas nuevas y el parser viejo, **4 rojas** (`espacios` y `error` de `active` y
+  `soldOut`), 569 verdes.
+- Con el código: `enum-query-axes` **573/573 en 6 de 7 corridas**. La séptima roja fue `GET /admin/vaults?sort=` (abajo).
+- Mutación 1 (copia del árbol entero, quitar la fila `soldOut` del `REGISTRO`): el descubrimiento sale rojo
+  (`GET /admin/accessories::soldOut` huérfano) y también el trinquete (68). Mutación 2 (parser viejo solo en `soldOut`):
+  2 rojas, las dos de `soldOut`.
+- Unitarias de paridad 196/196 (`enum-query-census-canary`, `enum-values-parity`, `enum-filter`,
+  `enum-parity-lock-canary`). Unitaria completa 454 suites / 8243 pruebas. Integración `accessories-*` 7 / 221.
+
+**⚠️ `GET /admin/vaults?sort= ⇒ conforme` (propiedad `filtra`) es intermitente y ya pasaba antes de este cambio.** Fue roja
+en 4 de 22 corridas: 3 de 19 en los árboles de este trabajo (§83.ceq1 y este apartado, mutaciones incluidas) y 1 de 3
+sobre una copia de `2aa807f7` sin ningún cambio mío (esquema recién sembrado `acc_ceq_base`), donde cayó en la segunda. En las dos siembras nuevas que vi completas, cayó en la **segunda corrida después de sembrar**.
+Ese patrón está medido pocas veces. No es de accesorios. Causa **NO MEDIDA**. La cerraría medir la huella de `pieces_desc`
+contra la base en esa corrida. Dueño: el stream de la bóveda (`admin-vaults.service.ts`).

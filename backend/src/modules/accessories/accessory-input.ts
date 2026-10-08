@@ -182,14 +182,6 @@ function intParam(q: Record<string, unknown>, k: string, def: number, min: numbe
   return n;
 }
 
-function boolParam(q: Record<string, unknown>, k: string): boolean | undefined {
-  const v = single(q, k);
-  if (v === undefined || v === '') return undefined;
-  if (v === 'true') return true;
-  if (v === 'false') return false;
-  throw bad(k);
-}
-
 export const Q_MAX = 60;
 
 export interface CatalogQuery {
@@ -218,6 +210,12 @@ function baseQuery(raw: unknown, pageSizeDefault: number, pageSizeMax: number): 
 /** `GET /accessories?category=&q=&page=1&pageSize=24` (pageSize ≤ 60). */
 export const parsePublicQuery = (raw: unknown): CatalogQuery => baseQuery(raw, 24, 60);
 
+/**
+ * 💰 v1.86.5⟨accesorios⟩ (§AC.11, §0-Q punto 4): dominio clase **L** de `?active=` y `?soldOut=` del panel — canónico en
+ * la fila de §AC.11. Paridad a dos bandas en `enum-query-axes` (contrato ↔ este literal).
+ */
+export const ACCESSORY_BOOLEAN_FILTER_VALUES = ['true', 'false'] as const;
+
 export interface AdminQuery extends CatalogQuery {
   active?: boolean;
   soldOut?: boolean;
@@ -226,7 +224,17 @@ export interface AdminQuery extends CatalogQuery {
 /** `GET /admin/accessories?category=&q=&active=&soldOut=&page=` (pageSize por defecto 50, ≤ 100). */
 export function parseAdminQuery(raw: unknown): AdminQuery {
   const q = (raw ?? {}) as Record<string, unknown>;
-  return { ...baseQuery(raw, 50, 100), active: boolParam(q, 'active'), soldOut: boolParam(q, 'soldOut') };
+  return { ...baseQuery(raw, 50, 100), active: boolFilter(q, 'active'), soldOut: boolFilter(q, 'soldOut') };
+}
+
+/**
+ * v1.86.5 — `?active=`/`?soldOut=` son clase L de §0-Q: ausente/vacío/solo espacios ⇒ no filtra (`undefined`); `true|false`
+ * ⇒ filtra; otra cosa ⇒ `400 {field, allowed}` por el helper único (⛔ sin `echoValue`). Antes: un parser propio, `400 {field}`
+ * sin `allowed` y `' '` ⇒ `400`.
+ */
+function boolFilter(q: Record<string, unknown>, k: 'active' | 'soldOut'): boolean | undefined {
+  const v = parseEnumFilter(k, q[k], ACCESSORY_BOOLEAN_FILTER_VALUES);
+  return v === undefined ? undefined : v === 'true';
 }
 
 export const EXCLUDE_MAX = 50;
