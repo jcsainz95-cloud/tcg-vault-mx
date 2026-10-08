@@ -30991,3 +30991,74 @@ desde el deck»: si el paquete ya no se ofrece, la ficha lo dice con `noStock`),
 **Candado sugerido** (lo escribe frontend, en `GuestCheckoutAccessories.test.tsx` o el de paridad): en `es` y `en`, las
 cinco claves de arriba ⛔ no contienen «las energías las puedes agregar» / «las que haya» / “you can add the energy
 cards” / “the ones we have”. *Mutación:* restaurar el texto viejo en una ⇒ rojo.
+
+### AC-UX.gates Textos de accesorio en los diálogos de dinero — ratificación de `FRONTEND_NOTES §107.gates` (2026-10-08)
+
+**Origen.** QA (condición MENOR sobre `dd26ae79`): AC-UX.12–13 daban filas y botones pero no cuerpo, firma ni ayuda de
+motivo para accesorios. Frontend los redactó en neutro (`d11be7bf`). Aquí se ratifican o se fijan. Base medida:
+`frontend/messages/{es,en}.json` en el árbol de `claude/accesorios` el 2026-10-08 (es.json:1836-1856 y 2521-2536).
+
+**Hechos en que se apoya el copy** (no se añade ninguna regla):
+- un accesorio faltante al preparar **no** cambia existencias (`API_CONTRACT §AC`, PATCH prep-accessory-lines paso 7:
+  «cero dinero y cero existencias»); no hay «merma» de accesorio ⇒ la firma de solo-accesorios no la menciona;
+- con el envío ya salido **nada vuelve**, ni cartas ni accesorios (criterio 717; `API_CONTRACT.md:41998`, AC-B20);
+- en el panel, el inventario de accesorios se llama **«Existencias»** (AC-UX.9c); el de cartas, «inventario». El copy
+  respeta esa distinción.
+
+#### 1 · Preparación — `admin.m4.prep.ship.confirmRefund.*`
+
+| Clave | Veredicto |
+|---|---|
+| `bodyAccessories` | **Ratificado** es/en. |
+| `bodyMixed` | **Ratificado** es/en. |
+| `signatureAccessories` | **Ratificado** es/en. (Correcto que no diga «merma»: el accesorio no pasa a merma.) |
+| `signatureMixed` | **Ratificado** es/en. |
+| `bodyNothingShipsAccessories` | **Ratificado** es/en. «Accesorio» incluye el paquete de energías (es un renglón de accesorio, AC-UX.12). |
+| `bodyNothingShipsMixed` | **Ratificado** es/en. |
+
+Reglas de selección de frontend (cuerpo/firma por lo que falta en la lista; «no sale nada» por lo que trae el pedido;
+solo cartas ⇒ claves de §37.4 sin cambio): **ratificadas**.
+
+#### 2 · Motivo tras el envío — `admin.m3.shippedReason.hintItem.*`
+
+| Clave | ES | EN |
+|---|---|---|
+| `hintItem.not_arrived` | **Ratificado** («El paquete se perdió o el cliente no lo recibió.») | **Ratificado** |
+| `hintItem.arrived_damaged` | **Nuevo:** Llegó, pero el producto no estaba como se vendió. | **New:** It arrived, but the item wasn't as sold. |
+
+Por qué: «Llegó, pero no estaba como se vendió» deja el sujeto implícito y se lee como si hablara del **paquete** de
+paquetería (la frase de arriba, `not_arrived`, habla de él). «El producto» / “the item” lo pone en el renglón,
+y sirve igual para un accesorio, varias unidades o el paquete de energías. Paralelo exacto a `hint.arrived_damaged`
+(«…las cartas no estaban como se vendieron»).
+
+#### 3 · Reembolso total tras el envío — `admin.m3.shippedRefund.*` (pendiente que dejó frontend)
+
+**Decisión: el actual NO basta.** En un pedido de **solo accesorios** «las cartas no vuelven a inventario» es falso por
+el sujeto (no hay cartas) y no responde a la pregunta que el súper-admin tiene en ese momento («¿me regresan las
+existencias?»). En uno **mixto** es incompleto. Se añaden variantes; las claves actuales quedan **igual** para pedidos
+solo de cartas.
+
+**Selección:** por **lo que trae el pedido** (no por lo que queda por reembolsar): solo cartas ⇒ claves actuales;
+solo accesorios ⇒ `…Accessories`; ambos ⇒ `…Mixed`. ⛔ Sin marcadores nuevos ni quitados (`done` conserva `{ref}` y
+`{reason}`). El `ShippedReasonFieldset` de este diálogo pasa `subject: 'item'` en solo-accesorios **y** en mixto
+(«el producto» cubre cartas y accesorios); en solo cartas sigue `cards`.
+
+| Clave nueva | ES | EN |
+|---|---|---|
+| `shippedRefund.warningAccessories` | Los accesorios no vuelven a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición. | The accessories don't go back into stock: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition. |
+| `shippedRefund.warningMixed` | Ni las cartas vuelven a inventario ni los accesorios a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición. | Neither the cards go back into inventory nor the accessories into stock: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition. |
+| `shippedRefund.bodyAccessories` | Se devuelve lo que queda del cobro. El envío no se toca y los accesorios no vuelven a existencias ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre. | What's left of the charge is refunded. The shipment isn't touched and the accessories don't go back into stock or on sale. The reason is saved under your name. The customer gets the usual refund email. |
+| `shippedRefund.bodyMixed` | Se devuelve lo que queda del cobro. El envío no se toca y ni las cartas ni los accesorios vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre. | What's left of the charge is refunded. The shipment isn't touched and neither the cards nor the accessories go back into inventory or on sale. The reason is saved under your name. The customer gets the usual refund email. |
+| `shippedRefund.doneAccessories` | Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Los accesorios no vuelven a existencias. | Order {ref} refunded. Reason saved: “{reason}”. The accessories don't go back into stock. |
+| `shippedRefund.doneMixed` | Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Ni las cartas ni los accesorios vuelven a inventario. | Order {ref} refunded. Reason saved: “{reason}”. Neither the cards nor the accessories go back into inventory. |
+
+Sin cambio en `title`, `legend`, `pickOne`, `noteLabel`, `noteHint` ni `error.*` (no nombran cartas).
+
+**Candado sugerido** (lo escribe frontend, junto a `M3AccessoryLines.ac.test.tsx`): `RefundOrderDialog` con un pedido
+solo de accesorios ⇒ en `es` y `en` el diálogo y el aviso de hecho ⛔ no contienen «carta» / “card”; mixto ⇒ contienen
+«accesorios» / “accessories”; solo cartas ⇒ texto idéntico al de hoy. *Mutación:* elegir siempre la clave de cartas ⇒
+rojo. Paridad es/en de las seis claves nuevas en el candado AC-UX-14.
+
+**Hueco para el arquitecto (no bloquea):** si el DTO del detalle de pedido (M3) ya permite saber, sin otra llamada, si el
+pedido trae renglones de accesorio — **NO MEDIDO** por mí; AC-UX.13 asume que M3 pinta esos renglones (`API_CONTRACT
+§AC.12`), así que debería bastar con que la lista no venga vacía.
