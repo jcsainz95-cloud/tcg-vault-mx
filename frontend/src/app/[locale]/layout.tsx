@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
-import { Archivo, JetBrains_Mono, Montserrat } from 'next/font/google';
+// §109.fonts: ANTES de `next/font/local` — los tramos no latinos y las caras «Fallback» deben
+// quedar en el CSS por delante del tramo latin (el orden de Google; ver el propio fichero).
+import '../fonts/google-subsets.css';
 import localFont from 'next/font/local';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
@@ -37,25 +39,72 @@ const zenOldMincho = localFont({
   fallback: ['Georgia', 'Times New Roman', 'serif'],
   adjustFontFallback: 'Times New Roman',
 });
-const sans = Archivo({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+/*
+ * §109.fonts — Archivo, JetBrains Mono y Montserrat ya NO se descargan de Google en el build
+ * (`next/font/google` tumbaba `next build` de forma intermitente: FRONTEND_NOTES §109.fonts).
+ * Son los MISMOS bytes que servía Google (sha256 fijados en `layout.test.tsx`, OFL al lado) y la
+ * MISMA salida CSS: mismas familias ('Archivo', 'JetBrains Mono', 'Montserrat'), pesos, `swap`,
+ * variables y caras «Fallback». Aquí va solo el tramo `latin` (el que `subsets: ['latin']`
+ * precargaba), una cara por peso apuntando al mismo fichero variable, como hacía Google. Los
+ * tramos no latinos y las métricas de respaldo viven en `../fonts/google-subsets.css` porque
+ * `next/font/local` no admite un `unicode-range` por fichero ni fija métricas a mano.
+ * Los argumentos deben ser literales (lo exige el compilador de next/font): de ahí la repetición.
+ */
+const sans = localFont({
+  src: [
+    { path: '../fonts/archivo/archivo-latin.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/archivo/archivo-latin.woff2', weight: '500', style: 'normal' },
+    { path: '../fonts/archivo/archivo-latin.woff2', weight: '600', style: 'normal' },
+    { path: '../fonts/archivo/archivo-latin.woff2', weight: '700', style: 'normal' },
+  ],
   display: 'swap',
   variable: '--font-sans',
+  declarations: [
+    { prop: 'font-family', value: "'Archivo'" },
+    { prop: 'font-stretch', value: '100%' },
+    {
+      prop: 'unicode-range',
+      value:
+        'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD',
+    },
+  ],
+  fallback: ["'Archivo Fallback'"],
+  adjustFontFallback: false,
 });
-const mono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
+const mono = localFont({
+  src: [
+    { path: '../fonts/jetbrains-mono/jetbrains-mono-latin.woff2', weight: '400', style: 'normal' },
+    { path: '../fonts/jetbrains-mono/jetbrains-mono-latin.woff2', weight: '500', style: 'normal' },
+  ],
   display: 'swap',
   variable: '--font-mono',
+  declarations: [
+    { prop: 'font-family', value: "'JetBrains Mono'" },
+    {
+      prop: 'unicode-range',
+      value:
+        'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD',
+    },
+  ],
+  fallback: ["'JetBrains Mono Fallback'"],
+  adjustFontFallback: false,
 });
 // Marca TCG HUNT (§17.1e): Montserrat 700, EXCLUSIVA del wordmark/lockup.
 // Un peso, un uso: no entra en la escala tipográfica de §3.
-const brand = Montserrat({
-  subsets: ['latin'],
-  weight: ['700'],
+const brand = localFont({
+  src: [{ path: '../fonts/montserrat/montserrat-700-latin.woff2', weight: '700', style: 'normal' }],
   display: 'swap',
   variable: '--font-brand',
+  declarations: [
+    { prop: 'font-family', value: "'Montserrat'" },
+    {
+      prop: 'unicode-range',
+      value:
+        'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD',
+    },
+  ],
+  fallback: ["'Montserrat Fallback'"],
+  adjustFontFallback: false,
 });
 
 export function generateStaticParams() {

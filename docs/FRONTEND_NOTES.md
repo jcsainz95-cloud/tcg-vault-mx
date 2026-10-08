@@ -21151,3 +21151,41 @@ corrida posterior; cualquier otro estado se descarta con aviso.
 - Mock: `accessories.spec.ts` 4 verdes, 6 saltados (`realOnly`). `tsc` 0, `eslint e2e` 0, vitest 321 ficheros / 4196 pruebas verdes.
 - ⛔ **NO MEDIDO con Stripe real:** el verde de 724/748 en `en` tras una sesión `es` creada de verdad. Lo cierra la
   siguiente corrida de `e2e-real.yml` con las claves de prueba.
+
+### §109.fonts · Fuentes de Google versionadas: `next build` ya no depende de la red (2026-10-08, base `faf89b6d`)
+
+**Causa (medida en código, no reproducible a voluntad):** el error de CI `An error occurred in next/font. TypeError:
+Cannot read properties of null (reading '1')` sale de `node_modules/next/dist/compiled/@next/font/dist/google/loader.js:122`:
+`/\.(woff|woff2|eot|ttf|otf)$/.exec(googleFontFileUrl)[1]` sobre cada URL del CSS que devuelve `fonts.googleapis.com`.
+Si Google responde con una URL de fuente sin esa extensión, el `exec` da `null` y el build cae. Depende de lo que
+responda un tercero en ese momento (devops: 2 caídas de 5 builds, `DEVOPS_NOTES §94.4`) y viola «toda dependencia
+externa va fijada».
+
+**Qué cambia:** `Archivo`, `JetBrains_Mono` y `Montserrat` dejan `next/font/google`. Ningún `next/font/google` queda en `src/`.
+- Ficheros en `frontend/src/app/fonts/{archivo,jetbrains-mono,montserrat}/` con su `OFL.txt` (SIL OFL 1.1, de
+  `github.com/google/fonts/ofl/<familia>/OFL.txt`; `METADATA.pb` dice `license: "OFL"`; sin Reserved Font Name; se
+  redistribuyen sin modificar). Son **los mismos bytes** que servía Google: descargados de `fonts.gstatic.com` con
+  el CSS `css2?family=…:wght@…&display=swap` y el User-Agent de Next 15.5, y comparados sha a sha con los 14
+  woff2 que el build anterior dejaba en `.next/static/media` (14/14 iguales). 14 woff2, 218 720 bytes en total; sha256 en
+  `layout.test.tsx` (`SHA256`).
+- `layout.tsx`: `next/font/local` con el tramo `latin` (el que `subsets: ['latin']` precargaba), una cara por peso
+  sobre el mismo fichero variable, `font-family`/`unicode-range`/`font-stretch` por `declarations`,
+  `adjustFontFallback: false` y `fallback: ["'X Fallback'"]`.
+- `src/app/fonts/google-subsets.css` (importado antes de `next/font/local`): los 22 `@font-face` NO latinos (vietnamese,
+  latin-ext, cyrillic, cyrillic-ext, greek) con su `unicode-range`, y las 3 caras «X Fallback» con las métricas de
+  `next/font/google`. Por qué fuera de `next/font/local`: no admite `unicode-range` por fichero, y sus métricas
+  calculadas por fontkit salen otras (Archivo 85.41/20.43/102.80 % frente a 88.96/21.28/98.70 % de Google).
+- Zen Old Mincho (P-FONTS-CJK) no se toca. CSP: sin cambio, `font-src 'self' data:` ya cubre fuentes propias.
+
+**Medido (2026-10-08):**
+- `next build` sin red (`HTTPS_PROXY=http_proxy=…=http://127.0.0.1:9`, `NEXT_TELEMETRY_DISABLED=1`): **antes** (HEAD
+  `faf89b6d`) falla `Failed to fetch \`Archivo\` / \`JetBrains Mono\` / \`Montserrat\` from Google Fonts`; **después** exit 0.
+- Salida idéntica: build de `faf89b6d` CON red frente a build nuevo SIN red, normalizando cada `@font-face` de las tres
+  familias (descriptores + sha256 del fichero referido) y las variables: **36/36 reglas iguales como conjunto** y
+  `--font-sans/--font-mono/--font-brand/--font-serif` con el mismo valor. Preloads (`next-font-manifest.json`): los
+  mismos 6 ficheros por sha. `.next/static/media`: 17 ficheros en ambos. El orden cambia solo en que los tramos latin
+  van después de todos los no latinos (Google los intercala por peso, latin último en cada uno): misma prioridad.
+- Candado `layout.test.tsx` «fuentes sin red en el build»: 5 mutaciones en copia, 5/5 rojas (import de
+  `next/font/google` en otro fichero, un byte de un woff2, variable renombrada, un peso quitado, una métrica de respaldo).
+- vitest 322 ficheros (321 + 1 saltado) / 4205 verdes · `tsc` 0 · `next lint` 0.
+- Para renovar una fuente: repetir la descarga (mismas URL y User-Agent), comparar y actualizar `SHA256` a conciencia.
