@@ -9780,6 +9780,83 @@ esqueleto (ML-1…ML-10, N1…N9) ya corren sobre los seis.
 - **Disparador:** un entorno nuevo sin la plantilla de salida, o la respuesta del arquitecto.
 - **Comprobación de cierre:** prueba de cotización de entrada sin el dial ⇒ no 409 `origin`.
 
+## Backend · 2026-10-06 · P-DB-LIMPIEZA (limpieza de la base antes de cobrar en real)
+
+### PDB-R6 · P2 · La INE de un vendedor sin solicitudes de venta ya no se purga nunca
+- **Dueño:** backend (+ seguridad, por ser retención de un documento de identidad). Origen: riesgo R-6 de
+  `docs/specs/LIMPIEZA_DB.md` §12; el encargo pidió anotarlo, **no** arreglarlo en esta rama.
+- **Dónde:** `backend/src/jobs/ine-retention.service.ts:64-70` (medido 2026-10-06 sobre `a49a3a6c`): la purga ancla
+  el plazo a la última `SellRequest` cerrada del usuario; si no tiene **ninguna**, `if (!lastClosed) continue;` (`:70`)
+  y la INE se queda indefinidamente.
+- **Impacto:** la limpieza (`prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql`) borra **todas** las solicitudes de
+  venta (eran de prueba, `HECHOS.md:79`) y **conserva** `KycProfile` (es del usuario). Desde ese momento, la INE de cada
+  vendedor de prueba (`ineFrontKey`/`ineBackKey` y sus objetos en el bucket) ya no tiene ancla y el job no la toca.
+  Cuántas hay: el censo `…_1_censo.sql` lo imprime (fila «R-6 · expedientes con INE guardada»); en producción NO MEDIDO
+  (el 2026-09-12 era **1**, PENDIENTES «MEDICIÓN-PROD 2026-09-12»). Lo mismo le pasa, fuera de la limpieza, a cualquier
+  usuario que subió INE y nunca llegó a abrir una solicitud.
+- **Corrección:** anclar la retención también cuando el usuario no tiene solicitudes (p. ej. a
+  `KycProfile.reviewedAt ?? updatedAt`), con su prueba: usuario con INE y sin solicitudes, más viejo que
+  `INE_RETENTION_DAYS` ⇒ purgado; más nuevo ⇒ intacto; y el canario (volver a `continue`) en rojo.
+- **Disparador:** el COMMIT de la limpieza en producción (desde ese día la deuda tiene víctimas concretas).
+- **Comprobación de cierre:** `rg -n "if \(!lastClosed\) continue" backend/src/jobs/ine-retention.service.ts` vacío y la
+  prueba nueva verde; el censo de producción tras la siguiente corrida del job da 0 INE sin ancla vencidas.
+
+### PDB-TD1 · P2 · Las guardas `IF NOT EXISTS (… pg_constraint WHERE conname = …)` de las migraciones no miran el esquema
+- **Dueño:** backend. Origen: condición TD-1 del techlead sobre `2ba6a316` (P-DB-LIMPIEZA).
+- **Dónde (medido 2026-10-06):** 46 `ADD CONSTRAINT` protegidos así, todos en m64–m68:
+  `20261006120000_m64_sdx_c_address` 4 · `20261006130000_m65_sdx_c2_address_revision` 4 ·
+  `20261007120000_m66_sdx_d_skydropx` 22 · `20261008120000_m67_sdx_e_folio` 1 · `20261009120000_m68_gas_1_spend_control` 15
+  (`grep -c "FROM pg_constraint WHERE conname = " backend/prisma/migrations/*/migration.sql`).
+- **Impacto:** en una base con más de un esquema, el segundo esquema migrado se queda **sin** esas FK y CHECK porque
+  «ya existen» en el primero (medido: `ShipmentQuote → ShipmentRequest` sin cascada; BACKEND_NOTES §79). Producción
+  tiene un solo esquema (`public`): hoy no se manifiesta.
+- **Corrección:** ⛔ **no** editar las migraciones aplicadas (cambiaría su checksum en `_prisma_migrations`). Candado
+  para las **nuevas**: un check estático que rechace `pg_constraint WHERE conname =` sin `connamespace`/`conrelid` en
+  migraciones con fecha posterior a m68, y una plantilla con `conrelid = '"Tabla"'::regclass`.
+- **Disparador:** la próxima migración que añada una restricción con guarda, o cualquier entorno multi-esquema.
+- **Comprobación de cierre:** el check existe, corre en CI y su canario (una migración nueva con la guarda sin esquema)
+  falla.
+
+### PDB-TD2 · P3 · El arnés de la limpieza migra desde una copia de `prisma/` parcheada por regex
+- **Dueño:** backend. Origen: condición TD-2 del techlead.
+- **Dónde:** `backend/test/integration/helpers/limpieza-db.ts` (`scopedMigrations`: reemplaza `GUARD` en una copia
+  temporal de las migraciones; `assertConstraintsComplete` comprueba que no falte ninguna restricción).
+- **Impacto:** las pruebas de P-DB-LIMPIEZA no corren las migraciones **byte a byte** como producción; si una migración
+  nueva usa otra forma de guarda, la regex no la ve (la red es `assertConstraintsComplete`, que fallaría ruidosamente).
+- **Corrección:** cuando PDB-TD1 se cierre para las migraciones nuevas, o con una BD por caso en vez de un esquema por
+  caso (sin multi-esquema no hace falta parche).
+- **Disparador:** PDB-TD1 o un falso rojo de `assertConstraintsComplete`.
+- **Comprobación de cierre:** `rg -n "scopedMigrations|GUARD" backend/test/integration/helpers/limpieza-db.ts` vacío y la
+  suite verde.
+
+### PDB-TD3 · P3 · Qué hacer con la suite de la limpieza después de la corrida real
+- **Dueño:** backend (decide el arquitecto). Origen: condición TD-3 del techlead. (2026-10-07, v2: el comando
+  `limpieza:republicar` ya se retiró del código —LIMPIEZA_DB §14.7, BACKEND_NOTES §79.5—; queda solo la suite y los SQL.)
+- **Dónde:** `backend/test/integration/pdb-limpieza.e2e-spec.ts` (45 casos en v2, ~2 min, crea ~45 esquemas),
+  `backend/prisma/data-repair/20261006_pdblimpieza_*`.
+- **Impacto:** tras el COMMIT en producción los guiones son de un solo uso; la suite sigue costando tiempo de CI y se
+  rompe con cada tabla nueva (G-8, a propósito). Borrarla sin más deja guiones en el repo sin prueba.
+- **Corrección (propuesta):** tras la corrida real y la verificación D en verde, mover los cuatro `.sql` a un archivo de
+  histórico, retirar la suite en el mismo commit, y dejar en BACKEND_NOTES §79 el sha de la última versión
+  probada. Hasta entonces, G-8 obliga a clasificar cada tabla nueva en B (eso es lo que se quiere mientras no se corra).
+- **Disparador:** el COMMIT de la limpieza en producción + D «TODO OK».
+- **Comprobación de cierre:** los ficheros movidos o borrados en un commit que cita esta entrada.
+
+### PDB-TD4 · P3 · G-7 depende del rastro: antes del primer COMMIT de B, una venta real no se distingue de una de prueba (LZ-S2)
+- **Dueño:** backend. Origen: hallazgo LZ-S2 (BAJA) de seguridad sobre `00ec3888` (`docs/SECURITY_NOTES.md`).
+- **Dónde:** `backend/prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql`, G-7: solo se activa si ya existe el rastro
+  `maintenance.test_data_purge`. `Order` no guarda el modo de Stripe (`grep livemode backend/prisma/schema.prisma` vacío,
+  según seguridad), así que G-1…G-3 no ven la diferencia.
+- **Impacto:** si se pasara a `sk_live_` y se vendiera **antes** de correr B, B borraría ventas reales. Mitigado por el
+  orden del manual (LIMPIEZA_DB §8.2 paso 10) y por PITR.
+- **Por qué no se hizo ahora:** una guarda de caducidad por fecha fija (abortar si `now()` pasa de un día límite) pondría
+  roja la suite de la limpieza en CI en cuanto pase esa fecha, y una «posterior a X» sin marca de modo en `Order` sería
+  adivinar. Lo barato y correcto depende de PDB-TD3 (retirar guiones y suite tras la corrida).
+- **Corrección:** guardar el modo (`livemode` del PaymentIntent) en `Order` y hacer que B aborte si existe algún pedido
+  `livemode = true`; o, si se decide retirar los guiones (PDB-TD3), cerrar esto con su retirada.
+- **Disparador:** cualquier retraso de la limpieza más allá del paso a `sk_live_`, o la decisión de PDB-TD3.
+- **Comprobación de cierre:** prueba con un pedido `livemode = true` ⇒ B aborta y no escribe; o los guiones retirados.
+
 ## Backend · 2026-10-06 · gates de QA y techlead sobre `76dd1ee9` (rama `claude/analitica-ventas`, §AN fases A y B)
 
 Deuda que el techlead dejó al backend de la analítica de ventas. Fichero:línea **re-medidos el 2026-10-06** sobre el árbol
