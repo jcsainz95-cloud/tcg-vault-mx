@@ -203,6 +203,18 @@ describe('§BMK · el total no cambia (BMK-F6, criterio 856)', () => {
   });
 });
 
+// F7: «%» en cualquier forma, y las palabras de proporción/ahorro como palabras completas (no
+// subcadenas: «Halfling», «Mitadori» o «Saved Game» como nombre propio no son una comparación).
+const F7_FORBIDDEN = /%|\bmitad(es)?\b|\bhalf\b|\bahorr\w*|\bsav(e|es|ed|ing|ings)\b/i;
+// `textContent` pega `<dt>` y `<dd>` sin espacio («Te pagamos la mitadMX$500.00»), y eso borra el
+// límite de palabra: se lee nodo de texto a nodo de texto, separados por un espacio.
+function f7Text(el: Element): string {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const parts: string[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) parts.push(n.textContent ?? '');
+  return parts.join(' ');
+}
+
 describe('§BMK · BMK-F7: sin porcentajes, proporciones ni «ahorro» en el carrito (es y en)', () => {
   it.each(['es', 'en'] as const)('%s', (locale) => {
     const { container } = render(
@@ -213,8 +225,15 @@ describe('§BMK · BMK-F7: sin porcentajes, proporciones ni «ahorro» en el car
       { expandedLines: { a: true, b: true } },
       locale,
     );
-    const text = container.textContent ?? '';
+    // TD-BMK-6: la lista negra se aplica SOLO a los bloques de precio (por renglón y el total), no a
+    // todo el contenedor: un nombre de carta o un rótulo ajeno al precio no debe poner rojo F7.
+    const blocks = Array.from(
+      container.querySelectorAll('[data-testid="sell-cart-line-prices"], [data-testid="sell-cart-money"]'),
+    );
+    expect(blocks.filter((b) => b.matches('[data-testid="sell-cart-line-prices"]'))).toHaveLength(2);
+    expect(blocks.some((b) => b.matches('[data-testid="sell-cart-money"]'))).toBe(true);
+    const text = blocks.map(f7Text).join(' ');
     expect(text).toContain(locale === 'es' ? 'Valor de mercado c/u' : 'Market value per card');
-    expect(text).not.toMatch(/%|mitad|half|ahorr|save/i);
+    expect(text).not.toMatch(F7_FORBIDDEN);
   });
 });

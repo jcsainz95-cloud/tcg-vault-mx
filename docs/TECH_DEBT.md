@@ -9979,3 +9979,48 @@ Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (HEAD `
   «retirada», así que una retirada deliberada vuelve a publicarse al cambiar el precio.
 - **Disparador:** el arquitecto decide la marca de «retirada» en el schema (zona compartida, regla 9), o una queja de operador.
 - **Comprobación:** prueba que fija precio sobre un sellado con una pieza retirada a propósito y esta sigue sin publicar.
+
+## Frontend · 2026-10-08 · gate de techlead sobre `342f84dc` (rama `claude/buylist-mercado`, §BMK; aprobado con deuda)
+
+Fichero:línea **re-medidos el 2026-10-08** sobre `342f84dc`. TD-BMK-5 y TD-BMK-6 se **cerraron** en esta rama (ver
+`FRONTEND_NOTES §110`, «Cierre de gates»); quedan abiertas las cuatro de abajo, todas P3, ninguna bloqueante.
+
+### TD-BMK-1 · P3 · `CardDetailModal` repite la parte numérica del predicado de mercado
+- **Dueño:** frontend (`frontend/src/components/domain/`, zona compartida).
+- **Qué es:** `CardDetailModal.tsx:73` vuelve a escribir `typeof === 'number' && Number.isInteger && > 0`, que es la cola
+  de `visibleMarketCents` (`frontend/src/lib/sell-market.ts:31-33`). El llamador ya pasa el número decidido; si la regla
+  numérica cambia en `sell-market.ts`, la ventana puede ocultar una cifra que la teja sí enseña (o al revés).
+- **Dirección propuesta:** extraer `isVisibleMarketAmount(cents)` en `sell-market.ts`, usarla en `visibleMarketCents` y en
+  la ventana (o que la ventana confíe del todo en el llamador y pinte si `marketCents != null`).
+- **Disparador:** el próximo cambio a la regla de `visibleMarketCents` o a la ventana de detalle.
+- **Comprobación:** `grep -n "Number.isInteger" frontend/src/components/domain/CardDetailModal.tsx` vacío.
+
+### TD-BMK-2 · P3 · `CardDetailModal` atado al vocabulario de buylist
+- **Dueño:** frontend (zona compartida `components/domain/`).
+- **Qué es:** el modal es de dominio genérico, pero lee `useTranslations('buylist.sellPrice')` (`CardDetailModal.tsx:65`)
+  y rotula «Te pagamos» fijo (`:143`). Reusarlo en vitrina o bóveda pintaría vocabulario de venta.
+- **Dirección propuesta:** el llamador pasa los rótulos (`priceLabel`, `marketLabel`) o una prop `context: 'sell' | …`;
+  el modal deja de importar el espacio de nombres de buylist.
+- **Disparador:** el primer uso del modal fuera del cotizador (hoy lo usan `MasterSetBinder.tsx` y `BuylistView.tsx`).
+- **Comprobación:** `grep -n "buylist\." frontend/src/components/domain/CardDetailModal.tsx` vacío.
+
+### TD-BMK-3 · P3 · Cascada de `aria-label` por estado repetida tres veces en `MasterSetBinder`
+- **Dueño:** frontend (`components/master-set/`).
+- **Qué es:** la misma elección «mercado+pago / solo pago / sin cifra» se escribe en `MasterSetBinder.tsx:1015-1025`
+  (botón de la teja), `:1118-1125` (contenedor del producto aparte) y `:1126-1131` (botón del producto aparte), con
+  ternarios anidados. Una cuarta variante o un cambio de criterio exige tocar los tres sitios igual.
+- **Dirección propuesta:** una función pura `sellAriaVariant({ offerShown, market })` → `'market' | 'pay' | 'none'` y un
+  mapa de claves por sitio; probada sola en `sell-market.test.ts`.
+- **Disparador:** el próximo cambio a los aria del cotizador.
+- **Comprobación:** la elección vive en una función; `grep -c "AriaMarket'" MasterSetBinder.tsx` sigue en 3 pero ninguna
+  dentro de un ternario anidado.
+
+### TD-BMK-4 · P3 · Tercera copia de los helpers E2E de venta
+- **Dueño:** frontend (`frontend/e2e/`).
+- **Qué es:** `openBaseSet`, `cartPanel`, `openCart` están en `e2e/buylist.spec.ts:30,53,70`,
+  `e2e/sell-cart-persist.spec.ts:12,22,30` y `e2e/buylist-bmk.spec.ts:34,44,49`; `ensureMinimumReached` y
+  `choosePickupAddress` en las dos primeras y la tercera (`buylist.spec.ts:88,117`, `buylist-bmk.spec.ts:61,72`). Un cambio
+  de la UI del carrito obliga a arreglar tres copias, y una que se quede atrás falla como si fuera conducta.
+- **Dirección propuesta:** `frontend/e2e/helpers/sell.ts` con los cinco, importado por los tres specs.
+- **Disparador:** el próximo spec de venta o el próximo cambio al panel del carrito.
+- **Comprobación:** `grep -rn "function openCart" frontend/e2e` devuelve **un** sitio.

@@ -176,8 +176,13 @@ test.describe('§BMK · BMK-E1 — mercado junto a «Te pagamos», teja → carr
     }
     // Y lo persistido (no solo la respuesta) dice lo mismo.
     const persisted = await apiAsOk<SellRequestDTO>('customer', 'GET', `/buylist/requests/${body.sellRequestId}`);
+    // Sin guarda de null (TD-BMK-5): el GET de cliente solo redacta `marketMxnCents` a null en
+    // `no_offer` / `not_continued` (API_CONTRACT «Portal en not_continued: forma del DTO»), y una
+    // solicitud recién creada no está en ninguno. Un null aquí es un defecto, no una redacción.
+    expect(persisted.items.length).toBe(body.items.length);
     for (const item of persisted.items) {
-      if (item.marketMxnCents !== null) expect(item.marketMxnCents).toBe(toCents(market));
+      expect(item.marketMxnCents).not.toBeNull();
+      expect(item.marketMxnCents).toBe(toCents(market));
     }
   });
 

@@ -20635,3 +20635,22 @@ F1 quitar fila (3 rojas), F2 quitar `quote.status` (4), F3 quitar `> 0` (3), F4 
 volver a pintar `referencePrice` por status en «Detalle» (1), F6 sumar mercados al total (4), F7 «(50 %)» en un rótulo
 (6), F8 quitar mercado del aria (2), UX-1 `line-through` (1), UX-2 invertir orden (2), UX-4 cifra vieja al
 recotizar (3), UX-6 nota fuera del cotizador (1).
+
+**Cierre de gates (2026-10-08, sobre `342f84dc`; QA APROBADO, techlead APROBADO CON DEUDA).**
+- **TD-BMK-5 / QA menor 1 — cerrada.** `e2e/buylist-bmk.spec.ts`: la comprobación de lo persistido ya no salta las líneas
+  con `marketMxnCents === null`; afirma `not.toBeNull()` y el mismo número de líneas que la respuesta del POST. Medido en
+  el contrato: el GET de cliente solo redacta `marketMxnCents` a `null` en `no_offer` / `not_continued`
+  (API_CONTRACT, «Portal en `not_continued`: forma del DTO»), y una solicitud recién creada no está en ninguno. Contra el
+  stack: **NO MEDIDO** (el paso solo corre `@real`).
+- **TD-BMK-6 — cerrada.** F7 (`MasterSetBinder.bmk.test.tsx`, `SellCartContents.bmk.test.tsx`) ya no aplica la lista
+  negra a todo el contenedor: solo a los bloques de precio (`sell-price-block` + la nota de tono + los aria con `MX$`;
+  en el carrito `sell-cart-line-prices` ×2 + `sell-cart-money`), con candado de que esos bloques existen (no verde por
+  ausencia). Las palabras van completas (`F7_FORBIDDEN`: `%`, `mitad(es)`, `half`, `ahorr…`, `save/saves/saved/saving(s)`).
+  **Hallazgo al medir:** `textContent` pega `<dt>` y `<dd>` («Te pagamos la mitadMX$500.00») y borra el límite de palabra:
+  con `\b` la mutación «la mitad» **no mordía** en el binder. Se lee nodo de texto a nodo de texto (`f7Text`).
+- **Mutaciones** (copia `git archive 342f84dc` del árbol entero + los tres ficheros nuevos, N=1 cada una, deterministas):
+  **6/6 muerden** — «(50 %)» en `sellPrice.wePay` (binder es+en), en `wePayEach` (carrito es+en), en `sellPrice.market`
+  (binder es+en), en los aria `*AriaPay`/`*AriaMarket` (binder es+en); «la mitad»/«half» en `wePay`/`wePayEach` (los dos
+  F7, es+en); «ahorras»/«you save» en `market`/`marketEach` (los dos F7, es+en).
+- **Verde:** vitest de los dos ficheros **24/24**, `tsc` 0, `next lint` limpio.
+- **Deuda anotada** en `TECH_DEBT.md` (2026-10-08): TD-BMK-1..4.

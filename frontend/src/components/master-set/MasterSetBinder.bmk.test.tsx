@@ -10,6 +10,7 @@ import type {
   MasterSetSummaryDTO,
 } from '@/types/contract';
 import es from '../../../messages/es.json';
+import en from '../../../messages/en.json';
 
 /**
  * §BMK (API_CONTRACT §BMK.3–§BMK.5, §BMK.8 · DESIGN_SYSTEM §BMK.2–§BMK.4, §BMK.11) — el cotizador
@@ -324,6 +325,18 @@ describe('§BMK · teja de producto aparte en modo cotizador (SeparateProductTil
   });
 });
 
+// F7: «%» en cualquier forma, y las palabras de proporción/ahorro como palabras completas (no
+// subcadenas: «Halfling», «Mitadori» o «Saved Game» como nombre propio no son una comparación).
+const F7_FORBIDDEN = /%|\bmitad(es)?\b|\bhalf\b|\bahorr\w*|\bsav(e|es|ed|ing|ings)\b/i;
+// `textContent` pega `<dt>` y `<dd>` sin espacio («Te pagamos la mitadMX$500.00»), y eso borra el
+// límite de palabra: se lee nodo de texto a nodo de texto, separados por un espacio.
+function f7Text(el: Element): string {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const parts: string[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) parts.push(n.textContent ?? '');
+  return parts.join(' ');
+}
+
 describe('§BMK · BMK-F7: sin porcentajes, proporciones ni «ahorro» en el cotizador (es y en)', () => {
   it.each(['es', 'en'] as const)('%s', async (locale) => {
     const { container } = renderQuoter(locale);
@@ -331,11 +344,20 @@ describe('§BMK · BMK-F7: sin porcentajes, proporciones ni «ahorro» en el cot
       name: locale === 'es' ? /^Agregar Alpha \(Normal\) a la venta/ : /^Add Alpha \(Normal\) to the sale/,
     });
     const text = container.textContent ?? '';
-    const arias = Array.from(container.querySelectorAll('[aria-label]'))
-      .map((n) => n.getAttribute('aria-label'))
-      .join(' ');
-    for (const blob of [text, arias]) {
-      expect(blob).not.toMatch(/%|mitad|half|ahorr|save/i);
+    // TD-BMK-6: la lista negra se aplica SOLO a lo que habla de precio (bloques de precio, la nota de
+    // tono y los aria que llevan cifra), no a todo el contenedor: un nombre de carta («Half…»,
+    // «Saved…») o un rótulo ajeno al precio no debe poner rojo F7.
+    const blocks = Array.from(container.querySelectorAll('[data-testid="sell-price-block"]'));
+    expect(blocks.length).toBeGreaterThan(0);
+    const note = (locale === 'es' ? es : en).masterSet.quoterPriceNote;
+    expect(text).toContain(note);
+    const priceText = [...blocks.map(f7Text), note].join(' ');
+    const priceArias = Array.from(container.querySelectorAll('[aria-label]'))
+      .map((n) => n.getAttribute('aria-label') ?? '')
+      .filter((a) => a.includes('MX$'));
+    expect(priceArias.length).toBeGreaterThan(0);
+    for (const blob of [priceText, priceArias.join(' ')]) {
+      expect(blob).not.toMatch(F7_FORBIDDEN);
     }
     // y el mercado sí está (no es un verde por ausencia).
     expect(text).toContain(locale === 'es' ? 'Valor de mercado' : 'Market value');
