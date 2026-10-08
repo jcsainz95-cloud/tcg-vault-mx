@@ -1068,8 +1068,14 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     const censoA = psql(a.schema, readRepair('censo'));
     const censoB = psql(twin, readRepair('censo'));
     expect(censoB.status).toBe(censoA.status);
-    // La única diferencia admitida es la hora de la consulta (`now()` en «A.0 · DÓNDE ESTOY»).
-    const sinHora = (x: string) => x.replace(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?\+00/g, '<ahora>');
+    // La única diferencia admitida es la hora de la consulta (`now()` en «A.0 · DÓNDE ESTOY»). Medido: psql alinea la
+    // columna al ancho del valor y `now()` pierde los ceros finales de los microsegundos (`.7820` sale `.782`), así que
+    // además del valor se normaliza el ALINEADO (espacios y guiones de la regla), no solo la hora.
+    const sinHora = (x: string) =>
+      x
+        .replace(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?\+00/g, '<ahora>')
+        .replace(/-{2,}/g, '-')
+        .replace(/[ \t]+/g, ' ');
     expect(sinHora(censoB.stdout)).toBe(sinHora(censoA.stdout));
 
     const dry = ok(psql(twin, drySql(b)));
