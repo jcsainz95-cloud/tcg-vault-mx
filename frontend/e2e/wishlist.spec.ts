@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { IS_REAL, loginAs, mockOnly, needsSeed } from './utils/auth';
-import { apiAsOk } from './utils/env';
+import { IS_REAL, loginAs, loginAsDisposable, mockOnly, realOnly } from './utils/auth';
+import { apiAsOk, resolveApiBaseUrl } from './utils/env';
 import { WISHLIST_PRIVACY_EN, WISHLIST_PRIVACY_ES } from '../src/content/legal/privacy-wishlist';
 
 /**
@@ -20,8 +20,11 @@ import { WISHLIST_PRIVACY_EN, WISHLIST_PRIVACY_ES } from '../src/content/legal/p
  * (`mode: 'default'`) porque comparten diales globales.
  *
  * Queda `mockOnly` SOLO lo que necesita el token firmado de un correo (WSH-F3/F9 «confirmar»: el HMAC lo firma el
- * servidor y el arnés no lee el buzón). WSH-F5 es `needsSeed` (el seed no siembra ningún sellado a la venta). Cifras:
- * las del servidor; el spec las LEE de la pantalla y las compara entre sí (preview = guardado): no las recalcula.
+ * servidor y el arnés no lee el buzón). WSH-F5 ya no espera al seed (v1.87.4): `seed-e2e` siembra UNA pieza sellada a
+ * la venta y mapeada (`E2E_SEALED_LISTED`, folio `E2E-SLD-0001`, «E2E Surging Sparks Booster Box», `tcgplayerProductId
+ * 610000001`; BACKEND_NOTES §84.v1.87.4). El «avísame» de punta a punta (WSH-F5 · avísame) solo corre contra el stack: lo
+ * que mide es la fila que DERIVA el servidor, y en mock no hay servidor que derive. Cifras: las del servidor; el spec las LEE de la
+ * pantalla y las compara entre sí (preview = guardado): no las recalcula.
  * ─────────────────────────────────────────────────────────────────────────────────────
  */
 
@@ -57,6 +60,8 @@ const NEVER_FINISH = IS_REAL ? 'normal' : 'holofoil';
 interface Dials {
   wishlistEnabled: 'on' | 'off';
   wishlistMaxPerAccount: number;
+  /** Dial del «avísame» de sellados (seed `off`); lo encienden solo los casos del «avísame». */
+  sealedRestockAlerts: 'on' | 'off';
 }
 let originalDials: Dials | null = null;
 
@@ -119,6 +124,56 @@ const block = (page: Page) => page.getByTestId('wishlist-block');
 const BOGUS_TOKEN = 'x'.repeat(43);
 const BOGUS_ID = '00000000-0000-4000-8000-000000000000';
 
+// ── Sellado del seed (WSH-F5) ───────────────────────────────────────────────────────────────────────────
+/**
+ * La teja de sellado de los dos mundos: en mock, «Surging Sparks Booster Box» del fixture; en real, la pieza del seed
+ * «E2E Surging Sparks Booster Box» (`E2E_SEALED_LISTED`). La subcadena casa con las dos.
+ */
+const SEALED_TILE_RE = /Surging Sparks Booster Box/;
+/** Real: nombre del producto del seed y de su carta ancla (el `q` de `GET /catalog/sealed` busca por la CARTA). */
+const SEALED_SEED = { productName: 'E2E Surging Sparks Booster Box', anchorCard: 'E2E Third Bird' } as const;
+const R = (k: string, vars?: Record<string, string | number>) => t('es', `sealed.restock.${k}`, vars);
+const RESTOCK_PATH = '/catalog/sealed/restock-subscriptions';
+
+/** Real: el grupo del seed por la API pública (sus ids son aleatorios) y el `representativeItemId` de SU ficha. */
+async function sealedSeedGroup(): Promise<{ tileId: string; representativeItemId: string }> {
+  const q = encodeURIComponent(SEALED_SEED.anchorCard);
+  const grid = await apiAsOk<{ data: { representativeItemId: string; productName: string }[] }>(
+    'admin',
+    'GET',
+    `/catalog/sealed?q=${q}`,
+  );
+  const tile = grid.data.find((g) => g.productName === SEALED_SEED.productName);
+  if (!tile) throw new Error(`seed-e2e sin el sellado «${SEALED_SEED.productName}» (¿corrió prisma/seed-e2e.ts?)`);
+  const detail = await apiAsOk<{ group: { representativeItemId: string } }>(
+    'admin',
+    'GET',
+    `/catalog/sealed/${tile.representativeItemId}`,
+  );
+  return { tileId: tile.representativeItemId, representativeItemId: detail.group.representativeItemId };
+}
+
+/**
+ * Real: correos distintos esperando un sellado, por NOMBRE, en la demanda de M9 (`GET /admin/reports/wishlist-demand`,
+ * `sealed[]`, §WSH.8). El nombre DELATA LA CLAVE de la fila (`wishlist-demand.service.ts` `sealedWaiting`, contrato
+ * v1.87.2 «nombre del sellado en la demanda»): una fila `p:<tcgplayerProductId>:<cond>` sale con el `sealedProductName`
+ * de una pieza de ese producto («E2E Surging Sparks Booster Box», el seed solo tiene ese producto con ese nombre ⇒
+ * `p:610000001:mint`); una fila `c:<cardId>:<subtipo>:<cond>` —el defecto B-1— sale con el nombre de la CARTA ancla
+ * («E2E Third Bird»). La demanda exige `wishlistEnabled = on` (lo pone el `beforeEach`).
+ */
+async function sealedWaiting(productName: string): Promise<number> {
+  const d = await apiAsOk<{
+    sealed: { productName: string; sealedSubtype: string | null; sealedCondition: string; waitingCount: number }[];
+  }>('admin', 'GET', '/admin/reports/wishlist-demand');
+  return d.sealed
+    .filter((x) => x.productName === productName && x.sealedSubtype === 'box' && x.sealedCondition === 'mint')
+    .reduce((n, x) => n + x.waitingCount, 0);
+}
+
+/** Correo único del arnés (dominio reservado `e2e.local`): cada corrida es un correo NUEVO ⇒ la cuenta sube en 1. */
+const freshEmail = (tag: string) =>
+  `e2e-wsh-restock-${tag}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}@e2e.local`;
+
 test.describe('§WSH · lista de deseos', () => {
   // En real los casos comparten diales globales (`wishlist_enabled`, tope): en orden, en un worker. ⚠️ Por lo mismo,
   // `--repeat-each` necesita `--workers=1` (cada repetición es otra copia del fichero y correría en paralelo).
@@ -134,13 +189,21 @@ test.describe('§WSH · lista de deseos', () => {
       CARDS[key].id = hit.id;
     }
     const s = await apiAsOk<Dials>('admin', 'GET', '/admin/settings');
-    originalDials = { wishlistEnabled: s.wishlistEnabled, wishlistMaxPerAccount: s.wishlistMaxPerAccount };
+    originalDials = {
+      wishlistEnabled: s.wishlistEnabled,
+      wishlistMaxPerAccount: s.wishlistMaxPerAccount,
+      sealedRestockAlerts: s.sealedRestockAlerts,
+    };
   });
 
   test.beforeEach(async () => {
     if (!IS_REAL) return;
     // Encendido y tope de fábrica antes de CADA caso: uno que falla a mitad no contagia al siguiente.
-    await putDials({ wishlistEnabled: 'on', wishlistMaxPerAccount: originalDials?.wishlistMaxPerAccount ?? 20 });
+    await putDials({
+      wishlistEnabled: 'on',
+      wishlistMaxPerAccount: originalDials?.wishlistMaxPerAccount ?? 20,
+      sealedRestockAlerts: originalDials?.sealedRestockAlerts ?? 'off',
+    });
     await clearRealList();
   });
 
@@ -396,16 +459,95 @@ test.describe('§WSH · lista de deseos', () => {
     await expect(page.getByRole('heading', { level: 2, name: B('title') })).toHaveCount(0);
   });
 
-  test('WSH-F5 · ficha de sellado sin botón de deseos', async ({ page }) => {
-    needsSeed('seed-e2e no siembra ningún sellado a la venta: `/sellado` real está vacío (petición en FRONTEND_NOTES §108.v1.87.3)');
+  test('@real WSH-F5 · ficha de sellado sin botón de deseos (con la lista de deseos encendida)', async ({ page }) => {
+    // v1.87.4: el seed ya tiene un sellado a la venta (`E2E_SEALED_LISTED`); en mock, el del fixture. Mismo caso.
     await loginAs(page, ROLE);
     await arrange(page);
     await page.goto('/es/sellado');
-    const first = page.locator('a[href*="/sellado/"]').first();
-    await first.click();
-    await expect(page).toHaveURL(/\/sellado\/[^/]+$/);
+    const tile = page.locator('a[href*="/sellado/"]').filter({ hasText: SEALED_TILE_RE }).first();
+    await expect(tile).toBeVisible();
+    await tile.click();
+    await expect(page).toHaveURL(/\/sellado\/[^/?]+$/);
+    // La ficha CARGÓ (si no, las dos ausencias de abajo pasarían en vacío)…
+    await expect(page.getByRole('heading', { level: 1, name: SEALED_TILE_RE })).toBeVisible();
+    // …y no trae el bloque de deseos ni su rótulo (los deseos son de cartas sueltas, §WSH).
     await expect(page.getByTestId('wishlist-block')).toHaveCount(0);
     await expect(page.getByText(W('eyebrow'), { exact: true })).toHaveCount(0);
+  });
+
+  /**
+   * WSH-F5 · «avísame» de punta a punta (errata v1.87.3 B-1 + v1.87.4): desde la ficha, el cuerpo que manda la pantalla
+   * es EXACTAMENTE `{ email, inventoryItemId }` con el `representativeItemId` de `GET /catalog/sealed/:id`, y la fila que
+   * crea el servidor tiene la clave del PRODUCTO (`p:610000001:mint`), no la de la carta ancla (`c:…`, el defecto B-1).
+   * El correo de «volvió» no se mide aquí (lo cubre la integración de backend, WSH-T42/T44: el arnés no lee el buzón).
+   */
+  test('@real WSH-F5 · «avísame» sin sesión: cuerpo {email, inventoryItemId} y la suscripción queda con la clave del producto', async ({ page }) => {
+    realOnly('mide la fila que DERIVA el servidor (clave p:…); en mock el «avísame» responde FEATURE_DISABLED y no hay servidor que derive');
+    await putDials({ sealedRestockAlerts: 'on' });
+    const g = await sealedSeedGroup();
+    const before = await sealedWaiting(SEALED_SEED.productName);
+    const beforeAnchor = await sealedWaiting(SEALED_SEED.anchorCard);
+    const email = freshEmail('guest');
+
+    await page.goto('/es/sellado');
+    await page.locator('a[href*="/sellado/"]').filter({ hasText: SEALED_SEED.productName }).first().click();
+    await expect(page).toHaveURL(new RegExp(`/sellado/${g.tileId}$`));
+    await expect(page.getByText(R('title'), { exact: true })).toBeVisible();
+    await page.getByLabel(R('emailLabel')).fill(email);
+    const [req] = await Promise.all([
+      page.waitForRequest((r) => r.method() === 'POST' && r.url().includes(RESTOCK_PATH)),
+      page.getByRole('button', { name: R('cta') }).click(),
+    ]);
+    const body = req.postDataJSON() as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(['email', 'inventoryItemId']);
+    expect(body).toEqual({ email, inventoryItemId: g.representativeItemId });
+    expect((await req.response())?.status()).toBe(202);
+    await expect(page.getByText(R('confirmed'))).toBeVisible();
+
+    // La fila: +1 correo esperando el PRODUCTO (clave p:610000001:mint) y 0 en la clave de la carta ancla.
+    expect(await sealedWaiting(SEALED_SEED.productName)).toBe(before + 1);
+    expect(await sealedWaiting(SEALED_SEED.anchorCard)).toBe(beforeAnchor);
+  });
+
+  test('@real WSH-F5 · «avísame» con sesión: sin campo de correo, el de la cuenta, y la misma clave del producto', async ({ page }) => {
+    realOnly('mide la fila que DERIVA el servidor (clave p:…); en mock el «avísame» responde FEATURE_DISABLED y no hay servidor que derive');
+    await putDials({ sealedRestockAlerts: 'on' });
+    const g = await sealedSeedGroup();
+    // Cuenta NUEVA por corrida (`POST /auth/register`, público): un cliente del seed ya podría estar esperando este
+    // producto desde una corrida anterior, y entonces el alta no sumaría (no se duplica la misma identidad, §WSH.7 b).
+    const account = { email: freshEmail('account'), password: `Wsh-${Math.random().toString(36).slice(2)}-9aA` };
+    const apiBase = await resolveApiBaseUrl();
+    const reg = await fetch(`${apiBase}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...account, name: 'E2E Restock Account', phone: '5512345678', locale: 'es' }),
+    });
+    expect(reg.status).toBe(201);
+    const userId = ((await reg.json()) as { user: { id: string } }).user.id;
+    try {
+      const before = await sealedWaiting(SEALED_SEED.productName);
+      const beforeAnchor = await sealedWaiting(SEALED_SEED.anchorCard);
+      await loginAsDisposable(page, account);
+      await page.goto(`/es/sellado/${g.tileId}`);
+      await expect(page.getByRole('heading', { level: 1, name: SEALED_SEED.productName })).toBeVisible();
+      await expect(page.getByText(R('signedInAs', { email: account.email }))).toBeVisible();
+      await expect(page.getByLabel(R('emailLabel'))).toHaveCount(0);
+      const [req] = await Promise.all([
+        page.waitForRequest((r) => r.method() === 'POST' && r.url().includes(RESTOCK_PATH)),
+        page.getByRole('button', { name: R('cta') }).click(),
+      ]);
+      const body = req.postDataJSON() as Record<string, unknown>;
+      expect(Object.keys(body).sort()).toEqual(['email', 'inventoryItemId']);
+      expect(body).toEqual({ email: account.email, inventoryItemId: g.representativeItemId });
+      expect((await req.response())?.status()).toBe(202);
+      await expect(page.getByText(R('confirmed'))).toBeVisible();
+      expect(await sealedWaiting(SEALED_SEED.productName)).toBe(before + 1);
+      expect(await sealedWaiting(SEALED_SEED.anchorCard)).toBe(beforeAnchor);
+    } finally {
+      // Sin historial económico ⇒ borrado en duro (§«Eliminar usuario — híbrido hard/soft»), que además borra sus
+      // suscripciones «avísame» (`admin.service.ts` `restockSubscriptionsOf`): la medición de arriba es ANTES del borrado.
+      await apiAsOk('admin', 'DELETE', `/admin/users/${userId}`);
+    }
   });
 
   test('@real WSH-F10 · criterio 824: /es/privacidad y /en/privacidad, sin sesión, traen el párrafo «Lista de deseos» literal', async ({ page }) => {
@@ -415,11 +557,21 @@ test.describe('§WSH · lista de deseos', () => {
     await expect(es).toHaveCount(1);
     await expect(es).toHaveText(plain(WISHLIST_PRIVACY_ES));
     await expect(page.locator('article p[lang="en"]').filter({ hasText: 'Wishlist.' })).toHaveCount(0);
+    await expect(page.locator('section#finalidades-primarias [lang="en"]')).toHaveCount(0);
     await page.goto('/en/privacidad');
     const en = page.locator('article p[lang="en"]').filter({ hasText: 'Wishlist.' });
     await expect(en).toHaveCount(1);
     await expect(en).toHaveText(plain(WISHLIST_PRIVACY_EN));
     // El aviso (en español) sigue completo en inglés, con el mismo párrafo.
     await expect(page.locator('article p').filter({ hasText: 'Lista de deseos.' })).toHaveText(plain(WISHLIST_PRIVACY_ES));
+    // WSH-UX-15 (DESIGN_SYSTEM «WSH-UX.v1.87.3» c): el inglés va JUSTO debajo del español, dentro del apartado 3.
+    const prev = await page
+      .locator('section#finalidades-primarias p[lang="en"]')
+      .filter({ hasText: 'Wishlist.' })
+      .evaluate((el) => {
+        const p = el.previousElementSibling;
+        return p ? { tag: p.tagName, lang: p.getAttribute('lang'), text: (p.textContent ?? '').slice(0, 16) } : null;
+      });
+    expect(prev).toEqual({ tag: 'P', lang: null, text: 'Lista de deseos.' });
   });
 });

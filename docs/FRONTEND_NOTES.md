@@ -20719,3 +20719,87 @@ rebuild del bundle (carga); los rojos previos medidos de cada prueba nueva hacen
 
 **Suites (2026-10-07, árbol `d6d6383d` + este apartado):** vitest 303 ficheros verdes + 1 saltado, **3992/4002** (10
 saltadas, 0 rojas); `tsc --noEmit` rc=0; `next lint` sin avisos; `check:legal:provisional` 9 verdes + 1 saltada.
+
+### §108.v1.87.4 · WSH-F5 contra el stack, «avísame» de punta a punta y candado WSH-UX-15 (2026-10-08, base `7482f220`)
+
+**Qué cambia (solo pruebas; ningún componente):**
+- **WSH-F5 pasa a `@real`** (`e2e/wishlist.spec.ts`). El seed ya tiene un sellado a la venta (`E2E_SEALED_LISTED`, `1753f9ed`,
+  BACKEND_NOTES §84.v1.87.4). El caso localiza la teja por la subcadena «Surging Sparks Booster Box», que casa con el seed
+  y con el fixture. Comprueba que la ficha cargó (su `h1`) antes de afirmar las dos ausencias, para que no pasen en vacío.
+- **«Avísame» de punta a punta, dos casos nuevos `@real` (`realOnly`)**, uno sin sesión y otro con sesión. El grupo del seed
+  sale de `GET /catalog/sealed?q=E2E Third Bird` (el `q` filtra por la carta ancla) y el `representativeItemId`, de
+  `GET /catalog/sealed/:id`. La prueba entra a la ficha desde `/es/sellado` y se apunta con la pantalla. Comprueba:
+  - el cuerpo es exactamente `{email, inventoryItemId}`: lista de claves **y** `toEqual`, con el id que dio la API;
+  - la respuesta es `202` y se ve el texto `confirmed`;
+  - **la clave de la fila**, leída en `GET /admin/reports/wishlist-demand` → `sealed[]`. El nombre de la fila delata la
+    clave (contrato v1.87.2 «nombre del sellado en la demanda»; `wishlist-demand.service.ts` `sealedWaiting`): con
+    `p:<pid>:<cond>` sale el `sealedProductName` de una pieza de ese producto; con `c:` sale el nombre de la carta ancla.
+    La prueba exige +1 correo esperando «E2E Surging Sparks Booster Box» (`box`/`mint`), es decir `p:610000001:mint`, y
+    +0 en «E2E Third Bird» (la clave `c:` del defecto B-1).
+  - **Con sesión:** cada corrida registra una cuenta nueva con `POST /auth/register` (si se usara un cliente del seed, una
+    corrida anterior ya lo habría apuntado y el alta no sumaría). La prueba afirma «Te avisaremos a {email}», que no hay
+    campo de correo y que el cuerpo lleva el correo de la cuenta. Al final la cuenta se borra con `DELETE /admin/users/:id`,
+    y ese borrado también elimina sus suscripciones (`admin.service.ts:1639`).
+
+  El dial `sealedRestockAlerts` entra en la foto de diales: se guarda en `beforeAll`, se repone en cada `beforeEach` y al
+  final, y solo lo encienden estos dos casos. El correo de «volvió» **no** se mide aquí: no hay forma de agotar la pieza
+  y hacerla volver sin trucos de BD, la ventana de correo (`wishlistMailWindowMin`) exige esperar o un reloj inyectado, y
+  el arnés no lee el buzón. Eso lo cubre la integración de backend (WSH-T42/T44).
+- **WSH-UX-15** (DESIGN_SYSTEM «WSH-UX.v1.87.3» c). Dos casos en `privacidad/page.test.tsx`:
+  - `/en`: dentro de `#finalidades-primarias`, el elemento justo anterior al `p[lang="en"]` «Wishlist.» es un `p` sin
+    `lang` que empieza por «Lista de deseos.»;
+  - `/es`: el apartado no tiene ningún `[lang="en"]`.
+
+  WSH-F10 (E2E) añade la misma adyacencia contra el navegador.
+- **`catalog.spec.ts`:**
+  - «tarjeta de SELLADO» deja de ser `needsSeed` y pasa a `@real`: localiza la teja con precio (`MONEY_RE`) y con el
+    rótulo de IVA.
+  - Se corrige el comentario de D-EQ-3 que daba por hecho que la vitrina estaba siempre vacía.
+  - El estado vacío ya no se mide de rebote. Lo mide un caso nuevo `@real` «Sellado · vitrina vacía» con
+    `/es/sellado?sealedSubtype=tin`, que no casa ni en el seed (solo `box`) ni en el fixture (`box`, `etb`). Afirma
+    `sealed.emptyTitle`, el filtro aplicado y 0 tejas.
+
+**Medido (2026-10-08).** Stack propio:
+- Postgres 16 en `/var/lib/postgresql/frontend-wsh3`, puerto 5463, con `migrate deploy` y `seed-e2e`.
+- Redis en el puerto 6395.
+- Backend de `7482f220` en el puerto 3499, con ts-node y `NODE_ENV=test`.
+- Next de producción en el puerto 3501, con `NEXT_PUBLIC_USE_MOCKS=false`.
+
+Todo se apagó y se borró al terminar.
+- Real (`E2E_REAL=1`, `wishlist.spec.ts` + `catalog.spec.ts`, `--workers=1`): **19/19**. Con N=10 en serie
+  (`--repeat-each=10`): **190/190**, y cada caso nuevo o cambiado salió 10/10.
+- Mock, los mismos dos ficheros con N=10: **280 verdes y 30 saltados de 310**. Los saltados son los tres `realOnly` (el
+  de `catalog` y los dos del «avísame») por 10.
+- BD: la fila del invitado quedó con `tcgplayerProductId=610000001`, `box`, `mint`, pendiente. Además se hizo un alta a
+  mano con sesión y con otro correo en el cuerpo: la fila guardó el correo de la cuenta, `userId` y `610000001`/`mint`.
+- **Canario** (determinista, N=1): con la pieza del seed desmapeada en BD (`tcgplayerProductId=NULL`, así que la clave es
+  `c:`), los dos casos del «avísame» salen **rojos** (`Expected 1, Received 0` en el +1 del producto). Después se volvió
+  a sembrar y la pieza quedó otra vez en `610000001`/`listed`.
+- **Mutación WSH-UX-15** (copia `git archive HEAD` del árbol entero, N=1, determinista):
+  - un `p` añadido después de `WISHLIST_PRIVACY_ES` en `privacidad.es.ts` ⇒ el caso `/en` en **rojo**;
+  - el párrafo inglés pintado también en `es` (`page.tsx`) ⇒ en **rojo** el caso `/es` de UX-15 y el «es» de 824.
+
+**Censo (`scripts/check-e2e-skip-census.sh`, 2026-10-08, sobre este árbol)**, rc=1 contra la línea base de devops:
+
+| Clave | Línea base | Ahora |
+|---|---|---|
+| `mockOnly` | 144 / 30 | **148 / 31** (sin cambio desde §108.v1.87.3) |
+| `needsSeed` | 35 / 10 | **33 / 9** (baja) |
+| `harnessLimit` | 5 / 3 | 5 / 3 |
+| `skipIfSeedMissing` | 15 / 7 | 15 / 7 |
+| `realOnly` | 22 / 7 | **25 / 8** (sube) |
+
+Motivos:
+- **`needsSeed` −5 respecto a §108.v1.87.3** (38/11 → 33/9). En `wishlist.spec.ts`: el import, la mención del docblock y
+  la llamada de WSH-F5. En `catalog.spec.ts`: el import y la llamada de «tarjeta de SELLADO». Los dos ficheros ya no lo
+  usan.
+- **`realOnly` +3, +1 fichero** (`wishlist.spec.ts`: el import y **2 llamadas**, los dos casos del «avísame»). Lo que
+  miden es la fila que deriva el servidor (clave `p:`) y la demanda de M9. En mock, `subscribeSealedRestock` responde
+  siempre `FEATURE_DISABLED`, así que no hay servidor que derive nada. El cuerpo de la pantalla en mock ya lo cubren los
+  unitarios (`SealedRestockForm*.test.tsx`, `SealedDetailView.test.tsx`).
+- **`mockOnly` 148/31**: los mismos 2 casos de §108.v1.87.3 (WSH-F3/F9 «confirmar», token HMAC del correo).
+
+La línea base la regenera devops con estos motivos.
+
+**Suites (2026-10-08, este árbol):** vitest 303 ficheros verdes y 1 saltado, **3994/4004** (10 saltadas, 0 rojas);
+`tsc --noEmit` rc=0; `next lint` sin avisos.
