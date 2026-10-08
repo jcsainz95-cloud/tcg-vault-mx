@@ -26,6 +26,7 @@ import type {
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
+import { visibleMarketCents } from '@/lib/sell-market';
 import { compareCardNumber, deriveNumberParts } from '@/lib/cardOrder';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
@@ -532,6 +533,12 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
         )}
       </div>
 
+      {/* §BMK.7 (DESIGN_SYSTEM): el tono de «Te pagamos» se dice UNA vez por set, aquí, entre los
+          filtros y la grilla — no en cada teja. No sticky. Solo en el cotizador (BMK-UX-6). */}
+      {isQuoter && (
+        <p className="mt-2 max-w-prose text-xs leading-relaxed text-muted">{t('quoterPriceNote')}</p>
+      )}
+
       <QueryState
         isLoading={binder.isLoading}
         isError={binder.isError}
@@ -868,6 +875,59 @@ function BinderTile({
 }
 
 /**
+ * §BMK.2 (DESIGN_SYSTEM) — bloque de dinero de una teja del COTIZADOR (`QuoterTile` y
+ * `SeparateProductTile` en modo cotizador). Un `<dl>` apilado: «Valor de mercado» (secundaria, 13 px,
+ * muted) ANTES de «Te pagamos» (héroe, 15 px, tinta, como la cifra de siempre).
+ *
+ * - `market` llega YA decidido por `visibleMarketCents` y formateado; `null` ⇒ el par NO existe en el
+ *   DOM (ni «—», ni «MX$0.00», ni hueco oculto — API_CONTRACT §BMK.3).
+ * - ⛔ Nada visual relaciona las dos cifras (§BMK.1 punto 2): las clases NO dependen de cuál es mayor,
+ *   sin tachado, flecha ni color de comparación. Este componente ni siquiera recibe números.
+ * - `fallback` (no disponible / error de producto aparte): no hay oferta que rotular ⇒ la línea de hoy,
+ *   sin rótulos.
+ * - `min-h` fijo: la llegada del lote de cotizaciones no empuja la grilla y una teja sin mercado no
+ *   queda más corta que sus vecinas.
+ */
+function SellPriceBlock({
+  market,
+  price,
+  pending,
+  fallback,
+}: {
+  market: string | null;
+  price: string | null;
+  pending: boolean;
+  fallback: string | null;
+}) {
+  const t = useTranslations('masterSet');
+  const tSell = useTranslations('buylist.sellPrice');
+  if (fallback != null) {
+    return (
+      <div className="mt-2 min-h-[4.5rem]">
+        <p className="font-mono tabular-nums text-[15px] text-text">
+          <span className="text-accent">{fallback}</span>
+        </p>
+      </div>
+    );
+  }
+  const dt = 'font-mono text-[10px] uppercase leading-tight tracking-label text-muted';
+  return (
+    <dl className="mt-2 min-h-[4.5rem]" data-testid="sell-price-block">
+      {market != null && (
+        <>
+          <dt className={dt}>{tSell('market')}</dt>
+          <dd className="mt-0 whitespace-nowrap font-mono tabular-nums text-[13px] text-muted">{market}</dd>
+        </>
+      )}
+      <dt className={cn(dt, market != null && 'mt-1.5')}>{tSell('wePay')}</dt>
+      <dd className="mt-0 whitespace-nowrap font-mono tabular-nums text-[15px] text-text">
+        {pending ? <span className="text-accent">{t('quoterPending')}</span> : price}
+      </dd>
+    </dl>
+  );
+}
+
+/**
  * Tarjeta de impresión del COTIZADOR (mode="quoter") — N-16: una tarjeta por (carta, acabado a
  * pintar) con su propio precio cotizado y su propio botón "Agregar" (agrega esa combinación al
  * carrito de venta con el precio ya cotizado server-side). Una variante SIN precio se SIGUE
@@ -898,6 +958,13 @@ function QuoterTile({
   const pending = variant.quote?.status === 'precio_pendiente';
   const price =
     variant.quote?.quotedPriceCents != null ? formatMoneyCents(variant.quote.quotedPriceCents, locale) : null;
+  // §BMK.3: UNA regla (`visibleMarketCents`) y UNA fuente (`variant.quote.referencePrice`). El mismo
+  // número va a la teja, al `aria-label` de «Agregar» y a la ventana de detalle.
+  // (`variant.quote` es la forma plana del binder: su `status` ES el `quote.status` de la cotización.)
+  const marketCents = visibleMarketCents(
+    variant.quote ? { quote: { status: variant.quote.status }, referencePrice: variant.quote.referencePrice } : null,
+  );
+  const market = marketCents != null ? formatMoneyCents(marketCents, locale) : null;
   return (
     <div
       // P-42: sombreado «ya está en el carro» — pozo de papel + regla de tinta discreta. Doble canal:
@@ -912,8 +979,10 @@ function QuoterTile({
           BinderTile — banda de 3px (canal color, decorativa); el texto lo porta la etiqueta
           de acabado del TileHeader (doble canal, nunca banda sin texto). */}
       <FinishBand finish={variant.finish} />
-      {/* §18.2: precio estimado como héroe secundario (15px, mono, TINTA — el verde
-          «Pagamos» queda exclusivo del BountyCard §16.7c: esto es estimado, no promesa).
+      {/* §18.2 / §BMK.2: «Te pagamos» es la cifra héroe secundaria (15px, mono, TINTA — el verde
+          «Pagamos» queda exclusivo del BountyCard §16.7c). Sigue siendo un estimado y no una promesa
+          (la cifra firme va en la oferta): eso se dice UNA vez por set con `quoterPriceNote`
+          (DESIGN_SYSTEM §BMK.7), no en cada teja.
           P-43: el arte es clickeable → pop-up de detalle (imagen grande + datos). */}
       <TileHeader
         cell={cell}
@@ -922,13 +991,12 @@ function QuoterTile({
         onImageClick={() => setDetailOpen(true)}
         imageAriaLabel={t('quoterDetailAria', { name: cell.name, finish: finishLabel })}
       />
-      <p className="mt-2 font-mono tabular-nums text-[15px] text-text">
-        {pending ? (
-          <span className="text-accent">{t('quoterPending')}</span>
-        ) : (
-          price ?? <span className="text-accent">{t('quoterUnavailable')}</span>
-        )}
-      </p>
+      <SellPriceBlock
+        market={market}
+        price={price}
+        pending={pending}
+        fallback={!pending && price == null ? t('quoterUnavailable') : null}
+      />
       {/* P-42: marca textual «En el carrito» (doble canal del sombreado). */}
       {inCart && (
         <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.06em] text-success">
@@ -942,11 +1010,19 @@ function QuoterTile({
           className="w-full"
           disabled={!variant.quote}
           onClick={onAdd}
-          aria-label={t('quoterAddAria', {
-            name: cell.name,
-            finish: finishLabel,
-            price: price ?? t('quoterPending'),
-          })}
+          // §BMK.4 (criterio 858): el botón anuncia lo que la teja enseña, con los mismos rótulos. La
+          // variante la elige el ESTADO de la teja, nunca una comparación de cifras.
+          aria-label={
+            !pending && price != null && market != null
+              ? t('quoterAddAriaMarket', { name: cell.name, finish: finishLabel, market, price })
+              : !pending && price != null
+                ? t('quoterAddAriaPay', { name: cell.name, finish: finishLabel, price })
+                : t('quoterAddAria', {
+                    name: cell.name,
+                    finish: finishLabel,
+                    price: pending ? t('quoterPending') : t('quoterUnavailable'),
+                  })
+          }
         >
           {t('quoterAdd')}
         </Button>
@@ -967,6 +1043,7 @@ function QuoterTile({
         finish={variant.finish}
         priceCents={variant.quote?.quotedPriceCents ?? undefined}
         pricePending={pending}
+        marketCents={marketCents}
       />
     </div>
   );
@@ -1020,6 +1097,38 @@ function SeparateProductTile({
   const pending = quoteOk?.quote.status === 'precio_pendiente';
   const quotedPrice =
     quoteOk?.quote.quotedPriceCents != null ? formatMoneyCents(quoteOk.quote.quotedPriceCents, locale) : null;
+  // §BMK.3/§BMK.4 (ARCHITECTURE §4.BMK (d)): en el cotizador el mercado sale SOLO de la cotización
+  // (`quoteOk.referencePrice`, el que entró a la cifra). ⛔ Nunca `priceCents` (de
+  // `CardProductDTO.prices[]`), que sigue sirviendo solo a los modos de inventario.
+  const quoteMarketCents = isQuoter ? visibleMarketCents(quoteOk) : null;
+  const quoteMarket = quoteMarketCents != null ? formatMoneyCents(quoteMarketCents, locale) : null;
+  const quoterFallback = quoteError
+    ? t('separateProductError')
+    : !pending && quotedPrice == null
+      ? t('quoterUnavailable')
+      : null;
+  // §BMK.4: rótulo accesible por ESTADO de la teja (con mercado / sin mercado / sin cifra).
+  const ariaArgs = { name: product.name, kind: kindLabel, finish: finishLabel };
+  const offerShown = !quoteError && !pending && quotedPrice != null;
+  const quoterNoFigure = quoteError
+    ? t('separateProductError')
+    : pending
+      ? t('quoterPending')
+      : t('quoterUnavailable');
+  const containerAria = !isQuoter
+    ? // Modos de inventario: SIN cambio (mercado de catálogo del producto).
+      t('separateProductAria', { ...ariaArgs, price: marketPrice ?? t('marketPending') })
+    : offerShown && quoteMarket != null
+      ? t('separateProductAriaMarket', { ...ariaArgs, market: quoteMarket, price: quotedPrice })
+      : offerShown
+        ? t('separateProductAriaPay', { ...ariaArgs, price: quotedPrice })
+        : t('separateProductAria', { ...ariaArgs, price: quoterNoFigure });
+  const addAria =
+    offerShown && quoteMarket != null
+      ? t('separateProductAddAriaMarket', { ...ariaArgs, market: quoteMarket, price: quotedPrice })
+      : offerShown
+        ? t('separateProductAddAriaPay', { ...ariaArgs, price: quotedPrice })
+        : t('separateProductAddAria', { ...ariaArgs, price: quoterNoFigure });
 
   return (
     <div
@@ -1031,12 +1140,7 @@ function SeparateProductTile({
         'flex h-full flex-col',
         inCart && 'bg-surface-2 shadow-[inset_0_0_0_1px_var(--color-border-strong)]',
       )}
-      aria-label={t('separateProductAria', {
-        name: product.name,
-        kind: kindLabel,
-        finish: finishLabel,
-        price: marketPrice ?? t('marketPending'),
-      })}
+      aria-label={containerAria}
     >
       {/* FinishBand (§16.6): banda superior de 3px — canal de color; el texto lo porta la etiqueta. */}
       <FinishBand finish={finish} />
@@ -1061,15 +1165,8 @@ function SeparateProductTile({
       {isQuoter ? (
         // COTIZADOR (§4.29): estimado de buylist PROPIO del producto + botón Agregar / error por-línea.
         <>
-          <p className="mt-2 font-mono tabular-nums text-[15px] text-text">
-            {quoteError ? (
-              <span className="text-accent">{t('separateProductError')}</span>
-            ) : pending ? (
-              <span className="text-accent">{t('quoterPending')}</span>
-            ) : (
-              quotedPrice ?? <span className="text-accent">{t('quoterUnavailable')}</span>
-            )}
-          </p>
+          {/* §BMK.2: el MISMO bloque de dinero que QuoterTile, con el mercado de la cotización. */}
+          <SellPriceBlock market={quoteMarket} price={quotedPrice} pending={pending} fallback={quoterFallback} />
           {/* Error legible del contrato (productId inexistente / no cuelga del cardId) — no rompe el lote. */}
           {quoteError && (
             <p role="alert" className="mt-1 font-mono text-[10px] leading-snug text-accent">
@@ -1102,12 +1199,7 @@ function SeparateProductTile({
                   paymentNotice: 'PAY_AFTER_RECEIPT',
                 });
               }}
-              aria-label={t('separateProductAddAria', {
-                name: product.name,
-                kind: kindLabel,
-                finish: finishLabel,
-                price: quotedPrice ?? t('quoterPending'),
-              })}
+              aria-label={addAria}
             >
               {t('quoterAdd')}
             </Button>
