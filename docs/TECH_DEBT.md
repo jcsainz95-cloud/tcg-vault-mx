@@ -9983,7 +9983,7 @@ orquestador; lo que dice «qué es» lo midió backend en el código.
 - **Ampliación (re-check del techlead sobre `cabd8a15`; líneas re-medidas el 2026-10-08 sobre `191dcc5a`):** en
   `orders/accessory-stock.ts`, las dos ramas de `settleAccessories` repiten la misma forma «descontar por componente; si
   uno falla, devolver lo ya descontado»: rama `reserved` `:162-210` (descuento `:168-191`, reversión `:192-197`) y rama
-  `released` `:211-249` (descuento `:216-226`, reversión `:227-229` y otra vez `:235` si pierde el CAS). El helper
+  `released` `:211-248` (descuento `:216-226`, reversión `:227-229` y otra vez `:235` si pierde el CAS). El helper
   `moveStock` debe absorber también esa reversión (p. ej. un «mover todo o nada» por componentes que devuelve lo hecho o
   lo deshace), para que no queden tres copias a mano del `"stockQty" = "stockQty" + q`.
   - **Comprobación adicional:** `rg -n '"stockQty" = "stockQty" \+' backend/src/modules/orders/accessory-stock.ts` vacío
