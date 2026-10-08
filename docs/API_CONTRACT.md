@@ -10,6 +10,17 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata v1.86.6⟨accesorios⟩** (2026-10-08, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `dd26ae79` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.5, vigente entera salvo esto. Origen: veredicto de techlead sobre
+> `dd26ae79` (TD-AC-1, TD-AC-8, TD-AC-9). Norma: **§AC.21**; porqué: `ARCHITECTURE §4.AC (r)`. ⛔ Sin schema ni `M-73`.
+> - 💰 **TD-AC-1:** un renglón `reserved` cuyo contador no lo respalda ⛔ ya no tumba la liquidación. Cae a la recuperación
+>   (existencias libres ⇒ `settle_recovery`) o a `settledWithoutStock`, con bitácora ruidosa, y las cartas se liquidan como
+>   siempre. **Cambia conducta (backend):** hoy `throw` ⇒ pedido pagado en `pending`; con la errata ⇒ `settled`.
+> - **TD-AC-8:** §AC.6/§AC.7 nombran los ficheros reales (`orders/accessory-stock.ts`, `orders/box-fit.ts`) y la función
+>   real (`accessoryReservedDrift`), y las líneas de los llamadores de §AC.6 (2) se re-miden. Solo documento.
+> - **TD-AC-9:** dos riesgos aceptados en `ARCHITECTURE §4.AC (r)` y §8: fotos sin CDN y `pullToken` atado a `PII_HMAC_KEY`.
+> - Pruebas AC-B64…B66 con mutación.
+>
 > **Errata v1.86.5⟨accesorios⟩** (2026-10-08, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `d8ff897a` según el
 > orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.4, vigente entera salvo esto. Origen: `BACKEND_NOTES §83.ceq1`
 > (regla 9). Toca [§0-Q](#enum-query-filter) punto 4, §AC.3 y §AC.11. ⛔ Sin schema.
@@ -41583,6 +41594,9 @@ Nada más se construye.
 
 ## <a id="AC"></a>AC. 💰 ACCESORIOS, ENERGÍAS Y PAQUETE DE ENERGÍAS DEL DECK (rev v1.86⟨accesorios⟩ + erratas v1.86.1, v1.86.2, v1.86.3 y v1.86.4, 2026-10-07, **NORMATIVA**)
 
+> ⭐ **v1.86.6 (§AC.21) manda sobre §AC.6 (4) donde choque:** liquidar ⛔ nunca lanza por un renglón de accesorio; un
+> `reserved` sin respaldo cae a la recuperación o a `settledWithoutStock`, con bitácora. Ficheros reales en `orders/`.
+
 > ⭐ **v1.86.4 (§AC.20):** en la carrera del paquete valen `409 ACCESSORY_INSUFFICIENT_STOCK` y `422
 > ENERGY_BUNDLE_INVALID/insufficient_stock`, sin traducción; el dial puede tener fila o no y ninguna prueba supone cuál;
 > la reposición al reembolso total se queda en la tx1 de M3.
@@ -41934,7 +41948,10 @@ deckPulls?: { pullToken: string /* ≤ 4096 */; withEnergyBundle: boolean }[];  
 - El criterio 749 cambia de sentido (`D-AC-1`): «un cliente con sesión **no** puede pagar accesorios; el servidor los
   rechaza».
 
-### AC.6 💰 Existencias — un cuerpo por verbo (`accessories/accessory-stock.ts`)
+### AC.6 💰 Existencias — un cuerpo por verbo (`orders/accessory-stock.ts`)
+
+> v1.86.6 (TD-AC-8): el fichero vive en `backend/src/modules/orders/`, no en `accessories/` como decía v1.86. Se alinea el
+> contrato con el código: el verbo es de pedido (lo llaman `orders` y `payments`), y `accessories/` es el catálogo.
 
 Todas reciben el `tx` del llamador. Ninguna lee y luego escribe: la condición va en el `UPDATE`.
 
@@ -41942,12 +41959,16 @@ Todas reciben el `tx` del llamador. Ninguna lee y luego escribe: la condición v
 2. **`releaseAccessoryReservations(tx, orderId)`:**
    - por renglón: `UPDATE "OrderAccessoryLine" SET status='released' WHERE orderId=$1 AND status='reserved' RETURNING …`;
    - luego, por accesorio en orden ascendente: `reservedQty -= Σ`.
-   - **Llamadores obligatorios:** son los mismos sitios que hoy sueltan piezas con `releaseReservationData`:
-     - `payments.service.ts:640` (`onPaymentFailed`) y `:904`;
-     - `orders.service.ts:930` (`releaseReservation`, que incluye la compensación del PaymentIntent de `:1374`), `:1076`
-       (`supersedeOwnOrder`) y `:1227` (`sweepExpiredReservations`);
-     - `guest-checkout.service.ts:520` (`sweepStaleGuestOrders`);
-     - `payments/refunds/release-unsettled-refund.ts:55` (reembolso total de un pedido nunca liquidado).
+   - **Llamadores obligatorios:** son los mismos sitios que hoy sueltan piezas con `releaseReservationData`.
+     ⭐ v1.86.6 (TD-AC-8): líneas re-medidas con Grep el 2026-10-08 sobre el árbol de `dd26ae79` (⛔ sha NO MEDIDO por mí;
+     el backend de C-1 trabaja en el mismo árbol, así que pueden correrse unas líneas: manda el nombre de la función):
+     - `payments.service.ts:682` (`failAndRelease`, que sirve a `onPaymentFailed` y `onPaymentCanceled`) y `:964`
+       (`onChargeDisputeDirectShip`);
+     - `orders.service.ts:934` (`releaseReservation`, que incluye la compensación del PaymentIntent de `attachPaymentIntent`,
+       `:1408`), `:1084` (`supersedeOwnOrder`) y `:1242` (`sweepExpiredReservations`);
+     - `guest-checkout.service.ts:697` (`sweepStaleGuestOrders`): ⛔ no llama directo; delega en
+       `orders.releaseReservation` (`orders.service.ts:934`), que sí suelta;
+     - `payments/refunds/release-unsettled-refund.ts:76` (reembolso total de un pedido nunca liquidado).
    - El candado **AC-B37** lo vigila: todo fichero de `src/` que use `releaseReservationData` llama también a
      `releaseAccessoryReservations`.
 3. **Barrido de pedidos solo de accesorios.**
@@ -41967,6 +41988,8 @@ Todas reciben el `tx` del llamador. Ninguna lee y luego escribe: la condición v
        marcado y lo resuelve como faltante.
    - En la misma transacción se crean las `ShipmentAccessoryLine`, una por renglón, en el `ShipmentRequest` que ya nace
      ahí.
+   - ⭐ **v1.86.6 (§AC.21):** un renglón `reserved` cuyo contador no lo respalda ⛔ no lanza: cae a la recuperación de
+     arriba y, si tampoco hay, a `settledWithoutStock`. Liquidar ⛔ nunca falla por un renglón de accesorio.
 5. **`restockAccessoriesOnFullRefund(tx, orderId)`:** en `closeShipmentsOnFullRefund`, rama directo, bajo los mismos
    candados.
    - Solo si **ningún** envío propio está `enviado|entregado` (`afterShipment = false`).
@@ -41976,12 +41999,17 @@ Todas reciben el `tx` del llamador. Ninguna lee y luego escribe: la condición v
    - Pedido nunca liquidado ⇒ lo cubre (2) vía `release-unsettled-refund.ts`.
    - ⛔ Difiere de las cartas a propósito (`ARCHITECTURE §4.AC (k)`).
    - ⭐ v1.86.4: el momento (tx1 de M3, no la confirmación) se ratifica, y también el caso de Stripe rechazando: §AC.20.3.
-6. **Conteo de reconciliación** (`accessoryStockAudit`, solo lectura): para cada `Accessory`, `reservedQty` = Σ de lo
-   `reserved`. Si no cuadra ⇒ `logger.error` + bitácora `accessory.reserved_drift`. Corre en el barrido; ⛔ no corrige.
+6. **Conteo de reconciliación** (`accessoryReservedDrift`, `orders/accessory-stock.ts`, solo lectura; v1.86.6: v1.86 lo
+   llamaba `accessoryStockAudit`): para cada `Accessory`, `reservedQty` = Σ de lo `reserved` (sueltos + componentes). Si
+   no cuadra ⇒ `logger.error` + bitácora `accessory.reserved_drift`. Corre en `sweepExpiredReservations`
+   (`orders.service.ts:1261`, que llama a `auditAccessoryReservedDrift`, `:1278`); ⛔ no corrige.
 7. **Contracargo:** no mueve existencias por sí solo (AC.4, supuesto). `chargebackInventory` (`admin-orders.controller.ts:296`)
    no cambia.
 
-### AC.7 💰 La caja decide el envío (`accessories/box-fit.ts`, puro)
+### AC.7 💰 La caja decide el envío (`orders/box-fit.ts`, puro)
+
+> v1.86.6 (TD-AC-8): `chooseBox` vive en `backend/src/modules/orders/box-fit.ts:82`; su único llamador es
+> `orders/guest-accessory-cart.ts:109`. v1.86 decía `accessories/`.
 
 ```ts
 interface FitUnit { lengthMm: number; widthMm: number; heightMm: number; weightG: number }
@@ -43064,3 +43092,114 @@ prueba de que muerde.
   - En los dos: el paquete sale, se pinta el mismo texto `bundle` con el nombre del deck, se re-cotiza, y ⛔ no aparece un
     renglón suelto de «Fuego».
   - *Mutación:* tratar el `409` de un componente como renglón suelto (`setAccessoryQty`) ⇒ (b) rojo.
+
+### AC.21 Errata v1.86.6 — liquidar nunca cae por un accesorio; ficheros reales (2026-10-08)
+
+Origen: veredicto de techlead sobre `dd26ae79` (TD-AC-1, TD-AC-8). Porqué: `ARCHITECTURE §4.AC (r)`. ⛔ Sin schema, sin
+`M-73`, sin forma pública nueva. Manda sobre §AC.6 (4) donde choque.
+
+#### AC.21.1 💰 El defecto (TD-AC-1)
+
+- `settleAccessories` (`orders/accessory-stock.ts:119-135` en `dd26ae79`) gana el CAS `reserved → sold` y luego, por
+  componente, hace `UPDATE … WHERE reservedQty ≥ q AND stockQty ≥ q`. Con 0 filas lanza `Error`.
+- Ese `throw` deshace la tx entera del settle (`payments.service.ts:452-558`): el CAS del pedido, las cartas
+  (`reserved → picking`) y el `ShipmentRequest`.
+- Consecuencia: el pedido **pagado** se queda `pending`. Stripe reintenta y vuelve a caer igual. El barrido no lo
+  cancela, porque el PaymentIntent ya está cobrado. Nadie lo prepara.
+- Las cartas no se tratan así (B3, `payments.service.ts:487-521`): una pieza que no está donde debía se recupera o se
+  anota, y el settle sigue. El accesorio tiene que seguir la misma regla.
+
+#### AC.21.2 💰 Norma — por renglón `reserved`, tras ganar su CAS `reserved → sold`
+
+Por cada componente, en el orden de candados vigente (por `accessoryId` ascendente; si C-1 lo cambia, manda C-1 — los
+pasos (b) y (c) tocan solo filas que el paso (a) ya intentó, así que no añaden orden nuevo):
+
+- **(a) Venta normal**, igual que hoy: `stockQty −= q, reservedQty −= q WHERE reservedQty ≥ q AND stockQty ≥ q`.
+  Si escribe ⇒ componente `sale`.
+- **(b) Si (a) da 0 filas ⇒ recuperación**, el mismo `UPDATE` de la rama `released`:
+  `stockQty −= q WHERE stockQty − reservedQty ≥ q`. ⛔ No toca `reservedQty`. Si escribe ⇒ componente `settle_recovery`.
+  - Porqué no toca `reservedQty`: (a) falló porque el contador ya no cuenta este renglón entero. Lo que queda en
+    `reservedQty` puede ser de otro pedido, y restarlo dejaría vender lo apartado. Restar de menos es el lado seguro
+    (misma regla que `releaseAccessoryReservations`, `accessory-stock.ts:80-81`).
+- **(c) Si (b) también da 0 filas ⇒ el renglón entero queda sin respaldo** (el paquete es todo o nada). Se para el
+  bucle y, para cada componente del renglón:
+  - ya escrito en (a) o (b): `stockQty += q` (⛔ sin tocar `reservedQty`). Neto: existencias intactas, y si fue por (a)
+    su apartado queda **soltado**, porque el renglón ya no está `reserved`;
+  - el que falló: nada (su contador no lo contaba entero);
+  - aún no alcanzado: se suelta su apartado como en §AC.6 (2), `reservedQty −= q WHERE reservedQty ≥ q`, ⛔ sin tocar
+    `stockQty`. Sin esto, su apartado quedaría contado para un renglón que ya no está `reserved`.
+  - Estado final, sea cual sea el orden de los ids: `stockQty` de todos los componentes como antes del settle;
+    `reservedQty` −q en cada componente que sí tenía su apartado contado.
+  - El renglón queda `sold` con `settledWithoutStock = true`, sin movimientos.
+- **Movimientos** (`AccessoryStockMovement`): solo si el renglón quedó respaldado, uno por componente, con su `kind`
+  (`sale` o `settle_recovery`). ⛔ Ninguno para lo deshecho en (c).
+- La `ShipmentAccessoryLine` nace en los tres casos (como hoy en la rama `released`).
+- ⛔ `settleAccessories` no lanza por existencias en ningún caso. Los errores de base de datos (conexión, CHECK) sí
+  siguen propagándose: esos no son «falta de existencias» y deben verse en el webhook.
+
+Resultado `{ unbacked }` pasa a `{ anomalies }`:
+
+```ts
+interface AccessorySettleAnomaly {
+  lineId: string;
+  accessoryId: string | null;        // null ⇔ paquete
+  quantity: number;
+  was: 'reserved' | 'released';      // de qué estado venía el renglón
+  recovered: boolean;                // true ⇔ salió de existencias libres (algún componente por (b))
+}
+```
+
+- `was = 'released'`, `recovered = true`: es la recuperación normal del pago tardío. ⛔ No es anomalía; no entra en la
+  lista (conducta de hoy).
+- `was = 'reserved'`, `recovered = true`: anomalía recuperada.
+- `recovered = false` (cualquier `was`): sin respaldo, `settledWithoutStock = true`.
+
+#### AC.21.3 Quién ve qué
+
+| Caso | Renglón | Quien prepara (§AC.9) | Dueño | Bitácora (fuera de la tx, best-effort, `.catch` como B3) |
+|---|---|---|---|---|
+| `reserved`, recuperado | `sold`, movimiento `settle_recovery` | Nada distinto: hay mercancía | `logger.error` + bitácora en M10; el conteo de §AC.6 (6) lo vuelve a decir si el contador quedó corrido | `order.settle_accessory_anomaly {lineId, accessoryId, quantity, was:'reserved', recovered:true}` |
+| sin respaldo (`reserved` o `released`) | `sold` + `settledWithoutStock` | `settledWithoutStock: true` («sin existencias al liquidar: revisar»); lo busca en el estante y, si no está, lo marca faltante (§AC.9) | `logger.error` + bitácora en M10 | `order.settle_accessory_unbacked {lineId, accessoryId, quantity, was}` (⭐ gana `was`; sin él, `'released'`) |
+
+- El pedido queda `settled`, las cartas en `picking` (o su anomalía B3), el envío nace, el cliente recibe su correo de
+  confirmación. Stripe recibe `2xx`.
+- ⛔ No hay reembolso automático por `settledWithoutStock`. La señal «no hay» viene del contador que acaba de mostrarse
+  equivocado; la fuente de verdad es el estante. Si falta, el faltante de preparación (§AC.9, §AC.10) ya calcula y
+  reembolsa el importe solo. Es el único paso manual, y es una comprobación física.
+
+#### AC.21.4 Cómo se reconcilia
+
+- **El renglón:** se reconcilia solo. O se descontó de existencias (y el reembolso total lo repone, §AC.6 (5)), o quedó
+  `settledWithoutStock` (y el reembolso total no repone nada, `accessory-stock.ts:198`).
+- **El contador `reservedQty`:** si quedó corrido, el conteo de §AC.6 (6) lo denuncia en cada barrido. ⛔ Sigue sin
+  corregir: la corrección automática es la propuesta TD-AC-10 de `ARCHITECTURE §4.AC (r)`, no esta errata.
+- **Idempotencia:** el CAS por renglón (`status = 'reserved'` / `'released'`) hace que un reintento de Stripe no repita
+  nada. El perdedor del CAS del pedido no escribe ni avisa (v1.79.4, sin cambio).
+
+#### AC.21.5 Pruebas (siguientes libres)
+
+Integración, contra BD real. Cada caso: pedido directo de invitado con **1 carta** y el renglón de accesorio, apartado por
+`session`; luego se rompe el contador a mano y llega `payment_intent.succeeded`.
+
+- **AC-B64** 💰 Recuperado: «Penny sleeves» ×3, `stockQty = 10`; se fuerza `reservedQty = 0`.
+  - Webhook ⇒ `2xx`; pedido `settled`; carta `picking`; envío creado con su `ShipmentAccessoryLine`.
+  - Renglón `sold`, `settledWithoutStock = false`; `stockQty = 7`, `reservedQty = 0`; **un** movimiento
+    `settle_recovery` −3; una bitácora `order.settle_accessory_anomaly` con `was:'reserved', recovered:true`.
+  - Mismo evento otra vez ⇒ nada nuevo (un movimiento, una bitácora).
+  - *Mutación:* reponer el `throw` ⇒ rojo (pedido `pending`, carta `reserved`). *Mutación:* saltar (b) e ir directo a
+    (c) ⇒ rojo (`settledWithoutStock = true`, `stockQty = 10`).
+- **AC-B65** 💰 Sin respaldo, suelto: «Penny sleeves» ×3, se fuerza `stockQty = 3, reservedQty = 2`.
+  - Pedido `settled`; carta `picking`; renglón `sold` + `settledWithoutStock = true`; `stockQty = 3`, `reservedQty = 2`;
+    cero movimientos; bitácora `order.settle_accessory_unbacked` con `was:'reserved'`.
+  - El detalle de preparación (§AC.9) trae ese renglón con `settledWithoutStock: true`.
+  - *Mutación:* reponer el `throw` ⇒ rojo. *Mutación:* en (b), condición `stockQty ≥ q` en vez de
+    `stockQty − reservedQty ≥ q` ⇒ rojo (`stockQty = 0`: se vendió lo apartado por otro).
+- **AC-B66** 💰 Sin respaldo, paquete (todo o nada): paquete con 8 «Fuego» (contador sano) y 8 «Agua»; se fuerza para
+  «Agua» `stockQty = 8, reservedQty = 2`. Dos sub-casos, con los ids elegidos por la prueba: (i) «Fuego» ordena antes que
+  «Agua»; (ii) «Agua» ordena antes que «Fuego».
+  - En los dos: renglón `settledWithoutStock = true`. «Fuego»: `stockQty` igual que antes, `reservedQty` −8 (soltado).
+    «Agua»: sin cambio. Cero movimientos. Pedido `settled`, carta `picking`.
+  - *Mutación:* en (c), deshacer también `reservedQty` (`+= q`) ⇒ (i) rojo («Fuego» con el apartado contado de más).
+    *Mutación:* no deshacer los componentes ya escritos ⇒ (i) rojo («Fuego» `stockQty` −8). *Mutación:* no soltar los
+    componentes no alcanzados ⇒ (ii) rojo («Fuego» `reservedQty` sin bajar).
+- Cada una se entrega con su mutación roja medida (O-3 no aplica: no hay carrera; N = 1 por mutación basta).

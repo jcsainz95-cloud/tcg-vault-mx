@@ -4,6 +4,15 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.86.6⟨accesorios⟩** (2026-10-08, arquitecto, rama `claude/accesorios`, HEAD `dd26ae79` según el orquestador;
+> ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.21` (y §AC.6/§AC.7 retocados); el porqué en **§4.AC (r)**.
+> ⛔ Sin schema ni cambio a `M-73`. Cierra lo que el techlead dejó al arquitecto sobre `dd26ae79`:
+> - 💰 **TD-AC-1:** liquidar ya no se cae entero por un renglón de accesorio sin respaldo; cae a la recuperación o a
+>   `settledWithoutStock`, con bitácora, como la carta en B3. Cambia conducta (backend).
+> - **TD-AC-8:** el contrato nombra los ficheros y la función como están en el código (`orders/`, `accessoryReservedDrift`).
+> - **TD-AC-9:** fotos sin CDN (riesgo aceptado) y `pullToken` atado a `PII_HMAC_KEY` (consta en §8 para el runbook).
+> - Propuesta, sin construir: **TD-AC-10**, corrección automática del contador `reservedQty`.
+>
 > **Errata v1.86.4⟨accesorios⟩** (2026-10-07, arquitecto, rama `claude/accesorios`, HEAD `bc128c4` según el orquestador;
 > ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.20`; el porqué en **§4.AC (q)**. ⛔ Sin schema, sin cambio a
 > `M-73` y sin cambio de conducta. Cierra los tres puntos abiertos de `BACKEND_NOTES §83.B`:
@@ -29350,6 +29359,63 @@ para todo producto (`D-SP-2`). Esta rama no lo cierra ni lo empeora.
   - Costo aceptado y transitorio: con el reembolso atascado, el P&L no ve costo en ese renglón mientras la orden sigue
     `settled`.
 
+**(r) Errata v1.86.6 — veredicto de techlead sobre `dd26ae79` (2026-10-08).** Norma: `API_CONTRACT §AC.21`.
+- 💰 **TD-AC-1 — liquidar no puede caerse por un accesorio.**
+  - El `throw` de `settleAccessories` (`orders/accessory-stock.ts:127-130`) se escribió como «ruidoso: Stripe reintenta
+    y se ve». En la práctica es lo contrario de ruidoso donde importa: la tx entera vuelve atrás (cartas incluidas), cada
+    reintento cae igual, el barrido no puede cancelar un pago ya cobrado, y el pedido pagado queda `pending`, fuera de
+    toda cola. El dinero está cobrado y la mercancía nadie la prepara.
+  - La carta ya resolvió este mismo problema en B3 (`payments.service.ts:487-521`): si la pieza no está donde debía, se
+    recupera si está libre, y si no, se anota para una persona. El settle sigue. El accesorio adopta la misma forma:
+    (a) venta normal; (b) si el contador no respalda el renglón, existencias **libres** (la misma condición que la rama
+    `released`); (c) si tampoco hay, `settledWithoutStock`. Una sola salida de anomalía para las dos ramas.
+  - **Por qué (b) no toca `reservedQty`.** Si el contador no cuenta el renglón entero, lo que queda contado puede ser de
+    otro pedido. Restarlo dejaría vender lo apartado. Restar de menos solo esconde unidades y el conteo lo denuncia; es
+    la misma regla que ya usa soltar.
+  - **Por qué (c) suelta lo que sí estaba contado.** El renglón deja de estar `reserved`. Si su apartado siguiera en el
+    contador, se crearía justo la deriva que el conteo persigue. Por eso el estado final no depende del orden de los ids:
+    existencias como estaban y apartados contados soltados (AC-B66 mide los dos órdenes).
+  - **Por qué no hay reembolso automático en (c)** (`HECHOS.md` 2026-10-04, «REGLA GENERAL: … LO MÁS AUTOMÁTICOS
+    POSIBLE»). Lo automático es todo lo demás: el settle termina solo, Stripe recibe `2xx`, el envío nace, la bitácora se
+    escribe y el conteo vuelve a avisar. Lo que no se automatiza es decidir que «no hay». Esa decisión la tomaría el
+    mismo contador que acaba de demostrar que está mal, y el estante puede tener la mercancía. Quien prepara ya pasa por
+    el estante; si falta, el faltante de §AC.9/§AC.10 reembolsa solo. No se añade un paso manual: se reusa el que existe.
+  - **El dueño lo ve en la bitácora (M10) y en el log de error, como la carta en B3.** No hay hoy un canal de avisos al
+    dueño en el código (Grep 2026-10-08: sin `OwnerAlert`/`ownerAlert` en `backend/src`). Si el canal de avisos de la
+    fila de `HECHOS.md` del 2026-10-04 «Control del dinero que nos cuesta» se construye, estas dos bitácoras son
+    candidatas naturales; no se inventa aquí.
+  - **Bitácoras:** se conserva `order.settle_accessory_unbacked` (gana `was`) y se añade
+    `order.settle_accessory_anomaly` para el recuperado desde `reserved`. Dos acciones, no una con bandera, porque la
+    primera ya existe y la lee quien la consulte hoy; cambiar su forma sería romperla.
+- **TD-AC-8 — el contrato sigue al código en dónde viven las cosas.** v1.86 puso `accessory-stock.ts` y `box-fit.ts` en
+  `accessories/` y llamó `accessoryStockAudit` al conteo. El código los puso en `orders/` y lo llamó
+  `accessoryReservedDrift` (`BACKEND_NOTES §83.B`). La ubicación del código es mejor: los dos los consumen `orders` y
+  `payments`, y dejar `accessories/` como catálogo evita una dependencia de `payments` hacia el catálogo. Se corrige el
+  contrato y se re-miden las líneas de los llamadores de §AC.6 (2). Nota: el barrido legado (`sweepStaleGuestOrders`)
+  no llama directo; delega en `releaseReservation`, que sí suelta.
+- **TD-AC-9 — dos riesgos aceptados.**
+  - **(a) Fotos servidas desde Postgres, sin CDN.** Cada primera vista de una ficha pide la foto a la API y la API la lee
+    de la BD. El peso por vista (~100–200 kB) es **NO MEDIDO**; lo cerraría medir `Content-Length` de `thumbUrl` y `url`
+    de los productos activos y las vistas por día. Se acepta porque: el catálogo de accesorios es pequeño, la ruta lleva
+    versión (§AC.19.1), así que admite caché larga e inmutable (qué cabeceras de caché manda hoy: NO MEDIDO), y mover a
+    un bucket público abriría la
+    infraestructura que v1.86 decidió no tocar (el bucket es solo del INE, §8). **Propuesta, sin construir:** si la
+    medición muestra carga relevante, poner la CDN delante de la ruta versionada (sin cambiar URLs ni contrato). Dueño de
+    la medición: devops.
+  - **(b) El `pullToken` usa `PII_HMAC_KEY`** (vía `domainHmac`, `pii-crypto.service.ts:263-270`). Rotar esa llave
+    invalida **todos** los `pullToken` vivos. En la práctica, todo carrito con paquete de energías pierde el paquete
+    (`invalid_token`) y el cliente tiene que volver a la ficha del deck. Se acepta (no hay secreto nuevo, y la rotación
+    ya es un evento mayor por el índice ciego de CLABE), pero tiene que constar en el runbook de rotación (§8). Se anota
+    allí para devops.
+- **TD-AC-10 (propuesta, sin construir): corregir `reservedQty` solo, sin riesgo de vender de más.** Hoy el conteo
+  detecta y no corrige. Una corrección es segura si, por accesorio, se hace en una tx que primero toma la fila
+  `Accessory` con `FOR UPDATE` y **después**, en otra sentencia, cuenta lo `reserved`, y fija `reservedQty` a ese conteo.
+  Es seguro porque todo verbo que cambia un renglón `reserved` toca la fila `Accessory` en su misma tx: apartar escribe el
+  contador antes de crear renglones; soltar y liquidar hacen el CAS del renglón antes que el contador. Tomar la fila
+  primero deja fuera las tx a medias. Que esa lista de verbos sea completa es **NO MEDIDO** como invariante con candado.
+  Se construiría con su prueba de carrera (N ≥ 10) y su candado de llamadores. Va al orquestador para priorizar; no
+  bloquea esta errata.
+
 ---
 
 ## 5. Decisiones transversales
@@ -30062,6 +30128,13 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - `POKEMONTCG_IO_API_KEY`, `POKEMONPRICETRACKER_API_KEY`, `POKETRACE_API_KEY`
 - Object storage (**SOLO INE de KYC**, v1.2): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`. **El set `S3_*` se conserva**, ahora justificado únicamente por `kyc_ine` (bucket **privado** + cifrado + retención `INE_RETENTION_DAYS`). No se usa para fotos de producto/inventario ni de disputa. (`S3_PUBLIC_BASE_URL` no aplica al INE, que es privado; se lee vía presign GET.)
 - **PII / INE (KYC):** `PII_ENCRYPTION_KEY` (32 bytes base64, AES-256-GCM), `PII_HMAC_KEY` (blind index de CLABE, llave **separada**), `INE_RETENTION_DAYS` (antigüedad máxima de las imágenes de INE en el bucket, default **180**; ver §3.4). En prod las llaves provienen de KMS/secret manager, nunca del repo. Estas variables **se conservan intactas** (v1.2.1: INE almacenado con cifrado + retención).
+  - ⭐ **v1.86.6 (TD-AC-9 (b), §4.AC (r)) — para el runbook de rotación de `PII_HMAC_KEY` (devops):** la llave firma
+    también, vía `domainHmac`, los `pullToken` del paquete de energías (`deck-pull:v1:`) y cualquier otro uso con prefijo
+    de dominio (precedente `mr-reveal:v1:`). Rotarla invalida **todos** los `pullToken` vivos: cada carrito con paquete
+    lo pierde en la siguiente cotización (`unavailableBundles`, `invalid_token`) y el cliente vuelve a la ficha del deck.
+    Que un pedido ya creado no relea el token después de `session` es NO MEDIDO (lo cierra un Grep de lectores del
+    token fuera de `quote`/`session`). El runbook lo dice, junto con la recomputación del
+    índice de CLABE. ⛔ Que el runbook exista hoy es NO MEDIDO por mí; lo cierra devops en `DEVOPS_NOTES`.
   - ⭐ **NUEVA v1.69 (P-78, §4.49.2.1): `KYC_INE_VIEW_URL_TTL_SECONDS`** — vida del enlace prefirmado de **lectura**
     del INE en back-office. **Default 120**; el servidor **clampa duro a ≤ 300** y registra `warn` si se pide más.
     ⚠️ **No es un secreto** (va en `.env.example`), pero **sí es un dial de exposición de PII**: subirlo alarga la
