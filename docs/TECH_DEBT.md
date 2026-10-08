@@ -9980,6 +9980,14 @@ orquestador; lo que dice «qué es» lo midió backend en el código.
 - **Disparador:** un sexto sitio que mueva existencias, o un informe que lea `Accessory.updatedAt`.
 - **Comprobación:** un solo helper `moveStock(tx, {accessoryId, delta, kind, …})` que hace el `UPDATE … RETURNING`, el
   `updatedAt` y el movimiento; `rg -n "accessoryStockMovement.create" backend/src` = 1.
+- **Ampliación (re-check del techlead sobre `cabd8a15`; líneas re-medidas el 2026-10-08 sobre `191dcc5a`):** en
+  `orders/accessory-stock.ts`, las dos ramas de `settleAccessories` repiten la misma forma «descontar por componente; si
+  uno falla, devolver lo ya descontado»: rama `reserved` `:162-210` (descuento `:168-191`, reversión `:192-197`) y rama
+  `released` `:211-249` (descuento `:216-226`, reversión `:227-229` y otra vez `:235` si pierde el CAS). El helper
+  `moveStock` debe absorber también esa reversión (p. ej. un «mover todo o nada» por componentes que devuelve lo hecho o
+  lo deshace), para que no queden tres copias a mano del `"stockQty" = "stockQty" + q`.
+  - **Comprobación adicional:** `rg -n '"stockQty" = "stockQty" \+' backend/src/modules/orders/accessory-stock.ts` vacío
+    fuera del helper, y las pruebas de settle de accesorios (venta, recuperación, sin existencias, CAS perdido) verdes.
 
 ### TD-AC-7 · P3 · `@Optional()` de `DecksMetaService` en guest-checkout
 - **Dueño:** backend (`orders/guest-checkout.service.ts:104`).
@@ -9998,6 +10006,21 @@ orquestador; lo que dice «qué es» lo midió backend en el código.
 - **Disparador:** decisión del orquestador (prioridad); o una deriva real vista en M10.
 - **Comprobación:** prueba de carrera (N ≥ 10) conteo-vs-apartar/soltar/liquidar sin vender de más, y candado de llamadores
   de los verbos que tocan `reservedQty`.
+
+### TD-AC-12 · P3 · Lecturas tolerantes de `accessoryLines` ya obligatorio por tipo, y `shipmentId as string`
+- **Origen:** re-check del techlead sobre `cabd8a15` (accesorios). Líneas **re-medidas el 2026-10-08 sobre `191dcc5a`**
+  (el techlead citaba ~:556/:557/:611/:692/:974; se desplazaron).
+- **Dueño:** backend (`modules/payments/payments.service.ts:575`, `:630`, `:713`, `:995` — `order.accessoryLines?.length ?? 0`;
+  `:576` — `shipmentId as string`).
+- **Qué es:** desde C-2 (`payments.service.ts:461-464`) `accessoryLines` es obligatorio en el tipo del pedido y las lecturas
+  lo incluyen (`:236`, `:692`, `:879`), pero las cuatro lecturas siguen con `?.` y `?? 0`. Eso solo sirve para tolerar dobles
+  de prueba que no traen el campo, y le esconde al compilador justo el olvido que C-2 quería hacer imposible. El
+  `shipmentId as string` (`:576`; el valor viene de `existing?.id ?? null` `:548` / `createdShipment?.id ?? null` `:570`)
+  quita el `null` sin comprobarlo: si no hubiera envío, `settleAccessories` recibiría `null` como `shipmentRequestId`.
+- **Disparador:** el próximo cambio de los dobles de `payments.*` (specs del módulo `payments`).
+- **Comprobación:** los dobles de `payments.*` llevan `accessoryLines: []`; `rg -n "accessoryLines\?\.length"
+  backend/src/modules/payments` vacío; y `shipmentId` se estrecha con una guarda explícita (o el tipo ya no admite `null`)
+  en vez de `as string`.
 
 ## Backend · 2026-10-07 · gate de techlead sobre `503cf07` (rama `claude/wishlist`, §WSH)
 
