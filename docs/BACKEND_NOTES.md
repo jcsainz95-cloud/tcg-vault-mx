@@ -30577,6 +30577,7 @@ puerto 55472; `POST /buylist/quote` raw NM por cada acabado de las 15 cartas sem
   nueva — `E2E Bin Premium · normal · mercado=200 · {"priceBasis":"pending","quote":{"status":"precio_pendiente",
   "quotedPriceCents":null},"referencePrice":{"status":"pending"}}`. `/buylist/quote/batch` da lo mismo.
   `GET /buylist/cards?setId=<e2e-base>` = 12 cartas, orden `4,16,…,98,99,100`.
-- Integración en la misma BD: 19 suites, 294/294 (`buylist*`, `sale-queue*`, `catalog*`, `pending-publish-seed`,
-  `seed-idempotency`, `pricing-visibility`, `premium-floor-sale`). `tsc --noEmit` exit 0 · `npm run lint` exit 0 ·
+- Integración en la misma BD, dos corridas (19 suites distintas; `buylist-cards-order` va en las dos): 4 suites 53/53
+  (`buylist-cards-order`, `seed-idempotency`, `pricing-visibility`, `premium-floor-sale`) y 16 suites 241/241 (`buylist*`,
+  `sale-queue*`, `catalog*`, `pending-publish-seed`). `tsc --noEmit` exit 0 · `npm run lint` exit 0 ·
   `eslint` de los dos ficheros de `prisma/` exit 0 · `seed-e2e.target-guard.spec.ts` 16/16. N=1 en todo (deterministas).
