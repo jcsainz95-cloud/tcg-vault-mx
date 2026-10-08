@@ -16,8 +16,11 @@
  *       (la mutación, N = 3 esquemas);
  *  §9.8 sin M-72 el guion corre igual (y no nombra columnas de M-72).
  *  v2 retira el paso E (`limpieza:republicar`), P-1, P-2, G-4, G-6 y las pruebas que los cubrían (§14.7, §14.9).
+ *  §14.13 (v2.2) las 9 tablas de M-73 (accesorios) y M-74 (lista de deseos): T-AC1…T-AC7 y T-W10a…e; con y sin ellas
+ *       (T-AC3 compara contra la copia congelada del B de `a7232d7a` en dos esquemas gemelos).
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -38,10 +41,17 @@ import {
   psqlFile,
   readRepair,
   revertM72,
+  revertM73,
+  revertM74,
+  cloneSchema,
+  FROZEN_B_SHA256,
+  readFrozenB,
   schemaUrl,
   snapshot,
 } from './helpers/limpieza-db';
 import { ShipmentOrphanService } from '../../src/modules/shipments/orphan-reconcile.service';
+import { AdminAccessoriesService } from '../../src/modules/accessories/admin-accessories.service';
+import { AuditService } from '../../src/modules/audit/audit.service';
 import { deriveBountyState } from '../../src/modules/pricing/bounty-state';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
@@ -56,11 +66,17 @@ const EMPTIED = [
   'ShipmentRequest', 'ShipmentItem', 'ShipmentQuote', 'ShipmentCarrierEvent', 'ShipmentAddressRevision', 'ShipmentCostAdjustment',
   'ShipmentLabelAttempt', 'ShipmentPaidLabel', 'Dispute', 'SellRequest', 'SellRequestItem', 'SpendAlert', 'PortfolioSnapshot',
   'InventoryItem', 'InventoryMovement', 'InventoryAdjustment', 'InventoryBatch',
+  // v2.2 (§14.13): M-73 y M-74
+  'OrderAccessoryLine', 'OrderEnergyBundleComponent', 'ShipmentAccessoryLine', 'AccessoryStockMovement', 'WishlistNotice',
 ];
 /** Tablas que la limpieza toca EN PARTE (se comprueban por separado); todas las demás: contenido idéntico. */
-const PARTIAL = ['VariantPriceOverride', 'PendingPriceEntry', 'AuditLog'];
+const PARTIAL = ['VariantPriceOverride', 'PendingPriceEntry', 'AuditLog', 'Accessory'];
 /** Las conservadas que el encargo nombra: deben tener filas en el fixture, o «idéntico» no probaría nada. */
-const KEY_KEPT = ['User', 'Card', 'CardSet', 'SealedProduct', 'PriceReference', 'VaultLocation', 'ConfigSetting'];
+const KEY_KEPT = [
+  'User', 'Card', 'CardSet', 'SealedProduct', 'PriceReference', 'VaultLocation', 'ConfigSetting',
+  // v2.2: `Accessory` se conserva (fila) pero se ajusta (existencias): está también en PARTIAL y se compara aparte.
+  'Accessory', 'AccessoryPhoto', 'WishlistItem', 'WishlistMail',
+];
 
 interface Env {
   schema: string;
@@ -70,7 +86,7 @@ interface Env {
 const live: Env[] = [];
 let admin: PrismaClient;
 
-async function fresh(opts: { m72?: boolean } = {}): Promise<Env> {
+async function fresh(opts: { m72?: boolean; m73?: boolean; m74?: boolean } = {}): Promise<Env> {
   const m72 = opts.m72 ?? true;
   n += 1;
   const schema = `${RUN}_${n}`;
@@ -79,6 +95,9 @@ async function fresh(opts: { m72?: boolean } = {}): Promise<Env> {
   const db = new PrismaClient({ datasources: { db: { url: schemaUrl(schema) } } });
   const fx = await seedFixture(db, { m72 });
   if (!m72) await revertM72(admin, schema);
+  // §14.13.5: la base de `production` sin #84 (sin M-74 y/o sin M-73). Primero M-74 (su orden inverso de despliegue).
+  if (opts.m74 === false) revertM74(schema);
+  if (opts.m73 === false) revertM73(schema);
   const env = { schema, db, fx };
   live.push(env);
   return env;
@@ -219,7 +238,10 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza, v2: también el inventario)',
 
     // Todo lo que no se vacía ni se toca en parte: CONTENIDO idéntico (md5 de cada fila), no solo el conteo.
     const kept = Object.keys(before.tables).filter((t) => !EMPTIED.includes(t) && !PARTIAL.includes(t));
-    for (const t of KEY_KEPT) expect({ t, conservada: kept.includes(t), conFilas: before.tables[t].n > 0 }).toEqual({ t, conservada: true, conFilas: true });
+    for (const t of KEY_KEPT) {
+      const conservada = kept.includes(t) || (PARTIAL.includes(t) && after.tables[t].n === before.tables[t].n);
+      expect({ t, conservada, conFilas: before.tables[t].n > 0 }).toEqual({ t, conservada: true, conFilas: true });
+    }
     for (const t of kept) expect({ t, s: after.tables[t] }).toEqual({ t, s: before.tables[t] });
     expect(after.sequences).toEqual(before.sequences); // ⛔ B no toca secuencias (R-3)
 
@@ -909,5 +931,307 @@ describe('🔒 QA-7 · después de la limpieza, lo nuevo es real', () => {
     expect(await e.db.auditLog.count({ where: { action: 'maintenance.test_data_purge' } })).toBe(1);
     const v = ok(psql(e.schema, readRepair('verificacion')));
     expect(v.stdout).toMatch(/VERIFICACION: TODO OK/);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// §14.13 v2.2 — la limpieza conoce las 9 tablas de M-73 (accesorios) y M-74 (lista de deseos). Norma: LIMPIEZA_DB.md
+// §14.13 (errata v1.88.1⟨release-s7⟩). Antes de esto, con M-73/M-74 en la base, B se paraba en G-8 (39 rojas en CI).
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** La fila de cada accesorio SIN las dos columnas de existencias ni su `updatedAt` (lo que la limpieza puede tocar). */
+const accCatalog = (schema: string) =>
+  hashOf(schema, `SELECT to_jsonb(a) - 'stockQty' - 'reservedQty' - 'updatedAt' AS j FROM $S."Accessory" a`);
+/** Las energías de la semilla que NO recibieron piezas: idénticas, `updatedAt` incluido (LZ-A4: el WHERE no las toca). */
+const idleEnergies = (e: Env) =>
+  hashOf(e.schema, `SELECT to_jsonb(a) AS j FROM $S."Accessory" a WHERE a.category::text = 'energy' AND a.id <> '${e.fx.accessory.energy}'`);
+const stockOf = async (e: Env, id: string) =>
+  (await admin.$queryRawUnsafe<{ s: number; r: number }[]>(`SELECT "stockQty" AS s, "reservedQty" AS r FROM "${e.schema}"."Accessory" WHERE id = $1`, id))[0];
+
+/** Pone un dial (`ConfigSetting.valueJson` = cadena JSON), exista o no la fila. */
+async function setDial(e: Env, key: string, value: 'on' | 'off') {
+  await admin.$executeRawUnsafe(
+    `INSERT INTO "${e.schema}"."ConfigSetting" (key, "valueJson", "updatedAt") VALUES ($1, to_jsonb($2::text), now())
+     ON CONFLICT (key) DO UPDATE SET "valueJson" = EXCLUDED."valueJson"`,
+    key,
+    value,
+  );
+}
+/** Una suscripción «Avísame cuando vuelva» por SQL (sin M-74 la tabla no tiene `armedAt`/`matchedAt`: Prisma no sirve). */
+async function subscribe(e: Env, extra: { armedAt?: Date; notifiedAt?: Date } = {}) {
+  const card = await admin.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM "${e.schema}"."Card" ORDER BY id LIMIT 1`);
+  const cols = ['id', 'email', '"cardId"', '"sealedCondition"'];
+  const vals = [`gen_random_uuid()::text`, `'sub.${Math.random().toString(36).slice(2, 8)}@lz.local'`, `'${card[0].id}'`, `'mint'`];
+  if (extra.armedAt) (cols.push('"armedAt"'), vals.push(`'${extra.armedAt.toISOString()}'`));
+  if (extra.notifiedAt) (cols.push('"notifiedAt"'), vals.push(`'${extra.notifiedAt.toISOString()}'`));
+  await admin.$executeRawUnsafe(`INSERT INTO "${e.schema}"."SealedRestockSubscription" (${cols.join(', ')}) VALUES (${vals.join(', ')})`);
+}
+
+/** La recepción de piezas como la hace la APP (`POST /admin/accessories/:id/stock`, `admin-accessories.service.ts`). */
+async function recibirPorApp(e: Env, accessoryId: string, quantity: number) {
+  const prisma = new PrismaService({ datasources: { db: { url: schemaUrl(e.schema) } } } as any);
+  try {
+    const svc = new AdminAccessoriesService(prisma, new AuditService(prisma));
+    await svc.stock(accessoryId, { kind: 'receive', quantity }, { id: e.fx.staff, role: 'super_admin' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/** La sección de la salida de B entre su cabecera `=== <id>…` y la siguiente `===`. */
+function seccion(stdout: string, id: string): string {
+  const i = stdout.indexOf(`=== ${id}`);
+  if (i < 0) return '';
+  const j = stdout.indexOf('===', stdout.indexOf('\n', i));
+  return stdout.slice(i, j < 0 ? undefined : j);
+}
+
+describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () => {
+  it('T-AC1 · con ambas: B COMMIT vacía renglones, componentes, líneas de envío, historial de existencias y avisos; Accessory conserva la fila con existencias y apartados en 0; las 7 energías sin piezas, la foto, los deseos y sus correos, IDÉNTICOS; B + C + D ⇒ TODO OK', async () => {
+    const e = await fresh();
+    const before = await snapshot(admin, e.schema);
+    // Lo que se va a borrar o ajustar EXISTE (si no, «queda en 0» no probaría nada).
+    for (const t of ['OrderAccessoryLine', 'OrderEnergyBundleComponent', 'ShipmentAccessoryLine', 'AccessoryStockMovement', 'WishlistNotice', 'AccessoryPhoto', 'WishlistItem', 'WishlistMail']) {
+      expect({ t, conFilas: before.tables[t].n > 0 }).toEqual({ t, conFilas: true });
+    }
+    expect(before.tables.Accessory.n).toBe(9); // 8 energías de la semilla + las fundas
+    expect(await stockOf(e, e.fx.accessory.sleeves)).toEqual({ s: 18, r: 1 });
+    expect(await stockOf(e, e.fx.accessory.energy)).toEqual({ s: 8, r: 0 });
+    const catBefore = await accCatalog(e.schema);
+    const idleBefore = await idleEnergies(e);
+    expect(idleBefore.n).toBe(7);
+
+    commit(e);
+    const after = await snapshot(admin, e.schema);
+    // Medición DIRECTA (no las guardas de B).
+    for (const t of ['OrderAccessoryLine', 'OrderEnergyBundleComponent', 'ShipmentAccessoryLine', 'AccessoryStockMovement', 'WishlistNotice']) {
+      expect({ t, n: after.tables[t].n }).toEqual({ t, n: 0 });
+    }
+    expect(after.tables.Accessory.n).toBe(9);
+    expect(await accCatalog(e.schema)).toEqual(catBefore);
+    const [{ k }] = await admin.$queryRawUnsafe<{ k: number }[]>(`SELECT count(*)::int AS k FROM "${e.schema}"."Accessory" WHERE "stockQty" <> 0 OR "reservedQty" <> 0`);
+    expect(k).toBe(0);
+    expect(await stockOf(e, e.fx.accessory.sleeves)).toEqual({ s: 0, r: 0 });
+    expect(await idleEnergies(e)).toEqual(idleBefore);
+    for (const t of ['AccessoryPhoto', 'WishlistItem', 'WishlistMail']) expect({ t, s: after.tables[t] }).toEqual({ t, s: before.tables[t] });
+    const sleeves = await e.db.accessory.findUniqueOrThrow({ where: { id: e.fx.accessory.sleeves } });
+    expect(sleeves).toMatchObject({ active: true, priceCents: 25000, unitCostCents: 12000, photoVersion: '0123456789abcdef' });
+
+    const trace = (await e.db.auditLog.findFirstOrThrow({ where: { action: 'maintenance.test_data_purge' } })).after as any;
+    expect(trace.accesorios).toEqual({ conExistencias: 2, existencias: 26, apartadas: 1 });
+    expect(trace.conteosAntes.Accessory).toBe(9);
+    expect(trace.conteosDespues.AccessoryStockMovement).toBe(0);
+    expect(JSON.stringify(trace)).not.toContain('Fundas'); // sumas, sin nombres
+
+    ok(psql(e.schema, readRepair('folio')));
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    expect(d.stdout).toMatch(/VERIFICACION: TODO OK/);
+    for (const t of ['OrderAccessoryLine', 'OrderEnergyBundleComponent', 'ShipmentAccessoryLine']) expect(d.stdout).toMatch(new RegExp(`OK\\s*\\|\\s*0 filas en ${t}\\s*\\|`));
+    expect(d.stdout).toMatch(/OK\s*\|\s*0 filas anteriores a la limpieza en AccessoryStockMovement/);
+    expect(d.stdout).toMatch(/OK\s*\|\s*0 filas anteriores a la limpieza en WishlistNotice/);
+    for (const t of ['Accessory', 'AccessoryPhoto', 'WishlistItem', 'WishlistMail']) expect(d.stdout).toMatch(new RegExp(`INFO\\s*\\|[^\\n]*: ${t}\\s*\\|`));
+  });
+
+  it('T-AC2 · con ambas: el ENSAYO ×2 deja la base IDÉNTICA (las 9 tablas incluidas, y las tres secuencias) y enseña 2.7 (las fundas: 18 · 1) y 2.8', async () => {
+    const e = await fresh();
+    const before = await snapshot(admin, e.schema);
+    for (let i = 0; i < 2; i++) {
+      const r = ok(psql(e.schema, drySql(e)));
+      expectSame(before, await snapshot(admin, e.schema));
+      const s27 = seccion(r.stdout, '2.7');
+      const row = s27.split('\n').find((l) => l.includes(e.fx.accessory.sleevesName));
+      expect({ row }).toEqual({ row: expect.stringMatching(/\|\s*sí\s*\|\s*18\s*\|\s*1\s*$/) });
+      expect(s27).toMatch(/Energía Fuego[^\n]*\|\s*8\s*\|\s*0\s*$/m);
+      expect(s27).not.toMatch(/Energía Planta/); // sin existencias: no sale
+      expect(seccion(r.stdout, '2.8')).toMatch(/aviso_sellado/);
+    }
+  });
+
+  it('T-AC3 · SIN ambas, dos esquemas GEMELOS: el B congelado de a7232d7a y el B nuevo dan el mismo código de salida y la MISMA base (salvo el rastro: id, fecha y puntoPitr; y la fecha de los bounties); el ensayo nuevo no trae 2.7, 2.8 ni G-10; A, C y D dicen lo mismo', async () => {
+    // La copia congelada es el fichero de a7232d7a byte a byte.
+    expect(createHash('sha256').update(readFrozenB()).digest('hex')).toBe(FROZEN_B_SHA256);
+    const a = await fresh({ m73: false, m74: false });
+    n += 1;
+    const twin = `${RUN}_${n}`;
+    migrateSchema(twin);
+    revertM74(twin);
+    revertM73(twin);
+    const b: Env = { schema: twin, db: new PrismaClient({ datasources: { db: { url: schemaUrl(twin) } } }), fx: a.fx };
+    live.push(b);
+    await cloneSchema(admin, a.schema, twin);
+    for (const t of ['Accessory', 'WishlistNotice', 'OrderAccessoryLine']) {
+      const [{ r }] = await admin.$queryRawUnsafe<{ r: string | null }[]>(`SELECT to_regclass('"${a.schema}"."${t}"')::text AS r`);
+      expect({ t, r }).toEqual({ t, r: null });
+    }
+    expectSame(await snapshot(admin, a.schema), await snapshot(admin, twin)); // precondición: gemelos de verdad
+
+    const censoA = psql(a.schema, readRepair('censo'));
+    const censoB = psql(twin, readRepair('censo'));
+    expect(censoB.status).toBe(censoA.status);
+    // La única diferencia admitida es la hora de la consulta (`now()` en «A.0 · DÓNDE ESTOY»).
+    const sinHora = (x: string) => x.replace(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?\+00/g, '<ahora>');
+    expect(sinHora(censoB.stdout)).toBe(sinHora(censoA.stdout));
+
+    const dry = ok(psql(twin, drySql(b)));
+    expect(dry.stdout).not.toMatch(/=== 2\.7|=== 2\.8|G-10/);
+    expect(seccion(dry.stdout, '15 · CONTEOS')).not.toMatch(/Accessory|Wishlist/); // la tabla de conteos es la de siempre
+
+    const old = psql(a.schema, limpiezaSql({ respaldo: RESPALDO, cuentas: cuentasDe(a), commit: true, frozen: true }));
+    const neu = psql(twin, commitSql(b));
+    expect({ status: neu.status, err: neu.stderr }).toEqual({ status: old.status, err: old.stderr });
+    expect(neu.status).toBe(0);
+
+    const sa = await snapshot(admin, a.schema);
+    const sb = await snapshot(admin, twin);
+    expect(sb.sequences).toEqual(sa.sequences);
+    for (const t of Object.keys(sa.tables)) {
+      if (t === 'AuditLog' || t === 'VariantPriceOverride') continue;
+      expect({ t, s: sb.tables[t] }).toEqual({ t, s: sa.tables[t] });
+    }
+    expect(Object.keys(sb.tables).sort()).toEqual(Object.keys(sa.tables).sort());
+    const vpo = (s: string) => hashOf(s, `SELECT to_jsonb(v) - 'updatedAt' AS j FROM $S."VariantPriceOverride" v`);
+    expect(await vpo(twin)).toEqual(await vpo(a.schema));
+    const audit = (s: string) =>
+      hashOf(s, `SELECT to_jsonb(x) - 'id' - 'createdAt' || jsonb_build_object('after', x."after" - 'puntoPitr') AS j FROM $S."AuditLog" x`);
+    expect(await audit(twin)).toEqual(await audit(a.schema));
+    expect(((await b.db.auditLog.findFirstOrThrow()).after as any)).not.toHaveProperty('accesorios');
+
+    const cA = psql(a.schema, readRepair('folio'));
+    const cB = psql(twin, readRepair('folio'));
+    expect({ s: cB.status, out: sinHora(cB.stdout) }).toEqual({ s: cA.status, out: sinHora(cA.stdout) });
+    const dA = ok(psql(a.schema, readRepair('verificacion')));
+    const dB = ok(psql(twin, readRepair('verificacion')));
+    expect(sinHora(dB.stdout)).toBe(sinHora(dA.stdout));
+    expect(dB.stdout).toMatch(/VERIFICACION: TODO OK/);
+  });
+
+  it('T-AC3b · solo M-73 (sin M-74): B COMMIT pasa, vacía lo de accesorios y pone existencias en 0; sin 2.8 ni G-10 (las dos banderas son independientes)', async () => {
+    const e = await fresh({ m74: false });
+    await setDial(e, 'sealed_restock_alerts', 'on');
+    await subscribe(e);
+    const r = commit(e);
+    expect(r.stdout).toMatch(/=== 2\.7/);
+    expect(r.stdout).not.toMatch(/=== 2\.8|G-10/);
+    const after = await snapshot(admin, e.schema);
+    for (const t of ['OrderAccessoryLine', 'OrderEnergyBundleComponent', 'ShipmentAccessoryLine', 'AccessoryStockMovement']) expect({ t, n: after.tables[t].n }).toEqual({ t, n: 0 });
+    expect(after.tables).not.toHaveProperty('WishlistNotice');
+    expect(await stockOf(e, e.fx.accessory.sleeves)).toEqual({ s: 0, r: 0 });
+  });
+
+  it('T-AC4 · con ambas: B COMMIT ×2 — la 2.ª no cambia NADA (todo «qué cambió» en 0, sin rastro nuevo)', async () => {
+    const e = await fresh();
+    commit(e);
+    const once = await snapshot(admin, e.schema);
+    const r = commit(e);
+    expectSame(once, await snapshot(admin, e.schema));
+    const cambio = seccion(r.stdout, '15 · QUÉ CAMBIÓ');
+    for (const paso of ['8 ShipmentAccessoryLine', '9 OrderEnergyBundleComponent', '9 OrderAccessoryLine', '11 AccessoryStockMovement', '11 Accessory existencias']) {
+      expect(cambio).toMatch(new RegExp(`${paso}\\s*\\|\\s*0\\s*$`, 'm'));
+    }
+    expect(cambio.split('\n').filter((l) => /\|\s*[1-9]\d*\s*$/.test(l))).toEqual([]);
+  });
+
+  it('T-AC5 · con ambas: B → C → recepción de 5 fundas POR LA APP → B se niega con G-7 nombrando AccessoryStockMovement; las fundas siguen con 5', async () => {
+    const e = await fresh();
+    commit(e);
+    ok(psql(e.schema, readRepair('folio')));
+    await recibirPorApp(e, e.fx.accessory.sleeves, 5);
+    expect(await stockOf(e, e.fx.accessory.sleeves)).toEqual({ s: 5, r: 0 });
+    const before = await snapshot(admin, e.schema);
+    const r = psql(e.schema, commitSql(e));
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/G-7[^\n]*AccessoryStockMovement \(1\)/);
+    expectSame(before, await snapshot(admin, e.schema));
+    expect(await stockOf(e, e.fx.accessory.sleeves)).toEqual({ s: 5, r: 0 });
+  });
+
+  it('T-AC6 · con ambas: B → C → recepción por la app → D TODO OK; AccessoryStockMovement: 0 anteriores · 1 posteriores (reales)', async () => {
+    const e = await fresh();
+    commit(e);
+    ok(psql(e.schema, readRepair('folio')));
+    await recibirPorApp(e, e.fx.accessory.sleeves, 5);
+    const d = ok(psql(e.schema, readRepair('verificacion')));
+    expect(d.stdout).toMatch(/VERIFICACION: TODO OK/);
+    expect(lineaD(d.stdout, '0 filas anteriores a la limpieza en AccessoryStockMovement')).toMatch(/^\s*OK\s*\|[^\n]*0 anteriores · 1 posteriores \(reales\)\s*$/);
+  });
+
+  it('T-AC7 · con ambas: otra conexión con un UPDATE sin confirmar sobre una energía con 0 piezas ⇒ B aborta por lock_timeout y la base queda IDÉNTICA — N = 3', async () => {
+    const results: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const e = await fresh();
+      const [idle] = await admin.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT id FROM "${e.schema}"."Accessory" WHERE category::text = 'energy' AND "stockQty" = 0 ORDER BY id LIMIT 1`,
+      );
+      const app = `lzacc_${e.schema}`.slice(0, 63);
+      const holder = psqlAsync(e.schema, `SET application_name = '${app}';\nBEGIN;\nUPDATE "Accessory" SET "stockQty" = "stockQty" + 1 WHERE id = '${idle.id}';\nSELECT pg_sleep(170);\nCOMMIT;\n`);
+      try {
+        const t0 = Date.now();
+        for (;;) {
+          const [h] = await admin.$queryRawUnsafe<{ pid: number }[]>(`SELECT pid FROM pg_stat_activity WHERE application_name = $1 AND wait_event = 'PgSleep'`, app);
+          if (h) break;
+          if (Date.now() - t0 > 120_000) throw new Error('T-AC7: el tercero no llegó a sostener la fila');
+          await new Promise((res) => setTimeout(res, 50));
+        }
+        const before = await snapshot(admin, e.schema);
+        const s0 = Date.now();
+        const r = psql(e.schema, commitSql(e));
+        const ms = Date.now() - s0;
+        const same = JSON.stringify(await snapshot(admin, e.schema)) === JSON.stringify(before);
+        const timedOut = r.status !== 0 && /lock timeout/i.test(r.stderr);
+        results.push(`${timedOut && same && ms < 60_000 ? 'aborta' : `NO (status ${r.status}, ${ms} ms, idéntica ${same}, ${r.stderr.slice(0, 200)})`}`);
+      } finally {
+        // El tercero se cancela (su COMMIT se vuelve ROLLBACK): solo el nuestro, por su application_name.
+        await admin.$queryRawUnsafe(`SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE application_name = $1`, app);
+        await holder;
+      }
+    }
+    expect(results).toEqual(['aborta', 'aborta', 'aborta']);
+  });
+
+  describe('G-10 v2 (LZ-A8): solo con M-74, y solo si el aviso de sellado está ENCENDIDO y hay suscripciones pendientes SIN armar', () => {
+    it('T-W10a · dial on + 1 suscripción pendiente sin armar ⇒ «Falta tu decisión» con G-10 y 1 suscripción(es); base IDÉNTICA', async () => {
+      const e = await fresh();
+      await setDial(e, 'sealed_restock_alerts', 'on');
+      await subscribe(e);
+      const before = await snapshot(admin, e.schema);
+      const r = psql(e.schema, commitSql(e));
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toMatch(/Falta tu decisión/);
+      expect(r.stderr).toMatch(/G-10 · [^\n]*ENCENDIDO y hay 1 suscripción\(es\)/);
+      expectSame(before, await snapshot(admin, e.schema));
+    });
+    it('T-W10b · dial on y 0 suscripciones (el caso de producción de hoy) ⇒ pasa, y el dial sigue encendido', async () => {
+      const e = await fresh();
+      await setDial(e, 'sealed_restock_alerts', 'on');
+      const r = commit(e);
+      expect(r.stderr).not.toMatch(/G-10/);
+      expect(seccion(r.stdout, '2.8')).toMatch(/\n\s*on\s*\|\s*0\s*\|\s*0\s*\|/);
+      expect((await e.db.configSetting.findUniqueOrThrow({ where: { key: 'sealed_restock_alerts' } })).valueJson).toBe('on');
+      expect(await e.db.inventoryItem.count()).toBe(0);
+    });
+    it('T-W10c · dial on con una suscripción ARMADA y otra YA AVISADA ⇒ pasa', async () => {
+      const e = await fresh();
+      await setDial(e, 'sealed_restock_alerts', 'on');
+      await subscribe(e, { armedAt: d(3) });
+      await subscribe(e, { notifiedAt: d(4) });
+      const r = commit(e);
+      expect(r.stderr).not.toMatch(/G-10/);
+      expect(seccion(r.stdout, '2.8')).toMatch(/\n\s*on\s*\|\s*0\s*\|\s*1\s*\|/);
+    });
+    it('T-W10d · `wishlist_enabled = on` con deseos ⇒ pasa; 2.8 dice on y el número de deseos y de correos', async () => {
+      const e = await fresh();
+      await setDial(e, 'wishlist_enabled', 'on');
+      const r = commit(e);
+      expect(r.stderr).not.toMatch(/G-10/);
+      expect(seccion(r.stdout, '2.8')).toMatch(/\n\s*off\s*\|\s*0\s*\|\s*0\s*\|\s*on\s*\|\s*1\s*\|\s*1\s*$/m);
+      expect(await e.db.wishlistItem.count()).toBe(1);
+    });
+    it('T-W10e · SIN ambas: dial on + 1 suscripción pendiente ⇒ pasa (conducta de a7232d7a: `armedAt` no existe)', async () => {
+      const e = await fresh({ m73: false, m74: false });
+      await setDial(e, 'sealed_restock_alerts', 'on');
+      await subscribe(e);
+      const r = commit(e);
+      expect(r.stdout).not.toMatch(/G-10|=== 2\.8/);
+    });
   });
 });
