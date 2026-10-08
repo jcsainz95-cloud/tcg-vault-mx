@@ -18,9 +18,12 @@ import { AccessoriesService } from './accessories.service';
 export class AccessoriesController {
   constructor(private readonly svc: AccessoriesService) {}
 
+  // ⭐ `C-EQ-1` (BACKEND_NOTES §83.ceq1): un `@Query('…')` por llave, ⛔ no `@Query()` entero — el censo de §0-Q solo ve los
+  // ejes con nombre, y `?category=` es un eje de dominio cerrado (clase E, `AccessoryCategory`). Las llaves desconocidas se
+  // ignoraban antes y se siguen ignorando: la conducta no cambia.
   @Get()
-  list(@Query() query: Record<string, unknown>) {
-    return this.svc.list(query);
+  list(@Query('category') category?: string, @Query('q') q?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.svc.list({ category, q, page, pageSize });
   }
 
   @Get('suggestions')

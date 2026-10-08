@@ -30770,3 +30770,48 @@ cada una se entrega con su mutación roja. Ninguna prueba demostró un defecto.
 
 **NO MEDIDO:** que los casos del deck de `accessories.spec.ts` dejen de saltarse contra el stack con este seed (lo cierra
 una corrida real de frontend/QA; frontend lo midió con las mismas filas simuladas por SQL, §107.real).
+
+### 83.ceq1 `C-EQ-1` clasifica los `@Query` de accesorios (CI `backend-e2e` 1/2507 rojo, `enum-query-axes` «ningún `@Query` fuera de las CINCO listas») (2026-10-08, rama `claude/accesorios`, sobre `2aa807f7`)
+
+**El rojo:** cuatro llaves sin clase — `GET /accessories::<sin nombre>`, `GET /accessories/suggestions::exclude`,
+`GET /admin/accessories::<sin nombre>`, `GET /admin/accessories/:id/stock-movements::<sin nombre>`.
+
+**Decisión: los tres `@Query()` enteros pasan a llaves con nombre, ⛔ no a `QUERY_SIN_NOMBRE`.** Esa lista tiene techo 2
+(trinquete) y, peor, **esconde las llaves al censo**: `?category=` (un enum) habría quedado fuera del descubrimiento y de la
+mitad HTTP. No hay motivo tipo `D-A5-3` para leer la query entera (el parser ya ignoraba las llaves desconocidas, y las sigue
+ignorando). Cambio en `accessories.controller.ts` y `admin-accessories.controller.ts`: los mismos parsers de siempre
+reciben `{category, q, page, pageSize}` / `{…, active, soldOut}` / `{page, pageSize}`.
+
+| Llave del censo | Clase | Dónde |
+|---|---|---|
+| `GET /accessories::category`, `GET /admin/accessories::category` | **E** (`AccessoryCategory`; §AC.3 «`category` ∈ enum») | `REGISTRO`, `filaEn0Q: 'PENDIENTE-ARQUITECTO'` |
+| `::q`, `::page`, `::pageSize` (las tres rutas) | no-enum por nombre | `NO_ENUM_TRANSVERSAL` (sin tocar) |
+| `GET /accessories/suggestions::exclude` | CSV de ≤ 50 UUID (formato, no tokens) | `NO_ENUM_POR_RUTA` |
+| `GET /admin/accessories::active`, `::soldOut` | banderas `true\|false` | `NO_ENUM_POR_RUTA` |
+
+**Arreglo de conducta que el registro exigió:** `?category=` no cumplía §0-Q: devolvía `400 {field}` **sin `allowed`** y
+`?category=%20%20` daba `400` (punto 1: solo espacios ⇒ no filtra). Ahora pasa por `parseEnumFilter('category', …,
+ACCESSORY_CATEGORY_VALUES)` (`accessory-input.ts`), ⛔ sin `echoValue`. Fixture (n) de `enum-query-axes`: tres accesorios
+activos `CEQ1-` (2 `sleeves`, 1 `playmats`), limpiados por nombre. Observación propia `OBS_ACCESORIOS` (total + ids, la
+respuesta es `{items,…}` sin `data`).
+
+**Topes que se movieron (la conversación del trinquete):** `REGISTRO` 64 → **66**, pendientes 18 → **20**,
+`NO_ENUM_POR_RUTA` ≤ 59 → **≤ 62**. `QUERY_SIN_NOMBRE` ≤ 2 **sin cambio**.
+
+**Para el arquitecto (regla 9):**
+1. Falta la fila de §0-Q punto 4 de `?category=` en `GET /accessories` y `GET /admin/accessories` (clase E). Al escribirla,
+   las dos filas pasan a `transcrita` y los pendientes bajan a 18.
+2. `?active=`/`?soldOut=` del panel: §AC.11 no declara su dominio. Se trataron como banderas (precedente `?guest=`,
+   `?principalOnly=`), pero hay precedente en contra: `?muted=true|false` es **L** con fila en §0-Q. Si las quiere L, salen
+   de `NO_ENUM_POR_RUTA` al `REGISTRO` y su `400` gana `allowed`.
+3. Ratificar `?exclude=` como no-enum (UUIDs).
+
+**Medido:**
+- `enum-query-axes` sobre el árbol vivo (esquema `acc_ceq`): **555/555, 7/7 corridas** (N=7).
+- Mutación 1 (copia del árbol entero, quitar `'GET /admin/accessories::soldOut'` de `NO_ENUM_POR_RUTA`): el descubrimiento
+  sale **rojo** nombrando esa llave. Mutación 2 (volver al parser viejo de `category`): **4 rojas** (`espacios` y `error`
+  en las dos rutas). 1 corrida cada una (son deterministas).
+- ⚠️ En la corrida de la mutación 1 salió además roja `GET /admin/vaults?sort= ⇒ conforme` (`filtra`: `pieces_desc` ≡ sin
+  filtrar). No la toca este cambio y no se repitió: 1 roja en 9 corridas sobre el mismo esquema. Causa **NO MEDIDA**.
+- Unitarias: `enum-query-census-canary`, `enum-values-parity`, `enum-filter`, `enum-parity-lock-canary` y las 10 de
+  accesorios, 342/342; unitaria completa 454 suites / 8243 pruebas. Integración `accessories-*` 7 suites / 221.

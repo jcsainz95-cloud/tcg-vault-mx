@@ -235,6 +235,18 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/reports/sales::to',
   'GET /admin/reports/sales/export.csv::from',
   'GET /admin/reports/sales/export.csv::to',
+
+  // 💰 rev v1.86⟨accesorios⟩ (BACKEND_NOTES §83.ceq1; ⚠️ PENDIENTE de ratificar por el arquitecto, como §58.6):
+  //  - `GET /accessories/suggestions::exclude` — CSV de ≤ 50 UUID (§AC.3: «`exclude` ≤ 50 uuid, si no ⇒ `400`»): identificadores
+  //    abiertos, ⛔ no tokens. Fuera de forma ⇒ `400 VALIDATION_ERROR {field:'exclude'}` sin `allowed` (`parseExclude`,
+  //    `accessories/accessory-input.ts`), como `?subjectUserId=` de los avisos de gasto.
+  //  - `GET /admin/accessories::active` · `::soldOut` — banderas booleanas (§AC.11 no declara dominio; el código acepta
+  //    `true|false`, vacío ⇒ no filtra, otra cosa ⇒ `400 {field}` sin `allowed` — `boolParam`), hermanas de `?guest=` y
+  //    `?principalOnly=`. ⚠️ El contrato tiene un precedente en contra (`?muted=true|false` es clase L con fila en §0-Q): si el
+  //    arquitecto las quiere L, salen de aquí al `REGISTRO` y ganan `allowed`.
+  'GET /accessories/suggestions::exclude',
+  'GET /admin/accessories::active',
+  'GET /admin/accessories::soldOut',
 ];
 
 /**

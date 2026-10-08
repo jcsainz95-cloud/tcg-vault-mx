@@ -12,6 +12,7 @@
 import { AccessoryCategory, EnergyType } from '@prisma/client';
 import { BusinessException } from '../../common/business.exception';
 import { ACCESSORY_CATEGORY_VALUES, ENERGY_TYPE_VALUES } from '../../common/enum-values';
+import { parseEnumFilter } from '../../common/enum-filter';
 
 export const NAME_MAX = 120;
 export const DESCRIPTION_MAX = 500;
@@ -201,11 +202,10 @@ export interface CatalogQuery {
 function baseQuery(raw: unknown, pageSizeDefault: number, pageSizeMax: number): CatalogQuery {
   const q = (raw ?? {}) as Record<string, unknown>;
   const out: CatalogQuery = { page: intParam(q, 'page', 1, 1, 100_000), pageSize: intParam(q, 'pageSize', pageSizeDefault, 1, pageSizeMax) };
-  const cat = single(q, 'category');
-  if (cat !== undefined && cat !== '') {
-    if (!(ACCESSORY_CATEGORY_VALUES as readonly string[]).includes(cat)) throw bad('category');
-    out.category = cat as AccessoryCategory;
-  }
+  // §0-Q (clase E, `AccessoryCategory`): ausente/vacío/solo espacios ⇒ no filtra; fuera del enum ⇒ `400 {field, allowed}`
+  // (helper único; ⛔ sin `echoValue`, eje nuevo). Antes: `400 {field}` sin `allowed` y `'  '` ⇒ `400` (BACKEND_NOTES §83.ceq1).
+  const cat = parseEnumFilter('category', q.category, ACCESSORY_CATEGORY_VALUES);
+  if (cat !== undefined) out.category = cat;
   const text = single(q, 'q');
   if (text !== undefined) {
     const t = text.trim();

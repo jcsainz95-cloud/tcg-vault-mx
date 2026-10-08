@@ -48,9 +48,18 @@ function readPhoto(req: Request, res: Response): Promise<Buffer> {
 export class AdminAccessoriesController {
   constructor(private readonly svc: AdminAccessoriesService) {}
 
+  // ⭐ `C-EQ-1` (BACKEND_NOTES §83.ceq1): llaves con nombre para que el censo de §0-Q las vea (`?category=` es clase E).
   @Get()
-  list(@Query() query: Record<string, unknown>, @CurrentUser() user: Actor) {
-    return this.svc.list(query, user);
+  list(
+    @CurrentUser() user: Actor,
+    @Query('category') category?: string,
+    @Query('q') q?: string,
+    @Query('active') active?: string,
+    @Query('soldOut') soldOut?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.list({ category, q, active, soldOut, page, pageSize }, user);
   }
 
   @Get(':id')
@@ -103,7 +112,7 @@ export class AdminAccessoriesController {
   }
 
   @Get(':id/stock-movements')
-  movements(@Param('id') id: string, @Query() query: Record<string, unknown>) {
-    return this.svc.movements(id, query);
+  movements(@Param('id') id: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.svc.movements(id, { page, pageSize });
   }
 }
