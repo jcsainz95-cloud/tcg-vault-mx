@@ -10,6 +10,19 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata v1.86.5⟨accesorios⟩** (2026-10-08, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `d8ff897a` según el
+> orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.4, vigente entera salvo esto. Origen: `BACKEND_NOTES §83.ceq1`
+> (regla 9). Toca [§0-Q](#enum-query-filter) punto 4, §AC.3 y §AC.11. ⛔ Sin schema.
+> - `?category=` de `GET /accessories` y `GET /admin/accessories`: filas **E** (`AccessoryCategory`) en el registro.
+> - `?active=` y `?soldOut=` de `GET /admin/accessories`: **clase L**, `true | false`, con fila; ⛔ no banderas tri-estado.
+>   Por qué: el código ya devuelve `400` ante basura (`boolParam`), así que la norma D tri-estado («no filtra, no falla»)
+>   habría cambiado conducta hacia el silencio; y el eje booleano de panel más reciente (`?muted=`) es L. La norma D
+>   sigue rigiendo sus cinco ejes nombrados (`live`, `awaitingGuide`, `offerReissueAlert`, `guest`, `needsManual`), sin
+>   reclasificarlos. ⚠️ Eso deja **dos** reglas vivas para booleanos de filtro; los ejes booleanos nuevos van **L**.
+>   **Cambia conducta (backend):** `?active=%20` ⇒ no filtra (hoy `400`) y el `400` gana `allowed: ['true','false']`.
+> - `?exclude=` de `GET /accessories/suggestions`: ⛔ no es §0-Q (lista de ≤ 50 UUID; punto 7). Ratificado en
+>   `NO_ENUM_POR_RUTA`.
+>
 > **Errata v1.86.4⟨accesorios⟩** (2026-10-07, arquitecto, worktree `/home/user/tcg-accesorios`, HEAD `bc128c4` según el
 > orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.86.3 (§AC.19, que no tenía línea aquí), vigente entera salvo esto.
 > Origen: `BACKEND_NOTES §83.B`. Norma: **§AC.20**; porqué: `ARCHITECTURE §4.AC (q)`. ⛔ Sin schema ni cambio de conducta.
@@ -7464,6 +7477,10 @@
   | `GET /admin/reports/sales` (§15) | `topSort` **(ORDEN, AN-1.2)** | `net \| pieces` — canónico en **§15.2**; default `net` (punto 6) | **L** |
   | `GET /admin/reports/sales/export.csv` (§15) | `preset` **(AN-1.2)** | el mismo dominio y default que `/sales` — canónico en **§15.2** | **L** |
   | `GET /admin/reports/sales/export.csv` (§15) | `groupBy` **(AN-1.2)** | el mismo dominio y default que `/sales` — canónico en **§15.2** | **L** |
+  | `GET /accessories` (§AC.3) | `category` **(v1.86.5)** | `AccessoryCategory` (§Enums). Escalar; solo espacios ⇒ no filtra; fuera ⇒ `400 {field, allowed}`, ⛔ sin `details.value` (eje nuevo, punto 2) | **E** |
+  | `GET /admin/accessories` (§AC.11) | `category` **(v1.86.5)** | `AccessoryCategory` (§Enums); misma conducta que la fila de arriba | **E** |
+  | `GET /admin/accessories` (§AC.11) | `active` **(v1.86.5)** | `true \| false` — canónico en **§AC.11**; ausente/vacío/solo espacios ⇒ los dos. Unión pura, ⛔ sin enum (la columna es `Boolean`). Mismo criterio que `?muted=` | **L** |
+  | `GET /admin/accessories` (§AC.11) | `soldOut` **(v1.86.5)** | `true \| false` — canónico en **§AC.11** (`true` ⇔ `stockQty − reservedQty = 0`); ausente/vacío/solo espacios ⇒ los dos. Partición computada, ⛔ sin columna | **L** |
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
   >
@@ -41822,14 +41839,14 @@ del DTO se arma campo por campo, sin `spread` (criterio 730). `maxQty` es el ún
 selector de AC.3.
 
 - **`GET /api/v1/accessories?category=&q=&page=1&pageSize=24`**
-  - Solo `active`. `q`: `ILIKE` sobre el nombre, 1..60 caracteres. `category` ∈ enum, si no ⇒ `400 VALIDATION_ERROR`.
-    `pageSize` ≤ 60.
+  - Solo `active`. `q`: `ILIKE` sobre el nombre, 1..60 caracteres. `category` ∈ enum, si no ⇒ `400 VALIDATION_ERROR`
+    (v1.86.5: [§0-Q](#enum-query-filter) clase E, fila en el punto 4). `pageSize` ≤ 60.
   - Orden: disponibles primero (`soldOut` al final, AC.3), luego categoría (orden del enum), `lower(name)` e `id`.
   - Res `200 { items: AccessoryCardDTO[]; page; pageSize; total }`.
 - **`GET /api/v1/accessories/:id`**
   - Activo ⇒ `200 AccessoryDetailDTO`. Inexistente o inactivo ⇒ `404 ACCESSORY_NOT_FOUND` (no distingue los dos casos).
 - **`GET /api/v1/accessories/suggestions?exclude=<id>,<id>`** (AC.5)
-  - `exclude` ≤ 50 uuid, si no ⇒ `400`. Res `200 { items: AccessoryCardDTO[] }`, como mucho `accessory_suggestion_count`
+  - `exclude` ≤ 50 uuid, si no ⇒ `400` (v1.86.5: ⛔ no es §0-Q — formato, no tokens; punto 7. Va a `NO_ENUM_POR_RUTA`). Res `200 { items: AccessoryCardDTO[] }`, como mucho `accessory_suggestion_count`
     (dial, default 3, rango 0..6; 0 apaga el recuadro).
   - **Regla** (pura, `accessories/suggestion-rule.ts`): candidatos = `active ∧ disponible > 0 ∧ category ≠ energy ∧ id ∉
     exclude`. El orden es:
@@ -42180,7 +42197,7 @@ energyBundle: {
 
 | Método y ruta | Quién | Cuerpo / respuesta |
 |---|---|---|
-| `GET /admin/accessories?category=&q=&active=&soldOut=&page=` | operador+ | `{ items: AdminAccessoryDTO[]; page; pageSize; total }` |
+| `GET /admin/accessories?category=&q=&active=&soldOut=&page=` | operador+ | `{ items: AdminAccessoryDTO[]; page; pageSize; total }`. v1.86.5: `category` clase E; `active` y `soldOut` clase **L**, dominio canónico `true \| false` (ausente ⇒ los dos; otro valor ⇒ `400 {field, allowed}`), [§0-Q](#enum-query-filter) punto 4 |
 | `GET /admin/accessories/:id` | operador+ | `AdminAccessoryDTO` |
 | `POST /admin/accessories` | operador+ | alta. `priceCents`, `unitCostCents`, `suggested` y `active` ★: un operador que los manda ⇒ `403 FORBIDDEN_FIELD {fields}` y no se escribe nada. Nace **inactivo**. `201 AdminAccessoryDTO` |
 | `PATCH /admin/accessories/:id` | operador+ | `name, description, category, energyType, lengthMm, widthMm, heightMm, weightG`; ★ `priceCents, unitCostCents, suggested`. Mismo `403 FORBIDDEN_FIELD`. Cambiar la categoría de un activo a `energy` (o al revés) ⇒ `409 ACCESSORY_ACTIVE` (primero se desactiva) |
