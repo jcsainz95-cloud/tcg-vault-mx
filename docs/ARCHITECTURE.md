@@ -4,6 +4,18 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.88.1⟨release-s7⟩ — la limpieza conoce `M-73` y `M-74`** (2026-10-08, arquitecto, worktree
+> `/home/user/tcg-release`; ⛔ sha NO MEDIDO: sin Bash). Norma en `docs/specs/LIMPIEZA_DB.md §14.13`; índice en la cabecera
+> v1.88.1 de `API_CONTRACT`. Cierra el «Abierto» de v1.88 (abajo). ⛔ Sin esquema, migración ni ruta.
+> - **Decisión de modelo:** `Accessory` mezcla en una fila catálogo (se queda) y existencias (inventario: se borran).
+>   La limpieza la **ajusta** (`stockQty = reservedQty = 0`), igual que borra `InventoryItem` y conserva `SealedProduct`.
+>   Las 8 energías de la semilla de `M-73` salen intactas.
+> - **G-10 condicionada** a que haya clientes esperando (suscripciones pendientes sin armar), por la decisión del dueño
+>   del 2026-10-08. Sustituye a LZ-W3, que paraba solo por el estado del dial.
+> - **Con y sin:** las tablas nuevas se tratan con `\if` de psql y banderas tomadas antes del `BEGIN`. Así no se rompe la
+>   foto única `REPEATABLE READ` de C-4, y el B de `a7232d7a` (el que el dueño corre hoy) sigue siendo el resultado sobre
+>   una base sin ellas.
+>
 > **Errata v1.88⟨release-s7⟩ — convivencia de accesorios y lista de deseos** (2026-10-08, arquitecto, worktree
 > `/home/user/tcg-release`, rama `claude/release-s7`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT`, cabecera v1.88 y
 > §0-Q punto 4. ⛔ Sin schema, migración ni cambio de conducta.
@@ -29615,7 +29627,9 @@ con conteo de correos distintos pendientes (P-WSH-9, recomendación del PO).
   clasificó (G-8), así que **tiene** que conocer las tablas de M-74 si M-74 llega antes. Lo que debe cambiar allí, y por
   qué los dos diales de aviso deben estar apagados durante la limpieza y la re-subida, está en `API_CONTRACT §WSH.11`
   (LZ-W1…W5). La causa de fondo: con M-74 el «avísame» de sellados corre solo, y un inventario vacío durante horas **arma**
-  todas las suscripciones pendientes.
+  todas las suscripciones pendientes. ⭐ **v1.88.1:** ya no hace falta apagar los diales por regla. La limpieza solo se
+  para si el dial de sellados está encendido **y** hay suscripciones pendientes sin armar (`LIMPIEZA_DB.md §14.13`,
+  LZ-A8). Sustituye a LZ-W3.
 - **Ratificados sin cambio de diseño:** P = `displayPriceCents` (el contrato usaba un nombre muerto desde §M10-IVA.3); el
   candado `xact` en una transacción portadora (una conexión retenida por job; la corrección descansa en el CAS y el único,
   no en el candado); `wishlistEnabled` puesto por el controlador; los tres censos tocados; T9 parcial (la detección usa la

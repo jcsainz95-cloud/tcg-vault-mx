@@ -10,6 +10,23 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Errata v1.88.1⟨release-s7⟩ — la limpieza `P-DB-LIMPIEZA` conoce las 9 tablas de `M-73` y `M-74`** (2026-10-08,
+> arquitecto, worktree `/home/user/tcg-release`, rama `claude/release-s7`, HEAD dado por el orquestador `d92d9b82`; ⛔ sha
+> NO MEDIDO: sin Bash). **Norma en `docs/specs/LIMPIEZA_DB.md §14.13`**. Cierra el «Abierto» de v1.88 (abajo). ⛔ Sin
+> ruta, cuerpo, esquema ni migración: son guiones SQL de un solo uso (B y D) y sus pruebas.
+> - **Causa (medida por el orquestador en CI, run `37733554396`):** G-8 de B para con 9 tablas sin clasificar ⇒ 39 rojas en
+>   `pdb-limpieza.e2e-spec.ts`. G-8 acierta: falla cerrado.
+> - **Accesorios:** se borran los renglones de pedido y de envío, los componentes del paquete de energías y el historial de
+>   existencias. **`Accessory` se ajusta**: la fila (catálogo, precio, costo, foto, las 8 energías de la semilla) se queda,
+>   y `stockQty`/`reservedQty` pasan a 0. `AccessoryPhoto` se conserva. Pregunta al dueño Q-LZ-A1, por defecto (a).
+> - **Lista de deseos:** LZ-W1, LZ-W2, LZ-W4 (a)(b) y LZ-W5 de §WSH.11 siguen vigentes. **LZ-W3 y LZ-W4 (c) quedan
+>   sustituidas** por LZ-A8: G-10 solo para si `sealed_restock_alerts = 'on'` **y** hay suscripciones pendientes sin armar,
+>   y solo con `M-74`. `wishlist_enabled` no para nada. Es la decisión del dueño del 2026-10-08 («no hay clientes reales
+>   podemos no apagar la configuracion»). Con 0 suscripciones (censo A de producción, dato del orquestador) no para.
+> - **Con y sin:** todo lo nuevo de B va dentro de `\if` de psql, con banderas tomadas **antes** del `BEGIN`. Sobre una
+>   base sin las tablas nuevas, el resultado es el del B de `a7232d7a` (el que el dueño corre hoy). La prueba T-AC3 lo
+>   compara contra una copia congelada.
+>
 > **Errata v1.88⟨release-s7⟩ — lo que choca al convivir accesorios y lista de deseos** (2026-10-08, arquitecto, worktree
 > `/home/user/tcg-release`, rama `claude/release-s7`, fusión en curso de `claude/accesorios` (`cabd8a15`) y
 > `claude/wishlist` (`d815b57d`) según el orquestador; ⛔ sha NO MEDIDO: sin Bash). Base: v1.87.4 y v1.86.6, vigentes
@@ -30,7 +47,7 @@
 >   con un accesorio sin respaldo acaba `settled`; la baja de deseos corre después del commit y no cambia.
 > - **Abierto, al orquestador (no es choque entre ramas):** la limpieza `P-DB-LIMPIEZA` conoce las 3 tablas de `M-74`
 >   (§WSH.11, LZ-W1…W5) y §AC no la menciona (grep, 2026-10-08). Si la limpieza borra pedidos o inventario, le faltan las
->   6 tablas de `M-73`. Qué borra hoy: NO MEDIDO (rama `claude/limpieza-db`).
+>   6 tablas de `M-73`. Qué borra hoy: NO MEDIDO (rama `claude/limpieza-db`). ⭐ **Cerrado en v1.88.1** (arriba).
 >
 > **Errata v1.87.4⟨wishlist⟩ — el mapeo de piezas cambia después de apuntarse** (2026-10-07, arquitecto, árbol
 > `/home/user/tcg-wishlist`, HEAD dado por el orquestador `7248b780`; ⛔ sha NO MEDIDO: sin Bash). Norma en
@@ -44085,6 +44102,7 @@ toda tabla de la base debe estar clasificada, y las tres de M-74 no lo están). 
 | LZ-W1 | Clasificar: `WishlistNotice` ⇒ **borrar**; `WishlistItem` y `WishlistMail` ⇒ **conservar** (lista de `…_2_limpieza.sql:155-169`, y la tabla de §14.2 de `LIMPIEZA_DB.md`) | `WishlistNotice` es historia de piezas que dejan de existir; con la FK en `CASCADE` se vacía sola al borrar el inventario (paso 11), igual que `InventoryMovement`. **Sin `DELETE` propio.** `WishlistItem` es intención del usuario, como `SealedRestockSubscription`, que ya se conserva. `WishlistMail` no apunta a piezas; borrarla rompería el enlace «Dejar de recibir estos avisos» de los correos ya enviados (`id` = `WishlistMail.id`, WSH.6) y reiniciaría el tope diario |
 | LZ-W2 | G-5: `esperado = 0` solo para las tablas `borrar` **que existen** (`… AND antes IS NOT NULL` en `…_2_limpieza.sql:383`) | Hoy todas las tablas `borrar` existen. Con `WishlistNotice` en la lista y la limpieza corrida **antes** de `M-74`, `despues` es `NULL` y `NULL IS DISTINCT FROM 0` ⇒ G-5 abortaría. Las de `conservar` ya toleran la ausencia (`esperado = antes = NULL`) |
 | LZ-W3 | Guarda nueva **G-10**, comprobada al final con las demás decisiones (como `respaldo_manual`): aborta si `sealed_restock_alerts = 'on'` o `wishlist_enabled = 'on'` en `ConfigSetting` (clave ausente = `off`). Mensaje: apaga en Ajustes «Avísame cuando vuelva» y «Lista de deseos»; vuélvelos a encender **después** de re-subir el inventario | Con `M-74` el job de sellados corre **solo cada 5 min**. Con el dial encendido, el hueco entre la limpieza y la re-subida **arma** todas las suscripciones pendientes (`sealed-restock-notify.service.ts:127-131`: sin piezas vendibles ⇒ `armedAt`), y al re-subir les llega «¡Volvió a existencia!» de productos que nunca se agotaron de verdad. Agrava el R-13 de `LIMPIEZA_DB.md`, que contaba con un job manual. Con el dial apagado el job no arma nada (`:74-77`). Además, con ambos diales apagados ningún job inserta en `WishlistNotice` durante la limpieza, así que no hace falta añadirla al `LOCK TABLE` |
+| ⭐ v1.88.1 | **LZ-W3 (arriba) y LZ-W4 (c) (abajo) quedan SUSTITUIDAS** por `LIMPIEZA_DB.md §14.13` LZ-A8 y T-W10a…e. G-10 solo con `M-74`, y solo si el dial de sellados está en `on` **y** hay suscripciones pendientes sin armar. `wishlist_enabled` no para. El candado de `WishlistNotice` **sí** entra (LZ-A1). Decisión del dueño, 2026-10-08 | — |
 | LZ-W4 | Pruebas en `pdb-limpieza.e2e-spec.ts` (numeración de esa rama): (a) con `M-74` aplicada y un deseo, un aviso y un correo en el fixture ⇒ B termina con `WishlistNotice = 0`, `WishlistItem` y `WishlistMail` con contenido idéntico; (b) **sin** las tablas de M-74 ⇒ B pasa (mismo eje que «con y sin M-72», §9.8); (c) G-10 con cada dial en `on` ⇒ aborta, base idéntica. Mutaciones: quitar `antes IS NOT NULL` ⇒ (b) rojo; quitar G-10 ⇒ (c) rojo | — |
 | LZ-W5 | Guion del dueño (§14.8): paso nuevo antes del 4 («apaga los dos avisos») y después del 9 («enciéndelos»). Aviso informativo: al re-encender la lista de deseos, quien tenga en su lista una carta que re-subiste recibe **un** «ya la tenemos» (las piezas re-subidas son nuevas para el sistema). Hoy, con el dial en `off` desde el seed, no hay deseos: **NO MEDIDO** en producción | — |
 
