@@ -8,7 +8,7 @@
  *  - `sharp` con `limitInputPixels: 40_000_000` ⇒ `too_many_pixels`; no decodifica ⇒ `not_image`; > 10 MiB ⇒ `too_large`
  *    (multer corta antes; esto es la red por si alguien llama al procesador por otra vía).
  *  - `rotate()` (EXIF) → `resize(1200,1200,{fit:'contain'})` con fondo transparente si la fuente tiene alfa y blanco si
- *    no ⇒ cuadrada SIN recortar → WebP calidad 82, y miniatura de 400. ⛔ Sin `withMetadata()`: EXIF/GPS/ICC fuera
+ *    no ⇒ cuadrada SIN recortar → WebP calidad 82, y miniatura de 400 hecha desde `full` (la fuente se decodifica UNA vez). ⛔ Sin `withMetadata()`: EXIF/GPS/ICC fuera
  *    (criterio 703); `sharp` no copia metadatos a la salida salvo que se pida.
  *  - `version` = 16 hex del sha256 de `full`.
  * ⛔ Este fichero (ni ningún otro del módulo) importa S3 ni el módulo de subidas de la INE (I-AC-6, AC-B5).
@@ -69,16 +69,14 @@ export async function processAccessoryPhoto(buf: Buffer): Promise<ProcessedPhoto
     throw photoInvalid(isPixelLimit(e) ? 'too_many_pixels' : 'not_image');
   }
   const background = hasAlpha ? CLEAR : WHITE;
-  const render = (px: number) =>
-    open()
-      .rotate()
-      .resize(px, px, { fit: 'contain', background })
-      .webp({ quality: PHOTO_WEBP_QUALITY })
-      .toBuffer();
+  // Menor de QA (gates §AC sobre `dd26ae79`): la FUENTE se decodifica UNA vez (para `full`); la miniatura sale de `full`,
+  // que ya es cuadrada (misma geometría `contain`) y mide 1200² en vez de hasta 40 MP. Antes: dos decodificaciones de la
+  // fuente en paralelo ⇒ ~2 × 160 MB de pico por subida.
   let fullWebp: Buffer;
   let thumbWebp: Buffer;
   try {
-    [fullWebp, thumbWebp] = await Promise.all([render(PHOTO_FULL_PX), render(PHOTO_THUMB_PX)]);
+    fullWebp = await open().rotate().resize(PHOTO_FULL_PX, PHOTO_FULL_PX, { fit: 'contain', background }).webp({ quality: PHOTO_WEBP_QUALITY }).toBuffer();
+    thumbWebp = await sharp(fullWebp).resize(PHOTO_THUMB_PX, PHOTO_THUMB_PX, { fit: 'contain', background }).webp({ quality: PHOTO_WEBP_QUALITY }).toBuffer();
   } catch (e) {
     throw photoInvalid(isPixelLimit(e) ? 'too_many_pixels' : 'not_image');
   }

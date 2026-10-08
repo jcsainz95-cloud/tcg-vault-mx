@@ -7,7 +7,7 @@ import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
-import { UnbackedAccessoryLine, releaseAccessoryReservations, settleAccessories } from '../orders/accessory-stock';
+import { AccessorySettleAnomaly, releaseAccessoryReservations, settleAccessories } from '../orders/accessory-stock';
 import { ACCESSORY_LINE_READ_INCLUDE, accessoryMailLinesOf } from '../orders/accessory-lines-view';
 import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
 import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
@@ -439,7 +439,10 @@ export class PaymentsService {
    * búsqueda del envío activo hacen que un reintento de Stripe no duplique nada.
    * El correo es POST-COMMIT y BEST-EFFORT: su fallo NO revierte el pago ni falla el webhook.
    */
-  private async settleDirectShipOrder(order: Order & { items: OrderItem[]; accessoryLines?: { id: string }[] }): Promise<void> {
+  // C-2 (gates §AC sobre `dd26ae79`): `accessoryLines` OBLIGATORIO en el tipo ⇒ el compilador exige el `include` en cada
+  // llamador (aquí y en `onChargeDisputeDirectShip`). Las lecturas siguen tolerantes (`?.length ?? 0`): sin cambio de
+  // conducta, también para los dobles de las suites unitarias que construyen la orden a mano (BACKEND_NOTES §83.gates.2).
+  private async settleDirectShipOrder(order: Order & { items: OrderItem[]; accessoryLines: { id: string }[] }): Promise<void> {
     const card = order.stripePaymentIntentId
       ? await this.stripe.getCardDetails(order.stripePaymentIntentId).catch(() => null)
       : null;
@@ -447,7 +450,7 @@ export class PaymentsService {
     // B3: anomalías de inventario detectadas al liquidar (ver dentro del bucle). Se reportan FUERA
     // de la transacción para que el log y la auditoría no dependan de su commit.
     const anomalies: { inventoryItemId: string; was: string; recovered: boolean }[] = [];
-    const unbackedAccessories: UnbackedAccessoryLine[] = [];
+    const accessoryAnomalies: AccessorySettleAnomaly[] = [];
 
     const settled = await this.prisma.$transaction(async (tx) => {
       // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el MISMO CAS que la rama `vault` (ver `onPaymentSucceeded`):
@@ -552,18 +555,25 @@ export class PaymentsService {
       // en el envío que nace aquí. Las líneas sin existencias para recuperar se auditan FUERA de la tx (abajo).
       if ((order.accessoryLines?.length ?? 0) > 0) {
         const acc = await settleAccessories(tx, order, shipmentId as string, now);
-        unbackedAccessories.push(...acc.unbacked);
+        accessoryAnomalies.push(...acc.anomalies);
       }
       return true;
     });
     // v1.79.4 — el perdedor ⛔ no avisa: ni confirmación de invitado, ni AV-2, ni auditoría.
     if (!settled) return;
-    // 💰 §AC.6 (4): «sin existencias al liquidar» — ruidoso, fuera de la tx; quien prepara lo ve marcado.
-    for (const u of unbackedAccessories) {
-      this.logger.error(`ANOMALÍA al liquidar ${order.orderNumber ?? order.id}: renglón de accesorio ${u.lineId} sin existencias para recuperar.`);
+    // 💰 §AC.6 (4) + ⭐ v1.86.6 (§AC.21.3): ruidoso, FUERA de la tx, best-effort (`.catch` como B3) — nunca tumba el webhook.
+    //  - `recovered` ⇒ `order.settle_accessory_anomaly` (renglón `reserved` que el contador no respaldaba; salió de libres).
+    //  - sin respaldo ⇒ `order.settle_accessory_unbacked` (+ `was`); quien prepara lo ve marcado (`settledWithoutStock`).
+    for (const u of accessoryAnomalies) {
+      const after = { lineId: u.lineId, accessoryId: u.accessoryId, quantity: u.quantity, was: u.was, ...(u.recovered ? { recovered: true } : {}) };
+      if (u.recovered) {
+        this.logger.error(`ANOMALÍA al liquidar ${order.orderNumber ?? order.id}: renglón de accesorio ${u.lineId} (${u.was}) sin apartado contado; recuperado de existencias libres.`);
+      } else {
+        this.logger.error(`ANOMALÍA al liquidar ${order.orderNumber ?? order.id}: renglón de accesorio ${u.lineId} (${u.was}) sin existencias para respaldarlo (settledWithoutStock).`);
+      }
       await this.audit
-        .log({ actorUserId: null, actorRole: null, action: 'order.settle_accessory_unbacked', entityType: 'Order', entityId: order.id, after: { lineId: u.lineId, accessoryId: u.accessoryId, quantity: u.quantity } })
-        .catch((e: unknown) => this.logger.error(`No se pudo auditar el renglón sin existencias: ${(e as Error).message}`));
+        .log({ actorUserId: null, actorRole: null, action: u.recovered ? 'order.settle_accessory_anomaly' : 'order.settle_accessory_unbacked', entityType: 'Order', entityId: order.id, after })
+        .catch((e: unknown) => this.logger.error(`No se pudo auditar la anomalía del renglón de accesorio: ${(e as Error).message}`));
     }
 
     // B3 — las anomalías son RUIDOSAS: log de error + AuditLog consultable (M10). Nunca se
@@ -898,7 +908,7 @@ export class PaymentsService {
    * evento de disputa lo bajara, el caso desaparecería de la cola de M3 sin que nadie hubiera
    * confirmado dónde está la carta — se perdería la única señal de que faltaba una decisión.
    */
-  private async onChargeDisputeDirectShip(order: Order & { items: OrderItem[]; accessoryLines?: { id: string }[] }): Promise<void> {
+  private async onChargeDisputeDirectShip(order: Order & { items: OrderItem[]; accessoryLines: { id: string }[] }): Promise<void> {
     const closed: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       // Envío de FULFILLMENT de esta orden (el más reciente). Un retiro de bóveda no lleva

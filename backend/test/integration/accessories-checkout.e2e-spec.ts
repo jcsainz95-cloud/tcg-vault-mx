@@ -383,7 +383,7 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
       expect(l2).toMatchObject({ status: 'sold', settledWithoutStock: true });
       const audit = await h.prisma.auditLog.findMany({ where: { entityId: late2.body.orderId, action: 'order.settle_accessory_unbacked' } });
       expect(audit).toHaveLength(1);
-      expect(audit[0].after).toEqual({ lineId: l2.id, accessoryId: a.id, quantity: 1 });
+      expect(audit[0].after).toEqual({ lineId: l2.id, accessoryId: a.id, quantity: 1, was: 'released' });
     });
   });
 

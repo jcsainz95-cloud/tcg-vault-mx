@@ -30850,3 +30850,76 @@ en 4 de 22 corridas: 3 de 19 en los árboles de este trabajo (§83.ceq1 y este a
 sobre una copia de `2aa807f7` sin ningún cambio mío (esquema recién sembrado `acc_ceq_base`), donde cayó en la segunda. En las dos siembras nuevas que vi completas, cayó en la **segunda corrida después de sembrar**.
 Ese patrón está medido pocas veces. No es de accesorios. Causa **NO MEDIDA**. La cerraría medir la huella de `pieces_desc`
 contra la base en esa corrida. Dueño: el stream de la bóveda (`admin-vaults.service.ts`).
+
+### 83.gates Condiciones de QA y techlead sobre `dd26ae79` (C-1, C-2, menor de la foto) + errata v1.86.6 (§AC.21, TD-AC-1) (2026-10-08, rama `claude/accesorios`, sobre `2aab8582`)
+
+#### 83.gates.1 C-1 · interbloqueo `40P01` entre liquidar/reponer y apartar
+- **Defecto (de QA, reproducido aquí):** `reserveAccessories` bloquea `Accessory` por id ascendente; `settleAccessories`
+  (renglón `reserved` y recuperación `released`) y `restockAccessoriesOnFullRefund` lo hacían **por renglón**. Dos
+  renglones de ids cruzados (L1→B, L2→A, A<B) ⇒ B y luego A contra A y luego B.
+- **Arreglo:** `lockAccessories(tx, ids)` (`orders/accessory-stock.ts`) — una sentencia
+  `SELECT id FROM "Accessory" WHERE id = ANY($ids) ORDER BY id COLLATE "C" FOR UPDATE`, al entrar a los dos verbos, con
+  todos los accesorios de los renglones que el verbo va a tocar (sueltos y componentes). `COLLATE "C"` = el orden de bytes
+  de `byId` (el de `reserveAccessories`); con UUID en minúscula coincide con la intercalación de la BD, pero así no
+  depende de ella. «Paquete entero o nada» sin cambio: el candado solo adelanta el orden, no la lógica por renglón.
+- **Por qué no hay ciclo con `Order`/`OrderAccessoryLine`:** el settle gana antes el CAS de `Order`
+  (`payments.service.ts:459-467`) y el reembolso total ya tiene la orden bloqueada; dos verbos del MISMO pedido se
+  serializan ahí. El candado nuevo solo ordena entre pedidos distintos.
+- **Pruebas (escritas antes del arreglo):**
+  - `test/integration/accessories-lock-order.e2e-spec.ts` — entrelazado forzado (`row-lock-barrier.ts`: tercera conexión
+    retiene B; espera comprobada en `pg_stat_activity`, sin `sleep`), un caso por verbo (`settle_reserved`,
+    `settle_recovery`, `restock`), `ACL_N` rondas (10).
+  - `test/accessories-c1.lock-order.spec.ts` — doble de Prisma: primer contacto con cada accesorio en orden ascendente, el
+    `FOR UPDATE` antes de cualquier `UPDATE` y cubriendo todos (5 casos: suelto, recuperación, paquete+suelto, ×2 verbos).
+- **Medido (Postgres 16 propio):** antes (`dd26ae79`) **10/10 con 40P01 por verbo** (N=10, dos corridas: árbol vivo y
+  copia revertida ⇒ 20/20); después **0/40 por verbo** (4 corridas × N=10). En los 40 la compra (`reserve`) terminó `ok`
+  y el estado final cuadró.
+- **Mutaciones (copia del árbol entero):** M0 revertir el fichero ⇒ unitaria 5/7 rojas, integración 3/3 rojas (10/10 cada
+  verbo). M1 sin candado en settle ⇒ 3 unitarias y 2 integración rojas (restock verde). M2 sin candado en restock ⇒ 2
+  unitarias y 1 integración rojas. M3 sin `sort` en JS y M4 sin `ORDER BY` ⇒ unitaria 5/7 roja; integración **verde**
+  (M3: el `ORDER BY` de la sentencia sigue ordenando; M4: el plan devolvió las filas en orden de índice — no garantizado)
+  — por eso existe la prueba con doble, que fija ambas mitades.
+
+#### 83.gates.2 C-2 · `accessoryLines` obligatorio
+`settleDirectShipOrder` y `onChargeDisputeDirectShip` (`payments.service.ts:445`, `:911`) piden
+`accessoryLines: { id: string }[]` (antes opcional): el compilador exige el `include` en cada llamador (`:219`→`:277`,
+`:858`→`:863`). Las lecturas (`:556`, `:611`, `:692`, `:974`) **siguen** `?.length ?? 0`: sin cambio de conducta. Medido:
+con lecturas estrictas (`order.accessoryLines.length`) la unitaria daba **6 suites / 28 pruebas rojas** (`payments.*`: sus
+dobles construyen la orden a mano sin `accessoryLines`); la producción no lo puede hacer ya (lo exige el tipo), así que no
+se tocaron esos dobles. `tsc` limpio. **Mutación:** quitar `accessoryLines` del `include` de `:219` ⇒ `error TS2345` en
+`:277`; del de `:858` ⇒ `TS2345` en `:863`.
+
+#### 83.gates.3 Menor de QA · la foto se decodificaba dos veces en paralelo
+`processAccessoryPhoto` hacía `Promise.all([render(1200), render(400)])` desde la fuente (hasta 40 MP ⇒ ~2×160 MB). Ahora la
+fuente se decodifica **una** vez (para `full`) y la miniatura sale de `full` (cuadrada 1200², misma geometría `contain`,
+mismo fondo). `version` sigue siendo el sha de `full` ⇒ sin cambio. **Cambio visible:** los bytes de `thumbWebp` cambian
+(re-escalado desde el WebP de 1200 en vez de la fuente); las dimensiones, formato y alfa no. Prueba
+`test/accessories.photo-single-decode.spec.ts` (envuelve `sharp` y cuenta tuberías sobre el buffer fuente que llegan a
+`toBuffer`): antes 2 ⇒ roja 2/2; después 1. Las 25 de `accessories.photo*` siguen verdes.
+
+#### 83.gates.4 Errata v1.86.6 (§AC.21) — liquidar nunca cae por un accesorio (TD-AC-1)
+- `settleAccessories` devuelve `{ anomalies: AccessorySettleAnomaly[] }` (antes `{ unbacked }`). Renglón `reserved`, por
+  componente en orden de id: (a) venta; (b) recuperación desde libres sin tocar `reservedQty` (`settle_recovery`);
+  (c) sin respaldo: lo escrito vuelve (`stockQty += q`, sin `reservedQty`), lo no alcanzado suelta su apartado
+  (`reservedQty −= q ⇔ reservedQty ≥ q`), el que falló nada; `settledWithoutStock = true` (segundo `updateMany` tras el
+  CAS), sin movimientos. Los candados ya los tomó C-1. Sin `throw` por existencias; errores de BD se propagan.
+- `payments.service.ts:564-577`: fuera de la tx, `.catch` como B3 — `recovered` ⇒ `order.settle_accessory_anomaly
+  {lineId, accessoryId, quantity, was:'reserved', recovered:true}`; sin respaldo ⇒ `order.settle_accessory_unbacked
+  {lineId, accessoryId, quantity, was}`. **Cambio de forma:** la bitácora `unbacked` gana `was` (la del pago tardío lleva
+  `was:'released'`); se actualizó la expectativa en `accessories-checkout.e2e-spec.ts:386`.
+- **Pruebas** `test/integration/accessories-settle-anomaly.e2e-spec.ts` (AC-B64, AC-B65, AC-B66 (i)/(ii)): antes del
+  código 4/4 rojas (el `throw`). En AC-B66 «Fuego»/«Agua» son papeles (contador sano/roto) sobre dos energías de la semilla
+  (fire, water), asignados según el orden de sus ids para cubrir los dos órdenes.
+- **Mutaciones (copia, N=1 cada una — sin carrera, §AC.21.5):** reponer el `throw` ⇒ 4/4 rojas; saltar (b) ⇒ B64 roja;
+  (b) con `stockQty ≥ q` ⇒ B65 roja (y B66 (i)/(ii)); en (c) deshacer también `reservedQty` ⇒ B66 (i) roja; no deshacer lo
+  escrito ⇒ B66 (i) roja; no soltar lo no alcanzado ⇒ B66 (ii) roja. Las seis como pide el contrato.
+
+#### 83.gates.5 Deuda
+`docs/TECH_DEBT.md` «Backend · 2026-10-08 · gate de techlead sobre `dd26ae79`»: TD-AC-1 cerrada por v1.86.6; TD-AC-2…7 y
+TD-AC-10 (propuesta del arquitecto, sin construir). El texto del veredicto no estaba en el árbol: alcance de cada entrada
+según el encargo; fichero:línea re-medidos por backend.
+
+#### 83.gates.6 Suites (copia `git archive HEAD` del árbol entero + los ficheros de este pase)
+- Integración `accessories-*` y `decks-meta-*` con `--runInBand`, Postgres 16 propio: **11/11 suites, 254/254** (dos
+  corridas; la segunda con el estado final de C-2).
+- Unitaria completa: **456/456 suites, 8252/8252 pruebas**. `tsc --noEmit` limpio; `eslint` limpio en los ficheros tocados.

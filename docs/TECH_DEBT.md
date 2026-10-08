@@ -9915,3 +9915,86 @@ Fichero:línea **re-medidos el 2026-10-07** sobre el árbol de esta rama (HEAD `
   prueba desde el arnés), o antes del release que active accesorios en producción.
 - **Comprobación:** el caso 724/748 de `accessories.spec.ts` paga con `4242…`, abre `/admin/shipments` y ve el pedido con el
   renglón/desglose, y `GET /admin/accessories/:id` da `stockQty` bajado en lo pedido y `reservedQty` 0.
+
+## Backend · 2026-10-08 · gate de techlead sobre `dd26ae79` (aprobado con condiciones) · rama `claude/accesorios`, §AC
+
+Deuda que el techlead dejó al backend de accesorios. Los fichero:línea **los re-midió backend el 2026-10-08** sobre el árbol
+de esta rama con C-1, C-2 y §AC.21 aplicados (BACKEND_NOTES §83.gates); no son los del veredicto, que eran sobre
+`dd26ae79`. El texto del veredicto no estaba en el árbol: los nombres y el alcance de cada entrada vienen del encargo del
+orquestador; lo que dice «qué es» lo midió backend en el código.
+
+### TD-AC-1 · ✅ CERRADA por v1.86.6 (2026-10-08) · El settle entero se caía si el contador no alcanzaba
+- **Era:** `settleAccessories` (`orders/accessory-stock.ts:127-130` en `dd26ae79`) lanzaba `Error` si el `UPDATE` de un
+  renglón `reserved` daba 0 filas; deshacía la tx del settle (pedido, cartas, envío) y el pedido pagado quedaba `pending`.
+- **Cerrada por:** errata v1.86.6 (`API_CONTRACT §AC.21`, porqué en `ARCHITECTURE §4.AC (r)`): venta → recuperación desde
+  libres → renglón sin respaldo (`settledWithoutStock`), sin `throw`; bitácoras `order.settle_accessory_anomaly` /
+  `order.settle_accessory_unbacked` fuera de la tx (`payments/payments.service.ts:564-577`).
+- **Comprobación:** AC-B64, AC-B65 y AC-B66 (i)/(ii) en `test/integration/accessories-settle-anomaly.e2e-spec.ts`, cada una
+  con su mutación roja medida (BACKEND_NOTES §83.gates).
+
+### TD-AC-2 · P2 · Reconciliación del contador fuera de transacción; deriva en cada barrido; soltar con deriva
+- **Dueño:** backend (`orders/accessory-stock.ts:302-314` `accessoryReservedDrift`; llamador
+  `orders/orders.service.ts:1278-1290`; soltar `orders/accessory-stock.ts:101-110`).
+- **Qué es:** el conteo lee `Accessory` y los dos `groupBy` con `Promise.all` sobre `this.prisma`, sin tx ni foto
+  consistente: un apartado o un settle que confirma entre las lecturas da una «deriva» falsa. Una deriva real se vuelve a
+  avisar (log + `accessory.reserved_drift`) en **cada** barrido, sin deduplicar. Y `releaseAccessoryReservations` con
+  contador corrido no resta (`reservedQty >= q`), a propósito, pero tampoco lo anota: el renglón queda `released` y el
+  contador sigue alto hasta que alguien lo corrija a mano.
+- **Disparador:** construir TD-AC-10 (la corrección automática la resuelve), o la primera deriva falsa vista en M10.
+- **Comprobación:** el conteo corre en una tx `REPEATABLE READ` (o por accesorio tras `FOR UPDATE`, como TD-AC-10); una
+  deriva persistente se avisa una vez por valor; prueba con apartado concurrente al conteo que no produce deriva.
+
+### TD-AC-3 · P3 · El dial del paquete se lee a mano en decks-meta y su tope está duplicado
+- **Dueño:** backend (`decks-meta/decks-meta.service.ts:58-70` y `:342-345`).
+- **Qué es:** `loadEnergyBundlePriceCents` lee `configSetting` directo (no por `SettingsService`), y
+  `ENERGY_BUNDLE_PRICE_MAX_CENTS = 100_000` repite el tope de `settings/settings.constants.ts:1211`
+  (`validateIntRange(1, 100_000)`). Si uno cambia, el otro no se entera: el validador acepta un valor que el lector trata
+  como «fuera de rango ⇒ 2000».
+- **Disparador:** el próximo cambio del dial `energy_bundle_price_cents` o de su rango.
+- **Comprobación:** un solo origen del rango (el validador de settings) y `rg -n "100_000" backend/src/modules/decks-meta`
+  vacío.
+
+### TD-AC-4 · P3 · Casts `as unknown as Prisma.TransactionClient` para pasar el cliente raíz como tx
+- **Dueño:** backend (`orders/guest-checkout.service.ts:156`, `:160`, `:166`, `:206`, `:496`).
+- **Qué es:** las funciones de accesorios piden `Prisma.TransactionClient` y `quote` (que no abre tx) les pasa
+  `this.prisma` con doble cast. El compilador deja de comprobar que el cliente tenga lo que la función usa.
+- **Disparador:** el próximo cambio de firma de `quoteAccessoryPart` / `boxChoiceOf` / `ownAccessoryReservedOf`.
+- **Comprobación:** esas funciones aceptan `Pick<Prisma.TransactionClient, …>` (o un tipo `Db` común) y
+  `rg -n "as unknown as Prisma.TransactionClient" backend/src/modules/orders/guest-checkout.service.ts` vacío.
+
+### TD-AC-5 · P3 · Duplicaciones en guest-checkout (quote vs session)
+- **Dueño:** backend (`orders/guest-checkout.service.ts:149-166` quote; `:303-334` session).
+- **Qué es:** quote y session arman por separado la parte de accesorios (`quoteAccessoryPart` / `sessionAccessoryPart`),
+  el «apartado propio» (`ownAccessoryReservedOf`), la caja (`boxChoiceOf`) y el desglose con la caja. Hoy coinciden; un
+  cambio en uno que no se copie al otro hace que la cotización y el cobro difieran.
+- **Disparador:** el próximo cambio del desglose o de la caja.
+- **Comprobación:** un solo cuerpo «parte de accesorios + caja + desglose» que llaman los dos, y la prueba de paridad
+  quote = session (AC-B11/AC-B24) verde.
+
+### TD-AC-6 · P3 · Dos escritores de existencias que no comparten forma (`updatedAt`, alta de movimiento ×5)
+- **Dueño:** backend (`accessories/admin-accessories.service.ts:361-395` y `orders/accessory-stock.ts`).
+- **Qué es:** el panel escribe `stockQty` con `"updatedAt" = now()`; los verbos de `accessory-stock.ts` no tocan
+  `updatedAt`, así que una venta no mueve la fecha de la ficha. El alta de `AccessoryStockMovement` (con su
+  `stockBefore/stockAfter`) está escrita a mano en cinco sitios: `admin-accessories.service.ts:368`, `:383`,
+  `accessory-stock.ts:202`, `:240`, `:284`.
+- **Disparador:** un sexto sitio que mueva existencias, o un informe que lea `Accessory.updatedAt`.
+- **Comprobación:** un solo helper `moveStock(tx, {accessoryId, delta, kind, …})` que hace el `UPDATE … RETURNING`, el
+  `updatedAt` y el movimiento; `rg -n "accessoryStockMovement.create" backend/src` = 1.
+
+### TD-AC-7 · P3 · `@Optional()` de `DecksMetaService` en guest-checkout
+- **Dueño:** backend (`orders/guest-checkout.service.ts:104`).
+- **Qué es:** `DecksMetaService` entra con `@Optional()` (para las suites que construyen el servicio a mano). Si el módulo
+  dejara de proveerlo, los `deckPulls` fallarían en tiempo de petición en vez de al arrancar. Mismo patrón que TD-AN-4.
+- **Disparador:** el próximo cambio del constructor de `GuestCheckoutService`.
+- **Comprobación:** `rg -n "@Optional\(\) private readonly decksMeta" backend/src` vacío y las suites que construyen el
+  servicio pasan el doble.
+
+### TD-AC-10 · P2 · (propuesta del arquitecto, sin construir) Corregir el contador `reservedQty` corrido en la reconciliación
+- **Dueño:** backend (`orders/accessory-stock.ts:302-314`, `orders/orders.service.ts:1278-1290`); diseño en
+  `ARCHITECTURE §4.AC (r)` «TD-AC-10».
+- **Qué es:** hoy el conteo detecta y no corrige. La propuesta: por accesorio, en una tx, `FOR UPDATE` de la fila
+  `Accessory` y **después**, en otra sentencia, contar lo `reserved` y fijar `reservedQty` a ese conteo. Que la lista de
+  verbos que tocan la fila antes del renglón sea completa es **NO MEDIDO** como invariante con candado.
+- **Disparador:** decisión del orquestador (prioridad); o una deriva real vista en M10.
+- **Comprobación:** prueba de carrera (N ≥ 10) conteo-vs-apartar/soltar/liquidar sin vender de más, y candado de llamadores
+  de los verbos que tocan `reservedQty`.
