@@ -20675,3 +20675,13 @@ cubrió bajando el mercado a mano). Backend sembró `E2E Bin Premium` (normal, n
 
 **Verde:** `tsc --noEmit` 0, `next lint` limpio, spec en mock (`next build` propio, puerto 3317) **2/2 verdes**, N=1.
 **Modo real: NO MEDIDO** (no se levantó el stack).
+
+### §110.2 · BMK-E1 sin `skipIfSeedMissing` — censo de saltos vuelto al baseline (2026-10-08, sobre `b58fd701`)
+
+El check `e2e-skip-census` de la PR #85 (run 37751072651) salió rojo: `skipIfSeedMissing` 15 → 19 (7 → 8 ficheros), todo de `frontend/e2e/buylist-bmk.spec.ts`. Los tres saltos se cambian por aserciones (el import era la cuarta ocurrencia), porque ninguno expresaba un entorno que de verdad no pueda medir:
+
+1. **«ninguna teja trae mercado»** → `expect(labels.length).toBeGreaterThan(0)`. «E2E Base Set» siembra cartas con mercado > 0 (`backend/prisma/e2e-fixtures.ts`, `E2E_CARDS`) y el mock también.
+2. **«el mínimo empujó al tope y el cliente no tiene INE»** → `expect(ineRequired).toHaveCount(0)`. El INE solo se pide con un total de al menos `ine_threshold_cents` (MX$3,000, `E2E_SETTINGS`) o con una línea pendiente (`buylist.service.ts:1807`). El caso toma la teja con mercado más barata, y `ensureMinimumReached` sube la cantidad por escalones con una razón de 2.67 como máximo hasta pasar el mínimo de MX$500 (`settings.constants.ts:527`). Así el total queda por debajo de MX$1,350: si aparece «INE requerido», es un defecto y no un dato que falte.
+3. **(rama mock) «ninguna teja pendiente»** → `expect(n).toBeGreaterThan(0)`. El mock trae pendientes «sin mercado» en el set. Si llegara a 0, el caso no mediría nada y pasaría en verde.
+
+Medido: `scripts/check-e2e-skip-census.sh` rc=0, con las 5 claves igual al baseline. `tsc` sin errores y `next lint` limpio. El spec en mock (build `.next-e2e-mock-fe-bmk4`, puerto 3471) dio 2/2 verdes (N=1). Sin medir: la rama real. Ningún stack real estaba arriba.

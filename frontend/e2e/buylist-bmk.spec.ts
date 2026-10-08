@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { IS_REAL, loginAs, skipIfSeedMissing } from './utils/auth';
+import { IS_REAL, loginAs } from './utils/auth';
 import { apiAsOk } from './utils/env';
 import { chooseNeighborhood } from './utils/address';
 import type {
@@ -115,7 +115,9 @@ test.describe('§BMK · BMK-E1 — mercado junto a «Te pagamos», teja → carr
     // 1 · Teja con mercado visible: la más barata por «Te pagamos» (aleja el tope AML, como el smoke).
     const withMarket = page.getByRole('button', { name: MARKET_ARIA, disabled: false });
     const labels = await withMarket.evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''));
-    skipIfSeedMissing(labels.length === 0, 'ninguna teja del set trae mercado visible (cotizada con mercado > 0)');
+    // Sin salto: «E2E Base Set» trae cartas cotizadas con mercado > 0 (E2E Charizard, E2E Pidgey…, `e2e-fixtures.ts`
+    // E2E_CARDS) y el mock también. Si no aparece ninguna, es un defecto de la siembra o de la pantalla.
+    expect(labels.length, 'ninguna teja de «E2E Base Set» trae mercado visible').toBeGreaterThan(0);
     let best = 0;
     let bestPay = Number.MAX_SAFE_INTEGER;
     labels.forEach((label, i) => {
@@ -170,10 +172,11 @@ test.describe('§BMK · BMK-E1 — mercado junto a «Te pagamos», teja → carr
     const created = page.getByText(t('es', 'buylist.created'));
     const ineRequired = dialog.getByText(t('es', 'buylist.ineRequiredError'));
     await expect(created.or(ineRequired).first()).toBeVisible();
-    skipIfSeedMissing(
-      (await ineRequired.count()) > 0,
-      'el mínimo de compra empujó la solicitud por encima del tope AML y el cliente del seed no tiene INE',
-    );
+    // Sin salto: el INE solo se exige con total >= `ine_threshold_cents` (MX$3,000, E2E_SETTINGS) o con una línea
+    // pendiente (esta tiene mercado, no lo es). Se elige la teja MÁS BARATA y `ensureMinimumReached` sube la cantidad
+    // por escalones de razón <= 2.7 hasta cruzar el mínimo (MX$500 de fábrica): el total queda < MX$1,350. Si aquí
+    // aparece «INE requerido», o el mínimo/umbral sembrados cambiaron o el servidor lo exige de más: que falle.
+    await expect(ineRequired).toHaveCount(0);
     await expect(created).toBeVisible();
 
     if (!createdResponse) {
@@ -262,7 +265,8 @@ test.describe('§BMK · BMK-E1 — mercado junto a «Te pagamos», teja → carr
     const pendingAria = new RegExp(`a la venta · ${pendingLabel}$`);
     const pendingTiles = page.locator('li').filter({ has: page.getByRole('button', { name: pendingAria }) });
     const n = await pendingTiles.count();
-    skipIfSeedMissing(n === 0, 'ninguna teja del set está en precio pendiente');
+    // Sin salto: el mock siembra tejas pendientes «sin mercado» en el set; si no hay ninguna, el caso no mediría nada.
+    expect(n, 'ninguna teja del set está en precio pendiente (mock)').toBeGreaterThan(0);
     for (let i = 0; i < n; i += 1) {
       const tile = pendingTiles.nth(i);
       await expectPendingTileWithoutMarket(tile, tile.getByRole('button', { name: pendingAria }));
