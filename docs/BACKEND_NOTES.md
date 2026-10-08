@@ -29865,6 +29865,353 @@ generado en la copia, ⛔ no en el compartido — 0 apariciones de `buylist_inbo
 7906/7906 pruebas**; **integración `bsd-*` 5/5 suites, 93/93 pruebas**. El HEAD avanzó a `30a64b5a` durante la medición,
 solo con `frontend/` y `docs/FRONTEND_NOTES.md` (`git diff --stat 2ae42e77 30a64b5a -- backend` vacío).
 
+## 79 · P-DB-LIMPIEZA — guiones de limpieza de la base antes de cobrar en real (2026-10-06, rama `claude/limpieza-db`, sobre `a49a3a6c` = diseño `af571497` + M-72)
+
+Diseño: `docs/specs/LIMPIEZA_DB.md`. Lo corre **el dueño** en Railway; aquí solo hay ficheros y pruebas. Ninguno lleva
+host, usuario ni contraseña.
+
+> ⚠️ **v2 (2026-10-07) — §79.5 manda sobre lo de abajo.** El dueño pidió borrar también el inventario (`HECHOS.md:80`;
+> spec §14). B ya no restaura piezas (adiós P-1, P-2, G-4, G-6, lista 2.4/2.5/2.7, cajón de vuelta, movimientos de
+> cierre); C se llama `…_3_folios.sql` y reinicia también `INV-`; **el paso E (`limpieza:republicar`) se retiró del
+> código**. Las filas B, C y E de la tabla y las decisiones 1, 2 y 5+ de abajo describen v1 (histórico).
+
+**Artefactos** (`backend/prisma/data-repair/`, patrón del precedente `20260912_p79d_*`):
+
+| # | Fichero | Qué hace | Usuario |
+|---|---|---|---|
+| A | `20261006_pdblimpieza_1_censo.sql` | Solo lectura (`BEGIN TRANSACTION READ ONLY` … `ROLLBACK`): conteos por tabla, FK reales de `pg_constraint`, G-0…G-4 en modo informe, INE guardadas (R-6), los tres contadores, `max(providerReference)`, ¿M-72? y desglose por `kind` **solo si la columna existe** (`\gset` + `\if`). | **admin** dentro de `READ ONLY` (ver ⚠️) |
+| B | `20261006_pdblimpieza_2_limpieza.sql` | §7 entero en UNA transacción, `LOCK TABLE … SHARE ROW EXCLUSIVE` + `lock_timeout 5s`, termina en `ROLLBACK;` (el dueño la cambia a `COMMIT;`). Tres líneas `\set` que edita el dueño: `respaldo_manual`, `fuera_de_venta` (P-2), `buylist_piezas` (P-1). | admin |
+| C | `20261006_pdblimpieza_3_folio_pedidos.sql` | Aborta si `Order` tiene filas; si no, `setval('order_number_seq', 1, false)` ⇒ siguiente `TCG-000001`. Solo ese contador. | admin |
+| D | `20261006_pdblimpieza_4_verificacion.sql` | Solo lectura: §8.3 línea a línea (`OK`/`FALLA`/`INFO`) y una última `VERIFICACION: TODO OK` o `HAY FALLAS (n)`. Compara contra el **rastro** de B (conteos de antes y contadores), así que no hay que copiar números a mano. | **admin** dentro de `READ ONLY` |
+| E | `src/cli/limpieza-republicar.ts` → `node dist/cli/limpieza-republicar.js [--apply]` (`npm run limpieza:republicar`) | **Vía preferida de §4.5** (§79.2). ⚠️ La 1.ª versión de esta fila decía «vía M1: las restauradas están en la cola “Listas para publicar”» y era **falsa** (QA-1): la cola solo enseña las que tienen `missing ≠ []` (`inventory.service.ts` `pendingPublish`, «`missing: []` ⇒ NO entra»), así que las que ya tenían precio y cajón quedaban `in_stock` fuera de venta **y** fuera de la cola, sin aviso. | app |
+
+**Decisiones de implementación que la spec no fijaba (o que tuve que ajustar), para que el arquitecto las ratifique:**
+1. **G-4 y `respaldo_manual` se comprueban AL FINAL, no al principio.** §8.2 paso 4 manda correr B «tal cual» para ver
+   las listas (incluida la de P-1, §10 «el ensayo te las lista»), pero §8.1 dice que con `respaldo_manual` vacío aborta.
+   Si abortara al principio, el ensayo no enseñaría nada. B corre entero, imprime todo y, si falta una decisión, el
+   último bloque lanza «Falta tu decisión; no se escribió nada» con lo que falta. Con P-1 sin contestar, el paso 12 no
+   toca nada. G-1, G-2, G-3, una respuesta de P-1 mal escrita y un folio de exclusión que no está en `T` sí abortan al
+   principio.
+2. **G-4 mira TODAS las piezas con `sourceSellRequestItemId`, no solo las de `T`.** Todas las solicitudes se borran
+   (`HECHOS.md:79` (2)), así que cualquier vínculo quedaría colgando, y §8.3 exige 0 en toda la tabla. La letra de §4.2
+   decía «alguna pieza de T».
+3. **Idempotencia y bitácora.** El rastro solo se escribe si la corrida cambió algo (suma de `lz_cambio` > 0). Si ya
+   existe un rastro, B borra solo la bitácora **anterior** al más reciente; lo posterior es real. Una segunda corrida
+   sobre la base limpia no cambia **nada** (foto idéntica, rastro incluido). D comprueba «exactamente 1 rastro y nada
+   anterior a él» en vez de «AuditLog = 1 fila», porque la app puede escribir bitácora entre B y D.
+4. **G-7 (añadida; ampliada en §79.2 por QA-7):** si ya hay rastro de limpieza y existe **cualquier** fila en las tablas
+   BORRAR (salvo `AuditLog`), B se niega entero. Sin ella, una re-corrida después de salir en vivo borraría pedidos
+   reales — o, tras un job diario, portafolios y avisos reales con un 2.º rastro.
+5. **Cajón de vuelta (§4.3):** «la colocación más antigua» es el `move` más antiguo cuyo destino es un cajón
+   `customer_custody`, no un texto de `note`. Si su origen no es `platform_stock`, queda sin cajón.
+6. **`fuera_de_venta`:** `INV-1, INV-2:damaged` (sin sufijo ⇒ `withdrawn`). Cada folio tiene que estar en `T`; un error
+   tipográfico aborta.
+7. **El rastro lleva además** `folio` junto a cada id restaurado, `secuencias` (lo que D compara) y `bountiesAjustados`.
+   Sin PII.
+8. **Lectores de `InventoryAdjustment` (§4.4, NO MEDIDO en la spec):** `rg "inventoryAdjustment\.(find|count|group|aggregate)"`
+   en `backend/src` = 0. Ningún lector exige la pareja movimiento↔ajuste, así que el movimiento de cierre va sin fila
+   de levantamiento.
+
+**⚠️ Para el dueño (va en los encabezados de A y D) — corregido en §79.2 (C-2/QA-5):** A y D se corren con el
+**administrador**, dentro de `BEGIN TRANSACTION READ ONLY` (Postgres rechaza cualquier escritura) y terminan en
+`ROLLBACK`. `tcg_readonly` solo lee seis tablas (PENDIENTES «MEDICIÓN-PROD 2026-09-12») y A **muere en la primera
+consulta** que toca otra (medido por QA; la frase «el resto del censo sale igual» de la 1.ª versión era falsa). La
+receta `GRANT SELECT ON ALL TABLES … TO tcg_readonly` de la 1.ª versión **se retiró**: ampliaba esa credencial a
+hashes de contraseña, `AuthToken` e INE.
+
+**Pruebas** (`backend/test/integration/pdb-limpieza.e2e-spec.ts` + `helpers/limpieza-db.ts` + `helpers/limpieza-fixture.ts`):
+- Cada caso trabaja en un **esquema propio** de la BD de `DATABASE_URL`, migrado desde cero y sembrado con la base de
+  §9: tres pedidos (bóveda colocado, directo con guía Skydropx `ENV-000003` y todo lo suyo, invitado con token que
+  aparta), un retiro con caso reembolsado y SPEI re-emitido dos veces, un caso de bóveda repuesto, una disputa
+  cerrada, una solicitud pagada con pieza convertida y bounty completado, una aceptada con envío `buylist_inbound` con
+  guía, Cinccino dañada en preparación con reembolso parcial, piezas reales con movimientos de M1 antes y después del
+  corte, un aviso de gasto, un portafolio y bitácora. Los guiones se pasan por **`psql`** tal cual (texto del fichero
+  por stdin), como los corre el dueño. Requiere el binario `psql` en el PATH; si falta, la prueba **falla** (no se
+  salta). Que el runner de CI lo traiga: NO MEDIDO.
+- 25 casos: §9.1 (ensayo con y sin variables: foto de **contenido** de todas las tablas + las tres secuencias,
+  idénticas), §9.2, §4.4, §2.2 (`deriveBountyState` ⇒ `apagada`), §9.3, §9.5, P-1 borrar/conservar, P-2, §9.4 (G-1,
+  G-2, G-3, G-4 ×2, respaldo vacío, folio de exclusión erróneo, G-7), A y D de solo lectura (D sobre la base sin
+  limpiar marca FALLA en cada línea), §9.6 ×2, §9.7 ×2 (N = 3 esquemas cada una) y §9.8 (estático: B no nombra
+  columnas de M-72; dinámico: esquema con M-72 quitada, A/B/C/D corren y D da TODO OK).
+- **Hallazgo de entorno (medido):** 46 `ADD CONSTRAINT` de las migraciones van tras `IF NOT EXISTS (SELECT 1 FROM
+  pg_constraint WHERE conname = …)`, y esa consulta **no mira el esquema**. Un segundo esquema en la misma base se queda
+  sin esas FK y CHECK (medido: `ShipmentQuote/ShipmentCarrierEvent/ShipmentAddressRevision → ShipmentRequest` sin
+  trigger de cascada, y B falló en G-5 con «ShipmentQuote 1≠0»). En producción no pasa (un solo esquema). El arnés migra
+  desde una copia de `prisma/` con esas guardas acotadas a `current_schema()`, y `assertConstraintsComplete` verifica
+  que cada `ADD CONSTRAINT` de las migraciones esté en el esquema. **Las migraciones no se tocaron.**
+
+**Mediciones** (copia del árbol entero `git archive a49a3a6c` + estos ficheros, scratchpad `be-limpieza`; cliente de
+Prisma generado en la copia, 0 apariciones de `buylist_inbound` en el compartido; BD propia `tcg_be_limpieza`):
+- Rojas antes: **25/25** (los cuatro guiones no existían: `ENOENT`). Verdes después: **25/25**. tsc exit 0; eslint de
+  los tres ficheros exit 0; `check-e2e-skip-census.sh` y `check-e2e-harness-gaps.sh` exit 0.
+- Mutaciones (en la copia, nunca en el árbol vivo):
+
+| Mutación | Resultado |
+|---|---|
+| C también reinicia `ENV-` (`setval('shipment_folio_seq',1,false)`) | **3/3** corridas en rojo, y en cada una «sin reiniciar ENV-» dio `1/1` huérfanas en los **3/3** esquemas (9/9). Sin mutar: `0/0` en 3/3 |
+| B hace `setval` de `ENV-` (el ensayo movería un contador) | las 2 pruebas §9.1 en rojo |
+| el rastro se escribe siempre (sin la condición de cambio) | §9.3 en rojo |
+| cajón: la colocación MÁS RECIENTE en vez de la más antigua | §9.2 en rojo |
+| la última línea de B pasa a `COMMIT;` | §9.1 en rojo |
+| D: «0 filas» siempre OK | en la 1.ª versión **sobrevivió** (otras líneas ya daban FALLA); prueba reforzada para exigir FALLA línea por línea ⇒ en rojo |
+| G-1 desactivada | G-1 en rojo |
+| no se quita la reserva | §9.2 en rojo |
+| P-1 «conservar» borra igual | §9.2 en rojo |
+
+### 79.2 · 2.º pase tras los gates sobre `2ba6a316` (QA RECHAZADO, techlead APROBADO CON CONDICIONES) — 2026-10-06
+
+**QA-1 (bloqueante) — E es un comando, no «vía M1».** `limpieza:republicar` (§4.5, vía preferida):
+- Código: `src/cli/limpieza-republicar.ts` (contexto Nest **mínimo**: Config + Prisma + Audit + Settings + Inventory; sin
+  HTTP y **sin `JobsModule`**, así que ni BullMQ ni ningún job corre mientras dura) y la lógica en
+  `src/modules/inventory/limpieza-republicar.ts`. Lee la fila de rastro más reciente (`maintenance.test_data_purge`,
+  `after.piezasRestauradas`) y pasa los ids por `InventoryService.reevaluateForPublication` — el cuerpo único de
+  publicación (guardas + precio + `claimListed`). ⛔ Nunca escribe `listed` por su cuenta.
+- Sin `--apply` = **simulacro**: `InventoryService.previewPublication(ids)`, el MISMO recorrido (`reevaluateMany` →
+  `reevaluateOne(…, dryRun)`) con `derivePublishSalePrice` (no escala a M2) y sin `claimListed`. No hay segunda copia de
+  la regla. `PublishReevaluationResult` gana `detail?` (motivo de `not_publishable`), aditivo.
+- Salida por pieza: **a la venta** (publicada / ya lo estaba) · **en «Listas para publicar»** con lo que le falta
+  (cajón/precio) · **cambió después de la limpieza** (ya no es de plataforma o su estado no es `in_stock`/`listed`: se
+  informa y no se toca) · **SIN RESOLVER** (ni se publica ni la cola la enseña — p. ej. gradeada sin certificado —; el
+  comando sale con **código 2** y dice que se corrige en M1). 0 = bien, 1 = error (p. ej. sin rastro).
+- Cómo lo corre el dueño (escrito en el encabezado de B, paso E — corregido en §79.3 por E1): (a) en el contenedor de
+  la API, `node dist/cli/limpieza-republicar.js` y luego `--apply` (el runtime **no** trae npm, `Dockerfile.backend`);
+  (b) desde una copia del repo, `cd backend && npm ci && npm run build` y `DATABASE_URL='<URL PÚBLICA>' node
+  dist/cli/limpieza-republicar.js`. Si la consola del contenedor y `railway run` sirven en su cuenta: **NO MEDIDO**.
+- Comprobación del encargo (medida en la prueba): tras B (COMMIT) + `--apply`, **toda** pieza de `piezasRestauradas`
+  está `listed` o en `GET /admin/inventory/pending-publish` con `missing ≠ []`. En el fixture: P1, P3, P7, P12 ⇒
+  `listed`; P2, P4, P5, P11 ⇒ cola con `['location']`.
+
+**Pregunta para el arquitecto (no la decidí):** el encargo pedía que B **no** baje a `in_stock` una pieza que estaba
+`listed` y solo tocó un pedido `failed`/`pending`. El diseño dice lo contrario: §4.3 fija `status = in_stock` para
+**toda** pieza de `T` (salvo P-2), G-6 lo exige y §9.5 lo prueba («ninguna pieza de T queda `listed`»). No lo cambié.
+Con E el resultado práctico es el mismo para las que conservan precio y cajón (vuelven a `listed`), y una cuyo precio
+**ya no** resuelve cae a la cola con su motivo en vez de seguir publicada con un precio que hoy no se sostiene. Si el
+arquitecto quiere la excepción («`listed` + plataforma + sin reserva ⇒ se queda `listed`»), cambian §4.3, G-6, §9.5 y
+el fixture (P12).
+
+**Condiciones del techlead y menores de QA:**
+- **C-1 / QA-2:** los cuatro encabezados mandan `psql "$URL" -v ON_ERROR_STOP=1 -f <fichero>` o `\i <fichero>`, con
+  «⛔ NUNCA lo pegues en la ventana de psql» y, en B, «SI AL FINAL VES ROLLBACK, NO SE APLICÓ NADA». `\set VERBOSITY
+  terse` (sin la línea `CONTEXT` tras el `RAISE`) y `\set QUIET off` justo antes de la última línea, para que la
+  palabra final (`ROLLBACK`/`COMMIT`) se vea. Requisito escrito en cada encabezado: cliente `psql` (meta-comandos `\set`,
+  `\if`, `\gset`); `railway connect` abre psql si el CLI está instalado — **NO MEDIDO**.
+- **C-2 / QA-5:** ver el ⚠️ de arriba. A y D: admin + `READ ONLY`; sin receta `GRANT`.
+- **C-3:** **G-8** al principio de B: toda tabla del esquema (salvo `_prisma_migrations`) tiene que estar en
+  borrar/ajustar/conservar; si no, aborta nombrándola. `MetaDeck`, `MetaDeckList`, `MetaDeckCard`, `MetaFetchRun` ⇒
+  conservar (54/54 modelos clasificados).
+- **C-4 / QA-6:** B corre en `REPEATABLE READ` (una foto; la primera consulta va **después** del `LOCK`, así que la foto
+  ya tiene los candados). D: «mismo conteo» se **exige** solo en `InventoryItem` (lo que B modifica); `User`, `Card`,
+  `PriceReference`, `ConfigSetting` salen como `INFO`. `PortfolioSnapshot` y `SpendAlert` (los escriben jobs diarios):
+  D exige 0 filas **anteriores** al rastro y enseña las posteriores.
+- **C-5:** fixture con **P12**: nacida de la solicitud pagada (buylist, con levantamiento) y en un pedido **fallido** O4
+  que la apartó y soltó (sigue `listed` en A2). Con P-1 «borrar» los conteos de la fórmula de G-5 son ≠ 0 (2
+  movimientos, 1 ajuste) y cuadra. Con HEAD `2ba6a316` esa prueba ya pasaba: la fórmula estaba bien, faltaba el caso.
+- **QA-7:** G-7 ampliada (arriba). D sigue «exactamente 1 rastro».
+- **QA-8:** C, con pedidos y con rastro ⇒ «La limpieza YA se hizo y ya hay N pedido(s) nuevo(s) (el primero, TCG-…): …
+  No hay nada que hacer aquí», sin «corre primero la limpieza».
+- **QA-9:** `\set QUIET on` (sin `INSERT 0 3`/`DELETE 2`/`DO`); estados de pieza y pedido en castellano en las listas de
+  B (función temporal `pg_temp.lz_es`).
+
+**Mediciones** (copia del árbol entero `git archive 2ba6a316` + estos ficheros, scratchpad `be-limpieza2`, Prisma
+generado en la copia, BD propia `tcg_be_limpieza2`):
+- Rojas «hoy» (los cuatro `.sql` de `2ba6a316` + E sin publicar): **16/46**. Verdes después: **46/46**. tsc exit 0;
+  eslint de los 7 ficheros exit 0; unitarias `test/inventory* test/buylist* test/pricing* test/app.module*` 137/137
+  suites, 2637/2637.
+- Concurrencia (C-4, B esperando un candado de fila mientras entra un alta de usuario): sin mutar **5/5** verdes.
+
+| Mutación (en la copia) | Resultado |
+|---|---|
+| B sin `REPEATABLE READ` (`BEGIN;`) | prueba de concurrencia roja **3/3** (G-5 «User n+1≠n») |
+| G-8 con predicado falso | «tabla nueva» roja 1/1 |
+| G-7 como antes (solo Order/Shipment/Sell) | QA-7 roja 1/1 |
+| sin `VERBOSITY terse` | C-1 «lo último es G-1» roja 1/1 |
+| `QUIET off` | QA-9 roja 1/1 |
+| D exige también User/Card/… | C-4 «alta entre B y D» roja 1/1 |
+| C sin la rama de QA-8 | QA-8 roja 1/1 |
+| E `--apply` = simulacro (nunca publica) | 2 pruebas de E rojas 1/1 |
+| E deja entrar al pipeline lo que cambió de estado | «SIN RESOLVER / cambió después» roja 1/1 |
+
+### 79.3 · 3.er pase tras el re-pase de QA sobre `cfbc1d82` (APROBADO CON CONDICIONES) — 2026-10-06
+
+- **E1:** el encabezado de B ya no dice solo «`limpieza:republicar`» (script npm que no existe en la imagen): da las
+  órdenes exactas — (a) contenedor de la API: `node dist/cli/limpieza-republicar.js` [`--apply`]; (b) máquina con el
+  repo: `cd backend && npm ci && npm run build` + `DATABASE_URL='<URL PÚBLICA de Postgres>' node dist/cli/…`; y
+  `railway run --service <API> node dist/cli/…`. El comando hace el salto de `scripts/geo/import-sepomex.ts`
+  (`resolveDatabaseUrl`): `DATABASE_URL` `*.railway.internal` + `DATABASE_PUBLIC_URL` ⇒ la pública; interna sin pública
+  ⇒ se niega diciendo qué URL poner (`resolveRepublicarDatabaseUrl`, unidad `test/limpieza-republicar.cli.spec.ts`).
+  Ojo: dentro del contenedor, si la API tiene `DATABASE_PUBLIC_URL` en su entorno, también salta a la pública
+  (funciona igual; NO MEDIDO si esa variable está en el servicio de la API).
+- **M1:** contexto Nest con `logger: false` (el aviso `NO_OWNER_ACCOUNT` de `SpendWatchService` y los de
+  `MasterSetService` no salen); el comando solo imprime su reporte y sus propios errores.
+- **M2:** la prueba del comando corre **dos** veces: con ts-node y **compilado** (`tsc -p tsconfig.build.json` a un
+  directorio temporal = lo que `nest build` deja en `dist/`), y exige salida sin `[Nest]`/`NO_OWNER_ACCOUNT`/`ERROR`.
+- **M3:** en la lista 2.4 de B, la columna «ojo» marca «¿EXISTE Y ESTÁ BIEN? era perdida|dañada: si no, ponla en ✏️ 2
+  (P-2)» para las piezas que vuelven a inventario desde `lost`/`damaged`.
+- Medido (copia entera de `cfbc1d82` + cambios, BD propia): integración 49/49, unidad nueva 4/4, tsc y eslint exit 0.
+  Mutaciones 1/1 rojas: logger `['error','warn']` (2 pruebas), sin la marca de M3, sin el salto a la pública (2 de 4
+  unitarias). ⚠️ La suite completa dio **1 roja en 6 corridas completas** (la primera, en la prueba del comando
+  compilado, a los 1.5 s); no se repitió en 5 completas más ni en 6 del bloque E, y **no la diagnostiqué**: el log de
+  esa corrida no guardó el detalle.
+- **Diagnóstico de esa intermitente (4.º pase, 2026-10-06) — causa NO encontrada, dicho así:** 0 rojas en 19 corridas
+  nuevas guardando el log entero y la carga: 10 completas con caché de jest fría (carga 0.7–2.1), 3 completas en árbol
+  recién creado + Prisma recién generado (las condiciones exactas de la que falló) y 6 del bloque E con 4 bucles de CPU
+  propios (carga 5–6.4, la de aquella corrida era ~4–6). Descartado por construcción: compilación concurrente de
+  `dist/` (cada corrida compila a su propio `.lz-dist-<RUN>`, nunca al `dist/` real; un solo `tsc` por proceso de jest),
+  BD o puerto compartidos (esquema propio por caso, BD propia, el comando no abre puerto), orden (jest `maxWorkers: 1`,
+  orden fijo). Por la duración (1573 ms frente a 3.6–5.7 s de una pasada sana) el fallo ocurrió ANTES de que el comando
+  hiciera su trabajo: en `fresh()`/B o en el arranque del proceso hijo. Hipótesis compatible y NO MEDIDA: `spawnSync`
+  con error de arranque (con `stdout/stderr` nulos la aserción vieja, `dry.stderr.slice`, reventaba con `TypeError` sin
+  decir nada). Lo que cambia: la prueba ahora etiqueta el paso que falla (`fresh` / `B COMMIT`) con su tiempo y carga, y
+  de cada proceso hijo guarda código, señal, error de spawn, duración, carga y las colas de stdout/stderr en el mensaje
+  de fallo. No subí timeouts ni la salté. Si vuelve a salir, el propio mensaje dice dónde.
+
+### 79.4 · Condición CS-1 de seguridad sobre `00ec3888` (LZ-S1, media) — 2026-10-06
+- Los cuatro encabezados ya no piden `psql "$URL"` ni `DATABASE_URL='…' node …` (contraseña de admin en el historial y en
+  `ps`). A–D: 1.º `railway connect` + `\i <fichero>`; 2.º `psql "postgresql://USUARIO@HOST:PUERTO/BASE" -v ON_ERROR_STOP=1
+  -f <fichero>` (URL SIN contraseña: psql la pide sin mostrarla). E: (a) consola del contenedor, (b) `railway run
+  --service <API> node dist/cli/limpieza-republicar.js`, (c) a mano con `read -rs DATABASE_URL; export DATABASE_URL` y
+  `unset` al final. Todos: «si la tecleaste o pegaste, CAMBIA la contraseña de Postgres». `railway connect`/`run`: NO MEDIDO.
+- B: «¿QUIERES CONSERVAR LA BITÁCORA?» con `\copy (SELECT * FROM "AuditLog" …) TO 'bitacora-antes-de-limpieza.csv' WITH
+  (FORMAT csv, HEADER)`; una prueba ejecuta esa línea tal cual y comprueba cabecera + todas las filas.
+- LZ-S2 (baja) no se hizo: a TECH_DEBT PDB-TD4 (una caducidad por fecha pondría roja la suite en CI; sin `livemode` en
+  `Order` cualquier otra guarda sería adivinar).
+- Medido (copia entera de `9352915c` + cambios, BD propia): 50/50; tsc y eslint exit 0. Mutaciones 1/1 rojas: volver a
+  poner `psql "$URL"` en el encabezado de C; romper el formato del `\copy`.
+
+### 79.5 · v2 — también se BORRA el inventario (2026-10-07, spec `LIMPIEZA_DB.md` §14, `HECHOS.md:80`; sobre `87ddf21c`)
+
+**Artefactos v2** (`backend/prisma/data-repair/`):
+
+| # | Fichero | v2 |
+|---|---|---|
+| A | `20261006_pdblimpieza_1_censo.sql` | Sin G-4/P-1. Añade G-9 en modo informe (cartas de cliente), total del inventario que se borra, **A.5 custodia por dueño** (correo, nombre, rol, cartas, pedidos, id) y A.6 resumen tipo × estado × dueño. |
+| B | `20261006_pdblimpieza_2_limpieza.sql` | §14.3. Dos `\set` ✏️: `respaldo_manual` y **`cuentas_prueba`** (correos o ids, coma). `LOCK` + `InventoryBatch`, `PendingPriceEntry`. Orden: … `ShipmentRequest` → `Order` (9) → `SellRequest` (10) → **`DELETE FROM "InventoryItem"`** (11, cascada movimientos y levantamientos) → `InventoryBatch` y `PendingPriceEntry` `inventory`/`portfolio` (12) → avisos, portafolio, bounties (13) → bitácora (14). Listas: pedidos, envíos, solicitudes, **2.4 custodia por dueño** (con «declarada de prueba: sí / NO — falta en ✏️ 2»), **2.5 resumen del inventario** (tipo × estado × de quién, total, lotes, huecos de precio), 2.6 bounties. Sin lista por pieza. Sin `setval`/`nextval` (prueba estática). |
+| C | `20261006_pdblimpieza_3_folios.sql` (renombrado; el viejo `…_3_folio_pedidos.sql` se borró) | `LOCK "Order", "InventoryItem"`. Guardas **independientes**: `Order` vacía ⇒ `TCG-000001`; `InventoryItem` vacía ⇒ `INV-000001`; la que no se puede dice «NO se toca: ya hay N …; no pasa nada». Ambas llenas ⇒ aborta (sin rastro: «corre primero la limpieza»; con rastro, QA-8: «la limpieza YA se hizo… el primero, TCG-…»). `ENV-` **nunca** (§5.2). Imprime antes/después y el próximo folio de los tres. |
+| D | `20261006_pdblimpieza_4_verificacion.sql` | Patrón «0 anteriores al rastro» también para `InventoryItem`, `InventoryMovement`, `InventoryAdjustment`, `InventoryBatch` (`createdAt`) y `PendingPriceEntry` `inventory`/`portfolio`. INFO: `User`, `Card`, `PriceReference`, `ConfigSetting`, `VaultLocation`, `SealedProduct`, `VariantPriceOverride`, cola `catalog`/`buylist`. Nuevas: «contador de inventario: el siguiente es INV-000001, o la primera carta subida es INV-000001» (exige rastro) y **«ningún folio por delante de su contador»** para `INV-` y `TCG-` (`max` numérico del folio < próximo valor). Fuera: «mismo conteo InventoryItem» y «inventory_folio_seq igual que en la limpieza»; `shipment_folio_seq` igual que en el rastro se queda. |
+| E | — | **Retirado** (§14.7). Medido con `rg` en `backend/` (2026-10-07): `previewPublication` solo lo usaba `modules/inventory/limpieza-republicar.ts:130`, y el campo `detail?` de `PublishReevaluationResult` solo lo leía ese mismo fichero (`:85`). Se borraron `src/cli/limpieza-republicar.ts`, `src/modules/inventory/limpieza-republicar.ts`, `test/limpieza-republicar.cli.spec.ts` y el script `limpieza:republicar` de `package.json`; `inventory.service.ts` e `inventory-publish.port.ts` vuelven **exactos** a su estado anterior a `82f32691` (`git diff 82f32691~1 -- <esos dos>` vacío): sin `previewPublication`, sin `dryRun` en `reevaluateOne`, sin `detail`. Nada de esto llegó a `production`. |
+
+**Decisiones de implementación (para que el arquitecto las ratifique):**
+1. **G-9, dos momentos.** La *errata* (un elemento de `cuentas_prueba` que no es ningún `User`, ni por `lower(email)` ni por
+   `id`) aborta **al principio**, como el folio erróneo de P-2 en v1. La *discrepancia* (cartas `customer` de una cuenta
+   no declarada, o con `ownerUserId` nulo) se comprueba **al final**, junto a `respaldo_manual`, para que el ensayo
+   enseñe la lista 2.4 antes de pedirla; el mensaje nombra solo a quienes faltan (correo, o id si no tiene).
+   Correo sin distinguir mayúsculas. ⚠️ Una carta de cliente sin dueño **no se puede fabricar**: la base la rechaza
+   (`InventoryItem_customer_has_owner_chk`, medido al intentar sembrarla); el guion la trata igual por si acaso.
+2. **`PendingPriceEntry` esperado = antes − filas `inventory`/`portfolio` contadas ANTES de borrar** (tabla `lz_cola`),
+   no lo que devolvió el `DELETE`: así G-5 caza un borrado que se pase a `catalog`/`buylist`.
+3. **Clasificación G-8/G-7 v2:** `InventoryItem`, `InventoryMovement`, `InventoryAdjustment`, `InventoryBatch` pasan a
+   `borrar` (y por eso G-7 se niega tras volver a subir, §14.3); `PendingPriceEntry` a `ajustar`.
+4. **Rastro v2:** fuera `piezasRestauradas`/`piezasExcluidas`/`piezasBuylist*`; dentro `inventarioBorrado {total, porTipo
+   {raw, graded, sealed}, custodiaPorUsuario {<userId>: n}}` y `cuentasPrueba` (cuentas distintas declaradas). Sin
+   correos ni folios (la prueba lo comprueba sobre el JSON).
+5. **`lz_t` se queda solo para G-1…G-3** (sin `corte`: ya no hay movimientos de cierre).
+
+**Pruebas** (`test/integration/pdb-limpieza.e2e-spec.ts`, 45 casos; fixture ampliado: `SealedProduct` con precio del dueño
+e imagen, pieza sellada P14, dos `InventoryBatch`, cola de los cuatro contextos, segundo cliente con custodia P13/O5):
+§9.2 reescrita (0 filas por medición directa en el inventario y lo transaccional; **contenido** idéntico de toda tabla no
+tocada —`User`, `Card`, `CardSet`, `SealedProduct`, `PriceReference`, `VaultLocation`, `ConfigSetting`… con filas
+exigidas—; cola `catalog`/`buylist` idéntica; `VariantPriceOverride` idéntica salvo bounty/`updatedAt`); G-9 ×5 (no
+declarado nombra al cliente, errata por correo, errata por id, ambos declarados por correo en mayúsculas y por id, sin
+custodia y lista vacía); G-7 tras volver a subir (no borra la pieza nueva); D tras alta por la app (`nextFolios` ⇒
+`INV-000001…3`, TODO OK) y con folio por delante (`INV-000050`, FALLA en esa línea); C v2 ×5 (§9.6 con ambas tablas,
+sin nada, solo piezas, solo pedidos, QA-8). Se borraron §4.4, §9.5, P-1 ×2, P-2, G-4 ×2, M3 y todo QA-1 · E.
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `87ddf21c` + cambios en el scratchpad `be-limpieza-v2`, `node_modules`
+propio con `@prisma`/`.prisma` copiados y `prisma generate` dentro, esquemas propios `lz…` en la BD local):
+- Rojo antes de tocar los guiones: 38/45 rojas (las nuevas y todas las que corren B con `cuentas_prueba`; las 7 verdes
+  eran estáticas o de A/D/CS-1 que no cambian de conducta).
+- Verde: 45/45 integración `pdb-limpieza`; `tsc --noEmit` y eslint de lo tocado exit 0; unitaria completa 439/439
+  suites, 7949/7949 pruebas (y, tras escribir estas notas, las 18 suites que leen `BACKEND_NOTES`/`TECH_DEBT`: 18/18).
+- Mutaciones (copia aparte del árbol, SQL restaurado entre una y otra):
+  - **M-v2-1b** (sin `DELETE` de piezas + `InventoryItem/Movement/Adjustment` reclasificadas a `conservar`, G-5 de B
+    pasa): §9.2 roja por **medición directa** (`InventoryItem` n = 14 ≠ 0, B terminó en COMMIT) y D roja
+    («0 filas anteriores… InventoryItem: 14 anteriores»). 1/1 (determinista).
+  - **M-v2-2a** (C hace `setval('shipment_folio_seq', 1, false)`): §9.7 «sin reiniciar ENV-» con huérfana falsa en
+    **6/6 esquemas** (2 corridas × N = 3: `1/1` en cada uno) y §9.6 «ENV- igual» roja 2/2.
+  - **Propia** (G-7 con la clasificación v1: ignora `Inventory*`): «G-7 tras volver a subir» roja (B sale 0 y borraría la
+    pieza re-subida); las otras dos de G-7 siguen verdes, como debe ser. 1/1.
+
+### 79.6 · v2.1 — C y D dicen lo mismo del folio `INV-` (2026-10-07, spec `LIMPIEZA_DB.md` §14.12; QA N-1, MENOR-1, MENOR-3 sobre `ec808db2`; sobre `b5ce0727`)
+
+**Cambios** (`backend/prisma/data-repair/`):
+- **C** (`…_3_folios.sql`): si ya hay piezas, la línea de inventario dice la **frase común** `NO se reinició INV-: ya
+  había piezas cuando corriste C (N pieza(s), de INV-x a INV-y). Tus folios siguen desde ahí, no desde INV-000001. No
+  rompe nada (…). La próxima vez, este paso va ANTES de subir cartas.` (fuera «no pasa nada»). Mínimo y máximo
+  **numéricos** (`substring(folio FROM 5)::bigint` sobre `^INV-[0-9]+$`), no `max(folio)` de texto. C sigue sin
+  exigir orden: `TCG-` se reinicia igual (§14.12 motivo 1).
+- **D** (`…_4_verificacion.sql`): estado nuevo **`AVISO`** (se enseña, no cuenta como falla; la línea final dice
+  `VERIFICACION: TODO OK (con N aviso(s))`, sigue casando `/VERIFICACION: TODO OK/`). Línea 51 renombrada a
+  `contador de inventario: reiniciado en el fichero 3`, con la tabla de §14.12 en dos CTE (`inv`, `inv_estado`):
+  sin rastro ⇒ FALLA; sin piezas ∧ siguiente = 1 ⇒ OK; piezas ∧ `m ≤ R` ⇒ OK; piezas ∧ `m > R` ∧ `T1` ⇒ AVISO con la
+  frase común y `primera INV-x · siguiente INV-z`; resto ⇒ FALLA `el contador no se reinició y C no corrió (…)`. `m` es
+  el mínimo **numérico**; `R` = `rastro.secuencias.inventory_folio_seq`; `T1` = siguiente `TCG-` es 1. Se quitó el
+  `menor` de texto del CTE `folios` (también la rama `TCG-`). Línea 53 lee `FROM shipment_folio_seq` (la misma fuente que
+  guarda B) y se retiró el CTE `sec` sobre `pg_sequences` (MENOR-1). Línea 52 sin cambio.
+- **B** (`…_2_limpieza.sql`): **solo comentario** del PASO 5 de la cabecera (§14.12 «Guion», paso 8): si D dice AVISO en
+  el contador de inventario, subiste cartas antes de C; no rompe nada. Ninguna línea ejecutable cambia.
+- Cabeceras de C (`:15-16`) y D (`:36-37`) ajustadas como pide §14.12.
+
+**Pruebas** (`test/integration/pdb-limpieza.e2e-spec.ts`, 49 casos): nuevas T-N1, T-N1-ctl, T-M3, T-M1 (bloque «§14.12
+v2.1»), con helpers `lineaD`/`resultadoDe`/`rastroInv`. Ajustada «§9.6 con piezas nuevas y sin pedidos»: buscaba
+`/ya hay 1 pieza/` (la frase vieja); ahora exige la frase común con `(1 pieza(s), de INV-x a INV-x)` y que no salga «no
+pasa nada».
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `b5ce0727` + cambios, scratchpad `be-lz21`, `@prisma`/`.prisma`
+copiados y `prisma generate` dentro, esquemas propios `lz…` en la BD local con el rol de la pila nativa — no hubo rol
+ni BD propios: el rol `tcg` no tiene `CREATEROLE` ni `CREATEDB`):
+- **Rojo antes del arreglo:** T-N1 roja (C «no pasa nada»), T-M3 roja (`FALLA … primera carta INV-000002`), T-M1 roja
+  (`FALLA … ahora ? · rastro 1`), §9.6 ajustada roja; T-N1-ctl **verde** (es el candado, verde hoy como dice la spec).
+  T-M3 y T-M1 eran «deducido, NO MEDIDO» en §14.12: ahora medidas. En el fixture `R = 14`.
+- **Verde:** 49/49 integración `pdb-limpieza`.
+- **Mutaciones** (en la copia, SQL restaurado y `diff -r` vacío tras cada una; deterministas ⇒ N = 1): M-N1-a (AVISO
+  cuenta como falla) ⇒ solo T-N1 roja, 1/1; M-N1-b (AVISO sin `T1`) ⇒ solo T-N1-ctl roja (`AVISO` ≠ `FALLA`), 1/1;
+  M-N1-c (C con la frase vieja) ⇒ solo T-N1 roja, 1/1; M-M3 (`min(folio) = 'INV-000001'` de texto) ⇒ solo T-M3 roja,
+  1/1; M-M1 (línea 53 desde `pg_sequences`) ⇒ solo T-M1 roja, 1/1. Además **M-v2-2a** con la lectura nueva (C hace
+  `setval('shipment_folio_seq', 1, false)`): «D … tras B + C ⇒ TODO OK» roja con `FALLA | contador shipment_folio_seq
+  … | ahora 1 · rastro 3`, 1/1.
+- **NO MEDIDO:** que la app pueda borrar la **fila** de una pieza (T-M3 la borra por SQL); `R` e `is_called` de
+  `shipment_folio_seq` en producción (los imprime A/B en el ensayo); los puntos ciegos (a)/(b) de §14.12 quedan
+  aceptados, sin prueba.
+
+### 79.7 · Condiciones de QA (veredicto sobre `37f7a450`, APROBADO CON CONDICIONES) y LZ2-S1 de seguridad (2026-10-07, sobre `e1e2ff0a`)
+
+**Cambios:**
+- **IMPORTANTE (QM1)** — prueba nueva `T-N1-sinPiezas`: B COMMIT → sin C → sin altas, con el contador de pedidos ya usado
+  (el fixture lo usa: precondición afirmada) ⇒ D línea 51 `FALLA` («C no corrió», `siguiente INV-<R+1>`), línea 50
+  `FALLA`, `HAY FALLAS`, sin `AVISO`. Cubre la rama de §14.12 «sin piezas ∧ P ≠ 1 ⇒ FALLA».
+- **QM3** — dos pruebas `T-R-borde` que fijan R en el límite: `m = R ⇒ OK` (B → C → R altas → se borran por SQL
+  `INV-000001…R-1`) y `m = R + 1 ⇒ AVISO` (B → 1 alta → C). Cada una fuerza ANTES de B que el contador de pedidos del
+  rastro quede del lado contrario del límite (sube `inventory_folio_seq` o `order_number_seq` con `setval`, solo hacia
+  arriba) y lo afirma como precondición: así leer R de otra clave cambia el resultado siempre, no por casualidad del
+  fixture.
+- **C-4 «alta de usuario MIENTRAS B corre»** — sin ventanas fijas: el tercero (con `application_name` propio) toma el
+  candado y lo **sostiene** (`pg_sleep(170)`) hasta que la prueba lo suelta con `pg_cancel_backend`; la prueba espera
+  por **estado**: (1) el tercero está en `PgSleep` (ya tiene el candado), (2) B aparece en `pg_stat_activity` con el
+  pid del tercero en `pg_blocking_pids` (B ya contó «antes» y espera). Solo entonces da el alta y suelta. Un `finally`
+  cancela al tercero si algo falla antes (solo el suyo, por `application_name`).
+- **LZ2-S1** — cabecera de A (`…_1_censo.sql`, lista de custodia con correo/nombre/rol) y de B (`…_2_limpieza.sql`,
+  lista 2.4 y G-9): `⚠️ Esta salida trae correos y nombres de tus clientes: no la pegues en chats, correos ni en el
+  repositorio.` C y D no imprimen datos personales: sin cambio. Prueba nueva `LZ2-S1 · censo/limpieza` (cabeceras).
+- **MENOR de QA (coletilla «el de pedidos tampoco está en TCG-000001») — NO cambiado:** §14.12 fija ese detalle
+  **literal** para «cualquier otro caso» de la tabla; hacerlo condicional a `¬T1` cambia la tabla ⇒ va al arquitecto.
+
+**Medido** (2026-10-07, copia del árbol ENTERO de `e1e2ff0a` + cambios, scratchpad `be-lz22`, `@prisma`/`.prisma`
+copiados y `prisma generate` dentro, esquemas propios `lz…` en `tcg_marketplace` local):
+- **Rojo contra su mutación** (en la copia, SQL restaurado y comparado con `cmp` tras cada una; deterministas ⇒ N = 1):
+  QM1 de QA (`WHEN piezas = 0 THEN 'reiniciado'`) ⇒ solo `T-N1-sinPiezas` roja (`OK … sin cartas · siguiente
+  INV-000015`), 1/1. QM3 de QA (R de la clave `order_number_seq`) ⇒ las dos `T-R-borde` rojas (m = R da `AVISO`;
+  m = R + 1 da `OK`), 1/1. Extra propia `m < r_inv` en vez de `m <= r_inv` ⇒ `T-R-borde m = R` roja, 1/1. LZ2-S1:
+  con las cabeceras de `e1e2ff0a` las dos pruebas de cabecera rojas, 1/1. En el fixture `R = 14`.
+- **C-4 con carga** (4 bucles de CPU propios, 4 CPU, muertos por PID): suite **completa** `pdb-limpieza` **10/10**
+  verdes (54/54 cada una, load 5.0–10.7); C-4 aislada 10/10 (load 5.0–9.8). La versión anterior aislada con la misma
+  carga también dio 10/10 (N = 10): el fallo de QA era en la suite completa, y no lo reproduje aislado.
+- **Hallazgo al medir:** la 1.ª tanda de suites completas dio 5 rojas en la corrida 1 por `remaining connection slots
+  are reserved` (71 conexiones de esta suite a la vez: cada esquema dejaba su `PrismaClient` abierto hasta `afterAll`;
+  `max_connections` = 100 compartido con otros agentes). Arreglo en la prueba: `afterEach` hace `$disconnect` de los
+  clientes de cada esquema (medido: 5 conexiones durante la suite). Las 10/10 de arriba son con ese arreglo.
+- **Unitarias que leen `data-repair`/`BACKEND_NOTES`/`TECH_DEBT`** (las 18 de §79.6): 18/18 suites, 807/807.
+- **NO MEDIDO:** la coletilla condicional (pendiente del arquitecto).
+
 ## 80 · §AN analítica de ventas del dueño — fases A y B construidas, SIN migración (2026-10-06, rama `claude/analitica-ventas`; código en `d644be0d` (instantánea AN-B-13), `8e740d9e` (`pnl-core`), `1a2e9165` (módulo + rutas + 08:00))
 
 Norma: `API_CONTRACT §15` + errata AN-1.1 (`edffe544`), `ARCHITECTURE §4.64`, `PROJECT §AN` (600–613, 620, 622 de salida, 623, 624).
