@@ -20654,3 +20654,24 @@ recotizar (3), UX-6 nota fuera del cotizador (1).
   F7, es+en); «ahorras»/«you save» en `market`/`marketEach` (los dos F7, es+en).
 - **Verde:** vitest de los dos ficheros **24/24**, `tsc` 0, `next lint` limpio.
 - **Deuda anotada** en `TECH_DEBT.md` (2026-10-08): TD-BMK-1..4.
+
+### §110.1 · BMK-E1 apunta a `E2E Bin Premium`, la pendiente del guardarraíl (2026-10-08, sobre `329f0cb5`; `BACKEND_NOTES §86.1`)
+
+**Hueco que cierra.** El caso «una carta en precio pendiente NO enseña mercado» iteraba *cualquier* teja pendiente del
+set. Con la siembra de antes ninguna pendiente tenía mercado guardado > 0, así que el caso no ejercitaba BMK-2 (QA lo
+cubrió bajando el mercado a mano). Backend sembró `E2E Bin Premium` (normal, n.º 100, `E2E Base Set`, mercado MX$2 →
+`precio_pendiente` por el guardarraíl de COMPRA).
+
+- **Modo real:** el caso busca la teja de **esa** carta por su `aria-label` exacto (`quoterAddAria` con «Normal» y
+  «Precio pendiente») y exige que exista (no se salta: si falta, es defecto de la siembra). Además lee lo que el
+  servidor contestó (`GET /buylist/cards` → id de la carta; `POST /buylist/quote/batch` → su resultado `normal`) y
+  afirma `quote.status === 'precio_pendiente'`, `quotedPriceCents === null` y `referencePrice` **igual a**
+  `{ status: 'pending' }` (sin cifra). Luego la pantalla: «Precio pendiente», sin rótulo «Valor de mercado» y sin `MX$`
+  ni en la teja ni en el `aria-label`.
+- **Modo mock:** sin cambio de comportamiento (barrido de cualquier teja pendiente del set). El mock no tiene
+  guardarraíl ni esa carta; no se tocó `src/lib/api.ts`.
+- Las aserciones de pantalla se comparten en `expectPendingTileWithoutMarket` (se añade: el `aria-label` tampoco dice
+  «Valor de mercado»).
+
+**Verde:** `tsc --noEmit` 0, `next lint` limpio, spec en mock (`next build` propio, puerto 3317) **2/2 verdes**, N=1.
+**Modo real: NO MEDIDO** (no se levantó el stack).

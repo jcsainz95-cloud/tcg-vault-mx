@@ -3,7 +3,12 @@ import { t } from './utils/i18n';
 import { IS_REAL, loginAs, skipIfSeedMissing } from './utils/auth';
 import { apiAsOk } from './utils/env';
 import { chooseNeighborhood } from './utils/address';
-import type { SellRequestDTO } from '../src/types/contract';
+import type {
+  BuylistBatchQuoteResponse,
+  CardDTO,
+  Paginated,
+  SellRequestDTO,
+} from '../src/types/contract';
 
 /**
  * BMK-E1 (API_CONTRACT §BMK.8 · criterio 859 entero) — «Valor de mercado» junto a «Te pagamos», de
@@ -13,7 +18,9 @@ import type { SellRequestDTO } from '../src/types/contract';
  *  2. agregar y ver LOS MISMOS en el renglón del carrito, a la vista y sin abrir «Detalle»;
  *  3. crear la solicitud y comprobar POR API que `marketMxnCents` de la línea === el mercado que se vio
  *     (criterio 852: el mercado que se ve es el que se usó);
- *  4. una carta en precio pendiente NO enseña mercado (P-BMK-3).
+ *  4. una carta en precio pendiente NO enseña mercado (P-BMK-3). En real apunta a `E2E Bin Premium`
+ *     (BACKEND_NOTES §86.1), la pendiente POR EL GUARDARRAÍL con mercado guardado > 0 — la que ejercita
+ *     BMK-2 con la siembra normal — y afirma también lo que contestó el servidor para esa carta.
  *
  * Env-agnóstico y etiquetado `@real`: no hardcodea montos (los lee del `aria-label` de la teja, que
  * §BMK.4 obliga a decir lo mismo que la teja). El paso 3 por API solo existe contra el backend real:
@@ -24,6 +31,17 @@ const MONEY = String.raw`MX\$[\d,]+\.\d{2}`;
 const MARKET_ARIA = new RegExp(
   `a la venta · ${t('es', 'buylist.sellPrice.market')} (${MONEY}) · ${t('es', 'buylist.sellPrice.wePay')} (${MONEY})$`,
 );
+
+/** BACKEND_NOTES §86.1 — la carta sembrada que cae en el guardarraíl de COMPRA con los diales de fábrica. */
+const BIN_PREMIUM = 'E2E Bin Premium';
+
+async function expectPendingTileWithoutMarket(tile: Locator, addButton: Locator) {
+  await expect(tile).not.toContainText(t('es', 'buylist.sellPrice.market'));
+  await expect(tile).toContainText(t('es', 'masterSet.quoterPending'));
+  await expect(tile).not.toContainText(new RegExp(MONEY));
+  await expect(addButton).not.toHaveAttribute('aria-label', new RegExp(MONEY));
+  await expect(addButton).not.toHaveAttribute('aria-label', new RegExp(t('es', 'buylist.sellPrice.market')));
+}
 
 function toCents(money: string): number {
   const m = money.match(/MX\$([\d,]+)\.(\d{2})/);
@@ -187,21 +205,67 @@ test.describe('§BMK · BMK-E1 — mercado junto a «Te pagamos», teja → carr
   });
 
   test('@real BMK-E1: una carta en precio pendiente NO enseña mercado (P-BMK-3)', async ({ page }) => {
+    // Lo que el servidor contestó, para ligar la teja a la carta del guardarraíl (solo real: en mock no hay red).
+    const cardBodies: Paginated<CardDTO>[] = [];
+    const batchBodies: BuylistBatchQuoteResponse[] = [];
+    if (IS_REAL) {
+      page.on('response', async (r) => {
+        if (r.request().method() === 'OPTIONS' || !r.ok()) return;
+        const path = new URL(r.url()).pathname;
+        if (/\/buylist\/cards$/.test(path)) cardBodies.push(await r.json().catch(() => ({ data: [] })));
+        else if (/\/buylist\/quote\/batch$/.test(path)) batchBodies.push(await r.json().catch(() => ({ results: [] })));
+      });
+    }
+
     await page.goto('/es/buylist');
     await openBaseSet(page);
-    const pendingAria = new RegExp(`a la venta · ${t('es', 'masterSet.quoterPending')}$`);
+    const pendingLabel = t('es', 'masterSet.quoterPending');
+
+    if (IS_REAL) {
+      // BACKEND_NOTES §86.1: la siembra E2E trae `E2E Bin Premium` (normal, n.º 100, «E2E Base Set», mercado MX$2).
+      // Con los diales de fábrica cae en el guardarraíl de COMPRA (60 < bin 100): `precio_pendiente` CON mercado
+      // guardado > 0. Es la única pendiente del set que lo es por el guardarraíl y no por falta de mercado, así que
+      // es la que ejercita BMK-2. No se salta: si la siembra no la trae, es un defecto de la siembra.
+      const finish = t('es', 'finish.normal');
+      const binAria = t('es', 'masterSet.quoterAddAria', {
+        name: BIN_PREMIUM,
+        finish,
+        price: pendingLabel,
+      });
+      const binButton = page.getByRole('button', { name: binAria, exact: true });
+      await expect(binButton).toHaveCount(1, { timeout: 30_000 });
+
+      // El servidor (BMK-2): la cotización de la carta es pendiente y su `referencePrice` no trae cifra.
+      await expect
+        .poll(() => cardBodies.flatMap((b) => b.data ?? []).filter((c) => c.name === BIN_PREMIUM).length)
+        .toBe(1);
+      const cardId = cardBodies.flatMap((b) => b.data ?? []).find((c) => c.name === BIN_PREMIUM)!.id;
+      const resultsOf = () =>
+        batchBodies.flatMap((b) => b.results ?? []).filter((r) => r.cardId === cardId && r.ok && r.finish === 'normal');
+      await expect.poll(() => resultsOf().length).toBeGreaterThan(0);
+      for (const r of resultsOf()) {
+        if (!r.ok) continue;
+        expect(r.quote.status).toBe('precio_pendiente');
+        expect(r.quote.quotedPriceCents).toBeNull();
+        expect(r.referencePrice).toEqual({ status: 'pending' });
+      }
+
+      // La pantalla: la teja de ESA carta dice «Precio pendiente» y no enseña ni rótulo ni cifra de mercado.
+      const tile = page.locator('li').filter({ has: binButton });
+      await expect(tile).toHaveCount(1);
+      await expectPendingTileWithoutMarket(tile, binButton);
+      return;
+    }
+
+    // Mock: el mock no siembra `E2E Bin Premium` (no hay guardarraíl en el mock: su pendiente es «sin mercado»).
+    // Se conserva el barrido de cualquier teja pendiente del set, que afirma la mitad de pantalla del caso.
+    const pendingAria = new RegExp(`a la venta · ${pendingLabel}$`);
     const pendingTiles = page.locator('li').filter({ has: page.getByRole('button', { name: pendingAria }) });
     const n = await pendingTiles.count();
     skipIfSeedMissing(n === 0, 'ninguna teja del set está en precio pendiente');
     for (let i = 0; i < n; i += 1) {
       const tile = pendingTiles.nth(i);
-      await expect(tile).not.toContainText(t('es', 'buylist.sellPrice.market'));
-      await expect(tile).toContainText(t('es', 'masterSet.quoterPending'));
-      await expect(tile).not.toContainText(new RegExp(MONEY));
-      await expect(tile.getByRole('button', { name: pendingAria })).not.toHaveAttribute(
-        'aria-label',
-        new RegExp(MONEY),
-      );
+      await expectPendingTileWithoutMarket(tile, tile.getByRole('button', { name: pendingAria }));
     }
   });
 });
