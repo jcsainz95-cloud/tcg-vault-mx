@@ -1084,3 +1084,10 @@ roles) y **¿cómo le llama a M5?**.
 
 ---
 
+
+### Sesión 7 · abiertos medidos el 2026-10-08 (orquestador)
+| ID | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| P-S7-84 | **#84 lista para fusionar** (sha `431996d0`, 77/77 checks verdes; QA del delta de limpieza v2.2 APROBADO CON CONDICIONES no bloqueantes). La limpieza de producción ya se hizo (HECHOS 2026-10-08). | dueño (fusiona) | 2026-10-08 07:07 UTC | `gh api .../pulls/84 --jq .merged` |
+| P-S7-LZ-COND | Condiciones QA limpieza v2.2 (no bloquean): I-1 `graded-estimate.e2e-spec.ts:202` e `iva-price-convention.e2e-spec.ts:564/:686` rojas según orden/estado de otras suites (aisladas verdes); M-1 T-AC3 no compara la salida completa de B congelado vs nuevo; M-2 falta copia congelada de D; M-3 ramas nuevas de D sin «SIN PERMISO»; M-4 §14.8 no menciona la lista 2.7; M-5 §14.13.5 no lista la excepción `VariantPriceOverride.updatedAt`; M-6 Postgres local de pruebas debe ser UTF8. | backend (I-1, M-1..M-3), arquitecto (M-4, M-5), devops (M-6) | 2026-10-08 (QA sobre `431996d0`) | re-medir antes de enrutar |
+| P-S7-BMK | §BMK (mercado junto a «Te pagamos» en el cotizador), rama `claude/buylist-mercado` `342f84dc`: techlead APROBADO CON DEUDA (TD-BMK-1…6, frontend; propuesta al arquitecto sobre «cotizada a 0», `pricing-curve.ts:961`). QA del stream en curso. Pregunta abierta al dueño: ¿se muestra igual cuando pagamos MÁS que el mercado (MX$0.50→MX$1.00; a mano MX$1,200 sobre MX$1,000)? Construido con «sí». | QA, frontend, dueño | 2026-10-08 | veredicto QA con sha |
