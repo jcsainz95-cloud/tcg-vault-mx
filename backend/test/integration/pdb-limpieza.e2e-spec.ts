@@ -1051,6 +1051,10 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // La copia congelada es el fichero de a7232d7a byte a byte.
     expect(createHash('sha256').update(readFrozenB()).digest('hex')).toBe(FROZEN_B_SHA256);
     const a = await fresh({ m73: false, m74: false });
+    // El aviso de sellado ENCENDIDO con una suscripción pendiente: el B de a7232d7a no tiene G-10, así que el nuevo
+    // tampoco puede pararse aquí (sin M-74 no se evalúa; M-W10d).
+    await setDial(a, 'sealed_restock_alerts', 'on');
+    await subscribe(a);
     n += 1;
     const twin = `${RUN}_${n}`;
     migrateSchema(twin);
