@@ -222,6 +222,6 @@ describe('QA §AC.gates · «Reembolsar unidades» no habla de cartas', () => {
     renderWithProviders(<M3OrderDetailView orderId="ord-8001" />, locale);
     const dialog = await openDialog(lineId);
     expect(dialog.textContent ?? '').not.toMatch(re);
-    expect(dialog).toHaveTextContent(locale === 'es' ? 'Llegó, pero no estaba como se vendió.' : "It arrived, but it wasn't as sold.");
+    expect(dialog).toHaveTextContent(locale === 'es' ? 'Llegó, pero el producto no estaba como se vendió.' : "It arrived, but the item wasn't as sold.");
   });
 });

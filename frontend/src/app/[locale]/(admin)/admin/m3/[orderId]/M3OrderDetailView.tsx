@@ -20,7 +20,7 @@ import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { AdminOrderDetailDTO, ChargebackInventoryRequest, PaymentRefundDTO, ShippedRefundReason, VaultPieceDTO } from '@/types/contract';
-import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail } from '../RefundOrderDialog';
+import { ADMIN_ORDER_KEY, RefundOrderDialog, refundDialogOrderOfDetail, shippedRefundKey } from '../RefundOrderDialog';
 import { ShippedReasonFieldset } from '../ShippedReasonFieldset';
 import { VaultPiecesList } from '../VaultPiecesList';
 import { RefundDeliveredItemDialog, type DeliveredRefundTarget } from '../RefundDeliveredItemDialog';
@@ -564,7 +564,7 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
           setNotice({
             role: 'status',
             text: info.shippedReason
-              ? t('shippedRefund.done', { ref: o?.orderNumber ?? res.orderId, reason: tsr(info.shippedReason) })
+              ? t(`shippedRefund.${shippedRefundKey('done', info.contents)}`, { ref: o?.orderNumber ?? res.orderId, reason: tsr(info.shippedReason) })
               : t('refundDone', { orderId: res.orderId }),
           });
         }}

@@ -20829,3 +20829,28 @@ siembra el deck desde `f76fe398` (`BACKEND_NOTES §83.seed`). `deckScenario()` y
 (rc=0, «bajó»); el resto igual (mockOnly 144/30, needsSeed 35/10, harnessLimit 5/3, realOnly 24/8). Bajar el techo del
 baseline es de devops (`--update --motivo`). Playwright modo mock de `accessories.spec.ts`: 4 verdes, 6 saltados
 (`realOnly`, esperado); el modo real no se corrió (sin clúster propio) — los dos casos del deck los mide el pase real de QA.
+
+### §107.gates2 · Lo que pidió ux-ui en `DESIGN_SYSTEM §AC-UX.gates` (2026-10-08, rama `claude/accesorios`, base `23de4e1a`)
+
+**Textos.** `admin.m3.shippedReason.hintItem.arrived_damaged` pasa a «Llegó, pero el producto no estaba como se vendió.» /
+“It arrived, but the item wasn't as sold.”. Seis claves nuevas en `admin.m3.shippedRefund.*` con el texto LITERAL de la
+tabla §3: `warningAccessories`, `warningMixed`, `bodyAccessories`, `bodyMixed`, `doneAccessories`, `doneMixed` (`done*`
+conservan `{ref}` y `{reason}`). Las claves de §1 y `hintItem.not_arrived` quedan como estaban (ratificadas).
+
+**Selección** (`RefundOrderDialog.tsx`): `orderContentsOf(detalle)` lee `items` y `accessoryLines` del `GET
+/admin/orders/:id` que el diálogo **ya pedía** (`API_CONTRACT §AC.12`; ⛔ ninguna llamada nueva). Con `accessoryLines`
+no vacío ⇒ `accessories` (sin `items`) o `mixed`; si no ⇒ `cards` (claves de hoy). Sin detalle (cargando o error) ⇒
+`cards`. `shippedRefundKey(base, contents)` da `warning|body|done` + sufijo. El fieldset pasa `subject: 'item'` en
+accesorios y mixto. `RefundDoneInfo` gana `contents`, y los dos sitios que pintan el «hecho» (`M3View`,
+`M3OrderDetailView`) usan `shippedRefundKey('done', info.contents)`. El registro posterior del motivo en el detalle
+(SR-UI-7) no se tocó: ux-ui no lo pidió.
+
+**Candado** (`ShippedRefundAccessories.ac.test.tsx`, 8 casos) desde el detalle de M3, es y en: solo accesorios ⇒ ni el
+diálogo ni el aviso de hecho contienen «carta»/“card”, y salen los textos `…Accessories` y `hintItem`; mixto ⇒ `…Mixed`,
+nombra «accesorios»/“accessories”; solo cartas ⇒ `warning`/`body`/`hint`/`done` de hoy, sin «accesorio». Paridad y
+texto literal de las siete claves en AC-UX-14 (`i18n-accessories.test.ts`), más la paridad de marcadores de cada variante
+con su clave de cartas. Ajustados a la nueva forma: SR-UI-1 y PS-UI-14 (`contents: 'cards'` en `onDone`) y el literal de
+`hintItem.arrived_damaged` en `M3AccessoryLines.ac.test.tsx`.
+
+**Mutaciones** sobre copia (deterministas, 1 corrida cada una): `shippedRefundKey` devuelve siempre la clave de cartas ⇒
+5 rojas de 8 (solo cartas sigue verde); fieldset sin `subject` ⇒ 4 rojas de 8.

@@ -1842,7 +1842,7 @@
         },
         "hintItem": {
           "not_arrived": "The parcel was lost or the customer never got it.",
-          "arrived_damaged": "It arrived, but it wasn't as sold."
+          "arrived_damaged": "It arrived, but the item wasn't as sold."
         }
       },
       "shippedRefund": {
@@ -1854,6 +1854,12 @@
         "noteLabel": "What happened",
         "noteHint": "Required. Saved as the reason's note and in the audit log. 500 characters max.",
         "done": "Order {ref} refunded. Reason saved: “{reason}”. The cards don't go back into inventory.",
+        "warningAccessories": "The accessories don't go back into stock: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition.",
+        "warningMixed": "Neither the cards go back into inventory nor the accessories into stock: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition.",
+        "bodyAccessories": "What's left of the charge is refunded. The shipment isn't touched and the accessories don't go back into stock or on sale. The reason is saved under your name. The customer gets the usual refund email.",
+        "bodyMixed": "What's left of the charge is refunded. The shipment isn't touched and neither the cards nor the accessories go back into inventory or on sale. The reason is saved under your name. The customer gets the usual refund email.",
+        "doneAccessories": "Order {ref} refunded. Reason saved: “{reason}”. The accessories don't go back into stock.",
+        "doneMixed": "Order {ref} refunded. Reason saved: “{reason}”. Neither the cards nor the accessories go back into inventory.",
         "error": {
           "required": "This order shipped while you had the dialog open (shipment {status}). Nothing was refunded. Pick why it's being refunded and confirm again.",
           "notApplicable": "This order hasn't shipped: it takes no shipping reason. Nothing was refunded. Check and confirm again.",

@@ -131,4 +131,29 @@ describe('AC-UX-14 · paridad ES/EN de accesorios', () => {
     expect(get(es, k)).toBe(esText);
     expect(get(en, k)).toBe(enText);
   });
+
+  /**
+   * AC-UX.gates (`DESIGN_SYSTEM`, 2026-10-08): `hintItem.arrived_damaged` lleva sujeto («el producto») y las seis
+   * variantes de `shippedRefund` para pedidos con accesorios, con el texto LITERAL de la tabla §3. Mismos marcadores
+   * que la clave de cartas (`done*` ⇒ `{ref}` y `{reason}`). Canario: borrar una en `en` o cambiar un marcador ⇒ rojo.
+   */
+  it.each([
+    ['admin.m3.shippedReason.hintItem.arrived_damaged', 'Llegó, pero el producto no estaba como se vendió.', "It arrived, but the item wasn't as sold."],
+    ['admin.m3.shippedRefund.warningAccessories', 'Los accesorios no vuelven a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.', "The accessories don't go back into stock: the customer has or had them. It can only be fully refunded if it didn't arrive or arrived in bad condition."],
+    ['admin.m3.shippedRefund.warningMixed', 'Ni las cartas vuelven a inventario ni los accesorios a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.', 'Neither the cards go back into inventory nor the accessories into stock: the customer has or had them. It can only be fully refunded if it didn\'t arrive or arrived in bad condition.'],
+    ['admin.m3.shippedRefund.bodyAccessories', 'Se devuelve lo que queda del cobro. El envío no se toca y los accesorios no vuelven a existencias ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre.', "What's left of the charge is refunded. The shipment isn't touched and the accessories don't go back into stock or on sale. The reason is saved under your name. The customer gets the usual refund email."],
+    ['admin.m3.shippedRefund.bodyMixed', 'Se devuelve lo que queda del cobro. El envío no se toca y ni las cartas ni los accesorios vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre.', "What's left of the charge is refunded. The shipment isn't touched and neither the cards nor the accessories go back into inventory or on sale. The reason is saved under your name. The customer gets the usual refund email."],
+    ['admin.m3.shippedRefund.doneAccessories', 'Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Los accesorios no vuelven a existencias.', "Order {ref} refunded. Reason saved: “{reason}”. The accessories don't go back into stock."],
+    ['admin.m3.shippedRefund.doneMixed', 'Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Ni las cartas ni los accesorios vuelven a inventario.', 'Order {ref} refunded. Reason saved: “{reason}”. Neither the cards nor the accessories go back into inventory.'],
+  ])('%s = el texto literal de AC-UX.gates (es/en)', (k, esText, enText) => {
+    expect(get(es, k)).toBe(esText);
+    expect(get(en, k)).toBe(enText);
+  });
+
+  it.each(['warning', 'body', 'done'])('admin.m3.shippedRefund.%s: las variantes Accessories/Mixed tienen los marcadores de la de cartas', (base) => {
+    for (const tree of [es, en]) {
+      const ref = placeholders(get(tree, `admin.m3.shippedRefund.${base}`) as string);
+      for (const v of ['Accessories', 'Mixed']) expect(placeholders(get(tree, `admin.m3.shippedRefund.${base}${v}`) as string ?? ''), `${base}${v}`).toEqual(ref);
+    }
+  });
 });

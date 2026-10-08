@@ -1842,7 +1842,7 @@
         },
         "hintItem": {
           "not_arrived": "El paquete se perdió o el cliente no lo recibió.",
-          "arrived_damaged": "Llegó, pero no estaba como se vendió."
+          "arrived_damaged": "Llegó, pero el producto no estaba como se vendió."
         }
       },
       "shippedRefund": {
@@ -1854,6 +1854,12 @@
         "noteLabel": "Qué pasó",
         "noteHint": "Obligatorio. Queda como nota del motivo y en bitácora. Máximo 500 caracteres.",
         "done": "Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Las cartas no vuelven a inventario.",
+        "warningAccessories": "Los accesorios no vuelven a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.",
+        "warningMixed": "Ni las cartas vuelven a inventario ni los accesorios a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.",
+        "bodyAccessories": "Se devuelve lo que queda del cobro. El envío no se toca y los accesorios no vuelven a existencias ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre.",
+        "bodyMixed": "Se devuelve lo que queda del cobro. El envío no se toca y ni las cartas ni los accesorios vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre.",
+        "doneAccessories": "Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Los accesorios no vuelven a existencias.",
+        "doneMixed": "Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Ni las cartas ni los accesorios vuelven a inventario.",
         "error": {
           "required": "Este pedido salió mientras tenías abierto el diálogo (envío {status}). No se reembolsó nada. Elige por qué se reembolsa y confirma otra vez.",
           "notApplicable": "Este pedido no ha salido: no lleva motivo de envío. No se reembolsó nada. Revisa y confirma otra vez.",
