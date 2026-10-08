@@ -31643,3 +31643,137 @@ sobre `production` sin estas dos ramas **NO MEDIDO**; lo cerraría la misma corr
 ### 85.6 Arreglos por la combinación
 Ninguno de código: la única pieza que la combinación rompía era el trinquete de `REGISTRO` (85.2). Todo lo demás compiló y
 pasó tal cual al unirse.
+
+## 87 · P-DB-LIMPIEZA v2.2 — la limpieza conoce las 9 tablas de M-73 y M-74 (2026-10-08, rama `claude/release-s7`, sobre `7345179d`; código en `e3ab1128`)
+
+Número reservado por el orquestador (§86 es de otra rama). Norma: `docs/specs/LIMPIEZA_DB.md §14.13` (errata
+**v1.88.1⟨release-s7⟩**, `API_CONTRACT.md:13-28`), más LZ-W1/LZ-W2 de `API_CONTRACT §WSH.11`. LZ-W3 y LZ-W4 (c) **no**
+se escribieron: quedan sustituidas por la G-10 condicionada (LZ-A8). Q-LZ-A1: opción **(a)** (por defecto).
+
+### 87.1 El rojo, reproducido antes de tocar nada
+Postgres 16 propio (`127.0.0.1:55437`, BD `lzv22`), árbol en `7345179d`: `pdb-limpieza.e2e-spec.ts` ⇒ **39 rojas, 15
+verdes de 54**, todas por el mismo mensaje: `G-8 · La base tiene tabla(s) que el diseño de la limpieza no clasificó:
+Accessory, AccessoryPhoto, AccessoryStockMovement, OrderAccessoryLine, OrderEnergyBundleComponent, ShipmentAccessoryLine,
+WishlistItem, WishlistMail, WishlistNotice.` Es el mismo rojo que el orquestador midió en CI (run `37733554396`). La
+única verde de C-3 era la de «tabla nueva ⇒ G-8»: G-8 hacía lo que debía.
+
+### 87.2 Qué cambió en B (`…_2_limpieza.sql`) — sin tocar la conducta sobre una base sin M-73/M-74
+- **Banderas antes del `BEGIN`** (`:106-107`): `SELECT to_regclass(…'Accessory') IS NOT NULL AS lz_m73,
+  to_regclass(…'WishlistNotice') IS NOT NULL AS lz_m74 \gset`. Fuera de la transacción: no toma la foto REPEATABLE READ.
+- **Todo lo nuevo que nombra una tabla de M-73/M-74 va dentro de `\if :lz_m73` / `\if :lz_m74`** (psql no manda esas
+  líneas al servidor). Fuera de `\if` solo quedan: los nombres como TEXTO en `lz_conteo` (`to_regclass` las cuenta como
+  ausentes) y la clave `accesorios` del rastro, que va tras un `CASE WHEN to_regclass(…)`.
+- `LOCK` condicional (`:120-125`) de `Accessory`+`OrderAccessoryLine` y de `WishlistNotice`, después del `LOCK` de
+  siempre (que no cambia).
+- `lz_conteo`: 5 `borrar` (`OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine`,
+  `AccessoryStockMovement`, `WishlistNotice`), `Accessory` en `ajustar`, 3 `conservar` (`AccessoryPhoto`, `WishlistItem`,
+  `WishlistMail`). G-8 no cambió.
+- Borrados (cada uno en `\if :lz_m73`, etiqueta con número de paso + espacio): `8 ShipmentAccessoryLine` antes de
+  `8 ShipmentRequest`; `9 OrderEnergyBundleComponent` y `9 OrderAccessoryLine` antes de `9 Order`;
+  `11 AccessoryStockMovement` y `11 Accessory existencias` (el `UPDATE … SET stockQty = 0, reservedQty = 0, updatedAt =
+  now() WHERE stockQty <> 0 OR reservedQty <> 0`) después de `11 InventoryItem`. `WishlistNotice` sin `DELETE` propio:
+  cae por CASCADE con la pieza.
+- `lz_acc` (temporal, **creada siempre**, llenada solo con M-73) alimenta la lista **2.7** y la clave `accesorios`
+  `{conExistencias, existencias, apartadas}` del rastro (sumas, sin nombres). Lista **2.8** (solo con M-74): los dos
+  diales (`valueJson #>> '{}'`, ausente = `off`), suscripciones pendientes sin armar y armadas, número de deseos y de
+  correos de deseos. Sin correos de clientes.
+- G-5: LZ-W2 (`esperado = 0` solo si `antes IS NOT NULL`), `Accessory` con `esperado = antes`, y un `DO` propio (en
+  `\if :lz_m73`) que aborta si queda algún accesorio con existencias o apartados (nombra hasta 20).
+- **G-10 v2** (en `\if :lz_m74`, un `DO` que escribe en la temporal `lz_falta`, creada siempre vacía; el bloque final de
+  «Falta tu decisión» la añade): solo si `sealed_restock_alerts = 'on'` **y** hay `SealedRestockSubscription` con
+  `notifiedAt IS NULL AND armedAt IS NULL`. `wishlist_enabled` no para nada.
+- La tabla de conteos final enseña solo filas con `antes` o `después` no nulos (sin M-73/M-74, la de siempre).
+- Cabecera: «NO toca» suma el catálogo de accesorios (existencias a 0, lista 2.7) y la lista de deseos; fecha v2.2.
+
+### 87.3 D (`…_4_verificacion.sql`)
+Las tres líneas `0 filas en` de accesorios, las dos de «anteriores a la limpieza» (`AccessoryStockMovement` por
+`createdAt`, `WishlistNotice` por `detectedAt`, conteo dinámico con `query_to_xml`) y los cuatro `INFO` (`Accessory`,
+`AccessoryPhoto`, `WishlistItem`, `WishlistMail`) salen **solo si la tabla existe**. Sin rastro, las de «anteriores»
+salen igual y en FALLA (como las de siempre). A y C sin cambio.
+
+### 87.4 Pruebas y arnés
+- **Fixture** (`limpieza-fixture.ts`): sin pedidos ni envíos nuevos (otras pruebas miden `order_number_seq = 5`,
+  `shipment_folio_seq = 3` y `conteosAntes.Order = 5`). Las fundas (activas, foto `bytea`, precio, costo; `initial +20`,
+  `sale −2`) van vendidas en **O2** (directo) con su línea de envío en ENV-000003 (`missing`, 1) y un `PaymentRefund`
+  `item_missing` que apunta al renglón y a la línea; el paquete de energías de O2 con su componente sobre «Energía Fuego»
+  de la semilla (`receive +10`, `sale −2` ⇒ 8); **O3** (directo, pendiente) aparta 1 funda ⇒ `reservedQty = 1`. Las otras
+  7 energías, tal cual. Deseo + correo + aviso (sobre P9) para LZ-W4 (a).
+- **Arnés** (`limpieza-db.ts`): `revertM73` ejecuta el bloque `REVERSA:BEGIN…END` del propio fichero de M-73 (repone los
+  dos CHECK de `PaymentRefund`) tras borrar las filas del libro que apuntan a renglones; `revertM74` la reversa de la
+  cabecera de M-74; `limpiezaSql({ frozen: true })` lee la **copia congelada**
+  `test/integration/fixtures/pdblimpieza_2_limpieza.a7232d7a.sql` (1.ª línea: de qué sha sale; resto byte a byte, sha256
+  `7c6f672c…` vigilado por T-AC3); `cloneSchema` deja un esquema gemelo con el contenido EXACTO de otro.
+- **Por qué `cloneSchema`** (medido): el fixture usa ids y fechas aleatorias, así que dos esquemas sembrados por separado
+  nunca dan la misma foto. T-AC3 siembra uno, revierte M-74 y M-73 en los dos, copia el contenido (tablas, también
+  `_prisma_migrations`, y secuencias) y **comprueba que las dos fotos son iguales antes** de correr los guiones. Dos
+  detalles medidos: los enums son tipos de cada esquema (un `SELECT *` entre esquemas falla con 42804 ⇒ cast por texto al
+  tipo gemelo), y copiar por `jsonb_populate_record` convierte un `jsonb` `null` en SQL NULL (falla un NOT NULL de
+  `ConfigSetting`) ⇒ copia columna a columna. Usa `session_replication_role = replica` (requiere superusuario: lo es el
+  usuario de Postgres local y el de CI, `POSTGRES_USER`).
+- **T-AC3, lo que se compara y lo que no:** mismo código de salida y `stderr`; foto igual tabla por tabla salvo
+  `AuditLog` (sin `id`, `createdAt` ni `after.puntoPitr`: igual) y `VariantPriceOverride` (sin `updatedAt`: igual). Esta
+  segunda excepción **no está en §14.13.5** y es inevitable: los dos B ponen `updatedAt = now()` en los bounties, en
+  instantes distintos. Las salidas de A, C y D se comparan enteras salvo la hora de `now()`.
+- T-AC1…T-AC7 y T-W10a…e según §14.13.5. T-AC5/T-AC6 reciben piezas por el servicio de la app
+  (`AdminAccessoriesService.stock`, `kind: 'receive'`). T-AC7 hace las N = 3 dentro de la propia prueba (3 esquemas) y
+  exige `['aborta','aborta','aborta']`.
+- `EMPTIED` gana las 5 `borrar`; `PARTIAL` gana `Accessory`; `KEY_KEPT` gana `Accessory`, `AccessoryPhoto`,
+  `WishlistItem`, `WishlistMail`. Como `Accessory` está en `KEY_KEPT` **y** en `PARTIAL`, la comprobación de §9.2 admite
+  una tabla de `PARTIAL` como «conservada» si conserva su número de filas (su contenido lo compara T-AC1).
+
+### 87.5 Mutaciones (copia del árbol ENTERO con `git archive HEAD`, nunca el vivo; deterministas ⇒ 1/1 salvo M-LOCK)
+Árboles: `e3ab1128` (primera ronda) y `b60e969e` (repetición de las que miran T-AC3, tras 87.6). Postgres propio.
+| # | Mutación | Prueba que la caza | Muerde | Por qué (lo que se leyó en el log) |
+|---|---|---|---|---|
+| M-A1 | sin `9 OrderAccessoryLine` | T-AC1 | sí 1/1 | B aborta: FK `OrderAccessoryLine_orderId_fkey` al borrar `Order` |
+| M-A2 | sin `8 ShipmentAccessoryLine` | T-AC1 | sí 1/1 | B aborta: FK `ShipmentAccessoryLine_shipmentRequestId_fkey` |
+| M-A3a | sin el `UPDATE` de existencias | T-AC1 | sí 1/1 | B aborta: `G-5 · Quedaron accesorios … Energía Fuego (8 · 0), Fundas … (18 · 1)` |
+| M-A3b | sin el `UPDATE` **y** sin la G-5 de accesorios | T-AC1 | sí 1/1 | B hace COMMIT; la prueba lo caza por medición directa (`k` = 2 accesorios con existencias ≠ 0) |
+| M-A4 | `Accessory` a `borrar` con `DELETE` | T-AC1 | sí 1/1 | por la guarda de B: `G-5 · … AccessoryPhoto 0≠1` |
+| M-A4b | ídem + `AccessoryPhoto` a `borrar` + sin `esperado = antes` de `Accessory` (sin red en B) | T-AC1 | sí 1/1 | B hace COMMIT; la prueba lo caza por medición directa (`Accessory` 9 → 0 filas) |
+| M-A5 | `DELETE` de `ShipmentAccessoryLine` fuera de `\if` | T-AC3 | sí 1/1 | B nuevo aborta: `relation "ShipmentAccessoryLine" does not exist` |
+| M-A6 | `UPDATE` sin su `WHERE` | T-AC1 y T-AC4 | sí 1/1 | T-AC1: cambia el `updatedAt` de las 7 energías; T-AC4: la 2.ª corrida escribe rastro |
+| M-A7 | clave `accesorios` del rastro sin condición | T-AC3 | sí 1/1 | el rastro del B nuevo ≠ el del congelado |
+| M-LZW2 | sin `antes IS NOT NULL` | T-AC3 | sí 1/1 | B nuevo aborta en G-5 (`NULL ≠ 0`) |
+| M-W10a | G-10 solo con el dial | T-W10b | sí 1/1 | «Falta tu decisión» con 0 suscripciones |
+| M-W10b | sin G-10 | T-W10a | sí 1/1 | B hace COMMIT |
+| M-W10c | G-10 cuenta también las armadas | T-W10c | sí 1/1 | «Falta tu decisión» |
+| M-W10d | G-10 fuera de `\if :lz_m74` | T-W10e y T-AC3 | sí 1/1 cada una | `column x.armedAt does not exist` |
+| M-LOCK | sin el `LOCK` de `Accessory` | T-AC7 | sí **3/3** | en las 3 iteraciones B hizo COMMIT (~110 ms, base cambiada) en vez de esperar el candado |
+
+### 87.6 Lo que las mutaciones enseñaron de las pruebas (y se corrigió)
+- **T-AC3 daba rojos falsos** al comparar la salida de A: `now()` pierde los ceros finales de los microsegundos y psql
+  reajusta el ancho de la columna (medido en M-A7 y M-W10d de la primera ronda: rojas por el alineado, no por la
+  mutación). Arreglado en `f8c397dc` (se normaliza la hora **y** el alineado); T-AC3 3/3 verde después. Las mutaciones
+  que miran T-AC3 se repitieron sobre el árbol corregido y muerden por su causa real (tabla de arriba).
+- **M-W10d no mordía T-AC3** (sí T-W10e): con el dial apagado, plpgsql nunca llega a la consulta con `armedAt`. T-AC3 corre
+  ahora con el dial encendido y una suscripción pendiente (`b60e969e`): el B congelado pasa y el nuevo tiene que pasar.
+- **M-A4 tal como está en §14.13.6 la caza la G-5 de B**, no la prueba. Se añadió M-A4b (sin esa red) para medir que la
+  prueba muerde por sí sola: muerde.
+
+### 87.7 Proporciones (carrera ⇒ N = 3, O-3)
+- **T-AC7** (B aborta por `lock_timeout` con un `UPDATE` sin confirmar sobre una energía con 0 piezas, y la base queda
+  idéntica): cada corrida hace 3 esquemas; 4 corridas verdes (1 de la suite entera + 3 sueltas) ⇒ **12/12** iteraciones
+  abortaron como deben.
+- **M-LOCK**: **3/3** iteraciones con B pasando de largo (la prueba roja).
+
+### 87.8 Mediciones finales (árbol `b60e969e`, Postgres 16 propio `:55437`, Redis propio `:56379`, `s3-local` propio `:59000`)
+| Qué | Resultado |
+|---|---|
+| `pdb-limpieza.e2e-spec.ts` antes (árbol `7345179d`) | **39 rojas / 54**, todas G-8 con las 9 tablas |
+| `pdb-limpieza.e2e-spec.ts` después | **67/67** verdes (54 de antes + 13 nuevas) |
+| T-AC3 suelta tras el arreglo del alineado | 3/3 corridas verdes |
+| Integración completa (`npm run test:integration`, BD nueva, `seed:synthetic`) | **135/135 suites, 2740/2740 pruebas**; ningún rojo heredado en esta corrida |
+| `npm run lint` · `tsc --noEmit` | limpio · limpio |
+
+### 87.9 Para el arquitecto / el orquestador (ninguno bloquea)
+- **§14.13.5 T-AC3, una excepción más de las que nombra:** `VariantPriceOverride.updatedAt` difiere entre los dos B
+  (ambos lo ponen a `now()` en los bounties, en instantes distintos). Se compara esa tabla sin `updatedAt`. Inevitable con
+  dos corridas; no es una diferencia de conducta.
+- **§14.13.6 M-A4** la caza la G-5 de B antes que la prueba; se añadió M-A4b para medir la prueba sin esa red (87.5).
+- **§14.13.6 M-W10d «(y T-AC3)»** solo era cierto con el dial encendido: T-AC3 ahora lo enciende (87.6).
+- **`cloneSchema` necesita superusuario** (`session_replication_role`). Local: sí. CI: el usuario es el de
+  `POSTGRES_USER` de la imagen `postgres:16-alpine`, que es superusuario — que la corrida de CI lo confirme: **NO MEDIDO**
+  hasta que corra el push de esta rama.
+- **Guion del dueño (§14.13.4)** no es fichero de backend: la retirada del paso «apaga los dos avisos» y el texto nuevo del
+  paso 2 quedan para quien lleve `LIMPIEZA_DB.md §14.8` (la cabecera de B ya dice lo de la lista 2.7).
