@@ -30505,3 +30505,46 @@ db 14).**
 - **NO MEDIDO:** la rama P2002 con disparo (no hay mutación que la ejercite sin carrera; por lectura no llega a
   `publishCreated`); el replay de «encontrada» con disparo (SU-B10 es solo del lote); E2E de frontend (por lectura, ninguna
   spec de `frontend/e2e` da de alta y luego espera `in_stock`; la semilla E2E crea con Prisma directo, no por el alta).
+
+## 86 · §BMK.2 — `referencePrice` del cotizador de venta: `priced` solo en línea cotizada con mercado > 0 (2026-10-08, rama `claude/buylist-mercado`, sobre `42eaeabf` (v1.89⟨bmk⟩); código en `fa10107e`)
+
+**Norma.** `API_CONTRACT §BMK.2` y §BMK.8 (BMK-B1…B4), `ARCHITECTURE §4.BMK`. Sin schema, migración, endpoint, campo ni
+código de error.
+
+**Qué cambió (servidor).** Un solo sitio: `backend/src/modules/buylist/buylist.service.ts` `toQuotePayload` (~:1288-1296).
+`referencePrice` sale `{status:"priced", priceMxnCents}` ⇔ `line.quotedPriceCents != null ∧ line.referenceMxnCents != null
+∧ line.referenceMxnCents > 0`; si no, `{status:"pending"}` sin la clave. Lo usan `POST /buylist/quote` y `/quote/batch`
+(vía `quoteCardForFinish`). ⛔ `decideBuyLine`, `quoteAcquisitionWithGuard` y `createRequest` **no se tocaron**:
+`SellRequestItem.marketMxnCents` sigue congelando `line.quote.marketMxnCents` también en líneas `precio_pendiente`
+(lo fija una prueba de BMK-B1). Ningún importe cambia.
+
+**Casos que cambian de conducta** (los de §BMK.2): guardarraíl `premium_at_floor` (incluido bounty topado en premium al
+bin) ⇒ antes `priced`, ahora `pending`; override o bounty con mercado `0` ⇒ antes `priced` con 0, ahora `pending`.
+
+**Para frontend.** La forma no cambia. Un servidor viejo (o un carrito en `localStorage`) puede traer `priced` junto a
+`precio_pendiente`: por eso §BMK.3 repite el predicado en el cliente.
+
+**BMK-B2 sobre el doble.** Que el lector real (`PricingService.getReference` → `getReferencesBatch`) pueda devolver
+`priced` con `referenceMxnCents = 0` es **NO MEDIDO**: la ingesta solo persiste `market > 0` (`pricing.service.ts`
+~:2535, ~:1697) y `liveMxnCents` cae al almacenado. La prueba se hace sobre el doble de `getReference`, como permite el
+contrato.
+
+**Pruebas.** `backend/test/buylist.bmk-reference-price.spec.ts` (14 casos, deterministas, N=1):
+- BMK-B1 (`/quote`, `/quote/batch`, bounty topado premium) y BMK-B2 (`/quote`, `/quote/batch`, bounty con mercado 0):
+  **6 rojas contra `42eaeabf`** (sale `priced` con 100 / con 0), verdes tras el cambio.
+- BMK-B3 (criterio 852, candado, verde antes y después): peldaños `market`, `floor`, `override`, `bounty`, bounty topado
+  — `referencePrice.priceMxnCents` de `/quote` y de `/quote/batch` === `marketMxnCents` congelado por `createRequest`, y
+  mismo `quotedPriceCents`; dos acabados con mercados distintos (10 000 / 25 000), cada uno el suyo.
+- BMK-B4 por ausencia: `git diff --numstat 42eaeabf fa10107e -- backend/test` = `275 0` (solo añade).
+  `buylist.batch-clabe.spec.ts` y `buylist.variant-overrides.spec.ts` verdes sin editar.
+
+**Mediciones.** `tsc --noEmit` exit 0 · `npm run lint` exit 0 · **unitaria completa 442/442 suites, 7982/7982**.
+Integración: no aplica (ninguna spec de `test/integration` menciona `referencePrice`; medido con `grep`), no corrida.
+Mutaciones sobre copia del árbol ENTERO (`git archive fa10107e`), N=1 cada una, todas rojas:
+
+| Mutación | Rojas |
+|---|---|
+| M1 condición = solo `referenceMxnCents != null` (la de antes) | B1 ×3, B2 ×3 |
+| M2 sin `> 0` | B2 ×3 |
+| M3 sin `quotedPriceCents != null` | B1 ×3 |
+| M4 `quoteCardForFinish` emite la referencia del acabado `normal` | B3 «dos acabados» |
