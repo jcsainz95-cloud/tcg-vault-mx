@@ -6,6 +6,26 @@
 > Última limpieza: **2026-10-07** (orquestador, sesión 6, al preparar el traspaso a la sesión 7; antes: 2026-09-29). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## Estado de la sesión 7 (orquestador, medido 2026-10-08 ~00:40 UTC, production `74996a24` sin cambios) — en curso
+
+> Medido con `git log -1 origin/<rama>` y `gh api` de runs. Antes de enrutar desde aquí, **re-medir** (O-5, O-18).
+
+| Rama | HEAD | Estado | Lo que falta |
+|---|---|---|---|
+| `claude/accesorios` | `dd26ae79` | Construida entera (A/B/C, frontend, erratas v1.86.1…v1.86.5, M-73, sharp 0.35.5, seed, censo). CI: SAST verde; `backend-e2e` verde tras `d8ff897a` (NO re-medido en `dd26ae79`). Techlead: **APROBADO CON CONDICIONES** sobre `dd26ae79` — C-1 orden de bloqueo en `orders/accessory-stock.ts` (liquidar/reponer ≠ apartar ⇒ posible 40P01), C-2 `accessoryLines?` opcional en `payments.service.ts:442,901`; 12 deudas TD-AC-1…11 (TD-AC-1 P1 es decisión del arquitecto) | QA (relanzado tras reinicio del contenedor 2026-10-08), luego C-1/C-2 + deuda, luego seguridad (por release) |
+| `claude/wishlist` | `1b0306f4` | Construida entera + arreglos del rechazo de QA (erratas v1.87.3 «avísame» con `{email, inventoryItemId}`, v1.87.4 re-apuntado de suscripciones huérfanas). CI verde en `1b0306f4` (devops §94). Techlead: **APROBADO** (re-check sobre `1b0306f4`); deuda nueva 1–6 por registrar | QA re-gate (relanzado), luego registrar deuda 1–6 |
+| `claude/limpieza-db` | `773746d2` | PR #80 lista, sin fusionar | Dueño fusiona. **Medido 2026-10-07:** la limpieza para en G-8 (sin escribir) si encuentra tablas no clasificadas; M-73 y M-74 añaden tablas ⇒ **correr la limpieza ANTES de publicar accesorios y wishlist** (o aplicar LZ-W1…W5 de `API_CONTRACT` wishlist WSH.7 y re-gates). Antes de limpiar: apagar `sealed_restock_alerts` y `wishlist_enabled` |
+
+**Preguntas al dueño (2026-10-07, sin respuesta; todas construidas con la recomendación):** P-AC-1…5 y Q-AC-UX-1 (accesorios), Q-WSH-1/2 y Q-WSH-UX-6 (lista de deseos). M-1 de wishlist (la promo no borra el deseo de la carta de set) lo decidió el arquitecto leyendo WSH.1; el dueño puede pedir lo contrario.
+
+**Medido y nuevo en la sesión 7:**
+- P-S6-CENSO: **era verdad**; arreglado en ambas ramas (`1c133193`, blobs idénticos en wishlist).
+- CL-1: la CSP en `report-only` llegó a production con la #76 (2026-10-06 03:38 UTC) ⇒ 72 h = **2026-10-09 03:38 UTC**. Las demás condiciones de §14.3 NO re-medidas.
+- `tcghunt.mx` da 403 de proxy desde este contenedor (2026-10-07): no se puede medir la tienda en vivo desde aquí.
+- Intermitente NO atribuido: `enum-query-axes` · `GET /admin/vaults?sort=` 4/22 rojas (backend, sobre árboles de accesorios incl. `2aa807f7`); ¿existe en production? NO MEDIDO.
+- Intermitente de `next build` en CI: 2/5 caídas (devops §94.4), por atribuir.
+- Entorno: los agentes levantan clústeres Postgres propios en `/var/lib/postgresql/<nombre>`; en la infra compartida, los esquemas no-`public` ensucian ~8 suites y M-64/M-68 se saltan CHECKs.
+
 ## Recuento 2026-10-07 (cierre de la sesión 6, sobre production `74996a24`) — MANDA sobre todo lo de abajo
 
 > Medido por el orquestador el 2026-10-07: estado de las PR con `gh api repos/.../pulls/<n>` y ramas con
