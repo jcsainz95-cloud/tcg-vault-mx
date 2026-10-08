@@ -258,6 +258,20 @@ export const E2E_CARDS = {
    */
   floorpremium: { externalId: 'e2e-floor-premium', name: 'E2E Floor Premium', number: '98', rarity: 'Rare Secret', refNmCents: 1000, availableFinishes: ['normal'] },
   /**
+   * v1.89⟨bmk⟩ (API_CONTRACT §BMK.2, BACKEND_NOTES §86, hallazgo de QA sobre `342f84dc`) — la carta del
+   * GUARDARRAÍL del eje de COMPRA. `floorpremium` cubre el de VENTA pero en COMPRA se cotiza (300 > bin),
+   * y antes de esta carta NINGUNA carta sembrada caía en «precio pendiente CON mercado > 0 guardado»:
+   * todas las pendientes eran pendientes por falta de mercado. Con el seed de la curva:
+   *   COMPRA: 200 × 0.30 =  60 <  bin  100  ⇒ basis 'floor'  ⇒ `premium_at_floor` ⇒ `precio_pendiente`,
+   *           `referencePrice = {status:"pending"}` aunque el mercado guardado (200) sea > 0 (BMK-2).
+   *   VENTA:  200 × 1.60 = 320 < piso 2500 ⇒ basis 'floor'  ⇒ retenida (`Secret Rare` fuera del dial).
+   * Número `100`: entra AL FINAL del orden natural del set (detrás de `99`), así que no desplaza a
+   * ninguna carta existente en el binder. Sin inventario y sin fila de cola sembrada: no toca ningún
+   * conteo de la cola de precio pendiente ni de catálogo publicado. ⚠️ Subirle el mercado a ~MX$3.34 o
+   * más (×0.30 ≥ bin) la saca del guardarraíl; cambiarle la rareza a una no-premium, también.
+   */
+  binpremium: { externalId: 'e2e-bin-premium', name: 'E2E Bin Premium', number: '100', rarity: 'Rare Secret', refNmCents: 200, availableFinishes: ['normal'] },
+  /**
    * v1.50.3-d (§4.38i.9, petición de frontend vía arquitecto) — **la carta con grupo raw publicado Y
    * slab PSA 10 publicado del MISMO grado**. Es la ÚNICA situación que la API no puede fabricar sola
    * (publicar una pieza física es inventario, no precios), y sin ella tres cosas no eran verificables
@@ -381,7 +395,8 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 // justificaría y el test dejaría de comprobar el orden natural, que es justo lo que vigila.
 // v1.50.3-d: entran `30` (E2E Slab And Raw, la carta de INV-D) y `31` (la tercera raw publicada).
 // v1.50.3-e: entran `32` (la CUARTA raw, libre) y `33` (la carta de los estimados rancios/automáticos).
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '98', '99'] as const;
+// v1.89⟨bmk⟩: entra `100` (E2E Bin Premium, el guardarraíl de COMPRA) — al final, numérico tras `99`.
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '98', '99', '100'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la

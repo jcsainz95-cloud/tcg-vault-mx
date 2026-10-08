@@ -20584,3 +20584,104 @@ días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 defa
   «no hay ubicaciones») y lo reenvía a `ItemDetailModal`; `M1View` y `M11View` pasan `locations.isSuccess`.
 - **Techlead D3.** SU-UX-10 en `MasterSet.test.tsx`: carrito y `encontrada` invalidan `['pending-publish']`.
 - **Techlead D4** registrada en `TECH_DEBT.md` (TD-SU-D4a/b).
+
+## §110 · **§BMK — «Valor de mercado» junto a «Te pagamos», por carta, en el cotizador de venta** (2026-10-08, rama `claude/buylist-mercado`; `API_CONTRACT §BMK` v1.89⟨bmk⟩ · `ARCHITECTURE §4.BMK` · `DESIGN_SYSTEM §BMK` vBMK-1 · `PROJECT §BMK`, criterios 850–859)
+
+**Construido en `9e885fc5`** (base `d5d5bd5a` + backend `fa10107e`/`c1506e07`). Sin cambio de contrato, de
+`types/contract.ts` ni de ningún importe.
+
+- **Una regla, un sitio.** `frontend/src/lib/sell-market.ts` → `visibleMarketCents(q)`: `priced` ∧ `cotizada` ∧ entero
+  `> 0`, si no `null`. No mira `priceBasis` y **no depende** de BMK.2 del backend (filtra igual una cotización vieja de
+  `localStorage` o un servidor sin BMK.2). Lo llaman las cuatro superficies; ninguna repite el predicado.
+  - `QuoterTile` lo llama sobre la forma plana del binder (`variant.quote.status` **es** el `quote.status`), adaptada en
+    la llamada; el resto le pasa el payload tal cual.
+- **Teja del cotizador y teja de producto aparte** (`MasterSetBinder.tsx`): componente local `SellPriceBlock`, el `<dl>`
+  de §BMK.2 (mercado 13 px muted → «Te pagamos» 15 px tinta), `min-h-[4.5rem]` fijo (calculado, **NO MEDIDO** en
+  navegador a 360 px; N-BMK-3). No recibe números, solo cadenas ya formateadas: no puede comparar cifras.
+  «No disponible» / error de producto aparte = la línea de hoy, sin rótulos.
+- **Producto aparte en modo cotizador:** el mercado sale de `quoteOk.referencePrice`; `priceCents` (catálogo) queda
+  solo para los modos de inventario. El `aria-label` del contenedor deja de anunciar el catálogo (desviación (f)2
+  cerrada). Modos de inventario sin cambio (candado en `MasterSetBinder.bmk.test.tsx`).
+- **`aria-label` (§BMK.4):** `*AriaMarket` / `*AriaPay` / el de hoy, elegido por estado. **Cambio deliberado:** en una
+  teja sin cotización el aria de «Agregar» decía «Precio pendiente» mientras la teja decía «No disponible»; ahora dice
+  «No disponible» (lo que se ve). Ajustada la aserción de `MasterSet.test.tsx` (BUYLIST_RAW_ONLY).
+- **Ventana de detalle** (`CardDetailModal.tsx`, zona compartida): prop `marketCents?`; la fila de mercado usa `> 0`
+  (no hereda el `>= 0` de la cifra, desviación (f)4 sigue abierta y fuera de §BMK); «Estimado» → «Te pagamos».
+- **Carrito** (`SellCartContents.tsx`): `<dl data-testid="sell-cart-line-prices">` con «Valor de mercado c/u» y
+  «Te pagamos c/u» a la vista; se retiran «Estimado c/u» de los metadatos y la fila «Valor de referencia» de «Detalle»
+  (desviación (f)1 cerrada). Recotizando/fallida: las cifras pintan «—»; la fila de mercado existe solo si la
+  cotización **guardada** pasaba el predicado (BMK-UX-4). El testid `sell-cart-line-unit-dash` se conserva (lo lee P-55).
+  Total, barra y resumen: sin tocar.
+- **Nota de tono** `masterSet.quoterPriceNote`: una vez por set, entre filtros y grilla, solo en el cotizador.
+- **i18n:** 11 claves nuevas (`buylist.sellPrice.*` ×4, `masterSet.*Aria{Market,Pay}` ×6, `quoterPriceNote`). Se
+  **borran** `buylist.referencePrice`, `buylist.cartItemEstimate` y `cardDetail.estimate`: medido con `grep` que tras el
+  cambio solo las leía `e2e/buylist.spec.ts:248`, que se reescribió.
+- **E2E de hoy ajustados:** `e2e/buylist.spec.ts` — el filtro de «teja con precio» del smoke de VENDER pasa de
+  `/a la venta · MX\$/` a `/a la venta · .*Te pagamos MX\$/` y la cifra se lee de «Te pagamos» (si no, con el mercado
+  delante, el helper habría ordenado por mercado).
+
+**Pruebas.** Rojo medido contra `d5d5bd5a` (N=1, deterministas): **29 rojas / 3 verdes de 32** (las 3 verdes son
+F2-teja, F3-mercado-0 y F6, que el contrato marca «no rojo hoy»). Verde tras el cambio: vitest completo
+**3941 verdes / 10 omitidas (297 ficheros + 1 omitido)**, `tsc` 0, `next lint` limpio, paridad i18n verde.
+- `src/lib/sell-market.test.ts`, `src/lib/i18n-bmk.test.ts` (F8 paridad, UX-5, F7 claves),
+  `src/components/master-set/MasterSetBinder.bmk.test.tsx` (F1, F2, F3, F4, F7, F8, UX-1, UX-2, UX-6 + canario
+  inventario), `src/app/[locale]/(storefront)/buylist/SellCartContents.bmk.test.tsx` (F3, F5, F6, F7, UX-1, UX-3, UX-4),
+  `BuylistView.test.tsx` (teja = carrito; resumen sin mercado ni porcentajes es/en).
+- **BMK-E1** `e2e/buylist-bmk.spec.ts` (`@real`, dos casos). Mock (`next build`, puerto propio): **2/2 verdes**; el paso
+  «comprobar por API `marketMxnCents` === el visto» solo corre contra backend real. **Contra el stack: NO MEDIDO.**
+
+**Mutaciones** (copia `git archive 9e885fc5` del árbol entero, N=1 cada una, deterministas): **12/12 muerden** —
+F1 quitar fila (3 rojas), F2 quitar `quote.status` (4), F3 quitar `> 0` (3), F4 `priceCents` del catálogo (2), F5
+volver a pintar `referencePrice` por status en «Detalle» (1), F6 sumar mercados al total (4), F7 «(50 %)» en un rótulo
+(6), F8 quitar mercado del aria (2), UX-1 `line-through` (1), UX-2 invertir orden (2), UX-4 cifra vieja al
+recotizar (3), UX-6 nota fuera del cotizador (1).
+
+**Cierre de gates (2026-10-08, sobre `342f84dc`; QA APROBADO, techlead APROBADO CON DEUDA).**
+- **TD-BMK-5 / QA menor 1 — cerrada.** `e2e/buylist-bmk.spec.ts`: la comprobación de lo persistido ya no salta las líneas
+  con `marketMxnCents === null`; afirma `not.toBeNull()` y el mismo número de líneas que la respuesta del POST. Medido en
+  el contrato: el GET de cliente solo redacta `marketMxnCents` a `null` en `no_offer` / `not_continued`
+  (API_CONTRACT, «Portal en `not_continued`: forma del DTO»), y una solicitud recién creada no está en ninguno. Contra el
+  stack: **NO MEDIDO** (el paso solo corre `@real`).
+- **TD-BMK-6 — cerrada.** F7 (`MasterSetBinder.bmk.test.tsx`, `SellCartContents.bmk.test.tsx`) ya no aplica la lista
+  negra a todo el contenedor: solo a los bloques de precio (`sell-price-block` + la nota de tono + los aria con `MX$`;
+  en el carrito `sell-cart-line-prices` ×2 + `sell-cart-money`), con candado de que esos bloques existen (no verde por
+  ausencia). Las palabras van completas (`F7_FORBIDDEN`: `%`, `mitad(es)`, `half`, `ahorr…`, `save/saves/saved/saving(s)`).
+  **Hallazgo al medir:** `textContent` pega `<dt>` y `<dd>` («Te pagamos la mitadMX$500.00») y borra el límite de palabra:
+  con `\b` la mutación «la mitad» **no mordía** en el binder. Se lee nodo de texto a nodo de texto (`f7Text`).
+- **Mutaciones** (copia `git archive 342f84dc` del árbol entero + los tres ficheros nuevos, N=1 cada una, deterministas):
+  **6/6 muerden** — «(50 %)» en `sellPrice.wePay` (binder es+en), en `wePayEach` (carrito es+en), en `sellPrice.market`
+  (binder es+en), en los aria `*AriaPay`/`*AriaMarket` (binder es+en); «la mitad»/«half» en `wePay`/`wePayEach` (los dos
+  F7, es+en); «ahorras»/«you save» en `market`/`marketEach` (los dos F7, es+en).
+- **Verde:** vitest de los dos ficheros **24/24**, `tsc` 0, `next lint` limpio.
+- **Deuda anotada** en `TECH_DEBT.md` (2026-10-08): TD-BMK-1..4.
+
+### §110.1 · BMK-E1 apunta a `E2E Bin Premium`, la pendiente del guardarraíl (2026-10-08, sobre `329f0cb5`; `BACKEND_NOTES §86.1`)
+
+**Hueco que cierra.** El caso «una carta en precio pendiente NO enseña mercado» iteraba *cualquier* teja pendiente del
+set. Con la siembra de antes ninguna pendiente tenía mercado guardado > 0, así que el caso no ejercitaba BMK-2 (QA lo
+cubrió bajando el mercado a mano). Backend sembró `E2E Bin Premium` (normal, n.º 100, `E2E Base Set`, mercado MX$2 →
+`precio_pendiente` por el guardarraíl de COMPRA).
+
+- **Modo real:** el caso busca la teja de **esa** carta por su `aria-label` exacto (`quoterAddAria` con «Normal» y
+  «Precio pendiente») y exige que exista (no se salta: si falta, es defecto de la siembra). Además lee lo que el
+  servidor contestó (`GET /buylist/cards` → id de la carta; `POST /buylist/quote/batch` → su resultado `normal`) y
+  afirma `quote.status === 'precio_pendiente'`, `quotedPriceCents === null` y `referencePrice` **igual a**
+  `{ status: 'pending' }` (sin cifra). Luego la pantalla: «Precio pendiente», sin rótulo «Valor de mercado» y sin `MX$`
+  ni en la teja ni en el `aria-label`.
+- **Modo mock:** sin cambio de comportamiento (barrido de cualquier teja pendiente del set). El mock no tiene
+  guardarraíl ni esa carta; no se tocó `src/lib/api.ts`.
+- Las aserciones de pantalla se comparten en `expectPendingTileWithoutMarket` (se añade: el `aria-label` tampoco dice
+  «Valor de mercado»).
+
+**Verde:** `tsc --noEmit` 0, `next lint` limpio, spec en mock (`next build` propio, puerto 3317) **2/2 verdes**, N=1.
+**Modo real: NO MEDIDO** (no se levantó el stack).
+
+### §110.2 · BMK-E1 sin `skipIfSeedMissing` — censo de saltos vuelto al baseline (2026-10-08, sobre `b58fd701`)
+
+El check `e2e-skip-census` de la PR #85 (run 37751072651) salió rojo: `skipIfSeedMissing` 15 → 19 (7 → 8 ficheros), todo de `frontend/e2e/buylist-bmk.spec.ts`. Los tres saltos se cambian por aserciones (el import era la cuarta ocurrencia), porque ninguno expresaba un entorno que de verdad no pueda medir:
+
+1. **«ninguna teja trae mercado»** → `expect(labels.length).toBeGreaterThan(0)`. «E2E Base Set» siembra cartas con mercado > 0 (`backend/prisma/e2e-fixtures.ts`, `E2E_CARDS`) y el mock también.
+2. **«el mínimo empujó al tope y el cliente no tiene INE»** → `expect(ineRequired).toHaveCount(0)`. El INE solo se pide con un total de al menos `ine_threshold_cents` (MX$3,000, `E2E_SETTINGS`) o con una línea pendiente (`buylist.service.ts:1807`). El caso toma la teja con mercado más barata, y `ensureMinimumReached` sube la cantidad por escalones con una razón de 2.67 como máximo hasta pasar el mínimo de MX$500 (`settings.constants.ts:527`). Así el total queda por debajo de MX$1,350: si aparece «INE requerido», es un defecto y no un dato que falte.
+3. **(rama mock) «ninguna teja pendiente»** → `expect(n).toBeGreaterThan(0)`. El mock trae pendientes «sin mercado» en el set. Si llegara a 0, el caso no mediría nada y pasaría en verde.
+
+Medido: `scripts/check-e2e-skip-census.sh` rc=0, con las 5 claves igual al baseline. `tsc` sin errores y `next lint` limpio. El spec en mock (build `.next-e2e-mock-fe-bmk4`, puerto 3471) dio 2/2 verdes (N=1). Sin medir: la rama real. Ningún stack real estaba arriba.

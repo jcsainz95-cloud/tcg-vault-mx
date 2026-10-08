@@ -723,6 +723,9 @@
     "quoterAddAria": "Add {name} ({finish}) to the sale · {price}",
     "quoterPending": "Price pending",
     "quoterUnavailable": "Not available",
+    "quoterAddAriaMarket": "Add {name} ({finish}) to the sale · Market value {market} · We pay you {price}",
+    "quoterAddAriaPay": "Add {name} ({finish}) to the sale · We pay you {price}",
+    "quoterPriceNote": "“We pay you” is today's price for the card in Near Mint. The firm amount comes in the offer we send after your request, and payment arrives once we receive and verify your cards.",
     "productKind": {
       "set_base": "Set",
       "deck_exclusive": "Deck Exclusive",
@@ -732,6 +735,10 @@
     "separateProductAria": "{name} ({kind}, {finish}) · {price}",
     "separateProductAddAria": "Add {name} ({kind}, {finish}) to the sale · {price}",
     "separateProductError": "Not available",
+    "separateProductAriaMarket": "{name} ({kind}, {finish}) · Market value {market} · We pay you {price}",
+    "separateProductAriaPay": "{name} ({kind}, {finish}) · We pay you {price}",
+    "separateProductAddAriaMarket": "Add {name} ({kind}, {finish}) to the sale · Market value {market} · We pay you {price}",
+    "separateProductAddAriaPay": "Add {name} ({kind}, {finish}) to the sale · We pay you {price}",
     "separateProductErrorCode": {
       "PRODUCT_NOT_FOUND": "This product no longer exists in the catalog.",
       "PRODUCT_CARD_MISMATCH": "This product doesn't belong to this card.",
@@ -850,7 +857,12 @@
     "verticalLabel": "Buylist",
     "title": "Sell my cards",
     "subtitle": "We quote your list at today's market value. You ship, we authenticate and pay you by SPEI.",
-    "referencePrice": "Reference value",
+    "sellPrice": {
+      "market": "Market value",
+      "wePay": "We pay you",
+      "marketEach": "Market value per card",
+      "wePayEach": "We pay you per card"
+    },
     "payAfterReceipt": "Payment is made after we receive and verify your cards.",
     "shippingGuideLink": "How to pack your cards",
     "pricePendingNotice": "This card has no reference price; it will enter the pending-price queue and we'll quote it manually.",
@@ -945,7 +957,6 @@
     "lineDetailShow": "Estimate details",
     "lineDetailHide": "Hide details",
     "cartEmpty": "Your cart is empty. Pick a card from the catalog to add it.",
-    "cartItemEstimate": "Est. each",
     "quantityFor": "Quantity of {name}",
     "increaseQty": "Increase quantity",
     "decreaseQty": "Decrease quantity",
@@ -6810,7 +6821,6 @@
     "noImage": "No image",
     "setAndNumber": "Set and number",
     "rarity": "Rarity",
-    "estimate": "Estimate",
     "pending": "Price pending"
   },
   "sellCart": {

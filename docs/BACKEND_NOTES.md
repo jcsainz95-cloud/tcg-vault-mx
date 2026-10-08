@@ -30505,3 +30505,79 @@ db 14).**
 - **NO MEDIDO:** la rama P2002 con disparo (no hay mutación que la ejercite sin carrera; por lectura no llega a
   `publishCreated`); el replay de «encontrada» con disparo (SU-B10 es solo del lote); E2E de frontend (por lectura, ninguna
   spec de `frontend/e2e` da de alta y luego espera `in_stock`; la semilla E2E crea con Prisma directo, no por el alta).
+
+## 86 · §BMK.2 — `referencePrice` del cotizador de venta: `priced` solo en línea cotizada con mercado > 0 (2026-10-08, rama `claude/buylist-mercado`, sobre `42eaeabf` (v1.89⟨bmk⟩); código en `fa10107e`)
+
+**Norma.** `API_CONTRACT §BMK.2` y §BMK.8 (BMK-B1…B4), `ARCHITECTURE §4.BMK`. Sin schema, migración, endpoint, campo ni
+código de error.
+
+**Qué cambió (servidor).** Un solo sitio: `backend/src/modules/buylist/buylist.service.ts` `toQuotePayload` (~:1288-1296).
+`referencePrice` sale `{status:"priced", priceMxnCents}` ⇔ `line.quotedPriceCents != null ∧ line.referenceMxnCents != null
+∧ line.referenceMxnCents > 0`; si no, `{status:"pending"}` sin la clave. Lo usan `POST /buylist/quote` y `/quote/batch`
+(vía `quoteCardForFinish`). ⛔ `decideBuyLine`, `quoteAcquisitionWithGuard` y `createRequest` **no se tocaron**:
+`SellRequestItem.marketMxnCents` sigue congelando `line.quote.marketMxnCents` también en líneas `precio_pendiente`
+(lo fija una prueba de BMK-B1). Ningún importe cambia.
+
+**Casos que cambian de conducta** (los de §BMK.2): guardarraíl `premium_at_floor` (incluido bounty topado en premium al
+bin) ⇒ antes `priced`, ahora `pending`; override o bounty con mercado `0` ⇒ antes `priced` con 0, ahora `pending`.
+
+**Para frontend.** La forma no cambia. Un servidor viejo (o un carrito en `localStorage`) puede traer `priced` junto a
+`precio_pendiente`: por eso §BMK.3 repite el predicado en el cliente.
+
+**BMK-B2 sobre el doble.** Que el lector real (`PricingService.getReference` → `getReferencesBatch`) pueda devolver
+`priced` con `referenceMxnCents = 0` es **NO MEDIDO**: la ingesta solo persiste `market > 0` (`pricing.service.ts`
+~:2535, ~:1697) y `liveMxnCents` cae al almacenado. La prueba se hace sobre el doble de `getReference`, como permite el
+contrato.
+
+**Pruebas.** `backend/test/buylist.bmk-reference-price.spec.ts` (14 casos, deterministas, N=1):
+- BMK-B1 (`/quote`, `/quote/batch`, bounty topado premium) y BMK-B2 (`/quote`, `/quote/batch`, bounty con mercado 0):
+  **6 rojas contra `42eaeabf`** (sale `priced` con 100 / con 0), verdes tras el cambio.
+- BMK-B3 (criterio 852, candado, verde antes y después): peldaños `market`, `floor`, `override`, `bounty`, bounty topado
+  — `referencePrice.priceMxnCents` de `/quote` y de `/quote/batch` === `marketMxnCents` congelado por `createRequest`, y
+  mismo `quotedPriceCents`; dos acabados con mercados distintos (10 000 / 25 000), cada uno el suyo.
+- BMK-B4 por ausencia: `git diff --numstat 42eaeabf fa10107e -- backend/test` = `275 0` (solo añade).
+  `buylist.batch-clabe.spec.ts` y `buylist.variant-overrides.spec.ts` verdes sin editar.
+
+**Mediciones.** `tsc --noEmit` exit 0 · `npm run lint` exit 0 · **unitaria completa 442/442 suites, 7982/7982**.
+Integración: no aplica (ninguna spec de `test/integration` menciona `referencePrice`; medido con `grep`), no corrida.
+Mutaciones sobre copia del árbol ENTERO (`git archive fa10107e`), N=1 cada una, todas rojas:
+
+| Mutación | Rojas |
+|---|---|
+| M1 condición = solo `referenceMxnCents != null` (la de antes) | B1 ×3, B2 ×3 |
+| M2 sin `> 0` | B2 ×3 |
+| M3 sin `quotedPriceCents != null` | B1 ×3 |
+| M4 `quoteCardForFinish` emite la referencia del acabado `normal` | B3 «dos acabados» |
+
+### 86.1 · Siembra E2E: la carta del guardarraíl de COMPRA, `E2E Bin Premium` (2026-10-08, hallazgo de QA sobre `342f84dc`)
+
+**Hueco.** Con la siembra normal, ninguna carta caía en «`precio_pendiente` con mercado > 0 guardado», que es lo único que
+distingue BMK-2 de un pendiente cualquiera: las pendientes eran todas sin mercado, y `E2E Floor Premium` sale `cotizada`
+en COMPRA (1000 × 0.30 = 300 > bin 100). Por eso el caso BMK-E1 de `frontend/e2e/buylist-bmk.spec.ts` no ejercitaba el
+guardarraíl; QA solo lo cubrió bajando el mercado a mano.
+
+**Cambio (solo siembra; código de servidor intacto).** `backend/prisma/e2e-fixtures.ts`: nueva `E2E_CARDS.binpremium` =
+`{ externalId: 'e2e-bin-premium', name: 'E2E Bin Premium', number: '100', rarity: 'Rare Secret', refNmCents: 200 }`, en
+`E2E Base Set`; el oráculo `E2E_SET_EXPECTED_NUMBERS` gana `'100'` al final. `backend/prisma/seed-e2e.ts`: su `raw:NM` de
+200 centavos. Con la curva de fábrica: COMPRA 200 × 0.30 = 60 < bin 100 ⇒ `floor` ⇒ `premium_at_floor` ⇒
+`precio_pendiente`; VENTA 320 < piso 2500 ⇒ retenida (`Secret Rare` fuera del dial). A partir de 334 centavos sale del
+guardarraíl (medido: `resolvePendingReason(quoteAcquisitionWithGuard(334,…).guardBasis, …) = null`).
+Número `100` a propósito: entra al final del orden natural y no desplaza a ninguna carta. Sin inventario ni fila de cola
+sembrada ⇒ no cambia conteos de la cola ni del catálogo publicado (`grep` de `E2E_CARDS`/`E2E_SET`/`Base Set` en
+`backend/test` y `frontend/e2e`: los únicos que dependen del número de cartas usan el oráculo).
+
+**Para frontend (no lo toca en este pase).** BMK-E1 debe apuntar a la carta **`E2E Bin Premium`** (acabado `normal`,
+número 100, en `E2E Base Set`) en vez de iterar «cualquier teja pendiente»: es la única pendiente del set cuyo
+`referencePrice` es `pending` **por el guardarraíl** y no por falta de mercado.
+
+**Mediciones (Postgres 16 propio como `nobody`, `/var/tmp/be-bmk2-pg`, puerto 55471; backend compilado de `342f84dc`,
+puerto 55472; `POST /buylist/quote` raw NM por cada acabado de las 15 cartas sembradas, cruzado con su `raw:NM` en BD).**
+- Antes (siembra de `342f84dc`): **0** filas con `precio_pendiente` y mercado > 0 (17 combinaciones carta×acabado).
+- Después (misma BD re-sembrada con este cambio; `backend/src` idéntico a `342f84dc`): la única diferencia es una fila
+  nueva — `E2E Bin Premium · normal · mercado=200 · {"priceBasis":"pending","quote":{"status":"precio_pendiente",
+  "quotedPriceCents":null},"referencePrice":{"status":"pending"}}`. `/buylist/quote/batch` da lo mismo.
+  `GET /buylist/cards?setId=<e2e-base>` = 12 cartas, orden `4,16,…,98,99,100`.
+- Integración en la misma BD, dos corridas (19 suites distintas; `buylist-cards-order` va en las dos): 4 suites 53/53
+  (`buylist-cards-order`, `seed-idempotency`, `pricing-visibility`, `premium-floor-sale`) y 16 suites 241/241 (`buylist*`,
+  `sale-queue*`, `catalog*`, `pending-publish-seed`). `tsc --noEmit` exit 0 · `npm run lint` exit 0 ·
+  `eslint` de los dos ficheros de `prisma/` exit 0 · `seed-e2e.target-guard.spec.ts` 16/16. N=1 en todo (deterministas).

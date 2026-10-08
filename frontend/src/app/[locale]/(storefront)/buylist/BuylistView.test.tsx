@@ -147,7 +147,10 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     // `< lg`, presente en jsdom) — el bloque de dinero se busca DENTRO del cajón.
     const drawer = screen.getByRole('dialog');
     expect(within(drawer).getByText('Valor de tus cartas')).toBeInTheDocument();
-    expect(screen.getByText('Estimado c/u:')).toBeInTheDocument();
+    // §BMK.5: «Estimado c/u» se retiró; la línea pinta «Valor de mercado c/u» y «Te pagamos c/u».
+    expect(within(drawer).getByText('Te pagamos c/u')).toBeInTheDocument();
+    expect(within(drawer).getByText('Valor de mercado c/u')).toBeInTheDocument();
+    expect(within(drawer).queryByText(/Estimado c\/u/)).toBeNull();
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
   });
 
@@ -226,23 +229,27 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
 });
 
 /**
- * Transparencia por línea: el detalle expandible del carrito lateral (BuylistView, sin
- * cambios) sigue mostrando valor de referencia / regla aplicada / acabado — ahora la
- * cotización llega del batch client-side del binder Master Set en vez del grid plano.
+ * Transparencia por línea: el detalle expandible del carrito muestra rareza / acabado / nota de
+ * pendiente. §BMK.4–§BMK.5: el mercado salió de «Detalle» y va A LA VISTA en el renglón
+ * («Valor de mercado c/u»); la fila «Valor de referencia» se retiró (un dato, un nombre, un sitio).
  */
 describe('BuylistView · detalle expandible por línea', () => {
-  it('muestra valor de referencia + rareza + acabado al expandir (SIN «regla aplicada», v2.0)', async () => {
+  it('§BMK: el mercado está a la vista sin expandir; al expandir hay rareza + acabado y NINGÚN «Valor de referencia»', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
     await addCard('Charizard');
     openCart();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Detalle del estimado' }));
     // P-44: la rareza ahora también se pinta en las tejas del binder → se acota el assert de
     // «Rare Holo» al diálogo del carrito (el detalle de la línea) para no chocar con las tejas.
     const cartDialog = screen.getByRole('dialog', { name: 'Carrito de venta (1)' });
-    expect(within(cartDialog).getByText('Valor de referencia')).toBeInTheDocument();
+    // §BMK.5: el mercado de la cotización (MX$48,500.00) a la vista, ANTES de abrir «Detalle».
+    expect(within(cartDialog).getByText('Valor de mercado c/u')).toBeInTheDocument();
     expect(within(cartDialog).getByText('MX$48,500.00')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Detalle del estimado' }));
+    expect(within(cartDialog).queryByText('Valor de referencia')).toBeNull();
+    // Una sola aparición del mercado: no se repite dentro de «Detalle».
+    expect(within(cartDialog).getAllByText('MX$48,500.00')).toHaveLength(1);
     // v2.0 (P-48): la fila «Regla aplicada» SE RETIRÓ — no hay reglas por rareza/acabado que
     // rotular, y dejarla habría sido texto falso (la clase de bug que P-48 existe para cerrar).
     expect(within(cartDialog).queryByText('Regla aplicada')).toBeNull();
@@ -250,9 +257,10 @@ describe('BuylistView · detalle expandible por línea', () => {
     // La rareza SÍ sigue: es dato informativo del catálogo (ya no decide el monto).
     expect(within(cartDialog).getByText('Rare Holo')).toBeInTheDocument();
 
-    // El toggle colapsa de vuelta.
+    // El toggle colapsa de vuelta; el mercado sigue a la vista.
     fireEvent.click(screen.getByRole('button', { name: 'Ocultar detalle' }));
-    expect(screen.queryByText('Valor de referencia')).not.toBeInTheDocument();
+    expect(within(cartDialog).queryByText('Rare Holo')).toBeNull();
+    expect(within(cartDialog).getByText('MX$48,500.00')).toBeInTheDocument();
   });
 
   it('una línea pendiente explica el "precio pendiente" en su detalle', async () => {
@@ -700,7 +708,7 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
     openCart();
     // Lo desconocido no se afirma: «—», no la cifra vieja (MX$1,000.00 no aparece como total).
     expect(screen.getByTestId('sell-cart-total-requoting')).toHaveTextContent('—');
-    // §33.11.2 (v4.1.2): tampoco POR LÍNEA — subtotal y «Estimado c/u» son «—», el <ul> está aria-busy,
+    // §33.11.2 (v4.1.2): tampoco POR LÍNEA — subtotal y «Te pagamos c/u» (§BMK.5) son «—», el <ul> está aria-busy,
     // y la cifra persistida no aparece en NINGÚN sitio del drawer. Un solo aria-label (en el total).
     const lines = screen.getByTestId('sell-cart-lines');
     expect(lines).toHaveAttribute('aria-busy', 'true');
@@ -1686,7 +1694,7 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
 });
 
 /**
- * v1.80 (P-71, §37.3c): la línea del carrito de venta abre con «TWM 130 · Estimado c/u …» cuando la
+ * v1.80 (P-71, §37.3c): la línea del carrito de venta abre con «TWM 130 · …» cuando la
  * carta trae código; sin código la línea queda como antes (sin número, sin «—»).
  */
 describe('BuylistView · P-71 código del set en la línea del carrito de venta', () => {
@@ -1742,4 +1750,63 @@ describe('BuylistView · P-71 código del set en la línea del carrito de venta'
     expect(within(lines).queryByTestId('card-code')).toBeNull();
     expect(lines.textContent).not.toMatch(/null|undefined|#130/);
   });
+});
+
+/**
+ * §BMK (API_CONTRACT §BMK.4/§BMK.5, criterios 852/855/856) a nivel de pantalla, con el mock que hace de
+ * servidor: el mercado que se ve en la teja es el mismo que se ve en el renglón del carrito; el resumen
+ * antes de enviar NO cambia (sin mercado, sin porcentajes ni «ahorro»), en es y en en.
+ */
+describe('BuylistView · §BMK teja → carrito → resumen', () => {
+  it('la teja y el renglón del carrito enseñan el MISMO mercado y la MISMA cifra a pagar', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    const add = screen.getByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ });
+    // Mock: mercado MX$48,500.00 y curva ⇒ MX$24,250.00.
+    expect(add).toHaveAttribute(
+      'aria-label',
+      'Agregar Charizard (Normal) a la venta · Valor de mercado MX$48,500.00 · Te pagamos MX$24,250.00',
+    );
+    openCart();
+    const prices = within(screen.getByRole('dialog')).getByTestId('sell-cart-line-prices');
+    expect(Array.from(prices.querySelectorAll('dt, dd')).map((n) => n.textContent)).toEqual([
+      'Valor de mercado c/u',
+      'MX$48,500.00',
+      'Te pagamos c/u',
+      'MX$24,250.00',
+    ]);
+  });
+
+  it.each(['es', 'en'] as const)(
+    'BMK-F7/BMK-F6 (%s): el resumen antes de enviar no lleva mercado, porcentajes, proporciones ni «ahorro»',
+    async (locale) => {
+      asVerifiedCustomer({ locale });
+      renderWithProviders(<BuylistView />, locale);
+      if (locale === 'es') {
+        await addCard('Charizard');
+      } else {
+        fireEvent.change(screen.getByLabelText('Search set'), { target: { value: 'Base' } });
+        fireEvent.click(await screen.findByRole('button', { name: /Base Set/ }));
+        const btn = await screen.findByRole('button', { name: /^Add Charizard \(Normal\) to the sale/ });
+        await waitFor(() => expect(btn).toBeEnabled());
+        fireEvent.click(btn);
+      }
+      openCart();
+      fireEvent.click(
+        screen.getByRole('button', { name: locale === 'es' ? 'Enviar solicitud (1)' : 'Submit request (1)' }),
+      );
+      const modal = await screen.findByRole('dialog', {
+        name: locale === 'es' ? 'Crear solicitud de venta' : 'Create sell request',
+      });
+      const summary = within(modal)
+        .getByText(locale === 'es' ? 'Resumen de tu venta' : 'Your sale summary')
+        .closest('div') as HTMLElement;
+      const text = summary.textContent ?? '';
+      expect(text).toContain('MX$24,250.00');
+      expect(text).not.toContain('MX$48,500.00');
+      expect(text).not.toMatch(/mercado|market/i);
+      expect(text).not.toMatch(/%|mitad|half|ahorr|save/i);
+    },
+  );
 });

@@ -15892,3 +15892,103 @@ Medido `[VIVO]` con `npm audit --package-lock-only`, sobre la copia de `b370cf9b
 - **Mínimo para quedar APROBADO sin condiciones:** que se cite el run verde de C2-bis.
 
 — SEGURIDAD (blue team / AppSec), 2026-10-02 · código `b370cf9b` (rama `claude/post-release-s5`) · **APROBADO CON CONDICIONES** (nada bloquea el botón en modo prueba; C2-bis en el primer push a `production`; las de `sk_live_`, heredadas)
+
+---
+
+# §BMK · 2026-10-08 — «Valor de mercado» en el cotizador de venta · veredicto de seguridad (blue team)
+
+**Sha auditado:** `764c6537` (rama `claude/buylist-mercado`). Código idéntico al que atacó el pentester
+(`329f0cb5`): `ba30128b` y `764c6537` solo tocan un E2E y `PENTEST_NOTES.md`. Base de comparación:
+`origin/production` `a7232d7a` (merge-base; contiene `74996a24`, comprobado con `git merge-base --is-ancestor`).
+
+**Superficie del stream** (`git diff a7232d7a 764c6537 --stat`): en backend, **un solo predicado** de presentación
+(`buylist.service.ts:1293-1296`, `toQuotePayload`) más la carta sembrada `binpremium` (solo fixtures/E2E). En frontend,
+pintado: `lib/sell-market.ts` (predicado `visibleMarketCents`), `MasterSetBinder.tsx`, `CardDetailModal.tsx`,
+`SellCartContents.tsx` e i18n. **Sin endpoints nuevos, sin cambios en DTOs ni en `@Throttle`, sin cambios de schema y
+sin cambios de dependencias** (ningún `package*.json` en el diff, así que `npm audit` no cambia respecto al último pase).
+
+## 1. Lo que medí yo
+
+| # | Medición | Resultado |
+|---|---|---|
+| M1 | `git show a7232d7a:backend/src/modules/buylist/buylist.service.ts`, `toQuotePayload` | **Antes de §BMK**, `referencePrice` salía `{status:'priced', priceMxnCents}` **siempre que existiera mercado** (`line.referenceMxnCents != null`), **incluidas** las líneas en `precio_pendiente` por guardarraíl y los mercados `<= 0`. Mismo `POST /buylist/quote` y `/quote/batch`, `@Public`, mismos `@Throttle` (60/60 s y 12/60 s) y mismo tope de 50 por lote (`dto/buylist.dto.ts:41`) |
+| M2 | Mismo fichero en `764c6537` | Ahora solo sale si `quotedPriceCents != null && referenceMxnCents != null && referenceMxnCents > 0`. **El conjunto de cartas cuyo mercado viaja por la red es un SUBCONJUNTO estricto del de antes** |
+| M3 | `git show a7232d7a:…/buylist/SellCartContents.tsx:310-316` | El carrito de venta **ya pintaba** el mercado («Valor de referencia») con la condición `referencePrice.status === 'priced'`, sin mirar `quote.status`, así que incluso en líneas pendientes por guardarraíl se veía. §BMK lo cambia a `visibleMarketCents` |
+| M4 | `CardDetailView.tsx:222` (ficha de la tienda) | Muestra «Valor de mercado» cuando `priceBasis === 'market'`, solo en cartas publicadas. Confirma la nota del orquestador: el mercado ya era un dato visible en la tienda |
+| M5 | Suite `backend/test/buylist.bmk-reference-price.spec.ts` sobre una **copia** (`git archive 764c6537`) | **14/14 verdes** |
+| M6 | **Mutación** en la copia: restauré el predicado de antes (`line.referenceMxnCents != null`) | **6/14 rojas**: `/quote` y `/quote/batch` en guardarraíl, bounty topado en premium al bin y bounty con mercado 0. Es una mutación determinista (sin carrera ni temporizador), así que basta una corrida. **El candado muerde** |
+| M7 | `frontend/src/lib/sell-market.test.ts` en la copia | **7/7 verdes** |
+| M8 | Lectura de XSS/inyección en las superficies nuevas | Las cifras pasan por `formatMoneyCents(number)` y React las escapa. No hay `dangerouslySetInnerHTML` en el diff. Los textos con `{name}` son ICU de next-intl, también escapados |
+| M9 | Origen del dato | `referenceMxnCents` es el precio de un tercero (feeds `tcgcsv`/TCGplayer del catálogo) convertido a MXN. **No es un secreto de la tienda**: es dato público de terceros convertido de moneda. La oferta (`quotedPriceCents`) ya era pública por carta antes de §BMK |
+
+Copia y enlaces borrados al terminar. No levanté un stack: lo que hacía falta probar en vivo (BMK-2 y BMK-3) ya lo
+midió el pentester, y lo que quedaba por cerrar se decidía con el diff y la suite.
+
+## 2. Consolidación de `PENTEST_NOTES §BMK`
+
+### BMK-1 — el pentester la puso en **MEDIA**; yo la **bajo a BAJA, heredada, no introducida por §BMK** · dueño: devops (vía `P-RL-1`/C6)
+- **Lo que es real:** con `/quote/batch` se pueden sacar unos 600 mercados por minuto por IP, y el tope por IP hereda
+  el bypass de `X-Forwarded-For` de `P-RL-1` si el edge de Railway respeta el header entrante.
+- **Lo que no se sostiene:** que «el mercado pasa a ser dato público» con §BMK. M1 demuestra que **esa capacidad
+  existía igual (o mayor) antes de §BMK**, con el mismo endpoint, el mismo campo, el mismo tope de lote y el mismo
+  rate-limit. §BMK **reduce** lo que sale por la red (M2): deja de emitir el mercado de las cartas en guardarraíl y de
+  los mercados `<= 0`. Lo único nuevo es que la UI lo pinta, y la UI no es la superficie que se raspa.
+- **Impacto de negocio:** bajo. Es dato público de terceros (M9), el dueño decidió mostrarlo (HECHOS 2026-10-08,
+  «hay que hacer A») y ya se veía en la ficha de la tienda (M4). Lo que se infiere del par mercado/oferta (la curva de
+  compra) ya era inferible antes, con `referencePrice` y `quotedPriceCents` por la misma ruta.
+- **Freno:** depende de `P-RL-1`, que ya tiene su cierre (**C6**: medir el edge con `scripts/edge-xff-probe.sh`).
+  Esta nota no abre una condición nueva. Si C6 confirma el bypass, el raspado del cotizador entra en el alcance de la
+  corrección de `P-RL-1` y no en este stream.
+
+### BMK-2 — INFO · confirmado, y **reforzado**
+El pentester lo midió en vivo. Yo añado que no solo no hay fuga, sino que **§BMK cierra una fuga previa**: antes, el
+mercado «sospechoso» de una premium en el bin sí viajaba en `/quote` y `/quote/batch` y se pintaba en el carrito (M1,
+M3). El candado de backend muerde (M6). En el cliente, `visibleMarketCents` repite la regla como defensa en
+profundidad ante cotizaciones viejas en `localStorage`.
+
+### BMK-3 — INFO · confirmado
+`whitelist:true` (`main.ts:54`) y DTOs sin campos de dinero. `createRequest` congela el mercado desde `decideBuyLine`
+en el servidor. §BMK no toca `decideBuyLine` ni `createRequest` (M2: el cambio es solo `toQuotePayload`). Una
+cotización manipulada en `localStorage` solo cambia lo que ve quien la manipula: el servidor vuelve a derivar todo al
+crear la solicitud.
+
+## 3. Hallazgos de este stream
+
+| Severidad | # | Detalle |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — (`P-RL-1` ALTA sigue **abierta y heredada**: no la introduce ni la agrava §BMK) |
+| Media | 0 | — |
+| Baja | 1 | `BMK-1`, heredada (ver §2) |
+| Info | 2 | `BMK-2` (con mejora neta), `BMK-3` |
+
+## 4. Deuda de seguridad aceptada
+- **`BMK-1`: mercado consultable en lote por el cotizador anónimo.** Impacto: un competidor puede reunir la tabla de
+  mercado en MXN, que es dato público de terceros. **Disparador:** (a) C6 sale mal, y entonces se trata dentro de
+  `P-RL-1`; o (b) el dueño empieza a usar un mercado **propio** (no de terceros) o a considerar la curva de compra un
+  secreto. En ese caso el dueño es **backend**, que bajaría el tope de lote o exigiría sesión para `referencePrice` en
+  `/quote/batch`.
+
+## 5. NO MEDIDO
+- El edge de Railway frente a `X-Forwarded-For` (C6). Es heredado y sigue abierto.
+- El frontend en vivo (no levanté la vitrina). La autoridad es el backend (M2, M5, M6) y el predicado del cliente lo
+  medí con su suite (M7).
+
+## 6. Banderas para el humano
+- Sin cambios: antes de `sk_live_`, pentest de un tercero y bug bounty; validación legal de custodia, SPEI/CLABE y PII.
+- Para que lo decida con los ojos abiertos: mostrar el mercado junto a la oferta deja ver, carta por carta, qué
+  porcentaje paga la tienda. Eso ya se podía calcular antes desde la misma API, así que no es nuevo, pero ahora lo ve
+  cualquier vendedor sin esfuerzo. Es una decisión de negocio, no de seguridad, y ya está tomada (HECHOS 2026-10-08).
+
+## 7. VEREDICTO
+
+### **APROBADO** sobre `764c6537`
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 1 (heredada) · Info 2.**
+- **Paso a `production` de este stream: sí. Nada de §BMK lo bloquea.** El cambio de backend reduce la exposición
+  respecto de `production` (M1/M2) y su candado muerde (M6).
+- **Heredado, sin cambios y fuera de este stream:** `P-RL-1` (ALTA) con su cierre C6 (devops + autorización del
+  dueño) y C7, más el resto de condiciones de `sk_live_` registradas en pases anteriores. Siguen bloqueando el **DoD**
+  y `sk_live_` como hasta ahora, **no** este merge.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-08 · código `764c6537` (rama `claude/buylist-mercado`) · **APROBADO**

@@ -723,6 +723,9 @@
     "quoterAddAria": "Agregar {name} ({finish}) a la venta · {price}",
     "quoterPending": "Precio pendiente",
     "quoterUnavailable": "No disponible",
+    "quoterAddAriaMarket": "Agregar {name} ({finish}) a la venta · Valor de mercado {market} · Te pagamos {price}",
+    "quoterAddAriaPay": "Agregar {name} ({finish}) a la venta · Te pagamos {price}",
+    "quoterPriceNote": "«Te pagamos» es nuestro precio de hoy por la carta en Near Mint. La cifra firme va en la oferta que te mandamos después de tu solicitud, y el pago llega al recibir y verificar tus cartas.",
     "productKind": {
       "set_base": "Set",
       "deck_exclusive": "Deck Exclusive",
@@ -732,6 +735,10 @@
     "separateProductAria": "{name} ({kind}, {finish}) · {price}",
     "separateProductAddAria": "Agregar {name} ({kind}, {finish}) a la venta · {price}",
     "separateProductError": "No disponible",
+    "separateProductAriaMarket": "{name} ({kind}, {finish}) · Valor de mercado {market} · Te pagamos {price}",
+    "separateProductAriaPay": "{name} ({kind}, {finish}) · Te pagamos {price}",
+    "separateProductAddAriaMarket": "Agregar {name} ({kind}, {finish}) a la venta · Valor de mercado {market} · Te pagamos {price}",
+    "separateProductAddAriaPay": "Agregar {name} ({kind}, {finish}) a la venta · Te pagamos {price}",
     "separateProductErrorCode": {
       "PRODUCT_NOT_FOUND": "Este producto ya no existe en el catálogo.",
       "PRODUCT_CARD_MISMATCH": "Este producto no corresponde a esta carta.",
@@ -850,7 +857,12 @@
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
     "subtitle": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y te pagamos por SPEI.",
-    "referencePrice": "Valor de referencia",
+    "sellPrice": {
+      "market": "Valor de mercado",
+      "wePay": "Te pagamos",
+      "marketEach": "Valor de mercado c/u",
+      "wePayEach": "Te pagamos c/u"
+    },
     "payAfterReceipt": "El pago se realiza después de recibir y verificar tus cartas.",
     "shippingGuideLink": "Cómo empacar tus cartas",
     "pricePendingNotice": "Esta carta no tiene precio de referencia; entrará a la cola de precio pendiente y la cotizaremos a mano.",
@@ -945,7 +957,6 @@
     "lineDetailShow": "Detalle del estimado",
     "lineDetailHide": "Ocultar detalle",
     "cartEmpty": "Tu carrito está vacío. Elige una carta del catálogo para agregarla.",
-    "cartItemEstimate": "Estimado c/u",
     "quantityFor": "Cantidad de {name}",
     "increaseQty": "Aumentar cantidad",
     "decreaseQty": "Disminuir cantidad",
@@ -6810,7 +6821,6 @@
     "noImage": "Sin imagen",
     "setAndNumber": "Set y número",
     "rarity": "Rareza",
-    "estimate": "Estimado",
     "pending": "Precio pendiente"
   },
   "sellCart": {
