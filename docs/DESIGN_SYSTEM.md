@@ -4,7 +4,14 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.2.1** — **§34 corregida** (2026-09-11): **la premisa A1 de v4.2 era falsa** —
+> Estado: **v4.3** — **§35 NUEVA: Redes sociales (Instagram y afines) — variante aprobada por el dueño
+> 2026-10-08.** Codifica las decisiones de marca que el dueño tomó en Claude Design (5–7 oct 2026) para las
+> piezas de redes: paleta (la misma papel/pozo/tinta/rojo `#B31217` de la web; **`#E0353B` nuevo** como único
+> rojo sobre fondo oscuro), **Anton** para titulares de imagen (solo redes), lockups (los de §17.1 sin cambios),
+> co-marca de evento «TCG HUNT × <aliado>», reglas visuales, formatos (feed 4:5 a 2×, historias 9:16 con zonas
+> seguras) y voz (emojis **permitidos en captions**, nunca en la imagen). **Cero tokens web cambian**: en la web
+> siguen mandando §2–3 con los valores de §17.2. Contraste medido en §35.9.
+> Antes: **v4.2.1** — **§34 corregida** (2026-09-11): **la premisa A1 de v4.2 era falsa** —
 > `Content-Disposition: attachment` **no** impide pintar la INE en un `<img>` (medición del orquestador en
 > Chromium real, **3/3**: la cabecera solo manda en navegaciones de primer nivel) ⇒ **se retira la
 > recomendación de endpoint proxy** y se conserva el `attachment` — y **§34 queda alineada al contrato v1.69**
@@ -17703,3 +17710,307 @@ auth y del sidebar del panel, ya verificado en §10 y §17.2. **Cero tokens nuev
 | **D1** | **product-owner** | ¿Correo de **identidad verificada**? Recomendación: **no** (buena noticia sin acción, visible en la cuenta). Por defecto no se diseña. |
 | **D2** | **product-owner / dueño** | ¿Hay **plazo** que prometerle al cliente en «En revisión»? Recomendación: **empezar sin plazo** — la copy de §34.8 funciona entera sin él y prometer un plazo que no se cumple es peor que no darlo. Si el dueño fija uno, es **una sola clave** (`account.kyc.pending.sla`) y entra sin tocar el diseño. |
 | **E1** | **QA** | Candados **de interfaz** que ponen un test en rojo (los de servidor son K-1…K-10 del contrato, §M6-K.9; éstos no los repiten, los complementan): **KY-1** el HTML de `/admin/m6` (lista **y** ficha) **no contiene ninguna URL firmada** ni llama a `ine-links`: el enlace se pide **solo** al abrir la pantalla de revisión; **KY-2** un `vault_operator` que teclea `/admin/m6/kyc/{id}` **no ve el documento** (y el `403` del servidor se mide aparte, K-1); **KY-3** con `kycStatus='rejected'`, «Mi cuenta» muestra el `rejectionReason` **y** los dos uploaders (hoy, con `ineOnFile=true`, no muestra ninguno); **KY-4** con `kycStatus='pending'` la sección contiene «No tienes que hacer nada más» y **cero** controles de subida; **KY-4b** con `verified`, **sí** existe «Actualizar mi identificación» y al usarlo el estado vuelve a `pending`; **KY-5** la superficie de cliente renderizada **no contiene** «tope»/«Tope»/«cap» ni ninguna cifra de política, y `GET /users/me/kyc` **no trae** `threshold`/`cap`/`monthUsed` en ninguna clave; **KY-6** rechazar con motivo de 2 caracteres ⇒ botón deshabilitado y **cero** peticiones; con 501 ⇒ error en el campo; **KY-7** *(solo si A8 se aprueba)* el correo lleva el motivo **literal** y **ninguna** imagen ni enlace al documento; **KY-8** con el enlace caducado, «Volver a pedir el enlace» **conserva zoom, rotación y cara**, y **no hay ninguna re-petición automática** en 3 minutos de pantalla abierta *(mídelo con el contador de llamadas a `ine-links`: debe ser **1**)*; **KY-9** la ficha 360° **no** contiene ningún control que fije `kycStatus`. Medir en 390×844 y 1280×800. |
+
+---
+
+## 35. Redes sociales (Instagram y afines) — variante aprobada por el dueño 2026-10-08
+
+> **Alcance y rango de esta sección.** Esta es una **variante acotada a redes sociales** (Instagram y
+> afines: feed, historias, reels, avatar, co-marca de eventos). **No modifica ningún token de la web.** En la
+> web — storefront, back-office, correos (§31), OG — **siguen mandando los tokens de §2–3 con los valores
+> vigentes de §17.2** y la tipografía de §3.1. Si algo de aquí contradice a §2–3 o §17, la contradicción es
+> **deliberada y confinada a redes**: no se «arregla» ni en un sentido ni en el otro.
+>
+> **Origen.** El dueño (JC) produjo las piezas de Instagram en **Claude Design** entre el 5 y el 7 de octubre
+> de 2026 y **confirmó el 2026-10-08** que las diferencias con la web son decisiones deliberadas. Esta sección
+> las **codifica** para que el repo sea la única fuente de verdad (§0): los valores de abajo son los suyos,
+> verbatim. No hay mockups en `docs/mockups/` (medido 2026-10-08: la carpeta no existe); si se exportan, van
+> ahí y esta sección es la que manda sobre ellos.
+>
+> **Un dato medido que corrige una premisa del encargo:** el encargo describía el rojo de redes `#B31217`
+> como «distinto del bermellón `#B44B3A` de la web». **No es así hoy**: el bermellón se retiró en v1.7 (§17.2)
+> y la web **ya usa `#B31217`** como acento, warning, danger y anillo de foco, con hover `#8F0E12`
+> (`frontend/src/app/globals.css:40,52,66,68,92`, medido 2026-10-08; `#B44B3A` sobrevive solo en un
+> comentario histórico, `:35`). ⇒ **El rojo de redes y el rojo de la web son el mismo rojo.** Lo que de verdad
+> difiere entre redes y web está en §35.10, y es poco: un rojo nuevo para fondo oscuro, la tipografía de
+> titulares y los emojis en captions.
+
+### 35.0 Qué es «redes» y qué no
+
+| Superficie | ¿Aplica §35? | Qué manda |
+|---|---|---|
+| Posts de feed, carruseles, reels (portada y texto en video), historias, highlights, avatar de perfil, piezas de co-marca de evento para redes | **Sí** | Esta sección |
+| Storefront, back-office, correos transaccionales (§31), OG/Twitter card (§17.3) | **No** | §2–3, §17, §20, §31 |
+| Deck de inversores, láminas formales, propuestas a patrocinadores, hojas de catálogo impresas | **No** | §3.1 — Zen Old Mincho / Archivo / JetBrains Mono (ver §35.3) |
+| Anuncios pagados dentro de Instagram/Meta | **Sí** (son redes) | Esta sección; el destino del clic es la web y ahí manda la web |
+
+### 35.1 Paleta de redes
+
+Los **cinco colores base coinciden con los de la web** (§2.2 y §17.2). Se repiten aquí con los **nombres que
+usa el dueño** para que una pieza de redes se pueda describir sin abrir §2. El único valor **nuevo** es
+`#E0353B`.
+
+| Nombre (dueño) | Hex | Rol en redes | Equivalente web |
+|---|---|---|---|
+| **Papel** | `#F4F1EA` | Fondo claro por defecto de toda pieza | `--paper` / `--color-bg` (§2.2) |
+| **Pozo** | `#EFEBE2` | Fondo **de la imagen de la carta** (la carta se posa sobre pozo, no sobre papel: así se separa del fondo sin regla ni sombra) | `--well` / `--color-surface-2` |
+| **Tinta** | `#1A1A18` | Texto principal sobre papel **y** fondo de las piezas oscuras | `--ink` / `--ink-panel` |
+| **Tinta suave** | `#6E695E` | Texto secundario **sobre papel o pozo** (no sobre tinta — ver §35.9) | `--ink-muted` / `--color-text-muted` |
+| **Rojo TCG HUNT** | `#B31217` | Acento. Se usa **poco**: una palabra, un subrayado, un sello, el precio destacado, la mira | `--hunt-red` / `--color-accent` (§17.2) |
+| Rojo TCG HUNT · hover | `#8F0E12` | Solo en piezas interactivas (p. ej. botones de una landing enlazada desde redes o stickers con estado); en imagen estática no tiene uso | `--hunt-red-hover` (§17.2) |
+| **Rojo claro (sobre oscuro)** | **`#E0353B`** | **El único rojo permitido sobre fondo tinta.** Acento y titulares en piezas oscuras | **Nuevo; solo redes.** La web resuelve el mismo problema con la rampa `#F0685F → #D0362C` del logo oscuro (§17.1c) y **no cambia** |
+
+Reglas de paleta (heredan §2.1 «un solo acento, usado con avaricia» y §17.2):
+- **Dos fondos, no tres.** Una pieza es **clara** (papel, con la carta sobre pozo) u **oscura** (tinta). No hay
+  piezas sobre rojo, sobre pozo entero ni sobre blanco puro `#FFFFFF`.
+- **El rojo es acento, no fondo.** Nunca un fondo rojo a sangre, nunca un bloque rojo mayor que ~10 % del
+  lienzo. Dónde sí: una palabra del titular, el sello/eyebrow, un subrayado, la mira, el precio destacado.
+- ⛔ **Nunca `#B31217` ni `#8F0E12` sobre tinta `#1A1A18`.** Ratio ~2.5:1 y ~1.9:1: ilegibles (§17.2 ya lo
+  prohíbe en la web). Sobre oscuro el rojo es **siempre `#E0353B`**.
+- ⛔ **Nunca `#E0353B` sobre papel o pozo.** Es un color de fondo oscuro; sobre claro queda lavado (~3.9:1,
+  solo pasaría texto grande) y rompe la paridad con la web. Sobre claro el rojo es **siempre `#B31217`**.
+- **Sin degradados.** Igual que la web (§4.3, §17.2): el único degradado permitido es el que vive **dentro
+  del asset del logo**. Nada de fondos degradados, duotonos ni «glow».
+- **Sin sombras ni esquinas redondeadas** en cajas de texto, etiquetas y marcos (§4.2, §4.3). La carta se
+  separa del fondo por el **pozo**, no por una sombra. Las esquinas redondeadas de la carta real son de la
+  carta, no nuestras.
+- **Verde `#4E7A49`** (§2.2) **no se usa en redes** salvo en una pieza que literalmente comunique un estado
+  `settled`/confirmado del producto (muy raro). No es color de marketing.
+
+### 35.2 Tipografía de redes
+
+| Trabajo | Familia | Pesos | Uso y límites |
+|---|---|---|---|
+| **Titulares en la imagen** | **Anton** | 400 (único peso) | El titular de la pieza: ≤ ~6 palabras (§35.5). Siempre **MAYÚSCULAS**; `letter-spacing` ligeramente abierto (≈ +0.01 a +0.03 em) porque Anton es muy condensada y en mayúsculas cierra. Nunca en cuerpo, pie ni captions. Nunca estirada, condensada ni inclinada artificialmente |
+| **Texto de apoyo en la imagen** (subtítulo, precio, pie, eyebrow, @handle) | **Archivo** | 400 / 600 / 800 | 400 para pie y texto neutro; 600 para subtítulo y etiquetas; 800 para el precio o la cifra que se quiere clavar. Mayúsculas con tracking amplio (≈ +0.12 a +0.18 em) para eyebrows, como el `eyebrow` web (§3.2), pero en Archivo en vez de mono |
+| **Wordmark del logo** | Montserrat 700 | 700 | **No se recompone.** El lockup es un asset (§17.1, §35.3); Anton **no** sustituye al wordmark |
+| Cifras y folios dentro de la imagen | Archivo con `tabular-nums` | 600 / 800 | En redes **no se usa JetBrains Mono**: la pieza se mira, no se lee en columna |
+
+**Por qué Anton y no Zen Old Mincho — decisión del dueño (JC), 2026-10-08.** El serif *mincho* de §3.1 es la
+voz **editorial** de la web: sobria, culta, de página impresa. En un feed de Instagram, a 1080 px de ancho y
+compitiendo con el scroll, el dueño eligió **más impacto**: Anton es una grotesca condensada de alto contraste
+de tamaño, pensada para titulares de cartel, que lee a un vistazo y deja más lienzo a la carta. No es una
+tipografía de juguete (§1.3 sigue vigente: nada redondeado, nada infantil, nada de arcoíris); es
+**tipografía de cartel**, la versión «voz alta» de la misma marca seria.
+
+**Dónde sigue mandando §3.1 (Zen Old Mincho / Archivo / JetBrains Mono):** el storefront y el back-office,
+los correos (§31), el deck de inversores y cualquier lámina formal o impresa. **Anton no entra en la web.**
+El frontend **no carga Anton**: no es una fuente del sistema web y no se añade a `next/font`.
+
+Escala sugerida para el lienzo de **1080 px de ancho** (export 1× lógico; ver §35.6 para el 2×):
+
+| Elemento | Familia / peso | Tamaño aprox. | Notas |
+|---|---|---|---|
+| Titular | Anton 400, mayúsculas | 120–180 px (feed) · 110–150 px (historia) | 1–3 líneas; `line-height` 0.92–0.98 |
+| Subtítulo | Archivo 600 | 40–52 px | 1–2 líneas |
+| Precio / cifra | Archivo 800, `tabular-nums` | 72–110 px | Siempre con **moneda y «IVA incluido»** (ver §35.7) |
+| Eyebrow / sello | Archivo 600, mayúsculas, tracking amplio | 26–32 px | Rojo `#B31217` (claro) o `#E0353B` (oscuro), o tinta/papel |
+| Pie, @handle, nota legal | Archivo 400 | 28–34 px | Tinta suave sobre claro; **papel al 70 %** o `#8A857A` sobre oscuro (§35.9) |
+
+Mínimo legible en la imagen: **~28 px a 1080 de ancho** (≈ 2.6 % del ancho). Nada de texto por debajo —
+Instagram recomprime y en móvil se ve a ~390 px de ancho real.
+
+### 35.3 Logos y la mira
+
+Los **tres assets** de redes son los **mismos del sistema** (§17.1); no se redibujan ni se recolorean fuera de
+lo que ya está definido:
+
+| Nombre (dueño) | Asset §17.1 | Composición | Cuándo |
+|---|---|---|---|
+| **Lockup claro** | **(a)** versión completa | Mira en degradado `#B31217 → #4A0D0D` y wordmark «TCG HUNT» en rampa de **vino** `#6E1013 → #4A0D0D`; «.mx» alineado a la derecha | Sobre **papel** `#F4F1EA`. Nunca sobre tinta ni sobre pozo ocupado por la carta |
+| **Lockup oscuro** | **(c)** variante para fondo oscuro | Mira en **rojo claro** `#F0685F → #D0362C` y wordmark en **crema/papel** `#F4F1EA` | Sobre **tinta** `#1A1A18`. ⛔ Nunca el lockup claro sobre tinta (vino a ~1.4:1, ilegible) |
+| **Mira sola** | **(b)** `HuntMark` (claro u oscuro según fondo) | Solo la retícula, sin wordmark | Avatar de perfil, marca de agua, cierre de reel, sello pequeño en esquina, highlights |
+
+- **La mira (crosshair) es el elemento gráfico de la marca.** Es el único «guiño» permitido (§5, §17.2) y
+  puede usarse **como elemento compositivo**: grande y recortada por el borde, como marco de la carta, como
+  separador. Reglas: **nunca compite con la carta** (si la carta es el héroe, la mira es sutil o está en una
+  esquina), **nunca se deforma** (ni se estira ni se gira), **nunca se rellena** (es trazo, §17.1), y sus
+  cuatro líneas siguen **segmentadas**: no se simplifica a una cruz corrida.
+- **Tamaño mínimo:** mira sola ≥ **64 px** en el lienzo de 1080 (los huecos de los anillos dejan de leer por
+  debajo de ~28 px *reales* en pantalla, §17.1d; a 1080 → 390 px de visualización, 64 px del lienzo son
+  ~23 px reales, el límite). Para el **avatar de perfil** (que Instagram recorta en círculo y muestra a
+  ~40 px) usar la **mira sola sobre papel** con margen del 18 %, **no** el lockup; en avatar vale el
+  **glifo micro (d)** si el redondo lo exige.
+- **Zona de respeto** alrededor del lockup: ≥ la altura del wordmark por los cuatro lados. Ningún titular,
+  sticker ni borde de la carta la invade.
+- ⛔ Nada de lockups con «TCG HUNT» recompuesto en Anton, ni la mira en `#E0353B` plano sobre tinta en
+  sustitución de la rampa (c): el asset oscuro ya resuelve el contraste. `#E0353B` es para **texto y
+  acentos**, no para el logo.
+
+### 35.4 Co-marca de evento
+
+Para piezas de evento con una tienda o aliado:
+
+- **Fórmula de co-marca:** **«TCG HUNT × <aliado>»** (el nombre del aliado se fija en el brief privado de cada evento) — las dos marcas con **«×» (U+00D7, multiplicación)**,
+  nunca una «x» minúscula ni un «+». Orden fijo: TCG HUNT primero. Los dos lockups a **la misma altura
+  óptica** (no al mismo ancho: el nuestro es apilado), separados por el «×» en Archivo 600 en tinta (o papel
+  sobre oscuro), **nunca en rojo**.
+- **Patrocinador:** se nombra con **«Presentado con»** o **«Patrocina»** (eyebrow en Archivo 600, mayúsculas,
+  tracking amplio) seguido del logo del patrocinador. **No** «Powered by», no «Sponsored», no «Gracias a».
+  El logo del patrocinador va en **monocromo** (tinta sobre claro, papel sobre oscuro) salvo que su manual
+  lo prohíba; nunca en rojo.
+- ⛔ **Esta sección no fija fecha, sede ni ciudad de ningún evento.** Este repositorio es público y el evento
+  no está anunciado. Los datos del evento viven **solo en la pieza** y se añaden en el momento de publicar;
+  no se escriben aquí, ni en `docs/mockups/`, ni en nombres de archivo del repo.
+- La **honestidad manda** (§1, §35.7): una co-marca afirma que el aliado participa. Antes de publicar, el
+  aliado la aprobó por escrito; el patrocinador se nombra solo si ya está cerrado.
+
+### 35.5 Reglas visuales de la pieza
+
+1. **La carta es el héroe.** Cada pieza se construye alrededor de **una carta real** (o un producto sellado
+   real) con su imagen grande, sobre **pozo** en piezas claras. El texto acompaña; no tapa.
+2. **Imagen de carta: solo catálogo o foto real.** Imagen de catálogo (la misma fuente que la web, §1.1) o
+   **fotografía real del producto físico** que tenemos. ⛔ **Nunca arte generado de Pokémon** (ni «estilo»
+   Pokémon generado, ni ilustraciones derivadas, ni fondos con criaturas generadas). Es una regla de
+   honestidad **y** de propiedad intelectual, y no tiene excepciones. *(Misma regla que
+   `docs/specs/DECKS_META_V1.md`, «Nunca imágenes generadas».)*
+3. **Mucha imagen, poco texto: máximo ~6 palabras en la imagen** (titular + subtítulo contados juntos;
+   el precio, el @handle y el pie legal no cuentan). Si hace falta explicar, se explica **en el caption**.
+4. **El rojo se usa poco.** Un solo elemento rojo por pieza como norma (la palabra clave del titular, **o** el
+   sello, **o** la mira, **o** el precio). Dos como máximo si uno es la mira pequeña.
+5. **Nunca rojo oscuro sobre fondo negro.** Sobre tinta `#1A1A18`, el rojo es **`#E0353B`** (§35.1, §35.9).
+6. **Fondos lisos.** Papel o tinta, sin texturas pesadas, sin fotos de fondo, sin degradados. La textura
+   de papel sutil es aceptable si no baja el contraste medido (§35.9).
+7. **Composición con aire.** Márgenes ≥ 72 px en el lienzo de 1080 (≈ 6.7 %), más la zona segura de §35.6
+   en historias. Alineación a la izquierda por defecto; centrado solo en piezas de una sola palabra o de
+   anuncio (como en §3.3: los títulos se centran solo en hero).
+8. **Nada infantil.** Siguen prohibidos (§1.3, §1 léxico): tipografía redondeada o de juguete, degradados
+   arcoíris, pegatinas y «stickers» propios dibujados, mascotas. La voz de caza (*cazar, cacería, bounty*)
+   **sí** es legítima en titulares (§1, «Dónde sí»), sobria y adulta.
+9. **Los emojis no van en la imagen.** Van, si acaso, en el caption (§35.7).
+10. **Cifras siempre con contexto.** Un precio en la imagen lleva **`MXN`** (o `$` + `MXN`), **«IVA
+    incluido»** y, si es precio de compra (buylist), el estado NM/condición al que aplica. Un número suelto
+    es una promesa sin letra: §1.2 y §7.3 aplican también aquí.
+
+### 35.6 Formatos y zonas seguras
+
+| Pieza | Lienzo lógico | Export | Notas |
+|---|---|---|---|
+| **Feed (post y carrusel)** | **1080 × 1350 px (4:5)** | **2× → 2160 × 2700 px, PNG** (sRGB, sin perfil incrustado raro) | 4:5 es el máximo vertical del feed y ocupa más pantalla que 1:1. El **recorte a 1:1** del perfil (la cuadrícula) se lleva el 12.5 % de arriba y de abajo: **el titular y la carta deben leer dentro del cuadrado central 1080 × 1080** |
+| **Historias / Reels (portada y texto)** | **1080 × 1920 px (9:16)** | 2× → 2160 × 3840, PNG (o el video en el mismo encuadre) | Zonas seguras abajo |
+| Avatar | 1080 × 1080 | PNG | Mira sola, §35.3 |
+
+**Zona segura de historias (1080 × 1920):**
+- ⛔ **Nada importante en los 250 px superiores** (barra de progreso, nombre de cuenta, cerrar).
+- ⛔ **Nada importante en los 340 px inferiores** (campo de respuesta, «Enviar mensaje», CTA de enlace).
+- Lienzo útil: **1080 × 1330 px, de y = 250 a y = 1590.** Titular, carta, precio y logo viven ahí. Un fondo
+  (papel o tinta) sí llena los 1920 completos.
+- **Zonas de stickers** (enlace, encuesta, cuenta regresiva, mención/@) se **reservan en la plantilla con
+  guías punteadas** (trazo `1px dashed`, color `#B31217` al 60 % sobre claro o `#E0353B` al 60 % sobre
+  oscuro) en una **capa «GUÍAS» que se oculta al exportar**. La guía marca dónde irá el sticker nativo de
+  Instagram para que el diseño no lo tape ni quede tapado; **el sticker se añade en la app, no se dibuja en
+  la imagen**. Tamaño orientativo de reserva: enlace 720 × 150; encuesta 760 × 300; cuenta regresiva
+  760 × 320; mención 600 × 110. ⛔ Ninguna exportación lleva guías visibles: si una pieza sale con la línea
+  punteada, es un defecto de export, no un estilo.
+- En piezas con **sticker de enlace**, el CTA textual de la imagen («Cotiza tus cartas», «Ver en la
+  tienda») va **justo encima** de la reserva del sticker, no dentro.
+
+**Plantillas:** una por formato (feed claro, feed oscuro, historia clara, historia oscura) con las capas
+`FONDO` · `POZO/CARTA` · `TEXTO` · `LOGO` · `GUÍAS`. Las plantillas, si se versionan, van en `docs/mockups/`
+(propiedad de ux-ui) **sin datos de eventos** (§35.4).
+
+### 35.7 Voz en redes (captions y texto en imagen)
+
+La voz es la de §1 — **clara, directa, tranquilizadora** — en registro de **redes**:
+
+- **Español de México**, cercano, **de coleccionista a coleccionista**: tú, no usted; «cartas», «sobres»,
+  «sellado», «gradeada», como habla la comunidad; sin anglicismos innecesarios cuando hay palabra en uso
+  (pero *bounty*, *NM*, *PSA 10* se dicen así porque así se dicen). Sin faltas, sin mayúsculas gritadas
+  en el caption (en la imagen el titular va en mayúsculas por tipografía, no por volumen).
+- **Emojis: PERMITIDOS en el caption** — esta es una diferencia deliberada con la web, donde §1.3 los
+  prohíbe en la UI. **Pocos (1–3 por caption)**, al servicio de escanear el texto (un emoji abre un párrafo
+  o remata una línea), nunca sustituyendo palabras ni en cadena. ⛔ **Nunca en el texto de la imagen** ni en
+  el titular (§35.5-9).
+- **Hashtags: 3 a 5, relevantes**, al final del caption o en primer comentario; en minúsculas; en español
+  o el término TCG tal cual (`#pokemontcg`, `#tcgmexico`, el nombre del set). Nada de bloques de 30
+  hashtags ni de etiquetas que no describen la pieza.
+- **La honestidad manda sobre el ingenio** (misma regla que §1, léxico de marca): un titular puede evocar
+  («Caza la carta.»), pero no puede **afirmar nada que el producto no haga** ni insinuar un estado, precio o
+  disponibilidad que no sea real en el momento de publicar. Si una carta se vendió, el post se actualiza o
+  se retira. Si un precio es «desde», se dice «desde».
+- ⛔ **Prohibidos en imagen y caption: «mejor precio», «pagamos más», «precio especial»** y sus
+  equivalentes («el precio más alto», «nadie paga más», «oferta exclusiva»). Son la lista **MKT-8** de
+  `docs/specs/DECKS_META_V1.md` (§5 Copy y criterio de aceptación de copy), que aquí se extiende a redes.
+  El argumento de venta es el real: **un solo envío, condición verificada, legal en Standard,** pago tras
+  recepción, custodia.
+- **Dinero en el caption:** mismas reglas que §1.2 y §7.3: siempre moneda, siempre «IVA incluido» en precios
+  de venta, nunca una cifra sin etiqueta. Nada de «precio aproximado» sin decir de qué depende.
+- **CTA:** nombra la **acción real y el destino** («Cotiza tus cartas en el link del perfil», «Mírala en la
+  tienda»), igual que la regla «el CTA nombra la acción real» de §1. No «¡Corre!», no «¡Últimas piezas!» si no
+  es verificable.
+- **Lo que no se publica:** datos de clientes, fotos de paquetes con nombre o dirección, pantallas del
+  back-office, cifras de ventas internas, y **ningún dato de evento** (fecha, sede) antes de su anuncio
+  oficial (§35.4).
+
+### 35.8 Qué NO hacer (lista cerrada, verificable de un vistazo)
+
+1. **No** `#B31217` ni `#8F0E12` sobre `#1A1A18`. Sobre oscuro, solo `#E0353B`.
+2. **No** `#E0353B` sobre papel o pozo. Sobre claro, solo `#B31217`.
+3. **No** fondos rojos, degradados, duotonos, «glow», sombras ni esquinas redondeadas propias.
+4. **No** Anton en la web, en correos ni en el deck; **no** Zen Old Mincho en redes.
+5. **No** recomponer el wordmark en Anton; **no** deformar, girar, rellenar ni «simplificar» la mira.
+6. **No** arte generado de Pokémon, en ninguna forma.
+7. **No** más de ~6 palabras en la imagen; **no** emojis en la imagen.
+8. **No** «mejor precio», «pagamos más», «precio especial» ni equivalentes (MKT-8).
+9. **No** fecha ni sede de eventos en el repo (ni aquí, ni en mockups, ni en nombres de archivo).
+10. **No** exportar con la capa de guías visible; **no** dibujar stickers en la imagen.
+11. **No** texto importante en los 250 px superiores ni los 340 px inferiores de una historia.
+12. **No** aplicar nada de §35 a `frontend/`: el frontend no carga Anton, no añade `#E0353B` a
+    `globals.css` y no cambia ningún token. Si alguna pieza de redes necesita una landing, esa landing es
+    **web** y se diseña con §2–3/§17/§20.
+
+### 35.9 Verificación de contraste (WCAG AA) — pares de redes
+
+Calculado con la fórmula de luminancia relativa de WCAG 2.1 (sRGB) el 2026-10-08. Umbrales: **4.5:1 texto
+normal**, **3:1 texto grande (≥ 24 px, o ≥ 19 px en negrita) y componentes gráficos**. En redes casi todo
+el texto es «grande» en términos WCAG (mínimo 28 px a 1080 de ancho, §35.2), pero la pieza se ve a ~390 px
+en móvil, así que **para pie, @handle y nota legal se exige el umbral de texto normal**.
+
+| Par | Ratio aprox. | Texto grande (≥ 3:1) | Texto normal (≥ 4.5:1) | Uso en redes |
+|---|---|---|---|---|
+| **Rojo TCG HUNT `#B31217` sobre Papel `#F4F1EA`** | **~6.2:1** | ✅ AA | ✅ AA | Titulares, sellos, precio, mira en piezas claras. *(Coincide con §17.2.)* |
+| `#B31217` sobre Pozo `#EFEBE2` | ~5.9:1 | ✅ | ✅ | Etiqueta sobre la zona de la carta |
+| Hover `#8F0E12` sobre Papel | ~8.3:1 | ✅ | ✅ | Solo piezas interactivas |
+| Papel `#F4F1EA` sobre `#B31217` | ~6.2:1 | ✅ | ✅ | Botón/sello rojo con texto papel (claro) |
+| **Rojo claro `#E0353B` sobre Tinta `#1A1A18`** | **~3.9:1** | ✅ **AA (texto grande)** | ❌ **no alcanza 4.5:1** | **Titulares, sellos, precio y mira en piezas oscuras — sí. Pie, @handle o nota legal en rojo sobre oscuro — no:** esos van en papel |
+| Papel `#F4F1EA` sobre `#E0353B` | ~3.9:1 | ✅ (grande) | ❌ | Botón rojo sobre pieza oscura: solo con etiqueta grande |
+| Tinta `#1A1A18` sobre Papel | ~15.5:1 | ✅ | ✅ AAA | Texto principal, piezas claras |
+| Tinta sobre Pozo | ~14.7:1 | ✅ | ✅ AAA | Texto sobre la zona de la carta |
+| Papel sobre Tinta | ~15.5:1 | ✅ | ✅ AAA | Texto principal, piezas oscuras |
+| Tinta suave `#6E695E` sobre Papel | ~4.8:1 | ✅ | ✅ AA | Texto secundario, piezas claras |
+| Tinta suave `#6E695E` sobre Pozo | ~4.6:1 | ✅ | ✅ AA (justo) | Texto secundario sobre la zona de la carta |
+| ⚠ Tinta suave `#6E695E` sobre Tinta `#1A1A18` | ~3.2:1 | ✅ (grande) | ❌ | **No usar para texto secundario pequeño sobre oscuro.** Usar `#8A857A` (`--on-ink-muted`, §2.2, ~4.7:1) o papel al 70 % |
+| ⛔ `#B31217` sobre Tinta | ~2.5:1 | ❌ | ❌ | **Prohibido** (§17.2, §35.1) |
+| ⛔ `#8F0E12` sobre Tinta | ~1.9:1 | ❌ | ❌ | **Prohibido** |
+| ⛔ `#E0353B` sobre Papel | ~3.9:1 | ✅ (grande) | ❌ | **Prohibido por regla de paleta** (§35.1), aunque pasaría en texto grande: sobre claro el rojo es `#B31217` |
+
+Lectura de la tabla, en dos líneas: **`#B31217` sobre papel cumple AA en cualquier tamaño (~6.2:1).
+`#E0353B` sobre tinta cumple AA solo para texto grande (~3.9:1): sirve para titulares Anton, sellos, precio
+y mira; para texto pequeño sobre oscuro se usa papel.** Lo demás son los pares de la web, que ya estaban
+verificados en §10 y §17.2 y no cambian.
+
+### 35.10 Diferencias reales entre redes y web — la lista completa
+
+Para que nadie «alinee» lo que es deliberado ni «herede» lo que no lo es:
+
+| Aspecto | Web (§2–3, §17) | Redes (§35) | ¿Deliberado? |
+|---|---|---|---|
+| Papel, pozo, tinta, tinta suave, rojo `#B31217`, hover `#8F0E12` | Sí | **Los mismos** | — (coinciden; medido en `globals.css` 2026-10-08) |
+| Rojo sobre fondo oscuro | Rampa del logo `#F0685F → #D0362C`; texto en rojo sobre tinta **no existe** en la web | **`#E0353B`** para titulares, sellos y acentos | **Sí** — redes necesita texto rojo sobre oscuro; la web no. No se añade a `globals.css` |
+| Tipografía de titulares | Zen Old Mincho 400 | **Anton 400** | **Sí** (decisión de JC: impacto en feed) |
+| Texto de apoyo | Archivo 400/500/600/700 | Archivo **400/600/800** | Sí, menor: redes usa 800 para el precio; la web no carga 800 |
+| Cifras y folios | JetBrains Mono, `tabular-nums` | Archivo `tabular-nums` | Sí (la pieza no es una tabla) |
+| Logo | §17.1 (a)/(b)/(c)/(d), wordmark Montserrat 700 | **Los mismos assets** | — |
+| Emojis | Prohibidos en UI (§1.3) | **Permitidos en caption**, prohibidos en imagen | **Sí** |
+| Voz de caza | Titulares y marketing sí; nav/CTA/dinero no (§1) | Titulares sí; CTA nombra la acción real | — (misma regla) |
+| Lista MKT-8 | Aplica (`DECKS_META_V1.md`) | Aplica | — (misma regla) |
+| Fondo | Papel; paneles de tinta acotados | Papel **o** tinta a pieza completa | Sí, menor: redes admite piezas oscuras enteras |
+
+### 35.11 Notas a otros roles — lo que esta sección **no** decide
+
+| Ref | Para | Qué |
+|---|---|---|
+| **R1** | **orquestador / dueño** | La premisa «el rojo de redes difiere del bermellón de la web» era **falsa el 2026-10-08** (`globals.css:40`). Si en `HECHOS.md` o `PENDIENTES.md` quedó escrita así, conviene corregirla para que nadie abra un trabajo de «unificar rojos» que no existe. |
+| **R2** | **frontend** | **Nada que implementar.** §35 no toca `frontend/`: ni Anton en `next/font`, ni `#E0353B` en `globals.css`, ni token nuevo. Si alguien pide «el rojo de Instagram» en la web, la respuesta es `--hunt-red` (`#B31217`), que ya es el mismo. |
+| **R3** | **product-owner** | Si las piezas de redes van a enlazar a una **landing** propia (evento, co-marca, campaña), esa landing es **web** y necesita su propia sección de diseño con §2–3/§17/§20; no se diseña aquí. Y los datos del evento (fecha, sede) **no entran al repo** hasta el anuncio oficial. |
+| **R4** | **ux-ui (yo), cuando el dueño comparta los exports** | Versionar las **cuatro plantillas** (§35.6) en `docs/mockups/redes/` sin datos de evento, y verificar que ninguna exportación lleve la capa `GUÍAS`. Hasta entonces, **no hay mockups en el repo** (medido 2026-10-08). |
