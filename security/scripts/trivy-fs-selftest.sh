@@ -168,6 +168,26 @@ grep -qE 'gitleaks' .github/workflows/security-sast.yml && grep -qE "needs:.*git
 echo "✓ la clave de ficción no entra en este gate; el job gitleaks existe y sast-ok depende de él."
 
 # ---------------------------------------------------------------------------
+# (3bis) devops 2026-10-08 (DEVOPS_NOTES §93.6): «hallazgo» y «no pude bajar la
+#     base» ya no comparten color. El canario de (2) tiene que salir rc=1
+#     (hallazgo) con su anotación, y un repositorio de base INALCANZABLE, rc=2
+#     (no concluyente) — nunca 0 —, con la suya.
+# ---------------------------------------------------------------------------
+log "(3bis) rc=1 es hallazgo; base inalcanzable ⇒ rc=2, nunca verde"
+[ "${RC_CANARIO}" -eq 1 ] \
+  || fail "Con el canario plantado el gate salió rc=${RC_CANARIO}, no 1. rc=1 tiene que significar SOLO «hay HIGH/CRITICAL»; cualquier otro código lo confunde con un fallo de la herramienta."
+grep -q '::error title=trivy-fs · HIGH/CRITICAL' <<<"${SALIDA_CANARIO}" \
+  || fail "El rojo del canario no publicó la anotación con ficheros y avisos: en CI nadie podría atribuirlo (los registros no se leen desde las sesiones)."
+CACHE_VACIA="$(mktemp -d)"
+SALIDA_SINDB="$(TRIVY_CACHE_DIR="${CACHE_VACIA}" TRIVY_DB_REPOSITORY="127.0.0.1:9/no-existe/trivy-db" TRIVY_DB_RETRY_SLEEP=0 gate 2>&1)"; RC_SINDB=$?
+rm -rf "${CACHE_VACIA}"
+[ "${RC_SINDB}" -eq 2 ] \
+  || fail "Con la base de vulnerabilidades INALCANZABLE el gate salió rc=${RC_SINDB}, esperaba 2 (no concluyente). Si sale 0 el gate da verde sin haber medido; si sale 1 se lee como hallazgo."
+grep -q 'NO CONCLUYENTE' <<<"${SALIDA_SINDB}" \
+  || fail "Base inalcanzable: rc=2 pero sin la anotación «NO CONCLUYENTE»."
+echo "✓ canario ⇒ rc=1 con anotación; base inalcanzable ⇒ rc=2 «NO CONCLUYENTE»."
+
+# ---------------------------------------------------------------------------
 # (4) El canario no se queda en el árbol.
 # ---------------------------------------------------------------------------
 log "(4/4) Retirando el canario"

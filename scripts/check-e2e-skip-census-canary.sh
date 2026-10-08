@@ -165,6 +165,23 @@ caso 0 "tras --update --motivo, el gate vuelve a verde"
 grep -F 'MOTIVO-CANARIO-9' >/dev/null < "$BL" && ok "el motivo queda ESCRITO en el baseline (quien lo suba deja su firma)" \
   || bad "el baseline regenerado no conserva el motivo"
 
+# 9bis. P-S6-CENSO (devops 2026-10-08, medido): un SEGUNDO --update debe CONSERVAR
+# el motivo del primero. Antes el script reescribía el fichero con solo el motivo
+# nuevo y el historial de por qué subió cada techo se perdía en cada registro
+# (medido sobre una copia del baseline vivo: dos --update seguidos dejaron 1 línea
+# de motivo de las 5 que debía haber).
+printf '\nconst extra3 = { mockOnly: true };\n' >> "$DIR/b.spec.ts"
+"$GATE" --dir "$DIR" --baseline "$BL" --update --motivo "MOTIVO-CANARIO-9BIS" >/dev/null 2>&1
+caso 0 "tras un segundo --update --motivo, el gate sigue verde"
+if grep -F 'MOTIVO-CANARIO-9' "$BL" | grep -vF 'MOTIVO-CANARIO-9BIS' >/dev/null && grep -F 'MOTIVO-CANARIO-9BIS' >/dev/null < "$BL"; then
+  ok "un segundo --update CONSERVA el motivo anterior y añade el nuevo (P-S6-CENSO)"
+else
+  bad "un segundo --update BORRÓ el motivo anterior (P-S6-CENSO): queda(n) $(grep -c '^# [0-9]' "$BL") línea(s) de motivo"
+fi
+NL="$(grep -cE '^(mockOnly|needsSeed|harnessLimit|skipIfSeedMissing|realOnly) ' "$BL")"
+[ "$NL" -eq 5 ] && ok "tras dos --update hay exactamente 5 líneas de conteo (sin duplicados)" \
+  || bad "tras dos --update hay $NL líneas de conteo, esperaba 5"
+
 # 10. el baseline COMMITEADO: estructura, no números (los números son del gate)
 if [ -f "$BL_VIVO" ]; then
   FALTAN=""

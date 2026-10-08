@@ -14703,3 +14703,56 @@ una copia (sin tocar el árbol vivo):
 
 `git revert` del commit de este § quita el paso de CI y los dos scripts; no toca imagen, `CMD` ni datos. Si en Railway
 el backend no arranca por `sharp`: *Redeploy* del despliegue anterior desde la pestaña Deployments de Railway y revisar el *Build Log* según 93.4.
+
+### 93.6 Censo E2E y CI de la rama antes del gate de QA (2026-10-08, devops, sobre `f76fe398`)
+
+*(Encargado como «§93.2 · censo y CI»; ese número ya lo usa «Mediciones», así que va como 93.6.)*
+
+**Censo de salvaguardas E2E.** `scripts/check-e2e-skip-census.sh` salía **rc=1** en `f76fe398` (y en CI, job
+`e2e-skip-census`, runs 37704549788 y 37705396919): `skipIfSeedMissing` 15→18 (7→8 ficheros) y `realOnly` 22→24 (7→8),
+todo de `frontend/e2e/accessories.spec.ts` (`FRONTEND_NOTES §107.real`). Baseline regenerado con `--update --motivo`;
+el gate queda **rc=0**. Los 3 `skipIfSeedMissing` son condicionales (`deckScenario().ready`); backend ya siembra las
+filas que los disparaban (`f76fe398`, `BACKEND_NOTES §83.seed`: `ptcgoCode EEB`, cartas #40/#41, cuatro piezas
+`listed`), así que por lectura del seed quedan **latentes** (NO MEDIDO contra el stack: lo mide el pase real de QA).
+Si frontend los convierte en fallo duro, el censo baja a 15/7 y el techo se regenera a la baja.
+
+**P-S6-CENSO — medido: era verdad.** Sobre una copia del baseline vivo (4 líneas de motivo), dos `--update` seguidos
+dejaron **1** línea de motivo (`logs/p-s6-censo-medicion.log` del scratchpad `devops-ac2`): el bloque `--update`
+reescribía el fichero con solo el motivo nuevo. Arreglo en `check-e2e-skip-census.sh`: conserva las líneas
+`# AAAA-MM-DD …` anteriores y añade la nueva (escritura atómica por `mktemp`+`mv`). Prueba: caso **9bis** del canario
+(`check-e2e-skip-census-canary.sh`): segundo `--update` conserva el motivo del primero y deja 5 líneas de conteo.
+Contra el script viejo: **rojo** (16/17); con el arreglo: **17/17**, N=5 corridas, 5/5 rc=0 (determinista). Tras el
+arreglo, dos registros sobre la copia del baseline vivo dejan 5 + 1 motivos.
+
+**CI de la rama en `f76fe398`** (runs 37705396919 CI, 37705396860 Security SAST, 37705396828 E2E):
+
+| Job | Estado | Dueño | Evidencia |
+|---|---|---|---|
+| CI · `e2e-skip-census` (y `ci-ok` por él) | failure | devops | anotación «2 categorías CRECIERON»; cerrado aquí |
+| SAST · `npm-audit` | **success** | — | `sharp 0.35.5` (`882f0629`) cierra el aviso de 93.3 |
+| SAST · `trivy-image` › backend + **G-SHARP** + Trivy image backend | **success** | — | pasos 4-6 del job 113078843423 |
+| SAST · `trivy-image` › Build imagen **frontend** | failure | devops (por atribuir) | ver abajo |
+| SAST · `trivy-fs` › runtime | failure | devops (por atribuir) | ver abajo |
+| E2E · `backend-e2e` (y `e2e-ok` por él) | failure | **backend** (clase: arquitecto) | ver abajo |
+| E2E · `frontend-e2e` | success | — | — |
+
+- **`backend-e2e`**: 1 de 2507 rojo, `test/integration/enum-query-axes.e2e-spec.ts:1465` («ningún `@Query` fuera de las
+  CINCO listas»). Reproducido en local sobre `git archive f76fe398` (solo ese describe, sin BD): 4 `@Query` de §AC sin
+  clase declarada — `GET /accessories::<sin nombre>`, `GET /accessories/suggestions::exclude`,
+  `GET /admin/accessories::<sin nombre>`, `GET /admin/accessories/:id/stock-movements::<sin nombre>`. El mismo rojo
+  estaba ya en `4d15501f` (run 37702884504). No es de tooling: lo cierra backend, con la clase que decida el arquitecto.
+- **`trivy-fs` runtime**: en local, trivy 0.69.3 en contenedor sobre el mismo árbol ⇒ **0 hallazgos** (backend,
+  frontend, s3-local). Indicio (no prueba): el paso tardó 2 s y el siguiente 5 s, al revés que en las verdes
+  (4-5 s / 1-2 s), compatible con que falló la **descarga de la base**. Medido: el gate viejo devolvía **rc=1 también
+  sin base** — mismo color que un hallazgo. Arreglo en `security/scripts/trivy-fs.sh`: la base se baja aparte con 3
+  reintentos (si no baja ⇒ rc=2 «NO CONCLUYENTE», nunca 0), el escaneo corre con `--skip-db-update` (rc=1 solo es
+  hallazgo) y el rojo publica una anotación con ficheros y avisos. Los reintentos son solo de la descarga, jamás del
+  escaneo. Candado: caso **3bis** de `trivy-fs-selftest.sh` (canario ⇒ rc=1 con anotación; base inalcanzable ⇒ rc=2).
+  Con el gate viejo el 3bis cae (1/1); con el nuevo, el self-test entero pasa (1/1, determinista).
+- **Imagen de frontend**: no corría desde `1bde01de` (el escaneo de backend caía antes). Con el `Dockerfile.frontend` real
+  salvo el `apk` (403 aquí), sobre `git archive f76fe398` y los mismos `--build-arg`, **construye rc=0**. Sin registro no
+  se puede atribuir el rojo de CI; el paso ahora publica la etapa y las líneas de error en una anotación
+  (probado forzando el fallo del `apk` aquí). La siguiente corrida dirá si fue transitorio o de código.
+
+**Rollback.** `git revert` del commit: devuelve el baseline anterior (el gate vuelve a rc=1), el script de censo sin
+conservar motivos, `trivy-fs.sh` sin la descarga aparte y el paso de imagen sin anotación. No toca imágenes ni datos.
