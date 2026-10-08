@@ -30548,3 +30548,35 @@ Mutaciones sobre copia del árbol ENTERO (`git archive fa10107e`), N=1 cada una,
 | M2 sin `> 0` | B2 ×3 |
 | M3 sin `quotedPriceCents != null` | B1 ×3 |
 | M4 `quoteCardForFinish` emite la referencia del acabado `normal` | B3 «dos acabados» |
+
+### 86.1 · Siembra E2E: la carta del guardarraíl de COMPRA, `E2E Bin Premium` (2026-10-08, hallazgo de QA sobre `342f84dc`)
+
+**Hueco.** Con la siembra normal, ninguna carta caía en «`precio_pendiente` con mercado > 0 guardado», que es lo único que
+distingue BMK-2 de un pendiente cualquiera: las pendientes eran todas sin mercado, y `E2E Floor Premium` sale `cotizada`
+en COMPRA (1000 × 0.30 = 300 > bin 100). Por eso el caso BMK-E1 de `frontend/e2e/buylist-bmk.spec.ts` no ejercitaba el
+guardarraíl; QA solo lo cubrió bajando el mercado a mano.
+
+**Cambio (solo siembra; código de servidor intacto).** `backend/prisma/e2e-fixtures.ts`: nueva `E2E_CARDS.binpremium` =
+`{ externalId: 'e2e-bin-premium', name: 'E2E Bin Premium', number: '100', rarity: 'Rare Secret', refNmCents: 200 }`, en
+`E2E Base Set`; el oráculo `E2E_SET_EXPECTED_NUMBERS` gana `'100'` al final. `backend/prisma/seed-e2e.ts`: su `raw:NM` de
+200 centavos. Con la curva de fábrica: COMPRA 200 × 0.30 = 60 < bin 100 ⇒ `floor` ⇒ `premium_at_floor` ⇒
+`precio_pendiente`; VENTA 320 < piso 2500 ⇒ retenida (`Secret Rare` fuera del dial). A partir de 334 centavos sale del
+guardarraíl (medido: `resolvePendingReason(quoteAcquisitionWithGuard(334,…).guardBasis, …) = null`).
+Número `100` a propósito: entra al final del orden natural y no desplaza a ninguna carta. Sin inventario ni fila de cola
+sembrada ⇒ no cambia conteos de la cola ni del catálogo publicado (`grep` de `E2E_CARDS`/`E2E_SET`/`Base Set` en
+`backend/test` y `frontend/e2e`: los únicos que dependen del número de cartas usan el oráculo).
+
+**Para frontend (no lo toca en este pase).** BMK-E1 debe apuntar a la carta **`E2E Bin Premium`** (acabado `normal`,
+número 100, en `E2E Base Set`) en vez de iterar «cualquier teja pendiente»: es la única pendiente del set cuyo
+`referencePrice` es `pending` **por el guardarraíl** y no por falta de mercado.
+
+**Mediciones (Postgres 16 propio como `nobody`, `/var/tmp/be-bmk2-pg`, puerto 55471; backend compilado de `342f84dc`,
+puerto 55472; `POST /buylist/quote` raw NM por cada acabado de las 15 cartas sembradas, cruzado con su `raw:NM` en BD).**
+- Antes (siembra de `342f84dc`): **0** filas con `precio_pendiente` y mercado > 0 (17 combinaciones carta×acabado).
+- Después (misma BD re-sembrada con este cambio; `backend/src` idéntico a `342f84dc`): la única diferencia es una fila
+  nueva — `E2E Bin Premium · normal · mercado=200 · {"priceBasis":"pending","quote":{"status":"precio_pendiente",
+  "quotedPriceCents":null},"referencePrice":{"status":"pending"}}`. `/buylist/quote/batch` da lo mismo.
+  `GET /buylist/cards?setId=<e2e-base>` = 12 cartas, orden `4,16,…,98,99,100`.
+- Integración en la misma BD: 19 suites, 294/294 (`buylist*`, `sale-queue*`, `catalog*`, `pending-publish-seed`,
+  `seed-idempotency`, `pricing-visibility`, `premium-floor-sale`). `tsc --noEmit` exit 0 · `npm run lint` exit 0 ·
+  `eslint` de los dos ficheros de `prisma/` exit 0 · `seed-e2e.target-guard.spec.ts` 16/16. N=1 en todo (deterministas).
