@@ -21108,3 +21108,46 @@ La de pantalla sola no muerde (el listado rotula por `dials.labels.<clave>`, otr
 
 **REL-S7-UX punto 4** («Comprar › Sellado» → «Producto sellado»): el texto vive en el backend
 (`backend/src/modules/catalog/sealed-restock-notify.service.ts:288`), no en `frontend/`. No se toca aquí.
+
+### §109.e2e-real · El deck de §AC ya no depende del orden ni de si Stripe creó la sesión (2026-10-08)
+
+**Rojo de partida (medido por el orquestador en CI, `e2e-real.yml` run 37724067637, sha `191dcc5a`, con claves de
+prueba de Stripe):** 33 verdes y 2 rojos, `accessories.spec.ts:132` y `:268` solo en `en`, con «Las cartas del deck no
+casan o no tienen pieza (E2E Deck Ember: matched, disp. 0; E2E Deck Spark: matched, disp. 0)».
+
+**Causa (medida aquí, clúster propio, 2026-10-08):**
+- Con Stripe la sesión de pago del invitado se crea y deja las piezas `reserved` (`ORDER_RESERVATION_TTL_MIN` = 60);
+  sin clave responde `503 PAYMENT_PROVIDER_UNAVAILABLE` y suelta el apartado. Por eso en local nunca se vio.
+- No hay ruta del contrato para que el invitado abandone su sesión (§4-G no la tiene; M3 solo reembolsa), así que
+  «soltar el apartado en el `afterEach`» no es posible sin pedir contrato.
+- Las piezas del deck son las **más nuevas** del seed: `GET /catalog/cards` (orden `newest` por defecto) devuelve
+  primero «E2E Deck Spark». El «primer botón del catálogo» de 724 —y el de `checkout`, `guest-checkout`,
+  `address-colonia` y `claimable-orders`— aparta piezas del deck también, no solo 748.
+- Reproducido con el código anterior: las cuatro piezas `E2E-LST-0010…0013` en `reserved` (lo que deja la corrida
+  `es` con Stripe) ⇒ el caso `:132 (en)` sale rojo con **el mismo mensaje literal** del CI.
+
+**Arreglo (`e2e/utils/accessories-scenario.ts`):** `deckScenario()` ya no supone las piezas: `ensureDeckPieces()`
+cuenta las `listed` de plataforma por carta casada (`GET /admin/inventory/items?cardId=&status=listed&ownerType=platform`;
+el `availableQty` del deck viene topado por `quantity` y no sirve para contar) y da de alta las que falten hasta
+`copiesPerCard` con `POST /admin/inventory/items` (el alta publica sola, errata SU-1/SU.8; si no nace `listed` es rojo
+con causa). La aserción de siempre se conserva y se endurece (`availableQty < quantity`): si el emparejador no casa
+(seed sin `ptcgoCode`), no hay `cardId`, no se da de alta nada y el rojo nombra la causa como antes.
+**Huella:** las altas se anotan; el `globalTeardown` las saca con `adjustments` `error_captura` (pieza que nunca existió
+físicamente). Las que una sesión dejó `reserved` (`422 ITEM_NOT_ADJUSTABLE`) quedan anotadas para el teardown de una
+corrida posterior; cualquier otro estado se descarta con aviso.
+
+**No hace falta tocar `backend/prisma/seed-e2e.ts`:** con el alta del arnés, las dos piezas por carta bastan.
+**`wishlist.spec.ts` no tiene el patrón:** no crea sesiones de pago; usa cartas fijas por id y el sellado del seed.
+
+**Mediciones (2026-10-08, clúster propio `16/fe-e2e-real` :55441, backend :3199, front :3100, sin Stripe; apagado y borrado):**
+- Antes del arreglo, piezas del deck apartadas: `:132 (en)` rojo con el mensaje del CI (1/1, determinista).
+- Después, mismo estado de partida, `accessories.spec.ts` entero en real: 6 verdes; los 4 rojos son el paso de sesión
+  `503 PAYMENT_PROVIDER_UNAVAILABLE` de 724/748 (entorno sin Stripe, documentado en la cabecera del spec). Los dos
+  `:132` verdes y los dos 748 pasan `deckScenario()` y llegan a la sesión.
+- Repetido 3 veces por idioma (`:132` + 748, `es` y `en` alternados, N=6 corridas): `deckScenario()` 6/6 sin «no casan».
+  (En las últimas el paso de sesión dio `429 RATE_LIMITED` del cupo de sesiones de invitado por tantas corridas: entorno.)
+- Teardown: pieza `reserved` ⇒ queda anotada; pieza `withdrawn` ⇒ se descarta con aviso (medido llamando a
+  `restoreAccessoryScenario` con ese estado sembrado).
+- Mock: `accessories.spec.ts` 4 verdes, 6 saltados (`realOnly`). `tsc` 0, `eslint e2e` 0, vitest 321 ficheros / 4196 pruebas verdes.
+- ⛔ **NO MEDIDO con Stripe real:** el verde de 724/748 en `en` tras una sesión `es` creada de verdad. Lo cierra la
+  siguiente corrida de `e2e-real.yml` con las claves de prueba.

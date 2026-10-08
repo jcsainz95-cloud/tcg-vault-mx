@@ -32,6 +32,11 @@ import { readState, writeState, clearState, withFileLock } from './state';
  *    Las existencias que recibió (`receive`) se quedan: son movimientos con rastro, no se «des-reciben».
  *  - Deck curado: el teardown lo despublica (`PUT /admin/decks-meta/:id {published:false}`). La fila
  *    queda (no hay `DELETE` en el contrato) y la siguiente corrida la vuelve a curar por `slug`.
+ *  - Piezas de las cartas del deck (§109.e2e-real): si una sesión de pago anterior dejó apartadas las del
+ *    seed, `deckScenario()` da de alta las que falten (`POST /admin/inventory/items`). El teardown las saca
+ *    con `error_captura` (la pieza nunca existió físicamente: es exactamente eso) si siguen `listed`; las que
+ *    una sesión dejó `reserved` no son ajustables (`422 ITEM_NOT_ADJUSTABLE`) y se quedan anotadas para el
+ *    teardown de la siguiente corrida, cuando el barrido (`ORDER_RESERVATION_TTL_MIN`) ya las soltó.
  * ─────────────────────────────────────────────────────────────────────────────────────
  */
 
@@ -131,6 +136,7 @@ export function runTag(label: string): string {
 const createdKey = async () => `accessories:created:${await resolveApiBaseUrl()}`;
 const energyKey = async () => `accessories:energies-activated:${await resolveApiBaseUrl()}`;
 const deckKey = async () => `accessories:deck:${await resolveApiBaseUrl()}`;
+const deckPiecesKey = async () => `accessories:deck-pieces:${await resolveApiBaseUrl()}`;
 
 async function remember(key: string, value: string): Promise<void> {
   await withFileLock(`${key}:lock`, async () => {
@@ -283,8 +289,15 @@ export async function ensureEnergy(type: EnergyType, need: number): Promise<Admi
  *  - `CardSet` «E2E Base Set» con `ptcgoCode = 'EEB'` (hoy `null`: el emparejador no puede casar nada).
  *  - Dos cartas raw nuevas en ese set: «E2E Deck Ember» #40 y «E2E Deck Spark» #41, con precio de
  *    referencia NM **bajo** (MX$50: por debajo de todas las raw del seed, para no mover el orden por
- *    precio del que depende `./grading.ts`), y **dos** piezas `listed` de plataforma cada una — una
- *    por idioma: con Stripe de prueba la sesión de ES deja la suya apartada y la de EN necesita otra.
+ *    precio del que depende `./grading.ts`), y **dos** piezas `listed` de plataforma cada una.
+ *
+ * ⚠️ **Las dos piezas del seed NO bastan como garantía (§109.e2e-real, medido en CI run 37724067637 con
+ * Stripe de prueba):** con la clave real la sesión de pago SÍ se crea y deja las piezas `reserved` 60 min
+ * (`ORDER_RESERVATION_TTL_MIN`), y no hay ruta del contrato para que el invitado la abandone. Además las
+ * piezas del deck son las MÁS NUEVAS del seed ⇒ el «primer botón del catálogo» de 724 y de los smokes de
+ * dinero (`checkout`, `guest-checkout`, `address-colonia`, `claimable-orders`) las aparta también. Por eso
+ * `deckScenario()` no supone las piezas: cuenta las `listed` y da de alta las que falten hasta
+ * `copiesPerCard` (`ensureDeckPieces`). Así el caso no depende del orden ni de si Stripe creó la sesión.
  */
 export const DECK_SEED = {
   setCode: 'EEB',
@@ -305,6 +318,7 @@ interface DeckLine {
   rawName: string;
   quantity: number;
   matchStatus: string;
+  card: { cardId: string } | null;
   availableQty: number;
   basicEnergy?: { energyType: string; accessoryId: string } | null;
 }
@@ -320,6 +334,52 @@ export interface DeckScenario {
   name: string;
   detail: DeckDetail | null;
   energies: Record<string, AdminAccessory>;
+}
+
+async function getDeckDetail(): Promise<DeckDetail> {
+  const res = await apiAs<DeckDetail>('admin', 'GET', `/decks-meta/${DECK_SLUG}`);
+  if (res.status !== 200) throw new Error(`GET /decks-meta/${DECK_SLUG} respondió ${res.status}`);
+  return res.body;
+}
+
+/**
+ * Deja cada carta del deck con al menos `max(copiesPerCard, quantity)` piezas `listed` de plataforma. Cuenta con
+ * `GET /admin/inventory/items` (el `availableQty` del deck viene topado por `quantity`, no dice cuántas quedan) y
+ * da de alta lo que falte con `POST /admin/inventory/items` (§M1; el alta publica sola, errata SU-1/SU.8). Cada
+ * alta se anota para que el teardown la retire. Una alta que no nace `listed` es un rojo con causa, no un hueco.
+ */
+async function ensureDeckPieces(lines: DeckLine[]): Promise<{ rawName: string; created: number }[]> {
+  const out: { rawName: string; created: number }[] = [];
+  for (const line of lines) {
+    if (line.matchStatus !== 'matched' || !line.card) continue;
+    const cardId = line.card.cardId;
+    const target = Math.max(DECK_SEED.copiesPerCard, line.quantity);
+    const listed = await apiAsOk<{ total: number }>(
+      'admin',
+      'GET',
+      `/admin/inventory/items?cardId=${cardId}&status=listed&ownerType=platform&productType=raw&pageSize=1`,
+    );
+    let created = 0;
+    for (let n = listed.total; n < target; n++) {
+      const item = await apiAsOk<{ id: string; folio: string; status: string }>('admin', 'POST', '/admin/inventory/items', {
+        cardId,
+        productType: 'raw',
+        rawCondition: 'NM',
+        acquisitionType: 'compra',
+        acquisitionCostCents: 2000,
+      });
+      await remember(await deckPiecesKey(), item.id);
+      if (item.status !== 'listed') {
+        throw new Error(
+          `El alta del arnés para «${line.rawName}» (${item.folio}) nació «${item.status}», no «listed»: el alta no publicó ` +
+            '(¿sin precio de referencia raw NM? errata SU-1/SU.8). Esto no es orden de la suite: mírese el seed o el alta.',
+        );
+      }
+      created++;
+    }
+    if (created > 0) out.push({ rawName: line.rawName, created });
+  }
+  return out;
 }
 
 /**
@@ -350,17 +410,20 @@ export async function deckScenario(): Promise<DeckScenario> {
   });
   writeState(await deckKey(), curated.id);
 
-  const res = await apiAs<DeckDetail>('admin', 'GET', `/decks-meta/${DECK_SLUG}`);
-  if (res.status !== 200) throw new Error(`GET /decks-meta/${DECK_SLUG} respondió ${res.status}`);
-  const detail = res.body;
+  let detail = await getDeckDetail();
+  // Piezas de las cartas: se aseguran, no se suponen (ver `DECK_SEED`). Solo sobre líneas que CASARON: si el
+  // emparejador no casa, no hay `cardId` y el error de abajo nombra la causa (seed sin `ptcgoCode`).
+  const topUps = await ensureDeckPieces([...detail.groups.pokemon, ...detail.groups.trainer]);
+  if (topUps.length > 0) detail = await getDeckDetail();
   const cardLines = [...detail.groups.pokemon, ...detail.groups.trainer];
-  const unmatched = cardLines.filter((l) => l.matchStatus !== 'matched' || l.availableQty < 1);
+  const unmatched = cardLines.filter((l) => l.matchStatus !== 'matched' || l.availableQty < l.quantity);
   if (cardLines.length === 0 || unmatched.length > 0) {
     throw new Error(
       `Las cartas del deck no casan o no tienen pieza (${unmatched.map((l) => `${l.rawName}: ${l.matchStatus}, ` +
-          `disp. ${l.availableQty}`).join('; ') || 'sin líneas de carta'}). Falta en backend/prisma/seed-e2e.ts: ` +
+          `disp. ${l.availableQty}/${l.quantity}`).join('; ') || 'sin líneas de carta'}; altas del arnés: ` +
+        `${topUps.map((t) => `${t.rawName} +${t.created}`).join(', ') || 'ninguna'}). Falta en backend/prisma/seed-e2e.ts: ` +
         `ptcgoCode '${DECK_SEED.setCode}' en «E2E Base Set» y las cartas ${DECK_SEED.cards.map((c) => `${c.name} #${c.number}`).join(', ')} ` +
-        `con ${DECK_SEED.copiesPerCard} piezas listed cada una (BACKEND_NOTES §83.seed, desde f76fe398; FRONTEND_NOTES §107.gates)`,
+        `con precio de referencia raw NM (BACKEND_NOTES §83.seed, desde f76fe398; FRONTEND_NOTES §107.gates, §109.e2e-real)`,
     );
   }
   if (!detail.energyBundle.offered) {
@@ -395,6 +458,27 @@ export async function restoreAccessoryScenario(): Promise<void> {
       if (r.status >= 300) console.warn(`[e2e] §AC: no se pudo desactivar la energía ${id}: ${r.status}`);
     }
     clearState(eKey);
+
+    // Piezas que dio de alta el arnés: fuera con `error_captura` si siguen publicadas. Las apartadas por una sesión
+    // (`422 ITEM_NOT_ADJUSTABLE`) se quedan anotadas: las retira el teardown de una corrida posterior.
+    const pKey = await deckPiecesKey();
+    const pending: string[] = [];
+    for (const id of readState<string[]>(pKey)?.value ?? []) {
+      const r = await apiAs('admin', 'POST', '/admin/inventory/adjustments', {
+        reason: 'error_captura',
+        inventoryItemId: id,
+        note: 'E2E §AC: pieza dada de alta por el arnés (deckScenario), no existe físicamente',
+      });
+      if (r.status < 300 || r.status === 404) continue;
+      // Solo se reintenta lo que sigue apartado; cualquier otro estado ya no es ajustable y no se arrastra.
+      const now = await apiAs<{ status: string }>('admin', 'GET', `/admin/inventory/items/${id}`);
+      if (now.status === 200 && now.body.status === 'reserved') pending.push(id);
+      else console.warn(`[e2e] §AC: la pieza del arnés ${id} no se pudo retirar (${r.status}; estado ${now.body?.status ?? now.status}).`);
+    }
+    if (pending.length > 0) {
+      writeState<string[]>(pKey, pending);
+      console.warn(`[e2e] §AC: ${pending.length} pieza(s) del arnés siguen apartadas; se retiran en la siguiente corrida.`);
+    } else clearState(pKey);
 
     const dKey = await deckKey();
     const deckId = readState<string>(dKey)?.value;
