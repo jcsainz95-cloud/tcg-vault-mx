@@ -296,6 +296,95 @@ no fallan de forma obvia: jest «Killed», `prisma generate` a medias, un rojo q
 **Comprobación:** cada encargo de gate o construcción incluye «borra tu copia al terminar (deja logs y capturas)»;
 al arrancar la sesión, `du -sh scratchpad/*` y borrado de lo que no tenga agente vivo.
 
+> *Ampliación 2026-10-07 (sesión 6):* el scratchpad no es el único que crece. La caché de jest **`/tmp/jest_0`**
+> llegó a **16 GB** (disco al 91 %); al borrarla bajó al 49 %. Es caché: se borra **solo** cuando no hay jest vivo
+> (ver O-25 para comprobarlo sin engañarse).
+
+### O-21 · Al dueño se le habla en español llano
+Todo mensaje al dueño va en español, sin jerga, con consecuencias de negocio. Los SHAs y ficheros solo cuando él
+los pida o cuando sostienen una afirmación (O-1), y entonces van al final, no al principio.
+
+> *De dónde viene:* 2026-10-07, sesión 6. Tras una compresión respondí en inglés; el dueño tuvo que escribir
+> «en español».
+
+**Comprobación:** releer el mensaje antes de enviarlo: si una frase necesita saber programar para entenderse,
+se reescribe.
+
+### O-22 · Un push de más cancela el CI que importa; un «cancelado» no es un rojo
+Cada push a una rama con PR abierta cancela la corrida anterior. Los trabajos cancelados salen como
+`e2e-ok`/`ci-ok` en **failure**, y llegan como avisos de fallo. Se agrupan los commits y se empuja **una vez por
+estado verificado**. Ante un aviso rojo, se mira primero si los trabajos de debajo dicen `cancelled`.
+
+> *De dónde viene:* 2026-10-07, sesión 6. En la #80 y la #82 empujé docs, veredicto y reglas en commits seguidos.
+> Hubo seis avisos de «failure» que eran cancelaciones, más una ronda de CI perdida en cada push.
+
+**Comprobación:** `gh api repos/<o>/<r>/actions/runs/<id>/jobs --jq '.jobs[]|select(.conclusion!="success")|"\(.name) \(.conclusion)"'`
+antes de tratar un rojo como rojo. Antes de empujar, mirar si hay CI corriendo sobre la rama y si el commit puede
+esperar al siguiente.
+
+### O-23 · Quitar un requisito puede quitar un disparador
+Cuando un cambio elimina una precondición («ya no hace falta X»), se busca **quién reaccionaba** a que X ocurriera.
+Si lo único que publicaba, avisaba o cerraba algo era el momento en que X se cumplía, al quitar X ese algo deja de
+pasar, y nada falla de forma visible.
+
+> *De dónde viene:* 2026-10-07, sesión 6. Al quitar la ubicación como requisito para publicar, el único disparador
+> automático era «mover a cajón» (`inventory.service.ts`, `tryAutoPublish(id,'move')`). Una carta recién dada de
+> alta con precio habría quedado sin publicar y fuera de la cola. Lo cazó el arquitecto, no yo, y obligó a un
+> segundo diseño (SU.8) después de que el primero ya estuviera construido.
+
+**Comprobación:** el encargo de un cambio que quita una condición lleva el `grep` de los llamadores del disparador
+asociado, con fichero:línea, y dice cuál sigue funcionando sin la condición.
+
+### O-24 · Cada rama reserva sus números antes de empezar
+Migración (`M-n`), versión de contrato (`v1.nn⟨tema⟩`), rango de criterios de `PROJECT.md` y sección de
+`*_NOTES.md`. Dos ramas en paralelo **no** eligen el «siguiente libre» cada una por su lado.
+
+> *De dónde viene:* sesiones 5 y 6. Choques de `BACKEND_NOTES §77→§80` y `DEVOPS_NOTES §90→§91` al fusionar. En la
+> sesión 6 se reservó por adelantado: accesorios M-73/v1.86, lista de deseos M-74/v1.87, criterios 700–749 y
+> 800–827. Esta vez no hubo choque.
+
+**Comprobación:** el encargo al arquitecto nombra los números reservados, y `PENDIENTES.md` lleva la tabla de
+reservas vigente.
+
+### O-25 · `pgrep -f` se encuentra a sí mismo
+`pgrep -fl jest` encuentra la propia shell que lo ejecuta, porque su línea de comando contiene «jest». Lo mismo
+pasa con `ps | grep jest`. Para saber si hay un proceso vivo: `ps -eo pid,args | grep "[j]est"`, y se descarta la
+línea de la propia shell.
+
+> *De dónde viene:* 2026-10-07, sesión 6. `pgrep -fl jest` decía que había jest corriendo cuando no había ninguno.
+> Casi aplazo la limpieza de 16 GB de disco por un falso «está en uso». Es O-19 en lectura: allí el patrón te
+> mataba, aquí te miente.
+
+**Comprobación:** antes de borrar una caché o matar un proceso, la lista viene de `ps -eo pid,args` con el patrón
+entre corchetes, y se revisa a mano.
+
+### O-26 · Una rama de especificación se une a `production` antes de lanzar al arquitecto
+Las ramas del product-owner (solo `PROJECT.md`/`HECHOS.md`) se quedan atrás mientras otras se fusionan. Si el
+arquitecto diseña sobre una base vieja, el contrato que escribe choca con el de `production`.
+
+> *De dónde viene:* 2026-10-07, sesión 6. `claude/wishlist` y `claude/accesorios` iban dos días atrás. Al unirlas
+> salieron tres bloques en conflicto en `PROJECT.md` por rama (las secciones nuevas de cada lado en el mismo sitio).
+> Se resolvieron por unión estructurada: secciones de ambos lados, y en «Fuera de alcance» las viñetas nuevas sin
+> duplicar la cabecera.
+
+**Comprobación:** antes del encargo al arquitecto, `git merge-base --is-ancestor origin/production HEAD` da 0. En
+`PROJECT.md`, los conflictos de «secciones nuevas en el mismo sitio» se resuelven por unión, se comprueba con
+`grep -n '^## \|^### '` que el orden quedó bien y que no hay una cabecera duplicada.
+
+### O-27 · Antes de reinterpretar al dueño, mido; si sigue ambiguo, pregunto con un ejemplo en pesos
+Si una respuesta del dueño se puede leer de dos formas, primero se mide si el sistema permite ambas. Si siguen
+siendo dos, se le pregunta con **un ejemplo numérico** de cada lectura, no con la jerga de la especificación.
+
+> *De dónde viene:* 2026-10-07, sesión 6.
+> - «Solo ofrecemos accesorios en compra de invitado»: lo tomé como «todo pedido a domicilio». La medición
+>   (`guest-checkout.dto.ts:130`) mostró que hoy solo el invitado puede pedir a domicilio, así que su frase era
+>   literal y correcta.
+> - «Las cartas más caras que estarán con nuestro margen de 15 %»: le pregunté opción A u opción B en abstracto y
+>   tuvo que preguntar «¿a qué te refieres?». Con el ejemplo de una carta de MX$1,000 lo contestó en un mensaje.
+
+**Comprobación:** la fila de `HECHOS.md` lleva sus palabras literales y marca «por confirmar» lo ambiguo. La pregunta
+lleva un ejemplo con cifras.
+
 ## Arranque y traspaso de sesión
 - **Tres ficheros, tres papeles:** `HECHOS.md` (lo que el dueño estableció y lo medido de infraestructura; no
   se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y **comprobación**, y sus

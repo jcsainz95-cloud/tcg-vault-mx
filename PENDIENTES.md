@@ -3,8 +3,67 @@
 > **Cómo se usa (regla O-5):** un pendiente **afirma su fecha de medición o no afirma nada**. Antes de enrutar
 > trabajo a partir de uno, **se re-mide** (el comando o `fichero:línea` de la columna «Comprobación» es por dónde
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
-> Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
+> Última limpieza: **2026-10-07** (orquestador, sesión 6, al preparar el traspaso a la sesión 7; antes: 2026-09-29). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
+
+## Estado de la sesión 7 (orquestador, medido 2026-10-08 ~00:40 UTC, production `74996a24` sin cambios) — en curso
+
+> Medido con `git log -1 origin/<rama>` y `gh api` de runs. Antes de enrutar desde aquí, **re-medir** (O-5, O-18).
+
+| Rama | HEAD | Estado | Lo que falta |
+|---|---|---|---|
+| `claude/accesorios` | `dd26ae79` | Construida entera (A/B/C, frontend, erratas v1.86.1…v1.86.5, M-73, sharp 0.35.5, seed, censo). CI: SAST verde; `backend-e2e` verde tras `d8ff897a` (NO re-medido en `dd26ae79`). Techlead: **APROBADO CON CONDICIONES** sobre `dd26ae79` — C-1 orden de bloqueo en `orders/accessory-stock.ts` (liquidar/reponer ≠ apartar ⇒ posible 40P01), C-2 `accessoryLines?` opcional en `payments.service.ts:442,901`; 12 deudas TD-AC-1…11 (TD-AC-1 P1 es decisión del arquitecto) | QA (relanzado tras reinicio del contenedor 2026-10-08), luego C-1/C-2 + deuda, luego seguridad (por release) |
+| `claude/wishlist` | `1b0306f4` | Construida entera + arreglos del rechazo de QA (erratas v1.87.3 «avísame» con `{email, inventoryItemId}`, v1.87.4 re-apuntado de suscripciones huérfanas). CI verde en `1b0306f4` (devops §94). Techlead: **APROBADO** (re-check sobre `1b0306f4`); deuda nueva 1–6 por registrar | QA re-gate (relanzado), luego registrar deuda 1–6 |
+| `claude/limpieza-db` | `773746d2` | PR #80 lista, sin fusionar | Dueño fusiona. **Medido 2026-10-07:** la limpieza para en G-8 (sin escribir) si encuentra tablas no clasificadas; M-73 y M-74 añaden tablas ⇒ **correr la limpieza ANTES de publicar accesorios y wishlist** (o aplicar LZ-W1…W5 de `API_CONTRACT` wishlist WSH.7 y re-gates). Antes de limpiar: apagar `sealed_restock_alerts` y `wishlist_enabled` |
+
+**Preguntas al dueño (2026-10-07, sin respuesta; todas construidas con la recomendación):** P-AC-1…5 y Q-AC-UX-1 (accesorios), Q-WSH-1/2 y Q-WSH-UX-6 (lista de deseos). M-1 de wishlist (la promo no borra el deseo de la carta de set) lo decidió el arquitecto leyendo WSH.1; el dueño puede pedir lo contrario.
+
+**Medido y nuevo en la sesión 7:**
+- P-S6-CENSO: **era verdad**; arreglado en ambas ramas (`1c133193`, blobs idénticos en wishlist).
+- CL-1: la CSP en `report-only` llegó a production con la #76 (2026-10-06 03:38 UTC) ⇒ 72 h = **2026-10-09 03:38 UTC**. Las demás condiciones de §14.3 NO re-medidas.
+- `tcghunt.mx` da 403 de proxy desde este contenedor (2026-10-07): no se puede medir la tienda en vivo desde aquí.
+- Intermitente NO atribuido: `enum-query-axes` · `GET /admin/vaults?sort=` 4/22 rojas (backend, sobre árboles de accesorios incl. `2aa807f7`); ¿existe en production? NO MEDIDO.
+- Intermitente de `next build` en CI: 2/5 caídas (devops §94.4), por atribuir.
+- Entorno: los agentes levantan clústeres Postgres propios en `/var/lib/postgresql/<nombre>`; en la infra compartida, los esquemas no-`public` ensucian ~8 suites y M-64/M-68 se saltan CHECKs.
+
+## Recuento 2026-10-07 (cierre de la sesión 6, sobre production `74996a24`) — MANDA sobre todo lo de abajo
+
+> Medido por el orquestador el 2026-10-07: estado de las PR con `gh api repos/.../pulls/<n>` y ramas con
+> `git merge-base --is-ancestor origin/<rama> origin/production`. Antes de enrutar trabajo desde una fila, **se re-mide** (O-5, O-18).
+
+### Fusionado hoy en `production` (no rehacer)
+| PR | Qué | Fusión |
+|---|---|---|
+| #78 | Buylist con guía Skydropx de entrada, «Declinar», cierre automático a 7 días | 2026-10-07 05:29 UTC |
+| #79 | Analítica de ventas del dueño (pestaña «Ventas», tarjeta «Ventas de hoy», «Ventas de ayer» en el correo de las 8:00) | 05:33 UTC |
+| #81 | Catálogo SEPOMEX en el repo, con huella fijada (`scripts/check-sepomex-pin.sh`, job `sepomex-pin`) | 06:13 UTC |
+| #82 | Vender sin cajón (§M1-SU, SU.1–SU.9): la ubicación ya no es requisito; las altas publican solas (SU.8) | 15:23 UTC |
+
+### Reservas de números vigentes (O-24)
+| Rama | Migración | Contrato | Criterios `PROJECT.md` |
+|---|---|---|---|
+| `claude/accesorios` | **M-73** | **v1.86⟨accesorios⟩** | 700–749 |
+| `claude/wishlist` | **M-74** | **v1.87⟨wishlist⟩** | 800–827 |
+| production | última: M-72 | última: v1.85⟨ventas⟩ | — |
+
+### Abiertos
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| P-S6-80 | **PR #80, limpieza de la base (v2.1 `773746d2`): LISTA para fusionar.** CI 77/77 verde; QA, techlead y seguridad aprobaron; el cuerpo explica qué se borra (también el inventario) y qué se conserva (usuarios, catálogo, precios, fotos, cajones). **Fusionar no borra nada.** | dueño (fusiona) | 2026-10-07 15:56 UTC | `gh api .../pulls/80 --jq .merged` |
+| P-S6-LIMP-RUN | **Correr la limpieza** (guiones A→B→C→D de `backend/prisma/data-repair/20261006_pdblimpieza_*`). **Antes, el dueño:** (1) lista `cuentas_prueba`; (2) ¿tiene CLI de Railway?; (3) ensayo de restaurar respaldo (recomendado sí; también es CL-3); (4) respaldo manual justo antes; (5) exportar bitácora si la quiere. **No correr** `reevaluate-unlocated.ts --apply` (SU.3-R, C-SU-1): tras la limpieza basta el ensayo en seco con `selected: 0` | dueño + orquestador | 2026-10-07 | D da «TODO OK» (los AVISO no son fallas) |
+| P-S6-SEPOMEX | **Cargar las colonias a la base:** `railway run scripts/geo/import-sepomex.sh import --file scripts/geo/data/CPdescarga.txt` (devops midió 158,322 filas, 7.2 s, y que resuelve el CP 01780). Necesita el CLI de Railway (sin respuesta del dueño) | dueño | 2026-10-07 | consulta del CP 01780 en la tienda |
+| P-S6-82-VERIF | Pruebas del dueño tras la #82: alta con precio sin cajón ⇒ «a la venta» y aparece en la tienda; alta sin precio ⇒ «Listas para publicar» por precio | dueño | 2026-10-07 (sin respuesta) | su confirmación |
+| P-S6-ACC | **Accesorios + energías + paquete de energías del Meta Battle Deck.** `PROJECT.md §AC` aprobable (criterios 700–749); decisiones en **5 filas de `HECHOS.md` de la rama** (2026-10-07). Arquitecto **hecho**: contrato v1.86⟨accesorios⟩ + M-73 en `c7cc8a90`. Abiertos: D-AC-1…3 (PO alinea PROJECT con HECHOS) y P-AC-1…5 (dueño, con recomendación) | arquitecto → ux-ui → backend ∥ frontend → gates | 2026-10-07 | AC-B1…B40 y AC-F1…F15 verdes |
+| P-S6-WSH | **Lista de deseos.** `PROJECT.md §WSH` aprobable (criterios 800–827); decisiones en 2 filas de `HECHOS.md` de la rama. P-WSH-7/8/9 van con la recomendación del PO (margen sobre lo que paga, 15 %, dial; arrancar con IVA, dial a sin IVA; sellados solo con conteo). Arquitecto **hecho**: contrato v1.87⟨wishlist⟩ + M-74 en `34712c2f`. Abiertos: Q-WSH-1/2 (dueño, con recomendación) y D-WSH-1…7 (los cierra backend) | igual | 2026-10-07 | WSH-T1…T30 y WSH-F1…F5 verdes |
+| P-S6-WSH-IVA | ⚠️ Con el máximo leído **con IVA**, el precio normal casi nunca cabe (mercado +33 % contra un máximo de +16 %, cuenta del PO con los diales iniciales de §N.2; **NO MEDIDO** contra producción). Se le explicó al dueño con un ejemplo en pesos; queda como dial | dueño (si quiere cambiar el dial) | 2026-10-07 | — |
+| P-S6-RESTOCK | El «avísame cuando vuelva» de sellados **no envía solo** (no está agendado; `sealed-restock-notify.service.ts:28-29`, nada en `scheduler.service.ts`) y el correo no lleva enlace. Va dentro de §WSH (criterio 823) | backend (en §WSH) | 2026-10-07 (PO) | criterio 823 verde |
+| P-S6-RESTOCK-SEC | Un invitado puede apuntar al «avísame» un correo ajeno sin verificarlo (`catalog.controller.ts:116`, límite de 5 por minuto) | arquitecto propone, pentester en el gate de §WSH | 2026-10-07 (PO) | hallazgo cerrado o aceptado en SECURITY_NOTES |
+| P-S6-LIVE | **Para cobrar en real (`sk_live_`)**, además de la limpieza: **CL-1** CSP en `enforce` (hoy `report-only`, `frontend/src/security/csp.ts:32`; la sesión 6 la planeó para el **2026-10-09 ~03:45 UTC**, tras 72 h en report-only, hora **NO re-medida** contra `SECURITY_NOTES §14.3`); **CL-2** parece cerrada (`security/gitleaks.toml:150`, 2026-10-05) pero **falta el veredicto** de seguridad; **CL-3** C6, DAST `full` sobre el sha en producción, C3=0 y simulacro de restauración (vacío en `DEVOPS_NOTES`, «no hecho»); **P-SHIP-C1-3**; aviso de privacidad con el abogado; claves live y webhook live (las pone el dueño, nunca por chat). Recomendado: pentest de tercero (`SECURITY_NOTES:305`) | devops, frontend, backend, seguridad, dueño | 2026-10-07 | `SECURITY_NOTES` CL-1..3 cerradas con sha |
+| P-S6-SEP15 | Una solicitud de venta **aceptada del 15 de septiembre, sin colonia**: se sugirió declinarla si es de prueba (la limpieza la borra de todas formas) | dueño | 2026-10-07 | — |
+| P-S6-DEUDA | Deuda nueva de la sesión 6 en `TECH_DEBT.md`: TD-SU-D1, D2, D4a/b, 9; TD-AN-1..7; las 9 de §BSD. Bajas aceptadas de seguridad: SU-S2 (precio tecleado sin segunda mirada), SU-S3 (alta suelta no idempotente), LZ2-S1..S3 | rol dueño de cada una | 2026-10-07 | cierre según su entrada |
+| P-S6-CENSO | El script de baseline del censo E2E **borra las líneas de motivo anteriores** al registrar uno nuevo (visto en #78) | devops | 2026-10-07 (de memoria de la sesión, **NO re-medido**) | correr el script dos veces y ver que conserva ambos motivos |
+| P-S6-AN-C | Analítica fase C: método de pago por pedido y contracargos por día (`M-AN-1`, migración aparte); buylist en el bloque «Envío» (criterio 622) | arquitecto → backend | 2026-10-07 | cuerpo de la #79 |
+| P-S6-LUEGO | Después de salir en vivo (decisión del dueño del 2026-10-06): idiomas y sellos (`claude/idiomas-sellos` `faf6b517`, §IDS con 10 preguntas), P-ANALYTICS-OPS, P-ANALYTICS-NEGOCIO, P-SDX-EXTCANCEL, envío a domicilio para clientes con cuenta (hoy solo invitado: `guest-checkout.dto.ts:130`) | — | 2026-10-07 | — |
 
 ## Orden de fusión de las ramas vivas (2026-10-05, sesión 5) — para no pisarse
 
@@ -1025,3 +1084,10 @@ roles) y **¿cómo le llama a M5?**.
 
 ---
 
+
+### Sesión 7 · abiertos medidos el 2026-10-08 (orquestador)
+| ID | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| P-S7-84 | **#84 lista para fusionar** (sha `431996d0`, 77/77 checks verdes; QA del delta de limpieza v2.2 APROBADO CON CONDICIONES no bloqueantes). La limpieza de producción ya se hizo (HECHOS 2026-10-08). | dueño (fusiona) | 2026-10-08 07:07 UTC | `gh api .../pulls/84 --jq .merged` |
+| P-S7-LZ-COND | Condiciones QA limpieza v2.2 (no bloquean): I-1 `graded-estimate.e2e-spec.ts:202` e `iva-price-convention.e2e-spec.ts:564/:686` rojas según orden/estado de otras suites (aisladas verdes); M-1 T-AC3 no compara la salida completa de B congelado vs nuevo; M-2 falta copia congelada de D; M-3 ramas nuevas de D sin «SIN PERMISO»; M-4 §14.8 no menciona la lista 2.7; M-5 §14.13.5 no lista la excepción `VariantPriceOverride.updatedAt`; M-6 Postgres local de pruebas debe ser UTF8. | backend (I-1, M-1..M-3), arquitecto (M-4, M-5), devops (M-6) | 2026-10-08 (QA sobre `431996d0`) | re-medir antes de enrutar |
+| P-S7-BMK | §BMK (mercado junto a «Te pagamos» en el cotizador), rama `claude/buylist-mercado` `342f84dc`: techlead APROBADO CON DEUDA (TD-BMK-1…6, frontend; propuesta al arquitecto sobre «cotizada a 0», `pricing-curve.ts:961`). QA del stream en curso. Pregunta abierta al dueño: ¿se muestra igual cuando pagamos MÁS que el mercado (MX$0.50→MX$1.00; a mano MX$1,200 sobre MX$1,000)? Construido con «sí». | QA, frontend, dueño | 2026-10-08 | veredicto QA con sha |
