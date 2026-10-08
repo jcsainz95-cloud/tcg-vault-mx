@@ -9961,9 +9961,17 @@ Deuda que el techlead dejó al backend de la lista de deseos. **No se paga en es
   - **`FINISH_LABELS`:** `wishlist/wishlist-mail.ts:55` repite `buylist/buylist-mail.templates.ts:95`.
   - **`SET_IMAGE_HOSTS`:** `wishlist-mail.ts:26` lo importa de `catalog/catalog-sync.service.ts:285` (un servicio de
     sincronización) en vez de un módulo de constantes.
-- **Disparador:** el próximo cambio en cualquiera de esas copias.
+  - **Ampliación 2026-10-08 (re-check de techlead sobre `1b0306f4`, líneas re-medidas en ese sha):** la identidad del
+    sellado **como filtro** ya vive en **4 sitios**, no en 2: `sealedDetail` (`sealed-catalog.service.ts:363-375`, `groupWhere`),
+    la deduplicación del «avísame» (`sealed-catalog.service.ts:494-495`, `sameIdentity`), el relleno de M-74 paso (8)
+    (`prisma/migrations/20261027120000_m74_wishlist/migration.sql:141-150`) y la CTE de `reconcileOrphans`
+    (`sealed-restock-notify.service.ts:204-226`, `orphan`/`dest`). Las dos de TS pueden compartir un helper
+    `sealedIdentityWhere(identity): Prisma.…WhereInput` (gemelo de `sealedIdentityKey`); las dos SQL no (una es migración
+    publicada, la otra `$queryRaw`) y quedan con comentario que apunte al helper.
+- **Disparador:** el próximo cambio en cualquiera de esas copias, o en la regla de identidad del sellado.
 - **Comprobación:** una sola definición por concepto (`grep -rn "const FINISH_LABELS" backend/src` ⇒ 1; el «avísame» usa
-  `normalizeEmail`; `SET_IMAGE_HOSTS` en un fichero de constantes).
+  `normalizeEmail`; `SET_IMAGE_HOSTS` en un fichero de constantes); `sealedDetail` y `subscribeRestock` construyen su
+  filtro con `sealedIdentityWhere` (`grep -n "sealedIdentityWhere" backend/src/modules/catalog/sealed-catalog.service.ts` ⇒ 2).
 
 ### TD-WSH-6 · P3 · Escala de los barridos de 5 minutos
 - **Dueño:** backend (`modules/wishlist/wishlist-notify.service.ts:116`, `wishlist-pieces.ts` `undetectedMatches`;
@@ -9974,6 +9982,14 @@ Deuda que el techlead dejó al backend de la lista de deseos. **No se paga en es
 - **Disparador (umbral del techlead):** una corrida de cualquiera de los dos jobs **> 30 s**, o **> ~1k** filas pendientes
   (`WishlistNotice` `pending` o `SealedRestockSubscription` con `notifiedAt IS NULL`).
 - **Comprobación:** duración por corrida en el registro del job, y conteo de pendientes, antes y después.
+- **Ampliación 2026-10-08 (re-check de techlead sobre `1b0306f4`):** `reconcileOrphans`
+  (`sealed-restock-notify.service.ts:191`) corre en una transacción **interactiva** (`$transaction(async (tx) => …)`) con el
+  timeout por defecto de Prisma (**5 s**) y dentro hace lecturas sin paginar (CTE de huérfanas sobre toda
+  `SealedRestockSubscription` pendiente × `InventoryItem` sellado, más el `findMany` de `stay`). Con volumen, la tx
+  aborta por timeout y la reconciliación **no avanza nunca** (la corrida siguiente vuelve a leer lo mismo). Dirección:
+  `timeout` explícito acorde al umbral de arriba, o leer fuera de la tx y dejar dentro solo los `deleteMany`/`updateMany`
+  con su CAS (`notifiedAt: null`). Mismo disparador; comprobación añadida: una corrida con > ~1k huérfanas termina sin
+  `Transaction already closed`.
 
 ### TD-WSH-7 · P3 · `halfDiv` y la cota 2⁵³
 - **Dueño:** backend (`common/wishlist-math.ts:32-39` y sus llamadores `:47`, `:75-76`, `:90`).
@@ -10011,6 +10027,34 @@ Deuda que el techlead dejó al backend de la lista de deseos. **No se paga en es
   registrable) y `wishlist` se suscribe; `payments` deja de importar `WishlistModule`.
 - **Disparador:** un segundo consumidor de «pedido liquidado».
 - **Comprobación:** `grep -n "WishlistModule" backend/src/modules/payments` vacío; WSH-T16 y WSH-T43 verdes.
+
+### TD-WSH-11 · P4 · Doble cast `as unknown as` en los controladores con `StrictBodyPipe`
+- **Dueño:** backend. Registrado 2026-10-08 (re-check de techlead sobre `1b0306f4`; líneas medidas en ese sha).
+- **Qué es:** `StrictBodyPipe` devuelve la instancia validada, pero los handlers declaran `@Body(...) dto: Record<string, unknown>`
+  y la convierten con `dto as unknown as XDto` (`catalog/catalog.controller.ts:130-131`; `wishlist/wishlist.controller.ts:47,56,67,80`).
+  El doble cast apaga el chequeo de tipos: si el pipe o el DTO cambian, el compilador no avisa.
+- **Dirección:** tipar el pipe (`StrictBodyPipe<T>` con `transform(): T`) y declarar `dto: XDto` en el parámetro; va junto
+  con la mudanza del pipe a `common/pipes/` (TD-WSH-9).
+- **Disparador:** TD-WSH-9, o el próximo handler con `StrictBodyPipe`.
+- **Comprobación:** `grep -rn "as unknown as" backend/src/modules/catalog/catalog.controller.ts backend/src/modules/wishlist/wishlist.controller.ts` vacío; WSH-T38 y WSH-T42 (c) verdes.
+
+### TD-WSH-12 · P4 · M-74 paso (8) no aplica la regla de choque de (g): pendientes duplicadas cuentan doble contra el tope
+- **Dueño:** backend + **arquitecto** (decisión de contrato/ventana de despliegue). Registrado 2026-10-08 (re-check de
+  techlead sobre `1b0306f4`).
+- **Qué es:** el relleno de M-74 paso (8) (`prisma/migrations/20261027120000_m74_wishlist/migration.sql:141-150`) apunta las
+  pendientes no mapeadas a su `tcgplayerProductId` único **sin** la regla de choque que (g) sí aplica en
+  `reconcileOrphans` («mismo correo y misma clave nueva ⇒ se borra la más nueva»). Si un correo tenía una pendiente
+  `c:` y otra `p:` del mismo producto, tras (8) quedan **dos** del mismo `(email, clave)`. El «avísame» cuenta pendientes por
+  correo sin deduplicar (`sealed-catalog.service.ts:496-498`, `pendingForEmail`, contra `sealed_restock_max_pending_per_email`
+  en `:500`), así que ese correo gasta dos cupos por un solo producto. El envío sí agrupa (una línea por identidad), así
+  que no hay correo doble: el efecto es solo el cupo. M-74 no se edita una vez publicada.
+- **Propuesta al arquitecto:** que los conteos de la ventana de despliegue de M-74 incluyan los **duplicados por
+  `(email, clave)`** tras el paso (8) (consulta de solo lectura); si salen > 0, decidir entre una migración nueva que aplique
+  la regla de choque o dejar que el cupo lo absorba.
+- **Disparador:** la ventana de despliegue de M-74, o una queja de «no me deja apuntarme».
+- **Comprobación:** tras (8), `SELECT email, coalesce('p:'||"tcgplayerProductId", 'c:'||"cardId"||':'||coalesce("sealedSubtype"::text,'')), "sealedCondition", count(*)
+  FROM "SealedRestockSubscription" WHERE "notifiedAt" IS NULL GROUP BY 1,2,3 HAVING count(*) > 1` ⇒ 0 filas (o las
+  que haya, contadas en el registro de la ventana).
 
 ## Frontend · 2026-10-07 · gate de techlead sobre `503cf07` (rama `claude/wishlist`, §WSH)
 
@@ -10055,3 +10099,32 @@ Registrado a petición del techlead (aprobado con condiciones); **no se arregla 
 - **Disparador:** el próximo cambio en esos ficheros.
 - **Comprobación:** (a) `ChoiceChips` en `components/ui/` o renombrado; (b) `grep -rn "\[5, 10, 16\]" frontend/src/app` vacío;
   (c) el valor sale del fixture de ajustes del mock o lleva comentario `// MOCK:` con su motivo.
+
+### TD-WSH-F5 · P3 · Los E2E reales del «avísame» dejan suscripciones `@e2e.local` sin borrar
+- **Dueño:** frontend (`frontend/e2e/wishlist.spec.ts`); la limpieza efectiva depende de backend (purga en `seed-e2e`).
+- **Qué es:** «WSH-F5 · avísame sin sesión» (`wishlist.spec.ts:484-510`) crea en cada corrida real una suscripción con un
+  correo nuevo `e2e-wsh-restock-guest-…@e2e.local` (`freshEmail`, `:174-175`); el caso «con sesión» (`:512` en adelante)
+  hace lo mismo con una cuenta nueva (`e2e-wsh-restock-account-…`). Ninguno las borra: no hay `afterAll` y **el contrato no
+  tiene ruta de admin para borrar suscripciones de reabasto** (medido el 2026-10-08: `grep -n "DELETE" docs/API_CONTRACT.md`
+  sin ninguna sobre `restock-subscriptions`; solo existe `POST /catalog/sealed/restock-subscriptions`). La prueba no se
+  rompe por ello (compara `antes + 1`), pero la base del arnés crece una fila por corrida y el tope de 5 por correo no
+  aplica porque cada correo es nuevo.
+- **Mitigación en curso:** backend trabaja en paralelo una purga de las suscripciones `@e2e.local` en `seed-e2e`
+  (**NO MEDIDO** en este árbol a `1b0306f4`: `grep -n "e2e.local" backend/prisma/seed-e2e.ts` solo da las URLs de imagen
+  `:273-274`).
+- **Disparador:** que la purga de `seed-e2e` entre en la rama, o que el contrato añada una ruta de borrado.
+- **Comprobación:** con la purga: dos `seed-e2e` seguidos tras una corrida real dejan **0** filas de
+  `sealed_restock_subscriptions` con correo `%@e2e.local`. Si llega una ruta de admin: `afterAll` en `wishlist.spec.ts` que
+  la llame para los correos de la corrida, y esta entrada se cierra.
+
+### TD-WSH-F6 · P4 · El apéndice inglés de privacidad se ancla al apartado, no al bloque
+- **Dueño:** frontend (`(storefront)/privacidad/`).
+- **Qué es:** `englishAddenda` lleva solo `sectionId` (`page.tsx:43`: `{ sectionId: 'finalidades-primarias', … }`) y
+  `PrivacyNoticeView.tsx:147-153` pinta los párrafos `lang="en"` **al final del apartado**, después de todos sus bloques.
+  Que el inglés quede justo debajo de «Lista de deseos.» depende de que ese bloque sea hoy el último del apartado 3; si
+  alguien añade un bloque detrás, el inglés se separa de su párrafo sin que el código lo impida.
+- **Vigilancia actual:** WSH-UX-15 (`privacidad/page.test.tsx:101-118` y `e2e/wishlist.spec.ts:567`): lo que va justo
+  antes de «Wishlist.» debe ser «Lista de deseos.», y en `es` no hay párrafo `lang="en"`.
+- **Disparador:** el próximo bloque nuevo en `finalidades-primarias` o un segundo apéndice inglés.
+- **Comprobación:** el apéndice lleva también el ancla del bloque (p. ej. `afterBlockId`) y la vista lo pinta tras ese
+  bloque; WSH-UX-15 sigue verde con un bloque extra añadido al final del apartado en la prueba.

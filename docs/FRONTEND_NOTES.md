@@ -20803,3 +20803,15 @@ La línea base la regenera devops con estos motivos.
 
 **Suites (2026-10-08, este árbol):** vitest 303 ficheros verdes y 1 saltado, **3994/4004** (10 saltadas, 0 rojas);
 `tsc --noEmit` rc=0; `next lint` sin avisos.
+
+### §108.cierre · Deuda del re-check de techlead registrada (2026-10-08, base `1b0306f4`)
+
+QA y techlead aprobaron §WSH sobre `1b0306f4`. Este pase **no cambia conducta ni specs**; solo registra deuda en
+`docs/TECH_DEBT.md` (sección «Frontend · 2026-10-07 · gate de techlead sobre `503cf07`»):
+
+- **TD-WSH-F5** (nueva): los E2E reales del «avísame» (`wishlist.spec.ts:484-510` y el caso con sesión) dejan
+  suscripciones `@e2e.local`. No se añadió `afterAll` porque el contrato no tiene ruta de borrado (medido:
+  `grep -n "DELETE" docs/API_CONTRACT.md`); la limpieza queda en la purga de `seed-e2e` que lleva backend.
+- **TD-WSH-F6** (nueva): el apéndice inglés de `/privacidad` se ancla al apartado y no al bloque
+  (`PrivacyNoticeView.tsx:147-153`, `page.tsx:43`); hoy lo vigila WSH-UX-15.
+- **TD-WSH-F3** (staff en `/account/wishlist` ⇒ 404): ya estaba registrada con referencia a **Q-WSH-UX-6**; sin cambios.
