@@ -30735,3 +30735,38 @@ cada una se entrega con su mutación roja. Ninguna prueba demostró un defecto.
 - **Suites** (misma copia, `node_modules` enlazado): `tsc --noEmit` rc=0; unitaria entera **454/454 suites,
   8243/8243**; integración `accessories-panel` (esquema `acc_sharp`) **1/1, 32/32**.
 - **NO MEDIDO:** la imagen Docker (musl, canario de §93) con 0.35 — es de devops/CI (`trivy-image`).
+
+### 83.seed Filas del deck de energías en `seed-e2e.ts` (petición de frontend, `FRONTEND_NOTES §107.real`) (2026-10-07, rama `claude/accesorios`, sobre `4d15501f`)
+
+**Qué entra** (`backend/prisma/e2e-fixtures.ts` + `backend/prisma/seed-e2e.ts`; espejo de `DECK_SEED` en
+`frontend/e2e/utils/accessories-scenario.ts`):
+- `E2E_SET.ptcgoCode = 'EEB'`. El `upsert` del set pasa de `update: {}` a `update: { ptcgoCode }`: una BD sembrada antes
+  queda CORREGIDA, no como estaba (medido: `ptcgoCode` puesto a `NULL` a mano ⇒ tras sembrar, `EEB`). 3 letras a
+  propósito: los fixtures propios de `decks-meta-persistence`/`decks-meta-energy` usan códigos de 4 letras ⇒ sin choque
+  en el emparejador.
+- `E2E_CARDS.deckember` (`e2e-ac-deck-ember`, «E2E Deck Ember» #40) y `E2E_CARDS.deckspark` (`e2e-ac-deck-spark`,
+  «E2E Deck Spark» #41), en «E2E Base Set», `raw:NM` MX$50 (5000 ¢; la raw más barata ⇒ el orden por precio de
+  `frontend/e2e/utils/grading.ts` no se mueve). Al estar en `E2E_CARDS` entran solas al borra-y-declara de
+  `PriceReference` y al candado de `seed-idempotency.e2e-spec`.
+- Cuatro piezas `listed` de plataforma, raw NM, en la ubicación de plataforma: `E2E-LST-0010/0011` (#40) y
+  `E2E-LST-0012/0013` (#41) (`E2E_FOLIOS.listedDeck*`). Se resetean a plataforma/listed en cada siembra, como el resto
+  de `E2E-LST-*`, y sus `InventoryMovement` entran al reset del paso 3b.
+
+**Único candado que cuenta filas del set y se ajustó:** el oráculo `E2E_SET_EXPECTED_NUMBERS` gana `'40', '41'`
+(entre `33` y `98`). Es contar dos filas nuevas, no debilitar: canario medido — con las filas nuevas y el oráculo viejo,
+`buylist-cards-order` sale **rojo** (`Expected: 11, Received: 13`).
+
+**Medido** (esquema propio `acc_seed`, Postgres local):
+- Idempotencia: seed ×2 ⇒ conteos de `CardSet/Card/PriceReference/InventoryItem/User/Order` (2/17/15/19/11/2) y filas
+  del deck **idénticos** (`diff` vacío entre las dos fotos).
+- Integración completa `--runInBand` con el cambio: 124 suites, 108 verdes / 16 rojas. Re-corridas las 16: 8 eran
+  transitorias (6 por `sharp` a medio reinstalar en `node_modules` durante la corrida —subida 0.34→0.35 de otro rol—,
+  2 carreras bajo carga) y salen verdes; las otras 8 (31 pruebas: CHECKs/migraciones en esquema no-`public`,
+  `C-EQ-1`, PS-27/33/34/36b) fallan **igual** sobre una copia `git archive 4d15501f` del árbol entero sin el cambio
+  (esquema `acc_seed_base`): mismos 31 nombres. Preexistentes y de entorno, no de esta fila.
+- Verdes y sensibles al seed: `seed-idempotency`, `buylist-cards-order`, `catalog-checkout-webhook`, `buylist`,
+  `buylist-raw-only`, `buylist-cycle`, `vault-shipments`, `reevaluate-unlocated`, `decks-meta-energy`,
+  `decks-meta-persistence`, `set-ptcgo-code-search`. Unitaria `seed-e2e.target-guard` 16/16.
+
+**NO MEDIDO:** que los casos del deck de `accessories.spec.ts` dejen de saltarse contra el stack con este seed (lo cierra
+una corrida real de frontend/QA; frontend lo midió con las mismas filas simuladas por SQL, §107.real).
