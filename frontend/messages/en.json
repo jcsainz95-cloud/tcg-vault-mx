@@ -1839,6 +1839,10 @@
         "hint": {
           "not_arrived": "The parcel was lost or the customer never got it.",
           "arrived_damaged": "It arrived, but the cards weren't as sold."
+        },
+        "hintItem": {
+          "not_arrived": "The parcel was lost or the customer never got it.",
+          "arrived_damaged": "It arrived, but it wasn't as sold."
         }
       },
       "shippedRefund": {
@@ -2522,8 +2526,14 @@
               "damaged": "arrived damaged"
             },
             "body": "The server calculated the amount from what the customer paid for each card plus its share of the processing fee. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
+            "bodyAccessories": "The server calculated the amount from what the customer paid for each accessory plus its share of the processing fee. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
+            "bodyMixed": "The server calculated the amount from what the customer paid for each card and each accessory plus its share of the processing fee. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
             "bodyNothingShips": "No card is shipping: everything charged —cards, shipping and fee— is refunded and the shipment closes by itself. There's no need to cancel it.",
+            "bodyNothingShipsAccessories": "No accessory is shipping: everything charged —accessories, shipping and fee— is refunded and the shipment closes by itself. There's no need to cancel it.",
+            "bodyNothingShipsMixed": "Nothing is shipping: everything charged —cards, accessories, shipping and fee— is refunded and the shipment closes by itself. There's no need to cancel it.",
             "signature": "This refund is recorded in your name and the card goes to shrinkage signed by you.",
+            "signatureAccessories": "This refund is recorded in your name.",
+            "signatureMixed": "This refund is recorded in your name and each missing card goes to shrinkage signed by you.",
             "confirm": "Confirm {amount} and prepare",
             "cancel": "Cancel"
           },
@@ -7176,8 +7186,8 @@
     },
     "substitute": {
       "label": "Substitute available",
-      "use": "Use {name} ({set}\u00a0{number}) · {price}",
-      "usePending": "Use {name} ({set}\u00a0{number})"
+      "use": "Use {name} ({set} {number}) · {price}",
+      "usePending": "Use {name} ({set} {number})"
     },
     "addAll": {
       "button": "Add the whole deck",

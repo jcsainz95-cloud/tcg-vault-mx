@@ -146,6 +146,9 @@ export function ShipPreparationCard({
   const nothingShips = availableItems.length === 0 && order.items.length > 0 && !accShips;
   const allMissing =
     (availableItems.length > 0 || accLines.length > 0) && availableItems.every((i) => i.prepStatus === 'missing') && !accShips;
+  // §AC (QA §AC.gates): los textos de dinero hablan de lo que de verdad falta o no sale — cartas, accesorios o ambos.
+  const orderSubject = prepSubject(order.items.length > 0, accLines.length > 0);
+  const missingSubject = prepSubject(newMissing.length > 0, accNewMissing.length > 0);
   // Líneas bloqueadas cuyo cobro sigue vivo: el preparado las rechaza (`PREPARATION_HAS_BLOCKED_LINES`).
   // ⛔ No se decide aquí quién está `settled`: se apaga solo lo que el servidor ya rechazó una vez.
 
@@ -799,7 +802,7 @@ export function ShipPreparationCard({
         {step === 'collect' ? (
           <>
             {!isWithdrawal && allMissing && preparation.pending === 0 && (
-              <p className="text-sm text-text">{ts('confirmRefund.bodyNothingShips')}</p>
+              <p className="text-sm text-text">{ts(nothingShipsKey(orderSubject))}</p>
             )}
             <Button
               variant="primary"
@@ -870,6 +873,8 @@ export function ShipPreparationCard({
         lines={newMissing}
         accessoryLines={accNewMissing.map((l) => accessoryDialogLine(l, (k, v) => ts(`accessory.${k}`, v), locale))}
         nothingShips={!isWithdrawal ? allMissing || nothingShips : nothingShips}
+        orderSubject={orderSubject}
+        missingSubject={missingSubject}
         pending={prepare.isPending}
         locale={locale}
         onCancel={() => setConfirmOpen(false)}
@@ -1208,6 +1213,18 @@ function RefundLine({
 }
 
 /**
+ * De qué habla un texto de dinero de la preparación: solo cartas (los textos de §37.4 de siempre), solo accesorios o
+ * ambos. Sin nada que nombrar ⇒ `cards` (el texto de siempre).
+ */
+type PrepSubject = 'cards' | 'accessories' | 'mixed';
+const SUBJECT_SUFFIX: Record<PrepSubject, string> = { cards: '', accessories: 'Accessories', mixed: 'Mixed' };
+function prepSubject(hasCards: boolean, hasAccessories: boolean): PrepSubject {
+  if (hasAccessories && hasCards) return 'mixed';
+  return hasAccessories ? 'accessories' : 'cards';
+}
+const nothingShipsKey = (s: PrepSubject) => `confirmRefund.bodyNothingShips${SUBJECT_SUFFIX[s]}`;
+
+/**
  * §37.4 — el diálogo de «Pedido preparado» con consecuencias: 💰 la cifra del servidor en el botón
  * (directo) o los casos que se abren (retiro). Botones neutros, foco inicial en «Cancelar».
  */
@@ -1218,6 +1235,8 @@ function PrepareDialog({
   lines,
   accessoryLines = [],
   nothingShips,
+  orderSubject = 'cards',
+  missingSubject = 'cards',
   pending,
   locale,
   onCancel,
@@ -1231,6 +1250,10 @@ function PrepareDialog({
   /** 💰 §AC-F16: una línea por accesorio faltante, ya con su importe del servidor (`refund.amountCents`). */
   accessoryLines?: string[];
   nothingShips: boolean;
+  /** Qué trae el pedido (para «no sale nada»). */
+  orderSubject?: PrepSubject;
+  /** Qué falta en la lista del diálogo (para el cuerpo y la firma). */
+  missingSubject?: PrepSubject;
   pending: boolean;
   locale: AppLocale;
   onCancel: () => void;
@@ -1298,8 +1321,8 @@ function PrepareDialog({
           <p>{ts('confirmCases.body')}</p>
         ) : (
           <>
-            <p>{nothingShips ? ts('confirmRefund.bodyNothingShips') : ts('confirmRefund.body')}</p>
-            <p className="text-muted">{ts('confirmRefund.signature')}</p>
+            <p>{nothingShips ? ts(nothingShipsKey(orderSubject)) : ts(`confirmRefund.body${SUBJECT_SUFFIX[missingSubject]}`)}</p>
+            <p className="text-muted">{ts(`confirmRefund.signature${SUBJECT_SUFFIX[missingSubject]}`)}</p>
           </>
         )}
       </div>

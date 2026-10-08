@@ -20789,3 +20789,43 @@ mientras falten las filas de arriba); `realOnly` = import + 1 llamada (`beforeEa
 **Copys AC-UX.v1.86.4** (commit aparte): las cinco claves con el texto literal del diseño; `DeckAvailability.ac.test.tsx`
 comparaba el texto viejo de `noStock`; candado en `src/lib/i18n-accessories.test.ts` (sin las frases viejas + literal
 es/en). Mutación (texto viejo en `es` `bundleNoStock`) ⇒ 4 rojas, 1/1.
+
+### §107.gates · Condiciones de QA y techlead sobre `dd26ae79` (2026-10-08, rama `claude/accesorios`, base `dd26ae79`)
+
+**1 · Textos de CARTAS en flujos de ACCESORIOS (QA, MENOR).** `DESIGN_SYSTEM §AC-UX.12–13` da el texto literal de las
+filas del diálogo y de los botones, pero **no** da cuerpo, firma ni ayuda de motivo para el caso accesorio. Los textos de
+abajo son **neutros, redactados por frontend, pendientes de ratificar por ux-ui** (si cambian, solo cambia el JSON):
+
+| Clave nueva | ES | EN | Cuándo |
+|---|---|---|---|
+| `admin.m4.prep.ship.confirmRefund.bodyAccessories` | El importe lo calculó el servidor con lo que el cliente pagó por cada accesorio más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución. | The server calculated the amount from what the customer paid for each accessory plus … | en la lista solo faltan accesorios/paquete |
+| `…confirmRefund.bodyMixed` | … por cada carta y cada accesorio … | … for each card and each accessory … | faltan cartas y accesorios |
+| `…confirmRefund.signatureAccessories` | Este reembolso queda a tu nombre. | This refund is recorded in your name. | solo accesorios (⛔ «merma» es de cartas) |
+| `…confirmRefund.signatureMixed` | Este reembolso queda a tu nombre y cada carta faltante pasa a merma con tu firma. | … and each missing card goes to shrinkage signed by you. | mixto |
+| `…confirmRefund.bodyNothingShipsAccessories` | No sale ningún accesorio: se devuelve todo lo cobrado —accesorios, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo. | No accessory is shipping: … | pedido solo de accesorios y no sale nada (diálogo y pie) |
+| `…confirmRefund.bodyNothingShipsMixed` | No sale nada: se devuelve todo lo cobrado —cartas, accesorios, envío y comisión— … | Nothing is shipping: … | pedido con ambos y no sale nada |
+| `admin.m3.shippedReason.hintItem.{not_arrived,arrived_damaged}` | El paquete se perdió o el cliente no lo recibió. / Llegó, pero no estaba como se vendió. | … / It arrived, but it wasn't as sold. | «Reembolsar unidades» de un renglón de accesorio o paquete |
+
+Reglas: el cuerpo y la firma siguen a **lo que falta en la lista** del diálogo; «no sale nada» sigue a **lo que trae el
+pedido**. Solo cartas ⇒ las claves de §37.4 de siempre, sin cambio. `ShippedReasonFieldset` gana `subject?: 'cards' | 'item'`
+(por defecto `cards`: M3 total, retiro entregado y revisión no cambian); `RefundAccessoryLineDialog` pasa `item`.
+`confirmCases.*` (retiro de bóveda) no se tocó: un retiro no lleva accesorios. Fuera de alcance y anotado: `admin.m3.shippedRefund.*`
+(reembolso **total** tras el envío, `RefundOrderDialog`) dice «las cartas no vuelven a inventario»; en un pedido con
+accesorios es incompleto (tampoco vuelven, criterio 717) pero no falso — para que ux-ui decida.
+
+Pruebas: `ShipPreparationAccessories.ac.test.tsx` (6 casos: accesorio ×1 faltante es/en sin «carta»/«card», paquete
+faltante, solo-accesorios sin nada que salga —pie y diálogo—, mixto, solo-cartas igual) y `M3AccessoryLines.ac.test.tsx`
+(3: accesorio es/en y paquete, sin «carta» al abrir). Mutaciones sobre copia (deterministas, 1 corrida cada una):
+sufijos a `''` ⇒ 5 rojas; «no sale nada» sin sujeto ⇒ 1 roja; fieldset sin `hintItem` ⇒ 3 rojas.
+
+**2 · TD-AC-11 (techlead) — corregido, no registrado.** El comentario de `AccessoryPhoto.tsx:11-12` decía que una API
+en `http:` quedaría fuera de `img-src`; desde AC-F20 (v1.86.3) `img-src` lleva el origen de la API (`security/csp.ts:130`,
+`csp.test.ts:191`). Comentario reescrito.
+
+**3 · `skipIfSeedMissing` de `accessories.spec.ts` ⇒ fallo duro (propuesta devops `DEVOPS_NOTES §93.6`).** El seed
+siembra el deck desde `f76fe398` (`BACKEND_NOTES §83.seed`). `deckScenario()` ya no devuelve `{ready:false}`: lanza
+`Error` con la causa (como el `throw` de `energyBundle.offered`), y el spec pierde los 2 saltos + el import.
+**Censo** (`scripts/check-e2e-skip-census.sh`, 2026-10-08): `skipIfSeedMissing` **18 → 15 ocurrencias, 8 → 7 ficheros**
+(rc=0, «bajó»); el resto igual (mockOnly 144/30, needsSeed 35/10, harnessLimit 5/3, realOnly 24/8). Bajar el techo del
+baseline es de devops (`--update --motivo`). Playwright modo mock de `accessories.spec.ts`: 4 verdes, 6 saltados
+(`realOnly`, esperado); el modo real no se corrió (sin clúster propio) — los dos casos del deck los mide el pase real de QA.

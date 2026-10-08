@@ -1839,6 +1839,10 @@
         "hint": {
           "not_arrived": "El paquete se perdió o el cliente no lo recibió.",
           "arrived_damaged": "Llegó, pero las cartas no estaban como se vendieron."
+        },
+        "hintItem": {
+          "not_arrived": "El paquete se perdió o el cliente no lo recibió.",
+          "arrived_damaged": "Llegó, pero no estaba como se vendió."
         }
       },
       "shippedRefund": {
@@ -2522,8 +2526,14 @@
               "damaged": "llegó dañada"
             },
             "body": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
+            "bodyAccessories": "El importe lo calculó el servidor con lo que el cliente pagó por cada accesorio más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
+            "bodyMixed": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta y cada accesorio más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
             "bodyNothingShips": "No sale ninguna carta: se devuelve todo lo cobrado —cartas, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
+            "bodyNothingShipsAccessories": "No sale ningún accesorio: se devuelve todo lo cobrado —accesorios, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
+            "bodyNothingShipsMixed": "No sale nada: se devuelve todo lo cobrado —cartas, accesorios, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
             "signature": "Este reembolso queda a tu nombre y la carta pasa a merma con tu firma.",
+            "signatureAccessories": "Este reembolso queda a tu nombre.",
+            "signatureMixed": "Este reembolso queda a tu nombre y cada carta faltante pasa a merma con tu firma.",
             "confirm": "Confirmar {amount} y preparar",
             "cancel": "Cancelar"
           },
@@ -7176,8 +7186,8 @@
     },
     "substitute": {
       "label": "Sustituto disponible",
-      "use": "Usar {name} ({set}\u00a0{number}) · {price}",
-      "usePending": "Usar {name} ({set}\u00a0{number})"
+      "use": "Usar {name} ({set} {number}) · {price}",
+      "usePending": "Usar {name} ({set} {number})"
     },
     "addAll": {
       "button": "Agregar de jalón",

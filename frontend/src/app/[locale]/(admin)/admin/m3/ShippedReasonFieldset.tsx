@@ -20,6 +20,7 @@ export function ShippedReasonFieldset({
   onChange,
   disabled,
   testId,
+  subject = 'cards',
 }: {
   name: string;
   legend: string;
@@ -28,6 +29,11 @@ export function ShippedReasonFieldset({
   onChange: (v: ShippedRefundReason) => void;
   disabled?: boolean;
   testId?: string;
+  /**
+   * De qué es el reembolso: `cards` (pedido o carta, el texto de §40.1) o `item` (un renglón de accesorio o paquete,
+   * AC-UX.13): la ayuda de «Llegó en mala condición» no habla de cartas cuando lo reembolsado no es una carta.
+   */
+  subject?: 'cards' | 'item';
 }) {
   const t = useTranslations('admin.m3.shippedReason');
   return (
@@ -40,7 +46,7 @@ export function ShippedReasonFieldset({
           <input type="radio" name={name} value={r} className="mt-0.5 h-5 w-5 accent-text" checked={value === r} onChange={() => onChange(r)} />
           <span>
             {t(r)}
-            <span className="block text-muted">{t(`hint.${r}`)}</span>
+            <span className="block text-muted">{t(subject === 'item' ? `hintItem.${r}` : `hint.${r}`)}</span>
           </span>
         </label>
       ))}

@@ -8,8 +8,8 @@ import { resolveApiAssetUrl } from '@/lib/accessories';
 /**
  * Foto de accesorio (`DESIGN_SYSTEM §AC-UX.2/.3`): cuadrada, `object-contain`, regla de 1 px, pozo `surface-2`
  * mientras carga. Si no hay foto o falla: el respaldo de §5 (recuadro con el nombre), ⛔ nunca un icono roto.
- * `<img>` crudo como `CardImage`; la ruta de la API se ancla a su origen (`resolveApiAssetUrl`). CSP: `img-src … https:`
- * (`security/csp.ts:128`) ⇒ una API en `http:` (stack local) quedaría fuera en modo `enforce` (NO MEDIDO en navegador).
+ * `<img>` crudo como `CardImage`; la ruta de la API se ancla a su origen (`resolveApiAssetUrl`). CSP: `img-src` lleva
+ * el origen de la API (`security/csp.ts:130`, AC-F20 v1.86.3), así que una API en `http:` (stack local) también carga.
  */
 export function AccessoryPhoto({
   src,

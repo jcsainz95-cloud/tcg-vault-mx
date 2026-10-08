@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page, type Response } from '@playwright/test';
 import { t, LOCALES, type Locale } from './utils/i18n';
-import { loginAs, realOnly, skipIfSeedMissing } from './utils/auth';
+import { loginAs, realOnly } from './utils/auth';
 import { apiAs, apiAsOk } from './utils/env';
 import { withFileLock } from './utils/state';
 import {
@@ -131,8 +131,6 @@ for (const locale of LOCALES) {
 
     test('@real deck: «Agregar de jalón» no agrega el paquete; «Agregar paquete» lo pone en el carrito', async ({ page }) => {
       const sc = await withFileLock('accessories:deck-scenario', () => deckScenario());
-      skipIfSeedMissing(!sc.ready, sc.ready ? '' : `deck con energías: ${sc.missing}`);
-      if (!sc.ready) return;
 
       await page.goto(`/${locale}/decks-meta`);
       // La lista no pinta ningún «Ver deck»: cada deck es una tarjeta-enlace a `/decks-meta/{slug}`. En mock se entra por
@@ -269,8 +267,6 @@ for (const locale of LOCALES) {
        */
       test(`@real AC-F14 · 748 deck → «Agregar de jalón» → paquete → envío → sesión de pago (${locale})`, async ({ page }) => {
         const sc = await withFileLock('accessories:deck-scenario', () => deckScenario());
-        skipIfSeedMissing(!sc.ready, sc.ready ? '' : `deck con energías: ${sc.missing}`);
-        if (!sc.ready) return;
         const before = Object.fromEntries(
           await Promise.all(Object.entries(sc.energies).map(async ([k, a]) => [k, await getAdminAccessory(a.id)] as const)),
         ) as Record<'fire' | 'psychic', AdminAccessory>;

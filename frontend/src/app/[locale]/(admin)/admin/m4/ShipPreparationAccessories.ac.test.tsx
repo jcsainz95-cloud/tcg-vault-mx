@@ -5,7 +5,7 @@ import { PreparationQueue } from './PreparationQueue';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { shipAccLine } from '@/test/accessories.testkit';
-import type { ShipAccessoryLineDTO, ShipPreparationOrderDTO } from '@/types/contract';
+import type { ShipAccessoryLineDTO, ShipPreparationItemDTO, ShipPreparationOrderDTO } from '@/types/contract';
 
 /**
  * Preparación con accesorios — `API_CONTRACT §AC.9` (+ errata v1.86.1), `DESIGN_SYSTEM §AC-UX.12`.
@@ -263,5 +263,90 @@ describe('v1.86.3 (§AC.19.5) · respuesta del PATCH y PREPARATION_INCOMPLETE', 
     if (confirm) fireEvent.click(confirm);
     expect(await screen.findByText(/Falta 1 accesorio por palomear\./)).toBeInTheDocument();
     expect(screen.queryByText(/falta 0|faltan 0/i)).toBeNull();
+  });
+});
+
+/**
+ * QA §AC.gates (MENOR, frontend): el diálogo «Pedido preparado» hablaba de CARTAS («lo que el cliente pagó por cada
+ * carta», «la carta pasa a merma») cuando lo que faltaba era un accesorio. El cuerpo y la firma siguen a lo que falta
+ * en la lista; «no sale nada» sigue a lo que trae el pedido. Textos neutros pendientes de ratificar por ux-ui
+ * (FRONTEND_NOTES §107.gates).
+ */
+describe('QA §AC.gates · el diálogo de preparado habla del tipo de renglón que falta', () => {
+  const cardItem = (id: string, over: Partial<ShipPreparationItemDTO> = {}): ShipPreparationItemDTO => ({
+    shipmentItemId: `sit-${id}`,
+    inventoryItemId: `inv-${id}`,
+    folio: `INV-${id}`,
+    quantity: 1,
+    card: { name: `Pikachu ${id}`, setName: 'Base Set', finish: 'holofoil', conditionLabel: 'NM', imageSmallUrl: null },
+    currentLocation: { kind: 'assigned', label: 'C01-F01-S01' },
+    prepStatus: 'pending',
+    missingReason: null,
+    prepMarkedBy: null,
+    availability: { kind: 'available' },
+    refund: { kind: 'refundable', amountCents: 31458 },
+    ...over,
+  });
+  const missingDeckBox = shipAccLine({
+    id: 'sal-1',
+    name: 'Deck box',
+    prepStatus: 'missing',
+    missingQty: 1,
+    missingReason: 'damaged',
+    refund: { kind: 'refundable', amountByQtyCents: [12000], amountCents: 12000 },
+  });
+  const pickedSleeves = { ...SLEEVES, prepStatus: 'picked' as const };
+
+  async function openPrepared(o: ShipPreparationOrderDTO, locale: 'es' | 'en' = 'es') {
+    serve(o);
+    vi.spyOn(api, 'prepareShipment').mockReturnValue(new Promise(() => {}));
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, locale);
+    const c = await card();
+    fireEvent.click(within(c).getByRole('button', { name: locale === 'es' ? 'Pedido preparado' : /prepared/i }));
+    return { c, dialog: await screen.findByRole('dialog') };
+  }
+
+  it('un solo accesorio faltante (el resto sale): ningún texto del diálogo dice «carta»', async () => {
+    const { dialog } = await openPrepared(order([missingDeckBox, pickedSleeves], { refundPreviewCents: 12000 }));
+    expect(dialog.textContent ?? '').not.toMatch(/carta/i);
+    expect(dialog).toHaveTextContent('lo que el cliente pagó por cada accesorio más su parte de la comisión');
+    expect(dialog).toHaveTextContent('Este reembolso queda a tu nombre.');
+  });
+
+  it('EN · un solo accesorio faltante: ningún texto del diálogo dice «card»', async () => {
+    const { dialog } = await openPrepared(order([missingDeckBox, pickedSleeves], { refundPreviewCents: 12000 }), 'en');
+    expect(dialog.textContent ?? '').not.toMatch(/\bcards?\b/i);
+    expect(dialog).toHaveTextContent('what the customer paid for each accessory');
+  });
+
+  it('paquete faltante: ningún texto del diálogo dice «carta»', async () => {
+    const missingBundle = { ...BUNDLE, prepStatus: 'missing' as const, missingQty: 1, missingReason: 'not_found' as const };
+    const { dialog } = await openPrepared(order([missingBundle, pickedSleeves], { refundPreviewCents: 2093 }));
+    expect(dialog.textContent ?? '').not.toMatch(/carta/i);
+  });
+
+  it('pedido solo de accesorios y no sale nada: ni el pie ni el diálogo dicen «carta»', async () => {
+    const { c, dialog } = await openPrepared(order([missingDeckBox], { refundPreviewCents: 12000 }));
+    expect(within(c).getByTestId('ship-footer-shp-1').textContent ?? '').not.toMatch(/carta/i);
+    expect(dialog.textContent ?? '').not.toMatch(/carta/i);
+    expect(dialog).toHaveTextContent('No sale ningún accesorio: se devuelve todo lo cobrado —accesorios, envío y comisión—');
+  });
+
+  it('mixto (carta y accesorio faltantes): el cuerpo nombra ambos', async () => {
+    const o = order([missingDeckBox, pickedSleeves], { refundPreviewCents: 43458 });
+    o.items = [cardItem('1', { prepStatus: 'missing', missingReason: 'not_found' }), cardItem('2', { prepStatus: 'picked' })];
+    o.preparation = { status: 'in_progress', refundPreviewCents: 43458, total: 2, pending: 0, picked: 1, missing: 1, blocked: 0 };
+    const { dialog } = await openPrepared(o);
+    expect(dialog).toHaveTextContent('lo que el cliente pagó por cada carta y cada accesorio');
+    expect(dialog).toHaveTextContent('cada carta faltante pasa a merma con tu firma');
+  });
+
+  it('solo cartas: el texto de siempre (§37.4) no cambia', async () => {
+    const o = order([pickedSleeves], { refundPreviewCents: 31458 });
+    o.items = [cardItem('1', { prepStatus: 'missing', missingReason: 'not_found' }), cardItem('2', { prepStatus: 'picked' })];
+    o.preparation = { status: 'in_progress', refundPreviewCents: 31458, total: 2, pending: 0, picked: 1, missing: 1, blocked: 0 };
+    const { dialog } = await openPrepared(o);
+    expect(dialog).toHaveTextContent('lo que el cliente pagó por cada carta más su parte de la comisión');
+    expect(dialog).toHaveTextContent('Este reembolso queda a tu nombre y la carta pasa a merma con tu firma.');
   });
 });

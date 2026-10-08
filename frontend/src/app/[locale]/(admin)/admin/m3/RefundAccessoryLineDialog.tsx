@@ -118,7 +118,7 @@ export function RefundAccessoryLineDialog({
             <QuantityStepper label={t('howMany')} value={k} min={1} max={max} onChange={setK} compact />
           )}
           <p className="tabular text-sm text-text">{t('amount', { amount: formatMoneyCents(amount, locale) })}</p>
-          <ShippedReasonFieldset name={`acc-refund-${target.lineId}`} legend={t('reasonLegend')} value={reason} onChange={setReason} />
+          <ShippedReasonFieldset name={`acc-refund-${target.lineId}`} legend={t('reasonLegend')} value={reason} onChange={setReason} subject="item" />
           <Textarea
             label={t('note')}
             hint={t('noteHelp')}

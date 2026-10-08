@@ -210,3 +210,18 @@ describe('AC-F22 (v1.86.3, §AC.19.6) · id y kind obligatorios', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('ord-8001', 'oal-7', expect.objectContaining({ quantity: 1 })));
   });
 });
+
+/** QA §AC.gates (MENOR, frontend): la ayuda de «Llegó en mala condición» decía «las cartas» en un renglón de accesorio. */
+describe('QA §AC.gates · «Reembolsar unidades» no habla de cartas', () => {
+  it.each([
+    ['oal-1', 'es', /carta/i],
+    ['oal-2', 'es', /carta/i],
+    ['oal-1', 'en', /\bcards?\b/i],
+  ] as const)('renglón %s (%s): ningún texto del diálogo al abrir nombra cartas', async (lineId, locale, re) => {
+    vi.spyOn(api, 'getAdminOrder').mockResolvedValue(fresh());
+    renderWithProviders(<M3OrderDetailView orderId="ord-8001" />, locale);
+    const dialog = await openDialog(lineId);
+    expect(dialog.textContent ?? '').not.toMatch(re);
+    expect(dialog).toHaveTextContent(locale === 'es' ? 'Llegó, pero no estaba como se vendió.' : "It arrived, but it wasn't as sold.");
+  });
+});

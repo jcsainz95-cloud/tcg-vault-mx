@@ -20,8 +20,8 @@ import { readState, writeState, clearState, withFileLock } from './state';
  * `CardSet.ptcgoCode` + número (`deck-matcher.service.ts:10`) y el seed E2E no pone `ptcgoCode` a
  * ningún set (medido 2026-10-07 en el clúster propio: `select "ptcgoCode" from "CardSet"` ⇒ vacío) ni
  * hay endpoint que lo escriba. Esas filas se piden a backend (`DECK_SEED`, abajo; FRONTEND_NOTES
- * §107.real). Sin ellas, `deckScenario()` devuelve `missing` con la causa y el caso se salta con
- * el salto por dato del seed (falta el DATO), no como solo-mock.
+ * §107.real). Backend las siembra desde `f76fe398` (`BACKEND_NOTES §83.seed`), así que sin ellas
+ * `deckScenario()` FALLA con la causa (FRONTEND_NOTES §107.gates): ya no es un dato pendiente, es una regresión.
  *
  * HUELLA QUE DEJA EN EL ENTORNO (declarada):
  *  - Accesorios creados por el arnés: se BORRAN al final del caso (`retireAccessory`); si ya tienen
@@ -315,9 +315,12 @@ export interface DeckDetail {
   energyBundle: { offered: boolean; reason: string | null; priceCents: number; looseTotalCents: number };
 }
 
-export type DeckScenario =
-  | { ready: true; slug: string; name: string; detail: DeckDetail | null; energies: Record<string, AdminAccessory> }
-  | { ready: false; missing: string };
+export interface DeckScenario {
+  slug: string;
+  name: string;
+  detail: DeckDetail | null;
+  energies: Record<string, AdminAccessory>;
+}
 
 /**
  * Deck con energías ligadas y paquete ofrecido. En mock: el primer deck del simulador (`slug` vacío ⇒
@@ -325,7 +328,7 @@ export type DeckScenario =
  * propio `GET /decks-meta/:slug` (quien dice si se ofrece es el servidor).
  */
 export async function deckScenario(): Promise<DeckScenario> {
-  if (!IS_REAL) return { ready: true, slug: '', name: '', detail: null, energies: {} };
+  if (!IS_REAL) return { slug: '', name: '', detail: null, energies: {} };
   // Disponible de sobra para las dos sesiones (ES y EN) aunque la primera deje sus energías apartadas.
   const fire = await ensureEnergy('fire', DECK_ENERGIES.fire * 2);
   const psychic = await ensureEnergy('psychic', DECK_ENERGIES.psychic * 2);
@@ -348,19 +351,17 @@ export async function deckScenario(): Promise<DeckScenario> {
   writeState(await deckKey(), curated.id);
 
   const res = await apiAs<DeckDetail>('admin', 'GET', `/decks-meta/${DECK_SLUG}`);
-  if (res.status !== 200) return { ready: false, missing: `GET /decks-meta/${DECK_SLUG} respondió ${res.status}` };
+  if (res.status !== 200) throw new Error(`GET /decks-meta/${DECK_SLUG} respondió ${res.status}`);
   const detail = res.body;
   const cardLines = [...detail.groups.pokemon, ...detail.groups.trainer];
   const unmatched = cardLines.filter((l) => l.matchStatus !== 'matched' || l.availableQty < 1);
   if (cardLines.length === 0 || unmatched.length > 0) {
-    return {
-      ready: false,
-      missing:
-        `las cartas del deck no casan o no tienen pieza (${unmatched.map((l) => `${l.rawName}: ${l.matchStatus}, ` +
+    throw new Error(
+      `Las cartas del deck no casan o no tienen pieza (${unmatched.map((l) => `${l.rawName}: ${l.matchStatus}, ` +
           `disp. ${l.availableQty}`).join('; ') || 'sin líneas de carta'}). Falta en backend/prisma/seed-e2e.ts: ` +
         `ptcgoCode '${DECK_SEED.setCode}' en «E2E Base Set» y las cartas ${DECK_SEED.cards.map((c) => `${c.name} #${c.number}`).join(', ')} ` +
-        `con ${DECK_SEED.copiesPerCard} piezas listed cada una (FRONTEND_NOTES §107.real)`,
-    };
+        `con ${DECK_SEED.copiesPerCard} piezas listed cada una (BACKEND_NOTES §83.seed, desde f76fe398; FRONTEND_NOTES §107.gates)`,
+    );
   }
   if (!detail.energyBundle.offered) {
     throw new Error(
@@ -368,7 +369,7 @@ export async function deckScenario(): Promise<DeckScenario> {
         `Energías: Fuego disp. ${fire.availableQty}, Psíquica disp. ${psychic.availableQty}. Esto ya no es dato: mírese §AC.8.`,
     );
   }
-  return { ready: true, slug: DECK_SLUG, name: detail.name, detail, energies: { fire, psychic } };
+  return { slug: DECK_SLUG, name: detail.name, detail, energies: { fire, psychic } };
 }
 
 /**
