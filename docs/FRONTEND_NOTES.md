@@ -20584,3 +20584,54 @@ días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 defa
   «no hay ubicaciones») y lo reenvía a `ItemDetailModal`; `M1View` y `M11View` pasan `locations.isSuccess`.
 - **Techlead D3.** SU-UX-10 en `MasterSet.test.tsx`: carrito y `encontrada` invalidan `['pending-publish']`.
 - **Techlead D4** registrada en `TECH_DEBT.md` (TD-SU-D4a/b).
+
+## §110 · **§BMK — «Valor de mercado» junto a «Te pagamos», por carta, en el cotizador de venta** (2026-10-08, rama `claude/buylist-mercado`; `API_CONTRACT §BMK` v1.89⟨bmk⟩ · `ARCHITECTURE §4.BMK` · `DESIGN_SYSTEM §BMK` vBMK-1 · `PROJECT §BMK`, criterios 850–859)
+
+**Construido en `9e885fc5`** (base `d5d5bd5a` + backend `fa10107e`/`c1506e07`). Sin cambio de contrato, de
+`types/contract.ts` ni de ningún importe.
+
+- **Una regla, un sitio.** `frontend/src/lib/sell-market.ts` → `visibleMarketCents(q)`: `priced` ∧ `cotizada` ∧ entero
+  `> 0`, si no `null`. No mira `priceBasis` y **no depende** de BMK.2 del backend (filtra igual una cotización vieja de
+  `localStorage` o un servidor sin BMK.2). Lo llaman las cuatro superficies; ninguna repite el predicado.
+  - `QuoterTile` lo llama sobre la forma plana del binder (`variant.quote.status` **es** el `quote.status`), adaptada en
+    la llamada; el resto le pasa el payload tal cual.
+- **Teja del cotizador y teja de producto aparte** (`MasterSetBinder.tsx`): componente local `SellPriceBlock`, el `<dl>`
+  de §BMK.2 (mercado 13 px muted → «Te pagamos» 15 px tinta), `min-h-[4.5rem]` fijo (calculado, **NO MEDIDO** en
+  navegador a 360 px; N-BMK-3). No recibe números, solo cadenas ya formateadas: no puede comparar cifras.
+  «No disponible» / error de producto aparte = la línea de hoy, sin rótulos.
+- **Producto aparte en modo cotizador:** el mercado sale de `quoteOk.referencePrice`; `priceCents` (catálogo) queda
+  solo para los modos de inventario. El `aria-label` del contenedor deja de anunciar el catálogo (desviación (f)2
+  cerrada). Modos de inventario sin cambio (candado en `MasterSetBinder.bmk.test.tsx`).
+- **`aria-label` (§BMK.4):** `*AriaMarket` / `*AriaPay` / el de hoy, elegido por estado. **Cambio deliberado:** en una
+  teja sin cotización el aria de «Agregar» decía «Precio pendiente» mientras la teja decía «No disponible»; ahora dice
+  «No disponible» (lo que se ve). Ajustada la aserción de `MasterSet.test.tsx` (BUYLIST_RAW_ONLY).
+- **Ventana de detalle** (`CardDetailModal.tsx`, zona compartida): prop `marketCents?`; la fila de mercado usa `> 0`
+  (no hereda el `>= 0` de la cifra, desviación (f)4 sigue abierta y fuera de §BMK); «Estimado» → «Te pagamos».
+- **Carrito** (`SellCartContents.tsx`): `<dl data-testid="sell-cart-line-prices">` con «Valor de mercado c/u» y
+  «Te pagamos c/u» a la vista; se retiran «Estimado c/u» de los metadatos y la fila «Valor de referencia» de «Detalle»
+  (desviación (f)1 cerrada). Recotizando/fallida: las cifras pintan «—»; la fila de mercado existe solo si la
+  cotización **guardada** pasaba el predicado (BMK-UX-4). El testid `sell-cart-line-unit-dash` se conserva (lo lee P-55).
+  Total, barra y resumen: sin tocar.
+- **Nota de tono** `masterSet.quoterPriceNote`: una vez por set, entre filtros y grilla, solo en el cotizador.
+- **i18n:** 11 claves nuevas (`buylist.sellPrice.*` ×4, `masterSet.*Aria{Market,Pay}` ×6, `quoterPriceNote`). Se
+  **borran** `buylist.referencePrice`, `buylist.cartItemEstimate` y `cardDetail.estimate`: medido con `grep` que tras el
+  cambio solo las leía `e2e/buylist.spec.ts:248`, que se reescribió.
+- **E2E de hoy ajustados:** `e2e/buylist.spec.ts` — el filtro de «teja con precio» del smoke de VENDER pasa de
+  `/a la venta · MX\$/` a `/a la venta · .*Te pagamos MX\$/` y la cifra se lee de «Te pagamos» (si no, con el mercado
+  delante, el helper habría ordenado por mercado).
+
+**Pruebas.** Rojo medido contra `d5d5bd5a` (N=1, deterministas): **29 rojas / 3 verdes de 32** (las 3 verdes son
+F2-teja, F3-mercado-0 y F6, que el contrato marca «no rojo hoy»). Verde tras el cambio: vitest completo
+**3941 verdes / 10 omitidas (297 ficheros + 1 omitido)**, `tsc` 0, `next lint` limpio, paridad i18n verde.
+- `src/lib/sell-market.test.ts`, `src/lib/i18n-bmk.test.ts` (F8 paridad, UX-5, F7 claves),
+  `src/components/master-set/MasterSetBinder.bmk.test.tsx` (F1, F2, F3, F4, F7, F8, UX-1, UX-2, UX-6 + canario
+  inventario), `src/app/[locale]/(storefront)/buylist/SellCartContents.bmk.test.tsx` (F3, F5, F6, F7, UX-1, UX-3, UX-4),
+  `BuylistView.test.tsx` (teja = carrito; resumen sin mercado ni porcentajes es/en).
+- **BMK-E1** `e2e/buylist-bmk.spec.ts` (`@real`, dos casos). Mock (`next build`, puerto propio): **2/2 verdes**; el paso
+  «comprobar por API `marketMxnCents` === el visto» solo corre contra backend real. **Contra el stack: NO MEDIDO.**
+
+**Mutaciones** (copia `git archive 9e885fc5` del árbol entero, N=1 cada una, deterministas): **12/12 muerden** —
+F1 quitar fila (3 rojas), F2 quitar `quote.status` (4), F3 quitar `> 0` (3), F4 `priceCents` del catálogo (2), F5
+volver a pintar `referencePrice` por status en «Detalle» (1), F6 sumar mercados al total (4), F7 «(50 %)» en un rótulo
+(6), F8 quitar mercado del aria (2), UX-1 `line-through` (1), UX-2 invertir orden (2), UX-4 cifra vieja al
+recotizar (3), UX-6 nota fuera del cotizador (1).
