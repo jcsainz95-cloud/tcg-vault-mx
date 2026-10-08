@@ -1285,8 +1285,13 @@ export class BuylistService implements OnModuleInit {
         quotedPriceCents: line.quotedPriceCents,
         currency: 'MXN' as const,
       },
+      // v1.89⟨bmk⟩ (API_CONTRACT §BMK.2, ARCHITECTURE §4.BMK) — el mercado SOLO viaja si la línea está
+      // COTIZADA y el mercado es > 0. Lo que la UI tiene prohibido pintar no viaja (§4.36.7(b.2)):
+      // una carta en precio pendiente por guardarraíl no publica su mercado sospechoso (P-BMK-3), y un
+      // mercado <= 0 es «sin mercado» (H-1). Presentación pura: `decideBuyLine`/`createRequest` intactos
+      // (lo congelado en la solicitud no cambia, criterio 857).
       referencePrice:
-        line.referenceMxnCents != null
+        line.quotedPriceCents != null && line.referenceMxnCents != null && line.referenceMxnCents > 0
           ? { status: 'priced' as const, priceMxnCents: line.referenceMxnCents }
           : { status: 'pending' as const },
       paymentNotice: 'PAY_AFTER_RECEIPT' as const,
