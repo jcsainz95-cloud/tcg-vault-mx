@@ -5,7 +5,8 @@ import type { SalesGroupBy, SalesPreset, SalesReportParams, SalesTopSort } from 
  * servidor) y los locales `chart`, `cols`, `top`. Valores fuera de dominio ⇒ se ignoran y se usa el default (⛔ no se
  * manda basura al servidor para recibir un `400`). Módulo sin `'use client'`: lo usa también `page.tsx`.
  */
-export const M9_TABS = ['ventas', 'actividad'] as const;
+// ⭐ §WSH-UX.7: `compra` = «Lista de compra» (lista de deseos sin piezas a la venta, `super_admin`).
+export const M9_TABS = ['ventas', 'actividad', 'compra'] as const;
 export type M9Tab = (typeof M9_TABS)[number];
 
 export const SALES_PRESETS = ['today', 'yesterday', 'last7', 'last30', 'this_month', 'last_month'] as const;

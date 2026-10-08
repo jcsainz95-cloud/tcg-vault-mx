@@ -526,6 +526,9 @@ describe('PF-11 — candado de fuente: quién pasa QUÉ política', () => {
       'modules/pricing/price-ingest.service.ts': 1,
       'modules/pricing/pricing.service.ts': 2,
       'modules/pricing/variant-controls.service.ts': 1,
+      // rev v1.87⟨wishlist⟩ (§WSH.3 `normalDisplay`): el precio NORMAL de la lista de compra sale de `decideSalePrice` —
+      // un lector de VENTA (mismo veredicto que publicaría la pieza), no de compra.
+      'modules/wishlist/wishlist-market.service.ts': 1,
     });
   });
 

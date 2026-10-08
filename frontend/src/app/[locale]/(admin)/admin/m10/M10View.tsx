@@ -34,6 +34,7 @@ import { ShippingSection } from './sections/ShippingSection';
 import { SpendControlSection } from './sections/SpendControlSection';
 import { PremiumFloorSection } from './sections/PremiumFloorSection';
 import { BuylistCycleSection } from './sections/BuylistCycleSection';
+import { WishlistDialsSection } from './sections/WishlistDialsSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
@@ -109,6 +110,9 @@ const DIALS: DialSpec[] = [
   // retirado (`gradedEstimateIngestEnabled`), que se declaró gobernable y nunca se dibujó.
   { key: 'gradingHookEnabled', kind: 'onOff' },
 ];
+
+/** Claves que edita el listado genérico de M10 (candado REL-S7: cada dial se edita en UN solo bloque de M10). */
+export const M10_LIST_DIAL_KEYS: readonly string[] = DIALS.map((d) => d.key);
 
 /**
  * El dial que NO es un número más. Encenderlo es un **acto de dinero** (ARCHITECTURE §4.38r.3):
@@ -439,6 +443,10 @@ export function M10View() {
           )}
         </QueryState>
       </section>
+
+      {/* ⭐ §WSH-UX.9 (a) — «Lista de deseos»: sección propia debajo de «Diales de configuración», con su guardado
+          parcial y la confirmación de encendido (criterio 824). `id="wishlist"` = destino del enlace de la lista de compra. */}
+      <WishlistDialsSection />
 
       {/* §60.7 b (F-9) — los DIEZ diales del ciclo de venta, en su propio grupo, guardado y errores por campo. */}
       <BuylistCycleSection />

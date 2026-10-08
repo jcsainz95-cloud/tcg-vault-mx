@@ -591,6 +591,9 @@ model User {
   // SQL de M-68) y forma por el CHECK `user_owner_shape` (súper-admin, con correo, no borrado). La escriben SOLO la
   // migración M-68 (marca inicial con exactamente un candidato) y `prisma/set-owner.ts` (censo `C-OWN-1`).
   isOwner            Boolean      @default(false)
+  // rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.1): «dejar de recibir estos avisos» de la lista de deseos (criterio 814).
+  // `NULL` = avisos activos. Lo escriben `PUT /wishlist/alerts` y `POST /wishlist/mail-actions {action:'pause'}`.
+  wishlistAlertsPausedAt DateTime?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -613,6 +616,10 @@ model User {
   sealedRestockSubscriptions SealedRestockSubscription[]
   // v1.80.2 (M-61, §M4-SHIP.15.13): reembolsos manuales (SPEI) a este cliente.
   manualRefunds              ManualRefund[]
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): deseos, avisos y correos de la lista de deseos (cascada en el borrado duro).
+  wishlistItems              WishlistItem[]
+  wishlistNotices            WishlistNotice[]
+  wishlistMails              WishlistMail[]
 
   @@index([role])
   @@index([status])
@@ -954,6 +961,8 @@ model Card {
   // rev `decks-portada` (M-60): inversa de `MetaDeckList.coverCard`. Solo lado Prisma (sin columna).
   // Si la carta sale del catálogo, la portada queda en null (ON DELETE SET NULL) y conserva su crudo.
   metaDeckListCovers         MetaDeckList[]              @relation("MetaDeckListCover")
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): deseos de esta carta (cualquier acabado).
+  wishlistItems              WishlistItem[]
 
   @@index([setId])
   @@index([name])
@@ -1107,6 +1116,8 @@ model InventoryItem {
   // v1.80.1 (M-61, §M4-SHIP.15): casos «Por reponer» donde esta pieza es la original / la repuesta.
   caseAsOriginal      ReplacementCase[]     @relation("CaseOriginal")
   caseAsReplacement   ReplacementCase[]     @relation("CaseReplacement")
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): «esta cuenta ya supo de esta pieza» (una vez por pieza y cuenta).
+  wishlistNotices     WishlistNotice[]
 
   @@index([cardId])
   @@index([status])
@@ -2585,11 +2596,17 @@ model SealedRestockSubscription {
   sealedCondition    SealedCondition
   notifiedAt         DateTime?
   createdAt          DateTime        @default(now())
+  // rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.7 (c)/(d)): `armedAt` = el producto estuvo AGOTADO después de apuntarse
+  // (solo las armadas emparejan); `matchedAt` = primera vez que se vio de vuelta (ventana de agrupado). Nacen NULL (sin relleno).
+  armedAt            DateTime?
+  matchedAt          DateTime?
 
   // Empareja «producto vuelto a listed» → suscripciones pendientes (notifiedAt IS NULL) sin barrer.
   @@index([tcgplayerProductId, sealedCondition, notifiedAt])
   @@index([email])
   @@index([cardId])
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.7 (b)): tope de pendientes por correo y agrupado por correo al enviar.
+  @@index([email, notifiedAt])
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -2893,4 +2910,84 @@ model ShipmentAccessoryLine {
   refund               PaymentRefund?        @relation("AccessoryMissingRefund")
 
   @@index([shipmentRequestId])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// rev v1.87⟨wishlist⟩ (M-74) — LISTA DE DESEOS POR CUENTA. Norma: docs/API_CONTRACT.md §WSH.1; porqué: ARCHITECTURE §4.WSH.
+// Dueño del dato: `backend/src/modules/wishlist/`. ⛔ Ninguna de estas tablas gobierna un cobro ni aparta inventario (815).
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Estado de un aviso «ya la tenemos» por (cuenta, pieza). `skipped` lleva su motivo en `skipReason` (CHECK de M-74).
+enum WishlistNoticeStatus {
+  pending
+  sent
+  suppressed
+  skipped
+}
+
+// Un deseo = (cuenta, carta, acabado). Condición: siempre Near Mint (no hay columna). `maxPct` ∈ {5,10,16} (CHECK
+// `wishlist_max_pct_allowed`, HECHOS 2026-10-06 punto 3). El máximo en pesos NO se guarda: se calcula al leer (808).
+model WishlistItem {
+  id             String           @id @default(uuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardId         String
+  card           Card             @relation(fields: [cardId], references: [id])
+  finish         Finish
+  maxPct         Int
+  lastNotifiedAt DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  notices        WishlistNotice[]
+
+  // Criterio 804: la carrera del doble alta muere aquí (P2002 ⇒ 409 WISHLIST_DUPLICATE).
+  @@unique([userId, cardId, finish])
+  // Empareja pieza → deseos y agrega la lista de compra.
+  @@index([cardId, finish])
+}
+
+// «Esta cuenta ya supo de esta pieza»: la deduplicación vive en el único `(userId, inventoryItemId)` (criterio 810).
+// La foto (`priceDisplayCents`…`fits`) es lo que dijo el correo (806/825); NULL mientras `pending`.
+model WishlistNotice {
+  id                String               @id @default(uuid())
+  wishlistItemId    String
+  wishlistItem      WishlistItem         @relation(fields: [wishlistItemId], references: [id], onDelete: Cascade)
+  // = wishlistItem.userId (desnormalizado para el único).
+  userId            String
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inventoryItemId   String
+  // v1.87.2: CASCADE — borrar la pieza se lleva sus avisos (API_CONTRACT §WSH.11 (5)).
+  inventoryItem     InventoryItem        @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  status            WishlistNoticeStatus @default(pending)
+  // CHECK `wishlist_notice_skip_reason`: status='skipped' ⇔ skipReason IN ('paused','unverified','inactive','unavailable').
+  skipReason        String?
+  detectedAt        DateTime             @default(now())
+  mailId            String?
+  mail              WishlistMail?        @relation(fields: [mailId], references: [id], onDelete: SetNull)
+  // Centavos MXN. P de la pieza al enviar (con IVA dentro) = `ListingDTO.displayPriceCents`.
+  priceDisplayCents Int?
+  // Mercado del acabado EL DÍA DEL ENVÍO; NULL = sin mercado.
+  marketCents       Int?
+  // Máximo del cliente ese día, con IVA dentro; NULL ⇔ marketCents NULL.
+  maxDisplayCents   Int?
+  fits              Boolean?
+  resolvedAt        DateTime?
+
+  @@unique([userId, inventoryItemId])
+  @@index([status, detectedAt])
+  @@index([inventoryItemId])
+}
+
+// Un correo enviado = un lote; el tope diario cuenta estas filas. `failedAt`: el proveedor rechazó (sin reintento).
+model WishlistMail {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locale    Locale
+  itemCount Int
+  sentAt    DateTime         @default(now())
+  failedAt  DateTime?
+  notices   WishlistNotice[]
+
+  @@index([userId, sentAt])
 }

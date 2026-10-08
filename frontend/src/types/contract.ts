@@ -896,6 +896,12 @@ export interface GroupedListingDetailResponse {
   //   * v1.50.2: los `listings[i]` YA NO traen `gradingHighlight` (se movió al Summary de la
   //     rejilla). La ficha se sirve SOLO de este campo.
   gradedEstimates?: GradedEstimateDTO[];
+  /**
+   * ⭐ v1.87⟨wishlist⟩ (§WSH.4, ADITIVO): dial `wishlist_enabled` vigente. El bloque «Lista de deseos» de la ficha
+   * se monta SOLO con `true` (WSH-5: lo apagado no existe). Opcional en el TIPO porque un servidor anterior no lo
+   * trae; la ausencia se lee como apagado.
+   */
+  wishlistEnabled?: boolean;
 }
 
 // ---- Bóveda / portafolio (contrato §3) ----
@@ -6157,6 +6163,16 @@ export interface SettingsDTO {
   spendAlertExtraChargeImmediateCents?: number;
   spendAlertCancelRefundDays?: number;
   spendAlertLabelNotShippedDays?: number;
+  // ---- ⭐ v1.87⟨wishlist⟩ (§WSH.2): ocho diales de la lista de deseos. Opcionales: un servidor anterior no los trae;
+  // la UI trata la ausencia de `wishlistEnabled` como `off` (seed). ----
+  wishlistEnabled?: OnOff;
+  wishlistMaxPerAccount?: number;
+  wishlistMaxIvaMode?: WishlistIvaMode;
+  wishlistDailyMailCap?: number;
+  wishlistMailWindowMin?: number;
+  wishlistTargetMarginPct?: number;
+  wishlistMarginBasis?: WishlistMarginBasis;
+  sealedRestockMaxPendingPerEmail?: number;
 }
 
 /**
@@ -7817,3 +7833,131 @@ export interface AccessoryStockMovementsResponse {
 }
 /** `PHOTO_INVALID.details.reason` (§AC.11). */
 export type AccessoryPhotoInvalidReason = 'too_large' | 'unsupported_type' | 'too_many_pixels' | 'not_image';
+
+// ============================================================================
+// ⭐ v1.87⟨wishlist⟩ + errata v1.87.1 — §WSH Lista de deseos por cuenta, «lista de compra casi segura»
+// (API_CONTRACT §WSH.2, §WSH.4, §WSH.6, §WSH.8). Espejo literal del contrato.
+// ⛔ Toda cifra en pesos sale del servidor: el front no multiplica, no divide, no compara (WSH-2).
+// ============================================================================
+
+/** Cómo se lee el máximo del cliente (dial `wishlist_max_iva_mode`). */
+export type WishlistIvaMode = 'with_iva' | 'without_iva';
+/** Sobre qué se mide el margen de la lista de compra (dial `wishlist_margin_basis`). */
+export type WishlistMarginBasis = 'cost' | 'sale';
+/** Los tres niveles admitidos (HECHOS 2026-10-06, punto 3). */
+export type WishlistMaxPct = 5 | 10 | 16;
+export const WISHLIST_MAX_PCTS: readonly WishlistMaxPct[] = [5, 10, 16];
+
+export interface WishlistItemDTO {
+  id: string;
+  card: { id: string; name: string; setName: string; number: string; imageSmallUrl: string | null };
+  finish: Finish;
+  maxPct: WishlistMaxPct;
+  /** «se recalcula el día que la consigamos»; `no_market` ⇒ sin cifra, ni 0 (criterio 807). */
+  maxToday: { status: 'priced'; maxDisplayCents: number; approximate: true } | { status: 'no_market' };
+  /** Piezas vendibles hoy. `fits` lo calcula el SERVIDOR (v1.87.1); `null` ⇔ sin mercado. */
+  availableNow: { count: number; fromDisplayCents: number; fits: boolean | null } | null;
+  lastNotifiedAt: string | null;
+  createdAt: string;
+}
+
+export interface WishlistResponse {
+  items: WishlistItemDTO[];
+  count: number;
+  limit: number;
+  alertsPaused: boolean;
+  emailVerified: boolean;
+  ivaMode: WishlistIvaMode;
+  /** ⭐ v1.87.1: dial `iva_pct` vigente (entero, p. ej. 16). */
+  ivaRatePct: number;
+}
+
+/** ⭐ v1.87.1 (Q-WSH-UX-1): `GET /wishlist/preview?cardId=` — pesos de cada % ANTES de guardar. */
+export interface WishlistPreviewResponse {
+  cardId: string;
+  ivaMode: WishlistIvaMode;
+  ivaRatePct: number;
+  finishes: {
+    finish: Finish;
+    maxToday:
+      | { status: 'priced'; approximate: true; tiers: { maxPct: WishlistMaxPct; maxDisplayCents: number }[] }
+      | { status: 'no_market' };
+  }[];
+}
+
+export interface WishlistCreateRequest {
+  cardId: string;
+  finish: Finish;
+  maxPct: WishlistMaxPct;
+}
+
+export type WishlistMailAction = 'remove' | 'pause';
+export interface WishlistMailActionRequest {
+  action: WishlistMailAction;
+  id: string;
+  token: string;
+}
+export interface WishlistMailActionResponse {
+  result: 'removed' | 'paused' | 'already_done';
+}
+
+export type WishlistDemandSort = 'wanted' | 'ceiling' | 'margin' | 'market' | 'normal' | 'buyers' | 'buylist';
+export const WISHLIST_DEMAND_SORTS: readonly WishlistDemandSort[] = [
+  'wanted',
+  'ceiling',
+  'margin',
+  'market',
+  'normal',
+  'buyers',
+  'buylist',
+];
+export interface WishlistDemandParams {
+  sort?: WishlistDemandSort;
+  dir?: 'asc' | 'desc';
+}
+
+export interface WishlistDemandTierDTO {
+  maxPct: WishlistMaxPct;
+  accounts: number;
+  /** máximo del cliente, CON IVA (como lo ve él) */
+  maxDisplayCents: number | null;
+  /** «puedes pagar hasta», SIN IVA */
+  ceilingCents: number | null;
+}
+
+export interface WishlistDemandRowDTO {
+  cardId: string;
+  cardName: string;
+  setName: string;
+  number: string;
+  finish: Finish;
+  imageSmallUrl: string | null;
+  wantedCount: number;
+  /** solo niveles con ≥ 1 cuenta, orden 16 → 10 → 5 */
+  tiers: WishlistDemandTierDTO[];
+  mainCeilingCents: number | null;
+  marketCents: number | null;
+  normalPrice: { listCents: number; displayCents: number } | null;
+  buyersAtNormalPrice: number | null;
+  /** `pct` en PUNTOS porcentuales con un decimal (v1.87.1): `-9.5` = −9.5 %. */
+  marginAtMarket: { cents: number; pct: number } | null;
+  buylistTodayCents: number | null;
+}
+
+export interface WishlistDemandResponse {
+  generatedAt: string;
+  dials: {
+    ivaMode: WishlistIvaMode;
+    ivaRatePct: number;
+    ivaTransferPct: number;
+    targetMarginPct: number;
+    marginBasis: WishlistMarginBasis;
+  };
+  rows: WishlistDemandRowDTO[];
+  sealed: {
+    productName: string;
+    sealedSubtype: SealedSubtype | null;
+    sealedCondition: SealedCondition;
+    waitingCount: number;
+  }[];
+}

@@ -14761,3 +14761,141 @@ arreglo, dos registros sobre la copia del baseline vivo dejan 5 + 1 motivos.
 
 **Rollback.** `git revert` del commit: devuelve el baseline anterior (el gate vuelve a rc=1), el script de censo sin
 conservar motivos, `trivy-fs.sh` sin la descarga aparte y el paso de imagen sin anotación. No toca imágenes ni datos.
+
+---
+## §94 · Lista de deseos: censo E2E, arreglos traídos de `claude/accesorios` y CI antes del gate de QA (2026-10-08, rama `claude/wishlist`, devops, sobre `f7ef1a8d`)
+
+### 94.1 Ficheros traídos de `claude/accesorios` (P-S6-CENSO y trivy-fs «sin base»)
+
+Copiados **byte a byte** con `git show origin/claude/accesorios:<ruta> > <ruta>` (blob idéntico, comprobado con
+`git hash-object` contra `git rev-parse origin/claude/accesorios:<ruta>`), de los commits `1c133193` y `2aa807f7`
+(descritos en `DEVOPS_NOTES §93.6` de esa rama):
+
+- `scripts/check-e2e-skip-census.sh` — `--update` ya no borra las líneas de motivo anteriores.
+- `scripts/check-e2e-skip-census-canary.sh` — caso 9bis (un segundo `--update` conserva el motivo previo).
+- `security/scripts/trivy-fs.sh` — la base de Trivy se baja aparte con reintentos; si no baja ⇒ rc=2 «NO CONCLUYENTE»
+  (antes rc=1, el mismo color que un hallazgo); el escaneo corre con `--skip-db-update`.
+- `security/scripts/trivy-fs-selftest.sh` — caso 3bis y reimpresión del canario sin `::error` sueltos.
+
+Como el blob es el mismo en las dos ramas, al fusionar estos cuatro ficheros **no chocan**. No se trajo el cambio de
+`security-sast.yml` de `1c133193` (anotación del build de la imagen de frontend): esta rama no toca ese fichero, así
+que entra limpio con la fusión de `claude/accesorios`.
+
+**Mediciones (local, 2026-10-08, árbol `f7ef1a8d` + este diff):**
+
+| Instrumento | Resultado |
+|---|---|
+| `check-e2e-skip-census-canary.sh` | rc=0, **17/17** |
+| Mutación: canario con el `check-e2e-skip-census.sh` de `f7ef1a8d` (viejo), copia `git archive HEAD` del árbol entero | rc=1, **16/17** — cae el caso 9bis («BORRÓ el motivo anterior»). Determinista, N=1 |
+| `trivy-fs-selftest.sh` (trivy 0.69.3, binario oficial con sha256 verificado contra `trivy_0.69.3_checksums.txt`) | rc=0, 0 `::error` sueltos |
+| `trivy-fs.sh` | rc=0 (sin HIGH/CRITICAL de runtime) |
+
+### 94.2 Censo de salvaguardas E2E
+
+`check-e2e-skip-census.sh` daba **rc=1** en `f7ef1a8d` (local y CI: job `e2e-skip-census`, run 37707412553).
+Baseline regenerado con `--update --motivo` y los motivos de `FRONTEND_NOTES §108.v1.87.3` y `§108.v1.87.4`; las tres
+líneas de motivo anteriores se conservan (es justo lo que arregla 94.1):
+
+| Clave | Antes | Ahora |
+|---|---|---|
+| `mockOnly` | 144 / 30 | 148 / 31 (WSH-F3 y WSH-F9 «confirmar»: token HMAC que solo vive en el correo) |
+| `needsSeed` | 35 / 10 | 33 / 9 (baja: el seed ya siembra un sellado `listed`, `1753f9ed`) |
+| `realOnly` | 22 / 7 | 25 / 8 («avísame» de sellado: lo deriva el servidor; en mock siempre `FEATURE_DISABLED`) |
+| `harnessLimit`, `skipIfSeedMissing` | 5 / 3, 15 / 7 | sin cambio |
+
+Gate tras regenerar: **rc=0**.
+
+### 94.3 Al fusionar con `claude/accesorios`: el baseline CHOCARÁ (y estas notas también)
+
+`scripts/e2e-skip-census.baseline` cambia en las dos ramas (aquí `mockOnly`/`needsSeed`/`realOnly`; en accesorios
+`skipIfSeedMissing 18/8` y `realOnly 24/8`). Ninguna de las dos cifras vale tras la fusión: **no se resuelve el
+conflicto a mano eligiendo números**. Procedimiento, tras la **segunda** fusión:
+
+1. Resolver el conflicto conservando **todas** las líneas `#` de motivo de ambos lados (unión).
+2. `./scripts/check-e2e-skip-census.sh --update --motivo "fusión claude/wishlist + claude/accesorios: …"` sobre el
+   árbol fusionado (recuenta y deja las cifras reales).
+3. Comprobar `check-e2e-skip-census.sh` rc=0 y `check-e2e-skip-census-canary.sh` 17/17.
+
+`docs/DEVOPS_NOTES.md` también choca por cola (§93 allí, §94 aquí, ambas al final): se resuelve por unión, §93 antes
+de §94.
+
+### 94.4 CI de la rama sobre `f7ef1a8d` (antes de este commit)
+
+Medido con `gh api …/actions/runs?branch=claude/wishlist` y `…/jobs`; anotaciones con `check-runs/<id>/annotations`
+(los registros devuelven 403 desde aquí):
+
+| Run · job | Resultado | Dueño |
+|---|---|---|
+| CI 37707412553 · `e2e-skip-census` | failure (censo creció) | devops — arreglado en 94.2 |
+| CI · `frontend` › paso 8 `Build` | failure (`exit code 1`, sin anotación de causa) | por atribuir (ver abajo) |
+| CI · `ci-ok` | failure («2 job(s) no cumplen»: los dos de arriba) | — (consecuencia) |
+| CI · resto (26 jobs, incl. `backend`) | success | — |
+| Security SAST 37707412658 (6 jobs) | success | — |
+| E2E 37707412685 (`backend-e2e`, `frontend-e2e`, `e2e-ok`) | success | — |
+
+Ningún `cancelled` en ese sha. **`frontend` Build:** primera caída en la rama (en `7482f220` y `1d9e8182` pasó);
+`f7ef1a8d` solo toca `e2e/*.spec.ts`, un `page.test.tsx` y notas. En local, copia `git archive f7ef1a8d` del árbol
+entero, `npm ci` + `npm run build` con las mismas `NEXT_PUBLIC_*` del job ⇒ **rc=0** (Node 22; CI usa Node 24 —
+**NO MEDIDO** con 24). En el mismo sha, la imagen de frontend de `trivy-image` y `frontend-e2e` construyeron bien.
+La corrida del commit de este apartado vuelve a medirlo.
+
+### 94.5 Rollback
+
+`git revert` del commit: vuelven el baseline anterior y los cuatro scripts previos (el `--update` vuelve a borrar
+motivos y `trivy-fs` vuelve a dar rc=1 sin base). No toca imágenes, datos ni despliegue.
+
+---
+## §95 · Fusión `claude/accesorios` + `claude/wishlist` en la rama de publicación (2026-10-08, rama `claude/release-s7`, devops)
+
+Árbol medido: `HEAD` `d98e8bf6` (= `origin/production` + `claude/accesorios` `cabd8a15`) con `merge --no-commit` de
+`claude/wishlist` `d815b57d` en curso. Los ficheros de otros roles se resolvían en paralelo; nada de lo de abajo los lee
+salvo donde se dice.
+
+### 95.1 Conflictos de devops resueltos
+
+- **`docs/DEVOPS_NOTES.md`**: unión por cola, §93 (accesorios) y después §94 (wishlist), como pedía §94.3. Sin cambios de texto.
+- **`scripts/e2e-skip-census.baseline`**: procedimiento de §94.3. Unión de las líneas `#` de motivo de los dos lados y
+  después `check-e2e-skip-census.sh --update --motivo "…"` sobre el árbol fusionado. **Ninguna cifra se eligió a mano.**
+  `frontend/e2e/` no tenía conflictos ni marcadores en ese momento (`accessories.spec.ts` = blob de `HEAD`,
+  `wishlist.spec.ts` = blob de `d815b57d`, `catalog.spec.ts` fusionado sin conflictos).
+
+| Clave | accesorios | wishlist | **fusionado (medido)** |
+|---|---|---|---|
+| mockOnly | 144/30 | 148/31 | **148/31** |
+| needsSeed | 35/10 | 33/9 | **33/9** |
+| harnessLimit | 5/3 | 5/3 | **5/3** |
+| skipIfSeedMissing | 18/8 (techo; real 15/7 tras `d11be7bf`) | 15/7 | **15/7** |
+| realOnly | 24/8 | 25/8 | **27/9** (base 22/7 + 2/1 accesorios + 3/1 wishlist) |
+
+`check-e2e-skip-census.sh` rc=0 (las 5 claves = baseline); `check-e2e-skip-census-canary.sh` rc=0, **17/17**.
+
+### 95.2 Coherencia de la infraestructura en el árbol fusionado
+
+- `security-sast.yml`, `ci.yml`, `e2e.yml`, `Dockerfile.backend`: blob del árbol = blob de `HEAD`. `security-sast.yml` es el de
+  accesorios (wishlist lo traía igual a `production`), con G-SHARP entre el `docker build` y `Trivy image backend`.
+- `check-e2e-skip-census{,-canary}.sh`, `trivy-fs.sh`, `trivy-fs-selftest.sh`: mismo blob en las dos ramas y en el árbol (`git hash-object`).
+- `backend/package.json` trae `sharp ^0.35.5` y `backend/package-lock.json` = blob de `HEAD`: wishlist no añade dependencias.
+  `backend/src/modules/accessories/accessory-photo.ts` sigue existiendo, así que el caso R3 del canario G-SHARP tiene a qué apuntar.
+
+### 95.3 Candados corridos en local (2026-10-08, el árbol descrito al principio de §95)
+
+- **Verdes (rc=0):** todos los `scripts/check-*.sh` y sus canarios, menos los de la lista de abajo; entre ellos `check-ci-ok --static`
+  (28 jobs), `check-secret-defaults-canary` (**75/75**, repetido con timeout de 900 s porque con carga ~13 en 4 CPU se pasó de 300 s),
+  sepomex, stripe, skydropx, workflow-cwd, provenance y vercel.
+- `trivy-fs-selftest.sh` rc=0, sin `::error` sueltos, y **`trivy-fs.sh` rc=0** sobre el árbol fusionado (sin HIGH/CRITICAL). Trivy 0.69.3,
+  binario oficial con el sha256 comprobado contra `trivy_0.69.3_checksums.txt`, en el scratchpad.
+- `security/scripts/audit-npm.sh` rc=0 (ninguna app con avisos de nivel high o superior).
+- Los candados no tocaron nada de infraestructura en el árbol: `git status` de `scripts/ security/ .github/` es el mismo antes y después.
+
+**NO CONCLUYENTES aquí:**
+- `check-image-sharp.sh` y su canario: aquí no hay demonio de Docker (`/var/run/docker.sock` no existe). Los mide el job `trivy-image` de la PR.
+- `check-candidate-checks.sh`: pregunta a la API de GitHub por el sha y el árbol aún no está commiteado (422). Va después del commit y el push.
+- `check-ci-ok.sh` sin `--static` necesita el `NEEDS_JSON` de Actions (solo en CI).
+- `check-format-mix.sh`: compara commits (`origin/main..HEAD`), no la fusión sin commitear. Además se pasó de 300 s con la carga alta. Lo mide el CI.
+- `check-s3-local-clone-canary.sh` y `check-s3-local-expiry.sh`: falta `scripts/s3-local/node_modules`. Ninguna de las dos ramas los toca.
+- `check-graded-estimate-dials.sh` (necesita `ADMIN_BASE_URL`, en producción), `check-dast-gate-live.sh` y `check-e2e-must-run.sh` (necesita el informe de Playwright): solo tienen sentido en CI o en producción.
+
+### 95.4 Rollback
+
+Esta sección y el baseline vuelven con el `git revert -m 1` del commit de fusión. Para revertir solo el censo, se
+restaura el baseline de un lado y se repite `--update --motivo` sobre el árbol que quede. No toca imágenes, datos ni despliegue.

@@ -4468,7 +4468,9 @@
           "sealedValueTrend": "Sealed value trend",
           "sealedRestockAlerts": "Sealed restock alerts",
           "save": "Save {count} change(s)",
-          "saved": "Dials saved."
+          "saved": "Dials saved.",
+          "sealedRestockMaxPendingPerEmail": "Pending alerts per email",
+          "sealedRestockMaxPendingPerEmailHelp": "Most products one email can be waiting on at once. Stops someone from signing up another person's email to many products."
         },
         "onOff": {
           "on": "On",
@@ -5154,6 +5156,50 @@
         "cross": "The label fee deducted ({fee}) plus the minimum the seller receives ({net}) can't exceed the minimum to quote ({min}). Nothing was saved.",
         "save": "Save {count, plural, =0 {changes} one {# change} other {# changes}}",
         "saved": "Sell cycle saved."
+      },
+      "wishlist": {
+        "title": "Wishlist",
+        "subtitle": "How customers' wishlists and the Reports buy list work.",
+        "labels": {
+          "wishlistEnabled": "Wishlist",
+          "wishlistMaxPerAccount": "Cards per account",
+          "wishlistMaxIvaMode": "How the customer's max is read",
+          "wishlistTargetMarginPct": "Target margin",
+          "wishlistMarginBasis": "That margin is measured",
+          "wishlistDailyMailCap": "Alert emails per customer per day",
+          "wishlistMailWindowMin": "Minutes to batch alerts"
+        },
+        "help": {
+          "wishlistEnabled": "On, customers can save cards and get email alerts. Off, everything is hidden; lists are kept.",
+          "wishlistMaxPerAccount": "Lowering it doesn't delete saved cards; it only blocks adding.",
+          "wishlistMaxIvaMode": "<b>VAT included:</b> the % already includes VAT (market $1,000 at 10% = $1,100 total). <b>Before VAT:</b> the % goes before VAT ($1,100 + VAT = $1,276).",
+          "wishlistTargetMarginPct": "Used to work out “Pay up to” in the buy list.",
+          "wishlistMarginBasis": "<b>On what you pay</b> (you pay $100, you make $15) or <b>on the sale</b> (you sell for $100, you make $15).",
+          "wishlistDailyMailCap": "Anything over the cap goes out together the next day, if still on sale.",
+          "wishlistMailWindowMin": "Cards that arrive within this time go in one email. Also applies to sealed alerts."
+        },
+        "units": {
+          "pct": "%",
+          "int": "whole number"
+        },
+        "options": {
+          "on": "On",
+          "off": "Off",
+          "with_iva": "VAT included",
+          "without_iva": "Before VAT",
+          "cost": "On what you pay",
+          "sale": "On the sale"
+        },
+        "confirm": {
+          "title": "Turn on the wishlist?",
+          "body": "Before you turn it on, your privacy notice must say that we use wishlists, without names, to decide which cards to get. Once it's on, customers will see the button on card pages and start getting email alerts.",
+          "yes": "Yes, turn on",
+          "cancel": "Cancel"
+        },
+        "save": "Save wishlist ({count, plural, =0 {no changes} one {# change} other {# changes}})",
+        "saved": "Saved.",
+        "checkFields": "Check the marked fields. Nothing was saved.",
+        "invalid": "That value isn't valid for this setting."
       }
     },
     "m7": {
@@ -5242,7 +5288,8 @@
       },
       "tabs": {
         "sales": "Sales",
-        "activity": "Activity"
+        "activity": "Activity",
+        "buyList": "Buy list"
       },
       "sales": {
         "period": {
@@ -5449,6 +5496,76 @@
           "error": "Sales couldn't be loaded.",
           "forbidden": "Only the super-admin can see sales."
         }
+      },
+      "buyList": {
+        "title": "Cards people want that you don't have",
+        "subtitle": "Cards someone has on their wishlist that you don't have on sale today. No names: just how many.",
+        "dials": "Calculated with: target margin {margin}% {basis} · customers' max {ivaMode} · VAT {rate}%",
+        "basis": {
+          "cost": "on what you pay",
+          "sale": "on the sale"
+        },
+        "ivaMode": {
+          "with_iva": "read with VAT",
+          "without_iva": "read before VAT"
+        },
+        "changeDials": "Change in Settings",
+        "generatedAt": "Generated: {date}",
+        "sortLabel": "Sort by",
+        "sort": {
+          "default": "Recommended",
+          "wanted": "Most wanted",
+          "ceiling": "Ceiling",
+          "margin": "Margin at market",
+          "market": "Market",
+          "normal": "Regular price",
+          "buyers": "Pay your price",
+          "buylist": "Buylist today"
+        },
+        "dir": {
+          "desc": "Highest first",
+          "asc": "Lowest first"
+        },
+        "search": "Search card, set or number",
+        "hideNoMarket": "Hide those without a market price",
+        "filtered": "Showing {shown} of {total} cards. The CSV has the full list.",
+        "csv": "Download CSV",
+        "csvError": "We couldn't download the CSV. Please try again.",
+        "print": "Print",
+        "wanted": "{n, plural, one {# WANTS IT} other {# WANT IT}}",
+        "ceiling": "PAY UP TO",
+        "ceilingHelpLabel": "What “Pay up to” means",
+        "ceilingHelp": "The most you can pay and still make your margin, with the customer who offered the most.",
+        "withoutIva": "before VAT",
+        "tier": {
+          "caption": "Levels of those who want it",
+          "level": "Level",
+          "levelValue": "{pct}%",
+          "accounts": "Accounts",
+          "max": "Their max (VAT incl.)",
+          "ceiling": "You pay up to (before VAT)"
+        },
+        "market": "Market today {amount}",
+        "normal": "Your regular price {list} before VAT ({display} VAT incl.)",
+        "normalNone": "Regular price: not calculated",
+        "buyers": "Pay your regular price: {n}",
+        "marginGain": "If you pay market: you make {amount} ({pct}%)",
+        "marginLoss": "If you pay market: you lose {amount} (−{pct}%)",
+        "buylist": "Buylist would pay today: {amount}",
+        "buylistNone": "Buylist doesn't quote it today",
+        "noMarket": "NO MARKET PRICE",
+        "noMarketSr": "no data: there's no market price",
+        "emptyTitle": "Nobody is waiting for a card you don't have.",
+        "emptyBody": "When someone adds a card with nothing on sale to their wishlist, it shows up here.",
+        "sealedTitle": "Sealed products waiting for an alert",
+        "sealedSubtitle": "People who asked us to tell them when it's back. Only the count of emails.",
+        "sealedCols": {
+          "product": "Product",
+          "type": "Type",
+          "condition": "Condition",
+          "waiting": "Waiting"
+        },
+        "sealedEmpty": "Nobody is waiting for a sealed product."
       }
     },
     "vaults": {
@@ -7112,11 +7229,13 @@
     },
     "restock": {
       "title": "Notify me when it returns",
-      "body": "We will email you as soon as this product is back in stock.",
+      "body": "If it sells out, we'll email you once when it's back.",
       "emailLabel": "Email",
       "emailPlaceholder": "you@example.com",
       "cta": "Notify me",
-      "confirmed": "Done. We will email you when it returns."
+      "confirmed": "Done. If it sells out and comes back, we'll email you once.",
+      "signedInAs": "We'll notify {email}.",
+      "rateLimited": "Too many attempts. Wait a minute and try again."
     },
     "vault": {
       "emptyTitle": "You have no sealed product in your vault yet",
@@ -7317,6 +7436,129 @@
       "fighting": "Fighting",
       "darkness": "Darkness",
       "metal": "Metal"
+    }
+  },
+  "wishlist": {
+    "eyebrow": "WISHLIST",
+    "block": {
+      "title": "Looking for it? We'll email you when we get it.",
+      "nmNote": "Always Near Mint, ungraded.",
+      "finishLegend": "Finish",
+      "finishSingle": "Finish: {finish}",
+      "pctLegend": "How much above market price would you pay?",
+      "pctOption": "{pct}%",
+      "pctPesos": "up to {amount}",
+      "signalNote": "It's a signal for us, not a commitment: we don't hold the card or charge you anything. If we get it, it goes on sale at its regular price, the same for everyone.",
+      "add": "Add {finish} to my wishlist",
+      "count": "{count} of {limit}",
+      "inList": "It's on your wishlist · {finish} · up to {pct}% above market",
+      "noMarketLong": "No market price for now: once there is one, we'll work out your max.",
+      "changeLegend": "Change your max",
+      "saveChange": "Save change",
+      "removed": "We removed it from your wishlist.",
+      "duplicate": "It was already on your wishlist with this finish. You can change your max if you like."
+    },
+    "maxToday": "Your max today: {amount}",
+    "approx": "approximate",
+    "approxHelpLabel": "Why it's approximate",
+    "approxHelp": "Your max comes from the market price. We recalculate it on the day we get the card, so it may go up or down.",
+    "recalcNote": "It's recalculated with the market price on the day we get it.",
+    "noMarket": "No market price for now",
+    "notifyTo": "We'll notify {email}.",
+    "remove": "Remove from my wishlist",
+    "seeList": "See my wishlist",
+    "unverified": "Verify your email to get the alert.",
+    "unverifiedCta": "Verify in My account",
+    "pausedNote": "You paused your wishlist alerts: we won't email you until you resume them.",
+    "pausedCta": "Resume in My wishlist",
+    "saved": "SAVED",
+    "full": {
+      "title": "Your wishlist is full: you have {count} of {limit} cards.",
+      "body": "Remove one to make room and come back to this page."
+    },
+    "guest": {
+      "title": "Looking for it? Save it to your wishlist and we'll email you when we get it.",
+      "body": "You need an account to have a wishlist.",
+      "login": "Log in to add it",
+      "register": "Create account"
+    },
+    "error": {
+      "finish": "That finish doesn't exist for this card. Pick another one.",
+      "generic": "We couldn't save your wishlist. Please try again."
+    },
+    "card": {
+      "notHere": "We don't have this card today."
+    },
+    "account": {
+      "title": "Wishlist",
+      "summary": "{count} of {limit} cards. We'll email you when we get any of them.",
+      "summaryPaused": "{count} of {limit} cards. Alerts are paused.",
+      "summaryEmpty": "You don't have any cards on your wishlist yet."
+    },
+    "page": {
+      "back": "← My account",
+      "eyebrow": "ACCOUNT",
+      "title": "My wishlist",
+      "subtitle": "{count} of {limit} cards · We'll email you when we get any of these cards.",
+      "signalNote": "Your max is a signal so we know how far to look. If we get the card, it goes on sale at its regular price, the same for everyone, and we'll tell you even if it's above your max. We don't hold it for you: whoever pays first gets it.",
+      "pausedBanner": "You paused your wishlist alerts. Your wishlist is still saved.",
+      "pausedLost": "Anything that arrived while they were paused won't be announced again; check your wishlist to see what's available today.",
+      "resume": "Resume alerts",
+      "pause": "Pause alerts",
+      "resumed": "Done: you'll get your wishlist alerts again.",
+      "unverifiedBanner": "Verify your email to get the alerts.",
+      "alertsTitle": "Email alerts",
+      "alertsBody": "We email you when we get a card from your wishlist. We group several into one email.",
+      "searchTitle": "SEARCH FOR A CARD TO ADD",
+      "searchLabel": "Search for a card to add",
+      "searchPlaceholder": "Card name or number…",
+      "searchEmpty": "We couldn't find that card. Try its English name or its number.",
+      "searchCount": "{n, plural, one {# result} other {# results}}",
+      "full": "Your wishlist is full ({count} of {limit}). Remove a card to add another.",
+      "emptyTitle": "Your wishlist is empty",
+      "emptyBody": "Search for a card above or press “Add to my wishlist” on any card page. We'll let you know when we get it.",
+      "disabled": "The wishlist isn't available yet."
+    },
+    "row": {
+      "maxPct": "Your max: up to {pct}% above market",
+      "pctLabel": "Your max",
+      "pctOption": "up to {pct}%",
+      "save": "Save",
+      "today": "Today: up to {amount}",
+      "notYet": "We don't have it yet",
+      "available": "Available now: {count} · from {amount}",
+      "fits": "FITS YOUR MAX",
+      "above": "ABOVE YOUR MAX",
+      "seeCard": "See the card",
+      "lastNotified": "Last alert: {date}",
+      "neverNotified": "We haven't alerted you yet",
+      "remove": "Remove",
+      "removeLabel": "Remove {card} ({finish}) from my wishlist",
+      "removedToast": "We removed {card} from your wishlist.",
+      "undo": "Undo",
+      "undoFull": "We couldn't put it back: your wishlist is already full.",
+      "undoError": "We couldn't put it back. Search for it and add it again.",
+      "gone": "That card was no longer on your wishlist.",
+      "condition": "Near Mint"
+    },
+    "mailAction": {
+      "removeTitle": "Remove a card from your wishlist",
+      "removeBody": "Confirm and we'll remove it. You don't need to log in.",
+      "removeCta": "Remove from my wishlist",
+      "pauseTitle": "Stop your wishlist alerts",
+      "pauseBody": "Your wishlist stays saved. You can resume alerts any time in My account.",
+      "pauseCta": "Stop alerts",
+      "removed": "Done: we removed it from your wishlist.",
+      "paused": "Done: we won't send you these alerts anymore.",
+      "pausedHint": "You can resume them in My account › My wishlist.",
+      "alreadyRemoved": "That card was no longer on your wishlist.",
+      "alreadyPaused": "These alerts were already paused.",
+      "invalid": "This link doesn't work.",
+      "invalidHint": "Log in to check your wishlist.",
+      "rateLimited": "Too many attempts. Wait a minute and try again.",
+      "error": "We couldn't do it. Please try again.",
+      "working": "One moment…",
+      "goToList": "Go to my wishlist"
     }
   }
 }

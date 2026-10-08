@@ -26,6 +26,8 @@
  * Formato mínimo de los textos: `**negrita**` y `[marcador]`.
  */
 
+import { WISHLIST_PRIVACY_ES } from './privacy-wishlist';
+
 export type LegalBlock =
   | { type: 'p'; text: string }
   | { type: 'list'; items: string[] }
@@ -74,9 +76,9 @@ export const PROVISIONAL_FISCAL_TEXT =
   'cualquier solicitud sobre tus datos personales al correo de abajo.';
 
 export const privacyNoticeEs: LegalDocument = {
-  version: '0.3-provisional-2026-10-06',
+  version: '0.4-provisional-2026-10-07',
   pendingOwnerData: ['razonSocial', 'rfc', 'domicilio'],
-  updatedAt: '6 de octubre de 2026',
+  updatedAt: '7 de octubre de 2026',
   title: 'Aviso de privacidad integral — TCG HUNT',
   sections: [
     {
@@ -136,6 +138,8 @@ export const privacyNoticeEs: LegalDocument = {
             'i) Mantener la seguridad de la tienda (registro de acciones, límite de intentos de acceso).',
           ],
         },
+        // §WSH.5 · criterio 824: párrafo propio, literal de PROJECT.md (`privacy-wishlist.ts`).
+        { type: 'p', text: WISHLIST_PRIVACY_ES },
       ],
     },
     {

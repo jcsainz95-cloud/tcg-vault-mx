@@ -8,6 +8,7 @@ import { getSettings, updateSettings } from '@/lib/api';
 import type { EditableSettingsPatch, SealedPriceSource, SettingsDTO } from '@/types/contract';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
+import { Input } from '@/components/ui/Input';
 import { Banner } from '@/components/ui/Banner';
 import { Modal } from '@/components/ui/Modal';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
@@ -102,8 +103,11 @@ export function SealedDialsPanel({ onChanged }: { onChanged?: () => void }) {
   }
 
   function buildPatch(): EditableSettingsPatch {
-    const patch: Record<string, string> = {};
-    for (const key of dirtyKeys) patch[key] = draft[key]!;
+    const patch: Record<string, string | number> = {};
+    for (const key of dirtyKeys) {
+      // ⭐ §WSH.2: el tope anti-abuso es un ENTERO `[1,50]`; el servidor valida el dominio (`422` por clave).
+      patch[key] = key === 'sealedRestockMaxPendingPerEmail' ? Number(draft[key]!.trim()) : draft[key]!;
+    }
     return patch as EditableSettingsPatch;
   }
 
@@ -163,6 +167,22 @@ export function SealedDialsPanel({ onChanged }: { onChanged?: () => void }) {
                   value={currentOnOff('sealedRestockAlerts')}
                   onChange={(e) =>
                     setDraft((prev) => ({ ...prev, sealedRestockAlerts: e.target.value }))
+                  }
+                />
+                {/* ⭐ §WSH-UX.9 (c): tope anti-abuso del «avísame» (§WSH.7 b), junto a su interruptor. */}
+                <Input
+                  label={t('settings.sealedRestockMaxPendingPerEmail')}
+                  hint={t('settings.sealedRestockMaxPendingPerEmailHelp')}
+                  type="text"
+                  inputMode="numeric"
+                  value={
+                    draft.sealedRestockMaxPendingPerEmail ??
+                    (settings.data.sealedRestockMaxPendingPerEmail != null
+                      ? String(settings.data.sealedRestockMaxPendingPerEmail)
+                      : '')
+                  }
+                  onChange={(e) =>
+                    setDraft((prev) => ({ ...prev, sealedRestockMaxPendingPerEmail: e.target.value }))
                   }
                 />
               </div>

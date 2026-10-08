@@ -58,6 +58,9 @@ describe('⭐⭐ la pieza 7 — `displayPriceCents` SALIÓ del módulo del dial 
       'modules/inventory/inventory.service.ts',
       'modules/inventory/sealed-price.service.ts',
       'modules/orders/orders.service.ts',
+      // rev v1.87⟨wishlist⟩ (§WSH.3 `normalDisplay`): el `P` del precio NORMAL en la lista de compra del dueño (proyección
+      // admin, `super_admin`), por el MISMO camino de venta. ⛔ No cobra ni publica nada.
+      'modules/wishlist/wishlist-market.service.ts',
     ]);
   });
 
@@ -188,6 +191,9 @@ describe('⛔⛔ criterio 209 — `ivaTransferPct` NO viaja a ninguna superficie
       'modules/settings/iva-transfer.ts', // el DTO de la puerta (`/admin/*`)
       'modules/settings/settings.controller.ts', // la ruta `/admin/*` y su bitácora
       'modules/settings/settings.service.ts', // la puerta
+      // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.8 `dials`): la lista de compra del DUEÑO (`/admin/reports/*`, `super_admin`;
+      // operador y cliente ⇒ 403). ⛔ No viaja a ninguna superficie de cliente (`/wishlist*` solo lleva `ivaRatePct`).
+      'modules/wishlist/wishlist-demand.service.ts',
     ]);
   });
 

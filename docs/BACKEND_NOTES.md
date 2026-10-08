@@ -30923,3 +30923,376 @@ según el encargo; fichero:línea re-medidos por backend.
 - Integración `accessories-*` y `decks-meta-*` con `--runInBand`, Postgres 16 propio: **11/11 suites, 254/254** (dos
   corridas; la segunda con el estado final de C-2).
 - Unitaria completa: **456/456 suites, 8252/8252 pruebas**. `tsc --noEmit` limpio; `eslint` limpio en los ficheros tocados.
+
+---
+
+## 84 · §WSH lista de deseos construida (💰) — M-74, módulo `wishlist`, job `wishlist-notify`, lista de compra del dueño y «avísame» de sellados agendado con armado (2026-10-07, rama `claude/wishlist`, sobre `de751da`; código en `3615dbf`, `c61f1f0`, `c933461`, `c0667e6`)
+
+Norma: `API_CONTRACT §WSH` con la errata v1.87.1 (el contrato manda). Decisiones del dueño: `HECHOS.md` filas 2026-10-07
+«Respuestas a P-WSH-1…6» y «P-WSH-1 aclarada y P-WSH-4 cerrada». Numeración reservada por el orquestador: `M-74`, §84.
+
+### 84.0 Commits (en orden)
+| Commit | Qué |
+|---|---|
+| `3615dbf` M-74 | esquema aditivo (3 tablas, enum, 4 columnas, índice) + `20261027120000_m74_wishlist/migration.sql` (2 CHECK, siembra de los 8 diales `ON CONFLICT DO NOTHING`), idempotente (re-aplicada a mano: 0 errores) |
+| `c61f1f0` pruebas | WSH-T1…T37 escritas ANTES del código: unit 4/4 suites rojas (24 rojas / 2 verdes), e2e 4/4 suites rojas (49 rojas / 1 verde) |
+| `c933461` diales + aritmética | `settings.constants.ts` (8 claves, seeds, dominios, `SETTING_DTO_MAP`), `error-codes.ts` (3 códigos), `common/wishlist-math.ts` |
+| `c0667e6` módulo | `modules/wishlist/*`, catálogo, pagos, admin, planificador, disparo manual, adaptación de pruebas existentes |
+
+
+### 84.1 Qué hay y dónde
+- `src/common/wishlist-math.ts` — `maxDisplay`, `fits`, `tope`, `ceiling`, `marginAtMarket`, `demandRowMath`. `BigInt`, un solo
+  redondeo por cifra (`halfDiv`). `pct` en puntos con un decimal, redondeo simétrico.
+- `src/modules/wishlist/` — `wishlist.service.ts` (CRUD, preview, alertas, `mail-actions`, `consumeForSettledOrder`),
+  `wishlist-notify.service.ts` (el job), `wishlist-demand.service.ts` (JSON + CSV), `wishlist-market.service.ts` (UNA lectura de
+  `M` y del precio normal), `wishlist-pieces.ts` (el predicado único en SQL), `wishlist-mail.ts` (render puro, foto filtrada),
+  `wishlist-dials.ts`, `wishlist.constants.ts`, `dto/wishlist.dto.ts` (`StrictBodyPipe`), `wishlist.controller.ts` (3 controladores).
+- `CatalogService.sellableByIds(ids)` (`catalog.service.ts`, junto a `fetchSellable`): mismo cuerpo que la ficha.
+- `GET /catalog/cards/:cardId` gana `wishlistEnabled` en la raíz — se añade en el CONTROLADOR (`catalog.controller.ts` `getCard`),
+  no en el servicio: los dobles de `SettingsService` de 9 suites unitarias del catálogo no tienen `getString`, y el censo de
+  consultas de `graded-estimate.composition.spec.ts` («la ficha cuesta 1 query de config») sigue exacto.
+- Planificador: `wishlist-notify` y `sealed-restock-notify` cada 5 min (`WISHLIST_NOTIFY_CRON`, `SEALED_RESTOCK_NOTIFY_CRON`,
+  sufijo `-cron`), `scheduler.service.ts:286-287` y `case` en `:407-410`. Disparo manual `POST /admin/jobs/wishlist-notify`
+  (`200`, auditado `jobs.wishlist_notify.run`).
+
+### 84.2 D-WSH-1…7 — cierre
+| # | Cerrado en | Prueba |
+|---|---|---|
+| D-WSH-1 (job sin agendar) | `scheduler.service.ts:286-287`, `:407-410` | WSH-T24 unit + e2e (AppModule real) |
+| D-WSH-2 (correo sin enlace) | `sealed-restock-notify.service.ts:177` (`sendRestockEmail`, `appUrl('sellado/{id}','es')`) | WSH-T25, unit (e) |
+| D-WSH-3 (dos filas ⇒ dos correos) | capa 1 `sealed-catalog.service.ts:526` (no crea la 2.ª pendiente); capa 2 agrupado por correo `sealed-restock-notify.service.ts:138-161` | WSH-T25 (fila duplicada sembrada a mano ⇒ 1 correo) |
+| D-WSH-4 (avisaría sin agotarse) | armado `sealed-restock-notify.service.ts:127` + `ready` exige `armedAt` y ventana `:138` | WSH-T26; mutación M7b roja |
+| D-WSH-5 (PII en suscripciones) | borrado suave `admin.service.ts:1683` (y lista + correos); **también** el duro `:1639` | WSH-T17, `admin.user-management.spec.ts` |
+| D-WSH-6 (pipe global se come campos) | `StrictBodyPipe` por PARÁMETRO (`dto/wishlist.dto.ts`) — ver 84.3 (1) | WSH-T1 |
+| D-WSH-7 (bandera en memoria) | `pg_try_advisory_xact_lock` en `wishlist-notify.service.ts:68` y `sealed-restock-notify.service.ts:80` — ver 84.3 (3) | unit «candado tomado ⇒ no corre» |
+
+### 84.3 Desviaciones y huecos para el arquitecto (el contrato NO se tocó)
+1. **El pipe estricto «a nivel de controlador» (§WSH.4) no puede rechazar nada.** Nest corre los pipes global → controlador →
+   parámetro; el global (`main.ts:54`, `whitelist:true`) entrega el cuerpo YA sin los campos desconocidos. Se implementó en el
+   parámetro: `@Body(new StrictBodyPipe(Dto)) dto: Record<string, unknown>` (con tipo no-clase el global no valida y pasa el
+   cuerpo crudo). Medición: ver 84.5 (M0). Propuesta: que §WSH.4 diga «por parámetro».
+2. **`sellableByIds` devuelve `{ inventoryItemId, displayPriceCents }`**, no `salePriceCents`: desde §M10-IVA.3 `salePriceCents`
+   ya no existe en `ListingDTO` y en el código significa `L`. El valor es `P` (con IVA), el que pide el contrato.
+3. **Candado consultivo:** `pg_try_advisory_xact_lock` dentro de una transacción «portadora» que dura la corrida (Prisma no fija
+   una conexión fuera de una transacción, así que `pg_try_advisory_lock` + `unlock` no es seguro). Coste: 1 conexión del pool
+   retenida mientras corre el job (timeout 10 min). Equivalente en efecto: se suelta al terminar, cubre N instancias.
+4. **`@Public()` no lee el token** (`jwt-auth.guard.ts:28-32`): «con sesión se usa el correo de la cuenta» (§WSH.7 (b)) era
+   imposible sin un guard. Nuevo `catalog/optional-session.guard.ts` (mismas comprobaciones que el global; nunca rechaza),
+   SOLO en `POST /catalog/sealed/restock-subscriptions`. Una cuenta sin correo (staff) se trata como invitado.
+5. **`WishlistNotice.inventoryItemId` es `RESTRICT`** (forma de §WSH.1): un borrado DURO de `InventoryItem` falla si la pieza tiene
+   avisos. ⚠️ `HECHOS` 2026-10-07 «CAMBIO P-DB-LIMPIEZA: también se BORRA el inventario»: el script de limpieza tendrá que borrar
+   `WishlistNotice` antes (o el arquitecto cambia a `Cascade`). NO MEDIDO contra ese script (es de otra rama).
+6. Pieza detectada que queda `listed` pero sin precio vendible ⇒ el aviso **espera** (como `reserved`); el contrato solo nombra
+   `reserved`. Cualquier otro estado ⇒ `skipped/unavailable`.
+7. `WishlistNotifyResult.sent` = avisos (filas) marcados `sent`, no correos.
+8. `fits` de la foto queda `null` sin mercado (como `availableNow.fits`).
+9. Orden de guardas en `/wishlist*`: dial (`404 FEATURE_DISABLED`) antes que staff sin correo (`403`).
+10. CSV: el contrato fija solo las columnas por nivel; el resto de nombres (`carta,set,numero,…,buylist_hoy`) y la sección
+    `sellados` los fijó backend; celdas de texto entre comillas y sin fórmulas (`= + - @` ⇒ `'`).
+11. Sellados en la demanda: `productName` = `sealedProductName` de la pieza más reciente de ese `tcgplayerProductId`, si no el
+    nombre de la carta ancla.
+12. Correo de reposición: `mailShell` con las frases de `DESIGN_SYSTEM §WSH-UX.8 (b)`; `mail-shell.ts` ganó `thumbUrl` opcional en
+    `cardLineRows` (sin él, salida byte a byte igual) y `smallLinkRow`.
+
+### 84.4 Pruebas
+- Unit nuevas: `wishlist-math.spec.ts` (T22, T35), `wishlist-mail.spec.ts` (T13, T36), `wishlist.scheduler.spec.ts` (T24),
+  `wishlist.settings.spec.ts` (T30). Reescrita: `sealed-restock-notify.spec.ts` (la conducta vieja —avisar sin armado, un correo
+  por fila— es justo D-WSH-3/4).
+- E2E nuevas: `wishlist.e2e-spec.ts`, `wishlist-notify.e2e-spec.ts`, `wishlist-demand.e2e-spec.ts`, `sealed-restock-armed.e2e-spec.ts`
+  + arnés `helpers/wishlist-db.ts` (reloj por el token `'WISHLIST_CLOCK'`, correo que captura).
+- Censos tocados, cada uno con su porqué en la línea: PF-11 (`wishlist-market` lee la política de VENTA para el precio normal),
+  criterio 209 (`wishlist-demand` emite `ivaTransferPct` solo en `/admin/reports/*`), censo de `saleDisplayCentsOf(`.
+- WSH-T9: alta suelta y `bulk-publish` por HTTP real; conversión de buylist y liberación de reserva **simuladas** escribiendo el
+  estado resultante (la detección es por estado, ARCHITECTURE §4.WSH (b)). WSH-T16 envío directo: pedido sintético con `userId`
+  (hoy un directo con cuenta solo existe si se reclama antes del webhook; frecuencia NO MEDIDA).
+
+### 84.5 Mediciones (2026-10-07, máquina compartida de 4 CPU con carga 10–18 de otros agentes)
+- **Antes del código** (`c61f1f0` sobre `3615dbf`): unit 4/4 suites rojas (24/26 rojas); e2e 4/4 suites rojas (49/50 rojas),
+  rojas por conducta (`404` en las rutas, `201` esperado) y por módulos inexistentes.
+- **Suite unitaria completa** sobre copia `git archive HEAD` del árbol ENTERO en `c0667e6`: **445/445 suites, 8043/8043 pruebas**.
+- **Integración completa** sobre la misma copia (esquema propio `wsh_be` del Postgres compartido): 111/120 suites, 2283/2317.
+  De las 9 rojas: 1 era mía (`enum-query-axes`, C-EQ-1: los `?sort=`/`?dir=` de la demanda sin clase) ⇒ cerrada en este pase
+  (registro + fixture (m); 571/571 en el árbol vivo). Las otras 8 (`bsd-m72-migration`, `iva-price-convention`,
+  `replacement-cases`, `stf-errata-v1-80-9-1`, `sdx-c-address`, `sdx-d-schema`, `sdx-d2bc-migrations`, `telemetry`) son de
+  **entorno**: dos esquemas en la misma BD. Medido: el CHECK `shipment_label_source_iff_provider_id` existe en `public` y NO
+  en `wsh_be` (`pg_constraint` por `connamespace`: `public|1`) — las migraciones idempotentes buscan el nombre sin filtrar
+  esquema y se saltan la creación; `telemetry` cuenta tablas de `information_schema` sin esquema y tropieza con `"Accessory"`
+  (tabla de M-73 en `public`). El orquestador avisó de 4 de ellas; las 4 `sdx-*`/`telemetry` son la misma clase. Las mide él
+  en una BD sin esquemas ajenos.
+- **Carrera del tope (WSH-T3)**: con `FOR UPDATE`, 30/30 rondas con exactamente un ganador (3 corridas × N=10). Mutante sin
+  `FOR UPDATE` (M4): 4/10, 7/10, 3/10, 6/10 rondas correctas ⇒ la prueba roja **4/4 corridas** (N=10 cada una).
+- **Mutaciones** (sobre copia, cada una revertida y comprobada con `diff -rq`):
+  | # | Mutación | Resultado |
+  |---|---|---|
+  | M0 | pipe estricto a nivel de CONTROLADOR (lo que dice §WSH.4) | `POST /wishlist` con `maxPriceCents` ⇒ **201 y fila creada** (1/1): confirma 84.3 (1) |
+  | M1 | `ceiling` redondea el «sin IVA» intermedio | WSH-T22 **rojo** (2 pruebas: 78710 ≠ 78711) |
+  | M2 | `pct` como fracción | WSH-T35 **rojo** (4 pruebas) |
+  | M3a / M3b | `?utm_source=` en la foto / sin filtro de host | WSH-T36 **rojo** (2 y 2 pruebas) |
+  | M4 | sin `FOR UPDATE` | WSH-T3 **rojo** 4/4 (arriba) |
+  | M5 | `mail-actions` exige el dial | WSH-T34 **rojo** |
+  | M6 | sin la llamada de la rama envío directo | WSH-T16 (directo) **rojo** |
+  | M7 / M7b | sin armado ni ventana / solo sin `armedAt` | WSH-T26 **rojo** / **rojo** |
+- **NO MEDIDO:** canario «quitar `@@unique([userId, inventoryItemId])` ⇒ T10 rojo» (exige migrar un esquema mutado; no se
+  corrió); el candado consultivo con DOS instancias reales (solo por diseño + la unitaria «candado tomado ⇒ no corre»);
+  `REDIS_URL` en producción (sin él el planificador no programa NADA, `scheduler.service.ts:142-149`; lo cierra la línea
+  «Scheduler activo (BullMQ)» en Railway tras desplegar); cuántas `SealedRestockSubscription` hay en producción (consulta en
+  `API_CONTRACT §WSH.1`); qué hosts tiene hoy `Card.imageSmallUrl` (otro host ⇒ correo sin foto, no fuga); si `resend` 4.8.0
+  rechaza algo del HTML nuevo; la suite E2E de frontend (no es de este rol).
+
+### 84.v1.87.2 Errata v1.87.2⟨wishlist⟩ aplicada (2026-10-07, rama `claude/wishlist`, sobre `43b28f8`)
+
+Norma: `API_CONTRACT §WSH.11` (índice) + los puntos ⭐ v1.87.2 de WSH.1/4/5/7, `ARCHITECTURE §4.WSH (k)`. El contrato no se tocó.
+
+| Commit | Qué |
+|---|---|
+| `0f38170` pruebas | WSH-T38…T41 escritas ANTES del cambio: `test/wishlist.source-locks.spec.ts` (candados de fuente de T38 y T39) y `test/integration/wishlist-v1-87-2.e2e-spec.ts` (conducta T38…T41) |
+| `54c1629` M-74 | `WishlistNotice.inventoryItemId` `ON DELETE RESTRICT` ⇒ `CASCADE` en `migration.sql` (editada en sitio, M-74 no publicada) y `onDelete: Cascade` en `schema.prisma` |
+
+- **84.3 (5) queda cerrada:** borrar una pieza se lleva sus avisos; el deseo y el `WishlistMail` quedan. La limpieza P-DB ya no tiene
+  que borrar `WishlistNotice` antes del inventario.
+- **Re-aplicar M-74 sobre una base con la versión vieja** (medido en el esquema propio `wsh_be2`): con la FK puesta a mano en
+  `RESTRICT`, `migration.sql` re-ejecutado por `psql -v ON_ERROR_STOP=1` ⇒ 0 errores y `confdeltype = 'c'`. Una base con la
+  versión vieja **registrada** en `_prisma_migrations` verá otro checksum en `migrate dev` (lo dice WSH.11); `migrate deploy` en
+  una base nueva aplica la versión nueva (medido: esquema borrado y re-desplegado, T40 verde).
+- **WSH-T23:** su prueba (`wishlist-notify.e2e-spec.ts:294`) ya decía `displayPriceCents`; sin cambio.
+- **WSH-T41 es determinista:** la prueba toma `pg_advisory_xact_lock(<clave>)` en una transacción propia (otra conexión del pool),
+  comprueba en `pg_locks` que está concedido y SOLO entonces dispara el job. No hay carrera que medir con N.
+- **T40 filtra por `current_schema()`** (`pg_namespace.nspname`): la base compartida tiene otros esquemas con las mismas tablas.
+- ⚠️ Los candados consultivos son de **base**, no de esquema: dos corridas de T41 en esquemas distintos de la misma base se
+  pisarían la clave (la otra vería `ALREADY_RUNNING` un instante). La prueba solo exige `≥ 1` candado concedido; el riesgo es de
+  entornos compartidos, no de CI (una base por corrida). NO MEDIDO con dos corridas simultáneas.
+
+**Antes del cambio** (sobre `0f38170`, esquema `wsh_be2` desplegado con la M-74 vieja): e2e nueva 11/13 verdes, **T40 2/2 rojas**
+por conducta (`"WishlistNotice.inventoryItemId": "r"` y violación de FK al borrar la pieza). T38, T39 y T41 verdes: el código ya
+hacía lo que la errata ratifica (pipe por parámetro, guard opcional, candado en transacción portadora); su valor está en las
+mutaciones. Candados de fuente 5/5 verdes.
+
+**Mutaciones** (copia `git archive HEAD` del árbol ENTERO en `54c1629`, N=1 cada una —todas deterministas—, revertida y
+comprobada limpia con `git status` de la copia):
+
+| # | Mutación | Resultado |
+|---|---|---|
+| M38 | las 4 rutas con `@Body() dto: <Dto>` (el global descarta el campo en silencio; mismo efecto que el pipe de controlador, M0) | T38 e2e **4/4 rojas** (201/200/200/200 en vez de 400); candado **2/5 rojas** |
+| M39a | sin `@UseGuards(OptionalSessionGuard)` | T39 **2 rojas** ((a) guarda `dto.email`; tope sobre el correo resuelto); candado **1 roja** |
+| M39b | el guard no mira `tokenVersion` ni `blocked`/`deleted` | T39 (c) **roja** (caso «`tv` viejo» guardado con `userId`) |
+| M39c | el guard también en `GET /catalog/cards/:cardId` | candado **1 roja** (aparece en 2 `@UseGuards`) |
+| M39d | el guard rechaza con `401` si la firma no verifica | T39 (c) **roja** («firma mala» ⇒ 401) |
+| M40 | FK puesta a mano en `RESTRICT` (= M-74 vieja) | T40 **2/2 rojas** |
+| M41a / M41b | `wishlist-notify` / `sealed-restock-notify` ignoran el candado (`if (!locked) return null` fuera) | T41 **roja** en su caso, 1/1 cada una |
+
+**Medición final** (copia `git archive HEAD` del árbol ENTERO en `521c18b`; el commit siguiente solo añade este párrafo):
+unitaria completa `--maxWorkers=2` **446/446 suites, 8048/8048 pruebas** (incluidas las de paridad `enum-values-parity`,
+`enum-parity-lock-canary`, `enum-query-census-canary`, `address-dto.parity`, `pricing.sale-queue-key.parity`); integración §WSH
+(`wishlist*`, `sealed-restock-armed`, `enum-query-axes`) en el esquema propio `wsh_be2` **6/6 suites, 634/634 pruebas**.
+
+### 84.v1.87.3 Errata v1.87.3⟨wishlist⟩ aplicada (2026-10-07, rama `claude/wishlist`, sobre `71fc6e3f`)
+
+Norma: `API_CONTRACT §WSH.12` (índice) + WSH.7 (f), WSH.4 «Se quita sola», WSH.9 (T42/T43, M42-a…e, M43). El contrato no se tocó.
+
+| Commit | Qué |
+|---|---|
+| `18d577c2` pruebas | WSH-T42/T43 (`wishlist-v1-87-3.e2e-spec.ts`), helper único `helpers/restock-subscribe.ts`, T25–T28 y T39 al cuerpo nuevo, candados T42 (a)–(d) y T43 (`wishlist.source-locks.spec.ts`), unitarias del alta (`sealed-catalog.spec.ts`). Escritas ANTES del código |
+| `ee13ac77` B-1 | DTO `{email, inventoryItemId}` + `StrictBodyPipe` en el parámetro; derivación en `subscribeRestock`; `groupKey` → `sealedIdentityKey`; M-74 paso (8) y cabecera |
+| `817d7e02` M-1 | `SET_PRODUCT_PREDICATE` (única copia de «producto de set») en `wishlist-pieces.ts`; `consumeForSettledOrder` en SQL con él |
+| `46bb643b` M-2 | comentario de `sellableByIds` al día (`displayPriceCents`) |
+| `64b293b7` prueba | T42 (4) mide los dos cuerpos viejos antes de afirmar (el mensaje del commit dice «cuatro»: son dos en el bucle y dos de `inventoryItemId` inválido aparte) |
+| `180087df` deuda | `TECH_DEBT.md` TD-WSH-1…10 (veredicto techlead sobre `503cf07`), sin pagar |
+
+**Para frontend / QA.**
+- El cuerpo es `{ email, inventoryItemId }`; cualquier otro campo ⇒ `400 VALIDATION_ERROR {field}`. `inventoryItemId` ausente o
+  no-uuid ⇒ `400 {field:'inventoryItemId'}`. Correo ausente/no-texto ⇒ `400 {field:'email'}` (lo rechaza el pipe antes del
+  servicio); correo con forma inválida ⇒ `422` como antes. Pieza inexistente o no sellada ⇒ `202` sin fila.
+- El cuerpo viejo de la pantalla da `400 {field}` con el primer campo desconocido (medido: `cardId`/`sealedSubtype`/
+  `sealedCondition`), así que durante el desfase de despliegue el formulario muestra el error genérico, no crea filas.
+- **El candado de paridad WSH-T42 (b) lee `frontend/src/lib/api.ts`.** Sobre `180087df` (sin el commit de frontend) está
+  **rojo**: `RestockSubscriptionInput` aún trae `cardId/sealedSubtype/sealedCondition/tcgplayerProductId` en `HEAD`. Con el
+  `api.ts` del árbol de trabajo de frontend (sin commitear al medir) está verde 12/12. Es el candado haciendo su trabajo: la
+  rama no debe fusionarse con la pantalla y el servidor desalineados.
+
+**Canario de partida (sobre copia `git archive 503cf07` + el spec T42):** T42 (1) con el cuerpo que manda la pantalla de
+`503cf07` (`{email, cardId, sealedSubtype, sealedCondition}`, `SealedDetailView.tsx:240-244`) ⇒ **rojo**, por tres
+afirmaciones medidas por separado (N=1 cada una, deterministas): la fila queda con `c:<cardId>:box:mint` y la pieza es
+`p:<id>:mint`; con existencia, el primer tick pone `armedAt` (`2032-05-12T18:00:00Z`); y tras agotarse, volver y la ventana
+⇒ **0 correos** (esperado 1). Es el rojo de QA (`smoke6.mjs`). La rama (2) no mapeada pasaba ya en `503cf07`.
+
+**Antes del código** (sobre `18d577c2`, esquema `wsh_be3`): e2e de los tres ficheros 18/29 rojas (T42 6/6, T43 3/6 —promo,
+deck, huérfana—, T25–T28 y T39 por el `422` del cuerpo nuevo); unit 4 rojas + `sealed-catalog.spec.ts` sin compilar. T43
+«graded» y las dos de set ya pasaban (controles).
+
+**Mutaciones** (copia `git archive` del árbol ENTERO en `46bb643b`/`64b293b7` con el `api.ts` de frontend superpuesto; N=1,
+deterministas; cada una revertida y comprobada «copia LIMPIA» con `diff -rq` contra un `git archive` limpio):
+
+| # | Mutación | Resultado |
+|---|---|---|
+| M42-a | derivación guarda `tcgplayerProductId: null` | T42 (1) y (3) **rojas** |
+| M42-b | `@Body() dto: RestockSubscriptionDto` sin pipe estricto | T42 (4) **roja** (el cuerpo con pieza + `tcgplayerProductId` ⇒ `202` y 1 fila; el viejo de pantalla ⇒ `400` sin `field`); candado (c) **rojo** |
+| M42-c | `cardId?` en `RestockSubscriptionInput` del frontend | candado (b) **rojo** |
+| M42-d | derivar solo de piezas `listed` (`findFirst` con `status`) | T42 (3) **roja** |
+| M42-e | sin `bool_and` en el paso (8) | T42 (6) **roja** (caso C rellenado) |
+| M42-(d) | `groupKey` con su propia plantilla `p:`/`c:` | candado (d) **rojo** |
+| M43 | `consumeForSettledOrder` con `productType='raw'` sin el fragmento | T43 promo, deck y huérfana **rojas**; candado T43 **rojo** |
+
+**Escritores de `tcgplayerProductId` en piezas ya dadas de alta** (el arquitecto lo dejó NO MEDIDO; `grep` en `src/`,
+`prisma/` y `scripts/`): **uno**, `SealedMappingService.updateMapping` (`modules/pricing/sealed-mapping.service.ts:117-120`
+la pieza, y `:122-133` con `applyToSiblings` a las hermanas selladas del mismo `(cardId, sealedSubtype)` aún sin mapear),
+por `PUT /admin/pricing/sealed/items/:itemId/mapping` (`sealed-pricing.controller.ts:112`). También **desmapea**
+(`tcgplayerProductId: null`). El resto de escritores son de alta (`inventory.service.ts:1297-1314` `resolveSealedMapping`) o
+de otras tablas (`SealedProduct`, `CardProduct`, `PriceReference`). ⇒ El caso «conocido y fuera de alcance» de WSH.7 (f)
+**sí ocurre**: al curar el mapeo de un producto, las suscripciones `c:` pendientes hechas antes dejan de casar (y al
+desmapear, las `p:`). Decisión del arquitecto (p. ej. que `updateMapping` re-escriba las suscripciones pendientes de esa
+identidad en la misma transacción, con la regla del paso 8). No se tocó.
+
+**Medición final** (copia `git archive 180087df` del árbol ENTERO): unitaria completa `--maxWorkers=2` **445/446 suites,
+8054/8055 pruebas** — la única roja es WSH-T42 (b) por el `api.ts` de frontend sin commitear (arriba); con ese `api.ts`
+superpuesto la suite de candados da 12/12. Integración §WSH (`wishlist*`, `sealed-restock-armed`, `enum-query-axes`) en el
+esquema propio `wsh_be3` (re-desplegado desde cero con la M-74 nueva: `migrate deploy` limpio) **7/7 suites, 646/646**.
+`eslint` de los ficheros tocados limpio. ⚠️ `M-74` cambia de checksum otra vez (misma nota que v1.87.2).
+
+**NO MEDIDO:** los conteos del paso (8) en producción (van a la solicitud de fusión, WSH.7 (f)); el estado del dial
+`sealed_restock_alerts` en producción; `smoke6.mjs` de QA contra un stack levantado (el canario lo reproduce en la suite de
+integración, no contra el stack).
+
+### 84.v1.87.4 Errata v1.87.4⟨wishlist⟩ aplicada (2026-10-07, rama `claude/wishlist`, sobre `43c3f8f1`)
+
+API_CONTRACT WSH.7 (g), WSH.9 (WSH-T44, M44-a…f y M44-c'), WSH.13; porqué ARCHITECTURE §4.WSH (m). Contrato sin tocar.
+
+| Commit | Qué |
+|---|---|
+| `fdc13335` prueba | WSH-T44 en fichero nuevo `test/integration/wishlist-v1-87-4.e2e-spec.ts`, escrito ANTES del código |
+| `d3d5fe11` (g) | `reconcileOrphans()` en `catalog/sealed-restock-notify.service.ts`; doble de Prisma de `test/sealed-restock-notify.spec.ts` al día + 3 casos unitarios |
+| `1753f9ed` seed | `E2E_SEALED_LISTED` en `seed-e2e.ts`/`e2e-fixtures.ts` (petición de frontend, WSH-F5) + `seed-sealed-listed.e2e-spec.ts` |
+
+**Qué hace (g).** Primera línea de `matchAndNotify` (dentro del callback que tomó el candado consultivo; con el dial `off`
+`run()` sale antes y no reconcilia). En UNA transacción interactiva propia (`this.prisma.$transaction`, en una conexión
+distinta de la del candado, como el resto de `matchAndNotify`): un `$queryRaw` con la forma del contrato (huérfana +
+`|D|` con `NULL` como valor + `min(pid)`), y en TS el choque por correo (pendientes de esos correos que no se re-apuntan, y
+entre re-apuntadas por `(createdAt, id)`); `deleteMany` de las que chocan y `updateMany` por `pid` con
+`armedAt = matchedAt = NULL`, ambos con guarda `notifiedAt IS NULL`. Log: `reconciliación de mapeo — X re-apuntadas, Y
+borradas por choque, Z huérfanas intactas` (sin correos). `SealedRestockNotifyResult`, `pricing/sealed-mapping.service.ts`,
+`M-74` y su paso (8) sin cambio. Sin import nuevo de `wishlist/` desde `catalog`.
+
+**Lecturas de WSH-T44 que conviene saber (no cambian el contrato):**
+- El job se corre con `app.get(SealedRestockNotifyService).run()` (reloj inyectado `WISHLIST_CLOCK`), no por HTTP.
+- (6) y (8) congelan la fila DESPUÉS de un tick que la arma (o del ciclo completo hasta `notifiedAt`): así «byte a byte»
+  incluye `armedAt`, y cualquier reescritura de (g) se ve (reinicia el armado).
+- (9) segunda mitad: tras el paso (8) el tick arma B, C y E (su clave no está a la venta: es el ARMADO, no (g)). Se comparan
+  A y D byte a byte y B/C/E con todas las columnas salvo `armedAt`. «0 filas escritas» = 0 escritas por (g).
+- (10a) compara la TABLA ENTERA antes y después del segundo tick (incluye una `p:` armada y emparejada no huérfana: la
+  que hace morder a M44-c).
+
+**Canario (sobre `43c3f8f1` + el spec, sin el código):** 9/14 rojas. T44 (1): `tcg null`, `sameKeyAsPiece false`,
+`matched false`, **0 correos** (esperado 1). Verdes ya entonces (controles): (6), (8), (10b), candado de fuente y (9) 2.ª
+mitad.
+
+**Mutaciones** (copia `git archive d3d5fe11` del árbol ENTERO, N=1 cada una —deterministas—, aplicadas por script y
+revertidas copiando el original; al final `diff -rq` contra `git archive` limpio ⇒ «copia LIMPIA» y T44 14/14):
+
+| # | Mutación | Rojas |
+|---|---|---|
+| M44-a | sin la llamada a `reconcileOrphans()` | (1) (2) (3) (4) (5) (5b) (7) (10a) (9) 1.ª |
+| M44-b | re-apuntar sin `armedAt`/`matchedAt` a nulo | (5b) |
+| M44-c | sin la condición de huérfana | (1) (3) (7) (8) (10a) |
+| M44-c' | sin la parte `NULL` del conteo de `D` | (3) (6) (7) |
+| M44-d | sin el borrado por choque | (7) |
+| M44-e | sin `notifiedAt IS NULL` (CTE y guardas) | (8) (9) ambas |
+| M44-f | `updateMapping` escribe `SealedRestockSubscription` | candado, (6) (7) |
+
+**Pieza sellada del seed (WSH-F5).** Folio `E2E-SLD-0001`, nombre de producto **«E2E Surging Sparks Booster Box»**,
+`box`/`mint`, plataforma `listed`, `listPriceCents 450000`, `tcgplayerProductId 610000001` / grupo `61001`, anclada a la carta
+`thirdraw` («E2E Third Bird», set E2E). Por API: `GET /catalog/sealed?q=E2E Third Bird` (el `q` del grid filtra por el nombre
+de la CARTA) y la teja con ese `productName`; en pantalla, `/es/sellado` muestra el nombre del producto. El seed la resetea
+en cada corrida (estado, dueño, precio, mapeo). Fuera de `E2E_FOLIOS`. ⚠️ Para frontend: `frontend/e2e/catalog.spec.ts:62`
+(`needsSeed('ningún grupo sellado publicado…')`) y el comentario de `:249-252` («el estado vacío SIEMPRE está ahí») asumían
+`total: 0`; con el seed nuevo `/es/sellado?sealedSubtype=box` ya NO está vacío. NO MEDIDO contra el stack con navegador.
+
+**Medición final** (copia `git archive 1753f9ed` del árbol ENTERO, esquema propio `wsh_be4` re-creado desde cero con
+`migrate deploy`): unitaria completa `--maxWorkers=2` **446/446 suites, 8058/8058** (T42 (b) verde: el `api.ts` de frontend ya
+está commiteado). Integración §WSH (`wishlist*`, `sealed-restock-armed`, `enum-query-axes`, `seed-sealed-listed`) **9/9
+suites, 662/662**. Integración completa 115/124 suites, 2354/2390 (34 rojas, 2 omitidas): las **mismas 9 suites** salen rojas
+sobre `49482fb0` (sin el seed nuevo) en el mismo esquema (9/9 suites rojas, 38 pruebas): CHECKs/migraciones que buscan
+en `public` (lo ya anotado en §84.5), carreras de `vault-placement-races` y estado compartido. No las causa este cambio.
+
+### 84.cierre Cierre de menores de QA y techlead sobre `1b0306f4` (2026-10-08, rama `claude/wishlist`)
+
+QA y techlead aprobaron §WSH sobre `1b0306f4`; esto cierra sus menores de backend. Contrato y schema **no** se tocaron.
+
+- **QA-1 · log de la reconciliación (g).** `reconcileOrphans` escribía «reconciliación de mapeo — 0 re-apuntadas, 0 borradas,
+  0 intactas» en cada tick (cada 5 min ⇒ ~288 líneas/día). Ahora solo registra si alguna de las tres cifras ≠ 0
+  (`sealed-restock-notify.service.ts`, al final de `reconcileOrphans`). Ojo: unas huérfanas **intactas** (ambiguas) que
+  persisten siguen dejando una línea por tick; es intencional (hay algo que mirar). Prueba: `test/sealed-restock-notify.spec.ts`
+  «QA-1 (§84.cierre)».
+- **QA-2 · movimientos de la pieza sellada del seed.** `E2E-SLD-0001` sigue **fuera** de `E2E_FOLIOS` (no se mueven los
+  candados que cuentan piezas por ese mapa); su folio se suma solo a la consulta del reset de `InventoryMovement` en
+  `seed-e2e.ts` (paso 3b). Prueba: `seed-idempotency` caso 6 (crea 2 movimientos, siembra ⇒ 0, siembra otra vez ⇒ 0 y una
+  sola pieza).
+- **techlead-5 (backend) · suscripciones `@e2e.local`.** `seed-e2e` (paso 3b) borra las `SealedRestockSubscription` con correo
+  que termina en `@e2e.local` (insensible a mayúsculas), pendientes o notificadas, y **solo** esas. Prueba: `seed-idempotency`
+  caso 7 (crea 2 `@e2e.local` + 1 ajena, siembra ⇒ 0 `@e2e.local` y la ajena sigue). Con esto la mitigación que
+  `TD-WSH-F5` marca «NO MEDIDO» ya existe; cerrar o actualizar esa entrada es de frontend.
+- **TECH_DEBT.** Ampliadas TD-WSH-5 (identidad del sellado como filtro en 4 sitios; helper `sealedIdentityWhere`) y
+  TD-WSH-6 (tx interactiva de `reconcileOrphans` con timeout de 5 s sobre lecturas sin paginar). Nuevas TD-WSH-11 (P4,
+  `as unknown as` con `StrictBodyPipe`) y TD-WSH-12 (P4, duplicados `(email, clave)` tras M-74 paso (8); **propuesta al
+  arquitecto**: contar esos duplicados en la ventana de despliegue).
+  **Procedencia:** esas cuatro entradas (retoques de TD-WSH-5 y TD-WSH-6, TD-WSH-11 y TD-WSH-12) las escribió backend, pero
+  entraron en el commit `ef034161` (título «docs(frontend)…») porque frontend hizo `git add -- docs/TECH_DEBT.md` sobre el
+  fichero compartido justo después de que backend lo editara. No se reescribió ese commit (sin amend/reset).
+
+---
+
+## 85 · Fusión accesorios + wishlist en la rama de publicación (2026-10-08, rama `claude/release-s7`; base `origin/production` `74996a24` + `claude/accesorios` `cabd8a15` (fusionada en `d98e8bf6`) + `claude/wishlist` `d815b57d`)
+
+Número reservado por el orquestador. Alcance de backend: los conflictos de sus rutas y la medición del árbol unido.
+
+### 85.1 Conflictos resueltos (unión estructurada; nada de un lado se perdió, sin cabeceras duplicadas)
+| Fichero | Bloques | Cómo |
+|---|---|---|
+| `backend/prisma/schema.prisma` | 1 | Bloque `ACCESORIOS (M-73)` entero y, detrás, el bloque `v1.87⟨wishlist⟩ (M-74)` entero (orden de las migraciones). Solo se añadió el `}` que cerraba el último modelo de M-73 (lo compartían ambos lados en el texto). Nada reformateado. |
+| `backend/src/common/error-codes.ts` | 1 | Los 15 de §AC.13 y luego los 3 de §WSH (`WISHLIST_DUPLICATE`, `WISHLIST_LIMIT_REACHED`, `WISHLIST_LINK_INVALID`). |
+| `backend/src/modules/settings/settings.constants.ts` | 4 | En `SettingKey`, defaults, validadores y `SETTING_DTO_MAP`: los 2 diales de accesorios (`energy_bundle_price_cents`, `accessory_suggestion_count`) y luego los 8 de wishlist. Ninguno entra en `OWNER_ONLY_SETTING_KEYS` (ninguna rama lo hacía). |
+| `backend/test/integration/enum-query-axes.e2e-spec.ts` | 5 | Imports, observadores (`OBS_ACCESORIOS` y `OBS_WISHLIST`/`OBS_WISHLIST_CSV`), filas del registro, fixtures (`(m)` wishlist antes de `(n)` accesorios, por letra) y el trinquete (85.2). |
+| `docs/BACKEND_NOTES.md` | 1 | §83 y luego §84. |
+| `docs/TECH_DEBT.md` | 1 | Entradas de accesorios (TD-AC-*) y luego las de wishlist (TD-WSH-*); sin identificadores repetidos (`grep '^### TD-' | sort | uniq -d` vacío). |
+
+### 85.2 Trinquetes de `enum-query-axes`: base + delta + delta, no el máximo
+Las dos ramas subieron los literales **desde la misma base** (`74996a24`: `REGISTRO` 64, pendientes 18), y ambas
+escribieron `toBe(68)`: git no habría visto conflicto si el resto del bloque coincidiera, y el máximo (68) habría
+quedado **4 ejes por debajo** del registro real. Cálculo:
+- `REGISTRO`: 64 + 4 (accesorios: `category` ×2, `active`, `soldOut`) + 4 (wishlist: `sort`/`dir` × JSON/CSV) = **72**.
+- `PENDIENTE-ARQUITECTO`: 18 + 0 (accesorios entraron `transcrita` en v1.86.5) + 4 (wishlist) = 22, y **22 → 18** con
+  la errata **v1.88⟨release-s7⟩** del arquitecto (las cuatro filas de `wishlist-demand` en §0-Q punto 4,
+  `API_CONTRACT.md` ~7584-7587): esas cuatro filas pierden `filaEn0Q` y salen de la lista de pendientes de la prueba.
+- `NO_ENUM_POR_RUTA ≤ 60`: solo accesorios lo movió (59 → 60); wishlist no ⇒ 60 se queda.
+- Se añadió la cabecera `// ====` que le faltaba al bloque de filas de wishlist tras la unión (la compartían en el texto).
+
+### 85.3 Migraciones
+M-73 (`20261026120000_m73_accessories`) y M-74 (`20261027120000_m74_wishlist`) ya están en orden por fecha. Sus DDL son
+disjuntos (M-73: tablas de accesorios, columnas de `Order`, trigger; M-74: tablas de deseos, columna de `User`, INSERT de
+diales en `ConfigSetting`) ⇒ **M-74 no necesita cambio de fecha ni de contenido**.
+
+### 85.4 REL-S7-UX (4) · el correo de «avísame» de sellados nombra la pestaña real
+`sealed-restock-notify.service.ts` (`noOrigin`, el texto que sale cuando no hay origen público para enlazar) decía
+«Comprar › Sellado / Shop › Sealed»; la pestaña es `storeTabs.sealed` = «Producto sellado» / «Sealed product»
+(`frontend/messages/{es,en}.json`). Cambiado el texto; la etiqueta de la línea del producto («Sellado · Sealed») no es una
+ruta y no se tocó. Prueba `REL-S7-UX (4)` en `test/sealed-restock-notify.spec.ts`: **roja antes del cambio, verde después**
+(1/1 cada una; determinista, sin carrera).
+
+### 85.5 Mediciones (copia del árbol ENTERO tras resolver, Postgres 16 propio en `:5544`, Redis propio en `:6544`)
+| Qué | Resultado |
+|---|---|
+| `prisma validate` | válido |
+| `prisma migrate deploy` desde BD vacía | todas aplicadas, M-73 y luego M-74 |
+| `prisma migrate diff` BD ↔ schema | solo el `RenameIndex` de `PriceReference_variant_capturedDate_key`, deriva **previa** conocida (anotada ya en la tabla de M-52 de estas notas); nada de M-73/M-74 |
+| `tsc --noEmit` | limpio |
+| Unitaria completa con `env -i` | **461/461 suites, 8344/8344 pruebas** |
+| Integración completa `--runInBand`, BD limpia | **134/134 suites, 2671 verdes + 2 saltadas de 2673**; `enum-query-axes` verde con 72/18 (el registro coincide con el descubrimiento y con §0-Q) |
+
+**Aviso de entorno (no de la fusión):** la primera corrida de integración con `env -i` **murió por memoria** en la suite
+33 (`FATAL ERROR: Reached heap limit`, montón en ~2 GB): `env -i` quita el `NODE_OPTIONS=--max-old-space-size=8192` que
+trae el entorno, y node se queda con su tope por defecto (2096 MB medido con `env -i node -e …heap_size_limit`). Con
+`env -i` + `NODE_OPTIONS=--max-old-space-size=8192` explícito: verde completa (fila de arriba). Si la suite cabe en ~2 GB
+sobre `production` sin estas dos ramas **NO MEDIDO**; lo cerraría la misma corrida `env -i` sin `NODE_OPTIONS` sobre
+`74996a24`. CI (`e2e.yml`) no fija `NODE_OPTIONS`.
+
+### 85.6 Arreglos por la combinación
+Ninguno de código: la única pieza que la combinación rompía era el trinquete de `REGISTRO` (85.2). Todo lo demás compiló y
+pasó tal cual al unirse.

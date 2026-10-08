@@ -182,9 +182,10 @@ const RENDERS: Record<string, Render> = {
 async function restockHtml(): Promise<string> {
   const send = jest.fn(async (_m: MailMessage) => undefined);
   const svc = new SealedRestockNotifyService({} as never, {} as never, { send } as never);
-  await (svc as unknown as { sendRestockEmail(e: string, n: string): Promise<void> }).sendRestockEmail(
+  // rev v1.87⟨wishlist⟩ (§WSH.7 (d)): el correo agrupa por correo ⇒ recibe las LÍNEAS (una por producto).
+  await (svc as unknown as { sendRestockEmail(e: string, l: { productName: string; inventoryItemId: string }[]): Promise<void> }).sendRestockEmail(
     'a@example.test',
-    'Caja',
+    [{ productName: 'Caja', inventoryItemId: 'inv-1' }],
   );
   return send.mock.calls[0][0].html;
 }

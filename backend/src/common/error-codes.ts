@@ -824,6 +824,14 @@ export const ErrorCode = {
   PHOTO_INVALID: 'PHOTO_INVALID', // 422 foto `{reason}`
   ACCESSORY_REFUND_EXCEEDS: 'ACCESSORY_REFUND_EXCEEDS', // 409 entregado por unidad `{refundableQty}`
   BUNDLE_REFUND_REQUIRES_DECK: 'BUNDLE_REFUND_REQUIRES_DECK', // 409 paquete sin su deck reembolsado
+
+  // ── rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.4 / §WSH.6) ─────────────────────────────────────────────────────────────
+  // 409 — `POST /wishlist` con la misma (carta, acabado) ya deseada (criterio 804). `details: { wishlistItemId, maxPct }`.
+  WISHLIST_DUPLICATE: 'WISHLIST_DUPLICATE',
+  // 422 — el tope por cuenta (dial `wishlist_max_per_account`, criterio 803). `details: { limit, count }`.
+  WISHLIST_LIMIT_REACHED: 'WISHLIST_LIMIT_REACHED',
+  // 404 — `POST /wishlist/mail-actions`: token que no cuadra o `id` inexistente (⛔ no distingue cuál). Sin `details`.
+  WISHLIST_LINK_INVALID: 'WISHLIST_LINK_INVALID',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

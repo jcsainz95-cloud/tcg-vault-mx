@@ -143,9 +143,10 @@ function reposicion(nombreProducto: string): MailMessage {
     return Promise.resolve();
   };
   const svc = new SealedRestockNotifyService({} as never, {} as never, { send } as never);
-  void (svc as unknown as { sendRestockEmail(e: string, n: string): Promise<void> }).sendRestockEmail(
+  // rev v1.87⟨wishlist⟩ (§WSH.7 (d)): el correo agrupa por correo ⇒ recibe las LÍNEAS (una por producto).
+  void (svc as unknown as { sendRestockEmail(e: string, l: { productName: string; inventoryItemId: string }[]): Promise<void> }).sendRestockEmail(
     'a@example.test',
-    nombreProducto,
+    [{ productName: nombreProducto, inventoryItemId: 'inv-1' }],
   );
   if (!capturado) throw new Error('sendRestockEmail no envió de forma síncrona');
   return capturado;

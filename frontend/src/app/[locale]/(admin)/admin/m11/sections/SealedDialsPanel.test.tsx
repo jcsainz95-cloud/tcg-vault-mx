@@ -75,3 +75,18 @@ describe('SealedDialsPanel · Ajustes avanzados (§diseño §5)', () => {
     await waitFor(() => expect(put).toHaveBeenCalledWith({ sealedValueTrend: 'on' }));
   });
 });
+
+describe('§WSH-UX.9 (c) · tope de avisos pendientes por correo (M11)', () => {
+  it('se pinta junto al interruptor y su PUT manda SOLO esa clave como entero', async () => {
+    const apiMod = await import('@/lib/api');
+    const fixtures = await import('@/lib/mock/fixtures');
+    vi.spyOn(apiMod, 'getSettings').mockResolvedValue({ ...fixtures.mockSettings, sealedRestockMaxPendingPerEmail: 5 });
+    const put = vi.spyOn(apiMod, 'updateSettings').mockResolvedValue(fixtures.mockSettings);
+    renderWithProviders(<SealedDialsPanel />, 'es');
+    const input = (await screen.findByLabelText('Avisos pendientes por correo')) as HTMLInputElement;
+    expect(input.value).toBe('5');
+    fireEvent.change(input, { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar/ }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith({ sealedRestockMaxPendingPerEmail: 7 }));
+  });
+});

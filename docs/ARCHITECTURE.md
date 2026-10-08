@@ -4,6 +4,55 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.88⟨release-s7⟩ — convivencia de accesorios y lista de deseos** (2026-10-08, arquitecto, worktree
+> `/home/user/tcg-release`, rama `claude/release-s7`; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT`, cabecera v1.88 y
+> §0-Q punto 4. ⛔ Sin schema, migración ni cambio de conducta.
+> - **Contradicción:** las dos ramas fijan el `REGISTRO` de `C-EQ-1` en 68 (de 64, cada una por su lado); la unión es
+>   **72**. Se escriben en §0-Q las 4 filas de `sort`/`dir` de la lista de compra (L, ORDEN), y los pendientes vuelven a 18.
+> - **§11:** `M-73` (`20261026120000`) va antes que `M-74` (`20261027120000`), medido con Glob el 2026-10-08: nadie
+>   re-fecha. En §11 la entrada de `M-74` va arriba, porque §11 pone la más reciente primero.
+> - **Sin contradicción:** el checkout con cuenta rechaza accesorios (§4.AC) y la baja de deseos al pagar solo actúa con
+>   `userId` (§4.WSH). El pedido de invitado nace con `userId = null` (`guest-checkout.service.ts:345`): un pedido con
+>   accesorios nunca toca deseos. Con v1.86.6 el settle con accesorio sin respaldo acaba `settled`; la baja de deseos corre
+>   tras el commit y no cambia.
+> - **Abierto:** la limpieza `P-DB-LIMPIEZA` (`API_CONTRACT §WSH.11`) no conoce las 6 tablas de `M-73`. Qué borra: NO MEDIDO.
+>
+> **Errata v1.87.4⟨wishlist⟩ — el mapeo de piezas cambia después de apuntarse** (2026-10-07, arquitecto, rama
+> `claude/wishlist`, HEAD dado por el orquestador `7248b780`; ⛔ sha NO MEDIDO: sin Bash). Responde a
+> `BACKEND_NOTES §84.v1.87.3`: sí hay un escritor de `tcgplayerProductId` sobre piezas ya dadas de alta (la curación de
+> §M2). Norma en `API_CONTRACT §WSH.13` y WSH.7 (g); porqué en **§4.WSH (m)**. El job de sellados **re-apunta** al
+> empezar cada corrida las suscripciones pendientes huérfanas a su destino único, reinicia el armado y quita duplicados;
+> `pricing` no toca la tabla de `catalog`. Sin esquema, sin `M-74` nueva, sin ruta. Prueba WSH-T44. Tres
+> interpretaciones de backend ratificadas.
+>
+> **Errata v1.87.3⟨wishlist⟩ — el rechazo de QA a §WSH** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD dado por el
+> orquestador `503cf07`; ⛔ sha NO MEDIDO: sin Bash). Responde a B-1 (bloqueante: el «avísame» de sellados nunca avisaba a
+> quien se apunta desde la pantalla) y M-1 (la promo borraba el deseo). Norma en `API_CONTRACT §WSH.12` y en su sitio;
+> porqué en **§4.WSH (l)**. El cliente manda `{ email, inventoryItemId }` y el **servidor deriva** la identidad del sellado
+> de esa pieza (una sola regla de clave); ⚠️ **`M-74` gana un relleno acotado** de `tcgplayerProductId` en suscripciones
+> pendientes heredadas, solo si es inequívoco; la baja al pagar usa el **mismo** filtro de producto de set que el aviso.
+> Pruebas WSH-T42 (con el cuerpo exacto de la pantalla y candado de paridad) y WSH-T43.
+>
+> **Errata v1.87.2⟨wishlist⟩ — lo que backend encontró al construir** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD
+> dado por el orquestador `410075e`; ⛔ sha NO MEDIDO: sin Bash). Responde a `BACKEND_NOTES §84.3`. Norma en
+> `API_CONTRACT §WSH.11` y en su sitio; porqué en **§4.WSH (k)**. Pipe estricto **por parámetro**; `OptionalSessionGuard`
+> ratificado; 💰 **`M-74` cambia una FK** (`WishlistNotice.inventoryItemId` → `ON DELETE CASCADE`) para no chocar con la
+> limpieza que borra el inventario; cinco cambios descritos para la rama de limpieza (LZ-W1…W5, no escritos aquí). Pruebas
+> WSH-T38…T41.
+>
+> **Errata v1.87.1⟨wishlist⟩ — huecos de ux-ui** (2026-10-07, arquitecto, rama `claude/wishlist`, HEAD dado por el
+> orquestador `00ddca8`; ⛔ sha NO MEDIDO: sin Bash). Responde a `DESIGN_SYSTEM §WSH-UX.14` (Q-WSH-UX-1…9). Norma en
+> `API_CONTRACT §WSH.10` (índice) y en su sitio (WSH.3/.4/.6/.8/.9); porqué en **§4.WSH (j)**. Una ruta nueva de lectura
+> (`GET /wishlist/preview`), dos campos aditivos (`ivaRatePct`, `availableNow.fits`), unidad de `pct` fijada, foto del
+> correo con reglas de privacidad, enlaces del correo independientes del dial. `M-74` sin cambio. Pruebas WSH-T31…T37 y
+> WSH-F6…F9. Queda una pregunta al dueño (staff con lista).
+>
+> **Rev v1.87⟨wishlist⟩ — lista de deseos, «lista de compra casi segura» y «avísame» de sellados encendido** (2026-10-07,
+> arquitecto, rama `claude/wishlist` en `/home/user/tcg-wishlist`, HEAD dado por el orquestador `c36f0dea`; ⛔ sha NO
+> MEDIDO: sin Bash). Norma en `API_CONTRACT §WSH`; porqué en **§4.WSH**; migración **`M-74`** en §11; desviaciones
+> **D-WSH-1…7** en §9. Módulo nuevo `wishlist`; el aviso sale de un barrido por estado con deduplicación por
+> `(cuenta, pieza)`, no de un evento por escritor.
+>
 > **Errata v1.86.6⟨accesorios⟩** (2026-10-08, arquitecto, rama `claude/accesorios`, HEAD `dd26ae79` según el orquestador;
 > ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §AC.21` (y §AC.6/§AC.7 retocados); el porqué en **§4.AC (r)**.
 > ⛔ Sin schema ni cambio a `M-73`. Cierra lo que el techlead dejó al arquitecto sobre `dd26ae79`:
@@ -29416,6 +29465,260 @@ para todo producto (`D-SP-2`). Esta rama no lo cierra ni lo empeora.
   Se construiría con su prueba de carrera (N ≥ 10) y su candado de llamadores. Va al orquestador para priorizar; no
   bloquea esta errata.
 
+### 4.WSH Lista de deseos, «lista de compra casi segura» y «avísame» de sellados (rev v1.87⟨wishlist⟩, 2026-10-07)
+
+Norma en `API_CONTRACT §WSH`. Criterios `PROJECT` 800–827. Decisiones del dueño: `HECHOS.md` filas 2026-10-07
+«Respuestas a P-WSH-1…6» y «P-WSH-1 aclarada y P-WSH-4 cerrada». Aquí va el **porqué**.
+
+**(a) Módulo propio.** `backend/src/modules/wishlist/` es dueño de `WishlistItem`, `WishlistNotice` y `WishlistMail`, de
+la aritmética (`common/wishlist-math.ts`, pura) y de los dos jobs de aviso. Lee precios por los seams de `pricing`
+(`getReferencesBatch`, `decideSalePrice`) y la vendibilidad por un método público nuevo del catálogo (`sellableByIds`,
+mismo cuerpo que `fetchSellable`). ⛔ Ningún cálculo de precio propio: *dos fuentes para un precio* es la clase de defecto
+que este proyecto más repite. Work stream sugerido: uno propio, «Lista de deseos», que toca zonas compartidas
+(`prisma/`, `settings.constants.ts`, `jobs/scheduler.service.ts`, `API_CONTRACT.md`) ⇒ se serializa con la rama de
+accesorios (§AC, M-73), que también toca schema y contrato (NO MEDIDO qué toca exactamente).
+
+**(b) El aviso sale del ESTADO, no de un evento.** Medido por lectura: al menos seis caminos escriben `status='listed'`
+(alta por SU.8, `bulk-publish`, buylist `buylist.service.ts:8088`, sellado `sealed-price.service.ts:391`, ingesta
+`price-ingest.service.ts:988`, liberación de reserva `orders/reservation.ts:59`). Engancharse a cada uno deja el
+séptimo sin aviso, y el séptimo nadie lo ve. Un barrido cada 5 min sobre «piezas que casan y son vendibles» + un
+**único** `(userId, inventoryItemId)` cubre todos los caminos, incluido el que todavía no existe.
+- **Descartado: outbox escrito por cada escritor de `listed`.** Más inmediato, pero exige tocar seis módulos de dinero
+  y vuelve a depender de que el próximo se acuerde.
+- **Descartado: `listedAt` en `InventoryItem`.** Haría falta mantenerlo en los seis escritores (mismo problema) y no
+  resuelve «una vez por pieza» cuando la pieza vuelve de una reserva.
+- **Coste aceptado:** hasta 5 min de retraso + la ventana de agrupado (30 min por defecto). El dueño pidió «avisar», no
+  «avisar al instante».
+
+**(c) Deduplicación.** «Una vez por pieza y por cuenta» = el único de `WishlistNotice`. Consecuencias deliberadas:
+- una pieza reservada y liberada no repite (810); una pieza nueva de la misma carta sí;
+- el deseo agregado con pieza ya a la venta inserta filas `suppressed` en la misma transacción (812);
+- pausa, correo sin verificar o cuenta inactiva ⇒ `skipped`, sin recuperación posterior;
+- borrar el deseo borra sus avisos (cascada). Si la cuenta lo vuelve a agregar mientras la pieza está a la venta, cae
+  en `suppressed`. Si lo vuelve a agregar con la pieza **reservada** y ésta se libera, recibe un aviso de una pieza que
+  ya le avisaron. Se acepta: requiere quitar y volver a poner el deseo en esa ventana.
+
+**(d) El máximo es una señal, nunca un precio.** Ninguna superficie vende al máximo ni a un precio por cliente (`HECHOS`
+2026-10-07 «P-WSH-1 aclarada…», opción A descartada). Por eso `wishlist/` **no importa** nada que escriba `Order`,
+`InventoryItem` ni Stripe (lo censa WSH-T15). La foto de `WishlistNotice` guarda lo que dijo el correo para poder
+auditarlo; no gobierna ningún cobro.
+
+**(e) Un solo redondeo.** El criterio 827 da $787.11, que solo sale dividiendo el cociente exacto
+`1050 / (1.16 × 1.15)`. Si se redondea el «sin IVA» a centavos antes, sale $787.10. La fórmula entera de
+`API_CONTRACT §WSH.3` hace una sola división por cifra y reproduce las doce cifras de 827 (calculado a mano; lo fija
+WSH-T22). El IVA usa los dos diales vigentes (`iva_pct`, `iva_transfer_pct`) por `displayPriceCentsOf`, el mismo de toda la
+tienda: el modo `without_iva` es literalmente «el % como si fuera precio de lista».
+
+**(f) Enlaces sin sesión.** Token HMAC sin estado con la llave del índice ciego y prefijo de dominio
+(`pii-crypto.service.ts:268-270`, precedente `mr-reveal:v1:`). Sin tabla de tokens: la acción es idempotente y de bajo
+valor. Que el `id` de «dejar de recibir» sea el del **correo** y no el de la cuenta evita poner el `userId` en un enlace.
+La página del enlace pide un clic: los escáneres de correo siguen los `GET`.
+
+**(g) «Avísame» de sellados: lo que faltaba para que el dial sirva.** Además de agendar el job (D-WSH-1) y poner enlace
+(D-WSH-2), hacen falta dos piezas que el encargo no traía:
+- **Deduplicación por correo** (D-WSH-3): dos capas, no crear la segunda fila pendiente y agrupar por correo al enviar.
+  La segunda capa es la que cuenta: la primera tiene carrera.
+- **Armado** (D-WSH-4): hoy solo se puede apuntar uno en la ficha de un producto **con** existencia. Sin armado, agendar
+  el job manda «¡Volvió a existencia!» a los cinco minutos. Con `armedAt`, el aviso exige ver el producto agotado y
+  luego de vuelta. El criterio 823 dice «se apunta en la ficha de un sellado agotado», y esa ficha no existe. Ver Q-WSH-1.
+
+**(h) La bandera del correo ajeno.** Medido: invitado, sin verificar, 5/min por IP (`catalog.controller.ts:116-121`).
+Opciones:
+- **Doble opt-in** (correo de confirmación): descartada, porque **ella misma** es el vector: cada intento manda un
+  correo a la víctima.
+- **Solo cuentas:** cierra la clase, pero cambia lo que `PROJECT §WSH.7` dejó igual («sigue aceptando invitados»). Es
+  pregunta Q-WSH-2.
+- **Propuesta (por defecto):** con sesión se usa el correo de la cuenta; no se duplica la pendiente; tope de 5 pendientes
+  por correo (dial). El daño queda acotado a correos de una sola vez, y solo cuando hay reposición real.
+
+**(i) Lista de compra sin datos personales.** Se agrega en el servidor y se responde con una lista blanca de claves (821).
+El conteo por nivel **es** el máximo de cada cliente sin decir quién es (`PROJECT §WSH.6`). Los sellados van aparte y solo
+con conteo de correos distintos pendientes (P-WSH-9, recomendación del PO).
+
+**Preguntas para el dueño (vía orquestador), con recomendación:**
+- **Q-WSH-1 · ¿Hace falta que un cliente se pueda apuntar a un sellado que ya se agotó?** Hoy la ficha de un sellado
+  agotado no existe (`sealed-catalog.service.ts:353-356`, `:374`), así que el formulario solo aparece mientras hay piezas.
+  **Recomendación: no por ahora.** El «avísame» funciona como «avísame si se agota y vuelve» (armado), y el PO ajusta la
+  redacción de 823 («se apunta en la ficha de un sellado a la venta; se agota; vuelve; recibe un correo»). Servir la
+  ficha de un agotado es una superficie nueva (de dónde llega el cliente, qué precio se muestra) y va aparte.
+- **Q-WSH-2 · ¿El «avísame» de sellados debe pedir cuenta?** **Recomendación: no.** Se queda abierto a invitados con los
+  topes de (h). Si pentester o seguridad lo marcan alto, la salida es «solo cuentas», sin migración.
+- P-WSH-7/8/9 quedan como diales (`wishlist_target_margin_pct` 15, `wishlist_margin_basis` `cost`,
+  `wishlist_max_iva_mode` `with_iva`) y como sección separable de la respuesta (`sealed`). Si el dueño responde distinto,
+  basta mover un dial, sin desplegar.
+
+**(j) Errata v1.87.1 — los huecos que encontró ux-ui (2026-10-07).** Norma: `API_CONTRACT §WSH.10`.
+- **Pesos antes de guardar (Q-WSH-UX-1): ruta nueva y no cálculo en el navegador.** Calcular `M·1.10` en el front sería
+  *dos fuentes para un precio*, y el modo `without_iva` además necesita los dos diales de IVA. `GET /wishlist/preview`
+  llama a la **misma** `maxDisplay`. Exposición: con sesión no revela nada que `GET /wishlist` no revele ya (de un máximo
+  guardado se despeja `M`); por eso va con sesión, con el dial y con throttle, y ⛔ nunca en la ficha pública, donde sí
+  publicaría el mercado de cartas sin precio. Descartado: meterlo en `GET /catalog/cards/:cardId` (una ruta `@Public` cuya
+  respuesta pasaría a depender de la sesión; si tiene caché o no, NO MEDIDO).
+- **`ivaRatePct` y `fits` (Q-WSH-UX-2/3):** campos del servidor para que el front no haga cuentas (regla WSH-2 de ux-ui).
+  `fits` usa el `M` de hoy y es aproximado, igual que `maxToday`; el que cuenta es la foto del correo.
+- **Carta que no tenemos (Q-WSH-UX-4):** `GET /buylist/cards` ya es la búsqueda pública de todo el catálogo, sin precios,
+  con `availableFinishes`. Una segunda búsqueda igual en `catalog` sería código duplicado. Riesgo aceptado: el buscador
+  depende de una ruta de otro módulo; lo vigila WSH-F6.
+- **Enlaces del correo con el dial apagado (Q-WSH-UX-5):** el dial apaga la función, no el derecho a pararla. Un correo
+  enviado antes de apagar sigue en el buzón; si «quitar» respondiera 404, el cliente no podría hacer lo que el correo le
+  promete (criterio 814).
+- **Staff (Q-WSH-UX-6):** el servidor queda como `checkout`, que hoy acepta a los tres roles (`orders.controller.ts:14`):
+  restringir solo aquí crearía una regla de negocio («el staff no desea») que nadie dio. La UI no la ofrece al staff
+  (`DESIGN_SYSTEM §33.6`, «el operador no compra»). **Pregunta al dueño (vía orquestador), con recomendación:**
+  *«¿Tú y tu equipo deben poder tener lista de deseos?»* **Recomendación: no mostrarla** (es lo diseñado). Ejemplo para
+  preguntarle: si el operador agrega una carta, saldría como «1 la busca» en tu lista de compra, igual que un cliente.
+  Si dice «sí», se añade la pantalla; si dice «nunca», el guard pasa a `customer` y la lista de compra filtra por rol.
+  Ninguna de las dos lleva migración.
+- **Filtros (Q-WSH-UX-7):** en el navegador. Un filtro en servidor tendría que ser idéntico en JSON y CSV; hoy no hace
+  falta porque la lista está acotada por la demanda real.
+- **Unidad de `pct` (Q-WSH-UX-8):** puntos porcentuales con un decimal. Es lo que se lee de pie en una mesa («−9.5 %»)
+  y evita que el front multiplique. El redondeo es simétrico para que `+9.5` y `−9.5` salgan del mismo `|x|`.
+- **Foto del correo (Q-WSH-UX-9), con criterio de privacidad.** Opciones:
+  - **Proxy propio:** descartado. Es el proxy de imágenes abierto que `next.config.mjs:85-90` cerró por seguridad.
+  - **Adjunto incrustado (`cid:`):** descartado. El puerto de correo no lo soporta (`mail.port.ts:23`), y 200 cartas
+    serían megas por correo.
+  - **Sin foto:** la opción más privada, pero contradice el criterio 813, y `PROJECT` manda sobre el contrato.
+  - **Elegida: URL de catálogo tal cual.** Es idéntica para todos, así que no es un píxel por destinatario y nosotros no
+    medimos aperturas. Solo hosts en lista cerrada y `alt=""`; la carta se identifica por texto. Lo que aprende el tercero
+    (IP y hora de quien abre con imágenes remotas sin proxy) es lo mismo que ya aprende cuando esa persona navega la tienda.
+  - Si seguridad lo marca alto, se quita el `<img>` y product-owner ajusta 813. Que el aviso de privacidad (824) mencione
+    al proveedor de imágenes es cosa del product-owner y del abogado del dueño, no del contrato.
+
+**(k) Errata v1.87.2 — lo que backend encontró al construir (2026-10-07).** Norma: `API_CONTRACT §WSH.11`.
+- **Pipe por parámetro.** El texto de v1.87 suponía que un pipe de controlador ve el cuerpo crudo; no lo ve, porque el
+  global corre antes y ya quitó lo desconocido. Backend lo midió (M0: `201` con `maxPriceCents`). La regla que queda es de
+  forma, no de intención: todo `@Body` de `wishlist/` lleva `StrictBodyPipe`, y un candado de `grep` (WSH-T38) lo vigila,
+  porque el error vuelve en silencio en cuanto alguien añade una ruta con `@Body()` a secas. ⛔ Sigue sin tocarse el pipe
+  global (D-WSH-6: radio no medido).
+- **Sesión opcional en una ruta pública.** «Con sesión se usa el correo de la cuenta» era imposible: `@Public()` salta el
+  guard global entero. Opciones: quitar `@Public()` (rompe a los invitados, que `PROJECT §WSH.7` conserva); leer el token en
+  el servicio (segunda copia de la verificación fuera de un guard); **un guard opcional que repite las comprobaciones del
+  global y nunca rechaza** (elegido). Riesgo vigilado: que las dos copias de la verificación se separen. Se acota a una ruta
+  y WSH-T39 prueba los cinco casos de token malo; si aparece un segundo consumidor, el guard sube a `common/guards/` y el
+  global y el opcional comparten la función de verificación.
+- **💰 FK de la pieza: `CASCADE`, no `RESTRICT` ni `SET NULL`.** `RESTRICT` en este schema protege **dinero y prueba legal**
+  (`OrderItem`, `Dispute`, `ReplacementCase`, `VaultPlacementItem`): «una pieza con transacción no se borra». Un aviso de
+  la lista de deseos no es ninguna de las dos cosas (criterio 815, ninguna tabla de M-74 gobierna un cobro). Es historia
+  de la pieza, como `InventoryMovement`/`InventoryAdjustment`, que ya son `CASCADE`. Medido el 2026-10-07: ningún código de
+  `backend/src` borra filas de `InventoryItem`; el único que lo hace es la limpieza `P-DB-LIMPIEZA` (`HECHOS.md:80`), que
+  borra **a propósito** toda la historia, bitácora incluida. Con `RESTRICT`, cada guion o prueba que borre piezas tendría
+  que saber de la lista de deseos: es el acoplamiento que la decisión (b) evitó en los escritores. Además, las limpiezas de
+  decenas de pruebas de integración borran piezas con `inventoryItem.deleteMany` (`grep` en `backend/test`); con
+  `RESTRICT`, un aviso creado por otra suite en la base compartida las pondría rojas sin defecto. `SET NULL` descartado:
+  la columna pasaría a anulable, el único `(userId, inventoryItemId)` dejaría de deduplicar (en Postgres dos `NULL` no
+  chocan) y el job tendría que tratar avisos sin pieza. **Lo que se pierde:** la foto de un aviso cuya pieza se borró.
+  Solo pasa en la limpieza, que borra también la bitácora; el `WishlistMail` (que el correo salió) se conserva.
+- **Las otras FK de M-74 no cambian.** `cardId` sigue `RESTRICT`, igual que `SealedRestockSubscription.cardId` (ningún
+  código borra `Card`, y la limpieza conserva el catálogo). Las de `User` siguen `CASCADE` (el borrado duro ya debe llevarse
+  la lista, criterio 817), y `mailId` sigue `SET NULL`.
+- **Interacción con la limpieza** (rama `claude/limpieza-db`): la limpieza se niega a correr si hay tablas que no
+  clasificó (G-8), así que **tiene** que conocer las tablas de M-74 si M-74 llega antes. Lo que debe cambiar allí, y por
+  qué los dos diales de aviso deben estar apagados durante la limpieza y la re-subida, está en `API_CONTRACT §WSH.11`
+  (LZ-W1…W5). La causa de fondo: con M-74 el «avísame» de sellados corre solo, y un inventario vacío durante horas **arma**
+  todas las suscripciones pendientes.
+- **Ratificados sin cambio de diseño:** P = `displayPriceCents` (el contrato usaba un nombre muerto desde §M10-IVA.3); el
+  candado `xact` en una transacción portadora (una conexión retenida por job; la corrección descansa en el CAS y el único,
+  no en el candado); `wishlistEnabled` puesto por el controlador; los tres censos tocados; T9 parcial (la detección usa la
+  misma puerta que el catálogo).
+
+**(l) Errata v1.87.3 — el rechazo de QA (2026-10-07).** Norma: `API_CONTRACT §WSH.12` y WSH.7 (f).
+- **La causa no era un descuido del formulario; era de diseño.** El contrato v1.23 dejaba que el **cliente** eligiera la
+  identidad (`tcgplayerProductId` **o** `cardId+subtipo`), y la ficha solo tenía la segunda. Las pruebas se escribieron con
+  la primera. Resultado: dos claves para el mismo producto, cada lado probado con la suya, y nada que las comparara. La
+  lección que se lleva el diseño: **cuando el servidor ya sabe algo, el cliente no lo repite**; y una prueba de una ruta
+  pública se escribe con el cuerpo que manda la pantalla, con un candado que lo vigile.
+- **Opción elegida (a): el cliente manda la pieza, el servidor deriva.** La pantalla ya tiene un id de pieza (la URL y
+  `group.representativeItemId`); el servidor tiene la regla de agrupado. Derivar en el servidor deja **una** regla
+  (`sealedIdentityKey`, que `groupKey` pasa a llamar) y hace B-1 imposible por construcción: la clave de la fila es la de
+  la pieza, y la de la pieza es la del grupo que se está viendo. No expone nada nuevo.
+- **Descartada (b): exponer `tcgplayerProductId` en la ficha.** No es secreto (ya sale en `value-history`,
+  `sealed-catalog.service.ts:444`), pero deja la regla en el cliente: tendría que elegir rama (mapeado o no) igual que el
+  servidor, y el día que se equivoque reaparece B-1. Dos copias de una regla que no se comparan es exactamente lo que falló.
+- **Descartada (c): casar por cualquiera de las dos claves.** El sellado se ancla a una carta del set
+  (`schema.prisma:2551-2552`); varias cajas distintas del mismo set y subtipo comparten ancla. Un `c:` que case con
+  cualquier `p:` del mismo ancla avisaría de productos que la persona no pidió. Arreglar un «nunca avisa» con un «avisa de
+  más» cambia de defecto, no lo quita.
+- **Cualquier pieza sellada, no solo `listed`.** La ficha se carga con existencia (`:353-358` ⇒ `404` sin piezas); el
+  momento en que más se pulsa «avísame» es cuando se acaba de vender la última. Si se exigiera `listed`, ese clic se
+  perdería en silencio tras un `202`. Se acepta cualquier estado y dueño: la respuesta es neutra y un uuid no se adivina.
+- **💰 Filas heredadas: rellenar solo lo inequívoco.** Con la ruta sin cambios, toda fila nacida en la pantalla es `c:`. Las
+  de un producto no mapeado ya son correctas. Las de un producto mapeado no avisarán nunca. Rellenar `tcgplayerProductId`
+  cuando **un solo** producto mapeado tiene ese `(ancla, subtipo)` y ninguna pieza no mapeada lo comparte recupera esas
+  filas sin adivinar; las ambiguas se quedan y **no** producen correos falsos (se arman y no casan). Se descartó borrar
+  las ambiguas (perder una intención del cliente sin decírselo) y elegir «la más reciente» (adivinar). El relleno **no**
+  toca `armedAt`: el armado sigue exigiendo ver el producto agotado. Va en `M-74` porque no está publicada; cuántas filas
+  hay es NO MEDIDO (si el dial nunca estuvo encendido en producción, cero) y la cifra antes/después va a la solicitud de
+  fusión.
+- **Cuerpo estricto, sin gracia.** Aceptar el cuerpo viejo durante un tiempo mantendría vivo el camino que crea filas
+  `c:` de productos mapeados. Un solo cliente (la ficha); el desfase Vercel/Railway se ve como error genérico, no como
+  silencio.
+- **M-1: la promo es otro producto para la lista.** WSH.1 ya decidió que una promo o un exclusivo de deck **no avisan**
+  (valen distinto, §4.29); la baja al pagar no aplicaba ese filtro. Regla: **lo que quita un deseo es exactamente lo que lo
+  habría avisado** (parte de producto del mismo predicado, sin la parte «a la venta»). Si el dueño quisiera que la promo
+  cumpla el deseo, cambian los dos lados a la vez — el aviso **y** la baja —, nunca uno solo. Se lee de `PROJECT` 809/816
+  («esa carta y acabado») junto con WSH.1; no se re-pregunta, pero queda señalado al product-owner por si quiere hacerlo
+  explícito en 816.
+- **Deuda anotable (no bloqueante):** `StrictBodyPipe` vive en `wishlist/dto/` y ahora lo usa `catalog`. Con un tercer
+  consumidor sube a `common/pipes/` (zona compartida).
+
+**(m) Errata v1.87.4 — el mapeo cambia después de apuntarse (2026-10-07).** Norma: `API_CONTRACT §WSH.13` y WSH.7 (g).
+- **Lo medido (backend, no el arquitecto):** `SealedMappingService.updateMapping` reescribe `tcgplayerProductId` de una
+  pieza (`pricing/sealed-mapping.service.ts:117-120`) y, con `applyToSiblings`, de sus hermanas selladas sin mapear del
+  mismo `(cardId, sealedSubtype)` (`:122-133`), por `PUT /admin/pricing/sealed/items/:itemId/mapping`
+  (`sealed-pricing.controller.ts:112`); también desmapea. Releído por el arquitecto: las hermanas se filtran **sin**
+  estado ni condición, así que alcanzan a las vendidas. El alta (`inventory.service.ts:1294-1319`) fija el mapeo por
+  pieza según lo que captura el operador, sin mirar a las hermanas: una reposición puede nacer mapeada junto a piezas
+  viejas sin mapear. En los dos casos, la clave de la fila (fijada al apuntarse, v1.87.3) deja de existir en las piezas
+  y la fila no casa nunca.
+- **Opción elegida: reconciliar en el job, leyendo el estado.** Al empezar cada corrida (con el candado tomado, antes de
+  armar), toda pendiente **huérfana** (ninguna pieza tiene ya su clave) se re-apunta al valor de `tcgplayerProductId`
+  —`NULL` incluido— que comparten **todas** las piezas selladas de su `(ancla, subtipo)`, si es uno solo. Es la regla del
+  paso (8) de `M-74` generalizada a los dos sentidos (`c:`→`p:`, `p:`→`c:`, `p:P1`→`p:P2`). Por qué así:
+  - **Dirección de dependencias.** La tabla es del job de `catalog`; quien la escribe es `catalog`. `pricing` ya importa
+    de `catalog` (`sealed-mapping.service.ts:4`, `toCardDTO`); hacer que además escriba sus filas añadiría un segundo
+    acoplamiento, del tipo que TD-WSH-3 ya señala entre `catalog` y `wishlist`.
+  - **Cubre a todos los escritores, también los futuros y el alta mezclada.** El hueco existió porque la regla dependía
+    de que nadie cambiara la pieza; atarla a un escritor concreto repite esa apuesta. Leyendo el estado da igual quién
+    lo cambió.
+  - **Sin ventana de estado partido para el armado:** la reconciliación va en la misma corrida y antes del paso de
+    armado, así que ninguna corrida arma con la clave vieja una fila que ya debería tener la nueva.
+  - **Coste:** una consulta por tick sobre las pendientes (acotadas por el tope por correo) unida al inventario sellado.
+    El retraso máximo entre el `PUT` y el re-apuntado es un tick (5 min), igual que la detección de reposición.
+- **Descartada (A), la sugerida por backend: reescribir en `updateMapping`, en la misma transacción.** Inmediata y
+  atómica, pero (1) `pricing` pasa a escribir una tabla de `catalog`; (2) solo cubre ese escritor: no el alta mezclada ni
+  uno futuro; (3) con la curación pieza por pieza tendría que aplicar de todas formas la regla «un solo destino» sobre el
+  grupo entero, que es la misma consulta que aquí, pero en otro módulo. Dos copias de la regla es el defecto de B-1.
+- **Descartada (B): evento de dominio `sealed-mapping.changed` que escucha `catalog`.** Mejora la dirección respecto de
+  (A), pero sigue cubriendo solo a quien emite el evento y añade infraestructura de eventos que el proyecto no usa para
+  esto (el aviso de deseos ya se decidió como barrido por estado y no por evento, rev v1.87).
+- **Descartada (C): guardar en la fila la pieza ancla y calcular la clave en cada tick a partir de ella.** Necesita una
+  columna y una FK a `InventoryItem` (cambia `M-74`, y la limpieza que borra inventario la dejaría sin ancla), no sirve
+  para las filas heredadas, y con el grupo partido la fila sigue solo a su pieza, no al producto.
+- **Se reinicia `armedAt`/`matchedAt` al re-apuntar.** El armado se ganó mirando la clave vieja. Con el grupo a medio
+  curar (unas piezas `c:` agotadas, otras ya `p:` a la venta) puede ser falso, y conservarlo manda «¡Volvió!» de un
+  producto que nunca se agotó. Reiniciado, la misma corrida lo vuelve a armar si el producto de verdad no está a la venta;
+  lo único que se pierde es un aviso cuya reposición coincidió con el cambio de mapeo dentro de la ventana de agrupado.
+  Misma regla que en v1.87.3: correo falso nunca, aviso perdido en un borde estrecho sí. El paso (8) no reinicia porque
+  sus filas nacen con `armedAt` nulo (columna nueva de `M-74`).
+- **Ambiguas, intactas.** `|D| ≥ 2` o sin piezas: no se adivina (mismo criterio que el paso (8) y que la opción (c)
+  descartada en (l)). Con la limpieza de inventario, las filas quedan huérfanas sin destino hasta que se re-sube; si las
+  piezas re-subidas traen el mismo mapeo, ya no son huérfanas y casan solas.
+- **Duplicados del mismo correo: se borra el que se re-apunta.** (b) promete una pendiente por correo e identidad, y el
+  tope por correo cuenta filas. La fila que ya tenía la clave nueva conserva su armado, que sí se ganó con esa clave.
+- **El paso (8) se conserva** (no cambia el checksum de `M-74` por tercera vez y sus conteos siguen siendo la medición de
+  la ventana de despliegue). Son dos copias de la regla de avance; WSH-T44 (9) las compara sobre los mismos fixtures.
+- **TD-WSH-3:** su disparador es «el próximo cambio de `sealed-restock-notify`», y este lo es. Decisión: **no se paga
+  aquí**. Esta errata corrige un hueco que se pierde en silencio en una rama sin publicar; mover reloj, diales y candado a
+  un sitio neutro toca zona compartida y mezclaría una refactorización con la corrección. La reconciliación no añade
+  ningún import de `wishlist/` (usa solo Prisma), así que el acoplamiento no crece. Queda para el techlead
+  re-evaluarlo en su veredicto.
+- **Interpretaciones de backend ratificadas (`BACKEND_NOTES §84.v1.87.3`):** (1) `postRestockExpectingRejection` como
+  segunda vía de prueba, solo para T42 (4): el candado (a) prohíbe los cuerpos viejos en el helper normal, y la
+  afirmación «el cuerpo viejo ⇒ `400`» necesita mandarlos; queda confinada a un fichero por candado. (2) Correo ausente o
+  no texto ⇒ `400 {field:'email'}` del pipe; texto con forma inválida ⇒ `422`: tipo y presencia los rechaza el pipe,
+  contenido el servicio, como en las demás rutas estrictas. (3) El relleno del paso (8) no se revierte: no se distingue
+  después qué filas rellenó, y el valor nombra el mismo producto.
+
 ---
 
 ## 5. Decisiones transversales
@@ -32012,6 +32315,31 @@ Riesgos técnicos:
   (`buylist.service.ts:7503-7506`; NO MEDIDO). **Acción (backend):** `API_CONTRACT §PNL.10.2`/`.3`, pruebas BRJ-10…13.
   **Acción (dueño, vía orquestador):** las dos consultas de solo lectura de §PNL.10.2 paso 5 en la ventana de despliegue.
 
+- **rev v1.87⟨wishlist⟩ (2026-10-07, arquitecto, lectura sin ejecutar en `/home/user/tcg-wishlist`) — el «avísame» de
+  sellados no cierra su ciclo.** Acción para todas: backend, según `API_CONTRACT §WSH.7` y §WSH.5.
+  - **D-WSH-1:** el job no está agendado (`sealed-restock-notify.service.ts:28-29`; solo
+    `admin-jobs.controller.ts:391-394`; `scheduler.service.ts` no lo registra, `:179-272`, ni lo enruta, `:331-390`). El
+    criterio 64 («activarlos no requiere nuevo desarrollo») no se sostiene para el «avísame».
+  - **D-WSH-2:** el correo no lleva enlace (`sealed-restock-notify.service.ts:111`, bloques de `:127`).
+  - **D-WSH-3:** el alta crea sin buscar duplicado (`sealed-catalog.service.ts:505`) y el job manda un correo por fila
+    (`sealed-restock-notify.service.ts:88-91`) ⇒ el mismo correo apuntado dos veces recibe dos.
+  - **D-WSH-4:** la ficha del sellado responde `404` si el grupo no tiene piezas `listed` (`sealed-catalog.service.ts:353-356`,
+    `:374`), y el formulario solo vive ahí (`SealedDetailView.tsx:238`). El job empareja contra «hay `listed` ahora»
+    (`sealed-restock-notify.service.ts:80-89`). Con el job agendado, toda suscripción avisaría en el siguiente tick sin que el
+    producto se agote. **NO EJECUTADO.**
+  - **D-WSH-5 (PII):** el borrado suave no toca `SealedRestockSubscription` (`admin.service.ts:1643-1695`: ninguna línea
+    sobre ella). El correo real del usuario borrado se queda en sus filas y seguiría recibiendo avisos. `onDelete: SetNull`
+    (`schema.prisma:2550`) solo actúa en el borrado duro y aun así conserva `email`.
+  - **D-WSH-6:** el `ValidationPipe` global descarta campos desconocidos en silencio (`main.ts:54`,
+    `forbidNonWhitelisted: false`). El criterio 801 exige **rechazar** ⇒ las rutas de `wishlist` usan un pipe estricto
+    propio. ⛔ No se cambia el global en este stream: el radio de ese cambio no está medido. ⭐ v1.87.2: el pipe va **por
+    parámetro** (uno de controlador no rechaza nada, medido por backend); cerrado según `BACKEND_NOTES §84.2`, NO
+    re-medido por el arquitecto.
+  - **D-WSH-7:** el «una a la vez» del job es una bandera en memoria (`sealed-restock-notify.service.ts:34`, `:47`). No cubre
+    dos instancias (cuántas corre producción: NO MEDIDO) ⇒ candado consultivo de Postgres. ⭐ v1.87.2: construido como
+    `pg_try_advisory_xact_lock` (`wishlist-notify.service.ts:66-73`, `sealed-restock-notify.service.ts:78-85`, leídos);
+    con dos instancias reales: NO MEDIDO, lo cubre WSH-T41 con el candado tomado desde otra conexión.
+
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
 
@@ -32871,11 +33199,41 @@ productivas); las migraciones solo redefinen esquema.~~
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
 
+### rev v1.87⟨wishlist⟩ (**M-74**: lista de deseos — **DDL ADITIVO: 3 tablas + 1 enum + 1 columna en `User` + 2 columnas y 1 índice en `SealedRestockSubscription` + 2 CHECK; sin relleno**, §4.WSH)
+- **Carpeta:** `prisma/migrations/20261027120000_m74_wishlist/`. El último en este árbol es `m72`
+  (`20261025120000_m72_bsd_inbound_label`, medido con `Glob` el 2026-10-07). `M-73` es de accesorios (`/home/user/tcg-accesorios`,
+  su fecha de carpeta NO MEDIDA): si cae después de `20261027…`, se re-fecha **ésta**.
+- **Forma normativa:** `API_CONTRACT §WSH.1`. CHECKs: `wishlist_max_pct_allowed` (`maxPct IN (5,10,16)`) y
+  `wishlist_notice_skip_reason` (`status='skipped'` ⇔ `skipReason IN ('paused','unverified','inactive','unavailable')`).
+- **Sin relleno:** `armedAt`/`matchedAt` nulos son la semántica correcta para las suscripciones que ya existan. Antes de
+  desplegar se cuentan (consulta en §WSH.1) y la cifra va a la solicitud de fusión.
+- **Seeds:** las ocho claves de §WSH.2 (`wishlist_enabled = off`). `sealed_restock_alerts` sigue en `off` en el seed; el
+  encendido es un `PUT /admin/settings` del súper-admin **en el mismo despliegue** (`PROJECT §WSH.7` punto 1).
+- **Reversa:** primero el código; luego `DROP` de tablas, enum y columnas. No toca dinero ni inventario.
+- ⭐ **v1.87.2 — una FK cambia, en su sitio** (M-74 no está publicada): `WishlistNotice_inventoryItemId_fkey` pasa a
+  `ON DELETE CASCADE` (`migration.sql:100`, y `onDelete: Cascade` en `schema.prisma`). Porqué: §4.WSH (k). FK de M-74
+  después del cambio: `WishlistItem.userId` CASCADE, `.cardId` RESTRICT; `WishlistNotice.wishlistItemId` CASCADE,
+  `.userId` CASCADE, `.inventoryItemId` **CASCADE**, `.mailId` SET NULL; `WishlistMail.userId` CASCADE (WSH-T40).
+- ⭐ **v1.87.2 — orden respecto de la limpieza `P-DB-LIMPIEZA`:** `API_CONTRACT §WSH.11` «Orden de despliegue». Si la
+  limpieza no incorpora LZ-W1…W3, se corre **antes** de desplegar M-74.
+- ⭐ **v1.87.3 — paso (8), relleno ACOTADO e idempotente** (en su sitio; M-74 no está publicada): `tcgplayerProductId` de
+  las `SealedRestockSubscription` pendientes con clave `c:` cuyo `(cardId, sealedSubtype)` corresponde a **un solo**
+  producto mapeado y a ninguna pieza no mapeada. SQL normativo en `API_CONTRACT §WSH.7 (f)`. Ambiguas intactas. Sin tocar
+  `armedAt`/`matchedAt`. Conteo de `c:` pendientes antes y después, en la ventana de despliegue, a la solicitud de fusión.
+  **Reversa:** no se deshace (el valor rellenado describe el mismo producto que la fila ya nombraba; cómo lo leería el
+  job anterior a M-74: NO MEDIDO). La cabecera del fichero deja de decir «SIN relleno». Porqué: §4.WSH (l).
+- ⭐ **v1.87.4 — `M-74` sin cambio.** La re-asignación de suscripciones cuando cambia el mapeo de las piezas es código del
+  job (`API_CONTRACT §WSH.7 (g)`), no un paso de datos. El paso (8) se conserva; su paridad con la regla del job la fija
+  WSH-T44 (9). Porqué: §4.WSH (m).
+- ⭐ **v1.88⟨release-s7⟩ — fecha de `M-73` medida:** `20261026120000_m73_accessories` < `20261027120000_m74_wishlist`
+  (Glob en `/home/user/tcg-release`, 2026-10-08). No se re-fecha ninguna.
+
 ### v1.86⟨accesorios⟩ (**M-73**: accesorios, existencias, fotos, renglones, cajas con tarifa — **DDL ADITIVO: 5 enums nuevos + 6 tablas nuevas + 2 columnas en `Order` + 1 en `ShippingPackage` + 3 en `PaymentRefund` + CHECKs + índices + 8 filas semilla; SIN relleno de filas existentes**, §4.AC)
 - **Número:** `M-73`, reservado por el orquestador el 2026-10-07 (production llega a `M-72`; `M-74` es de `claude/wishlist`).
 - **Carpeta:** `prisma/migrations/20261026120000_m73_accessories/`, posterior a `m72` (`20261025120000`, medido con Glob el
   2026-10-07). ⚠️ Qué fecha de carpeta usa `claude/wishlist` para `M-74`: **NO MEDIDO**. Debe ser posterior a esta; si
-  no lo es, se renumera la **segunda** que se fusione.
+  no lo es, se renumera la **segunda** que se fusione. ⭐ **v1.88:** medido el 2026-10-08, `M-74` es `20261027120000`:
+  posterior, nada que renumerar.
 - **Contenido, CHECKs, índices, semilla y reversa:** `API_CONTRACT §AC.1` (forma normativa entera).
 - **Filas existentes:** ninguna cambia de valor.
   - `Order.shippingBoxReview` nace `false` por DEFAULT. Es honesto: ningún pedido histórico eligió caja.

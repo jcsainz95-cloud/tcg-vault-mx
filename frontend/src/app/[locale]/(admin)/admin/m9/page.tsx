@@ -1,6 +1,7 @@
 import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
 import { M9View } from './M9View';
 import { parseM9Tab, parseSalesUrl } from './salesParams';
+import { parseBuyListUrl } from './buyListParams';
 
 /**
  * `/admin/m9` — Reportes (`DESIGN_SYSTEM §AN-UX.1`): pestañas «Ventas» (por defecto) y «Actividad», `?tab=`; el resto del
@@ -14,7 +15,7 @@ export default async function M9Page({
   const sp = (await searchParams) ?? {};
   return (
     <SuperAdminOnly>
-      <M9View initialTab={parseM9Tab(sp.tab)} initialSales={parseSalesUrl(sp)} />
+      <M9View initialTab={parseM9Tab(sp.tab)} initialSales={parseSalesUrl(sp)} initialBuyList={parseBuyListUrl(sp)} />
     </SuperAdminOnly>
   );
 }

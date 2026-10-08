@@ -287,6 +287,12 @@ export function cardLineRows(line: {
   amount?: string | null;
   /** Nota sin dinero para la línea que no compramos («No entra en esta oferta»). */
   aside?: string | null;
+  /**
+   * rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.6, DESIGN_SYSTEM §WSH-UX.5 (d)) — miniatura OPCIONAL a la izquierda (56×78,
+   * `alt=""`). ⚠️ El llamador la pasa YA validada (`safeCardImageUrl` de `wishlist/`: https, host en lista cerrada, sin
+   * query ni fragmento); aquí solo se escapa. Ausente ⇒ la línea de siempre, byte a byte (sin celda ni hueco).
+   */
+  thumbUrl?: string | null;
 }): string {
   const izquierda =
     `<tr>${td(PAPER, `font-family:${SANS};font-size:15px;line-height:1.4;${LH};font-weight:bold;color:${INK}`, escapeHtml(line.title))}</tr>` +
@@ -303,7 +309,28 @@ export function cardLineRows(line: {
     line.amount ? escapeHtml(line.amount) : '&nbsp;',
     'align="right" valign="top" width="130"',
   );
-  return padded(table(`<tr>${td(PAPER, 'padding:0', table(izquierda), 'valign="top"')}${derecha}</tr>`));
+  const mini = line.thumbUrl
+    ? td(
+        PAPER,
+        'padding:0 12px 0 0',
+        `<img src="${escapeHtml(line.thumbUrl)}" width="56" height="78" alt="" style="display:block;border:0;width:56px;height:78px" />`,
+        'valign="top" width="68"',
+      )
+    : '';
+  return padded(table(`<tr>${mini}${td(PAPER, 'padding:0', table(izquierda), 'valign="top"')}${derecha}</tr>`));
+}
+
+/**
+ * rev v1.87⟨wishlist⟩ (DESIGN_SYSTEM §WSH-UX.5) — **enlace de acción secundaria** (13px, muted, subrayado): «Quitar esta
+ * carta de mi lista» / «Dejar de recibir estos avisos». Mismo acotado de esquema que {@link ctaRows}: con una URL que no
+ * sea http(s) se pinta el rótulo SIN `<a>` (⛔ nunca un `href` peligroso ni a medias).
+ */
+export function smallLinkRow(url: string, label: string): string {
+  const estilo = `font-family:${SANS};font-size:13px;line-height:1.5;${LH};color:${MUTED}`;
+  const contenido = isSafeMailUrl(url)
+    ? `<a href="${escapeHtml(url)}" style="color:${MUTED};text-decoration:underline">${escapeHtml(label)}</a>`
+    : escapeHtml(label);
+  return padded(table(`<tr>${td(PAPER, estilo, contenido)}</tr>`));
 }
 
 /**

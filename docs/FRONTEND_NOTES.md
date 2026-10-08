@@ -20854,3 +20854,257 @@ con su clave de cartas. Ajustados a la nueva forma: SR-UI-1 y PS-UI-14 (`content
 
 **Mutaciones** sobre copia (deterministas, 1 corrida cada una): `shippedRefundKey` devuelve siempre la clave de cartas ⇒
 5 rojas de 8 (solo cartas sigue verde); fieldset sin `subject` ⇒ 4 rojas de 8.
+
+## §108 · ⭐ **Lista de deseos por cuenta, «lista de compra casi segura» y «avísame» de sellados** (2026-10-07, rama `claude/wishlist`, base `de751da`; `API_CONTRACT §WSH` v1.87⟨wishlist⟩ + errata v1.87.1 · `DESIGN_SYSTEM §WSH-UX` vWSH-1 · `PROJECT §WSH`, criterios 800–827)
+
+Manda el contrato con su errata: se retiraron las soluciones temporales del diseño (clave `wishlist.ivaIncluded`, la
+comparación `<=` en el renglón, «sin cifras antes de guardar» / `noPesosYet`). El backend de §WSH se construye **en
+paralelo**: todo lo de aquí corre contra el contrato con el servidor falso `src/lib/mock/wishlist.ts` (`// MOCK`).
+
+**Superficies (todas nuevas salvo donde se dice):**
+- **Ficha** (`catalog/[cardId]/WishlistBlock.tsx` + `PctChoice.tsx`): se monta solo con `detail.wishlistEnabled === true`
+  (campo aditivo de la ficha; ausente ⇒ apagado). Staff ⇒ nada (Q-WSH-UX-6); invitado ⇒ invitación con
+  `/login?next=/catalog/{id}` y `/register?next=…` (que `/register` honre `next` está **NO MEDIDO**). Cliente: (a) agregar,
+  (b) ya en tu lista (cambiar % con `PATCH`, quitar con `DELETE`), (c) lista llena. Pesos bajo cada % = `tiers` de
+  `GET /wishlist/preview`; tras un `409 WISHLIST_DUPLICATE` (que no trae `maxToday`) la cifra de «hoy» se toma del
+  preview para ese % (por contrato es la misma, WSH-T31). La ficha sin piezas dice «Hoy no tenemos esta carta.»
+  (`CardDetailView`, cambio de una línea).
+- **«Mi lista»** (`account/wishlist/`: `WishlistView`, `WishlistRow`, `WishlistSearch`, `page.tsx`). «Cabe / arriba» =
+  `availableNow.fits` (⛔ el front no compara). Buscador sobre `GET /buylist/cards` (enlaces a la ficha, sin precios,
+  debounce 300 ms, ≥ 2 caracteres, 8 resultados). Quitar = `DELETE` + toast «Deshacer» (`POST` con los mismos
+  `{cardId, finish, maxPct}`).
+- **Resumen en «Mi cuenta»** (`components/domain/account/WishlistSection.tsx`; zona compartida, solo añadido): la
+  sección `#wishlist` va tras `#addresses`; la consulta vive en `AccountView` y decide si **existe** (`404
+  FEATURE_DISABLED` ⇒ ni sección ni índice). `sectionsForRole` **no** cambió (la sección se inserta aparte).
+- **Página del enlace** (`lista-de-deseos/aviso/`): un clic, nada al cargar, `history.replaceState` quita `a/id/t` de la
+  barra, `noindex` + `referrer: no-referrer`. No consulta el dial (v1.87.1 Q-WSH-UX-5).
+- **M9 › «Lista de compra»** (`m9/BuyListTab.tsx`, `m9/buyListParams.ts`; `M9_TABS` gana `compra`). Pinta campo a
+  campo la lista blanca (⛔ nunca itera el DTO). `pct` en puntos porcentuales tal cual (`Intl` con 1 decimal del valor
+  absoluto; el signo lo pone la frase «pierdes … (−x %)»). Filtros en el navegador; el CSV se pide solo con `sort/dir`.
+  `parseBuyListUrl` vive en un módulo sin `'use client'` porque lo llama `page.tsx` (servidor).
+- **M10 › «Lista de deseos»** (`m10/sections/WishlistDialsSection.tsx`, `id="wishlist"`): siete diales, `PUT` parcial;
+  pasar `wishlistEnabled` a `on` abre el diálogo y no hay `PUT` hasta «Sí, encender». **M11**: el octavo dial
+  (`sealedRestockMaxPendingPerEmail`) en `SealedDialsPanel`, como entero.
+- **«Avísame» de sellados** (`SealedRestockForm`): con sesión, sin campo de correo y «Te avisaremos a {email}» (se manda
+  el de la cuenta porque el cuerpo lo pide; el servidor lo ignora, §WSH.7 b). Textos `body`/`confirmed` cambiados al
+  armado; `429` con su texto.
+
+**Decisiones de implementación**
+- **Una lectura cacheada**: `['wishlist']` la comparten ficha, «Mi cuenta» y «Mi lista»; las mutaciones parchean la caché
+  (`setQueryData`) en vez de refetch, y el bloque guarda «overrides» locales por acabado (el `409` solo trae id y %).
+- **Tipos**: añadidos al final de `contract.ts` (bloque §WSH) más dos campos aditivos dentro de interfaces existentes
+  (`GroupedListingDetailResponse.wishlistEnabled?`, ocho claves opcionales al final de `SettingsDTO`).
+- **Cliente**: nueve funciones al final de `api.ts` (`getWishlist`, `getWishlistPreview`, `addWishlistItem`,
+  `updateWishlistItem`, `removeWishlistItem`, `setWishlistAlertsPaused`, `postWishlistMailAction`, `getWishlistDemand`,
+  `exportWishlistDemandCsv`); `getCardDetail` (rama mock) añade `wishlistEnabled`.
+- **Mock** (`mock/wishlist.ts`): cifras **copiadas del contrato** (WSH-T31/WSH.3/WSH-T35), no recalculadas; sin mercado:
+  `c-zapdos` y `c-pikachu`/`reverse_holo`. Banderas en `localStorage` (`tcg.mock.wishlist*`), token válido `mock-token`.
+  El seed DEMO enciende `wishlistEnabled` (el real es `off`). El dial de traslación **no** se nombra en el mock (candado
+  del criterio 209): `api.ts` lo añade al ensamblar la respuesta de la demanda (valor fijo 100, no se pinta).
+- **Staff en `/account/wishlist`**: el redirect existente lo manda a `/admin/account/wishlist`, que no existe (404).
+  Coherente con Q-WSH-UX-6 (no hay superficie para staff); no se añadió página.
+- **Copia de M10**: el botón dice «Guardar lista de deseos (n cambios)» y no «Guardar» a secas: un «Guardar» suelto
+  chocaba con el de la sección de grading en una prueba de M2 (medido: «Found multiple elements … "Guardar"»).
+
+**Pruebas** (escritas antes del código; rojo medido: 23 fallos en 8 ficheros sobre el árbol sin componentes):
+`catalog/[cardId]/WishlistBlock.test.tsx` (WSH-F1, F7, UX-1…5, staff, (g)), `account/wishlist/WishlistView.test.tsx`
+(WSH-F2, F6, UX-6, `fits`), `lista-de-deseos/aviso/WishlistMailActionPage.test.tsx` (WSH-F3/F9, UX-7),
+`m9/BuyListTab.test.tsx` (WSH-F4/F8, UX-8/9/10), `m10/sections/WishlistDialsSection.test.tsx` (UX-14),
+`sellado/[inventoryItemId]/SealedRestockForm.wsh.test.tsx` (UX-13), `components/domain/account/WishlistSection.test.tsx`,
+`src/test/wishlist-wsh-locks.test.ts` (candado de fuente WSH-F7, UX-11, UX-12, retiro de la errata, P66-3), y un caso
+nuevo en `M9View.test.tsx` y `SealedDialsPanel.test.tsx`. Pruebas de hoy cambiadas: `M9View.test.tsx` (tres pestañas),
+`SealedRestockForm.test.tsx` (texto `confirmed` nuevo), `AccountView.test.tsx` (mock de `getWishlist` con el dial
+apagado). E2E: `e2e/wishlist.spec.ts` (WSH-F1…F9), todos `mockOnly` (no hay backend que medir todavía) ⇒ el censo
+`e2e-skip-census` sube y su baseline es de devops.
+
+**NO MEDIDO**: los E2E de `e2e/wishlist.spec.ts` contra el stack (ni en mock si la carga de la máquina no lo permitió en
+este pase: ver el informe del pase); WSH-F5 «formulario visible con el dial `on`» (el mock de `subscribeSealedRestock`
+siempre responde `FEATURE_DISABLED`); que `/register` honre `?next=`.
+
+### §108.v1.87.3 · Rechazo de QA y condiciones de techlead sobre `503cf07` (2026-10-07, base `71fc6e3f`)
+
+**Commits:** `38a993de` (B-1) · `d58a0bdb` (C2) · `30a9bcff` (I-2) · `d6d6383d` (B-3, I-1/C1, E2E) · este apartado y
+`TECH_DEBT` TD-WSH-F1…F4 en el commit de docs que lo acompaña.
+
+**B-1 · errata v1.87.3 (`API_CONTRACT §WSH.12` «Qué hace frontend»).** `RestockSubscriptionInput` = `{ email, inventoryItemId }`
+(`lib/api.ts`); `SealedRestockForm` recibe `inventoryItemId` y manda `{ email: target, inventoryItemId }`;
+`SealedDetailView` le pasa `group.representativeItemId`. Pruebas: `SealedRestockForm.test.tsx`, `.wsh.test.tsx` y
+`SealedDetailView.test.tsx` afirman el cuerpo con `toEqual` **y** con la lista de claves (`toEqual` ignora claves `undefined`:
+`{email, cardId: undefined}` pasaría un `toEqual` de dos claves). Rojo previo: 3/3. Sin texto nuevo.
+
+**B-3 · F1/F7 en mock.** Defecto de la prueba: daban por hecho que la ficha llega con «Normal» marcado, y la ficha
+preselecciona el primer acabado **a la venta** (`reverse_holo` en el fixture de Pikachu). Corregido sin debilitar: F1 lee el
+acabado marcado y exige que el botón nombre **ese** acabado, y luego que lo siga en los dos sentidos (además ahora afirma que
+el botón del acabado anterior desaparece); F1-tope y F7 **eligen** el acabado antes de afirmar. Fallo previo medido con el spec
+de `71fc6e3f` en mock: F1 (`:47`), F1-tope (`:76`), F7 (`:92`) rojos (más F4/F8, rojo esperado por mi cambio C2 del CSV).
+
+**I-1 / C1 · E2E agnósticos.** `e2e/wishlist.spec.ts` prepara el estado por entorno: mock = servidor falso; real = API del
+contrato (`customer2` para `POST/DELETE /wishlist`, súper-admin para `PUT /admin/settings`), cartas del seed por nombre en
+`GET /buylist/cards?q=` (E2E Reverse Bird = normal con mercado + reverse_holo sin mercado; E2E Order Two = sin mercado; E2E
+Order Ten = nunca tuvo piezas). Los diales se fotografían en `beforeAll`, se reponen en cada `beforeEach` y en `afterAll`
+(que enciende el dial antes de vaciar: con el dial apagado `GET /wishlist` es 404 — defecto propio encontrado al medir).
+El fichero corre en un worker (`mode: 'default'`) porque comparte diales globales; por eso `--repeat-each` exige
+`--workers=1` (con workers en paralelo, 7/110 rojos por interferencia entre copias, no por conducta). La spec de QA
+(`wsh-real.spec.ts`) sirvió de guía; no se copió (ids aleatorios del seed, SQL directo y enlaces del log del backend no
+existen en CI). Nuevo **WSH-F10** (824). F3 y F9 se parten: la parte medible en real (un clic, nada al cargar, token fuera de
+la barra, meta, enlace no firmado ⇒ «no funciona»; dial apagado ⇒ la página sigue, la lista dice «no disponible», la ficha
+sin bloque) es `@real`; el «confirmar» con token válido queda `mockOnly`.
+
+Medido sobre un stack propio (clúster Postgres 16 en `/var/lib/postgresql/frontend-wsh2`:5462, Redis :6394, backend de
+`71fc6e3f` por ts-node :3399, Next de producción con `NEXT_PUBLIC_USE_MOCKS=false` :3401; todo apagado y borrado al terminar):
+- real, `E2E_REAL=1`: **10/10**; N=10 en serie: **100/100** (F5 saltado 10/10 por `needsSeed`). Sin `E2E_REAL` (fichero
+  entero contra el stack): 10 verdes, 3 saltados (dos `mockOnly`, un `needsSeed`).
+- mock: **13/13**; N=10: **130/130**.
+Carga máxima vista durante las corridas: 8.44 (4 CPU).
+
+**C2 · CSV del simulador.** `mockWishlistDemandCsv` sigue la cabecera literal de §WSH.8 v1.87.2, línea vacía, `sellados`,
+`producto,presentacion,condicion,esperan`, celdas de texto con comillas y `'` contra fórmulas (`csvTextCell`, igual que el
+servidor). Candado `lib/mock/wishlist-csv.test.ts` (lee las cabeceras del contrato). El E2E F4/F8 compara la cabecera
+literal y la estructura completa en los dos entornos.
+
+**I-2 · aviso de privacidad (824).** `content/legal/privacy-wishlist.ts` con los dos textos **literales** de `PROJECT §WSH.5`
+(`aba09760`); el español va como párrafo propio al final del apartado 3 (finalidades primarias) del aviso, que es el texto
+que se publica en `/es/privacidad` y en `/en/privacidad`; en `/en` se añade además el inglés literal con `lang="en"` justo
+debajo (prop `englishAddenda` de `PrivacyNoticeView`). «Mi cuenta»/"My account" ya son los nombres visibles
+(`messages/*.json` `myAccount`), así que no cambia nada del texto. Versión `0.4-provisional-2026-10-07`. Candados:
+`privacy-wishlist.test.ts` (lee PROJECT.md), `page.test.tsx` (es/en) y WSH-F10. ⚠️ Lugar elegido por frontend sin pase de
+ux-ui (PROJECT dice «frontend con ux-ui»): a revisar por ux-ui; y en `/en` conviven aviso en español + párrafo inglés.
+
+**B-2 · censo (`scripts/check-e2e-skip-census.sh`), medido 2026-10-07 tras este pase.** Baseline `mockOnly 144 / 30`,
+`needsSeed 35 / 10`. Ahora: **`mockOnly 148 / 31`** y **`needsSeed 38 / 11`** (el resto igual). En `wishlist.spec.ts`:
+`mockOnly` = 4 ocurrencias (import + mención en el docblock + **2 llamadas**), `needsSeed` = 3 (import + mención + **1
+llamada**). Motivos vigentes, uno por llamada:
+1. `WSH-F3 · confirmar` — `mockOnly`: el token del enlace lo firma el servidor (HMAC) y solo existe dentro del correo; el
+   arnés no lee el buzón.
+2. `WSH-F9 · confirmar con el dial apagado` — `mockOnly`: mismo motivo.
+3. `WSH-F5 · ficha de sellado sin botón de deseos` — `needsSeed`: `seed-e2e` no siembra ningún sellado a la venta, así que
+   `/sellado` real está vacío. Agnóstico: pasaría tal cual con esa fila. (El candado `e2e-harness.test.ts` prohíbe `@real`
+   con `needsSeed`, por eso no lleva la etiqueta.)
+Línea base: la regenera devops con este motivo (frontend no toca `scripts/`).
+
+**Pendiente / NO MEDIDO.** El formulario «avísame» contra el backend de la errata v1.87.3 (el stack propio corrió el
+backend de `71fc6e3f`, con el cuerpo viejo; y el seed no tiene sellado a la venta). Para cerrar F5 en real y medir B-1 de
+punta a punta: **petición a backend** de una pieza sellada `listed` en `seed-e2e.ts`. No se repitió una mutación con
+rebuild del bundle (carga); los rojos previos medidos de cada prueba nueva hacen de canario.
+
+**Suites (2026-10-07, árbol `d6d6383d` + este apartado):** vitest 303 ficheros verdes + 1 saltado, **3992/4002** (10
+saltadas, 0 rojas); `tsc --noEmit` rc=0; `next lint` sin avisos; `check:legal:provisional` 9 verdes + 1 saltada.
+
+### §108.v1.87.4 · WSH-F5 contra el stack, «avísame» de punta a punta y candado WSH-UX-15 (2026-10-08, base `7482f220`)
+
+**Qué cambia (solo pruebas; ningún componente):**
+- **WSH-F5 pasa a `@real`** (`e2e/wishlist.spec.ts`). El seed ya tiene un sellado a la venta (`E2E_SEALED_LISTED`, `1753f9ed`,
+  BACKEND_NOTES §84.v1.87.4). El caso localiza la teja por la subcadena «Surging Sparks Booster Box», que casa con el seed
+  y con el fixture. Comprueba que la ficha cargó (su `h1`) antes de afirmar las dos ausencias, para que no pasen en vacío.
+- **«Avísame» de punta a punta, dos casos nuevos `@real` (`realOnly`)**, uno sin sesión y otro con sesión. El grupo del seed
+  sale de `GET /catalog/sealed?q=E2E Third Bird` (el `q` filtra por la carta ancla) y el `representativeItemId`, de
+  `GET /catalog/sealed/:id`. La prueba entra a la ficha desde `/es/sellado` y se apunta con la pantalla. Comprueba:
+  - el cuerpo es exactamente `{email, inventoryItemId}`: lista de claves **y** `toEqual`, con el id que dio la API;
+  - la respuesta es `202` y se ve el texto `confirmed`;
+  - **la clave de la fila**, leída en `GET /admin/reports/wishlist-demand` → `sealed[]`. El nombre de la fila delata la
+    clave (contrato v1.87.2 «nombre del sellado en la demanda»; `wishlist-demand.service.ts` `sealedWaiting`): con
+    `p:<pid>:<cond>` sale el `sealedProductName` de una pieza de ese producto; con `c:` sale el nombre de la carta ancla.
+    La prueba exige +1 correo esperando «E2E Surging Sparks Booster Box» (`box`/`mint`), es decir `p:610000001:mint`, y
+    +0 en «E2E Third Bird» (la clave `c:` del defecto B-1).
+  - **Con sesión:** cada corrida registra una cuenta nueva con `POST /auth/register` (si se usara un cliente del seed, una
+    corrida anterior ya lo habría apuntado y el alta no sumaría). La prueba afirma «Te avisaremos a {email}», que no hay
+    campo de correo y que el cuerpo lleva el correo de la cuenta. Al final la cuenta se borra con `DELETE /admin/users/:id`,
+    y ese borrado también elimina sus suscripciones (`admin.service.ts:1639`).
+
+  El dial `sealedRestockAlerts` entra en la foto de diales: se guarda en `beforeAll`, se repone en cada `beforeEach` y al
+  final, y solo lo encienden estos dos casos. El correo de «volvió» **no** se mide aquí: no hay forma de agotar la pieza
+  y hacerla volver sin trucos de BD, la ventana de correo (`wishlistMailWindowMin`) exige esperar o un reloj inyectado, y
+  el arnés no lee el buzón. Eso lo cubre la integración de backend (WSH-T42/T44).
+- **WSH-UX-15** (DESIGN_SYSTEM «WSH-UX.v1.87.3» c). Dos casos en `privacidad/page.test.tsx`:
+  - `/en`: dentro de `#finalidades-primarias`, el elemento justo anterior al `p[lang="en"]` «Wishlist.» es un `p` sin
+    `lang` que empieza por «Lista de deseos.»;
+  - `/es`: el apartado no tiene ningún `[lang="en"]`.
+
+  WSH-F10 (E2E) añade la misma adyacencia contra el navegador.
+- **`catalog.spec.ts`:**
+  - «tarjeta de SELLADO» deja de ser `needsSeed` y pasa a `@real`: localiza la teja con precio (`MONEY_RE`) y con el
+    rótulo de IVA.
+  - Se corrige el comentario de D-EQ-3 que daba por hecho que la vitrina estaba siempre vacía.
+  - El estado vacío ya no se mide de rebote. Lo mide un caso nuevo `@real` «Sellado · vitrina vacía» con
+    `/es/sellado?sealedSubtype=tin`, que no casa ni en el seed (solo `box`) ni en el fixture (`box`, `etb`). Afirma
+    `sealed.emptyTitle`, el filtro aplicado y 0 tejas.
+
+**Medido (2026-10-08).** Stack propio:
+- Postgres 16 en `/var/lib/postgresql/frontend-wsh3`, puerto 5463, con `migrate deploy` y `seed-e2e`.
+- Redis en el puerto 6395.
+- Backend de `7482f220` en el puerto 3499, con ts-node y `NODE_ENV=test`.
+- Next de producción en el puerto 3501, con `NEXT_PUBLIC_USE_MOCKS=false`.
+
+Todo se apagó y se borró al terminar.
+- Real (`E2E_REAL=1`, `wishlist.spec.ts` + `catalog.spec.ts`, `--workers=1`): **19/19**. Con N=10 en serie
+  (`--repeat-each=10`): **190/190**, y cada caso nuevo o cambiado salió 10/10.
+- Mock, los mismos dos ficheros con N=10: **280 verdes y 30 saltados de 310**. Los saltados son los tres `realOnly` (el
+  de `catalog` y los dos del «avísame») por 10.
+- BD: la fila del invitado quedó con `tcgplayerProductId=610000001`, `box`, `mint`, pendiente. Además se hizo un alta a
+  mano con sesión y con otro correo en el cuerpo: la fila guardó el correo de la cuenta, `userId` y `610000001`/`mint`.
+- **Canario** (determinista, N=1): con la pieza del seed desmapeada en BD (`tcgplayerProductId=NULL`, así que la clave es
+  `c:`), los dos casos del «avísame» salen **rojos** (`Expected 1, Received 0` en el +1 del producto). Después se volvió
+  a sembrar y la pieza quedó otra vez en `610000001`/`listed`.
+- **Mutación WSH-UX-15** (copia `git archive HEAD` del árbol entero, N=1, determinista):
+  - un `p` añadido después de `WISHLIST_PRIVACY_ES` en `privacidad.es.ts` ⇒ el caso `/en` en **rojo**;
+  - el párrafo inglés pintado también en `es` (`page.tsx`) ⇒ en **rojo** el caso `/es` de UX-15 y el «es» de 824.
+
+**Censo (`scripts/check-e2e-skip-census.sh`, 2026-10-08, sobre este árbol)**, rc=1 contra la línea base de devops:
+
+| Clave | Línea base | Ahora |
+|---|---|---|
+| `mockOnly` | 144 / 30 | **148 / 31** (sin cambio desde §108.v1.87.3) |
+| `needsSeed` | 35 / 10 | **33 / 9** (baja) |
+| `harnessLimit` | 5 / 3 | 5 / 3 |
+| `skipIfSeedMissing` | 15 / 7 | 15 / 7 |
+| `realOnly` | 22 / 7 | **25 / 8** (sube) |
+
+Motivos:
+- **`needsSeed` −5 respecto a §108.v1.87.3** (38/11 → 33/9). En `wishlist.spec.ts`: el import, la mención del docblock y
+  la llamada de WSH-F5. En `catalog.spec.ts`: el import y la llamada de «tarjeta de SELLADO». Los dos ficheros ya no lo
+  usan.
+- **`realOnly` +3, +1 fichero** (`wishlist.spec.ts`: el import y **2 llamadas**, los dos casos del «avísame»). Lo que
+  miden es la fila que deriva el servidor (clave `p:`) y la demanda de M9. En mock, `subscribeSealedRestock` responde
+  siempre `FEATURE_DISABLED`, así que no hay servidor que derive nada. El cuerpo de la pantalla en mock ya lo cubren los
+  unitarios (`SealedRestockForm*.test.tsx`, `SealedDetailView.test.tsx`).
+- **`mockOnly` 148/31**: los mismos 2 casos de §108.v1.87.3 (WSH-F3/F9 «confirmar», token HMAC del correo).
+
+La línea base la regenera devops con estos motivos.
+
+**Suites (2026-10-08, este árbol):** vitest 303 ficheros verdes y 1 saltado, **3994/4004** (10 saltadas, 0 rojas);
+`tsc --noEmit` rc=0; `next lint` sin avisos.
+
+### §108.cierre · Deuda del re-check de techlead registrada (2026-10-08, base `1b0306f4`)
+
+QA y techlead aprobaron §WSH sobre `1b0306f4`. Este pase **no cambia conducta ni specs**; solo registra deuda en
+`docs/TECH_DEBT.md` (sección «Frontend · 2026-10-07 · gate de techlead sobre `503cf07`»):
+
+- **TD-WSH-F5** (nueva): los E2E reales del «avísame» (`wishlist.spec.ts:484-510` y el caso con sesión) dejan
+  suscripciones `@e2e.local`. No se añadió `afterAll` porque el contrato no tiene ruta de borrado (medido:
+  `grep -n "DELETE" docs/API_CONTRACT.md`); la limpieza queda en la purga de `seed-e2e` que lleva backend.
+- **TD-WSH-F6** (nueva): el apéndice inglés de `/privacidad` se ancla al apartado y no al bloque
+  (`PrivacyNoticeView.tsx:147-153`, `page.tsx:43`); hoy lo vigila WSH-UX-15.
+- **TD-WSH-F3** (staff en `/account/wishlist` ⇒ 404): ya estaba registrada con referencia a **Q-WSH-UX-6**; sin cambios.
+
+## §109 · Fusión accesorios + wishlist (2026-10-08, rama `claude/release-s7`, sobre `d98e8bf6` + `merge --no-commit` de `claude/wishlist` `d815b57d`)
+
+**Conflictos resueltos por unión estructurada** (nada se pierde, nada se duplica):
+- `messages/es.json` y `messages/en.json`: los espacios `accessories` (HEAD) y `wishlist` (wishlist) quedan como
+  hermanos de primer nivel; se cerró `accessories` antes de abrir `wishlist`. Medido con `json.loads` con detector
+  de claves repetidas (0 repetidas) y aplanado es/en: **6056 = 6056 claves, diferencia simétrica vacía**.
+- `src/lib/api.ts` y `src/types/contract.ts`: bloque §AC seguido del bloque §WSH; sin nombres repetidos (`tsc` verde).
+- Este fichero: §107 (accesorios) y luego §108 (wishlist).
+
+**REL-S7-UX punto 2 (DESIGN_SYSTEM): cada dial se edita en un solo bloque de M10.** Medido: el listado de M10 **no**
+es genérico; es la lista fija `DIALS` de `M10View.tsx` (sin claves `wishlist*` ni `energyBundlePriceCents` /
+`accessorySuggestionCount`). Los siete `wishlist*` viven solo en `WishlistDialsSection` y los dos de §AC.11 solo en el
+panel de `/admin/accessories`. **No había duplicado.** Se añade el candado para que no aparezca:
+`M10_LIST_DIAL_KEYS` (exportado de `M10View.tsx`) y `WISHLIST_DIAL_KEYS` (de `WishlistDialsSection.tsx`), y dos
+pruebas «REL-S7 · …» en `M10View.test.tsx` (estructural: listas disjuntas y sin claves de accesorios; de pantalla:
+cada etiqueta de la sección aparece una vez y dentro de la sección, y las de accesorios no aparecen en M10).
+La de pantalla sola no muerde (el listado rotula por `dials.labels.<clave>`, otra etiqueta); por eso la estructural.
+**Mutaciones** sobre el fichero (deterministas, 1 corrida cada una, restaurado y comprobado): añadir
+`wishlistTargetMarginPct` a `DIALS` ⇒ roja; añadir `energyBundlePriceCents` ⇒ roja.
+
+**REL-S7-UX punto 4** («Comprar › Sellado» → «Producto sellado»): el texto vive en el backend
+(`backend/src/modules/catalog/sealed-restock-notify.service.ts:288`), no en `frontend/`. No se toca aquí.
