@@ -151,3 +151,4 @@ correcto es una pregunta abierta, no una conclusión — y es exactamente lo que
 la escriben y **los siete** ponen `IVA_EXCLUSIVE`; **cero** escriben `IVA_INCLUSIVE`; no existe dial en
 `settings` que la cambie; y el frontend **no conoce** ni `ivaIncluded` ni `priceConvention`
 (`grep` ⇒ 0 fuera de pruebas).
+| **Cotizador de venta (§BMK): las cinco preguntas P-BMK-1…5 se resuelven con la recomendación.** Palabras del dueño (2026-10-08): «todo como recomiendas». | 2026-10-08 (sesión 7) | P-BMK-1: con precio a mano se ven mercado y oferta (MX$1,000 · MX$650). P-BMK-2: con bounty se ven los dos (MX$1,000 · MX$700); la vitrina de bounties NO cambia en esta ronda. P-BMK-3: en «precio pendiente» (dato de mercado sospechoso, p. ej. MX$3 en carta rara) NO se muestra el mercado. P-BMK-4: el total NO muestra mercado. P-BMK-5: «Mi cuenta» → detalle de la solicitud NO cambia en esta ronda. |
