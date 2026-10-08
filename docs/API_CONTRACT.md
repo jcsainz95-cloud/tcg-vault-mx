@@ -10,6 +10,23 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.89⟨bmk⟩ — VALOR DE MERCADO JUNTO A «TE PAGAMOS», POR CARTA, EN EL COTIZADOR DE VENTA (2026-10-08, arquitecto,
+> árbol `/home/user/tcg-bmercado`, rama `claude/buylist-mercado`, base `HEAD 0cbc4f5c` según el orquestador; ⛔ sha NO
+> MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-08 «Cotizador de venta (buylist): se muestra el VALOR DE
+> MERCADO…» («hay que hacer A») y «Cotizador de venta (§BMK): las cinco preguntas P-BMK-1…5 se resuelven con la
+> recomendación» («todo como recomiendas»); `PROJECT §BMK`, criterios 850–859. Norma entera en **[§BMK](#BMK)**; porqué
+> en `ARCHITECTURE §4.BMK`. **Sin schema, sin migración, sin endpoint, sin campo, sin código de error. Ningún importe
+> cambia.** Versión reservada por el orquestador (O-24); v1.88/v1.88.1 son de `claude/release-s7` y no se tocan aquí.
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | BMK-1 | Semántica de `referencePrice.priceMxnCents` | Se **norma** lo que el código ya hace: es el mercado que **entró** a la decisión de compra de esa línea (el mismo que `createRequest` congela en `marketMxnCents`) | No (ratifica) | — |
+> | BMK-2 | Emisor de `referencePrice` | `priced` **solo si** `quote.status="cotizada"` **y** mercado `> 0`; si no, `{status:"pending"}`. Misma forma | **Sí, acotado**: una carta en precio pendiente por guardarraíl deja de recibir su mercado sospechoso | backend |
+> | BMK-3 | Regla de presentación | Se ve «Valor de mercado» ⇔ `referencePrice.status="priced"` ∧ `quote.status="cotizada"` ∧ `priceMxnCents` entero `> 0`. **No** depende de `priceBasis` | Sí (UI) | frontend |
+> | BMK-4 | Superficies | Teja del binder, ventana de detalle, teja de producto aparte y renglón del carrito. Total, «Mi cuenta», vitrina de bounties, admin y correos: **sin cambio** | Sí (UI) | frontend (+ textos: ux-ui) |
+> | BMK-5 | Una fuente | En el cotizador el mercado sale **solo** de la cotización (`referencePrice`), nunca de `CardProductDTO.prices[]` | Sí (UI, teja de producto aparte) | frontend |
+> | BMK-6 | Prohibiciones | Ningún porcentaje, proporción, diferencia ni «ahorro» calculado en el cliente | No | frontend |
+>
 > **Errata SU-1 — LA UBICACIÓN DEJA DE SER REQUISITO PARA PUBLICAR, POR AHORA (2026-10-07, arquitecto, árbol
 > `/home/user/tcg-ubic`, rama `claude/sin-ubicacion`; ⛔ sha NO MEDIDO: sin Bash; numeración NO MEDIDA contra ramas vivas).**
 > Norma: `HECHOS.md` fila «La ubicación (cajón) NO es requisito para publicar, por ahora» (2026-10-07). Norma entera en
@@ -8892,6 +8909,16 @@ BuylistQuoteItemDTO = { cardId: string, productType: ProductType, rawCondition?:
 //   retirarse `appliedRule`, la fila «Regla aplicada» de la vista del cliente **se retira** — NO se sustituye por un
 //   rótulo de `priceBasis` de cara al comprador/vendedor (sería inventar superficie que el contrato no autoriza y
 //   filtrar la calibración interna: «piso»/«mínimo» le dice al vendedor que su carta tocó el bin). Decisión ratificada.
+//   ⭐ v1.89⟨bmk⟩ — **SUSTITUYE en un solo punto** la frase «el cotizador de buylist NO se toca»: el cotizador SÍ muestra
+//   ahora el VALOR DE MERCADO por carta (`referencePrice.priceMxnCents`), junto a la cifra a pagar. Lo demás de esta nota
+//   (no renderizar `priceBasis` al vendedor) **sigue en pie**. Norma entera: §BMK.
+// ⭐ v1.89⟨bmk⟩ — `referencePrice` (§BMK.1/§BMK.2, NORMATIVO):
+//   * `priceMxnCents` = el mercado que ENTRÓ a la decisión de compra de ESTA línea (variante del acabado o del
+//     `productId`; FX ya bakeada) — idéntico al centavo a `quote.marketMxnCents` del cuerpo único y al
+//     `SellRequestItem.marketMxnCents` que `POST /buylist/requests` congelaría resolviendo en ese mismo instante.
+//   * `status:"priced"` ⇔ `quote.status === "cotizada"` ∧ mercado `> 0`. En cualquier otro caso `{ status:"pending" }`
+//     (sin `priceMxnCents`). ⇒ una línea `precio_pendiente` **nunca** trae mercado, aunque exista un dato (guardarraíl).
+//   * Forma SIN CAMBIO: mismos dos valores de `status`, mismo campo opcional.
 BuylistQuotePayload = { rarity: string | null, finish: Finish, productId?: number, priceBasis: PriceBasis,
                         quote: { status: "cotizada" | "precio_pendiente", quotedPriceCents: number | null, currency: "MXN" },
                         referencePrice: { status: "priced" | "pending", priceMxnCents?: number },
@@ -12133,8 +12160,9 @@ compra = max( bin , mercado × pct(mercado) )        // pct INTERPOLADO; SIN red
   particular, **una Common que vale cientos de pesos deja de recibir MX$0.50**.
 - La condición de compra es **siempre NM** (ARCHITECTURE §3.5); `rawCondition` solo puede ser `NM`. Los topes de
   buylist (solicitud/mes, INE) **no cambian** y aplican igual a montos bounty. El "precio pendiente" es un estado de
-  adquisición/back-office; **nunca** se muestra al comprador. El cotizador **sigue sin mostrar valor de mercado**
-  (§N.7: no se toca).
+  adquisición/back-office; **nunca** se muestra al comprador. ~~El cotizador **sigue sin mostrar valor de mercado**
+  (§N.7: no se toca).~~ ⭐ **v1.89⟨bmk⟩: sustituido.** El cotizador muestra el valor de mercado por carta junto a la cifra
+  a pagar, y `referencePrice` sale `priced` solo en líneas `cotizada` con mercado `> 0`. Norma: [§BMK](#BMK).
 
 ### POST /api/v1/buylist/quote/batch — `public`  (v1.15 — NUEVO · cotización en LOTE · READ-ONLY)
 Cotiza **N cartas en 1 request** (colapsa el fan-out del cotizador: hoy el grid dispara ~`pageSize` llamadas a
@@ -12194,6 +12222,8 @@ global es `200`. `index` = posición 0-based en `items[]` (llave de correlación
   `priceBasis="pending"`, y ahora tiene **dos** causas: (a) **sin dato de mercado** (el bin **NO** gana) y (b) el
   **guardarraíl** (rareza premium que aterrizó en el bin). El "precio pendiente" es de adquisición/back-office,
   **nunca** se muestra como precio al comprador — aquí es un vendedor cotizando.
+  ⭐ **v1.89⟨bmk⟩:** en un ítem `precio_pendiente`, `referencePrice` es **siempre** `{ "status": "pending" }`, también
+  en la causa (b), donde sí hay dato de mercado. Regla del emisor en [§BMK.2](#BMK).
 - **`ok:false`** → `error.code ∈ { NOT_FOUND (carta inexistente), FINISH_NOT_AVAILABLE (acabado fuera de la whitelist
   aplicable), PRODUCT_NOT_FOUND (v1.30 — productId inexistente), PRODUCT_CARD_MISMATCH (v1.30 — productId no cuelga del
   cardId), **BUYLIST_RAW_ONLY** (v1.53 — `productType` distinto de `"raw"`; el buylist es solo raw, §4.40) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería como
@@ -41509,3 +41539,161 @@ citados); el arquitecto no midió ninguna. Manda sobre §BSD.18 donde choquen.
 
 **Pruebas que cambian en esta errata:** B9 (mutación de tres muros y conjunto de respuestas) y B16 (código del modo 2).
 Nada más se construye.
+
+---
+
+## <a id="BMK"></a>BMK. VALOR DE MERCADO JUNTO A «TE PAGAMOS», POR CARTA, EN EL COTIZADOR DE VENTA (rev v1.89⟨bmk⟩, 2026-10-08, **NORMATIVA**)
+
+**Norma (manda, citada, no resumida):**
+- `HECHOS.md` fila 2026-10-08 «**Cotizador de venta (buylist): se muestra el VALOR DE MERCADO junto a lo que pagamos por
+  cada carta.**» Respuesta textual del dueño: *«hay que hacer A»*. Consecuencias que la fila fija: (1) por carta en el
+  cotizador, mercado y oferta juntos; (2) **sin** frase fija de porcentaje (opción b descartada); (3) no cambia ningún importe.
+- `HECHOS.md` fila 2026-10-08 «**Cotizador de venta (§BMK): las cinco preguntas P-BMK-1…5 se resuelven con la
+  recomendación.**» Palabras del dueño: *«todo como recomiendas»*. P-BMK-1: con precio a mano se ven los dos. P-BMK-2: con
+  bounty se ven los dos; la vitrina de bounties no cambia. P-BMK-3: en «precio pendiente» **no** se muestra el mercado.
+  P-BMK-4: el total **no** muestra mercado. P-BMK-5: «Mi cuenta» → detalle de la solicitud **no** cambia.
+- `PROJECT §BMK` (líneas ~9376–9437) y criterios **850–859**. Porqué: `ARCHITECTURE §4.BMK`.
+
+⛔ **Sin schema, sin migración, sin endpoint, sin campo de DTO, sin código de error, sin cambio en `types/contract.ts`.
+Ningún importe cambia** (criterios 856–857).
+
+### BMK.0 Lo medido (lectura del árbol `/home/user/tcg-bmercado`, 2026-10-08; ⛔ sha NO MEDIDO: sin Bash)
+- **El dato ya viaja.** `BuylistQuotePayload.referencePrice = { status, priceMxnCents? }` (§DTOs). El backend lo llena en
+  `toQuotePayload` (`backend/src/modules/buylist/buylist.service.ts:1288-1291`) desde `line.referenceMxnCents`, que
+  `decideBuyLine` lee de la variante del acabado (`:1232-1236`) o del `productId` (`:1221-1225`). Es **el mismo número**
+  que entra a `quoteAcquisitionWithGuard` (`:1243`) y que esa función devuelve sin tocar como `quote.marketMxnCents` en
+  los cuatro peldaños (`backend/src/common/money.ts:290-308`, `:363-372`). `createRequest` congela
+  `line.quote.marketMxnCents` en la línea (`buylist.service.ts:1715`). ⇒ Criterio 852 se cumple **por construcción** en
+  el backend: un solo cuerpo (`decideBuyLine`) para la cotización y para la solicitud.
+- **El binder del cotizador cotiza todas las tejas al cargar** (`frontend/src/components/master-set/MasterSetBinder.tsx:139-178`,
+  `POST /buylist/quote/batch` troceado) y ya guarda `referencePrice` por variante (`:209`) y por producto aparte (el
+  `BuylistBatchQuoteResultDTO` entero, `:180-191`). **No existe una teja sin cotizar** ⇒ no hace falta que
+  `GET /buylist/cards` traiga precio. Ese endpoint **no cambia**.
+- **El carrito de venta re-cotiza al rehidratar** (`frontend/src/app/[locale]/(storefront)/buylist/useSellCart.ts:95-98`)
+  y copia `referencePrice` del lote (`:188-198`) ⇒ el mercado del renglón es el de la cotización fresca.
+- **Hueco que el contrato de hoy deja abierto (criterio 854 (b)).** En la causa (b) de `precio_pendiente` (guardarraíl:
+  rareza premium que cae al bin) el mercado **existe**, así que hoy viaja `referencePrice: {status:"priced",
+  priceMxnCents}` junto a `quote.status:"precio_pendiente"` (`buylist.service.ts:1257`, `:1288-1291`). El carrito ya lo
+  pinta hoy en «Detalle» sin mirar el estado de la cotización (`SellCartContents.tsx:310-316`). Es justo el número que
+  P-BMK-3 manda **no** enseñar.
+
+### BMK.1 Semántica de `referencePrice` (ratifica; no cambia código)
+`referencePrice.priceMxnCents` es **el valor de mercado que entró a la decisión de compra de esa línea**: la variante del
+acabado cotizado (o la del `productId`), con el FX ya aplicado en `PriceReference`. Es idéntico al centavo a
+`quote.marketMxnCents` del cuerpo único y al `SellRequestItem.marketMxnCents` que `POST /buylist/requests` congelaría
+resolviendo la misma línea en el mismo instante. ⛔ Ningún emisor puede sustituirlo por otra lectura (otro acabado, el
+`set_base` de un producto aparte, el `marketReferenceMxnCents` de un DTO de catálogo).
+
+### BMK.2 Emisor: `priced` solo cuando hay cotización y mercado (cambio de conducta, backend)
+```
+referencePrice =
+  (line.quotedPriceCents != null  ∧  line.referenceMxnCents != null  ∧  line.referenceMxnCents > 0)
+    ? { status: "priced", priceMxnCents: line.referenceMxnCents }
+    : { status: "pending" }                                    // sin la clave priceMxnCents
+```
+- Vive en `toQuotePayload` (un solo sitio; lo usan `POST /buylist/quote` y `/quote/batch`). ⛔ No toca `decideBuyLine`,
+  `quoteAcquisitionWithGuard` ni `createRequest`: lo que se congela en la solicitud **no cambia**.
+- **Por qué en el servidor y no solo en la UI:** `ARCHITECTURE §4.36.7(b.2)` — *lo que la UI tiene prohibido pintar en
+  una superficie no viaja en esa superficie*. P-BMK-3 prohíbe pintar el mercado de una carta en precio pendiente; un
+  `curl` sin token no debe poder leerlo ahí tampoco.
+- **Por qué `> 0`:** la curva ya trata un mercado `<= 0` como «sin mercado» (H-1, `pricing-curve.ts:518`). Una línea con
+  precio a mano y mercado 0 se cotiza; enseñar «Valor de mercado MX$0.00» rompería 854 (a).
+- **Qué casos cambian:** (i) guardarraíl (`premium_at_floor`, incluido el bounty topado de §M2-B.11 punto 8): antes
+  `priced`, ahora `pending`; (ii) mercado `<= 0` con cotización por override o bounty: antes `priced` con 0, ahora
+  `pending`. El resto sale igual que hoy.
+- **Pruebas que ya existen y siguen verdes sin editarse** (las dos afirman `pending` en casos que siguen siéndolo):
+  `backend/test/buylist.batch-clabe.spec.ts:307` y `backend/test/buylist.variant-overrides.spec.ts:203`.
+
+### BMK.3 Regla de presentación (frontend, NORMATIVA)
+> **Se muestra «Valor de mercado» de una línea ⇔ `referencePrice.status === "priced"` ∧ `quote.status === "cotizada"`
+> ∧ `priceMxnCents` es entero `> 0`.** Si no, el rótulo y la cifra **no aparecen**: ⛔ nunca «MX$0.00», «—», tachado ni
+> atenuado en su lugar.
+
+- El predicado repite el del servidor **a propósito** (defensa en profundidad: el carrito guarda cotizaciones en
+  `localStorage` y las pinta antes de re-cotizar). Un solo cuerpo en el cliente; firma sugerida, ⛔ no es código:
+  `visibleMarketCents(q: { quote: { status }, referencePrice: { status, priceMxnCents? } }): number | null`, en
+  `frontend/src/lib/` (zona compartida: el orquestador serializa).
+- ⛔ **No depende de `priceBasis`.** Diferencia **deliberada** con la ficha de la tienda (§N.7, `ARCHITECTURE §4.36.7(b)`:
+  allí el mercado solo se ve con `priceBasis === "market"`). Aquí el dueño decidió verlo también con bounty (P-BMK-2),
+  con precio a mano (P-BMK-1) y, por omisión de excepción, con el bin (`floor`). `priceBasis` **sigue sin rotularse** al
+  vendedor (nota v2.1 de §DTOs): ninguna palabra dice de dónde salió la cifra (criterio 853).
+- **Cotización no fresca** (carrito re-cotizando o re-cotización fallida, `DESIGN_SYSTEM §33.11.2`): el mercado de esa
+  línea sigue la **misma** regla que su cifra a pagar — si la cifra no se pinta, el mercado tampoco se pinta con un valor
+  viejo. El tratamiento visual lo decide ux-ui.
+- La cifra se formatea con `formatMoneyCents` (MX$1,000.00), la de siempre.
+
+### BMK.4 Superficies
+| Superficie | Fichero (hoy) | Con §BMK | Fuente del mercado |
+|---|---|---|---|
+| Teja de variante del cotizador (`QuoterTile`) | `MasterSetBinder.tsx:925-931` | «Valor de mercado» + «Te pagamos», juntos | `variant.quote.referencePrice` |
+| Ventana de detalle (`CardDetailModal`) | `MasterSetBinder.tsx:955-970`; `components/domain/CardDetailModal.tsx:116-129` | las dos filas | la misma de la teja, pasada por prop nueva opcional (p. ej. `marketCents?: number \| null`; ausente o `null` ⇒ no hay fila) |
+| Teja de producto aparte, modo cotizador (`SeparateProductTile`) | `MasterSetBinder.tsx:1061-1072` | las dos | `quoteOk.referencePrice` — ⛔ **no** `priceCents` (`:1015`, que viene de `CardProductDTO.prices[]`) |
+| Renglón del carrito de venta | `SellCartContents.tsx:202-248` | las dos, **a la vista** sin abrir «Detalle»; la fila «Valor de referencia» de «Detalle» (`:310-316`) **se retira** (un dato, un nombre, un sitio) | `l.quote.referencePrice` |
+| Total del carrito, barra y resumen antes de enviar | `SellCartContents.tsx:338+`, `BuylistView.tsx:574-605` | **sin cambio** (P-BMK-4, criterio 856) | — |
+| «Mi cuenta» → solicitudes y su detalle | `MyRequestsSection.tsx`, `SellRequestDetailView.tsx` | **sin cambio** (P-BMK-5) | — |
+| Vitrina de bounties | `GET /buylist/bounties` | **sin cambio** (P-BMK-2) | — |
+| Admin (M5, consola) y correos | — | **sin cambio** (`PROJECT §BMK.4`) | — |
+| Modos de inventario del binder (M1, bóveda) | `BinderTile`, `SeparateProductTile` sin `isQuoter` | **sin cambio** | — |
+
+**Lector de pantalla (criterio 858):** el `aria-label` de «Agregar» de la teja y de la teja de producto aparte anuncia
+los dos números con su rótulo cuando el mercado es visible, y solo la cifra a pagar cuando no. El `aria-label` del
+contenedor de la teja de producto aparte en modo cotizador deja de anunciar `priceCents` del catálogo (ver
+`ARCHITECTURE §4.BMK` (f)).
+
+### BMK.5 Prohibiciones (criterio 855)
+En el cotizador, el carrito, la barra y el resumen, en **es** y **en**: ⛔ ningún porcentaje ni proporción («50 %», «la
+mitad», «entre 30 y 50 %»), ⛔ ninguna cifra derivada de las dos (diferencia, «ahorro», «te quedas con…»), ⛔ ningún
+cálculo en el cliente que use `priceMxnCents` y `quotedPriceCents` juntos para producir otro número.
+
+### BMK.6 Qué NO cambia
+- Ningún importe: `quotedPriceCents`, total, lo congelado en `POST /buylist/requests`, oferta, pago, mínimo (criterio 857).
+  La curva y su editor, intactos.
+- La forma de `BuylistQuotePayload`, `BuylistBatchQuoteResultDTO` y `CardDTO`; `GET /buylist/cards`, `GET /buylist/sets`,
+  `GET /buylist/quote-policy`, `GET /buylist/bounties`.
+- `priceBasis` sigue siendo lógica del cliente, no rótulo.
+- La ficha de la tienda (§N.7) y su regla `priceBasis === "market"`.
+
+### BMK.7 Exposición (para pentester y seguridad)
+El mercado por variante **ya** es público en `POST /buylist/quote` y `/quote/batch`, anónimos (hasta 50 líneas por
+petición en el lote, bajo el throttle público; versión de origen NO MEDIDA). §BMK solo lo **pinta**. BMK.2 **reduce** lo expuesto: deja de publicar el dato sospechoso de las
+cartas en guardarraíl. No se abre superficie nueva.
+
+### BMK.8 Pruebas que deben fallar hoy (determinísticas, N=1 dicho como tal; sobre copia del árbol entero, O-9)
+| ID | Rol | Afirma | Rojo hoy porque… | Mutación que la pone roja después |
+|---|---|---|---|---|
+| **BMK-B1** | backend | Carta de rareza premium con mercado que cae al bin (p. ej. mercado 100 ⇒ 30 < bin 100) ⇒ `quote.status="precio_pendiente"` **y** `referencePrice` `toEqual({status:"pending"})`, en `/quote` y en `/quote/batch` | hoy sale `priced` con 100 | volver a `line.referenceMxnCents != null` como única condición |
+| **BMK-B2** | backend | Override de compra 30 000 con mercado 0 ⇒ `cotizada` 30 000 y `referencePrice` `{status:"pending"}` | hoy sale `priced` con 0 (si `getReference` lo devuelve así; si no puede, backend lo dice y la prueba se hace sobre el doble de la referencia) | quitar `> 0` |
+| **BMK-B3** | backend | 852 (no rojo hoy; candado): por cada peldaño (`market`, `floor`, `override`, `bounty`, bounty topado) y por dos acabados de la misma carta con mercados distintos, `referencePrice.priceMxnCents` de la cotización === `marketMxnCents` de la línea creada con `POST /buylist/requests` con los mismos datos; cada acabado el suyo | — | en `toQuotePayload`, emitir la referencia del acabado `normal` en vez de la de la línea |
+| **BMK-B4** | backend | 857 por ausencia: las suites de dinero de buylist y de `money.ts` siguen verdes **sin editar ninguna aserción existente** (el diff de `backend/test/` solo añade) | — | — (la revisa techlead en el diff) |
+| **BMK-F1** | frontend | Teja con `cotizada` 50 000 y `priced` 100 000 ⇒ el texto contiene los dos rótulos y «MX$1,000.00» y «MX$500.00»; igual en la ventana de detalle | hoy no hay rótulo de mercado | quitar la fila de mercado |
+| **BMK-F2** | frontend | `precio_pendiente` con `referencePrice` `priced` (servidor viejo) ⇒ no aparece el rótulo de mercado ni la cifra | — (la teja hoy no lo pinta; el carrito sí, ver F5) | quitar `quote.status` del predicado |
+| **BMK-F3** | frontend | `cotizada` con `referencePrice` `pending` ⇒ solo «Te pagamos»; ni «MX$0.00» ni «—» en el sitio del mercado. Con `priceMxnCents: 0` ⇒ igual | — | quitar `> 0` o pintar `?? 0` |
+| **BMK-F4** | frontend | Producto aparte en cotizador con `quoteOk.referencePrice` 80 000 y `CardProductDTO.prices[].marketReferenceMxnCents` 99 999 ⇒ pinta y anuncia 80 000, nunca 99 999 | hoy el `aria-label` anuncia 99 999 (`MasterSetBinder.tsx:1034-1039`) | usar `priceCents` |
+| **BMK-F5** | frontend | Renglón del carrito: mercado y cifra a la vista **sin** abrir «Detalle»; ninguna aparición de «Valor de referencia»; línea `precio_pendiente` con mercado `priced` ⇒ sin mercado ni en «Detalle» | hoy «Detalle» lo pinta (`SellCartContents.tsx:310`) | volver a pintar `referencePrice` solo por su `status` |
+| **BMK-F6** | frontend | 856: el bloque «Valor de tus cartas» pinta una sola cifra igual a antes (dos cartas 50 000 + 8 000 ⇒ MX$580.00) y ningún «mercado» en el total | — | sumar mercados en el total |
+| **BMK-F7** | frontend | 855: en es y en en, el texto renderizado del cotizador, el carrito y el resumen no contiene `%`, «mitad», «half», «ahorr», «save» | — | añadir un texto con porcentaje |
+| **BMK-F8** | frontend | 858: paridad es/en de las claves nuevas; el `aria-label` de «Agregar» contiene los dos rótulos y las dos cifras cuando el mercado es visible | — | quitar el mercado del `aria-label` |
+| **BMK-E1** | frontend (Playwright), QA lo corre | 859 entero contra el stack: abrir el cotizador, elegir set, ver los dos números en una teja, agregar, ver los mismos en el carrito, crear la solicitud y comprobar por API que `marketMxnCents` de la línea === el mercado visto; y una carta en precio pendiente sin mercado a la vista | — | — |
+
+### BMK.9 Textos (para ux-ui; el texto final y el diseño son suyos)
+| Uso | es (punto de partida) | en (punto de partida) |
+|---|---|---|
+| Rótulo del mercado (teja, ventana, carrito) | Valor de mercado | Market value |
+| Rótulo de la cifra a pagar (teja, ventana, carrito) | Te pagamos | We pay you |
+| `aria-label` de «Agregar», con mercado | Agregar {name} ({finish}) a la venta · Valor de mercado {market} · Te pagamos {price} | Add {name} ({finish}) to your sale · Market value {market} · We pay you {price} |
+| `aria-label` de «Agregar», sin mercado | (el de hoy, `masterSet.quoterAddAria`, con «Te pagamos {price}») | (ídem) |
+| Ídem para producto aparte | variante de `masterSet.separateProductAddAria` / `separateProductAria` con `{kind}` | ídem |
+| Se retira del carrito | `es.json:853` «Valor de referencia» (y su par en `en.json`) deja de usarse en el carrito | — |
+| Revisar | `cartItemEstimate` «Estimado c/u» (`es.json:948`) y `cardDetail.estimate` | — |
+
+⚠️ **Tensión de tono para ux-ui:** la teja dice hoy que la cifra es un **estimado, no una promesa** (comentario de
+`MasterSetBinder.tsx:915-917`; el pago es tras recibir y verificar, `paymentNotice`). «Te pagamos» suena a promesa. El
+ejemplo del dueño usa «Te pagamos»; ux-ui decide el rótulo final sin contradecir que la cifra se confirma al recibir.
+
+### BMK.10 Construye
+- **backend** (módulo `buylist`, stream «Catálogo y precios», modelo fuerte por tocar `buylist`): BMK.2 en `toQuotePayload`
+  + BMK-B1…B4. Notas en `BACKEND_NOTES §86`. Puede ir **en paralelo** con frontend: la forma no cambia.
+- **frontend:** BMK.3–BMK.5 + BMK-F1…F8 + BMK-E1. Notas en `FRONTEND_NOTES §110`. Toca `frontend/src/lib/` y
+  `frontend/src/components/domain/CardDetailModal.tsx` (zonas compartidas).
+- **ux-ui:** textos y tratamiento visual (BMK.9) antes de que frontend cierre los textos.
+- ⛔ No construye: devops (sin migración ni variable nueva), product-owner (nada abierto).
