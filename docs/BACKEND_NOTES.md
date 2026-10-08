@@ -30446,3 +30446,28 @@ está commiteado). Integración §WSH (`wishlist*`, `sealed-restock-armed`, `enu
 suites, 662/662**. Integración completa 115/124 suites, 2354/2390 (34 rojas, 2 omitidas): las **mismas 9 suites** salen rojas
 sobre `49482fb0` (sin el seed nuevo) en el mismo esquema (9/9 suites rojas, 38 pruebas): CHECKs/migraciones que buscan
 en `public` (lo ya anotado en §84.5), carreras de `vault-placement-races` y estado compartido. No las causa este cambio.
+
+### 84.cierre Cierre de menores de QA y techlead sobre `1b0306f4` (2026-10-08, rama `claude/wishlist`)
+
+QA y techlead aprobaron §WSH sobre `1b0306f4`; esto cierra sus menores de backend. Contrato y schema **no** se tocaron.
+
+- **QA-1 · log de la reconciliación (g).** `reconcileOrphans` escribía «reconciliación de mapeo — 0 re-apuntadas, 0 borradas,
+  0 intactas» en cada tick (cada 5 min ⇒ ~288 líneas/día). Ahora solo registra si alguna de las tres cifras ≠ 0
+  (`sealed-restock-notify.service.ts`, al final de `reconcileOrphans`). Ojo: unas huérfanas **intactas** (ambiguas) que
+  persisten siguen dejando una línea por tick; es intencional (hay algo que mirar). Prueba: `test/sealed-restock-notify.spec.ts`
+  «QA-1 (§84.cierre)».
+- **QA-2 · movimientos de la pieza sellada del seed.** `E2E-SLD-0001` sigue **fuera** de `E2E_FOLIOS` (no se mueven los
+  candados que cuentan piezas por ese mapa); su folio se suma solo a la consulta del reset de `InventoryMovement` en
+  `seed-e2e.ts` (paso 3b). Prueba: `seed-idempotency` caso 6 (crea 2 movimientos, siembra ⇒ 0, siembra otra vez ⇒ 0 y una
+  sola pieza).
+- **techlead-5 (backend) · suscripciones `@e2e.local`.** `seed-e2e` (paso 3b) borra las `SealedRestockSubscription` con correo
+  que termina en `@e2e.local` (insensible a mayúsculas), pendientes o notificadas, y **solo** esas. Prueba: `seed-idempotency`
+  caso 7 (crea 2 `@e2e.local` + 1 ajena, siembra ⇒ 0 `@e2e.local` y la ajena sigue). Con esto la mitigación que
+  `TD-WSH-F5` marca «NO MEDIDO» ya existe; cerrar o actualizar esa entrada es de frontend.
+- **TECH_DEBT.** Ampliadas TD-WSH-5 (identidad del sellado como filtro en 4 sitios; helper `sealedIdentityWhere`) y
+  TD-WSH-6 (tx interactiva de `reconcileOrphans` con timeout de 5 s sobre lecturas sin paginar). Nuevas TD-WSH-11 (P4,
+  `as unknown as` con `StrictBodyPipe`) y TD-WSH-12 (P4, duplicados `(email, clave)` tras M-74 paso (8); **propuesta al
+  arquitecto**: contar esos duplicados en la ventana de despliegue).
+  **Procedencia:** esas cuatro entradas (retoques de TD-WSH-5 y TD-WSH-6, TD-WSH-11 y TD-WSH-12) las escribió backend, pero
+  entraron en el commit `ef034161` (título «docs(frontend)…») porque frontend hizo `git add -- docs/TECH_DEBT.md` sobre el
+  fichero compartido justo después de que backend lo editara. No se reescribió ese commit (sin amend/reset).

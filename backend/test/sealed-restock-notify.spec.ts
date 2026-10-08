@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { SealedRestockNotifyService } from '../src/modules/catalog/sealed-restock-notify.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -176,6 +177,27 @@ describe('SealedRestockNotifyService (§WSH.7)', () => {
     const { svc, calls } = build({ flag: 'off', orphans: [{ id: 's9', n: 1, pid: 1 }] });
     await svc.run();
     expect(calls).toEqual([]);
+  });
+
+  it('QA-1 (§84.cierre): la reconciliación solo deja línea de log si alguna de sus tres cifras ≠ 0', async () => {
+    const reconLines = (spy: jest.SpyInstance) =>
+      spy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('reconciliación de mapeo'));
+    const spy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      // Tick vacío: 0 re-apuntadas, 0 borradas, 0 intactas ⇒ sin línea.
+      await build({ flag: 'on', pending: [], orphans: [] }).svc.run();
+      expect(reconLines(spy)).toEqual([]);
+      // Solo intactas (≠ 0) ⇒ sí hay línea, con sus cifras.
+      const o = { id: 's1', email: 'a@b.com', cardId: 'c1', sealedSubtype: 'box', sealedCondition: 'mint', createdAt: NOW, n: 2, pid: null };
+      await build({ flag: 'on', pending: [], orphans: [o] }).svc.run();
+      expect(reconLines(spy)).toEqual([expect.stringContaining('0 re-apuntadas, 0 borradas por choque, 1 huérfanas intactas')]);
+      spy.mockClear();
+      // Solo re-apuntadas (≠ 0) ⇒ también.
+      await build({ flag: 'on', pending: [], orphans: [{ ...o, n: 1, pid: 100 }] }).svc.run();
+      expect(reconLines(spy)).toEqual([expect.stringContaining('1 re-apuntadas, 0 borradas por choque, 0 huérfanas intactas')]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('sin suscripciones pendientes → notified 0 (no consulta inventario)', async () => {

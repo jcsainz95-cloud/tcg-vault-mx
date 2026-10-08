@@ -263,6 +263,8 @@ export class SealedRestockNotifyService {
       }
       return { repointed, deleted, intact };
     });
+    // QA-1 (§84.cierre): el job corre cada 5 min; con las tres cifras en 0 no hay nada que contar (~288 líneas/día de ruido).
+    if (out.repointed === 0 && out.deleted === 0 && out.intact === 0) return;
     this.logger.log(
       `sealed-restock-notify: reconciliación de mapeo — ${out.repointed} re-apuntadas, ${out.deleted} borradas por choque, ` +
         `${out.intact} huérfanas intactas.`,

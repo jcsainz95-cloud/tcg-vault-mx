@@ -179,13 +179,21 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   //   - InventoryMovement de piezas de PLATAFORMA (settle/chargeback_return): se acumularían y
   //     el assert "settleMovements === 1" contaría 2+.
   // Se limpian aquí (idempotencia real, no solo dentro de una corrida).
+  // QA-2 (BACKEND_NOTES §84.cierre): la pieza SELLADA del fixture (`E2E_SEALED_LISTED`, v1.87.4) no está en `E2E_FOLIOS`
+  // (los candados que cuentan piezas por ese mapa no deben moverse) ⇒ su folio se suma AQUÍ, solo al reset de movimientos.
   const e2eItems = await prisma.inventoryItem.findMany({
-    where: { folio: { in: Object.values(E2E_FOLIOS) } },
+    where: { folio: { in: [...Object.values(E2E_FOLIOS), E2E_SEALED_LISTED.folio] } },
     select: { id: true },
   });
   await prisma.inventoryMovement.deleteMany({ where: { itemId: { in: e2eItems.map((i) => i.id) } } });
   await prisma.processedStripeEvent.deleteMany({
     where: { OR: [{ id: 'evt_e2e_succeeded_fixed' }, { id: { startsWith: 'evt_e2e' } }] },
+  });
+  // techlead-5 (BACKEND_NOTES §84.cierre): el «avísame» sin sesión de los E2E (`frontend/e2e/wishlist.spec.ts`) apunta
+  // correos únicos `…@e2e.local` que no cuelgan de ningún usuario ⇒ se acumulaban entre corridas (y cuentan contra
+  // `sealed_restock_max_pending_per_email` si se repite uno). Se purgan SOLO las de dominio `@e2e.local`, pendientes o no.
+  await prisma.sealedRestockSubscription.deleteMany({
+    where: { email: { endsWith: '@e2e.local', mode: 'insensitive' } },
   });
 
   // 4. Ubicaciones (una por zona).
