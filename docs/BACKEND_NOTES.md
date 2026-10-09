@@ -31777,6 +31777,21 @@ salen igual y en FALLA (como las de siempre). A y C sin cambio.
   hasta que corra el push de esta rama.
 - **Guion del dueño (§14.13.4)** no es fichero de backend: la retirada del paso «apaga los dos avisos» y el texto nuevo del
   paso 2 quedan para quien lleve `LIMPIEZA_DB.md §14.8` (la cabecera de B ya dice lo de la lista 2.7).
+
+### 87.10 handlebars 4.7.9 → 4.7.10 (2026-10-09, rama `claude/release-s7`, sobre `6c6226d4`)
+- **Por qué:** CI de la PR #84 rojo en `trivy-fs` (`trivy-dev-fichas.sh`) y `trivy-image`: GHSA-p8wg-vrv2-v86f y
+  GHSA-8r5x-fm3f-whwj (críticos) + GHSA-xw65-4hp5-5hc7 (moderado), todos `>=4.0.0 <=4.7.9` según `npm audit --json`.
+  Avisos nuevos contra una dependencia transitiva de desarrollo: `ts-jest@29.4.12` → `handlebars` (pide `^4.7.9`).
+- **Cambio mínimo:** `npm update handlebars`; solo cambia `package-lock.json` (handlebars 4.7.10, que pide
+  `minimist ^1.2.8`; ya se resolvía 1.2.8). Sin `overrides`: el rango de ts-jest ya admite 4.7.10.
+- **Por qué también lo ve `trivy-image`:** el backend se instala con `npm ci --include=dev` (`Dockerfile.backend:40`) y la
+  imagen final copia `node_modules` entero sin podar devDependencies (`Dockerfile.backend:49-55`, `:80`). El único
+  handlebars del repo está en `backend/package-lock.json`, así que el lockfile nuevo debería bastar. Que `trivy-image`
+  salga verde: **NO MEDIDO** en local (sin demonio Docker); se mide en el siguiente CI.
+- **Medido:** `npm ls handlebars` → 4.7.10; `npm audit` sin críticos (antes 1 crítico, ahora 0); `npm audit --omit=dev`
+  idéntico al de antes; `security/scripts/audit-npm-dev.sh` y `audit-npm.sh` verdes. trivy no está instalado aquí:
+  `trivy-dev-fichas.sh` no se pudo correr en local. `tsc --noEmit` y `lint` limpios; jest **462/462 suites, 8358/8358**.
+
 ## 86 · §BMK.2 — `referencePrice` del cotizador de venta: `priced` solo en línea cotizada con mercado > 0 (2026-10-08, rama `claude/buylist-mercado`, sobre `42eaeabf` (v1.89⟨bmk⟩); código en `fa10107e`)
 
 **Norma.** `API_CONTRACT §BMK.2` y §BMK.8 (BMK-B1…B4), `ARCHITECTURE §4.BMK`. Sin schema, migración, endpoint, campo ni
