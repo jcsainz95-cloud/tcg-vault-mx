@@ -353,6 +353,9 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   priceRef(E2E_CARDS.highvalue.externalId, 'raw', 'raw:NM', E2E_CARDS.highvalue.refNmCents);
   // v2.1.7: mercado ABSURDO para una premium ⇒ la venta aterriza en el PISO (guardarraíl §4.36.5).
   priceRef(E2E_CARDS.floorpremium.externalId, 'raw', 'raw:NM', E2E_CARDS.floorpremium.refNmCents!);
+  // v1.89⟨bmk⟩ (§BMK.2): mercado de MX$2 para una premium ⇒ también la COMPRA cae al bin ⇒ `precio_pendiente`
+  // con mercado > 0 guardado. Es la carta que ejercita BMK-2 contra el stack vivo (BACKEND_NOTES §86).
+  priceRef(E2E_CARDS.binpremium.externalId, 'raw', 'raw:NM', E2E_CARDS.binpremium.refNmCents);
   // v1.50.3-d (§4.38i.9) — la carta con raw publicado Y slab PSA 10 publicado. Las DOS filas son de la
   // MISMA carta y NO significan lo mismo: `raw:NM` es el mercado del single, y `graded:PSA:10` es la
   // referencia de mercado REAL del slab publicado — **no** un estimado del gancho, aunque sea la misma

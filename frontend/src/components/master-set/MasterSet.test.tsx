@@ -819,12 +819,12 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     // Dos casillas independientes, cada una con su propio precio cotizado.
     expect(
       await screen.findByRole('button', {
-        name: 'Agregar Dual Finish Card (Normal) a la venta · MX$100.00',
+        name: 'Agregar Dual Finish Card (Normal) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$100.00',
       }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', {
-        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · MX$150.00',
+        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$150.00',
       }),
     ).toBeInTheDocument();
   });
@@ -893,7 +893,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
 
     expect(
       await screen.findByRole('button', {
-        name: 'Agregar Single Finish Card (Normal) a la venta · MX$100.00',
+        name: 'Agregar Single Finish Card (Normal) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$100.00',
       }),
     ).toBeInTheDocument();
     expect(
@@ -1154,14 +1154,16 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
 
     // La otra línea cotiza y sigue siendo agregable (el lote NO se cayó)…
     const ok = await screen.findByRole('button', {
-      name: 'Agregar Quotable Card (Normal) a la venta · MX$100.00',
+      name: 'Agregar Quotable Card (Normal) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$100.00',
     });
     fireEvent.click(ok);
     expect(onAdd).toHaveBeenCalledTimes(1);
 
     // …y la rechazada se marca SOLO a sí misma: sin precio inventado y con su «Agregar» inhábil.
+    // §BMK.4 (DESIGN_SYSTEM): el aria anuncia lo que la teja enseña — «No disponible», no «Precio
+    // pendiente» (antes el aria decía pendiente mientras la teja decía «No disponible»).
     const rejected = screen.getByRole('button', {
-      name: 'Agregar Rejected Card (Normal) a la venta · Precio pendiente',
+      name: 'Agregar Rejected Card (Normal) a la venta · No disponible',
     });
     expect(rejected).toBeDisabled();
     fireEvent.click(rejected);
@@ -1230,7 +1232,7 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
 
     fireEvent.click(
       await screen.findByRole('button', {
-        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · MX$150.00',
+        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · Valor de mercado MX$250.00 · Te pagamos MX$150.00',
       }),
     );
 

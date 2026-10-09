@@ -16,6 +16,10 @@
 > folio visible como enlace, aviso «no hay ubicaciones» en la ficha. Cero tokens nuevos.
 > **vSU-2 (2026-10-07):** §SU-UX.6–7 nuevas. El aviso tras el alta distingue «a la venta» de «aún no» según el
 > `status` de SU.8, la cola se refresca después del alta y hay candados SU-UX-7…11. Cero tokens nuevos.
+> **vBMK-1 (2026-10-08, rama `claude/buylist-mercado`): §BMK NUEVA, al final.** «Valor de mercado» junto a «Te pagamos»
+> por carta en el cotizador de venta (teja, ventana de detalle, producto aparte y renglón del carrito); textos es/en,
+> `aria-label` con los dos números, nota única de tono y el caso «pagamos más que el mercado». Enmienda puntual a §18.2,
+> §18.5 y §21.8(a). Cero tokens nuevos, cero pares de contraste nuevos.
 >
 > Estado anterior: **v6.1 (2026-10-05) — EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO CON IVA (§70 ajustada a la errata
 > `API_CONTRACT` v1.83.1 §M11-SP.12, `ARCHITECTURE §4.62.8`; `HECHOS.md:51` «Precio del sellado — respuestas a
@@ -4357,6 +4361,9 @@ que `MasterSetBinder` (que ya comparte — hoy el problema era solo el ancho dis
   `tabular-nums` en tinta (NO verde: el verde "pagamos" queda exclusivo del `BountyCard` §16.7c —
   aquí es un estimado, no una promesa destacada) → botón `Agregar` (`secondary`, `size="sm"`,
   full-width, anclado abajo con `mt-auto`).
+  > ⚠ **vBMK-1 (2026-10-08):** el precio de la teja pasa a ser el **bloque de dinero de §BMK.2** («Valor de mercado» +
+  > «Te pagamos»). La cifra a pagar conserva tamaño (15px), tinta y no-verde. En el carrito (§18.5), «Estimado c/u»
+  > se sustituye por las dos filas de §BMK.5.
 - **«Cargar más»** del binder quoter: sin cambios (paginación interna hasta completar el set).
 
 ### 18.3 Distintivo de variante en la teja del cotizador (P-14)
@@ -5799,6 +5806,8 @@ orígenes distintos que **se arreglan de forma distinta**, así que se distingue
 - **Alcance:** ficha de carta (`/catalog/[cardId]`) y ficha/ventana de sellado (`/sellado/[inventoryItemId]`).
   **No cambian** la bóveda/portafolio (ahí el cliente ve el mercado de **lo que ya posee**, y eso es correcto), el
   cotizador (§7.14, §18: nunca mostró mercado) ni las tejas/listados.
+  > ⚠ **vBMK-1 (2026-10-08):** el **cotizador de venta** sí muestra el mercado desde §BMK, con su propia regla
+  > (`API_CONTRACT §BMK.3`, que **no** mira `priceBasis`). Esta regla (a) sigue mandando en la ficha de la tienda.
 
 **(b) Cómo se recompone la retícula sin dejar hueco.** Hoy la ficha pinta cuatro celdas hermanas en una retícula de
 2 columnas con reglas (`Precio de venta` · `Valor de mercado` · `Condición` · `Acabado`), y el divisor izquierdo
@@ -31986,3 +31995,269 @@ ni pantalla del cliente (AC-UX toca la Tienda, el carrito y la ficha del **deck*
    WSH-UX.10 cambia `components/domain/account/AccountView`. Ficheros distintos de la misma zona compartida, y las
    dos ramas añaden claves a `es.json`/`en.json` (`accessories.*`, `checkout.*` frente a `wishlist.*`, `…restock.*`):
    sin claves repetidas en el diseño, pero el choque textual en los JSON es probable al fusionar.
+## BMK. Valor de mercado junto a «Te pagamos», por carta, en el cotizador de venta (vBMK-1, 2026-10-08 · `API_CONTRACT §BMK` rev v1.89⟨bmk⟩ · `ARCHITECTURE §4.BMK` · `PROJECT §BMK`, criterios 850–859)
+
+**Norma (manda):** `HECHOS.md` fila 2026-10-08 «Cotizador de venta (buylist): se muestra el VALOR DE MERCADO junto a lo
+que pagamos por cada carta» (*«hay que hacer A»*; ejemplo del dueño: «Valor de mercado: MX$1,000 · Te pagamos: MX$500»)
+y fila 2026-10-08 «Cotizador de venta (§BMK): las cinco preguntas P-BMK-1…5 se resuelven con la recomendación» (*«todo
+como recomiendas»*). La regla de cuándo se ve el mercado **no es de esta sección**: es `API_CONTRACT §BMK.3`
+(`visibleMarketCents`). Aquí solo se decide **cómo se ve** y **qué dice**.
+
+**Lo leído** (árbol `/home/user/tcg-bmercado`, 2026-10-08; ux-ui sin Bash: sha **NO MEDIDO**; re-medir líneas antes de
+editar): `MasterSetBinder.tsx:898-931` (`QuoterTile`), `:945-949` (`aria-label` de «Agregar»), `:955-970` (ventana),
+`:1015`, `:1034-1039` y `:1064-1072` (`SeparateProductTile`); `CardDetailModal.tsx:62` y `:116-129`;
+`SellCartContents.tsx:203-248` y `:310-316`; `es.json`/`en.json` `:723`, `:732-733`, `:853`, `:948`, `:6813`.
+
+⛔ Cero tokens nuevos, cero pares de contraste nuevos, cero componentes nuevos. Ningún importe cambia.
+
+### BMK.1 Tres decisiones que gobiernan todo lo demás
+
+1. **La jerarquía la fija el papel de cada cifra, nunca su tamaño relativo.** «Te pagamos» es la cifra héroe (la que
+   suma al carrito, la que el vendedor decide). «Valor de mercado» es secundaria: va **antes** (se lee referencia →
+   oferta, como en el ejemplo del dueño), más pequeña y en `text-muted`. Esto no cambia cuando la cifra a pagar es mayor
+   que el mercado.
+2. **Nada visual relaciona las dos cifras.** ⛔ Sin tachado del mercado (es el idioma de «antes/ahora» de una rebaja y
+   convierte el mercado en una pérdida), sin flecha, barra, signo, color verde/rojo, ni cambio de orden o estilo según
+   cuál es mayor. Comparar las dos para decidir un estilo **es un cálculo con las dos** y `API_CONTRACT §BMK.5` lo prohíbe.
+   Son dos hechos rotulados, uno debajo del otro. Por eso el caso borde (§BMK.6) se ve bien sin texto extra.
+3. **Un dato, un nombre, en todas las superficies.** Los rótulos viven una sola vez, en el namespace nuevo
+   `buylist.sellPrice` (§BMK.8). Teja, ventana, producto aparte y carrito los leen de ahí. Los `aria-label` repiten el
+   mismo texto (candado BMK-UX-5).
+
+### BMK.2 El bloque de dinero de la teja (`QuoterTile`, y `SeparateProductTile` en modo cotizador)
+
+Sustituye al `<p>` de una línea (`MasterSetBinder.tsx:925-931` y `:1064-1072`). Es un `<dl>` apilado, alineado a la
+izquierda como el resto de la teja (nombre, código), con `mt-2`:
+
+```
+CON mercado visible                SIN mercado (cotizada)       PRECIO PENDIENTE           SIN COTIZACIÓN / ERROR
+┌──────────────────────┐           ┌──────────────────────┐     ┌──────────────────────┐   ┌──────────────────────┐
+│ VALOR DE MERCADO     │ dt        │ TE PAGAMOS           │     │ TE PAGAMOS           │   │ No disponible        │
+│ MX$1,000.00          │ dd 13 mut │ MX$300.00            │     │ Precio pendiente     │   │                      │
+│ TE PAGAMOS           │ dt        │                      │     │ (accent, como hoy)   │   │ (como hoy, sin       │
+│ MX$500.00            │ dd 15 ink │                      │     │                      │   │  rótulos)            │
+│ [      Agregar     ] │           │ [      Agregar     ] │     │ [      Agregar     ] │   │ [      Agregar     ] │
+└──────────────────────┘           └──────────────────────┘     └──────────────────────┘   └──────────────────────┘
+```
+
+| Pieza | Clases (Tailwind del proyecto) | Nota |
+|---|---|---|
+| `dt` (los dos rótulos) | `font-mono text-[10px] uppercase tracking-label text-muted leading-tight` | Mismo estilo que la fila `#número · ACABADO`. El rótulo de «Te pagamos» va en `text-muted` igual que el de mercado: la jerarquía la llevan las cifras. |
+| `dd` mercado | `font-mono tabular-nums text-[13px] text-muted whitespace-nowrap` | Secundaria. ⛔ `line-through`, `opacity-*`, `text-subtle`. |
+| `dd` te pagamos | `font-mono tabular-nums text-[15px] text-text whitespace-nowrap` | **Igual que la cifra de hoy** (§18.2): mismo tamaño, tinta, **no verde** (el verde «Pagamos» sigue exclusivo del `BountyCard` §16.7c). |
+| espaciado | `dt` → `dd` `mt-0`; entre pares `mt-1.5` | El par se lee como unidad. |
+
+- **Cuándo va cada forma:** el par de mercado aparece **solo** si `visibleMarketCents(...)` devuelve número
+  (`API_CONTRACT §BMK.3`). Si devuelve `null`, el par **no existe en el DOM**: ni `—`, ni `MX$0.00`, ni hueco con
+  `visibility:hidden`. El rótulo «Te pagamos» se pinta siempre que haya cifra **o** «Precio pendiente». Con «No
+  disponible» o error de producto aparte, la teja queda como hoy, sin rótulos (no hay oferta que rotular).
+- **Altura estable:** el bloque lleva `min-h` igual a la altura del bloque completo de cuatro renglones (≈ 4.5 rem;
+  frontend la mide en implementación). Así la llegada del lote de cotizaciones no empuja la grilla, y las tejas sin
+  mercado no quedan más cortas que sus vecinas (la fila ya se estira por `h-full` y el botón sigue anclado con `mt-auto`).
+- **Teja en el carrito** (`inCart`, fondo `surface-2`): sin cambio de colores; los pares de contraste ya están en §BMK.9.
+- **Producto aparte en modo cotizador:** el mismo bloque, con la cifra de `quoteOk.referencePrice` pasada por
+  `visibleMarketCents`. ⛔ Nunca `priceCents` del catálogo (`:1015`): ese número solo sirve a los modos de inventario,
+  que **no cambian**.
+
+**Móvil a 360 px** (2 columnas, teja ≈ 150 px útiles, §18.2). Medida a mano con mono a ~0.6 em por carácter:
+«VALOR DE MERCADO» a 10 px ≈ 106 px; «MX$123,456.00» a 15 px ≈ 117 px; a 13 px ≈ 101 px. Todo cabe en 150 px sin
+cortar. Por eso los pares van **apilados** (rótulo arriba, cifra abajo) en todos los anchos: en una sola línea
+rótulo + cifra (≈ 190 px) no caben a 360 px ni a 640 px. Si cambiaran de forma según el ancho, la misma teja se
+leería distinto en el celular y en el escritorio. `whitespace-nowrap` en las cifras: un importe nunca se parte.
+
+### BMK.3 La ventana de detalle (`CardDetailModal`)
+
+Prop nueva opcional `marketCents?: number | null` (contrato §BMK.4). La ficha de datos (`<dl>`, `:88-130`) queda así,
+en este orden:
+
+| Fila | `dt` | `dd` | Cuándo |
+|---|---|---|---|
+| Set · número, Acabado, Rareza | como hoy | como hoy | como hoy |
+| **Valor de mercado** | `sellPrice.market`, `text-[12px] text-muted` (el estilo de `dt` de la ventana) | `tabular font-mono text-[13px] text-muted` | solo si `marketCents` es entero `> 0` |
+| **Te pagamos** | `sellPrice.wePay` | cifra: `tabular font-mono text-[14px] text-text` (como hoy); pendiente: `font-mono text-[12px] text-accent` «Precio pendiente» (como hoy) | como la fila «Estimado» de hoy |
+
+- La fila «Estimado» (`cardDetail.estimate`) **se renombra en pantalla** a «Te pagamos» leyendo `buylist.sellPrice.wePay`.
+  La ventana solo la usa el cotizador (medido: `CardDetailModal` tiene un único llamador, `MasterSetBinder.tsx:955`).
+- La fila de mercado no hereda el `priceCents >= 0` de `:62` (desviación (f)4 del arquitecto, fuera de §BMK): su
+  condición es `> 0`.
+- El mercado de la ventana es **el mismo número** que la teja que la abrió. El llamador le pasa el resultado de la
+  misma llamada a `visibleMarketCents`; la ventana no decide nada.
+
+### BMK.4 `aria-label` (criterio 858)
+
+El botón «Agregar» anuncia lo que la teja enseña, con los mismos rótulos. Tres variantes por superficie, elegidas por
+el estado de la teja, nunca por comparar cifras:
+
+| Estado de la teja | Teja de carta | Producto aparte («Agregar») | Producto aparte (contenedor, solo modo cotizador) |
+|---|---|---|---|
+| Cotizada **con** mercado visible | `quoterAddAriaMarket` | `separateProductAddAriaMarket` | `separateProductAriaMarket` |
+| Cotizada **sin** mercado | `quoterAddAriaPay` | `separateProductAddAriaPay` | `separateProductAriaPay` |
+| Precio pendiente / no disponible / error | `quoterAddAria` (de hoy, `{price}` = «Precio pendiente» o «No disponible») | `separateProductAddAria` (de hoy) | `separateProductAria` (de hoy) con `{price}` = `quoterPending` / `quoterUnavailable` / `separateProductError` |
+
+- En **modo cotizador**, el contenedor del producto aparte **deja de anunciar** `priceCents` del catálogo
+  (`:1034-1039`). En los modos de inventario, `separateProductAria` sigue como hoy con `marketPrice`.
+- Las cifras van formateadas con `formatMoneyCents`, igual que en pantalla.
+- Textos en §BMK.8.
+
+### BMK.5 El renglón del carrito de venta (`SellCartContents.tsx`)
+
+La fila «Estimado c/u» de los metadatos (`:230-239`) y la fila «Valor de referencia» de «Detalle» (`:310-316`) **se
+retiran**. En su lugar va un `<dl>` de dos filas **a la vista**, debajo de los metadatos y encima de los controles de
+cantidad:
+
+```
+┌────┐ Pikachu ex                                   MX$1,000.00   ← subtotal: Te pagamos × cantidad (como hoy)
+│img │ TWM 130 · ▌REVERSE · ×2                                    ← metadatos, sin «Estimado c/u»
+│    │ VALOR DE MERCADO C/U                         MX$1,000.00   ← solo si visibleMarketCents ≠ null
+└────┘ TE PAGAMOS C/U                                 MX$500.00
+       −  [ 2 ]  +     DETALLE DEL ESTIMADO              QUITAR
+```
+
+| Pieza | Clases | Nota |
+|---|---|---|
+| fila | `flex items-baseline justify-between gap-3` (una por par), primera con `mt-1.5` | Cifras **a la derecha**, en la misma columna que el subtotal: el ojo baja por una sola columna de importes en todo el cajón. |
+| `dt` | `font-mono text-[10px] uppercase tracking-label text-muted` | `sellPrice.marketEach` / `sellPrice.wePayEach` |
+| `dd` mercado | `tabular font-mono text-[12px] text-muted whitespace-nowrap` | |
+| `dd` te pagamos | `tabular font-mono text-[12px] text-text whitespace-nowrap` | El subtotal de arriba sigue siendo el más grande (14 px, `font-medium`). |
+
+- **«c/u» / «per card» en el carrito, y no en la teja:** en el carrito hay cantidad y subtotal. Sin la marca, con ×2 se
+  leería «Te pagamos MX$500.00» junto a un subtotal de MX$1,000.00, y parecería que no cuadra. Es la misma marca que
+  ya llevaba «Estimado c/u». El nombre del dato no cambia.
+- **Línea en precio pendiente:** no hay fila de mercado (P-BMK-3). La fila «Te pagamos c/u» pinta `BuylistPendingLineLabel`
+  en el sitio de la cifra (la versalita de hoy, §23.3h). El subtotal, igual que hoy.
+- **Sin cotización fresca** (recotizando o recotización fallida, §33.11.2): las dos cifras pintan **«—»** en
+  `text-muted` con el mismo tamaño, **sin cambiar la geometría**. La fila de mercado **se mantiene con «—»** solo si la
+  cotización guardada pasaba `visibleMarketCents`. Si no lo pasaba, no hay fila. Cuando llega la cotización fresca, la
+  fila sigue el predicado de la fresca. «—» aquí significa «actualizando», como en la cifra a pagar. No es el sustituto
+  de un mercado ausente, que §BMK.3 del contrato prohíbe. ⛔ Nunca la cifra vieja. Un solo anuncio para lectores de
+  pantalla, el del total (`sellCart.requoting`), como hoy.
+- **«Detalle del estimado»** se queda con rareza, acabado y la nota de precio pendiente. Sin «Valor de referencia» en
+  ningún estado (BMK-F5).
+- **Total, barra y resumen antes de enviar:** sin cambio (P-BMK-4, criterio 856). ⛔ Ningún «mercado total».
+
+**Ancho a 360 px** (cajón en hoja inferior; columna de texto ≈ 360 − 32 de margen − 48 de miniatura − 12 de hueco =
+268 px): «VALOR DE MERCADO C/U» ≈ 132 px + «MX$12,345.00» a 12 px ≈ 86 px = 218 px. «MARKET VALUE PER CARD» ≈ 139 + 86 =
+225 px. Caben en una fila con aire. A 400 px (cajón de escritorio) sobra.
+
+### BMK.6 Caso borde: pagamos más que el mercado
+
+Ejemplos del arquitecto (`ARCHITECTURE §4.BMK (g)1`): mercado MX$0.50 y pagamos MX$1.00 (el mínimo); mercado
+MX$1,000.00 y precio a mano MX$1,200.00.
+
+```
+VALOR DE MERCADO          VALOR DE MERCADO
+MX$0.50                   MX$1,000.00
+TE PAGAMOS                TE PAGAMOS
+MX$1.00                   MX$1,200.00
+```
+
+Se ve igual que cualquier otra teja, y así debe ser. §BMK.1 punto 2 hace que no haya nada que «se rompa»: sin tachado,
+el mercado menor no parece una rebaja al revés; sin color de comparación, nada se vuelve verde ni rojo; sin
+porcentaje, no hay un «200 %» que explicar. Lo que el vendedor lee es cierto: la carta vale MX$0.50 y le pagamos MX$1.00.
+⛔ Ningún texto extra («¡pagamos más!», «bonificación»), ni insignia, ni ocultar el mercado en ese caso. Ocultarlo
+sería una decisión nueva del dueño (pregunta abierta del arquitecto, (g)1), no de diseño. Si el dueño la tomara, el
+diseño no cambia: el par simplemente no aparece, como en cualquier línea sin mercado.
+
+### BMK.7 Tono: «Te pagamos» sin prometer de más
+
+**La tensión:** la teja decía «estimado, no promesa» (`MasterSetBinder.tsx:915-917`). Tras la solicitud mandamos una
+oferta firme por correo (`buylist.created`, `es.json:909`), y el pago llega al recibir y verificar (`payAfterReceipt`,
+`:854`). «Te pagamos» suena a promesa.
+
+**Decisión: el rótulo se queda «Te pagamos»**, que son las palabras del dueño. La honestidad no va en cada teja: se
+dice **una vez**, donde empiezan los números, con tres apoyos.
+
+1. **Rótulo.** «Te pagamos», en presente. Las alternativas, descartadas:
+   - «Te pagaríamos»: el condicional suena a regateo y debilita justo la confianza que pide `PROJECT §BMK.1`.
+   - «Te ofrecemos»: choca con «la oferta», que en este flujo es **otra cosa**, la firme que llega por correo.
+   - «Estimado»: es el rótulo que el dueño quiso cambiar.
+2. **Una nota por set, nueva:** `masterSet.quoterPriceNote`. Va una sola vez en la vista de un set en modo cotizador,
+   entre la fila de filtros locales («Buscar carta» + acabado) y la grilla. **No** es sticky. Clases
+   `mt-2 max-w-prose text-xs leading-relaxed text-muted`. El sitio exacto en el JSX lo elige frontend (**NO MEDIDO** por
+   mí). Dice qué es la cifra (precio de hoy, en NM), dónde se vuelve firme (la oferta) y cuándo se paga.
+3. **Lo que ya existe se conserva:** la cifra en tinta y **no verde** (no compite con el «Pagamos» de los bounties, que
+   sí es una oferta publicada); `payAfterReceipt` en el encabezado; `estimateNote` en el carrito; la marca «Detalle del
+   estimado».
+
+El comentario de `MasterSetBinder.tsx:915-917` («estimado, no promesa») sigue siendo cierto como intención de diseño.
+Frontend lo actualiza para citar §BMK.7.
+
+### BMK.8 Textos finales es/en (paridad en el mismo cambio)
+
+**Claves nuevas:**
+
+| Clave | ES | EN |
+|---|---|---|
+| `buylist.sellPrice.market` | Valor de mercado | Market value |
+| `buylist.sellPrice.wePay` | Te pagamos | We pay you |
+| `buylist.sellPrice.marketEach` | Valor de mercado c/u | Market value per card |
+| `buylist.sellPrice.wePayEach` | Te pagamos c/u | We pay you per card |
+| `masterSet.quoterAddAriaMarket` | Agregar {name} ({finish}) a la venta · Valor de mercado {market} · Te pagamos {price} | Add {name} ({finish}) to the sale · Market value {market} · We pay you {price} |
+| `masterSet.quoterAddAriaPay` | Agregar {name} ({finish}) a la venta · Te pagamos {price} | Add {name} ({finish}) to the sale · We pay you {price} |
+| `masterSet.separateProductAddAriaMarket` | Agregar {name} ({kind}, {finish}) a la venta · Valor de mercado {market} · Te pagamos {price} | Add {name} ({kind}, {finish}) to the sale · Market value {market} · We pay you {price} |
+| `masterSet.separateProductAddAriaPay` | Agregar {name} ({kind}, {finish}) a la venta · Te pagamos {price} | Add {name} ({kind}, {finish}) to the sale · We pay you {price} |
+| `masterSet.separateProductAriaMarket` | {name} ({kind}, {finish}) · Valor de mercado {market} · Te pagamos {price} | {name} ({kind}, {finish}) · Market value {market} · We pay you {price} |
+| `masterSet.separateProductAriaPay` | {name} ({kind}, {finish}) · Te pagamos {price} | {name} ({kind}, {finish}) · We pay you {price} |
+| `masterSet.quoterPriceNote` | «Te pagamos» es nuestro precio de hoy por la carta en Near Mint. La cifra firme va en la oferta que te mandamos después de tu solicitud, y el pago llega al recibir y verificar tus cartas. | “We pay you” is today's price for the card in Near Mint. The firm amount comes in the offer we send after your request, and payment arrives once we receive and verify your cards. |
+
+- El inglés conserva «to the sale» de las claves de hoy (`en.json:723`, `:733`), no el «to your sale» de la propuesta
+  del arquitecto. Así la clave nueva solo se diferencia de la vieja en el final.
+- «Near Mint» repite el término de `nmOnlyTitle` («Solo compramos en Near Mint (NM)»).
+
+**Claves que no cambian y siguen en uso:** `masterSet.quoterAddAria`, `separateProductAddAria`, `separateProductAria`
+(estados sin cifra, y modos de inventario), `quoterPending`, `quoterUnavailable`, `buylist.lineDetailShow`,
+`estimateNote`, `payAfterReceipt`.
+
+**Claves que quedan dormidas** (dejan de usarse en estas superficies; se borran en el mismo cambio solo si ninguna
+prueba ni otro fichero las lee, **NO MEDIDO**; si alguna las lee, se quedan):
+
+| Clave | Hoy | Sustituida por |
+|---|---|---|
+| `buylist.referencePrice` (`:853`) | Valor de referencia / Reference value | `sellPrice.marketEach` (a la vista) |
+| `buylist.cartItemEstimate` (`:948`) | Estimado c/u / Est. each | `sellPrice.wePayEach` |
+| `cardDetail.estimate` (`:6813`) | Estimado / Estimate | `sellPrice.wePay` |
+
+⛔ Ninguna clave nueva ni cambiada contiene `%`, «mitad», «half», «ahorr», «save» ni cifras derivadas (BMK-F7).
+
+### BMK.9 Contraste — cero pares nuevos (tabla §10)
+
+| Par | Dónde | Ratio | Cumple |
+|---|---|---|---|
+| `text-muted` `#6E695E` sobre papel | rótulos y cifra de mercado en la teja y el carrito | ~4.8:1 | AA texto normal |
+| `text-muted` sobre pozo `surface-2` `#EFEBE2` | teja con `inCart` | ~4.6:1 | AA texto normal |
+| tinta sobre papel / pozo | cifra «Te pagamos» | ~15.5:1 / ~14.7:1 | AAA |
+| `text-accent` sobre papel / pozo | «Precio pendiente» (como hoy) | según §17.2 | AA (como hoy) |
+
+La jerarquía no se cifra solo con el color: también la llevan el tamaño (13 contra 15 px en la teja, 12 contra 14 px del
+subtotal en el carrito), el orden y el rótulo de texto.
+
+### BMK.10 Accesibilidad y orden
+
+- `<dl>`/`<dt>`/`<dd>` reales en la teja, la ventana y el carrito. El lector de pantalla lee «Valor de mercado,
+  MX$1,000.00, Te pagamos, MX$500.00».
+- El orden en el DOM es el orden visual (mercado → te pagamos). Sin `tabindex`. Las cifras no son focuseables.
+- `uppercase` es solo CSS: el texto de la clave va en tipo oración, así el lector no deletrea.
+- `lang`: los rótulos van en el idioma de la interfaz. Solo el nombre de la carta lleva `lang="en"`, como hoy.
+
+### BMK.11 Candados sugeridos (los escribe frontend; complementan BMK-F1…F8 del contrato)
+
+| ID | Qué asevera | Canario |
+|---|---|---|
+| **BMK-UX-1** | Teja con mercado 50 y pago 100 (pagamos más) y teja con mercado 100 000 y pago 50 000: los nodos del par de mercado y del de pago tienen **las mismas clases** en los dos casos, y ninguna contiene `line-through` | Estilo condicional por comparación, o tachar el mercado |
+| **BMK-UX-2** | En la teja, el `dd` de mercado precede al de «Te pagamos» en el DOM | Invertir el orden |
+| **BMK-UX-3** | Renglón del carrito con ×2: aparecen `marketEach` y `wePayEach` a la vista con cifras por unidad; el subtotal es el pago × 2; ni «Estimado c/u» ni «Valor de referencia» en ningún estado | Volver a `cartItemEstimate` |
+| **BMK-UX-4** | Carrito recotizando con cotización guardada con mercado: las dos filas existen y pintan «—»; con cotización guardada sin mercado: no hay fila de mercado; nunca la cifra vieja | Pintar la cifra guardada mientras recotiza |
+| **BMK-UX-5** | Paridad: las 11 claves nuevas existen en `es` y `en`; cada `*AriaMarket` contiene literalmente el texto de `sellPrice.market` y `sellPrice.wePay` del mismo idioma, y cada `*AriaPay` el de `wePay` | Cambiar el rótulo en un sitio y no en otro |
+| **BMK-UX-6** | `quoterPriceNote` se pinta **una** vez en la vista de un set en modo cotizador y **cero** en los modos de inventario | Pintarla por teja |
+
+### BMK.12 Notas para otros roles (ninguna bloquea)
+
+- **N-BMK-1 (orquestador / dueño, informativo):** con este diseño el caso «pagamos más que el mercado» se verá en las
+  cartas más baratas. No hace falta decidir nada para construir (§BMK.6). Si el dueño quisiera ocultarlo, es la pregunta
+  (g)1 del arquitecto, con sus dos ejemplos en pesos.
+- **N-BMK-2 (frontend):** `visibleMarketCents` es zona compartida (`frontend/src/lib/`). Las tres superficies y la
+  ventana la llaman; ninguna repite el predicado (`ARCHITECTURE §4.BMK (c)`).
+- **N-BMK-3 (frontend):** las clases y medidas de §BMK.2 y §BMK.5 están calculadas, no medidas en navegador. Si a 360 px
+  algún rótulo en inglés rompe línea, se acepta que el **rótulo** baje a dos renglones. ⛔ La cifra nunca se parte ni se
+  trunca.
+- Sin solicitudes de contrato: todo lo que pinta esta sección ya viaja (`API_CONTRACT §BMK.0`).

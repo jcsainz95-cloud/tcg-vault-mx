@@ -3431,7 +3431,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       los define el arquitecto.)*
 - [ ] **Qué NO cambia**:
       - el **cotizador de buylist** sigue **sin** mostrar valor de mercado (solo lo menciona en el
-        subtítulo) — **no se toca**;
+        subtítulo) — **no se toca**; *(**Sustituido 2026-10-08 por §BMK**: el dueño decidió mostrar el mercado
+        junto a lo que pagamos, por carta, en el cotizador — `HECHOS.md` fila 2026-10-08 «Cotizador de venta
+        (buylist)…». El resto de §N.7 sigue igual.)*
       - la **bóveda / portafolio del cliente NO cambia**: ahí el cliente ve el **valor de mercado de lo que ya
         posee**, y eso es correcto y deseable (valuación, gráfica de tendencia y §C intactos);
       - una carta en **«precio pendiente»** sigue **sin publicarse** en Compra (§A) y el comprador **nunca**
@@ -10058,7 +10060,79 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
       sueltas: en ese caso **no se muestra el paquete, solo las sueltas** (P-EN-3 con la recomendación del
       product-owner, `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»). Un deck **sin** energías básicas no muestra recuadro *(consecuencia de la regla 1)*.
 
+### BMK. Valor de mercado junto a lo que pagamos, por carta, en el cotizador de venta (buylist) (transversal — NUEVO 2026-10-08, sesión 7 · P-BMK-1…5 RESUELTAS por el dueño el 2026-10-08; P-BMK-6 abierta, no bloquea)
+
+> **Preguntas resueltas (2026-10-08):** `HECHOS.md` fila 2026-10-08 «**Cotizador de venta (§BMK): las cinco preguntas
+> P-BMK-1…5 se resuelven con la recomendación.**» Palabras del dueño: *«todo como recomiendas»*. Donde abajo dice
+> «Recomendación de P-BMK-n», léase **decisión del dueño**. Queda abierta **P-BMK-6** (mercado cuando pagamos MÁS que
+> el mercado), que no bloquea: se construye con «sí».
+>
+> **Fuente (manda):** `HECHOS.md` fila 2026-10-08 «**Cotizador de venta (buylist): se muestra el VALOR DE MERCADO
+> junto a lo que pagamos por cada carta.**» Respuesta textual del dueño: *«hay que hacer A»* — mercado y oferta
+> juntos por carta, p. ej. «Valor de mercado: MX$1,000 · Te pagamos: MX$500»; **sin** frase fija de porcentaje (la
+> curva de compra no es un 50 % parejo, `backend/src/common/pricing-curve.ts:122-128`); **sin** cambiar importes.
+>
+> **Sustituye** en ese punto a §N.7 «el cotizador de buylist sigue sin mostrar valor de mercado — no se toca» (LOCKED,
+> v2.0) y a su eco en «Restricciones» (*«…y el cotizador de buylist tampoco»*). El resto de §N.7 (la ficha de venta)
+> **no cambia**.
+
+#### BMK.1 Objetivo
+Que el vendedor vea, carta por carta, cuánto vale su carta en el mercado y cuánto le pagamos, para que confíe en la
+oferta sin que le digamos un porcentaje.
+
+#### BMK.2 Alcance — dónde se ve
+*(Lo que hay hoy: medido por product-owner el 2026-10-08 leyendo el árbol `claude/buylist-mercado` @ `66761e71`.)*
+
+| Superficie | Hoy | Con §BMK |
+|---|---|---|
+| **Teja de cada carta del cotizador** (binder del set) | Solo la cifra a pagar (`frontend/src/components/master-set/MasterSetBinder.tsx:925-931`, `QuoterTile`) | **Mercado + «Te pagamos»**, juntos |
+| **Ventana de detalle de la carta** (clic en la imagen) | Solo la cifra a pagar (`MasterSetBinder.tsx:968`) | Mercado + «Te pagamos» |
+| **Teja de producto aparte** (Deck Exclusive/promo) | Solo la cifra a pagar (`MasterSetBinder.tsx:1064-1072`) | Mercado + «Te pagamos» |
+| **Renglón del carrito de venta** | La cifra a pagar; el mercado **ya existe** pero escondido en «Detalle» con el rótulo «Valor de referencia» (`frontend/src/app/[locale]/(storefront)/buylist/SellCartContents.tsx:310-316`, `frontend/messages/es.json:853`) | Los dos a la vista, con el **mismo rótulo** que la teja |
+| **Total del carrito / resumen antes de enviar** | Una sola cifra, «Valor de tus cartas» (`SellCartContents.tsx:338-343`, `BuylistView.tsx:574-605`) | **Sin cambio** *(P-BMK-4, decidido 2026-10-08)* |
+| **«Mi cuenta» → detalle de la solicitud** | Cotizado y oferta por carta, sin mercado (`buylist/requests/[id]/SellRequestDetailView.tsx:318-330`, `:475-477`) | **Sin cambio** en esta ronda *(P-BMK-5, decidido 2026-10-08)* |
+| **Mesa de decisión del admin (M5)** | **No** muestra el mercado por línea: ningún archivo no-prueba de `frontend/src/app/[locale]/(admin)/` lee `marketMxnCents` (grep 2026-10-08) | **Sin cambio** (no lo pidió el dueño; fuera, §BMK.4) |
+| **Vitrina de bounties** | «Pagamos» sin mercado; `PublicBountyDTO` no trae mercado (`docs/API_CONTRACT.md:12267-12268`) | **Sin cambio** *(P-BMK-2, decidido 2026-10-08)* |
+
+**El dato ya viaja** *(medido en contrato y código, a confirmar por el arquitecto)*: cada cotización trae
+`referencePrice: { status, priceMxnCents? }` (`docs/API_CONTRACT.md:8895-8898`), que el backend llena con **el mismo
+mercado con el que calcula la oferta** (`backend/src/modules/buylist/buylist.service.ts:1288-1291`, de
+`referenceMxnCents`, `:1224`/`:1236`), y el binder ya lo guarda (`MasterSetBinder.tsx:209`). `GET /buylist/cards`
+**no** trae precio (`docs/API_CONTRACT.md:11849-11853`): el mercado sale de la cotización, no de la búsqueda. Si
+hace falta o no un cambio de contrato lo decide el arquitecto.
+
+- Rótulos: «Valor de mercado» y «Te pagamos» como punto de partida (palabras del ejemplo del dueño); el texto final y
+  el diseño de la teja son de ux-ui, con paridad es/en. *(SUPUESTO: el «Valor de referencia» del carrito pasa a llamarse
+  igual que en la teja — un dato, un nombre.)*
+- Formato del dinero: el de siempre en la tienda (MX$1,000.00).
+
+#### BMK.3 Casos especiales — qué se muestra
+| Caso | Ejemplo | Se muestra | Fuente |
+|---|---|---|---|
+| Oferta por **la curva** | Mercado MX$1,000 ⇒ pagamos MX$500 | «Valor de mercado MX$1,000 · Te pagamos MX$500» | `HECHOS.md` 2026-10-08 |
+| Oferta por **bounty** | Mercado MX$1,000, bounty MX$700 | Los dos, igual | **P-BMK-2, decidido 2026-10-08** («todo como recomiendas») |
+| Oferta por **precio a mano** (override de compra) | Mercado MX$1,000, a mano MX$650 | Los dos, igual | **P-BMK-1, decidido 2026-10-08** («todo como recomiendas») |
+| Pagamos **más** que el mercado (mínimo de compra, o precio a mano por encima) | Mercado MX$0.50, pagamos MX$1.00 por el mínimo; o mercado MX$1,000, a mano MX$1,200 | Los dos, igual, sin ninguna cifra derivada | **P-BMK-6 (abierta, no bloquea)** — se construye con «sí» |
+| Oferta **sin dato de mercado** (p. ej. a mano) | Sin mercado, a mano MX$300 | Solo «Te pagamos MX$300»; el rótulo de mercado **no aparece** | *(SUPUESTO: «no se muestra = no aparece», misma regla que §N.7 — nunca MX$0 ni «—»)* |
+| **Precio pendiente** (sin mercado, o mercado sospechoso en una carta cara) | Carta rara con dato de MX$3 | «precio pendiente», como hoy, **sin** mercado | **P-BMK-3, decidido 2026-10-08** («todo como recomiendas») |
+
+En ningún caso se le dice al vendedor **de dónde salió** la cifra (bounty, manual, curva, piso): sigue la decisión v2.1
+de no enseñar `priceBasis` al vendedor (`docs/API_CONTRACT.md:8889-8894`).
+
+#### BMK.4 Fuera de alcance de §BMK
+- **Cambiar la curva de compra o cualquier importe** (cotización, total, oferta, pago, mínimo): solo cambia lo que se ve.
+- **Cualquier texto de porcentaje o proporción** («pagamos el 50 %», «entre 30 y 50 %», «la mitad») y cifras derivadas
+  (diferencia, «ahorro»): descartado por el dueño (opción b).
+- El mercado en el **total**, en el **detalle de la solicitud** de «Mi cuenta», en la **vitrina de bounties** y en
+  correos: no en esta ronda (P-BMK-2, P-BMK-4, P-BMK-5, decididas 2026-10-08).
+- La **mesa de decisión del admin** (M5) y la ficha de venta de la tienda (§N.7): sin cambio.
+
+- Criterios **850–859**.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §BMK (valor de mercado en el cotizador de venta)** *(2026-10-08)*: cambiar la curva o importes; texto de
+  porcentaje; el mercado en el total, en «Mi cuenta», en la vitrina de bounties, en correos y en la mesa del admin.
+  Detalle en **§BMK.4**.
 - **De §BSD (buylist con guía Skydropx de entrada)** *(2026-10-06)*: cambiar la tarifa fija del buylist; cambiar los
   envíos de salida; japonés y español; recolección a domicilio del vendedor; correos de rastreo al vendedor. Detalle
   en **§BSD.6**.
@@ -10453,7 +10527,8 @@ nuevo, no como parte de §R**:
 - **Visibilidad del «valor de mercado»** *(v2.0, §N.7)*: del lado de **venta** (**solo** ficha de carta y
   ficha de sellado; no tejas ni listados) el valor de mercado **solo se muestra cuando el mercado determinó
   el precio publicado**; si lo determinó el **piso** o un **override**, no se muestra. La **bóveda/portafolio
-  del cliente no cambia** y el **cotizador de buylist tampoco**.
+  del cliente no cambia** y el **cotizador de buylist tampoco** *(sustituido 2026-10-08 por **§BMK**: el
+  cotizador sí muestra el mercado por carta junto a lo que pagamos)*.
 - **Bounty revalidado contra la regla vigente** *(v2.0, §N.6)*: un bounty por debajo de la regla de compra
   vigente **deja de ser bounty** (no aplica en cotización, no se publica, alerta en el binder); se valida
   **al crear, al cotizar y al publicar**. El **override manual de compra sigue siendo absoluto**.
@@ -14701,6 +14776,48 @@ Energy» (12 energías; sueltas = MX$60.00):*
    sesión abierta intenta cotizar y pagar cartas + un accesorio: el servidor **rechaza** la petición (en cotizar y en
    pagar, también llamando a la API directamente), **no** se crea cobro en Stripe ni pedido, y ninguna existencia del
    accesorio queda apartada. Lo que ve el cliente en pantalla se verifica según P-AC-1 (`API_CONTRACT §AC.16`).
+
+> **§BMK — Valor de mercado en el cotizador de venta (2026-10-08).** Bloque **850–859** (reservado por el
+> orquestador). P-BMK-1…5 **resueltas** por el dueño (`HECHOS.md` fila 2026-10-08 «Cotizador de venta (§BMK): las cinco
+> preguntas P-BMK-1…5 se resuelven con la recomendación», palabras: *«todo como recomiendas»*): 853, 854 y 856 ya **no
+> dependen** de preguntas abiertas. P-BMK-6 (abierta, no bloquea) se construye con «sí» y queda cubierta por 853 (c).
+
+850. **Cada carta cotizada enseña los dos números** *(§BMK.2)*: en el cotizador, una carta con mercado de MX$1,000 y
+   cotización de MX$500 muestra en su teja «Valor de mercado» **MX$1,000.00** y «Te pagamos» **MX$500.00**, juntos y
+   sin abrir nada; igual en la ventana de detalle de la carta y en la teja de un producto aparte (Deck Exclusive/promo)
+   con su propio mercado y su propia cotización.
+851. **Mismos números en el carrito de venta** *(§BMK.2)*: al agregar esa carta, su renglón del carrito muestra el
+   mismo mercado y la misma cifra a pagar que la teja, sin tener que abrir «Detalle». El renglón que hoy dice «Valor de
+   referencia» usa el **mismo** rótulo que la teja (un solo nombre para el mismo dato).
+852. 💰 **El mercado que se ve es el que se usó** *(§BMK.1)*: para cada carta y acabado, el mercado mostrado es
+   **idéntico al centavo** al mercado con el que se calculó su cotización, y al `marketMxnCents` que queda guardado en la
+   línea si con esa cotización se crea la solicitud. Dos acabados de la misma carta muestran **cada uno el suyo**.
+853. **Carta con bounty o con precio puesto a mano** *(§BMK.3; P-BMK-1/P-BMK-2 decididas 2026-10-08)*: (a) con mercado
+   MX$1,000 y bounty MX$700 se ve «Valor de mercado MX$1,000.00 · Te pagamos MX$700.00»; (b) con mercado MX$1,000 y
+   precio a mano MX$650, «… MX$1,000.00 · … MX$650.00»; (c) cuando pagamos **más** que el mercado se muestra igual
+   *(P-BMK-6, abierta, construido con «sí»)*: mercado MX$0.50 pagado a MX$1.00 por el mínimo ⇒ «… MX$0.50 · …
+   MX$1.00»; mercado MX$1,000 y precio a mano MX$1,200 ⇒ «… MX$1,000.00 · … MX$1,200.00», sin ninguna cifra derivada
+   (ni diferencia ni «extra»). **No** aparece ninguna palabra que diga de dónde salió la cifra (ni «bounty», ni
+   «manual», ni «curva», ni «piso», ni «mínimo»): eso sigue sin enseñarse al vendedor.
+854. **Sin mercado o en precio pendiente, no se inventa** *(§BMK.3; P-BMK-3 decidida 2026-10-08)*: (a) una carta **sin dato
+   de mercado** que se cotiza (p. ej. por precio a mano) muestra solo «Te pagamos»: el rótulo de mercado **no aparece**
+   — ⛔ nunca «MX$0.00», «—» ni un número tachado; (b) una carta en **precio pendiente** muestra «precio pendiente»
+   como hoy y **no** muestra mercado, aunque lo haya; (c) ninguna de las dos rompe la teja ni el carrito.
+855. **Ningún porcentaje** *(§BMK.1; `HECHOS.md` 2026-10-08, opción b descartada)*: en todo el cotizador, el carrito
+   de venta y el resumen antes de enviar, en **es** y en **en**, no aparece ningún texto de porcentaje ni de proporción
+   («50 %», «la mitad», «entre 30 y 50 %»…) ni una cifra calculada a partir de los dos números (diferencia, ahorro).
+856. **El total no cambia** *(§BMK.2; P-BMK-4 decidida 2026-10-08)*: el bloque «Valor de tus cartas» del carrito y del
+   resumen antes de enviar sigue mostrando **una sola** cifra (lo que pagamos), la misma que antes de §BMK; el faltante
+   del mínimo sigue calculándose igual (criterio 132(a)).
+857. 💰 **Ningún importe cambia — por ausencia** *(§BMK.4)*: para el mismo catálogo y la misma curva, cada
+   `quotedPriceCents` del cotizador, el total, lo que se congela al crear la solicitud y lo que se paga dan **exactamente
+   lo mismo** que antes de §BMK (sus pruebas en verde sin editarlas). La curva y su editor no cambian.
+858. **Textos en los dos idiomas** *(§BMK.2)*: los rótulos «Valor de mercado» y «Te pagamos» (o los que apruebe ux-ui)
+   existen en es y en en con paridad; un lector de pantalla anuncia los dos números de la teja con su rótulo, no solo
+   las cifras.
+859. **De punta a punta** *(O-4)*: contra el stack corriendo, QA abre el cotizador, elige un set, ve en una teja mercado y
+   pago, la agrega, ve los mismos dos números en el carrito, crea la solicitud y comprueba que la línea guardada trae
+   ese mercado (852) y esa cotización; y comprueba una carta en precio pendiente sin mercado a la vista (854 (b)).
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -19059,3 +19176,46 @@ ese frente:**
   solo guarda un correo por producto (no tiene %), así que solo podríamos mostrarte **cuántos lo esperan**, sin
   máximos ni techo. Default: **no** (no lo pediste). **Recomendación: sí, solo con el conteo**, en una sección aparte de
   la lista; es poco trabajo y te dice qué sellado reponer.
+## Preguntas — valor de mercado en el cotizador de venta (§BMK, 2026-10-08, sesión 7) — P-BMK-1…5 RESUELTAS; P-BMK-6 ABIERTA (no bloquea)
+
+> Lo que ya dijiste **no se pregunta** (`HECHOS.md` fila 2026-10-08 «Cotizador de venta (buylist): se muestra el VALOR
+> DE MERCADO…»): opción A, mercado y oferta juntos por carta; **sin** frase de porcentaje; ningún importe cambia.
+>
+> **P-BMK-1…5 — RESUELTAS el 2026-10-08 con la recomendación.** `HECHOS.md` fila 2026-10-08 «Cotizador de venta
+> (§BMK): las cinco preguntas P-BMK-1…5 se resuelven con la recomendación.» Palabras del dueño: *«todo como
+> recomiendas»*. Se conservan abajo como registro de qué se decidió.
+
+- **P-BMK-1 · Carta con precio de compra puesto A MANO (override).** Ejemplo: el mercado de una carta es MX$1,000 y tú
+  fijaste a mano pagar MX$650. ¿El vendedor ve «Valor de mercado: MX$1,000 · Te pagamos: MX$650», o solo «Te pagamos:
+  MX$650»? Recomendación: **se ve el mercado igual**, como en cualquier otra carta: es el mismo dato que el vendedor
+  encuentra en internet, y esconderlo solo en tus cartas «a mano» se notaría. §BMK.3, criterio 853.
+- **P-BMK-2 · Carta con BOUNTY.** Ejemplo: mercado MX$1,000, bounty MX$700 ⇒ «Valor de mercado: MX$1,000 · Te pagamos:
+  MX$700» (el bounty nunca paga más que el mercado: se topa en él). ¿Se muestra igual? Recomendación: **sí, igual que
+  cualquier carta**. Y aparte: ¿la **vitrina de bounties** de arriba del cotizador también lleva el mercado?
+  Recomendación: **no en esta ronda** (hoy esa vitrina no recibe el mercado; se suma después si la quieres). §BMK.3.
+- **P-BMK-3 · Carta en «precio pendiente» que SÍ tiene un dato de mercado.** Pasa con cartas caras cuyo dato de mercado
+  parece estar mal (p. ej. una carta rara que el dato dice que vale MX$3): no le ponemos precio hasta que tú la revises.
+  ¿Mostramos «Valor de mercado: MX$3 · precio pendiente»? Recomendación: **no**: mientras esté pendiente, **no se
+  muestra el mercado**, solo «precio pendiente» como hoy; enseñar un mercado que sospechamos falso confunde al vendedor.
+  §BMK.3, criterio 854.
+- **P-BMK-4 · ¿También el total?** Ejemplo: el carrito de venta trae dos cartas de mercado MX$1,000 y MX$200 por las que
+  pagamos MX$500 y MX$80. ¿Además de cada carta, el total dice «Valor de mercado de tus cartas: MX$1,200 · Te pagamos:
+  MX$580»? Recomendación: **no**: solo por carta, como lo pediste. El total sigue siendo uno solo (lo que pagamos).
+  §BMK.2, criterio 856.
+- **P-BMK-5 · ¿Y después de mandar la solicitud?** En «Mi cuenta», el detalle de una solicitud enseña lo cotizado y la
+  oferta por carta, sin mercado. ¿Lo agregamos ahí («Valor de mercado al cotizar: MX$1,000 · Te pagamos: MX$500»)?
+  Recomendación: **no en esta ronda**: lo pediste para el cotizador; si después te lo piden los vendedores, se suma.
+  §BMK.2, §BMK.4.
+
+**ABIERTA (no bloquea; se construye con «sí» si no contestas):**
+
+- **P-BMK-6 · ¿Se muestra igual el mercado cuando pagamos MÁS que el mercado?** Hay dos casos en que lo que te pagamos
+  queda por encima del mercado:
+  1. **Carta muy barata y el mínimo de compra.** Una carta vale MX$0.50 en el mercado, pero nunca pagamos menos de
+     MX$1.00 por carta. El vendedor vería «Valor de mercado: MX$0.50 · Te pagamos: MX$1.00».
+  2. **Precio puesto a mano por encima del mercado.** Una carta vale MX$1,000 en el mercado y tú fijaste a mano pagar
+     MX$1,200. El vendedor vería «Valor de mercado: MX$1,000 · Te pagamos: MX$1,200».
+
+  ¿Se muestran los dos números también en estos casos, o solo «Te pagamos»? Recomendación: **sí, igual que cualquier
+  carta**: es la verdad y da confianza; no se añade ninguna cifra calculada (ni «te damos MX$200 de más», ni
+  porcentaje). §BMK.3, criterio 853 (c).

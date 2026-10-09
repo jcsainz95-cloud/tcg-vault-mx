@@ -154,8 +154,9 @@ async function choosePickupAddress(scope: Locator) {
  * su trabajo. El smoke quiere recorrer VENDER de punta a punta, no pelearse con un control de
  * lavado de dinero; la más barata lo deja del lado correcto del tope SIN hardcodear ningún monto.
  *
- * El precio viaja en el `aria-label` de la teja (`quoterAddAria`: «Agregar X (Normal) a la venta ·
- * MX$…»), así que filtrar por `MX$` deja fuera —sin nombrarlas— las tejas en «Precio pendiente»,
+ * El precio viaja en el `aria-label` de la teja (§BMK.4: `quoterAddAriaMarket`/`quoterAddAriaPay`,
+ * «Agregar X (Normal) a la venta · [Valor de mercado MX$… · ]Te pagamos MX$…»), así que filtrar por
+ * «Te pagamos MX$» deja fuera —sin nombrarlas— las tejas en «Precio pendiente»,
  * que son agregables pero no aportan total. Si el set no tuviera NINGUNA cotizada (posible contra
  * un seed sin referencias de mercado), se cae a la primera teja habilitada: money-safe igual
  * (pendiente ⇒ lo fija la plataforma al recibir).
@@ -174,7 +175,7 @@ async function addCheapestSellableCard(page: Page): Promise<boolean> {
   // que Playwright esperase a que se habilitara hasta agotar el timeout (mide el arnés, no el
   // producto). El precio va en el `aria-label`, así que el filtro por `MX$` es también el filtro
   // «esta sí cotizó».
-  const priced = page.getByRole('button', { name: /a la venta · MX\$/, disabled: false });
+  const priced = page.getByRole('button', { name: /a la venta · .*Te pagamos MX\$/, disabled: false });
   const anyTile = page.getByRole('button', { name: / a la venta · /, disabled: false });
   // El batch de estimados del binder tiene que resolver antes de leer nada: `count()` NO
   // auto-espera (lee el DOM del instante), así que se espera a la primera teja explícitamente.
@@ -191,7 +192,8 @@ async function addCheapestSellableCard(page: Page): Promise<boolean> {
   let bestIndex = 0;
   let bestCents = Number.MAX_SAFE_INTEGER;
   labels.forEach((label, i) => {
-    const m = label.match(/MX\$([\d,]+)\.(\d{2})/);
+    // §BMK.4: el aria puede llevar ANTES el mercado; la cifra que suma es la de «Te pagamos».
+    const m = label.match(/Te pagamos MX\$([\d,]+)\.(\d{2})/);
     if (!m) return;
     const cents = Number(m[1].replace(/,/g, '')) * 100 + Number(m[2]);
     if (cents < bestCents) {
@@ -227,7 +229,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     await expect(page.getByRole('option', { name: 'Sellado' })).toHaveCount(0);
   });
 
-  test('clic en una teja de acabado agrega DIRECTO al carrito; el detalle expandible muestra la referencia', async ({
+  test('clic en una teja de acabado agrega DIRECTO al carrito; el mercado va a la vista y no en el detalle (§BMK)', async ({
     page,
   }) => {
     mockOnly('carta literal «Charizard» del fixture (el seed real la llama «E2E Charizard»)');
@@ -241,11 +243,14 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     // §37.1b: la barra de escritorio también rotula «Valor de tus cartas»; se mide en el cajón.
     await expect(cartPanel(page).getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
 
-    // Transparencia: el detalle expandible trae el valor de referencia y el acabado.
+    // §BMK.5: «Valor de mercado c/u» y «Te pagamos c/u» A LA VISTA, sin abrir el detalle; la fila
+    // «Valor de referencia» del detalle se retiró (un dato, un nombre, un sitio).
+    await expect(cartPanel(page).getByText(t('es', 'buylist.sellPrice.marketEach'), { exact: true })).toBeVisible();
+    await expect(cartPanel(page).getByText(t('es', 'buylist.sellPrice.wePayEach'), { exact: true })).toBeVisible();
     // v2.0 (P-48): la fila «Regla aplicada» SE RETIRÓ — no hay reglas por rareza/acabado, hay una
     // curva; dejar el rótulo habría sido, otra vez, texto que promete lo que el sistema no hace.
     await page.getByRole('button', { name: t('es', 'buylist.lineDetailShow') }).click();
-    await expect(page.getByText(t('es', 'buylist.referencePrice'), { exact: true })).toBeVisible();
+    await expect(page.getByText('Valor de referencia')).toHaveCount(0);
     await expect(page.getByText('Regla aplicada')).toHaveCount(0);
   });
 
