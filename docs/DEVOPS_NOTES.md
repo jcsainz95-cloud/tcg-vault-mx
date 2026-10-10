@@ -15131,3 +15131,30 @@ Qué mirar en el resumen del job: `modo: ronda de CONTROL únicamente`, la líne
 **Rollback:** `git revert` del commit. El workflow vuelve a invocar solo `--i-have-a-window` (ronda base, 6) y
 pierde el input `control`; el flag `--control-only` del script queda inerte sin el workflow. No toca producción ni
 datos.
+
+## §98 · La CSP vuelve a `report-only` este release: ZAP 10038/10055 a WARN (2026-10-10, rama `claude/salida-real`, devops)
+
+**Qué pasa.** La causa de los avisos CSP de producción en `/es` y `/es/decks-meta` sigue **SIN MEDIR**, así que no
+se puede garantizar que `enforce` no rompa la portada. Por eso este release vuelve la CSP a `report-only`
+(frontend pone `CSP_MODE='report-only'` en `frontend/src/security/csp.ts`) y el paso a `enforce` queda pendiente
+como **CL-1**.
+
+**Mi cambio (`security/zap/baseline.conf`).** Bajé **10038 y 10055 de FAIL a WARN**. Con `report-only` ZAP no cuenta
+la CSP como aplicada y las dispara SIEMPRE: dejarlas en FAIL pondría rojo el DAST de release por un hallazgo
+**esperado**. Siguen saliendo en el informe (WARN: se ven, no bloquean). Las sub-alertas `10055-3/-4/-6` quedan como
+estaban (WARN). El comentario de la política (§14.3) describe ahora las dos fases y dice que 10038/10055 **vuelven a
+FAIL en el MISMO cambio** que ponga `CSP_MODE='enforce'`.
+
+**Lo ata `scripts/check-csp-zap-parity.sh`** (job `live-candados` de ci.yml): la constante de frontend y la política
+de devops se mueven juntas. `report-only` con alguna en FAIL ⇒ rc 1; `enforce` con alguna ≠ FAIL ⇒ rc 1.
+
+**Medido (2026-10-10).**
+- `check-csp-zap-parity.sh` con mi baseline.conf y un `csp.ts` simulado a `report-only`: **rc 0** («report-only con
+  10038/10055 en WARN»). Con el `csp.ts` aún en `enforce` del árbol (frontend no había commiteado): rc 1 — esperado,
+  el verde final se confirma cuando ambos commits (frontend `csp.ts` + este) estén.
+- `check-zap-conf.sh` (§96.7, emulación sin Docker): **rc 0**, todos los casos verdes; el filtro sigue quitando solo
+  `10055-3/-4/-6` para ZAP. No corrí `--real` (necesita Docker).
+
+**Rollback.** `git revert` de este commit devuelve 10038/10055 a FAIL. OJO: FAIL solo es coherente con
+`CSP_MODE='enforce'`; el candado de paridad exige revertir las dos cosas juntas (baseline.conf + csp.ts). No toca
+producción ni datos.
