@@ -31979,3 +31979,26 @@ sin enum, sin código de error nuevo (`CASE_ORIGIN_NOT_SETTLED`, `MANUAL_REFUND_
 - **Abiertas** (en `TECH_DEBT` RS5-TD-4 y RS5-C2): **D-1** (el barrido suelta piezas de una orden leída no-`pending`
   sin CAS sobre el estado leído, `orders.service.ts:1258-1264`; la decisión es del arquitecto, §14.4 fijó «como antes»)
   y **D-6** (`resource_missing` no siempre es «otro modo»; `latest_charge.disputed` tras disputa ganada NO MEDIDO).
+
+## 90 · El candado de enlaces de correo excluye el catch-all centinela de CSP (2026-10-10, rama `claude/salida-real`, sobre `24e1afe2`)
+
+El commit `0515d53a` (frontend) añadió `frontend/src/app/[locale]/[...rest]/page.tsx`: un catch-all cuyo
+`page.tsx` **solo** llama a `notFound()`. No es un destino; existe para que una URL desconocida case dentro de
+`[locale]` y su 404 salga por-petición con el nonce de CSP (candado `e2e/csp.spec.ts` CSP-2). Ruta de front
+legítima, **no se toca**.
+
+El daño estaba en mi candado `backend/test/mail-links.frontend-routes.spec.ts`: su walker `frontendRoutes()`
+veía `[...rest]` como un catch-all que casa con CUALQUIER path ⇒ `routeExists(lo-que-sea)` devolvía `true`. Esto
+(1) ponía roja `:125` (`routeExists('cuenta/pedidos')` pasó a `true`) y (2) **vaciaba** el candado «ninguno
+apunta a una ruta inexistente»: un CTA de correo roto ya no se cazaría (defecto nacido en clientes reales,
+2026-09-29).
+
+**Arreglo (no debilita el candado):** `isNotFoundOnlySentinel(dir, entries)` detecta un catch-all cuyo `page.tsx`,
+sin comentarios, llama a `notFound()` y —quitadas esas llamadas— no deja ni `return` ni JSX (`<[A-Za-z]`). El
+walker NO registra ese catch-all como ruta. Un catch-all REAL que sirva contenido (tendría `return`/JSX) sí se
+registra como ruteable; la exclusión es específica del centinela, no un parche al número.
+
+**Verificación:** spec completo 37/37 verde. Mutación O-9 directa (archivo temporal `appUrl('cuenta/pedidos')` en
+`backend/src`): el candado de «ninguno apunta a una ruta inexistente» se pone ROJO (1 fallo) → sigue mordiendo;
+revertido. Mutación inversa (`esCentinela = false`): `:125` se pone ROJA (`Received true`) → la exclusión es lo que
+arregla; revertida.
