@@ -31944,3 +31944,38 @@ sin enum, sin código de error nuevo (`CASE_ORIGIN_NOT_SETTLED`, `MANUAL_REFUND_
   sin contar `disputed` ⇒ CS-4/5 roja; `chargeState` dentro de la tx ⇒ CS-6 roja; `resource_missing` como limpio ⇒
   unidad CS-2 roja; `catch` que sigue ⇒ unidad CS-3 4/4 rojas. N=1 por mutación: deterministas (barrera de fila y
   doble guionizado, no tiradas de dados); TD4-3 da su proporción con N=10.
+
+### 89.4 Condición C-2 del techlead (sobre `10d1430c`) — cerrada en (a)–(d); D-1 y D-6 quedan en `TECH_DEBT` (2026-10-10)
+- **(a)** `payments.service.ts` `failAndRelease` ya no repite el CAS: llama a `failPendingOrder(tx, order.id)` (`:703`).
+  Misma conducta (`false` ⇒ no se libera nada).
+- **(b) Candado RS5-TD-4:** `test/orders.failed-writer-lock.spec.ts`. Recorre `backend/src` (sin `*.spec.ts`), quita
+  comentarios, y busca escrituras literales de `status: 'failed'` / `OrderStatus.failed` en `order.update|updateMany|
+  upsert|create|createMany(…)` (ignorando el `where: {…}`) y en `UPDATE "Order" SET … status = 'failed'` crudo (solo la
+  parte `SET`). Lista de permitidos de **un** elemento: la llamada dentro de `failPendingOrder` (por desplazamiento en
+  `orders/reservation.ts`). Canarios: 4 formas que deben saltar (incluida la de `payments.service.ts:701` en
+  `10d1430c`) y 5 que no (otro modelo, `failed` en el `where`, otro estado, comentarios, SQL con `failed` en el
+  `WHERE`); censo no ciego. ⛔ **No ve** un `data` armado en una variable aparte ni un estado por parámetro.
+- **(c) D-7:** `ManualRefundService.originChargeOf` traduce a `{kind:'unavailable'}` SOLO un `BusinessException`
+  `PAYMENT_PROVIDER_UNAVAILABLE` con status `503` (la forma exacta del «Stripe no respondió» de `chargeState`,
+  §14.5). Cualquier otro error se **propaga** (500 del filtro global; ocurre antes de toda tx ⇒ cero escrituras).
+  Elegí acotar el `catch` y no que `chargeState` devuelva `{mode:'unavailable'}` porque §14.5 fija que `chargeState`
+  **lanza** `PaymentProviderUnavailable`; cambiar esa firma es del arquitecto.
+- **(d) D-2:** `releaseReservation` sigue tragándose el fallo de su tx (conducta igual), pero registra
+  `logger.error(JSON.stringify({ event: 'orders.release_reservation_failed', orderId, itemCount, error }))`.
+- **Rojo primero** (código de `10d1430c`, árbol vivo antes de tocar `src`): candado 1/4 rojo, exactamente
+  `["failPendingOrder", "modules/payments/payments.service.ts:701 (order.updateMany)"]`;
+  `test/manual-refund.origin-charge-errors.spec.ts` 3/5 rojas (los dos controles verdes);
+  `test/orders.release-reservation-log.spec.ts` 1/2 roja (el control verde).
+- **Mutaciones** (copia del árbol ENTERO: `git archive 10d1430c` + los 6 ficheros de este pase; N=1, deterministas):
+  `failAndRelease` con el CAS literal de vuelta ⇒ candado rojo; `releaseReservation` con `order.update` por id ⇒
+  candado rojo; `catch` sin condición ⇒ 3/5 rojas; sin la comprobación de `503` ⇒ 1/5 roja; log silenciado ⇒ 1/2 roja.
+  Restaurado ⇒ 11/11.
+- **Cifras** (árbol vivo, `10d1430c` + este pase): unidad **467/467 suites, 8384/8384**; `tsc --noEmit` 0;
+  `npm run lint` 0. Integración con Postgres 16 + Redis propios: 15 suites (td4-failed-cas, replacement-cases,
+  checkout-reservation-owner, guest-checkout, accessories-checkout, catalog-checkout-webhook, settle-late,
+  vault-legacy-reservation-sweep, guest-chargeback, seed-spei-bucket, pnl-delivered-refunds, shipped-refund-reason,
+  stripe-in-tx-pool, bsd-b3, bsd-b5) **327/327 verdes, 2 omitidas** (las de `stripe-in-tx-pool` que solo corren con el
+  pool de CI, `:216/:233`). Carga de la máquina ~10–13 con 4 CPU durante la corrida: ningún rojo por timeout.
+- **Abiertas** (en `TECH_DEBT` RS5-TD-4 y RS5-C2): **D-1** (el barrido suelta piezas de una orden leída no-`pending`
+  sin CAS sobre el estado leído, `orders.service.ts:1258-1264`; la decisión es del arquitecto, §14.4 fijó «como antes»)
+  y **D-6** (`resource_missing` no siempre es «otro modo»; `latest_charge.disputed` tras disputa ganada NO MEDIDO).

@@ -14,7 +14,7 @@
  * Orden de candados (§M4-SHIP.17.3): `ManualRefund` → `KycProfile` → `Order` (compartido). `setClabe` solo toma
  * `KycProfile`; el reembolso del caso crea la fila (no bloquea una existente) ⇒ sin ciclo.
  */
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../../common/customer-email';
 import { ManualRefund, ManualRefundSource, ManualRefundStatus, OrderStatus, Prisma, ReplacementCaseSource, Role, ShippedRefundReason } from '@prisma/client';
 import { MANUAL_REFUND_STATUS_VALUES } from '../../../common/enum-values';
@@ -152,8 +152,12 @@ export class ManualRefundService {
   /**
    * 💰 v1.84 LIVE-5 · C2 (API_CONTRACT §14.5) — el cobro de Stripe de la orden de origen, leído FRESCO y ⛔ FUERA de
    * toda transacción (CS-6). Devuelve un VALOR, no lanza: cada verbo decide (`to-manual` bloquea, `reveal-clabe`
-   * avisa, `paid` pide confirmación). Sin orden o sin PI ⇒ `none` (no se llama a Stripe). Cualquier fallo al
-   * consultar ⇒ `unavailable`. ⛔ No depende de `REFUND_FAILURE_DISPUTE_CODES` (lista NO MEDIDA en Stripe MX).
+   * avisa, `paid` pide confirmación). Sin orden o sin PI ⇒ `none` (no se llama a Stripe). ⛔ No depende de
+   * `REFUND_FAILURE_DISPUTE_CODES` (lista NO MEDIDA en Stripe MX).
+   *
+   * `unavailable` es SOLO el `503 PAYMENT_PROVIDER_UNAVAILABLE` con el que `chargeState` dice «Stripe no respondió»
+   * (C-2 (c) del techlead, D-7). Cualquier otro error es un defecto nuestro y SE PROPAGA (500, antes de toda tx): leerlo
+   * como «Stripe caído» haría que `paid` registrase sin pedir la confirmación de origen no liquidado.
    */
   private async originChargeOf(orderId: string | null): Promise<OriginCharge> {
     if (!orderId) return { kind: 'none' };
@@ -163,9 +167,19 @@ export class ManualRefundService {
       const st = await this.stripe.chargeState(o.stripePaymentIntentId);
       return st.mode === 'other' ? { kind: 'other' } : { kind: 'current', disputed: st.disputed };
     } catch (e) {
+      if (!ManualRefundService.isProviderUnavailable(e)) throw e;
       this.logger.warn(`LIVE-5: no se pudo leer el cobro de la orden ${orderId} en Stripe (${(e as Error).message}).`);
       return { kind: 'unavailable' };
     }
+  }
+
+  /** La forma exacta del «Stripe no respondió» de `StripeService.chargeState` (§14.5): 503 + `PAYMENT_PROVIDER_UNAVAILABLE`. */
+  private static isProviderUnavailable(e: unknown): boolean {
+    return (
+      e instanceof BusinessException &&
+      e.code === 'PAYMENT_PROVIDER_UNAVAILABLE' &&
+      e.getStatus() === HttpStatus.SERVICE_UNAVAILABLE
+    );
   }
 
   // ================================================================ creación (C-MREF-1: tres llamadores)

@@ -6,7 +6,7 @@ import { StripeService } from './stripe.service';
 import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
-import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
+import { clearReservation, failPendingOrder, releaseReservationData, reservationGuard } from '../orders/reservation';
 import { AccessorySettleAnomaly, releaseAccessoryReservations, settleAccessories } from '../orders/accessory-stock';
 import { ACCESSORY_LINE_READ_INCLUDE, accessoryMailLinesOf } from '../orders/accessory-lines-view';
 import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
@@ -697,9 +697,10 @@ export class PaymentsService {
         // 🔒💰 v1.80.8.3 (§M4-VAULT.2-bis.2, tabla de escritores): CAS con el estado en el `WHERE`, ⛔ nunca
         // `update` por `id` tras la lectura sin candado de arriba — un `charge.refunded` (o un settle) confirmado
         // entre medias sería PISADO con `failed`, que es liquidable ⇒ un `succeeded` tardío liquidaría una orden con
-        // el dinero devuelto. `count 0` ⇒ otro escritor ganó: ⛔ no se libera nada.
-        const moved = await tx.order.updateMany({ where: { id: order.id, status: 'pending' }, data: { status: 'failed' } });
-        if (moved.count !== 1) return;
+        // el dinero devuelto. `false` ⇒ otro escritor ganó: ⛔ no se libera nada.
+        // v1.84 LIVE-4 (C-2 (a) del techlead): el CAS es el helper único `failPendingOrder` — ⛔ no un `updateMany`
+        // copiado aquí (candado `test/orders.failed-writer-lock.spec.ts`: lista de permitidos de un elemento).
+        if (!(await failPendingOrder(tx, order.id))) return;
         for (const oi of order.items) {
           // v1.68 (§4-R.2 regla 2, candado R-2): SOLO libera lo PROPIO. Tras una sustitución O1→O2, el
           // `payment_intent.canceled` del PI de O1 llega después y NO debe soltar la pieza que O2

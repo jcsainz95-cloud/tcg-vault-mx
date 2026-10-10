@@ -937,7 +937,18 @@ export class OrdersService {
         // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): los apartados de accesorio de la orden, en la MISMA tx (candado AC-B37).
         await releaseAccessoryReservations(tx, orderId);
       })
-      .catch(() => undefined);
+      .catch((e: unknown) => {
+        // v1.84 LIVE-4 (C-2 (d) del techlead, D-2): conducta SIN cambiar — la compensación es best-effort y el barrido
+        // de reservas la reintenta —, pero ⛔ no en silencio: un fallo de BD aquí deja la reserva viva hasta el barrido.
+        this.logger.error(
+          JSON.stringify({
+            event: 'orders.release_reservation_failed',
+            orderId,
+            itemCount: itemIds.length,
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+      });
   }
 
   /**
