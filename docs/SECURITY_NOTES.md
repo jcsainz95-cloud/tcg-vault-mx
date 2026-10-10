@@ -16377,3 +16377,78 @@ no este merge.
   `sk_live_`, **no** este merge — consistente con el veredicto del 2026-10-08.
 
 — SEGURIDAD (blue team / AppSec), 2026-10-10 · código `8e1b34d7` (rama `claude/salida-real`) · **APROBADO CON CONDICIONES**
+
+---
+
+## 9. §MIV vMIV-2 — nota del valor de mercado dice «incluye IVA» (revisión estática) · `567be924`
+
+**Rama:** `claude/mercado-iva` · **sha:** `567be924` · **árbol:** `/home/user/tcg-iva` · **tipo:** cambio de
+**PRESENTACIÓN** en frontend (texto). QA y techlead ya APROBARON. Revisión ESTÁTICA (no se levantó stack ni se
+escaneó red; `⛔ NO` se escaneó producción).
+
+### 9.1 Qué entra realmente en vMIV-2 (medido, `git show 5b4f0f6c`)
+- `frontend/src/components/ui/IvaLabel.tsx`: nueva prop opcional `showRate?: boolean` (default `true`).
+  `showRate={false}` ⇒ la rama inclusiva pinta `common.ivaIncludedBare` en vez de `common.ivaIncluded`.
+  Las ramas «sin IVA» (`withoutIva`) y «no pinta nada» (`ivaIncluded === undefined`) quedan **idénticas**.
+- `frontend/messages/{es,en}.json`: una clave nueva — `common.ivaIncludedBare` = «incluye IVA» / «VAT included».
+- `CardDetailView.tsx`, `SealedDetailView.tsx`, `SealedValueTrend.tsx`: las superficies de **mercado** pasan
+  `showRate={false}`; en la tendencia `ivaRatePct` se vuelve opcional y **deja de pintarse**.
+
+> Nota de alcance: `567be924` comparado con `origin/production` arrastra también **vMIV-1** (la cifra de mercado
+> CON IVA `referenceDisplayCents`, calculada en servidor y consumida de solo-lectura por el cliente) — `grep`
+> confirma que `referenceDisplayCents` **no** está aún en `origin/production`. vMIV-1 fue revisado en su propio
+> pase (según el encargo); aquí **NO** se re-auditó vMIV-1 en profundidad — ver §9.6 (NO MEDIDO).
+
+### 9.2 ¿Expone algún dato nuevo al cliente? → NO (medido)
+vMIV-2 no añade campo ni endpoint. El único dato que cambia en la superficie de mercado es que **se QUITA la
+tasa** («16 %») del rótulo; se muestra estrictamente **menos** información, no más. La cifra con IVA
+(`referenceDisplayCents`) ya la mandaba el servidor desde vMIV-1; vMIV-2 solo cambia el texto del rótulo
+contiguo. `git show 5b4f0f6c --stat`: ningún archivo de `api.ts`/contrato/DTO cambia en vMIV-2.
+
+### 9.3 ¿Filtra el margen o dato interno mostrar el mercado CON IVA en la tienda? → NO (medido)
+El margen (15 %) no aparece en ninguna de estas superficies y vMIV-2 no lo acerca. El único número que vMIV-2
+toca es la **tasa de IVA** (16/8), que es pública y no sensible, y la **elimina** del rótulo de mercado. El
+**dial de traslación** (`IVA_INCLUSIVE/IVA_EXCLUSIVE`, criterio 209 — prohibido en superficie de cliente) **no**
+se expone; de hecho `ivaRatePct` deja de pasarse/pintarse en la tendencia. Las etiquetas «Fracción trasladada»
+que aparecen en `messages/es.json` (líneas 4807/4838) son el **dial de admin preexistente**, NO tocado por
+vMIV-2 y fuera de las superficies de tienda.
+
+### 9.4 ¿La clave i18n / la prop introducen inyección o XSS? → NO (medido)
+`common.ivaIncludedBare` es una **cadena literal estática sin placeholders** (el candado de paridad
+`miv-locks.test.ts` afirma `placeholders(...) === []` en ambos idiomas). El texto se renderiza vía `next-intl`
+`t()` como hijo React (auto-escapado). `git grep dangerouslySetInnerHTML 567be924 -- frontend/src/` → **NONE**.
+No hay interpolación de datos de usuario; el `{rate}` de la clave `common.ivaIncluded` (rama de precio, sin
+cambios) es un número, no texto libre. **Cero superficie de inyección.**
+
+### 9.5 ¿Se debilitó algún candado existente? → NO (medido)
+- El corazón de §M10-IVA (criterios 190/195/208/209) no se toca: `showRate` SOLO afecta la rama inclusiva; las
+  ramas «sin IVA» y «no pinta nada» son invariables.
+- Sin frases jurídicas/fiscales prohibidas en las cadenas nuevas (`git grep -niE
+  "trasladad|conforme a la ley|disposición fiscal|no es un recargo|artículo" 567be924 -- frontend/messages/`
+  solo devuelve claves preexistentes/ajenas, ninguna nueva).
+- El candado de paridad de i18n se **reforzó** para cubrir `common.ivaIncludedBare` (existencia en ambos idiomas,
+  texto exacto del dueño, sin placeholders, y que no reaparezcan las claves de mercado legadas prohibidas).
+
+### 9.6 NO MEDIDO (dicho entero)
+- **vMIV-1** (`referenceDisplayCents` server-side y su cómputo): NO re-auditado en este pase; confirmado solo que
+  es una cifra de display de solo-lectura consumida por el cliente y que no está aún en `origin/production`.
+- No se ejecutó la suite (revisión estática por encargo); se leyó el diff y los candados, no se corrieron.
+- No se midió comportamiento en runtime (sin stack levantado, por encargo).
+
+### 9.7 ¿Hace falta una pasada de pentester para vMIV-2? → NO aplica (y por qué)
+Es un cambio de **solo texto** en cliente: no hay nuevo flujo de datos, ni endpoint, ni superficie de inyección,
+ni autenticación/autorización/dinero tocados, y muestra estrictamente **menos** información. Un DAST/pentest
+contra staging no añade cobertura que esta revisión estática no cubra ya para un rótulo literal. (vMIV-1 y la
+fase de seguridad completa por release siguen gateando el DoD y la operación con dinero real, como en §8.)
+
+## 10. VEREDICTO vMIV-2
+
+### **APROBADO** sobre `567be924` (superficie vMIV-2)
+
+- **Conteo de la superficie NUEVA (vMIV-2): Crítica 0 · Alta 0 · Media 0 · Baja 0.**
+- No introduce dato nuevo al cliente, ni superficie de inyección/XSS, ni debilita candado alguno; muestra menos
+  información (quita la tasa del rótulo de mercado). Pentester: **no aplica** para un cambio de solo texto (§9.7).
+- **Alcance del APROBADO:** la superficie **vMIV-2**. vMIV-1 (arrastrado en el mismo sha) fue revisado en su pase;
+  no se re-auditó aquí (§9.6). Las condiciones de operación con dinero real del §8 siguen vigentes sin cambio.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-10 · código `567be924` (rama `claude/mercado-iva`) · **APROBADO**

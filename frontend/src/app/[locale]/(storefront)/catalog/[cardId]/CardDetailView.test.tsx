@@ -80,6 +80,8 @@ function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
     // v2.0 (P-48): el mercado fijó el precio ⇒ la ficha SÍ muestra «Valor de mercado» (§21.8a).
     priceBasis: 'market',
     referenceValue: refValue,
+    // §MIV.2 (v1.90⟨miv⟩): el mercado CON IVA que manda el servidor (128,000 neto ⇒ 148,480).
+    referenceDisplayCents: 148480,
     currency: 'MXN',
     ...over,
   };
@@ -330,9 +332,12 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
     expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
-    expect(screen.getByText('MX$1,280.00')).toBeInTheDocument();
+    // §MIV.2: la cifra es la CON IVA (`referenceDisplayCents`), no el neto MX$1,280.00.
+    expect(screen.getByText('MX$1,484.80')).toBeInTheDocument();
+    expect(screen.queryByText('MX$1,280.00')).toBeNull();
+    // §MIV.6: el explicador con mercado se reescribió (ya no dice «con la que valuamos las cartas»).
     expect(
-      screen.getByText(/El valor de mercado es la referencia del día con la que valuamos las cartas/),
+      screen.getByText(/El valor de mercado es la referencia del día y se muestra con IVA incluido/),
     ).toBeInTheDocument();
   });
 
@@ -349,6 +354,7 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     expect(screen.queryByText('Valor de mercado')).toBeNull();
     // Nada lo sustituye: ni «—» donde estaba el bloque, ni la cifra de referencia por otra vía.
     expect(screen.queryByText('MX$1,280.00')).toBeNull();
+    expect(screen.queryByText('MX$1,484.80')).toBeNull(); // §MIV: tampoco la cifra con IVA
     // La nota al pie cambia con el bloque y NO menciona el mercado ni insinúa que falte algo.
     expect(
       screen.getByText('El precio de venta es el precio publicado de esta carta.'),

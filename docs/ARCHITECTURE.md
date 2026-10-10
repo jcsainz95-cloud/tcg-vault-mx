@@ -4,6 +4,13 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.90⟨miv⟩ — valor de mercado CON IVA en la tienda, con la nota «incluye IVA»** (2026-10-10, arquitecto, rama
+> `claude/mercado-iva` en `/home/user/tcg-iva`, base `7e395f0a` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma
+> en `API_CONTRACT §MIV`; porqué en **§4.MIV**. Fuente: `HECHOS.md:160` (2026-10-10). Sin schema, migración, endpoint,
+> código de error ni dial. Una función de dinero nueva en `common/money.ts` (`marketDisplayCentsOf`, recibe la tasa y
+> no el dial de traslación) y tres campos aditivos de presentación (`referenceDisplayCents` en las dos fichas;
+> `displayValueMxnCents`/`displayAbsMxnCents` en la tendencia de sellado). Sustituye, solo para esas tres superficies,
+> la fila «`PriceInfo`/`referenceValue` no cambian» de §4.44 (supuesto de la pregunta 62); `referenceValue` sigue neto.
 > **Rev v1.89⟨bmk⟩ — valor de mercado junto a «Te pagamos», por carta, en el cotizador de venta** (2026-10-08, arquitecto,
 > rama `claude/buylist-mercado` en `/home/user/tcg-bmercado`, base `0cbc4f5c` según el orquestador; ⛔ sha NO MEDIDO: sin
 > Bash). Norma en `API_CONTRACT §BMK`; porqué en **§4.BMK** (sección con nombre, no número, para no chocar con ramas vivas).
@@ -29818,6 +29825,75 @@ anterior a §BMK y no se reabre aquí.
 5. **`GET /buylist/cards` y `CardDTO.separateProducts[].prices[]`:** NO MEDIDO si ese endpoint público emite hoy
    `marketReferenceMxnCents` en los productos aparte. No cambia §BMK (la UI no lo usa en el cotizador), pero si lo emite,
    es mercado público por una segunda vía; para la fase de seguridad.
+
+### 4.MIV VALOR DE MERCADO CON IVA EN LA TIENDA — la cifra se hace en el servidor, el neto no se toca (rev v1.90⟨miv⟩, 2026-10-10, NORMATIVO, presentación; 💰 **ningún importe cambia**)
+
+**Norma:** `HECHOS.md:160`, fila 2026-10-10 «Tienda: el VALOR DE MERCADO se muestra CON IVA, con una nota «incluye
+IVA».» (*«quiero que mostremos el mercado mas iva en vez de solo el mercado»*; *«solo la tienda y sí la nota»*).
+`PROJECT §MIV`, criterios 860–869, con los valores por defecto de P-MIV-1…6. Contrato: `API_CONTRACT §MIV`.
+
+**(a) Por qué un campo nuevo y no cambiar `referenceValue`.** `referenceValue` es `PriceInfo`, el mismo tipo que
+alimenta la bóveda, el portafolio, el panel y la valuación (`CardDetailView.tsx:326-333`; §4.44 «`PriceInfo` NO
+cambia: es valuación»). Darle IVA en la ficha haría que `referenceMxnCents` significara dos cosas según la ruta: el
+defecto de D54 un nivel más abajo. Se descartó también **renombrar** (la doctrina de §M10-IVA.3 para `salePriceCents`):
+allí el nombre viejo quedaba **mintiendo**; aquí el neto sigue siendo verdad y lo siguen usando otras superficies. ⇒
+**aditivo**: el neto se queda, la cifra con IVA viaja al lado con nombre propio (`referenceDisplayCents`, misma
+familia que `displayPriceCents`: «display» = lleva el IVA dentro).
+
+**(b) Por qué en el servidor.** El frontend no multiplica dinero (§4.44.i, `iva-transfer.ts:124-128`). Si la ficha
+hiciera `M × 1.16`, la tasa quedaría fija en el navegador y un cambio de `iva_pct` en el panel no llegaría (rompe 862);
+y habría dos cuentas del mismo redondeo. La regla es `displayPriceCentsOf(M, 100, r)` (`money.ts:622-628`): la misma
+aritmética entera y el mismo redondeo que el precio, así que mercado y precio con IVA son comparables al centavo.
+
+**(c) Por qué la función recibe la tasa y no `IvaDials`.** P-MIV-5 por defecto: el mercado lleva siempre el IVA
+completo, aunque el dueño baje `iva_transfer_pct`. Si recibiera `IvaDials`, meter `t` sería un cambio de una línea
+que compila; con la tasa sola, meterlo exige cambiar la firma y pasa por revisión. Es la misma razón por la que
+`shippingFeeDisplayCentsOf` existe con nombre propio: el sitio donde se decide es nombrable y único.
+
+**(d) Por qué derivado del valor YA proyectado.** D2 (§4.36.7(b.2)): lo que la UI no puede pintar no viaja. Si
+`referenceDisplayCents` se calculara de la referencia cruda, un grupo con precio a mano publicaría su mercado con IVA
+aunque `referenceValue` saliera vacío. En carta el valor a mano ya es el proyectado (`catalog.service.ts:1222`); en
+sellado conviven el crudo (`sealed-catalog.service.ts:223-226`) y el proyectado (`:257`) en la misma función, y es el
+sitio fácil para equivocarse (MIV-B3).
+
+**(e) Por qué la pantalla no se cae al neto.** Frontend y backend se publican a la vez (Vercel y Railway al recibir el
+push, `HECHOS.md`), pero no en el mismo segundo. Si el front nuevo llega antes, un respaldo `?? referenceMxnCents`
+pintaría «MX$1,000 · incluye IVA»: falso. Sin respaldo, el bloque desaparece unos minutos, que es lo mismo que hoy
+pasa con un precio a mano. Falla cerrado.
+
+**(f) Tendencia de sellado.** P-MIV-6 por defecto «sí». La diferencia en pesos se toma entre dos cifras con IVA
+(criterio 861), no aplicando IVA a la diferencia: difieren por redondeo (1 → 4 da 4 frente a 3). El porcentaje y la
+dirección se quedan sobre el neto; la dirección es la misma porque la función es estrictamente creciente en enteros.
+
+**(g) Lo que no se toca y por qué.** Rejillas (§N.7 «solo fichas»), `ListingDTO` (ninguna superficie de tienda pinta
+mercado desde ahí), bóveda y master set (P-MIV-2/3), estimados PSA (P-MIV-1), números de la lista de deseos (P-MIV-4
+(a)), «Vender» (HECHOS punto 1, §BMK), panel. Las rutas de valor de **set** tampoco: su gráfica no se pinta en la
+tienda (`PROJECT §MIV.2` A7).
+
+**(h) Banderas para el orquestador (ninguna bloquea).**
+1. **Lista de deseos en la misma ficha (A9).** Con (a), la ficha dirá «Valor de mercado MX$1,160 · incluye IVA» y,
+   más abajo, «10 % → hasta MX$1,100». El texto lo aclara (`API_CONTRACT §MIV.6`), pero la cifra sigue quedando por
+   debajo del mercado visible. Lo que lo cuadra es P-MIV-4 (b), que el dueño puede activar desde el panel sin
+   programar nada (`wishlist_max_iva_mode`), y cambia los máximos de todos.
+2. **Estimados PSA netos debajo de un mercado con IVA** en la misma ficha (`GradingEstimateBlock`, `CardDetailView.tsx:355`).
+   P-MIV-1 por defecto no cambia la cifra; ux-ui decide si un texto aclara que es sin IVA.
+3. **Misma carta, dos cifras:** MX$1,160 en la ficha y MX$1,000 en «Mi bóveda» (P-MIV-2, ya señalada por el PO).
+4. **`iva_pct = 0`:** la nota «incluye IVA» acompañaría a una cifra igual al neto. Si ux-ui usa «IVA {rate} %
+   incluido», diría «IVA 0 % incluido», que es exacto. Hoy `iva_pct` vale 16 de fábrica; el valor en producción está
+   NO MEDIDO.
+5. **Cifra de la ficha frente a la cifra grande de la tendencia de sellado.** Criterio 861 las da iguales. Las dos salen
+   de la misma función, así que si los netos coinciden coinciden los display; si hoy el último punto de la serie y la
+   referencia del representante pueden diferir (otra fecha de captura) está NO MEDIDO y no lo introduce §MIV.
+6. **`ivaIncluded` del precio.** Hoy siempre es `true` (`PRICE_CONVENTION_OF_NEW_ROWS`, `catalog.service.ts:1206`). §MIV
+   no ata la cifra de mercado a ese campo; si algún día los precios de la tienda se mostraran sin IVA, mostrar el
+   mercado con IVA volvería a descuadrar la comparación. Pregunta futura, no de hoy.
+7. **Choque con ramas vivas:** NO MEDIDO si otra rama toca `catalog.service.ts`, `sealed-catalog.service.ts`,
+   `common/money.ts`, `types/contract.ts`, `lib/mock/fixtures.ts` o `messages/*.json`. Lo cierra
+   `git diff --stat origin/production...origin/<rama> -- <esas rutas>` por cada rama `claude/*` no fusionada (O-18).
+
+**(i) Desviaciones detectadas:** ninguna nueva. El `'—'` de las dos fichas con basis `market` y sin cifra
+(`CardDetailView.tsx:262`, `SealedDetailView.tsx:180`) contradecía ya §21.8 («ni "—"»); §MIV lo retira de paso
+(MIV-F2).
 
 ---
 

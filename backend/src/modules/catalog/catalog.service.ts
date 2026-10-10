@@ -22,6 +22,7 @@ import {
   SEALED_SALE_PRICE_INCLUDE,
   ivaIsIncluded,
   manualSaleOf,
+  marketDisplayCentsOf,
   saleDisplayCentsOf,
   sealedPriceBasisOf,
 } from '../../common/money';
@@ -455,6 +456,13 @@ export interface GroupedListingDTO {
    */
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
+  /**
+   * v1.90⟨miv⟩ (§MIV.2, ADITIVO) — el MERCADO **con IVA** (`marketDisplayCentsOf(referenceValue.referenceMxnCents,
+   * ivaRatePct)`), lo único que la ficha pinta como «Valor de mercado · incluye IVA». Presente ⇔
+   * `referenceValue.referenceMxnCents` presente (⇔ `priceBasis === 'market'`, el `iff` de D2): se deriva del valor
+   * YA proyectado. ⛔ No entra en `GroupedListingSummaryDTO` (rejilla) ni en `ListingDTO`.
+   */
+  referenceDisplayCents?: number;
   currency: 'MXN';
 }
 
@@ -1186,6 +1194,8 @@ export class CatalogService {
           ? highlightResult.highlight.map(toGradedEstimateDTO)
           : null;
 
+      // v1.90⟨miv⟩: el número de mercado TAL COMO SALE al cliente (ya pasado por `toPublicPriceInfo`).
+      const projectedMarketCents = cheapest.dto.referenceValue.referenceMxnCents;
       // ANOTADO con el tipo del contrato: omitir un campo requerido ya no compila (v2.1.7).
       const dto: GroupedListingDTO = {
         representativeInventoryItemId: item.id,
@@ -1220,6 +1230,13 @@ export class CatalogService {
         priceBasis: cheapest.dto.priceBasis,
         // Ya viene proyectado por `toListingDTO` (mismo K ⇒ misma PriceReference), informativo.
         referenceValue: cheapest.dto.referenceValue,
+        // v1.90⟨miv⟩ (§MIV.2): el mercado CON IVA, derivado del `referenceValue` YA PROYECTADO de arriba — hereda el
+        // `iff` de D2: con override (o sin mercado) no hay número ⇒ la clave NO existe (ni `null`, ni `0`). La tasa
+        // es `ivaRatePct` del DTO, o sea la MISMA lectura de diales de esta petición (criterio 862: cambiar
+        // `iva_pct` mueve la cifra sin volver a publicar). ⛔ Nunca `ivaTransferPct` (P-MIV-5, la firma lo impide).
+        ...(projectedMarketCents !== undefined && Number.isInteger(projectedMarketCents) && projectedMarketCents >= 0
+          ? { referenceDisplayCents: marketDisplayCentsOf(projectedMarketCents, cheapest.dto.ivaRatePct) }
+          : {}),
         currency: 'MXN' as const,
         // ⚠️ MERGE v1.50.2 — `gradingHighlight` NO va aquí. Tras D2, `GroupedListingDTO` es el DTO de la
         // FICHA, y la ficha expone `gradedEstimates` en su raíz (más rico: PSA 10 y 9, y sin gatear).

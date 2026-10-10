@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
@@ -17,6 +17,7 @@ import { useCart } from '@/lib/cart';
 import { Link, useRouter } from '@/i18n/navigation';
 import { CartAddedToast } from '../CartAddedToast';
 import { CardImage } from '@/components/ui/CardImage';
+import { IvaLabel } from '@/components/ui/IvaLabel';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { PendingPriceLabel } from '../../_shared/PendingPriceLabel';
 import { StockBadge, stockVariantForSingle } from '../../_shared/StockBadge';
@@ -124,6 +125,10 @@ interface FactSpec {
   note?: string;
   /** La celda de dinero ocupa la fila completa cuando queda sola (§21.8b-3). */
   fullRow?: boolean;
+  /** §MIV.5 — id del rótulo de la celda (lo cita `labelledBy`). */
+  labelId?: string;
+  /** §MIV.5 — la celda es un grupo nombrado por estos nodos visibles (rótulo, cifra, IVA). */
+  labelledBy?: string;
 }
 
 // La celda `Fact` ya NO se declara aquí: vive en `_shared/Fact.tsx` (misma marcación, cero cambio
@@ -152,6 +157,8 @@ function FactGrid({ facts }: { facts: FactSpec[] }) {
             key={f.key}
             label={f.label}
             note={f.note}
+            labelId={f.labelId}
+            labelledBy={f.labelledBy}
             className={cn(
               f.fullRow && 'sm:col-span-2',
               !f.fullRow && !opensRow && 'sm:border-l sm:pl-7',
@@ -221,7 +228,23 @@ function Detail({
   // §21.8a — el basis que manda es el del MISMO grupo cuyo precio ocupa el bloque (hoy
   // `listings[0]`, la publicación más barata, la del «desde»). Nunca se mezcla el precio de un
   // grupo con el mercado de otro. Empate ⇒ el backend ya emitió "market"; el front no re-evalúa.
-  const showMarketValue = primary?.priceBasis === 'market';
+  //
+  // ⭐ §MIV.2 (v1.90⟨miv⟩, NORMATIVA): la cifra del bloque es `referenceDisplayCents` —el mercado CON
+  // IVA que calcula el servidor—, y el bloque existe ⇔ `priceBasis === 'market'` ∧ esa cifra es un
+  // entero > 0. ⛔ Nunca se cae al neto (`referenceValue`): sin la cifra con IVA no hay bloque, ni
+  // «—», ni rótulo de IVA suelto. ⛔ Ninguna cuenta aquí: la cifra se pinta tal cual llega.
+  const marketDisplayCents =
+    primary?.priceBasis === 'market' &&
+    Number.isInteger(primary.referenceDisplayCents) &&
+    (primary.referenceDisplayCents ?? 0) > 0
+      ? primary.referenceDisplayCents
+      : undefined;
+  const showMarketValue = marketDisplayCents !== undefined;
+  // §MIV.5: ids para el nombre accesible de la celda («Valor de mercado MX$1,160.00 IVA 16 % incluido»).
+  const marketIds = useId();
+  const marketLabelId = `${marketIds}-label`;
+  const marketFigureId = `${marketIds}-figure`;
+  const marketIvaId = `${marketIds}-iva`;
 
   const facts: FactSpec[] = primary
     ? [
@@ -254,13 +277,26 @@ function Detail({
               {
                 key: 'marketValue',
                 label: tcat('marketValue'),
+                // DESIGN_SYSTEM §MIV.2: cifra → rótulo de IVA (dentro del `node`) → fecha (`note`).
                 note: captured,
+                labelId: marketLabelId,
+                labelledBy: `${marketLabelId} ${marketFigureId} ${marketIvaId}`,
                 node: (
-                  <span className="tabular text-3xl font-medium leading-none text-text">
-                    {primary.referenceValue.referenceMxnCents != null
-                      ? formatMoneyCents(primary.referenceValue.referenceMxnCents, locale)
-                      : '—'}
-                  </span>
+                  <>
+                    <span id={marketFigureId} className="tabular text-3xl font-medium leading-none text-text">
+                      {formatMoneyCents(marketDisplayCents, locale)}
+                    </span>
+                    {/* §MIV.10 (vMIV-2): el rótulo del MERCADO dice «incluye IVA» (sin tasa) vía
+                        `showRate={false}`; ⛔ el del PRECIO sigue «IVA 16 % incluido». `ivaIncluded`
+                        literal: el servidor arma esta cifra siempre con el IVA completo (§MIV.1). La tasa
+                        ya no se muestra aquí, así que `ivaRatePct` deja de pasarse. */}
+                    <IvaLabel
+                      id={marketIvaId}
+                      ivaIncluded
+                      showRate={false}
+                      className="mt-2 block text-[11px] leading-none whitespace-nowrap"
+                    />
+                  </>
                 ),
               },
             ]
@@ -324,7 +360,8 @@ function Detail({
           {primary && (
             <>
               {/* §21.8: la retícula se arma sobre la lista de hechos VISIBLES. El bloque «Valor de
-                  mercado» entra si y solo si `priceBasis === 'market'`; con floor/override/bounty/
+                  mercado» entra si y solo si `priceBasis === 'market'` (y, desde §MIV, trae su cifra con IVA
+                  `referenceDisplayCents`); con floor/override/bounty/
                   pending NO se renderiza (ni en cero, ni tachado, ni atenuado, ni «—»). La UI
                   OBEDECE `priceBasis`: está PROHIBIDO inferirlo comparando `referenceValue` contra
                   `displayPriceCents` (el DTO sigue trayendo la referencia porque alimenta superficies

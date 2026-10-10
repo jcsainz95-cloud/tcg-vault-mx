@@ -31868,6 +31868,79 @@ puerto 55472; `POST /buylist/quote` raw NM por cada acabado de las 15 cartas sem
   `sale-queue*`, `catalog*`, `pending-publish-seed`). `tsc --noEmit` exit 0 · `npm run lint` exit 0 ·
   `eslint` de los dos ficheros de `prisma/` exit 0 · `seed-e2e.target-guard.spec.ts` 16/16. N=1 en todo (deterministas).
 
+## 88 · §MIV — mercado con IVA en la tienda: `marketDisplayCentsOf`, `referenceDisplayCents` y `display*` en la tendencia de sellado (2026-10-10, rama `claude/mercado-iva`, sobre `d8f72da3` (v1.90⟨miv⟩); código en `523bdc18`)
+
+**Norma.** `API_CONTRACT §MIV.0–MIV.8`, `ARCHITECTURE §4.MIV`, `HECHOS.md:160` (2026-10-10). Sin schema, migración,
+endpoint, código de error ni dial. **Ningún importe cambia**: `referenceValue` sigue neto; `displayPriceCents` y
+`fromPriceCents` salen igual que antes (MIV-B2 y MIV-B6 los fijan: 133400 y 273760).
+
+**Qué cambió (servidor).**
+- `backend/src/common/money.ts` — `marketDisplayCentsOf(marketMxnCents, ivaRatePct) = displayPriceCentsOf(M, 100, r)`.
+  Recibe la **tasa**, no `IvaDials` (P-MIV-5 sostenida por la firma).
+- `catalog.service.ts` — `GroupedListingDTO.referenceDisplayCents?`; en `buildGroups` se deriva de
+  `cheapest.dto.referenceValue` (**ya proyectado** por `toPublicPriceInfo`) con `cheapest.dto.ivaRatePct` (la misma
+  lectura de diales de la petición, `toListingDTO` ~:1004). Clave ausente si no hay número proyectado.
+- `sealed-catalog.service.ts` — `SealedGroupDTO.referenceDisplayCents?`; en `toGroupDTO` la proyección se guarda en
+  `publicReference` y de **ella** sale la clave (⛔ no de la referencia cruda local, que con precio a mano trae el
+  mercado). Tasa: `dials.ivaRatePct`.
+- `sealedValueHistory` — tipos nuevos `SealedValuePointDTO`/`SealedValueHistoryResponse`. `getIvaDials()` se lee
+  **después** del interruptor y de la búsqueda de la pieza (con `sealed_value_trend=off` ⇒ 404 sin leer diales).
+  `points[].displayValueMxnCents = marketDisplayCentsOf(valueMxnCents, r)`; `change.displayAbsMxnCents =
+  display(último) − display(primero)` (vacía ⇒ 0). `pct`/`direction` siguen sobre el neto.
+- ⛔ No tocado: rejillas (`GroupedListingSummaryDTO`/`SealedGroupSummaryDTO`, el tipo propio impide copiar la clave —
+  medido con `tsc`), `ListingDTO`, rutas de set (`set-value.service.ts`), bóveda, buylist, wishlist, admin.
+
+**Para frontend.** `referenceDisplayCents` solo viaja con `priceBasis === "market"` (en carta y sellado no hay grupos
+`pending`: un grupo sin precio no se publica, así que en la práctica la ausencia es «override»). En la tendencia, los
+dos campos `display*` son siempre presentes en esta ruta.
+
+**Pruebas.** `backend/test/miv.market-display.spec.ts`, 34 casos, deterministas (N=1 dicho como tal):
+- Contra `d8f72da3` sin implementación: **24 rojas / 10 verdes**. Las 10 verdes son las mitades de ausencia (B3
+  override/pending, B10 rejillas y `ListingDTO`), B8 (candado de orden, el contrato lo declara «no rojo hoy») y la de
+  set sin cambio. La función se lee por índice del módulo para que el rojo sea «no existe» y no un error de compilación.
+- Con la implementación: 34/34.
+- MIV-B11 por ausencia: la única edición de pruebas existentes es **añadir** `referenceDisplayCents: true` en
+  `test/helpers/dto-keys.ts` (`GROUPED_LISTING_KEYS` y `SEALED_GROUP_KEYS`). Ningún escenario de conjunto exacto
+  existente es no-`market`, así que no hizo falta tocar listas de ausentes.
+
+**Mediciones (copia del árbol entero, `git archive`).** `tsc --noEmit` exit 0 · `npm run lint` exit 0 · unitaria
+completa **463/463 suites, 8392/8392**. Integración: `pricing-visibility.e2e-spec.ts` (su conjunto exacto de claves de
+la ficha incluye ahora la clave nueva y la carta sembrada es `market`) **23/23** contra Postgres 16 propio, migrado y
+sembrado con `seed:synthetic`; el resto de la integración no se corrió (ninguna otra spec lee estas claves ni la
+tendencia de sellado; medido con `grep`).
+
+**Mutaciones** sobre copia de `523bdc18` (árbol entero), N=1 cada una (deterministas), **todas muerden**:
+| # | Mutación | Rojas |
+|---|---|---|
+| M1 | `Math.floor` en vez de `round` | B1 (4,16), B1 barrido, B7 [1,4] |
+| M2 | `M + M·r/100` sin redondear | B1 ×4, B7 [1,4] |
+| M3 | carta emite el neto como display | B2 ×2, B4, B5 |
+| M4 | carta con `16` fijo | B2 (r=8), B5 carta |
+| M4b | sellado con `16` fijo | B5 sellado |
+| M5 | sellado deriva de la referencia **cruda** | B3 (override + priced) |
+| M6 | sellado usa `displayPriceCentsOf(M, ivaTransferPct, r)` | B4 sellado (da 108000) |
+| M7 | quitar la llamada en `toGroupDTO` | B3, B4, B5, B6 (sellado) |
+| M8 | `displayAbs = marketDisplayCentsOf(abs)` | B7 [1,4] (da 3) |
+| M9 | `pct` sobre displays | B7 ×2 |
+| M10 | leer diales antes del interruptor | B8 |
+| M11 | llamarla desde `buylist.service.ts` | B9 |
+| M12 | copiar la clave a la lista blanca de la rejilla (carta y sellado) | `tsc` TS2353 en los dos |
+
+Hueco conocido: B4 (traslación) muerde solo en sellado; en carta la mutación no es expresable sin cambiar la firma de
+`buildGroups` (el DTO por pieza no lleva `ivaTransferPct`, criterio 209), que es justo lo que P-MIV-5 quiere.
+
+### 88.1 Cierre de gates §MIV (2026-10-10, sobre `f3a6c702`; techlead APROBADO CON DEUDA, QA APROBADO CON CONDICIONES)
+
+- **D-2 (techlead) cerrada.** La mitad de MIV-B10 sobre la ficha de carta (`test/miv.market-display.spec.ts`) recorría
+  `(card as unknown as { units?: unknown[] }).units ?? []` sin afirmar que hubiera piezas: con `units` vacío pasaba sin
+  comprobar nada. Ahora usa `card.units` tipado y afirma `card.units.length > 0` antes del bucle.
+  Mutaciones sobre copia del árbol entero (`git archive HEAD` + la spec editada), deterministas ⇒ N=1 cada una:
+  | # | Mutación en `catalog.service.ts` (`getCard`) | Resultado |
+  |---|---|---|
+  | M-B10a | `units` emite `referenceDisplayCents: 1` en cada pieza | MIV-B10 «`ListingDTO` por pieza» **roja** |
+  | M-B10b | `units: []` (la que la versión anterior dejaba pasar) | MIV-B10 «`ListingDTO` por pieza» **roja** |
+- **D-1 (techlead) y el MENOR de QA** (`product.name` de la tendencia de sellado) quedan anotados en `TECH_DEBT.md`
+  (TD-MIV-1, TD-MIV-2). Ninguno bloquea.
 ## 89 · v1.84 LIVE-4 (TD-4) y LIVE-5 (C2) construidas (💰) — CAS en los tres escritores de `failed`; el SPEI pregunta a Stripe por el cobro (2026-10-10, rama `claude/salida-real`, sobre `20b676bf` = `origin/production`)
 
 Contrato: `API_CONTRACT §14.4` (LIVE-4) y `§14.5` (LIVE-5). Porqué: `ARCHITECTURE §4.63.4`. ⛔ Sin schema, sin migración,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useId, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Minus, Plus } from 'lucide-react';
@@ -87,6 +87,11 @@ function Detail({
 
   const available = group.availableCount;
   const [qty, setQty] = useState(1);
+  // §MIV.5: ids del nombre accesible de la celda de mercado.
+  const marketIds = useId();
+  const marketLabelId = `${marketIds}-label`;
+  const marketFigureId = `${marketIds}-figure`;
+  const marketIvaId = `${marketIds}-iva`;
   const clampedQty = Math.max(1, Math.min(qty, available));
 
   // Carrito por-pieza: agregar N = las N piezas MÁS BARATAS del grupo (listings ya vienen así).
@@ -101,7 +106,17 @@ function Detail({
   // §21.8a — el sellado no cambia de matemática (conserva su spread por presentación, §K): solo
   // obedece el `priceBasis` que el backend DERIVA de `priceSource` (override ⇒ "override" ⇒ no se
   // muestra mercado; subtype_spread|global_spread ⇒ "market" ⇒ sí se muestra).
-  const showMarketValue = group.priceBasis === 'market';
+  //
+  // ⭐ §MIV.2 (v1.90⟨miv⟩, NORMATIVA): la cifra es `referenceDisplayCents` (mercado CON IVA, del
+  // servidor) y el bloque existe ⇔ basis `market` ∧ esa cifra es entero > 0. ⛔ Nunca se cae al neto.
+  // El MISMO predicado gobierna la tendencia (§MIV.3).
+  const marketDisplayCents =
+    group.priceBasis === 'market' &&
+    Number.isInteger(group.referenceDisplayCents) &&
+    (group.referenceDisplayCents ?? 0) > 0
+      ? group.referenceDisplayCents
+      : undefined;
+  const showMarketValue = marketDisplayCents !== undefined;
 
   return (
     <div>
@@ -172,15 +187,30 @@ function Detail({
               />
             </div>
             {showMarketValue && (
-              <div className="border-b border-border py-6 sm:border-l sm:pl-7">
-                <div className="eyebrow">{t('detail.marketValue')}</div>
-                <div className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
-                  {group.referenceValue.referenceMxnCents != null
-                    ? formatMoneyCents(group.referenceValue.referenceMxnCents, locale)
-                    : '—'}
+              // §MIV.5 (criterio 863): la celda se nombra con sus nodos VISIBLES —rótulo, cifra y
+              // rótulo de IVA—; la fecha queda fuera del nombre y se lee después, en orden del DOM.
+              <div
+                role="group"
+                aria-labelledby={`${marketLabelId} ${marketFigureId} ${marketIvaId}`}
+                className="border-b border-border py-6 sm:border-l sm:pl-7"
+              >
+                <div id={marketLabelId} className="eyebrow">
+                  {t('detail.marketValue')}
                 </div>
+                <div id={marketFigureId} className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
+                  {formatMoneyCents(marketDisplayCents, locale)}
+                </div>
+                {/* §MIV.10 (vMIV-2): el rótulo del MERCADO dice «incluye IVA» (sin tasa) vía
+                    `showRate={false}`; ⛔ el de «Desde» (precio) sigue «IVA 16 % incluido». `ivaIncluded`
+                    literal (el servidor arma la cifra con el IVA completo). `ivaRatePct` ya no se muestra. */}
+                <IvaLabel
+                  id={marketIvaId}
+                  ivaIncluded
+                  showRate={false}
+                  className="mt-2 block text-[11px] leading-none whitespace-nowrap"
+                />
                 {captured && (
-                  <div className="mt-2 font-mono text-[11px] leading-none text-muted">{captured}</div>
+                  <div className="mt-1.5 font-mono text-[11px] leading-none text-muted">{captured}</div>
                 )}
               </div>
             )}
@@ -255,7 +285,8 @@ function Detail({
           SPREAD **sí hay mercado** y se muestra, que es la asimetría legítima. */}
       {trendEnabled && showMarketValue && (
         <div className="gutter border-t border-border py-10">
-          <SealedValueTrend inventoryItemId={group.representativeItemId} />
+          {/* §MIV.3: la tasa del rótulo sale del grupo (la respuesta de la serie no la trae). */}
+          <SealedValueTrend inventoryItemId={group.representativeItemId} ivaRatePct={group.ivaRatePct} />
         </div>
       )}
     </div>

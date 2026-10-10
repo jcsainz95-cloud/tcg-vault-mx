@@ -72,6 +72,8 @@ import type {
   PortfolioPointDTO,
   PortfolioRange,
   SetValueHistoryResponse,
+  SealedValueHistoryResponse,
+  SealedValuePointDTO,
   SetValuePointDTO,
   SetValueRange,
   KycInfoDTO,
@@ -725,7 +727,9 @@ const mockListingSeeds: MockListingSeed[] = [
     rawCondition: 'NM',
     finish: 'holofoil',
     referenceValue: { status: 'priced', referenceMxnCents: 210000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
-    priceBasis: 'market' as const,
+    // §MIV (MIV-E1 paso c, criterio 864): la carta del simulador con PRECIO A MANO. La ficha no muestra
+    // mercado (ni con IVA ni sin él) aunque la referencia viaje — la UI obedece `priceBasis`.
+    priceBasis: 'override' as const,
     listPriceCents: 231000,
     sellable: true,
   },
@@ -937,6 +941,28 @@ export function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
  * miente aquí. ⛔ Quien quite este `filter` reintroduce la mentira: la rejilla pintaría en
  * desarrollo dos productos que el backend nunca devuelve.
  */
+/**
+ * MOCK §MIV (v1.90⟨miv⟩, `API_CONTRACT §MIV.2`) — el mercado CON IVA de la ficha de carta, **ESCRITO**, no
+ * calculado: `M + round(M × 16 / 100)` hecho a mano para la tasa de fábrica del simulador (`ivaPct: 16`).
+ * Indexado por la pieza representativa del grupo. Lo emite el agrupador **solo** si el grupo es
+ * `market` con referencia (el `iff` de §MIV.2); una pieza que no esté aquí ⇒ clave ausente ⇒ la ficha
+ * no pinta el bloque (que es exactamente lo que el contrato pide ante un servidor sin §MIV).
+ *
+ * ⚠️ Si se cambia `ivaPct` en el panel simulado, estas cifras NO se mueven (son literales a propósito:
+ * la cuenta es del servidor, `marketDisplayCentsOf`). El criterio 862 se mide contra el backend.
+ */
+const MOCK_MARKET_DISPLAY_CENTS: Readonly<Record<string, number>> = {
+  'inv-1001': 5626000, // 4,850,000 neto
+  'inv-1002': 148480, // 128,000 neto
+  'inv-1002b': 148480,
+  'inv-1002c': 148480,
+  'inv-1003': 11020, // 9,500 neto
+  'inv-1004': 25520, // 22,000 neto
+  'inv-1005': 208800, // 180,000 neto
+  'inv-1006': 1102000, // 950,000 neto
+  // inv-1007 (Milotic) va por precio a mano (override): sin mercado en la ficha, sin cifra aquí.
+};
+
 export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
   const singles = items.filter(
     (l) => l.sellable && l.displayPriceCents != null && (l.productType === 'raw' || l.productType === 'graded'),
@@ -971,6 +997,11 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
       referenceValue: rep.referenceValue,
       currency: 'MXN',
     };
+    // §MIV.2: presente ⇔ basis `market` con referencia; la cifra es la ESCRITA arriba.
+    const marketDisplay = MOCK_MARKET_DISPLAY_CENTS[rep.inventoryItemId];
+    if (rep.priceBasis === 'market' && rep.referenceValue.referenceMxnCents != null && marketDisplay != null) {
+      group.referenceDisplayCents = marketDisplay;
+    }
     groups.push(group);
   }
   return groups;
@@ -987,7 +1018,12 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
  */
 export function groupMockSummaries(items: ListingDTO[]): GroupedListingSummaryDTO[] {
   return groupMockListings(items).map((g) => {
-    const { priceBasis: _priceBasis, referenceValue: _referenceValue, ...rest } = g;
+    const {
+      priceBasis: _priceBasis,
+      referenceValue: _referenceValue,
+      referenceDisplayCents: _referenceDisplayCents, // §MIV.2: ⛔ no entra en la rejilla.
+      ...rest
+    } = g;
     const summary: GroupedListingSummaryDTO = { ...rest };
     const highlight = mockGradingHighlightFor(summary);
     if (highlight) summary.gradingHighlight = highlight;
@@ -4635,6 +4671,8 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     priceSource: 'subtype_spread',
     priceBasis: 'market',
     referenceValue: { status: 'priced', referenceMxnCents: 305000, source: 'tcgcsv', capturedDate: '2026-08-13' },
+    // MOCK §MIV.2: el mercado CON IVA, escrito (305,000 + 16 % = 353,800), no calculado.
+    referenceDisplayCents: 353800,
     currency: 'MXN',
   },
   {
@@ -4652,6 +4690,8 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     priceSource: 'subtype_spread',
     priceBasis: 'market',
     referenceValue: { status: 'priced', referenceMxnCents: 98000, source: 'tcgcsv', capturedDate: '2026-08-12' },
+    // MOCK §MIV.2: escrito (98,000 + 16 % = 113,680).
+    referenceDisplayCents: 113680,
     currency: 'MXN',
   },
   {
@@ -6410,20 +6450,41 @@ export function deleteMockGradedEstimate(
   return { cardId, gradeValue, deletedCount: 1 };
 }
 
-/** Tendencia de valor de mercado de un producto sellado (misma forma que SetValueHistoryResponse). */
-export function generateSealedValueHistory(range: SetValueRange): SetValueHistoryResponse {
-  const base = generateFeaturedSetValueHistory(range);
-  // Escala a un rango de "una caja" (~MX$3,050) para que la gráfica se lea como un producto, no un set.
-  const scale = 305000 / 131920000;
+/**
+ * MOCK §MIV.3 (v1.90⟨miv⟩) — tendencia del sellado `inv-1008` (Surging Sparks Booster Box). Las cifras con
+ * IVA van **ESCRITAS** (`M + round(M × 16 / 100)` hecho a mano, tasa de fábrica del simulador), no
+ * calculadas: la cuenta es del servidor. Termina en el mercado de la ficha (305,000 neto ⇒ 353,800 con
+ * IVA), así que la cifra grande coincide con «Valor de mercado» de la ficha simulada (criterio 861).
+ * `5d` = los últimos 5 puntos; el resto de rangos, los 8 (el simulador no fabrica años de historia).
+ */
+const MOCK_SEALED_TREND_POINTS: SealedValuePointDTO[] = [
+  { date: '2026-08-07', valueMxnCents: 296000, displayValueMxnCents: 343360, pricedCardCount: 1 },
+  { date: '2026-08-08', valueMxnCents: 298500, displayValueMxnCents: 346260, pricedCardCount: 1 },
+  { date: '2026-08-09', valueMxnCents: 297000, displayValueMxnCents: 344520, pricedCardCount: 1 },
+  { date: '2026-08-10', valueMxnCents: 300000, displayValueMxnCents: 348000, pricedCardCount: 1 },
+  { date: '2026-08-11', valueMxnCents: 301500, displayValueMxnCents: 349740, pricedCardCount: 1 },
+  { date: '2026-08-12', valueMxnCents: 300500, displayValueMxnCents: 348580, pricedCardCount: 1 },
+  { date: '2026-08-13', valueMxnCents: 303000, displayValueMxnCents: 351480, pricedCardCount: 1 },
+  { date: '2026-08-14', valueMxnCents: 305000, displayValueMxnCents: 353800, pricedCardCount: 1 },
+];
+
+export function generateSealedValueHistory(range: SetValueRange): SealedValueHistoryResponse {
+  const product = { inventoryItemId: 'inv-1008', name: SEALED_BOX.name };
+  if (range === '5d') {
+    return {
+      product,
+      range,
+      points: MOCK_SEALED_TREND_POINTS.slice(-5).map((p) => ({ ...p })),
+      // 300,000 → 305,000 neto; 348,000 → 353,800 con IVA. Escrito.
+      change: { absMxnCents: 5000, pct: 1.67, direction: 'up', displayAbsMxnCents: 5800 },
+    };
+  }
   return {
-    set: { id: 'sealed:tcg:sv08-box', name: SEALED_BOX.name },
-    range: base.range,
-    points: base.points.map((p) => ({
-      date: p.date,
-      valueMxnCents: Math.round(p.valueMxnCents * scale),
-      pricedCardCount: 1,
-    })),
-    change: base.change,
+    product,
+    range,
+    points: MOCK_SEALED_TREND_POINTS.map((p) => ({ ...p })),
+    // 296,000 → 305,000 neto; 343,360 → 353,800 con IVA. Escrito.
+    change: { absMxnCents: 9000, pct: 3.04, direction: 'up', displayAbsMxnCents: 10440 },
   };
 }
 

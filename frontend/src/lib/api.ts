@@ -127,6 +127,7 @@ import type {
   PortfolioHistoryResponse,
   SetValueRange,
   SetValueHistoryResponse,
+  SealedValueHistoryResponse,
   AuthResponse,
   VerifyEmailResponse,
   ResendVerificationResponse,
@@ -804,16 +805,17 @@ export async function getSealedGroupDetail(
 
 /**
  * Tendencia de valor de mercado del producto sellado (contrato GET
- * /catalog/sealed/:inventoryItemId/value-history, FEATURE-FLAGGED `sealed_value_trend`). Misma forma
- * que SetValueHistoryResponse. El endpoint responde `404 FEATURE_DISABLED` si el dial está `off` (o
+ * /catalog/sealed/:inventoryItemId/value-history, FEATURE-FLAGGED `sealed_value_trend`).
+ * ⭐ v1.90⟨miv⟩ (§MIV.3): tipo propio `SealedValueHistoryResponse` (con `display*`, el mercado con IVA).
+ * El endpoint responde `404 FEATURE_DISABLED` si el dial está `off` (o
  * `404 NOT_FOUND` si la pieza no está mapeada → sin serie): el front oculta la gráfica limpio.
  */
 export async function getSealedValueHistory(
   inventoryItemId: string,
   range: SetValueRange = '1m',
-): Promise<SetValueHistoryResponse> {
+): Promise<SealedValueHistoryResponse> {
   if (!config.useMocks) {
-    return apiRequest<SetValueHistoryResponse>(
+    return apiRequest<SealedValueHistoryResponse>(
       `/catalog/sealed/${inventoryItemId}/value-history`,
       { query: { range } },
     );

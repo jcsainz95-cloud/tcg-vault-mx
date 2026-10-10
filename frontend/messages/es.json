@@ -24,6 +24,7 @@
     "all": "Todos",
     "withoutIva": "sin IVA",
     "ivaIncluded": "IVA {rate} % incluido",
+    "ivaIncludedBare": "incluye IVA",
     "updatedDaily": "Precio de referencia de mercado, actualizado a diario",
     "errorTitle": "Algo salió mal",
     "errorGeneric": "No se pudo cargar la información.",
@@ -351,7 +352,7 @@
     "gradingEstimate": {
       "eyebrow": "VALOR ESTIMADO SI SE GRADEA",
       "ifGradesLabel": "SI SALE",
-      "microNotice": "<b>Cifra ilustrativa</b> de mercado (lo que se ha pagado por esa carta ya gradeada por terceros). <b>No evaluamos el estado de esta carta</b> ni garantizamos ningún grado; el gradeo y su costo corren por tu cuenta.",
+      "microNotice": "<b>Cifra ilustrativa</b> de mercado, sin IVA (lo que se ha pagado por esa carta ya gradeada por terceros). <b>No evaluamos el estado de esta carta</b> ni garantizamos ningún grado; el gradeo y su costo corren por tu cuenta.",
       "hypotheticalGradeAria": "Grado hipotético: {company} {grade}. Esta carta no está gradeada."
     },
     "gradingBadge": {
@@ -443,7 +444,7 @@
       "sealed": "Sellado",
       "raw": "Raw"
     },
-    "referenceExplainerWithMarket": "El valor de mercado es la referencia del día con la que valuamos las cartas. El precio de venta se calcula a partir de ella.",
+    "referenceExplainerWithMarket": "El valor de mercado es la referencia del día y se muestra con IVA incluido, igual que nuestro precio de venta, para que los compares tal cual. El precio de venta se calcula a partir de esa referencia.",
     "referenceExplainerNoMarket": "El precio de venta es el precio publicado de esta carta."
   },
   "price": {
@@ -7239,7 +7240,7 @@
       "title": "Tendencia de valor",
       "noChange": "Sin cambios",
       "collecting": "Recopilando historial de mercado.",
-      "marketRefNote": "Valor de mercado de referencia (TCGCSV), actualizado a diario.",
+      "marketRefNote": "Con base en el valor de mercado de referencia (TCGCSV), actualizado a diario.",
       "rangesAria": "Rango de la tendencia",
       "ranges": {
         "5d": "5D",
@@ -7469,13 +7470,13 @@
       "nmNote": "Siempre Near Mint, sin gradear.",
       "finishLegend": "Acabado",
       "finishSingle": "Acabado: {finish}",
-      "pctLegend": "¿Hasta cuánto más del precio de mercado pagarías?",
+      "pctLegend": "¿Hasta cuánto más del precio de mercado sin IVA pagarías?",
       "pctOption": "{pct} %",
       "pctPesos": "hasta {amount}",
       "signalNote": "Es una señal para nosotros, no un compromiso: no te apartamos la carta ni te cobramos nada. Si la conseguimos, sale a su precio normal, el mismo para todos.",
       "add": "Agregar {finish} a mi lista",
       "count": "{count} de {limit}",
-      "inList": "Está en tu lista · {finish} · hasta {pct} % sobre mercado",
+      "inList": "Está en tu lista · {finish} · hasta {pct} % sobre mercado sin IVA",
       "noMarketLong": "Sin precio de mercado por ahora: cuando lo haya, calcularemos tu máximo.",
       "changeLegend": "Cambiar tu máximo",
       "saveChange": "Guardar cambio",
@@ -7485,8 +7486,8 @@
     "maxToday": "Tu máximo de hoy: {amount}",
     "approx": "aproximado",
     "approxHelpLabel": "Por qué es aproximado",
-    "approxHelp": "Tu máximo sale del precio de mercado. Lo recalculamos el día en que consigamos la carta, así que puede subir o bajar.",
-    "recalcNote": "Se recalcula con el precio de mercado del día en que la consigamos.",
+    "approxHelp": "Tu máximo sale del precio de mercado sin IVA más el porcentaje que elegiste, y ya incluye IVA. Lo recalculamos el día en que consigamos la carta, así que puede subir o bajar.",
+    "recalcNote": "Se recalcula con el precio de mercado sin IVA del día en que la consigamos.",
     "noMarket": "Sin precio de mercado por ahora",
     "notifyTo": "Te avisaremos a {email}.",
     "remove": "Quitar de mi lista",
@@ -7544,7 +7545,7 @@
       "disabled": "La lista de deseos aún no está disponible."
     },
     "row": {
-      "maxPct": "Tu máximo: hasta {pct} % sobre mercado",
+      "maxPct": "Tu máximo: hasta {pct} % sobre mercado sin IVA",
       "pctLabel": "Tu máximo",
       "pctOption": "hasta {pct} %",
       "save": "Guardar",

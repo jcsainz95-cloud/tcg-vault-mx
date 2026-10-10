@@ -10426,3 +10426,115 @@ Fichero:línea **re-medidos el 2026-10-08** sobre `342f84dc`. TD-BMK-5 y TD-BMK-
 - **Dirección propuesta:** `frontend/e2e/helpers/sell.ts` con los cinco, importado por los tres specs.
 - **Disparador:** el próximo spec de venta o el próximo cambio al panel del carrito.
 - **Comprobación:** `grep -rn "function openCart" frontend/e2e` devuelve **un** sitio.
+
+## Backend · 2026-10-10 · gates de §MIV sobre `f3a6c702` (rama `claude/mercado-iva`; techlead aprobado con deuda, QA aprobado con condiciones)
+
+Fichero:línea **re-medidos por backend el 2026-10-10** sobre `f3a6c702`. D-2 del techlead se cerró en esta rama
+(`BACKEND_NOTES §88.1`); quedan estas dos, ninguna bloqueante.
+
+### TD-MIV-1 · P3 · Guarda y spread condicional de `referenceDisplayCents` duplicados en carta y sellado (D-1 del techlead)
+- **Qué es:** la misma guarda `projectedMarketCents !== undefined && Number.isInteger(projectedMarketCents) &&
+  projectedMarketCents >= 0` con el mismo `...( ? { referenceDisplayCents: marketDisplayCentsOf(…) } : {})` vive en
+  `catalog/catalog.service.ts:1237-1239` (tasa `cheapest.dto.ivaRatePct`) y en
+  `catalog/sealed-catalog.service.ts:289-291` (tasa `dials.ivaRatePct`). Si una de las dos cambia la guarda (p. ej. aceptar
+  `0` o no), la otra no se entera.
+- **Vigilancia actual:** MIV-B3, MIV-B5 y MIV-B6 fijan la conducta de ambas (clave ausente sin número, tasa de la petición).
+- **Dirección:** un helper `marketDisplayFieldOf(projectedMarketCents, ivaRatePct)` en el módulo `catalog` que devuelva
+  `{ referenceDisplayCents } | {}`, y los dos DTO lo esparcen.
+- **Disparador:** la tercera superficie que emita `referenceDisplayCents`, o cualquier cambio de la guarda.
+- **Comprobación:** `grep -n "Number.isInteger(projectedMarketCents)" backend/src/modules/catalog` da una sola línea (la
+  del helper) y la suite MIV sigue verde.
+
+### TD-MIV-2 · P4 · La tendencia de sellado devuelve el nombre de la carta ancla, no el del producto (MENOR de QA; anterior a §MIV)
+- **Qué es:** `catalog/sealed-catalog.service.ts:492` arma `product.name` con `item.card.name`, mientras la ficha del
+  mismo producto usa `item.sealedProductName ?? item.card.name` (`sealed-catalog.service.ts:263`). Un sellado con nombre
+  propio sale en la tendencia con el nombre de la carta ancla.
+- **Origen:** anterior a §MIV (§MIV solo añadió los `display*`); no lo introdujo esta rama.
+- **Dirección:** usar la misma expresión que la ficha (idealmente un único helper del nombre de sellado).
+- **Disparador:** que el front pinte `product.name` de la tendencia, o la próxima edición de ese endpoint.
+- **Comprobación:** una prueba con `sealedProductName` distinto de `card.name` afirma que la tendencia devuelve el del
+  producto, y muerde si se vuelve a `item.card.name`.
+
+## Frontend · 2026-10-10 · gates de §MIV sobre `f3a6c702` (rama `claude/mercado-iva`; deuda D-3…D-7 del techlead)
+
+Fichero:línea **medidos por frontend el 2026-10-10** sobre `add62fb2` (el código de vistas no cambió desde `f3a6c702`).
+D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante. Rutas abreviadas:
+`CardDetailView` = `frontend/src/app/[locale]/(storefront)/catalog/[cardId]/CardDetailView.tsx`,
+`SealedDetailView` = `frontend/src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedDetailView.tsx`.
+
+### TD-MIV-F1 · P3 · El predicado «hay mercado que pintar» está duplicado en las dos fichas (D-3 del techlead)
+- **Qué es:** `priceBasis === 'market' ∧ Number.isInteger(referenceDisplayCents) ∧ referenceDisplayCents > 0` vive dos
+  veces: `CardDetailView:236-241` (sobre `primary`) y `SealedDetailView:113-118` (sobre `group`; además gobierna la
+  tendencia). Si una cambia (p. ej. aceptar `0`), la otra no se entera.
+- **Por qué no se unificó:** el candado `frontend/src/test/miv-locks.test.ts:51` exige que `referenceDisplayCents` solo
+  aparezca en las dos fichas, `types/contract.ts` y `lib/mock/`. Un helper en `lib/` lo rompe por construcción.
+- **Vigilancia actual:** `CardDetailView.miv.test.tsx` y `SealedDetailView.miv.test.tsx` fijan la conducta de ambas.
+- **Dirección:** helper `marketDisplayCentsOf(dto)` en `lib/` **y** ampliar la lista del candado a ese fichero (el
+  candado sigue cerrando lo que importa: que ninguna otra pantalla lea la cifra).
+- **Disparador:** tercera superficie que pinte `referenceDisplayCents`, o cualquier cambio del predicado.
+- **Comprobación:** `grep -rn "Number.isInteger(.*referenceDisplayCents)" frontend/src --include=*.tsx` da **0** y el
+  helper aparece una vez; `miv-locks` y las suites `*.miv.test.tsx` siguen verdes.
+
+### TD-MIV-F2 · P4 · La celda de mercado del sellado arma a mano lo que en la carta hace `Fact` (D-4)
+- **Qué es:** en la carta la celda es una entrada de `facts` con `labelId`/`labelledBy` (`CardDetailView:276-298`,
+  la pinta el componente de hechos); en el sellado es un `<div role="group" aria-labelledby=…>` escrito a mano
+  (`SealedDetailView:191-215`). Mismo nombre accesible hoy, dos implementaciones.
+- **Dirección:** que el sellado use el mismo componente de celda (o extraerlo a `components/` si `Fact` no encaja).
+- **Disparador:** el próximo cambio de la celda de mercado (orden, nota, rótulo) en cualquiera de las dos fichas.
+- **Comprobación:** `grep -n 'role="group"' SealedDetailView` no encuentra la celda de mercado y MIV-E1 (que la busca
+  por `getByRole('group', { name })`) sigue verde en las dos fichas.
+
+### TD-MIV-F3 · P4 · En la ficha de carta, el precio rotula el IVA con texto y el mercado con `IvaLabel` (D-5)
+- **Qué es:** el precio de venta lleva su rótulo como `note` de texto (`CardDetailView:256-261`, `tc('ivaIncluded')` /
+  `tc('withoutIva')`), y el mercado con el componente `IvaLabel` (`CardDetailView:291-296`). En el sellado los dos usan
+  `IvaLabel` (`SealedDetailView:183`, `:205`). El texto es el mismo, pero un cambio en `IvaLabel` no llegaría al precio
+  de la carta.
+- **Dirección:** el precio de la carta también con `IvaLabel` (la rama `withoutIva` incluida, que `IvaLabel` ya cubre).
+- **Su disparador YA se activó (2026-10-10):** vMIV-2 ES un cambio de `IvaLabel` (el valor de mercado pasó a decir
+  «incluye IVA» vía `showRate={false}`). Sin embargo, vMIV-2 **no tocó el rótulo del precio**: la ficha de carta
+  sigue rotulando con texto crudo `tc('ivaIncluded', { rate })` (`CardDetailView:259`, dentro de `:256-261`) y el
+  mercado con `IvaLabel`. Como el precio no cambió, la divergencia es **inocua hoy** (mismo texto resultante) y se
+  **aplaza** para no ampliar el alcance de vMIV-2 (stream ya aprobado por QA y techlead). Queda registrada, no pagada.
+- **Nuevo disparador:** el próximo cambio que toque el **rótulo del precio** de la ficha de carta (`CardDetailView`
+  `:256-261`), no cualquier cambio de `IvaLabel`.
+- **Comprobación:** `grep -n "tc('ivaIncluded'" CardDetailView` da 0 y `CardDetailView.test.tsx` sigue verde.
+
+### TD-MIV-F4 · P4 · `SealedValueHistoryResponse.product` tipado `Record<string, unknown>` (D-6)
+- **Qué es:** `frontend/src/types/contract.ts:348`. El contrato (`§MIV.3`) dice «`SetValueHistoryResponse`-con-`product`»
+  sin fijar la forma; el servidor emite `{ inventoryItemId, tcgplayerProductId, name }`
+  (`backend/src/modules/catalog/sealed-catalog.service.ts:492-496`). La pantalla no lo lee hoy.
+- **Bloqueado por:** solicitud al arquitecto ya hecha en `FRONTEND_NOTES §111` («el contrato no fija la forma de
+  `product`»). Ver también TD-MIV-2 (backend: `name` sale de la carta ancla).
+- **Disparador:** que el contrato fije la forma, o que el front lea `product`.
+- **Comprobación:** el tipo nombra los tres campos del contrato y `tsc --noEmit` pasa.
+
+### TD-MIV-F5 · P4 · `PriceHistoryEntryDTO` del front no trae `refKind` (deriva de contrato, hallada al cerrar D-7)
+- **Qué es:** el contrato lo tiene desde v1.50.3-f (`API_CONTRACT`, bloque `PriceHistoryEntryDTO`), el servidor lo emite
+  (medido: `GET /admin/pricing/card/:id` → `refKind:"market"`), y `frontend/src/types/contract.ts:5568-5575` no.
+  MIV-E1 lo lee con un tipo local (`frontend/e2e/miv-market-iva.spec.ts`, búsqueda de `refKind`).
+- **Por qué no se tocó aquí:** `types/contract.ts` y `lib/mock/fixtures.ts:4195` (`mockPriceHistory`) son zona
+  compartida y este encargo era la prueba.
+- **Dirección:** añadir `refKind: 'market' | 'graded_estimate'` al tipo y al mock; quitar el tipo local del spec.
+- **Disparador:** el próximo cambio de la pantalla de historial de precios de admin o de esos dos ficheros.
+- **Comprobación:** `grep -n "refKind" frontend/src/types/contract.ts` lo encuentra en `PriceHistoryEntryDTO`, y
+  `grep -n "refKind?:" frontend/e2e/miv-market-iva.spec.ts` da 0.
+
+### D-7 · CERRADA en esta rama — MIV-E1 ya no corta en «NO MEDIDO»
+- Las dos ramas que anotaban «NO MEDIDO» en (d) (tendencia apagada; `value-history` 404) se quitaron: (d) prepara su
+  estado por la API de admin y un 404/serie vacía es rojo. Medido: real 2/2 verde, mock 1/1, canarios C1/C2
+  (`FRONTEND_NOTES §111.e2e-real`). `check-e2e-skip-census.sh` = baseline.
+
+### TD-MIV-F6 · P4 · Prop `ivaRatePct` vestigial en la tendencia + incoherencia entre superficies de mercado (2026-10-10)
+- **Qué es:** tras vMIV-2, `SealedValueTrend` conserva `ivaRatePct?: number` en su firma
+  (`.../sellado/[inventoryItemId]/SealedValueTrend.tsx:52`) y la sigue pasando a `IvaLabel` (`:121`), pero con
+  `showRate={false}` (`:120`) el componente **la ignora**: es dato muerto. `SealedDetailView:289` todavía la alimenta
+  con `group.ivaRatePct`. En cambio `CardDetailView` y la celda de mercado del propio `SealedDetailView` ya **no** la
+  pasan. Son tres superficies de mercado equivalentes escritas de dos formas distintas.
+- **Riesgo:** bajo. MIV-F7 prohíbe aritmética con `ivaRatePct` y hoy ninguna cuenta usa esta prop. El peligro es de
+  confusión: abre la puerta a un «IVA 0 %» si alguien reactivara `showRate` sin volver a cablear la tasa.
+- **Dirección:** quitar la prop `ivaRatePct` de `SealedValueTrend` (firma y paso a `IvaLabel` en `:121`) y dejar de
+  pasarla desde `SealedDetailView:289`.
+- **Disparador:** el próximo cambio que toque `SealedValueTrend`.
+- **Comprobación:** `grep -n 'ivaRatePct' SealedValueTrend.tsx` da 0 y `grep -n 'ivaRatePct' SealedDetailView.tsx` ya
+  no la muestra en el paso a `<SealedValueTrend>`; la suite del sellado sigue verde.
+- **Dueño:** frontend.

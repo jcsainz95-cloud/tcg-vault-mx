@@ -10,6 +10,24 @@
 > de sellado debajo del separador ⟨sellado⟩ (que a su vez lleva debajo las del panel y las de Skydropx), cada una vigente
 > entera salvo lo que tocan las de encima.
 >
+> **Rev v1.90⟨miv⟩ — VALOR DE MERCADO CON IVA EN LA TIENDA, CON LA NOTA «INCLUYE IVA» (2026-10-10, arquitecto, árbol
+> `/home/user/tcg-iva`, rama `claude/mercado-iva`, base `HEAD 7e395f0a` según el orquestador; ⛔ sha NO MEDIDO por mí:
+> sin Bash).** Norma: `HECHOS.md:160`, fila 2026-10-10 «Tienda: el VALOR DE MERCADO se muestra CON IVA, con una nota
+> «incluye IVA».» (*«quiero que mostremos el mercado mas iva en vez de solo el mercado»*; *«solo la tienda y sí la
+> nota»*); `PROJECT §MIV`, criterios 860–869, construido con los **valores por defecto** de P-MIV-1…6. Norma entera en
+> **[§MIV](#MIV)**; porqué en `ARCHITECTURE §4.MIV`. **Sin schema, sin migración, sin endpoint, sin código de error.
+> Ningún importe cambia.** Tres campos **aditivos** de presentación, calculados por el servidor. Versión reservada por
+> el orquestador (O-24).
+>
+> | # | Pieza | Decisión | ¿Cambia conducta? | Construye |
+> |---|---|---|---|---|
+> | MIV-1 | La cuenta | **Una** función en `common/money.ts`: `marketDisplayCentsOf(M, r) = M + round(M·r/100)` = `displayPriceCentsOf(M, 100, r)`. Recibe la **tasa** (`iva_pct`), ⛔ nunca el dial de traslación (P-MIV-5 por defecto, sostenido por la firma) | No (nueva) | backend |
+> | MIV-2 | Ficha de carta | `GroupedListingDTO` gana `referenceDisplayCents?: number`. Presente ⇔ `referenceValue.referenceMxnCents` presente (⇔ `priceBasis === "market"`) | Sí (aditivo) | backend + frontend |
+> | MIV-3 | Ficha de sellado | `SealedGroupDTO` gana `referenceDisplayCents?: number`, misma regla | Sí (aditivo) | backend + frontend |
+> | MIV-4 | Tendencia de sellado (P-MIV-6 «sí») | `GET /catalog/sealed/:id/value-history` gana `points[].displayValueMxnCents` y `change.displayAbsMxnCents`. `pct` y `direction` **no cambian** | Sí (aditivo) | backend + frontend |
+> | MIV-5 | Lo que no cambia | `referenceValue`/`PriceInfo` (neto), rejillas, `ListingDTO`, bóveda, PSA, lista de deseos, «Vender» (§BMK), admin | No | — |
+> | MIV-6 | Regla de pantalla | Bloque de mercado ⇔ `priceBasis === "market"` ∧ `referenceDisplayCents` entero `> 0`; ⛔ nunca se cae al neto; nota «incluye IVA» siempre con la cifra | Sí (UI) | frontend (+ textos: ux-ui) |
+>
 > **Rev v1.89⟨bmk⟩ — VALOR DE MERCADO JUNTO A «TE PAGAMOS», POR CARTA, EN EL COTIZADOR DE VENTA (2026-10-08, arquitecto,
 > árbol `/home/user/tcg-bmercado`, rama `claude/buylist-mercado`, base `HEAD 0cbc4f5c` según el orquestador; ⛔ sha NO
 > MEDIDO por mí: sin Bash).** Norma: `HECHOS.md` filas 2026-10-08 «Cotizador de venta (buylist): se muestra el VALOR DE
@@ -8773,6 +8791,10 @@ GroupedListingDTO = { representativeInventoryItemId: string, card: CardDTO, prod
                       gradingCompany?: GradingCompany, gradeValue?: string,
                       stockCount: number, salePriceCents: number, priceBasis: PriceBasis,
                       referenceValue: PriceInfo, currency: "MXN" }
+// ⭐ v1.90⟨miv⟩ (ADITIVO, §MIV.2): GroupedListingDTO += { referenceDisplayCents?: number } — el mercado CON IVA,
+//   `marketDisplayCentsOf(referenceValue.referenceMxnCents, ivaRatePct)`. Presente ⇔ `referenceValue.referenceMxnCents`
+//   presente (⇔ `priceBasis === "market"`, el `iff` de D2). `referenceValue` NO cambia (sigue NETO). ⛔ No entra en
+//   `GroupedListingSummaryDTO` (rejilla) ni en `ListingDTO`.
 // ===== v2.1.9 (D2) — el DTO de la REJILLA de singles: `GroupedListingDTO` MENOS las dos señales de precio =====
 // Es `GroupedListingDTO` sin `priceBasis` y sin `referenceValue`. Se declara como TIPO PROPIO (no como «los mismos
 // campos, opcionales») a propósito, y ésa es la parte que importa:
@@ -9618,6 +9640,8 @@ SealedGroupDTO = { representativeItemId: string, card: CardDTO, productName: str
                    sealedSubtype: SealedSubtype | null, sealedCondition: SealedCondition,
                    availableCount: number, fromPriceCents: number, priceSource: SealedSpreadSource,
                    priceBasis: PriceBasis, referenceValue: PriceInfo, currency: "MXN" }
+// ⭐ v1.90⟨miv⟩ (ADITIVO, §MIV.2): SealedGroupDTO += { referenceDisplayCents?: number } — misma regla que en
+//   `GroupedListingDTO`, derivado del `referenceValue` YA PROYECTADO. ⛔ No entra en `SealedGroupSummaryDTO`.
 // ===== v2.1.9 (D2) — el DTO de la REJILLA de sellado: `SealedGroupDTO` MENOS las tres señales de precio =====
 // Se van `priceBasis`, `referenceValue` y **también `priceSource`**: en sellado `priceSource` es de donde `priceBasis`
 // se DERIVA (`override ⇒ override`; `*_spread ⇒ market`), así que dejarlo publicaría la misma señal por otro nombre —
@@ -10528,6 +10552,10 @@ Tendencia de valor de mercado del producto sellado (estilo acciones), **reusando
 productos **mapeados** tienen serie.
 Query: `?range=5d|15d|1m|3m|6m|1y|ytd|all` (default `1m`).
 Res `200`: misma forma que `SetValueHistoryResponse` (`{ set|product, range, points: SetValuePointDTO[], change }`).
+⭐ **v1.90⟨miv⟩ (ADITIVO, §MIV.3):** cada punto gana `displayValueMxnCents` y `change` gana `displayAbsMxnCents` (mercado
+con IVA, requeridos en esta ruta). `valueMxnCents`, `absMxnCents`, `pct` y `direction` **no cambian** (netos). Tipo propio
+`SealedValueHistoryResponse`. ⛔ Las rutas de set (`/catalog/featured-set/value-history`, `/catalog/sets/:id/value-history`)
+**no** cambian.
 Err `404 FEATURE_DISABLED` (dial `sealed_value_trend=off`), `404 NOT_FOUND` (pieza inexistente o no mapeada → sin serie).
 
 ### POST /api/v1/catalog/sealed/restock-subscriptions — `public`  (v1.23 — FEATURE-FLAGGED `sealed_restock_alerts`)
@@ -36288,6 +36316,10 @@ ivaRatePct        : number     // la TASA, para el rótulo «IVA 16 % incluido»
   valuación** (supuesto, pregunta **62**), **`PriceInfo`/`referenceValue` y los estimados PSA** (supuesto,
   pregunta **62**), **todo el cotizador y las ofertas de buylist y sus cinco correos** (supuesto, pregunta **56**),
   y **M7/M9**, que siguen en **NETO** (criterio **191**, **decisión**, no supuesto).
+  ⭐ **v1.90⟨miv⟩ — sustituido solo para las dos fichas de la tienda y la tendencia de sellado** (`HECHOS.md:160`):
+  `referenceValue` **sigue neto**, pero esas tres superficies reciben además la cifra con IVA en campos aditivos
+  (`referenceDisplayCents`, `displayValueMxnCents`, `displayAbsMxnCents`). Estimados PSA, bóveda y cotizador: sin
+  cambio. Norma en [§MIV](#MIV).
 
 ##### §M10-IVA.4 — `BreakdownDTO`: la forma NO cambia, el SIGNIFICADO sí, y por eso gana dos campos
 
@@ -44355,3 +44387,199 @@ ejemplo del dueño usa «Te pagamos»; ux-ui decide el rótulo final sin contrad
   `frontend/src/components/domain/CardDetailModal.tsx` (zonas compartidas).
 - **ux-ui:** textos y tratamiento visual (BMK.9) antes de que frontend cierre los textos.
 - ⛔ No construye: devops (sin migración ni variable nueva), product-owner (nada abierto).
+
+---
+
+## <a id="MIV"></a>MIV. VALOR DE MERCADO CON IVA EN LA TIENDA, CON LA NOTA «INCLUYE IVA» (rev v1.90⟨miv⟩, 2026-10-10, **NORMATIVA**; 💰 **ningún importe cambia**)
+
+**Norma (manda, citada):**
+- `HECHOS.md:160`, fila 2026-10-10 «**Tienda: el VALOR DE MERCADO se muestra CON IVA, con una nota «incluye IVA».**»
+  Palabras del dueño: *«nosotros mostramos el precio de mercado sin iva porque en estados unidos se muestra asi. Esto
+  ocasiona que cuando le metemos iva mas 15% de nuestro margen salimos muy altos contra la comparacion de mercado quiero
+  que mostremos el mercado mas iva en vez de solo el mercado»*. Ejemplo confirmado: mercado MX$1,000 → mostrar
+  **MX$1,160** junto a su precio **MX$1,334**. A «¿solo la tienda o también el cotizador de venta?» y «¿nota "incluye
+  IVA"?»: *«solo la tienda y sí la nota»*. Consecuencias fijadas: (1) solo tienda; «Vender» (§BMK) sin IVA; (2) nota
+  visible «incluye IVA»; (3) solo presentación: ningún importe ni el mercado guardado cambian.
+- `PROJECT §MIV` (líneas ~10132–10238), criterios **860–869**, preguntas **P-MIV-1…6** (~19377–19413). Este diseño usa
+  **los valores por defecto** de las seis: P-MIV-1 no (PSA sin cambio), P-MIV-2 no (bóveda sin cambio), P-MIV-3 no
+  (master set en bóveda sin cambio), P-MIV-4 (a) (lista de deseos: ningún número cambia, solo texto), P-MIV-5 IVA
+  completo (`iva_pct`), P-MIV-6 sí (tendencia con IVA). Si el dueño cambia una, se hace errata.
+- Porqué: `ARCHITECTURE §4.MIV`.
+
+⛔ **Sin schema, sin migración, sin endpoint nuevo, sin código de error, sin dial nuevo. Ningún importe cambia**
+(criterio 866). Solo **tres campos aditivos** de presentación, calculados en el servidor.
+
+### MIV.0 Lo medido (lectura del árbol `/home/user/tcg-iva`, 2026-10-10; ⛔ sha NO MEDIDO: sin Bash)
+- **Aritmética única del precio con IVA:** `displayPriceCentsOf(L, t, r) = L + Math.round(L·t·r/10000)`
+  (`backend/src/common/money.ts:622-628`). La tasa `r` es el dial `iva_pct` y la traslación `t` es `iva_transfer_pct`;
+  los dos se leen en una sola consulta por petición con `SettingsService.getIvaDials()`
+  (`backend/src/modules/settings/settings.service.ts:302-314`), sin caché en memoria.
+- **El frontend no multiplica dinero** (`backend/src/modules/settings/iva-transfer.ts:124-128`, `ARCHITECTURE §4.44.i`;
+  `§M10-IVA.3` de este contrato).
+- **Ficha de carta:** el grupo se arma en `CatalogService.buildGroups` (`backend/src/modules/catalog/catalog.service.ts:1190-1223`)
+  con `referenceValue: cheapest.dto.referenceValue` (**ya proyectado** por `toPublicPriceInfo`, `:997`) e
+  `ivaRatePct: cheapest.dto.ivaRatePct` (`:1207`). La rejilla se copia por lista blanca (`:1237-1255`).
+  El front pinta `primary.referenceValue.referenceMxnCents` (`frontend/src/app/[locale]/(storefront)/catalog/[cardId]/CardDetailView.tsx:252-266`)
+  si `priceBasis === 'market'` (`:224`).
+- **Ficha de sellado:** `SealedCatalogService.toGroupDTO` (`backend/src/modules/catalog/sealed-catalog.service.ts:217-261`).
+  ⚠️ Ahí conviven **dos** `referenceValue`: el local **crudo** (`:223-226`, sin proyectar) y el **proyectado**
+  (`:257`). El front pinta `group.referenceValue.referenceMxnCents`
+  (`frontend/src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedDetailView.tsx:174-186`).
+- **Tendencia de sellado:** `sealedValueHistory` (`sealed-catalog.service.ts:406-454`) lee `PriceReference` y emite
+  `points[].valueMxnCents`; `changeOf` (`:542-550`) calcula `absMxnCents`, `pct` y `direction`. Único consumidor:
+  `SealedValueTrend.tsx` (grep de `value-history` en `frontend/src`: solo `lib/api.ts:811-822` y ese componente).
+  El front pinta `valueMxnCents` (`SealedValueTrend.tsx:65`, `:75`, `:104`) y `absMxnCents` (`:66`, `:87`).
+- **Candados de forma que ya existen:** `backend/test/helpers/dto-keys.ts:32` y `:74` derivan las claves de las
+  interfaces con `keysOf<T>(Record<keyof T, true>)` ⇒ añadir un campo (aunque sea opcional) a la interfaz **obliga**
+  a declararlo ahí. Lo usan `catalog.group-dto-shape.spec.ts:188` y `:321`, `integration/pricing-visibility.e2e-spec.ts:140`
+  e `iva-derivacion-cableada.spec.ts:125-139`.
+
+### MIV.1 La cuenta (backend, NORMATIVA, 💰)
+```
+// common/money.ts — firma; ⛔ no es código
+marketDisplayCentsOf(marketMxnCents: number, ivaRatePct: number): number
+  = displayPriceCentsOf(marketMxnCents, 100, ivaRatePct)        // ≡ M + round(M × r / 100)
+```
+- **Una sola definición**, junto a `displayPriceCentsOf` y `shippingFeeDisplayCentsOf`. Todo emisor de §MIV la llama;
+  ⛔ ninguno reescribe la cuenta.
+- **Recibe la TASA, no `IvaDials`.** Es P-MIV-5 por defecto («el mercado lleva siempre el IVA completo») sostenida por
+  la firma: el dial de traslación **no puede** entrar sin cambiar la firma. Si el dueño contesta otra cosa a P-MIV-5,
+  la errata cambia la firma.
+- `r` = `IvaDials.ivaRatePct` de la **misma** lectura de diales de la petición (la misma que da `displayPriceCents` e
+  `ivaRatePct` del DTO). ⛔ Nunca un `16` fijo. Cambiar `iva_pct` en el panel cambia la cifra en la siguiente lectura,
+  sin volver a publicar (criterio 862).
+- Cifras de control (`r = 16`): 100000 → **116000**; 12345 → **14320**; 4 → **5**; 3 → **3**; 0 → 0. Con `r = 8`:
+  100000 → **108000**. Con `r = 0`: M → M.
+- Entrada: entero de centavos `≥ 0` (la referencia guardada ya lo es). Con `M ≤ MAX_CENTS` y `r ≤ 100` el producto
+  intermedio es exacto (misma cota que `displayPriceCentsOf`).
+
+### MIV.2 Las dos fichas: `referenceDisplayCents` (backend + frontend)
+```
+GroupedListingDTO += { referenceDisplayCents?: number }   // GET /catalog/cards/:cardId → listings[]
+SealedGroupDTO    += { referenceDisplayCents?: number }   // GET /catalog/sealed/:inventoryItemId → group
+```
+**Emisor (backend):**
+```
+referenceDisplayCents =
+  (projected.referenceMxnCents is integer ≥ 0)               // projected = el referenceValue YA pasado por toPublicPriceInfo
+    ? marketDisplayCentsOf(projected.referenceMxnCents, dials.ivaRatePct)
+    : <clave AUSENTE>                                          // ⛔ ni null, ni 0
+```
+- **Invariante (`iff`, en el JSON serializado, en las dos direcciones):**
+  `referenceDisplayCents` presente ⇔ `referenceValue.referenceMxnCents` presente ⇔ `priceBasis === "market"`. Hereda
+  el `iff` de D2 porque se deriva **del valor proyectado**. ⛔ En sellado, derivarlo del `referenceValue` crudo
+  (`sealed-catalog.service.ts:223-226`) **publicaría el mercado de un grupo con precio a mano**, que es la fuga que
+  D2 cerró (MIV-B3 lo pone rojo).
+- Se calcula en `buildGroups` (carta) y `toGroupDTO` (sellado). ⛔ **No** se copia a `GroupedListingSummaryDTO` ni a
+  `SealedGroupSummaryDTO` (rejillas: §N.7 «solo fichas»; la lista blanca y el tipo propio lo impiden). ⛔ **No** se
+  añade a `ListingDTO` (`units[]`, `listings[]` del sellado, `GET /catalog/listings/:id`): ninguna superficie de tienda
+  pinta mercado desde ahí (grep de `referenceMxnCents` en `(storefront)`, 2026-10-10: solo las dos fichas, la bóveda
+  y los estimados PSA).
+- `referenceValue` **no cambia**: sigue neto, con su `capturedDate`. Lo siguen leyendo valuaciones y admin.
+
+**Regla de pantalla (frontend, NORMATIVA):**
+> El bloque «Valor de mercado» se muestra ⇔ `priceBasis === "market"` ∧ `referenceDisplayCents` es entero `> 0`.
+> La cifra es **`referenceDisplayCents`**, tal cual, con `formatMoneyCents`. Junto a ella, **siempre**, la nota
+> «incluye IVA» (texto de ux-ui). La fecha de captura sigue saliendo de `referenceValue.capturedDate`.
+
+- ⛔ **Nunca se cae al neto.** Sin `referenceDisplayCents` (servidor sin §MIV) el bloque **no se pinta**: pintar
+  `referenceMxnCents` con la nota «incluye IVA» sería afirmar algo falso; pintarlo sin nota sería la contradicción que
+  el dueño pidió quitar. ⛔ Desaparece también el `'—'` de hoy (`CardDetailView.tsx:262`, `SealedDetailView.tsx:180`).
+- La celda de precio ocupa la fila completa con el **mismo** predicado (`CardDetailView.tsx:241` `fullRow`,
+  `SealedDetailView.tsx:160`), y la nota al pie con mercado (`CardDetailView.tsx:349`) también.
+- ⛔ Las dos fichas dejan de leer `referenceValue.referenceMxnCents` (MIV-F7 lo vigila).
+- ⛔ Ninguna cuenta en el cliente con estas cifras (ni diferencia, ni porcentaje, ni «estás pagando X % más»).
+- **Lector de pantalla (criterio 863):** la nota es texto visible del DOM, ⛔ no `title`/tooltip ni `aria-hidden`, y
+  queda en el mismo nombre accesible que la cifra (p. ej. «Valor de mercado MX$1,160.00, incluye IVA»).
+
+### MIV.3 Tendencia de sellado (P-MIV-6 «sí»): `GET /catalog/sealed/:inventoryItemId/value-history`
+```
+SealedValueHistoryResponse = SetValueHistoryResponse-con-`product` & {
+  points: (SetValuePointDTO & { displayValueMxnCents: number })[],              // REQUERIDO en esta ruta
+  change: { absMxnCents, pct, direction } & { displayAbsMxnCents: number }      // REQUERIDO en esta ruta
+}
+```
+- `points[i].displayValueMxnCents = marketDisplayCentsOf(points[i].valueMxnCents, r)`.
+- `change.displayAbsMxnCents = display(último) − display(primero)` — ⛔ **no** `marketDisplayCentsOf(absMxnCents, r)`:
+  criterio 861 dice «la diferencia entre dos cifras con IVA», y las dos cuentas difieren por redondeo (valores 1 → 4:
+  displays 1 → 5 ⇒ **4**; `marketDisplayCentsOf(3)` ⇒ **3**). Serie vacía ⇒ `0`.
+- `pct` y `direction` **no cambian** (se siguen calculando sobre el neto, criterio 861 «el porcentaje no cambia»).
+  `direction` coincide siempre con la del display: para `r ≥ 0` la función es estrictamente creciente en `M` entero.
+- `r` sale de `getIvaDials()`, leído **después** del chequeo del interruptor (con `sealed_value_trend=off` la ruta
+  sigue respondiendo `404 FEATURE_DISABLED` sin leer diales).
+- `valueMxnCents` y `absMxnCents` **siguen viajando** (aditivo; no se reinterpreta un nombre — doctrina de
+  `§M10-IVA.3`).
+- Las rutas de **set** (`featured-set` y `sets/:id`) **no** cambian: su gráfica no se pinta en la tienda (`PROJECT §MIV.2` A7).
+
+**Pantalla (frontend):** la cifra grande, el cambio en pesos y la curva usan **solo** los campos `display*`; el
+porcentaje usa `pct` tal cual; la nota «incluye IVA» va junto a la cifra grande. Si la respuesta no trae los campos
+`display*` (servidor sin §MIV) el componente **se oculta** (`return null`), igual que hoy ante un `404`. ⛔ Nunca se cae
+a `valueMxnCents`. La regla de cuándo se ve no cambia (`trendEnabled ∧` el mismo predicado de MIV.2,
+`SealedDetailView.tsx:256`).
+
+### MIV.4 Superficies
+| # (`PROJECT §MIV.2`) | Superficie | Con §MIV | Fuente |
+|---|---|---|---|
+| A1 | Ficha de carta (raw y gradeada) | **Con IVA + nota** | `GroupedListingDTO.referenceDisplayCents` |
+| A2 | Ficha de sellado | **Con IVA + nota** | `SealedGroupDTO.referenceDisplayCents` |
+| A3 | Tendencia de sellado | **Con IVA + nota**; `%` igual | `displayValueMxnCents`, `displayAbsMxnCents`, `pct` |
+| A4–A7 | Tejas, listados, portada, set destacado | sin cambio (no muestran mercado) | — |
+| A8 | Estimados PSA (ficha, tejas, portada) | **sin cambio** (P-MIV-1) | `GradedEstimateDTO` neto |
+| A9 | Lista de deseos en la ficha | **ningún número cambia**; solo texto (MIV.6) | — |
+| B1–B4 | Mi bóveda, vistazo de portada, sellado en bóveda, master set | **sin cambio** (P-MIV-2/3) | `HoldingDTO`/`PriceInfo` netos |
+| C | «Vender» (cotizador, carrito de venta, mini-cotizador) | **sin cambio** (HECHOS punto 1; §BMK) | `referencePrice` neto |
+| D | Panel del dueño y personal | **sin cambio** | — |
+| E | Correos | sin cambio (no muestran mercado) | — |
+
+### MIV.5 Exposición (para pentester y seguridad)
+Nada nuevo sale: `referenceDisplayCents` es función pública de dos datos que **ya** son públicos en la misma respuesta
+(`referenceValue.referenceMxnCents` e `ivaRatePct`), y viaja bajo el mismo `iff`. ⛔ `ivaTransferPct` sigue sin viajar
+(no entra en la cuenta). La tendencia ya era pública con el neto.
+
+### MIV.6 Textos (para ux-ui; el texto final, la posición y el diseño son suyos)
+| Uso | es (punto de partida) | en (punto de partida) | Nota |
+|---|---|---|---|
+| Nota junto a la cifra de mercado (A1, A2, A3) | incluye IVA | VAT included | Palabras del dueño. Existe `common.ivaIncluded` «IVA {rate} % incluido» (`es.json:26`); reutilizarla es opción de ux-ui. Con `iva_pct = 0` «incluye IVA» sigue siendo cierto pero vacío (ver riesgos) |
+| `card.referenceExplainerWithMarket` (`es.json:446`) | El valor de mercado es la referencia del día, con IVA incluido para que lo compares con nuestro precio. El precio de venta se calcula a partir de ella. | (par en en.json) | Hoy dice «con la que valuamos las cartas»: ya no es exacto (valuamos con el neto) |
+| `sealed.trend.marketRefNote` (`es.json:7228`) | Valor de mercado de referencia (TCGCSV) con IVA incluido, actualizado a diario. | (par) | — |
+| `wishlist.block.pctLegend` (`es.json:7458`) | ¿Hasta cuánto más del precio de mercado **sin IVA** pagarías? | …market price **before VAT**… | **P-MIV-4 (a)**: el % es sobre el mercado **sin IVA** y el máximo en pesos ya incluye IVA (dial `wishlist_max_iva_mode` de fábrica `with_iva`, `es.json:5186`). Ejemplo para ux-ui: ficha «Valor de mercado MX$1,160 · incluye IVA»; 10 % ⇒ «hasta MX$1,100». El texto tiene que hacer legible que MX$1,100 sale de MX$1,000 sin IVA |
+| `wishlist.block.inList` (`:7464`), `wishlist.row.maxPct` (`:7533`), `wishlist.approxHelp` (`:7474`), `wishlist.recalcNote` (`:7475`) | revisar «sobre mercado» → «sobre mercado sin IVA» donde aparezca junto a la ficha | (par) | ux-ui decide si `row` (página «Mi lista», sin cifra de mercado a la vista) también lo dice, por consistencia |
+| Estimados PSA (`es.json:354`) | **sin cambio** de cifra; ux-ui revisa si hace falta decir que son sin IVA ahora que la cifra de arriba sí lo lleva | — | P-MIV-1 por defecto «no» cambia la cifra; un texto aclaratorio no es importe |
+
+Paridad es/en con el control de paridad de textos (criterio 868).
+
+### MIV.7 Pruebas que deben fallar hoy (determinísticas: N=1 dicho como tal; sobre copia del árbol ENTERO, O-9)
+| ID | Rol | Afirma | Rojo hoy porque… | Mutación que la pone roja después |
+|---|---|---|---|---|
+| **MIV-B1** | backend | `marketDisplayCentsOf`: (100000,16)→116000; (12345,16)→14320; (4,16)→5; (3,16)→3; (0,16)→0; (100000,8)→108000; (100000,0)→100000; y para todo `M ∈ [0, 20000]`, `r ∈ {0,1,8,10,16,100}`: `=== displayPriceCentsOf(M,100,r)` | la función no existe | `Math.floor` en vez de `round` (rompe (4,16)); `M·r/100` en coma flotante sin redondear |
+| **MIV-B2** | backend | Ficha de carta, mercado 100000 y basis `market`: `referenceDisplayCents === 116000`, `referenceValue.referenceMxnCents === 100000` (neto intacto), `displayPriceCents === 133400` (igual que antes) | campo ausente | emitir `referenceMxnCents` como display; `16` fijo con `ivaRatePct` del stub en 8 |
+| **MIV-B3** | backend | `iff` sobre el JSON serializado, carta **y** sellado: basis `override` (pieza con precio a mano) y `pending` ⇒ **sin** la clave; `market` ⇒ con la clave. Sellado: grupo con `listPriceCents` manual y referencia `priced` ⇒ sin la clave | campo ausente (la mitad «market ⇒ presente» es roja) | en `toGroupDTO`, derivar del `referenceValue` **crudo** (`:223-226`) ⇒ el override filtra el mercado |
+| **MIV-B4** | backend | P-MIV-5: diales `{ivaTransferPct: 50, ivaRatePct: 16}`, mercado 100000 ⇒ `referenceDisplayCents === 116000` mientras `displayPriceCents` sí refleja el 50 % | campo ausente | usar `displayPriceCentsOf(M, dials.ivaTransferPct, r)` (da 108000) |
+| **MIV-B5** | backend | 862 «sin publicar de nuevo»: misma pieza, el stub de diales pasa de `iva_pct` 16 a 8 entre dos lecturas ⇒ 116000 y luego 108000 | campo ausente | cachear el display en la pieza o fijar `r` |
+| **MIV-B6** | backend | Ficha de sellado con spread y mercado 200000 ⇒ `referenceDisplayCents === 232000`; `fromPriceCents` igual que antes | campo ausente | quitar la llamada en `toGroupDTO` |
+| **MIV-B7** | backend | Tendencia: serie neta [190000, 200000] ⇒ `displayValueMxnCents` [220400, 232000], `displayAbsMxnCents` 11600, `absMxnCents` 10000, `pct` 5.26, `direction` `up`. Serie [1, 4] ⇒ displays [1, 5], `displayAbsMxnCents` **4**, `pct` **300** | campos ausentes | `displayAbs = marketDisplayCentsOf(abs)` (da 3); `pct` sobre displays (da 400) |
+| **MIV-B8** | backend | Con `sealed_value_trend=off` ⇒ `404 FEATURE_DISABLED` y `getIvaDials` **no** se llama | no rojo hoy (candado de orden) | leer diales antes del interruptor |
+| **MIV-B9** | backend | Censo de llamadores: `marketDisplayCentsOf` solo aparece en `catalog.service.ts` y `sealed-catalog.service.ts` (lectura de fuentes sin comentarios, como `iva-derivacion-cableada.spec.ts`) | la función no existe | llamarla desde `buylist`, `vault`, `wishlist` o `admin` |
+| **MIV-B10** | backend | Las rejillas (`GroupedListingSummaryDTO`, `SealedGroupSummaryDTO`) **no** traen la clave: los candados de conjunto exacto existentes siguen verdes | — | copiar la clave a la lista blanca (no compila) |
+| **MIV-B11** | backend | 865 y 866 por ausencia: suites de dinero (`money`, checkout, buylist, wishlist, vault, P&L) verdes **sin editar ninguna aserción existente**. Únicas ediciones permitidas en `backend/test/` existente: **añadir** las claves nuevas en `helpers/dto-keys.ts` (el compilador lo exige) y, si un escenario de conjunto exacto no es `market`, añadir la clave a su lista de ausentes explícita | — | — (la revisa techlead en el diff) |
+| **MIV-F1** | frontend | Ficha de carta: `priceBasis` `market`, `referenceValue.referenceMxnCents` 100000, `referenceDisplayCents` 116000, `displayPriceCents` 133400 ⇒ el texto contiene «MX$1,160.00», la nota y «MX$1,334.00», y **no** «MX$1,000.00» | hoy pinta 1,000.00 | pintar `referenceValue.referenceMxnCents` |
+| **MIV-F2** | frontend | Basis `market` con neto 100000 y **sin** `referenceDisplayCents` ⇒ ni rótulo de mercado, ni nota, ni «—», ni «MX$1,000.00»; la celda de precio ocupa la fila | hoy pinta 1,000.00 | `?? referenceValue.referenceMxnCents` |
+| **MIV-F3** | frontend | Basis `override` con `referenceDisplayCents` presente (servidor erróneo) ⇒ sin bloque ni nota | no rojo hoy | quitar `priceBasis` del predicado |
+| **MIV-F4** | frontend | F1–F3 en la ficha de sellado (200000 → «MX$2,320.00») | hoy pinta 2,000.00 | las mismas |
+| **MIV-F5** | frontend | Tendencia con neto [190000, 200000] y display [220400, 232000], `displayAbsMxnCents` 11600, `pct` 5.26 ⇒ cifra grande «MX$2,320.00», «MX$116.00», «5.26 %», nota; los datos de la curva son los display | hoy pinta 2,000.00 | leer `valueMxnCents` o `absMxnCents` |
+| **MIV-F6** | frontend | Tendencia sin campos `display*` ⇒ el componente no se pinta | hoy pinta el neto | caer al neto |
+| **MIV-F7** | frontend | Lectura de fuentes: `CardDetailView.tsx`, `SealedDetailView.tsx` y `SealedValueTrend.tsx` no contienen `referenceMxnCents`, `valueMxnCents` ni `absMxnCents` fuera de comentarios, ni `1.16`, ni aritmética con `ivaRatePct`; y `referenceDisplayCents` solo aparece en esas dos fichas, `types/contract.ts` y `lib/mock/` | hoy las fichas leen `referenceMxnCents` | reintroducir la lectura del neto; usar el campo en `VaultView.tsx` |
+| **MIV-F8** | frontend | 863 y 868: el nombre accesible del bloque contiene cifra y nota; paridad es/en de claves nuevas o tocadas | hoy no hay nota | marcar la nota `aria-hidden` o quitar su par en en.json |
+| **MIV-F9** | frontend | 865 y 867 por ausencia: pruebas de BMK-F1…F8, bóveda, master set, estimados PSA y lista de deseos verdes **sin editar sus aserciones** | — | — (la revisa techlead en el diff) |
+| **MIV-E1** | frontend (Playwright), QA lo corre | Criterio 869 (a)–(f) contra el stack corriendo: la cifra de (a) se comprueba contra `M + round(M × 16 / 100)` del mercado guardado leído por API admin/BD, no contra otro número de la pantalla | — | — |
+
+### MIV.8 Construye
+- **backend** (stream «Catálogo y precios», módulos `catalog` + `common/money.ts`, modelo fuerte por ser `pricing`/dinero):
+  MIV.1, MIV.2 (emisor), MIV.3 (emisor) + MIV-B1…B11. Notas en **`BACKEND_NOTES §88`**. Toca `common/` (zona compartida).
+- **frontend:** `types/contract.ts` (dos campos opcionales + `SealedValueHistoryResponse`), `lib/api.ts:811-822`
+  (tipo de retorno), `lib/mock/fixtures.ts` (los fixtures traen las cifras display **escritas**, ⛔ no calculadas en
+  código de producción), las dos fichas y `SealedValueTrend.tsx` + MIV-F1…F9 + MIV-E1. Notas en **`FRONTEND_NOTES §111`**.
+  Zonas compartidas: `types/`, `lib/`, `messages/`.
+- **ux-ui:** MIV.6 (nota, posición, textos de lista de deseos y explicadores) antes de que frontend cierre los textos.
+- **Paralelo:** backend y frontend a la vez; la forma está fijada aquí y el front puede construir contra el simulador.
+- ⛔ No construye: devops (sin migración ni variable), product-owner (nada bloquea; P-MIV-1…6 siguen abiertas con su defecto).
