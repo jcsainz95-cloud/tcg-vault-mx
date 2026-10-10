@@ -864,6 +864,15 @@ jobs:
         run: |
           ./scripts/check-csp-zap-parity.sh
           ./scripts/check-csp-zap-parity-canary.sh
+      # §96.7 — `baseline.conf` lleva claves `<regla>-<sub>` que ZAP no sabe leer
+      # (int(id) ⇒ ValueError, rc 1 sin informe: job 114278597979). ZAP recibe una
+      # copia filtrada, la imagen va fijada por digest y «rc≥1 sin informe» es un
+      # fallo propio. Sin Docker aquí: el ZAP real lo arranca security-dast.yml.
+      - name: §96.7 · ZAP recibe una política que puede leer (+ canario 8 mutaciones)
+        if: ${{ !cancelled() }}
+        run: |
+          ./scripts/check-zap-conf.sh
+          ./scripts/check-zap-conf-canary.sh
       - name: LIVE-9 · el vigía de disponibilidad sabe ponerse rojo
         if: ${{ !cancelled() }}
         run: ./scripts/check-uptime-watch-canary.sh

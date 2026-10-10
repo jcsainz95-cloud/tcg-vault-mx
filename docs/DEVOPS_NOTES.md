@@ -14009,7 +14009,32 @@ deja de dar «FALLA» **3/3** (sale rc 2); mutación «forma de antes» (un corr
 ```
 TARGET_BASE_URL='https://<host-del-backend-de-produccion>' ./scripts/edge-xff-probe.sh --i-have-a-window
 ```
-> **[RESULTADO C6 — se rellena en la ventana autorizada: proporción N/N, control sí/no, fecha y hora]**
+
+**Desde un runner de GitHub (2026-10-10, §96.3).** El contenedor de los agentes no llega a producción (403 CONNECT,
+re-medido 2026-10-10 con `curl` a js.stripe.com/api.stripe.com: mismo 403 de política). Workflow
+`.github/workflows/edge-xff-probe.yml`, **solo a mano** y con la frase `C6-6-INTENTOS`; corre la sonda con sus valores
+por defecto (1 ronda = 6 peticiones, sin control) — el presupuesto que autorizó el dueño, sin input para ampliarlo:
+```
+gh workflow run edge-xff-probe.yml --ref <rama-con-el-workflow> -f confirmar=C6-6-INTENTOS
+#  objetivo por defecto: vars.C6_TARGET_BASE_URL o https://tcg-vault-mx-production.up.railway.app (§23.2)
+```
+Sin secretos; el resultado sale en el resumen del run. **Cada corrida gasta 6 intentos: no repetir sin autorización.**
+
+> **[RESULTADO C6 — run `38074439305`, 2026-10-10 ~18:06 UTC, sha `00535194`, objetivo por defecto
+> `https://tcg-vault-mx-production.up.railway.app`]: rc = 2 → NO CONCLUYENTE.** El workflow corrió bien (canario
+> `success`; confirmación `C6-6-INTENTOS` `success`; checkout `success`); el único paso rojo fue «C6 contra producción»,
+> cuyo exit code = rc del script (`exit "$rc"`) = **2** (anotación del check-run: «Process completed with exit code 2»).
+> rc 2 = la sonda NO cerró (no es rc 0 «C6 CIERRA») y NO halló el bypass (no es rc 1 «C6 FALLA»); tampoco es un fallo
+> del workflow. **Los 6 intentos autorizados (HECHOS.md P-9) SÍ se gastaron:** las 6 peticiones se envían en el bucle
+> `for i in 1..6` ANTES de clasificar, así que cualquier rama de rc 2 ocurre con las 6 ya enviadas. **La rama exacta de
+> rc 2 queda NO MEDIDA:** el texto de la sonda (c6.log) solo vive en el resumen del run y en el blob de Azure de los
+> logs, que el proxy de egreso de este contenedor bloquea con 403 de política (`productionresultssa19.blob.core.windows.net`,
+> re-medido 2026-10-10); no se reintenta una denegación de política. Las tres ramas posibles de rc 2: (a) rotando XFF no
+> hubo NINGÚN 429 ⇒ la sonda pide `--with-control` y otra autorización de 6 (la salida esperada por diseño); (b) `CUENTA`
+> — salió un 429 `TOO_MANY_PASSWORD_ATTEMPTS` (sonda contaminada; improbable porque cada petición usa un correo único);
+> (c) `RARO` — respuestas inesperadas (URL/path). ⛔ **NO re-disparar sin nueva autorización del dueño: otra corrida gasta
+> otros 6 intentos.** Para leer la rama exacta sin el proxy: abrir el resumen del run en la web de GitHub (Actions → run
+> `38074439305` → job «sonda»). C6 sigue **abierto** (§58.3).
 
 ### 85.5 · LIVE-13 — respaldos y simulacro de restauración (`scripts/restore-drill-verify.sh`)
 
@@ -14899,3 +14924,237 @@ salvo donde se dice.
 
 Esta sección y el baseline vuelven con el `git revert -m 1` del commit de fusión. Para revertir solo el censo, se
 restaura el baseline de un lado y se repite `--update --motivo` sobre el árbol que quede. No toca imágenes, datos ni despliegue.
+
+## §96 · CL-1: la CSP pasa a `enforce` (con ZAP 10038/10055 en FAIL), sonda de Stripe.js y C6 desde GitHub (2026-10-10, rama `claude/salida-real`, devops)
+
+> Norma: `API_CONTRACT §14.3`, `SECURITY_NOTES` CL-1 (SEC-HDR-2) y §14.14; escrito sobre `20b676bf` (= `origin/production`).
+> Todo lo «medido» aquí se midió el 2026-10-10 en una copia `git archive HEAD` entera del árbol (O-9), salvo donde dice
+> otra cosa. Producción y Stripe **no** son alcanzables desde este contenedor (403 CONNECT, re-medido hoy).
+
+### 96.1 · Qué cambia
+
+- `frontend/src/security/csp.ts:32` → `CSP_MODE = 'enforce'`. **Línea de frontend hecha por devops por urgencia,
+  encargo del orquestador**; con ella, sus candados de fase: `csp.test.ts` («fase vigente: enforce») y
+  `middleware.test.ts` (el bloque «fase vigente» fijaba `report-only` por defecto: ahora hay un caso «sin forzar
+  fase ⇒ `Content-Security-Policy` con nonce y sin `-Report-Only`», y los tres de Report-Only fuerzan esa fase
+  porque siguen siendo la vuelta atrás de §14.3). Ningún otro fichero de `frontend/`.
+- `security/zap/baseline.conf`: **10038 y 10055 → FAIL** en el mismo cambio. `check-csp-zap-parity.sh` rc 0
+  (`CSP_MODE=enforce · 10038=FAIL · 10055=FAIL`); su canario 8/8.
+- **Sub-alertas de 10055 a WARN por clave `10055-<n>`** (nuevo en `dast-gate.py`: si el `alertRef` del JSON de ZAP
+  está en la política, manda esa clave; si no, la regla). Sin esto el DAST de release salía **rojo seguro** con la
+  política tal como la define §14.3 — leído en el código de la regla (`ContentSecurityPolicyScanRule.java`,
+  zaproxy/zap-extensions) y de su parser (salvation2 `Policy.java`), no supuesto:
+  - `10055-6` *style-src unsafe-inline*: §14.3 pone `'unsafe-inline'` en `style-src` a propósito.
+  - `10055-4` *Wildcard Directive*: `img-src … https:` (deliberado, §14.3); la regla prueba un host al azar
+    `https://<n>.owasp.org` y `https:` lo permite. ⚠️ esa alerta agrupa directivas: un `script-src *` futuro caería
+    también en WARN; lo cubre `csp.test.ts` (texto de `script-src`), no el DAST.
+  - `10055-3` *Notices*: salvation avisa «report-uri deprecated» y §14.3 usa `report-uri` (→ `POST /telemetry/csp`).
+  - Siguen en FAIL: `10055-5` (script-src unsafe-inline), `10055-10` (unsafe-eval), `10055-13` (frame-ancestors /
+    form-action sin definir), `10055-9` (malformada) y toda `10038` (`-1` sin CSP, `-3` solo Report-Only).
+  - ~~ZAP ignora las claves `10055-n`~~ **FALSO — ver §96.7.** `load_config` las guarda y `get_af_output_summary`
+    hace `int(id)` sobre cada clave: ZAP revienta en el arranque. Hoy ZAP recibe una copia sin ellas.
+    Sin `alertRef` en el JSON, la alerta cae en la regla (FAIL): sin dato, no se afloja.
+  - Candado: `check-dast-gate-live.sh` 5-quater (6 casos). Mutaciones sobre la copia: gate de `HEAD` (sin soporte de
+    sub-claves) ⇒ 3 rojos **3/3**; `rule = ref` anulado ⇒ 3 rojos; sub-clave convertida en `10055 WARN` ⇒ 2 rojos.
+- **Lo que NO está medido:** el barrido ZAP real con la CSP en enforce. Lo cierra
+  `gh workflow run security-dast.yml --ref claude/salida-real -f scan_profile=baseline -f report_only=true`
+  (pasivo basta para 10038/10055) **antes** de la solicitud de fusión; la lista de WARN/FAIL sale en las anotaciones
+  del run (`gh api repos/<o>/<r>/check-runs/<job>/annotations`).
+
+Verificado en la copia: `vitest` frontend completo **4248 passed / 10 skipped**, rc 0; `tsc --noEmit` rc 0;
+`next lint` sin avisos; Playwright (build de producción, mocks) `csp.spec` + `checkout.spec` + `guest-checkout.spec`
+**29/29** (N=1) — incluye CSP-5 «en enforce el `<script>` sin nonce no se ejecuta» y el recorrido sin violaciones.
+
+### 96.2 · Sonda de Stripe.js (`scripts/csp-stripe-probe.mjs` + `.github/workflows/csp-stripe-probe.yml`)
+
+Ningún E2E comprobaba que el iframe de Stripe cargue (el `@real comprar` solo mira que el modal se abra). La sonda
+sirve en `127.0.0.1` una página con **la cabecera que produce `buildCsp(…, 'enforce')`** (importada del `.ts`, entorno
+de producción, API en un host `.invalid` para que los informes de prueba no lleguen a `/telemetry/csp` de
+producción), inserta `js.stripe.com/v3` como `loadStripe` y monta un `PaymentElement` diferido (MXN). Autoprueba:
+planta un iframe prohibido y un `<script>` sin nonce y exige ver las dos violaciones. rc 0 limpio · 1 violación ·
+2 no concluyente.
+- Local (sin red a Stripe): autoprueba **3/3**, rc 2 «es red, no política» 3/3 (correcto: no da verde sin medir).
+- Mutación «`script-src` sin `'strict-dynamic'` ni `https:`» ⇒ `✗ VIOLACIÓN script-src-elem js.stripe.com/v3` rc 1
+  **3/3**.
+- En GitHub corre solo al empujar cambios de `csp.ts`/`middleware.ts`/la sonda en `claude/**` (3 tiradas). El
+  «PaymentElement ready» exige `secrets.STRIPE_TEST_PUBLISHABLE_KEY` válida; si no, se dice «ready NO medido».
+- No cubre: el reto 3-D Secure real (el iframe del banco va DENTRO del de Stripe y lo rige la CSP de Stripe; el marco
+  que lo aloja es `js.stripe.com`/`hooks.stripe.com`, en `frame-src`), Google Identity, ni el `return_url`.
+
+Orígenes de Stripe en la política (texto de `buildCsp`, entorno de producción): `script-src 'self' 'nonce-…'
+'strict-dynamic' https:` (Stripe.js entra por `'strict-dynamic'`); `connect-src … https://api.stripe.com`;
+`frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com`; `img-src … https:`;
+`style-src 'self' 'unsafe-inline'`; `form-action 'self'` (Stripe no envía formularios desde nuestro documento).
+
+### 96.3 · C6 desde GitHub (`.github/workflows/edge-xff-probe.yml`)
+
+Ver §85.4. Manual, frase `C6-6-INTENTOS`, 1 ronda = 6 peticiones, sin control, sin secretos, `concurrency` sin
+cancelación. `push`/`pull_request` con filtro de rutas solo corren el canario (y registran el workflow: `main` está
+parado en `bb239c09`, 2026-09-15, y un workflow que nunca corrió no se puede disparar a mano). Canario local 8/8 (N=1).
+
+### 96.4 · Qué buscar en Railway tras publicar
+
+`POST /telemetry/csp` **solo registra, no guarda en BD** (`backend/src/modules/health/telemetry.controller.ts`,
+TLM-5): una línea `warn` del logger `Telemetry` por informe:
+`CSP_VIOLATION {"effectiveDirective":"…","blockedOrigin":"…","documentPath":"…","disposition":"enforce"}` (sin IP,
+UA ni usuario; tope 60/min por IP). En Railway → servicio del backend → Logs, buscar `CSP_VIOLATION`.
+`disposition":"report"` = de antes del cambio; `"enforce"` = **algo se bloqueó de verdad**. Alarma si aparece con
+`documentPath` de `/checkout`, `/pedido` o `/login`, o con `blockedOrigin` de `stripe.com`/`google.com`.
+
+### 96.5 · Hallazgos de esta medición (no arreglados aquí)
+
+- **E-8 (TTFB) nunca se midió.** `gh api …/issues?labels=ttfb&state=all` ⇒ 0 issues; `ttfb-probe.yml` solo ha corrido
+  en `pull_request` (2 runs, 2026-10-05). Su medición se dispara con `push` a `main`, y `main` no avanza. El «antes»
+  (producción sin nonce) ya no se puede medir. Lo medible hoy: `gh workflow run ttfb-probe.yml --ref production`
+  ⇒ etiqueta `despues` (Report-Only); `enforce` sirve la misma página por el mismo middleware cambiando solo el
+  nombre de la cabecera (`middleware.ts`, lectura de código, NO medición de tiempo), así que el p90 de esa corrida
+  vale para el umbral absoluto (≤ 800 ms); la subida (≤ 300 ms) queda **sin comparar**.
+- **Los `schedule` de `uptime-watch.yml`, `ttfb-probe.yml` y `db-disk-watch.yml` nunca han corrido:** GitHub solo
+  programa desde la rama por defecto (`main`), que no tiene esos ficheros (`git ls-tree origin/main`). Runs de
+  `uptime-watch`: 0 `schedule` (API, 2026-10-10). El vigía de disponibilidad (LIVE-9) no vigila.
+- ~~`ghcr.io/zaproxy/zaproxy:stable` sin fijar (`dast-ephemeral.sh:80`, `dast-selftest.sh:36`).~~ Cerrado en §96.7.
+
+### 96.6 · Rollback
+
+`git revert <commit>` devuelve `CSP_MODE='report-only'`, 10038/10055 a WARN y los tests de fase a la vez (la pareja
+la vigila `check-csp-zap-parity.sh`). Vercel publica solo con el push; en caso de urgencia, *Instant Rollback* al
+despliegue anterior en Vercel (la CSP es solo frontend: el backend no cambia). Los dos workflows nuevos no tienen
+estado: borrarlos basta.
+
+### 96.7 · ZAP reventaba con las sub-claves `10055-n` y el paso salía verde (2026-10-10, devops)
+
+**El defecto (medido por el orquestador en el log del job 114278597979, run 38074441197, sha `00535194`).** §96.1
+añadió a `security/zap/baseline.conf` las claves `10055-3`, `10055-4` y `10055-6`. Ese fichero se le pasaba **tal
+cual** a ZAP con `-c` (`dast-ephemeral.sh:250` de entonces) y ZAP murió en 33 s sin informe:
+`ValueError: invalid literal for int() with base 10: '10055-3'` en `/zap/zap_common.py:708`. Con la **misma** imagen
+(digest `sha256:7aaa659b…f0d2`) el DAST full de producción (job 114263040360) había funcionado: es del sha, no del
+entorno. Tres agujeros encadenados:
+
+1. **ZAP recibía la política del candado.** `zap_common.load_config` mete toda clave en `config_dict` y
+   `get_af_output_summary` hace `int(id)` sobre cada una. Reproducido aquí sin Docker con las dos funciones
+   extraídas de `docker/zap_common.py` de zaproxy (rama main, leída hoy): la política de `HEAD` ⇒ el mismo
+   `ValueError` en la **línea 708**; la copia filtrada ⇒ `OK`, 38 reglas. (Lo que afirmé en §96.1 era falso.)
+2. **`rc 1` se leía como «ZAP encontró cosas»** en `cmd_scan`: el paso «Escanear» salió verde. Solo el candado, un
+   paso después, dijo «No hay informe de ZAP ⇒ ROJO».
+3. **La autoprueba lo celebraba** (lectura de código, NO medido en ese run): `dast-gate.py --expect-red` daba
+   `ok = red`, y un rojo **por falta de informe** contaba como «✅ el candado cierra». Con ZAP muerto también sobre
+   el canario, el job `selftest` —del que depende `dast`— salía verde.
+
+⚠️ Habría roto el DAST bloqueante del deploy a producción (`deploy.yml` → `dast-release`, perfil full): fail-closed
+(`blocking` vacío no promueve), pero **sin medición** y con los dos primeros pasos en verde.
+
+**Arreglo:**
+- `security/scripts/dast-zap-lib.sh` (nuevo, se hace `source`): `ZAP_IMAGE_FIJADA` =
+  `ghcr.io/zaproxy/zaproxy@sha256:7aaa659b0d43078febd82e29bad112285c370727e86ab8340444220e17d9f0d2` (el digest que
+  dio el orquestador de los dos jobs; `ZAP_IMAGE` del entorno sigue mandando para probar otra) y
+  `zap_conf_for_zap <dir>`, que escribe la copia para ZAP y la valida antes de arrancarlo.
+- `security/scripts/dast-zap-policy.py` (nuevo): `for-zap` deja comentarios, vacías, claves enteras y `OUTOFSCOPE`
+  (dice por stderr qué quita); `check` emula `load_config` + `int(id)`. Las mal formadas **pasan** el filtro a
+  propósito, para que `check` y ZAP las rechacen en voz alta.
+- Los **cuatro** scripts que arrancan ZAP (`dast-ephemeral`, `dast-selftest`, `dast-zap-full`, `dast-zap-baseline`)
+  montan la copia en `/zap/wrk/conf-zap` y le pasan `-c /zap/wrk/conf-zap/baseline.conf`. **`dast-gate.py --policy`
+  sigue leyendo el original**: una sola fuente de verdad, dos lectores. La copia queda en el artefacto
+  (`security/reports/zap-conf/baseline.conf`) para ver qué recibió ZAP.
+- `dast-ephemeral.sh scan`: borra el JSON previo antes de cada blanco; **`rc≠0` sin JSON ⇒ «ZAP reventó»**, `::error`
+  propio y el paso sale 1. `rc 1/2` **con** JSON sigue siendo «encontró cosas» (lo decide `gate`).
+- `dast-selftest.sh`: sin JSON del canario ⇒ exit 1 antes del candado. `dast-gate.py --expect-red`:
+  `ok = bool(blocking) and not missing_input` (un rojo sin informe es «la autoprueba no midió»).
+
+**Candados** (`scripts/check-zap-conf.sh`, job `live-candados` de `ci.yml`, y `--real` en el job `selftest` de
+`security-dast.yml`, antes de escanear):
+- emulador muerde (`10055-3` ⇒ rc 1 con `ValueError`; solo enteros ⇒ rc 0); la copia de la política real la lee
+  ZAP y no pierde ninguna regla entera ni `OUTOFSCOPE`;
+- los 4 scripts que arrancan ZAP pasan por `zap_conf_for_zap` + `${ZAP_CONF_MOUNT}` y ninguno define su imagen;
+  `ZAP_IMAGE_FIJADA` por `@sha256:<64 hex>`; ninguna línea ejecutable con `zaproxy/zaproxy:<etiqueta>`;
+- **conducta** de `dast-ephemeral.sh scan` con un `docker` falso que hace lo que ZAP con `-c`: lee el fichero
+  **montado** y revienta si ZAP reventaría. ZAP sano con rc 1 + informe ⇒ paso 0; filtro roto ⇒ paso 1; ZAP rc 1
+  sin informe ⇒ paso 1 con «ZAP reventó»;
+- `dast-gate --expect-red` sin informe ⇒ rc≠0;
+- `--real`: `docker run --entrypoint python3` en la imagen fijada importa el `zap_common` **de verdad**: la copia
+  filtrada pasa `load_config` + `get_af_output_summary`, y la política con `99999-1` plantada tiene que reventar
+  con el mismo `ValueError` (el instrumento muerde). **NO MEDIDO aquí** (este contenedor no tiene demonio Docker:
+  `docker pull` ⇒ «no such file … docker.sock»); se mide en el primer run de `security-dast.yml`.
+
+Medido aquí (2026-10-10, árbol vivo de `claude/salida-real` sobre `99d6690c`, solo mis rutas cambiadas):
+`check-zap-conf.sh` rc 0; canario `check-zap-conf-canary.sh` **9/9** casos, mutaciones cazadas **8/8**, repetido
+**3 veces** (determinista: sin carreras ni temporizadores). Las 8 mutaciones: volver a pasar el original en
+`dast-ephemeral` y en `dast-selftest`, filtro que deja pasar todo, emulador sin `int(id)`, imagen a `:stable` en la
+librería y en `dast-zap-full`, quitar la rama «ZAP reventó», `ok = red` en `--expect-red`. Siguen en verde:
+`check-dast-gate-live`, `check-csp-zap-parity` (+canario), `check-provenance-gate` (+canario),
+`check-secret-defaults-canary`, `check-workflow-cwd` (+canario), `check-candidate-checks-canary`.
+`check-secret-defaults.sh` sale rojo por «manifiesto DESFASADO» **también en una copia `git archive HEAD`** de
+`99d6690c`: no lo introduce este cambio (pendiente aparte, dueño devops).
+
+**Lo que NO cierra:** `NUCLEI_IMAGE` sigue en `projectdiscovery/nuclei:latest` (etiqueta móvil; no medí su digest).
+
+**Para medir el barrido real** (lo dispara el orquestador tras el push):
+`gh workflow run security-dast.yml --ref claude/salida-real -f scan_profile=full -f report_only=true`.
+Qué mirar: job `selftest` → paso «ZAP real lee la política…» con `ZAP-OK 38` y el `ValueError` de `99999-1`; en
+`dast` → `timings.txt` con `rc=` y segundos del orden de minutos (no 33 s), y la anotación `DAST-SELLO` con
+`blocking=true|false` (no vacío).
+
+**Rollback:** `git revert` del commit. Vuelve el defecto (ZAP revienta con las sub-claves); si hay que revertir,
+revertir **también** las tres líneas `10055-n` de `baseline.conf` o el DAST de release queda sin medición (si eso
+pone rojo el `5-quater` de `check-dast-gate-live.sh`: NO MEDIDO).
+
+## §97 · C6, ronda de control: `--control-only` gasta 6 (no 12) y respeta la autorización del dueño (2026-10-10, rama `claude/salida-real`, devops)
+
+**De dónde viene.** La ronda 1 de C6 (XFF rotatorio) ya se corrió: run `38074439305`, job «sonda», sha `00535194`
+⇒ 6×`401 INVALID_CREDENTIALS`, **ningún 429**. Eso es la rama (a) de §85.4: «nunca 429» rotando XFF no distingue
+un bypass de un tope apagado; hace falta la **ronda de control** (misma IP, sin `X-Forwarded-For`). El dueño
+autorizó HOY **6 peticiones más** y solo 6 (HECHOS.md, fila 2026-10-10 «C6: el dueño AUTORIZA 6 peticiones más»).
+
+**El problema medido.** `edge-xff-probe.sh --with-control` **siempre reenvía la ronda base (6) y luego el control
+(6) = 12 peticiones**. Medido contra un backend de mentira en modo `bypass`:
+
+    rc=1 · peticiones recibidas por el backend: 12  (--with-control)
+    rc=1 · peticiones recibidas por el backend:  6  (--control-only)
+
+12 > 6 autorizadas ⇒ cablear el input a `--with-control` habría doblado el presupuesto del dueño.
+
+**La corrección.** Flag nuevo `--control-only` en `edge-xff-probe.sh`: NO reenvía la base (encaja el resultado ya
+medido, `NUNCA`) y manda **solo** la ronda de control = **6 peticiones en total**. rc 1 si el 6.º del control es
+`429 RATE_LIMITED` (bypass presente → C6 FALLA, arreglo de código: arquitecto → backend); rc 2 si no lo es (no
+concluyente). El workflow `edge-xff-probe.yml` gana el input `control` (booleano, def. `false`): `true` ⇒
+`--control-only`. La confirmación exacta sigue siendo `C6-6-INTENTOS`; el comportamiento por push/PR (solo canario)
+no cambia.
+
+**Canario.** `check-edge-xff-probe-canary.sh` gana dos casos: `bypass + --control-only` ⇒ rc 1 con `peticiones: 6`
+(si la base se reenviara saldría `peticiones: 12` y el canario mordería), y `off + --control-only` ⇒ rc 2. Verificado
+local: **10/10** con N=2 (incluye las dos mutaciones existentes que siguen mordiendo).
+
+**Cómo se corre (lo dispara el orquestador tras autorización del dueño, ventana abierta):**
+`gh workflow run edge-xff-probe.yml --ref claude/salida-real -f confirmar=C6-6-INTENTOS -f control=true`.
+Qué mirar en el resumen del job: `modo: ronda de CONTROL únicamente`, la línea `control: <6 respuestas>` y
+`peticiones: 6` (nunca 12). Otra corrida después de esta requiere **nueva** autorización del dueño.
+
+**Rollback:** `git revert` del commit. El workflow vuelve a invocar solo `--i-have-a-window` (ronda base, 6) y
+pierde el input `control`; el flag `--control-only` del script queda inerte sin el workflow. No toca producción ni
+datos.
+
+## §98 · La CSP vuelve a `report-only` este release: ZAP 10038/10055 a WARN (2026-10-10, rama `claude/salida-real`, devops)
+
+**Qué pasa.** La causa de los avisos CSP de producción en `/es` y `/es/decks-meta` sigue **SIN MEDIR**, así que no
+se puede garantizar que `enforce` no rompa la portada. Por eso este release vuelve la CSP a `report-only`
+(frontend pone `CSP_MODE='report-only'` en `frontend/src/security/csp.ts`) y el paso a `enforce` queda pendiente
+como **CL-1**.
+
+**Mi cambio (`security/zap/baseline.conf`).** Bajé **10038 y 10055 de FAIL a WARN**. Con `report-only` ZAP no cuenta
+la CSP como aplicada y las dispara SIEMPRE: dejarlas en FAIL pondría rojo el DAST de release por un hallazgo
+**esperado**. Siguen saliendo en el informe (WARN: se ven, no bloquean). Las sub-alertas `10055-3/-4/-6` quedan como
+estaban (WARN). El comentario de la política (§14.3) describe ahora las dos fases y dice que 10038/10055 **vuelven a
+FAIL en el MISMO cambio** que ponga `CSP_MODE='enforce'`.
+
+**Lo ata `scripts/check-csp-zap-parity.sh`** (job `live-candados` de ci.yml): la constante de frontend y la política
+de devops se mueven juntas. `report-only` con alguna en FAIL ⇒ rc 1; `enforce` con alguna ≠ FAIL ⇒ rc 1.
+
+**Medido (2026-10-10).**
+- `check-csp-zap-parity.sh` con mi baseline.conf y un `csp.ts` simulado a `report-only`: **rc 0** («report-only con
+  10038/10055 en WARN»). Con el `csp.ts` aún en `enforce` del árbol (frontend no había commiteado): rc 1 — esperado,
+  el verde final se confirma cuando ambos commits (frontend `csp.ts` + este) estén.
+- `check-zap-conf.sh` (§96.7, emulación sin Docker): **rc 0**, todos los casos verdes; el filtro sigue quitando solo
+  `10055-3/-4/-6` para ZAP. No corrí `--real` (necesita Docker).
+
+**Rollback.** `git revert` de este commit devuelve 10038/10055 a FAIL. OJO: FAIL solo es coherente con
+`CSP_MODE='enforce'`; el candado de paridad exige revertir las dos cosas juntas (baseline.conf + csp.ts). No toca
+producción ni datos.

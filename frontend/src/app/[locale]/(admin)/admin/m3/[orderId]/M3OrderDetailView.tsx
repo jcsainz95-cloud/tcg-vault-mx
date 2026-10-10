@@ -150,7 +150,9 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
         const status = err.details?.status;
         setError(typeof status === 'string' ? tManual('toManual.notConvertibleStatus', { status: tRefund.has(status) ? tRefund(status) : status }) : tManual('toManual.notConvertibleKind'));
       } else if (err?.status === 409 && err.code === 'CASE_ORIGIN_NOT_SETTLED') {
-        setError(tManual('toManual.originNotSettled', { status: String(err.details?.originStatus ?? 'refunded'), disputed: err.details?.reason === 'charge_disputed' ? 'yes' : 'no' }));
+        // v1.84 LIVE-5 (§14.5): con `reason` la orden sigue `settled` y el motivo es del COBRO ⇒ el mensaje sigue a `reason`.
+        const reason = err.details?.reason === 'charge_disputed' || err.details?.reason === 'payment_other_mode' ? err.details.reason : 'status';
+        setError(tManual('toManual.originNotSettled', { reason, status: String(err.details?.originStatus ?? 'refunded') }));
       } else setError(getError(e));
     },
   });

@@ -21391,3 +21391,142 @@ el gate marca «falta COBRO y/o SUBIDA» por no tener claves de Stripe — MIV-E
   fichero vivo no se tocó.
 - `check-e2e-skip-census.sh`: **= baseline** (harnessLimit 5, skipIfSeedMissing 15, realOnly 27). `tsc --noEmit` y
   `eslint` del spec: limpios.
+## §112 · 💰 **LIVE-5 C-1 — el aviso del cobro de origen sale al revelar la CLABE, antes de transferir** (2026-10-10, rama `claude/salida-real`, base `10d1430c`; `API_CONTRACT §14.5` · techlead C-1, D-5, D-9)
+
+### §112.1 · Qué faltaba (medido sobre `10d1430c`)
+`grep -rn originCharge frontend/src` = 0. Backend (`BACKEND_NOTES §89.2`) ya devolvía en `GET /admin/manual-refunds/:id/reveal-clabe`
+`originCharge: {disputed, otherMode} | null` y `originChargeUnavailable` (`manual-refund.service.ts:440-446`), pero la cubeta SPEI
+no los pintaba: el operador revelaba, transfería y solo el `422 MANUAL_REFUND_CONFIRMATION_REQUIRED` de `paid` le avisaba,
+**con el dinero ya fuera**.
+
+### §112.2 · Qué se hizo
+- **Tipo** (`types/contract.ts`): `RevealManualRefundClabeResponse` gana `originCharge?` y `originChargeUnavailable?` (opcionales en el
+  tipo solo para tolerar un backend previo a v1.84: sin campo ⇒ sin aviso, como antes); `ManualRefundOriginCharge`;
+  `OriginChargeReason = 'charge_disputed' | 'payment_other_mode'`; `ManualRefundConfirmationRequiredDetails.reason?`.
+- **Vista** (`manual-refunds/[id]/ManualRefundDetailView.tsx`): `originChargeWarning()` elige UN aviso — contracargo > otro
+  modo > Stripe no respondió — y `OriginChargeBanner` lo pinta como `Banner variant="danger" role="alert"` **encima de la CLABE**,
+  dentro de la vista del reveal (aparece y desaparece con ella). ⛔ No bloquea «Marcar pagada»: el contrato dice que el reveal no
+  bloquea y que la puerta es el `422` de `paid`. La casilla de ese `422` ahora nombra el motivo (`reason` del `details`): ya no dice
+  «en disputa o reembolsada» para un pedido de modo prueba.
+- **M3** (`m3/[orderId]/M3OrderDetailView.tsx`, menor de C-1): el `409 CASE_ORIGIN_NOT_SETTLED` de `to-manual` con `reason` trae
+  `originStatus:'settled'`; antes caía en `{status, select, … other {reembolsada}}` y decía «la compra de origen está reembolsada»
+  de una orden liquidada. Ahora `toManual.originNotSettled` es `{reason, select, charge_disputed {…contracargo…}
+  payment_other_mode {…modo prueba…} other {lo de antes por estado}}`. El segmento `{disputed, select}` desaparece (lo cubre la rama
+  `charge_disputed`).
+- **Mock** (`lib/mock/m4-ship.ts`): el reveal devuelve `originCharge` (contracargo si la orden de origen está en `chargeback`; `null`
+  sin orden) y `originChargeUnavailable:false`.
+
+### §112.3 · Textos — ⚠️ pendientes de ux-ui
+`DESIGN_SYSTEM` no los tiene (`grep -n "contracargo en el banco\|No pudimos consultar Stripe" docs/DESIGN_SYSTEM.md` = 0). Los `body` en
+español son **literales de `API_CONTRACT §14.5`**; los `title`, las tres ramas de la casilla `paid.confirmOrigin`, las de
+`toManual.originNotSettled` y **todo el inglés** son propuesta de frontend:
+
+| Clave (`admin.manualRefunds.…`) | es (título · cuerpo) |
+|---|---|
+| `reveal.originCharge.disputed` | «No transfieras» · «Este cobro tiene un contracargo en el banco. No transfieras: el banco ya está resolviendo el dinero.» |
+| `reveal.originCharge.other_mode` | «No transfieras» · «Este pedido se pagó en modo prueba. No hay dinero real que devolver.» |
+| `reveal.originCharge.unavailable` | «Verifica en Stripe antes de transferir» · «No pudimos consultar Stripe. Revisa el cobro en tu panel de Stripe antes de transferir.» |
+
+Deuda registrada: `TECH_DEBT` **RS5-FE-C1** (incluye que `other_mode` hereda **D-6**: backend lee todo `resource_missing` como «otro
+modo», y con un PI inexistente en ambos modos el texto mentiría — conservador, pero falso).
+
+### §112.4 · D-5 — `middleware.test.ts` en las dos fases
+Antes, «nonce distinto en dos peticiones» y «la redirección `/ ⇒ /es` lleva CSP» solo corrían en `report-only` (forzada); la fase
+vigente (`enforce`) tenía un único caso. Ahora `describe.each(PHASES)` corre los tres casos (nonce distinto + sin la cabecera de la
+otra fase; el nonce viaja al render; la redirección lleva CSP con nonce propio por petición) en `enforce` **y** `report-only`, cada uno
+leyendo su cabecera. El caso «sin forzar fase» (vigente = enforce) y el invariante `frame-ancestors` se quedan como estaban.
+El describe `CSP-6 · en enforce…` se absorbe en la fase `enforce` del parametrizado (sus cuatro aserciones están en los dos primeros
+casos); el nombre lleva `CSP-1/CSP-6` para que `csp.ts:14` y `e2e/csp.spec.ts:7` sigan apuntando a algo.
+
+### §112.5 · D-9 — ratificación de lo que devops tocó en `frontend/` (`484f8530`)
+- `security/csp.ts:32` `CSP_MODE = 'enforce'`: **ratificado**. Va con `security/zap/baseline.conf` 10038/10055 en FAIL y lo ata
+  `scripts/check-csp-zap-parity.sh`.
+- `security/csp.test.ts` «fase vigente: enforce»: **ratificado** tal cual.
+- `middleware.test.ts`: **ratificado** el caso nuevo «sin forzar fase» y el forzar `report-only` en los tres viejos; **ampliado** por D-5
+  (arriba): con el árbol de devops, un nonce fijo **solo en `enforce`** pasaba **8/8 verde** (medido, ver §112.6).
+- **Cambiado:** el comentario de `CSP_MODE` (`csp.ts:20-35`) seguía diciendo «`report-only` (HOY)» y citaba `security/baseline.conf`,
+  que no existe (`git ls-files | grep baseline.conf` ⇒ `security/zap/baseline.conf`). Ahora dice que `enforce` es la vigente desde
+  CL-1, que `report-only` es la vuelta atrás, cita la ruta real y deja el umbral de TTFB de §14.3 a la sonda E-8 (`DEVOPS_NOTES
+  §85.10`). ⛔ Frontend **no midió** si el TTFB se cumplió antes de CL-1.
+
+### §112.6 · Medido (2026-10-10, árbol de trabajo sobre `10d1430c`; mutaciones sobre copia del árbol ENTERO en el scratchpad)
+| Qué | Resultado |
+|---|---|
+| Pruebas nuevas antes de implementar | **7 rojas / 17** (5 de C-1 en la cubeta, 2 de M3 con `reason`); los controles (cobro limpio, sin PI, `chargeback`/`refunded` sin `reason`) verdes |
+| Mutación 1: quitar `<OriginChargeBanner>` de la vista | **5/13 rojas, 3 de 3 tiradas** (N=3; determinista). El caso «se va con la CLABE» pasaba en vacío: se le añadió la precondición y desde entonces muerde |
+| Mutación 2: M3 vuelve a ignorar `reason` | **2/4 rojas, 3 de 3 tiradas** (`payment_other_mode` y `charge_disputed`) |
+| Mutación 3 (D-5): `nonce` fijo solo cuando `CSP_MODE==='enforce'` | suite nueva **2/10 rojas, 3 de 3 tiradas**; la suite de `10d1430c` con la misma mutación **8/8 verde** (N=1) — el hueco de D-5 era real |
+| `vitest run` completo | rc 0 · **326 ficheros verdes + 1 saltado; 4262 pruebas verdes + 10 saltadas** (las saltadas son previas: esta rama no añade `skip`) — con load 10–13 en 4 CPU, sin rojos |
+| `tsc --noEmit` · `next lint` | rc 0 · «No ESLint warnings or errors» |
+| Paridad i18n (`src/lib/i18n-parity.test.ts`, dentro de la suite) | verde |
+| `scripts/check-e2e-skip-census.sh` | rc 0, las claves = baseline (no se tocó E2E) |
+
+**NO MEDIDO:** el aviso contra el backend real (stack no levantado en este pase); el E2E de la cubeta SPEI no se tocó.
+
+## §113 · CSP — la 404 salía del `_not-found` ESTÁTICO, con `<script>` sin nonce (2026-10-10, rama `claude/salida-real`, base `cb33560c`)
+
+**Disparador.** Logs de Railway de producción (dueño, 2026-10-10): decenas de `CSP_VIOLATION` `script-src-elem` con
+`blockedOrigin` `https://tcghunt.mx` (`documentPath /es/decks-meta`, 16:52 UTC) e `inline` (`/es`, 18:24 UTC), en
+`report-only`. Con `CSP_MODE = 'enforce'` (`484f8530`) una página con esa firma se queda sin JS.
+
+**Medido (2026-10-10, `next build && next start` en modo producción, copia de `cb33560c`, Chromium 1194):**
+- `next build`: `/[locale]` y casi todo el storefront salen `●`, pero **no hay HTML horneado**: `prerender-manifest.json`
+  solo trae `/_not-found` y los iconos; el `●` es por `generateStaticParams` y el render cae a dinámico porque el layout
+  lee `headers()`. Respuestas `Cache-Control: private, no-store`.
+- Rutas públicas: HTML por `curl` de 22 rutas (`/es`, `/en`, catálogo y ficha, sellado, accesorios y ficha, compra,
+  buylist, decks-meta y ficha, decks-meta/pegar, términos, privacidad, pedido, aviso de deseos, login, registro,
+  checkout, vault, orders, shipments): **todos** los `<script>` llevan el nonce de su respuesta (p. ej. `/es` 37/37,
+  `/es/decks-meta` 33/33). En el navegador, 17 rutas con carga directa (incluidas olvido, verify y reset) con mocks:
+  **0** violaciones.
+  Navegación de cliente por enlaces del header (/es → decks-meta → catálogo → … → atrás): **0** eventos
+  `securitypolicyviolation`, **0** informes.
+- **La 404** (`/es/no-existe`): 12 `<script>`, **0** con nonce. Es el `_not-found` prerenderizado de Next (no había
+  `not-found` ni catch-all dentro de `[locale]`). En el navegador produce exactamente las dos firmas del log:
+  6 × `script-src-elem inline` y 6 × `script-src-elem <origen propio>/_next/static/chunks/…`.
+
+**Arreglo.** `src/app/[locale]/[...rest]/page.tsx` → `notFound()`. La URL desconocida casa dentro de `[locale]` y la
+404 se renderiza por petición (layout con `headers()`), con nonce y estado 404. Contenido visible igual que antes
+(la 404 genérica de Next, ahora dentro del layout raíz de `[locale]`). Las rutas concretas siguen teniendo prioridad.
+Una 404 con diseño propio queda como petición a ux-ui (no está en DESIGN_SYSTEM).
+
+**Candado.** `e2e/csp.spec.ts` CSP-2 ampliada: 17 rutas públicas (200) + 3 rutas 404 (`/es/…`, `/en/…`, anidada bajo
+`decks-meta/`); exige que todos los `<script>` lleven el nonce de su respuesta. Sin el arreglo: **3 rojas / 17 verdes**
+(las tres 404). Con el arreglo: `csp.spec.ts` entero **29/29**. HTML determinista: N=1 basta (no es probabilístico).
+
+**NO MEDIDO:** la causa de los informes con `documentPath` `/es` y `/es/decks-meta`. En local esas páginas no violan
+la política, ni con carga directa ni con navegación de cliente. El GET a `https://tcghunt.mx` lo denegó el proxy de
+salida (política de la organización), así que no comparé el nonce de la cabecera de producción con el del HTML ni
+miré `x-vercel-cache`/`age`. El informe de `POST /telemetry/csp` no guarda `sourceFile` ni `sample`
+(`backend/src/modules/health/telemetry-report.ts:4`), y sin ellos no se distingue un script de Next de uno inyectado
+por una extensión o por el navegador integrado de una red social.
+
+## §114 · CSP — este release vuelve a `report-only` (enforce pendiente de medir producción) (2026-10-10, rama `claude/salida-real`)
+
+**Decisión (orquestador, medida).** La causa de los avisos CSP de producción en `/es` y `/es/decks-meta` sigue SIN
+MEDIR (no es la 404 de §113 / `0515d53a`; esos avisos tienen otro `documentPath`). No se garantiza que `enforce` no
+rompa la portada en vivo, así que este release sale con la CSP en `report-only` (la VUELTA ATRÁS que describe el
+propio `csp.ts`). El paso a `enforce` (CL-1) queda para después, una vez medida la tienda en vivo. El arreglo de la
+404 (`0515d53a`, §113) se queda.
+
+**Cambio (solo `frontend/`).**
+- `src/security/csp.ts`: `CSP_MODE` de `'enforce'` a `'report-only'`; el comentario de la constante refleja que la
+  fase VIGENTE es `report-only` (paso 1) y que `enforce` (paso 2, CL-1) queda pendiente de medir producción. La
+  doctrina de las dos fases no se borra.
+- `src/security/csp.test.ts`: el candado «fase vigente» (`LIVE-3 · fase (CSP-6)`) pasa a `expect(CSP_MODE).toBe('report-only')`;
+  muerde si alguien vuelve a `enforce` sin el cambio coordinado de ZAP. El it «por defecto usa la fase vigente» añade
+  `expect(buildCsp(...)).toBe(buildCsp(..., 'report-only'))`, que deja de casar en cuanto el default (CSP_MODE) trae
+  `upgrade-insecure-requests`, es decir, en cuanto se vuelve a `enforce`.
+- `src/middleware.test.ts`: el bloque standalone «sin forzar fase» hardcodeaba la cabecera aplicada (`enforce`). Con
+  `CSP_MODE = report-only` el middleware pone `Content-Security-Policy-Report-Only` y NO la aplicada, así que ese test
+  se ajustó a leer la cabecera report-only. El `describe.each(PHASES)` ya cubría ambas fases y no cambió.
+
+**Medido (2026-10-10, `vitest run`, copia viva de la rama, carga `0.08`):**
+- `src/security` + `src/middleware.test.ts`: **34/34 verdes** (antes del ajuste de middleware: 33/34, la única roja era
+  ese candado de fase vigente).
+- `src/app`: **2318/2318 verdes** (187 ficheros, rc 0). Hay «1 error» no fatal de teardown de worker cuyo detalle
+  truncó el `tail`; NO MEDIDO su origen, pero está fuera de los ficheros tocados y el rc fue 0.
+- `scripts/check-csp-zap-parity.sh`: **rc 0** (`CSP_MODE=report-only · ZAP 10038=WARN · 10055=WARN`). En esta rama el
+  `security/zap/baseline.conf` ya trae 10038/10055 en WARN, así que el candado de paridad está verde; no hubo pieza
+  roja de devops pendiente.
+
+HTML/texto determinista: N=1 basta (no es probabilístico).

@@ -33,13 +33,18 @@ mkdir -p "${REPORT_DIR}"
 echo "→ ZAP baseline contra ${TARGET_URL} ..."
 # -c config con reglas (FAIL/WARN/IGNORE); -I no falla por WARN; el gate lo
 # marcan las reglas FAIL de baseline.conf. -r reporte HTML, -w markdown, -J json.
+# Imagen FIJADA por digest + política filtrada (solo IDs enteros) para ZAP: §96.7.
+# shellcheck source=security/scripts/dast-zap-lib.sh
+. "${SCRIPT_DIR}/dast-zap-lib.sh"
+ZAP_CONF_DIR="${REPORT_DIR}/zap-conf"
+zap_conf_for_zap "${ZAP_CONF_DIR}"
 docker run --rm \
-  -v "${SEC_DIR}/zap:/zap/wrk/conf:ro" \
+  -v "${ZAP_CONF_DIR}:${ZAP_CONF_MOUNT}:ro" \
   -v "${REPORT_DIR}:/zap/wrk/out:rw" \
-  ghcr.io/zaproxy/zaproxy:stable \
+  "${ZAP_IMAGE}" \
   zap-baseline.py \
     -t "${TARGET_URL}" \
-    -c /zap/wrk/conf/baseline.conf \
+    -c "${ZAP_CONF_MOUNT}/baseline.conf" \
     -r /zap/wrk/out/zap-baseline.html \
     -w /zap/wrk/out/zap-baseline.md \
     -J /zap/wrk/out/zap-baseline.json \

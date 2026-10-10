@@ -31941,3 +31941,137 @@ Hueco conocido: B4 (traslación) muerde solo en sellado; en carta la mutación n
   | M-B10b | `units: []` (la que la versión anterior dejaba pasar) | MIV-B10 «`ListingDTO` por pieza» **roja** |
 - **D-1 (techlead) y el MENOR de QA** (`product.name` de la tendencia de sellado) quedan anotados en `TECH_DEBT.md`
   (TD-MIV-1, TD-MIV-2). Ninguno bloquea.
+## 89 · v1.84 LIVE-4 (TD-4) y LIVE-5 (C2) construidas (💰) — CAS en los tres escritores de `failed`; el SPEI pregunta a Stripe por el cobro (2026-10-10, rama `claude/salida-real`, sobre `20b676bf` = `origin/production`)
+
+Contrato: `API_CONTRACT §14.4` (LIVE-4) y `§14.5` (LIVE-5). Porqué: `ARCHITECTURE §4.63.4`. ⛔ Sin schema, sin migración,
+sin enum, sin código de error nuevo (`CASE_ORIGIN_NOT_SETTLED`, `MANUAL_REFUND_CONFIRMATION_REQUIRED` y
+`PAYMENT_PROVIDER_UNAVAILABLE` ya existían; solo dos valores nuevos de `details.reason`, los del contrato).
+
+### 89.1 LIVE-4 · TD-4 — `pending → failed` es un CAS
+- Helper único `failPendingOrder(tx, orderId) → boolean` en `orders/reservation.ts`:
+  `order.updateMany({ where: { id, status: 'pending' }, data: { status: 'failed' } })`. Es la **primera** escritura de
+  la tx que libera. `false` ⇒ el llamador ⛔ no libera piezas ni apartados de accesorio y sale sin escribir.
+- Los tres sitios: `releaseReservation` (compensación A2 y barrido legado de invitado), `supersedeOwnOrder`
+  (sustitución; si el CAS pierde **no lanza**: la reserva nueva choca luego con `ITEM_UNAVAILABLE` si las piezas ya no
+  están libres) y `sweepExpiredReservations`.
+- **Barrido, decisión de lectura del contrato:** el CAS se aplica cuando la orden se **leyó** `pending` (la rama que
+  escribía `failed`). Si se leyó en otro estado (p. ej. ya `failed` con piezas aún reservadas por ella) se conserva la
+  conducta de antes: no se escribe la orden y se suelta lo que siga reservado con `reservationGuard`. Aplicar el CAS
+  también ahí dejaría esas piezas atrapadas para siempre (la prueba de siempre «una orden ya `failed` con piezas aún
+  reservadas por ella se libera sin volver a marcarla» lo fija). Si el arquitecto lo quiere distinto, es una línea.
+- El log de `noop` del barrido ya no afirma «la orden quedó `failed`» sin condición.
+- **TD4-3 y la carrera «libre»:** con un Stripe fiel, el barrido y la sustitución solo escriben si el PI quedó
+  `canceled`, y un PI cancelado ya no se liquida ⇒ la carrera libre `succeeded ∥ barrido` **no llega** al CAS (la
+  ventana solo existe si falla esa propiedad de Stripe, que es justo de lo que el contrato no quiere depender). Por eso
+  TD4-3 se mide con **barrera de fila** (`row-lock-barrier`, canario `pg_stat_activity`): la barrera escribe
+  `settled` + piezas `in_custody` sin confirmar, el barrido se **ve** bloqueado en su `UPDATE`, la barrera confirma y
+  Postgres re-evalúa el `WHERE`. Y TD4-2 «liquidada/reembolsada entre la lectura y la escritura» se fuerza con el doble
+  de Stripe: mientras se cancela el PI (B3, que corre entre la lectura `pending` y la tx), llega el
+  `payment_intent.succeeded` firmado real (y en la variante `refunded`, también el `charge.refunded`).
+
+### 89.2 LIVE-5 · C2 — `chargeState` y la cubeta SPEI
+- `StripeService.chargeState(pi)`: `paymentIntents.retrieve(pi, { expand: ['latest_charge'] })` ⇒
+  `{ mode: 'current', disputed: latest_charge.disputed, amountRefundedCents }`; `StripeInvalidRequestError` con
+  `code: 'resource_missing'` ⇒ `{ mode: 'other' }`; **cualquier** otro fallo ⇒ `503 PAYMENT_PROVIDER_UNAVAILABLE`.
+- `ManualRefundService.originChargeOf(orderId)` lo llama **fuera** de toda `$transaction` (CS-6) y devuelve un valor
+  (`none` | `unavailable` | `other` | `current{disputed}`); sin orden o sin PI no llama a Stripe.
+- `to-manual`: la lectura va antes de la tx; se **aplica** en el paso 3-bis (tras `REFUND_NOT_CONVERTIBLE`, la
+  idempotencia y el `FOR UPDATE` de la orden). Así, repetir un `to-manual` ya hecho sigue siendo `200` con la misma fila
+  aunque Stripe esté caído. `other` ⇒ `409 CASE_ORIGIN_NOT_SETTLED {originStatus:'settled', reason:'payment_other_mode'}`;
+  `disputed` ⇒ `409 … reason:'charge_disputed'`; caído ⇒ `503`. La lista `REFUND_FAILURE_DISPUTE_CODES` sigue detrás
+  como atajo y registro, ⛔ ya no es la puerta.
+- `reveal-clabe`: gana `originCharge: { disputed, otherMode } | null` y `originChargeUnavailable: boolean` (siempre
+  presente; `true` solo con Stripe caído). No bloquea.
+- `paid`: `disputed` u `otherMode` cuentan como origen no liquidado ⇒ sin `confirmOriginNotSettled` ⇒
+  `422 MANUAL_REFUND_CONFIRMATION_REQUIRED {required:['origin_not_settled'], originStatus, reason}`. Stripe caído ⇒ se
+  registra igual; la bitácora `manual_refund.paid` gana `reason` (`charge_disputed` | `payment_other_mode` | `null`) y
+  `originChargeUnavailable`.
+- **Frontend (no es mío, aviso):** el aviso rojo de `reveal-clabe` (§14.5, textos de ux-ui) no está construido; el
+  `422` de `paid` ya lo maneja la pantalla (`required: ['origin_not_settled']`), aunque ahora puede llegar con
+  `originStatus: 'settled'` + `reason`.
+- ⛔ **NO MEDIDO contra Stripe real** (en este contenedor no hay claves): ni el código exacto que Stripe MX devuelve al
+  reembolsar un cargo disputado, ni que `latest_charge.disputed` siga `true` tras una disputa **ganada** (si sigue,
+  `to-manual` bloquea para siempre ese cobro y el SPEI habría que hacerlo fuera de la tienda). La medición que lo
+  cierra está en `§14.5` (tarjeta `4000 0000 0000 0259` en modo prueba). Con LIVE-5 ese número ya no decide dinero.
+- `refund-ledger.service.ts` (`onRefundUpdated`) sigue guardando `failureCode = stripe_<status>` para los fallos
+  asíncronos: no casa con la lista, pero con el 3-bis ya no importa. Guardar `refund.failure_reason` sería mejor
+  registro; no lo toqué (no lo pide el contrato).
+
+### 89.3 Pruebas y cifras (árbol vivo, `20b676bf` + este commit; Postgres 16 y Redis propios)
+- Nuevas: `test/orders.td4-failed-cas.spec.ts` (7, unidad), `test/integration/td4-failed-cas.e2e-spec.ts` (12:
+  TD4-1 ×2 + control, TD4-2 barrido ×4 + control, sustitución ×2 + control, TD4-3 N=10),
+  `test/stripe.charge-state.spec.ts` (8), y en `replacement-cases.e2e-spec.ts` CS-1/2/3, CS-4/5, CS-5b, CS-6 (CS-7 =
+  PS-48 sin tocar, verde). Ajustadas a la forma CAS (mocks `order.updateMany`): `orders.reservation-owner.spec.ts`,
+  `orders.reservation.spec.ts`, `guest-checkout.session.spec.ts`, `guest-checkout.guard-sweep-mail.spec.ts`.
+  `TestStripeService` gana `chargeState` guionizable por PI (por defecto: cobro limpio).
+- **Rojo primero:** TD-4 sobre el código de `20b676bf`: unidad 6/7 rojas; integración 9/12 rojas (las 3 verdes son
+  los controles), TD4-3 **0/10 verdes, 10/10 válidas**, todas `KO(failed,in_custody+in_custody)` = pedido pagado que
+  queda `failed`. LIVE-5 sobre el `manual-refund.service.ts` de `20b676bf` (copia): CS-1, CS-4/5, CS-5b y CS-6 rojas;
+  PS-35 y PS-48 verdes.
+- **Verde:** TD4-3 **10/10 válidas, 10/10 verdes**. 18 suites de integración relacionadas (reservas, checkout,
+  barridos, settle tardío, reembolsos, SPEI): **354/354**.
+- Unidad completa **464/464 suites, 8373/8373 pruebas**; `tsc --noEmit` exit 0; `npm run lint` exit 0.
+- **Mutaciones** (copia del árbol ENTERO en el scratchpad, `git archive 20b676bf` + estos ficheros):
+  helper sin `status:'pending'` ⇒ integración 9/12 rojas, TD4-3 0/10; cada sitio vuelto a `update` por id ⇒ rojas
+  **solo** las de su sitio (release 2, sustitución 2, barrido 4 + TD4-3 0/10); sin paso 3-bis ⇒ CS-1 roja; `paid`
+  sin contar `disputed` ⇒ CS-4/5 roja; `chargeState` dentro de la tx ⇒ CS-6 roja; `resource_missing` como limpio ⇒
+  unidad CS-2 roja; `catch` que sigue ⇒ unidad CS-3 4/4 rojas. N=1 por mutación: deterministas (barrera de fila y
+  doble guionizado, no tiradas de dados); TD4-3 da su proporción con N=10.
+
+### 89.4 Condición C-2 del techlead (sobre `10d1430c`) — cerrada en (a)–(d); D-1 y D-6 quedan en `TECH_DEBT` (2026-10-10)
+- **(a)** `payments.service.ts` `failAndRelease` ya no repite el CAS: llama a `failPendingOrder(tx, order.id)` (`:703`).
+  Misma conducta (`false` ⇒ no se libera nada).
+- **(b) Candado RS5-TD-4:** `test/orders.failed-writer-lock.spec.ts`. Recorre `backend/src` (sin `*.spec.ts`), quita
+  comentarios, y busca escrituras literales de `status: 'failed'` / `OrderStatus.failed` en `order.update|updateMany|
+  upsert|create|createMany(…)` (ignorando el `where: {…}`) y en `UPDATE "Order" SET … status = 'failed'` crudo (solo la
+  parte `SET`). Lista de permitidos de **un** elemento: la llamada dentro de `failPendingOrder` (por desplazamiento en
+  `orders/reservation.ts`). Canarios: 4 formas que deben saltar (incluida la de `payments.service.ts:701` en
+  `10d1430c`) y 5 que no (otro modelo, `failed` en el `where`, otro estado, comentarios, SQL con `failed` en el
+  `WHERE`); censo no ciego. ⛔ **No ve** un `data` armado en una variable aparte ni un estado por parámetro.
+- **(c) D-7:** `ManualRefundService.originChargeOf` traduce a `{kind:'unavailable'}` SOLO un `BusinessException`
+  `PAYMENT_PROVIDER_UNAVAILABLE` con status `503` (la forma exacta del «Stripe no respondió» de `chargeState`,
+  §14.5). Cualquier otro error se **propaga** (500 del filtro global; ocurre antes de toda tx ⇒ cero escrituras).
+  Elegí acotar el `catch` y no que `chargeState` devuelva `{mode:'unavailable'}` porque §14.5 fija que `chargeState`
+  **lanza** `PaymentProviderUnavailable`; cambiar esa firma es del arquitecto.
+- **(d) D-2:** `releaseReservation` sigue tragándose el fallo de su tx (conducta igual), pero registra
+  `logger.error(JSON.stringify({ event: 'orders.release_reservation_failed', orderId, itemCount, error }))`.
+- **Rojo primero** (código de `10d1430c`, árbol vivo antes de tocar `src`): candado 1/4 rojo, exactamente
+  `["failPendingOrder", "modules/payments/payments.service.ts:701 (order.updateMany)"]`;
+  `test/manual-refund.origin-charge-errors.spec.ts` 3/5 rojas (los dos controles verdes);
+  `test/orders.release-reservation-log.spec.ts` 1/2 roja (el control verde).
+- **Mutaciones** (copia del árbol ENTERO: `git archive 10d1430c` + los 6 ficheros de este pase; N=1, deterministas):
+  `failAndRelease` con el CAS literal de vuelta ⇒ candado rojo; `releaseReservation` con `order.update` por id ⇒
+  candado rojo; `catch` sin condición ⇒ 3/5 rojas; sin la comprobación de `503` ⇒ 1/5 roja; log silenciado ⇒ 1/2 roja.
+  Restaurado ⇒ 11/11.
+- **Cifras** (árbol vivo, `10d1430c` + este pase): unidad **467/467 suites, 8384/8384**; `tsc --noEmit` 0;
+  `npm run lint` 0. Integración con Postgres 16 + Redis propios: 15 suites (td4-failed-cas, replacement-cases,
+  checkout-reservation-owner, guest-checkout, accessories-checkout, catalog-checkout-webhook, settle-late,
+  vault-legacy-reservation-sweep, guest-chargeback, seed-spei-bucket, pnl-delivered-refunds, shipped-refund-reason,
+  stripe-in-tx-pool, bsd-b3, bsd-b5) **327/327 verdes, 2 omitidas** (las de `stripe-in-tx-pool` que solo corren con el
+  pool de CI, `:216/:233`). Carga de la máquina ~10–13 con 4 CPU durante la corrida: ningún rojo por timeout.
+- **Abiertas** (en `TECH_DEBT` RS5-TD-4 y RS5-C2): **D-1** (el barrido suelta piezas de una orden leída no-`pending`
+  sin CAS sobre el estado leído, `orders.service.ts:1258-1264`; la decisión es del arquitecto, §14.4 fijó «como antes»)
+  y **D-6** (`resource_missing` no siempre es «otro modo»; `latest_charge.disputed` tras disputa ganada NO MEDIDO).
+
+## 90 · El candado de enlaces de correo excluye el catch-all centinela de CSP (2026-10-10, rama `claude/salida-real`, sobre `24e1afe2`)
+
+El commit `0515d53a` (frontend) añadió `frontend/src/app/[locale]/[...rest]/page.tsx`: un catch-all cuyo
+`page.tsx` **solo** llama a `notFound()`. No es un destino; existe para que una URL desconocida case dentro de
+`[locale]` y su 404 salga por-petición con el nonce de CSP (candado `e2e/csp.spec.ts` CSP-2). Ruta de front
+legítima, **no se toca**.
+
+El daño estaba en mi candado `backend/test/mail-links.frontend-routes.spec.ts`: su walker `frontendRoutes()`
+veía `[...rest]` como un catch-all que casa con CUALQUIER path ⇒ `routeExists(lo-que-sea)` devolvía `true`. Esto
+(1) ponía roja `:125` (`routeExists('cuenta/pedidos')` pasó a `true`) y (2) **vaciaba** el candado «ninguno
+apunta a una ruta inexistente»: un CTA de correo roto ya no se cazaría (defecto nacido en clientes reales,
+2026-09-29).
+
+**Arreglo (no debilita el candado):** `isNotFoundOnlySentinel(dir, entries)` detecta un catch-all cuyo `page.tsx`,
+sin comentarios, llama a `notFound()` y —quitadas esas llamadas— no deja ni `return` ni JSX (`<[A-Za-z]`). El
+walker NO registra ese catch-all como ruta. Un catch-all REAL que sirva contenido (tendría `return`/JSX) sí se
+registra como ruteable; la exclusión es específica del centinela, no un parche al número.
+
+**Verificación:** spec completo 37/37 verde. Mutación O-9 directa (archivo temporal `appUrl('cuenta/pedidos')` en
+`backend/src`): el candado de «ninguno apunta a una ruta inexistente» se pone ROJO (1 fallo) → sigue mordiendo;
+revertido. Mutación inversa (`esCentinela = false`): `:125` se pone ROJA (`Received true`) → la exclusión es lo que
+arregla; revertida.

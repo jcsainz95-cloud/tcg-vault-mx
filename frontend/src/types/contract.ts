@@ -2629,7 +2629,20 @@ export interface RevealManualRefundClabeResponse {
   clabeUpdatedAt: string | null;
   clabeChangedRecently: boolean;
   revealToken: string;
+  /**
+   * v1.84 LIVE-5 (§14.5, aditivo): el cobro de origen según Stripe, preguntado al revelar. `null` sin orden/PI **o**
+   * con Stripe caído (y entonces `originChargeUnavailable: true`). ⛔ No bloquea el reveal: es el aviso ANTES de
+   * transferir. Opcionales en el tipo solo para tolerar un backend previo a v1.84 (sin aviso).
+   */
+  originCharge?: ManualRefundOriginCharge | null;
+  originChargeUnavailable?: boolean;
 }
+export interface ManualRefundOriginCharge {
+  disputed: boolean;
+  otherMode: boolean;
+}
+/** v1.84 LIVE-5 (§14.5): motivo del cobro cuando la orden sigue `settled` (409 de `to-manual`, 422 de `paid`). */
+export type OriginChargeReason = 'charge_disputed' | 'payment_other_mode';
 /** `POST /admin/manual-refunds/:id/paid` (v1.80.3 / D-11: `speiReference` y `note` OPCIONALES). */
 export interface MarkManualRefundPaidRequest {
   revealToken: string;
@@ -2642,6 +2655,8 @@ export interface ManualRefundConfirmationRequiredDetails {
   required: ('recent_clabe_change' | 'origin_not_settled')[];
   clabeUpdatedAt?: string | null;
   originStatus?: OrderStatus;
+  /** v1.84 LIVE-5 (§14.5): presente cuando `origin_not_settled` viene del cobro y no del estado de la orden. */
+  reason?: OriginChargeReason;
 }
 export interface ManualRefundNoteRequest {
   note: string;

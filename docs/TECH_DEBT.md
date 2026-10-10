@@ -8556,7 +8556,33 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 > P3 = limpieza/consistencia (TD-1, TD-6, TD-7, PS-4, flake `shipments-prep`, `publish-all`). TD-10 se cerró en este
 > mismo pase (abajo).
 
-### RS5-TD-4 · P1 💰 · `failed` escrito con `update` por `id`, sin CAS, en tres sitios (**antes de `sk_live_`**)
+### RS5-TD-4 · P1 💰 · `failed` escrito con `update` por `id`, sin CAS, en tres sitios — ✅ **CERRADA (2026-10-10, rama `claude/salida-real`)**; queda **D-1** abajo
+> **Estado medido 2026-10-10** (backend, `BACKEND_NOTES §89.1` y `§89.4`):
+> - Los tres sitios de `orders.service.ts` usan `failPendingOrder` (`1f2bb471`, LIVE-4). El cuarto, `failAndRelease` de
+>   `payments.service.ts:703`, repetía el CAS literal (condición C-2 (a) del techlead sobre `10d1430c`): ahora llama al
+>   helper (este pase).
+> - **Candado estático (C-2 (b)):** `backend/test/orders.failed-writer-lock.spec.ts` recorre `backend/src` y exige que la
+>   ÚNICA escritura literal de `status: 'failed'` (o `OrderStatus.failed`) sobre `order` —`update`/`updateMany`/
+>   `upsert`/`create`/`createMany`, ignorando el `where`, y `UPDATE "Order" SET … 'failed'` crudo— sea la de
+>   `failPendingOrder` (lista de permitidos de **un** elemento). Canarios: cuatro formas que deben saltar y cinco que
+>   no; censo no ciego (ve la de `failPendingOrder`). Rojo sobre `10d1430c`: exactamente
+>   `payments.service.ts:701 (order.updateMany)`. **Límite dicho:** no ve un `data` armado en una variable aparte.
+> - El `.catch(() => undefined)` de `releaseReservation` (D-2 del techlead) ya registra: log `error` estructurado
+>   `{event:'orders.release_reservation_failed', orderId, itemCount, error}`; conducta sin cambiar (best-effort, el
+>   barrido reintenta).
+>
+> **Queda abierto — D-1 (techlead, sobre `10d1430c` `orders.service.ts:1247-1253`; hoy `:1258-1264`):** el barrido,
+> cuando **leyó** la orden en un estado distinto de `pending` (p. ej. ya `failed` con piezas aún suyas), suelta piezas
+> con `reservationGuard` **sin CAS sobre el estado leído**: la lectura es de fuera de la tx (`findUnique` del bucle). Si
+> entre esa lectura y la tx la orden pasa de `failed` a liquidada (un `succeeded` tardío sobre `failed` es liquidable), el
+> barrido soltaría lo que la liquidación no haya movido aún. La guarda de pieza (`status:'reserved'` + dueño) acota el
+> daño a piezas que sigan `reserved`; si la liquidación mueve piezas y orden en la misma tx, no hay ventana — **NO
+> MEDIDO** con barrera de fila. **Cómo se cierra:** en esa rama, `order.updateMany({ where: { id, status: <leído> },
+> data: {} })`/`SELECT … FOR UPDATE` + relectura dentro de la tx y soltar solo si sigue en el estado leído (decisión del
+> arquitecto: es el contrato §14.4 el que fijó «leída en otro estado ⇒ como antes»). **Prueba:** integración con
+> `row-lock-barrier`: orden `failed` con pieza `reserved` suya, la barrera la liquida sin confirmar, el barrido se ve
+> bloqueado, la barrera confirma ⇒ la pieza no vuelve a `listed`. **Disparador:** antes de `sk_live_`.
+
 - **Dónde:** `backend/src/modules/orders/orders.service.ts:889-899` (`releaseReservation`: `tx.order.update({ where: { id:
   orderId }, data: { status: 'failed' } })` en `:896`, envuelto en `.catch(() => undefined)` en `:898`); sustitución
   `supersedeOwnOrder` `:1042`; barrido de reservas `:1181`, cuyo guardia `order.status === 'pending'` (`:1180`) es una
@@ -8630,7 +8656,22 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Prueba que lo demuestra:** `npm audit --omit=dev` en `backend/` ⇒ 0 moderadas de `qs`/`body-parser`/`express`/`multer`;
   suites unitaria e integración completas verdes (subidas/`multer` incluidas).
 
-### RS5-C2 · P2 💰 · Códigos reales de Stripe MX para reembolso sobre cargo disputado — **NO MEDIDO**
+### RS5-C2 · P2 💰 · Códigos reales de Stripe MX para reembolso sobre cargo disputado — **NO MEDIDO**; la puerta ya no depende de ellos
+> **Estado medido 2026-10-10** (backend, `BACKEND_NOTES §89.2` y `§89.4`): con LIVE-5 (`10d1430c`) la cubeta SPEI pregunta
+> a Stripe (`StripeService.chargeState`) y la lista de abajo queda como atajo/registro, ⛔ no como puerta. Condición C-2
+> (c) del techlead (D-7) **cerrada en este pase**: `ManualRefundService.originChargeOf` traduce a `unavailable` SOLO el
+> `503 PAYMENT_PROVIDER_UNAVAILABLE` de `chargeState`; cualquier otro error se propaga (500 antes de toda tx) en vez de
+> leerse como «Stripe caído» (que en `paid` habría registrado sin pedir la confirmación de origen no liquidado). Prueba
+> `backend/test/manual-refund.origin-charge-errors.spec.ts` (rojo 3/5 sobre `10d1430c`).
+>
+> **Queda abierto — D-6 (techlead):** `chargeState` lee `resource_missing` como «el PI vive en el otro modo»
+> (`stripe.service.ts:315`), pero `resource_missing` también sale con un id de PI inexistente en **ambos** modos (dato
+> corrupto, cuenta equivocada): hoy eso se mostraría como «pedido de prueba, no hay dinero real» y `to-manual` daría
+> `409 payment_other_mode`. Bloquea (no paga), así que el error es de diagnóstico, no de dinero — pero el texto mentiría.
+> Y que `latest_charge.disputed` siga `true` tras una disputa **ganada** sigue **NO MEDIDO** (si sigue, `to-manual`
+> bloquea para siempre ese cobro). **Cómo se cierra:** medir con `sk_test_` real (la misma corrida de abajo: disputa
+> con `4000 0000 0000 0259`, ganarla con la evidencia de prueba, releer `latest_charge.disputed`); para `resource_missing`,
+> el arquitecto decide si se distingue por el prefijo de modo de la clave/PI o se renombra el aviso.
 - **Dónde:** `backend/src/modules/vault/replacement-case.rules.ts:20` (`REFUND_FAILURE_DISPUTE_CODES =
   ['charge_disputed', 'charge_already_refunded_or_disputed']`), consumido en
   `backend/src/modules/payments/refunds/manual-refund.service.ts:588`. `BACKEND_NOTES:25407` lo marca NO MEDIDO.
@@ -8642,6 +8683,23 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   medición la hace quien la tenga (sin pedir el valor por chat).
 - **Prueba que lo demuestra:** el `failure_code` observado citado en `BACKEND_NOTES` con fecha, y una unitaria de
   `manual-refund` parametrizada con ese código ⇒ rama «disputa».
+
+### RS5-FE-C1 · P3 · Textos del aviso del cobro de origen en la cubeta SPEI: provisionales, y el de «modo prueba» hereda D-6 (frontend; ux-ui / arquitecto)
+> Medido 2026-10-10 sobre el árbol de `claude/salida-real` (base `10d1430c`), `FRONTEND_NOTES §112`.
+- **Dónde:** `frontend/messages/{es,en}.json` → `admin.manualRefunds.reveal.originCharge.{disputed,other_mode,unavailable}.{title,body}`,
+  `admin.manualRefunds.paid.confirmOrigin` y `admin.manualRefunds.toManual.originNotSettled` (las dos últimas con `{reason, select}`).
+  Pintados por `ManualRefundDetailView.tsx` (`OriginChargeBanner`) y `M3OrderDetailView.tsx` (409 de `to-manual`).
+- **Riesgo:** (1) los `body` en español son los de `API_CONTRACT §14.5` literales, pero los `title` («No transfieras»,
+  «Verifica en Stripe antes de transferir»), las casillas por motivo y todo el inglés los propuso frontend: `§14.5` dice
+  «ux-ui fija textos» y `DESIGN_SYSTEM` no los tiene (`grep` 0). (2) `other_mode` dice «se pagó en modo prueba. No hay dinero
+  real que devolver», pero backend lee **cualquier** `resource_missing` como otro modo (TD de arriba, **D-6**): con un PI
+  inexistente en ambos modos el texto mentiría. El error es conservador (dice «no transfieras», no paga), pero el operador
+  podría dejar sin devolver dinero real si se fía del texto.
+- **Disparador:** el pase de ux-ui sobre la cubeta SPEI, o la decisión del arquitecto sobre D-6 (lo que llegue antes).
+- **Cómo se cierra:** ux-ui fija los textos en `DESIGN_SYSTEM` (§37.9b o el que toque) y frontend los copia; si D-6 renombra
+  el aviso, se cambia la rama `other_mode` (es y en) en el mismo commit.
+- **Prueba que lo demuestra:** `ManualRefundDetailView.test.tsx` «LIVE-5 C-1» y `m3/ToManualOrigin.test.tsx` comparan los
+  textos; cambiar el texto obliga a cambiar esas aserciones, y la paridad es/en la vigila `src/lib/i18n-parity.test.ts`.
 
 ### RS5-TD-1 · P3 · Dos bitácoras para un mismo `PATCH /admin/inventory/items/:id` (arquitecto → backend)
 - **Dónde:** `backend/src/modules/inventory/inventory.service.ts:2458-2469` (`inventory.item_updated`, dentro de la

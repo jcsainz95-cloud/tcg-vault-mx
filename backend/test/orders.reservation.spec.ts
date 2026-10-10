@@ -130,7 +130,8 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
         }),
       },
       billingProfile: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn() },
-      order: { create: jest.fn(async () => ({ id: 'order-1' })), update: jest.fn() },
+      // 💰 v1.84 LIVE-4 (TD-4): la compensación pasa `pending → failed` con CAS.
+      order: { create: jest.fn(async () => ({ id: 'order-1' })), update: jest.fn(), updateMany: jest.fn(async () => ({ count: 1 })) },
       // v1.21 (M-25): todo pedido nuevo reserva su número legible de la secuencia Postgres.
       $queryRaw: jest.fn(async () => [{ nextval: 1n }]),
       $queryRawUnsafe: jest.fn(async () => [{ nextval: 1n }]),
@@ -165,9 +166,7 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
     // Reserva liberada (item → listed) y orden marcada `failed`.
     expect(released.length).toBe(1);
     expect(released[0]).toMatchObject({ status: 'reserved' });
-    expect(prisma.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'failed' } }),
-    );
+    expect(prisma.order.updateMany).toHaveBeenCalledWith({ where: { id: 'order-1', status: 'pending' }, data: { status: 'failed' } });
   });
 
   it('propagates a business error (CARD_DECLINED) as-is after releasing the reservation', async () => {
@@ -177,9 +176,7 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
       code: 'CARD_DECLINED',
     });
     expect(released.length).toBe(1); // igual se compensa la reserva
-    expect(prisma.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'failed' } }),
-    );
+    expect(prisma.order.updateMany).toHaveBeenCalledWith({ where: { id: 'order-1', status: 'pending' }, data: { status: 'failed' } });
   });
 });
 

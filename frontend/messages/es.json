@@ -6039,7 +6039,21 @@
         "updatedUnknown": "Fecha de cambio desconocida (registrada antes de que se llevara)",
         "changedRecently": "La CLABE cambió hace poco o después de generarse este reembolso. Antes de pagar, confirma con el cliente por otro medio que es suya.",
         "aria": "CLABE del cliente",
-        "hide": "Ocultar CLABE"
+        "hide": "Ocultar CLABE",
+        "originCharge": {
+          "disputed": {
+            "title": "No transfieras",
+            "body": "Este cobro tiene un contracargo en el banco. No transfieras: el banco ya está resolviendo el dinero."
+          },
+          "other_mode": {
+            "title": "No transfieras",
+            "body": "Este pedido se pagó en modo prueba. No hay dinero real que devolver."
+          },
+          "unavailable": {
+            "title": "Verifica en Stripe antes de transferir",
+            "body": "No pudimos consultar Stripe. Revisa el cobro en tu panel de Stripe antes de transferir."
+          }
+        }
       },
       "error": {
         "clabeNotOnFile": "Este cliente no tiene CLABE registrada. Pídele que la registre en su cuenta (Mi cuenta → datos bancarios); ya le llegó un correo con ese enlace. Mientras, no se puede marcar pagada.",
@@ -6055,7 +6069,7 @@
         "referenceInvalid": "Solo letras y números, hasta 30.",
         "note": "Nota (opcional)",
         "confirmClabe": "Verifiqué con el cliente por otro medio que la CLABE nueva es suya.",
-        "confirmOrigin": "Sé que la compra de origen está en disputa o reembolsada y pago de todos modos.",
+        "confirmOrigin": "{reason, select, charge_disputed {Sé que este cobro tiene un contracargo en el banco y pago de todos modos.} payment_other_mode {Sé que este pedido se pagó en modo prueba y pago de todos modos.} other {Sé que la compra de origen está en disputa o reembolsada y pago de todos modos.}}",
         "cta": "Marcar pagada · {amount}",
         "title": "¿Marcar como pagada?",
         "body": "Solo si ya hiciste la transferencia de {amount} a la CLABE que acabas de ver. Queda registrado quién y cuándo, y el cliente recibe un correo.",
@@ -6096,7 +6110,7 @@
         "done": "En la cubeta SPEI: {link}.",
         "notConvertibleStatus": "Este reembolso todavía puede salir por Stripe ({status}): pasarlo a transferencia sería pagar dos veces. Reintenta el reembolso o espera.",
         "notConvertibleKind": "Solo los reembolsos de un caso «Por reponer» se pasan a transferencia.",
-        "originNotSettled": "La compra de origen está {status, select, chargeback {en disputa} other {reembolsada}}{disputed, select, yes { (Stripe rechazó por disputa)} other {}}: el banco ya está resolviendo ese dinero. No se crea nada."
+        "originNotSettled": "{reason, select, charge_disputed {Stripe reporta un contracargo sobre este cobro: el banco ya está resolviendo ese dinero.} payment_other_mode {Este pedido se pagó en modo prueba de Stripe: no hay dinero real que devolver.} other {La compra de origen está {status, select, chargeback {en disputa} other {reembolsada}}: el banco ya está resolviendo ese dinero.}} No se crea nada."
       },
       "withdrawal": {
         "title": "Retiro entregado",

@@ -18,7 +18,7 @@ import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
-import type { ManualRefundConfirmationRequiredDetails, ManualRefundDTO, RevealManualRefundClabeResponse } from '@/types/contract';
+import type { ManualRefundConfirmationRequiredDetails, ManualRefundDTO, OriginChargeReason, RevealManualRefundClabeResponse } from '@/types/contract';
 import { MANUAL_REFUNDS_KEY } from '../ManualRefundsView';
 import { manualRefundWhy } from '../why';
 
@@ -26,6 +26,19 @@ const DASH = '—';
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
 const LABEL = `${TAG} text-muted`;
 const SPEI_REF_RE = /^[A-Za-z0-9]{1,30}$/;
+
+type OriginChargeWarning = 'disputed' | 'other_mode' | 'unavailable';
+/**
+ * v1.84 LIVE-5 (`API_CONTRACT §14.5`, techlead C-1): qué aviso del cobro de origen va con el reveal. El reveal es el
+ * momento ANTES de transferir; el `422` de `paid` llega cuando el dinero ya salió. Contracargo primero (es dinero que
+ * el banco ya está moviendo), luego otro modo, luego «Stripe no respondió».
+ */
+export function originChargeWarning(r: Pick<RevealManualRefundClabeResponse, 'originCharge' | 'originChargeUnavailable'>): OriginChargeWarning | null {
+  if (r.originCharge?.disputed) return 'disputed';
+  if (r.originCharge?.otherMode) return 'other_mode';
+  if (r.originChargeUnavailable) return 'unavailable';
+  return null;
+}
 
 /**
  * **Detalle de una transferencia** (`DESIGN_SYSTEM §37.9b` · contrato `§M4-SHIP.15.13` + `.17.3` + `.17.8`).
@@ -65,6 +78,7 @@ function ManualRefundDetail({ id }: { id: string }) {
   const [required, setRequired] = useState<ManualRefundConfirmationRequiredDetails['required']>([]);
   const [confirmClabe, setConfirmClabe] = useState(false);
   const [confirmOrigin, setConfirmOrigin] = useState(false);
+  const [originReason, setOriginReason] = useState<OriginChargeReason | null>(null);
   const [paidOpen, setPaidOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelNote, setCancelNote] = useState('');
@@ -132,6 +146,7 @@ function ManualRefundDetail({ id }: { id: string }) {
       if (err?.status === 422 && err.code === 'MANUAL_REFUND_CONFIRMATION_REQUIRED') {
         const d = err.details as Partial<ManualRefundConfirmationRequiredDetails> | undefined;
         setRequired(d?.required ?? []);
+        setOriginReason(d?.reason === 'charge_disputed' || d?.reason === 'payment_other_mode' ? d.reason : null);
         setError(t('error.confirmMissing'));
         return;
       }
@@ -339,6 +354,7 @@ function ManualRefundDetail({ id }: { id: string }) {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-4" data-testid="mr-reveal-view">
+                    <OriginChargeBanner reveal={reveal} />
                     <div className="flex flex-col gap-1">
                       <output aria-label={t('reveal.aria')} className="font-mono text-lg tabular tracking-[0.18em] text-text" data-testid="mr-clabe">
                         {reveal.clabe}
@@ -387,7 +403,7 @@ function ManualRefundDetail({ id }: { id: string }) {
                     {required.includes('origin_not_settled') && (
                       <label className="flex items-start gap-3 text-sm text-text">
                         <input type="checkbox" className="mt-0.5 h-5 w-5 accent-text" checked={confirmOrigin} onChange={(e) => setConfirmOrigin(e.target.checked)} data-testid="mr-confirm-origin" />
-                        {t('paid.confirmOrigin')}
+                        {t('paid.confirmOrigin', { reason: originReason ?? 'status' })}
                       </label>
                     )}
                     <Button variant="primary" className="self-start" disabled={speiRefInvalid} onClick={() => setPaidOpen(true)} data-testid="mr-paid-cta">
@@ -477,6 +493,20 @@ function ManualRefundDetail({ id }: { id: string }) {
           </Modal>
         </>
       )}
+    </div>
+  );
+}
+
+/** El aviso rojo del cobro de origen, ENCIMA de la CLABE (C-1). Textos de `§14.5`; ux-ui los fija (FRONTEND_NOTES §112). */
+function OriginChargeBanner({ reveal }: { reveal: RevealManualRefundClabeResponse }) {
+  const t = useTranslations('admin.manualRefunds.reveal.originCharge');
+  const w = originChargeWarning(reveal);
+  if (!w) return null;
+  return (
+    <div data-testid="mr-origin-charge" data-reason={w}>
+      <Banner variant="danger" role="alert" title={t(`${w}.title`)}>
+        <p className="text-text">{t(`${w}.body`)}</p>
+      </Banner>
     </div>
   );
 }

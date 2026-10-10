@@ -16229,3 +16229,151 @@ crear la solicitud.
   y `sk_live_` como hasta ahora, **no** este merge.
 
 — SEGURIDAD (blue team / AppSec), 2026-10-08 · código `764c6537` (rama `claude/buylist-mercado`) · **APROBADO**
+
+---
+
+# Release salida-real · LIVE-5 + TD-4 + CSP report-only · veredicto de seguridad (blue team) · 2026-10-10
+
+**Alcance:** rama `claude/salida-real`, sha CONGELADO **`8e1b34d7`** (árbol `/home/user/tcg-live`). Revisión de
+CÓDIGO estática sobre una copia del árbol ENTERO (`git archive 8e1b34d7 | tar -x`, docs/ incluido). ⛔ NO levanté el
+stack ni lancé escaneos de red (QA corría su E2E en paralelo sobre el mismo árbol, O-16/O-14) y ⛔ NADA contra
+producción. Superficie NUEVA del lote (12 commits, `1f2bb471..8e1b34d7`): TD-4 (CAS pending→failed + escritor único),
+C2 (`StripeService.chargeState` + `to-manual`/`reveal-clabe`/`paid` preguntan a Stripe por el cobro de origen),
+C-1 (aviso de cobro de origen al revelar la CLABE, frontend), CSP vuelta a `report-only`, y la regeneración del
+manifiesto de secretos por un literal de test.
+
+## 1. Candados de seguridad corridos (sobre la copia `8e1b34d7`, árbol entero)
+
+| Candado | rc | Qué prueba |
+|---|---|---|
+| `check-secret-defaults.sh` | **0** | 2272 ficheros (docs/ incl.): ningún `sk_live_`/`rk_live_`/`whsec_` con forma real; ningún secreto con valor del repo. |
+| `check-secret-defaults-canary.sh` | **0** | **75/75** — muerde con secretos nunca vistos, deja pasar lo legítimo (cierra la CLASE, no 7 líneas). |
+| `check-csp-zap-parity.sh` | **0** | `CSP_MODE=report-only` ⇔ ZAP 10038/10055 en **WARN** (van juntas). |
+| `check-csp-zap-parity-canary.sh` | **0** | **8/8** — caza `enforce`+WARN (desincronización CSP↔ZAP). |
+| `check-stripe-webhook-failclosed.sh` | **0** | **3/3** — la firma del webhook NO se puede verificar con clave conocida/publicada (P-WH-1 cerrado). |
+| `check-stripe-webhook-failclosed-canary.sh` | **0** | **31/31** — el cable de fail-closed muerde donde toca. |
+| `check-stripe-webhook-events.sh` | **0** | 9 eventos del backend cubiertos por el manifiesto y §11.G. |
+
+Todas corridas por mí sobre la copia con sha verificado (`8e1b34d7`), carga de máquina 0.92/4 CPU al arrancar.
+
+## 2. Revisión defensiva de la superficie nueva (lo que resiste, con la línea)
+
+- **`chargeState` NO filtra tarjeta ni PII** (`stripe.service.ts` `chargeState`): expande `latest_charge` y devuelve
+  SOLO `{mode, disputed, amountRefundedCents}`. Nunca PAN/BIN/titular; el único dato de tarjeta que persiste el
+  sistema sigue siendo marca+last4 vía `getCardDetails` (PCI-permitido). El DTO de `reveal-clabe` añade
+  `originCharge:{disputed,otherMode}` + `originChargeUnavailable` — booleanos, sin monto de tarjeta ni datos del
+  cobro. **No hay fuga nueva al rol admin.**
+- **No permite doble reembolso.** `paid` conserva el CAS (`updateMany where status:'pending'` ⇒ `count===1`, si no
+  `409 CONFLICT`) + `FOR UPDATE` de la fila; LIVE-5 AÑADE una barrera (cobro disputado o de otro modo ⇒
+  `originNotSettled` ⇒ exige `confirmOriginNotSettled`), no una vía nueva de salida. `to-manual` chequea
+  idempotencia (`idempotencyKey=refund-spei:<id>`) ANTES del paso 3-bis ⇒ un replay devuelve la MISMA fila y
+  sobrevive a «Stripe no respondió».
+- **TD-4 escritor único de `failed`** (`payments.service.ts`, `orders.service.ts`): el CAS pending→failed pasa por
+  el helper único `failPendingOrder` (candado estático `orders.failed-writer-lock.spec.ts`, lista de permitidos de
+  1), de modo que un `charge.refunded`/settle tardío no es pisado por un `failed` liquidable. D-2: el fallo de la tx
+  de liberación ahora se registra (`orders.release_reservation_failed`), conducta sin cambio.
+- **D-7 (endurecimiento correcto):** `originChargeOf` trata como `unavailable` SOLO el `503
+  PAYMENT_PROVIDER_UNAVAILABLE`; cualquier otro error PROPAGA (500 antes de toda tx). Leer un fallo interno como
+  «Stripe caído» habría dejado que `paid` registrara sin pedir la confirmación de origen no liquidado — ese agujero
+  está cerrado.
+- **CLABE en claro** sigue viviendo SOLO en el estado de la vista de detalle (`ManualRefundDetailView.tsx`), ⛔
+  nunca global ni en logs; el aviso de cobro de origen es `role=alert` informativo, no cambia la autorización
+  (`@MoneyOut` ⇒ `super_admin`, auditado).
+- **Literal `sk_test_unit`** (`stripe.charge-state.spec.ts:16`): NO es credencial real — se pasa a un
+  `ConfigService` falso y el cliente Stripe se sustituye por un doble en la línea 17 (nunca sale a la red). Su hash
+  (`4824ffe6…`) está neutralizado en `security/secretos-publicados.sha256` como `PREFIJO`. `check-secret-defaults`
+  rc 0.
+- **Sin dependencias nuevas:** `package.json`/lock sin cambios en el rango ⇒ el inventario de `npm audit` es el de
+  pases previos (REL7-P1 `@nestjs/core`, ACEPTADO por el dueño el 2026-10-10 por SSE no usado, `grep @Sse`=0).
+
+## 3. CSP en `report-only` — evaluación de riesgo para salir a cobros reales
+
+- **Qué es:** `CSP_MODE='report-only'` (`frontend/src/security/csp.ts:37`), constante en código (no variable de
+  Vercel, queda en el diff). La CSP con nonce NO bloquea scripts inyectados; solo reporta a `/telemetry/csp`.
+- **Por qué:** la causa de los avisos CSP de prod en `/es` y `/es/decks-meta` está **SIN MEDIR** contra la tienda
+  viva; `enforce` podría romper la portada. Es una decisión de DISPONIBILIDAD legítima, registrada como CL-1 con
+  disparador claro (medir prod ⇒ pasar a `enforce` en el MISMO cambio que sube ZAP 10038/10055 a FAIL; lo ata el
+  candado de paridad, que da rc 0 y canario 8/8).
+- **Riesgo residual:** la sesión vive en `localStorage` (`lib/api-client.ts`), así que un XSS podría exfiltrarla y la
+  CSP es la 2.ª barrera. PERO: (a) el pentester NO encontró XSS/inyección en la app en ningún pase; (b) las demás
+  cabeceras anti-XSS/clickjacking SÍ se aplican (`X-Frame-Options: DENY`, `frame-ancestors 'none'`, `object-src
+  'none'`, `base-uri 'self'`, `form-action 'self'` — verificadas en vivo en el pase G del pentester); (c) la 1.ª
+  barrera (escape de React + validación) es la primaria. ⇒ **MEDIA, deuda aceptada con disparador — NO bloquea**,
+  pero es BANDERA para el humano (ver §6).
+
+## 4. Consolidación con `PENTEST_NOTES.md` — ¿hace falta una pasada fresca del red team?
+
+Los pases del pentester en el documento (último de dinero: release s5 `7b9c196e`; últimos de superficie: `bc8e3533`
+accesorios/wishlist y §BMK `329f0cb5`) **NO cubren esta superficie LIVE-5**. El ciclo reveal→`paid` que el pentester
+cerró en s5 es ANTERIOR a que C2 cambiara la respuesta de `reveal-clabe` (ahora con `originCharge`) y las puertas de
+`to-manual`/`paid` (ahora dirigidas por `chargeState`, no por la lista `REFUND_FAILURE_DISPUTE_CODES`).
+
+**SÍ recomiendo una pasada fresca del pentester ANTES de operar con dinero real, contra LOCAL o STAGING con claves
+de Stripe en modo PRUEBA (⛔ nunca producción).** No bloquea el merge a `main` (mi revisión estática + las pruebas
+CS-1…CS-6 contra el doble de Stripe no hallan crítico/alto nuevo), pero el código mismo declara **NO MEDIDO contra
+Stripe real** y el dueño pasa a llaves reales HOY: el primer contacto de esta lógica con Stripe no debería ser en
+producción con dinero. La pasada debe sembrar un `KycProfile` con CLABE, un cobro **disputado** y un PI del **otro
+modo**, y medir N≥10: (1) `reveal-clabe` no filtra tarjeta/PII más allá del booleano `disputed`; (2) `paid` no paga
+dos veces bajo concurrencia (CAS); (3) `to-manual` idempotente + reintento con Stripe caído; (4) la confirmación
+`origin_not_settled` no se puede esquivar. Son exactamente los NO MEDIDO de dinero que el propio pentester dejó
+abiertos.
+
+## 5. Hallazgos consolidados (pentester + blue team)
+
+| # | Sev | Descripción | Ubicación / endpoint | Rol dueño | Estado |
+|---|---|---|---|---|---|
+| CSP-RO | **Media** | CSP en `report-only`: 2.ª barrera anti-XSS no aplicada con sesión en `localStorage` | `frontend/src/security/csp.ts:37` | frontend/devops | **Aceptada (CL-1, con disparador)** |
+| LIVE5-STRIPE | **Media** | Lógica de dinero LIVE-5 NO MEDIDA contra Stripe real (solo doble) | `stripe.service.ts chargeState`, `manual-refund.service.ts` | backend + pentester | **Condición (medir en test antes de dinero real)** |
+| P-RL-1 | **Alta** | Rate-limit por-IP evadible rotando `X-Forwarded-For` (hereda del edge) | `trust-proxy.ts` + edge Railway | devops | **ABIERTO (heredado, severidad real NO MEDIDA contra el edge)** |
+| REL7-P1 | Media | `@nestjs/core` GHSA en SSE no usado | dep backend | devops | **ACEPTADO por el dueño (2026-10-10)** |
+
+**Ningún hallazgo crítico/alto NUEVO en la superficie LIVE-5.** La única ALTA abierta es **P-RL-1**, heredada, fuera
+de esta superficie, con severidad real NO MEDIDA contra el edge de Railway (su cierre es C6 de devops, ya autorizado
+por el dueño). Consistente con el veredicto blue-team previo (§BMK, 2026-10-08): P-RL-1 gatea el **DoD** y `sk_live`,
+no este merge.
+
+## 6. Banderas para el humano (español llano)
+
+1. **Antes de aceptar cobros reales, probar el flujo de reembolsos SPEI contra Stripe en modo PRUEBA** (no en la
+   tienda real). Este código nuevo que decide cuándo se puede pagar un reembolso nunca ha hablado con el Stripe de
+   verdad: lo probamos contra un «Stripe de mentira» en las pruebas. Es la pieza que toca dinero saliente; conviene
+   verla funcionar con Stripe real-en-pruebas antes de que mueva pesos de clientes.
+2. **Confirmar que las claves y el secreto del webhook de Stripe están puestos en el servidor (Railway).** Nuestro
+   candado comprueba que el código RECHAZA un webhook sin secreto (bien), pero NO puede ver desde el repositorio si
+   el valor está realmente cargado en Railway (DEVOPS_NOTES §49.1). Al pasar a llaves reales hoy, alguien debe
+   verificar en Railway que `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` existen y son las reales.
+3. **La protección anti-robo-de-sesión va «en modo aviso», no «en modo bloqueo» (CSP report-only).** Es una decisión
+   deliberada para no romper la portada hasta medir por qué da avisos en producción. No encontramos ninguna vía de
+   ataque XSS hoy, y las otras protecciones (anti-clickjacking, etc.) sí están activas. Queda anotado para activarla
+   del todo cuando se mida la portada en vivo.
+4. **Operar con dinero real sigue pidiendo lo de siempre** (de pases anteriores): pentest de tercero + bug bounty
+   antes de montos grandes, y cerrar P-RL-1 en el edge (C6). Nada de esto cambió en este release.
+
+## 7. NO MEDIDO (dicho entero)
+
+- La lógica LIVE-5 contra Stripe real/test (sin claves en el entorno de revisión): CS-1…CS-6 están probadas contra un
+  doble, no contra Stripe. **NO MEDIDO.**
+- El valor real de `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` en Railway: no medible desde el repo. **NO MEDIDO.**
+- La causa de los avisos CSP de prod en `/es` y `/es/decks-meta`: **NO MEDIDO** (es la razón del report-only).
+- P-RL-1 contra el edge real de Railway: **NO MEDIDO** (fuera de alcance, ⛔ sin tocar prod).
+- No levanté stack ni corrí E2E/DAST (QA en paralelo, O-14/O-16): mi revisión de esta superficie es **estática +
+  candados**, no en vivo.
+
+## 8. VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `8e1b34d7`
+
+- **Conteo de la superficie NUEVA: Crítica 0 · Alta 0 · Media 2 (CSP-RO aceptada, LIVE5-STRIPE condición) · Baja 0.**
+- **El merge a `main` NO está bloqueado por la superficie LIVE-5**: no introduce hallazgo crítico/alto; los candados
+  de secretos, CSP↔ZAP y webhook fail-closed dan rc 0 (con canarios 75/75, 8/8, 31/31); el dinero saliente resiste
+  por construcción (CAS + idempotencia + `@MoneyOut` super_admin auditado + confirmación de origen no liquidado).
+- **Condiciones para OPERAR CON DINERO REAL** (no para fusionar):
+  1. Ejercitar los flujos LIVE-5 (reveal→`paid`, `to-manual`, cobro disputado / otro modo / Stripe caído) contra
+     Stripe en modo **PRUEBA** en local/staging — idealmente una pasada fresca del pentester con ese fixture.
+  2. Verificar en Railway que `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` reales están cargados (devops + humano).
+- **Deuda aceptada con disparador:** CSP `report-only` (CL-1 — pasa a `enforce` cuando se mida la portada en vivo).
+- **Heredado, sin cambios y fuera de este stream:** `P-RL-1` (Alta, severidad real NO MEDIDA contra el edge) y el
+  resto de condiciones de `sk_live_`/DoD de pases anteriores siguen gateando el **DoD** y la operación con
+  `sk_live_`, **no** este merge — consistente con el veredicto del 2026-10-08.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-10 · código `8e1b34d7` (rama `claude/salida-real`) · **APROBADO CON CONDICIONES**

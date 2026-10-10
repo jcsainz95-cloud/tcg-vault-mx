@@ -1,0 +1,82 @@
+# =============================================================================
+# csp-stripe-probe.yml — CL-1: ¿la CSP en `enforce` deja cargar Stripe.js y
+#                        montar el PaymentElement?          · Propiedad: devops
+# =============================================================================
+# Norma: API_CONTRACT §14.3, SECURITY_NOTES CL-1; porqué en DEVOPS_NOTES §96.2.
+# La sonda (`scripts/csp-stripe-probe.mjs`) sirve una página con la política que
+# produce `buildCsp(…, 'enforce')` y carga Stripe.js como `loadStripe`. Corre en
+# un runner porque desde el contenedor de los agentes js.stripe.com da 403.
+# Sin escritura y sin producción: la única red es Stripe (pk_test_) y el informe
+# de las violaciones PLANTADAS va a un host `.invalid`.
+#
+# Disparadores: cambios en la política o la sonda (push a ramas de trabajo y
+# PR) y a mano. NO es required check (no gatea merges): su rojo lo lee el gate.
+# =============================================================================
+
+name: "CL-1 · CSP enforce vs Stripe.js"
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**", "devops/**"]
+    paths:
+      - "frontend/src/security/csp.ts"
+      - "frontend/src/middleware.ts"
+      - "scripts/csp-stripe-probe.mjs"
+      - ".github/workflows/csp-stripe-probe.yml"
+  pull_request:
+    paths:
+      - "frontend/src/security/csp.ts"
+      - "frontend/src/middleware.ts"
+      - "scripts/csp-stripe-probe.mjs"
+      - ".github/workflows/csp-stripe-probe.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: csp-stripe-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sonda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Dependencias del frontend (Playwright)
+        working-directory: frontend
+        run: npm ci
+      - name: Chromium de Playwright
+        working-directory: frontend
+        timeout-minutes: 15
+        run: |
+          set +e -uo pipefail
+          for intento in 1 2 3; do
+            timeout 420 npx playwright install --with-deps chromium && exit 0
+            echo "::warning::instalación de Chromium fallida (intento $intento); reintento."
+            sudo pkill -x apt-get 2>/dev/null || true; sudo pkill -x dpkg 2>/dev/null || true
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+          done
+          echo "::error::no se pudo instalar Chromium (3 intentos)."; exit 1
+      - name: Sonda (3 tiradas; cada una con su autoprueba)
+        env:
+          # Publicable de PRUEBA (no es secreta; viene del almacén por comodidad). Vacía ⇒ «ready» no medido.
+          STRIPE_PK: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY }}
+        run: |
+          set +e -uo pipefail
+          ok=0; peor=0
+          for i in 1 2 3; do
+            echo "── tirada $i/3"
+            node scripts/csp-stripe-probe.mjs --timeout 30; rc=$?
+            [ "$rc" = 0 ] && ok=$((ok+1))
+            [ "$rc" -gt "$peor" ] && peor=$rc
+            [ "$rc" = 1 ] && break
+          done
+          echo "Resultado: $ok/3 verdes (peor rc=$peor)" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$peor"

@@ -121,8 +121,13 @@ def origin_of(url):
         return None
 
 
-def load_zap_split(paths, scope):
+def load_zap_split(paths, scope, sub_keys=frozenset()):
     """Como load_zap, pero separa por ORIGEN de cada instancia.
+
+    `sub_keys`: claves `<regla>-<sub>` de la política (p. ej. `10055-6`). Si el
+    `alertRef` de una alerta está ahí, esa alerta se clasifica con SU clave
+    (la más específica gana); si no, con la regla (`pluginid`). Sin
+    `alertRef` en el JSON ⇒ regla: nada se afloja por defecto.
 
     Devuelve (dentro, fuera, instancias_dentro) o (None, None, 0) si no hay
     informe. Con `scope` vacío todo es «dentro» (sin filtrado).
@@ -139,6 +144,9 @@ def load_zap_split(paths, scope):
             site_name = site.get("@name") or ""
             for a in site.get("alerts", []) or []:
                 rule = str(a.get("pluginid") or a.get("alertRef") or "?").split("-")[0]
+                ref = str(a.get("alertRef") or "").strip()
+                if ref in sub_keys:
+                    rule = ref
                 name = a.get("alert") or a.get("name") or "(sin nombre)"
                 risk = RISK.get(str(a.get("riskcode")), "?")
                 insts = a.get("instances") or []
@@ -261,7 +269,9 @@ def main():
     if args.scope_origin and not scope:
         print("::error title=--scope-origin ilegible::%s" % " ".join(args.scope_origin))
         return 2
-    zap, zap_fuera, zap_dentro_n = load_zap_split(args.zap_json, scope)
+    # Sub-alertas (`10055-6`…): DEVOPS_NOTES §96 · CL-1. Solo las listadas.
+    sub_keys = frozenset(k for k in pol if "-" in k)
+    zap, zap_fuera, zap_dentro_n = load_zap_split(args.zap_json, scope, sub_keys)
     nuc = load_nuclei(args.nuclei_jsonl, load_ignore_ids(args.nuclei_ignore))
     nuc_fail_sev = {s.strip().lower() for s in args.nuclei_fail_severity.split(",") if s.strip()}
 
@@ -370,12 +380,18 @@ def main():
     A("---")
     A("")
     if args.expect_red:
-        ok = red
+        # §96.7: el rojo que prueba que el candado cierra es el de HALLAZGOS. Un
+        # rojo por falta de informe (ZAP reventó) no demuestra nada sobre el
+        # candado: antes contaba como «OK — el candado cierra».
+        ok = bool(blocking) and not missing_input
         A("**Autoprueba del candado (`--expect-red`).** Se escaneó un blanco con "
           "vulnerabilidades PLANTADAS (`security/dast-selftest/canary.py`). "
           "Lo que se afirma aquí no es que la app esté sana: es que **el gate sabe ponerse rojo**.")
         A("")
         A("- Veredicto del gate sobre el canario: **%s**" % ("🔴 ROJO" if red else "🟢 VERDE"))
+        if missing_input:
+            A("- ⛔ Falta entrada (%s): un rojo SIN informe no prueba que el candado cierre."
+              % "; ".join(missing_input))
         A("- Autoprueba: **%s**" % ("✅ OK — el candado cierra" if ok else
                                     "🔴 FALLO — el candado NO puede cerrarse; el DAST no protege nada"))
         A("")
@@ -384,11 +400,18 @@ def main():
             with open(args.summary, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(L) + "\n")
         dig = ["Canario: %s" % args.target,
-               "Gate sobre el canario: %s" % ("ROJO (correcto)" if red else "VERDE (FALLO)")]
+               "Gate sobre el canario: %s" % ("ROJO por hallazgos (correcto)" if ok else
+                                              "ROJO SIN INFORME (FALLO)" if red else "VERDE (FALLO)")]
         for rule, name, risk, n, _uri in (zap or []):
             dig.append("%-6s %-6s %-5s x%-4d %s" % (pol.get(rule, "WARN"), rule, risk, n, name[:70]))
         anotar("Autoprueba del candado DAST — %s" % ("OK" if ok else "FALLO"), dig)
         if not ok:
+            if missing_input:
+                print("::error title=La autoprueba del DAST no midió::"
+                      "Falta %s: el rojo es por FALTA DE INFORME, no por hallazgos. "
+                      "Un canario que no se escaneó no prueba que el candado cierre (§96.7)."
+                      % "; ".join(missing_input))
+                return 1
             print("::error title=El candado del DAST no puede ponerse rojo::"
                   "El canario con vulnerabilidades plantadas pasó el gate en VERDE. "
                   "El escáner, la política o este script están inertes: el DAST semanal no protege nada.")
