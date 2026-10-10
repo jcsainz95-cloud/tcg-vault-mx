@@ -29,7 +29,7 @@ export type CspMode = 'report-only' | 'enforce';
  *    ≤ 300 ms) y EN EL MISMO CAMBIO en que devops sube ZAP 10038/10055 a FAIL en
  *    `security/baseline.conf`. El candado `csp.test.ts` («fase vigente») se cambia junto.
  */
-export const CSP_MODE: CspMode = 'report-only';
+export const CSP_MODE: CspMode = 'enforce';
 
 /** Origen de subida por defecto (R2) si `NEXT_PUBLIC_UPLOAD_ORIGIN` no está o no es un origen. */
 export const DEFAULT_UPLOAD_ORIGIN = 'https://*.r2.cloudflarestorage.com';

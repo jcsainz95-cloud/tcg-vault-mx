@@ -195,6 +195,43 @@ R="$(rc_scope "${TMP}/s-tercero.json" --scope-origin http://no-casa:9)"
 R="$(rc_scope "${TMP}/sucio.json" --scope-origin http://ejemplo)"
 [ "$R" != 0 ] && ok "el SQLi de manual en el origen declarado sigue ROJO con --scope-origin" \
               || bad "con --scope-origin el SQLi de manual pasó en verde."
+# ---------------------------------------------------------------------------
+# 5-quater) SUB-ALERTAS (`alertRef`, DEVOPS_NOTES §96 · CL-1). Con la CSP en
+#    enforce, 10055 está en FAIL pero tres sub-alertas son deliberadas (§14.3) y
+#    van a WARN por clave `10055-<n>`. La clave específica NO puede aflojar las
+#    demás: script-src unsafe-inline (10055-5) sigue ROJO, y una alerta sin
+#    `alertRef` se juzga por la regla.
+# ---------------------------------------------------------------------------
+zapref() {  # zapref <fichero> <pluginid> <alertRef|""> -> una alerta en localhost:3010
+  local ref=""; [ -n "$3" ] && ref=",\"alertRef\":\"$3\""
+  cat > "$1" <<J
+{"@version":"guarda","site":[{"@name":"http://localhost:3010","alerts":[
+ {"pluginid":"$2"${ref},"alert":"x","riskcode":"2","count":"1","instances":[{"uri":"http://localhost:3010/es"}]}]}]}
+J
+}
+if awk -F'\t' '$1=="10055"{print $2}' security/zap/baseline.conf | grep -qx FAIL; then
+  for sub in 10055-3 10055-4 10055-6; do
+    zapref "${TMP}/r-${sub}.json" 10055 "${sub}"
+    R="$(rc_scope "${TMP}/r-${sub}.json" "${SCOPE[@]}")"
+    [ "$R" = 0 ] && ok "${sub} (deliberada en §14.3) con 10055 en FAIL: VERDE (WARN por su clave)" \
+                 || bad "${sub} bloquea con la CSP en enforce: el DAST de release saldría rojo por un hallazgo aceptado (rc=$R)."
+  done
+  zapref "${TMP}/r-10055-5.json" 10055 10055-5
+  R="$(rc_scope "${TMP}/r-10055-5.json" "${SCOPE[@]}")"
+  [ "$R" != 0 ] && ok "10055-5 (script-src unsafe-inline) sigue ROJO: la clave específica no afloja a sus hermanas" \
+                || bad "10055-5 pasó en verde: las sub-claves aflojaron la regla entera."
+  zapref "${TMP}/r-10055-sin.json" 10055 ""
+  R="$(rc_scope "${TMP}/r-10055-sin.json" "${SCOPE[@]}")"
+  [ "$R" != 0 ] && ok "10055 SIN alertRef se juzga por la regla (FAIL): sin dato no se afloja" \
+                || bad "10055 sin alertRef pasó en verde."
+  zapref "${TMP}/r-10038-3.json" 10038 10038-3
+  R="$(rc_scope "${TMP}/r-10038-3.json" "${SCOPE[@]}")"
+  [ "$R" != 0 ] && ok "10038-3 (CSP solo Report-Only) es ROJO con la CSP en enforce" \
+                || bad "10038-3 pasó en verde: una vuelta a Report-Only no la vería el DAST."
+else
+  note "10055 no está en FAIL (CSP en report-only): las sub-alertas no aplican."
+fi
+
 if grep -q -- '--scope-origin' security/scripts/dast-ephemeral.sh; then
   ok "dast-ephemeral.sh pasa --scope-origin al candado (los orígenes de sus blancos)"
 else

@@ -237,9 +237,9 @@ describe('LIVE-3 · fase (CSP-6)', () => {
     expect(cspHeaderName('enforce')).toBe('Content-Security-Policy');
   });
 
-  it('fase vigente: report-only (§14.3 paso 1). Pasar a enforce es un cambio consciente con baseline.conf 10038/10055 a FAIL', () => {
-    // Cuando se pase a `enforce`, este caso se cambia EN EL MISMO COMMIT que la constante, y devops
-    // sube 10038/10055 a FAIL en `security/baseline.conf`. Antes: medir TTFB (N=10, §14.3).
-    expect(CSP_MODE).toBe('report-only');
+  it('fase vigente: enforce (§14.3 paso 2, CL-1). Va junto con baseline.conf 10038/10055 en FAIL', () => {
+    // Cambiado EN EL MISMO COMMIT que la constante y que `security/zap/baseline.conf` (10038/10055 a FAIL);
+    // lo ata `scripts/check-csp-zap-parity.sh`. Volver a `report-only` baja las dos a WARN en el mismo commit.
+    expect(CSP_MODE).toBe('enforce');
   });
 });

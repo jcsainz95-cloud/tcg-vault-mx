@@ -121,8 +121,13 @@ def origin_of(url):
         return None
 
 
-def load_zap_split(paths, scope):
+def load_zap_split(paths, scope, sub_keys=frozenset()):
     """Como load_zap, pero separa por ORIGEN de cada instancia.
+
+    `sub_keys`: claves `<regla>-<sub>` de la política (p. ej. `10055-6`). Si el
+    `alertRef` de una alerta está ahí, esa alerta se clasifica con SU clave
+    (la más específica gana); si no, con la regla (`pluginid`). Sin
+    `alertRef` en el JSON ⇒ regla: nada se afloja por defecto.
 
     Devuelve (dentro, fuera, instancias_dentro) o (None, None, 0) si no hay
     informe. Con `scope` vacío todo es «dentro» (sin filtrado).
@@ -139,6 +144,9 @@ def load_zap_split(paths, scope):
             site_name = site.get("@name") or ""
             for a in site.get("alerts", []) or []:
                 rule = str(a.get("pluginid") or a.get("alertRef") or "?").split("-")[0]
+                ref = str(a.get("alertRef") or "").strip()
+                if ref in sub_keys:
+                    rule = ref
                 name = a.get("alert") or a.get("name") or "(sin nombre)"
                 risk = RISK.get(str(a.get("riskcode")), "?")
                 insts = a.get("instances") or []
@@ -261,7 +269,9 @@ def main():
     if args.scope_origin and not scope:
         print("::error title=--scope-origin ilegible::%s" % " ".join(args.scope_origin))
         return 2
-    zap, zap_fuera, zap_dentro_n = load_zap_split(args.zap_json, scope)
+    # Sub-alertas (`10055-6`…): DEVOPS_NOTES §96 · CL-1. Solo las listadas.
+    sub_keys = frozenset(k for k in pol if "-" in k)
+    zap, zap_fuera, zap_dentro_n = load_zap_split(args.zap_json, scope, sub_keys)
     nuc = load_nuclei(args.nuclei_jsonl, load_ignore_ids(args.nuclei_ignore))
     nuc_fail_sev = {s.strip().lower() for s in args.nuclei_fail_severity.split(",") if s.strip()}
 

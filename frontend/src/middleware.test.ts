@@ -41,9 +41,21 @@ beforeEach(() => {
   vi.doUnmock('./security/csp');
 });
 
-describe('CSP-1 · cabecera por petición (fase vigente: report-only)', () => {
-  it('una página lleva Content-Security-Policy-Report-Only con nonce, distinto en dos peticiones', async () => {
+describe('CSP-1 · fase vigente (enforce desde CL-1): la cabecera aplicada lleva el nonce', () => {
+  it('sin forzar fase: Content-Security-Policy con nonce y SIN -Report-Only; el render recibe el mismo nonce', async () => {
     const mw = await load();
+    const res = mw(req('/es/checkout'));
+    const p = res.headers.get('content-security-policy');
+    expect(p).toContain("'strict-dynamic'");
+    expect(nonceOf(p)).toBeTruthy();
+    expect(res.headers.get('content-security-policy-report-only')).toBeNull();
+    expect(forwarded(res, 'x-nonce')).toBe(nonceOf(p));
+  });
+});
+
+describe('CSP-1 · cabecera por petición (fase report-only, forzada: es la vuelta atrás de §14.3)', () => {
+  it('una página lleva Content-Security-Policy-Report-Only con nonce, distinto en dos peticiones', async () => {
+    const mw = await load('report-only');
     const a = mw(req('/es/catalog'));
     const b = mw(req('/es/catalog'));
     const pa = a.headers.get('content-security-policy-report-only');
@@ -58,7 +70,7 @@ describe('CSP-1 · cabecera por petición (fase vigente: report-only)', () => {
   });
 
   it('el nonce de la respuesta es el que viaja hacia el render (x-nonce y la CSP de la petición)', async () => {
-    const mw = await load();
+    const mw = await load('report-only');
     const res = mw(req('/es'));
     const n = nonceOf(res.headers.get('content-security-policy-report-only'));
     expect(n).toBeTruthy();
@@ -67,7 +79,7 @@ describe('CSP-1 · cabecera por petición (fase vigente: report-only)', () => {
   });
 
   it('la redirección de la raíz (/ ⇒ /es) también la lleva', async () => {
-    const mw = await load();
+    const mw = await load('report-only');
     const res = mw(req('/'));
     expect(res.status).toBeGreaterThanOrEqual(300);
     expect(res.status).toBeLessThan(400);
