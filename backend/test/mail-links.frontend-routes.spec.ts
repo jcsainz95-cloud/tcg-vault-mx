@@ -35,12 +35,37 @@ const DYN = '__dyn__';
 
 type Segment = { kind: 'static'; name: string } | { kind: 'dynamic' } | { kind: 'catchAll'; optional: boolean };
 
+/**
+ * Un catch-all cuyo `page.tsx` SOLO llama a `notFound()` es un CENTINELA, no un destino: existe para que
+ * una URL desconocida case dentro de `[locale]` y la 404 salga por-petición con nonce de CSP
+ * (`frontend/src/app/[locale]/[...rest]/page.tsx`, candado `e2e/csp.spec.ts` CSP-2). Si lo contáramos como
+ * ruta, su segmento catch-all casaría con CUALQUIER path ⇒ `routeExists(lo-que-sea)` sería `true` y este
+ * candado quedaría vacío. Un catch-all REAL (que renderiza contenido) sí es ruta y no entra aquí.
+ */
+function isNotFoundOnlySentinel(dir: string, entries: string[]): boolean {
+  const pageName = entries.find((e) => /^page\.(tsx|ts|jsx|js)$/.test(e));
+  if (!pageName) return false;
+  const raw = readFileSync(join(dir, pageName), 'utf8');
+  // Fuera comentarios de bloque y de línea: no queremos leer un `return` o un `<Tag` que viva en un comentario.
+  const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  if (!/\bnotFound\s*\(\s*\)/.test(src)) return false; // sin llamada a notFound() no es centinela
+  // Quitadas las llamadas a notFound(), si aún hay un `return` o JSX, la página SIRVE contenido ⇒ ruta real.
+  const sinNotFound = src
+    .replace(/\breturn\s+notFound\s*\(\s*\)\s*;?/g, '')
+    .replace(/\bnotFound\s*\(\s*\)\s*;?/g, '');
+  if (/\breturn\b/.test(sinNotFound)) return false;
+  if (/<[A-Za-z]/.test(sinNotFound)) return false; // JSX ⇒ contenido
+  return true;
+}
+
 /** Todas las rutas con `page.tsx`, como listas de segmentos (grupos `(x)` fuera). */
 function frontendRoutes(): Segment[][] {
   const routes: Segment[][] = [];
   const walk = (dir: string, segs: Segment[]): void => {
     const entries = readdirSync(dir);
-    if (entries.some((e) => /^page\.(tsx|ts|jsx|js)$/.test(e))) routes.push(segs);
+    const last = segs[segs.length - 1];
+    const esCentinela = last?.kind === 'catchAll' && isNotFoundOnlySentinel(dir, entries);
+    if (!esCentinela && entries.some((e) => /^page\.(tsx|ts|jsx|js)$/.test(e))) routes.push(segs);
     for (const e of entries) {
       const full = join(dir, e);
       if (!statSync(full).isDirectory()) continue;

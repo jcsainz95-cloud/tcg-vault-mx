@@ -100,6 +100,9 @@ caso "$PROBE" bypass 2 "Hace falta autorización" "borde que deja elegir la IP, 
 caso "$PROBE" bypass 1 "C6 FALLA"  "borde que deja elegir la IP + --with-control ⇒ rc 1 «C6 FALLA» (con el candado de cuenta vivo)" --with-control
 caso "$PROBE" off    2 "NO concluyente" "sin tope por IP + --with-control ⇒ rc 2 (el control no dispara)" --with-control
 caso "$PROBE" edge   0 "C6 CIERRA" "borde que fija la IP, 3 rondas ⇒ rc 0 (3/3 dentro de la corrida)" --rounds 3
+# --control-only: la ronda base NO se reenvía ⇒ SOLO 6 peticiones (lo autorizado), no 12.
+caso "$PROBE" bypass 1 "peticiones: 6" "borde que deja elegir la IP + --control-only ⇒ rc 1 «C6 FALLA» con SOLO 6 peticiones (base no reenviada)" --control-only
+caso "$PROBE" off    2 "NO concluyente" "sin tope por IP + --control-only ⇒ rc 2 (el control no dispara)" --control-only
 
 # --- guarda: la sonda se niega a correr contra local sin --canary-local -------
 TARGET_BASE_URL="http://127.0.0.1:1" bash "$PROBE" --i-have-a-window >"$TMP/out" 2>&1

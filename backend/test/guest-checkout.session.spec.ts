@@ -69,6 +69,8 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
         return row;
       }),
       update: jest.fn(async () => ({})),
+      // 💰 v1.84 LIVE-4 (TD-4): la compensación pasa `pending → failed` con CAS.
+      updateMany: jest.fn(async () => ({ count: 1 })),
       findMany: jest.fn(async () => []),
     },
     // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): la compensación suelta también los renglones de accesorio (aquí, ninguno).
@@ -297,9 +299,7 @@ describe('GuestCheckoutService.createSession', () => {
     const release = itemUpdates.find((u) => u.data.status === 'listed');
     expect(release).toBeDefined();
     expect(release.where).toMatchObject({ status: 'reserved' });
-    expect(prisma.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'failed' } }),
-    );
+    expect(prisma.order.updateMany).toHaveBeenCalledWith({ where: { id: 'order-guest-1', status: 'pending' }, data: { status: 'failed' } });
   });
 
   it('un error de negocio de Stripe (CARD_DECLINED) se propaga tal cual tras compensar', async () => {

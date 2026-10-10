@@ -1185,6 +1185,129 @@ describe('§M4-SHIP.15 — «Por reponer», la cubeta SPEI y la CLABE (Postgres 
     // Mutación: permitir `requested` ⇒ el mismo dinero por Stripe (reintento) Y por SPEI.
   });
 
+  // ================================================================ 💰 v1.84 LIVE-5 · C2 — se pregunta a Stripe (§14.5)
+
+  /** Una `case_refund` fallida con un código FUERA de la lista de disputa, sobre una orden `settled` con PI. */
+  async function mkFailedOutsideList(name: string) {
+    const s = await mkSpei(60000, { name });
+    await db.mkKyc(s.u.id, CLABE_A);
+    h.stripe.refundOutcome = 'definitive';
+    const pv = await db.casePreview(s.caseId, Q);
+    expect((await db.caseRefund(s.caseId, refundBody(pv, Q))).status).toBe(200);
+    h.stripe.refundOutcome = 'ok';
+    const failed = (await db.refunds({ replacementCaseId: s.caseId }))[0];
+    // El código que Stripe MX devuelva de verdad es NO MEDIDO: aquí, uno que la lista NO conoce.
+    await h.prisma.paymentRefund.update({ where: { id: failed.id }, data: { failureCode: 'unknown_failure_reason' } });
+    const o = await h.prisma.order.findUniqueOrThrow({ where: { id: s.vo.order.id } });
+    expect(o.status).toBe('settled');
+    expect(o.stripePaymentIntentId).toEqual(expect.any(String));
+    return { ...s, failed, pi: o.stripePaymentIntentId as string };
+  }
+
+  it('CS-1/CS-2/CS-3 💰 — `to-manual`: Stripe dice disputado ⇒ 409 charge_disputed; de otro modo ⇒ 409 payment_other_mode; caído ⇒ 503; en los tres, CERO ManualRefund; limpio ⇒ 200', async () => {
+    const f = await mkFailedOutsideList('CS1');
+    try {
+      h.stripe.chargeStateByIntent.set(f.pi, 'disputed');
+      const r1 = await db.toManual(f.failed.id);
+      expect(r1.status).toBe(409);
+      expect(r1.body.error).toMatchObject({ code: 'CASE_ORIGIN_NOT_SETTLED', details: { originStatus: 'settled', reason: 'charge_disputed' } });
+      h.stripe.chargeStateByIntent.set(f.pi, 'other');
+      const r2 = await db.toManual(f.failed.id);
+      expect(r2.status).toBe(409);
+      expect(r2.body.error).toMatchObject({ code: 'CASE_ORIGIN_NOT_SETTLED', details: { originStatus: 'settled', reason: 'payment_other_mode' } });
+      h.stripe.chargeStateByIntent.set(f.pi, 'down');
+      const r3 = await db.toManual(f.failed.id);
+      expect(r3.status).toBe(503);
+      expect(r3.body.error.code).toBe('PAYMENT_PROVIDER_UNAVAILABLE');
+      expect(await db.manualRows({ paymentRefundId: f.failed.id })).toHaveLength(0);
+      expect(av14()).toHaveLength(0);
+      // control: el mismo reembolso con el cobro limpio ⇒ convertible (la puerta es Stripe, no el código)
+      h.stripe.chargeStateByIntent.set(f.pi, 'clean');
+      const ok = await db.toManual(f.failed.id);
+      expect(ok.status).toBe(200);
+      // idempotencia: repetir con Stripe caído ⇒ la MISMA fila (200), no un 503
+      h.stripe.chargeStateByIntent.set(f.pi, 'down');
+      const again = await db.toManual(f.failed.id);
+      expect(again.status).toBe(200);
+      expect(again.body.id).toBe(ok.body.id);
+    } finally {
+      h.stripe.chargeStateByIntent.delete(f.pi);
+    }
+    // Mutaciones: quitar el paso 3-bis ⇒ r1 200; tratar `resource_missing` como «no disputado» ⇒ r2 200; `catch` que sigue ⇒ r3 200.
+  });
+
+  it('CS-4/CS-5 💰 — `reveal-clabe` trae `originCharge`; `paid` sobre cobro disputado sin confirmación ⇒ 422 origin_not_settled + reason; con ella ⇒ 200 y bitácora con `reason`', async () => {
+    const p = await mkPending({ name: 'CS45' });
+    const pi = (await h.prisma.order.findUniqueOrThrow({ where: { id: p.vo.order.id } })).stripePaymentIntentId as string;
+    try {
+      const clean = await db.mrReveal(p.mr.id);
+      expect(clean.status).toBe(200);
+      expect(clean.body).toMatchObject({ originCharge: { disputed: false, otherMode: false }, originChargeUnavailable: false });
+      h.stripe.chargeStateByIntent.set(pi, 'other');
+      expect((await db.mrReveal(p.mr.id)).body).toMatchObject({ originCharge: { disputed: false, otherMode: true }, originChargeUnavailable: false });
+      h.stripe.chargeStateByIntent.set(pi, 'down');
+      const down = await db.mrReveal(p.mr.id);
+      expect(down.status).toBe(200); // ⛔ no bloquea
+      expect(down.body).toMatchObject({ originCharge: null, originChargeUnavailable: true });
+      h.stripe.chargeStateByIntent.set(pi, 'disputed');
+      const rv = await db.mrReveal(p.mr.id);
+      expect(rv.body).toMatchObject({ originCharge: { disputed: true, otherMode: false } });
+      const token = rv.body.revealToken;
+      const no = await db.mrPaid(p.mr.id, { revealToken: token, speiReference: 'CS5A' });
+      expect(no.status).toBe(422);
+      expect(no.body.error).toMatchObject({ code: 'MANUAL_REFUND_CONFIRMATION_REQUIRED', details: { required: ['origin_not_settled'], originStatus: 'settled', reason: 'charge_disputed' } });
+      expect((await h.prisma.manualRefund.findUniqueOrThrow({ where: { id: p.mr.id } })).status).toBe('pending');
+      const yes = await db.mrPaid(p.mr.id, { revealToken: token, speiReference: 'CS5A', confirmOriginNotSettled: true });
+      expect(yes.status).toBe(200);
+      const log = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'manual_refund.paid', entityId: p.mr.id } });
+      expect(log.after).toMatchObject({ reason: 'charge_disputed', confirmedOriginNotSettled: true, originChargeUnavailable: false });
+    } finally {
+      h.stripe.chargeStateByIntent.delete(pi);
+    }
+    // Mutación: no contar `disputed` como origen no liquidado ⇒ `no` sale 200.
+  });
+
+  it('CS-5b 💰 — `paid` con Stripe caído ⇒ se registra igual (el dinero ya salió) con `originChargeUnavailable:true` en la bitácora', async () => {
+    const p = await mkPending({ name: 'CS5b' });
+    const pi = (await h.prisma.order.findUniqueOrThrow({ where: { id: p.vo.order.id } })).stripePaymentIntentId as string;
+    try {
+      const token = (await db.mrReveal(p.mr.id)).body.revealToken;
+      h.stripe.chargeStateByIntent.set(pi, 'down');
+      const r = await db.mrPaid(p.mr.id, { revealToken: token, speiReference: 'CS5B' });
+      expect(r.status).toBe(200);
+      const log = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'manual_refund.paid', entityId: p.mr.id } });
+      expect(log.after).toMatchObject({ originChargeUnavailable: true, reason: null });
+    } finally {
+      h.stripe.chargeStateByIntent.delete(pi);
+    }
+  });
+
+  it('CS-6 — `chargeState` NO se llama dentro de una `$transaction` (to-manual, reveal-clabe, paid)', async () => {
+    const f = await mkFailedOutsideList('CS6');
+    const p = await mkPending({ name: 'CS6b' });
+    const real = h.stripe.chargeState.bind(h.stripe);
+    let dentro = 0;
+    const spy = jest.spyOn(h.stripe, 'chargeState').mockImplementation(async (pi: string) => {
+      // Dentro de una interactive transaction de Prisma hay una tx abierta en la conexión de la app: se mide por
+      // `pg_stat_activity` — ninguna sesión de esta base debe estar `idle in transaction` esperando a Stripe.
+      const rows = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM pg_stat_activity WHERE datname = current_database() AND state = 'idle in transaction'`,
+      );
+      if (Number(rows[0].n) > 0) dentro += 1;
+      return real(pi);
+    });
+    try {
+      expect((await db.toManual(f.failed.id)).status).toBe(200);
+      const token = (await db.mrReveal(p.mr.id)).body.revealToken;
+      expect((await db.mrPaid(p.mr.id, { revealToken: token, speiReference: 'CS6X' })).status).toBe(200);
+      expect(spy).toHaveBeenCalledTimes(3);
+      expect(dentro).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    // Mutación: mover la lectura dentro del `$transaction` ⇒ `dentro` ≥ 1.
+  });
+
   it('PS-48 💰 — `case_refund` fallida + orden `chargeback` ⇒ `to-manual` 409 CASE_ORIGIN_NOT_SETTLED, cero ManualRefund; `paid` de una pendiente cuya orden pasó a `chargeback` ⇒ 422 {required:[origin_not_settled]}; con `true` ⇒ 200 y la bitácora lo registra', async () => {
     const s = await mkSpei(60000);
     h.stripe.refundOutcome = 'definitive';

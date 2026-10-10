@@ -28,6 +28,7 @@ import {
   ORDER_RESERVATION_TTL_MIN,
   RESERVATION_TX_OPTIONS,
   lockReservationGate,
+  failPendingOrder,
   releaseReservationData,
   reservationGuard,
   reservedUntilFrom,
@@ -926,15 +927,28 @@ export class OrdersService {
   async releaseReservation(orderId: string, itemIds: string[]): Promise<void> {
     await this.prisma
       .$transaction(async (tx) => {
+        // 💰 v1.84 LIVE-4 (TD-4, §14.4): CAS `pending → failed` PRIMERO; si no casa, la orden ya la movió otro
+        // escritor (liquidada/reembolsada/contracargo) ⇒ ⛔ no se suelta nada.
+        if (!(await failPendingOrder(tx, orderId))) return;
         await tx.inventoryItem.updateMany({
           where: { id: { in: itemIds }, ...reservationGuard(orderId) },
           data: releaseReservationData,
         });
         // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): los apartados de accesorio de la orden, en la MISMA tx (candado AC-B37).
         await releaseAccessoryReservations(tx, orderId);
-        await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
       })
-      .catch(() => undefined);
+      .catch((e: unknown) => {
+        // v1.84 LIVE-4 (C-2 (d) del techlead, D-2): conducta SIN cambiar — la compensación es best-effort y el barrido
+        // de reservas la reintenta —, pero ⛔ no en silencio: un fallo de BD aquí deja la reserva viva hasta el barrido.
+        this.logger.error(
+          JSON.stringify({
+            event: 'orders.release_reservation_failed',
+            orderId,
+            itemCount: itemIds.length,
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+      });
   }
 
   /**
@@ -1073,6 +1087,10 @@ export class OrdersService {
         );
       }
     }
+    // 💰 v1.84 LIVE-4 (TD-4, §14.4): CAS `pending → failed` PRIMERO. La lectura de la vieja fue SIN candado de fila y
+    // B3 (arriba) habla con Stripe entre medias: si otro escritor la movió, ⛔ no se suelta nada y no se lanza (la
+    // reserva nueva choca después con `ITEM_UNAVAILABLE` si las piezas ya no están libres).
+    if (!(await failPendingOrder(tx, order.id))) return;
     await tx.inventoryItem.updateMany({
       where: {
         id: { in: order.items.map((i) => i.inventoryItemId) },
@@ -1082,7 +1100,6 @@ export class OrdersService {
     });
     // 💰 v1.86⟨accesorios⟩ (§AC.4 reuso, §AC.6 (2)): la sustitución suelta también los apartados de accesorio.
     await releaseAccessoryReservations(tx, order.id);
-    await tx.order.update({ where: { id: order.id }, data: { status: 'failed' } });
   }
 
   /**
@@ -1234,15 +1251,17 @@ export class OrdersService {
       // vigila el barrido: no se puede distinguir «barrí 40 reservas» de «no había nada que barrer
       // 40 veces».
       const released = await this.prisma.$transaction(async (tx) => {
+        // 💰 v1.84 LIVE-4 (TD-4, §14.4): `order.status` se leyó FUERA de esta tx (y B3 habló con Stripe entre medias).
+        // Leída `pending` ⇒ CAS `pending → failed` PRIMERO; si no casa (liquidada/reembolsada/contracargo entre la
+        // lectura y aquí) ⇒ ⛔ nada se suelta. Leída en otro estado (p. ej. ya `failed` con piezas aún suyas) ⇒ no se
+        // escribe la orden y se suelta lo que siga reservado por ella, como antes.
+        if (order.status === 'pending' && !(await failPendingOrder(tx, orderId))) return 0;
         const { count } = await tx.inventoryItem.updateMany({
           where: { id: { in: itemIds }, ...reservationGuard(orderId) },
           data: releaseReservationData,
         });
         // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)/(3)): mismo cuerpo de soltar, misma tx. Cuenta como liberado.
         const acc = order.status === 'pending' ? await releaseAccessoryReservations(tx, orderId) : { lines: 0 };
-        if (order.status === 'pending') {
-          await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
-        }
         return count + acc.lines;
       });
       if (released > 0) swept += 1;
@@ -1251,7 +1270,7 @@ export class OrdersService {
     if (noop > 0) {
       this.logger.log(
         `order-reservation-sweep: ${noop} pedidos sin nada que liberar (otra ruta se les adelantó); ` +
-          'la orden `pending` sí quedó `failed`.',
+          'la orden `pending` quedó `failed` salvo que otro escritor la hubiera movido antes (TD-4: entonces no se toca).',
       );
     }
     if (skipped > 0) {

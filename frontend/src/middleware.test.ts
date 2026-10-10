@@ -41,49 +41,63 @@ beforeEach(() => {
   vi.doUnmock('./security/csp');
 });
 
-describe('CSP-1 · cabecera por petición (fase vigente: report-only)', () => {
-  it('una página lleva Content-Security-Policy-Report-Only con nonce, distinto en dos peticiones', async () => {
+describe('CSP-1 · fase vigente (report-only en este release): la cabecera del middleware lleva el nonce', () => {
+  it('sin forzar fase: Content-Security-Policy-Report-Only con nonce y SIN la aplicada del middleware; el render recibe el mismo nonce', async () => {
     const mw = await load();
+    const res = mw(req('/es/checkout'));
+    const p = res.headers.get('content-security-policy-report-only');
+    expect(p).toContain("'strict-dynamic'");
+    expect(nonceOf(p)).toBeTruthy();
+    // En report-only el middleware NO pone la aplicada; la red de frame-ancestors la da next.config.mjs
+    // (ver el invariante de las dos fases más abajo).
+    expect(res.headers.get('content-security-policy')).toBeNull();
+    expect(forwarded(res, 'x-nonce')).toBe(nonceOf(p));
+  });
+});
+
+/**
+ * D-5 (techlead, LIVE): las propiedades de CSP-1 valen en LAS DOS fases — `enforce` es la vigente (CL-1) y
+ * `report-only` la vuelta atrás de §14.3. Cada caso corre en ambas, leyendo la cabecera que toca a cada fase.
+ */
+const PHASES = [
+  { mode: 'enforce', header: 'content-security-policy', other: 'content-security-policy-report-only' },
+  { mode: 'report-only', header: 'content-security-policy-report-only', other: 'content-security-policy' },
+] as const;
+
+describe.each(PHASES)('CSP-1/CSP-6 · cabecera por petición (fase $mode)', ({ mode, header, other }) => {
+  it('una página lleva su cabecera con nonce, distinto en dos peticiones, y NO la de la otra fase', async () => {
+    const mw = await load(mode);
     const a = mw(req('/es/catalog'));
     const b = mw(req('/es/catalog'));
-    const pa = a.headers.get('content-security-policy-report-only');
-    const pb = b.headers.get('content-security-policy-report-only');
+    const pa = a.headers.get(header);
+    const pb = b.headers.get(header);
     expect(pa).toContain("'strict-dynamic'");
     expect(nonceOf(pa)).toBeTruthy();
     expect(nonceOf(pb)).toBeTruthy();
     expect(nonceOf(pa)).not.toBe(nonceOf(pb));
-    // En report-only el middleware NO pone la cabecera que bloquea (la de frame-ancestors sigue
-    // viniendo de next.config.mjs).
-    expect(a.headers.get('content-security-policy')).toBeNull();
+    // El middleware pone UNA de las dos (en report-only, la que bloquea frame-ancestors viene de
+    // next.config.mjs: ver el invariante de abajo).
+    expect(a.headers.get(other)).toBeNull();
   });
 
   it('el nonce de la respuesta es el que viaja hacia el render (x-nonce y la CSP de la petición)', async () => {
-    const mw = await load();
+    const mw = await load(mode);
     const res = mw(req('/es'));
-    const n = nonceOf(res.headers.get('content-security-policy-report-only'));
+    const n = nonceOf(res.headers.get(header));
     expect(n).toBeTruthy();
     expect(forwarded(res, 'x-nonce')).toBe(n);
-    expect(nonceOf(forwarded(res, 'content-security-policy-report-only'))).toBe(n);
+    expect(nonceOf(forwarded(res, header))).toBe(n);
   });
 
-  it('la redirección de la raíz (/ ⇒ /es) también la lleva', async () => {
-    const mw = await load();
-    const res = mw(req('/'));
-    expect(res.status).toBeGreaterThanOrEqual(300);
-    expect(res.status).toBeLessThan(400);
-    expect(res.headers.get('content-security-policy-report-only')).toContain("'nonce-");
-  });
-});
-
-describe('CSP-6 · en enforce la cabecera es la que bloquea', () => {
-  it('Content-Security-Policy (no -Report-Only), y el render recibe el nonce por ella', async () => {
-    const mw = await load('enforce');
-    const res = mw(req('/es/checkout'));
-    const p = res.headers.get('content-security-policy');
-    expect(nonceOf(p)).toBeTruthy();
-    expect(res.headers.get('content-security-policy-report-only')).toBeNull();
-    expect(forwarded(res, 'x-nonce')).toBe(nonceOf(p));
-    expect(nonceOf(forwarded(res, 'content-security-policy'))).toBe(nonceOf(p));
+  it('la redirección de la raíz (/ ⇒ /es) también la lleva, con nonce propio en cada petición', async () => {
+    const mw = await load(mode);
+    const a = mw(req('/'));
+    const b = mw(req('/'));
+    expect(a.status).toBeGreaterThanOrEqual(300);
+    expect(a.status).toBeLessThan(400);
+    expect(a.headers.get(header)).toContain("'nonce-");
+    expect(nonceOf(a.headers.get(header))).not.toBe(nonceOf(b.headers.get(header)));
+    expect(a.headers.get(other)).toBeNull();
   });
 });
 

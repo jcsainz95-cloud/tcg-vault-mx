@@ -77,7 +77,9 @@ ACTIVE_MAX_MINS="${ACTIVE_MAX_MINS:-10}"
 SPIDER_MINS="${SPIDER_MINS:-2}"
 AJAX_SPIDER="${AJAX_SPIDER:-$([ "${SCAN_PROFILE}" = "full" ] && echo 1 || echo 0)}"
 REPORT_DIR="${REPORT_DIR:-${ROOT_DIR}/security/reports}"
-ZAP_IMAGE="${ZAP_IMAGE:-ghcr.io/zaproxy/zaproxy:stable}"
+# Imagen de ZAP FIJADA por digest y filtro de la política: dast-zap-lib.sh (§96.7).
+# shellcheck source=security/scripts/dast-zap-lib.sh
+. "${SCRIPT_DIR}/dast-zap-lib.sh"
 NUCLEI_IMAGE="${NUCLEI_IMAGE:-projectdiscovery/nuclei:latest}"
 
 log()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
@@ -225,6 +227,20 @@ cmd_scan() {
   fi
   [ "${AJAX_SPIDER}" = "1" ] && zap_extra+=(-j)
 
+  # ---------------------------------------------------------------------
+  # LA POLÍTICA QUE RECIBE ZAP ES UNA COPIA FILTRADA (DEVOPS_NOTES §96.7).
+  # `baseline.conf` lleva claves `<regla>-<sub>` (10055-3…) que solo entiende
+  # dast-gate.py; ZAP hace `int(id)` sobre cada clave y revienta en 33 s sin
+  # informe (job 114278597979). Se le pasa la copia con solo IDs enteros; el
+  # candado (`gate`) sigue leyendo el ORIGINAL con --policy. La copia queda en
+  # el artefacto para que se vea qué recibió ZAP.
+  # ---------------------------------------------------------------------
+  local zap_conf_dir="${REPORT_DIR}/zap-conf"
+  zap_conf_for_zap "${zap_conf_dir}" || {
+    err "No pude preparar la política para ZAP (o la copia filtrada lo haría reventar)."
+    err "Esto NO es un hallazgo: es la política o el filtro. Dueño: devops (security/zap/baseline.conf)."
+    return 1; }
+
   # CINTURÓN, ADEMÁS DEL TIRANTE: pared de reloj que no depende de que una
   # clave de config de ZAP esté bien escrita. Si ZAP se pasa, se le corta.
   # Un escaneo cortado NO deja informe ⇒ el candado lo lee como ROJO (ver
@@ -237,17 +253,19 @@ cmd_scan() {
     local name; name="$(slug "${target}")"
     log "ZAP ${SCAN_PROFILE} → ${target}  (araña ${SPIDER_MINS}min · activo ≤${ACTIVE_MAX_MINS}min)"
     local t0; t0="$(date +%s)"
+    # Un informe de una corrida anterior no puede pasar por el de esta.
+    rm -f "${REPORT_DIR}/zap-${name}.json"
     # --network host: el stack escucha en puertos del HOST (3010/3011). Sin
     # esto, "localhost" dentro del contenedor de ZAP es el propio ZAP.
     # -I: los WARN no deciden el veredicto. El veredicto lo da dast-gate.py
     #     leyendo el JSON con la política de baseline.conf — una sola verdad.
     timeout --signal=INT "${pared}s" \
     docker run --rm --network host \
-      -v "${SEC_DIR}/zap:/zap/wrk/conf:ro" \
+      -v "${zap_conf_dir}:${ZAP_CONF_MOUNT}:ro" \
       -v "${REPORT_DIR}:/zap/wrk/out:rw" \
       "${ZAP_IMAGE}" "${zap_script}" \
         -t "${target}" \
-        -c /zap/wrk/conf/baseline.conf \
+        -c "${ZAP_CONF_MOUNT}/baseline.conf" \
         -J "/zap/wrk/out/zap-${name}.json" \
         -w "/zap/wrk/out/zap-${name}.md" \
         -r "/zap/wrk/out/zap-${name}.html" \
@@ -255,14 +273,24 @@ cmd_scan() {
     local rc=$?
     printf 'ZAP %s %s -> rc=%s  (%ss, pared %ss)\n' "${SCAN_PROFILE}" "${target}" "${rc}" \
       "$(( $(date +%s) - t0 ))" "${pared}" | tee -a "${REPORT_DIR}/timings.txt"
-    # rc 1/2 = ZAP encontró cosas; el candado lo decide dast-gate.py.
+    # rc 1/2 CON informe = ZAP encontró cosas; el candado lo decide dast-gate.py.
     # rc 124  = se comió la pared de reloj: el presupuesto está mal calibrado.
-    # rc>=3   = el escáner reventó. Los dos son ROJO: un escáner que no terminó
-    #           no es un verde (y además no deja informe, que el candado ya lee
-    #           como rojo por su cuenta).
+    # rc>=3   = el escáner reventó.
+    # rc≥1 SIN informe = ZAP REVENTÓ, aunque el rc sea 1 (§96.7). Antes se leía
+    #           «rc 1 ⇒ encontró cosas» y el paso salía VERDE: ZAP murió en 33 s
+    #           por `int('10055-3')` y solo el candado, un paso después, dijo
+    #           «no hay informe». Un escáner que no terminó no es un hallazgo ni
+    #           un verde: es un fallo del escáner, y se dice AQUÍ, donde ocurre.
     if [ "${rc}" = "124" ]; then
       err "ZAP superó la pared de ${pared}s contra ${target} y se cortó."
       err "Esto NO es un hallazgo: es presupuesto mal calibrado. Sube ACTIVE_MAX_MINS o reduce blancos."
+      rc_total=1
+    elif [ "${rc}" -ne 0 ] && [ ! -s "${REPORT_DIR}/zap-${name}.json" ]; then
+      err "ZAP reventó contra ${target}: rc=${rc} y SIN informe JSON (zap-${name}.json)."
+      err "Esto NO es un hallazgo: es el escáner. Mira las últimas líneas de ZAP arriba"
+      err "(p. ej. «ValueError» al leer ${ZAP_CONF_MOUNT}/baseline.conf). Dueño: devops."
+      [ -n "${GITHUB_ACTIONS:-}" ] && \
+        printf '::error title=ZAP reventó (sin informe)::rc=%s contra %s. No es un hallazgo: el escáner no terminó. DEVOPS_NOTES §96.7.\n' "${rc}" "${target}"
       rc_total=1
     elif [ "${rc}" -ge 3 ]; then
       err "ZAP terminó con rc=${rc} (fallo del escáner, no hallazgo)."

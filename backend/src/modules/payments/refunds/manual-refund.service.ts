@@ -14,7 +14,7 @@
  * Orden de candados (§M4-SHIP.17.3): `ManualRefund` → `KycProfile` → `Order` (compartido). `setClabe` solo toma
  * `KycProfile`; el reembolso del caso crea la fila (no bloquea una existente) ⇒ sin ciclo.
  */
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../../common/customer-email';
 import { ManualRefund, ManualRefundSource, ManualRefundStatus, OrderStatus, Prisma, ReplacementCaseSource, Role, ShippedRefundReason } from '@prisma/client';
 import { MANUAL_REFUND_STATUS_VALUES } from '../../../common/enum-values';
@@ -31,6 +31,7 @@ import { customerDisplayName } from '../../vault/customer-display-name';
 import { CLABE_RECENT_CHANGE_MS, REFUND_FAILURE_DISPUTE_CODES } from '../../vault/replacement-case.rules';
 import { manualRefundAnnouncedTemplate, manualRefundPaidTemplate } from './mail/refund-notice.templates';
 import type { CustomerRefDTO } from '../../shipments/shipment-prep.service';
+import { StripeService } from '../stripe.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -133,6 +134,9 @@ const MR_INCLUDE = {
 } satisfies Prisma.ManualRefundInclude;
 type MrRow = Prisma.ManualRefundGetPayload<{ include: typeof MR_INCLUDE }>;
 
+/** 💰 v1.84 LIVE-5 — el cobro de origen tal como lo ve cada verbo de la cubeta SPEI. */
+type OriginCharge = { kind: 'none' } | { kind: 'unavailable' } | { kind: 'other' } | { kind: 'current'; disputed: boolean };
+
 @Injectable()
 export class ManualRefundService {
   private readonly logger = new Logger(ManualRefundService.name);
@@ -140,8 +144,43 @@ export class ManualRefundService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pii: PiiCryptoService,
+    // 💰 v1.84 LIVE-5: el estado del cobro de origen se pregunta a Stripe (`chargeState`), ⛔ siempre fuera de tx.
+    private readonly stripe: StripeService,
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
+
+  /**
+   * 💰 v1.84 LIVE-5 · C2 (API_CONTRACT §14.5) — el cobro de Stripe de la orden de origen, leído FRESCO y ⛔ FUERA de
+   * toda transacción (CS-6). Devuelve un VALOR, no lanza: cada verbo decide (`to-manual` bloquea, `reveal-clabe`
+   * avisa, `paid` pide confirmación). Sin orden o sin PI ⇒ `none` (no se llama a Stripe). ⛔ No depende de
+   * `REFUND_FAILURE_DISPUTE_CODES` (lista NO MEDIDA en Stripe MX).
+   *
+   * `unavailable` es SOLO el `503 PAYMENT_PROVIDER_UNAVAILABLE` con el que `chargeState` dice «Stripe no respondió»
+   * (C-2 (c) del techlead, D-7). Cualquier otro error es un defecto nuestro y SE PROPAGA (500, antes de toda tx): leerlo
+   * como «Stripe caído» haría que `paid` registrase sin pedir la confirmación de origen no liquidado.
+   */
+  private async originChargeOf(orderId: string | null): Promise<OriginCharge> {
+    if (!orderId) return { kind: 'none' };
+    const o = await this.prisma.order.findUnique({ where: { id: orderId }, select: { stripePaymentIntentId: true } });
+    if (!o?.stripePaymentIntentId) return { kind: 'none' };
+    try {
+      const st = await this.stripe.chargeState(o.stripePaymentIntentId);
+      return st.mode === 'other' ? { kind: 'other' } : { kind: 'current', disputed: st.disputed };
+    } catch (e) {
+      if (!ManualRefundService.isProviderUnavailable(e)) throw e;
+      this.logger.warn(`LIVE-5: no se pudo leer el cobro de la orden ${orderId} en Stripe (${(e as Error).message}).`);
+      return { kind: 'unavailable' };
+    }
+  }
+
+  /** La forma exacta del «Stripe no respondió» de `StripeService.chargeState` (§14.5): 503 + `PAYMENT_PROVIDER_UNAVAILABLE`. */
+  private static isProviderUnavailable(e: unknown): boolean {
+    return (
+      e instanceof BusinessException &&
+      e.code === 'PAYMENT_PROVIDER_UNAVAILABLE' &&
+      e.getStatus() === HttpStatus.SERVICE_UNAVAILABLE
+    );
+  }
 
   // ================================================================ creación (C-MREF-1: tres llamadores)
 
@@ -394,6 +433,8 @@ export class ManualRefundService {
     if (!clabe || !kyc?.clabeHmac) {
       throw BusinessException.validation('CLABE_NOT_ON_FILE', 'The customer has no CLABE on file');
     }
+    // 💰 v1.84 LIVE-5 (CS-4): ⛔ no bloquea — es el último momento ANTES de transferir y el aviso tiene que verse aquí.
+    const charge = await this.originChargeOf(row.orderId);
     await this.prisma.auditLog.create({
       data: {
         actorUserId: actor.id,
@@ -410,6 +451,13 @@ export class ManualRefundService {
       clabeUpdatedAt: kyc.clabeUpdatedAt ? kyc.clabeUpdatedAt.toISOString() : null,
       clabeChangedRecently: ManualRefundService.clabeChangedRecently(kyc.clabeUpdatedAt, row.createdAt, now),
       revealToken: this.revealTokenOf(row.id, kyc.clabeHmac),
+      originCharge:
+        charge.kind === 'current'
+          ? { disputed: charge.disputed, otherMode: false }
+          : charge.kind === 'other'
+            ? { disputed: false, otherMode: true }
+            : null,
+      originChargeUnavailable: charge.kind === 'unavailable',
     };
   }
 
@@ -421,9 +469,14 @@ export class ManualRefundService {
     actor: ManualRefundActor,
     now = new Date(),
   ): Promise<ManualRefundDTO & { outcome: 'paid' | 'already_paid' }> {
-    const head = await this.prisma.manualRefund.findUnique({ where: { id }, select: { id: true } });
+    const head = await this.prisma.manualRefund.findUnique({ where: { id }, select: { id: true, orderId: true } });
     if (!head) throw BusinessException.notFound('NOT_FOUND', 'Manual refund not found');
     const speiReference = nullIfBlank(body.speiReference ?? null);
+    // 💰 v1.84 LIVE-5 (CS-5): el cobro de origen, fuera de la tx. Un cobro disputado o de OTRO modo cuenta como
+    // «origen no liquidado» aunque la orden diga `settled`. Stripe caído ⇒ se registra igual (el dinero ya salió).
+    const charge = await this.originChargeOf(head.orderId);
+    const chargeReason: 'charge_disputed' | 'payment_other_mode' | null =
+      charge.kind === 'other' ? 'payment_other_mode' : charge.kind === 'current' && charge.disputed ? 'charge_disputed' : null;
     const outcome = await this.prisma.$transaction(async (tx) => {
       // 2. la fila, FOR UPDATE.
       await tx.$queryRaw`SELECT id FROM "ManualRefund" WHERE id = ${id} FOR UPDATE`;
@@ -460,7 +513,7 @@ export class ManualRefundService {
       }
       // 7. confirmaciones exigidas.
       const recent = ManualRefundService.clabeChangedRecently(kyc.clabeUpdatedAt, row.createdAt, now);
-      const originNotSettled = originStatus !== null && originStatus !== 'settled';
+      const originNotSettled = (originStatus !== null && originStatus !== 'settled') || (row.orderId !== null && chargeReason !== null);
       const required: string[] = [];
       if (recent && body.confirmRecentClabeChange !== true) required.push('recent_clabe_change');
       if (originNotSettled && body.confirmOriginNotSettled !== true) required.push('origin_not_settled');
@@ -469,6 +522,7 @@ export class ManualRefundService {
           required,
           ...(recent ? { clabeUpdatedAt: kyc.clabeUpdatedAt ? kyc.clabeUpdatedAt.toISOString() : null } : {}),
           ...(originNotSettled ? { originStatus } : {}),
+          ...(originNotSettled && chargeReason ? { reason: chargeReason } : {}),
         });
       }
       // 8. CAS.
@@ -499,6 +553,9 @@ export class ManualRefundService {
             clabeUpdatedAt: kyc.clabeUpdatedAt ? kyc.clabeUpdatedAt.toISOString() : null,
             confirmedRecentClabeChange: body.confirmRecentClabeChange === true,
             confirmedOriginNotSettled: body.confirmOriginNotSettled === true,
+            // 💰 v1.84 LIVE-5: por qué el cobro no estaba liquidado (si lo dijo Stripe) y si Stripe no respondió.
+            reason: chargeReason,
+            originChargeUnavailable: charge.kind === 'unavailable',
           },
         },
       });
@@ -624,8 +681,11 @@ export class ManualRefundService {
   // ================================================================ to-manual (§M4-SHIP.17.4)
 
   async toManual(refundId: string, actor: ManualRefundActor): Promise<ManualRefundDTO> {
-    const head = await this.prisma.paymentRefund.findUnique({ where: { id: refundId }, select: { id: true } });
+    const head = await this.prisma.paymentRefund.findUnique({ where: { id: refundId }, select: { id: true, orderId: true } });
     if (!head) throw BusinessException.notFound('NOT_FOUND', 'Refund not found');
+    // 💰 v1.84 LIVE-5: el cobro se lee AQUÍ, fuera de la tx (CS-6); se aplica en el paso 3-bis, tras los 409 de
+    // siempre y la idempotencia (repetir un `to-manual` ya hecho sigue siendo `200` aunque Stripe no responda).
+    const charge = await this.originChargeOf(head.orderId);
     const { id, created } = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "PaymentRefund" WHERE id = ${refundId} FOR UPDATE`;
       const row = await tx.paymentRefund.findUniqueOrThrow({
@@ -651,7 +711,26 @@ export class ManualRefundService {
           throw BusinessException.conflict('CASE_ORIGIN_NOT_SETTLED', 'The origin order is no longer settled', { originStatus });
         }
       }
-      // 4. Stripe dijo «en disputa» aunque la orden aún no lo sepa.
+      // 3-bis. 💰 v1.84 LIVE-5 (CS-1…3): Stripe, preguntado, manda — no el código del rechazo. Cero escrituras.
+      if (row.orderId) {
+        if (charge.kind === 'unavailable') {
+          throw BusinessException.retriable(
+            'PAYMENT_PROVIDER_UNAVAILABLE',
+            'Could not read the origin charge from the payment provider; nothing was changed. Please retry.',
+          );
+        }
+        if (charge.kind === 'other') {
+          throw BusinessException.conflict('CASE_ORIGIN_NOT_SETTLED', 'The origin charge belongs to the other Stripe mode', {
+            originStatus: 'settled',
+            reason: 'payment_other_mode',
+          });
+        }
+        if (charge.kind === 'current' && charge.disputed) {
+          throw BusinessException.conflict('CASE_ORIGIN_NOT_SETTLED', 'The charge is disputed', { originStatus: 'settled', reason: 'charge_disputed' });
+        }
+      }
+      // 4. Stripe dijo «en disputa» aunque la orden aún no lo sepa. v1.84: la lista queda como atajo y registro, ⛔ no
+      // como puerta (la puerta es el 3-bis).
       if (row.failureCode && REFUND_FAILURE_DISPUTE_CODES.includes(row.failureCode)) {
         throw BusinessException.conflict('CASE_ORIGIN_NOT_SETTLED', 'The charge is disputed', { originStatus: 'settled', reason: 'charge_disputed' });
       }

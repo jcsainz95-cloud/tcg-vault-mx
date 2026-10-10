@@ -24,7 +24,8 @@ import { AppModule } from '../../../src/app.module';
 import { seedE2E } from '../../../prisma/seed-e2e';
 import { E2E_USERS } from '../../../prisma/e2e-fixtures';
 import { AllExceptionsFilter } from '../../../src/common/filters/all-exceptions.filter';
-import { StripeService } from '../../../src/modules/payments/stripe.service';
+import { ChargeState, StripeService } from '../../../src/modules/payments/stripe.service';
+import { BusinessException } from '../../../src/common/business.exception';
 import { PrismaService } from '../../../src/prisma/prisma.service';
 import { applyTrustProxy } from '../../../src/trust-proxy';
 import { applyBodyParsers } from '../../../src/body-parsers';
@@ -106,6 +107,24 @@ export class TestStripeService extends StripeService {
       status: this.canceledIntents.includes(paymentIntentId) ? 'canceled' : 'requires_payment_method',
       clientSecret: `${paymentIntentId}_secret_e2e`,
     };
+  }
+
+  /**
+   * 💰 v1.84 LIVE-5 (§14.5) — el estado del cobro, guionizable por PI. Sin guion ⇒ `chargeStateDefault` (cobro limpio
+   * del modo actual). `'down'` lanza el `503` de la implementación real. `chargeStateCalls` cuenta las lecturas (CS-6).
+   */
+  public chargeStateDefault: 'clean' | 'disputed' | 'other' | 'down' = 'clean';
+  public readonly chargeStateByIntent = new Map<string, 'clean' | 'disputed' | 'other' | 'down'>();
+  public readonly chargeStateCalls: string[] = [];
+
+  async chargeState(paymentIntentId: string): Promise<ChargeState> {
+    this.chargeStateCalls.push(paymentIntentId);
+    const g = this.chargeStateByIntent.get(paymentIntentId) ?? this.chargeStateDefault;
+    if (g === 'down') {
+      throw BusinessException.retriable('PAYMENT_PROVIDER_UNAVAILABLE', 'e2e: Stripe down');
+    }
+    if (g === 'other') return { mode: 'other' };
+    return { mode: 'current', disputed: g === 'disputed', amountRefundedCents: 0 };
   }
 
   /**
