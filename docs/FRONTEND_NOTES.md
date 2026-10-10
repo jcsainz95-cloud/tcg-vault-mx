@@ -21361,3 +21361,40 @@ casos); el nombre lleva `CSP-1/CSP-6` para que `csp.ts:14` y `e2e/csp.spec.ts:7`
 | `scripts/check-e2e-skip-census.sh` | rc 0, las claves = baseline (no se tocó E2E) |
 
 **NO MEDIDO:** el aviso contra el backend real (stack no levantado en este pase); el E2E de la cubeta SPEI no se tocó.
+
+## §113 · CSP — la 404 salía del `_not-found` ESTÁTICO, con `<script>` sin nonce (2026-10-10, rama `claude/salida-real`, base `cb33560c`)
+
+**Disparador.** Logs de Railway de producción (dueño, 2026-10-10): decenas de `CSP_VIOLATION` `script-src-elem` con
+`blockedOrigin` `https://tcghunt.mx` (`documentPath /es/decks-meta`, 16:52 UTC) e `inline` (`/es`, 18:24 UTC), en
+`report-only`. Con `CSP_MODE = 'enforce'` (`484f8530`) una página con esa firma se queda sin JS.
+
+**Medido (2026-10-10, `next build && next start` en modo producción, copia de `cb33560c`, Chromium 1194):**
+- `next build`: `/[locale]` y casi todo el storefront salen `●`, pero **no hay HTML horneado**: `prerender-manifest.json`
+  solo trae `/_not-found` y los iconos; el `●` es por `generateStaticParams` y el render cae a dinámico porque el layout
+  lee `headers()`. Respuestas `Cache-Control: private, no-store`.
+- Rutas públicas: HTML por `curl` de 22 rutas (`/es`, `/en`, catálogo y ficha, sellado, accesorios y ficha, compra,
+  buylist, decks-meta y ficha, decks-meta/pegar, términos, privacidad, pedido, aviso de deseos, login, registro,
+  checkout, vault, orders, shipments): **todos** los `<script>` llevan el nonce de su respuesta (p. ej. `/es` 37/37,
+  `/es/decks-meta` 33/33). En el navegador, 17 rutas con carga directa (incluidas olvido, verify y reset) con mocks:
+  **0** violaciones.
+  Navegación de cliente por enlaces del header (/es → decks-meta → catálogo → … → atrás): **0** eventos
+  `securitypolicyviolation`, **0** informes.
+- **La 404** (`/es/no-existe`): 12 `<script>`, **0** con nonce. Es el `_not-found` prerenderizado de Next (no había
+  `not-found` ni catch-all dentro de `[locale]`). En el navegador produce exactamente las dos firmas del log:
+  6 × `script-src-elem inline` y 6 × `script-src-elem <origen propio>/_next/static/chunks/…`.
+
+**Arreglo.** `src/app/[locale]/[...rest]/page.tsx` → `notFound()`. La URL desconocida casa dentro de `[locale]` y la
+404 se renderiza por petición (layout con `headers()`), con nonce y estado 404. Contenido visible igual que antes
+(la 404 genérica de Next, ahora dentro del layout raíz de `[locale]`). Las rutas concretas siguen teniendo prioridad.
+Una 404 con diseño propio queda como petición a ux-ui (no está en DESIGN_SYSTEM).
+
+**Candado.** `e2e/csp.spec.ts` CSP-2 ampliada: 17 rutas públicas (200) + 3 rutas 404 (`/es/…`, `/en/…`, anidada bajo
+`decks-meta/`); exige que todos los `<script>` lleven el nonce de su respuesta. Sin el arreglo: **3 rojas / 17 verdes**
+(las tres 404). Con el arreglo: `csp.spec.ts` entero **29/29**. HTML determinista: N=1 basta (no es probabilístico).
+
+**NO MEDIDO:** la causa de los informes con `documentPath` `/es` y `/es/decks-meta`. En local esas páginas no violan
+la política, ni con carga directa ni con navegación de cliente. El GET a `https://tcghunt.mx` lo denegó el proxy de
+salida (política de la organización), así que no comparé el nonce de la cabecera de producción con el del HTML ni
+miré `x-vercel-cache`/`age`. El informe de `POST /telemetry/csp` no guarda `sourceFile` ni `sample`
+(`backend/src/modules/health/telemetry-report.ts:4`), y sin ellos no se distingue un script de Next de uno inyectado
+por una extensión o por el navegador integrado de una red social.

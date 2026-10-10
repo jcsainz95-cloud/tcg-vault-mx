@@ -88,10 +88,40 @@ test.describe('LIVE-3 · CSP con nonce', () => {
     });
   }
 
-  for (const path of ['/es', '/es/catalog', '/es/login', '/en/checkout']) {
+  /**
+   * CSP-2 · todo HTML que pasa por el middleware lleva en TODOS sus `<script>` el nonce de SU respuesta.
+   * Si una ruta sale prerenderizada (HTML horneado en el build), sus scripts no llevan nonce o llevan
+   * otro, y en `enforce` la página queda sin JS. Medido 2026-10-10 (FRONTEND_NOTES §113): la 404 era
+   * el `_not-found` ESTÁTICO de Next (12 scripts, 0 con nonce) ⇒ en `report-only` emitía las dos
+   * firmas del log de producción (`script-src-elem inline` y `script-src-elem <origen propio>`).
+   * Por eso la lista cubre TODAS las rutas públicas del storefront/auth (200) y tres 404 (sin
+   * prefijo de segmento, en `en`, y anidada bajo un segmento que existe).
+   * Mutación que la pone roja: borrar `app/[locale]/[...rest]/page.tsx` ⇒ las 404 sin nonce.
+   */
+  const CSP2_PUBLIC = [
+    '/es',
+    '/en',
+    '/es/catalog',
+    '/es/sellado',
+    '/es/accesorios',
+    '/es/compra',
+    '/es/buylist',
+    '/es/decks-meta',
+    '/es/decks-meta/pegar',
+    '/es/terminos',
+    '/es/privacidad',
+    '/es/pedido',
+    '/es/lista-de-deseos/aviso',
+    '/es/login',
+    '/es/register',
+    '/es/forgot-password',
+    '/en/checkout',
+  ];
+  const CSP2_NOT_FOUND = ['/es/no-existe-csp', '/en/no-existe-csp', '/es/decks-meta/a/b/no-existe-csp'];
+  for (const path of [...CSP2_PUBLIC, ...CSP2_NOT_FOUND]) {
     test(`CSP-2 · todos los <script> de ${path} llevan el nonce de su respuesta`, async ({ request }) => {
       const res = await request.get(path);
-      expect(res.status()).toBe(200);
+      expect(res.status()).toBe(CSP2_NOT_FOUND.includes(path) ? 404 : 200);
       const { nonce } = cspOf(res.headers());
       expect(nonce).not.toBe('');
       const html = await res.text();
