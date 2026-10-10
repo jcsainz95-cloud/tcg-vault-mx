@@ -55,9 +55,10 @@ function withIva(m: number, r: number): number {
   return m + Math.round((m * r) / 100);
 }
 
-/** El nombre accesible de la celda de mercado (§MIV.5): «Valor de mercado MX$1,160.00 IVA 16 % incluido». */
-function marketGroupName(locale: Locale, labelKey: string, cents: number, r: number): string {
-  return `${t(locale, labelKey)} ${mx(cents)} ${t(locale, 'common.ivaIncluded', { rate: r })}`;
+/** El nombre accesible de la celda de mercado (§MIV.5 / vMIV-2): «Valor de mercado MX$1,160.00 incluye IVA»
+ * (en: «… VAT included»). El rótulo del mercado NO lleva la tasa (§MIV.10). */
+function marketGroupName(locale: Locale, labelKey: string, cents: number): string {
+  return `${t(locale, labelKey)} ${mx(cents)} ${t(locale, 'common.ivaIncludedBare')}`;
 }
 
 interface CardCase {
@@ -296,11 +297,11 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
     let price = '';
     await test.step('(a) ficha de carta: mercado CON IVA + rótulo + precio; cifra = M + round(M·r/100)', async () => {
       await page.goto(`/es/catalog/${c.cardId}`);
-      const group = page.getByRole('group', { name: marketGroupName('es', 'catalog.marketValue', shown, c.r), exact: true });
+      const group = page.getByRole('group', { name: marketGroupName('es', 'catalog.marketValue', shown), exact: true });
       await expect(group).toBeVisible();
-      // El rótulo es texto visible, pegado a la cifra (criterio 863).
+      // El rótulo es texto visible, pegado a la cifra (criterio 863). vMIV-2: dice «incluye IVA», sin la tasa.
       await expect(group.getByTestId('iva-label')).toBeVisible();
-      await expect(group.getByTestId('iva-label')).toHaveText(t('es', 'common.ivaIncluded', { rate: c.r }));
+      await expect(group.getByTestId('iva-label')).toHaveText(t('es', 'common.ivaIncludedBare'));
       // ⛔ el neto no aparece en la ficha.
       await expect(page.getByRole('main')).not.toContainText(mx(c.m));
       price = await salePriceOf(page, 'es');
@@ -355,7 +356,7 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
         : null;
       await page.goto(`/es/sellado/${sc.itemId}`);
       await expect(
-        page.getByRole('group', { name: marketGroupName('es', 'sealed.detail.marketValue', sc.display, sc.r), exact: true }),
+        page.getByRole('group', { name: marketGroupName('es', 'sealed.detail.marketValue', sc.display), exact: true }),
       ).toBeVisible();
       // Tendencia: en los dos mundos está encendida (real: la encendió `sealedMarketCase`). Un 404 o una serie
       // vacía es un ROJO, no un «no medido» (techlead D-7).
@@ -371,7 +372,7 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
         expect(trendLast).toBe(sc.display);
       }
       await expect(
-        page.getByRole('group', { name: `${mx(trendLast!)} ${t('es', 'common.ivaIncluded', { rate: sc.r })}`, exact: true }),
+        page.getByRole('group', { name: `${mx(trendLast!)} ${t('es', 'common.ivaIncludedBare')}`, exact: true }),
       ).toBeVisible();
     });
 
@@ -397,7 +398,7 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
     await test.step('(f) (a) en inglés: la misma cifra con «N % VAT included»', async () => {
       await page.goto(`/en/catalog/${c.cardId}`);
       await expect(
-        page.getByRole('group', { name: marketGroupName('en', 'catalog.marketValue', shown, c.r), exact: true }),
+        page.getByRole('group', { name: marketGroupName('en', 'catalog.marketValue', shown), exact: true }),
       ).toBeVisible();
       await expect(page.getByRole('main')).not.toContainText(mx(c.m));
     });

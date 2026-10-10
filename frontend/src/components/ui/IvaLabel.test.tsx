@@ -85,4 +85,35 @@ describe('IvaLabel · el rótulo lo dice el DATO, no la pantalla', () => {
     renderWithIntl(<IvaLabel ivaIncluded ivaRatePct={16} />, 'es');
     expect(screen.getByTestId('iva-label').textContent).toBe('IVA 16 % incluido');
   });
+
+  /**
+   * ⭐ **MIV-UX-7 (vMIV-2, §MIV.10.3) — la variante SIN tasa del MERCADO: «incluye IVA».**
+   *
+   * `showRate={false}` hace que la rama inclusiva diga «incluye IVA» / «VAT included» (`common.ivaIncludedBare`),
+   * SIN la tasa — es el rótulo del **valor de mercado**. ⛔ `showRate` SOLO afecta la rama inclusiva: con
+   * `ivaIncluded={false}` sigue siendo «sin IVA» (criterio 190) y con la convención ausente no pinta nada. Y el
+   * **precio** (sin la prop, o `showRate` por defecto) sigue «IVA 16 % incluido»: su tasa no desaparece.
+   */
+  it('`showRate={false}` ⇒ «incluye IVA» / «VAT included», SIN tasa; el precio conserva la tasa', () => {
+    const { unmount } = renderWithIntl(<IvaLabel ivaIncluded showRate={false} />, 'es');
+    const es = screen.getByTestId('iva-label');
+    expect(es).toHaveTextContent('incluye IVA');
+    expect(es.textContent).not.toMatch(/%|16/);
+    unmount();
+
+    const { unmount: u2 } = renderWithIntl(<IvaLabel ivaIncluded showRate={false} />, 'en');
+    const en = screen.getByTestId('iva-label');
+    expect(en).toHaveTextContent('VAT included');
+    expect(en.textContent).not.toMatch(/%|16/);
+    u2();
+
+    // ⛔ `showRate={false}` NO toca la rama «sin IVA» (es el corazón de §M10-IVA).
+    const { unmount: u3 } = renderWithIntl(<IvaLabel ivaIncluded={false} showRate={false} />, 'es');
+    expect(screen.getByTestId('iva-label')).toHaveTextContent('sin IVA');
+    u3();
+
+    // El PRECIO (default `showRate`) conserva la tasa: la variante nueva no se la come.
+    renderWithIntl(<IvaLabel ivaIncluded ivaRatePct={16} />, 'es');
+    expect(screen.getByTestId('iva-label')).toHaveTextContent('IVA 16 % incluido');
+  });
 });

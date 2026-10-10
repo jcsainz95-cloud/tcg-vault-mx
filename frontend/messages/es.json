@@ -24,6 +24,7 @@
     "all": "Todos",
     "withoutIva": "sin IVA",
     "ivaIncluded": "IVA {rate} % incluido",
+    "ivaIncludedBare": "incluye IVA",
     "updatedDaily": "Precio de referencia de mercado, actualizado a diario",
     "errorTitle": "Algo salió mal",
     "errorGeneric": "No se pudo cargar la información.",

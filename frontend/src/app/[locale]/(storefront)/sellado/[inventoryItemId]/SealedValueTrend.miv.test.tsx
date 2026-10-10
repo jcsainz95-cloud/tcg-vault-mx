@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { SealedValueTrend } from './SealedValueTrend';
 import * as api from '@/lib/api';
@@ -11,8 +11,8 @@ import type { SealedValueHistoryResponse } from '@/types/contract';
  * - MIV-F5: neto [190000, 200000], display [220400, 232000], `displayAbsMxnCents` 11600, `pct` 5.26 ⇒
  *   cifra grande «MX$2,320.00», «MX$116.00», «5.26 %», rótulo de IVA; la curva lleva los display.
  * - MIV-F6: sin campos `display*` (servidor sin §MIV) ⇒ el componente no se pinta.
- * - MIV-UX-3: grupo «MX$2,320.00 IVA 16 % incluido»; con `ivaRatePct={8}` dice «IVA 8 %»; en
- *   «Recopilando…» no hay rótulo.
+ * - MIV-UX-3 (vMIV-2): grupo «MX$2,320.00 incluye IVA»; el rótulo NO lleva ninguna cifra de tasa sea cual
+ *   sea `ivaRatePct`; en «Recopilando…» no hay rótulo.
  *
  * La curva: `recharts` se sustituye por un doble que expone el `data` que recibe, para afirmar QUÉ serie
  * se dibuja (en jsdom `ResponsiveContainer` mide 0 y no pinta nada).
@@ -48,7 +48,8 @@ describe('MIV-F5 · la tendencia pinta SOLO las cifras con IVA; el % tal cual', 
     expect(await screen.findByText('MX$2,320.00')).toBeInTheDocument();
     expect(screen.getByText(/MX\$116\.00/)).toBeInTheDocument();
     expect(screen.getByText(/5\.26 %/)).toBeInTheDocument();
-    expect(screen.getByTestId('iva-label')).toHaveTextContent('IVA 16 % incluido');
+    // vMIV-2: la tendencia (mercado) rotula «incluye IVA», sin la tasa.
+    expect(screen.getByTestId('iva-label')).toHaveTextContent('incluye IVA');
     // ⛔ ni el neto actual ni el cambio neto.
     expect(container.textContent).not.toContain('MX$2,000.00');
     expect(container.textContent).not.toContain('MX$100.00');
@@ -56,23 +57,27 @@ describe('MIV-F5 · la tendencia pinta SOLO las cifras con IVA; el % tal cual', 
     expect(JSON.parse(screen.getByTestId('trend-chart').getAttribute('data-values')!)).toEqual([220400, 232000]);
   });
 
-  it('MIV-UX-3: grupo accesible «MX$2,320.00 IVA 16 % incluido», sin aria-label propio', async () => {
+  it('MIV-UX-3 (vMIV-2): grupo accesible «MX$2,320.00 incluye IVA», sin aria-label propio', async () => {
     vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue(F5);
     renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" ivaRatePct={16} />, 'es');
-    const g = await screen.findByRole('group', { name: 'MX$2,320.00 IVA 16 % incluido' });
+    const g = await screen.findByRole('group', { name: 'MX$2,320.00 incluye IVA' });
     expect(g.getAttribute('aria-label')).toBeNull();
+    // ⛔ MIV-UX-3: el rótulo de mercado no contiene ninguna cifra de tasa.
+    expect(within(g).getByTestId('iva-label').textContent).not.toMatch(/%|16/);
   });
 
-  it('MIV-UX-3: la tasa es la prop (`ivaRatePct={8}` ⇒ «IVA 8 % incluido»), no un 16 fijo', async () => {
+  it('MIV-UX-3 (vMIV-2): el rótulo NO lleva la tasa sea cual sea el dial (`ivaRatePct={8}` ⇒ sigue «incluye IVA»)', async () => {
     vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue(F5);
     renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" ivaRatePct={8} />, 'es');
-    expect(await screen.findByTestId('iva-label')).toHaveTextContent('IVA 8 % incluido');
+    const label = await screen.findByTestId('iva-label');
+    expect(label).toHaveTextContent('incluye IVA');
+    expect(label.textContent).not.toMatch(/8 %|16 %|%/);
   });
 
-  it('en inglés: «16 % VAT included» y la misma cifra', async () => {
+  it('en inglés (vMIV-2): «VAT included» y la misma cifra', async () => {
     vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue(F5);
     renderWithProviders(<SealedValueTrend inventoryItemId="inv-1008" ivaRatePct={16} />, 'en');
-    expect(await screen.findByRole('group', { name: 'MX$2,320.00 16 % VAT included' })).toBeInTheDocument();
+    expect(await screen.findByRole('group', { name: 'MX$2,320.00 VAT included' })).toBeInTheDocument();
   });
 
   it('cambio con redondeo: el cambio en pesos es `displayAbsMxnCents`, no el neto ni otra cuenta', async () => {

@@ -45,10 +45,11 @@ export function SealedValueTrend({
 }: {
   inventoryItemId: string;
   /**
-   * §MIV.3 / DESIGN_SYSTEM §MIV.3 — la TASA para el rótulo «IVA {rate} % incluido» (la serie no la trae;
-   * la pasa la ficha desde `group.ivaRatePct`). Solo es un rótulo: ⛔ ninguna cuenta con ella.
+   * §MIV.10 (vMIV-2) — OPCIONAL y YA NO SE PINTA: el rótulo de la tendencia dice «incluye IVA» (sin tasa)
+   * vía `showRate={false}`, así que la tendencia ya no depende de la tasa del grupo (resuelve de paso el
+   * desfase de N-MIV-1). Se conserva por firma; ⛔ ninguna cuenta con ella.
    */
-  ivaRatePct: number;
+  ivaRatePct?: number;
 }) {
   const t = useTranslations('sealed.trend');
   const locale = useLocale() as AppLocale;
@@ -110,9 +111,13 @@ export function SealedValueTrend({
             >
               {formatMoneyCents(currentCents, locale)}
             </div>
+            {/* §MIV.10 (vMIV-2): el rótulo de la tendencia (mercado) dice «incluye IVA» (sin tasa) vía
+                `showRate={false}`. `ivaRatePct` ya no se muestra; se pasa aún por firma pero `IvaLabel` lo
+                ignora en esta variante. */}
             <IvaLabel
               id={ivaId}
               ivaIncluded
+              showRate={false}
               ivaRatePct={ivaRatePct}
               className="mt-2 block text-[11px] leading-none whitespace-nowrap"
             />

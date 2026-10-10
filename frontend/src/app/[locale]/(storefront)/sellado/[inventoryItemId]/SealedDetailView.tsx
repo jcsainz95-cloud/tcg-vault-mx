@@ -200,12 +200,13 @@ function Detail({
                 <div id={marketFigureId} className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
                   {formatMoneyCents(marketDisplayCents, locale)}
                 </div>
-                {/* §MIV.1: el MISMO rótulo que «Desde»; `ivaIncluded` literal (el servidor arma la
-                    cifra con el IVA completo), tasa del mismo DTO. */}
+                {/* §MIV.10 (vMIV-2): el rótulo del MERCADO dice «incluye IVA» (sin tasa) vía
+                    `showRate={false}`; ⛔ el de «Desde» (precio) sigue «IVA 16 % incluido». `ivaIncluded`
+                    literal (el servidor arma la cifra con el IVA completo). `ivaRatePct` ya no se muestra. */}
                 <IvaLabel
                   id={marketIvaId}
                   ivaIncluded
-                  ivaRatePct={group.ivaRatePct}
+                  showRate={false}
                   className="mt-2 block text-[11px] leading-none whitespace-nowrap"
                 />
                 {captured && (

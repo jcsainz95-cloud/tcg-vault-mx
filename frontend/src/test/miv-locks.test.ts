@@ -125,8 +125,8 @@ describe('§MIV.6 · textos finales es/en (criterio 868)', () => {
     });
   }
 
-  it('MIV-F8 · paridad de placeholders en cada clave tocada (y en la reutilizada `common.ivaIncluded`)', () => {
-    for (const key of [...Object.keys(MIV6), 'common.ivaIncluded']) {
+  it('MIV-F8 · paridad de placeholders en cada clave tocada (y en `common.ivaIncluded` / `common.ivaIncludedBare`)', () => {
+    for (const key of [...Object.keys(MIV6), 'common.ivaIncluded', 'common.ivaIncludedBare']) {
       const a = pick(es as Dict, key);
       const b = pick(en as Dict, key);
       expect(typeof a, key).toBe('string');
@@ -135,10 +135,25 @@ describe('§MIV.6 · textos finales es/en (criterio 868)', () => {
     }
   });
 
-  it('cero claves nuevas: el rótulo del mercado reutiliza `common.ivaIncluded` (no nace «incluye IVA»)', () => {
+  /**
+   * vMIV-2 (§MIV.10): el rótulo del MERCADO ya NO reutiliza `common.ivaIncluded`; nace UNA clave nueva
+   * `common.ivaIncludedBare` = «incluye IVA» / «VAT included» (sin tasa). Este candado protege:
+   *  - que la clave exista con el texto exacto del dueño, en los dos idiomas (sin placeholders: la variante
+   *    sin tasa no lleva `{rate}`);
+   *  - que NO reaparezcan las claves legadas prohibidas (un rótulo de mercado fuera del punto único);
+   *  - que `common.ivaIncluded` (el rótulo del PRECIO) siga con su tasa.
+   */
+  it('vMIV-2 · `common.ivaIncludedBare` = «incluye IVA»/«VAT included» (sin tasa); el precio conserva `{rate}`', () => {
+    expect(pick(es as Dict, 'common.ivaIncludedBare')).toBe('incluye IVA');
+    expect(pick(en as Dict, 'common.ivaIncludedBare')).toBe('VAT included');
+    // La variante sin tasa NO lleva placeholder.
+    expect(placeholders(pick(es as Dict, 'common.ivaIncludedBare') as string)).toEqual([]);
+    expect(placeholders(pick(en as Dict, 'common.ivaIncludedBare') as string)).toEqual([]);
+    // El PRECIO sigue con su tasa.
+    expect(placeholders(pick(es as Dict, 'common.ivaIncluded') as string)).toEqual(['rate']);
+    // ⛔ ninguna clave de mercado fuera del punto único (`IvaLabel`).
     for (const d of [es, en] as Dict[]) {
-      const flat = JSON.stringify(d);
-      expect(flat).not.toMatch(/"marketIvaNote"|"ivaIncludedMarket"|"incluye IVA"/);
+      expect(JSON.stringify(d)).not.toMatch(/"marketIvaNote"|"ivaIncludedMarket"/);
     }
   });
 

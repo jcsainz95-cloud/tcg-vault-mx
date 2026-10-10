@@ -21530,3 +21530,55 @@ propio `csp.ts`). El paso a `enforce` (CL-1) queda para después, una vez medida
   roja de devops pendiente.
 
 HTML/texto determinista: N=1 basta (no es probabilístico).
+
+## §115 · §MIV vMIV-2 — la nota del VALOR DE MERCADO dice «incluye IVA» (el precio sigue «IVA 16 % incluido») (2026-10-10, rama `claude/mercado-iva`; `DESIGN_SYSTEM §MIV` vMIV-2, fuente de verdad §MIV.10 · criterios §MIV.8 MIV-UX-1/2/3/7; dueño: `HECHOS.md`, fila 2026-10-10 «§MIV — texto de la nota… "incluye iva"»)
+
+**Decisión (dueño, vía §MIV.10).** El rótulo de IVA junto al **valor de mercado** pasa de «IVA 16 % incluido» a
+**«incluye IVA»** (en: «VAT included»), sin la tasa. El rótulo del **precio de venta** NO cambia: sigue
+«IVA 16 % incluido» / «16 % VAT included». Supersede solo el **texto** del rótulo de mercado de §111 (vMIV-1); todo
+lo demás de §111 (cuándo se ve el bloque, de dónde sale la cifra, que nunca se cae al neto) sigue vigente.
+
+**Cambio (solo `frontend/` + esta nota).**
+- `src/components/ui/IvaLabel.tsx` (zona compartida): prop nueva **`showRate?: boolean`** (default `true`,
+  ensanchamiento compatible). `showRate` SOLO afecta la rama inclusiva (`ivaIncluded === true`): `true`/ausente ⇒
+  «IVA {rate} % incluido» (precio, SIN CAMBIO); `false` ⇒ «incluye IVA» / «VAT included» (`common.ivaIncludedBare`).
+  Las ramas «sin IVA» (`ivaIncluded={false}`, criterio 190) y «no pinta nada» (`ivaIncluded` indefinido, no-default)
+  son INVARIABLES y no dependen de la prop — el corazón de §M10-IVA intacto.
+- i18n: UNA clave nueva **`common.ivaIncludedBare`** = «incluye IVA» (es) / «VAT included» (en). Sin placeholder (la
+  variante sin tasa no lleva `{rate}`). Elegido el literal del dueño sobre la variante viva `accessories.vatIncluded`
+  («IVA incluido»); si prefiere esa por consistencia es un cambio de una palabra (FYI de ux-ui, no bloquea).
+- Celdas/tendencia de MERCADO con `showRate={false}`: `CardDetailView` (celda de valor de mercado),
+  `SealedDetailView` (ídem) y `SealedValueTrend` (rótulo de la tendencia). En `SealedValueTrend` la prop `ivaRatePct`
+  pasa a **opcional** y ya no se pinta (resuelve de paso el desfase N-MIV-1: la tendencia ya no depende de la tasa del
+  grupo para el rótulo). El dato sigue viajando, solo deja de mostrarse. ⛔ El rótulo del PRECIO (celda «Precio de
+  venta» de la carta y «Desde» del sellado) NO cambia una línea.
+- Accesibilidad (MIV.10.4): el mecanismo no cambia (`role="group"` + `aria-labelledby` sobre nodos visibles, `id` de
+  `IvaLabel`). Solo cambia el texto del rótulo. Nombres accesibles: «Valor de mercado MX$1,160.00 incluye IVA» (carta),
+  «MX$2,320.00 incluye IVA» (tendencia), y sus equivalentes en inglés.
+
+**Pruebas (vMIV-2).**
+- `IvaLabel.test.tsx`: las 5 pruebas núcleo quedan VERDES sin tocarse; AÑADE la de MIV-UX-7 — `showRate={false}` ⇒
+  «incluye IVA»/«VAT included» sin cifra de tasa, `ivaIncluded={false}` + `showRate={false}` sigue «sin IVA», y el
+  precio (default) conserva «IVA 16 % incluido».
+- `CardDetailView.miv.test.tsx`, `SealedDetailView.miv.test.tsx`, `SealedValueTrend.miv.test.tsx`: MIV-UX-1/2/3
+  reescritos — el mercado dice «incluye IVA» (sin ninguna cifra de tasa, sea cual sea `ivaRatePct`) y el precio sigue
+  «IVA 16 % incluido»; nombres accesibles actualizados.
+- `src/test/miv-locks.test.ts`: MIV-F8 añade `common.ivaIncludedBare` a la paridad; el candado invertido ahora exige
+  que la clave exista con el texto exacto y sin placeholder, que el precio conserve `{rate}`, y que no reaparezcan
+  claves de mercado fuera del punto único.
+- `e2e/miv-market-iva.spec.ts`: `marketGroupName` y las aserciones de superficie de mercado pasan a «incluye IVA» /
+  «VAT included».
+
+**Medido (2026-10-10, `vitest run`, árbol de la rama):**
+- Suites tocadas + paridad: `IvaLabel` + 3 `*.miv` + `miv-locks` + `i18n-parity` = **6/6 ficheros, 97/97 pruebas**.
+- Consumidores adyacentes (no debían cambiar): `CardDetailView` / `SealedDetailView` / `SealedValueTrend` (no-miv),
+  `AmountBreakdown`, `GuestCheckoutView`, `WishlistBlock`, `WishlistView`, `wishlist-wsh-locks` = **8/8 ficheros,
+  96/96 pruebas**.
+- `tsc --noEmit` rc 0; `eslint` de los 10 ficheros tocados rc 0.
+- **Mutación 1** (mercado con `showRate` por defecto, con tasa): `CardDetailView.miv` ⇒ **4/9 rojas** (el grupo
+  accesible esperaba «incluye IVA» y MIV-UX-1/3 el rótulo sin tasa). Restaurado.
+- **Mutación 2** (PRECIO «Desde» con `showRate={false}`): `SealedDetailView.miv` ⇒ **1/7 roja** (MIV-UX-1 exige
+  `['IVA 16 % incluido', 'incluye IVA']`; el precio perdió la tasa). Restaurado.
+
+HTML/texto determinista: N=1 basta (no es probabilístico). La E2E `miv-market-iva.spec.ts` NO se ejecutó aquí (necesita
+el stack levantado): NO MEDIDO por mí; su ejecución es del gate de QA.

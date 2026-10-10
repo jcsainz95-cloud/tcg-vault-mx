@@ -18,9 +18,10 @@ import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
  * - MIV-F2: market SIN `referenceDisplayCents` ⇒ ni rótulo de mercado, ni nota, ni «—», ni neto; la
  *   celda de precio ocupa la fila.
  * - MIV-F3: override CON `referenceDisplayCents` (servidor erróneo) ⇒ sin bloque ni nota.
- * - MIV-F8 / MIV-UX-2: el grupo accesible «Valor de mercado MX$1,160.00 IVA 16 % incluido» (es y en).
- * - MIV-UX-1: dos `iva-label`… o el del precio y el de mercado con el MISMO texto; orden del DOM
- *   rótulo → cifra → IVA → fecha.
+ * - MIV-F8 / MIV-UX-2 (vMIV-2): el grupo accesible «Valor de mercado MX$1,160.00 incluye IVA» (es) /
+ *   «Market value MX$1,160.00 VAT included» (en) — el rótulo del mercado NO lleva tasa.
+ * - MIV-UX-1 (vMIV-2): el rótulo del PRECIO sigue «IVA 16 % incluido» y el del MERCADO dice «incluye IVA»
+ *   (textos DISTINTOS); orden del DOM rótulo → cifra → IVA → fecha; el de mercado sin ninguna cifra de tasa.
  * - MIV-UX-6: sin `referenceDisplayCents`, ningún `iva-label` fuera de la celda de precio.
  */
 
@@ -177,56 +178,61 @@ describe('MIV-F3 · basis no-market con `referenceDisplayCents` presente (servid
   });
 });
 
-describe('MIV-F8 / MIV-UX-2 · el lector de pantalla lee la cifra CON su rótulo de IVA (criterio 863)', () => {
-  it('es: grupo «Valor de mercado MX$1,160.00 IVA 16 % incluido»', async () => {
+describe('MIV-F8 / MIV-UX-2 (vMIV-2) · el lector de pantalla lee la cifra CON su rótulo de mercado (criterio 863)', () => {
+  it('es: grupo «Valor de mercado MX$1,160.00 incluye IVA»', async () => {
     mockDetail(grp());
     renderWithProviders(<CardDetailView cardId="c-miv" />, 'es');
-    const group = await screen.findByRole('group', { name: 'Valor de mercado MX$1,160.00 IVA 16 % incluido' });
+    const group = await screen.findByRole('group', { name: 'Valor de mercado MX$1,160.00 incluye IVA' });
     // El rótulo es texto VISIBLE del DOM: ni aria-hidden ni title.
     const label = within(group).getByTestId('iva-label');
-    expect(label).toHaveTextContent('IVA 16 % incluido');
+    expect(label).toHaveTextContent('incluye IVA');
     expect(label.closest('[aria-hidden="true"]')).toBeNull();
     expect(label.getAttribute('title')).toBeNull();
     // ⛔ ningún aria-label con una cadena aparte: el nombre sale de los nodos visibles.
     expect(group.getAttribute('aria-label')).toBeNull();
   });
 
-  it('en: grupo «Market value MX$1,160.00 16 % VAT included» (la cifra es la misma)', async () => {
+  it('en: grupo «Market value MX$1,160.00 VAT included» (la cifra es la misma)', async () => {
     mockDetail(grp());
     renderWithProviders(<CardDetailView cardId="c-miv" />, 'en');
     expect(
-      await screen.findByRole('group', { name: 'Market value MX$1,160.00 16 % VAT included' }),
+      await screen.findByRole('group', { name: 'Market value MX$1,160.00 VAT included' }),
     ).toBeInTheDocument();
   });
 
-  it('la tasa es la del DTO (`ivaRatePct`), no un 16 fijo', async () => {
+  it('MIV-UX-3 (vMIV-2): el rótulo del mercado NO lleva la tasa, sea cual sea `ivaRatePct`', async () => {
     mockDetail(grp({ ivaRatePct: 8, referenceDisplayCents: 108000 }), unit({ ivaRatePct: 8 }));
     renderWithProviders(<CardDetailView cardId="c-miv" />, 'es');
-    expect(
-      await screen.findByRole('group', { name: 'Valor de mercado MX$1,080.00 IVA 8 % incluido' }),
-    ).toBeInTheDocument();
+    // El nombre accesible NO depende del dial: «incluye IVA», nunca «IVA 8 %».
+    const group = await screen.findByRole('group', { name: 'Valor de mercado MX$1,080.00 incluye IVA' });
+    expect(within(group).getByTestId('iva-label').textContent).not.toMatch(/8 %|16 %/);
   });
 });
 
-describe('MIV-UX-1 · el rótulo del mercado es el MISMO que el del precio, en orden cifra → IVA → fecha', () => {
-  it('mismo texto que la celda de precio; orden del DOM rótulo → cifra → IVA → fecha', async () => {
+describe('MIV-UX-1 (vMIV-2) · el precio sigue con tasa y el mercado dice «incluye IVA» (textos DISTINTOS), en orden cifra → IVA → fecha', () => {
+  it('precio «IVA 16 % incluido»; mercado «incluye IVA» sin tasa; orden rótulo → cifra → IVA → fecha', async () => {
     mockDetail(grp());
     renderWithProviders(<CardDetailView cardId="c-miv" />, 'es');
     const group = await screen.findByRole('group', { name: /^Valor de mercado/ });
 
-    // Las dos celdas dicen exactamente lo mismo (peras con peras).
-    expect(screen.getAllByText('IVA 16 % incluido')).toHaveLength(2);
+    // El PRECIO conserva su tasa (celda de venta): exactamente una vez, y NO dentro del grupo de mercado.
+    expect(screen.getAllByText('IVA 16 % incluido')).toHaveLength(1);
+    expect(group.textContent ?? '').not.toMatch(/IVA 16 % incluido/);
+
+    // El MERCADO dice «incluye IVA», vía el rótulo compartido (no texto a mano).
+    const label = within(group).getByTestId('iva-label');
+    expect(label).toHaveTextContent('incluye IVA');
+    // ⛔ MIV-UX-3: el rótulo de mercado no contiene ninguna cifra de tasa.
+    expect(label.textContent).not.toMatch(/%|16|8/);
 
     const text = group.textContent ?? '';
     const iLabel = text.indexOf('Valor de mercado');
     const iFig = text.indexOf('MX$1,160.00');
-    const iIva = text.indexOf('IVA 16 % incluido');
+    const iIva = text.indexOf('incluye IVA');
     const iDate = text.search(/9 oct/i);
     expect(iLabel).toBeGreaterThanOrEqual(0);
     expect(iLabel).toBeLessThan(iFig);
     expect(iFig).toBeLessThan(iIva);
     expect(iIva).toBeLessThan(iDate);
-    // ⛔ «incluye IVA» escrito a mano en vez del rótulo compartido.
-    expect(text).not.toMatch(/incluye IVA/i);
   });
 });

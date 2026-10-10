@@ -82,29 +82,31 @@ describe('MIV-F4 · ficha de sellado', () => {
     expect(screen.getByText('MX$2,320.00')).toBeInTheDocument();
     expect(screen.getByText('MX$2,668.00')).toBeInTheDocument();
     expect(container.textContent).not.toContain('MX$2,000.00');
-    // Mismo rótulo en la celda «Desde» y en la de mercado (MIV-UX-1).
+    // vMIV-2 (MIV-UX-1): el PRECIO («Desde») conserva su tasa; el MERCADO dice «incluye IVA» (sin tasa).
     expect(screen.getAllByTestId('iva-label').map((n) => n.textContent)).toEqual([
       'IVA 16 % incluido',
-      'IVA 16 % incluido',
+      'incluye IVA',
     ]);
   });
 
-  it('F8/UX-2: grupo accesible «Valor de mercado MX$2,320.00 IVA 16 % incluido» y orden cifra → IVA → fecha', async () => {
+  it('F8/UX-2 (vMIV-2): grupo accesible «Valor de mercado MX$2,320.00 incluye IVA» y orden cifra → IVA → fecha', async () => {
     mockDetail(group());
     renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
-    const g = await screen.findByRole('group', { name: 'Valor de mercado MX$2,320.00 IVA 16 % incluido' });
+    const g = await screen.findByRole('group', { name: 'Valor de mercado MX$2,320.00 incluye IVA' });
     expect(g.getAttribute('aria-label')).toBeNull();
     const text = g.textContent ?? '';
-    expect(text.indexOf('MX$2,320.00')).toBeLessThan(text.indexOf('IVA 16 % incluido'));
-    expect(text.indexOf('IVA 16 % incluido')).toBeLessThan(text.search(/9 oct/i));
+    expect(text.indexOf('MX$2,320.00')).toBeLessThan(text.indexOf('incluye IVA'));
+    expect(text.indexOf('incluye IVA')).toBeLessThan(text.search(/9 oct/i));
+    // ⛔ MIV-UX-3: el rótulo de mercado no lleva la tasa.
+    expect(within(g).getByTestId('iva-label').textContent).not.toMatch(/16 %/);
     expect(within(g).getByTestId('iva-label').closest('[aria-hidden="true"]')).toBeNull();
   });
 
-  it('F8/UX-2 en inglés', async () => {
+  it('F8/UX-2 en inglés (vMIV-2)', async () => {
     mockDetail(group());
     renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'en');
     expect(
-      await screen.findByRole('group', { name: 'Market value MX$2,320.00 16 % VAT included' }),
+      await screen.findByRole('group', { name: 'Market value MX$2,320.00 VAT included' }),
     ).toBeInTheDocument();
   });
 
@@ -141,7 +143,7 @@ describe('MIV-F4 · ficha de sellado', () => {
     expect(screen.getAllByTestId('iva-label')).toHaveLength(1);
   });
 
-  it('la tendencia recibe la TASA del grupo para su rótulo (`ivaRatePct`, sin cuenta)', async () => {
+  it('la tendencia rotula «incluye IVA» (vMIV-2: sin tasa, sea cual sea `ivaRatePct` del grupo)', async () => {
     mockDetail(group({ ivaRatePct: 8, referenceDisplayCents: 216000 }), true);
     const history: SealedValueHistoryResponse = {
       product: { inventoryItemId: 'inv-1008' },
@@ -154,6 +156,6 @@ describe('MIV-F4 · ficha de sellado', () => {
     };
     vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue(history);
     renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
-    expect(await screen.findByRole('group', { name: 'MX$2,160.00 IVA 8 % incluido' })).toBeInTheDocument();
+    expect(await screen.findByRole('group', { name: 'MX$2,160.00 incluye IVA' })).toBeInTheDocument();
   });
 });

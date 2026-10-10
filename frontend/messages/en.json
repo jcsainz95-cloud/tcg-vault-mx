@@ -24,6 +24,7 @@
     "all": "All",
     "withoutIva": "before VAT",
     "ivaIncluded": "{rate} % VAT included",
+    "ivaIncludedBare": "VAT included",
     "updatedDaily": "Market reference price, updated daily",
     "errorTitle": "Something went wrong",
     "errorGeneric": "We couldn't load the data.",
