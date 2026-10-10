@@ -14020,7 +14020,21 @@ gh workflow run edge-xff-probe.yml --ref <rama-con-el-workflow> -f confirmar=C6-
 ```
 Sin secretos; el resultado sale en el resumen del run. **Cada corrida gasta 6 intentos: no repetir sin autorización.**
 
-> **[RESULTADO C6 — se rellena en la ventana autorizada: proporción N/N, control sí/no, fecha y hora]**
+> **[RESULTADO C6 — run `38074439305`, 2026-10-10 ~18:06 UTC, sha `00535194`, objetivo por defecto
+> `https://tcg-vault-mx-production.up.railway.app`]: rc = 2 → NO CONCLUYENTE.** El workflow corrió bien (canario
+> `success`; confirmación `C6-6-INTENTOS` `success`; checkout `success`); el único paso rojo fue «C6 contra producción»,
+> cuyo exit code = rc del script (`exit "$rc"`) = **2** (anotación del check-run: «Process completed with exit code 2»).
+> rc 2 = la sonda NO cerró (no es rc 0 «C6 CIERRA») y NO halló el bypass (no es rc 1 «C6 FALLA»); tampoco es un fallo
+> del workflow. **Los 6 intentos autorizados (HECHOS.md P-9) SÍ se gastaron:** las 6 peticiones se envían en el bucle
+> `for i in 1..6` ANTES de clasificar, así que cualquier rama de rc 2 ocurre con las 6 ya enviadas. **La rama exacta de
+> rc 2 queda NO MEDIDA:** el texto de la sonda (c6.log) solo vive en el resumen del run y en el blob de Azure de los
+> logs, que el proxy de egreso de este contenedor bloquea con 403 de política (`productionresultssa19.blob.core.windows.net`,
+> re-medido 2026-10-10); no se reintenta una denegación de política. Las tres ramas posibles de rc 2: (a) rotando XFF no
+> hubo NINGÚN 429 ⇒ la sonda pide `--with-control` y otra autorización de 6 (la salida esperada por diseño); (b) `CUENTA`
+> — salió un 429 `TOO_MANY_PASSWORD_ATTEMPTS` (sonda contaminada; improbable porque cada petición usa un correo único);
+> (c) `RARO` — respuestas inesperadas (URL/path). ⛔ **NO re-disparar sin nueva autorización del dueño: otra corrida gasta
+> otros 6 intentos.** Para leer la rama exacta sin el proxy: abrir el resumen del run en la web de GitHub (Actions → run
+> `38074439305` → job «sonda»). C6 sigue **abierto** (§58.3).
 
 ### 85.5 · LIVE-13 — respaldos y simulacro de restauración (`scripts/restore-drill-verify.sh`)
 
