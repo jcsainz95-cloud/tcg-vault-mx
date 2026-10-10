@@ -5854,6 +5854,10 @@ la misma condición que el bloque:
 
 La variante «sin bloque» **no menciona** el mercado ni insinúa que falte algo: no hay nada que explicar.
 
+> ⚠ **vMIV-1 (2026-10-10):** en la tienda, el valor de mercado se muestra **con IVA**. La celda de mercado lleva el
+> rótulo «IVA {rate} % incluido» bajo la cifra y el texto «con bloque» de la tabla de arriba se reescribe. Mandan
+> **§MIV.2** y **§MIV.6**; la regla (a) de cuándo se ve no cambia.
+
 **(e) Sin salto de layout.** Durante la carga, el esqueleto de la ficha pinta la fila de dinero como **una sola
 celda a ancho completo** (la parte invariable) y añade la celda de mercado solo cuando llegan los datos. Así nunca
 se ve aparecer un bloque que después se retira (§8.1: los esqueletos respetan el layout final; el layout final aquí
@@ -32261,3 +32265,276 @@ subtotal en el carrito), el orden y el rótulo de texto.
   algún rótulo en inglés rompe línea, se acepta que el **rótulo** baje a dos renglones. ⛔ La cifra nunca se parte ni se
   trunca.
 - Sin solicitudes de contrato: todo lo que pinta esta sección ya viaja (`API_CONTRACT §BMK.0`).
+
+---
+
+## MIV. Valor de mercado con IVA en la tienda: el rótulo de IVA junto a la cifra, los explicadores y la lista de deseos (vMIV-1, 2026-10-10 · `API_CONTRACT §MIV` rev v1.90⟨miv⟩ · `ARCHITECTURE §4.MIV` · `PROJECT §MIV`, criterios 860–869)
+
+**Norma (manda):** `HECHOS.md:160`, fila 2026-10-10 «**Tienda: el VALOR DE MERCADO se muestra CON IVA, con una nota
+«incluye IVA».**» (*«quiero que mostremos el mercado mas iva en vez de solo el mercado»*; *«solo la tienda y sí la
+nota»*). `HECHOS.md:161`, fila 2026-10-10 «§MIV — respuestas a P-MIV-4, P-MIV-2 y P-MIV-1» (*«A, no y no»*):
+**P-MIV-4 = (a)**, los números de la lista de deseos no cambian y el texto aclara que el % es sobre el mercado **sin
+IVA**; **P-MIV-2 = no**, «Mi bóveda» sigue sin IVA; **P-MIV-1 = no**, los estimados PSA no llevan IVA. P-MIV-3, -5 y -6
+van con su valor por defecto (`PROJECT §MIV`).
+
+**Cuándo se ve el bloque y de dónde sale la cifra no se decide aquí:** lo fija `API_CONTRACT §MIV.2` (bloque ⇔
+`priceBasis === "market"` ∧ `referenceDisplayCents` entero `> 0`; ⛔ nunca se cae al neto) y `§MIV.3` (tendencia).
+Esta sección decide **cómo se ve el rótulo de IVA**, **qué dicen los textos** y **cómo lo lee un lector de pantalla**.
+
+**Lo leído** (árbol `/home/user/tcg-iva`, rama `claude/mercado-iva`, 2026-10-10; ux-ui sin Bash: sha **NO MEDIDO**;
+re-medir líneas antes de editar): `CardDetailView.tsx:224-267` (hechos de precio), `:345-350` (nota al pie);
+`_shared/Fact.tsx:16-34` (celda); `SealedDetailView.tsx:156-187` (celdas), `:256-260` (montaje de la tendencia);
+`SealedValueTrend.tsx:62-98`; `components/ui/IvaLabel.tsx:47-59` y su prueba `IvaLabel.test.tsx:58-87`;
+`WishlistBlock.tsx:306-311`, `:370-378`, `:446-462`; `account/wishlist/WishlistRow.tsx:98`, `:155`;
+`_shared/grading/GradingEstimateBlock.tsx:116-119`; `test/wishlist-wsh-locks.test.ts:95-160`;
+`messages/es.json` y `en.json` `:26`, `:340`, `:354`, `:446`, `:5186`, `:7216`, `:7228`, `:7458`, `:7464`, `:7474`,
+`:7475`, `:7533`.
+
+⛔ Cero tokens nuevos, cero pares de contraste nuevos, cero componentes nuevos, **cero claves i18n nuevas**. Ningún
+importe cambia (criterio 866).
+
+### MIV.1 Tres decisiones que gobiernan todo lo demás
+
+1. **El rótulo de IVA del mercado es el MISMO que el del precio: `IvaLabel` con «IVA {rate} % incluido»
+   (`common.ivaIncluded`, `es.json:26`).** Se reutiliza; no nace «incluye IVA» como cadena aparte. Por qué:
+   - **Peras con peras se ve, no solo se lee.** En la ficha, la celda «Precio de venta» ya dice «IVA 16 % incluido»
+     (`CardDetailView.tsx:233-238`; en sellado `SealedDetailView.tsx:168-172`). Si la celda vecina dice exactamente lo
+     mismo, en el mismo sitio y con el mismo estilo, el comprador entiende sin leer prosa que las dos cifras están
+     en la misma base. Esa es la petición del dueño (`PROJECT §MIV.1`). Con dos redacciones distintas («IVA 16 %
+     incluido» junto a «incluye IVA») parecería que son dos convenciones distintas.
+   - **Un solo sitio rotula el IVA de una cifra.** `IvaLabel` es el punto de control de los criterios 195/208 (cero
+     afirmaciones jurídicas, `§7.12a`), y su prueba cubre las dos lenguas. Una cadena nueva de impuesto fuera de él
+     habría que auditarla aparte.
+   - **Es exacto con cualquier tasa.** Con `iva_pct = 0` dice «IVA 0 % incluido», que es cierto. «Incluye IVA» sería
+     cierto pero vacío (`ARCHITECTURE §4.MIV (h)4`).
+   - Cumple la nota que pidió el dueño: dice que la cifra incluye IVA, visible y junto a la cifra.
+   - Se pinta con `ivaIncluded` **literal `true`**: la cifra de mercado la arma el servidor siempre con el IVA
+     completo (`API_CONTRACT §MIV.1`). Hay precedente: `WishlistBlock.tsx:308` y `:459` ya pintan
+     `<IvaLabel ivaIncluded …/>`. La tasa es `ivaRatePct` del mismo DTO que trae la cifra (MIV.2, MIV.3).
+2. **La cifra y su rótulo se leen como una sola cosa**, en pantalla y en el árbol accesible. El rótulo va
+   **inmediatamente debajo de la cifra**, antes que cualquier otra cosa (la fecha incluida). Está en la misma celda
+   y tiene un nombre accesible común (MIV.5). ⛔ Sin `title`, tooltip, `aria-hidden` ni «ⓘ» que haya que abrir
+   (criterio 863).
+3. **Una aclaración por dato, dicha una vez en cada superficie.** Mercado con IVA: lo dice el rótulo, y el
+   explicador de la ficha dice por qué. Porcentaje de la lista de deseos: va sobre el mercado **sin** IVA, y lo dicen
+   los textos que nombran el porcentaje. Estimados PSA: sin IVA, lo dice su micro-aviso. ⛔ Nada de repetir «con
+   IVA» en el rótulo «Valor de mercado» (no cambia: `catalog.marketValue` y `sealed.detail.marketValue`) ni en cada
+   renglón.
+
+### MIV.2 Ficha de carta y ficha de sellado: la celda «Valor de mercado» (A1, A2)
+
+```
+≥ sm (2 columnas)                                   360 px (1 columna, celda ≈ 328 px útiles)
+┌──────────────────────┬──────────────────────┐     ┌────────────────────────────────────┐
+│ PRECIO DE VENTA      │ VALOR DE MERCADO     │     │ PRECIO DE VENTA                    │
+│ MX$1,334.00          │ MX$1,160.00          │     │ MX$1,334.00                        │
+│ IVA 16 % incluido    │ IVA 16 % incluido    │ ←   │ IVA 16 % incluido                  │
+│                      │ 9 oct 2026           │     ├────────────────────────────────────┤
+├──────────────────────┼──────────────────────┤     │ VALOR DE MERCADO                   │
+│ CONDICIÓN …          │ ACABADO …            │     │ MX$1,160.00                        │
+                                                    │ IVA 16 % incluido                  │ ← mismo renglón
+                                                    │ 9 oct 2026                         │   que el del precio
+                                                    ├────────────────────────────────────┤
+```
+
+| Pieza (en este orden en el DOM) | Clases | Nota |
+|---|---|---|
+| rótulo | `eyebrow` (como hoy) | `catalog.marketValue` / `sealed.detail.marketValue`, **sin cambio** |
+| cifra | `tabular text-3xl font-medium leading-none text-text` (como hoy) | `referenceDisplayCents` con `formatMoneyCents` (`API_CONTRACT §MIV.2`). ⛔ Desaparece el `'—'` |
+| **rótulo de IVA** (nuevo) | `<IvaLabel ivaIncluded ivaRatePct={…} className="mt-2 block text-[11px] leading-none whitespace-nowrap" />` | **Las mismas clases** que el rótulo del precio en la ficha de sellado (`SealedDetailView.tsx:171`). Tasa: `primary.ivaRatePct` (carta) / `group.ivaRatePct` (sellado) |
+| fecha de captura | `mt-1.5 font-mono text-[11px] leading-none text-muted` | `referenceValue.capturedDate`, como hoy (`PROJECT §MIV.4` SUPUESTO ratificado: se conserva). Sin fecha ⇒ no hay renglón, como hoy |
+
+- **Dos renglones, en todos los anchos.** Rótulo de IVA arriba, fecha abajo. No van en una línea con «·»: en `lg` la
+  celda derecha mide ≈ 170 px útiles (media pantalla, menos márgenes, menos `pl-7`), y «IVA 16 % incluido · 9 oct
+  2026» en mono de 11 px mide ≈ 205 px. Se partiría por la mitad en escritorio y no en el celular. Por la misma razón
+  que en `§BMK.2`, la forma no cambia con el ancho.
+- **Medidas a mano** (mono ≈ 0.6 em por carácter): «IVA 16 % incluido» (17 car.) ≈ 112 px y «16 % VAT included»
+  (17 car.) ≈ 112 px. Caben en 170 px y en 328 px. `whitespace-nowrap`: el rótulo no se parte. Con una tasa de tres
+  cifras («IVA 100 %») son 18 car. ≈ 119 px y también caben.
+- **Alturas de la fila:** la celda de mercado queda un renglón más alta que la de precio. La retícula estira la fila y
+  las reglas siguen cerrando (`§21.8b`). ⛔ No se añade relleno a la celda de precio para igualarlas.
+- **Ficha de carta, cómo cablearlo:** hoy `Fact` recibe `note?: string` y lo pinta debajo de la cifra
+  (`Fact.tsx:31`). El rótulo de IVA va **dentro del `node`** de la celda, después de la cifra, y la fecha sigue en
+  `note`. Así el orden queda cifra → IVA → fecha sin tocar `Fact` para el caso visual. Lo que sí necesita `Fact` es
+  el nombre accesible (MIV.5). Cómo se pasa lo decide frontend.
+- **Ficha de sellado:** la celda está escrita a mano (`SealedDetailView.tsx:175-185`). Se inserta el `IvaLabel` entre
+  la cifra y la fecha, con las clases de la tabla.
+- **Carga y ausencia:** sin cambio respecto a `§21.8(e)`. El esqueleto pinta la fila de dinero a ancho completo y la
+  celda de mercado entra con los datos. Sin `referenceDisplayCents`, no hay celda: ni cifra, ni rótulo de IVA, ni
+  fecha (criterio 863 «nunca la nota sin la cifra»; MIV-F2).
+- **Gradeada:** igual que raw (criterio 860).
+
+### MIV.3 Tendencia de valor del sellado (A3)
+
+```
+TENDENCIA DE VALOR
+MX$2,320.00                         ╱╲__╱‾‾      ← cifra grande (displayValueMxnCents del último punto)
+IVA 16 % incluido                                ← NUEVO, pegado a la cifra
+▲ +MX$116.00 (+5.26 %)                           ← displayAbsMxnCents; pct como hoy
+Con base en el valor de mercado de referencia (TCGCSV), actualizado a diario.
+5D  15D  1M  3M  …
+```
+
+| Pieza | Clases | Nota |
+|---|---|---|
+| cifra grande | como hoy (`SealedValueTrend.tsx:74`) | `displayValueMxnCents` del último punto (`API_CONTRACT §MIV.3`) |
+| **rótulo de IVA** (nuevo) | `<IvaLabel ivaIncluded ivaRatePct={ivaRatePct} className="mt-2 block text-[11px] leading-none whitespace-nowrap" />` | Va **entre** la cifra y el cambio, no después de la nota: tiene que leerse con la cifra (criterio 863) |
+| cambio | como hoy, con `mt-2.5` | Pesos de `displayAbsMxnCents`; porcentaje de `pct`, tal cual |
+| nota de fuente | como hoy (`mt-3 font-mono text-[11px] text-muted`) | `sealed.trend.marketRefNote` **reescrita** (MIV.6). Ya **no** repite «IVA»: lo dice el rótulo, 40 px más arriba |
+
+- **De dónde sale la tasa:** la respuesta de `value-history` no trae `ivaRatePct` (`API_CONTRACT §MIV.3`). El
+  componente gana la prop `ivaRatePct: number`. `SealedDetailView` le pasa `group.ivaRatePct`, que viene de la misma
+  respuesta que decide si la tendencia se monta (`:256`). Solo es un rótulo; ⛔ ninguna cuenta con ella.
+  Desfase posible: si el dueño cambia `iva_pct` justo entre las dos peticiones, el rótulo podría decir 16 % sobre una
+  serie calculada al 8 % hasta la siguiente lectura. Es una ventana de segundos y se corrige sola. Lo dejo anotado
+  como solicitud no bloqueante al arquitecto (MIV.9, N-MIV-1).
+- **Estados sin cifra** («Recopilando historial…», esqueleto, oculto): **sin** rótulo de IVA. Nunca hay rótulo sin
+  cifra.
+- **360 px:** la cifra a 32 px y el rótulo a 11 px van apilados, igual que hoy la cifra y el cambio. La curva sigue
+  debajo a ancho completo (`w-full sm:w-[320px]`). Nada nuevo compite por el ancho.
+- **Dirección y color del cambio:** sin cambio. La dirección sobre el neto y sobre el display es la misma
+  (`ARCHITECTURE §4.MIV (f)`).
+
+### MIV.4 Lista de deseos en la ficha y en «Mi lista» (A9, P-MIV-4 = (a))
+
+**El problema, con los números del dueño:** la ficha dice «Valor de mercado MX$1,160.00 · IVA 16 % incluido». Más
+abajo, el bloque de la lista ofrece «10 % · hasta MX$1,100». Sin aclarar nada se lee «¿10 % **más** y me sale
+**menos** que el mercado?». MX$1,100 sale de MX$1,000 **sin IVA** × 1.10, y esa cifra ya es un precio con IVA (lo
+dice el `IvaLabel` que ya está junto a los pesos, `WishlistBlock.tsx:306-311`).
+
+**Decisión:** cada texto que **nombra el porcentaje** dice sobre qué base va: «sobre (el precio de) mercado **sin
+IVA**». Los textos que **nombran el máximo en pesos** ya llevan «IVA 16 % incluido» al lado y no cambian. Con las dos
+piezas juntas se lee así:
+
+```
+¿Hasta cuánto más del precio de mercado sin IVA pagarías?        ← pctLegend (radiogroup)
+( ) 5 %   hasta MX$1,050.00
+(•) 10 %  hasta MX$1,100.00
+( ) 16 %  hasta MX$1,160.00
+IVA 16 % incluido · aproximado                                    ← sin cambio
+```
+
+- **Mismo texto en los dos modos del dial `wishlist_max_iva_mode`** (`es.json:5186`). En los dos el porcentaje se
+  aplica al mercado sin IVA (con IVA: MX$1,000 al 10 % = MX$1,100; sin IVA: MX$1,100 + IVA = MX$1,276), y en los dos
+  el máximo mostrado ya lleva IVA (`IvaLabel ivaIncluded`). Por eso ningún texto afirma que el máximo quede **debajo**
+  del mercado: con el otro modo queda **encima**, y la frase mentiría.
+- **«Mi lista» (`row.maxPct`) también lo dice.** Ahí no hay cifra de mercado a la vista, pero es el mismo dato con el
+  mismo nombre (un dato, un nombre) y el cliente llega desde la ficha. Si una pantalla dijera «sin IVA» y la otra
+  no, parecería que son dos porcentajes distintos.
+- **No cambian:** `pctOption`, `pctPesos`, `maxToday`, `row.pctOption`, `row.today`, `noMarket*`, `signalNote`. No
+  nombran la base del porcentaje o ya llevan el rótulo de IVA al lado.
+- ⛔ Ningún texto nuevo o tocado contiene «tu precio», «your price», «precio especial» ni «special price» (candado
+  WSH-UX-11, `wishlist-wsh-locks.test.ts:151-160`). Comprobado a mano sobre la tabla de MIV.6.
+- **Longitud a 360 px:** `block.inList` pasa a ≈ 66 car. en ES («Está en tu lista · Reverse Holo · hasta 10 % sobre
+  mercado sin IVA»). A 14 px son dos renglones junto al icono ✓, y eso se acepta: el `<p>` es `flex items-center` y
+  el texto parte por palabras. ⛔ No se trunca.
+
+### MIV.5 Accesibilidad (criterio 863, MIV-F8)
+
+| Superficie | Contenedor | Nombre accesible resultante (es) |
+|---|---|---|
+| Celda de mercado, ficha de carta y de sellado | la celda (`div`) con `role="group"` y `aria-labelledby="{idRótulo} {idCifra} {idIva}"` | «Valor de mercado MX$1,160.00 IVA 16 % incluido» |
+| Tendencia | `div` nuevo que envuelve **solo** cifra grande + rótulo de IVA, con `role="group"` y `aria-labelledby="{idCifra} {idIva}"` | «MX$2,320.00 IVA 16 % incluido» |
+
+- El nombre se arma con `aria-labelledby` apuntando a **los nodos visibles**. ⛔ Ningún `aria-label` con una cadena
+  aparte, que podría desalinearse del texto en pantalla.
+- `IvaLabel` necesita aceptar `id?: string` (hoy no lo acepta, `IvaLabel.tsx:47`). Es un ensanchamiento compatible
+  de un componente compartido (`components/ui/`, zona compartida).
+- La fecha **no** entra en el nombre del grupo: se lee después, en el orden del DOM. La cifra y el IVA forman una
+  unidad; la fecha es contexto.
+- El orden del DOM es el visual: cifra → IVA → fecha (o cambio, en la tendencia). Sin `tabindex`; nada nuevo es
+  focuseable.
+- `useId()` para los ids; los dos rótulos de IVA de la ficha (precio y mercado) llevan ids distintos.
+- La celda de **precio** no se toca en esta ronda. Darle el mismo `role="group"` sería coherente, pero no lo pide
+  §MIV y su prueba existente quedaría fuera de alcance.
+
+### MIV.6 Textos finales es/en (paridad en el mismo cambio, criterio 868)
+
+**Claves nuevas: ninguna.**
+
+**Claves reutilizadas sin cambio (en una superficie nueva):**
+
+| Clave | ES | EN | Dónde se usa ahora además |
+|---|---|---|---|
+| `common.ivaIncluded` (`:26`) | IVA {rate} % incluido | {rate} % VAT included | Por `IvaLabel`: celda de mercado de la ficha de carta y de sellado y tendencia de sellado |
+
+**Claves modificadas:**
+
+| Clave (línea es/en) | ES hoy | **ES nuevo** | EN hoy | **EN nuevo** |
+|---|---|---|---|---|
+| `card.referenceExplainerWithMarket` (`:446`) | El valor de mercado es la referencia del día con la que valuamos las cartas. El precio de venta se calcula a partir de ella. | **El valor de mercado es la referencia del día y se muestra con IVA incluido, igual que nuestro precio de venta, para que los compares tal cual. El precio de venta se calcula a partir de esa referencia.** | Market value is the day's reference we value cards with. The sale price is derived from it. | **Market value is the day's reference, shown with VAT included just like our sale price, so you can compare them directly. The sale price is derived from that reference.** |
+| `sealed.trend.marketRefNote` (`:7228`) | Valor de mercado de referencia (TCGCSV), actualizado a diario. | **Con base en el valor de mercado de referencia (TCGCSV), actualizado a diario.** | Reference market value (TCGCSV), updated daily. | **Based on the reference market value (TCGCSV), updated daily.** |
+| `wishlist.block.pctLegend` (`:7458`) | ¿Hasta cuánto más del precio de mercado pagarías? | **¿Hasta cuánto más del precio de mercado sin IVA pagarías?** | How much above market price would you pay? | **How much above the market price before VAT would you pay?** |
+| `wishlist.block.inList` (`:7464`) | Está en tu lista · {finish} · hasta {pct} % sobre mercado | **Está en tu lista · {finish} · hasta {pct} % sobre mercado sin IVA** | It's on your wishlist · {finish} · up to {pct}% above market | **It's on your wishlist · {finish} · up to {pct}% above market before VAT** |
+| `wishlist.approxHelp` (`:7474`) | Tu máximo sale del precio de mercado. Lo recalculamos el día en que consigamos la carta, así que puede subir o bajar. | **Tu máximo sale del precio de mercado sin IVA más el porcentaje que elegiste, y ya incluye IVA. Lo recalculamos el día en que consigamos la carta, así que puede subir o bajar.** | Your max comes from the market price. We recalculate it on the day we get the card, so it may go up or down. | **Your max comes from the market price before VAT plus the percentage you chose, and it already includes VAT. We recalculate it on the day we get the card, so it may go up or down.** |
+| `wishlist.recalcNote` (`:7475`) | Se recalcula con el precio de mercado del día en que la consigamos. | **Se recalcula con el precio de mercado sin IVA del día en que la consigamos.** | It's recalculated with the market price on the day we get it. | **It's recalculated with the market price before VAT on the day we get it.** |
+| `wishlist.row.maxPct` (`:7533`) | Tu máximo: hasta {pct} % sobre mercado | **Tu máximo: hasta {pct} % sobre mercado sin IVA** | Your max: up to {pct}% above market | **Your max: up to {pct}% above market before VAT** |
+| `catalog.gradingEstimate.microNotice` (`:354`) | `<b>Cifra ilustrativa</b> de mercado (lo que se ha pagado por esa carta ya gradeada por terceros). <b>No evaluamos el estado de esta carta</b> ni garantizamos ningún grado; el gradeo y su costo corren por tu cuenta.` | **`<b>Cifra ilustrativa</b> de mercado, sin IVA (lo que se ha pagado por esa carta ya gradeada por terceros). <b>No evaluamos el estado de esta carta</b> ni garantizamos ningún grado; el gradeo y su costo corren por tu cuenta.`** | `<b>Illustrative</b> market figure (what that card has sold for once graded by third parties). <b>We have not assessed this card's condition</b> and guarantee no grade; grading and its cost are on you.` | **`<b>Illustrative</b> market figure before VAT (what that card has sold for once graded by third parties). <b>We have not assessed this card's condition</b> and guarantee no grade; grading and its cost are on you.`** |
+
+**Claves que no cambian (revisadas):** `catalog.marketValue` (`:340`), `sealed.detail.marketValue` (`:7216`),
+`card.referenceExplainerNoMarket` (`:447`), `catalog.gradingBadge.microNotice` y `figure*` (tejas, carrusel y
+vitrina: ahí no hay mercado con IVA al lado, y el aviso del badge tiene su tope de ≤ 46 car., `§22.4c`),
+`wishlist.block.pctOption`, `pctPesos`, `maxToday`, `noMarketLong`, `noMarket`, `approx`, `approxHelpLabel`,
+`wishlist.row.pctLabel`, `row.pctOption`, `row.today`. Todo «Vender» (§BMK) y «Mi bóveda» quedan sin cambio
+(HECHOS punto 1; P-MIV-2/3).
+
+**Notas de redacción:**
+- **Explicador de la ficha:** se quita «con la que valuamos las cartas». Ya no es exacto, porque valuamos con el neto
+  (`API_CONTRACT §MIV.6`). Dice **por qué** lleva IVA (comparar tal cual) y no repite la tasa: la tasa está en el
+  rótulo. Supone que el precio de venta lleva IVA dentro (`ivaIncluded === true`, hoy siempre,
+  `ARCHITECTURE §4.MIV (h)6`). Si algún día no lo llevara, este texto se revisa (N-MIV-3).
+- **Tendencia:** «Con base en…» y no «Valor de mercado de referencia (TCGCSV)» a secas. La cifra de arriba ya no es
+  el dato de TCGCSV tal cual (está en pesos y con IVA); sale de él.
+- **PSA (decisión del punto 4 del encargo):** sí se aclara, **solo en la ficha**. Ahí, a menos de 200 px, conviven
+  «Valor de mercado MX$1,160.00 · IVA 16 % incluido» y «Si sale PSA 10 ≈ MX$X». Sin marca, el comprador supondría la
+  misma base. Va en el micro-aviso que ya existe y ya habla de «cifra de mercado», no en la cifra ni en el rótulo
+  «SI SALE»: el aviso ya está pegado a las cifras (`GradingEstimateBlock.tsx:116`) y es texto visible. Las tejas y
+  la portada no muestran mercado con IVA al lado, así que no lo necesitan, y su aviso no tiene sitio.
+- **«antes de IVA» / «before VAT»:** en inglés se usa *before VAT*, no *excluding*, por paridad con «sin IVA» y
+  porque `IvaLabel` dice «VAT included». En español, «sin IVA» es la forma que ya usa `common.withoutIva`.
+- ⛔ Ningún texto tocado contiene vocabulario de traslado ni afirmaciones jurídicas (`§7.12a`): ni «trasladado», ni
+  «conforme a la ley», ni «SAT», ni «by law». Comprobado a mano contra las expresiones de `IvaLabel.test.tsx:59-60`.
+- Placeholders idénticos entre es y en en cada clave tocada (`{finish}`, `{pct}`; ninguna gana ni pierde uno). Lo
+  exige el candado de paridad de `wishlist-wsh-locks.test.ts:97-106`.
+
+### MIV.7 Contraste: cero pares nuevos
+
+| Par | Dónde | Ratio | Cumple |
+|---|---|---|---|
+| `text-muted` `#6E695E` sobre papel | rótulo de IVA del mercado, fecha, nota de la tendencia | ~4.8:1 (`§BMK.9`) | AA texto normal |
+| tinta sobre papel | cifra de mercado (como hoy) | ~15.5:1 | AAA |
+
+Oscuro: los mismos tokens semánticos que ya usa el rótulo de IVA del precio en la misma celda, así que sin pares
+nuevos. La «nota» no se cifra con color: es texto.
+
+### MIV.8 Candados sugeridos (los escribe frontend; complementan MIV-F1…F9 del contrato)
+
+| ID | Qué asevera | Canario |
+|---|---|---|
+| **MIV-UX-1** | Ficha de carta con mercado: hay **dos** `data-testid="iva-label"` (o el rótulo del precio y el de mercado), con el **mismo texto** («IVA 16 % incluido»), y en la celda de mercado el orden del DOM es rótulo → cifra → IVA → fecha | Poner la fecha antes del IVA; escribir «incluye IVA» a mano en la celda |
+| **MIV-UX-2** | `getByRole('group', { name: 'Valor de mercado MX$1,160.00 IVA 16 % incluido' })` existe en las dos fichas (con «MX$2,320.00» en sellado) y en `en` con «16 % VAT included» | Quitar el `aria-labelledby`; `aria-hidden` en el rótulo |
+| **MIV-UX-3** | Tendencia: el grupo «MX$2,320.00 IVA 16 % incluido» existe; con `ivaRatePct={8}` el rótulo dice «IVA 8 %»; en el estado «Recopilando…» no hay `iva-label` | Tasa `16` fija; rótulo en el estado sin cifra |
+| **MIV-UX-4** | Las cinco claves de la lista de deseos (MIV.6) contienen «sin IVA» en `es` y «before VAT» en `en`; `pctPesos`, `maxToday` y `row.today` **no** cambian de texto | Revertir una clave en un solo idioma |
+| **MIV-UX-5** | `catalog.gradingEstimate.microNotice` contiene «sin IVA» / «before VAT»; `catalog.gradingBadge.microNotice` **no** | Meterlo en el badge (rompe el tope de §22.4c) |
+| **MIV-UX-6** | Sin `referenceDisplayCents`: ningún `iva-label` además del del precio en la ficha (el rótulo nunca va sin cifra) | Pintar el rótulo fuera del predicado |
+
+### MIV.9 Notas para otros roles (ninguna bloquea)
+
+- **N-MIV-1 (arquitecto, solicitud no bloqueante):** valorar que `GET /catalog/sealed/:id/value-history` traiga
+  `ivaRatePct` de la **misma** lectura de diales que da los `display*`. Así el rótulo de la tendencia no dependería
+  de otra petición (MIV.3). Mientras no exista, se usa `group.ivaRatePct` y la ventana de desfase es de segundos.
+- **N-MIV-2 (frontend):** el `§21.8(b)` dibuja «sin IVA» bajo el precio y solo la fecha bajo el mercado. Con
+  `§M10-IVA` y §MIV, la celda de precio dice «IVA 16 % incluido» y la de mercado lleva el rótulo y la fecha (MIV.2).
+  Para la celda de mercado manda MIV.2.
+- **N-MIV-3 (orquestador / arquitecto, informativo):** el explicador de la ficha afirma que el precio de venta lleva
+  IVA. Hoy es siempre cierto (`ARCHITECTURE §4.MIV (h)6`). Si algún día un precio de la tienda se publicara sin IVA,
+  hay que revisar el explicador **y** el sentido de mostrar el mercado con IVA, que es la pregunta futura que ya
+  anotó el arquitecto.
+- **N-MIV-4 (orquestador, informativo):** con P-MIV-4 (a), en la ficha de una carta con el dial de fábrica sigue
+  viéndose «10 % · hasta MX$1,100.00» debajo de «MX$1,160.00». Los textos lo explican, pero no lo cuadran: el máximo
+  queda por debajo del mercado mostrado (`ARCHITECTURE §4.MIV (h)1`). Es la respuesta del dueño y no se re-pregunta.
+- **N-MIV-5 (frontend):** las medidas de MIV.2 y MIV.4 están calculadas, no medidas en navegador. Si a 360 px un
+  rótulo en inglés rompe línea, se acepta que el **texto** baje de renglón. ⛔ La cifra y el rótulo de IVA
+  («IVA 16 % incluido») nunca se parten.
+- **Sin solicitudes de contrato bloqueantes:** todo lo que pinta esta sección ya viaja (`API_CONTRACT §MIV.2–§MIV.3`),
+  salvo N-MIV-1, que es una mejora.
