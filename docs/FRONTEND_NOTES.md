@@ -21339,8 +21339,55 @@ cambia; el front no hace ninguna cuenta: pinta las cifras `display*` que manda e
   `WishlistView.test.tsx` («Tu máximo: hasta 10 % sobre mercado» → «… sin IVA»). Las exige el cambio de texto de
   §MIV.6/P-MIV-4 (a); los números (16 %, 10 %, pesos) no se tocaron. Para que techlead lo vea en el diff.
 - **MIV-E1** (`e2e/miv-market-iva.spec.ts`, `@real`, sin saltos): (a)–(f) en una prueba con `test.step`. En real
-  descubre cartas por la API pública y lee `M` por `GET /admin/pricing/card/:cardId` (captura no manual de esa fecha y
-  ese grado) y `r` por `GET /admin/settings`. En mock usa Blastoise / Milotic / `inv-1008`. (b) mide subtotal y desglose,
-  no la pasarela (eso es `checkout.spec.ts`). Medido en **mock**; **real NO MEDIDO** (sin stack levantado).
+  descubre cartas por la API pública y lee `M` por `GET /admin/pricing/card/:cardId` y `r` por `GET /admin/settings`;
+  el sellado de (d) lo **prepara** la propia prueba (ver §111.e2e-real). En mock usa Blastoise / Milotic / `inv-1008`.
+  (b) mide subtotal y desglose, no la pasarela (eso es `checkout.spec.ts`). ~~Medido en **mock**; **real NO MEDIDO**
+  (sin stack levantado).~~ **Corregido el 2026-10-10:** la primera versión estaba ROJA en real (la midió QA sobre
+  `f3a6c702`) por dos supuestos falsos sobre la siembra; arreglo y mediciones en §111.e2e-real.
 - **Solicitudes al arquitecto (no bloquean):** N-MIV-1 de ux-ui (que `value-history` traiga `ivaRatePct` de la misma
   lectura de diales). Y: el contrato no fija la forma de `product` en `SealedValueHistoryResponse`.
+
+### §111.e2e-real · MIV-E1 en real: dos supuestos falsos sobre la siembra, y (d) prepara su propio estado (2026-10-10)
+
+QA (sobre `f3a6c702`) aprobó el producto y bloqueó por MIV-E1 en modo real. Las dos causas eran **de la prueba**:
+
+1. **(a) filtraba el mercado guardado con `!isManualOverride`.** En la siembra las referencias de mercado raw son
+   `{source:"manual", isManualOverride:true, refKind:"market"}` y aun así resuelven `priceBasis: market` (medido por QA:
+   `GET /admin/pricing/card/<Charizard>`). `isManualOverride` es **procedencia** («lo tecleó alguien»), no naturaleza:
+   un mercado fijado a mano («FIJAR PRECIO») sí es dinero. Lo que nunca es dinero es `refKind:"graded_estimate"`
+   (`API_CONTRACT`, `PriceHistoryEntryDTO`, v1.50.3-f). **Arreglo:** filtra por `productType:'raw'`, `gradeKey`, la fecha
+   de `referenceValue.capturedDate` y `refKind === 'market'`, y **exige** que `refKind` venga en cada fila de esa clave
+   (si faltara, el filtro pasaría en vacío). El tipo del front (`PriceHistoryEntryDTO` en `src/types/contract.ts`) aún
+   no trae `refKind`: la prueba lo lee con un tipo local y la deriva queda como TD-MIV-F5 (zona compartida, no se tocó).
+2. **(d) buscaba un sellado con precio por mercado y la tendencia encendida.** El único sellado de la siembra
+   (`E2E-SLD-0001`) tiene precio a mano (`priceBasis: override`) y el dial `sealedValueTrend` está en `off` ⇒ (d) no
+   podía medir, y además cortaba con anotaciones «NO MEDIDO» (D-7 del techlead). **Arreglo:** `sealedMarketCase()`
+   prepara el estado por la API de admin del contrato y `afterEach` lo deshace (corre aunque la prueba falle):
+   - enciende `sealedValueTrend` (`PUT /admin/settings`) y lo **restaura al valor leído**;
+   - da de alta una pieza sellada **sin** precio a mano, anclada a la carta del sellado de la siembra
+     (`POST /admin/inventory/items`), la mapea a un `tcgplayerProductId` **exclusivo de la prueba** (`619000869`,
+     `PUT /admin/pricing/sealed/items/:id/mapping`), le fija mercado (`POST /admin/pricing/override`, `sealed:tcg:619000869`,
+     MX$2,500.00 neto, `refKind: market`, no gateado por `sealedPriceSource`) y la publica (`PATCH … {status:'listed'}`);
+   - la retira al final con `POST /admin/inventory/adjustments {reason:'error_captura'}` (mismo patrón que §AC).
+   - Antes del alta, retira las piezas de esa clave que una corrida **muerta** (sin `afterEach`) dejara publicadas.
+   - Residuo que **no** se puede deshacer por contrato: las piezas quedan `withdrawn` (filas, no vitrina) y la fila de
+     mercado del día de `sealed:tcg:619000869` (una por día; nadie más lee esa clave). No hay ruta para borrar ninguna.
+   - Por qué no se reutiliza `E2E-SLD-0001`: quitarle el precio a mano sería `listPriceCents: null`, conducta **no
+     definida** por el contrato (N-12, §M1 punto 7: «el frontend no envía `null`»).
+   - Las dos ramas «NO MEDIDO» se fueron: tendencia apagada ⇒ `expect(trendEnabled).toBe(true)`; `value-history` ≠ 200
+     o serie vacía ⇒ rojo. Y el último punto con IVA de la serie tiene que ser la cifra de la ficha (es el mercado de hoy).
+
+**Medido (2026-10-10, frontend, sobre `f3a6c702` + este cambio de la prueba):** stack propio en copia del árbol entero
+(`git archive f3a6c702`), Postgres 16 propio (`/var/tmp/fe-miv2-pg`, :55493, `nobody` vía `setpriv`, UTF8), Redis
+:56393, S3 :9493, backend :3193, frontend horneado :3293 (`stack-native.sh up --seed --gate`, `STACK_EXPECTED_SHA`;
+el gate marca «falta COBRO y/o SUBIDA» por no tener claves de Stripe — MIV-E1 no cobra).
+- **Real: 2/2 verdes (N=2).** Tras cada corrida: dial `sealedValueTrend` = `off`, `GET /catalog/sealed` `total: 1`,
+  las piezas de la prueba `withdrawn`.
+- **Mock: 1/1 verde (N=1)** (`E2E_MOCK_PORT=3393`, build propio).
+- **Canario C1** (vuelve el filtro `!h.isManualOverride`): rojo con el **mismo** error que midió QA
+  (`expected [] to contain 5000`, «E2E Deck Spark (raw:NM, 2026-10-10)») ⇒ la siembra es la misma que vio QA y el
+  arreglo es lo que la pone verde. **Canario C2** (`throw` justo después de preparar (d)): rojo, y el stack queda
+  restaurado (dial `off`, piezas `withdrawn`) ⇒ el `afterEach` deshace también en fallo. Ambos sobre la copia; el
+  fichero vivo no se tocó.
+- `check-e2e-skip-census.sh`: **= baseline** (harnessLimit 5, skipIfSeedMissing 15, realOnly 27). `tsc --noEmit` y
+  `eslint` del spec: limpios.
