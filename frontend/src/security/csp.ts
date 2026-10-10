@@ -125,7 +125,9 @@ export function buildCsp(nonce: string, env: CspEnv, mode: CspMode = CSP_MODE): 
     // `CSP_VIOLATION` de style-src). Otro origen de Google que aparezca ⇒ se añade el exacto.
     `style-src 'self' 'unsafe-inline' ${GOOGLE_GSI_STYLE}`,
     // Deliberado (§14.3): el arte viene de hosts de terceros abiertos por dato; una imagen no ejecuta.
-    "img-src 'self' data: blob: https:",
+    // v1.86.3 (§AC.19.1, AC-F20): + el origen de la API, como en connect-src: la foto del accesorio es una ruta
+    // de la API y, con la API local en http y la CSP en enforce, `https:` no la cubre.
+    `img-src 'self' data: blob: https:${apiOrigin ? ` ${apiOrigin}` : ''}`,
     "font-src 'self' data:",
     `connect-src ${connect.join(' ')}`,
     `frame-src ${frame.join(' ')}`,

@@ -21,6 +21,11 @@ import {
   ShippedRefundReason,
   SpendAlertKind,
   SpendAlertSeverity,
+  AccessoryCategory,
+  EnergyType,
+  AccessoryLineKind,
+  AccessoryLineStatus,
+  AccessoryStockMovementKind,
 } from '@prisma/client';
 import {
   ACQUISITION_TYPE_VALUES,
@@ -41,6 +46,11 @@ import {
   MANUAL_REFUND_STATUS_VALUES,
   SPEND_ALERT_KIND_VALUES,
   SPEND_ALERT_SEVERITY_VALUES,
+  ACCESSORY_CATEGORY_VALUES,
+  ENERGY_TYPE_VALUES,
+  ACCESSORY_LINE_KIND_VALUES,
+  ACCESSORY_LINE_STATUS_VALUES,
+  ACCESSORY_STOCK_MOVEMENT_KIND_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS, ACCEPTED_SHIPPED_REFUND_REASONS } from '../src/common/business-rules';
@@ -145,6 +155,15 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
     'super_admin_money_out',
   ],
   SpendAlertSeverity: ['digest', 'immediate'],
+  // 💰 AC-B2 (v1.86⟨accesorios⟩, M-73, API_CONTRACT §AC.1): los CINCO enums nuevos de accesorios. Decidido al añadirlos
+  // (las tres preguntas de arriba): (1) el dominio entero ES la regla — la tienda filtra por cualquier categoría, el
+  // panel captura cualquier tipo de energía y cualquier movimiento; (2) sin lista de negocio propia (el «solo invitado a
+  // domicilio» es una regla de RUTA, no un recorte de enum); (3) sin calibración de precio por valor.
+  AccessoryCategory: ['binders', 'deck_boxes', 'energy', 'other', 'playmats', 'sleeves', 'toploaders'],
+  EnergyType: ['darkness', 'fighting', 'fire', 'grass', 'lightning', 'metal', 'psychic', 'water'],
+  AccessoryLineKind: ['accessory', 'energy_bundle'],
+  AccessoryLineStatus: ['released', 'reserved', 'restocked', 'sold'],
+  AccessoryStockMovementKind: ['adjust', 'initial', 'receive', 'restock', 'sale', 'settle_recovery'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -167,6 +186,11 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   ManualRefundStatus,
   SpendAlertKind,
   SpendAlertSeverity,
+  AccessoryCategory,
+  EnergyType,
+  AccessoryLineKind,
+  AccessoryLineStatus,
+  AccessoryStockMovementKind,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -189,6 +213,11 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   ManualRefundStatus: MANUAL_REFUND_STATUS_VALUES,
   SpendAlertKind: SPEND_ALERT_KIND_VALUES,
   SpendAlertSeverity: SPEND_ALERT_SEVERITY_VALUES,
+  AccessoryCategory: ACCESSORY_CATEGORY_VALUES,
+  EnergyType: ENERGY_TYPE_VALUES,
+  AccessoryLineKind: ACCESSORY_LINE_KIND_VALUES,
+  AccessoryLineStatus: ACCESSORY_LINE_STATUS_VALUES,
+  AccessoryStockMovementKind: ACCESSORY_STOCK_MOVEMENT_KIND_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {
@@ -235,6 +264,12 @@ describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts �
     expect(SEALED_SUBTYPE_VALUES).toContain('upc');
     expect(SEALED_SUBTYPE_VALUES).toContain('collection');
     expect(SEALED_SUBTYPE_VALUES).toHaveLength(7);
+  });
+
+  it('AC-B2 · `AccessoryCategory` en el ORDEN de la tienda (§AC.1 «orden = orden de la tienda»), no solo el conjunto', () => {
+    // Las bandas de arriba comparan conjuntos (`sort()`); el orden de la pestaña sale de `Object.values`, que respeta el
+    // orden del schema. Reordenar el enum cambiaría la tienda en silencio: aquí se ve.
+    expect([...ACCESSORY_CATEGORY_VALUES]).toEqual(['sleeves', 'toploaders', 'binders', 'deck_boxes', 'playmats', 'energy', 'other']);
   });
 
   it('el schema en DISCO es la fuente: se lee `schema.prisma` y se compara contra la lista', () => {

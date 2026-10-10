@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/Input';
 import { Banner } from '@/components/ui/Banner';
 import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { RefundOrderDialog } from './RefundOrderDialog';
+import { RefundOrderDialog, shippedRefundKey } from './RefundOrderDialog';
 
 const TAG = 'font-mono text-[11px] uppercase tracking-[0.06em]';
 
@@ -326,7 +326,7 @@ export function M3View({ initialRefundReview = false }: { initialRefundReview?: 
           closeRefund();
           setRefundDone(
             info.shippedReason
-              ? t('shippedRefund.done', { ref, reason: tsr(info.shippedReason) })
+              ? t(`shippedRefund.${shippedRefundKey('done', info.contents)}`, { ref, reason: tsr(info.shippedReason) })
               : t('refundDone', { orderId: res.orderId }),
           );
         }}

@@ -5,6 +5,7 @@ import {
   requestBlob,
   type BlobResponse,
   ApiClientError,
+  apiRequestMultipart,
   setToken,
   setRefreshToken,
   getToken,
@@ -16,6 +17,7 @@ import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } 
 import * as fx from './mock/fixtures';
 import * as mockReservation from './mock/reservation';
 import * as mockDecksMeta from './mock/decks-meta';
+import * as mockAcc from './mock/accessories';
 import type {
   Paginated,
   ListingDTO,
@@ -231,6 +233,23 @@ import type {
   GuestAddressInput,
   GuestCheckoutQuoteResponse,
   GuestCheckoutSessionRequest,
+  AccessoryLineInput,
+  DeckPullInput,
+  AccessoryCategory,
+  AccessoryDetailDTO,
+  AccessoryListResponse,
+  AccessorySuggestionsResponse,
+  AccessoryStockRequest,
+  AccessoryStockMovementsResponse,
+  AdminAccessoryCreateRequest,
+  AdminAccessoryDTO,
+  AdminAccessoryListParams,
+  AdminAccessoryListResponse,
+  AdminAccessoryWriteFields,
+  SetShipPrepAccessoryLineRequest,
+  SetShipPrepAccessoryLineResponse,
+  RefundAccessoryLineDeliveredRequest,
+  RefundAccessoryLineDeliveredResponse,
   GuestCheckoutSessionResponse,
   GuestOrderTrackingDTO,
   GuestResendLinkRequest,
@@ -312,6 +331,18 @@ import * as salesMock from './mock/sales';
 import type { SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/contract';
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
+import * as wishlistMock from './mock/wishlist';
+import type {
+  WishlistCreateRequest,
+  WishlistDemandParams,
+  WishlistDemandResponse,
+  WishlistItemDTO,
+  WishlistMailActionRequest,
+  WishlistMailActionResponse,
+  WishlistMaxPct,
+  WishlistPreviewResponse,
+  WishlistResponse,
+} from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
@@ -533,7 +564,8 @@ export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
 export async function getCardDetail(cardId: string): Promise<GroupedListingDetailResponse> {
   if (!config.useMocks) return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`);
   try {
-    return await delay(fx.mockGroupedDetail(cardId));
+    // ⭐ v1.87⟨wishlist⟩ (§WSH.4): el servidor añade en la raíz `wishlistEnabled` (dial vigente).
+    return await delay({ ...fx.mockGroupedDetail(cardId), wishlistEnabled: wishlistMock.mockWishlistEnabled() });
   } catch (e) {
     throw translateFixtureError(e);
   }
@@ -552,7 +584,8 @@ export async function getDecksMeta(): Promise<DecksMetaListResponse> {
 /** §13 `GET /decks-meta/:slug` — deck + disponibilidad por línea. `slug` desconocido ⇒ 404 DECK_NOT_FOUND. */
 export async function getDeckMeta(slug: string): Promise<DeckMetaDetailResponse> {
   if (!config.useMocks) return apiRequest<DeckMetaDetailResponse>(`/decks-meta/${slug}`);
-  return delay(mockDecksMeta.mockDeckMetaDetail(slug));
+  // MOCK §AC.8: `basicEnergy` por línea y `energyBundle` (con `pullToken`) en la raíz.
+  return delay(mockAcc.mockDecorateDeck(mockDecksMeta.mockDeckMetaDetail(slug)));
 }
 
 /**
@@ -570,7 +603,9 @@ export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse
       message: 'El texto está vacío o no tiene ninguna línea válida.',
     });
   }
-  return delay(mockDecksMeta.mockDeckMetaPaste(text));
+  // MOCK §AC.8 (P-EN-7): energías ligadas por línea, ⛔ sin `energyBundle` ni `pullToken`.
+  const pasted = mockDecksMeta.mockDeckMetaPaste(text);
+  return delay({ ...pasted, groups: mockAcc.mockDecorateGroups(pasted.groups) });
 }
 
 /**
@@ -791,12 +826,11 @@ export async function getSealedValueHistory(
  * `sealed_restock_alerts`). Respuesta NEUTRA (no revela si el producto existe/está agotado). Con el
  * dial `off` responde `404 FEATURE_DISABLED` y el front oculta el CTA.
  */
+// ⭐ errata v1.87.3⟨wishlist⟩ (B-1, §WSH.12): el cliente manda SOLO la pieza; el servidor deriva la identidad del
+// producto (una sola regla de clave). Cuerpo estricto: los campos viejos (`cardId`/subtipo/condición) ⇒ `400`.
 export interface RestockSubscriptionInput {
   email: string;
-  tcgplayerProductId?: number;
-  cardId?: string;
-  sealedSubtype?: SealedSubtype;
-  sealedCondition: SealedCondition;
+  inventoryItemId: string;
 }
 export async function subscribeSealedRestock(
   input: RestockSubscriptionInput,
@@ -7062,6 +7096,11 @@ export async function getGuestCheckoutQuote(
    * token sin `email` ⇒ `400`, así que aquí viajan juntos o no viaja ninguno.
    */
   retry?: { retryOfCheckoutToken: string; email: string },
+  /**
+   * 💰 §AC.4 (aditivo): accesorios y decks del carrito v3. ⛔ Sin importes: el servidor pone precio, envío y
+   * paquete (I-AC-3). El `pullToken` viaja SOLO aquí, en el cuerpo (§AC.8).
+   */
+  extras?: { accessoryLines?: AccessoryLineInput[]; deckPulls?: DeckPullInput[] },
 ): Promise<GuestCheckoutQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<GuestCheckoutQuoteResponse>('/checkout/guest/quote', {
@@ -7070,6 +7109,8 @@ export async function getGuestCheckoutQuote(
         inventoryItemIds,
         shippingAddress,
         ...(retry ? { retryOfCheckoutToken: retry.retryOfCheckoutToken, email: retry.email } : {}),
+        ...(extras?.accessoryLines?.length ? { accessoryLines: extras.accessoryLines } : {}),
+        ...(extras?.deckPulls?.length ? { deckPulls: extras.deckPulls } : {}),
       },
     });
   }
@@ -7097,7 +7138,16 @@ export async function getGuestCheckoutQuote(
     .filter((l): l is ListingDTO => !!l);
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
-  const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  const cardsSubtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  // MOCK §AC.4: renglones de accesorio y paquetes (I-AC-1: el subtotal los incluye; envío de hoy, I-AC-5).
+  const acc = mockAcc.mockQuoteAccessories(
+    items.map((l) => l.inventoryItemId),
+    extras?.accessoryLines,
+    extras?.deckPulls,
+    (slug) => (mockDecksMeta.mockDecksMetaList.data.some((d) => d.slug === slug) ? mockDecksMeta.mockDeckMetaDetail(slug) : null),
+  );
+  const subtotal = cardsSubtotal + acc.extraSubtotalCents;
+  const nothing = items.length === 0 && acc.accessoryLines.length === 0;
   return delay({
     // v1.51-b: MISMA forma que §4 — `OrderItemCardDTO`, no el `CardDTO` del fixture. El
     // checkout de invitado pintaba el mismo hueco gris por la misma causa.
@@ -7111,17 +7161,25 @@ export async function getGuestCheckoutQuote(
     })),
     fulfillmentMode: 'direct_ship' as const,
     ownReservation: mockReservation.mockOwnReservation(inventoryItemIds, guestCaller),
-    breakdown:
-      items.length === 0 ? zeroBreakdown(true) : computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
+    breakdown: nothing ? zeroBreakdown(true) : computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
     // v1.21.4-dual-breakdown (§4-G.1, N-12): SEGUNDO desglose para el destino BÓVEDA — solo
     // cartas, SIN envío (IVA solo sobre subtotal, gross-up sobre la base menor). Es EXACTAMENTE
     // computeCartBreakdown, que aquí es `computeBreakdown(subtotal)` (la réplica local que ya
     // existe). El backend real lo computa con el StripeFeeConfig real; el front no lo puede
     // derivar del `breakdown` de envío (fee no invertible), por eso viaja precomputado. Carrito
     // 100 % podado ⇒ ceros SIN `shippingFeeCents`.
-    vaultBreakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(subtotal),
+    // §AC.4: `vaultBreakdown` = solo cartas, como hoy.
+    vaultBreakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(cardsSubtotal),
     notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
     unavailableItems,
+    accessoryLines: acc.accessoryLines,
+    energyBundles: acc.energyBundles,
+    energyBundleOffers: acc.energyBundleOffers,
+    unavailableAccessories: acc.unavailableAccessories,
+    unavailableBundles: acc.unavailableBundles,
+    // MOCK: sin cajas con tarifa ⇒ tarifa de hoy (§AC.7, `null`).
+    shippingBox: null,
+    vaultExcludesAccessories: acc.accessoryLines.length + acc.energyBundles.length > 0,
   });
 }
 
@@ -7168,7 +7226,23 @@ export async function createGuestCheckoutSession(
     .filter((l): l is ListingDTO => !!l);
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
-  const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
+  // MOCK §AC.4: la sesión es ESTRICTA (nunca poda): accesorio no disponible ⇒ 409 antes de crear nada.
+  try {
+    mockAcc.mockAssertSessionAccessories(input.accessoryLines);
+  } catch (e) {
+    throw mockAccError(e);
+  }
+  const accSession = mockAcc.mockQuoteAccessories(
+    input.inventoryItemIds,
+    input.accessoryLines,
+    input.deckPulls?.filter((p) => p.withEnergyBundle),
+    (slug) => (mockDecksMeta.mockDecksMetaList.data.some((d) => d.slug === slug) ? mockDecksMeta.mockDeckMetaDetail(slug) : null),
+  );
+  const badBundle = accSession.unavailableBundles[0];
+  if (badBundle) {
+    throw new ApiClientError(422, { code: 'ENERGY_BUNDLE_INVALID', message: 'bundle', details: { index: badBundle.index, deckSlug: badBundle.deckSlug, reason: badBundle.reason } });
+  }
+  const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0) + accSession.extraSubtotalCents;
   // v1.68 (§4-R.3): la reserva propia existe SOLO con `retryOfCheckoutToken` válido y el mismo
   // correo; sin él, conducta de hoy (una reserva viva suya cuenta como ajena ⇒ ITEM_UNAVAILABLE).
   const email = input.email.trim().toLowerCase();
@@ -7342,3 +7416,269 @@ export async function claimGuestOrders(orderIds: string[]): Promise<ClaimOrdersR
   }
   return delay<ClaimOrdersResponse>({ claimed, failed }, 400);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+// 💰 §AC — ACCESORIOS, ENERGÍAS Y PAQUETE (API_CONTRACT §AC.3/.9/.10/.11; FRONTEND_NOTES §107).
+// ⛔ Ningún cuerpo lleva importes de compra. Las respuestas que el contrato NO especifica (PATCH/POST del
+// panel, stock, activar, PATCH de palomeo) se tipan `unknown`/`void` y la pantalla RE-LEE el recurso.
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Traduce el error del simulador de accesorios al `ApiClientError` del contrato. */
+function mockAccError(e: unknown): unknown {
+  if (e instanceof mockAcc.MockAccessoryError) {
+    return new ApiClientError(e.status, { code: e.code, message: e.code, details: e.details });
+  }
+  return e;
+}
+async function mockAccCall<T>(fn: () => T): Promise<T> {
+  try {
+    return await delay(fn());
+  } catch (e) {
+    throw mockAccError(e);
+  }
+}
+
+/** `GET /accessories` (§AC.3, público). `pageSize` 24 (§AC-UX.2). */
+export async function getAccessories(params: {
+  category?: AccessoryCategory;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<AccessoryListResponse> {
+  const query = { category: params.category, q: params.q, page: params.page ?? 1, pageSize: params.pageSize ?? 24 };
+  if (!config.useMocks) return apiRequest<AccessoryListResponse>('/accessories', { query });
+  return mockAccCall(() => mockAcc.mockListAccessories(query));
+}
+
+/** `GET /accessories/:id` (§AC.3). Inexistente o inactivo ⇒ `404 ACCESSORY_NOT_FOUND`. */
+export async function getAccessory(id: string): Promise<AccessoryDetailDTO> {
+  if (!config.useMocks) return apiRequest<AccessoryDetailDTO>(`/accessories/${encodeURIComponent(id)}`);
+  return mockAccCall(() => mockAcc.mockGetAccessory(id));
+}
+
+/** `GET /accessories/suggestions?exclude=<id>,<id>` (§AC.3). ⛔ Nunca energías (las filtra el servidor). */
+export async function getAccessorySuggestions(exclude: string[]): Promise<AccessorySuggestionsResponse> {
+  const ids = exclude.slice(0, 50);
+  if (!config.useMocks) {
+    return apiRequest<AccessorySuggestionsResponse>('/accessories/suggestions', {
+      query: { exclude: ids.length ? ids.join(',') : undefined },
+    });
+  }
+  return mockAccCall(() => ({ items: mockAcc.mockSuggestions(ids, fx.mockSettings.accessorySuggestionCount ?? 3) }));
+}
+
+/** `GET /admin/accessories` (§AC.11, operador+). */
+export async function listAdminAccessories(params: AdminAccessoryListParams = {}): Promise<AdminAccessoryListResponse> {
+  if (!config.useMocks) {
+    return apiRequest<AdminAccessoryListResponse>('/admin/accessories', {
+      query: {
+        category: params.category,
+        q: params.q,
+        active: params.active === undefined ? undefined : String(params.active),
+        soldOut: params.soldOut ? 'true' : undefined,
+        page: params.page,
+      },
+    });
+  }
+  return mockAccCall(() => mockAcc.mockAdminList(params));
+}
+
+/** `GET /admin/accessories/:id` (§AC.11). `unitCostCents` AUSENTE para el operador. */
+export async function getAdminAccessory(id: string): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}`);
+  return mockAccCall(() => {
+    const a = mockAcc.mockAdminGet(id);
+    if (getStoredUser()?.role === 'vault_operator' || mockRoleIsOperator()) delete a.unitCostCents;
+    return a;
+  });
+}
+
+/** MOCK: el rol del simulador (dial «Ver como» de `RoleProvider`). */
+function mockRoleIsOperator(): boolean {
+  return typeof window !== 'undefined' && window.localStorage.getItem('tcg.role') === 'vault_operator';
+}
+
+/** `POST /admin/accessories` (§AC.11). Nace inactivo. Operador con campo ★ ⇒ `403 FORBIDDEN_FIELD`. `201 AdminAccessoryDTO`. */
+export async function createAdminAccessory(body: AdminAccessoryCreateRequest): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>('/admin/accessories', { method: 'POST', body });
+  return mockAccCall(() => mockAcc.mockAdminCreate(body, !mockRoleIsOperator()));
+}
+
+/** `PATCH /admin/accessories/:id` (§AC.11). v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO` (sin cambios ⇒ la fila tal cual). */
+export async function updateAdminAccessory(id: string, body: AdminAccessoryWriteFields): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+  return mockAccCall(() => mockAcc.mockAdminPatch(id, body, !mockRoleIsOperator()));
+}
+
+/**
+ * `POST /admin/accessories/:id/activate` (★). `422 ACCESSORY_NOT_ACTIVATABLE {missing}` · `409 ENERGY_TYPE_TAKEN`.
+ * v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO` (ya activo ⇒ idempotente).
+ */
+export async function activateAdminAccessory(id: string): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+  return mockAccCall(() => mockAcc.mockAdminActivate(id, true));
+}
+
+/** `POST /admin/accessories/:id/deactivate` (★). Siempre. v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO`. */
+export async function deactivateAdminAccessory(id: string): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/deactivate`, { method: 'POST' });
+  return mockAccCall(() => mockAcc.mockAdminActivate(id, false));
+}
+
+/** `DELETE /admin/accessories/:id` (★). Con ventas ⇒ `409 ACCESSORY_HAS_SALES`; si no ⇒ `204`. */
+export async function deleteAdminAccessory(id: string): Promise<void> {
+  if (!config.useMocks) return apiRequest<void>(`/admin/accessories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return mockAccCall(() => mockAcc.mockAdminDelete(id));
+}
+
+/** `POST /admin/accessories/:id/photo` (operador+): `multipart/form-data`, campo `file`. `200 AdminAccessoryDTO`. */
+export async function uploadAccessoryPhoto(id: string, file: File): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) {
+    const form = new FormData();
+    form.append('file', file);
+    return apiRequestMultipart<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/photo`, form);
+  }
+  return mockAccCall(() => mockAcc.mockAdminPhoto(id, file));
+}
+
+/** `POST /admin/accessories/:id/stock` (operador+). v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO`. */
+export async function postAccessoryStock(id: string, body: AccessoryStockRequest): Promise<AdminAccessoryDTO> {
+  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/stock`, { method: 'POST', body });
+  return mockAccCall(() => mockAcc.mockAdminStock(id, body, getStoredUser()?.name ?? null));
+}
+
+/** `GET /admin/accessories/:id/stock-movements?page=` (operador+). */
+export async function listAccessoryStockMovements(id: string, page = 1): Promise<AccessoryStockMovementsResponse> {
+  if (!config.useMocks) {
+    return apiRequest<AccessoryStockMovementsResponse>(`/admin/accessories/${encodeURIComponent(id)}/stock-movements`, { query: { page } });
+  }
+  return mockAccCall(() => mockAcc.mockAdminMovements(id, page));
+}
+
+/**
+ * `PATCH /admin/shipments/:id/prep-accessory-lines/:lineId` (§AC.9, operador+). ⛔ No mueve dinero ni
+ * existencias. v1.86.3 (§AC.19.5): `200 {changed, line, preparation}` — la tarjeta aplica lo devuelto.
+ */
+export async function setShipPrepAccessoryLine(
+  shipmentId: string,
+  lineId: string,
+  body: SetShipPrepAccessoryLineRequest,
+): Promise<SetShipPrepAccessoryLineResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SetShipPrepAccessoryLineResponse>(`/admin/shipments/${shipmentId}/prep-accessory-lines/${lineId}`, {
+      method: 'PATCH',
+      body,
+    });
+  }
+  // MOCK: el simulador de preparación no modela renglones de accesorio (la cola mock no trae ninguno), así que
+  // ningún renglón existe: `404`, como respondería el servidor con una línea que no es de ese envío (§AC.19.5 paso 2).
+  return delay(undefined).then(() => {
+    throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Accessory line not found' });
+  });
+}
+
+/**
+ * 💰 `POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered` (§AC.10 (2), `@MoneyOut`, súper-admin).
+ * Cuerpo `{ quantity, reason, note? }` — ⛔ sin importe: lo calcula el servidor.
+ */
+export async function refundAccessoryLineDelivered(
+  orderId: string,
+  lineId: string,
+  body: RefundAccessoryLineDeliveredRequest,
+): Promise<RefundAccessoryLineDeliveredResponse> {
+  if (!config.useMocks) {
+    return apiRequest<RefundAccessoryLineDeliveredResponse>(`/admin/orders/${orderId}/accessory-lines/${lineId}/refund-delivered`, {
+      method: 'POST',
+      body,
+    });
+  }
+  // MOCK: sin simulador de reembolsos de accesorio; el detalle se re-lee.
+  return delay({ refund: undefined as never });
+}
+
+// ============================================================================
+// ⭐ v1.87⟨wishlist⟩ + errata v1.87.1 — §WSH Lista de deseos (API_CONTRACT §WSH.4, §WSH.6, §WSH.8).
+// Rama mock: `mock/wishlist.ts` (servidor falso con las cifras del contrato). ⛔ El front no calcula pesos.
+// ============================================================================
+
+/** `GET /wishlist` — `401`; `404 FEATURE_DISABLED` con el dial apagado (la UI lo trata como «no existe»). */
+export async function getWishlist(): Promise<WishlistResponse> {
+  if (!config.useMocks) return apiRequest<WishlistResponse>('/wishlist');
+  return delay(null).then(() => wishlistMock.mockGetWishlist());
+}
+
+/** ⭐ v1.87.1 `GET /wishlist/preview?cardId=` — pesos de cada % antes de guardar (0 escrituras). */
+export async function getWishlistPreview(cardId: string): Promise<WishlistPreviewResponse> {
+  if (!config.useMocks) return apiRequest<WishlistPreviewResponse>('/wishlist/preview', { query: { cardId } });
+  return delay(null).then(() => wishlistMock.mockGetWishlistPreview(cardId));
+}
+
+/** `POST /wishlist` — `409 WISHLIST_DUPLICATE {wishlistItemId,maxPct}`, `422 WISHLIST_LIMIT_REACHED {limit,count}`, `422 FINISH_NOT_AVAILABLE`. */
+export async function addWishlistItem(body: WishlistCreateRequest): Promise<WishlistItemDTO> {
+  if (!config.useMocks) return apiRequest<WishlistItemDTO>('/wishlist', { method: 'POST', body });
+  return delay(null).then(() => wishlistMock.mockAddWishlistItem(body));
+}
+
+/** `PATCH /wishlist/:id { maxPct }` — `404` si no es de la cuenta. */
+export async function updateWishlistItem(id: string, maxPct: WishlistMaxPct): Promise<WishlistItemDTO> {
+  if (!config.useMocks) {
+    return apiRequest<WishlistItemDTO>(`/wishlist/${encodeURIComponent(id)}`, { method: 'PATCH', body: { maxPct } });
+  }
+  return delay(null).then(() => wishlistMock.mockUpdateWishlistItem(id, maxPct));
+}
+
+/** `DELETE /wishlist/:id` — `204`; `404` si no es de la cuenta. */
+export async function removeWishlistItem(id: string): Promise<void> {
+  if (!config.useMocks) {
+    await apiRequest<void>(`/wishlist/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return;
+  }
+  return delay(null).then(() => wishlistMock.mockRemoveWishlistItem(id));
+}
+
+/** `PUT /wishlist/alerts { paused }`. */
+export async function setWishlistAlertsPaused(paused: boolean): Promise<{ alertsPaused: boolean }> {
+  if (!config.useMocks) {
+    return apiRequest<{ alertsPaused: boolean }>('/wishlist/alerts', { method: 'PUT', body: { paused } });
+  }
+  return delay(null).then(() => wishlistMock.mockSetWishlistAlerts(paused));
+}
+
+/**
+ * `POST /wishlist/mail-actions` (`@Public`, 10/min por IP). ⭐ v1.87.1: NO depende del dial. `404 WISHLIST_LINK_INVALID`
+ * no dice por qué. ⛔ Nunca se llama al cargar la página: solo con el clic de confirmación (WSH-UX-7).
+ */
+export async function postWishlistMailAction(body: WishlistMailActionRequest): Promise<WishlistMailActionResponse> {
+  if (!config.useMocks) {
+    return apiRequest<WishlistMailActionResponse>('/wishlist/mail-actions', { method: 'POST', body });
+  }
+  return delay(null).then(() => wishlistMock.mockWishlistMailAction(body));
+}
+
+/** `GET /admin/reports/wishlist-demand` (`super_admin`). Solo `sort`/`dir` viajan (v1.87.1: filtros en el navegador). */
+export async function getWishlistDemand(params: WishlistDemandParams = {}): Promise<WishlistDemandResponse> {
+  if (!config.useMocks) {
+    return apiRequest<WishlistDemandResponse>('/admin/reports/wishlist-demand', {
+      query: { sort: params.sort, dir: params.sort ? params.dir : undefined },
+    });
+  }
+  return delay(null).then(() => {
+    const body = wishlistMock.mockWishlistDemand(params);
+    // MOCK: el simulador no expone su dial de traslación; la lista de compra no lo pinta (solo viaja en el DTO admin).
+    return { ...body, dials: { ...body.dials, ivaTransferPct: 100 } };
+  });
+}
+
+/** `GET /admin/reports/wishlist-demand/export.csv` — mismas filas y orden que el JSON (criterio 822), siempre completo. */
+export async function exportWishlistDemandCsv(params: WishlistDemandParams = {}): Promise<BlobResponse> {
+  if (!config.useMocks) {
+    return requestBlob('/admin/reports/wishlist-demand/export.csv', {
+      query: { sort: params.sort, dir: params.sort ? params.dir : undefined },
+    });
+  }
+  return delay(null).then(() => ({
+    blob: new Blob([wishlistMock.mockWishlistDemandCsv(params)], { type: 'text/csv;charset=utf-8' }),
+    filename: null,
+  }));
+}
+

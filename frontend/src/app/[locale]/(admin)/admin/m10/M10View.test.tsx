@@ -5,7 +5,9 @@ import { renderWithProviders } from '@/test/render';
 import { expectCreditsFigureQualified } from '@/test/grading';
 import * as api from '@/lib/api';
 import { mockSettings } from '@/lib/mock/fixtures';
-import { M10View } from './M10View';
+import { M10View, M10_LIST_DIAL_KEYS } from './M10View';
+import { WISHLIST_DIAL_KEYS } from './sections/WishlistDialsSection';
+import es from '../../../../../../messages/es.json';
 
 // `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
 // Lo necesita el enlace a la lista de revisión del aviso de APAGADO del gancho (§22.13e).
@@ -352,5 +354,33 @@ describe('M10View · Config y bitácora', () => {
     expect(screen.getByLabelText(/Proveedor de referencia por-carta \(raw\)/)).toBeInTheDocument();
     // Y hay un deep-link a M11 para quien busque los controles del sellado aquí.
     expect(screen.getByText(/se editan ahora en «Sellado»/)).toBeInTheDocument();
+  });
+
+  /**
+   * REL-S7-UX punto 2 (fusión accesorios + lista de deseos): cada dial se edita en UN solo bloque de M10.
+   * Los siete `wishlist*` viven solo en `<section id="wishlist">` (con su diálogo de encendido), nunca en el
+   * listado de diales de arriba; los de accesorios (§AC.11) se editan en el panel «Accesorios», no en M10.
+   */
+  it('REL-S7 · el listado genérico de M10 no edita ningún dial de la lista de deseos ni de accesorios', () => {
+    expect(WISHLIST_DIAL_KEYS).toHaveLength(7);
+    for (const k of WISHLIST_DIAL_KEYS) expect(M10_LIST_DIAL_KEYS).not.toContain(k);
+    expect(M10_LIST_DIAL_KEYS.filter((k) => /^wishlist/.test(k))).toEqual([]);
+    for (const k of ['energyBundlePriceCents', 'accessorySuggestionCount']) {
+      expect(M10_LIST_DIAL_KEYS).not.toContain(k);
+    }
+  });
+
+  it('REL-S7 · ningún dial se pinta dos veces: los de la lista de deseos solo en su sección, los de accesorios fuera de M10', async () => {
+    renderWithProviders(<M10View />, 'es');
+    const section = await screen.findByTestId('m10-wishlist');
+    const labels = es.admin.m10.wishlist.labels;
+    await within(section).findByLabelText(labels.wishlistEnabled);
+    for (const label of Object.values(labels)) {
+      expect(screen.getAllByLabelText(label)).toHaveLength(1);
+      expect(section).toContainElement(screen.getByLabelText(label));
+    }
+    const acc = es.admin.accessories.settings;
+    expect(screen.queryByLabelText(acc.bundlePrice)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(acc.suggestionCount)).not.toBeInTheDocument();
   });
 });

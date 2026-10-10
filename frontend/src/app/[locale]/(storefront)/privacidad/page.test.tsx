@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
 import { PROVISIONAL_FISCAL_TEXT, privacyNoticeEs } from '@/content/legal/privacidad.es';
+import { WISHLIST_PRIVACY_EN, WISHLIST_PRIVACY_ES } from '@/content/legal/privacy-wishlist';
 import { PrivacyNoticeView } from './PrivacyNoticeView';
 
 const NOT_FOUND = new Error('NEXT_NOT_FOUND');
@@ -72,5 +73,54 @@ describe('PrivacyNoticeView', () => {
     expect(screen.getByText('Ejemplo S.A.').tagName).toBe('STRONG');
     expect(screen.getByRole('table')).toBeInTheDocument();
     expect(screen.getByText(/5 de octubre de 2026/)).toBeInTheDocument();
+  });
+});
+
+describe('824 · el párrafo «Lista de deseos» se ve en /es/privacidad y en /en/privacidad, sin sesión', () => {
+  const plain = (s: string) => s.replace(/\*\*/g, '');
+
+  it('es: el párrafo español literal, y no el inglés', async () => {
+    const ui = await PrivacyPage({ params: params('es') });
+    const { container } = renderWithIntl(ui);
+    const text = container.textContent ?? '';
+    expect(text).toContain(plain(WISHLIST_PRIVACY_ES));
+    expect(text).not.toContain(plain(WISHLIST_PRIVACY_EN));
+    expect(screen.getByText('Lista de deseos.', { selector: 'strong' })).toBeInTheDocument();
+  });
+
+  it('en: el párrafo inglés literal (lang="en") junto al aviso en español', async () => {
+    const ui = await PrivacyPage({ params: params('en') });
+    const { container } = renderWithIntl(ui, 'en');
+    const text = container.textContent ?? '';
+    expect(text).toContain(plain(WISHLIST_PRIVACY_EN));
+    expect(text).toContain(plain(WISHLIST_PRIVACY_ES));
+    const en = screen.getByText('Wishlist.', { selector: 'strong' }).closest('p');
+    expect(en).toHaveAttribute('lang', 'en');
+  });
+
+  // WSH-UX-15 (DESIGN_SYSTEM «WSH-UX.v1.87.3» c): el inglés se ata al APARTADO, no al párrafo español. Si alguien añade un
+  // bloque al apartado 3 después del de la lista de deseos, el inglés se separaría del español sin que nada fallara.
+  it('WSH-UX-15 · en: dentro de #finalidades-primarias, lo que va JUSTO antes de «Wishlist.» es «Lista de deseos.»', async () => {
+    const ui = await PrivacyPage({ params: params('en') });
+    const { container } = renderWithIntl(ui, 'en');
+    const section = container.querySelector('section#finalidades-primarias');
+    expect(section).not.toBeNull();
+    const en = Array.from(section!.querySelectorAll('p[lang="en"]')).filter((p) =>
+      (p.textContent ?? '').startsWith('Wishlist.'),
+    );
+    expect(en).toHaveLength(1);
+    const prev = en[0].previousElementSibling;
+    expect(prev?.tagName).toBe('P');
+    expect(prev?.getAttribute('lang')).toBeNull();
+    expect((prev?.textContent ?? '').startsWith('Lista de deseos.')).toBe(true);
+  });
+
+  it('WSH-UX-15 · es: el apartado no tiene ningún párrafo lang="en"', async () => {
+    const ui = await PrivacyPage({ params: params('es') });
+    const { container } = renderWithIntl(ui);
+    const section = container.querySelector('section#finalidades-primarias');
+    expect(section).not.toBeNull();
+    expect(section!.querySelectorAll('p[lang="en"]')).toHaveLength(0);
+    expect(section!.querySelectorAll('[lang="en"]')).toHaveLength(0);
   });
 });

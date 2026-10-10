@@ -218,7 +218,8 @@
     "label": "Tienda",
     "singles": "Cartas sueltas",
     "sealed": "Producto sellado",
-    "graded": "Gradeadas"
+    "graded": "Gradeadas",
+    "accessories": "Accesorios"
   },
   "stock": {
     "lastOne": "Queda 1",
@@ -588,6 +589,67 @@
       "retrySoon": "Reintentar en un momento",
       "ownActive": "Este carrito ya está reservado a tu nombre ({orderNumber}): al pagar recuperas ese mismo pedido, sin cobro doble.",
       "ownExpired": "Tu reserva anterior ({orderNumber}) venció: al pagar se renovará con un pedido nuevo y el intento anterior se cancela."
+    },
+    "subtotalHintProducts": "Precio de venta de tus productos, con IVA incluido.",
+    "payNoAmount": "Pagar",
+    "accessories": {
+      "groupAccessories": "ACCESORIOS",
+      "groupBundles": "PAQUETES DE ENERGÍAS",
+      "unitPrice": "{price} c/u",
+      "quantityAria": "Cantidad de {name}",
+      "removeAria": "Quitar {name}",
+      "bundleTitle": "Paquete de energías — {deck}",
+      "bundleLoose": "Sueltas: {amount}",
+      "bundlePhotoFallback": "ENERGÍAS",
+      "notInThisPayment": "NO VAN EN ESTE PAGO",
+      "qty": "×{qty}",
+      "boxHint": "Calculado por el tamaño de la caja que necesita tu pedido.",
+      "shippingChanged": "El envío cambió a {amount} por el tamaño de tu pedido.",
+      "vaultEyebrow": "NO VAN A LA BÓVEDA",
+      "vaultNotice": "Los accesorios y las energías solo se envían a domicilio. Si guardas tus cartas en la bóveda, los accesorios ({n}, {amount}) no van en esta compra: se quedan en tu carrito."
+    },
+    "suggestions": {
+      "title": "¿Te falta algo?",
+      "subtitle": "Accesorios que se van en el mismo envío.",
+      "add": "Agregar",
+      "addAria": "Agregar {name} al carrito",
+      "inCart": "En el carrito",
+      "dismiss": "No, gracias"
+    },
+    "bundleOffer": {
+      "title": "Paquete de energías",
+      "line": "¿Agregas el paquete de energías de {deck}? {n} energías por {price} (sueltas: {loose}).",
+      "add": "Agregar paquete",
+      "dismiss": "No, gracias"
+    },
+    "accessoryNotice": {
+      "inactiveNamed": "{name} ya no está a la venta y lo quitamos de tu carrito.",
+      "inactiveOne": "Un accesorio de tu carrito ya no está a la venta y lo quitamos.",
+      "inactiveMany": "{n} accesorios de tu carrito ya no están a la venta y los quitamos.",
+      "soldOutNamed": "{name} se agotó y lo quitamos de tu carrito.",
+      "soldOutOne": "Un accesorio de tu carrito se agotó y lo quitamos.",
+      "insufficient": "Solo hay {n} de {name}. Ajustamos la cantidad.",
+      "insufficientNoName": "Solo quedan {n} de un accesorio de tu carrito. Ajustamos la cantidad.",
+      "bundleDeckIncomplete": "El paquete de energías de {deck} salió del carrito: ya no están todas las cartas del deck.",
+      "bundleDeckIncompleteNoName": "Un paquete de energías salió del carrito: ya no están todas las cartas del deck.",
+      "bundleNoStock": "El paquete de energías de {deck} salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck.",
+      "bundleNoStockNoName": "Un paquete de energías salió del carrito: ya no tenemos todas sus energías. Si nos quedan algunas sueltas, puedes agregarlas desde el deck.",
+      "bundleExpired": "El paquete de energías de {deck} venció. Vuelve a agregarlo desde el deck.",
+      "bundleExpiredNoName": "Un paquete de energías venció. Vuelve a agregarlo desde el deck.",
+      "bundleUnavailable": "El paquete de energías de {deck} ya no está disponible y salió del carrito.",
+      "bundleUnavailableNoName": "Un paquete de energías ya no está disponible y salió del carrito.",
+      "bundleInvalid": "Un paquete de energías ya no es válido y salió del carrito.",
+      "seeDeck": "Ver el deck",
+      "dismiss": "Cerrar aviso"
+    },
+    "accessoryPayError": {
+      "unavailable": "Un accesorio de tu carrito ya no está a la venta. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.",
+      "insufficient": "Ya no hay suficientes {name}: quedan {n}. No se cobró nada. Ajustamos la cantidad: revisa y vuelve a pagar.",
+      "insufficientNoName": "Ya no hay suficientes de un accesorio de tu carrito: quedan {n}. No se cobró nada. Ajustamos la cantidad: revisa y vuelve a pagar.",
+      "soldOut": "{name} se agotó mientras pagabas. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.",
+      "soldOutNoName": "Un accesorio se agotó mientras pagabas. No se cobró nada. Lo quitamos: revisa tu carrito y vuelve a pagar.",
+      "bundle": "El paquete de energías de {deck} ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck.",
+      "bundleNoName": "Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck."
     }
   },
   "vault": {
@@ -1332,7 +1394,8 @@
       "manualRefundsBadge": "{count, plural, one {# transferencia pendiente} other {# transferencias pendientes}}",
       "refunds": "Reembolsos",
       "spendAlerts": "Avisos de gasto",
-      "spendAlertsBadge": "{count, plural, one {# aviso inmediato sin ver} other {# avisos inmediatos sin ver}}"
+      "spendAlertsBadge": "{count, plural, one {# aviso inmediato sin ver} other {# avisos inmediatos sin ver}}",
+      "accessories": "Accesorios"
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
@@ -1787,6 +1850,10 @@
         "hint": {
           "not_arrived": "El paquete se perdió o el cliente no lo recibió.",
           "arrived_damaged": "Llegó, pero las cartas no estaban como se vendieron."
+        },
+        "hintItem": {
+          "not_arrived": "El paquete se perdió o el cliente no lo recibió.",
+          "arrived_damaged": "Llegó, pero el producto no estaba como se vendió."
         }
       },
       "shippedRefund": {
@@ -1798,6 +1865,12 @@
         "noteLabel": "Qué pasó",
         "noteHint": "Obligatorio. Queda como nota del motivo y en bitácora. Máximo 500 caracteres.",
         "done": "Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Las cartas no vuelven a inventario.",
+        "warningAccessories": "Los accesorios no vuelven a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.",
+        "warningMixed": "Ni las cartas vuelven a inventario ni los accesorios a existencias: el cliente los tiene o los tuvo. Solo se puede reembolsar completo si no llegó o si llegó en mala condición.",
+        "bodyAccessories": "Se devuelve lo que queda del cobro. El envío no se toca y los accesorios no vuelven a existencias ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre.",
+        "bodyMixed": "Se devuelve lo que queda del cobro. El envío no se toca y ni las cartas ni los accesorios vuelven a inventario ni a la venta. El motivo queda guardado a tu nombre. El cliente recibe el correo de reembolso de siempre.",
+        "doneAccessories": "Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Los accesorios no vuelven a existencias.",
+        "doneMixed": "Reembolso hecho del pedido {ref}. Motivo guardado: «{reason}». Ni las cartas ni los accesorios vuelven a inventario.",
         "error": {
           "required": "Este pedido salió mientras tenías abierto el diálogo (envío {status}). No se reembolsó nada. Elige por qué se reembolsa y confirma otra vez.",
           "notApplicable": "Este pedido no ha salido: no lleva motivo de envío. No se reembolsó nada. Revisa y confirma otra vez.",
@@ -1868,6 +1941,26 @@
           "invalidNote": "Escribe qué pasó (de 3 a 500 caracteres).",
           "conflict": "No se pudo calcular el reembolso sin pasarse de lo cobrado. No se hizo nada. Avísale al equipo técnico."
         }
+      },
+      "accessories": {
+        "title": "Accesorios",
+        "line": "{name} ×{n} · {total}",
+        "bundleLine": "Paquete de energías — {deck} · {total}",
+        "refunded": "{k} reembolsadas",
+        "refundCta": "Reembolsar unidades",
+        "dialogTitle": "Reembolsar unidades de {name}",
+        "howMany": "Cuántas",
+        "reasonLegend": "Motivo (obligatorio)",
+        "note": "Nota (obligatoria)",
+        "confirm": "Reembolsar {k} · {amount}",
+        "cancel": "Cancelar",
+        "done": "Reembolso pedido. El detalle se actualizó.",
+        "exceeds": "Solo quedan {n} por reembolsar en este renglón. No se hizo nada.",
+        "bundleRequiresDeck": "El paquete se reembolsa entero y solo cuando todas las cartas de su deck ya se reembolsaron. No se hizo nada.",
+        "reasonMissing": "Elige un motivo.",
+        "noteHelp": "De 3 a 500 caracteres. Queda en la bitácora; el cliente no la ve.",
+        "amount": "Se devolverán {amount} (con su parte de la comisión).",
+        "stale": "El importe cambió a {amount}. No se hizo nada. Revísalo y vuelve a confirmar."
       }
     },
     "m4": {
@@ -2450,8 +2543,14 @@
               "damaged": "llegó dañada"
             },
             "body": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
+            "bodyAccessories": "El importe lo calculó el servidor con lo que el cliente pagó por cada accesorio más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
+            "bodyMixed": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta y cada accesorio más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
             "bodyNothingShips": "No sale ninguna carta: se devuelve todo lo cobrado —cartas, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
+            "bodyNothingShipsAccessories": "No sale ningún accesorio: se devuelve todo lo cobrado —accesorios, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
+            "bodyNothingShipsMixed": "No sale nada: se devuelve todo lo cobrado —cartas, accesorios, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
             "signature": "Este reembolso queda a tu nombre y la carta pasa a merma con tu firma.",
+            "signatureAccessories": "Este reembolso queda a tu nombre.",
+            "signatureMixed": "Este reembolso queda a tu nombre y cada carta faltante pasa a merma con tu firma.",
             "confirm": "Confirmar {amount} y preparar",
             "cancel": "Cancelar"
           },
@@ -2526,7 +2625,47 @@
             "empty": "Nada que imprimir: la cola está vacía.",
             "card": "Carta"
           },
-          "addressCorrected": "Dirección corregida"
+          "addressCorrected": "Dirección corregida",
+          "accessory": {
+            "group": "ACCESORIOS",
+            "box": "Caja: {label} · {dims} cm · accesorios {kg} kg",
+            "review": "REVISAR CAJA",
+            "reviewBody": "No cupo en ninguna caja registrada: se cobró la más grande. Decide cómo empacarlo (dos paquetes o una caja especial). Lo cobrado no cambia.",
+            "qty": "×{n}",
+            "bundleTitle": "Paquete de energías — {deck}",
+            "pick": "Lo tengo",
+            "pickMany": "Los tengo",
+            "pickBundle": "Lo tengo completo",
+            "miss": "No lo encontré",
+            "damaged": "Llegó dañado",
+            "missSome": "Faltan…",
+            "missBundle": "Falta el paquete",
+            "howMany": "¿Cuántas faltan?",
+            "reasonLegend": "Motivo",
+            "reasonNotFound": "No las encontré",
+            "reasonDamaged": "Llegaron dañadas",
+            "markCta": "Marcar",
+            "cancel": "Cancelar",
+            "undo": "Deshacer",
+            "picked": "Tomado",
+            "missingOf": "Faltan {k} de {n}",
+            "missing": "Faltante",
+            "damagedTag": "Dañado",
+            "noStock": "SIN EXISTENCIAS AL COBRAR",
+            "noStockBody": "Se cobró cuando ya no había existencias. Si no lo encuentras, márcalo como faltante.",
+            "bundlePartHelp": "Si falta solo una parte, complétala del estante: las energías ya estaban apartadas.",
+            "refundedLocked": "Ya se reembolsó; la marca es fija.",
+            "deckAllMissing": "Faltan todas las cartas de este deck: marca también el paquete como faltante.",
+            "refundPreview": "Se le devolverán {amount} al dar el pedido por preparado.",
+            "refundDone": "Reembolsado: {amount}.",
+            "actionAria": "{action}: {name} ×{n}",
+            "dialogLine": "{name} — faltan {k} de {n} · {amount}",
+            "dialogLineDamaged": "{name} — faltan {k} de {n} · llegaron dañadas · {amount}",
+            "dialogBundle": "Paquete de energías — {deck} — no está · {amount}",
+            "dialogBundleDamaged": "Paquete de energías — {deck} — llegó dañado · {amount}",
+            "dialogNotRefundable": "{name} — faltan {k} de {n}",
+            "pendingLines": "{n, plural, one {Falta # accesorio} other {Faltan # accesorios}} por palomear."
+          }
         },
         "locate": {
           "action": "Ubicar",
@@ -4340,7 +4479,9 @@
           "sealedValueTrend": "Tendencia de valor del sellado",
           "sealedRestockAlerts": "Alertas de reposición de sellado",
           "save": "Guardar {count} cambio(s)",
-          "saved": "Diales guardados."
+          "saved": "Diales guardados.",
+          "sealedRestockMaxPendingPerEmail": "Avisos pendientes por correo",
+          "sealedRestockMaxPendingPerEmailHelp": "Tope de productos que un mismo correo puede estar esperando a la vez. Frena que alguien apunte el correo de otra persona a muchos productos."
         },
         "onOff": {
           "on": "Encendido",
@@ -4836,7 +4977,12 @@
           "providerOption": "{code} · {name}",
           "length": "Largo",
           "width": "Ancho",
-          "height": "Alto"
+          "height": "Alto",
+          "customerFee": "Tarifa al cliente (con IVA)",
+          "noFee": "No cobra",
+          "feeRule": "Las cajas con tarifa se usan solo cuando el pedido lleva accesorios con medidas. El sistema elige la más chica en la que caben y cobra lo mayor entre la tarifa fija de envío y la de esa caja. Si no caben en ninguna, cobra la más grande y el pedido llega marcado «Revisar caja».",
+          "noneCharges": "Ninguna caja cobra todavía: los pedidos con accesorios pagan la tarifa fija de envío de siempre.",
+          "feeRange": "Escribe una tarifa entre $0.01 y $100,000."
         },
         "carriers": {
           "label": "Paquetería preferida (en orden)",
@@ -5021,6 +5167,50 @@
         "cross": "La guía que se descuenta ({fee}) más el mínimo que recibe el vendedor ({net}) no puede pasar del mínimo para cotizar ({min}). No se guardó nada.",
         "save": "Guardar {count, plural, =0 {cambios} one {# cambio} other {# cambios}}",
         "saved": "Ciclo de venta guardado."
+      },
+      "wishlist": {
+        "title": "Lista de deseos",
+        "subtitle": "Cómo funciona la lista de deseos de los clientes y la lista de compra de Reportes.",
+        "labels": {
+          "wishlistEnabled": "Lista de deseos",
+          "wishlistMaxPerAccount": "Cartas por cuenta",
+          "wishlistMaxIvaMode": "Cómo se lee el máximo del cliente",
+          "wishlistTargetMarginPct": "Margen que buscas",
+          "wishlistMarginBasis": "Ese margen se mide",
+          "wishlistDailyMailCap": "Correos de aviso por cliente al día",
+          "wishlistMailWindowMin": "Minutos para juntar avisos"
+        },
+        "help": {
+          "wishlistEnabled": "Encendida, los clientes pueden guardar cartas y reciben avisos por correo. Apagada, todo se oculta; las listas se conservan.",
+          "wishlistMaxPerAccount": "Bajarlo no borra cartas guardadas; solo impide agregar.",
+          "wishlistMaxIvaMode": "<b>Con IVA:</b> el % ya incluye el IVA (mercado $1,000 al 10 % = $1,100 en total). <b>Sin IVA:</b> el % va antes del IVA ($1,100 + IVA = $1,276).",
+          "wishlistTargetMarginPct": "Con él se calcula «Paga hasta» en la lista de compra.",
+          "wishlistMarginBasis": "<b>Sobre lo que pagas</b> (pagas $100, ganas $15) o <b>sobre la venta</b> (vendes en $100, ganas $15).",
+          "wishlistDailyMailCap": "Lo que pase del tope sale junto al día siguiente, si sigue a la venta.",
+          "wishlistMailWindowMin": "Las cartas que entran en este tiempo van en un solo correo. También aplica al aviso de sellados."
+        },
+        "units": {
+          "pct": "%",
+          "int": "número entero"
+        },
+        "options": {
+          "on": "Encendida",
+          "off": "Apagada",
+          "with_iva": "Con IVA",
+          "without_iva": "Sin IVA",
+          "cost": "Sobre lo que pagas",
+          "sale": "Sobre la venta"
+        },
+        "confirm": {
+          "title": "¿Encender la lista de deseos?",
+          "body": "Antes de encenderla, tu aviso de privacidad tiene que decir que usamos las listas de deseos, sin nombres, para decidir qué cartas conseguir. Al encenderla, los clientes verán el botón en las fichas y empezarán a recibir avisos por correo.",
+          "yes": "Sí, encender",
+          "cancel": "Cancelar"
+        },
+        "save": "Guardar lista de deseos ({count, plural, =0 {sin cambios} one {# cambio} other {# cambios}})",
+        "saved": "Guardado.",
+        "checkFields": "Revisa los campos marcados. No se guardó nada.",
+        "invalid": "Ese valor no es válido para este dial."
       }
     },
     "m7": {
@@ -5109,7 +5299,8 @@
       },
       "tabs": {
         "sales": "Ventas",
-        "activity": "Actividad"
+        "activity": "Actividad",
+        "buyList": "Lista de compra"
       },
       "sales": {
         "period": {
@@ -5283,7 +5474,8 @@
           "sealed": "Sellado",
           "colPieces": "Piezas",
           "colNet": "Venta sin IVA",
-          "productTypeNote": "Reparte la venta sin IVA del periodo, también la de pedidos que luego se reembolsaron; por eso suma lo mismo que el resumen y no lo mismo que «Lo más vendido»."
+          "productTypeNote": "Reparte la venta sin IVA del periodo, también la de pedidos que luego se reembolsaron; por eso suma lo mismo que el resumen y no lo mismo que «Lo más vendido».",
+          "accessory": "Accesorios"
         },
         "p2": {
           "shippingCharged": "Envío cobrado (sin IVA)",
@@ -5315,6 +5507,76 @@
           "error": "No se pudieron cargar las ventas.",
           "forbidden": "Solo el súper-admin puede ver las ventas."
         }
+      },
+      "buyList": {
+        "title": "Cartas que te piden y no tienes",
+        "subtitle": "Cartas que alguien tiene en su lista de deseos y hoy no tienes a la venta. Sin nombres: solo cuántos.",
+        "dials": "Calculado con: margen que buscas {margin} % {basis} · máximos de los clientes {ivaMode} · IVA {rate} %",
+        "basis": {
+          "cost": "sobre lo que pagas",
+          "sale": "sobre la venta"
+        },
+        "ivaMode": {
+          "with_iva": "leídos con IVA",
+          "without_iva": "leídos sin IVA"
+        },
+        "changeDials": "Cambiar en Configuración",
+        "generatedAt": "Generado: {date}",
+        "sortLabel": "Ordenar por",
+        "sort": {
+          "default": "Recomendado",
+          "wanted": "Más buscadas",
+          "ceiling": "Techo",
+          "margin": "Margen a mercado",
+          "market": "Mercado",
+          "normal": "Precio normal",
+          "buyers": "Pagan tu precio",
+          "buylist": "Buylist hoy"
+        },
+        "dir": {
+          "desc": "Mayor primero",
+          "asc": "Menor primero"
+        },
+        "search": "Buscar carta, set o número",
+        "hideNoMarket": "Ocultar las que no tienen precio de mercado",
+        "filtered": "Mostrando {shown} de {total} cartas. El CSV trae la lista completa.",
+        "csv": "Descargar CSV",
+        "csvError": "No pudimos descargar el CSV. Intenta de nuevo.",
+        "print": "Imprimir",
+        "wanted": "{n, plural, one {# LA BUSCA} other {# LA BUSCAN}}",
+        "ceiling": "PAGA HASTA",
+        "ceilingHelpLabel": "Qué es «Paga hasta»",
+        "ceilingHelp": "Lo más que puedes pagar y todavía ganar tu margen, con el cliente que más ofreció.",
+        "withoutIva": "sin IVA",
+        "tier": {
+          "caption": "Niveles de quienes la buscan",
+          "level": "Nivel",
+          "levelValue": "{pct} %",
+          "accounts": "Cuentas",
+          "max": "Su máximo (con IVA)",
+          "ceiling": "Pagas hasta (sin IVA)"
+        },
+        "market": "Mercado hoy {amount}",
+        "normal": "Tu precio normal {list} sin IVA ({display} con IVA)",
+        "normalNone": "Precio normal: sin calcular",
+        "buyers": "Pagan tu precio normal: {n}",
+        "marginGain": "Si la pagas a mercado: ganas {amount} ({pct} %)",
+        "marginLoss": "Si la pagas a mercado: pierdes {amount} (−{pct} %)",
+        "buylist": "El buylist pagaría hoy: {amount}",
+        "buylistNone": "El buylist no la cotiza hoy",
+        "noMarket": "SIN PRECIO DE MERCADO",
+        "noMarketSr": "sin dato: no hay precio de mercado",
+        "emptyTitle": "Nadie está esperando una carta que no tengas.",
+        "emptyBody": "Cuando alguien agregue a su lista una carta sin piezas a la venta, aparece aquí.",
+        "sealedTitle": "Sellados que esperan aviso",
+        "sealedSubtitle": "Personas que pidieron que les avisemos cuando vuelva. Solo el conteo de correos.",
+        "sealedCols": {
+          "product": "Producto",
+          "type": "Tipo",
+          "condition": "Condición",
+          "waiting": "Esperan"
+        },
+        "sealedEmpty": "Nadie está esperando un sellado."
       }
     },
     "vaults": {
@@ -6321,6 +6583,184 @@
     },
     "mobile": {
       "desktopOnly": "Esta sección está pensada para computadora. En el celular, usa <link>«Pedidos por preparar»</link>."
+    },
+    "accessories": {
+      "title": "Accesorios",
+      "subtitle": "Fundas, carpetas, energías y demás. Sin foto no se publica.",
+      "new": "Nuevo accesorio",
+      "back": "Volver a accesorios",
+      "status": {
+        "published": "PUBLICADO",
+        "unpublished": "NO PUBLICADO",
+        "soldOut": "AGOTADO"
+      },
+      "noPhoto": "SIN FOTO",
+      "noPrice": "SIN PRECIO",
+      "suggested": "SUGERIDO",
+      "stockSub": "{reserved} apartadas · {available} disponibles",
+      "categoryEnergy": "Energías · {type}",
+      "loadError": "No pudimos cargar los accesorios.",
+      "retry": "Reintentar",
+      "emptyFiltered": "Ningún accesorio con estos filtros.",
+      "clearFilters": "Quitar filtros",
+      "notFound": "Ese accesorio ya no existe.",
+      "filters": {
+        "category": "Categoría",
+        "allCategories": "Todas",
+        "search": "Buscar por nombre",
+        "status": "Estado",
+        "statusAll": "Todos",
+        "statusPublished": "Publicados",
+        "statusUnpublished": "No publicados",
+        "soldOutOnly": "Solo agotados"
+      },
+      "cols": {
+        "photo": "Foto",
+        "name": "Nombre",
+        "category": "Categoría",
+        "price": "Precio",
+        "stock": "Existencias",
+        "status": "Estado",
+        "suggested": "Sugerido"
+      },
+      "form": {
+        "dataTitle": "Datos",
+        "saveData": "Guardar datos",
+        "saved": "Datos guardados.",
+        "name": "Nombre",
+        "nameCount": "{n}/120",
+        "nameRequired": "Escribe un nombre (de 1 a 120 caracteres).",
+        "category": "Categoría",
+        "categoryPlaceholder": "Elige una categoría",
+        "energyType": "Tipo de energía",
+        "description": "Descripción",
+        "descriptionCount": "{n}/500",
+        "dimsHelp": "Del artículo empacado como se vende. Sirven para elegir la caja del envío.",
+        "length": "Largo (mm)",
+        "width": "Ancho (mm)",
+        "height": "Alto (mm)",
+        "weight": "Peso (g)",
+        "energyNoDims": "Las energías no llevan medidas: viajan con las cartas.",
+        "invalidNumber": "Escribe un número entero."
+      },
+      "created": "Accesorio creado. Sube su foto para poder publicarlo.",
+      "categoryLocked": "Para cambiar la categoría de un accesorio publicado, primero quítalo de la tienda.",
+      "forbiddenField": "No tienes permiso para cambiar {fields}. No se guardó nada.",
+      "fieldNames": {
+        "priceCents": "el precio",
+        "unitCostCents": "el costo",
+        "suggested": "«Sugerido»",
+        "active": "la publicación"
+      },
+      "photo": {
+        "title": "Foto",
+        "choose": "Elegir foto",
+        "change": "Cambiar foto",
+        "help": "PNG, JPG o WebP de hasta 10 MB. La acomodamos sola: queda cuadrada, sin recortar el producto y sin datos de ubicación.",
+        "uploading": "Subiendo y acomodando la foto…",
+        "saved": "Foto guardada.",
+        "none": "Sin foto todavía.",
+        "errors": {
+          "too_large": "La foto pesa más de 10 MB. No se guardó nada.",
+          "unsupported_type": "Ese archivo no es PNG, JPG ni WebP. No se guardó nada.",
+          "too_many_pixels": "La foto es demasiado grande en píxeles. Redúcela y vuelve a subirla. No se guardó nada.",
+          "not_image": "No pudimos abrir ese archivo como imagen. No se guardó nada."
+        }
+      },
+      "price": {
+        "title": "Precio y costo",
+        "price": "Precio de venta (con IVA)",
+        "priceHelp": "Es lo que ve y paga el cliente. La comisión de plataforma se suma aparte.",
+        "cost": "Costo por unidad",
+        "costHelp": "Lo que te costó a ti. Solo lo ves tú; sirve para el margen en Finanzas.",
+        "save": "Guardar precio",
+        "saved": "Precio guardado.",
+        "invalid": "Escribe una cifra en pesos, por ejemplo 89.00.",
+        "readOnly": "Precio de venta: {price}",
+        "readOnlyNone": "Sin precio. Lo pone el dueño."
+      },
+      "publish": {
+        "title": "Publicación",
+        "missing": "Para publicarlo falta: {list}.",
+        "ready": "Listo para publicar.",
+        "activate": "Publicar en la tienda",
+        "deactivate": "Quitar de la tienda",
+        "deactivateNote": "Los carritos que lo tengan lo pierden en la siguiente cotización, con aviso.",
+        "notPublished": "No se publicó.",
+        "energyTaken": "Ya hay otra «Energía {type}» publicada. Quítala de la tienda primero; solo puede haber una por tipo.",
+        "seeOther": "Ver la otra",
+        "suggested": "Sugerido en el carrito",
+        "suggestedHelp": "Aparece primero en «¿Te falta algo?».",
+        "suggestedEnergy": "Las energías no se sugieren en el carrito: se ofrecen en los decks.",
+        "missingItem": {
+          "price": "precio",
+          "photo": "foto",
+          "dimensions": "medidas",
+          "weight": "peso",
+          "energy_type": "tipo de energía"
+        }
+      },
+      "delete": {
+        "hasSales": "Ya se vendió: no se puede borrar. Quítalo de la tienda para que deje de verse.",
+        "button": "Borrar accesorio",
+        "title": "¿Borrar {name}?",
+        "body": "Se borra con su foto y su historial de existencias. No se puede deshacer.",
+        "confirm": "Borrar",
+        "cancel": "Cancelar"
+      },
+      "stock": {
+        "title": "Existencias: {n}",
+        "sub": "{reserved} apartadas en pedidos en curso · {available} disponibles",
+        "systemNote": "Las ventas, los apartados y las devoluciones las mueve el sistema solo.",
+        "receive": "Entraron",
+        "receiveQty": "Cantidad",
+        "receiveNote": "Nota (opcional)",
+        "receiveConfirm": "Sumar {n}",
+        "receiveDone": "Sumamos {n}. Ahora hay {stock}.",
+        "adjust": "Ajuste (conteo)",
+        "adjustReal": "Existencias reales",
+        "adjustReason": "Motivo",
+        "adjustReasonHint": "Por ejemplo «conteo físico» o «merma».",
+        "adjustConfirm": "Ajustar a {n}",
+        "adjustSame": "Es el mismo número de hoy.",
+        "adjustDone": "Existencias ajustadas a {n}.",
+        "conflict": "Las existencias cambiaron mientras ajustabas: ahora hay {n}. No se cambió nada. Revisa y vuelve a intentarlo.",
+        "belowReserved": "Hay {n} apartadas en pedidos en curso: las existencias no pueden quedar por debajo. No se cambió nada.",
+        "reasonShort": "Escribe un motivo de al menos 3 letras.",
+        "cancel": "Cancelar",
+        "history": {
+          "title": "Historial de existencias",
+          "date": "Fecha",
+          "movement": "Movimiento",
+          "change": "Cambio",
+          "beforeAfter": "Antes → después",
+          "who": "Quién",
+          "reasonOrder": "Motivo / pedido",
+          "system": "El sistema",
+          "order": "Pedido {orderNumber}",
+          "empty": "Sin movimientos todavía."
+        },
+        "kind": {
+          "initial": "Alta",
+          "receive": "Entrada",
+          "adjust": "Ajuste",
+          "sale": "Venta",
+          "restock": "Devuelto a existencias",
+          "settle_recovery": "Venta (pago tardío)"
+        }
+      },
+      "settings": {
+        "title": "Precios fijos y sugerencias",
+        "bundlePrice": "Precio del paquete de energías (con IVA)",
+        "bundlePriceHelp": "Lo que paga el cliente por todas las energías de un deck del meta. La comisión de plataforma va aparte.",
+        "suggestionCount": "Accesorios sugeridos en el carrito",
+        "suggestionCountHelp": "0 apaga «¿Te falta algo?».",
+        "save": "Guardar",
+        "saved": "Ajustes de accesorios guardados.",
+        "bundlePriceRange": "Escribe un precio entre $0.01 y $1,000.",
+        "countRange": "Escribe un número del 0 al 6."
+      },
+      "energyPricesDiffer": "Las energías no tienen todas el mismo precio."
     }
   },
   "locale": {
@@ -6731,7 +7171,13 @@
       "support": "¿Necesitas ayuda? Escríbenos a {contact}."
     },
     "temporaryLinkNotice": "Este enlace es temporal y caduca en unas horas. El enlace de seguimiento de tu pedido te llega por correo; si no lo ves, pide uno nuevo.",
-    "trackingLink": "Rastrear en la paquetería"
+    "trackingLink": "Rastrear en la paquetería",
+    "accessories": {
+      "label": "ACCESORIOS",
+      "line": "{name} ×{n} · {total}",
+      "bundleLine": "Paquete de energías — {deck} · {total}",
+      "refunded": "{k} reembolsadas"
+    }
   },
   "sealed": {
     "title": "Sellado",
@@ -6794,11 +7240,13 @@
     },
     "restock": {
       "title": "Avísame cuando vuelva",
-      "body": "Te escribimos en cuanto este producto vuelva a estar disponible.",
+      "body": "Si se agota, te escribimos una sola vez cuando vuelva a estar disponible.",
       "emailLabel": "Correo",
       "emailPlaceholder": "tucorreo@ejemplo.com",
       "cta": "Avisarme",
-      "confirmed": "Listo. Te avisaremos por correo cuando vuelva."
+      "confirmed": "Listo. Si se agota y vuelve, te escribimos una sola vez.",
+      "signedInAs": "Te avisaremos a {email}.",
+      "rateLimited": "Demasiados intentos. Espera un minuto y vuelve a intentar."
     },
     "vault": {
       "emptyTitle": "Aún no tienes sellado en tu bóveda",
@@ -6873,8 +7321,8 @@
     },
     "substitute": {
       "label": "Sustituto disponible",
-      "use": "Usar {name} ({set}\u00a0{number}) · {price}",
-      "usePending": "Usar {name} ({set}\u00a0{number})"
+      "use": "Usar {name} ({set} {number}) · {price}",
+      "usePending": "Usar {name} ({set} {number})"
     },
     "addAll": {
       "button": "Agregar de jalón",
@@ -6891,6 +7339,26 @@
       "clear": "Limpiar",
       "emptyTitle": "Pega una lista para empezar",
       "emptyBody": "Aún no has pegado nada. Copia tu lista y pégala arriba."
+    },
+    "energy": {
+      "name": "Energía {type}",
+      "unitPrice": "{price} c/u",
+      "add": "Agregar ×{qty}",
+      "addAria": "Agregar {qty} Energía {type} al carrito",
+      "soldOut": "Agotada",
+      "inBundle": "Va en tu paquete de energías.",
+      "inCart": "En el carrito"
+    },
+    "bundle": {
+      "eyebrow": "PAQUETE DE ENERGÍAS",
+      "headline": "Las {n} energías de este deck por {price}",
+      "loose": "Sueltas costarían {amount}.",
+      "note": "Precio fijo, IVA incluido. Solo con envío a domicilio y con el deck completo en tu carrito.",
+      "add": "Agregar paquete",
+      "inCart": "En el carrito",
+      "remove": "Quitar paquete",
+      "needsDeck": "Primero agrega el deck con «Agregar de jalón»: el paquete solo va con el deck completo.",
+      "noStock": "Paquete de energías no disponible: no tenemos todas las que pide este deck. Abajo ves cuáles nos quedan para agregarlas sueltas."
     }
   },
   "support": {
@@ -6918,6 +7386,189 @@
       "checkout": "Qué hacemos con tus datos: <privacy>Aviso de privacidad</privacy>.",
       "sellForm": "Tu CLABE la usamos para pagarte por transferencia a tu nombre, y tu INE —si te la pedimos— para verificar tu identidad. Detalles en el <privacy>Aviso de privacidad</privacy>.",
       "accountIne": "Para qué usamos tu INE y cuándo la borramos: <privacy>Aviso de privacidad</privacy>."
+    }
+  },
+  "accessories": {
+    "eyebrow": "ACCESORIOS",
+    "title": "Accesorios",
+    "subtitle": "Fundas, carpetas, energías y lo que necesitas para cuidar y jugar tus cartas. Se envían a domicilio.",
+    "categoriesLabel": "Categorías de accesorios",
+    "all": "Todo",
+    "searchLabel": "Buscar accesorios",
+    "searchPlaceholder": "Buscar por nombre…",
+    "clearSearch": "Limpiar búsqueda",
+    "add": "Agregar",
+    "addAria": "Agregar {name} al carrito",
+    "vatIncluded": "IVA incluido",
+    "quantity": "Cantidad",
+    "maxHint": "Puedes agregar hasta {n}.",
+    "addToCart": "Agregar al carrito",
+    "allInCart": "Ya tienes en tu carrito todas las que hay.",
+    "goToCart": "Ir al carrito",
+    "shipsHome": "Se envía a tu domicilio. Los accesorios no se guardan en la bóveda.",
+    "soldOut": "AGOTADO",
+    "soldOutBody": "Se agotó. Vuelve pronto.",
+    "back": "Volver a accesorios",
+    "notFoundTitle": "Este accesorio ya no está a la venta",
+    "notFoundCta": "Ver accesorios",
+    "emptyTitle": "Pronto tendremos accesorios aquí",
+    "emptyBody": "Mientras tanto, mira las cartas y el producto sellado.",
+    "emptyCta": "Ver cartas sueltas",
+    "emptyCategory": "No hay {category} por ahora.",
+    "seeAll": "Ver todos los accesorios",
+    "emptySearch": "No encontramos accesorios con «{q}».",
+    "loadError": "No pudimos cargar los accesorios.",
+    "retry": "Reintentar",
+    "signedInNotice": "Los accesorios se compran con envío a domicilio. Pronto también desde tu cuenta.",
+    "addedToast": "Agregado al carrito",
+    "categoryWithType": "{category} · {type}",
+    "energyName": "Energía {type}",
+    "energyQty": "{type} ×{qty}",
+    "stepper": {
+      "decrease": "Quitar una",
+      "increase": "Agregar una"
+    },
+    "category": {
+      "sleeves": "Fundas / penny sleeves",
+      "toploaders": "Toploaders",
+      "binders": "Carpetas",
+      "deck_boxes": "Cajas de mazo",
+      "playmats": "Playmats",
+      "energy": "Energías",
+      "other": "Otros"
+    },
+    "energyType": {
+      "grass": "Planta",
+      "fire": "Fuego",
+      "water": "Agua",
+      "lightning": "Rayo",
+      "psychic": "Psíquica",
+      "fighting": "Lucha",
+      "darkness": "Oscura",
+      "metal": "Metálica"
+    }
+  },
+  "wishlist": {
+    "eyebrow": "LISTA DE DESEOS",
+    "block": {
+      "title": "¿La buscas? Te avisamos por correo cuando la consigamos.",
+      "nmNote": "Siempre Near Mint, sin gradear.",
+      "finishLegend": "Acabado",
+      "finishSingle": "Acabado: {finish}",
+      "pctLegend": "¿Hasta cuánto más del precio de mercado pagarías?",
+      "pctOption": "{pct} %",
+      "pctPesos": "hasta {amount}",
+      "signalNote": "Es una señal para nosotros, no un compromiso: no te apartamos la carta ni te cobramos nada. Si la conseguimos, sale a su precio normal, el mismo para todos.",
+      "add": "Agregar {finish} a mi lista",
+      "count": "{count} de {limit}",
+      "inList": "Está en tu lista · {finish} · hasta {pct} % sobre mercado",
+      "noMarketLong": "Sin precio de mercado por ahora: cuando lo haya, calcularemos tu máximo.",
+      "changeLegend": "Cambiar tu máximo",
+      "saveChange": "Guardar cambio",
+      "removed": "La quitamos de tu lista.",
+      "duplicate": "Ya la tenías en tu lista con este acabado. Si quieres, cambia tu máximo."
+    },
+    "maxToday": "Tu máximo de hoy: {amount}",
+    "approx": "aproximado",
+    "approxHelpLabel": "Por qué es aproximado",
+    "approxHelp": "Tu máximo sale del precio de mercado. Lo recalculamos el día en que consigamos la carta, así que puede subir o bajar.",
+    "recalcNote": "Se recalcula con el precio de mercado del día en que la consigamos.",
+    "noMarket": "Sin precio de mercado por ahora",
+    "notifyTo": "Te avisaremos a {email}.",
+    "remove": "Quitar de mi lista",
+    "seeList": "Ver mi lista",
+    "unverified": "Verifica tu correo para recibir el aviso.",
+    "unverifiedCta": "Verificar en Mi cuenta",
+    "pausedNote": "Pausaste los avisos de tu lista: no te escribiremos hasta que los reanudes.",
+    "pausedCta": "Reanudar en Mi lista",
+    "saved": "GUARDADO",
+    "full": {
+      "title": "Tu lista está llena: tienes {count} de {limit} cartas.",
+      "body": "Quita una para hacer lugar y vuelve a esta página."
+    },
+    "guest": {
+      "title": "¿La buscas? Guárdala en tu lista y te avisamos por correo cuando la consigamos.",
+      "body": "Necesitas una cuenta para tener lista de deseos.",
+      "login": "Entrar para agregarla",
+      "register": "Crear cuenta"
+    },
+    "error": {
+      "finish": "Ese acabado no existe para esta carta. Elige otro.",
+      "generic": "No pudimos guardar tu lista. Intenta de nuevo."
+    },
+    "card": {
+      "notHere": "Hoy no tenemos esta carta."
+    },
+    "account": {
+      "title": "Lista de deseos",
+      "summary": "{count} de {limit} cartas. Te avisamos por correo cuando consigamos alguna.",
+      "summaryPaused": "{count} de {limit} cartas. Los avisos están pausados.",
+      "summaryEmpty": "Aún no tienes cartas en tu lista."
+    },
+    "page": {
+      "back": "← Mi cuenta",
+      "eyebrow": "CUENTA",
+      "title": "Mi lista de deseos",
+      "subtitle": "{count} de {limit} cartas · Te avisamos por correo cuando consigamos alguna de estas cartas.",
+      "signalNote": "Tu máximo es una señal para que sepamos hasta dónde buscar. Si conseguimos la carta, sale a su precio normal, el mismo para todos, y te avisamos aunque esté arriba de tu máximo. No te la apartamos: se la lleva quien pague primero.",
+      "pausedBanner": "Pausaste los avisos de tu lista. Tu lista sigue guardada.",
+      "pausedLost": "Lo que llegó mientras estaban pausados no se vuelve a avisar; revisa tu lista para ver qué está disponible hoy.",
+      "resume": "Reanudar avisos",
+      "pause": "Pausar avisos",
+      "resumed": "Listo: volverás a recibir los avisos de tu lista.",
+      "unverifiedBanner": "Verifica tu correo para recibir los avisos.",
+      "alertsTitle": "Avisos por correo",
+      "alertsBody": "Te escribimos cuando consigamos una carta de tu lista. Juntamos varias en un solo correo.",
+      "searchTitle": "BUSCAR UNA CARTA PARA AGREGAR",
+      "searchLabel": "Buscar una carta para agregar",
+      "searchPlaceholder": "Nombre de la carta o número…",
+      "searchEmpty": "No encontramos esa carta. Prueba con el nombre en inglés o con su número.",
+      "searchCount": "{n, plural, one {# resultado} other {# resultados}}",
+      "full": "Tu lista está llena ({count} de {limit}). Quita una carta para agregar otra.",
+      "emptyTitle": "Tu lista está vacía",
+      "emptyBody": "Busca una carta arriba o pulsa «Agregar a mi lista» en la ficha de cualquier carta. Te avisamos cuando la consigamos.",
+      "disabled": "La lista de deseos aún no está disponible."
+    },
+    "row": {
+      "maxPct": "Tu máximo: hasta {pct} % sobre mercado",
+      "pctLabel": "Tu máximo",
+      "pctOption": "hasta {pct} %",
+      "save": "Guardar",
+      "today": "Hoy: hasta {amount}",
+      "notYet": "No la tenemos todavía",
+      "available": "Disponible ahora: {count} · desde {amount}",
+      "fits": "CABE EN TU MÁXIMO",
+      "above": "ARRIBA DE TU MÁXIMO",
+      "seeCard": "Ver la carta",
+      "lastNotified": "Último aviso: {date}",
+      "neverNotified": "Aún no te hemos avisado",
+      "remove": "Quitar",
+      "removeLabel": "Quitar {card} ({finish}) de mi lista",
+      "removedToast": "Quitamos {card} de tu lista.",
+      "undo": "Deshacer",
+      "undoFull": "No pudimos regresarla: tu lista ya está llena.",
+      "undoError": "No pudimos regresarla. Búscala y agrégala de nuevo.",
+      "gone": "Esa carta ya no estaba en tu lista.",
+      "condition": "Near Mint"
+    },
+    "mailAction": {
+      "removeTitle": "Quitar una carta de tu lista",
+      "removeBody": "Confirma y la quitamos. No hace falta entrar a tu cuenta.",
+      "removeCta": "Quitar de mi lista",
+      "pauseTitle": "Dejar de recibir avisos de tu lista",
+      "pauseBody": "Tu lista se queda guardada. Puedes reanudar los avisos cuando quieras en Mi cuenta.",
+      "pauseCta": "Dejar de recibir avisos",
+      "removed": "Listo: la quitamos de tu lista.",
+      "paused": "Listo: ya no te mandaremos estos avisos.",
+      "pausedHint": "Puedes reanudarlos en Mi cuenta › Mi lista de deseos.",
+      "alreadyRemoved": "Esa carta ya no estaba en tu lista.",
+      "alreadyPaused": "Estos avisos ya estaban pausados.",
+      "invalid": "Este enlace no funciona.",
+      "invalidHint": "Entra a tu cuenta para revisar tu lista.",
+      "rateLimited": "Demasiados intentos. Espera un minuto y vuelve a intentar.",
+      "error": "No pudimos hacerlo. Intenta de nuevo.",
+      "working": "Un momento…",
+      "goToList": "Ir a mi lista de deseos"
     }
   }
 }

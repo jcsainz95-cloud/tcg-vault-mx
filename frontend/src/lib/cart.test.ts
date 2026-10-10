@@ -6,7 +6,8 @@ const KEY = 'tcg.cart';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-08-18T12:00:00Z').getTime();
 
-function rawRecord(): { ids: string[]; updatedAt: number } {
+/** AC-F1 (§AC): el registro es v3 `{ ids, accessories, deckPulls, updatedAt }`; aquí solo hay piezas. */
+function rawRecord(): { ids: string[]; accessories: unknown[]; deckPulls: unknown[]; updatedAt: number } {
   return JSON.parse(window.localStorage.getItem(KEY)!);
 }
 
@@ -34,7 +35,7 @@ describe('useCart · timestamp, expiración a 30 días y prune', () => {
 
     expect(result.current.ids).toEqual(['inv-1', 'inv-2']);
     // La lectura ya migró el storage a { ids, updatedAt }.
-    expect(rawRecord()).toEqual({ ids: ['inv-1', 'inv-2'], updatedAt: NOW });
+    expect(rawRecord()).toEqual({ ids: ['inv-1', 'inv-2'], accessories: [], deckPulls: [], updatedAt: NOW });
   });
 
   it('un carrito modificado hace MÁS de 30 días se limpia al cargar', () => {
@@ -66,15 +67,15 @@ describe('useCart · timestamp, expiración a 30 días y prune', () => {
     const { result } = renderHook(() => useCart());
 
     act(() => result.current.add('inv-2'));
-    expect(rawRecord()).toEqual({ ids: ['inv-1', 'inv-2'], updatedAt: NOW });
+    expect(rawRecord()).toEqual({ ids: ['inv-1', 'inv-2'], accessories: [], deckPulls: [], updatedAt: NOW });
 
     vi.setSystemTime(NOW + 1000);
     act(() => result.current.remove('inv-1'));
-    expect(rawRecord()).toEqual({ ids: ['inv-2'], updatedAt: NOW + 1000 });
+    expect(rawRecord()).toEqual({ ids: ['inv-2'], accessories: [], deckPulls: [], updatedAt: NOW + 1000 });
 
     vi.setSystemTime(NOW + 2000);
     act(() => result.current.clear());
-    expect(rawRecord()).toEqual({ ids: [], updatedAt: NOW + 2000 });
+    expect(rawRecord()).toEqual({ ids: [], accessories: [], deckPulls: [], updatedAt: NOW + 2000 });
   });
 
   it('prune(ids) poda varios de una vez con la misma semántica de storage que remove', () => {
@@ -83,7 +84,7 @@ describe('useCart · timestamp, expiración a 30 días y prune', () => {
 
     act(() => result.current.prune(['inv-1', 'inv-3', 'inv-fantasma']));
     expect(result.current.ids).toEqual(['inv-2']);
-    expect(rawRecord()).toEqual({ ids: ['inv-2'], updatedAt: NOW });
+    expect(rawRecord()).toEqual({ ids: ['inv-2'], accessories: [], deckPulls: [], updatedAt: NOW });
   });
 
   it('prune es idempotente: si ningún id sigue en el carrito no escribe (no cicla efectos)', () => {
@@ -101,6 +102,6 @@ describe('useCart · timestamp, expiración a 30 días y prune', () => {
     const { result } = renderHook(() => useCart());
 
     expect(result.current.ids).toEqual(['inv-1']);
-    expect(rawRecord()).toEqual({ ids: ['inv-1'], updatedAt: NOW });
+    expect(rawRecord()).toEqual({ ids: ['inv-1'], accessories: [], deckPulls: [], updatedAt: NOW });
   });
 });

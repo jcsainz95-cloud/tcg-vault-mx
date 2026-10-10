@@ -26,7 +26,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { seedE2E } from '../../prisma/seed-e2e';
-import { E2E_CARDS, E2E_ORDER_CARDS } from '../../prisma/e2e-fixtures';
+import { E2E_CARDS, E2E_ORDER_CARDS, E2E_SEALED_LISTED } from '../../prisma/e2e-fixtures';
 
 const FIXTURE_EXTERNAL_IDS = [
   ...Object.values(E2E_CARDS).map((c) => c.externalId),
@@ -277,5 +277,43 @@ describe('E2E — el SEED sintético es REPETIBLE (idempotente entre corridas y 
     expect(
       await prisma.order.count({ where: { guestEmail: { not: null }, NOT: { guestEmail: { endsWith: '@example.com' } } } }),
     ).toBe(await prisma.order.count({ where: { guestEmail: { not: null } } }));
+  });
+
+  it('6) §84.cierre QA-2: los movimientos de la pieza SELLADA del fixture no se acumulan entre corridas', async () => {
+    const item = await prisma.inventoryItem.findUniqueOrThrow({ where: { folio: E2E_SEALED_LISTED.folio }, select: { id: true } });
+    await prisma.inventoryMovement.createMany({
+      data: [
+        { itemId: item.id, reason: 'sale', fromStatus: 'listed', toStatus: 'reserved' },
+        { itemId: item.id, reason: 'settle', fromStatus: 'reserved', toStatus: 'shipped' },
+      ],
+    });
+    expect(await prisma.inventoryMovement.count({ where: { itemId: item.id } })).toBeGreaterThanOrEqual(2);
+    await seedE2E(prisma);
+    expect(await prisma.inventoryMovement.count({ where: { itemId: item.id } })).toBe(0);
+    // Y sembrar otra vez sigue en 0 (idempotente) y la pieza sigue siendo UNA.
+    await seedE2E(prisma);
+    expect(await prisma.inventoryMovement.count({ where: { itemId: item.id } })).toBe(0);
+    expect(await prisma.inventoryItem.count({ where: { folio: E2E_SEALED_LISTED.folio } })).toBe(1);
+  });
+
+  it('7) §84.cierre techlead-5: purga las suscripciones de reposición `@e2e.local` y SOLO esas', async () => {
+    const card = await prisma.card.findUniqueOrThrow({ where: { externalId: E2E_CARDS.thirdraw.externalId }, select: { id: true } });
+    const base = { cardId: card.id, sealedSubtype: 'box' as const, sealedCondition: 'mint' as const, tcgplayerProductId: E2E_SEALED_LISTED.tcgplayerProductId };
+    const ajena = `ajena-${Date.now().toString(36)}@example.org`;
+    await prisma.sealedRestockSubscription.createMany({
+      data: [
+        { ...base, email: `e2e-wsh-restock-a-${Date.now().toString(36)}@e2e.local` },
+        { ...base, email: `e2e-wsh-restock-b-${Date.now().toString(36)}@e2e.local`, notifiedAt: new Date() },
+        { ...base, email: ajena },
+      ],
+    });
+    expect(await prisma.sealedRestockSubscription.count({ where: { email: { endsWith: '@e2e.local' } } })).toBeGreaterThanOrEqual(2);
+    try {
+      await seedE2E(prisma);
+      expect(await prisma.sealedRestockSubscription.count({ where: { email: { endsWith: '@e2e.local' } } })).toBe(0);
+      expect(await prisma.sealedRestockSubscription.count({ where: { email: ajena } })).toBe(1);
+    } finally {
+      await prisma.sealedRestockSubscription.deleteMany({ where: { email: ajena } });
+    }
   });
 });

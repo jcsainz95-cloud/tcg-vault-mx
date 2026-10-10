@@ -134,6 +134,8 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
       // v1.21 (M-25): todo pedido nuevo reserva su número legible de la secuencia Postgres.
       $queryRaw: jest.fn(async () => [{ nextval: 1n }]),
       $queryRawUnsafe: jest.fn(async () => [{ nextval: 1n }]),
+      // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)): la compensación suelta también los renglones de accesorio (aquí, ninguno).
+      orderAccessoryLine: { findMany: jest.fn(async () => []) },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const settings: any = {

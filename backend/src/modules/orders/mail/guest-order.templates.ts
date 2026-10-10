@@ -11,6 +11,7 @@ import {
   totalsRows,
 } from '../../buylist/mail-shell';
 import { MailMessage } from '../../mail/mail.port';
+import { AccessoryMailLine, accessoryMailTextLines } from './accessory-mail-lines';
 
 /**
  * Plantillas LOCALES al módulo `orders` del correo del GUEST CHECKOUT (v1.21, ARCHITECTURE §4.21g).
@@ -62,6 +63,8 @@ export interface GuestOrderMailParams {
   totalCents: number;
   /** URL del frontend con `?token=` (secreto de URL; nunca se loguea). */
   trackingUrl: string;
+  /** 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.1): los renglones de accesorio y paquete. ⛔ Sin foto. */
+  accessoryLines?: AccessoryMailLine[];
 }
 
 const COPY = {
@@ -136,7 +139,10 @@ export function guestOrderConfirmationTemplate(
   const url = params.trackingUrl;
   const intro = t.confirmIntro(params.orderNumber);
   const total = formatMxn(params.totalCents, l);
-  const lineas = params.items.map((i) => `${i.name} — ${i.setName} #${i.number}`);
+  const lineas = [
+    ...params.items.map((i) => `${i.name} — ${i.setName} #${i.number}`),
+    ...accessoryMailTextLines(params.accessoryLines, l, (c) => formatMxn(c, l)),
+  ];
   const html = mailShell({
     locale: l,
     title: t.confirmTitle,
@@ -172,6 +178,7 @@ export function guestOrderConfirmationTemplate(
     '',
     `${t.itemsTitle}:`,
     itemsText(params.items),
+    ...accessoryMailTextLines(params.accessoryLines, l, (c) => formatMxn(c, l)).map((x) => `- ${x}`),
     '',
     `${t.total}: ${total}`,
     '',

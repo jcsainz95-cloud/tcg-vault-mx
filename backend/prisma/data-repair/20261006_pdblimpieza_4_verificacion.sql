@@ -1,7 +1,7 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · D · LA VERIFICACIÓN (SOLO LECTURA) — se corre DESPUÉS del fichero 2 (COMMIT) y del fichero 3
---  Fecha: 2026-10-06 · v2 y v2.1: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR
---  Diseño: docs/specs/LIMPIEZA_DB.md §14.7 (v2), §14.12 (v2.1) y §8.3 · Notas: BACKEND_NOTES §79, §79.5 y §79.6
+--  Fecha: 2026-10-06 · v2 y v2.1: 2026-10-07 · v2.2: 2026-10-08 · Lo escribió: backend · Lo ejecuta: EL DUEÑO, con el usuario ADMINISTRADOR
+--  Diseño: docs/specs/LIMPIEZA_DB.md §14.7 (v2), §14.12 (v2.1), §14.13.3 (v2.2) y §8.3 · Notas: BACKEND_NOTES §79, §79.5, §79.6 y §87
 -- =====================================================================================
 --
 --  QUÉ HACE: comprueba, una por una, que la base quedó como dice el diseño. Cada línea sale «OK» o «FALLA», o
@@ -65,6 +65,11 @@ vacias AS (
     'Order','OrderItem','OrderAccessToken','PaymentRefund','ManualRefund','ReplacementCase','VaultPlacement','VaultPlacementItem',
     'ShipmentRequest','ShipmentItem','ShipmentQuote','ShipmentCarrierEvent','ShipmentAddressRevision','ShipmentCostAdjustment',
     'ShipmentLabelAttempt','ShipmentPaidLabel','Dispute','SellRequest','SellRequestItem']) AS x
+  UNION ALL
+  -- v2.2 (§14.13.3): las de accesorios (M-73), SOLO si existen: sin M-73 no salen.
+  SELECT x, (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I', x), false, true, '')))[1]::text
+  FROM unnest(ARRAY['OrderAccessoryLine','OrderEnergyBundleComponent','ShipmentAccessoryLine']) AS x
+  WHERE to_regclass(format('%I', x)) IS NOT NULL
 ),
 -- QA-7 · el portafolio y los avisos de gasto los escriben jobs DIARIOS, y el inventario lo vuelves a subir tú: lo
 -- posterior a la limpieza es real. Se exige 0 solo en lo ANTERIOR al rastro, y lo posterior sale de dato (v2 §14.7).
@@ -96,6 +101,15 @@ jobs AS (
   SELECT 7, 'PendingPriceEntry (inventory/portfolio)',
          (SELECT count(*) FROM "PendingPriceEntry" x, rastro WHERE x.context::text IN ('inventory', 'portfolio') AND x."createdAt" < rastro.t),
          (SELECT count(*) FROM "PendingPriceEntry" x, rastro WHERE x.context::text IN ('inventory', 'portfolio') AND x."createdAt" >= rastro.t)
+  UNION ALL
+  -- v2.2 (§14.13.3): historial de existencias de accesorios (M-73) y avisos de deseos (M-74), SOLO si existen (conteo
+  -- dinámico: sin la tabla, el SQL estático fallaría). Lo posterior es real: recepciones y avisos de cartas re-subidas.
+  SELECT y.o, y.tabla,
+         (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I x WHERE x.%I < %L::timestamp', y.tabla, y.col, rastro.t), false, true, '')))[1]::text::bigint,
+         (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I x WHERE x.%I >= %L::timestamp', y.tabla, y.col, rastro.t), false, true, '')))[1]::text::bigint
+  FROM (VALUES (8, 'AccessoryStockMovement', 'createdAt'), (9, 'WishlistNotice', 'detectedAt')) AS y(o, tabla, col)
+  LEFT JOIN rastro ON true -- sin rastro: la línea sale igual (y es FALLA, como las de arriba)
+  WHERE to_regclass(format('%I', y.tabla)) IS NOT NULL
 ),
 -- C-4 / QA-6 · Usuarios, cartas, precios, diales, cajones, sellado y overrides los sigue escribiendo la app: se
 -- enseñan (INFO) y no cuentan como falla. (v2: ya no se exige «mismo conteo» de InventoryItem: lo vuelves a subir.)
@@ -103,6 +117,12 @@ info AS (
   SELECT x AS tabla, (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I', x), false, true, '')))[1]::text::bigint AS ahora,
          (SELECT (r -> 'conteosAntes' ->> x)::bigint FROM rastro) AS rastro
   FROM unnest(ARRAY['User','Card','PriceReference','ConfigSetting','VaultLocation','SealedProduct','VariantPriceOverride']) AS x
+  UNION ALL
+  -- v2.2 (§14.13.3): catálogo de accesorios y lista de deseos, SOLO si existen.
+  SELECT x, (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I', x), false, true, '')))[1]::text::bigint,
+         (SELECT (r -> 'conteosAntes' ->> x)::bigint FROM rastro)
+  FROM unnest(ARRAY['Accessory','AccessoryPhoto','WishlistItem','WishlistMail']) AS x
+  WHERE to_regclass(format('%I', x)) IS NOT NULL
   UNION ALL
   SELECT 'PendingPriceEntry (catalog/buylist)', (SELECT count(*) FROM "PendingPriceEntry" WHERE context::text IN ('catalog', 'buylist')), NULL
 ),

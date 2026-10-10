@@ -160,6 +160,8 @@ describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
       '/admin/m4',
       '/admin/m1',
       '/admin/m11',
+      // §AC-UX.9: «Accesorios» justo tras «Sellado».
+      '/admin/accessories',
       '/admin/vaults',
       '/admin/m2',
       '/admin/m2/bounties',

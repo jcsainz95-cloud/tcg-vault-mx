@@ -22,6 +22,9 @@ import { useSession } from '@/lib/session';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { clearUnavailableNotice, pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
+import { clearAccessoryNotices } from './accessory-notice';
+import { AccessoryCartNotices } from './AccessoryCartNotices';
+import { SignedInAccessoriesBlock } from './SignedInAccessoriesBlock';
 import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
 import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 
@@ -127,14 +130,22 @@ export function CheckoutView() {
       : null);
 
   // Al salir del checkout el aviso caduca: solo lo conserva la sesión de compra actual.
-  useEffect(() => () => clearUnavailableNotice(), []);
+  useEffect(
+    () => () => {
+      clearUnavailableNotice();
+      clearAccessoryNotices();
+    },
+    [],
+  );
 
-  if (cart.ids.length === 0 && !paid && !guestPaid) {
+  // §AC (carrito v3): vacío ⇔ sin piezas, sin accesorios y sin paquete (un deck sin paquete no cuenta).
+  if (cart.isEmpty && !paid && !guestPaid) {
     // Carrito vacío — incluido el caso "todo el carrito murió": EmptyState + aviso,
     // NUNCA la pantalla de error genérico ni un botón de reintentar (contrato §4).
     return (
       <div className="gutter py-14">
         <UnavailableItemsNotice className="mx-auto mb-10 max-w-[620px]" />
+        <AccessoryCartNotices className="mx-auto mb-10 max-w-[620px]" />
         <EmptyState
           title={t('empty')}
           action={
@@ -256,6 +267,13 @@ export function CheckoutView() {
           de carga de la re-cotización que la propia poda dispara. */}
       <UnavailableItemsNotice className="gutter mb-6 max-w-[680px]" />
 
+      {/* §AC-UX.4 (AC-F7): carrito SOLO de accesorios con sesión ⇒ sin cotización ni botón de pago; queda el bloque. */}
+      {cart.ids.length === 0 && (
+        <div className="gutter max-w-[680px] pb-14">
+          <SignedInAccessoriesBlock accessories={cart.accessories} onRemove={cart.removeAccessory} />
+        </div>
+      )}
+
       <QueryState
         isLoading={query.isLoading}
         isError={query.isError}
@@ -303,6 +321,9 @@ export function CheckoutView() {
                   </span>
                 </div>
               ))}
+
+              {/* §AC-UX.4 (AC-F7): los accesorios del carrito local van APARTE, no suman y ⛔ nunca se mandan. */}
+              <SignedInAccessoriesBlock accessories={cart.accessories} onRemove={cart.removeAccessory} />
 
               {/* Artboard: recordatorio del valor de la bóveda ANTES de los avisos legales. */}
               <div className="mt-6 border-t border-border-strong pt-6">

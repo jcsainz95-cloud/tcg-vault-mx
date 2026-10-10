@@ -20,6 +20,8 @@ import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { cn } from '@/lib/cn';
 import { SalesTab } from './SalesTab';
+import { BuyListTab } from './BuyListTab';
+import type { BuyListUrlState } from './buyListParams';
 import { M9_TABS, SALES_DEFAULTS, type M9Tab, type SalesUrlState } from './salesParams';
 
 type MetricKey = 'users' | 'salesSettled' | 'buylistPaid' | 'withdrawalsNoDispute';
@@ -39,14 +41,16 @@ const METRICS: { metric: MetricKey; goal: GoalKey; icon: React.ReactNode }[] = [
 export function M9View({
   initialTab = 'ventas',
   initialSales = SALES_DEFAULTS,
+  initialBuyList = { dir: 'desc' },
 }: {
   initialTab?: M9Tab;
   initialSales?: SalesUrlState;
+  initialBuyList?: BuyListUrlState;
 }) {
   const t = useTranslations('admin.m9');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const [tab, setTab] = useState<M9Tab>(initialTab);
-  const refs = useRef<Record<M9Tab, HTMLButtonElement | null>>({ ventas: null, actividad: null });
+  const refs = useRef<Record<M9Tab, HTMLButtonElement | null>>({ ventas: null, actividad: null, compra: null });
 
   const selectTab = useCallback((next: M9Tab) => {
     setTab(next);
@@ -54,7 +58,7 @@ export function M9View({
     const url = new URL(window.location.href);
     if (next === 'ventas') url.searchParams.delete('tab');
     else {
-      // La pestaña «Actividad» no lleva los parámetros de «Ventas».
+      // «Actividad» y «Lista de compra» no llevan los parámetros de «Ventas».
       url.search = '';
       url.searchParams.set('tab', next);
     }
@@ -99,13 +103,19 @@ export function M9View({
                 active ? 'border-text text-text' : 'border-transparent text-muted hover:text-text',
               )}
             >
-              {key === 'ventas' ? t('tabs.sales') : t('tabs.activity')}
+              {key === 'ventas' ? t('tabs.sales') : key === 'actividad' ? t('tabs.activity') : t('tabs.buyList')}
             </button>
           );
         })}
       </div>
       <div role="tabpanel" id={`m9-panel-${tab}`} aria-labelledby={`m9-tab-${tab}`}>
-        {tab === 'ventas' ? <SalesTab initial={initialSales} /> : <ActivityTab />}
+        {tab === 'ventas' ? (
+          <SalesTab initial={initialSales} />
+        ) : tab === 'actividad' ? (
+          <ActivityTab />
+        ) : (
+          <BuyListTab initial={initialBuyList} />
+        )}
       </div>
     </div>
   );

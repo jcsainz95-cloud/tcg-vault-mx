@@ -9,6 +9,7 @@
  * ⛔ No pasa por la puerta de compra (§19.19.7): solo exige `shipping_provider = 'skydropx'`.
  * La tx solo toma el candado para las guardas y se cierra ANTES de la llamada de red (§4.50/§4.57 (e)).
  */
+import { accessoryInsuredCents } from './accessory-prep';
 import { createHash } from 'crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
@@ -170,6 +171,11 @@ interface GuardedShipment {
   customerUserId: string | null;
   /** ⭐ rev BSD-1 (§BSD.3 «Valor a asegurar»): solo la guía de entrada, ya resuelto (`offerGrossCents`). */
   inboundInsuredValueCents?: number;
+  /**
+   * 💰 v1.86⟨accesorios⟩ (§AC.9 «Seguro», criterio 714): Σ `(quantity − missingQty) × unitPriceCents` de los renglones de
+   * accesorio `picked|missing` del envío directo (el paquete entra entero o nada). `0` sin renglones.
+   */
+  accessoryInsuredCents?: number;
 }
 
 @Injectable()
@@ -393,6 +399,7 @@ export class ShipmentQuoteService {
           lines,
           charged: await this.chargedOf(shipRow, tx),
           customerUserId: shipRow.userId,
+          accessoryInsuredCents: accessoryInsuredCents(view.accLines ?? []),
         };
       },
       { maxWait: 10_000, timeout: 30_000 },
@@ -480,7 +487,7 @@ export class ShipmentQuoteService {
   private async insuredValueOf(g: GuardedShipment): Promise<number> {
     // ⭐ rev BSD-1 (§BSD.3): la guía de entrada asegura lo que vamos a pagar por las cartas (`offerGrossCents`).
     if (g.inboundInsuredValueCents !== undefined) return g.inboundInsuredValueCents;
-    if (g.kind === 'guest_direct_ship') return g.lines.reduce((s, l) => s + (l.paidCents ?? 0), 0);
+    if (g.kind === 'guest_direct_ship') return g.lines.reduce((s, l) => s + (l.paidCents ?? 0), 0) + (g.accessoryInsuredCents ?? 0);
     if (g.lines.length === 0) return 0;
     // `VaultModule` importa `ShipmentsModule`: la valuación se toma del contenedor (sin ciclo de MÓDULOS Nest).
     const vault = this.moduleRef.get(VaultService, { strict: false });

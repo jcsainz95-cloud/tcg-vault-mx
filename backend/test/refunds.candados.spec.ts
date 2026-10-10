@@ -80,7 +80,9 @@ describe('C-REF-1 — quién crea filas del libro y quién habla con Stripe', ()
     const callers = census(/\.createRows\(/g);
     expect(callers).toEqual({
       'modules/shipments/shipment-prep.service.ts': 1, // POST /admin/shipments/:id/prepared
-      'modules/orders/order-refund.service.ts': 2, // M3 order_full + v1.82 §PNL.2 item_delivered (refund-delivered)
+      // M3 order_full + v1.82 §PNL.2 item_delivered (refund-delivered) + 💰 v1.86.2 §AC.10 (2) item_delivered de un renglón
+      // de accesorio (`POST /admin/orders/:id/accessory-lines/:lineId/refund-delivered`, `@MoneyOut`, nombrado en el contrato).
+      'modules/orders/order-refund.service.ts': 3,
       'modules/vault/replacement-case.service.ts': 2, // refund (case_refund) + closeWithdrawalIfEmpty (shipment_fee)
     });
   });

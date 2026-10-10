@@ -855,3 +855,182 @@ Comentarios de cabecera a ajustar por backend: `…_3_folios.sql:15-16` («no pa
 («que el folio empiece en INV-000001»).
 
 Sin cambio de `API_CONTRACT.md` ni de `ARCHITECTURE.md` (son guiones SQL de un solo uso, sin endpoint ni schema).
+
+### 14.13 v2.2 (2026-10-08) — la limpieza conoce las 9 tablas de `M-73` y `M-74` (errata v1.88.1⟨release-s7⟩)
+
+> **El problema (medido por el orquestador en CI, run `37733554396`, job `backend-e2e`; no lo medí yo):** con `M-73` y
+> `M-74` en la base, `pdb-limpieza.e2e-spec.ts` da 39 rojas porque B se para en **G-8**
+> (`…_2_limpieza.sql:171-184`): `Accessory, AccessoryPhoto, AccessoryStockMovement, OrderAccessoryLine,
+> OrderEnergyBundleComponent, ShipmentAccessoryLine, WishlistItem, WishlistMail, WishlistNotice` no están clasificadas.
+> G-8 hace lo que debe (falla cerrado); lo que falta es la clasificación.
+> **Árbol leído:** `/home/user/tcg-release`, rama `claude/release-s7`, HEAD dado por el orquestador `d92d9b82` (⛔ sha NO
+> MEDIDO: sin Bash). Citas `schema.prisma:<línea>` y `m73…/migration.sql:<línea>` de ese árbol, 2026-10-08.
+> **Relación con lo ya diseñado:** `API_CONTRACT §WSH.11` LZ-W1, LZ-W2, LZ-W4 (a)(b) y LZ-W5 siguen vigentes y se
+> escriben **junto** con esto (el B de `a7232d7a` no tiene ninguna: lo medí leyendo `…_2_limpieza.sql:155-169`, sin
+> `Wishlist*`). **LZ-W3 y LZ-W4 (c) quedan sustituidas** por LZ-A8 de abajo (decisión del dueño del 2026-10-08).
+> **⛔ No toca la corrida de hoy.** El dueño corre hoy en producción el B de `a7232d7a` sobre una base **sin** `M-73`/`M-74`
+> (dato del orquestador). Es el orden que `§WSH.11` «Orden de despliegue» ya preveía («la limpieza sin LZ-W1…W3 se corre
+> **antes** de desplegar `M-74`»). Este diseño es para el guion versionado **después** de publicar #84, y sobre una base
+> **sin** las tablas nuevas tiene que dejar **exactamente** el resultado de `a7232d7a` (LZ-A9, con su prueba).
+
+#### 14.13.1 Clasificación de las 9 tablas
+
+| Tabla | Grupo | Por qué | FK que manda el orden (`schema.prisma` · `migration.sql`) |
+|---|---|---|---|
+| `OrderAccessoryLine` | **borrar** | Renglón de un pedido: transaccional, como `OrderItem`. | `orderId → Order` **RESTRICT** (`:2850` · `m73:221`) ⇒ se borra **antes** del paso 9. `PaymentRefund.orderAccessoryLineId` RESTRICT (`m73:213`): `PaymentRefund` ya cayó en el paso 4. |
+| `OrderEnergyBundleComponent` | **borrar** | Componente del paquete de energías de un renglón. | `lineId → OrderAccessoryLine` **RESTRICT** (`:2885` · `m73:225`) ⇒ **antes** que `OrderAccessoryLine`. |
+| `ShipmentAccessoryLine` | **borrar** | Línea de preparación de un envío. | `shipmentRequestId → ShipmentRequest` **RESTRICT** (`:2901` · `m73:229`) ⇒ **antes** del `DELETE` de `ShipmentRequest` (paso 8). → `OrderAccessoryLine` RESTRICT (`m73:231`). `PaymentRefund.shipmentAccessoryLineId` RESTRICT (`m73:215`): paso 4. |
+| `AccessoryStockMovement` | **borrar** | Historial de existencias: es **inventario** (igual que `InventoryMovement`). Sus filas de `sale`/`restock`/`settle_recovery` nombran pedidos que se borran (`orderId` sin FK, `:2837`). | `accessoryId → Accessory` RESTRICT (`:2830`): no importa, `Accessory` no se borra. |
+| `Accessory` | **ajustar** (como `VariantPriceOverride`) | La **fila** es catálogo: nombre, categoría, medidas, precio, costo, activo, sugerido, foto. Se **conserva** entera. Sus **existencias** son inventario: `stockQty = 0` y `reservedQty = 0`. `reservedQty` **tiene** que ir a 0: es Σ de los renglones apartados (I-AC-2, `API_CONTRACT §AC.0`), y esos renglones se borran; dejarlo haría que el barrido (`accessoryReservedDrift`) viera apartados fantasma y que la tienda vendiera menos de lo que hay. | — |
+| `AccessoryPhoto` | **conservar** | La imagen del catálogo, como `SealedProduct.imageUrl` (§14.2). Vive en Postgres (`bytea`, `:2812`): si se borrara, el dueño tendría que volver a subir cada foto. | `→ Accessory` CASCADE (`:2815` · `m73:217`): solo caería si se borrara el accesorio, y no se borra. |
+| `WishlistNotice` | **borrar** (LZ-W1) | Sin `DELETE` propio: cae por CASCADE con la pieza en el paso 11 (`:2960`). | — |
+| `WishlistItem` | **conservar** (LZ-W1) | Intención del usuario. | — |
+| `WishlistMail` | **conservar** (LZ-W1) | Enlace de baja de correos ya enviados y tope diario. | — |
+
+**¿Catálogo o inventario? El razonamiento.** El criterio del dueño (§14, `HECHOS.md:80`) separa **lo que describe un
+producto** (catálogo, precios: se queda) de **cuántas piezas tienes** (inventario: se borra). Las cartas ya lo tienen
+partido en dos tablas: `SealedProduct` (se queda, con su precio y su imagen) e `InventoryItem` (se borra). Los accesorios
+lo tienen en **una sola fila**: `Accessory` lleva las dos cosas. Por eso la fila se **ajusta** y no se clasifica entera:
+el producto se queda y el contador de existencias vuelve a 0. Borrar la fila entera sería tratar el catálogo como
+inventario: el dueño volvería a capturar nombre, precio, costo, medidas y foto de cada accesorio, y se perderían las
+**8 energías que siembra `M-73`** (`m73:415-425`, inactivas, MX$5, existencias 0). La semilla es idempotente por tipo
+(`:425`), pero ya corrió: `migrate deploy` no la repite y el paquete de energías del deck se quedaría sin productos.
+Conservar las existencias sería tratar el inventario como catálogo, y mezclaría piezas reales con el efecto de ventas de
+prueba (cada `sale` de prueba restó piezas). ⇒ **Recomendación: ajustar.** Las 8 energías salen **intactas**: con 0
+existencias no las toca ni el `UPDATE` (LZ-A4 lleva `WHERE` y no cambia ni su `updatedAt`).
+
+**Lo que el dueño ve después (informativo):** los accesorios **activos** siguen activos y salen «agotado» en la tienda
+hasta que reciba piezas (`accessories.service.ts:68`: la tienda solo vende `stockQty > reservedQty`). El ensayo le lista
+las existencias que vuelven a 0 (LZ-A5), para que las vuelva a recibir como hace con las cartas desde su Excel.
+
+#### 14.13.2 Cambios en B (`…_2_limpieza.sql`)
+
+| # | Cambio | Por qué |
+|---|---|---|
+| LZ-A1 | **Detectar antes del `BEGIN`**, con `\gset` (mismo recurso que `…_1_censo.sql:54-55` y `:66`): `SELECT to_regclass(format('%I','Accessory')) IS NOT NULL AS lz_m73, to_regclass(format('%I','WishlistNotice')) IS NOT NULL AS lz_m74 \gset`. Después del `LOCK TABLE` de siempre (`:109`, **sin cambiarlo**): `\if :lz_m73` `LOCK TABLE "Accessory", "OrderAccessoryLine" IN SHARE ROW EXCLUSIVE MODE;` `\endif` y `\if :lz_m74` `LOCK TABLE "WishlistNotice" IN SHARE ROW EXCLUSIVE MODE;` `\endif`. | El candado no puede ir en un `DO` con `to_regclass`: cualquier consulta antes del `LOCK` toma la foto `REPEATABLE READ` (C-4, `:100-102`). La consulta antes del `BEGIN` corre fuera de la transacción y no toma foto. `Accessory`: la recepción del admin (`admin-accessories.service.ts:362-375`) y el barrido de apartados escriben existencias; sin candado, una recepción a mitad dejaría existencias ≠ 0 tras la limpieza (T-AC7). `WishlistNotice`: con el dial de deseos encendido (LZ-A8 ya no obliga a apagarlo) un job puede insertar avisos a mitad. **Sustituye** la frase de LZ-W3 «no hace falta añadirla al `LOCK TABLE`». Hueco residual aceptado: una migración que cree las tablas **entre** el `\gset` y el `BEGIN` las deja sin candado; G-8 las ve clasificadas y G-5 caza cualquier fila que sobreviva. |
+| LZ-A2 | `lz_conteo` (`:155-169`): `borrar` += `OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine`, `AccessoryStockMovement`, `WishlistNotice`; `ajustar` += `Accessory`; `conservar` += `AccessoryPhoto`, `WishlistItem`, `WishlistMail`. | G-8 (`:173-184`) no cambia. G-7 (`:230-231`) gana alcance solo: tras la limpieza, recibir piezas de un accesorio crea un `AccessoryStockMovement`, y una 2.ª corrida se niega (T-AC5). Es lo que tiene que pasar. |
+| LZ-A3 | **Borrados, cada uno dentro de `\if :lz_m73` … `\endif`, SQL normal (no dinámico):** antes de `'8 ShipmentRequest'` (`:335`): `'8 ShipmentAccessoryLine'`. Antes de `'9 Order'` (`:338`): `'9 OrderEnergyBundleComponent'` y luego `'9 OrderAccessoryLine'`. Después de `'11 InventoryItem'` (`:345`): `'11 AccessoryStockMovement'`. Mismo patrón `WITH x AS (DELETE … RETURNING 1) INSERT INTO lz_cambio …`. | Orden por las FK RESTRICT de la tabla de arriba. ⛔ **La etiqueta empieza por el número de paso y un espacio**: `lz_cambio` se ordena con `split_part(paso,' ',1)::int` (`:440`); una etiqueta `'8a …'` rompe ese cast y aborta la corrida. `\if` y no `DO`+`EXECUTE`: psql salta las líneas sin mandarlas al servidor, así que sin `M-73` el servidor **no recibe** sentencias que nombren tablas inexistentes, y el SQL se lee igual que el resto. |
+| LZ-A4 | `'11 Accessory existencias'` (dentro de `\if :lz_m73`): `UPDATE "Accessory" SET "stockQty" = 0, "reservedQty" = 0, "updatedAt" = now() WHERE "stockQty" <> 0 OR "reservedQty" <> 0 RETURNING 1`. **Ninguna** otra columna. Antes de borrar, en el paso 2: `CREATE TEMP TABLE lz_acc` (incondicional y vacía) y, dentro de `\if :lz_m73`, `INSERT INTO lz_acc` con `id, name, category, active, stockQty, reservedQty` de las filas con existencias o apartados ≠ 0. | Las dos columnas en la **misma** sentencia: el CHECK `accessory_stock` (`0 ≤ reservedQty ≤ stockQty`) se cumple con ambos en 0. El `WHERE` hace la idempotencia (T-AC4: la 2.ª corrida no cambia nada ni escribe rastro) y deja intactas las 8 energías sin existencias. |
+| LZ-A5 | **Listas del ensayo, solo con `M-73` / `M-74`:** `\if :lz_m73` → `=== 2.7 · ACCESORIOS: existencias que vuelven a 0 (anótalas: las vuelves a recibir en Accesorios) ===` con nombre, categoría, activo, existencias y apartadas, desde `lz_acc`. `\if :lz_m74` → `=== 2.8 · AVISOS ===`: estado de los dos diales (`ConfigSetting."valueJson" #>> '{}'`, clave ausente = `off`), suscripciones de sellado pendientes (armadas y sin armar), número de deseos y de correos de deseos. ⛔ Sin correos de clientes en 2.8: solo números. | El dueño ve antes del `COMMIT` qué existencias se pierden. Sin listas por pieza: hay pocos accesorios (catálogo), no miles. |
+| LZ-A6 | **G-5:** LZ-W2 (`esperado = 0` solo si `antes IS NOT NULL`, en `:383`). `esperado = antes` también para `Accessory` (`:384`: `… OR tabla IN ('VariantPriceOverride','Accessory')`). Comprobación nueva, dentro de `\if :lz_m73`, en un `DO` propio después de G-5: si `EXISTS (SELECT 1 FROM "Accessory" WHERE "stockQty" <> 0 OR "reservedQty" <> 0)` ⇒ `RAISE EXCEPTION 'G-5 · Quedaron accesorios con existencias o apartados tras la limpieza: …. Se deshace TODO.'` (con los nombres, máx. 20). | Sin LZ-W2, una tabla `borrar` que no existe da `NULL ≠ 0` y G-5 aborta sobre una base sin `M-73`/`M-74` (rompe LZ-A9). La comprobación de existencias es la que hace que «no se pusieron en 0» no pase en silencio (M-A3). |
+| LZ-A7 | **Rastro (`:406-428`):** la clave `accesorios` = `{conExistencias, existencias, apartadas}` (sumas de `lz_acc`; sin nombres) se añade **solo** con `M-73` (p. ej. `… || CASE WHEN to_regclass(format('%I','Accessory')) IS NOT NULL THEN jsonb_build_object('accesorios', …) ELSE '{}'::jsonb END`). **Tabla de conteos final (`:434-437`):** se muestran solo las filas con `antes IS NOT NULL OR despues IS NOT NULL`. | Sobre una base sin las tablas, el rastro y la tabla que ve el dueño quedan **iguales** a los de `a7232d7a` (LZ-A9). `conteosAntes`/`conteosDespues` ya filtran `NULL` (`:409-410`). |
+| LZ-A8 | **G-10 v2 (sustituye LZ-W3), solo con `M-74`**, comprobada **al final** con las demás decisiones (`:443-461`; como `respaldo_manual`): **falta decisión** si `sealed_restock_alerts = 'on'` **y** hay `SealedRestockSubscription` con `"notifiedAt" IS NULL AND "armedAt" IS NULL`. Mensaje: `G-10 · El aviso «Avísame cuando vuelva» de sellado está ENCENDIDO y hay N suscripción(es) esperando que su producto se agote. Si borras el inventario así, el aviso las da por agotadas y al re-subir les llega «¡Volvió a existencia!» de productos que nunca se agotaron. Apágalo en Ajustes, corre esto, re-sube el sellado y vuelve a encenderlo.` **`wishlist_enabled` no para nada:** si está en `on`, 2.8 lo dice (LZ-W5: al re-subir, quien tenga la carta en su lista recibe **un** «ya la tenemos»). Implementación: el bloque final no puede llevar `\if` dentro (está entre `$$`); un `DO` previo dentro de `\if :lz_m74` escribe en una temporal `lz_falta` (creada vacía siempre) y el bloque final añade lo que haya. | Ver «Por qué G-10 se queda, pero condicionada», abajo. |
+| LZ-A9 | **Sin las tablas nuevas, el mismo resultado que `a7232d7a`.** Ninguna sentencia que **llegue al servidor** nombra una tabla o columna de `M-73`/`M-74` fuera de `\if :lz_m73` / `\if :lz_m74` (igual que §11 con `M-72`). Las listas de `lz_conteo` sí las nombran como texto: `to_regclass` las cuenta como ausentes (`:190`, `:376`). | Lo que pide el encargo (eje «con y sin», como §9.8 y LZ-W4 (b)). |
+| LZ-A10 | **Cabecera de B (`:7-17`):** «NO toca» suma «el catálogo de accesorios (nombre, precio, costo, foto, y las 8 energías), pero sus **existencias vuelven a 0**: anótalas de la lista 2.7» y «tu lista de deseos y los correos que ya mandó». `v2.2: 2026-10-08` en la línea de fecha. | Comentarios: no cambian la conducta. |
+
+**Por qué G-10 se queda, pero condicionada (y no se quita ni se vuelve aviso).** La decisión del dueño, literal
+(2026-10-08, relayada por el orquestador): «no hay clientes reales podemos no apagar la configuracion». Y el censo A que
+corrió el dueño en producción: `SealedRestockSubscription` = 0 filas (dato del orquestador; **no lo medí yo**).
+- LZ-W3 paraba **siempre** que un dial estuviera en `on`. Eso contradice la decisión: obligaría a apagar algo que el
+  dueño dijo que no hace falta apagar. Así como estaba, **no se escribe**.
+- Pero el daño que G-10 evitaba no es «el dial está encendido»: es «**hay clientes esperando** que su producto se agote».
+  Solo esas suscripciones (pendientes y sin armar) se arman mal en el hueco entre la limpieza y la re-subida
+  (`sealed-restock-notify.service.ts:129`: sin piezas vendibles ⇒ `armedAt`). Las ya armadas no cambian (su producto ya
+  estuvo agotado de verdad) y las ya avisadas no se leen (`:97-98`, `notifiedAt: null`).
+- La guarda nueva mide **la premisa** del dueño. Con 0 suscripciones (hoy) no para nada y el dial se queda como está:
+  eso **es** su decisión. Si algún día la base que se limpia tiene clientes apuntados, la premisa ya no se cumple, y
+  pararse a preguntar es lo correcto: un correo «¡Volvió!» falso a un cliente real no se puede retirar.
+- **Quitarla** dejaría ese caso sin red. **Volverla aviso** lo dejaría en una línea que el dueño puede no leer, para un
+  daño que sale a clientes. Condicionada, cuesta 0 con la base de hoy.
+- **Sin `M-74` no se evalúa:** antes de `M-74` el job de sellados es manual (R-13) y `armedAt` no existe. El B de
+  `a7232d7a` no tiene G-10 y la corrida de hoy no cambia.
+- **Deseos, sin guarda:** con el dial encendido, al re-subir una carta que alguien desea, el «ya la tenemos» es **verdad**
+  (la carta está a la venta). No hay correo falso que evitar. La carrera de un aviso que se inserta durante la limpieza la
+  cierra el candado de LZ-A1, y si algo se cuela, falla cerrado: FK o serialización, y G-5 (`WishlistNotice` = 0).
+
+#### 14.13.3 Cambios en D (`…_4_verificacion.sql`); A y C no cambian
+
+- `vacias` (`:59-68`): `OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine` en un arreglo
+  **aparte**, del que solo se emiten las que **existen** (`WHERE to_regclass(format('%I', x)) IS NOT NULL`). Así, sin
+  `M-73` D no gana tres líneas.
+- «0 filas anteriores a la limpieza» (patrón `jobs`, `:71-99`): `AccessoryStockMovement` por `createdAt` y
+  `WishlistNotice` por `detectedAt`, **solo si existen**. Con conteo dinámico (`query_to_xml`, como `:63`), porque el
+  `jobs` de hoy nombra las tablas en SQL estático y fallaría sin ellas. Lo posterior es real (recepciones del dueño,
+  avisos de cartas re-subidas).
+- `info` (`:102-108`): `Accessory`, `AccessoryPhoto`, `WishlistItem`, `WishlistMail`, solo si existen (el `info` de hoy
+  no tiene la guarda `to_regclass`: añadirla **solo** a las nuevas).
+- **A** (`…_1_censo.sql`) es genérico: cuenta toda tabla (`:58-64`) y lista toda FK (`:72-75`). Sin cambio. **C** no
+  toca tablas de `M-73`/`M-74`. Sin cambio.
+
+#### 14.13.4 Guion del dueño (§14.8) y LZ-W5
+
+- **Se retira** el paso de LZ-W5 «apaga los dos avisos antes del 4 / enciéndelos después del 9»: con LZ-A8 solo hace
+  falta si B lo pide (G-10), y B dice exactamente qué apagar.
+- Paso 2 gana: «La lista 2.7 del ensayo te dice cuántas piezas de cada accesorio tenías: después las vuelves a recibir en
+  Accesorios (el producto, su precio y su foto se quedan)».
+- El aviso informativo de LZ-W5 (un «ya la tenemos» por carta deseada que re-subas) se queda; ahora lo enseña 2.8.
+
+#### 14.13.5 Pruebas (en `pdb-limpieza.e2e-spec.ts`; deben fallar HOY, salvo los controles)
+
+**Fixture** (`limpieza-fixture.ts`, con `M-73` y `M-74`, que hoy ya aplica `migrateSchema`): un accesorio de fundas
+activo con foto, precio y costo, con movimientos `initial +20` y `sale −2` ⇒ `stockQty = 18`; un pedido `direct_ship`
+con renglón de accesorio vendido **y** renglón `energy_bundle` con su componente (sobre una energía sembrada que recibió
+`+10`); su `ShipmentRequest` con `ShipmentAccessoryLine`; un `PaymentRefund` con `orderAccessoryLineId` (comprueba el
+orden contra el paso 4); otro pedido con un renglón `reserved` de 1 ⇒ `reservedQty = 1`. Lista de deseos según LZ-W4 (a).
+Las 8 energías de la semilla **tal cual**, salvo la que recibió piezas. **Helpers** (`limpieza-db.ts`): `revertM74` y
+`revertM73`, hermanos de `revertM72` (`:185-197`). `revertM73` debe **restaurar** los CHECK de `PaymentRefund` que
+`M-73` reemplaza (la reversa comentada de `m73:30-52` es el guion), no solo hacer `DROP`.
+
+| # | Pasos | Esperado |
+|---|---|---|
+| T-AC1 | Con ambas: B `COMMIT` | 0 filas en `OrderAccessoryLine`, `OrderEnergyBundleComponent`, `ShipmentAccessoryLine`, `AccessoryStockMovement`, `WishlistNotice`. `Accessory`: mismas filas, **contenido idéntico** quitando `stockQty`, `reservedQty`, `updatedAt` (hash, como `partial()`, `:111-118`), y todas con `stockQty = reservedQty = 0`. Las 7 energías sin piezas, idénticas **incluido** `updatedAt`. `AccessoryPhoto` (con los `bytea`), `WishlistItem` y `WishlistMail` idénticas. B + C + D ⇒ `TODO OK`. `EMPTIED` (`:54-59`) gana las 5 tablas `borrar`, `PARTIAL` (`:61`) gana `Accessory` y `KEY_KEPT` (`:63`) gana `Accessory`, `AccessoryPhoto`, `WishlistItem`, `WishlistMail` (deben tener filas en el fixture). |
+| T-AC2 | Con ambas: ensayo ×2 | Base idéntica (las 9 tablas incluidas) y las tres secuencias iguales (§9.1). La salida trae 2.7 con el accesorio `18 · 1` y 2.8. |
+| T-AC3 | **Sin ambas** (`revertM74` + `revertM73`), en dos esquemas gemelos: el B **congelado de `a7232d7a`** en uno y el B nuevo en el otro, ambos `COMMIT` | Mismo código de salida; `snapshot()` (`limpieza-db.ts:213`) igual tabla por tabla, salvo `AuditLog`: el `after` del rastro es igual quitando `puntoPitr`, y `id`/`createdAt` de la fila pueden cambiar. La salida del ensayo nuevo **no** contiene `2.7`, `2.8` ni `G-10`. A, C y D corren igual. Copia congelada: `backend/test/integration/fixtures/pdblimpieza_2_limpieza.a7232d7a.sql`, con una línea de comentario que diga de qué sha sale (`git show a7232d7a:backend/prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql`). Que el checkout de CI traiga ese sha: NO MEDIDO; por eso es copia y no `git show` en la prueba. |
+| T-AC3b | Solo `M-73` (`revertM74`) | B `COMMIT` pasa, borra lo de accesorios, ni 2.8 ni G-10. Prueba que las dos banderas son independientes. |
+| T-AC4 | Con ambas: B `COMMIT` ×2 | La 2.ª corrida: todo `lz_cambio` en 0, sin rastro nuevo (§9.3). |
+| T-AC5 | Con ambas: B `COMMIT` → C → recepción de 5 piezas de un accesorio **por la app** (el servicio de `admin-accessories.service.ts:362`) → B | La 2.ª B se niega con G-7 nombrando `AccessoryStockMovement`; el accesorio sigue con 5. |
+| T-AC6 | Con ambas: B `COMMIT` → C → recepción por la app → D | D `TODO OK`: la línea de `AccessoryStockMovement` «anteriores» da 0, y la de «posteriores (reales)» da 1. |
+| T-AC7 | Con ambas: otra conexión abre `UPDATE "Accessory" SET "stockQty" = "stockQty" + 1` sobre una energía con 0 piezas y **no** confirma; B `COMMIT` | B aborta por `lock_timeout` (≤ 5 s + margen) y la base queda idéntica. Carrera ⇒ **N = 3**, reportar `k/3` (O-3). |
+| T-W10a | Con ambas: `sealed_restock_alerts = 'on'` + 1 suscripción pendiente sin armar; B `COMMIT` | Falla al final con «Falta tu decisión» y `G-10 · … 1 suscripción(es)`; base idéntica. |
+| T-W10b | Con ambas: dial `on` y **0** suscripciones (el caso de producción de hoy) | Pasa. Es la prueba de la decisión del dueño. |
+| T-W10c | Con ambas: dial `on`, una suscripción **armada** y otra **ya avisada** | Pasa. |
+| T-W10d | Con ambas: `wishlist_enabled = 'on'` con deseos | Pasa; 2.8 dice `on` y el número de deseos. |
+| T-W10e | **Sin ambas:** dial `on` + 1 suscripción pendiente | Pasa (conducta de `a7232d7a`; `armedAt` no existe). |
+
+LZ-W4 (a) se cumple con T-AC1. LZ-W4 (b) se cumple con T-AC3. LZ-W4 (c) queda sustituida por T-W10a…e.
+
+#### 14.13.6 Mutaciones (en copia del árbol **entero**, O-9; deterministas ⇒ `1/1`, salvo M-LOCK)
+
+| # | Mutación | Debe poner en rojo |
+|---|---|---|
+| M-A1 | Sin `'9 OrderAccessoryLine'` | T-AC1 (B aborta por la FK de `Order`) |
+| M-A2 | Sin `'8 ShipmentAccessoryLine'` | T-AC1 (FK de `ShipmentRequest`) |
+| M-A3a | Sin el `UPDATE` de existencias | T-AC1 (la comprobación de LZ-A6) |
+| M-A3b | Sin el `UPDATE` **y** sin la comprobación de LZ-A6 | T-AC1 por **medición directa** de la prueba (`stockQty = 0`), no por la guarda de B. Si solo cae por la guarda, la prueba no muerde |
+| M-A4 | `Accessory` a `borrar`, con `DELETE` (y su foto en cascada) | T-AC1 (contenido de `Accessory`, `AccessoryPhoto` y las energías) |
+| M-A5 | Un borrado de accesorios **fuera** de `\if :lz_m73` | T-AC3 (`relation does not exist`) |
+| M-A6 | `UPDATE` sin su `WHERE` | T-AC4 (la 2.ª corrida escribe rastro) **y** T-AC1 (el `updatedAt` de las energías) |
+| M-A7 | Clave `accesorios` del rastro sin condición | T-AC3 |
+| M-LZW2 | Sin `antes IS NOT NULL` | T-AC3 |
+| M-W10a | G-10 como LZ-W3 (solo el dial) | T-W10b |
+| M-W10b | Sin G-10 | T-W10a |
+| M-W10c | G-10 contando también las armadas | T-W10c |
+| M-W10d | G-10 fuera de `\if :lz_m74` | T-W10e (y T-AC3) |
+| M-LOCK | Sin el `LOCK` condicional de `Accessory` | T-AC7: B pasa y, al confirmar la otra conexión, el accesorio queda con 1 pieza sin movimiento. Carrera ⇒ **N = 3**, `k/3` |
+
+#### 14.13.7 Pregunta al dueño (no bloquea; tiene valor por defecto)
+
+**Q-LZ-A1 · Accesorios: ¿la limpieza deja sus existencias en 0?** Ejemplo: tienes «Fundas Dragon Shield negras» a
+MX$250, con costo de MX$120 y 20 piezas en tu estante.
+- **(a) Por defecto:** el producto, su precio de MX$250, su costo de MX$120, su foto y si está activo **se quedan**. Las
+  20 piezas pasan a **0**: la tienda lo muestra «agotado» hasta que las vuelvas a recibir en Accesorios. El ensayo te las
+  lista (2.7: «Fundas Dragon Shield negras · 20»). Es lo mismo que haces con las cartas.
+- **(b)** Las 20 piezas se quedan. Pide otro diseño: habría que decidir qué hacer con el historial de ventas de prueba que
+  explica esas 20.
+
+**Cuánto pesa hoy:** casi nada. En producción las tablas de accesorios no existen hasta que se publique #84. Y si la
+limpieza de hoy hace `COMMIT`, cualquier corrida posterior se niega (G-7) en cuanto haya una carta re-subida o una
+recepción de accesorios. La pregunta cuenta para staging, para copias locales y para una limpieza que se corriera
+después de publicar #84 **sin** haber corrido la de hoy. Sin respuesta: **(a)**.
+
+**G-10 no es pregunta:** sale de la decisión del dueño del 2026-10-08 (arriba).
+
+#### 14.13.8 Ficheros que toca backend
+
+`backend/prisma/data-repair/20261006_pdblimpieza_2_limpieza.sql` (B: LZ-A1…A10, LZ-W1, LZ-W2) ·
+`backend/prisma/data-repair/20261006_pdblimpieza_4_verificacion.sql` (D: §14.13.3) ·
+`backend/test/integration/pdb-limpieza.e2e-spec.ts` · `backend/test/integration/helpers/limpieza-fixture.ts` ·
+`backend/test/integration/helpers/limpieza-db.ts` (`revertM73`, `revertM74`, y que `limpiezaSql` pueda leer la copia
+congelada) · **nuevo** `backend/test/integration/fixtures/pdblimpieza_2_limpieza.a7232d7a.sql` · `docs/BACKEND_NOTES.md`
+(su sección; número reservado por el orquestador, O-24). **No** cambian: A (`…_1_censo.sql`), C (`…_3_folios.sql`),
+`schema.prisma` ni ninguna migración. Sin cambio de ruta, cuerpo ni esquema.

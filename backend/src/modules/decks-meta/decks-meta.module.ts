@@ -22,6 +22,7 @@ import { DecksMetaRefreshService } from './decks-meta-refresh.service';
   imports: [CatalogModule], // exporta CatalogService (precio + disponibilidad reusados, §3.4)
   providers: [DecksMetaService, DeckMatcherService, LimitlessFetchClient, DecksMetaRefreshService],
   controllers: [DecksMetaController, AdminDecksMetaController],
-  exports: [DecksMetaRefreshService],
+  // §AC.8: `DecksMetaService.evaluateDeckPulls` es el validador de `deckPulls` que llama el checkout de invitado (B).
+  exports: [DecksMetaRefreshService, DecksMetaService],
 })
 export class DecksMetaModule {}

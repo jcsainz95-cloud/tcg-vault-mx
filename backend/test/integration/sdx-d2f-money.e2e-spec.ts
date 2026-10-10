@@ -411,7 +411,8 @@ describe('💰 D2f — dinero y tablero (§19.11, §19.13, §19.29.9, §19.33.6)
   // ============================================================================ empaques
 
   describe('empaques (PS-110, §19.20.3, §19.22.3)', () => {
-    const pkg = (code: string, over: Record<string, unknown> = {}) => ({ code, label: code, lengthCm: 30, widthCm: 20, heightCm: 10, weightKg: 1, providerPackageType: '4G', active: true, sortOrder: 0, ...over });
+    // v1.86⟨accesorios⟩ (§AC.7, §AC.15): `customerFeeCents` es llave aditiva del `ShippingPackageDTO` (aquí, sin tarifa).
+    const pkg = (code: string, over: Record<string, unknown> = {}) => ({ code, label: code, lengthCm: 30, widthCm: 20, heightCm: 10, weightKg: 1, providerPackageType: '4G', active: true, sortOrder: 0, customerFeeCents: null, ...over });
 
     it('operador: GET ⇒ 200 con activos e inactivos por `sortOrder`; PUT ⇒ 403', async () => {
       await h.prisma.shippingPackage.upsert({ where: { code: `off-${RUN}` }, update: { active: false, sortOrder: 99 }, create: { ...pkg(`off-${RUN}`, { active: false, sortOrder: 99 }) } });

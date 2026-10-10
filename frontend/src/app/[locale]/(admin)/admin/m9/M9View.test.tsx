@@ -36,7 +36,8 @@ describe('M9View · pestañas (§AN-UX.1)', () => {
     const launch = vi.spyOn(api, 'getLaunchMetrics');
     renderWithProviders(<M9View />, 'es');
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Ventas', 'Actividad']);
+    // ⭐ §WSH-UX.7: tercera pestaña «Lista de compra».
+    expect(tabs.map((t) => t.textContent)).toEqual(['Ventas', 'Actividad', 'Lista de compra']);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByTestId('sales-period-label')).toBeInTheDocument();
     expect(launch).not.toHaveBeenCalled();
@@ -44,5 +45,17 @@ describe('M9View · pestañas (§AN-UX.1)', () => {
     expect(await screen.findByText('Usuarios activos')).toBeInTheDocument();
     expect(launch).toHaveBeenCalled();
     launch.mockRestore();
+  });
+
+  it('§WSH-UX.7 · «Lista de compra» monta su consulta solo al abrirla y escribe `tab=compra`', async () => {
+    const api = await import('@/lib/api');
+    const demand = vi.spyOn(api, 'getWishlistDemand');
+    renderWithProviders(<M9View />, 'es');
+    expect(demand).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('tab', { name: 'Lista de compra' }));
+    expect(await screen.findByRole('heading', { level: 2, name: 'Cartas que te piden y no tienes' })).toBeInTheDocument();
+    expect(demand).toHaveBeenCalledWith({});
+    expect(window.location.search).toContain('tab=compra');
+    demand.mockRestore();
   });
 });

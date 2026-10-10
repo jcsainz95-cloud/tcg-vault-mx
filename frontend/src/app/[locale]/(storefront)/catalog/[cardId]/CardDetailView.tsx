@@ -30,6 +30,7 @@ import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
+import { WishlistBlock } from './WishlistBlock';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -199,6 +200,7 @@ function Detail({
   const tcat = useTranslations('catalog');
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
+  const tWishlist = useTranslations('wishlist');
   const locale = useLocale() as AppLocale;
   const primary = groups[0];
 
@@ -354,6 +356,11 @@ function Detail({
 
           {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. */}
           <h2 className="mt-10 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>
+          {/* §WSH-UX.2 (g): ficha de una carta sin piezas a la venta (se llega desde el buscador de «Mi lista» o por URL).
+              ⛔ Ni «agotado» ni «vuelve pronto»: no lo sabemos. */}
+          {groups.length === 0 && (
+            <p className="mt-4 text-[15px] text-muted">{tWishlist('card.notHere')}</p>
+          )}
           <div className="mt-4 border-t border-border">
             {groups.map((g) => {
               // Piezas físicas del grupo, cheapest-first, y el slab representativo para el cert.
@@ -392,6 +399,16 @@ function Detail({
               );
             })}
           </div>
+
+          {/* §WSH-UX.2 · «Lista de deseos»: después de «Ejemplares disponibles» (comprar va primero). Solo con el dial
+              encendido (`wishlistEnabled`, campo aditivo de la ficha, §WSH.4); ⛔ el sellado no lo lleva (823). */}
+          {detail.wishlistEnabled === true && (
+            <WishlistBlock
+              cardId={card.id}
+              availableFinishes={card.availableFinishes}
+              preferredFinish={groups[0]?.finish}
+            />
+          )}
         </div>
       </div>
 

@@ -101,9 +101,10 @@ describe('LEG-P1 · el aviso real (provisional y coherente) se publica en produc
 
   // ✏ 2026-10-06: sube con el cambio de fondo de PROJECT §LEG.2 punto 5 (el vendedor como remitente a Skydropx y a la
   // paquetería). Sigue fijando versión y fecha EXACTAS: una versión vieja con texto nuevo vuelve a poner esto rojo.
-  it('versión y fecha vigentes (E4-2 :42-43; §LEG.2 p. 5)', () => {
-    expect(privacyNoticeEs.version).toBe('0.3-provisional-2026-10-06');
-    expect(privacyNoticeEs.updatedAt).toBe('6 de octubre de 2026');
+  // ✏ 2026-10-07: sube otra vez con el párrafo «Lista de deseos» (PROJECT §WSH.5, criterio 824).
+  it('versión y fecha vigentes (E4-2 :42-43; §LEG.2 p. 5; §WSH.5)', () => {
+    expect(privacyNoticeEs.version).toBe('0.4-provisional-2026-10-07');
+    expect(privacyNoticeEs.updatedAt).toBe('7 de octubre de 2026');
   });
 });
 

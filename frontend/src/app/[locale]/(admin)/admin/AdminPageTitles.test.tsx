@@ -65,6 +65,8 @@ import M10Page from './m10/page';
 // eslint-disable-next-line import/first
 import M11Page from './m11/page';
 // eslint-disable-next-line import/first
+import AccessoriesPage from './accessories/page';
+// eslint-disable-next-line import/first
 import M12Page from './m12/page';
 // eslint-disable-next-line import/first
 import VaultsPage from './vaults/page';
@@ -122,6 +124,7 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/m9': M9Page,
   '/admin/m10': M10Page,
   '/admin/m11': M11Page,
+  '/admin/accessories': AccessoriesPage,
   '/admin/m12': M12Page,
   '/admin/vaults': VaultsPage,
   '/admin/refunds': RefundsPage,
@@ -171,6 +174,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     // F-26 (§PNL.10.7 · §60.8): «Disputas» sale del menú; su fila sale de este candado en el MISMO commit.
     ['Existencias', '/admin/m1', 'Inventario', 'Inventory', false],
     ['Existencias', '/admin/m11', 'Sellado', 'Sealed', false],
+    // §AC-UX.9 (accesorios): justo tras «Sellado», operador+ (sin SÚPER).
+    ['Existencias', '/admin/accessories', 'Accesorios', 'Accessories', false],
     ['Existencias', '/admin/vaults', 'Bóvedas de clientes', 'Customer vaults', false],
     ['Tienda', '/admin/m2', 'Catálogo y precios', 'Catalog & pricing', true],
     ['Tienda', '/admin/m2/bounties', 'Bounties', 'Bounties', true],
@@ -209,8 +214,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     renderWithProviders(<AdminSidebar />, 'es');
     const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') ?? '');
     // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16; F-26 retira «Disputas» ⇒ 15; v4.20 añade «Avisos de gasto» ⇒ 16
-    // (merge panel+skydropx: ambas intenciones).
-    expect(hrefs).toHaveLength(16);
+    // (merge panel+skydropx: ambas intenciones). §AC-UX.9 añade «Accesorios» ⇒ 17.
+    expect(hrefs).toHaveLength(17);
     expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
     const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
     expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);

@@ -1,3 +1,4 @@
+import { AccessoryMailLine } from './mail/accessory-mail-lines';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Locale } from '@prisma/client';
@@ -55,6 +56,8 @@ export class GuestOrderMailService {
     locale: Locale | null;
     totalCents: number;
     items: GuestOrderMailItem[];
+    /** 💰 v1.86⟨accesorios⟩ (§AC.12): renglones de accesorio y paquete (⛔ sin foto, §AC.19.1). */
+    accessoryLines?: AccessoryMailLine[];
   }): Promise<void> {
     await this.safeSend(order.id, async () => {
       if (!order.guestEmail) return null;
@@ -63,6 +66,7 @@ export class GuestOrderMailService {
         {
           orderNumber: order.orderNumber ?? '',
           items: order.items,
+          accessoryLines: order.accessoryLines,
           totalCents: order.totalCents,
           trackingUrl: this.buildTrackingUrl(clear, order.locale),
         },

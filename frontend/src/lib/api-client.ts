@@ -340,7 +340,9 @@ async function fetchWithSession(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...opts.headers,
     },
-    body: json && opts.body ? JSON.stringify(opts.body) : undefined,
+    // §AC.11 (foto de accesorio): un `FormData` viaja tal cual y SIN `Content-Type` propio — el navegador
+    // pone el `multipart/form-data; boundary=…`. Solo lo usa `apiRequestMultipart` (json=false).
+    body: json && opts.body ? JSON.stringify(opts.body) : opts.body instanceof FormData ? opts.body : undefined,
   });
 
   // WS-B — interceptor: el access token dura 15m; al vencer, cualquier request da 401.
@@ -375,13 +377,22 @@ function toApiError(status: number, payload: unknown): ApiClientError {
   return new ApiClientError(status, err);
 }
 
+/**
+ * §AC.11 — `multipart/form-data` (la foto de un accesorio, campo `file`). Mismo núcleo de sesión que
+ * `apiRequest` (refresh, reintento único, interceptor de contraseña); respuesta JSON igual.
+ */
+export async function apiRequestMultipart<T>(path: string, form: FormData, method = 'POST'): Promise<T> {
+  return requestWithRefresh<T>(path, { method, body: form }, true, false);
+}
+
 /** Lectura JSON sobre el núcleo de sesión: 204 ⇒ `undefined`; no-ok ⇒ `ApiClientError`. */
 async function requestWithRefresh<T>(
   path: string,
   opts: RequestOptions,
   allowRefresh: boolean,
+  json = true,
 ): Promise<T> {
-  const res = await fetchWithSession(path, opts, allowRefresh, true);
+  const res = await fetchWithSession(path, opts, allowRefresh, json);
   if (res.status === 204) return undefined as T;
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) throw toApiError(res.status, payload);

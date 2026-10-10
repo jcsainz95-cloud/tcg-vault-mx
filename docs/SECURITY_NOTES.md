@@ -15895,6 +15895,243 @@ Medido `[VIVO]` con `npm audit --package-lock-only`, sobre la copia de `b370cf9b
 
 ---
 
+# Release sesión 7 — accesorios + lista de deseos (bc8e3533)
+
+> **En una línea:** ningún hallazgo crítico ni alto. La media del pentester (REL7-P1) baja a **Baja**: ya estaba en
+> `production` y la parte vulnerable de Nest (SSE) no la usamos. El abuso del «avísame» con correo ajeno (REL7-P3) se
+> **acepta** con condición: ya existía y esta publicación lo acota, pero ahora el aviso sale solo cada 5 min.
+> **APROBADO CON CONDICIONES** sobre `bc8e3533`.
+
+**Fecha:** 2026-10-08 · **Rama:** `claude/release-s7` · **sha del código:** `bc8e3533` (= `production` `74996a24` +
+§AC hasta v1.86.6 + §WSH hasta v1.87.4 + errata v1.88; `git merge-base --is-ancestor 74996a24 bc8e3533` ⇒ 0). Encima
+solo hay `c1eddf5f`, que toca **únicamente** `docs/PENTEST_NOTES.md` (`git diff --stat bc8e3533 HEAD`).
+
+**Qué medí yo y qué consolido:**
+- **Medido por mí, estático:** el diff `74996a24..bc8e3533` de `backend/src`, `backend/prisma` y `frontend/src` con lente de
+  seguridad. Leí completos los controladores nuevos y `OptionalSessionGuard`, `admin-accessories.service.ts`,
+  `accessories.service.ts`, `accessory-photo.ts`, `deck-pull-token.ts`, `wishlist.service.ts`, `wishlist-mail.ts`, el CSV de
+  `wishlist-demand.service.ts`, `subscribeRestock` y la reconciliación de `sealed-restock-notify.service.ts`, y
+  `refundAccessoryDelivered`/`markAccessoryLine`. También los CHECK de M-73 y M-74 y los diffs de `payments.service.ts`,
+  `full-refund.service.ts`, `shipment-prep.service.ts`, `csp.ts` y `scheduler.service.ts`.
+- **Medido por mí, dinámico (sin stack HTTP):** copia ENTERA `git archive bc8e3533` en mi scratchpad. `node_modules` es un
+  enlace al del worktree. Corrí una prueba propia de ataque, `zz-seg-rel7.spec.ts`, que vivió solo en la copia y ya está
+  borrada: **11/11 verdes**. Además pasaron `test/accessories.photo.spec.ts` y `deck-pull-token.spec.ts` (**51/51**).
+  Las pruebas son deterministas: N=1 basta (O-3 no aplica). Lo que comprobé:
+  - un SVG con `<script>` da `unsupported_type`;
+  - un políglota (PNG seguido de HTML) se re-encoda a WebP y la salida no lleva `<script>`;
+  - un PNG de 50 MP que pesa menos de 10 MiB da `too_many_pixels`;
+  - un GIF da `unsupported_type`;
+  - de un JPEG con GPS en EXIF sale un WebP sin EXIF;
+  - en `OptionalSessionGuard` acaban como **invitado**: el refresh (`typ`), un `tv` viejo, `alg:none`, otra llave y HS512
+    con la misma llave. Un access válido pasa.
+- **`npm audit --omit=dev --package-lock-only` de los lockfiles de AMBOS sha** (`git show <sha>:…/package-lock.json`):
+  ver REL7-P1/P2.
+- **Consolidado sin re-medir:** `PENTEST_NOTES.md`, sección «Release sesión 7» (pase estático del pentester). Las pruebas
+  HTTP de authz del repo prueban la autorización en el stack Nest real con BD:
+  - `test/integration/accessories-panel.e2e-spec.ts` (operador ⇒ `403 FORBIDDEN_FIELD`, `403` en activar, desactivar y
+    borrar);
+  - `wishlist.e2e-spec.ts` (sin sesión `401` en las 6 rutas; la cuenta B ⇒ `404` sobre ids de A; token alterado, ajeno o
+    cruzado ⇒ `404 WISHLIST_LINK_INVALID`);
+  - `accessories-prep-refunds.e2e-spec.ts` (operador ⇒ `403 MONEY_OUT_FORBIDDEN`; `expectedRefundCents` viejo ⇒ `409` y
+    cero filas).
+
+  **No las corrí yo**: son de QA. Su resultado sobre `bc8e3533` es la condición R7-C1.
+
+## 1. ¿Basta el pase estático del pentester? — Sí, para esta superficie (con R7-C1)
+
+No levanté un stack local. Razones medidas:
+1. **No hay middleware ni guard global nuevo.** El orden de guards de `app.module.ts` no cambia. Lo único nuevo en el
+   camino de autenticación es `OptionalSessionGuard`, que **nunca rechaza** y solo puebla `req.user`. Lo ataqué
+   directamente (arriba).
+2. **La autorización de cada ruta nueva ya tiene prueba HTTP en el repo** contra el `AppModule` real con Postgres (las
+   tres suites de arriba). Un DAST a ciegas repetiría eso con menos precisión.
+3. **Lo que solo se ve en vivo es probabilístico:** las carreras del último paquete, settle contra recuperación, doble
+   reembolso y el tope 20. Su proporción N la da la suite de integración de QA. Está defendido por construcción:
+   `FOR UPDATE` + CAS + CHECK de BD (`accessory_stock`, `order_accessory_line_refunded_qty`).
+4. **`production` sigue en modo prueba de Stripe** (`HECHOS.md:16`): ningún peso real sale por estas rutas antes de `sk_live_`.
+5. **La CSP sigue en `report-only`** (`csp.ts:33`). El cambio de `img-src` solo añade el origen de la API, que en producción
+   ya cubría `https:`.
+
+Lo único que una prueba viva aportaría y no está cubierto es la **subida multipart real** de la foto: el límite de multer
+y el `413` convertido en `422`. El procesador lo medí yo. El tope de bytes lo pone multer (`fileSize`, `files:1`,
+`parts:6`) y solo lo alcanzan el operador y el súper-admin: no es superficie pública. **No bloquea.**
+
+## 2. Revisión defensiva por área (lo que resiste, con la línea)
+
+- **Authz por rol y objeto:**
+  - `admin/accessories` es operador+. Activar, desactivar y borrar son `@Roles(super_admin)`.
+  - Los campos ★ (precio, costo, «Sugerido», `active` en el alta) los rechaza `forbidStar` **antes** de tocar la BD
+    (`admin-accessories.service.ts`, `starFieldsIn` usa `hasOwnProperty`: un `null` también cuenta).
+  - El costo **no aparece** en la respuesta para el operador (`accessory-dto.ts:140`) ni en la bitácora
+    (`auditView(…, withCost)`).
+  - Las respuestas públicas se arman campo por campo (`toCardDTO`/`toDetailDTO`), sin `stockQty` ni costo.
+  - `markAccessoryLine` comprueba `line.shipmentRequestId !== shipmentId ⇒ 404` (`shipment-prep.service.ts:552`) y
+    `refundAccessoryDelivered` comprueba `head.orderId !== orderId ⇒ 404` (`order-refund.service.ts`).
+  - La lista de deseos filtra por `userId` en todas las escrituras.
+  - La demanda y su CSV son `@Roles(super_admin)`.
+- **Dinero:**
+  - `refund-delivered` de un renglón de accesorio lleva `@MoneyOut()`.
+  - El faltante al preparar entra en `plan.cents` y pasa por `assertOperatorCap` (`shipment-prep.service.ts`, `prepare`):
+    el operador no puede saltarse el tope de 24 h con accesorios.
+  - El importe lo calcula siempre el servidor (`itemMissingRefundComponents`) y se valida contra el remanente.
+  - Precios del carrito de invitado: salen de la BD y del dial, nunca del cuerpo (`guest-accessory-cart.ts:79,329,355`).
+  - Con sesión, los accesorios dan `422` antes del servicio (`orders.controller.ts`).
+- **Tokens HMAC:**
+  - `domainHmac` = `HMAC(key, domain‖value)` con prefijos `deck-pull:v1:`, `wsh-mail:v1:` y `mr-reveal:v1:`. Ninguno es
+    prefijo de otro y ninguna ruta firma un valor que elija el atacante: no hay oráculo cruzado.
+  - La comparación es en tiempo constante.
+  - El `pullToken` verifica la firma antes del `JSON.parse` y caduca a los 30 días.
+- **Fotos:**
+  - Al subirlas se reconoce el tipo por la firma de bytes, se aplica el tope de píxeles, se quitan los metadatos y se
+    re-encodan (medido, en «Qué medí yo»).
+  - Al servirlas se valida el UUID, la versión en hex de 16 y la variante cerrada, con `nosniff` y CORP `cross-origin`.
+  - Todo sale como `image/webp` re-encodado, así que CORP `cross-origin` no expone nada que no sea público.
+  - El SQL crudo de la tienda solo interpola nombres de columna estáticos (`ROW_COLUMNS` desde `ACCESSORY_ROW_SELECT`).
+    Todo lo del usuario va como parámetro (`ILIKE … ESCAPE`).
+- **CSV:** `text()` antepone `'` a lo que empiece por `= + - @ \t \r` y duplica las comillas. Las demás celdas son números
+  o enums. Sin PII: los correos solo se **cuentan** (`emails.size`).
+- **Correo con imagen remota:**
+  - El `src` de la imagen pasa por `safeCardImageUrl`: solo `https`, host exacto de `SET_IMAGE_HOSTS`, sin query, puerto
+    ni credenciales, y se escapa.
+  - Los enlaces pasan por `isSafeMailUrl` y se escapan.
+  - La página `/lista-de-deseos/aviso` lleva `referrer: 'no-referrer'` y `noindex`, quita el token de la barra
+    (`history.replaceState`) y **pide un clic**: los escáneres que pre-abren enlaces no disparan la acción.
+- **CHECKs M-73/M-74:** acotan precio, costo, `reservedQty ≤ stockQty`, `refundedQty ≤ quantity`, la forma del paquete y
+  `maxPct ∈ {5,10,16}`. Son la red debajo de cada CAS.
+- **Reconciliación de suscripciones** (`reconcileOrphans`): todo es parámetro o constante, no hay entrada del usuario en
+  SQL, no se loguea ningún correo y usa una sola transacción bajo el candado consultivo del job.
+- **Borrado de cuenta:** el borrado suave (`admin.service.ts`, bloque v1.87) borra `WishlistItem` (los avisos caen en
+  cascada), `WishlistMail` y las suscripciones «avísame» de la cuenta **y de su correo previo**. El borrado duro cae por
+  FK `CASCADE` (M-74 §5). Cumple «si borras tu cuenta, tu lista se borra».
+- **Secretos y logs:** el `git diff` del rango no tiene llaves (`sk_`, `whsec_`, `re_`, `AKIA`, PEM) ni `logger.*` nuevos con
+  correo.
+
+## 3. Hallazgos consolidados (pentester + blue team)
+
+| ID | Severidad | Qué | Estado / decisión | Dueño |
+|---|---|---|---|---|
+| **REL7-P1** | ~~Media~~ → **Baja** | `@nestjs/core` 10.4.22 · GHSA-36xv-jgw5-4q75 (CVE-2026-35515) | **Ya estaba en `production`**: misma versión 10.4.22 en el lockfile de `74996a24` y en el de `bc8e3533`, y `npm audit --omit=dev` da las mismas 2 moderadas en ambos. **No explotable en nuestro uso:** el fallo está en `SseStream._transform` (saltos de línea en los campos `type`/`id` de un Server-Sent Event) y `grep -rn "@Sse\|text/event-stream" backend/src` ⇒ 0 resultados. Corregido en `@nestjs/core` 11.1.18: es un salto de mayor (10 → 11), no un `npm audit fix`. **Aceptado** (§4). | devops (subida) + backend (regresión) |
+| **REL7-P2** | Baja | `next` 15.5.24 · GHSA-4jqv-mc3x-m676 y **GHSA-mcj8-r9mp-w47p** (el pentester nombró solo la primera) | Ya estaba en `production`: `frontend/package-lock.json` no cambia en el rango. La primera es solo para self-hosted, y nosotros estamos en Vercel. La segunda exige **una página catch-all en la raíz**: `find frontend/src/app -maxdepth 3 -name '[...*'` ⇒ ninguna. No aplica hoy. Corregido en 15.5.27 (parche menor). **Aceptado** (§4). | devops |
+| **REL7-P3** | Baja | «Avísame» de sellados: un invitado puede apuntar un correo ajeno | Ver §5. **Aceptado con condición R7-C2.** | backend |
+| REL7-P4 | Info | `OptionalSessionGuard` toma `role` del JWT | Confirmado, no explotable: el único consumidor usa `id`/`email`. El disparador para cambiarlo es reutilizar el guard en una ruta que autorice por rol. | backend |
+| REL7-P5 | Info | Los tokens de los enlaces del correo de la lista no caducan | Confirmado. Con uno se puede quitar un deseo o pausar los avisos, nada más: no hay dinero ni datos. Igual que `revealToken` (SHIP-P3). | backend (opcional) |
+| REL7-P6 | Info | Vulnerabilidades de dependencias solo de desarrollo y CI | Confirmado, fuera del runtime servido. | devops |
+| **SEG-R7-1** | Baja | El aviso de privacidad (§WSH.5) no nombra el **historial de avisos** ni la **imagen remota** del correo | Ver §6. Bandera legal; no bloquea, porque el dial `wishlist_enabled` nace `off`. | product-owner (texto) + abogado |
+| SEG-R7-2 | Info | Un reembolso de accesorio que **falla** en Stripe no devuelve `refundedQty` | `refundedQty` sube en la tx **antes** del cobro en Stripe y nada lo baja si la fila acaba `failed`. Esas unidades ya no se pueden reembolsar por esta ruta: queda el reembolso total (`NON_FAILED` excluye la fila fallida del remanente). Falla **cerrado**: no sale dinero de más. **NO MEDIDO en vivo** (requiere un fallo de Stripe). Disparador: el primer `failed` de este tipo en M3. | backend |
+| SEG-R7-3 | Info | El job de reposición lee **todas** las suscripciones pendientes sin tope | Un invitado con muchas IP y muchos correos distintos (5/min por IP) puede hacer crecer la tabla y el trabajo de cada corrida. No hay dinero en juego. Disparador: más de 10 000 pendientes, o una corrida de más de 30 s. | backend |
+
+**Críticos/Altos abiertos: 0.** Medias: 0 (REL7-P1 rebajada con medición). Bajas: 3. Info: 6.
+
+## 4. Deuda de seguridad aceptada (no bloquea)
+
+| ID | Motivo de la aceptación | Disparador para abordarla |
+|---|---|---|
+| REL7-P1 | Ya estaba en producción. No usamos SSE, así que el vector no llega. Subir de mayor sin regresión cuesta más que el riesgo. | **Antes de `sk_live_`**, o el día que alguien añada un `@Sse`. Lo que ocurra primero. |
+| REL7-P2 | Ya estaba en producción y no se cumple ninguna de las dos precondiciones (no es self-hosted, no hay catch-all en la raíz). | El siguiente mantenimiento de dependencias (parche menor 15.5.27), o al añadir un `[...slug]` en la raíz. |
+| REL7-P3 | Ver §5. | Ver R7-C2. |
+| REL7-P4/P5/P6, SEG-R7-2/3 | Info, sin dinero ni datos expuestos. | El que dice cada fila de §3. |
+
+## 5. REL7-P3 — decisión: se ACEPTA, con condición
+
+**Medido:**
+- **`production` ya lo tenía, y peor.** En `74996a24`, `subscribeRestock` usaba el `dto.email` de cualquiera, con o sin
+  sesión, y no tenía tope por correo (`git show 74996a24:…/sealed-catalog.service.ts:454-504`).
+- **Esta publicación lo acota:**
+  - con sesión se ignora el cuerpo y se usa el correo de la cuenta;
+  - como mucho `sealed_restock_max_pending_per_email = 5` pendientes por correo;
+  - se deduplica por identidad;
+  - la respuesta es un `202` neutro, sin enumeración;
+  - el límite es 5/min por IP;
+  - cada suscripción avisa **una sola vez** y solo tras ver el producto agotado y de vuelta (`armedAt`/`matchedAt`).
+- **Lo que cambia y obliga a decidir:** en `production` el job **no estaba agendado**; el disparo era manual
+  (`74996a24`, cabecera del servicio, «el cron queda fuera hasta encender el flag»). Con `bc8e3533` **se agenda cada
+  5 min** (`scheduler.service.ts`, `SEALED_RESTOCK_NOTIFY_CRON`). Si el dial `sealed_restock_alerts` está **encendido**
+  en producción, a partir de esta publicación esos correos salen solos.
+- **En qué estado está el dial en producción: NO MEDIDO.** Lo cierra
+  `SELECT "valueJson" FROM "ConfigSetting" WHERE key='sealed_restock_alerts';`, corrido por el dueño o con un usuario de
+  solo lectura.
+
+**Por qué no bloquea:** el techo es «una víctima recibe a lo sumo un aviso por producto sellado que vuelva, con 5
+pendientes a la vez». No hay dinero, no hay datos de la víctima expuestos, y el pie del correo dice «¿No lo pediste?
+Ignóralo: no volverás a recibirlo por este producto». Es spam acotado, no compromiso.
+
+**Condición R7-C2:** antes de **encender** `sealed_restock_alerts`, o, si ya está encendido, en la misma ventana de
+despliegue, el dueño sabe y acepta que un visitante sin cuenta puede apuntar el correo de otra persona. Disparadores para
+el doble opt-in (confirmar el correo del invitado antes de guardar), con dueño backend: **cualquier** queja de un
+destinatario, más de 5 suscripciones de invitado a un mismo correo en un día, o antes de `sk_live_`. Lo que ocurra
+primero.
+
+## 6. Aviso de privacidad de la lista de deseos (§WSH.5) frente al código
+
+| Dice el aviso | El código | ¿Cuadra? |
+|---|---|---|
+| Guardamos qué cartas, el acabado, el % máximo y el correo de la cuenta | `WishlistItem` {cardId, finish, maxPct, lastNotifiedAt, createdAt}. El correo **no se copia**: se lee de `User` al enviar | Sí |
+| Te avisamos por correo, con el precio y si cabe | `wishlist-mail.ts` lleva el precio, el máximo de hoy y si cabe. Solo a correo **verificado**, cuenta activa y sin pausa (`wishlist-notify.service.ts:139`) | Sí |
+| Para decidir qué comprar usamos solo totales, sin nombre ni correo | `wishlist-demand.service.ts`: conteos por carta y nivel; los correos de sellados solo se cuentan (`emails.size`); el CSV no lleva columnas de persona | Sí |
+| Quitar o dejar de recibir desde el correo, sin entrar | `POST /wishlist/mail-actions` `@Public`, sin depender del dial; prueba HTTP T14 | Sí |
+| Si borras tu cuenta, tu lista se borra | Borrado suave: `deleteMany` explícito. Borrado duro: FK `CASCADE` | Sí |
+| *(no lo dice)* | Se guarda un **historial de avisos**: `WishlistNotice` {pieza, precio mostrado, mercado, máximo, si cabía, fechas} y `WishlistMail` {fecha, idioma, nº de cartas} | **Hueco menor** (SEG-R7-1) |
+| *(no lo dice)* | La miniatura del correo se carga desde `images.pokemontcg.io` y el segundo CDN de `SET_IMAGE_HOSTS`. Al abrir el correo, un tercero ve la IP del destinatario (salvo clientes que hacen proxy, como Gmail) | **Hueco menor** (SEG-R7-1) |
+
+No hay nada que el código haga **en contra** de lo que dice el aviso. Hay dos cosas que hace **y el aviso no menciona**.
+Las dos son derivadas del servicio que se describe, por eso quedan en **Baja**. La decisión de nombrarlas o no es del
+dueño con su abogado (P-LEG). Si se nombran, el texto lo cambia product-owner en `PROJECT.md` y frontend lo copia; el
+candado `privacy-wishlist.test.ts` lee `PROJECT.md`. Con el dial `wishlist_enabled` en `off` (semilla M-74 paso 7) no sale
+ningún correo hasta que el dueño lo encienda.
+
+## 7. Condiciones
+
+| # | Condición | Dueño | ¿Bloquea el botón? |
+|---|---|---|---|
+| **R7-C1** | El veredicto de QA de la publicación cita **sobre `bc8e3533`** en verde `accessories-panel`, `wishlist`, `wishlist-demand`, `accessories-prep-refunds` y `wishlist-v1-87-2` (`*.e2e-spec.ts`). Son la prueba HTTP de la autorización que este veredicto da por buena. | QA / orquestador | **Sí**, si falta o alguna está roja en una ruta de authz o de dinero |
+| **R7-C2** | El dueño lee y acepta lo de REL7-P3 (§5) antes de encender, o de mantener encendido, el «avísame» de sellados | dueño | No |
+| **R7-C3** | `wishlist_enabled` se enciende solo **después** de ver el párrafo «Lista de deseos» publicado en `/es/privacidad` y `/en/privacidad` (criterio 824). Si el abogado lo pide, antes se añaden los dos huecos de SEG-R7-1. | dueño (+ product-owner) | No |
+| Heredadas | S5-1/`SEC-HDR-2`, TD-4, C1, C2, C3, el pre-gate DAST `full`, C6, el pentest de un tercero, **y ahora REL7-P1** | varios | Solo antes de `sk_live_` |
+
+### Para la solicitud de fusión — en lenguaje llano para el dueño
+
+> **Seguridad: aprobado con condiciones.** No encontramos nada grave en accesorios ni en la lista de deseos: los precios
+> los pone el servidor, solo tú (súper-admin) puedes devolver dinero de un accesorio ya entregado, y nadie puede ver ni
+> tocar la lista de otra persona.
+>
+> 1. **Antes de pulsar:** que QA confirme en verde, sobre esta misma versión, las pruebas de permisos de accesorios y de
+>    la lista de deseos.
+> 2. **El «avísame cuando vuelva» de sellados:** desde esta versión los avisos salen **solos** cada 5 minutos, si lo
+>    tienes encendido. Alguien sin cuenta puede apuntar el correo de otra persona: como mucho le llegarían unos pocos
+>    avisos de «volvió este producto», nada de dinero ni de datos. Ya pasaba antes, y ahora está más limitado. Si te
+>    parece bien así, déjalo; si recibes una queja, pedimos que el visitante confirme su correo primero.
+> 3. **La lista de deseos nace apagada.** Enciéndela solo cuando veas publicado el párrafo «Lista de deseos» en tu aviso
+>    de privacidad. Cuando se lo pases a tu abogado, menciónale dos detalles que el texto no dice: guardamos un historial
+>    de qué avisos mandamos, y la foto de la carta en el correo se carga desde el servidor de imágenes de Pokémon TCG.
+> 4. **Antes de cobrar con dinero real:** actualizar una pieza del servidor (NestJS) que tiene un aviso de seguridad. Hoy
+>    no nos afecta porque no usamos la función vulnerable, pero conviene llegar al cobro real sin ese aviso.
+
+## 8. NO MEDIDO (dicho entero)
+- Estado del dial `sealed_restock_alerts` en producción (consulta en §5).
+- Las proporciones de las carreras (último paquete, settle contra recuperación, doble reembolso, tope 20): las da la suite
+  de integración de QA, no yo.
+- La subida multipart de la foto por HTTP de punta a punta (multer + `422 too_large`): medí el procesador, no la ruta.
+- SEG-R7-2 en vivo (requiere que Stripe rechace un reembolso).
+- El resultado de las suites HTTP de authz sobre `bc8e3533` (R7-C1).
+
+## 9. Banderas para el humano
+- **Pentest de un tercero y bug bounty antes de `sk_live_`**, sin cambios. Accesorios añade una ruta nueva de dinero
+  saliente (`accessory-lines/:lineId/refund-delivered`) que entra en ese alcance.
+- **Abogado:** §WSH.5 (consentimiento por opt-in al agregar la carta, «SUPUESTO» del product-owner) y los dos huecos de
+  SEG-R7-1.
+
+## 10. VEREDICTO
+
+### **APROBADO CON CONDICIONES** sobre `bc8e3533`
+
+- **Crítica 0 · Alta 0 · Media 0 · Baja 3 · Info 6.**
+- **Botón `main → production` (modo prueba): sí, con R7-C1 cumplida.** R7-C2 y R7-C3 no bloquean el botón: gobiernan cuándo
+  se encienden los dos diales.
+- **Mínimo para quedar APROBADO sin condiciones:** R7-C1 citada en verde, y R7-C2 aceptada por el dueño o el dial
+  `sealed_restock_alerts` medido en `off`.
+- **Antes de `sk_live_`:** las heredadas, más REL7-P1 (subir `@nestjs/core` a 11.1.18 o posterior, con regresión).
+
+— SEGURIDAD (blue team / AppSec), 2026-10-08 · código `bc8e3533` (rama `claude/release-s7`) · **APROBADO CON CONDICIONES**
 # §BMK · 2026-10-08 — «Valor de mercado» en el cotizador de venta · veredicto de seguridad (blue team)
 
 **Sha auditado:** `764c6537` (rama `claude/buylist-mercado`). Código idéntico al que atacó el pentester

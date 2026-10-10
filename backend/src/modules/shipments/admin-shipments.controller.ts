@@ -167,6 +167,21 @@ export class AdminShipmentsController {
     return this.prep.markItem(id, shipmentItemId, body, user);
   }
 
+  /**
+   * 💰 v1.86⟨accesorios⟩ (§AC.9, §AC.19.5) — palomear / marcar faltante (cantidad y motivo) / deshacer UN renglón de
+   * accesorio de un envío directo. Res `200 {changed, line, preparation}`. ⛔ Cero dinero y cero existencias.
+   */
+  @Patch(':id/prep-accessory-lines/:lineId')
+  async markAccessoryLine(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    await this.shipments.assertOutboundRoute(id);
+    return this.prep.markAccessoryLine(id, lineId, body, user);
+  }
+
   /** 💰 ⭐ v1.80 (§M4-SHIP.5) — dar por preparado (y reembolsar lo que falta / abrir casos en un retiro). */
   @Post(':id/prepared')
   @HttpCode(200)

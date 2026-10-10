@@ -24,6 +24,8 @@ import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processin
 import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
 import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
+import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
+import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
 
 const QUEUE_NAME = 'tcg-daily';
 
@@ -124,6 +126,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // D2d; en la app los exporta `SpendAlertsModule` (lo asevera `sdx-c1-jobs.e2e-spec.ts` con el AppModule real).
     @Optional() private readonly spendWatch?: SpendWatchService,
     @Optional() private readonly spendDigest?: SpendDigestService,
+    // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.5 y §WSH.7 (a), D-WSH-1): el aviso «ya la tenemos» y el «avísame» de sellados,
+    // cada 5 min. `@Optional()` por la misma razón que los de D2d/C1; la app real los inyecta (WSH-T24 e2e).
+    @Optional() private readonly wishlistNotify?: WishlistNotifyService,
+    @Optional() private readonly sealedRestockNotify?: SealedRestockNotifyService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -271,6 +277,18 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: los jobs de avisos al dueño NO están inyectados; spend-watch y spend-digest no quedan programados.');
     }
 
+    // rev v1.87⟨wishlist⟩ (§WSH.5, §WSH.7 (a), D-WSH-1): los dos avisos al cliente, cada 5 min por defecto (crons por env,
+    // sufijo `-cron`). Single-flight entre instancias: el candado consultivo de cada servicio (D-WSH-7). Con su dial `off`
+    // (`wishlist_enabled` / `sealed_restock_alerts`) cada corrida es un no-op logueado.
+    const wishlistCron = this.config.get<string>('WISHLIST_NOTIFY_CRON') ?? '*/5 * * * *';
+    const restockCron = this.config.get<string>('SEALED_RESTOCK_NOTIFY_CRON') ?? '*/5 * * * *';
+    if (this.wishlistNotify && this.sealedRestockNotify) {
+      await this.queue.add('wishlist-notify', {}, this.repeatEvery('wishlist-notify', wishlistCron));
+      await this.queue.add('sealed-restock-notify', {}, this.repeatEvery('sealed-restock-notify', restockCron));
+    } else {
+      this.logger.error('Scheduler: los jobs de avisos al cliente NO están inyectados; wishlist-notify y sealed-restock-notify no quedan programados.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -306,7 +324,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         '+ sealed-price-ingest diario (21:30 UTC, dial sealed_price_source, seed off) ' +
         '+ catalog-metadata-sync diario (import de sets nuevos, force:false) ' +
         '+ shipment-tracking-poll / shipment-label-processing / shipment-extra-charges (Skydropx, dial shipping_provider) ' +
-        '+ spend-watch (cada 5 min) / spend-digest (08:00 America/Mexico_City).',
+        '+ spend-watch (cada 5 min) / spend-digest (08:00 America/Mexico_City) ' +
+        '+ wishlist-notify / sealed-restock-notify (cada 5 min; diales wishlist_enabled / sealed_restock_alerts).',
     );
 
     // Catch-up (auditoría 2026-08-17): si NO hay ingesta de precios reciente (hoy/ayer),
@@ -384,6 +403,11 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.spendWatch?.run() ?? null;
       case 'spend-digest':
         return this.spendDigest?.run({}) ?? null;
+      // rev v1.87⟨wishlist⟩ (§WSH.5, §WSH.7 (a)): los dos avisos al cliente.
+      case 'wishlist-notify':
+        return this.wishlistNotify?.run() ?? null;
+      case 'sealed-restock-notify':
+        return this.sealedRestockNotify?.run() ?? null;
       default:
         this.logger.warn(`Job desconocido en la cola: ${job.name}`);
         return null;

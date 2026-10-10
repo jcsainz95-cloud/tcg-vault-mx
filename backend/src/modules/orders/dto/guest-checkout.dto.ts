@@ -1,8 +1,8 @@
-import { Transform, Type } from 'class-transformer';
+import { applyDecorators } from '@nestjs/common';
+import { Expose, Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
-  ArrayNotEmpty,
   Equals,
   IsArray,
   IsBoolean,
@@ -19,6 +19,7 @@ import {
 } from 'class-validator';
 import { GUEST_MAX_ITEMS } from '../guest-checkout.constants';
 import { ADDRESS_LIMITS, PHONE_PATTERN, POSTAL_CODE_PATTERN } from '../../users/address-rules';
+import { AccessoryLineInput, AccessoryLinesField, CartNotEmpty, DeckPullInput, DeckPullsField } from './accessory-cart.dto';
 
 /**
  * DTOs del GUEST CHECKOUT (API_CONTRACT §4-G.1/.2/.3/.4/.9). Todo lo que falla aquí sale como
@@ -73,12 +74,30 @@ export class GuestAddressInput {
   @IsOptional() @IsString() @MaxLength(ADDRESS_LIMITS.references) references?: string;
 }
 
+/**
+ * 💰 v1.86⟨accesorios⟩ (§AC.4): `inventoryItemIds` pasa a OPCIONAL (default `[]`; `@Expose` + `@Transform` lo vuelven
+ * SIEMPRE un arreglo, así el validador de carrito vacío ve el objeto entero) y el carrito puede ser solo de accesorios.
+ * Carrito vacío (sin piezas ni accesorios) ⇒ `400` AQUÍ, en el DTO (`CartNotEmpty`).
+ */
+const ItemIdsField = () =>
+  applyDecorators(
+    Expose(),
+    Transform(({ value }) => (value === undefined || value === null ? [] : value)),
+    IsArray(),
+    ArrayMaxSize(GUEST_MAX_ITEMS),
+    IsString({ each: true }),
+    CartNotEmpty(),
+  );
+
 export class GuestQuoteDto {
-  @IsArray()
-  @ArrayNotEmpty()
-  @ArrayMaxSize(GUEST_MAX_ITEMS)
-  @IsString({ each: true })
+  @ItemIdsField()
   inventoryItemIds!: string[];
+
+  /** §AC.4: renglones de accesorio (≤ 20; `accessoryId` sin repetir ⇒ `400 {field:'accessoryLines'}`). ⛔ Sin precio. */
+  @AccessoryLinesField() accessoryLines?: AccessoryLineInput[];
+
+  /** §AC.4 / §AC.8: los decks del carrito (`pullToken` firmado; solo en el CUERPO). ≤ 10. */
+  @DeckPullsField() deckPulls?: DeckPullInput[];
 
   /** Opcional en el quote (la tarifa es fija y nacional); si viene, se valida MX. */
   @IsOptional() @ValidateNested() @Type(() => GuestAddressInput) shippingAddress?: GuestAddressInput;
@@ -95,11 +114,13 @@ export class GuestQuoteDto {
 }
 
 export class GuestSessionDto {
-  @IsArray()
-  @ArrayNotEmpty()
-  @ArrayMaxSize(GUEST_MAX_ITEMS)
-  @IsString({ each: true })
+  @ItemIdsField()
   inventoryItemIds!: string[];
+
+  /** §AC.4 (aditivo, misma forma que en `GuestQuoteDto`). */
+  @AccessoryLinesField() accessoryLines?: AccessoryLineInput[];
+
+  @DeckPullsField() deckPulls?: DeckPullInput[];
 
   /**
    * OBLIGATORIO (criterio 47). Formato RFC-5322 simplificado + ≤254. El `@Transform` recorta

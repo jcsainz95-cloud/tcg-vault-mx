@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, MONEY_REF_WHERE, toPublicPriceInfo } from '../pricing/pricing.service';
@@ -17,6 +17,7 @@ import {
 import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { CardDTO, CatalogService, ListingDTO, toCardDTO } from './catalog.service';
+import { sealedIdentityKey } from './sealed-restock-notify.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 // P-89 (deuda H3): aquí vivía una copia VERBATIM del `validateEnum` de `catalog.service.ts`. El
 // validador es ahora UNO, en `common/`.
@@ -142,6 +143,8 @@ interface PricedSealed {
  */
 @Injectable()
 export class SealedCatalogService {
+  private readonly logger = new Logger('SealedCatalogService');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
@@ -196,11 +199,13 @@ export class SealedCatalogService {
     return out;
   }
 
-  /** Clave de grupo: mapeado → `p:<productId>:<cond>`; no mapeado → `c:<cardId>:<subtype>:<cond>`. */
+  /**
+   * Clave de grupo: mapeado → `p:<productId>:<cond>`; no mapeado → `c:<cardId>:<subtype>:<cond>`.
+   * ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f) «Invariante»): UN solo cuerpo de la regla — la ficha agrupa con la
+   * MISMA función con la que el «avísame» empareja (`sealedIdentityKey`). Candado WSH-T42 (d).
+   */
   private groupKey(item: InventoryItem): string {
-    const cond = item.sealedCondition ?? 'mint';
-    if (item.tcgplayerProductId != null) return `p:${item.tcgplayerProductId}:${cond}`;
-    return `c:${item.cardId}:${item.sealedSubtype ?? ''}:${cond}`;
+    return sealedIdentityKey(item);
   }
 
   /**
@@ -451,70 +456,64 @@ export class SealedCatalogService {
   // ---------------------------------------------------------------------------
   // POST /catalog/sealed/restock-subscriptions — FEATURE-FLAGGED sealed_restock_alerts.
   // ---------------------------------------------------------------------------
-  async subscribeRestock(
-    dto: {
-      email?: string;
-      tcgplayerProductId?: number;
-      cardId?: string;
-      sealedSubtype?: string;
-      sealedCondition?: string;
-    },
-    userId?: string,
-  ): Promise<{ subscribed: true }> {
+  async subscribeRestock(dto: { email: string; inventoryItemId: string }, userId?: string): Promise<{ subscribed: true }> {
     if ((await this.settings.getString(SettingKey.SEALED_RESTOCK_ALERTS)) !== 'on') {
       throw BusinessException.notFound('FEATURE_DISABLED', 'sealed restock alerts are disabled');
     }
-    const email = typeof dto.email === 'string' ? dto.email.trim().toLowerCase() : '';
+    // rev v1.87⟨wishlist⟩ (§WSH.7 (b)): con sesión el servidor IGNORA `dto.email` y usa el correo de la cuenta (cierra «apuntar
+    // un correo ajeno» para quien tiene cuenta). Una cuenta sin correo (staff) se trata como invitado.
+    const account = userId
+      ? await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+      : null;
+    const accountEmail = account?.email?.trim().toLowerCase() ?? null;
+    const email = accountEmail ?? (typeof dto.email === 'string' ? dto.email.trim().toLowerCase() : '');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw BusinessException.validation('VALIDATION_ERROR', 'valid email is required', { field: 'email' });
     }
-    if (dto.tcgplayerProductId == null && (dto.cardId == null || dto.cardId === '')) {
-      throw BusinessException.validation(
-        'VALIDATION_ERROR',
-        'product identity required (tcgplayerProductId or cardId)',
-        { field: 'product' },
-      );
-    }
-    // ⚠️ Esto NO es §0-Q: es un campo del CUERPO, no un filtro de query. Su `details` es `{field}`
-    // (sin `allowed`) y su vacío es un ERROR, no un «no filtres» — por eso no usa el helper. Solo
-    // cambia de `Set.has` a `Array.includes` porque la lista pasó a `readonly SealedCondition[]`.
-    if (!dto.sealedCondition || !(SEALED_CONDITIONS as readonly string[]).includes(dto.sealedCondition)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'valid sealedCondition is required', {
-        field: 'sealedCondition',
-      });
-    }
+    const target = { email, userId: accountEmail ? (userId as string) : null };
 
-    // Resuelve el cardId ancla (FK requerida): explícito, o derivado de una pieza con ese productId.
-    let cardId = dto.cardId ?? null;
-    let sealedSubtype = (dto.sealedSubtype as SealedSubtype | undefined) ?? null;
-    if (cardId == null && dto.tcgplayerProductId != null) {
-      const anchor = await this.prisma.inventoryItem.findFirst({
-        where: { productType: 'sealed', tcgplayerProductId: dto.tcgplayerProductId },
-        select: { cardId: true, sealedSubtype: true },
-      });
-      if (anchor) {
-        cardId = anchor.cardId;
-        if (sealedSubtype == null) sealedSubtype = anchor.sealedSubtype;
-      }
+    // ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, §WSH.7 (f)): la identidad la DERIVA el servidor de la pieza que la persona miraba.
+    // CUALQUIER `status` y CUALQUIER `ownerType`: el caso que más importa es «se vendió la última mientras miraba» (la pieza
+    // ya no está `listed` y puede ser de otro dueño) y la identidad del producto no cambia. La respuesta es neutra, así que
+    // aceptar cualquier pieza sellada no revela nada que el `202` no oculte ya. ⇒ `sealedIdentityKey(fila) ===
+    // sealedIdentityKey(pieza)` por construcción (la clave del grupo de la ficha: `groupKey` llama a la misma función).
+    const piece = await this.prisma.inventoryItem.findUnique({
+      where: { id: dto.inventoryItemId },
+      select: { productType: true, cardId: true, sealedSubtype: true, sealedCondition: true, tcgplayerProductId: true },
+    });
+    // Respuesta NEUTRA (anti-enumeración, §4-G): pieza inexistente o no sellada ⇒ 202 sin fila.
+    if (!piece || piece.productType !== 'sealed') return { subscribed: true };
+    const cardId = piece.cardId;
+    const sealedSubtype = piece.sealedSubtype ?? null;
+    const tcgplayerProductId = piece.tcgplayerProductId ?? null;
+    const sealedCondition: SealedCondition = piece.sealedCondition ?? 'mint';
+
+    // rev v1.87⟨wishlist⟩ (§WSH.7 (b), D-WSH-3 capa 1), aplicado DESPUÉS de derivar y sobre las columnas derivadas: misma
+    // identidad ya pendiente para este correo ⇒ no se crea otra; y un correo con `sealed_restock_max_pending_per_email`
+    // pendientes ya no gana filas. Ambas, `202` NEUTRO. La capa que cuenta es la del envío (agrupa por correo): ésta tiene carrera.
+    const sameIdentity: Prisma.SealedRestockSubscriptionWhereInput =
+      tcgplayerProductId != null ? { tcgplayerProductId } : { tcgplayerProductId: null, cardId, sealedSubtype };
+    const already = await this.prisma.sealedRestockSubscription.count({
+      where: { email: target.email, notifiedAt: null, sealedCondition, ...sameIdentity },
+    });
+    const pendingForEmail = await this.prisma.sealedRestockSubscription.count({ where: { email: target.email, notifiedAt: null } });
+    const cap = await this.settings.getNumber(SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL);
+    if (already > 0) return { subscribed: true };
+    if (pendingForEmail >= cap) {
+      this.logger.warn(`restock-subscriptions: tope de ${cap} pendientes alcanzado para un correo; no se crea fila (202 neutro).`);
+      return { subscribed: true };
     }
-    // Respuesta NEUTRA (anti-enumeración, §4-G): si no podemos anclar a una Card real, NO revelamos
-    // que el producto no existe — devolvemos 202 igual, sin persistir (no hay FK que satisfacer).
-    if (cardId != null) {
-      const card = await this.prisma.card.findUnique({ where: { id: cardId }, select: { id: true } });
-      if (card) {
-        await this.prisma.sealedRestockSubscription.create({
-          data: {
-            email,
-            userId: userId ?? null,
-            cardId,
-            sealedSubtype,
-            tcgplayerProductId: dto.tcgplayerProductId ?? null,
-            sealedCondition: dto.sealedCondition as SealedCondition,
-            notifiedAt: null,
-          },
-        });
-      }
-    }
+    await this.prisma.sealedRestockSubscription.create({
+      data: {
+        email: target.email,
+        userId: target.userId,
+        cardId,
+        sealedSubtype,
+        tcgplayerProductId,
+        sealedCondition,
+        notifiedAt: null,
+      },
+    });
     return { subscribed: true };
   }
 

@@ -39,6 +39,7 @@ import {
   E2E_ADDRESS_RECIPIENT,
   E2E_PICKUP_ADDRESS,
   E2E_POSTAL_CODES,
+  E2E_SEALED_LISTED,
   E2E_SELL_REQUESTS,
   E2E_SET,
   E2E_SETTINGS,
@@ -178,13 +179,21 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   //   - InventoryMovement de piezas de PLATAFORMA (settle/chargeback_return): se acumularían y
   //     el assert "settleMovements === 1" contaría 2+.
   // Se limpian aquí (idempotencia real, no solo dentro de una corrida).
+  // QA-2 (BACKEND_NOTES §84.cierre): la pieza SELLADA del fixture (`E2E_SEALED_LISTED`, v1.87.4) no está en `E2E_FOLIOS`
+  // (los candados que cuentan piezas por ese mapa no deben moverse) ⇒ su folio se suma AQUÍ, solo al reset de movimientos.
   const e2eItems = await prisma.inventoryItem.findMany({
-    where: { folio: { in: Object.values(E2E_FOLIOS) } },
+    where: { folio: { in: [...Object.values(E2E_FOLIOS), E2E_SEALED_LISTED.folio] } },
     select: { id: true },
   });
   await prisma.inventoryMovement.deleteMany({ where: { itemId: { in: e2eItems.map((i) => i.id) } } });
   await prisma.processedStripeEvent.deleteMany({
     where: { OR: [{ id: 'evt_e2e_succeeded_fixed' }, { id: { startsWith: 'evt_e2e' } }] },
+  });
+  // techlead-5 (BACKEND_NOTES §84.cierre): el «avísame» sin sesión de los E2E (`frontend/e2e/wishlist.spec.ts`) apunta
+  // correos únicos `…@e2e.local` que no cuelgan de ningún usuario ⇒ se acumulaban entre corridas (y cuentan contra
+  // `sealed_restock_max_pending_per_email` si se repite uno). Se purgan SOLO las de dominio `@e2e.local`, pendientes o no.
+  await prisma.sealedRestockSubscription.deleteMany({
+    where: { email: { endsWith: '@e2e.local', mode: 'insensitive' } },
   });
 
   // 4. Ubicaciones (una por zona).
@@ -217,7 +226,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   const set = await prisma.cardSet.upsert({
     where: { externalId: E2E_SET.externalId },
     create: { ...E2E_SET },
-    update: {},
+    // §83.seed: una BD sembrada antes de v1.86 tiene el set con `ptcgoCode` null ⇒ se CORRIGE, no se deja.
+    update: { ptcgoCode: E2E_SET.ptcgoCode },
   });
   // v1.22-variantes-orden (§4.22e): SEGUNDO set, dedicado al orden natural ("2" < "10" < "TG01").
   const orderSet = await prisma.cardSet.upsert({
@@ -364,6 +374,9 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // automático y el `isManual: false` del diagnóstico solo existían en unitarios con dobles: el
   // override manual escribe siempre manual y siempre con fecha de hoy.
   priceRef(E2E_CARDS.staleest.externalId, 'raw', 'raw:NM', E2E_CARDS.staleest.refNmCents);
+  // v1.86 (§83.seed) — las dos cartas del deck de energías de E2E: solo su raw NM (MX$50, la más barata).
+  priceRef(E2E_CARDS.deckember.externalId, 'raw', 'raw:NM', E2E_CARDS.deckember.refNmCents);
+  priceRef(E2E_CARDS.deckspark.externalId, 'raw', 'raw:NM', E2E_CARDS.deckspark.refNmCents);
   for (const e of E2E_STALE_ESTIMATES) {
     priceRefs.push({
       cardId: cardIds[E2E_CARDS.staleest.externalId],
@@ -511,6 +524,37 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
   );
 
+  // ⭐ v1.87.4⟨wishlist⟩ (WSH-F5) — la pieza SELLADA a la venta (ver `E2E_SEALED_LISTED`). Anclada a la carta `thirdraw`
+  // del set E2E (el sellado se ancla a una carta del set, `schema.prisma`); `GET /catalog/cards` no emite sellados (H9),
+  // así que la vitrina de singles no cambia. El reset devuelve estado, precio y MAPEO (un flujo puede desmapearla).
+  {
+    const sealedReset = {
+      ownerType: 'platform',
+      ownerUserId: null,
+      ownershipStatus: null,
+      status: 'listed',
+      listPriceCents: E2E_SEALED_LISTED.listPriceCents,
+      tcgplayerProductId: E2E_SEALED_LISTED.tcgplayerProductId,
+      tcgplayerGroupId: E2E_SEALED_LISTED.tcgplayerGroupId,
+      sealedProductName: E2E_SEALED_LISTED.productName,
+      locationId: platformLoc.id,
+    };
+    await upsertItem(
+      E2E_SEALED_LISTED.folio,
+      {
+        cardId: cardIds[E2E_CARDS.thirdraw.externalId],
+        productType: 'sealed',
+        rawCondition: null,
+        sealedSubtype: E2E_SEALED_LISTED.sealedSubtype,
+        sealedCondition: E2E_SEALED_LISTED.sealedCondition,
+        acquisitionType: 'compra',
+        acquisitionCostCents: 300000,
+        ...sealedReset,
+      },
+      sealedReset,
+    );
+  }
+
   // v1.50.3-d (§4.38i.9) — las DOS piezas de la carta de INV-D, sobre la MISMA carta: el grupo raw
   // publicado y el slab PSA 10 publicado. Con las dos a la vez, `getPublishedSlabGradesBatch` devuelve
   // `['10']` para esa carta y por fin se puede ejercitar contra el stack vivo lo que hasta ahora solo
@@ -597,6 +641,31 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     },
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
   );
+
+  // v1.86 (§83.seed) — DOS piezas `listed` de plataforma por carta del deck de energías de E2E (FRONTEND_NOTES
+  // §107.real). Se RESETEAN a plataforma/listed en cada corrida, como el resto de `E2E-LST-*`: un caso que dejó una
+  // apartada por una sesión de pago no contamina la siguiente corrida.
+  for (const [folio, cardExt] of [
+    [E2E_FOLIOS.listedDeckEmber1, E2E_CARDS.deckember.externalId],
+    [E2E_FOLIOS.listedDeckEmber2, E2E_CARDS.deckember.externalId],
+    [E2E_FOLIOS.listedDeckSpark1, E2E_CARDS.deckspark.externalId],
+    [E2E_FOLIOS.listedDeckSpark2, E2E_CARDS.deckspark.externalId],
+  ] as const) {
+    await upsertItem(
+      folio,
+      {
+        cardId: cardIds[cardExt],
+        productType: 'raw',
+        rawCondition: 'NM',
+        ownerType: 'platform',
+        status: 'listed',
+        acquisitionType: 'compra',
+        acquisitionCostCents: 2000,
+        locationId: platformLoc.id,
+      },
+      { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+    );
+  }
 
   // ⚠️ v2.1.10 — LA ÚNICA PIEZA `in_stock` DEL FIXTURE: la que habita la COLA DE «LISTAS PARA
   // PUBLICAR» (§4.39m.1, criterio 125). Ver el porqué largo en `E2E_FOLIOS.pendingPublishNoLocation`.

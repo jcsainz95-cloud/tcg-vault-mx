@@ -50,6 +50,7 @@ import { LocationView, lastNameOf, locationViewOf, nullIfBlank, preparationCardO
 import { REPLACEMENT_CASE_DUE_MS } from '../vault/replacement-case.rules';
 import { countUnseenImmediate } from '../spend-alerts/spend-control';
 import { OUTBOUND_ONLY } from './label-subject';
+import { AccessoryPrepLine, ShipAccessoryLineDTO, assertMarkFitsLine, loadAccessoryPrepLines, parseAccessoryMarkBody } from './accessory-prep';
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | PrismaService;
@@ -136,7 +137,10 @@ export interface PrepView {
   preparation: ShipPreparationStateDTO;
   openCaseIds: string[];
   /** Plan de reembolso vigente (lo que `prepared` aceptaría ahora). */
-  plan: { rows: NewRefundRow[]; cents: number; closes: boolean; notRefundable: { shipmentItemId: string; reason: string }[] };
+  plan: { rows: NewRefundRow[]; cents: number; closes: boolean; notRefundable: ({ shipmentItemId: string; reason: string } | { shipmentAccessoryLineId: string; reason: string })[] };
+  /** 💰 v1.86⟨accesorios⟩ (§AC.9): los renglones de accesorio del envío directo (`[]` en un retiro). */
+  accLines: AccessoryPrepLine[];
+  accessoryLines: ShipAccessoryLineDTO[];
 }
 
 export const SHIP_PREP_INCLUDE = {
@@ -327,7 +331,18 @@ export class ShipmentPrepService {
       else counts.pending += 1;
     }
     const openCaseIds = cases.filter((c) => c.status === 'open').map((c) => c.id);
-    const plan = await this.planOf(db, row, kind, lines, openCaseIds.length);
+    // 💰 v1.86⟨accesorios⟩ (§AC.9): renglones de accesorio (solo envío directo; un retiro no tiene).
+    const accLines =
+      kind === 'guest_direct_ship' && order
+        ? await loadAccessoryPrepLines(
+            db as Tx,
+            row.id,
+            order,
+            lines.map((l) => ({ shipmentItemId: l.shipmentItemId, inventoryItemId: l.inventoryItemId, prepStatus: l.prepStatus, available: l.available })),
+            (rows) => this.ledger.toDtos(rows),
+          )
+        : [];
+    const plan = await this.planOf(db, row, kind, lines, openCaseIds.length, accLines);
     const preparedBy = row.preparedByUserId
       ? { userId: row.preparedByUserId, name: (await db.user.findUnique({ where: { id: row.preparedByUserId }, select: { name: true } }))?.name ?? null }
       : null;
@@ -335,7 +350,7 @@ export class ShipmentPrepService {
       row.preparedAt && preparedBy
         ? { status: 'prepared', preparedAt: row.preparedAt.toISOString(), preparedBy: { userId: preparedBy.userId, name: nullIfBlank(preparedBy.name) }, ...counts, openReplacements: openCaseIds.length }
         : { status: 'in_progress', refundPreviewCents: plan.cents, ...counts };
-    return { shipment: row, kind, lines, items: lines.map((l) => l.dto), preparation, openCaseIds, plan };
+    return { shipment: row, kind, lines, items: lines.map((l) => l.dto), preparation, openCaseIds, plan, accLines, accessoryLines: accLines.map((a) => a.dto) };
   }
 
   /**
@@ -345,9 +360,9 @@ export class ShipmentPrepService {
    * `picked` porque todas están `blocked` con origen no `settled` (o con caso ya cerrado) y no hay caso `open`
    * (v1.80.6, SEC-SHIP-M7).
    */
-  private async planOf(db: Db, row: ShipRow, kind: ShipmentKind, lines: PrepLine[], openCases: number) {
+  private async planOf(db: Db, row: ShipRow, kind: ShipmentKind, lines: PrepLine[], openCases: number, accLines: AccessoryPrepLine[] = []) {
     const rows: NewRefundRow[] = [];
-    const notRefundable: { shipmentItemId: string; reason: string }[] = [];
+    const notRefundable: PrepView['plan']['notRefundable'] = [];
     const order = row.order;
     const blockedAcceptable = (l: PrepLine) =>
       !l.available && (l.refundRow !== null || l.caseRow !== null || l.origin === null || l.origin.orderStatus !== 'settled');
@@ -369,18 +384,43 @@ export class ShipmentPrepService {
           });
         }
       }
+      // 💰 v1.86⟨accesorios⟩ (§AC.9 plan): por cada renglón `missing` sin fila, una `item_missing` de accesorio
+      // (`acc-item:<id>`) con `itemMissingRefundComponents(order, missingQty × P)` — el MISMO cuerpo que la vista.
+      for (const a of accLines) {
+        if (a.prepStatus !== 'missing' || a.refundRow) continue;
+        if (order.status !== 'settled' || !ivaIsIncluded(order.priceConvention)) {
+          notRefundable.push({ shipmentAccessoryLineId: a.id, reason: order.status !== 'settled' ? 'order_not_settled' : 'legacy_convention' });
+          continue;
+        }
+        rows.push({
+          idempotencyKey: `acc-item:${a.id}`,
+          kind: 'item_missing',
+          orderId: order.id,
+          orderAccessoryLineId: a.orderAccessoryLineId,
+          shipmentAccessoryLineId: a.id,
+          accessoryQty: a.missingQty,
+          missingReason: a.missingReason,
+          components: itemMissingRefundComponents(order, a.missingQty * a.unitPriceCents),
+        });
+      }
       const nonePicked = lines.every((l) => l.prepStatus === 'missing' || blockedAcceptable(l) || (!l.available && l.prepStatus !== 'picked'));
       const anyPickedAvailable = lines.some((l) => l.prepStatus === 'picked' && l.available);
-      const closes = lines.length > 0 && nonePicked && !anyPickedAvailable;
+      // §AC.9 cierre: «nada sale» ⇔ ninguna carta `picked` disponible **y** ningún renglón con `quantity − missingQty > 0`.
+      const noAccessoryShips = accLines.every((a) => a.prepStatus === 'missing' && a.quantity - a.missingQty <= 0);
+      const closes = lines.length + accLines.length > 0 && nonePicked && !anyPickedAvailable && noAccessoryShips;
       let cents = rows.reduce((a, r) => a + r.components.amountCents, 0);
       if (closes && order.status === 'settled' && ivaIsIncluded(order.priceConvention)) {
         const existing = await db.paymentRefund.findMany({ where: { orderId: order.id, ...NON_FAILED } });
         const orderItems = await db.orderItem.findMany({ where: { orderId: order.id }, select: { id: true } });
         const coveredIds = new Set([
-          ...existing.filter((r) => r.kind === 'item_missing').map((r) => r.orderItemId as string),
-          ...rows.map((r) => r.orderItemId as string),
+          ...existing.filter((r) => r.kind === 'item_missing' && r.orderItemId).map((r) => r.orderItemId as string),
+          ...rows.filter((r) => r.orderItemId).map((r) => r.orderItemId as string),
         ]);
-        const allCovered = orderItems.every((oi) => coveredIds.has(oi.id));
+        // «Todo cubierto» ⇔ toda `OrderItem` reembolsada (como hoy) **y** todo renglón con `refundedQty = quantity` tras
+        // este acto (lo ya reembolsado + lo que este plan reembolsa).
+        const plannedQty = new Map(rows.filter((r) => r.orderAccessoryLineId).map((r) => [r.orderAccessoryLineId as string, r.accessoryQty ?? 0]));
+        const accCovered = accLines.every((a) => a.refundedQty + (plannedQty.get(a.orderAccessoryLineId) ?? 0) >= a.quantity);
+        const allCovered = orderItems.every((oi) => coveredIds.has(oi.id)) && accCovered;
         const alreadyRemaining = existing.some((r) => r.kind === 'order_remaining' || r.kind === 'order_full');
         if (allCovered && !alreadyRemaining) {
           const comp = orderRemainingRefundComponents(order, [...existing, ...rows.map((r) => r.components)]);
@@ -494,6 +534,73 @@ export class ShipmentPrepService {
     );
   }
 
+  // ================================================================ PATCH …/prep-accessory-lines/:lineId (§AC.9, §AC.19.5)
+
+  /**
+   * 💰 v1.86⟨accesorios⟩ — palomear / marcar faltante (con cantidad y motivo) / deshacer UN renglón de accesorio. Mismo
+   * esqueleto que `prep-items` (§M4-SHIP.5): dominio ⇒ `400 {field}`; envío inexistente o línea de otro envío ⇒ `404`;
+   * `$transaction` + candado de fila del envío; bajo el candado `picking`, sin `preparedAt` y sin fila `acc-item:<id>`;
+   * igual a lo actual ⇒ `changed:false` (⛔ sin escribir ni bitácora); CAS sobre lo leído + bitácora
+   * `shipment.accessory_line_marked` en la tx. ⛔ Cero dinero y cero existencias (el reembolso nace en `prepared`).
+   */
+  async markAccessoryLine(shipmentId: string, lineId: string, body: unknown, actor: RefundActor) {
+    const mark = parseAccessoryMarkBody(body);
+    const head = await this.prisma.shipmentRequest.findUnique({ where: { id: shipmentId }, select: { id: true } });
+    const line = head
+      ? await this.prisma.shipmentAccessoryLine.findUnique({ where: { id: lineId }, include: { orderAccessoryLine: { select: { kind: true } } } })
+      : null;
+    if (!head || !line || line.shipmentRequestId !== shipmentId) throw BusinessException.notFound();
+    assertMarkFitsLine(mark, { kind: line.orderAccessoryLine.kind, quantity: line.quantity });
+    const target = {
+      prepStatus: mark.status,
+      missingQty: mark.status === 'missing' ? (mark.missingQty as number) : 0,
+      missingReason: mark.status === 'missing' ? (mark.missingReason as MissingReason) : null,
+    };
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.lockShipment(tx, shipmentId);
+        const row = await this.loadRow(tx, shipmentId);
+        if (!row) throw BusinessException.notFound();
+        if (row.status !== 'picking') throw this.notInPreparation(row.status);
+        if (row.preparedAt) {
+          throw BusinessException.conflict('PREPARATION_CLOSED', 'Preparation is closed', { preparedAt: row.preparedAt.toISOString() });
+        }
+        const view = await this.buildView(tx, row);
+        const cur = view.accLines.find((a) => a.id === lineId);
+        if (!cur) throw BusinessException.notFound();
+        if (cur.refundRow) {
+          throw BusinessException.conflict('PREP_ITEM_REFUNDED', 'This line was already refunded', { refundId: cur.refundRow.id });
+        }
+        if (cur.prepStatus === target.prepStatus && cur.missingQty === target.missingQty && cur.missingReason === target.missingReason) {
+          return { changed: false, line: cur.dto, preparation: view.preparation };
+        }
+        const now = new Date();
+        const res = await tx.shipmentAccessoryLine.updateMany({
+          where: { id: lineId, prepStatus: cur.prepStatus, missingQty: cur.missingQty, missingReason: cur.missingReason },
+          data:
+            target.prepStatus === 'pending'
+              ? { prepStatus: 'pending', missingQty: 0, missingReason: null, prepMarkedAt: null, prepMarkedByUserId: null }
+              : { ...target, prepMarkedAt: now, prepMarkedByUserId: actor.id },
+        });
+        if (res.count !== 1) throw BusinessException.conflict('CONFLICT', 'Preparation mark changed concurrently');
+        await tx.auditLog.create({
+          data: {
+            actorUserId: actor.id,
+            actorRole: actor.role,
+            action: 'shipment.accessory_line_marked',
+            entityType: 'ShipmentRequest',
+            entityId: shipmentId,
+            before: { shipmentAccessoryLineId: lineId, prepStatus: cur.prepStatus, missingQty: cur.missingQty, missingReason: cur.missingReason },
+            after: { shipmentAccessoryLineId: lineId, ...target },
+          },
+        });
+        const after = await this.buildView(tx, (await this.loadRow(tx, shipmentId))!);
+        return { changed: true, line: after.accessoryLines.find((a) => a.id === lineId)!, preparation: after.preparation };
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+  }
+
   // ================================================================ POST …/prepared (§M4-SHIP.5)
 
   async prepare(shipmentId: string, body: unknown, actor: RefundActor) {
@@ -520,8 +627,11 @@ export class ShipmentPrepService {
           if (row.preparedAt) return { outcome: 'already_prepared' as const, refundIds: [], caseIds: [], shipmentId };
           const view = await this.buildView(tx, row);
           const { kind, lines } = view;
-          if (view.preparation.status === 'in_progress' && view.preparation.pending > 0) {
-            throw BusinessException.conflict('PREPARATION_INCOMPLETE', 'Preparation is incomplete', { pendingCount: view.preparation.pending });
+          // 💰 v1.86⟨accesorios⟩ (§AC.9, §AC.19.5): además, ningún renglón de accesorio `pending`. `pendingCount` son
+          // cartas, como hoy; `pendingAccessoryCount` es aditivo.
+          const pendingAccessoryCount = view.accLines.filter((a) => a.prepStatus === 'pending').length;
+          if (view.preparation.status === 'in_progress' && (view.preparation.pending > 0 || pendingAccessoryCount > 0)) {
+            throw BusinessException.conflict('PREPARATION_INCOMPLETE', 'Preparation is incomplete', { pendingCount: view.preparation.pending, pendingAccessoryCount });
           }
           // SEC-SHIP-A1 (c): bloqueadas con origen SETTLED ⇒ violación de invariante. Una línea ya reembolsada o con
           // caso NO es «bloqueada sin desenlace»: su dinero lo resolvió su propia fila / su caso.
@@ -610,6 +720,16 @@ export class ShipmentPrepService {
             }
             throw e;
           }
+          // 💰 v1.86⟨accesorios⟩ (§AC.9): `refundedQty += missingQty` de cada renglón reembolsado, por CAS
+          // (`refundedQty + k ≤ quantity`). 0 filas ⇒ otro acto ya lo cubrió: se deshace todo.
+          for (const r of view.plan.rows) {
+            if (!r.orderAccessoryLineId) continue;
+            const k = r.accessoryQty ?? 0;
+            const n = await tx.$executeRaw`
+              UPDATE "OrderAccessoryLine" SET "refundedQty" = "refundedQty" + ${k}::int
+               WHERE id = ${r.orderAccessoryLineId} AND "refundedQty" + ${k}::int <= quantity`;
+            if (n !== 1) throw BusinessException.conflict('CONFLICT', 'An accessory line was refunded concurrently');
+          }
           // Casos (retiro): después de las órdenes, antes del sello.
           const caseIds: string[] = [];
           const caseAudit: { shipmentItemId: string; caseId: string; missingReason: MissingReason | null }[] = [];
@@ -687,6 +807,16 @@ export class ShipmentPrepService {
                   amountCents: created.find((r) => r.shipmentItemId === l.shipmentItemId)?.amountCents ?? null,
                 })),
                 blocked: lines.filter((l) => !l.available).map((l) => l.inventoryItemId),
+                // 💰 v1.86⟨accesorios⟩: los renglones que no salen completos (y su fila).
+                accessoryMissing: view.accLines
+                  .filter((a) => a.prepStatus === 'missing' && !a.refundRow)
+                  .map((a) => ({
+                    shipmentAccessoryLineId: a.id,
+                    missingQty: a.missingQty,
+                    missingReason: a.missingReason,
+                    refundId: created.find((r) => r.shipmentAccessoryLineId === a.id)?.id ?? null,
+                    amountCents: created.find((r) => r.shipmentAccessoryLineId === a.id)?.amountCents ?? null,
+                  })),
                 closed: closes,
                 cases: caseAudit,
               },

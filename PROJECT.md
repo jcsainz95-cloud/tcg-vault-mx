@@ -9372,6 +9372,693 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
 - Herramientas de terceros (Google Analytics u otras), cookies nuevas o rastreo del visitante: §AN no añade ninguna.
 - Pronósticos, metas nuevas (las de lanzamiento ya viven en M9) y reportes para el contador (son de §W.4).
 - Separar pedidos «de prueba» de los reales: lo resuelve **P-DB-LIMPIEZA**.
+### WSH. Lista de deseos por cuenta y «lista de compra casi segura» del dueño (transversal — NUEVO 2026-10-06, sesión 6 · v2 2026-10-07 con las respuestas del dueño · APROBABLE salvo P-WSH-7…9)
+
+> **Respuestas del dueño que gobiernan esta sección (no se re-preguntan):** `HECHOS.md` fila del 2026-10-07
+> **«Respuestas a P-WSH-1…6 (lista de deseos…)»** y fila del 2026-10-07 **«P-WSH-1 aclarada y P-WSH-4 cerrada»**.
+> En corto, según esas filas: el máximo del cliente es una **señal de compra para el dueño, no un precio especial**;
+> la carta sale a **su precio normal** y se avisa a **todos** los que la tienen en su lista, con el precio y si cabe en
+> su máximo; el máximo se lee **con IVA**, como **dial configurable** para pasar a sin IVA sin desplegar; **no aparta
+> ni cobra**; se **enciende** el «avísame cuando vuelva» de sellados; **tope 20 cartas por cuenta**; P-WSH-6 va con la
+> recomendación. Lo que queda abierto son **P-WSH-7…9** (al final del documento).
+
+> **De dónde sale.** Pendiente **P-WSH** = `PENDIENTES.md` fila **P-WISHLIST**. Palabras del dueño (2026-10-06): *«que
+> cada cuenta tenga su wishlist para que le avisemos cuando se las consiga, y a mí de una lista de compra cuasi
+> segura»*. Reglas que ya dio (`HECHOS.md` fila 81, 2026-10-06, «Lista de deseos (P-WISHLIST) — reglas del dueño»):
+> *«la condición siempre es near mint, el acabado sí lo necesito. Creo aquí necesito también que pongan precio máximo
+> a pagar como porcentaje arriba de mercado 5% 10% 16% porque si la quiero comprar nadie me la venderá abajo. Solo a
+> menos que me salgan baratas»*. **Esas reglas no se re-preguntan.**
+> **Qué existe hoy (medido por el orquestador el 2026-10-06 sobre `claude/buylist-skydropx`, `PENDIENTES.md` fila
+> P-WISHLIST):** solo el «avísame cuando vuelva» **de sellados** (`SealedRestockSubscription`; correo en
+> `catalog/sealed-restock-notify.service.ts`), que sigue **apagado para el cliente** (§K, criterio **64**). No hay
+> lista de deseos de cartas sueltas ni por cuenta (`grep -i wishlist` en `backend/src` y `frontend/src` = 0).
+> **Re-medido por product-owner el 2026-10-07 sobre `claude/wishlist` (HEAD `abb435d3`)**: `grep -i wishlist` en
+> `backend/src` y `frontend/src` sigue en **0**; el detalle de lo que hay del «avísame» de sellados está en WSH.7.
+> Lo que sigue fija el **QUÉ**; el **CÓMO** (tablas, trabajos en segundo plano, forma del contrato) es del arquitecto,
+> y la forma de pantallas y el texto del correo son de ux-ui.
+
+#### WSH.1 Qué se puede desear
+
+- Una **carta suelta** del catálogo **+ un acabado** (Normal, Reverse Holo, Holo, 1st Edition…), elegido de entre los
+  **acabados que esa carta tiene de verdad** (§I, `availableFinishes`). Una misma carta en dos acabados son **dos
+  deseos** distintos.
+- **Condición: siempre Near Mint**; el cliente **no la elige** (`HECHOS.md` fila 81, punto 1).
+- **Un porcentaje máximo** sobre mercado, a elegir entre **5 %, 10 % o 16 %** (`HECHOS.md` fila 81, punto 3). El
+  servidor solo acepta esos tres valores; nunca recibe pesos del cliente (SEC-A1, §I).
+  *(SUPUESTO: la pantalla preselecciona **10 %**; el cliente puede cambiarlo.)*
+- **Cantidad: una pieza** por deseo. *(SUPUESTO: nadie pidió «quiero 3 copias».)*
+- **Solo cuentas.** Un invitado ve el botón y se le invita a entrar o crear cuenta (el dueño dijo «cada cuenta»).
+- **Tope por cuenta: 20 deseos** — decidido (`HECHOS.md` 2026-10-07, «P-WSH-1 aclarada y P-WSH-4 cerrada»: «de
+  acuerdo 20 por cuenta»). Al llegar al tope, el botón explica que hay que quitar uno. *(SUPUESTO: el 20 es un dial
+  del súper-admin, como los demás topes; bajarlo no borra deseos ya guardados, solo impide agregar.)*
+- **Fuera:** cartas **gradeadas** (el deseo es de una carta NM sin gradear) y cartas en **español, japonés o con sello
+  de torneo** — esos productos salen **después** de cobrar en real (`HECHOS.md` fila 77, 2026-10-06, «CAMBIO de
+  alcance: se sale en vivo SIN español ni sellos…»). *(SUPUESTO: al llegar §IDS se decide si un deseo puede pedir
+  idioma.)*
+- **Sellados:** no entran en la lista de deseos; tienen su propio «avísame», que se enciende (ver WSH.7).
+
+#### WSH.2 Dónde se agrega y se quita
+
+- **En la ficha de la carta:** botón «Agregar a mi lista de deseos» con selector de acabado y de porcentaje. Si ya la
+  tiene en la lista con ese acabado, el botón dice que ya está y permite **cambiar el porcentaje** o **quitarla**.
+- **En «Mi cuenta» → «Mi lista de deseos»:** la lista con, por cada deseo: carta, set y número, acabado, porcentaje,
+  **«tu máximo de hoy»** en pesos (ver WSH.3), si **hay piezas a la venta ahora mismo** (con enlace a la ficha), y la
+  fecha del último aviso que se le mandó. Desde ahí puede **cambiar el porcentaje** y **quitar**.
+- **Se quita sola** cuando esa cuenta **paga** una pieza de esa misma carta y acabado. *(SUPUESTO: evita que le sigan
+  llegando avisos de algo que ya compró.)*
+- Si la cuenta se borra o se anonimiza (§LEG.1), su lista se borra.
+
+#### WSH.3 Cómo el porcentaje se vuelve un precio máximo
+
+- **Qué es el máximo (decidido):** **una señal de compra para el dueño, no un precio.** El cliente dice «pagaría
+  hasta tanto» para que el dueño sepa hasta dónde puede estirarse al buscar la carta; la pieza que llegue **sale a su
+  precio normal** de la curva de §N, igual que para cualquiera. No hay precio especial por cliente ni por pieza
+  (`HECHOS.md` 2026-10-07, «P-WSH-1 aclarada…»: «imagínatelo operativo: yo voy a ir buscando la carta pero puede que
+  no la encuentre por menos de mercado»).
+- **Fórmula:** máximo = **precio de mercado del acabado** (el mismo que alimenta la curva de §N, en pesos) × (1 + %).
+- **IVA — dial del súper-admin, default «con IVA» (decidido, `HECHOS.md` 2026-10-07, «Respuestas a P-WSH-1…6»:
+  «Con IVA pero déjame flexible por si luego es sin IVA»):**
+  - **«Con IVA» (default):** el máximo de la fórmula **ya incluye el IVA**: es lo que el cliente pagaría en total.
+    Para cuentas de margen se usa sin IVA: máximo ÷ 1.16. Ej.: mercado $1,000 al 10 % ⇒ máximo **$1,100 con IVA**
+    = $948.28 sin IVA.
+  - **«Sin IVA»:** el % se aplica antes de IVA y al cliente se le muestra ya con IVA: mercado $1,000 al 10 % ⇒
+    $1,100 sin IVA = **$1,276 con IVA**.
+  - **Al cliente siempre se le muestra el máximo con IVA dentro** (como todo precio de la tienda, §Q), con la
+    leyenda «IVA incluido».
+  - Mover el dial **cambia de inmediato** el máximo en pesos de **todas** las listas (el cliente eligió un %, no
+    pesos). No cobra nada a nadie. *(SUPUESTO: no se avisa a los clientes del cambio; la pantalla simplemente
+    muestra la cifra nueva.)* Queda registrado en la bitácora de cambios de diales como cualquier dial.
+  - Con IVA 16 % y traslación 100 % (§Q.0). Si el dial `iva_pct` cambia, la cuenta usa el vigente.
+- **Se calcula al AVISAR, no al guardar.** El mercado cambia todos los días; el máximo que cuenta es el del **día en
+  que entra la pieza**. En «Mi cuenta» se muestra el máximo **de hoy**, marcado como aproximado («se recalcula con el
+  mercado del día en que la consigamos»).
+- **Sin precio de mercado** (la variante está en «precio pendiente», §N.2) **no hay máximo**: no se calcula ni se
+  inventa; la carta sigue en la lista y se muestra «sin precio de mercado por ahora».
+- **El máximo es solo intención (decidido, `HECHOS.md` 2026-10-07, «Respuestas a P-WSH-1…6»: «No se
+  compromete»):** **no aparta**, no cobra, no pide tarjeta ni depósito, y el cliente puede quitarla cuando quiera.
+  Junto al selector se lee que no es un compromiso y que la carta saldrá a su precio normal.
+
+#### WSH.4 El aviso por correo («ya la tenemos»)
+
+- **Cuándo:** cuando una pieza de esa carta, ese acabado y **Near Mint** queda **a la venta en la tienda** (con precio
+  publicado, no «precio pendiente»), venga de captura de inventario o del buylist.
+- **A quién (decidido):** a **todas** las cuentas que la tienen en su lista, **quepa o no** el precio en su máximo
+  (`HECHOS.md` 2026-10-07, «Respuestas a P-WSH-1…6»: «ya avisamos a todos»). El correo dice el precio y **si cabe o
+  no** en su máximo. Solo a cuentas con **correo verificado**. *(SUPUESTO.)* En el idioma de la cuenta.
+- **⚠️ Lo que la cuenta dice hoy (para que el dueño lo vea con números — es la pregunta P-WSH-8).** Con los diales
+  iniciales de la curva (§N.2: markup **1.60×** hasta $25 de mercado, baja a **1.15×** desde $80, redondeo hacia
+  arriba) y el máximo **con IVA** (el default decidido), **el precio normal no le cabe a nadie, en ninguna carta**:
+
+  | Mercado | Precio normal **con IVA** | Máx. 5 % | Máx. 10 % | Máx. 16 % | ¿A quién le cabe? |
+  |---|---|---|---|---|---|
+  | $100 | $133.40 | $105 | $110 | $116 | **a nadie** |
+  | $1,000 | $1,334 | $1,050 | $1,100 | $1,160 | **a nadie** |
+
+  Con el dial en **sin IVA**, el máximo con IVA del 16 % sería $1,345.60 para la carta de $1,000 ⇒ **le cabe solo a
+  quien eligió 16 %** (y no siempre, por el redondeo). La razón: el markup más bajo de la curva (15 %) más el IVA
+  (16 %) suman ~33 % sobre mercado, y el máximo más alto que el cliente puede elegir es 16 %. *(Cálculo sobre los
+  diales iniciales documentados en §N.2; **NO MEDIDO** contra los diales vivos de producción — lo cierra leer M2 en
+  producción.)* Consecuencia práctica con el default: el correo dirá casi siempre «está arriba de tu máximo», y en la
+  lista de compra la columna «cuántos pagan tu precio normal» saldrá en cero. No es un defecto: es lo que dicen los
+  diales; qué hacer con ello es **P-WSH-8**.
+- **Una vez por pieza y por cuenta.** Si esa pieza se aparta en un carrito y vuelve a estar libre, **no** se repite.
+  Si llega **otra** pieza de la misma carta, sí hay aviso nuevo.
+- **Sin spam:** varias coincidencias cercanas en el tiempo (p. ej. el dueño captura 200 cartas de golpe) van en **un
+  solo correo**; y **tope de 3 correos por cuenta al día**. Lo que pase del tope va junto en un correo al día
+  siguiente, **si la pieza sigue a la venta**. *(SUPUESTO: «3 al día» y la ventana de agrupado son diales de M10; la
+  ventana la fija el arquitecto.)*
+- **Si el cliente agrega una carta que ya está a la venta**, no se le manda correo por esa pieza (ya la está viendo).
+- **Qué dice el correo** (redacción final de ux-ui, español e inglés): la carta, su acabado y foto; el precio con IVA
+  dentro; su máximo de ese día con IVA dentro; **si el precio cabe o no en su máximo** (dicho en llano, sin
+  presionar); **enlace a la ficha**; la frase clara **«no te la apartamos: si varias personas la
+  esperan, se la lleva quien pague primero»**; un enlace **«quitar esta carta de mi lista»** y otro **«dejar de
+  recibir estos avisos»**; y el pie con el enlace al aviso de privacidad (criterio 507).
+- **Dos personas esperan la misma carta:** **todas** reciben el aviso al mismo tiempo; **no** hay turno ni apartado;
+  **el primero que paga se la lleva** (el carrito y el pago funcionan como hoy). A los demás no se les manda «ya se
+  vendió»; su deseo sigue activo para la próxima pieza. *(SUPUESTO.)*
+- **No va en la campana** (§R): no es algo que el cliente tenga que hacer. Es solo correo.
+
+#### WSH.5 ¿Este correo pide consentimiento o enlace para darse de baja?
+
+- **Consentimiento:** el cliente lo **pide él mismo** al agregar la carta (junto al botón se lee «te avisaremos por
+  correo cuando la consigamos»). Es la misma lógica del «avísame» de sellados, que **ya es opt-in** (fuera de alcance
+  de §R). No hace falta una casilla aparte. *(SUPUESTO; lo confirma el abogado.)*
+- **Enlace para dejar de recibir: SÍ, obligatorio en cada correo.** Aunque lo haya pedido, es un correo **sobre
+  productos a la venta**, y debe poder pararlo **sin entrar a su cuenta**: «quitar esta carta» y «dejar de recibir
+  avisos de mi lista» (este segundo **pausa los correos** pero conserva la lista, y se reactiva en «Mi cuenta»).
+  ⚠️ Esto **no** abre el centro de preferencias que §R dejó fuera («Preferencias de aviso del cliente… nadie lo
+  pidió»): es un solo interruptor, solo de estos avisos.
+- **Aviso de privacidad:** la lista de deseos es un dato nuevo y **un uso nuevo**: la lista de compra del dueño
+  **usa lo que la gente quiere para decidir qué comprar**, que es justo el ejemplo de **P-LEG-8**. El aviso (§LEG.1
+  tabla y §LEG.2 puntos 2–4) tiene que decirlo **antes** de encender esto. **P-WSH-6 va con la recomendación**
+  (`HECHOS.md` 2026-10-07, ambas filas: «sigue con la recomendación»): el aviso lo dice como parte del servicio
+  («usamos tu lista, sin tu nombre, para decidir qué conseguir») y el dueño se lo pasa a su abogado junto con lo demás
+  de §LEG. ⛔ product-owner no da asesoría legal.
+- **Texto exacto de la línea del aviso de privacidad (P-WSH-6, con la recomendación — `HECHOS.md` fila 2026-10-07
+  «P-WSH-1 aclarada y P-WSH-4 cerrada (lista de deseos)»: «P-WSH-6 (línea del aviso de privacidad) sigue con la
+  recomendación»).** Añadido 2026-10-07 por el hallazgo I-2 de QA sobre `503cf07` (en `frontend/src/content/legal/`
+  no hay ninguna mención de la lista de deseos; medido por QA, no por product-owner). Frontend lo copia **literal**
+  como un párrafo propio en las finalidades del aviso (§LEG.2 puntos 2–4); el lugar exacto dentro del aviso lo decide
+  frontend con ux-ui. Lo revisa el abogado del dueño junto con el resto de §LEG.
+  - **es:** «**Lista de deseos.** Si agregas cartas a tu lista de deseos, guardamos qué cartas son (y en qué
+    acabado), el porcentaje sobre el precio de mercado que elegiste como máximo para cada una y el correo de tu cuenta
+    para avisarte. Lo usamos para (i) avisarte por correo cuando
+    consigamos una de esas cartas, con su precio y si cabe en tu máximo, y (ii) saber qué cartas buscar para la
+    tienda. Para esto último usamos solo totales (cuántas personas buscan cada carta y hasta cuánto pagarían), sin tu
+    nombre ni tu correo. Puedes quitar una carta o dejar de recibir estos avisos desde cualquiera de esos correos, sin
+    entrar a tu cuenta, o desde "Mi cuenta". Si borras tu cuenta, tu lista se borra.»
+  - **en:** «**Wishlist.** If you add cards to your wishlist, we store which cards they are (and in which finish),
+    the percentage over market price you chose as your maximum for each one, and your account email so we can notify
+    you. We use this to (i) email you when we get one of
+    those cards, with its price and whether it fits your maximum, and (ii) know which cards to look for for the
+    store. For the latter we only use totals (how many people want each card and up to how much they would pay),
+    without your name or email. You can remove a card or stop these notices from any of those emails, without
+    signing in, or from "My account". If you delete your account, your wishlist is deleted.»
+  - Cada afirmación del texto sale de esta sección, no se añade nada: qué se guarda (WSH.2–WSH.3, correo de la cuenta
+    por WSH.4; borrado con la cuenta, WSH.2), los dos usos (WSH.4 y WSH.6, `HECHOS.md` 2026-10-07 «P-WSH-1 aclarada…»: «señal de compra para el
+    dueño»), solo totales sin nombre ni correo (WSH.6 «Privacidad: el dueño ve CONTEOS», criterio 821) y la baja sin
+    entrar (WSH.5, criterio 814). *(SUPUESTO: «Mi cuenta» es el nombre visible de la sección de perfil; si la pantalla
+    usa otro, frontend pone ese nombre y deja el resto literal.)* **No** se promete plazo de conservación (P-LEG-11
+    sigue abierta).
+
+#### WSH.6 La vista del dueño: «Lista de compra casi segura»
+
+- **Quién la ve:** solo el **súper-admin** (lleva márgenes, y el operador no ve finanzas — «Usuarios y roles»).
+  Vive en el back-office junto a Reportes (M9). *(SUPUESTO: el lugar exacto lo decide ux-ui.)*
+- **Para qué sirve (uso operativo, `HECHOS.md` 2026-10-07, «P-WSH-1 aclarada…»):** el dueño sale a buscar cartas
+  (tiendas, eventos, vendedores). Con la lista en la mano —en pantalla o exportada— sabe, por carta: **cuántos la
+  buscan**, **el máximo de cada uno en pesos** y **hasta cuánto puede pagar él al conseguirla y todavía ganar su
+  margen**. Es la cifra que tiene que poder leer de pie, en una mesa, sin hacer cuentas.
+- **Qué lista:** cada **carta + acabado** que al menos una cuenta desea y de la que **no hay ninguna pieza a la
+  venta** ahora mismo. *(SUPUESTO: si hay 1 pieza a la venta y 3 cuentas esperando, la carta no aparece; el dueño
+  lo pidió como lista de lo que falta.)*
+- **La regla del «hasta cuánto puedes pagar» (techo de compra) — propuesta, pregunta P-WSH-7:**
+
+  > **Techo de compra = lo que esa venta te deja sin IVA ÷ (1 + tu margen deseado)**
+  > donde «lo que te deja» = el **máximo del cliente** pasado a sin IVA, **topado en tu precio normal sin IVA**
+  > (nunca vendes arriba de tu precio normal), y **margen deseado = un dial del súper-admin, default 15 % sobre el
+  > costo**.
+
+  - **Por qué esta regla:** `HECHOS.md` fila 81 (2026-10-06, «Lista de deseos (P-WISHLIST) — reglas del dueño»),
+    punto 4, ya fija que el margen esperado se mide contra **el máximo del cliente** («margen esperado = precio
+    máximo del cliente − costo de compra»). Esta regla solo lo da vuelta: en vez de «cuánto gano si pago X», dice
+    «cuánto puedo pagar para ganar lo que quiero». El 15 % sale de la frase del dueño «las cartas más caras que
+    estarán con nuestro margen de 15%» (`HECHOS.md` 2026-10-07, «Respuestas a P-WSH-1…6»), que coincide con el
+    markup más bajo de la curva (§N.2, 1.15× desde $80). **Ese 15 % como margen deseado NO está confirmado en
+    HECHOS** — por eso es pregunta.
+  - **«Sobre el costo»** = la ganancia es 15 % de lo que pagaste (pagas $100, ganas $15). Es la misma forma en que
+    habla la curva (1.15×). La alternativa «15 % sobre la venta» da techos más bajos (ver P-WSH-7).
+  - **Fuera del techo** *(SUPUESTO)*: la guía de envío de entrada y la comisión de cobro no se restan aquí; el P&L
+    las sigue restando como siempre (`HECHOS.md` fila Q-BSD-1). El techo es «cuánto puedes ofrecer por la carta».
+  - **El IVA cambia la cuenta** (dial de WSH.3). Carta de **mercado $1,000**, precio normal $1,150 sin IVA, margen
+    15 % sobre costo *(diales iniciales de §N.2; NO MEDIDO contra producción)*:
+
+    | Nivel | Máximo del cliente (lo que ve, con IVA) | Te deja sin IVA | **Puedes pagar hasta** — dial «con IVA» (default) | Puedes pagar hasta — dial «sin IVA» |
+    |---|---|---|---|---|
+    | 5 % | $1,050 (con IVA) / $1,218 (sin IVA) | $905.17 / $1,050 | **$787.11** (21 % bajo mercado) | $913.04 (9 % bajo mercado) |
+    | 10 % | $1,100 / $1,276 | $948.28 / $1,100 | **$824.59** (18 % bajo) | $956.52 (4 % bajo) |
+    | 16 % | $1,160 / $1,345.60 | $1,000 / $1,150 (topado) | **$869.57** (13 % bajo) | $1,000 (= mercado) |
+
+    En llano: **con el máximo leído con IVA, para ganar 15 % tienes que conseguir la carta entre 13 % y 21 % abajo de
+    mercado.** Con el dial en sin IVA, el cliente del 16 % te deja comprar a mercado. Esto es lo que el dueño anticipó
+    («puede que no la encuentre por menos de mercado»), y la lista se lo dice carta por carta.
+- **Columnas** (pesos; **todo lo que es margen o techo, sin IVA** — el IVA no es tuyo; los máximos de los clientes se
+  muestran **como los ve el cliente, con IVA**, con la leyenda):
+  1. Carta, set, número, acabado.
+  2. **Cuántos la buscan** (total).
+  3. **Máximo de cada uno, en pesos:** desglosado por nivel — p. ej. «16 %: 2 cuentas · $1,160» / «10 %: 3 cuentas ·
+     $1,100» / «5 %: 1 cuenta · $1,050». Como el máximo solo depende del nivel y del mercado del día, esto **es** el
+     máximo de cada cliente, sin decir quién es.
+  4. **Hasta cuánto puedes pagar, por nivel** (la regla de arriba), en la misma fila de cada nivel.
+  5. **Techo principal** = el del nivel más alto con al menos una cuenta: «paga hasta $869.57 y tienes al menos 1
+     cliente que dijo que la quería a ese precio o más». Es la cifra grande de la fila.
+  6. **Precio de mercado hoy** y **tu precio normal hoy** (sin IVA y con IVA).
+  7. **Cuántos pagan tu precio normal** (su máximo ≥ tu precio normal con IVA). Estas son las ventas **«casi
+     seguras»**. Con los diales iniciales y el dial «con IVA», esta columna sale en **0** (WSH.4) — ver P-WSH-8.
+  8. **Margen si la compras a mercado** = (lo que te deja el nivel más alto − mercado), en pesos y en %; puede salir
+     **negativo** y se muestra así, en rojo, sin esconderlo (`HECHOS.md` fila 81, punto 4).
+  9. **Lo que el buylist pagaría hoy** por ella (curva de compra de §N), para comparar con el techo: si el buylist ya
+     paga menos que el techo, la carta te puede llegar sola.
+- **Orden por defecto:** primero **más cuentas buscándola**, luego **techo principal más alto** (cartas donde más
+  dinero cabe), luego margen a mercado. Se puede ordenar por cualquier columna. *(SUPUESTO: se cambió del borrador,
+  que ordenaba por «cuántos pagan tu precio normal», porque con los diales actuales esa columna es 0 en todas.)*
+- **Sin precio de mercado:** la fila aparece al final con «sin precio de mercado», con el conteo, y **sin máximos,
+  techos ni márgenes** (no se inventan).
+- **Exportable** a archivo, con las mismas filas y cifras, para llevarla impresa o en el teléfono. *(SUPUESTO: el
+  formato y si cabe en una hoja lo decide ux-ui.)*
+- **El margen deseado es un dial** del súper-admin (default 15 %, sujeto a P-WSH-7); cambiarlo recalcula la lista al
+  momento y queda en la bitácora de diales.
+- **Privacidad: el dueño ve CONTEOS, no quién.** Ni correo ni nombre en pantalla ni en el archivo. Motivo: para
+  decidir qué comprar basta el conteo, y así la lista no es un dato personal que se pueda filtrar. *(Si algún día
+  quiere escribirle a alguien en particular, es alcance nuevo y toca el aviso de privacidad.)*
+
+#### WSH.7 Cómo convive con el «avísame cuando vuelva» de sellados
+
+- Son **dos cosas distintas**: el «avísame» es de **sellados** que **se agotaron**; la lista de deseos es de
+  **cartas sueltas**, incluso de las que la tienda **nunca ha tenido**. Las reglas de `HECHOS.md` fila 81 (Near Mint,
+  acabado, % sobre mercado) son de carta y **no** se le aplican al sellado.
+- **Decidido: se enciende** (`HECHOS.md` 2026-10-07, «Respuestas a P-WSH-1…6»: «Sí enciende el avísame cuando
+  vuelva»).
+- **Qué existe hoy — medido por product-owner el 2026-10-07 en `claude/wishlist` (HEAD `abb435d3`):**
+  - Dial `sealed_restock_alerts`, sembrado en **`off`** (`backend/src/modules/settings/settings.constants.ts:173`
+    y `:464`); el súper-admin lo puede mover en M11 (`frontend/src/app/[locale]/(admin)/admin/m11/sections/SealedDialsPanel.tsx:161`).
+  - Con el dial en `on`, la ficha del sellado muestra el formulario
+    (`frontend/src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedDetailView.tsx:238`) y el servidor guarda
+    la suscripción (`backend/src/modules/catalog/sealed-catalog.service.ts:464` y `:505`). El formulario pide **un
+    correo**: lo puede usar un **invitado** (`catalog.controller.ts:116` `@Public()`, límite 5 por minuto en `:118`),
+    sin verificar ese correo, y no evita que el mismo correo se apunte dos veces al mismo producto (`:505` crea sin
+    buscar duplicado).
+  - El correo existe (`backend/src/modules/catalog/sealed-restock-notify.service.ts:113`), avisa **una sola vez** por
+    suscripción (`:97`, marca `notifiedAt`), y **no lleva enlace** a la ficha ni enlace para darse de baja (`:111`
+    «Sin CTA»).
+  - ⚠️ **El envío NO es automático.** El trabajo que empareja y manda los correos **no está agendado**: solo corre si
+    alguien llama a mano `POST /admin/jobs/sealed-restock-notify` (`sealed-restock-notify.service.ts:28-29`;
+    `backend/src/jobs/admin-jobs.controller.ts:389`; `grep restock` en `backend/src/jobs/scheduler.service.ts` = 0).
+    **No hay botón** para eso en el admin (`grep sealed-restock-notify` en `frontend/src` = 0). Es decir: **mover el
+    dial a `on` hoy hace que los clientes se apunten, pero nadie recibe nunca el correo.** El criterio 64 («activarlos
+    no requiere nuevo desarrollo») **no se sostiene** para el «avísame»: falta cerrar el ciclo.
+- **Qué significa «encenderlo» en esta sección** *(SUPUESTO: el dueño pidió que funcione, no solo que se vea; O-4)*:
+  1. El dial pasa a `on` en el mismo despliegue que la lista de deseos.
+  2. El envío corre **solo**, sin que nadie apriete nada, con la misma ventana de agrupado que WSH.4 (el arquitecto
+     decide la frecuencia).
+  3. El correo lleva **enlace a la ficha** del sellado.
+  4. Un correo apuntado **dos veces** al mismo producto recibe **un** solo aviso.
+  - Lo demás **se queda como está**: sigue aceptando invitados por correo (así se construyó y nadie pidió cambiarlo),
+    sigue siendo un aviso de una sola vez (no hace falta enlace de baja: no se repite), y no entra en el tope de 20 ni
+    en la lista de compra (ver P-WSH-9).
+  - ⚠️ Para pentester/seguridad (no lo decide product-owner): un invitado puede apuntar el correo de otra persona sin
+    verificarlo. El daño medido es **un** correo por producto, con límite de 5 por minuto; queda como bandera.
+
+#### WSH.8 Dependencias
+
+- **P-ANALYTICS-NEGOCIO** (otra rama): sus «sugerencias de recompra» pueden **leer** el conteo de deseos de esta
+  sección. Aquí **no** se diseña: solo se deja dicho que el conteo por carta + acabado es el dato que compartirían.
+- **P-DB-LIMPIEZA:** la lista nace vacía; no hay datos de prueba que limpiar de ella.
+- **§LEG / P-LEG-8:** el aviso de privacidad tiene que cubrir este uso antes de encenderlo (WSH.5).
+
+#### WSH.9 Fuera de alcance de §WSH
+
+- Apartar, cobrar o pedir depósito por un deseo (decidido: «No se compromete», `HECHOS.md` 2026-10-07).
+- Turnos o prioridad entre quienes esperan la misma carta («el primero en la lista se la lleva»).
+- **Un precio especial para quien la esperaba** (precio por cliente o por pieza, o vender «a su máximo»):
+  **descartado por el dueño** (`HECHOS.md` 2026-10-07, «P-WSH-1 aclarada…»: opción A descartada). La curva de §N
+  sigue igual; la lista de deseos no la toca.
+- Que el sistema **compre** o haga ofertas por su cuenta a partir del techo: el techo es una cifra para el dueño, no
+  una orden. Tampoco registra a cuánto la consiguió el dueño fuera de la captura normal de inventario.
+- Bajar el precio de una pieza para que «quepa» en el máximo de alguien (sería precio especial).
+- Que el «avísame» de sellados use % máximo, acabado o el tope de 20; que avise más de una vez; que pida cuenta.
+- Sellados en la «lista de compra casi segura» (salvo que el dueño diga sí en P-WSH-9).
+- Deseos de cartas gradeadas, en otro idioma o con sello; cantidades mayores a una.
+- Avisos por WhatsApp, SMS o push; aviso de «ya se vendió»; aviso cuando **baja** el precio de una pieza que ya
+  estaba a la venta.
+- Que el dueño vea **quién** desea qué.
+- Listas públicas o compartibles entre clientes.
+
+### AC. Accesorios — fundas, carpetas, energías y demás, con precio final del dueño (transversal — NUEVO 2026-10-06, sesión 6 · v2 2026-10-07 con respuestas del dueño · PARA APROBAR; quedan preguntas acotadas, ver «Preguntas — accesorios»)
+
+> **Respuestas del dueño incorporadas (2026-10-07)** — fuente: `HECHOS.md` filas «**Respuestas a P-ACC-1…9
+> (accesorios, `PROJECT.md` §AC) y alcance de energías (P-ENERGIAS)**» y «**Confirmaciones de accesorios, energías
+> y paquete de energías del battle deck**» (ambas 2026-10-07, sesión 6), más la fila **P-ENERGIAS** de `PENDIENTES.md`
+> (rama `claude/wishlist`). Resumen de lo cerrado: **P-ACC-1** envío a domicilio, nunca a bóveda — **solo invitado**
+> por P-ACC-10 (a), fila posterior «"Termina wishlist y accesorios"…» (2026-10-07), que manda sobre «de invitado o de
+> cuenta»; esa fila cierra también P-ACC-3a..c y P-EN-1..7 · **P-ACC-2** sí pagan comisión · **P-ACC-3** el envío **puede cambiar** según la caja ·
+> **P-ACC-4** se sugieren quitando los que ya lleva · **P-ACC-6** las categorías están bien · **P-ACC-7** sin foto no
+> se publica · **P-ACC-9** se anota el costo unitario · **P-ACC-5 y P-ACC-8 sin respuesta explícita, van con la
+> recomendación** · **Energías** básicas (AC.9) · **Paquete de energías del Meta Battle Deck** (AC.10).
+
+> **Palabras del dueño (2026-10-06, textual):** «Quiero una pestaña adicional en comprar que sea accesorios, ahí
+> subiré penny sleeves, carpetas y demás. Yo pongo precio final y subo la foto en PNG, ¿cómo lo ves? ¿Y si tengo
+> artículos arriba lo sugieres cuando van a cerrar la compra? ¿Ves muy grande este cambio?»
+>
+> **Lo medido por el orquestador (2026-10-06, rama `claude/accesorios`, base `production`)** — no por product-owner:
+> el sellado (`SealedProduct`, `backend/prisma/schema.prisma` ~838) está **atado al catálogo de TCGplayer** (set y
+> producto de TCGplayer obligatorios), así que un accesorio **no cabe ahí sin cambiar el modelo**; el módulo de
+> archivos (`backend/src/modules/uploads/`) existe solo para la INE y guarda en **privado**; la tienda tiene
+> `/catalog`, `/sellado` y `/checkout`; **no existe hoy ningún producto que no sea carta o sellado de un set**.
+> Cómo se modela es decisión del **arquitecto**; aquí solo se fija qué tiene que pasar.
+>
+> **Decisiones del dueño que esta sección respeta y NO re-pregunta:** precio que escribe el dueño = **con IVA
+> dentro** (`HECHOS.md` fila «Precio del sellado — respuestas a P-SP-1/2/3», 2026-10-05: «yo lo voy a meter con
+> iva»); **solo el dueño pone precio** al sellado, el personal da de alta sin precio (fila «Precio del sellado
+> (responde P-SELLADO-PRECIO…)», 2026-10-05) — se propone lo mismo aquí; **modo prueba de Stripe** hasta el cierre
+> (fila 2026-09-10); **tarifa fija de envío** por pedido (criterio 9, default MX$175) — **matizada el 2026-10-07 por
+> P-ACC-3: con accesorios, el envío puede cambiar según la caja (AC.4.1)**; todo paquete **asegurado por
+> el valor del pedido** (fila «Skydropx — Carta Porte…», 2026-10-04); **procesos lo más automáticos posible**
+> (fila «REGLA GENERAL», 2026-10-04); ventas finales con sus excepciones (§B, §S.11, §V).
+
+**¿Es muy grande el cambio? (respuesta en llano para el dueño)** — Es **mediano**. No es una pantalla nueva y
+ya: es un **tipo de producto nuevo** que pasa por el carrito, el cobro, las existencias, la preparación del
+pedido y los reembolsos — es decir, **toca dinero** y lleva sus tres revisiones (QA, techlead, seguridad). Lo
+nuevo de verdad son tres cosas: (1) un producto **sin carta ni set**, (2) **fotos públicas** subidas por ti (hoy
+solo existe subir la INE, que es privada), y (3) la **sugerencia antes de pagar**. Lo demás reutiliza lo que ya
+hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», reembolsos).
+
+#### AC.1 Qué es un accesorio
+- [ ] Un **accesorio** es un artículo que la tienda vende y que **no es carta ni sellado**: no tiene set, rareza,
+      acabado, condición ni precio de mercado. Tiene:
+      - **Nombre** (obligatorio; p. ej. «Penny sleeves Ultra PRO ×100»).
+      - **Descripción corta** (opcional; hasta 500 caracteres *(SUPUESTO: tope de 500)*; texto simple, sin formato).
+      - **Categoría** (obligatoria, una de una lista fija): **Fundas / penny sleeves**, **Toploaders**, **Carpetas**,
+        **Cajas de mazo**, **Playmats**, **Otros** — aprobadas por el dueño (P-ACC-6, `HECHOS.md` 2026-10-07
+        «Respuestas a P-ACC-1…9»: «Las categorías están bien») — más **Energías** (AC.9, misma fila: «categoría
+        "Energías" dentro de Accesorios»). La lista es fija en la v1; agregar una categoría es un cambio pequeño de
+        producto, no un dial.
+      - **Medidas y peso** (para elegir la caja del envío, AC.4.1).
+      - **Costo por unidad** (lo que le costó al dueño; AC.6). Confirmado (P-ACC-9).
+      - **Precio final con IVA dentro** que escribe el dueño, en pesos con centavos — **es lo que ve el cliente en la
+        vitrina**, igual que el precio del sellado (`HECHOS.md` 2026-10-05). **No hay precio automático**: no existe
+        mercado de referencia; sin precio, el accesorio **no se puede activar**.
+      - **Existencias por cantidad** (número entero ≥ 0): «tengo 40 paquetes». No hay pieza individual con folio.
+      - **Activo / inactivo**: inactivo ⇒ no aparece en la tienda ni se sugiere, aunque tenga existencias.
+      - **Foto** (una; ver AC.2).
+      - **Sugerido** (sí/no, AC.5).
+- [ ] Para **activar** un accesorio hacen falta: nombre, categoría, precio y foto — **sin foto no se publica**
+      (P-ACC-7, `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «No publicamos si no tiene foto»). Un accesorio
+      que **no es energía** necesita además **medidas y peso** (P-ACC-3c con su recomendación, `HECHOS.md` 2026-10-07
+      «"Termina wishlist y accesorios"…»; ver AC.4.1).
+- [ ] El precio se guarda tal como lo escribe el dueño y **es lo que el cliente ve**; el IVA se calcula **dentro**
+      de ese precio para el desglose (16 %: precio ÷ 1.16 = base; la diferencia es IVA). **No se le aplica** el
+      markup de cartas, ni los spreads del sellado (§K), ni el redondeo de precios de cartas, ni el piso de MX$25.
+
+#### AC.2 La foto
+- [ ] El dueño sube la foto desde el panel. Se aceptan **PNG** (lo que pidió), y también **JPG y WebP**
+      *(SUPUESTO: aceptar los tres; es lo que sale de un celular o de la página del fabricante)*.
+- [ ] **Tamaño máximo del archivo: 10 MB** *(SUPUESTO)*. Más grande ⇒ mensaje claro («La foto pesa más de 10 MB»)
+      y no se guarda nada. Archivo que no es imagen de verdad (aunque diga «.png») ⇒ se rechaza.
+- [ ] **El sistema la acomoda solo** (regla «lo más automático posible»): la deja **cuadrada sin recortar el
+      producto** (si no es cuadrada, se rellena el fondo — blanco, o transparente si el PNG lo tiene), la reduce a un
+      tamaño de tienda *(SUPUESTO: lado máximo ~1200 px, más una miniatura para el listado)* y la guarda en un
+      formato ligero. **El dueño no tiene que editarla antes.** Se le quitan los datos ocultos de la cámara
+      (ubicación GPS, modelo del celular).
+- [ ] **La foto es PÚBLICA** (cualquiera la ve en la tienda, sin sesión) — **a diferencia de la INE**, que es
+      privada y solo ve el súper-admin (`HECHOS.md` 2026-09-11). ⛔ Las fotos de accesorios y las INE **no se
+      mezclan**: una foto de accesorio nunca queda guardada donde viven las INE ni con sus permisos, y una INE nunca
+      se vuelve pública por este camino. (Cómo se separa: arquitecto.)
+- [ ] Cambiar la foto reemplaza la anterior en la tienda.
+- [ ] Una sola foto por accesorio en la v1 (galería: fuera de alcance, AC.8).
+
+#### AC.3 La pestaña «Accesorios» en la tienda
+- [ ] En el menú **Comprar** aparece **«Accesorios»** (en: «Accessories») junto a las cartas y el sellado. Funciona
+      **sin cuenta** (como el resto de la tienda) y en celular.
+- [ ] **Listado**: tarjeta con foto, nombre, categoría y precio (con IVA, como toda la tienda, §Q). Filtro por
+      **categoría** y búsqueda por **nombre**. Orden por defecto *(SUPUESTO)*: primero los que tienen existencias,
+      luego por categoría y nombre.
+- [ ] **Ficha**: foto grande, nombre, categoría, descripción, precio, selector de **cantidad** (de 1 al máximo
+      disponible) y «Agregar al carrito».
+- [ ] **Agotado** (existencias 0 y activo): sigue visible con la etiqueta **«Agotado»**, al final del listado, y
+      **no se puede agregar** al carrito. Si el dueño lo quiere esconder, lo desactiva. *(P-ACC-5: **sin respuesta
+      explícita, va con la recomendación** — `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9».)*
+- [ ] Cuántas unidades quedan: **no se muestra el número exacto** *(SUPUESTO)*; solo «Agotado» o disponible. Si el
+      cliente pide más de lo que hay, se le dice «Solo hay N disponibles» y se ajusta.
+- [ ] Los accesorios **no aparecen** en el catálogo de cartas, ni en la búsqueda de cartas, ni en el cotizador de
+      venta (buylist), ni en bóveda/portafolio. La tienda **no compra** accesorios a clientes.
+
+#### AC.4 Carrito, pago, existencias, envío y reembolsos (💰 zona de dinero)
+- [ ] **Mismo carrito y mismo pedido**: un cliente puede comprar cartas, sellado y accesorios **en un solo pedido y
+      un solo cobro de Stripe**. También se puede comprar **solo** accesorios.
+- [ ] **El precio lo pone el servidor**, nunca lo que mande el navegador (misma protección que el resto, SEC-A1). Y
+      se cobra **el precio que el cliente vio** (`HECHOS.md` 2026-10-04 «Portada: se cobra el precio que el cliente
+      VIO»): si el dueño cambia el precio mientras alguien tiene el accesorio en el carrito, se aplica la misma regla
+      que el arquitecto definió para las cartas.
+- [ ] **Comisión de plataforma y IVA**: el accesorio entra al total igual que una carta o un sellado — su precio ya
+      trae el IVA (el checkout lo **informa**, no lo suma, §B/§Q) y la **comisión de plataforma se suma aparte**,
+      igual que al resto de la tienda (P-ACC-2, `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «Sí los accesorios
+      pagan comisión de plataforma»; y fila «Confirmaciones de accesorios…»: «El precio ya trae IVA … la comisión de
+      plataforma va aparte»). Vale igual para energías (MX$5) y el paquete de energías (MX$20). El IVA del accesorio
+      cuenta en el IVA del pedido (`Order.ivaCents`) y sale en el exporte de IVA para la factura manual.
+- [ ] **Existencias apartadas como el resto**: al ir a pagar, las unidades quedan **apartadas** para ese pedido y
+      nadie más puede comprarlas; si el pago falla o el cliente no paga a tiempo, **vuelven solas** a existencias
+      (misma regla y mismo plazo que las cartas). Dos clientes **nunca** pueden comprar la misma última unidad: el
+      segundo recibe «Ya no hay suficientes» antes de cobrarle.
+- [ ] **Al pagarse**, las existencias bajan en la cantidad vendida.
+- [ ] **Destino — solo la compra de invitado con envío a domicilio** (P-ACC-1 y **P-ACC-10 cerradas**). Manda
+      `HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…», que sustituye en esto a la fila anterior
+      «Confirmaciones de accesorios…» («de invitado o de cuenta»): «**P-ACC-10:** opción (a): **accesorios y energías
+      solo en la compra de invitado con envío a domicilio**. Hoy el cliente con cuenta solo compra a bóveda
+      (`guest-checkout.dto.ts:130`) … El envío a domicilio para cuentas es un proyecto aparte, no se hace aquí».
+      - Un pedido con destino **bóveda** **no puede** llevar accesorios ni energías. El servidor lo rechaza aunque el
+        navegador lo intente (no basta con esconder el botón).
+      - Un pedido de **invitado** (§J) con **envío a domicilio** sí puede.
+      - Un cliente **con sesión abierta** **no puede** pagar accesorios, energías ni el paquete de energías: el
+        checkout con cuenta los **rechaza en el servidor** (no los ignora en silencio). Qué ve ese cliente en la
+        pestaña y en el carrito: pregunta **P-AC-1** del contrato (`docs/API_CONTRACT.md` §AC.16), abierta al dueño
+        con recomendación; no se decide aquí.
+      - Qué pasa si el carrito tiene accesorios y el cliente elige bóveda (o acepta el upsell de bóveda del invitado,
+        `CheckoutView.tsx:73-75`, que re-cotiza **sin envío**): **P-ACC-11**.
+- [ ] **Envío**: ver **AC.4.1** (el cobro puede cambiar según la caja). El valor de los accesorios y energías **sí
+      cuenta** para el seguro del paquete (se asegura por el valor del pedido, `HECHOS.md` 2026-10-04 «Skydropx —
+      Carta Porte…»).
+      ⚠️ **Para el arquitecto — NO MEDIDO:** la Carta Porte de las guías declara hoy el código SAT **49101600
+      «Coleccionables»** (misma fila), pensado para cartas. Fundas, carpetas o playmats probablemente no son
+      «coleccionables». Falta medir si Skydropx acepta más de un concepto por guía y qué código corresponde; no se
+      pregunta al dueño hasta tener esa medición (regla O-6).
+- [ ] **«Pedidos por preparar» (§S)**: los accesorios del pedido aparecen como **renglones propios** con nombre,
+      foto pequeña y **cantidad** («Penny sleeves ×3»), y se palomean como las cartas (sin cajón ni folio).
+- [ ] **Falta o llega dañado** (§S.10, `HECHOS.md` 2026-09-29): el operador o el dueño puede **reembolsar solo ese
+      accesorio, por unidad** («faltó 1 de 3»): se reembolsa lo pagado por esas unidades con su parte de la comisión
+      (misma regla D-1 que la carta faltante) y cuenta para el tope del operador en 24 h. El pedido sigue con lo demás.
+- [ ] **Reembolso total del pedido**: misma regla que las cartas (`HECHOS.md` 2026-10-02 y 2026-10-04, SSL-R1):
+      **no enviado** ⇒ las unidades **vuelven solas a existencias**; **enviado** ⇒ **no vuelven** y el motivo es «no
+      llegó» / «llegó en mala condición».
+- [ ] **Reembolso de un accesorio de un pedido entregado** (§V.2): se puede, igual que una carta.
+- [ ] **Ventas finales** (§B): aplica también a accesorios — sin devolución por cambio de opinión, con las mismas
+      excepciones.
+- [ ] Contracargo del banco: igual que hoy para el pedido; no cambia nada de existencias por sí solo *(SUPUESTO)*.
+- [ ] Invitado (§J): puede comprar accesorios (siempre van a envío).
+
+#### AC.4.1 La caja decide el envío (💰 — requisito de negocio; el mecanismo es del arquitecto)
+> Fuente: P-ACC-3, `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «Sí podrían cambiar el envío, hay que calcular la
+> caja que sería para eso» → «el envío **puede cambiar**: hay que calcular la caja según lo que lleva el pedido
+> (mecanismo: arquitecto)». Hoy el envío al cliente es una **tarifa fija por pedido** (criterio 9, default MX$175).
+> **P-ACC-3a, 3b y 3c cerradas** por `HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»: «el dueño
+> **registra sus cajas en el panel** (medidas y una **tarifa fija por caja**). El sistema elige la caja más chica donde
+> cabe el pedido; si no cabe en ninguna, cobra la más grande y quien prepara lo resuelve. Sin medidas inventadas: el
+> catálogo de cajas empieza vacío y lo llena el dueño».
+- [ ] **Cada accesorio que no es energía tiene medidas y peso**: largo × ancho × alto (cm) y peso (g) del artículo
+      empacado como se vende. Los captura quien da de alta el accesorio, y **son obligatorios para activarlo** (sin
+      ellos no se puede elegir caja) — recomendación de P-ACC-3c, adoptada por la misma fila («se construyen con las
+      recomendaciones del orquestador para lo que quedaba abierto»).
+- [ ] **El dueño registra sus cajas en el panel**: nombre (p. ej. «Caja chica», «Caja playmat»), medidas interiores y
+      una **tarifa fija por caja** que es lo que se cobra al cliente (P-ACC-3b (a)). **El catálogo de cajas empieza
+      vacío** y lo llena el dueño; no se inventan medidas ni cajas (P-ACC-3a). Sin cajas registradas, todo pedido cobra
+      la tarifa fija de hoy (criterio 9).
+- [ ] **El sistema elige la caja solo** (regla «lo más automático posible», `HECHOS.md` 2026-10-04 «REGLA GENERAL»):
+      elige **la caja más chica en la que cabe el pedido**. Cómo calcula «cabe» lo decide el arquitecto.
+      **Qué cuenta para la caja: solo los accesorios que no son energía**; cartas, sellado, energías sueltas y paquetes
+      de energías **no** cuentan, porque el sistema no tiene sus medidas y no se inventan. ⏳ **Pendiente de confirmar
+      por el dueño: P-AC-5** (`docs/API_CONTRACT.md` §AC.16); esta es la recomendación del contrato y se construye así
+      si no contesta.
+- [ ] **Si no cabe en ninguna caja** (P-ACC-3c): se cobra **la más grande** y quien prepara lo resuelve (dos paquetes o
+      una caja especial) **sin cobrar más al cliente**.
+- [ ] **El cobro de envío al cliente sale de la caja elegida** y el cliente lo **ve antes de pagar**, en carrito y
+      checkout; **se cobra lo que vio**, centavo a centavo (misma regla que el precio, `HECHOS.md` 2026-10-04
+      «Portada: se cobra el precio que el cliente VIO»). Si el cliente agrega o quita algo y cambia la caja, el envío
+      mostrado se actualiza antes de pagar.
+- [ ] **Cuánto se cobra con caja: lo mayor entre la tarifa fija de hoy (criterio 9) y la tarifa de la caja elegida**
+      — agregar un accesorio nunca baja el envío respecto de un pedido solo de cartas. ⏳ **Pendiente de confirmar por
+      el dueño: P-AC-2** (`docs/API_CONTRACT.md` §AC.16); esta es la recomendación del contrato y se construye así si
+      no contesta.
+- [ ] **Pedido sin accesorios (que no sean energía): igual que hoy.** Cobra la tarifa fija de siempre (criterio 9), al
+      centavo; no se elige caja.
+- [ ] **Quien prepara ve la caja elegida** en «Pedidos por preparar» / «Capturar guía». Puede usar otra caja si en la
+      mano no cabe; eso **no cambia** lo ya cobrado al cliente (la diferencia es costo del dueño — consecuencia de «quien
+      prepara lo resuelve», misma fila).
+
+#### AC.5 Sugerencia antes de pagar: «¿Te falta algo?»
+- [ ] En el **carrito** (antes de ir a pagar) *(SUPUESTO: en el carrito y no en la página de pago de Stripe, que no
+      es nuestra)* aparece un recuadro **«¿Te falta algo?»** con **hasta 3** accesorios *(SUPUESTO: N = 3, dial
+      que el dueño puede cambiar)*, cada uno con foto, nombre, precio y un botón **«Agregar»** (agrega 1 unidad sin
+      salir del carrito).
+- [ ] **Regla de qué se sugiere** (automática, sin trabajo del dueño):
+      1. Solo accesorios **activos y con existencias**.
+      2. **Nunca** uno que ya está en el carrito.
+      3. Primero los que el dueño marcó **«Sugerido»**; si faltan para llegar a 3, se completan con **los más
+         vendidos de los últimos 30 días**; si aún faltan, los demás activos con existencias.
+      4. Si no hay ninguno que cumpla, **el recuadro no aparece** (sin recuadro vacío).
+- [ ] **No molestar**: el recuadro es discreto, **no es ventana emergente**, no bloquea el botón de pagar y tiene
+      «No, gracias» que lo oculta **para esa visita al carrito** *(SUPUESTO)*.
+- [ ] **A quien ya lleva accesorios se le sigue sugiriendo, quitando los que ya lleva** (regla 2) — P-ACC-4,
+      `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «Sí sugerimos quitando los que ya lleva».
+- [ ] La sugerencia es para la **compra de invitado con envío a domicilio** (AC.4; P-ACC-10 (a), `HECHOS.md`
+      2026-10-07 «**"Termina wishlist y accesorios"**…»). Cómo se comporta si el cliente acaba eligiendo bóveda:
+      **P-ACC-11**. Con sesión abierta, lo que ve el cliente es **P-AC-1** (`docs/API_CONTRACT.md` §AC.16).
+- [ ] **Las energías nunca entran en «¿Te falta algo?»** — ni solas por «más vendidas» ni marcadas por el dueño;
+      una energía **no se puede marcar «Sugerido»**. Se ofrecen en los decks (AC.10) y en Accesorios → Energías.
+      Fuente: P-EN-2 cerrada, `HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»: «las energías **no**
+      entran en "¿Te falta algo?"; se ofrecen en los decks».
+- [ ] Al agregar desde la sugerencia, el accesorio entra al carrito con el mismo precio y las mismas reglas que
+      desde la ficha.
+
+#### AC.6 Panel (admin): alta, edición, foto y existencias
+- [ ] Sección **«Accesorios»** en el panel *(dónde vive en el menú: ux-ui, sin mover el resto del menú — `HECHOS.md`
+      2026-10-02)*: lista con foto, nombre, categoría, precio, existencias, activo y sugerido; filtro por categoría y
+      por «agotados».
+- [ ] **Alta y edición** de todos los campos de AC.1, con su foto.
+- [ ] **Quién hace qué** *(por analogía con el sellado, `HECHOS.md` 2026-10-05; P-ACC-8 **sin respuesta explícita,
+      va con la recomendación** — `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»)*:
+      - **Solo el dueño** (súper-admin) pone o cambia el **precio**, **activa/desactiva** y marca **«Sugerido»**.
+      - El **personal** (operador) puede dar de alta un accesorio **sin precio** (queda inactivo), subir/cambiar la
+        foto, capturar **medidas y peso** y **ajustar existencias**.
+      - **Solo el dueño** da de alta o cambia las **cajas** de AC.4.1 y lo que se cobra por cada una *(SUPUESTO: es
+        dinero que se cobra al cliente, como el precio)*.
+- [ ] **Existencias**: se ajustan con **«Entraron N»** (llegó mercancía) y **«Ajuste»** (conteo físico, merma) con
+      **motivo** obligatorio en el ajuste; cada cambio queda registrado con **quién, cuándo, antes y después**. Las
+      ventas, apartados y devoluciones a existencias de AC.4 los mueve **el sistema solo**, no a mano.
+- [ ] Cambiar el precio **no afecta** pedidos ya pagados.
+- [ ] **No se borra** un accesorio que ya se vendió alguna vez (para no romper pedidos ni reportes): se
+      **desactiva**. Uno que nunca se vendió sí se puede borrar *(SUPUESTO)*.
+- [ ] Todo cambio de precio, activación, existencias y foto queda en la **bitácora de auditoría**.
+- [ ] **Inventario y reportes**: los accesorios aparecen en el inventario del panel como **su propia pestaña o
+      filtro** (no mezclados con cartas por folio) y en el **detalle de Ventas** de cada pedido como renglones con
+      cantidad. En el **reporte de ganancias (P&L, M7)** entran como ingreso de venta.
+- [ ] **Dependencia, no diseño aquí:** la **analítica de ventas del dueño (§AN, rama `claude/analitica-ventas`)**
+      debe contar los accesorios como **un tipo de producto más** (ventas por tipo, más vendidos). Cuál de las dos
+      ramas entra primero y quién adapta a quién lo decide el orquestador/arquitecto; esta sección **no** redefine §AN.
+- [ ] **Costo del accesorio** (lo que te costó a ti): campo «costo por unidad», visible **solo en el panel**, para que
+      el P&L y §AN calculen margen — P-ACC-9, `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «Sí anotamos nuestro
+      costo unitario». *(SUPUESTO: **opcional**, no bloquea activar; quién lo puede ver/editar sigue la regla del
+      precio — solo el dueño.)*
+
+#### AC.7 Lo que NO cambia con §AC — se verifica por ausencia
+- [ ] Precio, publicación, catálogo y búsqueda de **cartas** y **sellado**: igual que hoy.
+- [ ] La **INE** sigue privada, con el mismo acceso (solo súper-admin) y la misma purga.
+- [ ] La regla del seguro no cambia. La tarifa de envío de un pedido **sin** accesorios no cambia (AC.4.1).
+- [ ] El buylist y el cotizador no cambian.
+- [ ] Meta Battle Decks: precios, disponibilidad y «Agregar de jalón» de **cartas** se comportan igual; lo único que
+      se añade son las energías ligadas y el paquete (AC.10).
+- [ ] Los pedidos con destino **bóveda** no cambian (no llevan accesorios ni energías).
+
+#### AC.8 Fuera de alcance de §AC (primera versión)
+- **Variantes** de color, tamaño o diseño dentro de un mismo artículo (en la v1, cada variante es un accesorio
+  aparte: «Carpeta 9 bolsillos negra», «… azul»).
+- **Combos** o paquetes (p. ej. «sellado + fundas») y **descuentos** (por cantidad, cupones, promociones, precio
+  tachado). **Única excepción:** el paquete de energías del Meta Battle Deck (AC.10), aprobado por el dueño.
+- **Energías especiales** (las que tienen set y número, p. ej. «Reversal Energy»): siguen siendo **cartas** del
+  catálogo, no accesorios. Solo las **básicas** son accesorio (`HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «solo
+  básicas (8 tipos)»).
+- Energías **por set o por arte** (una «Energía Fuego» de un set distinto a otra): no se distinguen (misma fila).
+- Energías en **paquetes de N** a la venta suelta (fuera del paquete del deck): se venden **por pieza**.
+- Paquete de energías para listas **pegadas** por el cliente o decks fuera del top del meta (P-EN-7 con la
+  recomendación del product-owner, `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»).
+- Accesorios o energías **añadidos a un retiro de bóveda** (§D): un retiro no es una compra *(SUPUESTO — P-ACC-12)*.
+- **Cotización en vivo** de la paquetería por pedido: el dueño eligió tarifa fija por caja (P-ACC-3b, `HECHOS.md`
+  2026-10-07 «"Termina wishlist y accesorios"…»).
+- **Galería** de varias fotos por accesorio; video.
+- **«Avísame cuando vuelva»** para accesorios agotados.
+- Sugerencias **inteligentes** por contenido del carrito (p. ej. «compraste una carta cara ⇒ toploader»); la v1 usa
+  la regla simple de AC.5.
+- Sugerir accesorios en **otras pantallas** (ficha de carta, correo de confirmación).
+- Accesorios en **bóveda**, en el **portafolio** o en el **buylist**.
+- **Envío a domicilio para clientes con cuenta** (y con él, accesorios con sesión abierta): «es un proyecto aparte, no
+  se hace aquí» (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…», P-ACC-10).
+- **Proveedores y órdenes de compra** a proveedores; alerta de existencias bajas *(podría ser un aviso simple
+  después; no lo pediste)*.
+- Importar accesorios desde un archivo (Excel/CSV).
+
+#### AC.9 Energías básicas — categoría «Energías» dentro de Accesorios
+> Fuente: `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9 … y alcance de energías (P-ENERGIAS)»: «**Energías:** solo
+> básicas (8 tipos), categoría "Energías" dentro de Accesorios, un producto por tipo, por pieza, sin distinguir set,
+> precio fijo del dueño: **MX$5 por energía**»; y «Confirmaciones de accesorios…»: «MX$5 por energía y MX$20 el
+> paquete **ya traen IVA**». Origen del pedido: `PENDIENTES.md` (rama `claude/wishlist`) fila **P-ENERGIAS**: «ahora
+> no hay ningún lugar para que el cliente pueda pedir energías de cierto tipo».
+- [ ] **Son accesorios** de la categoría **«Energías»**: todo lo de AC.1–AC.8 les aplica (foto obligatoria para
+      publicar, existencias por cantidad, apartado, comisión aparte, solo envío a domicilio, reembolsos por unidad,
+      bitácora, costo unitario), salvo lo que este apartado dice distinto.
+- [ ] **Un producto por tipo, 8 en total**, llamados **«Energía <tipo>»**: Planta, Fuego, Agua, Rayo, Psíquica, Lucha,
+      Oscura y Metálica — en: Grass, Fire, Water, Lightning, Psychic, Fighting, Darkness, Metal (P-EN-1 cerrada,
+      `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»: «los 8 tipos (Planta, Fuego, Agua, Rayo, Psíquica,
+      Lucha, Oscura, Metálica)»).
+- [ ] **Precios editables**: los MX$5 por energía y los MX$20 del paquete (AC.10) **se editan en el panel**, solo por
+      el dueño como cualquier precio (P-EN-6, misma fila: «MX$5 y MX$20 se editan en el panel»; quién, P-ACC-8).
+- [ ] Cada producto de energía lleva **su tipo como dato** (no solo en el nombre), para que los decks del meta lo
+      encuentren sin adivinar por texto (AC.10).
+- [ ] **Por pieza y sin distinguir set**: el cliente elige tipo y cantidad («Energía Fuego ×8»); el dueño lleva una
+      sola existencia por tipo, sin importar de qué set sean las piezas físicas.
+- [ ] **Precio: MX$5 por pieza, con IVA dentro**, lo pone el dueño como cualquier accesorio (AC.1, AC.6). No se le
+      aplica markup, spread, redondeo ni piso de cartas.
+- [ ] **No se duplican tipos**: no puede haber dos productos activos del mismo tipo de energía *(SUPUESTO: si hubiera
+      dos, un deck no sabría a cuál ligar)*.
+- [ ] En «Pedidos por preparar» salen como renglón con cantidad («Energía Fuego ×8»), igual que un accesorio.
+- [ ] ⚠️ **NO MEDIDO (para el arquitecto, de la fila P-ENERGIAS):** si el catálogo de TCGplayer importa las energías
+      básicas como cartas vendibles (`Card.supertype`, `backend/prisma/schema.prisma:880` según esa fila). Si las
+      importa, decidir que no compitan en la tienda con el producto «Energía <tipo>» es del arquitecto; aquí solo se
+      fija que **el cliente encuentra las energías básicas en Accesorios → Energías**.
+
+#### AC.10 Paquete de energías del Meta Battle Deck (💰)
+> Fuente: `HECHOS.md` 2026-10-07 «Confirmaciones de accesorios, energías y paquete de energías del battle deck» —
+> «Paquete de energías del Meta Battle Deck, **aprobado tal como lo propuso el orquestador**», con estas **seis
+> reglas**, copiadas aquí sin cambios:
+> (1) cada deck muestra sus energías básicas por tipo y cantidad, ligadas a los productos «Energía <tipo>»;
+> (2) recuadro junto a «Agregar todo» con el paquete a MX$20 y el precio suelto de referencia, con botón propio y
+> **sin venir marcado**; (3) en el carrito, una línea «Paquete de energías — <deck>», y el carrito lo sugiere una vez
+> si el deck está sin paquete; (4) el paquete solo vale con el deck en el carrito (si sale el deck, sale el paquete
+> con aviso), uno por deck, precio fijo **fuera** del descuento 5 %/3 % del deck; (5) si falta existencia de algún
+> tipo, el paquete no se ofrece y se venden sueltas a MX$5 las que haya; (6) solo con envío a domicilio.
+> Y de la fila anterior («Respuestas a P-ACC-1…9»): «si se lleva el deck, se le ofrecen **todas las que necesita por
+> MX$20 en paquete**».
+
+**Cómo es Meta Battle Decks hoy (medido por product-owner el 2026-10-07 en el worktree `claude/accesorios`, HEAD
+`05fffdff` según el encargo; leído con Read/Grep, sin Bash):**
+- Las energías básicas de una lista **se detectan pero no se venden**: el parser las marca `group='energy'`,
+  `isBasicEnergy=true`, sin set ni número (`backend/src/modules/decks-meta/deck-list.parser.ts:15-17, 96-104`); el
+  matcher las deja `unmatched_basic_energy` sin emparejar (`deck-matcher.service.ts:142-150`); y la ficha las muestra
+  «no identificada, sin carta/precio/piezas» (`decks-meta.service.ts:102`).
+- El botón que el dueño llama «Agregar todo» se llama hoy **«Agregar de jalón»** (`frontend/messages/es.json:6514`) y
+  mete al carrito **piezas sueltas por id**; el carrito **no guarda a qué deck pertenecen**
+  (`frontend/src/app/[locale]/(storefront)/decks-meta/DeckAvailability.tsx:28-38, 64-68`).
+- **El descuento de bundle 5 %/3 % NO está construido**: el diseño lo dejó fuera («No se diseña aquí; queda como
+  stream aparte», `docs/specs/DECKS_META_ARCH.md:401-404`) y no hay rastro de descuento de deck en
+  `backend/src/modules/{orders,payments,pricing}` (Grep `archetype|deckDiscount|metaDeck|decksMeta`: 0 ficheros). La
+  regla (4) «fuera del descuento 5 %/3 %» se cumple hoy trivialmente y **sigue valiendo** si ese descuento se
+  construye después.
+- **¿Está publicado `decks-meta-v1`?** En este árbol la entrada pública existe: «Meta Battle Decks (público)»
+  (`frontend/src/components/layout/StorefrontHeader.tsx:97-98`) y la ruta `(storefront)/decks-meta/`. **Si eso está
+  desplegado en `production`: NO MEDIDO** (no tengo Bash). Lo cierra: `git show
+  origin/production:frontend/src/components/layout/StorefrontHeader.tsx | grep decks-meta` más abrir `/decks-meta` en
+  la tienda. **Si el criterio 197 ya se cumplió** (§Q implementado **y publicado**; criterio 197 en «Criterios de aceptación»): **NO
+  MEDIDO**. Consecuencia para esta sección: el paquete se puede construir en rama, pero **solo sale al público donde
+  Meta Battle Decks ya está al público**; esta sección **no afloja** el criterio 197.
+
+**Requisitos:**
+- [ ] **Energías del deck ligadas (regla 1)**: en la ficha de cada deck, el grupo Energías muestra cada energía básica
+      con **tipo y cantidad** («Energía Fuego ×8») ligada al producto «Energía <tipo>» (AC.9): con su precio de
+      MX$5, si hay existencias y botón para agregarla suelta. Deja de verse como «no identificada». Si el tipo no se
+      puede reconocer, o no existe producto activo de ese tipo, se sigue mostrando como hoy.
+- [ ] **El recuadro del paquete (regla 2)**: junto al botón de agregar todo («Agregar de jalón») aparece un recuadro
+      con: «Paquete de energías — <N> energías por **MX$20**», el **precio suelto de referencia** (N × MX$5) y un
+      **botón propio**. **No viene marcado** ni se agrega solo al usar «Agregar de jalón».
+- [ ] **Qué trae el paquete**: **todas** las energías básicas que pide la lista del deck, por tipo y cantidad.
+      Precio **MX$20 fijo con IVA dentro**, sin importar cuántas sean; la comisión de plataforma va aparte (AC.4).
+- [ ] **En el carrito (regla 3)**: una línea **«Paquete de energías — <nombre del deck>»** con su precio. Si el
+      carrito tiene un deck agregado **sin** su paquete, el carrito lo sugiere **una sola vez** (discreto, como AC.5,
+      no ventana emergente).
+- [ ] **Solo con su deck (regla 4)**: el paquete solo vale si su deck está en el carrito. Si el deck sale, **el
+      paquete sale también y el cliente ve un aviso** que lo dice. **«El deck está en el carrito» cuando están todas
+      las cartas que agregó «Agregar de jalón»** (P-EN-4 (a), `HECHOS.md` 2026-10-07 «"Termina wishlist y
+      accesorios"…»); el mínimo de cartas para ofrecer el paquete es **P-AC-4** del contrato, abierta. El servidor lo revisa al cobrar: un paquete sin su deck **no se cobra** a MX$20.
+- [ ] **Uno por deck** (regla 4): no se puede agregar dos veces el paquete del mismo deck; con dos decks distintos,
+      un paquete por cada uno.
+- [ ] **Fuera del descuento del deck** (regla 4): el paquete nunca entra en la base ni en el cálculo del descuento
+      5 %/3 % (hoy no construido, ver arriba).
+- [ ] **Existencias (regla 5)**: si de **algún** tipo que pide el deck no hay existencias suficientes, el paquete **no
+      se ofrece**; en su lugar se ofrecen **sueltas a MX$5** las que haya. Al ir a pagar, las energías del paquete
+      se **apartan por tipo** como cualquier accesorio (AC.4); si entre que lo agregó y paga ya no alcanzan, el
+      cliente recibe «Ya no hay suficientes» **antes** de cobrarle.
+- [ ] **Solo envío a domicilio (regla 6)**: igual que todo accesorio (AC.4).
+- [ ] **Preparación**: en «Pedidos por preparar» el paquete sale como renglón «Paquete de energías — <deck>» con su
+      **desglose por tipo y cantidad**, para que quien prepara sepa qué meter *(SUPUESTO)*.
+- [ ] **Reembolsos**: reembolso total, igual que AC.4 (no enviado ⇒ las energías vuelven a existencias). Fuera del
+      reembolso total, **el paquete se reembolsa completo (MX$20 con su parte de la comisión) solo si se devuelve el
+      deck completo**; **nunca** hay reembolso proporcional por energías sueltas del paquete. Fuente: P-EN-5 cerrada,
+      `HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»: «el paquete se reembolsa completo solo si se
+      devuelve el deck completo».
+      - Qué pasa si **al preparar** falta el paquete (o parte) y el deck sí sale: pregunta **P-AC-3** del contrato
+        (`docs/API_CONTRACT.md` §AC.16), **abierta al dueño**, con la recomendación del arquitecto (marcarlo faltante
+        entero y reembolsar los MX$20 aunque salga el deck; si falta solo una parte, completarla del estante). No se
+        decide aquí.
+- [ ] **Cuándo no conviene el paquete**: un deck con pocas energías (N × MX$5 ≤ MX$20) haría el paquete más caro que
+      sueltas: en ese caso **no se muestra el paquete, solo las sueltas** (P-EN-3 con la recomendación del
+      product-owner, `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»). Un deck **sin** energías básicas no muestra recuadro *(consecuencia de la regla 1)*.
 
 ### BMK. Valor de mercado junto a lo que pagamos, por carta, en el cotizador de venta (buylist) (transversal — NUEVO 2026-10-08, sesión 7 · P-BMK-1…5 RESUELTAS por el dueño el 2026-10-08; P-BMK-6 abierta, no bloquea)
 
@@ -9449,6 +10136,10 @@ de no enseñar `priceBasis` al vendedor (`docs/API_CONTRACT.md:8889-8894`).
 - **De §BSD (buylist con guía Skydropx de entrada)** *(2026-10-06)*: cambiar la tarifa fija del buylist; cambiar los
   envíos de salida; japonés y español; recolección a domicilio del vendedor; correos de rastreo al vendedor. Detalle
   en **§BSD.6**.
+- **De §AC (accesorios)** *(2026-10-06, act. 2026-10-07)*: variantes de color/tamaño, combos y descuentos (salvo el
+  paquete de energías del deck), galería de fotos, «avísame cuando vuelva», sugerencias inteligentes, accesorios en
+  bóveda/portafolio/buylist/retiros, energías especiales o por set, compras a proveedores e importación por archivo.
+  Detalle en **§AC.8**.
 - **De §Z (control del gasto)** *(2026-10-04)*: avisos por **SMS o WhatsApp**; avisos o correos **al personal**;
   **aprobación previa del dueño guía por guía** como camino normal (el freno es el tope y el interruptor general);
   **bloqueo automático de cuentas** del personal por un aviso; **conciliación automática** del saldo de Skydropx
@@ -10453,6 +11144,8 @@ nuevo, no como parte de §R**:
 64. La **tendencia de valor del sellado** y el **"avísame cuando vuelva" (restock)** están **cableados pero
     apagados** (feature-flag off): **no** son accesibles para el usuario final en el MVP, y **activarlos no
     requiere nuevo desarrollo** (solo encender el flag).
+    *(Nota 2026-10-07, §WSH.7: el dueño pidió **encender** el «avísame cuando vuelva»; medido ese día que su envío
+    no está agendado, así que encenderlo sí requiere trabajo. Para el «avísame» rige el criterio 823.)*
 
 **Sets multi-parte / Master Set combinado — v1.7 (P-27)**
 65. **Celebrations se muestra como un solo master set de 50 cartas** en un **único binder**: las 25 de `cel25`
@@ -13830,6 +14523,259 @@ compra real (criterio 306).)*
    > **Nota 2026-10-06 (arquitecto, `API_CONTRACT §15` AN-6; default de P-AN-1):** **hoy el resumen de las 08:00 no se
    > manda si no hubo avisos**. Con el default de P-AN-1 se manda **también si ayer hubo ventas**; sin avisos y sin
    > ventas, no llega (como hoy). Destinatarios sin cambio (solo el dueño).
+**Lista de deseos y «lista de compra casi segura» (§WSH — v2 2026-10-07 con las respuestas del dueño, `HECHOS.md`
+filas 2026-10-07 «Respuestas a P-WSH-1…6» y «P-WSH-1 aclarada y P-WSH-4 cerrada»; los marcados «P-WSH-7/8/9» dependen
+de esa respuesta)**
+
+800. **Agregar desde la ficha** *(§WSH.1–2)*: un cliente con sesión, en la ficha de una carta, agrega un deseo
+   eligiendo **solo** entre los acabados que esa carta tiene y entre **5 %, 10 % o 16 %**; no hay selector de
+   condición (siempre Near Mint). El deseo aparece en «Mi cuenta → Mi lista de deseos».
+801. **El servidor no se deja engañar** *(§WSH.1)*: una petición con un porcentaje distinto de 5/10/16, con un acabado
+   que la carta no tiene, con un precio en pesos o con una condición, se **rechaza**; nada de eso se guarda.
+802. **Invitado** *(§WSH.1)*: sin sesión, el botón lleva a entrar o crear cuenta; el servidor rechaza crear un deseo
+   sin cuenta.
+803. **Tope por cuenta** *(decidido: 20)*: con 20 deseos, el 21.º se rechaza en pantalla y en el servidor con
+   un mensaje que dice cómo liberar lugar; al quitar uno se puede agregar otro.
+804. **Misma carta, dos acabados = dos deseos**; la misma carta con el mismo acabado no se duplica (el segundo intento
+   ofrece cambiar el porcentaje).
+805. **Mi lista de deseos** *(§WSH.2)*: muestra por deseo carta, set, número, acabado, porcentaje, «tu máximo de
+   hoy» marcado como aproximado, si hay piezas a la venta ahora (con enlace), y la fecha del último aviso; permite
+   cambiar porcentaje y quitar. Una cuenta **no** puede ver ni tocar la lista de otra (prueba con dos cuentas).
+806. **Máximo calculado al avisar** *(§WSH.3)*: con un deseo guardado al 10 % y el mercado cambiado después, el máximo
+   que usa el aviso y el que aparece en el correo salen del **mercado del día del aviso**, no del día en que se guardó.
+807. **Sin mercado no hay máximo** *(§WSH.3)*: si la variante está en «precio pendiente», la lista muestra «sin precio
+   de mercado por ahora» y no aparece ningún máximo en pesos ni MX$0.
+808. **IVA del máximo es un dial** *(§WSH.3, decidido)*: con mercado $1,000 y deseo al 10 %: con el dial en «con IVA»
+   (el default) el cliente ve **$1,100 IVA incluido**; el súper-admin mueve el dial a «sin IVA» **sin desplegar** y
+   el mismo deseo muestra **$1,276 IVA incluido** en «Mi lista de deseos», en el siguiente correo y en la lista de
+   compra. El cambio queda en la bitácora de diales. El operador y un cliente no pueden mover el dial.
+809. **El aviso sale cuando debe, a todos** *(§WSH.4, decidido)*: al publicar a la venta una pieza Near Mint de esa
+   carta y acabado (por captura de inventario **y** por una pieza de buylist), **todas** las cuentas que la desean
+   reciben el correo, **le quepa o no** el precio en su máximo. Una pieza en «precio pendiente», gradeada o de otro
+   acabado **no** dispara correo. (Ver también 825.)
+810. **Una vez por pieza** *(§WSH.4)*: la misma pieza apartada en un carrito y liberada no genera un segundo correo; una
+   segunda pieza de la misma carta sí genera uno nuevo.
+811. **Agrupado y tope diario** *(§WSH.4)*: al capturar de golpe 5 cartas que una cuenta desea, recibe **un** correo con
+   las 5, no cinco; y una cuenta nunca recibe más de **3** correos de lista de deseos en un día (dial). Lo que pasó del
+   tope llega al día siguiente solo si la pieza sigue a la venta.
+812. **Deseo de algo que ya está a la venta** *(§WSH.4)*: agregar una carta que ya tiene piezas a la venta no manda
+   correo por esas piezas.
+813. **El correo dice lo que tiene que decir** *(§WSH.4–5)*: carta, acabado, foto, precio con IVA dentro, máximo del
+   día con IVA dentro, si cabe o no en su máximo, enlace a la ficha que abre la carta correcta, la frase «no te la
+   apartamos; se la lleva quien pague primero»,
+   «quitar esta carta de mi lista», «dejar de recibir estos avisos» y el enlace al aviso de privacidad; en el idioma
+   de la cuenta (español e inglés con paridad). Solo se envía a correos verificados.
+814. **Los enlaces de baja funcionan sin entrar** *(§WSH.5)*: «quitar esta carta» la quita; «dejar de recibir»
+   detiene **todos** los correos de la lista de deseos de esa cuenta y conserva la lista; ninguno de los dos pide
+   contraseña ni sirve para tocar la lista de otra cuenta (un enlace alterado no hace nada). Se reactiva desde «Mi
+   cuenta».
+815. **Nada se aparta** *(§WSH.4, decidido)*: dos cuentas desean la misma carta; entra una pieza; **ambas** reciben el
+   correo; la primera que paga se la lleva; la segunda ve la carta como no disponible y su deseo sigue activo. Ningún
+   deseo crea apartado, cargo ni retención en Stripe.
+816. **Se quita sola al comprarla** *(§WSH.2)*: cuando la cuenta paga una pieza de esa carta y acabado, el deseo
+   desaparece de su lista y no recibe más avisos por él.
+817. **Borrar la cuenta borra la lista** *(§WSH.2)*: tras el borrado o anonimización del súper-admin, la cuenta no
+   tiene deseos y sus deseos dejan de contar en la lista de compra.
+818. **Lista de compra casi segura — acceso** *(§WSH.6)*: la ve el súper-admin; el operador y un cliente reciben
+   «sin permiso» en pantalla y en el servidor.
+819. **Lista de compra — contenido** *(§WSH.6)*: incluye solo carta + acabado deseados **sin** piezas a la venta; por
+   fila muestra: cuántos la buscan; por cada nivel con cuentas (5/10/16 %), cuántas cuentas y su máximo en pesos
+   **con IVA** (como lo ve el cliente) y **«puedes pagar hasta»** **sin IVA**; el techo principal; mercado de hoy;
+   precio normal de hoy (sin y con IVA); cuántas pagan el precio normal; margen comprando a mercado (en pesos y %,
+   negativo si lo es); y lo que el buylist pagaría hoy. La cuenta del techo se comprueba en el 827.
+820. **Orden y casos sin mercado** *(§WSH.6)*: el orden por defecto es «cuántos la buscan» ↓, luego «techo principal»
+   ↓, luego margen a mercado ↓; se puede ordenar por cualquier columna; las cartas sin mercado van al final con su
+   conteo y **sin** máximos, techos ni márgenes (ni MX$0).
+821. **Sin datos personales** *(§WSH.6)*: ni la pantalla ni el archivo exportado contienen correo, nombre ni
+   identificador de cliente; solo conteos y cifras por nivel.
+822. **Exportable** *(§WSH.6)*: el archivo trae las mismas filas y cifras que la pantalla con el orden activo.
+823. **«Avísame cuando vuelva» de sellados, encendido y completo** *(§WSH.7, decidido; sustituye al criterio 64 para
+   el «avísame»; `HECHOS.md` 2026-10-07 «Respuestas a P-WSH-1…6»: «Sí enciende el avísame cuando vuelva»)*: con el
+   dial en `on` tras el despliegue, un visitante se apunta en la ficha de un sellado **a la venta** (la ficha de un
+   sellado agotado no existe hoy: QA midió 404 con la pieza en `in_custody`, hallazgo I-3 sobre `503cf07`); ese
+   sellado **se agota** (deja de haber piezas a la venta) y luego **vuelve a la venta**; **sin que nadie apriete nada
+   en el admin**, el visitante recibe **un** correo con enlace que abre la ficha de ese sellado. Si el sellado vuelve
+   a tener piezas **sin haberse agotado antes** (p. ej. se suma una pieza más mientras sigue a la venta), **no** sale
+   ningún correo. Apuntarse dos veces con el mismo correo da **un** correo. Al volver a agotarse y volver otra vez,
+   no recibe un segundo correo (aviso de una sola vez). La ficha de un sellado **no** muestra el botón de lista de
+   deseos. Con el dial en `off`, el formulario no aparece y no sale ningún correo.
+   ⏳ **Pendiente de confirmar por el dueño: Q-WSH-1** (`docs/ARCHITECTURE.md` §WSH, «¿Hace falta que un cliente se
+   pueda apuntar a un sellado que ya se agotó?», recomendación «no por ahora»). Esta redacción sigue la
+   recomendación; si el dueño responde «sí», este criterio se reescribe y apuntarse en un sellado agotado pasa a ser
+   alcance nuevo.
+824. **Aviso de privacidad al día** *(§WSH.5, P-WSH-6 con la recomendación — `HECHOS.md` 2026-10-07 «P-WSH-1 aclarada
+   y P-WSH-4 cerrada (lista de deseos)»: «P-WSH-6 (línea del aviso de privacidad) sigue con la recomendación»)*:
+   antes de encender la lista de deseos, la página del aviso de privacidad (criterio 500), en es y en en, contiene el
+   párrafo «Lista de deseos» **con el texto literal de §WSH.5** (solo cambia el nombre de «Mi cuenta» si la pantalla
+   usa otro). Se verifica abriendo `/es/privacidad` y su equivalente en inglés sin sesión y buscando el párrafo. El
+   criterio 502 se amplía a recorrer también el botón de la lista de deseos.
+825. **El correo dice si cabe, y la pieza sale a precio normal** *(§WSH.4)*: con dos cuentas al 5 % y al 16 % y una
+   pieza cuyo precio con IVA queda entre ambos máximos, la del 16 % recibe «cabe en tu máximo» y la del 5 % «está
+   arriba de tu máximo», cada una con su máximo en pesos. La pieza se publica **a su precio normal** de la curva, el
+   mismo que ve un visitante sin cuenta; ninguna cuenta ve otro precio.
+826. **El margen deseado es un dial** *(§WSH.6, P-WSH-7)*: solo el súper-admin lo cambia; el cambio queda en la
+   bitácora de diales; operador y cliente reciben «sin permiso» en pantalla y en servidor.
+827. **La cuenta del techo, a mano** *(§WSH.6, regla sujeta a P-WSH-7)*: con mercado $1,000, precio normal $1,150
+   sin IVA, margen deseado 15 % sobre costo y una cuenta en cada nivel, con el dial de IVA en «con IVA» la lista
+   muestra puedes pagar hasta **$787.11 / $824.59 / $869.57** (5/10/16 %) y techo principal **$869.57**; con el dial en
+   «sin IVA», **$913.04 / $956.52 / $1,000.00**. Si el margen deseado se cambia a 20 %, las cifras se recalculan al
+   momento (16 % con IVA ⇒ $833.33). QA lo comprueba con diales fijados por él, no con los de producción.
+
+**Accesorios y energías (§AC, 2026-10-06 · v2 2026-10-07 — PARA APROBAR, criterios 700–749; los marcados 💰 son zona
+de dinero; los que dicen «según P-…» se ajustan a la respuesta o a su recomendación)**
+
+700. **Alta completa y activación** *(§AC.1)*: el dueño da de alta un accesorio con nombre, categoría (una de la
+   lista), descripción, precio con IVA MX$89.00, existencias 20 y foto; lo activa y aparece en la tienda. Sin precio
+   **o** sin foto, el botón de activar se niega con un mensaje que dice qué falta.
+701. **El precio de la vitrina es el que escribió el dueño** *(§AC.1)*: con precio MX$89.00, listado, ficha, carrito y
+   checkout muestran **MX$89.00** (ni markup, ni spread, ni redondeo, ni piso de MX$25); el desglose de IVA del
+   checkout informa **MX$12.28** (89.00 − 89.00/1.16) y no suma nada al total.
+702. **Foto: formatos y tamaño** *(§AC.2)*: se aceptan PNG, JPG y WebP; un archivo de más de 10 MB se rechaza con
+   mensaje claro; un archivo renombrado a «.png» que no es imagen se rechaza; en ningún rechazo queda foto guardada.
+703. **Foto: el sistema la acomoda** *(§AC.2)*: una foto rectangular de 3000×2000 se ve en la tienda cuadrada, **sin
+   recortar el producto** (con relleno), y pesa menos que la original; la que se sirve no conserva datos de
+   ubicación (GPS) de la original.
+704. **Foto pública, INE privada** *(§AC.2, AC.7)*: la foto de un accesorio se abre en un navegador sin sesión; una
+   INE sigue sin abrirse sin sesión de súper-admin (mismas pruebas de hoy en verde), y ninguna foto de accesorio
+   queda guardada en el lugar o con los permisos de las INE.
+705. **Pestaña y listado** *(§AC.3)*: en el menú Comprar hay «Accesorios» (en: «Accessories»), sin sesión y en
+   celular; el filtro por categoría y la búsqueda por nombre funcionan; los inactivos no aparecen.
+706. **Agotado** *(§AC.3)*: con existencias 0, el accesorio se ve con «Agotado», va al final y no se puede agregar al
+   carrito (ni desde la ficha, ni desde la sugerencia, ni llamando a la API directamente).
+707. **Sin contaminar cartas** *(§AC.3, AC.7)*: los accesorios no salen en el catálogo ni la búsqueda de cartas, ni en
+   el cotizador, ni en bóveda o portafolio.
+708. 💰 **Pedido mixto, un solo cobro** *(§AC.4)*: un carrito con 1 carta, 1 sellado y 2 accesorios se paga en **un**
+   cobro de Stripe (modo prueba); el pedido lista los tres tipos; el total = suma de precios exhibidos + comisión de
+   plataforma + envío, y coincide centavo a centavo con lo cobrado en Stripe.
+709. 💰 **El precio no lo pone el navegador** *(§AC.4)*: una petición que manda un precio distinto para un accesorio
+   no cambia lo que se cobra.
+710. 💰 **Apartado de existencias** *(§AC.4)*: con 1 unidad en existencia, dos clientes intentan pagarla a la vez:
+   solo uno llega a pagar; el otro recibe «Ya no hay suficientes» **antes** de cobrarle. QA lo repite **N = 10** y
+   reporta la proporción (regla O-3): 10/10.
+711. 💰 **Pago fallido o abandonado devuelve existencias** *(§AC.4)*: un pago que falla, o que no se completa en el
+   plazo del apartado, devuelve las unidades solas, sin intervención.
+712. 💰 **Al pagar bajan las existencias** *(§AC.4)*: con 20 en existencia, un pedido pagado de 3 deja 17.
+713. 💰 **Solo invitado con envío a domicilio** *(§AC.4, P-ACC-1 y P-ACC-10 (a) cerradas, `HECHOS.md` 2026-10-07
+   «"Termina wishlist y accesorios"…»)*: un invitado con envío a domicilio paga un pedido con accesorios; un pedido con
+   destino **bóveda** que lleve un accesorio o una energía **se rechaza en el servidor** (también llamando a la API
+   directamente) y ningún accesorio queda nunca en una bóveda; con **sesión abierta**, cotizar o pagar un carrito con
+   accesorios, energías o paquete **se rechaza en el servidor** (no se ignoran en silencio). La conducta con el
+   upsell de bóveda se verifica según P-ACC-11.
+714. 💰 **Seguro** *(§AC.4)*: el valor asegurado del paquete incluye lo pagado por accesorios y energías. (El cobro de
+   envío se verifica en 725–728.)
+715. **Preparación** *(§AC.4)*: en «Pedidos por preparar», el pedido muestra cada accesorio como renglón con foto,
+   nombre y cantidad, y se puede palomear.
+716. 💰 **Falta una unidad** *(§AC.4)*: en un pedido con «Penny sleeves ×3», el operador reembolsa **1** unidad
+   faltante: se reembolsa lo pagado por esa unidad más su parte de la comisión, cuenta para su tope de 24 h, el
+   cliente recibe el aviso de siempre y el pedido sigue con lo demás.
+717. 💰 **Reembolso total según si salió** *(§AC.4)*: reembolso total de un pedido **no enviado** ⇒ las unidades
+   vuelven solas a existencias; de un pedido **enviado** ⇒ no vuelven y se pide el motivo «no llegó» / «llegó en
+   mala condición».
+718. **Sugerencia: qué sale** *(§AC.5)*: con 2 accesorios marcados «Sugerido» y otros 5 activos con existencias, el
+   carrito muestra 3: los 2 sugeridos y el más vendido de los últimos 30 días; nunca uno inactivo, agotado o que ya
+   está en el carrito.
+719. **Sugerencia: no molesta** *(§AC.5)*: sin accesorios elegibles no aparece el recuadro; el recuadro no es ventana
+   emergente, no tapa el botón de pagar y «No, gracias» lo oculta en esa visita; «Agregar» suma 1 unidad sin salir
+   del carrito.
+720. **Permisos del panel** *(§AC.6, P-ACC-8 con la recomendación)*: con sesión de operador, no se puede cambiar
+   precio, costo unitario, activar, marcar «Sugerido» ni tocar las cajas (ni desde la pantalla ni llamando a la API);
+   sí se puede dar de alta sin precio, cambiar la foto, capturar medidas/peso y ajustar existencias.
+721. **Existencias con rastro** *(§AC.6)*: un ajuste sin motivo se rechaza; cada «Entraron N» y cada ajuste muestra
+   quién, cuándo, antes y después; los cambios de precio, activación y foto quedan en la bitácora.
+722. **No se borra lo vendido** *(§AC.6)*: un accesorio con ventas no se puede borrar, solo desactivar; sus pedidos y
+   reportes siguen mostrándolo con el nombre y precio con que se vendió.
+723. **Inventario, Ventas y P&L** *(§AC.6)*: el accesorio aparece en el inventario del panel en su pestaña/filtro, en el
+   detalle de Ventas del pedido con cantidad, y su venta suma al ingreso del P&L del mes y al IVA del exporte.
+724. **Recorrido de punta a punta** *(O-4)*: contra el stack corriendo, QA recorre: el dueño da de alta un accesorio
+   con foto PNG → lo ve en la pestaña → un invitado lo agrega desde la sugerencia del carrito junto a una carta → paga
+   con tarjeta de prueba → el operador lo prepara → las existencias bajaron. En ES y EN.
+
+*Envío por caja (§AC.4.1 — P-ACC-3a..c cerradas, `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…»; las
+cajas y cifras son de prueba de QA, las reales las registra el dueño en el panel):*
+
+725. 💰 **Pedido sin accesorios, envío de hoy; con caja, lo mayor** *(§AC.4.1)*: (a) con el catálogo de cajas **vacío**,
+   todo pedido —con o sin accesorios— cobra exactamente la tarifa fija de hoy (criterio 9); (b) con dos cajas
+   registradas («chica» y «grande»), un pedido solo de cartas, sellado y/o energías (sin accesorios que no sean energía)
+   cobra exactamente la tarifa fija de hoy, y no se elige caja *(según P-AC-5, pendiente de confirmar por el dueño)*;
+   (c) con una «chica» de tarifa **menor** que la de hoy, un pedido de cartas + una funda cobra la tarifa de hoy, y con
+   una «grande» de tarifa **mayor**, cobra la de la grande *(lo mayor de las dos, según P-AC-2, pendiente de confirmar
+   por el dueño)*. Las pruebas de envío de hoy siguen en verde.
+726. 💰 **El accesorio grande cambia la caja y se cobra lo que se vio** *(§AC.4.1)*: con un playmat cuyas medidas no
+   caben en la «chica», el sistema elige la «grande»; carrito y checkout muestran ese envío **antes de pagar**; el
+   cobro de Stripe (modo prueba) coincide centavo a centavo con lo mostrado.
+727. 💰 **El envío se recalcula y no lo pone el navegador** *(§AC.4.1)*: con un playmat y una funda en el carrito, al
+   quitar el playmat el envío mostrado pasa, antes de pagar, al que corresponde a la funda sola según AC.4.1 (la caja
+   más chica donde cabe, con la regla de P-AC-2); una petición que manda otro monto de envío no cambia lo cobrado.
+728. 💰 **La caja llega a quien prepara, y si no cabe se cobra la más grande** *(§AC.4.1, P-ACC-3c)*: «Pedidos por
+   preparar» / «Capturar guía» muestran la caja elegida; usar otra caja al preparar no cambia lo ya cobrado. Un pedido
+   con tres playmats que no caben en ninguna caja registrada cobra la tarifa de la caja **más grande** (centavo a
+   centavo con lo mostrado y lo cobrado en Stripe) y llega a quien prepara con esa caja; no se le cobra más al cliente.
+729. **Medidas y peso** *(§AC.4.1, AC.6, P-ACC-3c)*: se capturan en el alta (también por el operador); un accesorio que
+   no es energía **sin** medidas o sin peso no se puede activar (el botón se niega diciendo qué falta, también
+   llamando a la API directamente).
+730. **Costo unitario solo en el panel** *(§AC.6)*: el costo no aparece en ninguna respuesta de la tienda pública (ni
+   listado, ni ficha, ni carrito, ni API sin sesión de admin); el P&L muestra el margen de un accesorio con costo.
+
+*Energías básicas (§AC.9):*
+
+731. **Las 8 energías en Accesorios → Energías** *(§AC.9, P-EN-1 y P-EN-6 cerradas, `HECHOS.md` 2026-10-07
+   «"Termina wishlist y accesorios"…»)*: el filtro «Energías» lista los 8 productos «Energía <tipo>» —Planta, Fuego,
+   Agua, Rayo, Psíquica, Lucha, Oscura y Metálica— (ES y EN); el cliente agrega «Energía Fuego ×8» y el carrito muestra
+   **MX$40.00** con IVA informado **MX$5.52** (40.00 − 40.00/1.16), comisión aparte. Si el dueño cambia en el panel el
+   precio de la energía o el del paquete, la tienda muestra el nuevo.
+732. **Un producto por tipo** *(§AC.9)*: activar un segundo producto del mismo tipo de energía se rechaza con mensaje
+   claro.
+733. **Las especiales siguen siendo cartas** *(§AC.9, AC.8)*: una energía especial con set y número (p. ej. «Reversal
+   Energy PAL 192») no aparece en Accesorios → Energías y se sigue vendiendo como carta.
+
+*Paquete de energías del Meta Battle Deck (§AC.10) — deck de prueba con «8 Basic Fire Energy» y «4 Basic Psychic
+Energy» (12 energías; sueltas = MX$60.00):*
+
+734. **Energías del deck ligadas (regla 1)**: la ficha del deck muestra «Energía Fuego ×8» y «Energía Psíquica ×4» con
+   MX$5.00 c/u, existencias y botón para agregar suelta; ya no salen como «no identificada». Con el producto de un tipo
+   inactivo, esa línea se ve como hoy.
+735. **El recuadro no viene marcado (regla 2)**: junto a «Agregar de jalón» se ve «12 energías por MX$20.00» y «sueltas
+   MX$60.00» con botón propio; pulsar «Agregar de jalón» **no** agrega el paquete.
+736. 💰 **La línea del paquete y su cobro (reglas 2–3)**: tras agregar el deck y el paquete, el carrito muestra
+   «Paquete de energías — <deck>» a **MX$20.00**, IVA informado **MX$2.76** (20.00 − 20.00/1.16), comisión aparte; el
+   cobro de Stripe coincide centavo a centavo.
+737. **El carrito lo sugiere una vez (regla 3)**: con el deck en el carrito y sin paquete, el carrito sugiere el paquete
+   una sola vez por deck; no es ventana emergente ni tapa el botón de pagar.
+738. 💰 **Sin deck no hay paquete, y uno por deck (regla 4)**: al quitar del carrito **una** de las cartas que metió «Agregar de
+   jalón» (P-EN-4 (a), `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…») el paquete sale con un aviso visible; agregar un segundo paquete del mismo deck no es posible; una petición directa a la API
+   que intenta cobrar un paquete sin su deck, o dos del mismo deck, **se rechaza** antes de cobrar.
+739. 💰 **Fuera del descuento del deck (regla 4)**: el paquete cuesta MX$20.00 con o sin descuento de deck; si el
+   descuento 5 %/3 % se construye, su base **no** incluye el paquete (este criterio queda vivo para ese día).
+740. 💰 **Falta existencia de un tipo (regla 5)**: con 3 «Energía Psíquica» en existencia, el recuadro del paquete no
+   aparece; se ofrecen sueltas; el cliente agrega 8 Fuego + 3 Psíquica = **MX$55.00**.
+741. 💰 **El paquete aparta por tipo** *(regla 5, AC.4)*: con 8 «Energía Fuego» en existencia, dos clientes intentan
+   pagar a la vez un paquete que pide 8 Fuego: solo uno paga; el otro recibe «Ya no hay suficientes» antes de cobrarle.
+   QA lo repite **N = 10** y reporta la proporción (O-3): 10/10.
+742. 💰 **Solo envío a domicilio (regla 6)**: un pedido a bóveda con el paquete se rechaza en el servidor.
+743. **Preparación del paquete** *(§AC.10)*: «Pedidos por preparar» muestra «Paquete de energías — <deck>» con el
+   desglose «Fuego ×8, Psíquica ×4» y se puede palomear.
+744. 💰 **Reembolsos del paquete** *(§AC.10, P-EN-5 cerrada, `HECHOS.md` 2026-10-07 «"Termina wishlist y
+   accesorios"…»)*: reembolso total de un pedido no enviado ⇒ las 12 energías vuelven a existencias por tipo. Fuera del
+   reembolso total: con el deck **completo** ya reembolsado, el paquete se reembolsa **entero** (MX$20.00 con su parte
+   de la comisión); con el deck **no** completo, el intento de reembolsar el paquete **se rechaza** (también llamando a
+   la API directamente). Nunca hay reembolso proporcional por energías del paquete. El caso «falta al preparar» se
+   verifica según P-AC-3 (`API_CONTRACT §AC.16`).
+745. **Deck con pocas energías** *(§AC.10, P-EN-3 con la recomendación del product-owner, `HECHOS.md` 2026-10-07
+   «"Termina wishlist y accesorios"…»)*: con un deck que pide 4 energías (sueltas = MX$20.00), la ficha **no** muestra
+   el recuadro del paquete y sí ofrece las 4 sueltas; una petición directa a la API que intenta cobrar el paquete de
+   ese deck **se rechaza** antes de cobrar.
+746. **El paquete no adelanta a Decks Meta** *(§AC.10, criterio 197)*: si Meta Battle Decks no está al público en
+   producción, tampoco el paquete ni la liga de energías del deck; Accesorios → Energías sí puede estar.
+747. **Lo de cartas del deck no cambia** *(§AC.7)*: «Agregar de jalón» agrega exactamente las mismas piezas que hoy y las
+   pruebas actuales de `decks-meta` (backend y frontend) siguen en verde.
+748. **Recorrido de punta a punta — deck con energías** *(O-4)*: contra el stack corriendo, un invitado abre un deck →
+   «Agregar de jalón» → agrega el paquete → el envío mostrado corresponde a la caja → paga con tarjeta de prueba → el
+   operador ve el desglose y lo prepara → las existencias de cada tipo bajaron en lo que pedía el deck. En ES y EN.
+749. 💰 **Recorrido de punta a punta — con sesión no se pagan accesorios** *(O-4, P-ACC-10 (a), `HECHOS.md`
+   2026-10-07 «"Termina wishlist y accesorios"…»; `API_CONTRACT §AC.5`)*: contra el stack corriendo, un cliente con
+   sesión abierta intenta cotizar y pagar cartas + un accesorio: el servidor **rechaza** la petición (en cotizar y en
+   pagar, también llamando a la API directamente), **no** se crea cobro en Stripe ni pedido, y ninguna existencia del
+   accesorio queda apartada. Lo que ve el cliente en pantalla se verifica según P-AC-1 (`API_CONTRACT §AC.16`).
 
 > **§BMK — Valor de mercado en el cotizador de venta (2026-10-08).** Bloque **850–859** (reservado por el
 > orquestador). P-BMK-1…5 **resueltas** por el dueño (`HECHOS.md` fila 2026-10-08 «Cotizador de venta (§BMK): las cinco
@@ -18122,6 +19068,114 @@ ese frente:**
 - *Medición pendiente (no es pregunta):* qué métodos de pago tiene encendidos la cuenta de Stripe. Si solo hay
   tarjeta, la mezcla por método de 621 no dice nada nuevo hasta que se encienda otro.
 
+## Preguntas — accesorios y energías (§AC, v2 2026-10-07, sesión 6)
+
+> **Cerradas — no se re-preguntan** (`HECHOS.md` 2026-10-07, filas «Respuestas a P-ACC-1…9 … (P-ENERGIAS)» y
+> «Confirmaciones de accesorios, energías y paquete de energías del battle deck»): **P-ACC-1** todo pedido con envío a
+> domicilio, nunca a bóveda — **acotada por P-ACC-10 (a): solo invitado** (`HECHOS.md` 2026-10-07 «"Termina wishlist
+> y accesorios"…», que manda sobre «de invitado o de cuenta») · **P-ACC-2** sí pagan comisión · **P-ACC-3** el envío puede
+> cambiar según la caja (sub-preguntas 3a–3c cerradas después, ver abajo) · **P-ACC-4** se sugiere quitando lo que ya lleva ·
+> **P-ACC-6** categorías bien · **P-ACC-7** sin foto no se publica · **P-ACC-9** costo unitario sí · **P-ACC-5** y
+> **P-ACC-8** sin respuesta explícita, **van con la recomendación** (agotado se ve al final; solo el dueño pone precio,
+> activa y marca «Sugerido») · energías básicas a MX$5 · paquete del deck a MX$20 con sus seis reglas · precios ya con
+> IVA.
+>
+> **Cerradas después** por `HECHOS.md` 2026-10-07 «"Termina wishlist y accesorios"…» («se construyen con las
+> recomendaciones del orquestador para lo que quedaba abierto»): **P-ACC-3a..c, P-ACC-10, P-EN-1, P-EN-2, P-EN-4,
+> P-EN-5, P-EN-6**; **P-EN-3 y P-EN-7 van con la recomendación del product-owner**. Ver cada una abajo.
+>
+> **Siguen abiertas** — si no contestas una, **se construye con la recomendación**: **P-ACC-11**, **P-ACC-12** y las
+> del contrato **P-AC-1..5** (`docs/API_CONTRACT.md` §AC.16).
+
+**Envío por caja (P-ACC-3):**
+- **P-ACC-3a · ¿Qué cajas usas?** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»):
+  el dueño **registra sus cajas en el panel**; sin medidas inventadas, el catálogo de cajas **empieza vacío** y lo
+  llena él. Aplicado en AC.4.1 y criterio 725.
+- **P-ACC-3b · ¿Cómo se calcula lo que paga el cliente por cada caja?** ✅ **RESPONDIDA** (misma fila): **una tarifa
+  fija por caja**, que escribe el dueño. Aplicado en AC.4.1. Si con caja se cobra la de la caja o lo mayor entre esa y
+  la de hoy: **P-AC-2** del contrato, abierta.
+- **P-ACC-3c · ¿Qué pasa si el pedido no cabe en ninguna caja?** ✅ **RESPONDIDA** (misma fila): se cobra **la más
+  grande** y **quien prepara lo resuelve**. Las medidas y el peso obligatorios para activar van con la recomendación
+  (la fila adopta las recomendaciones para lo que quedaba abierto). Aplicado en AC.4.1 y criterios 728 y 729.
+
+**Destino:**
+- **P-ACC-10 · Cliente con cuenta y envío a domicilio.** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina
+  wishlist y accesorios"**…»): opción (a), **accesorios y energías solo en la compra de invitado con envío a
+  domicilio**; el envío a domicilio para cuentas es un proyecto aparte, no se hace aquí. Aplicado en AC.4, AC.5 y
+  criterios 713 y 749.
+- **P-ACC-11 · Carrito con accesorios y el cliente elige bóveda** (o acepta la oferta «guarda tus cartas en tu
+  bóveda» del checkout de invitado, que quita el envío). **Recomendación:** se le avisa en claro «los accesorios y
+  energías solo se envían a domicilio» y elige: **mandar todo a domicilio**, o **quitar los accesorios** de este
+  pedido (quedan guardados en su carrito para otra compra). Nunca se pierden en silencio.
+- **P-ACC-12 · ¿Se pueden agregar accesorios a un retiro de bóveda** (cuando el cliente pide que le mandes sus
+  cartas guardadas)? Un retiro no es una compra. **Recomendación: no en esta versión** (queda en «Fuera de alcance»);
+  es buena idea para después porque ese paquete ya va a domicilio.
+
+**Energías y paquete del deck:**
+- **P-EN-1 · ¿Los 8 tipos son estos?** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y
+  accesorios"**…»): **sí**, los 8 tipos: Planta, Fuego, Agua, Rayo, Psíquica, Lucha, Oscura y Metálica.
+- **P-EN-2 · ¿Las energías aparecen en el recuadro «¿Te falta algo?» del carrito?** ✅ **RESPONDIDA** (`HECHOS.md`
+  2026-10-07 «**"Termina wishlist y accesorios"**…»): **no**, nunca; se ofrecen en los decks. Aplicado en AC.5.
+- **P-EN-3 · Deck con pocas energías** (4 o menos: sueltas cuestan MX$20 o menos, el paquete no ahorra nada).
+  ✅ **Va con la recomendación del product-owner** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»:
+  «P-EN-3 y P-EN-7 van con la recomendación del product-owner»): en ese caso **no se muestra el paquete**, solo las
+  sueltas.
+- **P-EN-4 · ¿Cuándo cuenta que «el deck está en el carrito»?** ✅ **RESPONDIDA** (misma fila): opción (a), «el deck
+  "está en el carrito" cuando están todas las cartas que agregó "Agregar de jalón"». Si el cliente quita una carta del
+  deck, el paquete sale y se le avisa (regla 4). El mínimo de cartas para ofrecer el paquete es **P-AC-4** del
+  contrato, abierta.
+- **P-EN-5 · Reembolso del paquete.** ✅ **RESPONDIDA** (`HECHOS.md` 2026-10-07 «**"Termina wishlist y
+  accesorios"**…»): «el paquete se reembolsa completo solo si se devuelve el deck completo»; sin reembolso
+  proporcional. Aplicado en AC.10 y criterio 744. El caso «falta el paquete al preparar» sigue **abierto** como
+  **P-AC-3** del contrato (`docs/API_CONTRACT.md` §AC.16), con la recomendación del arquitecto.
+- **P-EN-6 · ¿El MX$20 del paquete y el MX$5 de la energía los puedes cambiar desde el panel?** ✅ **RESPONDIDA**
+  (`HECHOS.md` 2026-10-07 «**"Termina wishlist y accesorios"**…»): **sí**, «MX$5 y MX$20 se editan en el panel»;
+  arrancan en MX$20 y MX$5. Quién los cambia: solo el dueño, como cualquier precio (P-ACC-8, AC.6).
+- **P-EN-7 · ¿El paquete se ofrece también en «Pegar lista»** (cuando el cliente pega su propia lista de deck)?
+  ✅ **Va con la recomendación del product-owner** (misma fila): **no en esta versión**; solo en los decks del meta
+  que publica la tienda; en «Pegar lista» las energías sí salen ligadas y se pueden agregar sueltas.
+
+## Preguntas — lista de deseos y «lista de compra casi segura» (§WSH, 2026-10-06 · v2 2026-10-07) — P-WSH-7…9 ABIERTAS
+
+> **Cerradas, no se re-preguntan** (`HECHOS.md` fila 81 del 2026-10-06 y filas del 2026-10-07 «Respuestas a
+> P-WSH-1…6» y «P-WSH-1 aclarada y P-WSH-4 cerrada»):
+> - **P-WSH-1:** se avisa a **todos**, con el precio y si cabe en su máximo; el máximo es **señal de compra** para
+>   ti, no precio especial; la carta sale a su precio normal.
+> - **P-WSH-2:** el máximo se lee **con IVA**, con un dial para pasar a sin IVA.
+> - **P-WSH-3:** solo intención; no aparta ni cobra.
+> - **P-WSH-4:** 20 cartas por cuenta.
+> - **P-WSH-5:** se enciende el «avísame cuando vuelva» de sellados (§WSH.7: medimos que hoy no manda el correo solo;
+>   encenderlo incluye arreglar eso).
+> - **P-WSH-6:** el aviso de privacidad va con la recomendación y lo revisa tu abogado.
+>
+> Cada pregunta abierta trae el default (lo que se construye si no contestas) y nuestra recomendación.
+
+- **P-WSH-7 · ¿Qué margen quieres ganar en las cartas de la lista, y cómo se mide?** La lista te dice «puedes pagar
+  hasta $X» por carta, y esa cifra depende de cuánto quieres ganar. Dijiste «nuestro margen de 15%», pero no está
+  claro si es tu regla para estas compras. Ejemplo con una carta de mercado $1,000 y un cliente al 16 % (máximo
+  $1,160 con IVA = $1,000 sin IVA):
+  - **(a) 15 % sobre lo que pagas** (pagas $100, ganas $15; igual que habla tu curva): puedes pagar hasta **$869.57**.
+  - **(b) 15 % sobre lo que vendes** (de cada $100 que vendes, $15 son ganancia): hasta **$850.00**.
+  - **(c)** otro porcentaje, o un **mínimo en pesos por carta** además del % (p. ej. «al menos $100 de ganancia»).
+  Default y **recomendación: (a), 15 %, como dial** que puedes mover cuando quieras. Esa cifra no resta la guía de
+  envío ni la comisión de cobro (eso lo sigue restando tu reporte de ganancias); si quieres que el techo ya las
+  descuente, dilo.
+- **P-WSH-8 · Con el máximo con IVA, a nadie le va a caber tu precio normal. ¿Está bien así?** Hicimos la cuenta
+  (§WSH.4): tu precio más bajo es mercado + 15 %, y con IVA queda en **mercado + 33 %**. El máximo más alto que el
+  cliente puede elegir es **mercado + 16 % con IVA**. Resultado: el correo dirá casi siempre «está arriba de tu
+  máximo», y la columna «cuántos pagan tu precio normal» saldrá en cero. Además, para ganar 15 % tendrías que
+  conseguir la carta **13 % a 21 % abajo de mercado**. Opciones:
+  - **(a) Así está bien:** el máximo es solo para que tú sepas hasta dónde estirarte; el cliente decide si paga
+    tu precio cuando le llega el correo.
+  - **(b) Pasar el dial a «sin IVA»:** el 16 % ya cabe en tu precio normal en las cartas caras, y puedes pagar hasta
+    mercado.
+  - **(c) Ofrecer porcentajes más altos** que 5/10/16 (p. ej. 20/30/40 %). Cambia una regla que ya diste.
+  Default: **(a)**, que es lo que dijiste. **Recomendación: (a) para arrancar**, mirar la lista unas semanas y decidir
+  con datos; (b) es mover un dial y no requiere desplegar.
+- **P-WSH-9 · ¿Quieres ver también los sellados más esperados en tu lista de compra?** Hoy el «avísame» de sellados
+  solo guarda un correo por producto (no tiene %), así que solo podríamos mostrarte **cuántos lo esperan**, sin
+  máximos ni techo. Default: **no** (no lo pediste). **Recomendación: sí, solo con el conteo**, en una sección aparte de
+  la lista; es poco trabajo y te dice qué sellado reponer.
 ## Preguntas — valor de mercado en el cotizador de venta (§BMK, 2026-10-08, sesión 7) — P-BMK-1…5 RESUELTAS; P-BMK-6 ABIERTA (no bloquea)
 
 > Lo que ya dijiste **no se pregunta** (`HECHOS.md` fila 2026-10-08 «Cotizador de venta (buylist): se muestra el VALOR

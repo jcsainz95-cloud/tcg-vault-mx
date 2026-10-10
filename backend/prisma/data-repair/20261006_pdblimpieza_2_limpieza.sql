@@ -1,7 +1,7 @@
 -- =====================================================================================
 --  P-DB-LIMPIEZA · B · LA LIMPIEZA (guion principal) — v2: TAMBIÉN SE BORRA EL INVENTARIO
---  Fecha: 2026-10-06 · v2: 2026-10-07 · Lo escribió: backend · Lo ejecuta: EL DUEÑO (usuario ADMINISTRADOR de la base)
---  Diseño: docs/specs/LIMPIEZA_DB.md §14 (v2, manda sobre v1), §2.4–§2.7, §6 · Notas: BACKEND_NOTES §79 y §79.5 (v2)
+--  Fecha: 2026-10-06 · v2: 2026-10-07 · v2.2: 2026-10-08 · Lo escribió: backend · Lo ejecuta: EL DUEÑO (usuario ADMINISTRADOR de la base)
+--  Diseño: docs/specs/LIMPIEZA_DB.md §14 (v2, manda sobre v1), §14.13 (v2.2), §2.4–§2.7, §6 · Notas: BACKEND_NOTES §79, §79.5 (v2) y §87 (v2.2)
 -- =====================================================================================
 --
 --  QUÉ HACE ESTO, EN CASTELLANO
@@ -13,6 +13,9 @@
 --  levantamientos, los lotes de alta y los «sin precio» de inventario. Después lo vuelves a subir en M1.
 --  NO toca: usuarios, catálogo (cartas, sets, imágenes), precios (referencias de mercado y tus precios por variante),
 --  el sellado del catálogo (con tu precio por producto y su imagen), tus cajones (vacíos) ni los diales.
+--  Tampoco toca el catálogo de accesorios (nombre, precio, costo, foto, y las 8 energías), pero sus EXISTENCIAS
+--  vuelven a 0: anótalas de la lista 2.7 del ensayo y vuelve a recibirlas en Accesorios. Ni tu lista de deseos ni los
+--  correos que ya mandó (sí se borran sus avisos por pieza, porque las piezas se borran).
 --  Al final deja UNA fila en la bitácora con lo que se hizo (sin correos ni folios).
 --  ⚠️ Esta salida trae correos y nombres de tus clientes: no la pegues en chats, correos ni en el repositorio.
 --
@@ -97,9 +100,15 @@
 --        Ejemplo:  \set cuentas_prueba 'yo+prueba1@gmail.com, yo+prueba2@gmail.com'
 \set cuentas_prueba ''
 
+-- v2.2 (§14.13 LZ-A1): ¿tiene tu base las tablas de accesorios (M-73) y de la lista de deseos (M-74)? Se mira AQUÍ,
+-- ANTES del BEGIN: fuera de la transacción no se toma la foto de abajo (C-4). Todo lo de accesorios y deseos va dentro
+-- de \if: sin esas tablas psql ni siquiera manda esas líneas a la base, y el resultado es el de siempre.
+SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
+       to_regclass(format('%I', 'WishlistNotice')) IS NOT NULL AS lz_m74 \gset
+
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
--- DESPUÉS de los candados de abajo (por eso no hay ninguna consulta antes del LOCK).
+-- DESPUÉS de los candados de abajo (por eso no hay ninguna consulta antes del LOCK dentro de la transacción).
 BEGIN ISOLATION LEVEL REPEATABLE READ;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
@@ -107,6 +116,13 @@ SET LOCAL statement_timeout = '120s';
 -- Nadie escribe a la mitad: si un job o un webhook tiene estas tablas, en 5 s se rinde sin tocar nada. (v2: también
 -- los lotes de alta y la cola de precio, que el job de precios escribe leyendo piezas.)
 LOCK TABLE "Order", "ShipmentRequest", "SellRequest", "InventoryItem", "PaymentRefund", "ManualRefund", "InventoryBatch", "PendingPriceEntry" IN SHARE ROW EXCLUSIVE MODE;
+-- v2.2: las existencias de accesorios (una recepción a mitad dejaría piezas tras la limpieza) y los avisos de deseos.
+\if :lz_m73
+LOCK TABLE "Accessory", "OrderAccessoryLine" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+\if :lz_m74
+LOCK TABLE "WishlistNotice" IN SHARE ROW EXCLUSIVE MODE;
+\endif
 
 -- Estados y tipos en castellano para las listas (función temporal: desaparece al cerrar la sesión).
 CREATE FUNCTION pg_temp.lz_es(s text) RETURNS text LANGUAGE sql IMMUTABLE AS $f$
@@ -158,15 +174,21 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   'ShipmentCostAdjustment','ShipmentPaidLabel','ShipmentLabelAttempt','ShipmentRequest','ShipmentItem','ShipmentQuote',
   'ShipmentCarrierEvent','ShipmentAddressRevision','Order','OrderItem','OrderAccessToken','SellRequest','SellRequestItem',
   'InventoryItem','InventoryMovement','InventoryAdjustment','InventoryBatch',
-  'SpendAlert','PortfolioSnapshot','AuditLog']) AS t
+  'SpendAlert','PortfolioSnapshot','AuditLog',
+  -- v2.2 (§14.13): M-73 (renglones de pedido y de envío, paquete de energías, historial de existencias) y M-74 (avisos)
+  'OrderAccessoryLine','OrderEnergyBundleComponent','ShipmentAccessoryLine','AccessoryStockMovement','WishlistNotice']) AS t
 UNION ALL
-SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry']) AS t
+SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry',
+  -- v2.2: el accesorio se queda (catálogo); sus existencias y apartados vuelven a 0
+  'Accessory']) AS t
 UNION ALL
 SELECT t, 'conservar' FROM unnest(ARRAY[
   'User','KycProfile','KycUploadGrant','BillingProfile','Address','AuthToken','CardSet','SealedSetGroup','SealedProduct','Card',
   'CardProduct','PostalCode','ShippingPackage','PriceReference','FxRate','SetValueSnapshot','ConfigSetting',
   'VaultLocation','ProcessedStripeEvent','SpendDigestRun','SpendOwnerWatch','SealedRestockSubscription',
-  'MetaDeck','MetaDeckList','MetaDeckCard','MetaFetchRun']) AS t;
+  'MetaDeck','MetaDeckList','MetaDeckCard','MetaFetchRun',
+  -- v2.2: la foto del accesorio (catálogo), los deseos y los correos de deseos ya enviados
+  'AccessoryPhoto','WishlistItem','WishlistMail']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.
@@ -220,6 +242,15 @@ SELECT i."productType"::text AS tipo, count(*) AS piezas FROM "InventoryItem" i 
 -- Huecos de precio que se van (§14.2: solo los de inventario/portafolio; los de catálogo y cotizador se quedan).
 CREATE TEMP TABLE lz_cola ON COMMIT DROP AS
 SELECT count(*) AS n FROM "PendingPriceEntry" WHERE context::text IN ('inventory', 'portfolio');
+-- v2.2 (LZ-A4): accesorios con existencias o apartados ≠ 0, ANTES de ponerlos en 0 (lista 2.7 y rastro). Vacía sin M-73.
+CREATE TEMP TABLE lz_acc (id text, name text, category text, active boolean, stock_qty integer, reserved_qty integer) ON COMMIT DROP;
+\if :lz_m73
+INSERT INTO lz_acc
+SELECT a.id, a.name, a.category::text, a.active, a."stockQty", a."reservedQty"
+FROM "Accessory" a WHERE a."stockQty" <> 0 OR a."reservedQty" <> 0;
+\endif
+-- v2.2 (LZ-A8): decisiones que faltan y que solo existen con M-74 (G-10). Vacía sin M-74; la lee el bloque del final.
+CREATE TEMP TABLE lz_falta (msg text NOT NULL) ON COMMIT DROP;
 
 -- ---- Guardas que paran TODO de inmediato (el modelo no las conoce: no se adivina)
 DO $$
@@ -303,6 +334,22 @@ FROM "VariantPriceOverride" v JOIN "Card" c ON c.id = v."cardId"
 WHERE v."bountyAcquiredQty" <> 0 OR v."bountyCompletedAt" IS NOT NULL
 ORDER BY c.name;
 
+\if :lz_m73
+\echo '=== 2.7 · ACCESORIOS: existencias que vuelven a 0 (anótalas: las vuelves a recibir en Accesorios) ==='
+SELECT name AS accesorio, category AS categoria, CASE WHEN active THEN 'sí' ELSE 'no' END AS activo,
+       stock_qty AS existencias, reserved_qty AS apartadas
+FROM lz_acc ORDER BY name, id;
+\endif
+\if :lz_m74
+\echo '=== 2.8 · AVISOS (diales; «Avísame cuando vuelva» de sellado y lista de deseos). Al re-subir una carta que alguien desea, si la lista está en on, le llega UN «ya la tenemos» ==='
+SELECT coalesce((SELECT s."valueJson" #>> '{}' FROM "ConfigSetting" s WHERE s.key = 'sealed_restock_alerts'), 'off') AS aviso_sellado,
+       (SELECT count(*) FROM "SealedRestockSubscription" x WHERE x."notifiedAt" IS NULL AND x."armedAt" IS NULL) AS sellado_pendientes_sin_armar,
+       (SELECT count(*) FROM "SealedRestockSubscription" x WHERE x."notifiedAt" IS NULL AND x."armedAt" IS NOT NULL) AS sellado_pendientes_armadas,
+       coalesce((SELECT s."valueJson" #>> '{}' FROM "ConfigSetting" s WHERE s.key = 'wishlist_enabled'), 'off') AS lista_de_deseos,
+       (SELECT count(*) FROM "WishlistItem") AS deseos,
+       (SELECT count(*) FROM "WishlistMail") AS correos_de_deseos;
+\endif
+
 -- ------------------------------------------------------------------------------------
 -- 3 · SPEI manuales (ManualRefund), por HOJAS: primero los que nadie re-emite (la cadena «reissuedFrom» es RESTRICT)
 -- ------------------------------------------------------------------------------------
@@ -332,9 +379,18 @@ WITH x AS (DELETE FROM "VaultPlacement" RETURNING 1) INSERT INTO lz_cambio SELEC
 WITH x AS (DELETE FROM "ShipmentCostAdjustment" RETURNING 1) INSERT INTO lz_cambio SELECT '8 ShipmentCostAdjustment', count(*) FROM x;
 WITH x AS (DELETE FROM "ShipmentPaidLabel" RETURNING 1) INSERT INTO lz_cambio SELECT '8 ShipmentPaidLabel', count(*) FROM x;
 WITH x AS (DELETE FROM "ShipmentLabelAttempt" RETURNING 1) INSERT INTO lz_cambio SELECT '8 ShipmentLabelAttempt', count(*) FROM x;
+-- v2.2: la línea de preparación de accesorios apunta al envío con RESTRICT: va antes.
+\if :lz_m73
+WITH x AS (DELETE FROM "ShipmentAccessoryLine" RETURNING 1) INSERT INTO lz_cambio SELECT '8 ShipmentAccessoryLine', count(*) FROM x;
+\endif
 WITH x AS (DELETE FROM "ShipmentRequest" RETURNING 1) INSERT INTO lz_cambio SELECT '8 ShipmentRequest', count(*) FROM x;
 
 -- 9 · Pedidos (cascada: líneas y tokens de invitado). Las líneas apuntan a las piezas con RESTRICT: van ANTES.
+--     v2.2: los renglones de accesorio apuntan al pedido con RESTRICT, y los componentes del paquete al renglón: van antes.
+\if :lz_m73
+WITH x AS (DELETE FROM "OrderEnergyBundleComponent" RETURNING 1) INSERT INTO lz_cambio SELECT '9 OrderEnergyBundleComponent', count(*) FROM x;
+WITH x AS (DELETE FROM "OrderAccessoryLine" RETURNING 1) INSERT INTO lz_cambio SELECT '9 OrderAccessoryLine', count(*) FROM x;
+\endif
 WITH x AS (DELETE FROM "Order" RETURNING 1) INSERT INTO lz_cambio SELECT '9 Order', count(*) FROM x;
 
 -- 10 · Solicitudes de venta (cascada: sus líneas).
@@ -343,6 +399,18 @@ WITH x AS (DELETE FROM "SellRequest" RETURNING 1) INSERT INTO lz_cambio SELECT '
 -- 11 · EL INVENTARIO, ENTERO (plataforma, custodia y sellado). Cascada: movimientos y levantamientos.
 --      El sellado del catálogo (SealedProduct) NO se toca: la pieza apunta a él con SET NULL.
 WITH x AS (DELETE FROM "InventoryItem" RETURNING 1) INSERT INTO lz_cambio SELECT '11 InventoryItem', count(*) FROM x;
+--      v2.2: con M-74, los avisos de deseos caen aquí por cascada con su pieza (sin DELETE propio).
+--      v2.2: los accesorios. El historial de existencias se borra; el producto se QUEDA con existencias y apartados en 0
+--      (las dos columnas en la MISMA sentencia: el CHECK pide 0 ≤ apartadas ≤ existencias). El WHERE deja intactos los
+--      que ya están en 0 (las energías sin piezas, sin tocar ni su fecha) y hace que una 2.ª corrida no cambie nada.
+\if :lz_m73
+WITH x AS (DELETE FROM "AccessoryStockMovement" RETURNING 1) INSERT INTO lz_cambio SELECT '11 AccessoryStockMovement', count(*) FROM x;
+WITH x AS (
+  UPDATE "Accessory" SET "stockQty" = 0, "reservedQty" = 0, "updatedAt" = now()
+   WHERE "stockQty" <> 0 OR "reservedQty" <> 0
+  RETURNING 1)
+INSERT INTO lz_cambio SELECT '11 Accessory existencias', count(*) FROM x;
+\endif
 
 -- 12 · Lotes de alta (guardan folios de piezas que ya no existen) y los «sin precio» de inventario/portafolio.
 WITH x AS (DELETE FROM "InventoryBatch" RETURNING 1) INSERT INTO lz_cambio SELECT '12 InventoryBatch', count(*) FROM x;
@@ -380,8 +448,9 @@ BEGIN
   END LOOP;
 END $$;
 
-UPDATE lz_conteo SET esperado = 0 WHERE grupo = 'borrar' AND tabla <> 'AuditLog';
-UPDATE lz_conteo SET esperado = antes WHERE grupo = 'conservar' OR tabla = 'VariantPriceOverride';
+-- v2.2 (LZ-W2): solo las que EXISTEN (una tabla de M-73/M-74 en una base sin ella da NULL, no 0).
+UPDATE lz_conteo SET esperado = 0 WHERE grupo = 'borrar' AND tabla <> 'AuditLog' AND antes IS NOT NULL;
+UPDATE lz_conteo SET esperado = antes WHERE grupo = 'conservar' OR tabla IN ('VariantPriceOverride', 'Accessory');
 -- La cola: antes − las de inventario/portafolio contadas ANTES de borrar (no lo que dijo el DELETE: así G-5 caza un
 -- borrado que se pase de largo).
 UPDATE lz_conteo SET esperado = antes - (SELECT n FROM lz_cola) WHERE tabla = 'PendingPriceEntry';
@@ -400,6 +469,21 @@ BEGIN
     RAISE EXCEPTION 'G-5 · Quedó bitácora anterior a la limpieza. Se deshace TODO.';
   END IF;
 END $$;
+
+-- v2.2 (LZ-A6) · G-5 de accesorios: ninguno se queda con existencias o apartados (que «no se pusieron en 0» no pase
+-- en silencio).
+\if :lz_m73
+DO $$
+DECLARE ej text;
+BEGIN
+  SELECT string_agg(x.name || ' (' || x."stockQty" || ' · ' || x."reservedQty" || ')', ', ' ORDER BY x.name) INTO ej
+    FROM (SELECT a.name, a."stockQty", a."reservedQty" FROM "Accessory" a
+           WHERE a."stockQty" <> 0 OR a."reservedQty" <> 0 ORDER BY a.name LIMIT 20) x;
+  IF ej IS NOT NULL THEN
+    RAISE EXCEPTION 'G-5 · Quedaron accesorios con existencias o apartados tras la limpieza: %. Se deshace TODO.', ej;
+  END IF;
+END $$;
+\endif
 
 -- El RASTRO (§6.3 + §14.3): una fila, sin datos personales (ids, ni correos ni folios). Solo si esta corrida cambió
 -- algo (idempotencia).
@@ -423,7 +507,14 @@ SELECT gen_random_uuid()::text, NULL, NULL, 'maintenance.test_data_purge', 'Data
             'inventory_folio_seq', (SELECT last_value FROM inventory_folio_seq)),
          'respaldoManual', (SELECT respaldo FROM lz_param),
          'puntoPitr', (SELECT to_char(punto_pitr AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') FROM lz_param),
-         'ejecutadoCon', current_user),
+         'ejecutadoCon', current_user)
+       -- v2.2 (LZ-A7): solo con M-73; sin ella el rastro es el de siempre.
+       || CASE WHEN to_regclass(format('%I', 'Accessory')) IS NOT NULL
+               THEN jsonb_build_object('accesorios', jsonb_build_object(
+                      'conExistencias', (SELECT count(*) FROM lz_acc),
+                      'existencias',    (SELECT coalesce(sum(stock_qty), 0) FROM lz_acc),
+                      'apartadas',      (SELECT coalesce(sum(reserved_qty), 0) FROM lz_acc)))
+               ELSE '{}'::jsonb END,
        now()
 WHERE (SELECT coalesce(sum(filas), 0) FROM lz_cambio) > 0;
 
@@ -434,14 +525,32 @@ UPDATE lz_conteo SET despues = (SELECT count(*) FROM "AuditLog") WHERE tabla = '
 SELECT tabla, grupo, antes, despues AS "después", esperado,
        CASE WHEN tabla = 'AuditLog' THEN 'queda el rastro'
             WHEN esperado IS NULL OR despues = esperado THEN '' ELSE '⚠️' END AS ojo
-FROM lz_conteo ORDER BY CASE grupo WHEN 'borrar' THEN 1 WHEN 'ajustar' THEN 2 ELSE 3 END, tabla;
+FROM lz_conteo
+WHERE antes IS NOT NULL OR despues IS NOT NULL -- v2.2: sin las tablas de M-73/M-74 la tabla es la de siempre
+ORDER BY CASE grupo WHEN 'borrar' THEN 1 WHEN 'ajustar' THEN 2 ELSE 3 END, tabla;
 
 \echo '=== 15 · QUÉ CAMBIÓ ESTA CORRIDA (todo en 0 = ya estaba limpio; no se escribe rastro nuevo) ==='
 SELECT paso, filas FROM lz_cambio ORDER BY split_part(paso, ' ', 1)::int, paso;
 
+-- v2.2 (LZ-A8) · G-10, solo con M-74: el aviso «Avísame cuando vuelva» de sellado ENCENDIDO y clientes esperando que
+-- su producto se agote (pendientes y SIN armar). Con el inventario borrado el aviso los daría por agotados y al re-subir
+-- les llegaría un «¡Volvió!» falso. Las ya armadas y las ya avisadas no cambian. La lista de deseos no para nada.
+\if :lz_m74
+DO $$
+DECLARE n bigint;
+BEGIN
+  IF coalesce((SELECT s."valueJson" #>> '{}' FROM "ConfigSetting" s WHERE s.key = 'sealed_restock_alerts'), 'off') = 'on' THEN
+    SELECT count(*) INTO n FROM "SealedRestockSubscription" x WHERE x."notifiedAt" IS NULL AND x."armedAt" IS NULL;
+    IF n > 0 THEN
+      INSERT INTO lz_falta VALUES (format('G-10 · El aviso «Avísame cuando vuelva» de sellado está ENCENDIDO y hay %s suscripción(es) esperando que su producto se agote. Si borras el inventario así, el aviso las da por agotadas y al re-subir les llega «¡Volvió a existencia!» de productos que nunca se agotaron. Apágalo en Ajustes, corre esto, re-sube el sellado y vuelve a encenderlo.', n));
+    END IF;
+  END IF;
+END $$;
+\endif
+
 -- Lo que falta DECIDIR se comprueba al final, para que el ensayo te enseñe todo antes de pedírtelo.
 DO $$
-DECLARE p record; faltan text := ''; sin_declarar text;
+DECLARE p record; faltan text := ''; sin_declarar text; f record;
 BEGIN
   SELECT * INTO p FROM lz_param;
   IF p.respaldo = '' THEN
@@ -455,6 +564,9 @@ BEGIN
   IF sin_declarar IS NOT NULL THEN
     faltan := faltan || format(E'\n  · G-9 / cuentas_prueba: hay cartas EN CUSTODIA de cuentas que no declaraste de prueba: %s. Si son tuyas de prueba, escribe su correo (o su id) en la línea ✏️ 2. Si alguna es de un cliente REAL, NO sigas: pregunta.', sin_declarar);
   END IF;
+  FOR f IN SELECT msg FROM lz_falta ORDER BY msg LOOP
+    faltan := faltan || E'\n  · ' || f.msg;
+  END LOOP;
   IF faltan <> '' THEN
     RAISE EXCEPTION 'Falta tu decisión; no se escribió nada:%', faltan;
   END IF;

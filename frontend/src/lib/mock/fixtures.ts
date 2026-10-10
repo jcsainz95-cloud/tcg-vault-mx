@@ -468,6 +468,9 @@ export const mockReferenceByCardId: Record<string, number | null> = {
 // ---- M10: Config (diales). Va ANTES del catálogo porque el catálogo DERIVA de estos diales. ----
 export let mockSettings: SettingsDTO = {
   shippingFeeCents: 17500,
+  // §AC.11 (MOCK): diales de accesorios con sus defaults del contrato.
+  energyBundlePriceCents: 2000,
+  accessorySuggestionCount: 3,
   aportacionPct: 70,
   ivaPct: 16,
   salesMarkupPct: 10,
@@ -541,6 +544,16 @@ export let mockSettings: SettingsDTO = {
     { coverageCents: 1000000, costCents: 17000, measuredAt: '2026-10-04' },
   ],
   shippingLabelFormat: 'standard',
+  // ⭐ v1.87⟨wishlist⟩ (§WSH.2). ⚠️ El seed REAL de `wishlist_enabled` es `off`; el DEMO la arranca `on` para poder
+  // recorrerla sin backend. El apagado se simula con `localStorage['tcg.mock.wishlistOff']='1'` (`mock/wishlist.ts`).
+  wishlistEnabled: 'on',
+  wishlistMaxPerAccount: 20,
+  wishlistMaxIvaMode: 'with_iva',
+  wishlistDailyMailCap: 3,
+  wishlistMailWindowMin: 30,
+  wishlistTargetMarginPct: 15,
+  wishlistMarginBasis: 'cost',
+  sealedRestockMaxPendingPerEmail: 5,
 };
 /**
  * ⭐⭐ **EL DIAL DE TRASLACIÓN, EN SU PROPIA VARIABLE Y ⛔ FUERA DE `mockSettings`** (contrato v1.75,

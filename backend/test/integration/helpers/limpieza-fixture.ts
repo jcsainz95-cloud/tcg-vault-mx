@@ -22,6 +22,12 @@
  *  con `sealedProductId`/`sealedImageUrl`; dos `InventoryBatch`; `PendingPriceEntry` de los CUATRO contextos (las de
  *  `inventory`/`portfolio` se borran, las de `catalog`/`buylist` se quedan); y custodia de DOS clientes: el comprador
  *  (P1, P4, P5, P11) y `client2` (P13, pedido de bóveda O5) — G-9 exige declararlos en `cuentas_prueba`.
+ *  v2.2 (§14.13.5, M-73 y M-74, que `migrateSchema` ya aplica): un accesorio de fundas ACTIVO con foto, precio y costo
+ *  (`initial +20`, `sale −2` ⇒ 18 existencias) vendido en O2 (directo) con su línea de envío en ENV-000003 y un reembolso
+ *  que apunta al renglón; el paquete de energías de O2 con su componente sobre «Energía Fuego» de la semilla (`receive
+ *  +10`, `sale −2` ⇒ 8); y O3 (directo, pendiente) con un renglón APARTADO de 1 fundas ⇒ `reservedQty = 1`. Las otras 7
+ *  energías de la semilla quedan TAL CUAL. Lista de deseos (LZ-W4 (a)): un deseo, un correo y un aviso sobre P9.
+ *  ⛔ Sin pedidos ni envíos nuevos: los renglones van en O2/O3 para no mover contadores que otras pruebas miden.
  */
 import { PrismaClient } from '@prisma/client';
 
@@ -40,6 +46,9 @@ export interface Fixture {
   sealedProduct: string;
   directShipFolio: string;
   bounty: { completed: string; open: string; sellOnly: string };
+  /** v2.2: el accesorio de fundas (18 · 1) y la energía que recibió piezas (8 · 0). */
+  accessory: { sleeves: string; energy: string; sleevesName: string };
+  wishlist: { item: string; mail: string; notice: string };
 }
 
 export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Promise<Fixture> {
@@ -306,6 +315,72 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   await db.pendingPriceEntry.create({ data: { cardId: cards.A, productType: 'sealed', gradeKey: 'sealed', context: 'inventory', sealedProductId: sp.id } });
   await db.pendingPriceEntry.create({ data: { cardId: cards.D, productType: 'raw', gradeKey: 'raw:NM', context: 'portfolio' } });
 
+  // ---- v2.2 (§14.13.5): accesorios (M-73) y lista de deseos (M-74)
+  const sleeves = await db.accessory.create({
+    data: {
+      name: `Fundas Dragon Shield negras LZ ${run}`, category: 'sleeves', lengthMm: 90, widthMm: 70, heightMm: 30, weightG: 120,
+      priceCents: 25000, unitCostCents: 12000, stockQty: 0, reservedQty: 0, photoVersion: '0123456789abcdef', updatedAt: d(-20),
+    },
+  });
+  await db.accessoryPhoto.create({
+    data: {
+      accessoryId: sleeves.id, version: '0123456789abcdef', fullWebp: Buffer.from([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 0xff]),
+      thumbWebp: Buffer.from([0x52, 0x49, 0x46, 0x46, 4, 5, 0x00]), sourceMime: 'image/png', sourceBytes: 8, uploadedByUserId: staff.id, uploadedAt: d(-20),
+    },
+  });
+  const accMv = (accessoryId: string, kind: string, delta: number, stockBefore: number, at: Date, orderId?: string) =>
+    db.accessoryStockMovement.create({ data: { accessoryId, kind: kind as any, delta, stockBefore, stockAfter: stockBefore + delta, orderId, createdAt: at } });
+  await accMv(sleeves.id, 'initial', 20, 0, d(-20));
+  await accMv(sleeves.id, 'sale', -2, 20, d(1), O2.id);
+  const energy = await db.accessory.findFirstOrThrow({ where: { energyType: 'fire' } });
+  await accMv(energy.id, 'receive', 10, 0, d(-10));
+  await accMv(energy.id, 'sale', -2, 10, d(1), O2.id);
+  await db.accessory.update({ where: { id: energy.id }, data: { stockQty: 8, updatedAt: d(1) } });
+  // O2 (directo, liquidado): 2 fundas VENDIDAS (una llegó dañada: línea de envío `missing` + reembolso del renglón)…
+  const line = await db.orderAccessoryLine.create({
+    data: {
+      orderId: O2.id, kind: 'accessory', accessoryId: sleeves.id, quantity: 2, unitPriceCents: 25000, unitCostCents: 12000,
+      snapshot: { name: sleeves.name, category: 'sleeves' }, status: 'sold', reservedUntil: d(1), soldAt: d(1), refundedQty: 1, createdAt: d(1),
+    },
+  });
+  // …y el paquete de energías del deck, con su componente (2 «Energía Fuego»).
+  const bundle = await db.orderAccessoryLine.create({
+    data: {
+      orderId: O2.id, kind: 'energy_bundle', quantity: 1, unitPriceCents: 1000, snapshot: { name: 'Energías del deck' },
+      metaDeckId: `deck-${run}`, metaDeckListId: `list-${run}`, deckSlug: 'lz-deck', deckName: 'Deck LZ', deckOrderItemIds: [OI2.id],
+      status: 'sold', reservedUntil: d(1), soldAt: d(1), createdAt: d(1),
+    },
+  });
+  await db.orderEnergyBundleComponent.create({ data: { lineId: bundle.id, accessoryId: energy.id, energyType: 'fire', quantity: 2, unitCostCents: 100 } });
+  const sal = await db.shipmentAccessoryLine.create({
+    data: { shipmentRequestId: SR3.id, orderAccessoryLineId: line.id, quantity: 2, prepStatus: 'missing', missingQty: 1, missingReason: 'damaged', prepMarkedAt: d(2), prepMarkedByUserId: staff.id },
+  });
+  await db.paymentRefund.create({
+    data: {
+      ...refundBase, idempotencyKey: `acc:${sal.id}`, kind: 'item_missing', status: 'succeeded', stripeRefundId: `re_acc_${run}`, orderId: O2.id,
+      orderAccessoryLineId: line.id, shipmentAccessoryLineId: sal.id, accessoryQty: 1, missingReason: 'damaged', amountCents: 25000, merchandiseCents: 25000,
+      processingFeeCents: 0,
+    },
+  });
+  // O3 (directo, pendiente): 1 funda APARTADA.
+  await db.orderAccessoryLine.create({
+    data: {
+      orderId: O3.id, kind: 'accessory', accessoryId: sleeves.id, quantity: 1, unitPriceCents: 25000, unitCostCents: 12000,
+      snapshot: { name: sleeves.name, category: 'sleeves' }, status: 'reserved', reservedUntil: d(3), createdAt: d(2),
+    },
+  });
+  // Existencias y apartado como los deja la app (I-AC-2: reservedQty = Σ de lo apartado), y ya ACTIVO (con foto y medidas).
+  await db.accessory.update({ where: { id: sleeves.id }, data: { stockQty: 18, reservedQty: 1, active: true, updatedAt: d(2) } });
+
+  const wItem = await db.wishlistItem.create({ data: { userId: buyer.id, cardId: cards.I, finish: 'normal', maxPct: 10, lastNotifiedAt: d(4), createdAt: d(-3), updatedAt: d(4) } });
+  const wMail = await db.wishlistMail.create({ data: { userId: buyer.id, locale: 'es', itemCount: 1, sentAt: d(4) } });
+  const wNotice = await db.wishlistNotice.create({
+    data: {
+      wishlistItemId: wItem.id, userId: buyer.id, inventoryItemId: P9.id, status: 'sent', detectedAt: d(4), mailId: wMail.id,
+      priceDisplayCents: 1000, marketCents: 1200, maxDisplayCents: 1320, fits: true, resolvedAt: d(4),
+    },
+  });
+
   // ---- Bounties
   const bCompleted = await db.variantPriceOverride.create({
     data: { cardId: cards.F, bountyEnabled: false, bountyPriceCents: 900, bountyTargetQty: 1, bountyAcquiredQty: 1, bountyCompletedAt: d(-5) },
@@ -334,5 +409,7 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
     sealedProduct: sp.id,
     directShipFolio: SR3.folio,
     bounty: { completed: bCompleted.id, open: bOpen.id, sellOnly: bSell.id },
+    accessory: { sleeves: sleeves.id, energy: energy.id, sleevesName: sleeves.name },
+    wishlist: { item: wItem.id, mail: wMail.id, notice: wNotice.id },
   };
 }

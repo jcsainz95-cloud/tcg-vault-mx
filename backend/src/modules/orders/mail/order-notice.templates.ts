@@ -1,4 +1,5 @@
 import { MailMessage } from '../../mail/mail.port';
+import { AccessoryMailLine, accessoryMailTextLines } from './accessory-mail-lines';
 import {
   appUrl,
   ctaRows,
@@ -83,6 +84,8 @@ export interface OrderSettledParams {
   items: OrderNoticeItem[];
   /** ⭐ `Order.totalCents` **persistido**. ⛔ Jamás una suma recalculada desde un dial vivo. */
   totalCents: number;
+  /** 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.1): los renglones de accesorio y paquete. ⛔ Sin foto. */
+  accessoryLines?: AccessoryMailLine[];
 }
 
 /**
@@ -119,7 +122,10 @@ export function orderSettledTemplate(
     : 'Ventas finales: no hay reembolso a solicitud, salvo carta dañada/equivocada o error de la plataforma.';
   const url = orderDetailUrl(params.orderId, l);
   const ctaLabel = en ? 'SEE MY ORDER' : 'VER MI PEDIDO';
-  const lineas = params.items.map((i) => `${i.name} — ${i.setName} #${i.number}`);
+  const lineas = [
+    ...params.items.map((i) => `${i.name} — ${i.setName} #${i.number}`),
+    ...accessoryMailTextLines(params.accessoryLines, l, (c) => money(c, l)),
+  ];
   const blocks = [
     eyebrowRow(en ? 'YOUR ORDER' : 'TU PEDIDO', params.orderNumber),
     headingRow(title, 22),

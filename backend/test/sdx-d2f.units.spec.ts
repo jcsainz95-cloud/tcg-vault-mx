@@ -196,8 +196,9 @@ describe('`PUT /admin/shipping/packages` — el cuerpo (§19.13, §19.19.6, §19
 
   it('válido ⇒ la lista normalizada (strings recortados)', () => {
     expect(parsePackagesBody({ packages: [pkg({ label: '  Caja  ' }), pkg({ code: 'envelope', active: false, providerPackageType: '' })] })).toEqual([
-      pkg(),
-      pkg({ code: 'envelope', active: false, providerPackageType: '' }),
+      // v1.86⟨accesorios⟩ (§AC.7, §AC.15): `customerFeeCents` es llave aditiva del DTO; ausente en el cuerpo ⇒ `null`.
+      pkg({ customerFeeCents: null }),
+      pkg({ code: 'envelope', active: false, providerPackageType: '', customerFeeCents: null }),
     ]);
   });
 

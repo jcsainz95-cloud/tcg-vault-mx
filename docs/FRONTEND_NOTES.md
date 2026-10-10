@@ -20585,6 +20585,610 @@ días anteriores (P-AN-3 default) y la tarjeta con el día completo (P-AN-2 defa
 - **Techlead D3.** SU-UX-10 en `MasterSet.test.tsx`: carrito y `encontrada` invalidan `['pending-publish']`.
 - **Techlead D4** registrada en `TECH_DEBT.md` (TD-SU-D4a/b).
 
+## §107 · 💰 **§AC — accesorios, energías y paquete de energías del deck** (2026-10-07, rama `claude/accesorios`, base `69fe60a`; `API_CONTRACT §AC` v1.86 + erratas v1.86.1 y v1.86.2 · `DESIGN_SYSTEM §AC-UX` vAC-1)
+
+**Orden de trabajo.** Pruebas primero (AC-F1…F13, F15…F18, candados AC-UX-1…14), corridas en rojo antes del código: **91 de
+107 rojas** en 16 archivos (las 16 verdes eran vacuas: paridad sobre espacios de nombres aún inexistentes, que su prueba
+hermana «existe» ya ponía en rojo, y «sin `accessory` ⇒ sin fila» en Ventas). La errata v1.86.2 llegó a mitad: AC-F13 se
+reescribió como AC-F19 antes de construir M3 (7/7 rojas). ⛔ Ningún importe se calcula en el cliente: renglones, paquete,
+envío, reembolsos por unidad y `refundPreviewCents` salen del servidor; la pantalla solo suma lo que el diseño pide sumar de
+cifras ya calculadas (`{amount}` del aviso de bóveda = Σ `lineTotalCents` + Σ `priceCents`, §AC-UX.7).
+
+**Carrito v3 (AC-F1).** `lib/cart.ts`: registro plano `{ ids, accessories: {id, qty}[], deckPulls: {token, slug,
+withEnergyBundle, deckName?}[], updatedAt }`. `lib/local-store.ts` gana la opción aditiva `flat` (el valor va al nivel del
+registro; `field` sigue siendo la llave que lo reconoce): un v2 `{ids, updatedAt}` se lee como v3 **conservando su
+caducidad**; v1 (array) migra como antes. `count` = piezas + unidades + paquetes; `isEmpty` ignora decks sin paquete.
+«La oferta del paquete, una vez» vive aparte: `tcg.cart.bundleOfferSeen` (`{slugs}`), como recomienda §AC-UX.8b.
+`cart.test.ts` cambió por norma (forma exacta v2 ⇒ v3).
+
+**Tienda.** `StoreTabs` 4.ª pestaña `/accesorios`; listado `(storefront)/accesorios` (categoría en URL, búsqueda con
+debounce 300 ms reflejada en la URL, categoría inválida ⇒ «Todo» y se limpia) y ficha `accesorios/[id]` con
+`QuantityStepper` (nuevo, `components/domain/accessories/`) topado en `maxQty − enCarrito`. P-AC-1 con su recomendación:
+con sesión, sin «Agregar» y `SignedInAccessoryNotice` (`role="note"`), ⛔ sin «cerrar sesión» (candado en
+`i18n-accessories.test.ts`).
+
+**Carrito (invitado).** `GuestCheckoutView` manda `accessoryLines` y `deckPulls` en la cotización (todos) y en la sesión
+(solo los paquetes: con `false` la sesión no valida nada). Corrección automática + avisos en `accessory-notice.ts`
+(store de módulo, como `unavailable-notice.ts`; `CheckoutView` lo limpia al salir). Un `deckPull` **sin** paquete que se
+invalida sale en silencio. `invalid_token` con `deckSlug: null`: sale el `deckPull` que la respuesta no nombra.
+Renglones (`AccessoryCartLines`), oferta del paquete (`BundleOffers`), «¿Te falta algo?» (`AccessorySuggestions`: lo
+agregado en la visita no entra en `exclude`, así la lista no salta). Envío: `AmountBreakdown` gana `productsSubtotal` y
+`shippingNote` (aditivas); «El envío cambió a…» en región `aria-live`. Bóveda: `vaultExcludesAccessories` ⇒ bloque «NO VAN
+A LA BÓVEDA» dentro del panel; sin cartas, la opción de bóveda no se pinta (formulario y resumen). Errores de sesión
+`ACCESSORY_UNAVAILABLE` / `ACCESSORY_INSUFFICIENT_STOCK` (renglón suelto o componente de paquete) / `ENERGY_BUNDLE_INVALID`
+⇒ Banner `danger`, carrito corregido y re-cotización por cambio de clave.
+- ⭐ **F-SP-5 construido aquí (AC-F9), solo en `GuestCheckoutView`:** el botón no pinta importe sin sesión
+  (`checkout.payNoAmount`) y, con sesión, pinta `outcome.breakdown.totalCents`; el `amountLabel` del modal es el de la
+  sesión. Cambiaron por norma `GuestCheckoutDestinationBreakdown.test.tsx` (2) y `CheckoutRetry.test.tsx` (1).
+  **`CheckoutView` (con cuenta) NO se tocó** en esto: queda pendiente (no compra accesorios; fuera de §AC).
+- **Con cuenta (AC-F7):** el checkout con cuenta solo cotiza y paga `ids`; los accesorios del carrito local van en
+  `SignedInAccessoriesBlock` («NO VAN EN ESTE PAGO», nombre y foto de `GET /accessories/:id`, «Quitar», ⛔ sin precio). Solo
+  accesorios ⇒ sin cotización ni botón.
+- **Textos nuevos sin diseño literal** (ux-ui debe ratificar): avisos con nombre de v1.86.1 (`inactiveNamed`,
+  `soldOutNamed`, `insufficientNoName`), sugerencia de `deckAllMissing` (`admin.m4.prep.ship.accessory.deckAllMissing`),
+  importe por renglón en el diálogo de preparado (`dialogLine*`), nota y «el importe cambió» de M3 (`admin.m3.accessories.*`).
+
+**Deck.** `DeckAvailability` gana `deck` y `energyBundle` (solo el detalle; «Pegar lista» no los pasa ⇒ sin recuadro).
+Energías ligadas (`basicEnergy`) con «Agregar ×{qty}»; recuadro del paquete con botón propio apagado hasta tener todas las
+piezas del jalón; «Agregar de jalón» guarda el `deckPull` con `withEnergyBundle: false` (⛔ nunca `true`).
+
+**Panel.** `/admin/accessories` (lista + bloque ★ de diales `energyBundlePriceCents`/`accessorySuggestionCount` — nombres
+medidos en `backend/src/modules/settings/settings.constants.ts:1302-1303`), `new` y `[id]` (bloques Datos, Foto, Precio ★,
+Existencias, Publicación ★, Borrar ★). Pesos ⇄ centavos en `accessories/money-input.ts` (enteros, sin coma flotante).
+Menú: «Accesorios» tras «Sellado» (cambiaron por norma `AdminPageTitles.test.tsx` y `AdminSidebar.test.tsx`).
+Empaques: columna «Tarifa al cliente»; vacía ⇒ `null` en el `PUT`. Preparación: `ShipAccessoryLines.tsx` (caja, renglones,
+palomeo por cantidad, paquete entero, `deckAllMissing` solo sugiere), «Pedido preparado» apagado con cualquier accesorio
+pendiente, diálogo con el importe por renglón y título = `refundPreviewCents` leído; hoja imprimible con caja y casillas.
+M3: renglones + «Reembolsar unidades» (AC-F19: `deliveredRefund` del servidor, nota obligatoria, `expectedRefundCents`,
+`409 REFUND_PREVIEW_STALE` reconfirma). Ventas: fila «Accesorios» si llega `byProductType.accessory`. Seguimiento del
+invitado: renglones de accesorio.
+
+**Fotos.** El backend sirve `photo.url` como **ruta** (`/api/v1/accessories/…`, `backend/.../accessory-dto.ts:76-81`) y el
+frontend no tiene `rewrites` (`next.config.mjs`): `resolveApiAssetUrl` la ancla al origen de `NEXT_PUBLIC_API_BASE_URL`
+(un solo sitio: `AccessoryPhoto`). CSP: `img-src 'self' data: blob: https:` (`src/security/csp.ts:128`) ⇒ en producción
+(https) pasa; con la API local en `http:` y CSP en `enforce` la foto se bloquearía — **NO MEDIDO en navegador**.
+`remotePatterns` no aplica (`<img>` crudo, como `CardImage`). M10 no pinta diales de forma genérica (lista explícita en
+`M10View.tsx`): los dos diales viven solo en el bloque ★ del panel de accesorios.
+
+**Respuestas que el contrato no especifica** (se tipan `unknown` y la pantalla re-lee): `PATCH/activate/deactivate/stock`
+de `/admin/accessories` y `PATCH …/prep-accessory-lines/:lineId`. `OrderAccessoryLineDTO.id`/`kind` (§AC.12 no los
+enumera) se tipan opcionales: sin `id` no hay botón de reembolso.
+
+**Mock (`lib/mock/accessories.ts`).** Simulador del servidor para modo mock: catálogo, panel, existencias, energías
+ligadas, `pullToken` legible (`mock-pull:<slug>:<ids>`), cotización con poda y sesión estricta. Simplificaciones: sin cajas
+con tarifa (`shippingBox: null`), sin la regla P-AC-4 de medio deck, sin «más vendidos», preparación y reembolsos de
+accesorio no simulados (aceptan y se re-lee).
+
+**E2E.** `e2e/accessories.spec.ts`: smoke **mock** en ES y EN (pestaña, listado, ficha, carrito con sugerencia, recuadro
+del paquete). ⛔ **Los recorridos de punta a punta de los criterios 724 y 748 contra el stack NO están escritos**: necesitan
+el backend de compra/preparación de §AC (stream B), que aún no existe.
+
+### §107.v1.86.3 · Errata v1.86.3 (`API_CONTRACT §AC.19`) aplicada al frontend (2026-10-07, rama `claude/accesorios`, base `4dd5649`)
+
+Sustituye, donde choque, los párrafos «Fotos» (CSP) y «Respuestas que el contrato no especifica» de arriba.
+
+- **AC-F20 · CSP.** `img-src` gana el origen de la API (`buildCsp`, `src/security/csp.ts`), el mismo `apiOrigin` que ya
+  usa `connect-src`: sin ruta, solo si `NEXT_PUBLIC_API_BASE_URL` es una URL http(s) válida; sin API (o inválida) la
+  directiva queda igual que antes. Es más estrecho que abrir `http:` y cierra el caso local (`http://localhost:3001`).
+  Único cambio en ese fichero; `scripts/check-csp-zap-parity.sh` sigue en rc 0 (`CSP_MODE` intacto, `report-only`).
+- **AC-F21 · corrección del carrito por `index`.** `UnavailableBundleDTO` gana `index` y `withEnergyBundle`. El efecto de
+  `GuestCheckoutView` quita `cart.deckPulls[index]` (la cotización manda los `deckPulls` en ese orden) y el aviso sale
+  solo si **la respuesta** dice `withEnergyBundle:true`. Se retiró la heurística «emparejar por `deckSlug`» / «el que la
+  respuesta no nombra». La corrección no corre con datos de relleno (`isPlaceholderData`, clave anterior): sus `index`
+  no describen el carrito actual. `duplicate` se sigue ignorando (el carrito es único por deck; quitar por slug borraría
+  el bueno). `422 ENERGY_BUNDLE_INVALID {index}` se traduce contra la lista que mandó la **sesión** (solo los que llevan
+  paquete); `deckSlug` queda de respaldo. El mock (`lib/mock/accessories.ts`) emite `index`/`withEnergyBundle`.
+- **AC-F22 · `OrderAccessoryLineDTO.id`/`kind` obligatorios.** M3 y el seguimiento reconocen el paquete por `kind`
+  (⛔ ya no por `deckName !== null`), usan `id` como llave y el botón de reembolso ya no depende de que exista `id`. El
+  seguimiento se tipa `Omit<OrderAccessoryLineDTO, 'deliveredRefund'>` (`deliveredRefund` solo en M3). En paquete
+  `name = deckName`: M4 (renglón, hoja imprimible y diálogo «no reembolsable») titula «Paquete de energías — {deck}» por
+  `kind`.
+- **Respuestas del panel tipadas** (`200 AdminAccessoryDTO` en `PATCH`, `activate`, `deactivate`, `stock`; la foto ya lo
+  estaba). La ficha se pinta con la fila devuelta (`setQueryData`, ⛔ sin volver a pedir `GET /admin/accessories/:id`); la
+  lista y el historial de movimientos sí se invalidan (otros recursos). «Sumamos n. Ahora hay N» toma `N` de la fila
+  devuelta (antes `stockQty + n`, que mentía con una entrada concurrente).
+- **`PATCH …/prep-accessory-lines/:lineId` ⇒ `{changed, line, preparation}`** (`SetShipPrepAccessoryLineResponse`): se
+  aplica a la cola como `prep-items` (reemplaza el renglón por `line.id` y `preparation`), sin re-leer. Mock: el simulador
+  de preparación no modela renglones de accesorio, así que responde `404 NOT_FOUND` (antes aceptaba en vacío).
+- **`409 PREPARATION_INCOMPLETE {pendingCount, pendingAccessoryCount}`** (`PreparationIncompleteDetails`): con cartas
+  pendientes, el texto de hoy; con renglones pendientes se añade `accessory.pendingLines` («Falta 1 accesorio por
+  palomear.»); con solo accesorios ya no dice «faltan 0 cartas». Sin copy nuevo: reusa los dos textos existentes (con
+  solo accesorios se pierde la coletilla «Puede que alguien acabe de deshacer una marca»; si ux-ui la quiere, es un copy).
+- **E2E.** `e2e/accessories.spec.ts:31`: `getByText('ACCESORIOS')` sin `exact` chocaba (strict mode) con el subtítulo de
+  «¿Te falta algo?» cuando las sugerencias llegaban antes del aserto. Medido N=10 (5 repeticiones × es/en): HEAD
+  `4dd5649` 9/10 verdes, este árbol sin el arreglo 7/10; con `{ exact: true }` 10/10. El caso «deck: Agregar de jalón…»
+  (`:39`) falla también en HEAD `4dd5649` (no encuentra «Ver deck» en `/decks-meta` mock): previo, **no tocado**.
+- **NO MEDIDO:** la foto con la API en `http:` y la CSP en `enforce` en un navegador real (la prueba es de la función pura);
+  ninguna de las respuestas nuevas contra el backend real (stream B aún no las sirve en este árbol).
+
+### §107.e2e · E2E «deck: Agregar de jalón…» y perdedor de la carrera del paquete (AC-F23) (2026-10-07, rama `claude/accesorios`, base `23ac19d4`)
+
+- **Causa raíz (defecto de la prueba, no de la pantalla ni del seed).** `e2e/accessories.spec.ts:39` buscaba
+  `getByRole('link', { name: decksMeta.list.view })` («Ver deck» / «View deck»). Esa clave existe en los mensajes pero
+  **ninguna pantalla la pinta**, nunca lo hizo (`git log -S"list.view"` sobre `decks-meta/` vacío): en `DecksMetaListView`
+  cada deck es una tarjeta-enlace entera a `/decks-meta/{slug}`, cuyo nombre accesible es el contenido de la tarjeta. El mock
+  sí lista 3 decks; el caso es `mockOnly`, así que el seed E2E de backend no interviene (⛔ ninguna fila nueva en
+  `seed-e2e.ts`). `DESIGN_SYSTEM` no especifica un «Ver deck» en la lista, así que no se añade a la pantalla.
+- **Arreglo.** Se entra por la primera tarjeta (`a[href^="/{locale}/decks-meta/"]` sin `…/pegar`) y se comprueba la URL de
+  ficha. Sin debilitar: siguen el recuadro `deck-energy-bundle`, «Agregar paquete» apagado hasta «Agregar de jalón»,
+  y se **añade** que tras «de jalón» el recuadro no dice «En el carrito» (el paquete no entra solo).
+- **Medido:** canario con el selector viejo ⇒ 2/2 rojos (es/en, `waiting for getByRole('link', { name: 'Ver deck' })`);
+  con el arreglo, la spec entera `--repeat-each=10` ⇒ **40/40** (20/20 del caso del deck), modo mock, build propio
+  `.next-e2e-mock-ac3`, puerto 3473. Contra el stack real no aplica: el caso es `mockOnly` (se salta en real); el
+  recorrido real de 748 sigue pendiente (§107).
+- **AC-F23 (`API_CONTRACT §AC.20.1`).** La pantalla ya trataba los dos códigos del perdedor igual (sin cambio de
+  producción); se fijan con pruebas en `GuestCheckoutAccessories.test.tsx`: `422 ENERGY_BUNDLE_INVALID
+  {index, reason:'insufficient_stock'}`, `409 ACCESSORY_INSUFFICIENT_STOCK` de un componente (el renglón suelto queda
+  intacto) y una prueba de **equivalencia**: mismo texto del aviso, mismo carrito y misma re-cotización sin el paquete.
+  Mutaciones (quitar la rama «componente ⇒ paquete»; 422 con texto sin nombre) ⇒ AC-F23 en rojo, 1/1 cada una. Fichero
+  N=10 ⇒ 10/10 (24/24 pruebas). Copys: los de `DESIGN_SYSTEM §AC-UX.5`, sin nuevos.
+- **Para ux-ui (no cambiado):** con `reason:'insufficient_stock'` la coletilla «las energías las puedes agregar sueltas
+  desde el deck» puede prometer energías que tampoco hay sueltas.
+
+### §107.real · E2E de §AC contra el stack real; AC-F14 (724, 748, 749); copys AC-UX.v1.86.4 (2026-10-07, rama `claude/accesorios`, base `c49fcebd`)
+
+**Por qué.** Todo `e2e/accessories.spec.ts` era mock-only con el motivo «el simulador de §AC sirve el catálogo y la
+cotización», falso desde que el backend de §AC está completo en esta rama. Doctrina H-4 (`e2e/utils/grading.ts:14-21`).
+
+**Qué cambió.**
+- `e2e/utils/accessories-scenario.ts` (nuevo): siembra por la API del contrato (§AC.11, §13) lo que cada caso necesita —
+  accesorios activos con foto PNG generada en el propio arnés (`makePng`), existencias y «Sugerido»; energías Fuego/Psíquica
+  activas con foto y existencias; deck `e2e-ac-energias` curado con `POST /admin/decks-meta` (8 «Basic Fire Energy», 4
+  «Basic Psychic Energy» y dos cartas)— y verifica con `GET /decks-meta/:slug` que el servidor ofrece el paquete.
+  Huella: cada caso retira lo que crea (`DELETE`; con renglones de pedido, `409 ACCESSORY_HAS_SALES` ⇒ se desactiva); el
+  `globalTeardown` (`restoreAccessoryScenario`) retira lo que quedó, desactiva las energías que activó el arnés y
+  despublica el deck. Quedan filas **inactivas** (accesorios con renglón de pedido `released`) y las existencias recibidas.
+- Los dos smokes de pantalla pasan a **agnósticos y `@real`** (mock: ids del simulador; real: lo sembrado). El listado se
+  acota con `?q=<etiqueta de la corrida>`.
+- **AC-F14** (describe «AC-F14 · contra el stack», solo-real con un único `beforeEach`):
+  - **724:** el dueño da de alta **por pantalla** (datos, foto PNG, precio, «Entraron 20», Sugerido, Activar) → la teja en
+    `/accesorios` con su precio y la foto cargada en el navegador → invitado: una carta + el accesorio desde «¿Te falta
+    algo?» → la cotización trae el renglón (8900) → el envío del desglose = `breakdown.shippingFeeCents` del servidor →
+    «Pagar» ⇒ sesión `201` y modal → `GET /admin/accessories/:id` ⇒ `stockQty 20, reservedQty 1`.
+  - **748:** lista de decks → ficha → energías ligadas (`deck-energy-fire/psychic`) → «Agregar de jalón» → «Agregar
+    paquete» → carrito con «Paquete de energías — {deck}» al precio del servidor; `shippingBox: null` (§AC.7: energías y
+    paquete no entran a la caja) y sin nota de caja, envío = el del servidor → sesión `201` y modal → apartadas +8 Fuego
+    y +4 Psíquica, existencias sin cambio.
+  - **749:** el invitado deja un accesorio en el carrito y entra con su cuenta → la ficha muestra el aviso P-AC-1 y no
+    «Agregar» → el checkout con cuenta cotiza **sin** `accessoryLines` y pinta «NO VAN EN ESTE PAGO» con el nombre → por API,
+    `POST /checkout/quote` y `/checkout/session` con el accesorio ⇒ `422 ACCESSORIES_REQUIRE_DIRECT_SHIP`; los pedidos del
+    cliente no cambian y el accesorio sigue con `reservedQty 0`.
+- ⛔ **724 y 748 se detienen en la sesión de pago**, como todos los smokes de dinero del arnés (ninguno paga con tarjeta de
+  prueba). «Paga → el operador prepara → bajan las existencias» queda **sin E2E**: `TECH_DEBT TD-AC-E2E-1`.
+- `admin.accessories.photo.saved` («Foto guardada.») no lo pinta ninguna pantalla (el diseño dice «vista previa y Cambiar
+  foto», `DESIGN_SYSTEM` §AC-UX bloque Foto); el caso afirma eso. Clave huérfana, no se tocó.
+
+**Filas que faltan en `backend/prisma/seed-e2e.ts` (petición a backend; espejo en `DECK_SEED`).** Sin ellas los dos casos
+del deck se saltan por dato del seed (medido: `ptcgoCode` a `null` ⇒ 4/4 saltados con la causa), no por mock-only:
+1. `CardSet` «E2E Base Set» con `ptcgoCode = 'EEB'` (hoy `null`; el emparejador casa por `ptcgoCode` + número y no hay
+   endpoint que lo escriba).
+2. Cartas raw «E2E Deck Ember» #40 (`externalId e2e-ac-deck-ember`) y «E2E Deck Spark» #41 (`e2e-ac-deck-spark`) en ese set,
+   precio de referencia NM **MX$50** (por debajo de todas las raw, para no mover el orden por precio de `grading.ts`), con
+   **dos** piezas `listed` de plataforma cada una (con Stripe de prueba la sesión de ES deja apartada una y EN usa la otra).
+No hacen falta filas de accesorios, energías ni cajas: se siembran por API. Cajas con tarifa no intervienen en 724/748 (el
+criterio 726/728 es otro caso).
+
+**Medido (clúster Postgres propio en `:55437`, Redis `:56387`, backend `:3497`, `next build`+`start` en `:3498`, copia
+`git archive` de `8ab4c88d` + estos cambios; filas del punto anterior **simuladas por SQL** en ese clúster):**
+- Real, `--repeat-each=5` × es/en (N=10 por caso), backend con `NODE_ENV=test` (como el job E2E: throttler apagado):
+  smoke listado/ficha/carrito **10/10**, smoke deck **10/10**, 749 **10/10**; 724 y 748 **10/10 llegan a la sesión** y
+  ahí son rojos por **`503 PAYMENT_PROVIDER_UNAVAILABLE`** (stack sin clave de Stripe: entorno, no producto). Lo posterior
+  a la sesión (modal y apartados) **NO MEDIDO** aquí.
+- Con `NODE_ENV=development` el límite `POST /checkout/guest/session` **5/h por IP** (`guest-orders.controller.ts:48`)
+  devolvió `429` en 19 de 20 sesiones: fuera del job E2E (que apaga el throttler) estos casos no se pueden repetir.
+- Mock, `--repeat-each=5`: smokes **20/20**, AC-F14 **30 saltados** (solo-real).
+- Canario de producto: con la ficha de accesorio ignorando la sesión (`false && isAuthenticated`, build propio) el 749 sale
+  **rojo 2/2** (es/en).
+- Teardown: tras la corrida, ningún accesorio activo, deck despublicado, piezas del deck `listed`.
+
+**Censo** (`scripts/check-e2e-skip-census.sh`, **rc 1**): `mockOnly` 144/30 (= baseline; en `HEAD c49fcebd` era 146/31 y ya
+salía rc 1 por los 2 de este fichero), `skipIfSeedMissing` 15→18 (7→8 ficheros), `realOnly` 22→24 (7→8). **En
+`accessories.spec.ts` no queda ningún mock-only.** Lo nuevo: `skipIfSeedMissing` = import + 2 llamadas (casos del deck,
+mientras falten las filas de arriba); `realOnly` = import + 1 llamada (`beforeEach` de AC-F14). Línea base: devops.
+
+**Copys AC-UX.v1.86.4** (commit aparte): las cinco claves con el texto literal del diseño; `DeckAvailability.ac.test.tsx`
+comparaba el texto viejo de `noStock`; candado en `src/lib/i18n-accessories.test.ts` (sin las frases viejas + literal
+es/en). Mutación (texto viejo en `es` `bundleNoStock`) ⇒ 4 rojas, 1/1.
+
+### §107.gates · Condiciones de QA y techlead sobre `dd26ae79` (2026-10-08, rama `claude/accesorios`, base `dd26ae79`)
+
+**1 · Textos de CARTAS en flujos de ACCESORIOS (QA, MENOR).** `DESIGN_SYSTEM §AC-UX.12–13` da el texto literal de las
+filas del diálogo y de los botones, pero **no** da cuerpo, firma ni ayuda de motivo para el caso accesorio. Los textos de
+abajo son **neutros, redactados por frontend, pendientes de ratificar por ux-ui** (si cambian, solo cambia el JSON):
+
+| Clave nueva | ES | EN | Cuándo |
+|---|---|---|---|
+| `admin.m4.prep.ship.confirmRefund.bodyAccessories` | El importe lo calculó el servidor con lo que el cliente pagó por cada accesorio más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución. | The server calculated the amount from what the customer paid for each accessory plus … | en la lista solo faltan accesorios/paquete |
+| `…confirmRefund.bodyMixed` | … por cada carta y cada accesorio … | … for each card and each accessory … | faltan cartas y accesorios |
+| `…confirmRefund.signatureAccessories` | Este reembolso queda a tu nombre. | This refund is recorded in your name. | solo accesorios (⛔ «merma» es de cartas) |
+| `…confirmRefund.signatureMixed` | Este reembolso queda a tu nombre y cada carta faltante pasa a merma con tu firma. | … and each missing card goes to shrinkage signed by you. | mixto |
+| `…confirmRefund.bodyNothingShipsAccessories` | No sale ningún accesorio: se devuelve todo lo cobrado —accesorios, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo. | No accessory is shipping: … | pedido solo de accesorios y no sale nada (diálogo y pie) |
+| `…confirmRefund.bodyNothingShipsMixed` | No sale nada: se devuelve todo lo cobrado —cartas, accesorios, envío y comisión— … | Nothing is shipping: … | pedido con ambos y no sale nada |
+| `admin.m3.shippedReason.hintItem.{not_arrived,arrived_damaged}` | El paquete se perdió o el cliente no lo recibió. / Llegó, pero no estaba como se vendió. | … / It arrived, but it wasn't as sold. | «Reembolsar unidades» de un renglón de accesorio o paquete |
+
+Reglas: el cuerpo y la firma siguen a **lo que falta en la lista** del diálogo; «no sale nada» sigue a **lo que trae el
+pedido**. Solo cartas ⇒ las claves de §37.4 de siempre, sin cambio. `ShippedReasonFieldset` gana `subject?: 'cards' | 'item'`
+(por defecto `cards`: M3 total, retiro entregado y revisión no cambian); `RefundAccessoryLineDialog` pasa `item`.
+`confirmCases.*` (retiro de bóveda) no se tocó: un retiro no lleva accesorios. Fuera de alcance y anotado: `admin.m3.shippedRefund.*`
+(reembolso **total** tras el envío, `RefundOrderDialog`) dice «las cartas no vuelven a inventario»; en un pedido con
+accesorios es incompleto (tampoco vuelven, criterio 717) pero no falso — para que ux-ui decida.
+
+Pruebas: `ShipPreparationAccessories.ac.test.tsx` (6 casos: accesorio ×1 faltante es/en sin «carta»/«card», paquete
+faltante, solo-accesorios sin nada que salga —pie y diálogo—, mixto, solo-cartas igual) y `M3AccessoryLines.ac.test.tsx`
+(3: accesorio es/en y paquete, sin «carta» al abrir). Mutaciones sobre copia (deterministas, 1 corrida cada una):
+sufijos a `''` ⇒ 5 rojas; «no sale nada» sin sujeto ⇒ 1 roja; fieldset sin `hintItem` ⇒ 3 rojas.
+
+**2 · TD-AC-11 (techlead) — corregido, no registrado.** El comentario de `AccessoryPhoto.tsx:11-12` decía que una API
+en `http:` quedaría fuera de `img-src`; desde AC-F20 (v1.86.3) `img-src` lleva el origen de la API (`security/csp.ts:130`,
+`csp.test.ts:191`). Comentario reescrito.
+
+**3 · `skipIfSeedMissing` de `accessories.spec.ts` ⇒ fallo duro (propuesta devops `DEVOPS_NOTES §93.6`).** El seed
+siembra el deck desde `f76fe398` (`BACKEND_NOTES §83.seed`). `deckScenario()` ya no devuelve `{ready:false}`: lanza
+`Error` con la causa (como el `throw` de `energyBundle.offered`), y el spec pierde los 2 saltos + el import.
+**Censo** (`scripts/check-e2e-skip-census.sh`, 2026-10-08): `skipIfSeedMissing` **18 → 15 ocurrencias, 8 → 7 ficheros**
+(rc=0, «bajó»); el resto igual (mockOnly 144/30, needsSeed 35/10, harnessLimit 5/3, realOnly 24/8). Bajar el techo del
+baseline es de devops (`--update --motivo`). Playwright modo mock de `accessories.spec.ts`: 4 verdes, 6 saltados
+(`realOnly`, esperado); el modo real no se corrió (sin clúster propio) — los dos casos del deck los mide el pase real de QA.
+
+### §107.gates2 · Lo que pidió ux-ui en `DESIGN_SYSTEM §AC-UX.gates` (2026-10-08, rama `claude/accesorios`, base `23de4e1a`)
+
+**Textos.** `admin.m3.shippedReason.hintItem.arrived_damaged` pasa a «Llegó, pero el producto no estaba como se vendió.» /
+“It arrived, but the item wasn't as sold.”. Seis claves nuevas en `admin.m3.shippedRefund.*` con el texto LITERAL de la
+tabla §3: `warningAccessories`, `warningMixed`, `bodyAccessories`, `bodyMixed`, `doneAccessories`, `doneMixed` (`done*`
+conservan `{ref}` y `{reason}`). Las claves de §1 y `hintItem.not_arrived` quedan como estaban (ratificadas).
+
+**Selección** (`RefundOrderDialog.tsx`): `orderContentsOf(detalle)` lee `items` y `accessoryLines` del `GET
+/admin/orders/:id` que el diálogo **ya pedía** (`API_CONTRACT §AC.12`; ⛔ ninguna llamada nueva). Con `accessoryLines`
+no vacío ⇒ `accessories` (sin `items`) o `mixed`; si no ⇒ `cards` (claves de hoy). Sin detalle (cargando o error) ⇒
+`cards`. `shippedRefundKey(base, contents)` da `warning|body|done` + sufijo. El fieldset pasa `subject: 'item'` en
+accesorios y mixto. `RefundDoneInfo` gana `contents`, y los dos sitios que pintan el «hecho» (`M3View`,
+`M3OrderDetailView`) usan `shippedRefundKey('done', info.contents)`. El registro posterior del motivo en el detalle
+(SR-UI-7) no se tocó: ux-ui no lo pidió.
+
+**Candado** (`ShippedRefundAccessories.ac.test.tsx`, 8 casos) desde el detalle de M3, es y en: solo accesorios ⇒ ni el
+diálogo ni el aviso de hecho contienen «carta»/“card”, y salen los textos `…Accessories` y `hintItem`; mixto ⇒ `…Mixed`,
+nombra «accesorios»/“accessories”; solo cartas ⇒ `warning`/`body`/`hint`/`done` de hoy, sin «accesorio». Paridad y
+texto literal de las siete claves en AC-UX-14 (`i18n-accessories.test.ts`), más la paridad de marcadores de cada variante
+con su clave de cartas. Ajustados a la nueva forma: SR-UI-1 y PS-UI-14 (`contents: 'cards'` en `onDone`) y el literal de
+`hintItem.arrived_damaged` en `M3AccessoryLines.ac.test.tsx`.
+
+**Mutaciones** sobre copia (deterministas, 1 corrida cada una): `shippedRefundKey` devuelve siempre la clave de cartas ⇒
+5 rojas de 8 (solo cartas sigue verde); fieldset sin `subject` ⇒ 4 rojas de 8.
+
+## §108 · ⭐ **Lista de deseos por cuenta, «lista de compra casi segura» y «avísame» de sellados** (2026-10-07, rama `claude/wishlist`, base `de751da`; `API_CONTRACT §WSH` v1.87⟨wishlist⟩ + errata v1.87.1 · `DESIGN_SYSTEM §WSH-UX` vWSH-1 · `PROJECT §WSH`, criterios 800–827)
+
+Manda el contrato con su errata: se retiraron las soluciones temporales del diseño (clave `wishlist.ivaIncluded`, la
+comparación `<=` en el renglón, «sin cifras antes de guardar» / `noPesosYet`). El backend de §WSH se construye **en
+paralelo**: todo lo de aquí corre contra el contrato con el servidor falso `src/lib/mock/wishlist.ts` (`// MOCK`).
+
+**Superficies (todas nuevas salvo donde se dice):**
+- **Ficha** (`catalog/[cardId]/WishlistBlock.tsx` + `PctChoice.tsx`): se monta solo con `detail.wishlistEnabled === true`
+  (campo aditivo de la ficha; ausente ⇒ apagado). Staff ⇒ nada (Q-WSH-UX-6); invitado ⇒ invitación con
+  `/login?next=/catalog/{id}` y `/register?next=…` (que `/register` honre `next` está **NO MEDIDO**). Cliente: (a) agregar,
+  (b) ya en tu lista (cambiar % con `PATCH`, quitar con `DELETE`), (c) lista llena. Pesos bajo cada % = `tiers` de
+  `GET /wishlist/preview`; tras un `409 WISHLIST_DUPLICATE` (que no trae `maxToday`) la cifra de «hoy» se toma del
+  preview para ese % (por contrato es la misma, WSH-T31). La ficha sin piezas dice «Hoy no tenemos esta carta.»
+  (`CardDetailView`, cambio de una línea).
+- **«Mi lista»** (`account/wishlist/`: `WishlistView`, `WishlistRow`, `WishlistSearch`, `page.tsx`). «Cabe / arriba» =
+  `availableNow.fits` (⛔ el front no compara). Buscador sobre `GET /buylist/cards` (enlaces a la ficha, sin precios,
+  debounce 300 ms, ≥ 2 caracteres, 8 resultados). Quitar = `DELETE` + toast «Deshacer» (`POST` con los mismos
+  `{cardId, finish, maxPct}`).
+- **Resumen en «Mi cuenta»** (`components/domain/account/WishlistSection.tsx`; zona compartida, solo añadido): la
+  sección `#wishlist` va tras `#addresses`; la consulta vive en `AccountView` y decide si **existe** (`404
+  FEATURE_DISABLED` ⇒ ni sección ni índice). `sectionsForRole` **no** cambió (la sección se inserta aparte).
+- **Página del enlace** (`lista-de-deseos/aviso/`): un clic, nada al cargar, `history.replaceState` quita `a/id/t` de la
+  barra, `noindex` + `referrer: no-referrer`. No consulta el dial (v1.87.1 Q-WSH-UX-5).
+- **M9 › «Lista de compra»** (`m9/BuyListTab.tsx`, `m9/buyListParams.ts`; `M9_TABS` gana `compra`). Pinta campo a
+  campo la lista blanca (⛔ nunca itera el DTO). `pct` en puntos porcentuales tal cual (`Intl` con 1 decimal del valor
+  absoluto; el signo lo pone la frase «pierdes … (−x %)»). Filtros en el navegador; el CSV se pide solo con `sort/dir`.
+  `parseBuyListUrl` vive en un módulo sin `'use client'` porque lo llama `page.tsx` (servidor).
+- **M10 › «Lista de deseos»** (`m10/sections/WishlistDialsSection.tsx`, `id="wishlist"`): siete diales, `PUT` parcial;
+  pasar `wishlistEnabled` a `on` abre el diálogo y no hay `PUT` hasta «Sí, encender». **M11**: el octavo dial
+  (`sealedRestockMaxPendingPerEmail`) en `SealedDialsPanel`, como entero.
+- **«Avísame» de sellados** (`SealedRestockForm`): con sesión, sin campo de correo y «Te avisaremos a {email}» (se manda
+  el de la cuenta porque el cuerpo lo pide; el servidor lo ignora, §WSH.7 b). Textos `body`/`confirmed` cambiados al
+  armado; `429` con su texto.
+
+**Decisiones de implementación**
+- **Una lectura cacheada**: `['wishlist']` la comparten ficha, «Mi cuenta» y «Mi lista»; las mutaciones parchean la caché
+  (`setQueryData`) en vez de refetch, y el bloque guarda «overrides» locales por acabado (el `409` solo trae id y %).
+- **Tipos**: añadidos al final de `contract.ts` (bloque §WSH) más dos campos aditivos dentro de interfaces existentes
+  (`GroupedListingDetailResponse.wishlistEnabled?`, ocho claves opcionales al final de `SettingsDTO`).
+- **Cliente**: nueve funciones al final de `api.ts` (`getWishlist`, `getWishlistPreview`, `addWishlistItem`,
+  `updateWishlistItem`, `removeWishlistItem`, `setWishlistAlertsPaused`, `postWishlistMailAction`, `getWishlistDemand`,
+  `exportWishlistDemandCsv`); `getCardDetail` (rama mock) añade `wishlistEnabled`.
+- **Mock** (`mock/wishlist.ts`): cifras **copiadas del contrato** (WSH-T31/WSH.3/WSH-T35), no recalculadas; sin mercado:
+  `c-zapdos` y `c-pikachu`/`reverse_holo`. Banderas en `localStorage` (`tcg.mock.wishlist*`), token válido `mock-token`.
+  El seed DEMO enciende `wishlistEnabled` (el real es `off`). El dial de traslación **no** se nombra en el mock (candado
+  del criterio 209): `api.ts` lo añade al ensamblar la respuesta de la demanda (valor fijo 100, no se pinta).
+- **Staff en `/account/wishlist`**: el redirect existente lo manda a `/admin/account/wishlist`, que no existe (404).
+  Coherente con Q-WSH-UX-6 (no hay superficie para staff); no se añadió página.
+- **Copia de M10**: el botón dice «Guardar lista de deseos (n cambios)» y no «Guardar» a secas: un «Guardar» suelto
+  chocaba con el de la sección de grading en una prueba de M2 (medido: «Found multiple elements … "Guardar"»).
+
+**Pruebas** (escritas antes del código; rojo medido: 23 fallos en 8 ficheros sobre el árbol sin componentes):
+`catalog/[cardId]/WishlistBlock.test.tsx` (WSH-F1, F7, UX-1…5, staff, (g)), `account/wishlist/WishlistView.test.tsx`
+(WSH-F2, F6, UX-6, `fits`), `lista-de-deseos/aviso/WishlistMailActionPage.test.tsx` (WSH-F3/F9, UX-7),
+`m9/BuyListTab.test.tsx` (WSH-F4/F8, UX-8/9/10), `m10/sections/WishlistDialsSection.test.tsx` (UX-14),
+`sellado/[inventoryItemId]/SealedRestockForm.wsh.test.tsx` (UX-13), `components/domain/account/WishlistSection.test.tsx`,
+`src/test/wishlist-wsh-locks.test.ts` (candado de fuente WSH-F7, UX-11, UX-12, retiro de la errata, P66-3), y un caso
+nuevo en `M9View.test.tsx` y `SealedDialsPanel.test.tsx`. Pruebas de hoy cambiadas: `M9View.test.tsx` (tres pestañas),
+`SealedRestockForm.test.tsx` (texto `confirmed` nuevo), `AccountView.test.tsx` (mock de `getWishlist` con el dial
+apagado). E2E: `e2e/wishlist.spec.ts` (WSH-F1…F9), todos `mockOnly` (no hay backend que medir todavía) ⇒ el censo
+`e2e-skip-census` sube y su baseline es de devops.
+
+**NO MEDIDO**: los E2E de `e2e/wishlist.spec.ts` contra el stack (ni en mock si la carga de la máquina no lo permitió en
+este pase: ver el informe del pase); WSH-F5 «formulario visible con el dial `on`» (el mock de `subscribeSealedRestock`
+siempre responde `FEATURE_DISABLED`); que `/register` honre `?next=`.
+
+### §108.v1.87.3 · Rechazo de QA y condiciones de techlead sobre `503cf07` (2026-10-07, base `71fc6e3f`)
+
+**Commits:** `38a993de` (B-1) · `d58a0bdb` (C2) · `30a9bcff` (I-2) · `d6d6383d` (B-3, I-1/C1, E2E) · este apartado y
+`TECH_DEBT` TD-WSH-F1…F4 en el commit de docs que lo acompaña.
+
+**B-1 · errata v1.87.3 (`API_CONTRACT §WSH.12` «Qué hace frontend»).** `RestockSubscriptionInput` = `{ email, inventoryItemId }`
+(`lib/api.ts`); `SealedRestockForm` recibe `inventoryItemId` y manda `{ email: target, inventoryItemId }`;
+`SealedDetailView` le pasa `group.representativeItemId`. Pruebas: `SealedRestockForm.test.tsx`, `.wsh.test.tsx` y
+`SealedDetailView.test.tsx` afirman el cuerpo con `toEqual` **y** con la lista de claves (`toEqual` ignora claves `undefined`:
+`{email, cardId: undefined}` pasaría un `toEqual` de dos claves). Rojo previo: 3/3. Sin texto nuevo.
+
+**B-3 · F1/F7 en mock.** Defecto de la prueba: daban por hecho que la ficha llega con «Normal» marcado, y la ficha
+preselecciona el primer acabado **a la venta** (`reverse_holo` en el fixture de Pikachu). Corregido sin debilitar: F1 lee el
+acabado marcado y exige que el botón nombre **ese** acabado, y luego que lo siga en los dos sentidos (además ahora afirma que
+el botón del acabado anterior desaparece); F1-tope y F7 **eligen** el acabado antes de afirmar. Fallo previo medido con el spec
+de `71fc6e3f` en mock: F1 (`:47`), F1-tope (`:76`), F7 (`:92`) rojos (más F4/F8, rojo esperado por mi cambio C2 del CSV).
+
+**I-1 / C1 · E2E agnósticos.** `e2e/wishlist.spec.ts` prepara el estado por entorno: mock = servidor falso; real = API del
+contrato (`customer2` para `POST/DELETE /wishlist`, súper-admin para `PUT /admin/settings`), cartas del seed por nombre en
+`GET /buylist/cards?q=` (E2E Reverse Bird = normal con mercado + reverse_holo sin mercado; E2E Order Two = sin mercado; E2E
+Order Ten = nunca tuvo piezas). Los diales se fotografían en `beforeAll`, se reponen en cada `beforeEach` y en `afterAll`
+(que enciende el dial antes de vaciar: con el dial apagado `GET /wishlist` es 404 — defecto propio encontrado al medir).
+El fichero corre en un worker (`mode: 'default'`) porque comparte diales globales; por eso `--repeat-each` exige
+`--workers=1` (con workers en paralelo, 7/110 rojos por interferencia entre copias, no por conducta). La spec de QA
+(`wsh-real.spec.ts`) sirvió de guía; no se copió (ids aleatorios del seed, SQL directo y enlaces del log del backend no
+existen en CI). Nuevo **WSH-F10** (824). F3 y F9 se parten: la parte medible en real (un clic, nada al cargar, token fuera de
+la barra, meta, enlace no firmado ⇒ «no funciona»; dial apagado ⇒ la página sigue, la lista dice «no disponible», la ficha
+sin bloque) es `@real`; el «confirmar» con token válido queda `mockOnly`.
+
+Medido sobre un stack propio (clúster Postgres 16 en `/var/lib/postgresql/frontend-wsh2`:5462, Redis :6394, backend de
+`71fc6e3f` por ts-node :3399, Next de producción con `NEXT_PUBLIC_USE_MOCKS=false` :3401; todo apagado y borrado al terminar):
+- real, `E2E_REAL=1`: **10/10**; N=10 en serie: **100/100** (F5 saltado 10/10 por `needsSeed`). Sin `E2E_REAL` (fichero
+  entero contra el stack): 10 verdes, 3 saltados (dos `mockOnly`, un `needsSeed`).
+- mock: **13/13**; N=10: **130/130**.
+Carga máxima vista durante las corridas: 8.44 (4 CPU).
+
+**C2 · CSV del simulador.** `mockWishlistDemandCsv` sigue la cabecera literal de §WSH.8 v1.87.2, línea vacía, `sellados`,
+`producto,presentacion,condicion,esperan`, celdas de texto con comillas y `'` contra fórmulas (`csvTextCell`, igual que el
+servidor). Candado `lib/mock/wishlist-csv.test.ts` (lee las cabeceras del contrato). El E2E F4/F8 compara la cabecera
+literal y la estructura completa en los dos entornos.
+
+**I-2 · aviso de privacidad (824).** `content/legal/privacy-wishlist.ts` con los dos textos **literales** de `PROJECT §WSH.5`
+(`aba09760`); el español va como párrafo propio al final del apartado 3 (finalidades primarias) del aviso, que es el texto
+que se publica en `/es/privacidad` y en `/en/privacidad`; en `/en` se añade además el inglés literal con `lang="en"` justo
+debajo (prop `englishAddenda` de `PrivacyNoticeView`). «Mi cuenta»/"My account" ya son los nombres visibles
+(`messages/*.json` `myAccount`), así que no cambia nada del texto. Versión `0.4-provisional-2026-10-07`. Candados:
+`privacy-wishlist.test.ts` (lee PROJECT.md), `page.test.tsx` (es/en) y WSH-F10. ⚠️ Lugar elegido por frontend sin pase de
+ux-ui (PROJECT dice «frontend con ux-ui»): a revisar por ux-ui; y en `/en` conviven aviso en español + párrafo inglés.
+
+**B-2 · censo (`scripts/check-e2e-skip-census.sh`), medido 2026-10-07 tras este pase.** Baseline `mockOnly 144 / 30`,
+`needsSeed 35 / 10`. Ahora: **`mockOnly 148 / 31`** y **`needsSeed 38 / 11`** (el resto igual). En `wishlist.spec.ts`:
+`mockOnly` = 4 ocurrencias (import + mención en el docblock + **2 llamadas**), `needsSeed` = 3 (import + mención + **1
+llamada**). Motivos vigentes, uno por llamada:
+1. `WSH-F3 · confirmar` — `mockOnly`: el token del enlace lo firma el servidor (HMAC) y solo existe dentro del correo; el
+   arnés no lee el buzón.
+2. `WSH-F9 · confirmar con el dial apagado` — `mockOnly`: mismo motivo.
+3. `WSH-F5 · ficha de sellado sin botón de deseos` — `needsSeed`: `seed-e2e` no siembra ningún sellado a la venta, así que
+   `/sellado` real está vacío. Agnóstico: pasaría tal cual con esa fila. (El candado `e2e-harness.test.ts` prohíbe `@real`
+   con `needsSeed`, por eso no lleva la etiqueta.)
+Línea base: la regenera devops con este motivo (frontend no toca `scripts/`).
+
+**Pendiente / NO MEDIDO.** El formulario «avísame» contra el backend de la errata v1.87.3 (el stack propio corrió el
+backend de `71fc6e3f`, con el cuerpo viejo; y el seed no tiene sellado a la venta). Para cerrar F5 en real y medir B-1 de
+punta a punta: **petición a backend** de una pieza sellada `listed` en `seed-e2e.ts`. No se repitió una mutación con
+rebuild del bundle (carga); los rojos previos medidos de cada prueba nueva hacen de canario.
+
+**Suites (2026-10-07, árbol `d6d6383d` + este apartado):** vitest 303 ficheros verdes + 1 saltado, **3992/4002** (10
+saltadas, 0 rojas); `tsc --noEmit` rc=0; `next lint` sin avisos; `check:legal:provisional` 9 verdes + 1 saltada.
+
+### §108.v1.87.4 · WSH-F5 contra el stack, «avísame» de punta a punta y candado WSH-UX-15 (2026-10-08, base `7482f220`)
+
+**Qué cambia (solo pruebas; ningún componente):**
+- **WSH-F5 pasa a `@real`** (`e2e/wishlist.spec.ts`). El seed ya tiene un sellado a la venta (`E2E_SEALED_LISTED`, `1753f9ed`,
+  BACKEND_NOTES §84.v1.87.4). El caso localiza la teja por la subcadena «Surging Sparks Booster Box», que casa con el seed
+  y con el fixture. Comprueba que la ficha cargó (su `h1`) antes de afirmar las dos ausencias, para que no pasen en vacío.
+- **«Avísame» de punta a punta, dos casos nuevos `@real` (`realOnly`)**, uno sin sesión y otro con sesión. El grupo del seed
+  sale de `GET /catalog/sealed?q=E2E Third Bird` (el `q` filtra por la carta ancla) y el `representativeItemId`, de
+  `GET /catalog/sealed/:id`. La prueba entra a la ficha desde `/es/sellado` y se apunta con la pantalla. Comprueba:
+  - el cuerpo es exactamente `{email, inventoryItemId}`: lista de claves **y** `toEqual`, con el id que dio la API;
+  - la respuesta es `202` y se ve el texto `confirmed`;
+  - **la clave de la fila**, leída en `GET /admin/reports/wishlist-demand` → `sealed[]`. El nombre de la fila delata la
+    clave (contrato v1.87.2 «nombre del sellado en la demanda»; `wishlist-demand.service.ts` `sealedWaiting`): con
+    `p:<pid>:<cond>` sale el `sealedProductName` de una pieza de ese producto; con `c:` sale el nombre de la carta ancla.
+    La prueba exige +1 correo esperando «E2E Surging Sparks Booster Box» (`box`/`mint`), es decir `p:610000001:mint`, y
+    +0 en «E2E Third Bird» (la clave `c:` del defecto B-1).
+  - **Con sesión:** cada corrida registra una cuenta nueva con `POST /auth/register` (si se usara un cliente del seed, una
+    corrida anterior ya lo habría apuntado y el alta no sumaría). La prueba afirma «Te avisaremos a {email}», que no hay
+    campo de correo y que el cuerpo lleva el correo de la cuenta. Al final la cuenta se borra con `DELETE /admin/users/:id`,
+    y ese borrado también elimina sus suscripciones (`admin.service.ts:1639`).
+
+  El dial `sealedRestockAlerts` entra en la foto de diales: se guarda en `beforeAll`, se repone en cada `beforeEach` y al
+  final, y solo lo encienden estos dos casos. El correo de «volvió» **no** se mide aquí: no hay forma de agotar la pieza
+  y hacerla volver sin trucos de BD, la ventana de correo (`wishlistMailWindowMin`) exige esperar o un reloj inyectado, y
+  el arnés no lee el buzón. Eso lo cubre la integración de backend (WSH-T42/T44).
+- **WSH-UX-15** (DESIGN_SYSTEM «WSH-UX.v1.87.3» c). Dos casos en `privacidad/page.test.tsx`:
+  - `/en`: dentro de `#finalidades-primarias`, el elemento justo anterior al `p[lang="en"]` «Wishlist.» es un `p` sin
+    `lang` que empieza por «Lista de deseos.»;
+  - `/es`: el apartado no tiene ningún `[lang="en"]`.
+
+  WSH-F10 (E2E) añade la misma adyacencia contra el navegador.
+- **`catalog.spec.ts`:**
+  - «tarjeta de SELLADO» deja de ser `needsSeed` y pasa a `@real`: localiza la teja con precio (`MONEY_RE`) y con el
+    rótulo de IVA.
+  - Se corrige el comentario de D-EQ-3 que daba por hecho que la vitrina estaba siempre vacía.
+  - El estado vacío ya no se mide de rebote. Lo mide un caso nuevo `@real` «Sellado · vitrina vacía» con
+    `/es/sellado?sealedSubtype=tin`, que no casa ni en el seed (solo `box`) ni en el fixture (`box`, `etb`). Afirma
+    `sealed.emptyTitle`, el filtro aplicado y 0 tejas.
+
+**Medido (2026-10-08).** Stack propio:
+- Postgres 16 en `/var/lib/postgresql/frontend-wsh3`, puerto 5463, con `migrate deploy` y `seed-e2e`.
+- Redis en el puerto 6395.
+- Backend de `7482f220` en el puerto 3499, con ts-node y `NODE_ENV=test`.
+- Next de producción en el puerto 3501, con `NEXT_PUBLIC_USE_MOCKS=false`.
+
+Todo se apagó y se borró al terminar.
+- Real (`E2E_REAL=1`, `wishlist.spec.ts` + `catalog.spec.ts`, `--workers=1`): **19/19**. Con N=10 en serie
+  (`--repeat-each=10`): **190/190**, y cada caso nuevo o cambiado salió 10/10.
+- Mock, los mismos dos ficheros con N=10: **280 verdes y 30 saltados de 310**. Los saltados son los tres `realOnly` (el
+  de `catalog` y los dos del «avísame») por 10.
+- BD: la fila del invitado quedó con `tcgplayerProductId=610000001`, `box`, `mint`, pendiente. Además se hizo un alta a
+  mano con sesión y con otro correo en el cuerpo: la fila guardó el correo de la cuenta, `userId` y `610000001`/`mint`.
+- **Canario** (determinista, N=1): con la pieza del seed desmapeada en BD (`tcgplayerProductId=NULL`, así que la clave es
+  `c:`), los dos casos del «avísame» salen **rojos** (`Expected 1, Received 0` en el +1 del producto). Después se volvió
+  a sembrar y la pieza quedó otra vez en `610000001`/`listed`.
+- **Mutación WSH-UX-15** (copia `git archive HEAD` del árbol entero, N=1, determinista):
+  - un `p` añadido después de `WISHLIST_PRIVACY_ES` en `privacidad.es.ts` ⇒ el caso `/en` en **rojo**;
+  - el párrafo inglés pintado también en `es` (`page.tsx`) ⇒ en **rojo** el caso `/es` de UX-15 y el «es» de 824.
+
+**Censo (`scripts/check-e2e-skip-census.sh`, 2026-10-08, sobre este árbol)**, rc=1 contra la línea base de devops:
+
+| Clave | Línea base | Ahora |
+|---|---|---|
+| `mockOnly` | 144 / 30 | **148 / 31** (sin cambio desde §108.v1.87.3) |
+| `needsSeed` | 35 / 10 | **33 / 9** (baja) |
+| `harnessLimit` | 5 / 3 | 5 / 3 |
+| `skipIfSeedMissing` | 15 / 7 | 15 / 7 |
+| `realOnly` | 22 / 7 | **25 / 8** (sube) |
+
+Motivos:
+- **`needsSeed` −5 respecto a §108.v1.87.3** (38/11 → 33/9). En `wishlist.spec.ts`: el import, la mención del docblock y
+  la llamada de WSH-F5. En `catalog.spec.ts`: el import y la llamada de «tarjeta de SELLADO». Los dos ficheros ya no lo
+  usan.
+- **`realOnly` +3, +1 fichero** (`wishlist.spec.ts`: el import y **2 llamadas**, los dos casos del «avísame»). Lo que
+  miden es la fila que deriva el servidor (clave `p:`) y la demanda de M9. En mock, `subscribeSealedRestock` responde
+  siempre `FEATURE_DISABLED`, así que no hay servidor que derive nada. El cuerpo de la pantalla en mock ya lo cubren los
+  unitarios (`SealedRestockForm*.test.tsx`, `SealedDetailView.test.tsx`).
+- **`mockOnly` 148/31**: los mismos 2 casos de §108.v1.87.3 (WSH-F3/F9 «confirmar», token HMAC del correo).
+
+La línea base la regenera devops con estos motivos.
+
+**Suites (2026-10-08, este árbol):** vitest 303 ficheros verdes y 1 saltado, **3994/4004** (10 saltadas, 0 rojas);
+`tsc --noEmit` rc=0; `next lint` sin avisos.
+
+### §108.cierre · Deuda del re-check de techlead registrada (2026-10-08, base `1b0306f4`)
+
+QA y techlead aprobaron §WSH sobre `1b0306f4`. Este pase **no cambia conducta ni specs**; solo registra deuda en
+`docs/TECH_DEBT.md` (sección «Frontend · 2026-10-07 · gate de techlead sobre `503cf07`»):
+
+- **TD-WSH-F5** (nueva): los E2E reales del «avísame» (`wishlist.spec.ts:484-510` y el caso con sesión) dejan
+  suscripciones `@e2e.local`. No se añadió `afterAll` porque el contrato no tiene ruta de borrado (medido:
+  `grep -n "DELETE" docs/API_CONTRACT.md`); la limpieza queda en la purga de `seed-e2e` que lleva backend.
+- **TD-WSH-F6** (nueva): el apéndice inglés de `/privacidad` se ancla al apartado y no al bloque
+  (`PrivacyNoticeView.tsx:147-153`, `page.tsx:43`); hoy lo vigila WSH-UX-15.
+- **TD-WSH-F3** (staff en `/account/wishlist` ⇒ 404): ya estaba registrada con referencia a **Q-WSH-UX-6**; sin cambios.
+
+## §109 · Fusión accesorios + wishlist (2026-10-08, rama `claude/release-s7`, sobre `d98e8bf6` + `merge --no-commit` de `claude/wishlist` `d815b57d`)
+
+**Conflictos resueltos por unión estructurada** (nada se pierde, nada se duplica):
+- `messages/es.json` y `messages/en.json`: los espacios `accessories` (HEAD) y `wishlist` (wishlist) quedan como
+  hermanos de primer nivel; se cerró `accessories` antes de abrir `wishlist`. Medido con `json.loads` con detector
+  de claves repetidas (0 repetidas) y aplanado es/en: **6056 = 6056 claves, diferencia simétrica vacía**.
+- `src/lib/api.ts` y `src/types/contract.ts`: bloque §AC seguido del bloque §WSH; sin nombres repetidos (`tsc` verde).
+- Este fichero: §107 (accesorios) y luego §108 (wishlist).
+
+**REL-S7-UX punto 2 (DESIGN_SYSTEM): cada dial se edita en un solo bloque de M10.** Medido: el listado de M10 **no**
+es genérico; es la lista fija `DIALS` de `M10View.tsx` (sin claves `wishlist*` ni `energyBundlePriceCents` /
+`accessorySuggestionCount`). Los siete `wishlist*` viven solo en `WishlistDialsSection` y los dos de §AC.11 solo en el
+panel de `/admin/accessories`. **No había duplicado.** Se añade el candado para que no aparezca:
+`M10_LIST_DIAL_KEYS` (exportado de `M10View.tsx`) y `WISHLIST_DIAL_KEYS` (de `WishlistDialsSection.tsx`), y dos
+pruebas «REL-S7 · …» en `M10View.test.tsx` (estructural: listas disjuntas y sin claves de accesorios; de pantalla:
+cada etiqueta de la sección aparece una vez y dentro de la sección, y las de accesorios no aparecen en M10).
+La de pantalla sola no muerde (el listado rotula por `dials.labels.<clave>`, otra etiqueta); por eso la estructural.
+**Mutaciones** sobre el fichero (deterministas, 1 corrida cada una, restaurado y comprobado): añadir
+`wishlistTargetMarginPct` a `DIALS` ⇒ roja; añadir `energyBundlePriceCents` ⇒ roja.
+
+**REL-S7-UX punto 4** («Comprar › Sellado» → «Producto sellado»): el texto vive en el backend
+(`backend/src/modules/catalog/sealed-restock-notify.service.ts:288`), no en `frontend/`. No se toca aquí.
+
+### §109.e2e-real · El deck de §AC ya no depende del orden ni de si Stripe creó la sesión (2026-10-08)
+
+**Rojo de partida (medido por el orquestador en CI, `e2e-real.yml` run 37724067637, sha `191dcc5a`, con claves de
+prueba de Stripe):** 33 verdes y 2 rojos, `accessories.spec.ts:132` y `:268` solo en `en`, con «Las cartas del deck no
+casan o no tienen pieza (E2E Deck Ember: matched, disp. 0; E2E Deck Spark: matched, disp. 0)».
+
+**Causa (medida aquí, clúster propio, 2026-10-08):**
+- Con Stripe la sesión de pago del invitado se crea y deja las piezas `reserved` (`ORDER_RESERVATION_TTL_MIN` = 60);
+  sin clave responde `503 PAYMENT_PROVIDER_UNAVAILABLE` y suelta el apartado. Por eso en local nunca se vio.
+- No hay ruta del contrato para que el invitado abandone su sesión (§4-G no la tiene; M3 solo reembolsa), así que
+  «soltar el apartado en el `afterEach`» no es posible sin pedir contrato.
+- Las piezas del deck son las **más nuevas** del seed: `GET /catalog/cards` (orden `newest` por defecto) devuelve
+  primero «E2E Deck Spark». El «primer botón del catálogo» de 724 —y el de `checkout`, `guest-checkout`,
+  `address-colonia` y `claimable-orders`— aparta piezas del deck también, no solo 748.
+- Reproducido con el código anterior: las cuatro piezas `E2E-LST-0010…0013` en `reserved` (lo que deja la corrida
+  `es` con Stripe) ⇒ el caso `:132 (en)` sale rojo con **el mismo mensaje literal** del CI.
+
+**Arreglo (`e2e/utils/accessories-scenario.ts`):** `deckScenario()` ya no supone las piezas: `ensureDeckPieces()`
+cuenta las `listed` de plataforma por carta casada (`GET /admin/inventory/items?cardId=&status=listed&ownerType=platform`;
+el `availableQty` del deck viene topado por `quantity` y no sirve para contar) y da de alta las que falten hasta
+`copiesPerCard` con `POST /admin/inventory/items` (el alta publica sola, errata SU-1/SU.8; si no nace `listed` es rojo
+con causa). La aserción de siempre se conserva y se endurece (`availableQty < quantity`): si el emparejador no casa
+(seed sin `ptcgoCode`), no hay `cardId`, no se da de alta nada y el rojo nombra la causa como antes.
+**Huella:** las altas se anotan; el `globalTeardown` las saca con `adjustments` `error_captura` (pieza que nunca existió
+físicamente). Las que una sesión dejó `reserved` (`422 ITEM_NOT_ADJUSTABLE`) quedan anotadas para el teardown de una
+corrida posterior; cualquier otro estado se descarta con aviso.
+
+**No hace falta tocar `backend/prisma/seed-e2e.ts`:** con el alta del arnés, las dos piezas por carta bastan.
+**`wishlist.spec.ts` no tiene el patrón:** no crea sesiones de pago; usa cartas fijas por id y el sellado del seed.
+
+**Mediciones (2026-10-08, clúster propio `16/fe-e2e-real` :55441, backend :3199, front :3100, sin Stripe; apagado y borrado):**
+- Antes del arreglo, piezas del deck apartadas: `:132 (en)` rojo con el mensaje del CI (1/1, determinista).
+- Después, mismo estado de partida, `accessories.spec.ts` entero en real: 6 verdes; los 4 rojos son el paso de sesión
+  `503 PAYMENT_PROVIDER_UNAVAILABLE` de 724/748 (entorno sin Stripe, documentado en la cabecera del spec). Los dos
+  `:132` verdes y los dos 748 pasan `deckScenario()` y llegan a la sesión.
+- Repetido 3 veces por idioma (`:132` + 748, `es` y `en` alternados, N=6 corridas): `deckScenario()` 6/6 sin «no casan».
+  (En las últimas el paso de sesión dio `429 RATE_LIMITED` del cupo de sesiones de invitado por tantas corridas: entorno.)
+- Teardown: pieza `reserved` ⇒ queda anotada; pieza `withdrawn` ⇒ se descarta con aviso (medido llamando a
+  `restoreAccessoryScenario` con ese estado sembrado).
+- Mock: `accessories.spec.ts` 4 verdes, 6 saltados (`realOnly`). `tsc` 0, `eslint e2e` 0, vitest 321 ficheros / 4196 pruebas verdes.
+- ⛔ **NO MEDIDO con Stripe real:** el verde de 724/748 en `en` tras una sesión `es` creada de verdad. Lo cierra la
+  siguiente corrida de `e2e-real.yml` con las claves de prueba.
+
+### §109.fonts · Fuentes de Google versionadas: `next build` ya no depende de la red (2026-10-08, base `faf89b6d`)
+
+**Causa (medida en código, no reproducible a voluntad):** el error de CI `An error occurred in next/font. TypeError:
+Cannot read properties of null (reading '1')` sale de `node_modules/next/dist/compiled/@next/font/dist/google/loader.js:122`:
+`/\.(woff|woff2|eot|ttf|otf)$/.exec(googleFontFileUrl)[1]` sobre cada URL del CSS que devuelve `fonts.googleapis.com`.
+Si Google responde con una URL de fuente sin esa extensión, el `exec` da `null` y el build cae. Depende de lo que
+responda un tercero en ese momento (devops: 2 caídas de 5 builds, `DEVOPS_NOTES §94.4`) y viola «toda dependencia
+externa va fijada».
+
+**Qué cambia:** `Archivo`, `JetBrains_Mono` y `Montserrat` dejan `next/font/google`. Ningún `next/font/google` queda en `src/`.
+- Ficheros en `frontend/src/app/fonts/{archivo,jetbrains-mono,montserrat}/` con su `OFL.txt` (SIL OFL 1.1, de
+  `github.com/google/fonts/ofl/<familia>/OFL.txt`; `METADATA.pb` dice `license: "OFL"`; sin Reserved Font Name; se
+  redistribuyen sin modificar). Son **los mismos bytes** que servía Google: descargados de `fonts.gstatic.com` con
+  el CSS `css2?family=…:wght@…&display=swap` y el User-Agent de Next 15.5, y comparados sha a sha con los 14
+  woff2 que el build anterior dejaba en `.next/static/media` (14/14 iguales). 14 woff2, 218 720 bytes en total; sha256 en
+  `layout.test.tsx` (`SHA256`).
+- `layout.tsx`: `next/font/local` con el tramo `latin` (el que `subsets: ['latin']` precargaba), una cara por peso
+  sobre el mismo fichero variable, `font-family`/`unicode-range`/`font-stretch` por `declarations`,
+  `adjustFontFallback: false` y `fallback: ["'X Fallback'"]`.
+- `src/app/fonts/google-subsets.css` (importado antes de `next/font/local`): los 22 `@font-face` NO latinos (vietnamese,
+  latin-ext, cyrillic, cyrillic-ext, greek) con su `unicode-range`, y las 3 caras «X Fallback» con las métricas de
+  `next/font/google`. Por qué fuera de `next/font/local`: no admite `unicode-range` por fichero, y sus métricas
+  calculadas por fontkit salen otras (Archivo 85.41/20.43/102.80 % frente a 88.96/21.28/98.70 % de Google).
+- Zen Old Mincho (P-FONTS-CJK) no se toca. CSP: sin cambio, `font-src 'self' data:` ya cubre fuentes propias.
+
+**Medido (2026-10-08):**
+- `next build` sin red (`HTTPS_PROXY=http_proxy=…=http://127.0.0.1:9`, `NEXT_TELEMETRY_DISABLED=1`): **antes** (HEAD
+  `faf89b6d`) falla `Failed to fetch \`Archivo\` / \`JetBrains Mono\` / \`Montserrat\` from Google Fonts`; **después** exit 0.
+- Salida idéntica: build de `faf89b6d` CON red frente a build nuevo SIN red, normalizando cada `@font-face` de las tres
+  familias (descriptores + sha256 del fichero referido) y las variables: **36/36 reglas iguales como conjunto** y
+  `--font-sans/--font-mono/--font-brand/--font-serif` con el mismo valor. Preloads (`next-font-manifest.json`): los
+  mismos 6 ficheros por sha. `.next/static/media`: 17 ficheros en ambos. El orden cambia solo en que los tramos latin
+  van después de todos los no latinos (Google los intercala por peso, latin último en cada uno): misma prioridad.
+- Candado `layout.test.tsx` «fuentes sin red en el build»: 5 mutaciones en copia, 5/5 rojas (import de
+  `next/font/google` en otro fichero, un byte de un woff2, variable renombrada, un peso quitado, una métrica de respaldo).
+- vitest 322 ficheros (321 + 1 saltado) / 4205 verdes · `tsc` 0 · `next lint` 0.
+- Para renovar una fuente: repetir la descarga (mismas URL y User-Agent), comparar y actualizar `SHA256` a conciencia.
 ## §110 · **§BMK — «Valor de mercado» junto a «Te pagamos», por carta, en el cotizador de venta** (2026-10-08, rama `claude/buylist-mercado`; `API_CONTRACT §BMK` v1.89⟨bmk⟩ · `ARCHITECTURE §4.BMK` · `DESIGN_SYSTEM §BMK` vBMK-1 · `PROJECT §BMK`, criterios 850–859)
 
 **Construido en `9e885fc5`** (base `d5d5bd5a` + backend `fa10107e`/`c1506e07`). Sin cambio de contrato, de

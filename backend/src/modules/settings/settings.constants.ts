@@ -355,6 +355,24 @@ export const SettingKey = {
   SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS: 'spend_alert_extra_charge_immediate_cents', // AG-6
   SPEND_ALERT_CANCEL_REFUND_DAYS: 'spend_alert_cancel_refund_days', // AG-8 (b)
   SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS: 'spend_alert_label_not_shipped_days', // AG-10
+
+  // ===== 💰 v1.86⟨accesorios⟩ (§AC.2 (2), §AC.3, §AC.11) — sin semilla en BD: el default de código manda hasta el primer PUT =====
+  // Precio del paquete de energías del deck, IVA dentro (F1/F2: MX$20). Lo LEE la sesión (stream B) y lo congela.
+  ENERGY_BUNDLE_PRICE_CENTS: 'energy_bundle_price_cents',
+  // Cuántas sugerencias da «¿Te falta algo?» (0 apaga el recuadro).
+  ACCESSORY_SUGGESTION_COUNT: 'accessory_suggestion_count',
+
+  // ===== rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.2) — los OCHO diales de la lista de deseos =====
+  // `GET/PUT /admin/settings` (`super_admin`; operador ⇒ 403 MONEY_OUT_FORBIDDEN). Mover un dial no reescribe nada guardado:
+  // los máximos se calculan al leer (criterio 808). Seeds: la tabla de §WSH.2 (y el INSERT de M-74, mismo valor).
+  WISHLIST_ENABLED: 'wishlist_enabled', // seed off: se enciende DESPUÉS del aviso de privacidad (824)
+  WISHLIST_MAX_PER_ACCOUNT: 'wishlist_max_per_account', // HECHOS 2026-10-07 «…P-WSH-4 cerrada»: «20 por cuenta»
+  WISHLIST_MAX_IVA_MODE: 'wishlist_max_iva_mode', // HECHOS 2026-10-07 «Respuestas…»: «Con IVA pero déjame flexible»
+  WISHLIST_DAILY_MAIL_CAP: 'wishlist_daily_mail_cap',
+  WISHLIST_MAIL_WINDOW_MIN: 'wishlist_mail_window_min', // también la ventana del «avísame» de sellados (§WSH.7 (d))
+  WISHLIST_TARGET_MARGIN_PCT: 'wishlist_target_margin_pct', // P-WSH-7 (a)
+  WISHLIST_MARGIN_BASIS: 'wishlist_margin_basis', // P-WSH-7: cost | sale
+  SEALED_RESTOCK_MAX_PENDING_PER_EMAIL: 'sealed_restock_max_pending_per_email', // anti-abuso §WSH.7 (b)
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -569,6 +587,17 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS]: 15000,
   [SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS]: 3,
   [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: 3,
+  [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: 2000, // MX$20 (F1/F2)
+  [SettingKey.ACCESSORY_SUGGESTION_COUNT]: 3,
+  // rev v1.87⟨wishlist⟩ (§WSH.2). ⚠️ Idénticos al INSERT de M-74 (candado: test/wishlist.settings.spec.ts).
+  [SettingKey.WISHLIST_ENABLED]: 'off',
+  [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: 20,
+  [SettingKey.WISHLIST_MAX_IVA_MODE]: 'with_iva',
+  [SettingKey.WISHLIST_DAILY_MAIL_CAP]: 3,
+  [SettingKey.WISHLIST_MAIL_WINDOW_MIN]: 30,
+  [SettingKey.WISHLIST_TARGET_MARGIN_PCT]: 15,
+  [SettingKey.WISHLIST_MARGIN_BASIS]: 'cost',
+  [SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL]: 5,
 };
 
 /**
@@ -1199,6 +1228,20 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS]: validateNonNegIntCents,
   [SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS]: validateIntRange(1, 30),
   [SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS]: validateIntRange(1, 30),
+  // 💰 v1.86⟨accesorios⟩ (§AC.11): rangos del contrato.
+  [SettingKey.ENERGY_BUNDLE_PRICE_CENTS]: validateIntRange(1, 100_000),
+  [SettingKey.ACCESSORY_SUGGESTION_COUNT]: validateIntRange(0, 6),
+  // rev v1.87⟨wishlist⟩ (§WSH.2): dominios de la tabla; `on|off` estricto (un `true` o `'ON'` no queda «pareciendo encendido»).
+  [SettingKey.WISHLIST_ENABLED]: (v) =>
+    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
+  [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: validateIntRange(1, 200),
+  [SettingKey.WISHLIST_MAX_IVA_MODE]: (v) =>
+    v === 'with_iva' || v === 'without_iva' ? null : 'must be one of with_iva|without_iva',
+  [SettingKey.WISHLIST_DAILY_MAIL_CAP]: validateIntRange(1, 20),
+  [SettingKey.WISHLIST_MAIL_WINDOW_MIN]: validateIntRange(0, 720),
+  [SettingKey.WISHLIST_TARGET_MARGIN_PCT]: validateIntRange(0, 100),
+  [SettingKey.WISHLIST_MARGIN_BASIS]: (v) => (v === 'cost' || v === 'sale' ? null : 'must be one of cost|sale'),
+  [SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL]: validateIntRange(1, 50),
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
@@ -1287,6 +1330,18 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   spendAlertExtraChargeImmediateCents: SettingKey.SPEND_ALERT_EXTRA_CHARGE_IMMEDIATE_CENTS,
   spendAlertCancelRefundDays: SettingKey.SPEND_ALERT_CANCEL_REFUND_DAYS,
   spendAlertLabelNotShippedDays: SettingKey.SPEND_ALERT_LABEL_NOT_SHIPPED_DAYS,
+  // 💰 v1.86⟨accesorios⟩ (§AC.11): los edita el súper-admin; ⛔ NO son diales del dueño (no van a OWNER_ONLY_SETTING_KEYS).
+  energyBundlePriceCents: SettingKey.ENERGY_BUNDLE_PRICE_CENTS,
+  accessorySuggestionCount: SettingKey.ACCESSORY_SUGGESTION_COUNT,
+  // rev v1.87⟨wishlist⟩ (§WSH.2): los ocho de la lista de deseos (incluido el tope anti-abuso del «avísame» de sellados).
+  wishlistEnabled: SettingKey.WISHLIST_ENABLED,
+  wishlistMaxPerAccount: SettingKey.WISHLIST_MAX_PER_ACCOUNT,
+  wishlistMaxIvaMode: SettingKey.WISHLIST_MAX_IVA_MODE,
+  wishlistDailyMailCap: SettingKey.WISHLIST_DAILY_MAIL_CAP,
+  wishlistMailWindowMin: SettingKey.WISHLIST_MAIL_WINDOW_MIN,
+  wishlistTargetMarginPct: SettingKey.WISHLIST_TARGET_MARGIN_PCT,
+  wishlistMarginBasis: SettingKey.WISHLIST_MARGIN_BASIS,
+  sealedRestockMaxPendingPerEmail: SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL,
 };
 
 /**

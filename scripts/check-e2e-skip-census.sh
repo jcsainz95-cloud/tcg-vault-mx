@@ -67,10 +67,17 @@ censo() { # imprime "clave ocurrencias ficheros"
 ACTUAL="$(censo)"
 if [ "$UPDATE" -eq 1 ]; then
   [ -n "$MOTIVO" ] || { echo "::error::--update exige --motivo \"…\": un baseline sin motivo es un número que nadie defiende."; exit 2; }
+  # P-S6-CENSO (devops 2026-10-08, medido): los motivos ANTERIORES se conservan. Antes
+  # este bloque reescribía el fichero con solo el motivo nuevo, y el porqué de cada
+  # techo previo desaparecía en el siguiente registro. Motivo = línea `# AAAA-MM-DD …`.
+  PREVIOS=""
+  [ -f "$BASELINE" ] && PREVIOS="$(grep -E '^# [0-9]{4}-[0-9]{2}-[0-9]{2} ' "$BASELINE" || true)"
+  TMPBL="$(mktemp "${BASELINE}.XXXXXX")" || exit 2
   { echo "# Baseline del censo de salvaguardas E2E (scripts/check-e2e-skip-census.sh)."
     echo "# Formato: clave ocurrencias ficheros. Se regenera SOLO con --update --motivo, en el mismo diff que el cambio."
+    [ -n "$PREVIOS" ] && printf '%s\n' "$PREVIOS"
     echo "# $(date -u +%F) · $MOTIVO"
-    printf '%s\n' "$ACTUAL"; } > "$BASELINE"
+    printf '%s\n' "$ACTUAL"; } > "$TMPBL" && mv "$TMPBL" "$BASELINE" || { rm -f "$TMPBL"; exit 2; }
   echo "baseline regenerado en $BASELINE:"; cat "$BASELINE"; exit 0
 fi
 [ -f "$BASELINE" ] || { echo "::error::falta $BASELINE. Genera uno: $0 --update --motivo \"…\". NO concluyente."; exit 2; }

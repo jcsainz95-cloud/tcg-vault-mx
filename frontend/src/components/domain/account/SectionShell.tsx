@@ -15,7 +15,9 @@ export type AccountSectionId =
   | 'billing'
   | 'kyc'
   | 'password'
-  | 'session';
+  | 'session'
+  /** ⭐ §WSH-UX.3 (a): solo `customer`, después de `addresses`, y solo si el dial está encendido. */
+  | 'wishlist';
 
 /**
  * Envoltorio de una sección de «Mi cuenta» (DESIGN_SYSTEM §33.6): `<section aria-labelledby>`

@@ -7,6 +7,8 @@ import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
+import { AccessorySettleAnomaly, releaseAccessoryReservations, settleAccessories } from '../orders/accessory-stock';
+import { ACCESSORY_LINE_READ_INCLUDE, accessoryMailLinesOf } from '../orders/accessory-lines-view';
 import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
 import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
@@ -17,6 +19,7 @@ import { FullRefundService } from './refunds/full-refund.service';
 import { afterAutoCloseVia, cancelProviderLabelIfAny } from '../shipments/label-auto-close';
 import { ModuleRef } from '@nestjs/core';
 import { RefundLedgerService } from './refunds/refund-ledger.service';
+import { WishlistService } from '../wishlist/wishlist.service';
 import { currentPiecesOf, resolveOriginsBatch } from './refunds/origin';
 
 /**
@@ -45,7 +48,23 @@ export class PaymentsService {
     @Optional() private readonly ledger?: RefundLedgerService,
     // 💰 v1.81 (§M4-SHIP.19.8): el post-commit de la cancelación automática de la guía (por token; ⛔ ciclo de módulos).
     @Optional() private readonly moduleRef?: ModuleRef,
+    // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.5 «Se quita sola al pagar», 816): `@Optional()` por los tests unitarios que
+    // construyen este servicio a mano. Se llama POST-COMMIT y best-effort (⛔ jamás tumba el webhook).
+    @Optional() private readonly wishlist?: WishlistService,
   ) {}
+
+  /**
+   * rev v1.87⟨wishlist⟩ (§WSH.5, 816) — tras el commit de **las dos** liquidaciones: el deseo cumplido desaparece. Best-effort:
+   * un fallo se loguea y ⛔ no propaga (un 5xx haría que Stripe reintentara un settle ya aplicado). Invitado ⇒ nada.
+   */
+  private async consumeWishlist(orderId: string): Promise<void> {
+    if (!this.wishlist) return;
+    try {
+      await this.wishlist.consumeForSettledOrder(orderId);
+    } catch (e) {
+      this.logger.error(`wishlist: no se pudieron quitar los deseos cumplidos del pedido ${orderId}: ${(e as Error).message}`);
+    }
+  }
 
   /**
    * ⭐ **§R — el envoltorio best-effort de los dos avisos de pedido.** Post-commit, nunca propaga, y
@@ -212,7 +231,9 @@ export class PaymentsService {
     const paymentIntentId = pi.id;
     const order = await this.prisma.order.findUnique({
       where: { stripePaymentIntentId: paymentIntentId },
-      include: { items: true },
+      // 💰 v1.86⟨accesorios⟩: los ids de sus renglones de accesorio (nacen en la sesión, antes del pago ⇒ esta lectura los
+      // ve todos). Decide si el settle toca existencias de accesorios.
+      include: { items: true, accessoryLines: { select: { id: true } } },
     });
     if (order) {
       // ⭐⭐ v1.80 (§M4-VAULT.2-bis.2, `SEC-SETTLE-LATE`) — early-return = NEGACIÓN EXACTA del CAS de abajo
@@ -351,6 +372,8 @@ export class PaymentsService {
       // aquí, `direct_ship` en `settleDirectShipOrder`): el criterio 200 no distingue por ruta de
       // fulfillment, distingue por **quién recibe**.
       await this.notifyOrderSettled(order);
+      // rev v1.87⟨wishlist⟩ (816): rama BÓVEDA.
+      await this.consumeWishlist(order.id);
       return;
     }
     // ¿Es el pago de un envío? Avanza a picking.
@@ -435,7 +458,10 @@ export class PaymentsService {
    * búsqueda del envío activo hacen que un reintento de Stripe no duplique nada.
    * El correo es POST-COMMIT y BEST-EFFORT: su fallo NO revierte el pago ni falla el webhook.
    */
-  private async settleDirectShipOrder(order: Order & { items: OrderItem[] }): Promise<void> {
+  // C-2 (gates §AC sobre `dd26ae79`): `accessoryLines` OBLIGATORIO en el tipo ⇒ el compilador exige el `include` en cada
+  // llamador (aquí y en `onChargeDisputeDirectShip`). Las lecturas siguen tolerantes (`?.length ?? 0`): sin cambio de
+  // conducta, también para los dobles de las suites unitarias que construyen la orden a mano (BACKEND_NOTES §83.gates.2).
+  private async settleDirectShipOrder(order: Order & { items: OrderItem[]; accessoryLines: { id: string }[] }): Promise<void> {
     const card = order.stripePaymentIntentId
       ? await this.stripe.getCardDetails(order.stripePaymentIntentId).catch(() => null)
       : null;
@@ -443,6 +469,7 @@ export class PaymentsService {
     // B3: anomalías de inventario detectadas al liquidar (ver dentro del bucle). Se reportan FUERA
     // de la transacción para que el log y la auditoría no dependan de su commit.
     const anomalies: { inventoryItemId: string; was: string; recovered: boolean }[] = [];
+    const accessoryAnomalies: AccessorySettleAnomaly[] = [];
 
     const settled = await this.prisma.$transaction(async (tx) => {
       // ⭐⭐ v1.79.4 (§M4-VAULT.2-bis.1) — el MISMO CAS que la rama `vault` (ver `onPaymentSucceeded`):
@@ -518,8 +545,9 @@ export class PaymentsService {
       const existing = await tx.shipmentRequest.findFirst({
         where: { orderId: order.id, status: { not: 'cancelado' } },
       });
+      let shipmentId = existing?.id ?? null;
       if (!existing) {
-        await tx.shipmentRequest.create({
+        const createdShipment = await tx.shipmentRequest.create({
           data: {
             userId: null,
             orderId: order.id,
@@ -539,11 +567,33 @@ export class PaymentsService {
             items: { create: order.items.map((oi) => ({ inventoryItemId: oi.inventoryItemId })) },
           },
         });
+        shipmentId = createdShipment?.id ?? null;
+      }
+      // 💰 v1.86⟨accesorios⟩ (§AC.6 (4), criterio 712): los renglones de accesorio, DESPUÉS del bucle de piezas y en esta
+      // misma tx: `reserved → sold` y existencias, o la recuperación del pago tardío; y nacen sus `ShipmentAccessoryLine`
+      // en el envío que nace aquí. Las líneas sin existencias para recuperar se auditan FUERA de la tx (abajo).
+      if ((order.accessoryLines?.length ?? 0) > 0) {
+        const acc = await settleAccessories(tx, order, shipmentId as string, now);
+        accessoryAnomalies.push(...acc.anomalies);
       }
       return true;
     });
     // v1.79.4 — el perdedor ⛔ no avisa: ni confirmación de invitado, ni AV-2, ni auditoría.
     if (!settled) return;
+    // 💰 §AC.6 (4) + ⭐ v1.86.6 (§AC.21.3): ruidoso, FUERA de la tx, best-effort (`.catch` como B3) — nunca tumba el webhook.
+    //  - `recovered` ⇒ `order.settle_accessory_anomaly` (renglón `reserved` que el contador no respaldaba; salió de libres).
+    //  - sin respaldo ⇒ `order.settle_accessory_unbacked` (+ `was`); quien prepara lo ve marcado (`settledWithoutStock`).
+    for (const u of accessoryAnomalies) {
+      const after = { lineId: u.lineId, accessoryId: u.accessoryId, quantity: u.quantity, was: u.was, ...(u.recovered ? { recovered: true } : {}) };
+      if (u.recovered) {
+        this.logger.error(`ANOMALÍA al liquidar ${order.orderNumber ?? order.id}: renglón de accesorio ${u.lineId} (${u.was}) sin apartado contado; recuperado de existencias libres.`);
+      } else {
+        this.logger.error(`ANOMALÍA al liquidar ${order.orderNumber ?? order.id}: renglón de accesorio ${u.lineId} (${u.was}) sin existencias para respaldarlo (settledWithoutStock).`);
+      }
+      await this.audit
+        .log({ actorUserId: null, actorRole: null, action: u.recovered ? 'order.settle_accessory_anomaly' : 'order.settle_accessory_unbacked', entityType: 'Order', entityId: order.id, after })
+        .catch((e: unknown) => this.logger.error(`No se pudo auditar la anomalía del renglón de accesorio: ${(e as Error).message}`));
+    }
 
     // B3 — las anomalías son RUIDOSAS: log de error + AuditLog consultable (M10). Nunca se
     // liquidan en silencio: cada una significa que una pieza única no estaba donde el pedido
@@ -574,10 +624,27 @@ export class PaymentsService {
         );
     }
 
+    // 💰 v1.86⟨accesorios⟩ (§AC.12, §AC.19.1): los renglones de accesorio del correo (⛔ sin foto). Best-effort: un fallo
+    // al leerlos deja el correo sin ellos, ⛔ nunca tumba el webhook.
+    const accessoryLines = await (async () => {
+      if ((order.accessoryLines?.length ?? 0) === 0) return [];
+      try {
+        const rows = await this.prisma.orderAccessoryLine.findMany({
+          where: { orderId: order.id },
+          include: ACCESSORY_LINE_READ_INCLUDE,
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        });
+        return accessoryMailLinesOf(rows);
+      } catch (e) {
+        this.logger.error(`guest confirmation: no se pudieron leer los renglones de accesorio de ${order.id}: ${(e as Error).message}`);
+        return [];
+      }
+    })();
     // POST-COMMIT, BEST-EFFORT (§4.21g): un fallo del correo se loguea; la red de seguridad es el
     // `checkoutToken` ya devuelto por el checkout + el reenvío self-service + el de soporte.
     await this.guestMail
       .sendConfirmation({
+        accessoryLines,
         id: order.id,
         orderNumber: order.orderNumber,
         guestEmail: order.guestEmail,
@@ -600,6 +667,8 @@ export class PaymentsService {
     // envíos son mutuamente excluyentes por construcción (`guestEmail` poblado ⇔ el de arriba;
     // `guestEmail` nulo ⇔ éste), así que ⛔ nadie recibe dos confirmaciones.
     await this.notifyOrderSettled(order);
+    // rev v1.87⟨wishlist⟩ (816): rama ENVÍO DIRECTO.
+    await this.consumeWishlist(order.id);
   }
 
   /** payment_intent.payment_failed → Order failed + libera reserva (reserved→listed). */
@@ -620,7 +689,7 @@ export class PaymentsService {
   private async failAndRelease(paymentIntentId: string, cause: string): Promise<void> {
     const order = await this.prisma.order.findUnique({
       where: { stripePaymentIntentId: paymentIntentId },
-      include: { items: true },
+      include: { items: true, accessoryLines: { select: { id: true } } },
     });
     if (order) {
       if (order.status !== 'pending') return;
@@ -640,6 +709,8 @@ export class PaymentsService {
             data: releaseReservationData,
           });
         }
+        // 💰 v1.86⟨accesorios⟩ (§AC.6 (2), criterio 711): pago fallido/cancelado ⇒ vuelven los apartados de accesorio.
+        if ((order.accessoryLines?.length ?? 0) > 0) await releaseAccessoryReservations(tx, order.id);
       });
       return;
     }
@@ -805,7 +876,7 @@ export class PaymentsService {
     if (!pi) return;
     const order = await this.prisma.order.findUnique({
       where: { stripePaymentIntentId: pi },
-      include: { items: true },
+      include: { items: true, accessoryLines: { select: { id: true } } },
     });
     if (!order) return;
     switch (order.fulfillmentMode) {
@@ -858,7 +929,7 @@ export class PaymentsService {
    * evento de disputa lo bajara, el caso desaparecería de la cola de M3 sin que nadie hubiera
    * confirmado dónde está la carta — se perdería la única señal de que faltaba una decisión.
    */
-  private async onChargeDisputeDirectShip(order: Order & { items: OrderItem[] }): Promise<void> {
+  private async onChargeDisputeDirectShip(order: Order & { items: OrderItem[]; accessoryLines: { id: string }[] }): Promise<void> {
     const closed: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       // Envío de FULFILLMENT de esta orden (el más reciente). Un retiro de bóveda no lleva
@@ -919,6 +990,9 @@ export class PaymentsService {
             },
           });
         }
+        // 💰 v1.86⟨accesorios⟩ (§AC.6 (2)/(7)): un pedido sin envío (nunca liquidado) suelta su APARTADO de accesorios,
+        // igual que las piezas `reserved`. ⛔ Lo vendido no se mueve: el contracargo no mueve existencias por sí solo.
+        if ((order.accessoryLines?.length ?? 0) > 0) await releaseAccessoryReservations(tx, order.id);
       }
 
       await tx.order.update({

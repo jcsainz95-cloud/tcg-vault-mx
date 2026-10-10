@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 import { privacyNoticeEs } from '@/content/legal/privacidad.es';
 import { legalEnvFromProcess, privacyVisibility } from '@/content/legal/legal-gate';
+import { WISHLIST_PRIVACY_EN } from '@/content/legal/privacy-wishlist';
 import { PrivacyNoticeView } from './PrivacyNoticeView';
 
 /**
@@ -34,6 +35,12 @@ export default async function PrivacyPage({ params }: { params: Promise<{ locale
   const visibility = privacyVisibility(privacyNoticeEs, legalEnvFromProcess());
   if (visibility === 'hidden') notFound();
   return (
-    <PrivacyNoticeView doc={privacyNoticeEs} draft={visibility === 'draft'} showSpanishOnly={locale !== 'es'} />
+    <PrivacyNoticeView
+      doc={privacyNoticeEs}
+      draft={visibility === 'draft'}
+      showSpanishOnly={locale !== 'es'}
+      // §WSH.5 · criterio 824: en inglés, el párrafo «Wishlist» literal de PROJECT.md bajo el español.
+      englishAddenda={locale !== 'es' ? [{ sectionId: 'finalidades-primarias', text: WISHLIST_PRIVACY_EN }] : []}
+    />
   );
 }

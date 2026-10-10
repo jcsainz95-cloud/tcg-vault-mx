@@ -17,6 +17,7 @@ import { formatMoneyCents, formatTimeMx } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import type { ConsignmentNotesSearchDTO, EditableSettingsPatch, SettingsDTO, ShippingInsuranceTier, ShippingLabelPurchase, ShippingPackageDTO } from '@/types/contract';
+import { centsToPesosInput, pesosInputToCents } from '../../accessories/money-input';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -486,19 +487,33 @@ function PackagesEditor({ boxMin, packagings }: { boxMin: number | undefined; pa
   const [rows, setRows] = useState<ShippingPackageDTO[] | null>(null);
   const [boxMinValue, setBoxMinValue] = useState(boxMin !== undefined ? String(boxMin) : '');
   const [error, setError] = useState<string | null>(null);
+  /** 💰 §AC.7 / §AC-UX.10: tarifa al cliente por caja, tecleada en pesos (vacía ⇒ `null`, ⛔ nunca 0). */
+  const [fees, setFees] = useState<Record<string, string>>({});
+  const [feeError, setFeeError] = useState<number | null>(null);
   useEffect(() => {
-    if (list.data && rows === null) setRows(list.data);
+    if (list.data && rows === null) {
+      setRows(list.data);
+      setFees(Object.fromEntries(list.data.map((p) => [p.code, centsToPesosInput(p.customerFeeCents ?? null)])));
+    }
   }, [list.data, rows]);
+  const feeCents = (code: string) => pesosInputToCents(fees[code] ?? '');
+  const feeInvalid = (rows ?? []).some((p) => {
+    const c = feeCents(p.code);
+    return c !== null && (Number.isNaN(c) || c < 1 || c > 10_000_000);
+  });
+  const noneCharges = (rows ?? []).filter((p) => p.active).every((p) => feeCents(p.code) === null);
   const weightInvalid = (rows ?? []).some((p) => !Number.isInteger(p.weightKg) || p.weightKg < 1);
   const save = useMutation({
     mutationFn: async () => {
-      const saved = await putShippingPackages(rows ?? []);
+      // §AC.7: cada fila lleva `customerFeeCents` explícito; vacía ⇒ `null` (la caja no cuenta para el cobro).
+      const saved = await putShippingPackages((rows ?? []).map((p) => ({ ...p, customerFeeCents: feeCents(p.code) })));
       if (boxMinValue.trim() && Number(boxMinValue) !== boxMin) await updateSettings({ shippingPackageRuleBoxMinCards: Number(boxMinValue) });
       return saved;
     },
     onSuccess: (saved) => {
       setRows(saved);
       setError(null);
+      setFeeError(null);
       void qc.invalidateQueries({ queryKey: ['shipping-packages'] });
       void qc.invalidateQueries({ queryKey: ['admin-settings'] });
     },
@@ -507,6 +522,8 @@ function PackagesEditor({ boxMin, packagings }: { boxMin: number | undefined; pa
       // §19.22.3: sin ningún activo con código ⇒ `400 VALIDATION_ERROR {field:'packages', reason:'no_active_package'}`.
       if (err?.code === 'VALIDATION_ERROR' && err.details?.reason === 'no_active_package') return setError(t('needActive'));
       if (err?.code === 'VALIDATION_ERROR' && err.details?.field === 'weightKg') return setError(t('weightInvalid'));
+      // §AC.7: `400 {field:'customerFeeCents', index}` ⇒ el error bajo la celda de ESA fila.
+      if (err?.code === 'VALIDATION_ERROR' && err.details?.field === 'customerFeeCents') return setFeeError(Number(err.details?.index ?? -1));
       setError(getError(e));
     },
   });
@@ -540,6 +557,21 @@ function PackagesEditor({ boxMin, packagings }: { boxMin: number | undefined; pa
               error={!Number.isInteger(p.weightKg) || p.weightKg < 1 ? t('weightInvalid') : undefined}
               onChange={(e) => patch(i, { weightKg: Number(e.target.value) })}
             />
+            <Input
+              label={t('customerFee')}
+              prefix="$"
+              inputMode="decimal"
+              placeholder={t('noFee')}
+              value={fees[p.code] ?? ''}
+              error={(() => {
+                const c = feeCents(p.code);
+                return feeError === i || (c !== null && (Number.isNaN(c) || c < 1 || c > 10_000_000)) ? t('feeRange') : undefined;
+              })()}
+              onChange={(e) => {
+                setFeeError(null);
+                setFees((f) => ({ ...f, [p.code]: e.target.value }));
+              }}
+            />
             <label className="flex items-center gap-2 text-sm text-text">
               <input type="checkbox" checked={p.active} onChange={(e) => patch(i, { active: e.target.checked })} />
               {t('active')}
@@ -547,8 +579,10 @@ function PackagesEditor({ boxMin, packagings }: { boxMin: number | undefined; pa
           </div>
         ))}
       </QueryState>
+      <p className="text-sm text-muted">{t('feeRule')}</p>
+      {rows !== null && noneCharges && <p className="text-sm text-muted">{t('noneCharges')}</p>}
       <Input label={t('boxMin')} inputMode="numeric" value={boxMinValue} onChange={(e) => setBoxMinValue(e.target.value)} />
-      <Button className="self-start" disabled={rows === null || weightInvalid} loading={save.isPending} onClick={() => save.mutate()}>
+      <Button className="self-start" disabled={rows === null || weightInvalid || feeInvalid} loading={save.isPending} onClick={() => save.mutate()}>
         {t('save')}
       </Button>
       {save.isSuccess && (

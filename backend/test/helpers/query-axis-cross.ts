@@ -235,6 +235,12 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/reports/sales::to',
   'GET /admin/reports/sales/export.csv::from',
   'GET /admin/reports/sales/export.csv::to',
+
+  // 💰 rev v1.86⟨accesorios⟩ (BACKEND_NOTES §83.ceq1; ratificado en v1.86.5, `179d8163`: «⛔ no es §0-Q — formato, no
+  // tokens; punto 7»): `GET /accessories/suggestions::exclude` — CSV de ≤ 50 UUID; fuera de forma ⇒ `400 {field:'exclude'}`
+  // sin `allowed` (`parseExclude`, `accessories/accessory-input.ts`). ⛔ `?active=`/`?soldOut=` del panel ya NO van aquí:
+  // v1.86.5 los hace clase L `true|false` ⇒ `REGISTRO`.
+  'GET /accessories/suggestions::exclude',
 ];
 
 /**

@@ -591,6 +591,9 @@ model User {
   // SQL de M-68) y forma por el CHECK `user_owner_shape` (súper-admin, con correo, no borrado). La escriben SOLO la
   // migración M-68 (marca inicial con exactamente un candidato) y `prisma/set-owner.ts` (censo `C-OWN-1`).
   isOwner            Boolean      @default(false)
+  // rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.1): «dejar de recibir estos avisos» de la lista de deseos (criterio 814).
+  // `NULL` = avisos activos. Lo escriben `PUT /wishlist/alerts` y `POST /wishlist/mail-actions {action:'pause'}`.
+  wishlistAlertsPausedAt DateTime?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -613,6 +616,10 @@ model User {
   sealedRestockSubscriptions SealedRestockSubscription[]
   // v1.80.2 (M-61, §M4-SHIP.15.13): reembolsos manuales (SPEI) a este cliente.
   manualRefunds              ManualRefund[]
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): deseos, avisos y correos de la lista de deseos (cascada en el borrado duro).
+  wishlistItems              WishlistItem[]
+  wishlistNotices            WishlistNotice[]
+  wishlistMails              WishlistMail[]
 
   @@index([role])
   @@index([status])
@@ -954,6 +961,8 @@ model Card {
   // rev `decks-portada` (M-60): inversa de `MetaDeckList.coverCard`. Solo lado Prisma (sin columna).
   // Si la carta sale del catálogo, la portada queda en null (ON DELETE SET NULL) y conserva su crudo.
   metaDeckListCovers         MetaDeckList[]              @relation("MetaDeckListCover")
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): deseos de esta carta (cualquier acabado).
+  wishlistItems              WishlistItem[]
 
   @@index([setId])
   @@index([name])
@@ -1107,6 +1116,8 @@ model InventoryItem {
   // v1.80.1 (M-61, §M4-SHIP.15): casos «Por reponer» donde esta pieza es la original / la repuesta.
   caseAsOriginal      ReplacementCase[]     @relation("CaseOriginal")
   caseAsReplacement   ReplacementCase[]     @relation("CaseReplacement")
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): «esta cuenta ya supo de esta pieza» (una vez por pieza y cuenta).
+  wishlistNotices     WishlistNotice[]
 
   @@index([cardId])
   @@index([status])
@@ -1435,6 +1446,13 @@ model Order {
   shippedRefundReasonAt       DateTime?
   shippedRefundReasonByUserId String?
   shippedRefundReasonBy       User?                @relation("ShippedRefundReasonBy", fields: [shippedRefundReasonByUserId], references: [id], onDelete: Restrict)
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.7): la caja elegida, CONGELADA en la sesión:
+  // `{ code, label, lengthCm, widthCm, heightCm, customerFeeCents, baseFeeCents, contentWeightG }`.
+  // `null` ⇔ tarifa fija de hoy (sin accesorios con medidas o sin cajas con tarifa). ⛔ Sin relleno: ningún pedido
+  // histórico eligió caja.
+  shippingBoxSnapshot         Json?
+  // «Revisar caja»: no cupo en ninguna. CHECK `order_shipping_box_review`: `true ⇒ shippingBoxSnapshot NOT NULL`.
+  shippingBoxReview           Boolean              @default(false)
 
   items            OrderItem[]
   // v1.68 (M-53, §4-R): piezas cuya reserva VIVA pertenece a esta orden (relación inversa; sin DDL propio).
@@ -1448,6 +1466,9 @@ model Order {
   // v1.80 (M-61, §M4-SHIP.2): el libro de reembolsos de esta orden; v1.80.2: sus filas SPEI.
   refunds          PaymentRefund[]
   manualRefunds    ManualRefund[]
+  // 💰 v1.86⟨accesorios⟩ (M-73, API_CONTRACT §AC.1): renglones de accesorio y paquete de energías. ⛔ Solo `direct_ship`
+  // (I-AC-4: CONSTRAINT TRIGGER `order_accessory_line_direct_ship` en la migración).
+  accessoryLines   OrderAccessoryLine[]
 
   @@index([userId])
   @@index([status])
@@ -1666,6 +1687,8 @@ model ShipmentRequest {
   items            ShipmentItem[]
   refunds          PaymentRefund[]
   replacementCases ReplacementCase[]
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.9): los renglones de accesorio que se palomean (nacen en el settle del directo).
+  accessoryLines   ShipmentAccessoryLine[]
 
   @@index([userId])
   @@index([status])
@@ -1753,6 +1776,10 @@ model ShippingPackage {
   heightCm            Int
   weightKg            Int
   providerPackageType String // `package_type` de Skydropx ('5H4', '4G')
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.7): lo que paga el CLIENTE por esta caja, IVA dentro. `null` ⇒ la caja no
+  // cuenta para el cobro (las dos semillas nacen `null`: el catálogo con tarifa empieza VACÍO, F3).
+  // CHECK `shipping_package_customer_fee`: NULL OR 1..10_000_000.
+  customerFeeCents    Int?
   active              Boolean  @default(true)
   sortOrder           Int      @default(0)
   createdAt           DateTime @default(now())
@@ -2022,8 +2049,22 @@ model PaymentRefund {
   succeededAt         DateTime?
   failedAt            DateTime?
   customerNotifiedAt  DateTime? // sello de `AV-12` (una vez por fila, §R.4.b)
+  // 💰 v1.86⟨accesorios⟩ (M-73, §AC.1/§AC.9/§AC.10): el RENGLÓN de accesorio que causó la fila. ⛔ SIN @unique: varias
+  // filas por renglón (una por acto: «faltó 1 de 3», luego «entregado» de otra unidad…). `accessoryQty` = unidades que
+  // cubre ESTA fila. CHECKs: `payment_refund_accessory_qty_pair` (cantidad ⇔ renglón), `payment_refund_accessory_qty_min`
+  // (≥ 1), `payment_refund_card_xor_accessory` (nunca carta Y renglón), `payment_refund_accessory_shipment_line`
+  // (línea de envío ⇒ renglón). v1.86.2 (§AC.18): solo en `item_missing` (con línea de envío y motivo) o `item_delivered`
+  // (sin línea de envío, con nota) — `PaymentRefund_item_missing_chk`/`_item_delivered_shape_chk` ampliados en M-73 y
+  // `payment_refund_accessory_shape`.
+  orderAccessoryLineId    String?
+  orderAccessoryLine      OrderAccessoryLine?    @relation(fields: [orderAccessoryLineId], references: [id], onDelete: Restrict)
+  // El faltante AL PREPARAR: una fila por línea de envío (`acc-item:<shipmentAccessoryLineId>`).
+  shipmentAccessoryLineId String?                @unique
+  shipmentAccessoryLine   ShipmentAccessoryLine? @relation("AccessoryMissingRefund", fields: [shipmentAccessoryLineId], references: [id], onDelete: Restrict)
+  accessoryQty            Int?
 
   @@index([orderId])
+  @@index([orderAccessoryLineId])
   @@index([requestedByUserId, createdAt]) // sirve el tope de 24 h (§M4-SHIP.8)
   @@index([status, createdAt]) // sirve «reembolsos atorados»
 }
@@ -2555,11 +2596,17 @@ model SealedRestockSubscription {
   sealedCondition    SealedCondition
   notifiedAt         DateTime?
   createdAt          DateTime        @default(now())
+  // rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.7 (c)/(d)): `armedAt` = el producto estuvo AGOTADO después de apuntarse
+  // (solo las armadas emparejan); `matchedAt` = primera vez que se vio de vuelta (ventana de agrupado). Nacen NULL (sin relleno).
+  armedAt            DateTime?
+  matchedAt          DateTime?
 
   // Empareja «producto vuelto a listed» → suscripciones pendientes (notifiedAt IS NULL) sin barrer.
   @@index([tcgplayerProductId, sealedCondition, notifiedAt])
   @@index([email])
   @@index([cardId])
+  // rev v1.87⟨wishlist⟩ (M-74, §WSH.7 (b)): tope de pendientes por correo y agrupado por correo al enviar.
+  @@index([email, notifiedAt])
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -2672,4 +2719,275 @@ model MetaFetchRun {
   deckCount     Int
   applied       Boolean // false = no pasó validación; se conservó lo último bueno
   note          String?
+}
+
+// ============================= ACCESORIOS (M-73) =============================
+//
+// 💰 v1.86⟨accesorios⟩ (API_CONTRACT §AC.1, ARCHITECTURE §4.AC y §11 «v1.86⟨accesorios⟩»). Fundas, toploaders,
+// carpetas, cajas de mazo, playmats, energías y el paquete de energías del deck. Se venden SOLO en compra de invitado a
+// domicilio (I-AC-4). Los CHECKs, el índice único parcial, el CONSTRAINT TRIGGER y la semilla de las 8 energías viven en
+// el SQL de la migración (Prisma no los modela). ⛔ Ningún importe sale del cuerpo de una petición (I-AC-3).
+
+// Clase E. El ORDEN es el de la pestaña de la tienda (§AC.1): no reordenar.
+enum AccessoryCategory {
+  sleeves
+  toploaders
+  binders
+  deck_boxes
+  playmats
+  energy
+  other
+}
+
+// Clase E. Los 8 tipos de energía básica (P-EN-1, F3).
+enum EnergyType {
+  grass
+  fire
+  water
+  lightning
+  psychic
+  fighting
+  darkness
+  metal
+}
+
+// Clase E. Un renglón es un accesorio suelto o el paquete de energías del deck.
+enum AccessoryLineKind {
+  accessory
+  energy_bundle
+}
+
+// Clase E. Ciclo de un renglón: apartado ⇒ soltado | vendido ⇒ (devuelto a existencias).
+enum AccessoryLineStatus {
+  reserved
+  released
+  sold
+  restocked
+}
+
+// Clase E. Solo cambios de `stockQty` (apartar y soltar NO son existencias).
+enum AccessoryStockMovementKind {
+  initial
+  receive
+  adjust
+  sale
+  restock
+  settle_recovery
+}
+
+model Accessory {
+  id               String                       @id @default(uuid())
+  name             String // 1..120 tras trim (CHECK `accessory_name_length`)
+  description      String? // ≤ 500, texto simple (CHECK `accessory_description_length`)
+  category         AccessoryCategory
+  energyType       EnergyType? // ⇔ category = energy (CHECK `accessory_energy_type`)
+  // Medidas del artículo EMPACADO como se vende. 1..2000 mm (CHECK `accessory_dims_range`); 1..50000 g.
+  lengthMm         Int?
+  widthMm          Int?
+  heightMm         Int?
+  weightG          Int?
+  // 💰 lo que paga el cliente, IVA DENTRO, exactamente lo tecleado. 1..100_000_000. Solo super_admin.
+  priceCents       Int?
+  // 💰 costo del dueño por unidad. 0..100_000_000. Solo super_admin lo ve y lo escribe.
+  unitCostCents    Int?
+  // Existencias (bajan AL PAGARSE) y apartado vivo. CHECK `accessory_stock`: 0 ≤ reservedQty ≤ stockQty (I-AC-2).
+  stockQty         Int                          @default(0)
+  reservedQty      Int                          @default(0)
+  // CHECK `accessory_active_ready`: activo ⇒ precio + foto (+ medidas y peso salvo energía).
+  // Índice único PARCIAL `accessory_energy_type_active_key`: un solo activo por tipo de energía (criterio 732).
+  active           Boolean                      @default(false)
+  // «Sugerido» (AC.5). CHECK `accessory_energy_not_suggested`: una energía nunca es sugerida (P-EN-2, F3).
+  suggested        Boolean                      @default(false)
+  photoVersion     String? // 16 hex del sha256 de la variante `full`; null ⇔ sin foto
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+  photo            AccessoryPhoto?
+  movements        AccessoryStockMovement[]
+  orderLines       OrderAccessoryLine[]
+  bundleComponents OrderEnergyBundleComponent[]
+
+  @@index([active, category])
+}
+
+// bytea en Postgres; ⛔ nunca S3 (ARCHITECTURE §4.AC (g), I-AC-6).
+model AccessoryPhoto {
+  accessoryId      String    @id
+  accessory        Accessory @relation(fields: [accessoryId], references: [id], onDelete: Cascade)
+  version          String // = Accessory.photoVersion (se escriben en la misma tx)
+  fullWebp         Bytes // 1200×1200
+  thumbWebp        Bytes // 400×400
+  sourceMime       String // image/png | image/jpeg | image/webp (detectado por firma, ⛔ nunca por extensión)
+  sourceBytes      Int
+  uploadedByUserId String // de la sesión; sin FK dura (patrón AuditLog)
+  uploadedAt       DateTime  @default(now())
+}
+
+// ⛔ Sin purga. CHECK `accessory_movement_identity`: stockAfter = stockBefore + delta ∧ stockAfter ≥ 0;
+// `accessory_movement_delta`: delta ≠ 0; `accessory_movement_adjust_reason`: `adjust` ⇒ motivo de 3..200.
+model AccessoryStockMovement {
+  id          String                     @id @default(uuid())
+  accessoryId String
+  accessory   Accessory                  @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  kind        AccessoryStockMovementKind
+  delta       Int
+  stockBefore Int
+  stockAfter  Int
+  reason      String? // OBLIGATORIO en `adjust`; opcional en `receive`
+  actorUserId String? // null ⇔ lo movió el sistema (sale/restock/settle_recovery). Sin FK dura
+  orderId     String? // en sale/restock/settle_recovery. Sin FK dura
+  createdAt   DateTime                   @default(now())
+
+  @@index([accessoryId, createdAt])
+}
+
+// 💰 Un renglón de accesorio (o el paquete de energías) de un pedido `direct_ship`. Precio y costo CONGELADOS en la sesión.
+// CHECKs (SQL de M-73): `order_accessory_line_kind_accessory` (accessoryId ⇔ accessory), `_quantity` (1..99; paquete ⇒ 1),
+// `_bundle_shape` (campos de paquete no nulos y deckOrderItemIds no vacío ⇔ energy_bundle), `_money` (precio ≥ 1, costo
+// ≥ 0, paquete sin costo propio), `_sold_at`, `_restocked_at`, `_refunded_qty` (0..quantity).
+model OrderAccessoryLine {
+  id                  String                       @id @default(uuid())
+  orderId             String
+  order               Order                        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  kind                AccessoryLineKind
+  accessoryId         String?
+  accessory           Accessory?                   @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  quantity            Int
+  unitPriceCents      Int // 💰 CONGELADO al crear la sesión (IVA dentro)
+  unitCostCents       Int? // 💰 costo CONGELADO (accesorio); en paquete = null (el costo está en sus componentes)
+  snapshot            Json // { name, category, energyType, photoVersion } — lo que se mostró; ⛔ sin precio ni costo
+  // --- solo energy_bundle ---
+  metaDeckId          String?
+  metaDeckListId      String? // la lista FIRMADA en el pullToken (inmutable)
+  deckSlug            String?
+  deckName            String?
+  deckOrderItemIds    String[]                     @default([]) // los OrderItem del deck (P-EN-4); vacío ⇔ kind = accessory
+  // --- apartado y venta ---
+  status              AccessoryLineStatus          @default(reserved)
+  reservedUntil       DateTime // = el vencimiento de la reserva del pedido (renovación incluida)
+  soldAt              DateTime? // ⇔ status ∈ {sold, restocked}
+  settledWithoutStock Boolean                      @default(false) // liquidado tarde sin existencias (§AC.6 (4))
+  restockedAt         DateTime? // ⇔ status = restocked
+  refundedQty         Int                          @default(0)
+  createdAt           DateTime                     @default(now())
+  components          OrderEnergyBundleComponent[]
+  shipmentLine        ShipmentAccessoryLine?
+  refunds             PaymentRefund[]
+
+  @@index([orderId])
+  @@index([status, reservedUntil])
+  @@index([accessoryId])
+}
+
+// Una fila por TIPO de energía del paquete. CHECK `order_energy_bundle_component_quantity`: quantity ≥ 1, costo ≥ 0.
+model OrderEnergyBundleComponent {
+  id            String             @id @default(uuid())
+  lineId        String
+  line          OrderAccessoryLine @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  accessoryId   String // el producto «Energía <tipo>» activo al crear la sesión
+  accessory     Accessory          @relation(fields: [accessoryId], references: [id], onDelete: Restrict)
+  energyType    EnergyType
+  quantity      Int
+  unitCostCents Int? // costo CONGELADO del producto de energía
+
+  @@unique([lineId, energyType])
+}
+
+// El nodo que se palomea; nace en el settle del directo, en su misma tx.
+// CHECKs: `shipment_accessory_line_missing` (missing ⇔ missingQty ≥ 1 ∧ motivo; missingQty ≤ quantity),
+// `shipment_accessory_line_quantity` (quantity ≥ 1).
+model ShipmentAccessoryLine {
+  id                   String                @id @default(uuid())
+  shipmentRequestId    String
+  shipmentRequest      ShipmentRequest       @relation(fields: [shipmentRequestId], references: [id], onDelete: Restrict)
+  orderAccessoryLineId String                @unique // un renglón ⇒ a lo más UNA línea de envío (⛔ re-expedición: fuera de v1)
+  orderAccessoryLine   OrderAccessoryLine    @relation(fields: [orderAccessoryLineId], references: [id], onDelete: Restrict)
+  quantity             Int // copia de OrderAccessoryLine.quantity
+  prepStatus           PreparationItemStatus @default(pending)
+  missingQty           Int                   @default(0)
+  missingReason        MissingReason?
+  prepMarkedAt         DateTime?
+  prepMarkedByUserId   String? // de la sesión; sin FK dura
+  refund               PaymentRefund?        @relation("AccessoryMissingRefund")
+
+  @@index([shipmentRequestId])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// rev v1.87⟨wishlist⟩ (M-74) — LISTA DE DESEOS POR CUENTA. Norma: docs/API_CONTRACT.md §WSH.1; porqué: ARCHITECTURE §4.WSH.
+// Dueño del dato: `backend/src/modules/wishlist/`. ⛔ Ninguna de estas tablas gobierna un cobro ni aparta inventario (815).
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Estado de un aviso «ya la tenemos» por (cuenta, pieza). `skipped` lleva su motivo en `skipReason` (CHECK de M-74).
+enum WishlistNoticeStatus {
+  pending
+  sent
+  suppressed
+  skipped
+}
+
+// Un deseo = (cuenta, carta, acabado). Condición: siempre Near Mint (no hay columna). `maxPct` ∈ {5,10,16} (CHECK
+// `wishlist_max_pct_allowed`, HECHOS 2026-10-06 punto 3). El máximo en pesos NO se guarda: se calcula al leer (808).
+model WishlistItem {
+  id             String           @id @default(uuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardId         String
+  card           Card             @relation(fields: [cardId], references: [id])
+  finish         Finish
+  maxPct         Int
+  lastNotifiedAt DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  notices        WishlistNotice[]
+
+  // Criterio 804: la carrera del doble alta muere aquí (P2002 ⇒ 409 WISHLIST_DUPLICATE).
+  @@unique([userId, cardId, finish])
+  // Empareja pieza → deseos y agrega la lista de compra.
+  @@index([cardId, finish])
+}
+
+// «Esta cuenta ya supo de esta pieza»: la deduplicación vive en el único `(userId, inventoryItemId)` (criterio 810).
+// La foto (`priceDisplayCents`…`fits`) es lo que dijo el correo (806/825); NULL mientras `pending`.
+model WishlistNotice {
+  id                String               @id @default(uuid())
+  wishlistItemId    String
+  wishlistItem      WishlistItem         @relation(fields: [wishlistItemId], references: [id], onDelete: Cascade)
+  // = wishlistItem.userId (desnormalizado para el único).
+  userId            String
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inventoryItemId   String
+  // v1.87.2: CASCADE — borrar la pieza se lleva sus avisos (API_CONTRACT §WSH.11 (5)).
+  inventoryItem     InventoryItem        @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  status            WishlistNoticeStatus @default(pending)
+  // CHECK `wishlist_notice_skip_reason`: status='skipped' ⇔ skipReason IN ('paused','unverified','inactive','unavailable').
+  skipReason        String?
+  detectedAt        DateTime             @default(now())
+  mailId            String?
+  mail              WishlistMail?        @relation(fields: [mailId], references: [id], onDelete: SetNull)
+  // Centavos MXN. P de la pieza al enviar (con IVA dentro) = `ListingDTO.displayPriceCents`.
+  priceDisplayCents Int?
+  // Mercado del acabado EL DÍA DEL ENVÍO; NULL = sin mercado.
+  marketCents       Int?
+  // Máximo del cliente ese día, con IVA dentro; NULL ⇔ marketCents NULL.
+  maxDisplayCents   Int?
+  fits              Boolean?
+  resolvedAt        DateTime?
+
+  @@unique([userId, inventoryItemId])
+  @@index([status, detectedAt])
+  @@index([inventoryItemId])
+}
+
+// Un correo enviado = un lote; el tope diario cuenta estas filas. `failedAt`: el proveedor rechazó (sin reintento).
+model WishlistMail {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locale    Locale
+  itemCount Int
+  sentAt    DateTime         @default(now())
+  failedAt  DateTime?
+  notices   WishlistNotice[]
+
+  @@index([userId, sentAt])
 }

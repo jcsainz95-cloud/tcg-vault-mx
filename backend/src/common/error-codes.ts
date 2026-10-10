@@ -807,6 +807,31 @@ export const ErrorCode = {
   OWNER_ONLY_SETTING: 'OWNER_ONLY_SETTING',
   // 🔒 D2g (§M4-SHIP.19.30.2 (2), C-21 (b)): restablecer/bloquear/borrar la cuenta del dueño desde otra cuenta. 403 sin `details`.
   OWNER_ACCOUNT_PROTECTED: 'OWNER_ACCOUNT_PROTECTED',
+
+  // ===== v1.86⟨accesorios⟩ (§AC.13) — los 15 de la tabla, de una vez (streams A y B los comparten; añadidos por (A)) =====
+  ACCESSORY_NOT_FOUND: 'ACCESSORY_NOT_FOUND', // 404 ficha pública (inexistente o inactivo, sin distinguir)
+  ACCESSORY_UNAVAILABLE: 'ACCESSORY_UNAVAILABLE', // 409 sesión `{accessoryId, reason}`
+  ACCESSORY_INSUFFICIENT_STOCK: 'ACCESSORY_INSUFFICIENT_STOCK', // 409 sesión `{accessoryId, availableQty}`
+  ACCESSORIES_REQUIRE_DIRECT_SHIP: 'ACCESSORIES_REQUIRE_DIRECT_SHIP', // 422 checkout con cuenta
+  ENERGY_BUNDLE_INVALID: 'ENERGY_BUNDLE_INVALID', // 422 sesión `{deckSlug, reason}`
+  ACCESSORY_NOT_ACTIVATABLE: 'ACCESSORY_NOT_ACTIVATABLE', // 422 activar `{missing}`
+  ENERGY_TYPE_TAKEN: 'ENERGY_TYPE_TAKEN', // 409 activar `{accessoryId}`
+  ACCESSORY_ACTIVE: 'ACCESSORY_ACTIVE', // 409 cambiar la categoría energía↔otra de uno activo
+  ACCESSORY_HAS_SALES: 'ACCESSORY_HAS_SALES', // 409 borrar
+  FORBIDDEN_FIELD: 'FORBIDDEN_FIELD', // 403 operador con campo ★ `{fields}`
+  STOCK_CONFLICT: 'STOCK_CONFLICT', // 409 ajuste `{stockQty}`
+  STOCK_BELOW_RESERVED: 'STOCK_BELOW_RESERVED', // 409 ajuste `{reservedQty}`
+  PHOTO_INVALID: 'PHOTO_INVALID', // 422 foto `{reason}`
+  ACCESSORY_REFUND_EXCEEDS: 'ACCESSORY_REFUND_EXCEEDS', // 409 entregado por unidad `{refundableQty}`
+  BUNDLE_REFUND_REQUIRES_DECK: 'BUNDLE_REFUND_REQUIRES_DECK', // 409 paquete sin su deck reembolsado
+
+  // ── rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.4 / §WSH.6) ─────────────────────────────────────────────────────────────
+  // 409 — `POST /wishlist` con la misma (carta, acabado) ya deseada (criterio 804). `details: { wishlistItemId, maxPct }`.
+  WISHLIST_DUPLICATE: 'WISHLIST_DUPLICATE',
+  // 422 — el tope por cuenta (dial `wishlist_max_per_account`, criterio 803). `details: { limit, count }`.
+  WISHLIST_LIMIT_REACHED: 'WISHLIST_LIMIT_REACHED',
+  // 404 — `POST /wishlist/mail-actions`: token que no cuadra o `id` inexistente (⛔ no distingue cuál). Sin `details`.
+  WISHLIST_LINK_INVALID: 'WISHLIST_LINK_INVALID',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

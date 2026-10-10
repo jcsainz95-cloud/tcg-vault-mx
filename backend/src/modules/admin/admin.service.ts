@@ -1633,7 +1633,10 @@ export class AdminService {
             'deleting the row would leave them unreachable. Retry when object storage responds.',
         );
       }
-      // HARD delete: cascada borra KycProfile/BillingProfile/Address/PortfolioSnapshot.
+      // HARD delete: cascada borra KycProfile/BillingProfile/Address/PortfolioSnapshot (y, rev v1.87⟨wishlist⟩, la lista de
+      // deseos con sus avisos y correos). D-WSH-5: `SealedRestockSubscription.userId` es `SetNull` y CONSERVA el correo ⇒ las
+      // suscripciones de la cuenta y de su correo se borran antes (si el `delete` fallara después, quedan borradas: es PII, se acepta).
+      await this.prisma.sealedRestockSubscription.deleteMany({ where: restockSubscriptionsOf(id, user.email) });
       await this.prisma.user.delete({ where: { id } });
       return { userId: id, mode: 'hard' };
     }
@@ -1672,6 +1675,12 @@ export class AdminService {
       // 💰 rev BSD-1 (BSD-B27): las guías de ENTRADA de sus solicitudes de venta nacen con `userId` NULO (CHECK
       // `shipment_kind_link`) ⇒ el borrado de arriba no las alcanza: su domicilio y sus revisiones se vacían aquí (un cuerpo, de B-2).
       await scrubInboundShipmentPii(tx, id);
+      // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.5 «Borrado de la cuenta», 817; D-WSH-5): la lista de deseos (los avisos caen en
+      // cascada), sus correos, y las suscripciones «avísame» de la cuenta Y de su correo PREVIO (el correo real se anonimiza
+      // abajo; sin esto seguiría recibiendo avisos de reposición).
+      await tx.wishlistItem.deleteMany({ where: { userId: id } });
+      await tx.wishlistMail.deleteMany({ where: { userId: id } });
+      await tx.sealedRestockSubscription.deleteMany({ where: restockSubscriptionsOf(id, user.email) });
       await tx.user.update({
         where: { id },
         data: {
@@ -2237,4 +2246,13 @@ export class AdminService {
     }
     return card;
   }
+}
+
+/**
+ * rev v1.87⟨wishlist⟩ (D-WSH-5) — las suscripciones «avísame» de una cuenta: por `userId` y por su correo (normalizado como lo
+ * guarda el alta: minúsculas, sin espacios). Una cuenta de staff sin correo ⇒ solo por `userId`.
+ */
+function restockSubscriptionsOf(userId: string, email: string | null): Prisma.SealedRestockSubscriptionWhereInput {
+  const norm = email?.trim().toLowerCase();
+  return { OR: [{ userId }, ...(norm ? [{ email: norm }] : [])] };
 }

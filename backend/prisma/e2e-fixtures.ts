@@ -190,7 +190,13 @@ export const E2E_SELL_REQUESTS = {
   quoted: { folioHint: 'e2e-quoted' },
 } as const;
 
-export const E2E_SET = { externalId: 'e2e-base', name: 'E2E Base Set', series: 'E2E', releaseDate: '1999/01/09' } as const;
+/**
+ * v1.86 (§AC, BACKEND_NOTES §83.seed) — `ptcgoCode: 'EEB'`: el emparejador de decks (`deck-matcher.service.ts`)
+ * casa SOLO por `ptcgoCode` + número y no hay endpoint que escriba el código de un set. Sin él, los casos E2E del
+ * deck de energías (FRONTEND_NOTES §107.real, `DECK_SEED`) se saltan por dato del seed. 3 letras a propósito: los
+ * fixtures propios de `decks-meta-*.e2e-spec` usan códigos de 4, así que no pueden colisionar.
+ */
+export const E2E_SET = { externalId: 'e2e-base', name: 'E2E Base Set', series: 'E2E', releaseDate: '1999/01/09', ptcgoCode: 'EEB' } as const;
 
 /**
  * v1.22-variantes-orden (§4.22e) — SEGUNDO set sintético, dedicado al ORDEN NATURAL del número.
@@ -341,6 +347,17 @@ export const E2E_CARDS = {
    * Precio raw por debajo de todas las demás raw publicadas: entra al final del orden por precio.
    */
   staleest: { externalId: 'e2e-stale-est', name: 'E2E Stale Estimate', number: '33', rarity: 'Common', refNmCents: 25000, availableFinishes: ['normal'] },
+  /**
+   * v1.86 (§AC, BACKEND_NOTES §83.seed) — las DOS cartas del deck de energías de E2E (`frontend/e2e/utils/
+   * accessories-scenario.ts` `DECK_SEED`: `EEB 40` y `EEB 41`, dos copias cada una). El arnés cura el deck por API
+   * y el emparejador las casa por `ptcgoCode` + número; cada una lleva DOS piezas `listed` (`E2E_FOLIOS.deck*`)
+   * porque con Stripe de prueba la sesión de un idioma deja apartada una y la del otro usa la segunda.
+   *
+   * Precio NM **MX$50**, por debajo de TODAS las raw publicadas: el arnés de `grading.ts` ordena las raw por precio
+   * descendente y toma las primeras; entrando al final ese orden no se mueve. Ningún estimado ni estado propio.
+   */
+  deckember: { externalId: 'e2e-ac-deck-ember', name: 'E2E Deck Ember', number: '40', rarity: 'Common', refNmCents: 5000, availableFinishes: ['normal'] },
+  deckspark: { externalId: 'e2e-ac-deck-spark', name: 'E2E Deck Spark', number: '41', rarity: 'Common', refNmCents: 5000, availableFinishes: ['normal'] },
 } as const;
 
 /**
@@ -395,8 +412,9 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 // justificaría y el test dejaría de comprobar el orden natural, que es justo lo que vigila.
 // v1.50.3-d: entran `30` (E2E Slab And Raw, la carta de INV-D) y `31` (la tercera raw publicada).
 // v1.50.3-e: entran `32` (la CUARTA raw, libre) y `33` (la carta de los estimados rancios/automáticos).
+// v1.86 (§83.seed): entran `40` y `41` (las cartas del deck de energías de E2E).
 // v1.89⟨bmk⟩: entra `100` (E2E Bin Premium, el guardarraíl de COMPRA) — al final, numérico tras `99`.
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '98', '99', '100'] as const;
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '40', '41', '98', '99', '100'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
@@ -421,6 +439,11 @@ export const E2E_FOLIOS = {
   // carta de los estimados RANCIOS/AUTOMÁTICOS que la API del contrato no puede fabricar.
   listedFourthRaw: 'E2E-LST-0008',
   listedStaleEst: 'E2E-LST-0009',
+  // v1.86 (§83.seed): DOS piezas `listed` de plataforma por cada carta del deck de energías de E2E.
+  listedDeckEmber1: 'E2E-LST-0010',
+  listedDeckEmber2: 'E2E-LST-0011',
+  listedDeckSpark1: 'E2E-LST-0012',
+  listedDeckSpark2: 'E2E-LST-0013',
   /**
    * ⚠️ v2.1.10 — **LA PIEZA QUE HABITA LA COLA DE «LISTAS PARA PUBLICAR»** (§4.39m.1, criterio 125).
    *
@@ -453,6 +476,27 @@ export const E2E_LOCATIONS = {
 } as const;
 
 export const E2E_LIST_OVERRIDE_CENTS = 60000; // listPriceCents del common override
+
+/**
+ * ⭐ v1.87.4⟨wishlist⟩ (WSH-F5, petición de frontend) — UNA pieza SELLADA a la venta en el seed: plataforma, `listed`, con
+ * precio propio y MAPEADA a un `tcgplayerProductId`. Sin ella `GET /catalog/sealed` daba `total: 0` contra el stack y el
+ * «avísame» con el cuerpo de la pantalla `{ email, inventoryItemId }` no se podía medir de punta a punta (la ficha
+ * `/es/sellado/{id}` necesita un grupo publicado). Folio PROPIO (`E2E-SLD-*`, fuera de `E2E_FOLIOS`: ningún bucle de
+ * piezas del seed la recorre). Los ids son aleatorios: frontend la encuentra por NOMBRE — en pantalla, la teja de
+ * `/es/sellado` muestra `productName`; por API, `GET /catalog/sealed?q=E2E Third Bird` (el `q` del grid busca por el nombre
+ * de la CARTA ancla, `E2E_CARDS.thirdraw`, no por el del producto) y se filtra la teja por `productName`. El seed la RESETEA en cada corrida (estado, dueño,
+ * precio y mapeo), así que un flujo que la venda o la desmapee no envenena la siguiente.
+ * ⛔ `tcgplayerProductId` fuera de los rangos aleatorios de las suites (700M–890M, 990M+).
+ */
+export const E2E_SEALED_LISTED = {
+  folio: 'E2E-SLD-0001',
+  productName: 'E2E Surging Sparks Booster Box',
+  sealedSubtype: 'box' as const,
+  sealedCondition: 'mint' as const,
+  tcgplayerProductId: 610000001,
+  tcgplayerGroupId: 61001,
+  listPriceCents: 450000,
+} as const;
 
 /**
  * Diales M10 que el seed FIJA (update) para que la matemática del checkout sea
