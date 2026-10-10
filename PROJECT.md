@@ -6079,7 +6079,7 @@ las marcadas **NO** abajo con su razón.
 | **Correos** con cifras de **compra** (los cinco del ciclo de buylist) | **NO** *(mismo supuesto que el cotizador)* | |
 | **Panel de admin / back-office** | **SÍ, pero mostrando AMBAS** | **⛔ El admin NO se convierte en superficie «solo con IVA»**: ve **base, IVA, neto, exhibido y dial**. Es donde se toma la decisión de margen. |
 | **P&L de M7 e informes de M9** | **NO — siguen en NETO** | Criterio **191**. El IVA **no es ingreso propio** |
-| **«Valor de mercado»** (§N.7) y **estimados PSA 10 / PSA 9** (§O) | **NO** *(SUPUESTO, pregunta 62)* | Son **referencias externas / ilustrativas**, no precios nuestros |
+| **«Valor de mercado»** (§N.7) y **estimados PSA 10 / PSA 9** (§O) | **NO** *(SUPUESTO, pregunta 62)* — ⭐ **Sustituido 2026-10-10 para el «Valor de mercado» de la tienda por §MIV** (`HECHOS.md` fila 2026-10-10 «Tienda: el VALOR DE MERCADO se muestra CON IVA…»): ficha de carta y ficha de sellado lo muestran **con IVA** y la nota «incluye IVA». Los estimados PSA siguen en NO salvo P-MIV-1 | Son **referencias externas / ilustrativas**, no precios nuestros |
 | **Comisión de plataforma** | **NO — se queda FUERA** *(pregunta **52**, contestada 2026-09-09)* | *«Solo iva adentro, comision por fuera»*. Sigue **sumándose aparte**, **visible y desglosada** (D53). **Decisión con carácter temporal: ver §Q.9** |
 | **Envío** | ~~**SIN DECIDIR — pregunta 60, sigue abierta**~~ → **SÍ, su cifra exhibida lleva el IVA dentro** *(lo fija el **criterio 189**, vigente — **enmienda `D-IVA-8`**, 2026-09-09)*; **abierto SOLO el RÓTULO** (pregunta **60**) | ~~**No se asume.** Es dinero de cliente. Hoy se **suma aparte**, y así se queda hasta que el dueño diga otra cosa~~ **Este renglón decía «SIN DECIDIR» mientras el criterio 189 —aprobado— ya prohibía apilar IVA después del precio exhibido: el documento se contradecía.** El envío **sigue siendo una línea propia, visible y separada**; lo que cambia es que **su cifra ya trae el IVA dentro**. **Es money-neutral al centavo y está medido**: `round(17500×1.16) = 20300 = 17500 + round(17500×0.16)` *(orquestador, 2026-09-09; generalizado a cualquier tarifa entera)*. **Lo único que el dueño decide es cómo se rotula** |
 | **Decks Meta** (`decks-meta-v1`) | **SÍ, cuando exista** | **Bloqueada** hasta que esto esté **implementado y publicado** (§Q.8) |
@@ -10129,7 +10129,119 @@ de no enseñar `priceBasis` al vendedor (`docs/API_CONTRACT.md:8889-8894`).
 
 - Criterios **850–859**.
 
+### MIV. Valor de mercado CON IVA en la tienda, con la nota «incluye IVA» (transversal — NUEVO 2026-10-10, sesión 7 · ⚠️ BORRADOR de product-owner; preguntas P-MIV-1…6 abiertas, cada una con su valor por defecto; ninguna bloquea al arquitecto)
+
+> **Fuente (manda):** `HECHOS.md` fila 2026-10-10 «**Tienda: el VALOR DE MERCADO se muestra CON IVA, con una nota
+> «incluye IVA».**» Palabras del dueño (2026-10-10): *«nosotros mostramos el precio de mercado sin iva porque en estados
+> unidos se muestra asi. Esto ocasiona que cuando le metemos iva mas 15% de nuestro margen salimos muy altos contra la
+> comparacion de mercado quiero que mostremos el mercado mas iva en vez de solo el mercado»*. Ejemplo confirmado con él:
+> mercado MX$1,000 → mostrar **MX$1,160** junto a su precio **MX$1,334**. A «¿solo la tienda o también el cotizador de
+> venta?» y «¿nota "incluye IVA"?»: *«solo la tienda y sí la nota»*.
+>
+> Consecuencias que la fila fija (no se re-preguntan): **(1)** solo superficies de la **tienda** (donde vendemos); el
+> cotizador de venta «Vender» (§BMK) **NO cambia**: sigue sin IVA. **(2)** Nota visible «incluye IVA» junto al valor.
+> **(3)** Solo presentación: no cambia ningún importe cobrado ni pagado, ni el dato de mercado guardado.
+>
+> **Sustituye**, solo para las superficies de la tienda marcadas «CAMBIA» en §MIV.2, al renglón de §Q.5 «**"Valor de
+> mercado" (§N.7) … NO (SUPUESTO, pregunta 62)**». El resto de §Q.5 y **todo §N.7** (cuándo se muestra y cuándo no)
+> siguen igual.
+
+#### MIV.1 Objetivo
+Que el comprador compare peras con peras: nuestro precio ya trae el IVA dentro (§Q), así que el valor de mercado que
+ponemos a su lado también lo trae, y lo dice. Ejemplo del dueño: mercado MX$1,000 · margen 15 % · IVA 16 % ⇒ precio
+**MX$1,334**; hoy se ve junto a «Valor de mercado **MX$1,000**» (parece 33 % más caro); con §MIV se ve junto a «Valor de
+mercado **MX$1,160** · incluye IVA» (se ve el 15 % real).
+
+#### MIV.2 Inventario — dónde ve hoy el cliente un valor de mercado
+*(Medido por product-owner el 2026-10-10 leyendo el árbol `claude/mercado-iva` en `/home/user/tcg-iva`; sin ejecutar
+nada. Rutas de frontend relativas a `frontend/src/app/[locale]/`.)*
+
+**A. Tienda (donde vendemos)**
+
+| # | Superficie | ¿Muestra mercado al cliente hoy? | ¿Es «tienda»? | Recomendación |
+|---|---|---|---|---|
+| A1 | **Ficha de carta** (raw y gradeada) — celda «Valor de mercado» junto a «Precio de venta» | **Sí**, solo cuando el mercado fijó el precio (`priceBasis === 'market'`, §N.7): `(storefront)/catalog/[cardId]/CardDetailView.tsx:224`, celda `:252-266` (pinta `referenceValue.referenceMxnCents` tal cual, sin IVA), rótulo `messages/es.json:340`; nota al pie `CardDetailView.tsx:349` / `es.json:446` | **Sí** | **CAMBIA**: cifra con IVA + nota «incluye IVA» |
+| A2 | **Ficha de sellado** — celda «Valor de mercado» junto a «Desde» | **Sí**, misma regla (`SealedDetailView.tsx:104`, celda `:174-186`, rótulo `es.json:7216`) | **Sí** | **CAMBIA** |
+| A3 | **Tendencia de valor del sellado** (gráfica bajo la ficha de sellado: cifra grande, cambio en pesos y %, curva) | **Sí**, si el interruptor `sealed_value_trend` está encendido y el mercado fijó el precio (`SealedDetailView.tsx:256-260`; cifras `SealedValueTrend.tsx:65,75,87,104`; nota «Valor de mercado de referencia (TCGCSV)…» `es.json:7228`). Si el interruptor está encendido en producción: **NO MEDIDO** | **Sí** (misma ficha) | **CAMBIA** *(P-MIV-6, por defecto «sí»)*: si no, la misma pantalla diría MX$1,160 arriba y MX$1,000 abajo |
+| A4 | **Catálogo / rejilla de Compra** (tejas) | **No**: la teja no recibe el mercado (`(storefront)/catalog/CatalogTile.tsx:32-34`); §N.7 fija que tejas y listados no lo muestran | Sí | **Sin cambio** (no se añade mercado) |
+| A5 | **Listado de sellado** | **No**: solo precio y rótulo de IVA (`(storefront)/sellado/SealedShopView.tsx:270-274`) | Sí | **Sin cambio** |
+| A6 | **Portada**: carrusel «Piezas destacadas», estantes de gradeadas y sellado | **No**: solo precio de venta (`_home/FeaturedCarousel.tsx:158`, `_home/GradedShelf.tsx:87`, `_home/SealedShelf.tsx:81`) | Sí | **Sin cambio** |
+| A7 | **Portada: «Valor de mercado · Set destacado»** (`es.json:303-308`) | **No se pinta**: el componente `FeaturedSetGlance` (`components/domain/PortfolioTrendChart.tsx:367-442`) **no lo importa nadie** (grep en `frontend/src` 2026-10-10: solo su definición) y la portada lo declara retirado (`(storefront)/page.tsx:44-45`). Los textos quedaron sin uso | Sería tienda | **Sin cambio** *(si algún día vuelve, nace con IVA — ver Fuera de alcance)* |
+| A8 | **Estimados «si se gradea» (PSA 10 / PSA 9)** — ficha, tejas del catálogo, carrusel y «Joyas para gradear» de la portada | **Sí, pero no es el «valor de mercado» de lo que vendemos**: es una «cifra ilustrativa de mercado» de esa carta ya gradeada por terceros (`es.json:354`). Pinta `estimate.referenceMxnCents` tal cual: `_shared/grading/GradingEstimateBlock.tsx:107` (ficha) y `_shared/grading/GradingEstimateBadge.tsx:110` (usado en `CatalogTile.tsx:120`, `FeaturedCarousel.tsx:743`/`:786`, y la vitrina `page.tsx:168`) | Aparece en la tienda | **Sin cambio** *(P-MIV-1, por defecto «no»)* |
+| A9 | **Lista de deseos en la ficha** («Tu máximo: hasta 10 % sobre mercado») | **No muestra la cifra de mercado**, pero habla de él: el máximo en pesos se calcula sobre el mercado **sin IVA** y hoy se lee «con IVA» (dial `wishlist_max_iva_mode`, de fábrica `with_iva`: `backend/src/modules/settings/settings.constants.ts:595`; regla en `es.json:5186`). Textos `es.json:7458`, `:7464`, `:7533`; bloque `(storefront)/catalog/[cardId]/WishlistBlock.tsx:308`, `:459` | Sí (ficha) | **Ningún número cambia**; riesgo de contradicción en la misma ficha ⇒ **P-MIV-4** |
+
+**B. Cuenta del cliente («Mi bóveda»): valuación de lo que ya tiene, no un precio de venta**
+
+| # | Superficie | ¿Muestra mercado? | ¿Es «tienda»? | Recomendación |
+|---|---|---|---|---|
+| B1 | **Portafolio de la bóveda** — «Valuado al valor de referencia de mercado (MXN, refresco diario)» (`es.json:658`), total y gráfica (`(storefront)/vault/VaultView.tsx:298-303`), valor por set (`:317`), valor por pieza (`:433-435`) | **Sí** | **No**: es su cuenta; §Q.5 ya la dejó sin IVA por ser valuación (renglón «Bóveda / portafolio — valuación») | **Sin cambio** *(P-MIV-2, por defecto «no»)* |
+| B2 | **Vistazo de la bóveda en la portada** (solo con sesión) — la misma cifra de B1 (`(storefront)/page.tsx:94-100`, `PortfolioTrendChart.tsx:328-354`) | **Sí** | **No** (es B1 en otra pantalla) | **Sin cambio**, sigue a B1 |
+| B3 | **Sellado en mi bóveda** — «Valor de mercado total» y por producto (`components/domain/SealedVaultPanel.tsx:54-56`, `:72`, `:94`; `es.json:7254-7262`) | **Sí** | **No** | **Sin cambio**, sigue a B1 |
+| B4 | **Master set en mi bóveda** — cada variante dice «Mercado MX$…» (`components/master-set/MasterSetBinder.tsx:804-849`, `BinderTile`, montado en modo `user_vault_self` desde `vault/VaultView.tsx:260`) **y**, en una faltante, el botón «Comprar MX$…» con **nuestro** precio (`components/master-set/CellDrawer.tsx:231-249`) | **Sí** | **Mixto**: está en su cuenta, pero ahí también le vendemos | **Sin cambio** en esta ronda *(P-MIV-3, por defecto «no»)* |
+
+**C. Vender (cotizador de buylist) — NO cambia por decisión del dueño**
+Teja, ventana y producto aparte del cotizador (`MasterSetBinder.tsx` `QuoterTile`/`SeparateProductTile`, `:936`, `:1065`;
+`components/domain/CardDetailModal.tsx:73`, `:129-134`), carrito de venta (`(storefront)/buylist/SellCartContents.tsx`) y
+el mini-cotizador de la portada (`_home/HomeQuoter.tsx:190`, rótulo «MXN · sin IVA»): **todo sigue como en §BMK**, sin IVA.
+
+**D. Panel del dueño y personal (no es cliente)** — M1, M2 (curva), M6, M11, bóvedas de clientes en admin
+(`(admin)/admin/...`): **sin cambio**; el panel sigue viendo el mercado sin IVA, que es con lo que se calcula todo.
+
+**E. Correos** — ningún correo al cliente muestra valor de mercado (grep «mercado» en `backend/src/**/*templates*.ts`,
+2026-10-10: solo un comentario de `refund-notice.templates.ts:8` que dice que nunca lo incluye). **Sin cambio.**
+
+#### MIV.3 La tasa y el redondeo (lo que hay hoy en el código)
+*(Medido 2026-10-10 leyendo el código; los valores vigentes en producción son **NO MEDIDOS**: se ven en el panel →
+Configuración, o con una lectura de la tabla de diales.)*
+
+- **La tasa NO está fija en el código: es un dial**, `iva_pct`, entero de 0 a 100, **16 de fábrica**
+  (`backend/src/modules/settings/settings.constants.ts:77`, `:384`; validación `:862-868`). Es la misma tasa que usa el
+  precio de venta.
+- Hay un **segundo dial distinto**, `iva_transfer_pct` (cuánto del IVA se traslada al precio; 100 de fábrica,
+  `settings.constants.ts:106`, `:390`; §Q.6). Hoy, con 100, el precio lleva el IVA completo. Qué hace el valor de
+  mercado si algún día bajas ese dial es **P-MIV-5** (por defecto: el mercado lleva **siempre el IVA completo**, `iva_pct`).
+- **La aritmética del precio con IVA ya existe y es una sola**: `displayPriceCentsOf(L, t, r) = L + round(L × t × r / 10000)`
+  en centavos enteros (`backend/src/common/money.ts:622-628`), redondeo al centavo más cercano; con `r = 16` **nunca hay
+  empate en medio centavo** (`backend/src/modules/settings/iva-transfer.ts:18-23`). El valor de mercado con IVA debe usar
+  **esa misma regla** con el IVA completo: **`M + round(M × r / 100)`**. Ejemplos con `r = 16`: MX$1,000.00 → **MX$1,160.00**;
+  MX$123.45 → **MX$143.20** (12,345 + round(1,975.2) = 14,320 centavos); MX$0.03 → **MX$0.03**.
+- La «convención iva-price-convention» del backend (`backend/test/integration/iva-price-convention.e2e-spec.ts`) es otra
+  cosa: es el candado de que cada **pedido** guarda si su precio llevaba IVA dentro (`priceConvention`). §MIV no la toca.
+- **Regla vigente del proyecto, registrada como dato (no es decisión de este documento):** la pantalla **no multiplica
+  dinero**; las cifras con IVA las entrega el servidor (`backend/src/modules/settings/iva-transfer.ts:125-126`;
+  `(storefront)/catalog/CatalogTile.tsx:90-91`). Y el dato `referenceValue` que hoy llega a la ficha **sigue siendo el
+  neto**, porque también alimenta valuaciones y el panel (`CardDetailView.tsx:326-333`). Cómo llega la cifra con IVA a
+  la ficha lo decide el arquitecto.
+
+#### MIV.4 Qué ve el cliente
+- **Dónde:** A1, A2 y A3 (y lo que el dueño sume en P-MIV-1…6). En ningún otro sitio aparece un mercado nuevo.
+- **Cuándo:** exactamente cuando hoy (§N.7): si el precio lo fijó el mercado. Con piso, precio a mano, bounty o precio
+  pendiente, el bloque sigue sin aparecer.
+- **La cifra:** el mercado con IVA (MIV.3). **La nota:** «incluye IVA» visible junto a la cifra, siempre que la cifra
+  esté (texto final, posición y versión en inglés: ux-ui; ya existe el rótulo «IVA {rate} % incluido», `es.json:26`,
+  que ux-ui puede reutilizar o no). *(SUPUESTO: la fecha «actualizado {fecha}» que hoy acompaña al mercado se conserva.)*
+- **Textos que hablan del mercado en esas pantallas** (`card.referenceExplainerWithMarket`, `es.json:446`;
+  `sealed.trend.marketRefNote`, `es.json:7228`): ux-ui revisa que no contradigan la cifra con IVA. *(SUPUESTO: no hace
+  falta cambiarlos; lo confirma ux-ui.)*
+
+#### MIV.5 Fuera de alcance de §MIV
+- **Cualquier importe**: precio de venta, carrito, checkout, cobro, comisión, envío, pago al vendedor, curva, márgenes,
+  máximos de la lista de deseos, valuaciones, P&L. **Ni el dato de mercado guardado.** Solo cambia lo que se muestra.
+- **«Vender»** (cotizador, carrito de venta, mini-cotizador de la portada, solicitudes): sin IVA, como §BMK.
+- **Mostrar el mercado donde hoy no se muestra** (tejas, listados, carrito, checkout, correos): §N.7 sigue igual.
+- **Mi bóveda** (B1–B4), los **estimados PSA** (A8) y los **números de la lista de deseos** (A9), salvo que el dueño
+  conteste otra cosa a P-MIV-1…4.
+- **El panel del dueño y del personal**: sigue sin IVA.
+- **Revivir «Valor de mercado · Set destacado»** (A7) o borrar sus textos sin uso.
+- Cambiar la tasa (`iva_pct`) o el dial de traslación.
+
+- Criterios **860–869**. Preguntas **P-MIV-1…6** al final del documento.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
+- **De §MIV (valor de mercado con IVA en la tienda)** *(2026-10-10)*: cambiar cualquier importe o el dato de mercado
+  guardado; «Vender» (sigue sin IVA, §BMK); añadir el mercado donde hoy no aparece; Mi bóveda, estimados PSA y números
+  de la lista de deseos (salvo respuesta a P-MIV-1…4); el panel; revivir «Valor de mercado · Set destacado»; cambiar la
+  tasa o el dial de traslación.
 - **De §BMK (valor de mercado en el cotizador de venta)** *(2026-10-08)*: cambiar la curva o importes; texto de
   porcentaje; el mercado en el total, en «Mi cuenta», en la vitrina de bounties, en correos y en la mesa del admin.
   Detalle en **§BMK.4**.
@@ -14819,6 +14931,48 @@ Energy» (12 energías; sueltas = MX$60.00):*
    pago, la agrega, ve los mismos dos números en el carrito, crea la solicitud y comprueba que la línea guardada trae
    ese mercado (852) y esa cotización; y comprueba una carta en precio pendiente sin mercado a la vista (854 (b)).
 
+> **§MIV — Valor de mercado con IVA en la tienda (2026-10-10).** Bloque **860–869** (reservado por el orquestador).
+> Fuente: `HECHOS.md` fila 2026-10-10 «Tienda: el VALOR DE MERCADO se muestra CON IVA, con una nota «incluye IVA»».
+> Los criterios están escritos con los **valores por defecto** de P-MIV-1…6; si el dueño contesta otra cosa, se ajustan.
+> Ejemplos con los diales de fábrica (`iva_pct` = 16, `iva_transfer_pct` = 100).
+
+860. **Ficha de carta, con IVA** *(§MIV.2 A1)*: una carta raw cuyo precio lo fijó el mercado, con mercado MX$1,000.00 y
+   precio MX$1,334.00, muestra «Valor de mercado» **MX$1,160.00** junto a «Precio de venta» **MX$1,334.00**. Igual en una
+   gradeada. La fecha de captura del mercado se sigue viendo.
+861. **Ficha de sellado y su tendencia, con IVA** *(§MIV.2 A2/A3; P-MIV-6 por defecto «sí»)*: un sellado con mercado
+   MX$2,000.00 y precio por margen muestra «Valor de mercado» **MX$2,320.00**; con la tendencia encendida, su cifra
+   grande es la misma **MX$2,320.00**, la curva va en la misma escala, y el cambio en pesos es la diferencia entre dos
+   cifras con IVA (p. ej. de MX$1,900.00 a MX$2,000.00 de mercado ⇒ «▲ MX$116.00»). El porcentaje no cambia.
+862. 💰 **La cuenta y el redondeo** *(§MIV.3)*: la cifra mostrada es `M + round(M × r / 100)` en centavos, con `r` = el
+   dial `iva_pct`: MX$1,000.00 → MX$1,160.00; MX$123.45 → MX$143.20; MX$0.03 → MX$0.03. Si el dueño cambia `iva_pct`
+   en el panel (p. ej. a 8), la ficha muestra MX$1,080.00 **sin publicar de nuevo**. Si baja `iva_transfer_pct`, el
+   mercado sigue con el IVA completo *(P-MIV-5 por defecto)*.
+863. **La nota «incluye IVA»** *(§MIV.4)*: cada vez que aparece una cifra de mercado de 860/861 aparece junto a ella la
+   nota (texto de ux-ui), visible sin pasar el ratón ni abrir nada, y un lector de pantalla la anuncia con la cifra.
+   Nunca aparece la nota sin la cifra.
+864. **Mismas reglas de cuándo se ve** *(§N.7, §MIV.4)*: con precio por piso, a mano (override), bounty o pendiente, el
+   bloque de mercado **sigue sin aparecer** (ni la nota); las tejas, listados, carrito, checkout y correos **siguen sin**
+   mercado. Una carta que antes mostraba mercado lo sigue mostrando, y una que no, sigue sin mostrarlo.
+865. **«Vender» no cambia** *(HECHOS 2026-10-10, punto 1)*: en el cotizador (teja, ventana, producto aparte), el
+   carrito de venta y el mini-cotizador de la portada, una carta con mercado MX$1,000.00 sigue mostrando
+   **MX$1,000.00**, sin nota de IVA; los criterios 850–852 siguen en verde **sin editar sus pruebas**.
+866. 💰 **Ningún importe cambia — por ausencia** *(HECHOS 2026-10-10, punto 3)*: para el mismo catálogo y los mismos
+   diales, el precio de venta, el carrito, el checkout, lo cobrado, la comisión, el envío, lo que se paga al vendedor,
+   los máximos de la lista de deseos, la valuación de Mi bóveda y el P&L dan **exactamente lo mismo** que antes de §MIV
+   (sus pruebas en verde sin editarlas); el mercado **guardado** no cambia; y el panel del dueño sigue mostrando el
+   mercado sin IVA (p. ej. MX$1,000.00 en M1/M6/M11 para la carta de 860).
+867. **Lo que se queda como está** *(§MIV.2 A8, A9, B1–B4; defaults de P-MIV-1…4)*: los estimados PSA (ficha, tejas,
+   carrusel, «Joyas para gradear»), Mi bóveda (total, gráfica, por set, por pieza, sellado en bóveda, vistazo de la
+   portada, master set) y las cifras de la lista de deseos muestran **las mismas cifras** que antes de §MIV.
+868. **Dos idiomas** *(§MIV.4)*: la nota y cualquier texto tocado existen en **es** y **en** con paridad (el control de
+   paridad de textos en verde); en inglés la cifra es la misma.
+869. **De punta a punta** *(O-4)*: contra el stack corriendo, QA (a) abre la ficha de una carta con precio por mercado,
+   lee mercado con IVA, nota y precio, y comprueba la cifra contra `M + round(M × 16 / 100)` del mercado guardado de
+   esa carta; (b) la agrega al carrito y comprueba que el total y el cobro son los de antes; (c) abre una carta con
+   precio a mano y no ve mercado; (d) abre una ficha de sellado con precio por margen y ve mercado con IVA (y su
+   tendencia si está encendida); (e) entra a «Vender», cotiza esa misma carta y ve el mercado **sin** IVA; (f) repite
+   (a) en inglés.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
@@ -19219,3 +19373,41 @@ ese frente:**
   ¿Se muestran los dos números también en estos casos, o solo «Te pagamos»? Recomendación: **sí, igual que cualquier
   carta**: es la verdad y da confianza; no se añade ninguna cifra calculada (ni «te damos MX$200 de más», ni
   porcentaje). §BMK.3, criterio 853 (c).
+
+## Preguntas — valor de mercado con IVA en la tienda (§MIV, 2026-10-10, sesión 7) — ABIERTAS, cada una con su valor por defecto
+
+> Lo que ya dijiste **no se pregunta** (`HECHOS.md` fila 2026-10-10 «Tienda: el VALOR DE MERCADO se muestra CON IVA…»):
+> solo la tienda, «Vender» sin cambio, nota «incluye IVA», ningún importe cambia. Ficha de carta y ficha de sellado
+> cambian. **Si no contestas, se construye con el valor por defecto de cada una.** Ninguna bloquea al arquitecto.
+
+- **P-MIV-1 · Los estimados «si se gradea» (PSA 10 / PSA 9).** En la ficha, en las tejas del catálogo y en la portada
+  enseñamos, por ejemplo, «En PSA 10 vale ≈ MX$2,900». Es lo que se ha pagado por esa carta ya gradeada, no el mercado
+  de la carta que vendemos. ¿Lo pasamos también a «≈ MX$3,364 · incluye IVA»? **Por defecto: no.** Es una cifra
+  ilustrativa con su aviso legal; subirla 16 % la haría ver más atractiva de lo que es, y no se compara con nuestro
+  precio. §MIV.2 A8, criterio 867.
+- **P-MIV-2 · «Mi bóveda» (lo que el cliente ya compró).** Una carta de mercado MX$1,000 en su bóveda hoy suma
+  **MX$1,000** a «Valor de tu colección» (y igual en la portada cuando tiene sesión, y en su sellado guardado). ¿Pasa a
+  **MX$1,160 · incluye IVA**? **Por defecto: no.** Dijiste «solo la tienda», y ahí no le vendemos: es la valuación de lo
+  suyo (así se decidió en §Q.5). Bandera: la misma carta se verá **MX$1,160** en la ficha de la tienda y **MX$1,000** en
+  su bóveda. §MIV.2 B1–B3.
+- **P-MIV-3 · El master set dentro de «Mi bóveda».** Ahí cada carta dice «Mercado MX$1,000» y, si le falta y la tenemos,
+  le ofrecemos «Comprar MX$1,334»: es el único rincón de su cuenta donde ve mercado y nuestro precio, el mismo choque que
+  te molestó. ¿Ese «Mercado» pasa a **MX$1,160 · incluye IVA**? **Por defecto: no en esta ronda**, para que toda «Mi
+  bóveda» use una sola regla (P-MIV-2). Si dices que sí a P-MIV-2, este sigue con ella. §MIV.2 B4.
+- **P-MIV-4 · La lista de deseos en la ficha.** Hoy el cliente elige «hasta 10 % sobre mercado» y le decimos su máximo:
+  con mercado MX$1,000 ⇒ **MX$1,100 con IVA** (tu dial está «con IVA»). Con §MIV, la misma ficha dirá arriba «Valor de
+  mercado **MX$1,160** · incluye IVA», y su «10 % sobre mercado» le saldrá **por debajo** de ese mercado. Opciones:
+  **(a)** no tocar ningún número y aclarar en el texto que el % es sobre el mercado **sin** IVA; **(b)** mover tu dial
+  de la lista a «sin IVA»: el máximo pasa a **MX$1,276** (= MX$1,160 + 10 %), que cuadra con lo que ve — eso sí cambia
+  los máximos de todos, y ya lo puedes hacer tú en el panel sin programar nada. **Por defecto: (a)**, porque dijiste que
+  ningún importe cambia. §MIV.2 A9.
+- **P-MIV-5 · Si algún día no trasladas todo el IVA.** Hoy tu precio lleva el IVA completo. Si un día bajas el dial de
+  traslado (por ejemplo a 0 %, que tú absorbas el IVA), esa carta costaría **MX$1,150**. ¿El mercado se sigue mostrando
+  con el IVA completo (**MX$1,160**, que quedaría **por encima** de tu precio), o con la misma parte que trasladas
+  (**MX$1,000**)? **Por defecto: IVA completo (MX$1,160)**, porque pediste «el mercado más IVA». Hoy no cambia nada:
+  con el dial al 100 % las dos lecturas dan lo mismo (el valor del dial en producción no lo hemos medido). §MIV.3,
+  criterio 862.
+- **P-MIV-6 · La gráfica «Tendencia de valor» del sellado.** Debajo de la ficha de un sellado puede aparecer una
+  gráfica con una cifra grande, p. ej. «MX$2,000 ▲ MX$100 (+5.26 %)». ¿Va también con IVA: «MX$2,320 ▲ MX$116
+  (+5.26 %)»? **Por defecto: sí**: está en la misma ficha, y si no la misma pantalla diría MX$2,320 arriba y MX$2,000
+  abajo. (Si esa gráfica está encendida hoy en tu tienda no lo hemos medido.) §MIV.2 A3, criterio 861.
