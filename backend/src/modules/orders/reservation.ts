@@ -64,6 +64,25 @@ export const releaseReservationData = {
 } as const satisfies Prisma.InventoryItemUncheckedUpdateManyInput;
 
 /**
+ * 💰 v1.84 LIVE-4 · TD-4 (API_CONTRACT §14.4) — la ÚNICA forma de escribir `pending → failed` al soltar una
+ * reserva. CAS: el estado esperado va en el `WHERE` y es la PRIMERA escritura de la tx que libera. Devuelve si
+ * la ganó. Con `false`, otro escritor (liquidación, reembolso, contracargo) ya movió la orden ⇒ el llamador
+ * ⛔ NO libera piezas ni apartados y termina sin escrituras. Bajo READ COMMITTED, si otra tx tiene la fila
+ * tomada, este `UPDATE` espera y Postgres re-evalúa el `WHERE` sobre la versión confirmada (TD4-3).
+ * `updateMany` y no `update`: sin fila, `update` lanza `P2025`. Mismo patrón que `failAndRelease` (payments).
+ */
+export async function failPendingOrder(
+  tx: Pick<Prisma.TransactionClient, 'order'>,
+  orderId: string,
+): Promise<boolean> {
+  const { count } = await tx.order.updateMany({
+    where: { id: orderId, status: 'pending' },
+    data: { status: 'failed' },
+  });
+  return count === 1;
+}
+
+/**
  * Espacio de claves del advisory lock de la puerta de reserva. Dos enteros (`pg_advisory_xact_lock(int, int)`):
  * este namespace + `hashtext(<identidad del cliente>)`. Distinto de `FX_GATE_LOCK_KEY` (una sola
  * clave bigint): no colisionan.
