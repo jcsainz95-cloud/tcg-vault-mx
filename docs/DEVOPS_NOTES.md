@@ -15096,3 +15096,38 @@ Qué mirar: job `selftest` → paso «ZAP real lee la política…» con `ZAP-OK
 **Rollback:** `git revert` del commit. Vuelve el defecto (ZAP revienta con las sub-claves); si hay que revertir,
 revertir **también** las tres líneas `10055-n` de `baseline.conf` o el DAST de release queda sin medición (si eso
 pone rojo el `5-quater` de `check-dast-gate-live.sh`: NO MEDIDO).
+
+## §97 · C6, ronda de control: `--control-only` gasta 6 (no 12) y respeta la autorización del dueño (2026-10-10, rama `claude/salida-real`, devops)
+
+**De dónde viene.** La ronda 1 de C6 (XFF rotatorio) ya se corrió: run `38074439305`, job «sonda», sha `00535194`
+⇒ 6×`401 INVALID_CREDENTIALS`, **ningún 429**. Eso es la rama (a) de §85.4: «nunca 429» rotando XFF no distingue
+un bypass de un tope apagado; hace falta la **ronda de control** (misma IP, sin `X-Forwarded-For`). El dueño
+autorizó HOY **6 peticiones más** y solo 6 (HECHOS.md, fila 2026-10-10 «C6: el dueño AUTORIZA 6 peticiones más»).
+
+**El problema medido.** `edge-xff-probe.sh --with-control` **siempre reenvía la ronda base (6) y luego el control
+(6) = 12 peticiones**. Medido contra un backend de mentira en modo `bypass`:
+
+    rc=1 · peticiones recibidas por el backend: 12  (--with-control)
+    rc=1 · peticiones recibidas por el backend:  6  (--control-only)
+
+12 > 6 autorizadas ⇒ cablear el input a `--with-control` habría doblado el presupuesto del dueño.
+
+**La corrección.** Flag nuevo `--control-only` en `edge-xff-probe.sh`: NO reenvía la base (encaja el resultado ya
+medido, `NUNCA`) y manda **solo** la ronda de control = **6 peticiones en total**. rc 1 si el 6.º del control es
+`429 RATE_LIMITED` (bypass presente → C6 FALLA, arreglo de código: arquitecto → backend); rc 2 si no lo es (no
+concluyente). El workflow `edge-xff-probe.yml` gana el input `control` (booleano, def. `false`): `true` ⇒
+`--control-only`. La confirmación exacta sigue siendo `C6-6-INTENTOS`; el comportamiento por push/PR (solo canario)
+no cambia.
+
+**Canario.** `check-edge-xff-probe-canary.sh` gana dos casos: `bypass + --control-only` ⇒ rc 1 con `peticiones: 6`
+(si la base se reenviara saldría `peticiones: 12` y el canario mordería), y `off + --control-only` ⇒ rc 2. Verificado
+local: **10/10** con N=2 (incluye las dos mutaciones existentes que siguen mordiendo).
+
+**Cómo se corre (lo dispara el orquestador tras autorización del dueño, ventana abierta):**
+`gh workflow run edge-xff-probe.yml --ref claude/salida-real -f confirmar=C6-6-INTENTOS -f control=true`.
+Qué mirar en el resumen del job: `modo: ronda de CONTROL únicamente`, la línea `control: <6 respuestas>` y
+`peticiones: 6` (nunca 12). Otra corrida después de esta requiere **nueva** autorización del dueño.
+
+**Rollback:** `git revert` del commit. El workflow vuelve a invocar solo `--i-have-a-window` (ronda base, 6) y
+pierde el input `control`; el flag `--control-only` del script queda inerte sin el workflow. No toca producción ni
+datos.

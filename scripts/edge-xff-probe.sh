@@ -65,6 +65,12 @@
 #     `RATE_LIMITED` en el 6.º. Sin control, «nunca 429» no distingue un bypass de
 #     un tope apagado ⇒ rc 2 y pide la ronda. Si rotando XFF el 6.º YA es
 #     `RATE_LIMITED`, el control sobra: ese código solo lo pone el tope por IP.
+#     `--with-control` manda la ronda base (6) Y LUEGO el control (6) = 12 en total.
+#   · `--control-only`: cuando la ronda base YA se gastó en una corrida previa
+#     (run 38074439305: 6×401, ningún 429) y el dueño autorizó solo 6 peticiones
+#     más. NO reenvía la base; encaja ese resultado medido (NUNCA) y manda SOLO la
+#     ronda de control = 6 peticiones en total. rc 1 si el 6.º del control es
+#     429 RATE_LIMITED (bypass presente, C6 FALLA), rc 2 si no (no concluyente).
 # PRESUPUESTO AUTORIZADO: el dueño autorizó **6 intentos fallidos** para C6
 # (HECHOS.md, fila 2026-10-05 «Listo para dinero real — respuestas del dueño»).
 # Por eso el valor por defecto es UNA ronda (6 peticiones). El control (6 más) y
@@ -73,7 +79,7 @@
 #
 # Uso (SOLO en ventana autorizada, contra producción):
 #   TARGET_BASE_URL='https://<host-de-produccion>' \
-#     ./scripts/edge-xff-probe.sh --i-have-a-window [--rounds 1] [--with-control] [--round-pause 65] [--login-path /api/v1/auth/login]
+#     ./scripts/edge-xff-probe.sh --i-have-a-window [--rounds 1] [--with-control | --control-only] [--round-pause 65] [--login-path /api/v1/auth/login]
 # Canario (sin producción): ./scripts/check-edge-xff-probe-canary.sh — usa
 #   `--canary-local`, que permite un host local y NO es una medición de C6.
 #
@@ -87,7 +93,7 @@
 # =============================================================================
 set -uo pipefail
 
-WINDOW=0; ROUNDS=1; LOGIN_PATH="/api/v1/auth/login"; PAUSE=65; CANARY=0; CONTROL=0
+WINDOW=0; ROUNDS=1; LOGIN_PATH="/api/v1/auth/login"; PAUSE=65; CANARY=0; CONTROL=0; CONTROL_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --i-have-a-window) WINDOW=1; shift ;;
@@ -96,6 +102,7 @@ while [ $# -gt 0 ]; do
     --login-path) LOGIN_PATH="${2:-}"; shift 2 ;;
     --canary-local) CANARY=1; shift ;;
     --with-control) CONTROL=1; shift ;;
+    --control-only) CONTROL=1; CONTROL_ONLY=1; shift ;;
     -h|--help) sed -n '1,110p' "$0"; exit 0 ;;
     *) echo "::error::opción desconocida '$1'"; exit 2 ;;
   esac
@@ -169,23 +176,35 @@ clasificar() {
 echo "── C6 · sonda del edge de Railway (X-Forwarded-For → tracker del throttler) ──"
 echo "  objetivo : ${BASE%/}  (login: $LOGIN_PATH)"
 echo "  correos  : ${TAG}-<n>@example.invalid — UNO DISTINTO por petición (inexistentes ⇒ 401, sin candado de cuenta)"
-echo "  rondas   : $ROUNDS × 6 peticiones, XFF rotatorio 203.0.113.1..6 · pausa entre rondas ${PAUSE}s · control: $([ "$CONTROL" -eq 1 ] && echo 'sí, si hace falta (+6)' || echo 'no autorizado en esta corrida')"
+if [ "$CONTROL_ONLY" -eq 1 ]; then
+  echo "  rondas   : SOLO ronda de control (--control-only) = 6 peticiones SIN X-Forwarded-For · la ronda base (XFF rotatorio) NO se reenvía: ya se gastó (run 38074439305, 6×401, ningún 429)"
+else
+  echo "  rondas   : $ROUNDS × 6 peticiones, XFF rotatorio 203.0.113.1..6 · pausa entre rondas ${PAUSE}s · control: $([ "$CONTROL" -eq 1 ] && echo 'sí, si hace falta (+6)' || echo 'no autorizado en esta corrida')"
+fi
 echo
 
 N=0; DISPAROS=0; NUNCA=0
-for r in $(seq 1 "$ROUNDS"); do
-  [ "$r" -gt 1 ] && [ "$PAUSE" -gt 0 ] && sleep "$PAUSE"
-  res=()
-  for i in 1 2 3 4 5 6; do N=$((N+1)); res+=("$(peticion "$N" "203.0.113.$i")"); done
-  veredicto="$(clasificar "${res[@]}")"
-  printf '  ronda %s: %s' "$r" "${res[*]}"
-  case "$veredicto" in
-    IP)     echo "   ← 6.º = 429 RATE_LIMITED ✓ (el tope cuenta por la IP del edge, no por el XFF del cliente)"; DISPAROS=$((DISPAROS+1)) ;;
-    NO)     echo "   ← ningún 429 ✗ (rotando XFF el tope por IP NO disparó)"; NUNCA=$((NUNCA+1)) ;;
-    CUENTA) echo "   ← ::error:: 429 TOO_MANY_PASSWORD_ATTEMPTS: respondió el candado de CUENTA, no el tope por IP. Sonda contaminada. NO concluyente."; exit 2 ;;
-    *)      echo "   ← ::error:: respuestas inesperadas. ¿URL o path mal? NO concluyente."; exit 2 ;;
-  esac
-done
+if [ "$CONTROL_ONLY" -eq 1 ]; then
+  # --control-only: NO se reenvía la ronda base. Se encaja el resultado YA MEDIDO
+  # de la ronda base (run 38074439305: rotando XFF ningún 429 ⇒ NUNCA) y se manda
+  # SOLO la ronda de control (6 peticiones). Presupuesto de esta corrida = 6.
+  NUNCA="$ROUNDS"
+  echo "  (base omitida; se asume el resultado medido: rotando XFF, ningún 429)"
+else
+  for r in $(seq 1 "$ROUNDS"); do
+    [ "$r" -gt 1 ] && [ "$PAUSE" -gt 0 ] && sleep "$PAUSE"
+    res=()
+    for i in 1 2 3 4 5 6; do N=$((N+1)); res+=("$(peticion "$N" "203.0.113.$i")"); done
+    veredicto="$(clasificar "${res[@]}")"
+    printf '  ronda %s: %s' "$r" "${res[*]}"
+    case "$veredicto" in
+      IP)     echo "   ← 6.º = 429 RATE_LIMITED ✓ (el tope cuenta por la IP del edge, no por el XFF del cliente)"; DISPAROS=$((DISPAROS+1)) ;;
+      NO)     echo "   ← ningún 429 ✗ (rotando XFF el tope por IP NO disparó)"; NUNCA=$((NUNCA+1)) ;;
+      CUENTA) echo "   ← ::error:: 429 TOO_MANY_PASSWORD_ATTEMPTS: respondió el candado de CUENTA, no el tope por IP. Sonda contaminada. NO concluyente."; exit 2 ;;
+      *)      echo "   ← ::error:: respuestas inesperadas. ¿URL o path mal? NO concluyente."; exit 2 ;;
+    esac
+  done
+fi
 
 # Ronda de control: solo hace falta si rotando XFF no hubo NINGÚN 429 (con un
 # 429 RATE_LIMITED el tope por IP ya está demostrado activo).
@@ -197,7 +216,7 @@ if [ "$NUNCA" -eq "$ROUNDS" ]; then
     echo "    apagado. NO concluyente. Hace falta autorización para 6 peticiones más y repetir con --with-control."
     exit 2
   fi
-  [ "$PAUSE" -gt 0 ] && sleep "$PAUSE"
+  [ "$CONTROL_ONLY" -ne 1 ] && [ "$PAUSE" -gt 0 ] && sleep "$PAUSE"
   ctl=()
   for i in 1 2 3 4 5 6; do N=$((N+1)); ctl+=("$(peticion "$N" "")"); done
   vctl="$(clasificar "${ctl[@]}")"

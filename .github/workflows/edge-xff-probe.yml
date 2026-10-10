@@ -13,9 +13,13 @@
 # PRESUPUESTO AUTORIZADO POR EL DUEÑO: 6 intentos de entrada fallidos
 # (HECHOS.md, fila 2026-10-05 «Listo para dinero real — respuestas del dueño»,
 # P-7/P-9). Por eso este workflow:
-#   · corre la sonda con sus valores por defecto: UNA ronda = 6 peticiones, SIN
-#     `--with-control` y sin `--rounds`. No hay input para cambiarlo: más
-#     peticiones exigen autorización nueva del dueño (y otro cambio aquí).
+#   · por defecto (input `control=false`): UNA ronda base = 6 peticiones con XFF
+#     rotatorio, sin `--rounds`.
+#   · con `control=true`: SOLO la ronda de control (`--control-only`) = 6 peticiones
+#     sin X-Forwarded-For. NO reenvía la base (ya gastada, run 38074439305), así que
+#     tampoco se pasa de 6. Autorizado por el dueño HOY (HECHOS 2026-10-10, «C6:
+#     AUTORIZA 6 peticiones más»). AMBOS modos gastan EXACTAMENTE 6; más peticiones
+#     (o `--with-control`, que son 12) exigen autorización nueva y otro cambio aquí.
 #   · SOLO a mano (`workflow_dispatch`) y con la frase de confirmación exacta.
 #   · `concurrency` sin cancelación: dos disparos no corren a la vez (el segundo
 #     espera); cada corrida completa gasta otros 6 intentos — NO repetir sin
@@ -52,6 +56,10 @@ on:
         description: "Base del backend de producción (https, sin ruta). Vacío = variable C6_TARGET_BASE_URL o el dominio de Railway."
         type: string
         default: ""
+      control:
+        description: "Ronda de CONTROL únicamente (--control-only): la ronda base ya se gastó (run 38074439305). Manda SOLO 6 peticiones sin X-Forwarded-For. Autorizado por el dueño HOY (HECHOS 2026-10-10, «C6: AUTORIZA 6 peticiones más»)."
+        type: boolean
+        default: false
   push:
     branches: ["claude/**", "devops/**"]
     paths:
@@ -95,10 +103,11 @@ jobs:
             exit 2
           fi
       - uses: actions/checkout@v5
-      - name: C6 contra producción (1 ronda = 6 peticiones, sin control)
+      - name: C6 contra producción (6 peticiones — base, o ronda de control)
         env:
           OBJETIVO: ${{ inputs.objetivo }}
           C6_VAR: ${{ vars.C6_TARGET_BASE_URL }}
+          CONTROL: ${{ inputs.control }}
         run: |
           set +e -uo pipefail
           T="${OBJETIVO:-${C6_VAR:-https://tcg-vault-mx-production.up.railway.app}}"
@@ -106,14 +115,23 @@ jobs:
             https://*) ;;
             *) echo "::error::el objetivo tiene que ser https:// (recibido: $T). No se manda ninguna petición."; exit 2 ;;
           esac
-          echo "Objetivo: $T · fecha (UTC): $(date -u +%FT%TZ) · sha: $GITHUB_SHA"
-          TARGET_BASE_URL="$T" ./scripts/edge-xff-probe.sh --i-have-a-window 2>&1 | tee c6.log
+          # Ambos modos gastan EXACTAMENTE 6 peticiones. --control-only NO reenvía la
+          # ronda base (ya gastada en run 38074439305); manda solo la ronda de control.
+          FLAGS="--i-have-a-window"
+          if [ "$CONTROL" = "true" ]; then
+            FLAGS="$FLAGS --control-only"
+            MODO="ronda de CONTROL únicamente (--control-only) = 6 peticiones sin X-Forwarded-For; base NO reenviada (HECHOS 2026-10-10)"
+          else
+            MODO="ronda base = 6 peticiones, XFF rotatorio, sin control (HECHOS 2026-10-05, P-9)"
+          fi
+          echo "Objetivo: $T · modo: $MODO · fecha (UTC): $(date -u +%FT%TZ) · sha: $GITHUB_SHA"
+          TARGET_BASE_URL="$T" ./scripts/edge-xff-probe.sh $FLAGS 2>&1 | tee c6.log
           rc=${PIPESTATUS[0]}
           {
             echo "## C6 · sonda XFF contra producción"
             echo ""
             echo "- objetivo: \`$T\` · fecha (UTC): $(date -u +%FT%TZ) · rc=$rc"
-            echo "- presupuesto: 1 ronda = 6 peticiones, sin control (HECHOS 2026-10-05, P-9)"
+            echo "- presupuesto: 6 peticiones — $MODO"
             echo ""
             echo '```'
             cat c6.log
