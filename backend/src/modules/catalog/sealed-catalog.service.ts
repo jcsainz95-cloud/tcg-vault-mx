@@ -11,6 +11,7 @@ import {
   SEALED_SALE_PRICE_INCLUDE,
   SealedSpreadSource,
   ivaIsIncluded,
+  marketDisplayCentsOf,
   saleDisplayCentsOf,
   sealedPriceBasisOf,
 } from '../../common/money';
@@ -113,7 +114,31 @@ export interface SealedGroupDTO {
    */
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
+  /**
+   * v1.90⟨miv⟩ (§MIV.2, ADITIVO) — el MERCADO **con IVA**; misma regla que en `GroupedListingDTO`: presente ⇔
+   * `referenceValue.referenceMxnCents` presente (⇔ `priceBasis === 'market'`), derivado del valor YA PROYECTADO.
+   * ⛔ No entra en `SealedGroupSummaryDTO` (rejilla).
+   */
+  referenceDisplayCents?: number;
   currency: 'MXN';
+}
+
+/**
+ * v1.90⟨miv⟩ (§MIV.3) — `GET /catalog/sealed/:inventoryItemId/value-history`: la forma de `SetValueHistoryResponse`
+ * (con `product` en vez de `set`) más el mercado CON IVA por punto y en el cambio. Los netos (`valueMxnCents`,
+ * `absMxnCents`, `pct`, `direction`) siguen viajando sin cambio. ⛔ Las rutas de set no usan este tipo.
+ */
+export interface SealedValuePointDTO {
+  date: string;
+  valueMxnCents: number;
+  pricedCardCount: number;
+  displayValueMxnCents: number;
+}
+export interface SealedValueHistoryResponse {
+  product: { inventoryItemId: string; tcgplayerProductId: number; name: string };
+  range: string;
+  points: SealedValuePointDTO[];
+  change: { absMxnCents: number; pct: number | null; direction: 'up' | 'down' | 'flat'; displayAbsMxnCents: number };
 }
 
 /** Una pieza sellada con su precio de venta YA resuelto (SEC-A1) y su referencia de mercado cruda. */
@@ -224,6 +249,10 @@ export class SealedCatalogService {
       cheapest.marketRef && cheapest.marketRef.status === 'priced'
         ? cheapest.marketRef
         : { status: 'pending' };
+    // v2.1.9 (D2): la referencia TAL COMO SALE al cliente. ⛔ v1.90⟨miv⟩: `referenceDisplayCents` se deriva de ÉSTA,
+    // nunca de la cruda de arriba — con un precio a mano la cruda trae el mercado y lo publicaría (MIV-B3).
+    const publicReference = toPublicPriceInfo(referenceValue, cheapest.priceBasis);
+    const projectedMarketCents = publicReference.referenceMxnCents;
     return {
       representativeItemId: item.id,
       card: toCardDTO(item.card),
@@ -254,7 +283,12 @@ export class SealedCatalogService {
       // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ sin `source` (ver `toPublicPriceInfo`).
       // v2.1.9 (D2): y el NÚMERO de mercado viaja si y solo si `priceBasis === 'market'`. Este DTO es
       // el de la FICHA (`SealedGroupDetailResponse.group`); la rejilla usa `toGroupSummaryDTO`.
-      referenceValue: toPublicPriceInfo(referenceValue, cheapest.priceBasis),
+      referenceValue: publicReference,
+      // v1.90⟨miv⟩ (§MIV.2): el mercado CON IVA, con la tasa de la MISMA lectura de diales (`dials.ivaRatePct`, la
+      // del rótulo). Clave AUSENTE sin número proyectado (override/pendiente). ⛔ Nunca `ivaTransferPct` (P-MIV-5).
+      ...(projectedMarketCents !== undefined && Number.isInteger(projectedMarketCents) && projectedMarketCents >= 0
+        ? { referenceDisplayCents: marketDisplayCentsOf(projectedMarketCents, dials.ivaRatePct) }
+        : {}),
       // Requerido por el contrato y también se omitía.
       currency: 'MXN',
     };
@@ -403,7 +437,7 @@ export class SealedCatalogService {
   // ---------------------------------------------------------------------------
   // GET /catalog/sealed/:inventoryItemId/value-history — FEATURE-FLAGGED sealed_value_trend.
   // ---------------------------------------------------------------------------
-  async sealedValueHistory(inventoryItemId: string, range: string) {
+  async sealedValueHistory(inventoryItemId: string, range: string): Promise<SealedValueHistoryResponse> {
     if ((await this.settings.getString(SettingKey.SEALED_VALUE_TREND)) !== 'on') {
       throw BusinessException.notFound('FEATURE_DISABLED', 'sealed value trend is disabled');
     }
@@ -434,13 +468,26 @@ export class SealedCatalogService {
     // Un punto por día (dedupe por fecha; con orden asc, la última vista gana).
     const byDate = new Map<string, number>();
     for (const r of rows) byDate.set(r.capturedDate.toISOString().slice(0, 10), r.priceMxnCents);
-    const points = [...byDate.entries()].map(([date, valueMxnCents]) => ({
+
+    // v1.90⟨miv⟩ (§MIV.3, P-MIV-6 «sí»): el mercado CON IVA por punto. La tasa se lee AQUÍ, después del interruptor
+    // (con `sealed_value_trend=off` la ruta responde 404 sin leer diales — MIV-B8), una vez por petición. ⛔ Solo
+    // `ivaRatePct`; `ivaTransferPct` no entra (P-MIV-5).
+    const { ivaRatePct } = await this.settings.getIvaDials();
+    const points: SealedValuePointDTO[] = [...byDate.entries()].map(([date, valueMxnCents]) => ({
       date,
       valueMxnCents,
       pricedCardCount: 1,
+      displayValueMxnCents: marketDisplayCentsOf(valueMxnCents, ivaRatePct),
     }));
 
-    const change = this.changeOf(points.map((p) => p.valueMxnCents));
+    // `pct` y `direction` siguen sobre el NETO (criterio 861: «el porcentaje no cambia»). El cambio en pesos con IVA
+    // es la RESTA DE DOS CIFRAS CON IVA (último − primero), ⛔ no `marketDisplayCentsOf(absMxnCents)`: difieren por
+    // redondeo (1 → 4: displays 1 → 5 ⇒ 4; la otra cuenta da 3). Serie vacía ⇒ 0.
+    const change = {
+      ...this.changeOf(points.map((p) => p.valueMxnCents)),
+      displayAbsMxnCents:
+        points.length === 0 ? 0 : points[points.length - 1].displayValueMxnCents - points[0].displayValueMxnCents,
+    };
     return {
       product: {
         inventoryItemId: item.id,

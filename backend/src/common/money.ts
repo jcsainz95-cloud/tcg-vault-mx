@@ -628,6 +628,20 @@ export function displayPriceCentsOf(
 }
 
 /**
+ * 💰 v1.90⟨miv⟩ (`API_CONTRACT §MIV.1`, `ARCHITECTURE §4.MIV`) — **el VALOR DE MERCADO con IVA**, solo para pintar en
+ * la tienda junto a la nota «incluye IVA». `M + round(M × r / 100)` ≡ `displayPriceCentsOf(M, 100, r)`.
+ *
+ * - **Recibe la TASA (`iva_pct`), ⛔ nunca `IvaDials`:** el mercado lleva SIEMPRE el IVA completo (P-MIV-5 por
+ *   defecto). El dial de traslación no puede entrar sin cambiar esta firma — y eso es el candado.
+ * - ⛔ **Presentación pura.** No entra en ningún importe, gate, valuación ni cotización: `referenceValue` sigue
+ *   neto. Censo de llamadores en `test/miv.market-display.spec.ts` (MIV-B9): solo las dos fichas del catálogo.
+ * - Cota: misma que `displayPriceCentsOf` (`M ≤ MAX_CENTS`, `r ≤ 100` ⇒ producto intermedio exacto).
+ */
+export function marketDisplayCentsOf(marketMxnCents: number, ivaRatePct: number): number {
+  return displayPriceCentsOf(marketMxnCents, 100, ivaRatePct);
+}
+
+/**
  * 💰 v1.83.1 (`§M11-SP.12.1`) — **`L` equivalente de un `P` FIJO con ESTOS diales** (lo que el resto del sistema llama
  * «antes de IVA»): `round(P × 10000 / (10000 + t·r))`, en aritmética entera (mitad hacia arriba sobre positivos).
  *
