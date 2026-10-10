@@ -176,8 +176,12 @@ describe('LIVE-3 · entornos', () => {
     expect(ro).toEqual(enf);
   });
 
-  it('por defecto usa la fase vigente (CSP_MODE)', () => {
+  it('por defecto usa la fase vigente (CSP_MODE = report-only en este release)', () => {
+    // Doble candado: el default de buildCsp ES CSP_MODE, y la fase vigente es report-only. Si alguien
+    // pone CSP_MODE='enforce' sin el cambio coordinado de ZAP, el default traería
+    // upgrade-insecure-requests y dejaría de casar con report-only ⇒ esta prueba muerde.
     expect(buildCsp('n', PROD)).toBe(buildCsp('n', PROD, CSP_MODE));
+    expect(buildCsp('n', PROD)).toBe(buildCsp('n', PROD, 'report-only'));
   });
 
   it('API local en http ⇒ sin upgrade-insecure-requests (rompería el stack local); https ⇒ con ella', () => {
@@ -237,9 +241,12 @@ describe('LIVE-3 · fase (CSP-6)', () => {
     expect(cspHeaderName('enforce')).toBe('Content-Security-Policy');
   });
 
-  it('fase vigente: enforce (§14.3 paso 2, CL-1). Va junto con baseline.conf 10038/10055 en FAIL', () => {
-    // Cambiado EN EL MISMO COMMIT que la constante y que `security/zap/baseline.conf` (10038/10055 a FAIL);
-    // lo ata `scripts/check-csp-zap-parity.sh`. Volver a `report-only` baja las dos a WARN en el mismo commit.
-    expect(CSP_MODE).toBe('enforce');
+  it('fase vigente: report-only (§14.3 paso 1, VUELTA ATRÁS de este release). Va junto con baseline.conf 10038/10055 en WARN', () => {
+    // Este release sale en report-only: la causa de los avisos CSP de producción en `/es` y
+    // `/es/decks-meta` sigue SIN MEDIR contra la tienda en vivo, así que no se garantiza que enforce no
+    // rompa la portada. Pasar a `enforce` (paso 2, CL-1) va EN EL MISMO COMMIT que `security/zap/baseline.conf`
+    // (10038/10055 a FAIL); lo ata `scripts/check-csp-zap-parity.sh`. Este candado muerde si alguien vuelve a
+    // `enforce` sin ese cambio coordinado.
+    expect(CSP_MODE).toBe('report-only');
   });
 });

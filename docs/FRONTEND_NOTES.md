@@ -21398,3 +21398,34 @@ salida (política de la organización), así que no comparé el nonce de la cabe
 miré `x-vercel-cache`/`age`. El informe de `POST /telemetry/csp` no guarda `sourceFile` ni `sample`
 (`backend/src/modules/health/telemetry-report.ts:4`), y sin ellos no se distingue un script de Next de uno inyectado
 por una extensión o por el navegador integrado de una red social.
+
+## §114 · CSP — este release vuelve a `report-only` (enforce pendiente de medir producción) (2026-10-10, rama `claude/salida-real`)
+
+**Decisión (orquestador, medida).** La causa de los avisos CSP de producción en `/es` y `/es/decks-meta` sigue SIN
+MEDIR (no es la 404 de §113 / `0515d53a`; esos avisos tienen otro `documentPath`). No se garantiza que `enforce` no
+rompa la portada en vivo, así que este release sale con la CSP en `report-only` (la VUELTA ATRÁS que describe el
+propio `csp.ts`). El paso a `enforce` (CL-1) queda para después, una vez medida la tienda en vivo. El arreglo de la
+404 (`0515d53a`, §113) se queda.
+
+**Cambio (solo `frontend/`).**
+- `src/security/csp.ts`: `CSP_MODE` de `'enforce'` a `'report-only'`; el comentario de la constante refleja que la
+  fase VIGENTE es `report-only` (paso 1) y que `enforce` (paso 2, CL-1) queda pendiente de medir producción. La
+  doctrina de las dos fases no se borra.
+- `src/security/csp.test.ts`: el candado «fase vigente» (`LIVE-3 · fase (CSP-6)`) pasa a `expect(CSP_MODE).toBe('report-only')`;
+  muerde si alguien vuelve a `enforce` sin el cambio coordinado de ZAP. El it «por defecto usa la fase vigente» añade
+  `expect(buildCsp(...)).toBe(buildCsp(..., 'report-only'))`, que deja de casar en cuanto el default (CSP_MODE) trae
+  `upgrade-insecure-requests`, es decir, en cuanto se vuelve a `enforce`.
+- `src/middleware.test.ts`: el bloque standalone «sin forzar fase» hardcodeaba la cabecera aplicada (`enforce`). Con
+  `CSP_MODE = report-only` el middleware pone `Content-Security-Policy-Report-Only` y NO la aplicada, así que ese test
+  se ajustó a leer la cabecera report-only. El `describe.each(PHASES)` ya cubría ambas fases y no cambió.
+
+**Medido (2026-10-10, `vitest run`, copia viva de la rama, carga `0.08`):**
+- `src/security` + `src/middleware.test.ts`: **34/34 verdes** (antes del ajuste de middleware: 33/34, la única roja era
+  ese candado de fase vigente).
+- `src/app`: **2318/2318 verdes** (187 ficheros, rc 0). Hay «1 error» no fatal de teardown de worker cuyo detalle
+  truncó el `tail`; NO MEDIDO su origen, pero está fuera de los ficheros tocados y el rc fue 0.
+- `scripts/check-csp-zap-parity.sh`: **rc 0** (`CSP_MODE=report-only · ZAP 10038=WARN · 10055=WARN`). En esta rama el
+  `security/zap/baseline.conf` ya trae 10038/10055 en WARN, así que el candado de paridad está verde; no hubo pieza
+  roja de devops pendiente.
+
+HTML/texto determinista: N=1 basta (no es probabilístico).

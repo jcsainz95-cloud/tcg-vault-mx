@@ -41,14 +41,16 @@ beforeEach(() => {
   vi.doUnmock('./security/csp');
 });
 
-describe('CSP-1 · fase vigente (enforce desde CL-1): la cabecera aplicada lleva el nonce', () => {
-  it('sin forzar fase: Content-Security-Policy con nonce y SIN -Report-Only; el render recibe el mismo nonce', async () => {
+describe('CSP-1 · fase vigente (report-only en este release): la cabecera del middleware lleva el nonce', () => {
+  it('sin forzar fase: Content-Security-Policy-Report-Only con nonce y SIN la aplicada del middleware; el render recibe el mismo nonce', async () => {
     const mw = await load();
     const res = mw(req('/es/checkout'));
-    const p = res.headers.get('content-security-policy');
+    const p = res.headers.get('content-security-policy-report-only');
     expect(p).toContain("'strict-dynamic'");
     expect(nonceOf(p)).toBeTruthy();
-    expect(res.headers.get('content-security-policy-report-only')).toBeNull();
+    // En report-only el middleware NO pone la aplicada; la red de frame-ancestors la da next.config.mjs
+    // (ver el invariante de las dos fases más abajo).
+    expect(res.headers.get('content-security-policy')).toBeNull();
     expect(forwarded(res, 'x-nonce')).toBe(nonceOf(p));
   });
 });
