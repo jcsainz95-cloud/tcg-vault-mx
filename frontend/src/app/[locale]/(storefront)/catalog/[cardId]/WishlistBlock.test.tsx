@@ -268,7 +268,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
     const b = await block();
     fireEvent.click(await within(b).findByRole('button', { name: `Agregar ${es.finish.normal} a mi lista` }));
     expect(await within(b).findByText(W.block.duplicate)).toBeInTheDocument();
-    expect(within(b).getByText(`Está en tu lista · ${es.finish.normal} · hasta 16 % sobre mercado`)).toBeInTheDocument();
+    expect(within(b).getByText(`Está en tu lista · ${es.finish.normal} · hasta 16 % sobre mercado sin IVA` /* §MIV.6: solo cambia el texto; el 16 % no */)).toBeInTheDocument();
     expect(within(b).queryByRole('alert')).toBeNull();
   });
 

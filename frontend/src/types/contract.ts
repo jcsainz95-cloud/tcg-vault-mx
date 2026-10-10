@@ -329,6 +329,35 @@ export interface SetValueHistoryResponse {
 }
 
 /**
+ * ⭐ v1.90⟨miv⟩ (`API_CONTRACT §MIV.3`) — un punto de la tendencia del SELLADO: el de `SetValuePointDTO`
+ * más el mercado CON IVA. `valueMxnCents` sigue viajando (neto) pero ⛔ la tienda ya no lo pinta.
+ */
+export interface SealedValuePointDTO extends SetValuePointDTO {
+  displayValueMxnCents: number;
+}
+
+/**
+ * ⭐ v1.90⟨miv⟩ (`API_CONTRACT §MIV.3`) — respuesta de `GET /catalog/sealed/:inventoryItemId/value-history`:
+ * «`SetValueHistoryResponse`-con-`product`» más los campos `display*`, REQUERIDOS en esta ruta. `pct` y
+ * `direction` NO cambian (se calculan sobre el neto). Las rutas de SET siguen con `SetValueHistoryResponse`.
+ *
+ * `product`: el contrato no fija su forma interna y la pantalla no lo lee; se tipa abierto a propósito
+ * (antes este endpoint se tipaba con `set`, que el servidor nunca emitió aquí).
+ */
+export interface SealedValueHistoryResponse {
+  product: Record<string, unknown>;
+  range: SetValueRange;
+  points: SealedValuePointDTO[];
+  change: {
+    absMxnCents: number;
+    pct: number | null;
+    direction: 'up' | 'down' | 'flat';
+    /** display(último) − display(primero); serie vacía ⇒ 0. ⛔ No es `marketDisplayCentsOf(absMxnCents)`. */
+    displayAbsMxnCents: number;
+  };
+}
+
+/**
  * La convención de precio de **este desglose** (§M10-IVA.4). Viaja **por fila**, ⛔ nunca se
  * deduce de un ajuste global: una orden ya cobrada bajo `IVA_EXCLUSIVE` tiene que seguir
  * leyéndose igual para siempre (criterio **190**).
@@ -825,6 +854,15 @@ export interface GroupedListingDTO {
   // en `units[]` (ListingDTO.priceBasis).
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
+  /**
+   * ⭐ v1.90⟨miv⟩ (ADITIVO, `API_CONTRACT §MIV.2`) — el mercado **CON IVA**, calculado en el servidor
+   * (`marketDisplayCentsOf(referenceValue.referenceMxnCents, ivaRatePct)`). Presente ⇔
+   * `referenceValue.referenceMxnCents` presente (⇔ `priceBasis === 'market'`). **Es la única cifra de
+   * mercado que pinta la ficha.** Ausente ⇒ el bloque NO se pinta: ⛔ nunca se cae al neto
+   * (`referenceValue` sigue NETO y ya no se pinta en la tienda). ⛔ No existe en
+   * `GroupedListingSummaryDTO` ni en `ListingDTO`.
+   */
+  referenceDisplayCents?: number;
   currency: 'MXN';
   // v1.50.2: `gradingHighlight` YA NO VIVE AQUÍ — se movió a `GroupedListingSummaryDTO` (rejilla +
   // vitrina). Tras D2 este DTO es el de la FICHA, y la ficha lee `gradedEstimates` de la RAÍZ de
@@ -5428,6 +5466,12 @@ export interface SealedGroupDTO {
   // sin precio⇒"pending". El SELLADO no cambia de matemática (§K): solo gana este campo.
   priceBasis: PriceBasis;
   referenceValue: PriceInfo;
+  /**
+   * ⭐ v1.90⟨miv⟩ (ADITIVO, `API_CONTRACT §MIV.2`) — misma regla que `GroupedListingDTO.referenceDisplayCents`:
+   * el mercado CON IVA, derivado en el servidor del `referenceValue` YA PROYECTADO. ⛔ No existe en
+   * `SealedGroupSummaryDTO`.
+   */
+  referenceDisplayCents?: number;
   currency: 'MXN';
 }
 // v2.1.9 (D2): el DTO de la REJILLA de sellado = `SealedGroupDTO` MENOS `priceBasis`,

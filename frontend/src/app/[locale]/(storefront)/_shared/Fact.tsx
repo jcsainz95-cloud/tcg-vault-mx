@@ -18,15 +18,30 @@ export function Fact({
   children,
   note,
   className,
+  labelId,
+  labelledBy,
 }: {
   label: React.ReactNode;
   children: React.ReactNode;
   note?: string;
   className?: string;
+  /** §MIV.5 — id del rótulo, para que la celda lo cite en su nombre accesible. */
+  labelId?: string;
+  /**
+   * §MIV.5 (criterio 863) — si viene, la celda es un `role="group"` nombrado por ESTOS nodos visibles
+   * (rótulo, cifra, rótulo de IVA). ⛔ Nunca un `aria-label` con una cadena aparte. Sin él, la celda
+   * queda exactamente como antes.
+   */
+  labelledBy?: string;
 }) {
   return (
-    <div className={cn('border-b border-border py-6', className)}>
-      <div className="eyebrow">{label}</div>
+    <div
+      className={cn('border-b border-border py-6', className)}
+      {...(labelledBy ? { role: 'group', 'aria-labelledby': labelledBy } : {})}
+    >
+      <div className="eyebrow" id={labelId}>
+        {label}
+      </div>
       <div className="mt-2.5">{children}</div>
       {note && <div className="mt-2 font-mono text-[11px] leading-none text-muted">{note}</div>}
     </div>

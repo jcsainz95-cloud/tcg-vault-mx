@@ -21289,3 +21289,58 @@ El check `e2e-skip-census` de la PR #85 (run 37751072651) salió rojo: `skipIfSe
 3. **(rama mock) «ninguna teja pendiente»** → `expect(n).toBeGreaterThan(0)`. El mock trae pendientes «sin mercado» en el set. Si llegara a 0, el caso no mediría nada y pasaría en verde.
 
 Medido: `scripts/check-e2e-skip-census.sh` rc=0, con las 5 claves igual al baseline. `tsc` sin errores y `next lint` limpio. El spec en mock (build `.next-e2e-mock-fe-bmk4`, puerto 3471) dio 2/2 verdes (N=1). Sin medir: la rama real. Ningún stack real estaba arriba.
+
+## §111 · **§MIV — el valor de mercado se pinta CON IVA en la tienda, con el rótulo «IVA {rate} % incluido»** (2026-10-10, rama `claude/mercado-iva`; `API_CONTRACT §MIV` v1.90⟨miv⟩ · `ARCHITECTURE §4.MIV` · `DESIGN_SYSTEM §MIV` vMIV-1 · `PROJECT §MIV`, criterios 860–869; dueño: `HECHOS.md:160-161`, filas 2026-10-10)
+
+Construido sobre `5c5220a6` (diseño) con el backend de §MIV trabajando a la vez en el mismo árbol. Ningún importe
+cambia; el front no hace ninguna cuenta: pinta las cifras `display*` que manda el servidor.
+
+- **Tipos** (`types/contract.ts`): `referenceDisplayCents?: number` en `GroupedListingDTO` y `SealedGroupDTO` (no en las
+  rejillas ni en `ListingDTO`). Tipo propio `SealedValueHistoryResponse` (+ `SealedValuePointDTO`) para
+  `GET /catalog/sealed/:id/value-history`: `points[].displayValueMxnCents` y `change.displayAbsMxnCents` **requeridos**.
+  - `product` se tipa abierto (`Record<string, unknown>`): el contrato dice «con `product`» sin fijar su forma y la
+    pantalla no lo lee. Antes el front tipaba esta ruta con `set`, que el servidor nunca emitió aquí (deriva vieja,
+    sin efecto: nadie lo leía).
+- **Regla de pantalla, una por ficha** (`CardDetailView.tsx`, `SealedDetailView.tsx`): `marketDisplayCents` =
+  `referenceDisplayCents` si `priceBasis === 'market'` ∧ `Number.isInteger` ∧ `> 0`; si no, `undefined` y el bloque
+  no existe (ni «—», ni rótulo, ni neto). El mismo predicado decide `fullRow` de la celda de precio, la nota al pie y,
+  en sellado, si se monta la tendencia. Las fichas ya no leen `referenceValue.referenceMxnCents`; la fecha de captura
+  sigue saliendo de `referenceValue.capturedDate`.
+- **Rótulo:** `IvaLabel ivaIncluded ivaRatePct={DTO.ivaRatePct}` con las clases de §MIV.2, entre la cifra y la fecha.
+  `IvaLabel` gana `id?` (ensanchamiento compatible, zona compartida). Cero claves nuevas.
+- **Accesibilidad (§MIV.5):** la celda de mercado es `role="group"` con `aria-labelledby="rótulo cifra iva"` (ids de
+  `useId`). En la ficha de carta lo hace `Fact` con dos props opcionales nuevas (`labelId`, `labelledBy`); sin ellas
+  `Fact` queda igual que antes (lo usa también el bloque de estimados PSA). En la tendencia, un `div` envuelve cifra +
+  rótulo con el mismo patrón. Nombres medidos en jsdom: «Valor de mercado MX$1,160.00 IVA 16 % incluido» /
+  «Market value MX$1,160.00 16 % VAT included».
+- **Tendencia** (`SealedValueTrend.tsx`): prop nueva `ivaRatePct` (de `group.ivaRatePct`, solo rótulo). Cifra grande,
+  cambio en pesos y curva usan `display*`; el `%` y la dirección, tal cual. Si falta cualquier `display*` (en
+  `change` o en cualquier punto) ⇒ `return null`. «Recopilando…» y el esqueleto van sin rótulo.
+- **Textos (§MIV.6):** las 8 claves modificadas, es/en, verbatim de la tabla de ux-ui (explicador de la ficha, nota de
+  la tendencia, 5 de la lista de deseos «sin IVA / before VAT», aviso de estimados PSA de la ficha).
+- **Simulador** (`lib/mock/fixtures.ts`): cifras con IVA **escritas**, no calculadas (`MOCK_MARKET_DISPLAY_CENTS` por
+  pieza representativa; `referenceDisplayCents` en los dos sellados con mercado; serie literal de 8 puntos para la
+  tendencia que termina en 353,800 = la ficha). ⚠️ No siguen al dial `ivaPct` del panel simulado (son literales a
+  propósito; 862 se mide contra el backend). La rejilla simulada (`groupMockSummaries`) quita la clave.
+  - **Cambio del catálogo simulado:** `inv-1007` (Milotic ex) pasa a `priceBasis: 'override'` para que MIV-E1 (c) tenga
+    una carta con precio a mano en modo mock. Barrido de usos antes de tocarlo: ninguna prueba afirmaba su mercado.
+  - Deriva previa, no tocada: el mock de `GET /catalog/sealed` devuelve el `SealedGroupDTO` completo (con
+    `priceBasis`/`referenceValue` y ahora `referenceDisplayCents`) en vez del `SealedGroupSummaryDTO`; la rejilla no
+    los pinta. Anotado, fuera de §MIV.
+- **Pruebas:** MIV-F1…F8 + MIV-UX-1…6 en `CardDetailView.miv.test.tsx`, `SealedDetailView.miv.test.tsx`,
+  `SealedValueTrend.miv.test.tsx` y `src/test/miv-locks.test.ts` (fuente: sin neto, sin `1.16`, sin cuentas con
+  `ivaRatePct`; `referenceDisplayCents` solo en las dos fichas, `types/` y `lib/mock/`; textos y paridad).
+  Escritas primero: **36 rojas / 9 verdes de 45** contra el código anterior (las verdes son las de ausencia: F3, paridad,
+  «Recopilando…»).
+- **Pruebas existentes ajustadas** (afirmaban la conducta que §MIV cambia): `CardDetailView.test.tsx` y
+  `SealedDetailView.test.tsx` (cifra con IVA en vez del neto, explicador nuevo, forma de la serie con `product` y
+  `display*`), `SealedValueTrend.test.tsx` (prop `ivaRatePct`, forma). ⚠️ **Dos aserciones de TEXTO de la lista de
+  deseos** (MIV-F9 pide no editarlas): `WishlistBlock.test.tsx` («…sobre mercado» → «…sobre mercado sin IVA») y
+  `WishlistView.test.tsx` («Tu máximo: hasta 10 % sobre mercado» → «… sin IVA»). Las exige el cambio de texto de
+  §MIV.6/P-MIV-4 (a); los números (16 %, 10 %, pesos) no se tocaron. Para que techlead lo vea en el diff.
+- **MIV-E1** (`e2e/miv-market-iva.spec.ts`, `@real`, sin saltos): (a)–(f) en una prueba con `test.step`. En real
+  descubre cartas por la API pública y lee `M` por `GET /admin/pricing/card/:cardId` (captura no manual de esa fecha y
+  ese grado) y `r` por `GET /admin/settings`. En mock usa Blastoise / Milotic / `inv-1008`. (b) mide subtotal y desglose,
+  no la pasarela (eso es `checkout.spec.ts`). Medido en **mock**; **real NO MEDIDO** (sin stack levantado).
+- **Solicitudes al arquitecto (no bloquean):** N-MIV-1 de ux-ui (que `value-history` traiga `ivaRatePct` de la misma
+  lectura de diales). Y: el contrato no fija la forma de `product` en `SealedValueHistoryResponse`.

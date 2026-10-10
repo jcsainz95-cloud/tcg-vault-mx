@@ -80,7 +80,7 @@ describe('§WSH-UX.4 · el renglón de un deseo (WSH-F2)', () => {
     const r = await waitFor(() => row('Carta a'));
     expect(within(r).getByText(new RegExp(es.finish.reverse_holo))).toBeInTheDocument();
     expect(r.textContent).toContain('Near Mint');
-    expect(within(r).getByText('Tu máximo: hasta 10 % sobre mercado')).toBeInTheDocument();
+    expect(within(r).getByText('Tu máximo: hasta 10 % sobre mercado sin IVA' /* §MIV.6: solo cambia el texto; el 10 % no */)).toBeInTheDocument();
     expect(within(r).getByText(`Hoy: hasta ${mx(110000)}`)).toBeInTheDocument();
     expect(within(r).getByText('IVA 8 % incluido')).toBeInTheDocument();
     expect(within(r).getByText(W.approx)).toBeInTheDocument();

@@ -12,6 +12,11 @@ export interface IvaLabelProps {
   /** §M10-IVA.3 — la **TASA** (16). ⛔ NO es el dial de traslación, que ⛔ no viaja a superficie de cliente (criterio **209**). */
   ivaRatePct?: number;
   className?: string;
+  /**
+   * §MIV.5 (vMIV-1) — para que un contenedor lo nombre con `aria-labelledby` junto a su cifra
+   * («Valor de mercado MX$1,160.00 IVA 16 % incluido»). Ensanchamiento compatible.
+   */
+  id?: string;
 }
 
 /**
@@ -44,11 +49,12 @@ export interface IvaLabelProps {
  * conflicto: `PROJECT.md` manda sobre el contrato, y el contrato sobre el código) y queda anotado
  * en `docs/FRONTEND_NOTES.md`.
  */
-export function IvaLabel({ ivaIncluded, ivaRatePct, className }: IvaLabelProps) {
+export function IvaLabel({ ivaIncluded, ivaRatePct, className, id }: IvaLabelProps) {
   const t = useTranslations('common');
   if (ivaIncluded === undefined) return null;
   return (
     <span
+      id={id}
       data-testid="iva-label"
       data-iva-included={ivaIncluded ? 'true' : 'false'}
       className={cn('font-mono text-[11px] leading-relaxed text-muted', className)}

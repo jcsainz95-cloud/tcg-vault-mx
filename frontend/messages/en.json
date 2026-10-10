@@ -351,7 +351,7 @@
     "gradingEstimate": {
       "eyebrow": "ESTIMATED VALUE IF GRADED",
       "ifGradesLabel": "IF IT GRADES",
-      "microNotice": "<b>Illustrative</b> market figure (what that card has sold for once graded by third parties). <b>We have not assessed this card's condition</b> and guarantee no grade; grading and its cost are on you.",
+      "microNotice": "<b>Illustrative</b> market figure before VAT (what that card has sold for once graded by third parties). <b>We have not assessed this card's condition</b> and guarantee no grade; grading and its cost are on you.",
       "hypotheticalGradeAria": "Hypothetical grade: {company} {grade}. This card is not graded."
     },
     "gradingBadge": {
@@ -443,7 +443,7 @@
       "sealed": "Sealed",
       "raw": "Raw"
     },
-    "referenceExplainerWithMarket": "Market value is the day's reference we value cards with. The sale price is derived from it.",
+    "referenceExplainerWithMarket": "Market value is the day's reference, shown with VAT included just like our sale price, so you can compare them directly. The sale price is derived from that reference.",
     "referenceExplainerNoMarket": "The sale price is this card's listed price."
   },
   "price": {
@@ -7225,7 +7225,7 @@
       "title": "Value trend",
       "noChange": "No change",
       "collecting": "Collecting market history.",
-      "marketRefNote": "Reference market value (TCGCSV), updated daily.",
+      "marketRefNote": "Based on the reference market value (TCGCSV), updated daily.",
       "rangesAria": "Trend range",
       "ranges": {
         "5d": "5D",
@@ -7455,13 +7455,13 @@
       "nmNote": "Always Near Mint, ungraded.",
       "finishLegend": "Finish",
       "finishSingle": "Finish: {finish}",
-      "pctLegend": "How much above market price would you pay?",
+      "pctLegend": "How much above the market price before VAT would you pay?",
       "pctOption": "{pct}%",
       "pctPesos": "up to {amount}",
       "signalNote": "It's a signal for us, not a commitment: we don't hold the card or charge you anything. If we get it, it goes on sale at its regular price, the same for everyone.",
       "add": "Add {finish} to my wishlist",
       "count": "{count} of {limit}",
-      "inList": "It's on your wishlist · {finish} · up to {pct}% above market",
+      "inList": "It's on your wishlist · {finish} · up to {pct}% above market before VAT",
       "noMarketLong": "No market price for now: once there is one, we'll work out your max.",
       "changeLegend": "Change your max",
       "saveChange": "Save change",
@@ -7471,8 +7471,8 @@
     "maxToday": "Your max today: {amount}",
     "approx": "approximate",
     "approxHelpLabel": "Why it's approximate",
-    "approxHelp": "Your max comes from the market price. We recalculate it on the day we get the card, so it may go up or down.",
-    "recalcNote": "It's recalculated with the market price on the day we get it.",
+    "approxHelp": "Your max comes from the market price before VAT plus the percentage you chose, and it already includes VAT. We recalculate it on the day we get the card, so it may go up or down.",
+    "recalcNote": "It's recalculated with the market price before VAT on the day we get it.",
     "noMarket": "No market price for now",
     "notifyTo": "We'll notify {email}.",
     "remove": "Remove from my wishlist",
@@ -7530,7 +7530,7 @@
       "disabled": "The wishlist isn't available yet."
     },
     "row": {
-      "maxPct": "Your max: up to {pct}% above market",
+      "maxPct": "Your max: up to {pct}% above market before VAT",
       "pctLabel": "Your max",
       "pctOption": "up to {pct}%",
       "save": "Save",

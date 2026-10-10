@@ -126,7 +126,10 @@ describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', 
     renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
 
     expect(await screen.findByText('Valor de mercado')).toBeInTheDocument();
-    expect(screen.getByText('MX$3,050.00')).toBeInTheDocument();
+    // §MIV.2 (v1.90⟨miv⟩): la cifra es la CON IVA que manda el servidor (`referenceDisplayCents` 353,800
+    // del fixture), ya no el neto MX$3,050.00.
+    expect(screen.getByText('MX$3,538.00')).toBeInTheDocument();
+    expect(screen.queryByText('MX$3,050.00')).toBeNull();
   });
 
   it('la TENDENCIA de valor también obedece `priceBasis`: con override no se pinta', async () => {
@@ -139,7 +142,7 @@ describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', 
     expect(await screen.findByText('Desde')).toBeInTheDocument();
     expect(screen.queryByText('Tendencia de valor')).toBeNull();
     expect(
-      screen.queryByText('Valor de mercado de referencia (TCGCSV), actualizado a diario.'),
+      screen.queryByText('Con base en el valor de mercado de referencia (TCGCSV), actualizado a diario.'),
     ).toBeNull();
   });
 
@@ -165,6 +168,8 @@ describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', 
           source: 'tcgcsv',
           capturedDate: '2026-08-20',
         },
+        // §MIV: aunque el servidor (por error) mandara también la cifra con IVA, el override manda.
+        referenceDisplayCents: MARKET_CENTS,
       },
       trendEnabled: true,
     });
@@ -172,13 +177,15 @@ describe('SealedDetailView · «Valor de mercado» condicional (P-48, §21.8)', 
     // tendencia pinta a 32-40px). Así el assert MUERDE: si el bloque volviera a renderizarse, la
     // cifra aparecería aunque alguien le quitara la frase «valor de mercado de referencia».
     vi.spyOn(api, 'getSealedValueHistory').mockResolvedValue({
-      set: { id: 'sealed:box', name: 'Surging Sparks Booster Box' },
+      // §MIV.3: forma de esta ruta (`product` + `display*`); el display es la MISMA cifra del test, para
+      // que el assert siga mordiendo si la tendencia se montara (ahora pinta los `display*`).
+      product: { inventoryItemId: 'inv-1020' },
       range: '1m',
       points: [
-        { date: '2026-08-19', valueMxnCents: MARKET_CENTS - 1000, pricedCardCount: 1 },
-        { date: '2026-08-20', valueMxnCents: MARKET_CENTS, pricedCardCount: 1 },
+        { date: '2026-08-19', valueMxnCents: MARKET_CENTS - 1000, displayValueMxnCents: MARKET_CENTS - 1000, pricedCardCount: 1 },
+        { date: '2026-08-20', valueMxnCents: MARKET_CENTS, displayValueMxnCents: MARKET_CENTS, pricedCardCount: 1 },
       ],
-      change: { direction: 'up', absMxnCents: 1000, pct: 1.02 },
+      change: { direction: 'up', absMxnCents: 1000, pct: 1.02, displayAbsMxnCents: 1000 },
     });
     const { container } = renderWithProviders(
       <SealedDetailView inventoryItemId="inv-1020" />,
