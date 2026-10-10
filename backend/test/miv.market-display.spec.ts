@@ -435,7 +435,8 @@ describe('MIV-B10 — las REJILLAS no traen la clave', () => {
 
   it('`ListingDTO` por pieza (`units[]` de la ficha de carta y `listings[]` del sellado) NO la trae', async () => {
     const card = await cardService([ITEM()]).getCard('c1');
-    for (const u of (card as unknown as { units?: unknown[] }).units ?? []) expect(onWire(u)).not.toHaveProperty('referenceDisplayCents');
+    expect(card.units.length).toBeGreaterThan(0);
+    for (const u of card.units) expect(onWire(u)).not.toHaveProperty('referenceDisplayCents');
     const sealed = await sealedService([SEALED()]).svc.sealedDetail('s1');
     expect(sealed.listings.length).toBeGreaterThan(0);
     for (const l of sealed.listings) expect(onWire(l)).not.toHaveProperty('referenceDisplayCents');

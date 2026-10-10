@@ -31928,3 +31928,16 @@ tendencia de sellado; medido con `grep`).
 
 Hueco conocido: B4 (traslación) muerde solo en sellado; en carta la mutación no es expresable sin cambiar la firma de
 `buildGroups` (el DTO por pieza no lleva `ivaTransferPct`, criterio 209), que es justo lo que P-MIV-5 quiere.
+
+### 88.1 Cierre de gates §MIV (2026-10-10, sobre `f3a6c702`; techlead APROBADO CON DEUDA, QA APROBADO CON CONDICIONES)
+
+- **D-2 (techlead) cerrada.** La mitad de MIV-B10 sobre la ficha de carta (`test/miv.market-display.spec.ts`) recorría
+  `(card as unknown as { units?: unknown[] }).units ?? []` sin afirmar que hubiera piezas: con `units` vacío pasaba sin
+  comprobar nada. Ahora usa `card.units` tipado y afirma `card.units.length > 0` antes del bucle.
+  Mutaciones sobre copia del árbol entero (`git archive HEAD` + la spec editada), deterministas ⇒ N=1 cada una:
+  | # | Mutación en `catalog.service.ts` (`getCard`) | Resultado |
+  |---|---|---|
+  | M-B10a | `units` emite `referenceDisplayCents: 1` en cada pieza | MIV-B10 «`ListingDTO` por pieza» **roja** |
+  | M-B10b | `units: []` (la que la versión anterior dejaba pasar) | MIV-B10 «`ListingDTO` por pieza» **roja** |
+- **D-1 (techlead) y el MENOR de QA** (`product.name` de la tendencia de sellado) quedan anotados en `TECH_DEBT.md`
+  (TD-MIV-1, TD-MIV-2). Ninguno bloquea.

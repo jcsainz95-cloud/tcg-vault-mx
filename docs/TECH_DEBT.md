@@ -10368,3 +10368,31 @@ Fichero:línea **re-medidos el 2026-10-08** sobre `342f84dc`. TD-BMK-5 y TD-BMK-
 - **Dirección propuesta:** `frontend/e2e/helpers/sell.ts` con los cinco, importado por los tres specs.
 - **Disparador:** el próximo spec de venta o el próximo cambio al panel del carrito.
 - **Comprobación:** `grep -rn "function openCart" frontend/e2e` devuelve **un** sitio.
+
+## Backend · 2026-10-10 · gates de §MIV sobre `f3a6c702` (rama `claude/mercado-iva`; techlead aprobado con deuda, QA aprobado con condiciones)
+
+Fichero:línea **re-medidos por backend el 2026-10-10** sobre `f3a6c702`. D-2 del techlead se cerró en esta rama
+(`BACKEND_NOTES §88.1`); quedan estas dos, ninguna bloqueante.
+
+### TD-MIV-1 · P3 · Guarda y spread condicional de `referenceDisplayCents` duplicados en carta y sellado (D-1 del techlead)
+- **Qué es:** la misma guarda `projectedMarketCents !== undefined && Number.isInteger(projectedMarketCents) &&
+  projectedMarketCents >= 0` con el mismo `...( ? { referenceDisplayCents: marketDisplayCentsOf(…) } : {})` vive en
+  `catalog/catalog.service.ts:1237-1239` (tasa `cheapest.dto.ivaRatePct`) y en
+  `catalog/sealed-catalog.service.ts:289-291` (tasa `dials.ivaRatePct`). Si una de las dos cambia la guarda (p. ej. aceptar
+  `0` o no), la otra no se entera.
+- **Vigilancia actual:** MIV-B3, MIV-B5 y MIV-B6 fijan la conducta de ambas (clave ausente sin número, tasa de la petición).
+- **Dirección:** un helper `marketDisplayFieldOf(projectedMarketCents, ivaRatePct)` en el módulo `catalog` que devuelva
+  `{ referenceDisplayCents } | {}`, y los dos DTO lo esparcen.
+- **Disparador:** la tercera superficie que emita `referenceDisplayCents`, o cualquier cambio de la guarda.
+- **Comprobación:** `grep -n "Number.isInteger(projectedMarketCents)" backend/src/modules/catalog` da una sola línea (la
+  del helper) y la suite MIV sigue verde.
+
+### TD-MIV-2 · P4 · La tendencia de sellado devuelve el nombre de la carta ancla, no el del producto (MENOR de QA; anterior a §MIV)
+- **Qué es:** `catalog/sealed-catalog.service.ts:492` arma `product.name` con `item.card.name`, mientras la ficha del
+  mismo producto usa `item.sealedProductName ?? item.card.name` (`sealed-catalog.service.ts:263`). Un sellado con nombre
+  propio sale en la tendencia con el nombre de la carta ancla.
+- **Origen:** anterior a §MIV (§MIV solo añadió los `display*`); no lo introdujo esta rama.
+- **Dirección:** usar la misma expresión que la ficha (idealmente un único helper del nombre de sellado).
+- **Disparador:** que el front pinte `product.name` de la tendencia, o la próxima edición de ese endpoint.
+- **Comprobación:** una prueba con `sealedProductName` distinto de `card.name` afirma que la tendencia devuelve el del
+  producto, y muerde si se vuelve a `item.card.name`.
