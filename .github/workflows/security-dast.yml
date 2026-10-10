@@ -126,6 +126,7 @@ on:
     paths:
       - ".github/workflows/security-dast.yml"
       - "security/scripts/dast-*"
+      - "scripts/check-zap-conf.sh"
       - "security/zap/**"
       - "security/nuclei/**"
       - "security/dast-selftest/**"
@@ -207,6 +208,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolver-ref.outputs.sha }}
+      # §96.7 — ANTES de escanear: el `zap_common` DE VERDAD, dentro de la imagen
+      # fijada, lee la copia filtrada de la política (y revienta con una sub-clave
+      # plantada: el instrumento muerde). Un minuto aquí en vez de un stack de 10
+      # que muere en 33 s de ZAP. `dast` necesita este job: si falla, no escanea.
+      - name: ZAP real lee la política que se le va a pasar (§96.7)
+        run: ./scripts/check-zap-conf.sh --real
       - name: El gate DEBE ponerse rojo contra el canario
         run: ./security/scripts/dast-selftest.sh
       - name: Publicar resumen de la autoprueba

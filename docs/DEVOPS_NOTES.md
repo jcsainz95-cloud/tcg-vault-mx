@@ -14951,7 +14951,8 @@ restaura el baseline de un lado y se repite `--update --motivo` sobre el árbol 
   - `10055-3` *Notices*: salvation avisa «report-uri deprecated» y §14.3 usa `report-uri` (→ `POST /telemetry/csp`).
   - Siguen en FAIL: `10055-5` (script-src unsafe-inline), `10055-10` (unsafe-eval), `10055-13` (frame-ancestors /
     form-action sin definir), `10055-9` (malformada) y toda `10038` (`-1` sin CSP, `-3` solo Report-Only).
-  - ZAP ignora las claves `10055-n` (`zap_common.load_config` solo las guarda; solo las `IGNORE` llaman a su API).
+  - ~~ZAP ignora las claves `10055-n`~~ **FALSO — ver §96.7.** `load_config` las guarda y `get_af_output_summary`
+    hace `int(id)` sobre cada clave: ZAP revienta en el arranque. Hoy ZAP recibe una copia sin ellas.
     Sin `alertRef` en el JSON, la alerta cae en la regla (FAIL): sin dato, no se afloja.
   - Candado: `check-dast-gate-live.sh` 5-quater (6 casos). Mutaciones sobre la copia: gate de `HEAD` (sin soporte de
     sub-claves) ⇒ 3 rojos **3/3**; `rule = ref` anulado ⇒ 3 rojos; sub-clave convertida en `10055 WARN` ⇒ 2 rojos.
@@ -15011,7 +15012,7 @@ UA ni usuario; tope 60/min por IP). En Railway → servicio del backend → Logs
 - **Los `schedule` de `uptime-watch.yml`, `ttfb-probe.yml` y `db-disk-watch.yml` nunca han corrido:** GitHub solo
   programa desde la rama por defecto (`main`), que no tiene esos ficheros (`git ls-tree origin/main`). Runs de
   `uptime-watch`: 0 `schedule` (API, 2026-10-10). El vigía de disponibilidad (LIVE-9) no vigila.
-- `ghcr.io/zaproxy/zaproxy:stable` sin fijar (`dast-ephemeral.sh:80`, `dast-selftest.sh:36`).
+- ~~`ghcr.io/zaproxy/zaproxy:stable` sin fijar (`dast-ephemeral.sh:80`, `dast-selftest.sh:36`).~~ Cerrado en §96.7.
 
 ### 96.6 · Rollback
 
@@ -15019,3 +15020,79 @@ UA ni usuario; tope 60/min por IP). En Railway → servicio del backend → Logs
 la vigila `check-csp-zap-parity.sh`). Vercel publica solo con el push; en caso de urgencia, *Instant Rollback* al
 despliegue anterior en Vercel (la CSP es solo frontend: el backend no cambia). Los dos workflows nuevos no tienen
 estado: borrarlos basta.
+
+### 96.7 · ZAP reventaba con las sub-claves `10055-n` y el paso salía verde (2026-10-10, devops)
+
+**El defecto (medido por el orquestador en el log del job 114278597979, run 38074441197, sha `00535194`).** §96.1
+añadió a `security/zap/baseline.conf` las claves `10055-3`, `10055-4` y `10055-6`. Ese fichero se le pasaba **tal
+cual** a ZAP con `-c` (`dast-ephemeral.sh:250` de entonces) y ZAP murió en 33 s sin informe:
+`ValueError: invalid literal for int() with base 10: '10055-3'` en `/zap/zap_common.py:708`. Con la **misma** imagen
+(digest `sha256:7aaa659b…f0d2`) el DAST full de producción (job 114263040360) había funcionado: es del sha, no del
+entorno. Tres agujeros encadenados:
+
+1. **ZAP recibía la política del candado.** `zap_common.load_config` mete toda clave en `config_dict` y
+   `get_af_output_summary` hace `int(id)` sobre cada una. Reproducido aquí sin Docker con las dos funciones
+   extraídas de `docker/zap_common.py` de zaproxy (rama main, leída hoy): la política de `HEAD` ⇒ el mismo
+   `ValueError` en la **línea 708**; la copia filtrada ⇒ `OK`, 38 reglas. (Lo que afirmé en §96.1 era falso.)
+2. **`rc 1` se leía como «ZAP encontró cosas»** en `cmd_scan`: el paso «Escanear» salió verde. Solo el candado, un
+   paso después, dijo «No hay informe de ZAP ⇒ ROJO».
+3. **La autoprueba lo celebraba** (lectura de código, NO medido en ese run): `dast-gate.py --expect-red` daba
+   `ok = red`, y un rojo **por falta de informe** contaba como «✅ el candado cierra». Con ZAP muerto también sobre
+   el canario, el job `selftest` —del que depende `dast`— salía verde.
+
+⚠️ Habría roto el DAST bloqueante del deploy a producción (`deploy.yml` → `dast-release`, perfil full): fail-closed
+(`blocking` vacío no promueve), pero **sin medición** y con los dos primeros pasos en verde.
+
+**Arreglo:**
+- `security/scripts/dast-zap-lib.sh` (nuevo, se hace `source`): `ZAP_IMAGE_FIJADA` =
+  `ghcr.io/zaproxy/zaproxy@sha256:7aaa659b0d43078febd82e29bad112285c370727e86ab8340444220e17d9f0d2` (el digest que
+  dio el orquestador de los dos jobs; `ZAP_IMAGE` del entorno sigue mandando para probar otra) y
+  `zap_conf_for_zap <dir>`, que escribe la copia para ZAP y la valida antes de arrancarlo.
+- `security/scripts/dast-zap-policy.py` (nuevo): `for-zap` deja comentarios, vacías, claves enteras y `OUTOFSCOPE`
+  (dice por stderr qué quita); `check` emula `load_config` + `int(id)`. Las mal formadas **pasan** el filtro a
+  propósito, para que `check` y ZAP las rechacen en voz alta.
+- Los **cuatro** scripts que arrancan ZAP (`dast-ephemeral`, `dast-selftest`, `dast-zap-full`, `dast-zap-baseline`)
+  montan la copia en `/zap/wrk/conf-zap` y le pasan `-c /zap/wrk/conf-zap/baseline.conf`. **`dast-gate.py --policy`
+  sigue leyendo el original**: una sola fuente de verdad, dos lectores. La copia queda en el artefacto
+  (`security/reports/zap-conf/baseline.conf`) para ver qué recibió ZAP.
+- `dast-ephemeral.sh scan`: borra el JSON previo antes de cada blanco; **`rc≠0` sin JSON ⇒ «ZAP reventó»**, `::error`
+  propio y el paso sale 1. `rc 1/2` **con** JSON sigue siendo «encontró cosas» (lo decide `gate`).
+- `dast-selftest.sh`: sin JSON del canario ⇒ exit 1 antes del candado. `dast-gate.py --expect-red`:
+  `ok = bool(blocking) and not missing_input` (un rojo sin informe es «la autoprueba no midió»).
+
+**Candados** (`scripts/check-zap-conf.sh`, job `live-candados` de `ci.yml`, y `--real` en el job `selftest` de
+`security-dast.yml`, antes de escanear):
+- emulador muerde (`10055-3` ⇒ rc 1 con `ValueError`; solo enteros ⇒ rc 0); la copia de la política real la lee
+  ZAP y no pierde ninguna regla entera ni `OUTOFSCOPE`;
+- los 4 scripts que arrancan ZAP pasan por `zap_conf_for_zap` + `${ZAP_CONF_MOUNT}` y ninguno define su imagen;
+  `ZAP_IMAGE_FIJADA` por `@sha256:<64 hex>`; ninguna línea ejecutable con `zaproxy/zaproxy:<etiqueta>`;
+- **conducta** de `dast-ephemeral.sh scan` con un `docker` falso que hace lo que ZAP con `-c`: lee el fichero
+  **montado** y revienta si ZAP reventaría. ZAP sano con rc 1 + informe ⇒ paso 0; filtro roto ⇒ paso 1; ZAP rc 1
+  sin informe ⇒ paso 1 con «ZAP reventó»;
+- `dast-gate --expect-red` sin informe ⇒ rc≠0;
+- `--real`: `docker run --entrypoint python3` en la imagen fijada importa el `zap_common` **de verdad**: la copia
+  filtrada pasa `load_config` + `get_af_output_summary`, y la política con `99999-1` plantada tiene que reventar
+  con el mismo `ValueError` (el instrumento muerde). **NO MEDIDO aquí** (este contenedor no tiene demonio Docker:
+  `docker pull` ⇒ «no such file … docker.sock»); se mide en el primer run de `security-dast.yml`.
+
+Medido aquí (2026-10-10, árbol vivo de `claude/salida-real` sobre `99d6690c`, solo mis rutas cambiadas):
+`check-zap-conf.sh` rc 0; canario `check-zap-conf-canary.sh` **9/9** casos, mutaciones cazadas **8/8**, repetido
+**3 veces** (determinista: sin carreras ni temporizadores). Las 8 mutaciones: volver a pasar el original en
+`dast-ephemeral` y en `dast-selftest`, filtro que deja pasar todo, emulador sin `int(id)`, imagen a `:stable` en la
+librería y en `dast-zap-full`, quitar la rama «ZAP reventó», `ok = red` en `--expect-red`. Siguen en verde:
+`check-dast-gate-live`, `check-csp-zap-parity` (+canario), `check-provenance-gate` (+canario),
+`check-secret-defaults-canary`, `check-workflow-cwd` (+canario), `check-candidate-checks-canary`.
+`check-secret-defaults.sh` sale rojo por «manifiesto DESFASADO» **también en una copia `git archive HEAD`** de
+`99d6690c`: no lo introduce este cambio (pendiente aparte, dueño devops).
+
+**Lo que NO cierra:** `NUCLEI_IMAGE` sigue en `projectdiscovery/nuclei:latest` (etiqueta móvil; no medí su digest).
+
+**Para medir el barrido real** (lo dispara el orquestador tras el push):
+`gh workflow run security-dast.yml --ref claude/salida-real -f scan_profile=full -f report_only=true`.
+Qué mirar: job `selftest` → paso «ZAP real lee la política…» con `ZAP-OK 38` y el `ValueError` de `99999-1`; en
+`dast` → `timings.txt` con `rc=` y segundos del orden de minutos (no 33 s), y la anotación `DAST-SELLO` con
+`blocking=true|false` (no vacío).
+
+**Rollback:** `git revert` del commit. Vuelve el defecto (ZAP revienta con las sub-claves); si hay que revertir,
+revertir **también** las tres líneas `10055-n` de `baseline.conf` o el DAST de release queda sin medición (si eso
+pone rojo el `5-quater` de `check-dast-gate-live.sh`: NO MEDIDO).

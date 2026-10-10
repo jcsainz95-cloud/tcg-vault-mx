@@ -380,12 +380,18 @@ def main():
     A("---")
     A("")
     if args.expect_red:
-        ok = red
+        # §96.7: el rojo que prueba que el candado cierra es el de HALLAZGOS. Un
+        # rojo por falta de informe (ZAP reventó) no demuestra nada sobre el
+        # candado: antes contaba como «OK — el candado cierra».
+        ok = bool(blocking) and not missing_input
         A("**Autoprueba del candado (`--expect-red`).** Se escaneó un blanco con "
           "vulnerabilidades PLANTADAS (`security/dast-selftest/canary.py`). "
           "Lo que se afirma aquí no es que la app esté sana: es que **el gate sabe ponerse rojo**.")
         A("")
         A("- Veredicto del gate sobre el canario: **%s**" % ("🔴 ROJO" if red else "🟢 VERDE"))
+        if missing_input:
+            A("- ⛔ Falta entrada (%s): un rojo SIN informe no prueba que el candado cierre."
+              % "; ".join(missing_input))
         A("- Autoprueba: **%s**" % ("✅ OK — el candado cierra" if ok else
                                     "🔴 FALLO — el candado NO puede cerrarse; el DAST no protege nada"))
         A("")
@@ -394,11 +400,18 @@ def main():
             with open(args.summary, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(L) + "\n")
         dig = ["Canario: %s" % args.target,
-               "Gate sobre el canario: %s" % ("ROJO (correcto)" if red else "VERDE (FALLO)")]
+               "Gate sobre el canario: %s" % ("ROJO por hallazgos (correcto)" if ok else
+                                              "ROJO SIN INFORME (FALLO)" if red else "VERDE (FALLO)")]
         for rule, name, risk, n, _uri in (zap or []):
             dig.append("%-6s %-6s %-5s x%-4d %s" % (pol.get(rule, "WARN"), rule, risk, n, name[:70]))
         anotar("Autoprueba del candado DAST — %s" % ("OK" if ok else "FALLO"), dig)
         if not ok:
+            if missing_input:
+                print("::error title=La autoprueba del DAST no midió::"
+                      "Falta %s: el rojo es por FALTA DE INFORME, no por hallazgos. "
+                      "Un canario que no se escaneó no prueba que el candado cierre (§96.7)."
+                      % "; ".join(missing_input))
+                return 1
             print("::error title=El candado del DAST no puede ponerse rojo::"
                   "El canario con vulnerabilidades plantadas pasó el gate en VERDE. "
                   "El escáner, la política o este script están inertes: el DAST semanal no protege nada.")
