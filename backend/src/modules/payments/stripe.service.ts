@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { BusinessException } from '../../common/business.exception';
 
+/** 💰 v1.84 LIVE-5 — resultado de {@link StripeService.chargeState}. */
+export type ChargeState = { mode: 'current'; disputed: boolean; amountRefundedCents: number } | { mode: 'other' };
+
 /**
  * P-WH-1 (ALTA, pentest): el secreto de webhook NO está configurado (ausente, vacío o solo
  * espacios). Es un **defecto de configuración NUESTRO**, no una firma inválida del llamador:
@@ -291,6 +294,33 @@ export class StripeService implements OnModuleInit {
       { idempotencyKey: params.idempotencyKey },
     );
     return { id: refund.id, status: refund.status ?? 'pending' };
+  }
+
+  /**
+   * 💰 v1.84 LIVE-5 · C2 (API_CONTRACT §14.5, ARCHITECTURE §4.63.4) — el estado del COBRO, leído fresco de Stripe
+   * justo antes de una decisión de dinero por SPEI. No depende de ningún código de error de reembolso.
+   *  - `{ mode: 'current', disputed, amountRefundedCents }` — el PI existe en el modo de la clave en uso;
+   *    `disputed` = `latest_charge.disputed` (sin cargo ⇒ `false`, `0`).
+   *  - `{ mode: 'other' }` — Stripe responde `resource_missing`: el PI vive solo en el OTRO modo (un pedido de prueba
+   *    leído con clave live, o al revés) ⇒ no hay dinero real que devolver por este cobro.
+   *  - lanza `503 PAYMENT_PROVIDER_UNAVAILABLE` ante cualquier otro fallo (red/5xx tras los reintentos del SDK, clave
+   *    mala…): ante la duda no se decide dinero.
+   * ⛔ El llamador la invoca FUERA de toda `$transaction` (lección I3: no alargar candados con un tercero; CS-6).
+   */
+  async chargeState(paymentIntentId: string): Promise<ChargeState> {
+    let pi: Stripe.PaymentIntent;
+    try {
+      pi = await this.stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] });
+    } catch (e) {
+      if (e instanceof Stripe.errors.StripeInvalidRequestError && e.code === 'resource_missing') return { mode: 'other' };
+      this.logger.warn(`chargeState(${paymentIntentId}): Stripe no respondió (${(e as Error).message})`);
+      throw BusinessException.retriable(
+        'PAYMENT_PROVIDER_UNAVAILABLE',
+        'Could not read the charge state from the payment provider; nothing was changed. Please retry.',
+      );
+    }
+    const charge = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge : null;
+    return { mode: 'current', disputed: charge?.disputed === true, amountRefundedCents: charge?.amount_refunded ?? 0 };
   }
 
   /** Tamaño de página de `refunds.list` (el máximo de Stripe). SEC-SHIP-M2: se pagina SIEMPRE. */
