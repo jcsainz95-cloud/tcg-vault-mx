@@ -145,3 +145,92 @@ describe('PS-UI-6 · al operador la cubeta no existe', () => {
     expect(document.body.innerHTML).not.toMatch(EIGHTEEN_DIGITS);
   });
 });
+
+/**
+ * C-1 (techlead, LIVE-5 · `API_CONTRACT §14.5`): el aviso del cobro de origen se ve AL REVELAR la CLABE, antes de
+ * transferir — el `422` de `paid` llega cuando el dinero ya salió. Rojo (`role="alert"`) y ENCIMA de la CLABE.
+ */
+describe('LIVE-5 C-1 · `reveal-clabe` trae `originCharge`: el aviso sale antes de transferir', () => {
+  type Origin = { originCharge: { disputed: boolean; otherMode: boolean } | null; originChargeUnavailable: boolean };
+  function revealWith(o: Origin) {
+    const real = api.revealManualRefundClabe;
+    vi.spyOn(api, 'revealManualRefundClabe').mockImplementation(async (id) => ({ ...(await real(id)), ...o }));
+  }
+  async function revealNow() {
+    renderWithProviders(<ManualRefundDetailView id="mr-1001" />, 'es');
+    fireEvent.click(await screen.findByTestId('mr-reveal'));
+    return screen.findByTestId('mr-clabe');
+  }
+  function expectAboveClabe(banner: HTMLElement, clabe: HTMLElement) {
+    expect(banner.compareDocumentPosition(clabe) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+
+  it('cobro con contracargo ⇒ aviso rojo «No transfieras» con el texto del contrato, encima de la CLABE', async () => {
+    revealWith({ originCharge: { disputed: true, otherMode: false }, originChargeUnavailable: false });
+    const clabe = await revealNow();
+    const banner = screen.getByTestId('mr-origin-charge');
+    expect(within(banner).getByRole('alert')).toBeInTheDocument();
+    expect(banner).toHaveAttribute('data-reason', 'disputed');
+    expect(banner).toHaveTextContent('No transfieras');
+    expect(banner).toHaveTextContent('Este cobro tiene un contracargo en el banco. No transfieras: el banco ya está resolviendo el dinero.');
+    expectAboveClabe(banner, clabe);
+  });
+
+  it('cobro de otro modo de Stripe ⇒ aviso rojo de modo prueba', async () => {
+    revealWith({ originCharge: { disputed: false, otherMode: true }, originChargeUnavailable: false });
+    const clabe = await revealNow();
+    const banner = screen.getByTestId('mr-origin-charge');
+    expect(within(banner).getByRole('alert')).toBeInTheDocument();
+    expect(banner).toHaveAttribute('data-reason', 'other_mode');
+    expect(banner).toHaveTextContent('Este pedido se pagó en modo prueba. No hay dinero real que devolver.');
+    expectAboveClabe(banner, clabe);
+  });
+
+  it('Stripe no respondió ⇒ aviso rojo «revisa en tu panel de Stripe antes de transferir»', async () => {
+    revealWith({ originCharge: null, originChargeUnavailable: true });
+    const clabe = await revealNow();
+    const banner = screen.getByTestId('mr-origin-charge');
+    expect(within(banner).getByRole('alert')).toBeInTheDocument();
+    expect(banner).toHaveAttribute('data-reason', 'unavailable');
+    expect(banner).toHaveTextContent('No pudimos consultar Stripe. Revisa el cobro en tu panel de Stripe antes de transferir.');
+    expectAboveClabe(banner, clabe);
+  });
+
+  it('en inglés también sale (paridad de claves)', async () => {
+    revealWith({ originCharge: { disputed: true, otherMode: false }, originChargeUnavailable: false });
+    renderWithProviders(<ManualRefundDetailView id="mr-1001" />, 'en');
+    fireEvent.click(await screen.findByTestId('mr-reveal'));
+    await screen.findByTestId('mr-clabe');
+    expect(screen.getByTestId('mr-origin-charge')).toHaveTextContent(/chargeback/i);
+  });
+
+  it.each([
+    ['cobro limpio', { originCharge: { disputed: false, otherMode: false }, originChargeUnavailable: false }],
+    ['sin orden ni PI', { originCharge: null, originChargeUnavailable: false }],
+  ] as const)('%s ⇒ sin aviso', async (_n, o) => {
+    revealWith(o);
+    await revealNow();
+    expect(screen.queryByTestId('mr-origin-charge')).not.toBeInTheDocument();
+  });
+
+  it('el aviso se va con la CLABE («Ocultar CLABE»)', async () => {
+    revealWith({ originCharge: { disputed: true, otherMode: false }, originChargeUnavailable: false });
+    await revealNow();
+    expect(screen.getByTestId('mr-origin-charge')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar CLABE' }));
+    await waitFor(() => expect(screen.queryByTestId('mr-origin-charge')).not.toBeInTheDocument());
+  });
+
+  it('el `422 {required:[origin_not_settled], reason:payment_other_mode}` de `paid` nombra el modo prueba en la casilla, no «reembolsada»', async () => {
+    revealWith({ originCharge: { disputed: false, otherMode: true }, originChargeUnavailable: false });
+    vi.spyOn(api, 'markManualRefundPaid').mockRejectedValue(
+      new ApiClientError(422, { code: 'MANUAL_REFUND_CONFIRMATION_REQUIRED', message: 'confirm', details: { required: ['origin_not_settled'], originStatus: 'settled', reason: 'payment_other_mode' } }),
+    );
+    await revealNow();
+    fireEvent.click(screen.getByTestId('mr-paid-cta'));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByTestId('mr-paid-confirm'));
+    const box = await screen.findByTestId('mr-confirm-origin');
+    expect(box.closest('label')).toHaveTextContent(/modo prueba/);
+    expect(box.closest('label')).not.toHaveTextContent(/reembolsada/);
+  });
+});

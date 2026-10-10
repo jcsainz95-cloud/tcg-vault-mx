@@ -21,13 +21,15 @@ export type CspMode = 'report-only' | 'enforce';
  * Fase de la CSP (§14.3). ⛔ Constante en código, NO variable de Vercel: queda en el diff y no
  * depende de un paso del dueño que se pueda olvidar.
  *
- * 1. `report-only` (HOY): se publica en modo prueba de Stripe ≥ 72 h con el recorrido §14.9 fase A
- *    pasado al menos una vez; los informes llegan a `POST /telemetry/csp` (log `CSP_VIOLATION`).
- *    Cada violación legítima se resuelve añadiendo el ORIGEN EXACTO aquí, nunca con comodín de
- *    esquema ni `'unsafe-inline'` en `script-src`.
- * 2. `enforce`: solo tras medir el TTFB de `/es` (N = 10 antes/después, p90 ≤ 800 ms y subida
- *    ≤ 300 ms) y EN EL MISMO CAMBIO en que devops sube ZAP 10038/10055 a FAIL en
- *    `security/baseline.conf`. El candado `csp.test.ts` («fase vigente») se cambia junto.
+ * 1. `report-only`: la fase de prueba y la VUELTA ATRÁS. Los informes llegan a `POST /telemetry/csp`
+ *    (log `CSP_VIOLATION`). Cada violación legítima se resuelve añadiendo el ORIGEN EXACTO aquí,
+ *    nunca con comodín de esquema ni `'unsafe-inline'` en `script-src`.
+ * 2. `enforce` (VIGENTE desde CL-1, `484f8530`, DEVOPS_NOTES §96): va EN EL MISMO CAMBIO que ZAP
+ *    10038/10055 en FAIL en `security/zap/baseline.conf` (lo ata `scripts/check-csp-zap-parity.sh`).
+ *    Volver a `report-only` baja las dos a WARN en el mismo commit. El candado `csp.test.ts`
+ *    («fase vigente») se cambia junto; `middleware.test.ts` cubre las dos fases (FRONTEND_NOTES §112).
+ *    El umbral de TTFB de §14.3 (`/es`, N = 10, p90 ≤ 800 ms, subida ≤ 300 ms) lo vigila la sonda E-8
+ *    (DEVOPS_NOTES §85.10); si sale rojo, la vuelta atrás es el paso 1.
  */
 export const CSP_MODE: CspMode = 'enforce';
 

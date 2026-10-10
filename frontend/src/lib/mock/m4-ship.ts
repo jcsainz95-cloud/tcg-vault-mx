@@ -1466,7 +1466,13 @@ export function mockRevealManualRefundClabe(id: string): RevealManualRefundClabe
   const k = kyc[m.customer.userId];
   if (!k?.clabe) throw new ApiFixtureError(422, 'CLABE_NOT_ON_FILE', 'Customer has no CLABE on file');
   const dto = projectManualRefund(m);
-  return { clabe: k.clabe, beneficiaryName: dto.beneficiaryName, clabeUpdatedAt: k.clabeUpdatedAt, clabeChangedRecently: dto.clabeChangedRecently, revealToken: revealTokenFor(m.id, k.clabeHmac!) };
+  // v1.84 LIVE-5 (§14.5): el doble de Stripe dice «contracargo» si la orden de origen está en `chargeback`; sin orden ⇒ `null`.
+  const origin = m.originOrderId ? origins[m.originOrderId] : null;
+  const originCharge = origin ? { disputed: origin.status === 'chargeback', otherMode: false } : null;
+  return {
+    clabe: k.clabe, beneficiaryName: dto.beneficiaryName, clabeUpdatedAt: k.clabeUpdatedAt, clabeChangedRecently: dto.clabeChangedRecently,
+    revealToken: revealTokenFor(m.id, k.clabeHmac!), originCharge, originChargeUnavailable: false,
+  };
 }
 
 export function mockMarkManualRefundPaid(id: string, body: MarkManualRefundPaidRequest): ManualRefundDTO {

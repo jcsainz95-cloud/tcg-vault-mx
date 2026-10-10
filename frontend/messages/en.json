@@ -6039,7 +6039,21 @@
         "updatedUnknown": "Change date unknown (registered before it was tracked)",
         "changedRecently": "The CLABE changed recently or after this refund was created. Before paying, confirm with the customer through another channel that it's theirs.",
         "aria": "Customer's CLABE",
-        "hide": "Hide CLABE"
+        "hide": "Hide CLABE",
+        "originCharge": {
+          "disputed": {
+            "title": "Don't transfer",
+            "body": "This charge has a chargeback at the bank. Don't transfer: the bank is already resolving the money."
+          },
+          "other_mode": {
+            "title": "Don't transfer",
+            "body": "This order was paid in test mode. There is no real money to return."
+          },
+          "unavailable": {
+            "title": "Check Stripe before transferring",
+            "body": "We couldn't reach Stripe. Check the charge in your Stripe dashboard before transferring."
+          }
+        }
       },
       "error": {
         "clabeNotOnFile": "This customer has no CLABE on file. Ask them to register one in their account (My account → bank details); they already got an email with that link. Until then it can't be marked as paid.",
@@ -6055,7 +6069,7 @@
         "referenceInvalid": "Letters and numbers only, up to 30.",
         "note": "Note (optional)",
         "confirmClabe": "I verified with the customer through another channel that the new CLABE is theirs.",
-        "confirmOrigin": "I know the origin purchase is disputed or refunded and I'm paying anyway.",
+        "confirmOrigin": "{reason, select, charge_disputed {I know this charge has a chargeback at the bank and I'm paying anyway.} payment_other_mode {I know this order was paid in test mode and I'm paying anyway.} other {I know the origin purchase is disputed or refunded and I'm paying anyway.}}",
         "cta": "Mark as paid · {amount}",
         "title": "Mark as paid?",
         "body": "Only if you've already sent the {amount} transfer to the CLABE you just saw. Who and when is recorded, and the customer gets an email.",
@@ -6096,7 +6110,7 @@
         "done": "In the SPEI bucket: {link}.",
         "notConvertibleStatus": "This refund can still go through Stripe ({status}): moving it to a transfer would pay twice. Retry the refund or wait.",
         "notConvertibleKind": "Only “To replace” case refunds can be moved to a bank transfer.",
-        "originNotSettled": "The origin purchase is {status, select, chargeback {disputed} other {refunded}}{disputed, select, yes { (Stripe rejected due to a dispute)} other {}}: the bank is already resolving that money. Nothing is created."
+        "originNotSettled": "{reason, select, charge_disputed {Stripe reports a chargeback on this charge: the bank is already resolving that money.} payment_other_mode {This order was paid in Stripe test mode: there is no real money to return.} other {The origin purchase is {status, select, chargeback {disputed} other {refunded}}: the bank is already resolving that money.}} Nothing is created."
       },
       "withdrawal": {
         "title": "Delivered withdrawal",

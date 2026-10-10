@@ -21289,3 +21289,75 @@ El check `e2e-skip-census` de la PR #85 (run 37751072651) salió rojo: `skipIfSe
 3. **(rama mock) «ninguna teja pendiente»** → `expect(n).toBeGreaterThan(0)`. El mock trae pendientes «sin mercado» en el set. Si llegara a 0, el caso no mediría nada y pasaría en verde.
 
 Medido: `scripts/check-e2e-skip-census.sh` rc=0, con las 5 claves igual al baseline. `tsc` sin errores y `next lint` limpio. El spec en mock (build `.next-e2e-mock-fe-bmk4`, puerto 3471) dio 2/2 verdes (N=1). Sin medir: la rama real. Ningún stack real estaba arriba.
+
+## §112 · 💰 **LIVE-5 C-1 — el aviso del cobro de origen sale al revelar la CLABE, antes de transferir** (2026-10-10, rama `claude/salida-real`, base `10d1430c`; `API_CONTRACT §14.5` · techlead C-1, D-5, D-9)
+
+### §112.1 · Qué faltaba (medido sobre `10d1430c`)
+`grep -rn originCharge frontend/src` = 0. Backend (`BACKEND_NOTES §89.2`) ya devolvía en `GET /admin/manual-refunds/:id/reveal-clabe`
+`originCharge: {disputed, otherMode} | null` y `originChargeUnavailable` (`manual-refund.service.ts:440-446`), pero la cubeta SPEI
+no los pintaba: el operador revelaba, transfería y solo el `422 MANUAL_REFUND_CONFIRMATION_REQUIRED` de `paid` le avisaba,
+**con el dinero ya fuera**.
+
+### §112.2 · Qué se hizo
+- **Tipo** (`types/contract.ts`): `RevealManualRefundClabeResponse` gana `originCharge?` y `originChargeUnavailable?` (opcionales en el
+  tipo solo para tolerar un backend previo a v1.84: sin campo ⇒ sin aviso, como antes); `ManualRefundOriginCharge`;
+  `OriginChargeReason = 'charge_disputed' | 'payment_other_mode'`; `ManualRefundConfirmationRequiredDetails.reason?`.
+- **Vista** (`manual-refunds/[id]/ManualRefundDetailView.tsx`): `originChargeWarning()` elige UN aviso — contracargo > otro
+  modo > Stripe no respondió — y `OriginChargeBanner` lo pinta como `Banner variant="danger" role="alert"` **encima de la CLABE**,
+  dentro de la vista del reveal (aparece y desaparece con ella). ⛔ No bloquea «Marcar pagada»: el contrato dice que el reveal no
+  bloquea y que la puerta es el `422` de `paid`. La casilla de ese `422` ahora nombra el motivo (`reason` del `details`): ya no dice
+  «en disputa o reembolsada» para un pedido de modo prueba.
+- **M3** (`m3/[orderId]/M3OrderDetailView.tsx`, menor de C-1): el `409 CASE_ORIGIN_NOT_SETTLED` de `to-manual` con `reason` trae
+  `originStatus:'settled'`; antes caía en `{status, select, … other {reembolsada}}` y decía «la compra de origen está reembolsada»
+  de una orden liquidada. Ahora `toManual.originNotSettled` es `{reason, select, charge_disputed {…contracargo…}
+  payment_other_mode {…modo prueba…} other {lo de antes por estado}}`. El segmento `{disputed, select}` desaparece (lo cubre la rama
+  `charge_disputed`).
+- **Mock** (`lib/mock/m4-ship.ts`): el reveal devuelve `originCharge` (contracargo si la orden de origen está en `chargeback`; `null`
+  sin orden) y `originChargeUnavailable:false`.
+
+### §112.3 · Textos — ⚠️ pendientes de ux-ui
+`DESIGN_SYSTEM` no los tiene (`grep -n "contracargo en el banco\|No pudimos consultar Stripe" docs/DESIGN_SYSTEM.md` = 0). Los `body` en
+español son **literales de `API_CONTRACT §14.5`**; los `title`, las tres ramas de la casilla `paid.confirmOrigin`, las de
+`toManual.originNotSettled` y **todo el inglés** son propuesta de frontend:
+
+| Clave (`admin.manualRefunds.…`) | es (título · cuerpo) |
+|---|---|
+| `reveal.originCharge.disputed` | «No transfieras» · «Este cobro tiene un contracargo en el banco. No transfieras: el banco ya está resolviendo el dinero.» |
+| `reveal.originCharge.other_mode` | «No transfieras» · «Este pedido se pagó en modo prueba. No hay dinero real que devolver.» |
+| `reveal.originCharge.unavailable` | «Verifica en Stripe antes de transferir» · «No pudimos consultar Stripe. Revisa el cobro en tu panel de Stripe antes de transferir.» |
+
+Deuda registrada: `TECH_DEBT` **RS5-FE-C1** (incluye que `other_mode` hereda **D-6**: backend lee todo `resource_missing` como «otro
+modo», y con un PI inexistente en ambos modos el texto mentiría — conservador, pero falso).
+
+### §112.4 · D-5 — `middleware.test.ts` en las dos fases
+Antes, «nonce distinto en dos peticiones» y «la redirección `/ ⇒ /es` lleva CSP» solo corrían en `report-only` (forzada); la fase
+vigente (`enforce`) tenía un único caso. Ahora `describe.each(PHASES)` corre los tres casos (nonce distinto + sin la cabecera de la
+otra fase; el nonce viaja al render; la redirección lleva CSP con nonce propio por petición) en `enforce` **y** `report-only`, cada uno
+leyendo su cabecera. El caso «sin forzar fase» (vigente = enforce) y el invariante `frame-ancestors` se quedan como estaban.
+El describe `CSP-6 · en enforce…` se absorbe en la fase `enforce` del parametrizado (sus cuatro aserciones están en los dos primeros
+casos); el nombre lleva `CSP-1/CSP-6` para que `csp.ts:14` y `e2e/csp.spec.ts:7` sigan apuntando a algo.
+
+### §112.5 · D-9 — ratificación de lo que devops tocó en `frontend/` (`484f8530`)
+- `security/csp.ts:32` `CSP_MODE = 'enforce'`: **ratificado**. Va con `security/zap/baseline.conf` 10038/10055 en FAIL y lo ata
+  `scripts/check-csp-zap-parity.sh`.
+- `security/csp.test.ts` «fase vigente: enforce»: **ratificado** tal cual.
+- `middleware.test.ts`: **ratificado** el caso nuevo «sin forzar fase» y el forzar `report-only` en los tres viejos; **ampliado** por D-5
+  (arriba): con el árbol de devops, un nonce fijo **solo en `enforce`** pasaba **8/8 verde** (medido, ver §112.6).
+- **Cambiado:** el comentario de `CSP_MODE` (`csp.ts:20-35`) seguía diciendo «`report-only` (HOY)» y citaba `security/baseline.conf`,
+  que no existe (`git ls-files | grep baseline.conf` ⇒ `security/zap/baseline.conf`). Ahora dice que `enforce` es la vigente desde
+  CL-1, que `report-only` es la vuelta atrás, cita la ruta real y deja el umbral de TTFB de §14.3 a la sonda E-8 (`DEVOPS_NOTES
+  §85.10`). ⛔ Frontend **no midió** si el TTFB se cumplió antes de CL-1.
+
+### §112.6 · Medido (2026-10-10, árbol de trabajo sobre `10d1430c`; mutaciones sobre copia del árbol ENTERO en el scratchpad)
+| Qué | Resultado |
+|---|---|
+| Pruebas nuevas antes de implementar | **7 rojas / 17** (5 de C-1 en la cubeta, 2 de M3 con `reason`); los controles (cobro limpio, sin PI, `chargeback`/`refunded` sin `reason`) verdes |
+| Mutación 1: quitar `<OriginChargeBanner>` de la vista | **5/13 rojas, 3 de 3 tiradas** (N=3; determinista). El caso «se va con la CLABE» pasaba en vacío: se le añadió la precondición y desde entonces muerde |
+| Mutación 2: M3 vuelve a ignorar `reason` | **2/4 rojas, 3 de 3 tiradas** (`payment_other_mode` y `charge_disputed`) |
+| Mutación 3 (D-5): `nonce` fijo solo cuando `CSP_MODE==='enforce'` | suite nueva **2/10 rojas, 3 de 3 tiradas**; la suite de `10d1430c` con la misma mutación **8/8 verde** (N=1) — el hueco de D-5 era real |
+| `vitest run` completo | rc 0 · **326 ficheros verdes + 1 saltado; 4262 pruebas verdes + 10 saltadas** (las saltadas son previas: esta rama no añade `skip`) — con load 10–13 en 4 CPU, sin rojos |
+| `tsc --noEmit` · `next lint` | rc 0 · «No ESLint warnings or errors» |
+| Paridad i18n (`src/lib/i18n-parity.test.ts`, dentro de la suite) | verde |
+| `scripts/check-e2e-skip-census.sh` | rc 0, las claves = baseline (no se tocó E2E) |
+
+**NO MEDIDO:** el aviso contra el backend real (stack no levantado en este pase); el E2E de la cubeta SPEI no se tocó.
