@@ -10490,7 +10490,13 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
   `IvaLabel` (`SealedDetailView:183`, `:205`). El texto es el mismo, pero un cambio en `IvaLabel` no llegaría al precio
   de la carta.
 - **Dirección:** el precio de la carta también con `IvaLabel` (la rama `withoutIva` incluida, que `IvaLabel` ya cubre).
-- **Disparador:** el próximo cambio de `IvaLabel` o del rótulo de IVA.
+- **Su disparador YA se activó (2026-10-10):** vMIV-2 ES un cambio de `IvaLabel` (el valor de mercado pasó a decir
+  «incluye IVA» vía `showRate={false}`). Sin embargo, vMIV-2 **no tocó el rótulo del precio**: la ficha de carta
+  sigue rotulando con texto crudo `tc('ivaIncluded', { rate })` (`CardDetailView:259`, dentro de `:256-261`) y el
+  mercado con `IvaLabel`. Como el precio no cambió, la divergencia es **inocua hoy** (mismo texto resultante) y se
+  **aplaza** para no ampliar el alcance de vMIV-2 (stream ya aprobado por QA y techlead). Queda registrada, no pagada.
+- **Nuevo disparador:** el próximo cambio que toque el **rótulo del precio** de la ficha de carta (`CardDetailView`
+  `:256-261`), no cualquier cambio de `IvaLabel`.
 - **Comprobación:** `grep -n "tc('ivaIncluded'" CardDetailView` da 0 y `CardDetailView.test.tsx` sigue verde.
 
 ### TD-MIV-F4 · P4 · `SealedValueHistoryResponse.product` tipado `Record<string, unknown>` (D-6)
@@ -10517,3 +10523,18 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
 - Las dos ramas que anotaban «NO MEDIDO» en (d) (tendencia apagada; `value-history` 404) se quitaron: (d) prepara su
   estado por la API de admin y un 404/serie vacía es rojo. Medido: real 2/2 verde, mock 1/1, canarios C1/C2
   (`FRONTEND_NOTES §111.e2e-real`). `check-e2e-skip-census.sh` = baseline.
+
+### TD-MIV-F6 · P4 · Prop `ivaRatePct` vestigial en la tendencia + incoherencia entre superficies de mercado (2026-10-10)
+- **Qué es:** tras vMIV-2, `SealedValueTrend` conserva `ivaRatePct?: number` en su firma
+  (`.../sellado/[inventoryItemId]/SealedValueTrend.tsx:52`) y la sigue pasando a `IvaLabel` (`:121`), pero con
+  `showRate={false}` (`:120`) el componente **la ignora**: es dato muerto. `SealedDetailView:289` todavía la alimenta
+  con `group.ivaRatePct`. En cambio `CardDetailView` y la celda de mercado del propio `SealedDetailView` ya **no** la
+  pasan. Son tres superficies de mercado equivalentes escritas de dos formas distintas.
+- **Riesgo:** bajo. MIV-F7 prohíbe aritmética con `ivaRatePct` y hoy ninguna cuenta usa esta prop. El peligro es de
+  confusión: abre la puerta a un «IVA 0 %» si alguien reactivara `showRate` sin volver a cablear la tasa.
+- **Dirección:** quitar la prop `ivaRatePct` de `SealedValueTrend` (firma y paso a `IvaLabel` en `:121`) y dejar de
+  pasarla desde `SealedDetailView:289`.
+- **Disparador:** el próximo cambio que toque `SealedValueTrend`.
+- **Comprobación:** `grep -n 'ivaRatePct' SealedValueTrend.tsx` da 0 y `grep -n 'ivaRatePct' SealedDetailView.tsx` ya
+  no la muestra en el paso a `<SealedValueTrend>`; la suite del sellado sigue verde.
+- **Dueño:** frontend.
