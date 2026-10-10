@@ -12108,3 +12108,42 @@ Lo que queda abierto **no es una petición, es trabajo nuestro**: enrutar el roj
 dueño (§60.3) y decidir si el gate de dinero debe dejar de colgar de `secrets-gate` en la ruta de
 publicación (§60.4b). Lo segundo es **cambio de mis rutas**, y lo dejo **propuesto, no hecho**: mueve
 cuándo se publica, y eso se decide con el orquestador y el dueño, no en un commit mío a mitad de release.
+
+## 66. `scripts/new-project.sh` — qué copia al arrancar un proyecto nuevo, y cómo se comprueba (vigente desde 2026-10-10)
+
+Estado vigente, no bitácora. El script arranca una carpeta nueva con **el equipo** (plantilla) y **ficheros de
+arranque en blanco**; no toca el proyecto en curso.
+
+| Origen (en esta plantilla) | Destino (proyecto nuevo) | Qué es |
+|---|---|---|
+| `.claude/` entero (`agents/` + `templates/`) | `.claude/` | el equipo y sus plantillas en blanco |
+| `CLAUDE.md` | `CLAUDE.md` | reglas de coordinación |
+| `.claude/templates/PROJECT.md` | `PROJECT.md` | idea **en blanco** (29 líneas). **Nunca** el `PROJECT.md` de la raíz, que es el vivo de este proyecto |
+| `.claude/templates/{HECHOS,PENDIENTES,HISTORIAL,TRASPASO}.md` | raíz | ficheros de arranque/traspaso de sesión (O-11) |
+| `.claude/templates/DECISIONES.md` | `docs/DECISIONES.md` | historia de decisiones del humano |
+| `docs/team-overview.html` (si existe) | `docs/team-overview.html` | diagrama de referencia |
+
+**Candado previo:** si falta cualquier plantilla de `.claude/templates/` (o `.claude/agents/` o `CLAUDE.md`), el
+script sale **2** con la lista de lo que falta y **no crea el destino** — nada de copias a medias. Si el destino
+ya existe, sale **1** sin tocarlo. El mensaje final describe el flujo completo de `CLAUDE.md`, incluidos
+**tester-e2e, pentester y seguridad**, y recuerda que el orquestador arranca leyendo `HECHOS.md` y el índice de
+`PENDIENTES.md` (O-11).
+
+**Cómo se comprueba** (ninguno de los dos toca el árbol vivo: corren en `mktemp -d` y limpian al salir):
+
+- `./scripts/check-new-project.sh` — corre `new-project.sh` a un temporal y asserta: `PROJECT.md` del destino
+  `< 60` líneas e idéntico a la plantilla (y distinto del de la raíz); los cuatro ficheros de arranque en la raíz y
+  `docs/DECISIONES.md` idénticos a su plantilla; `.claude/` idéntico (`diff -r`, imprime conteo de agentes y
+  templates); `CLAUDE.md` idéntico; se niega sobre destino existente y sin argumentos. Medido 2026-10-10:
+  **14/14** sobre el árbol con 14 agentes y 6 templates.
+- `./scripts/check-new-project-canary.sh [N]` — sobre una copia mínima propia (con un `PROJECT.md` «vivo»
+  sintético de 100 líneas, para no depender del real), muta y exige rojo: volver a copiar el `PROJECT.md` de la
+  raíz, dejar de copiar `HECHOS.md`, dejar de copiar `docs/DECISIONES.md`, quitar la guarda de destino existente,
+  y borrar una plantilla (exige además `exit 2` y destino no creado). Medido 2026-10-10: **6/6**, cada mutación
+  **3/3** (deterministas).
+
+Ninguno de los dos está cableado a `ci.yml`: la plantilla cambia raras veces y la comprobación es manual, **antes
+de commitear** cualquier cambio en `scripts/new-project.sh` o en `.claude/templates/`. Si eso deja de ser verdad
+(p. ej. las plantillas empiezan a cambiar por sesión), cablearlo a `ci-ok` es un job de 10 segundos sin red.
+
+> **No medido aquí:** `shellcheck` no está instalado en este sandbox; los tres scripts pasaron solo `bash -n`.

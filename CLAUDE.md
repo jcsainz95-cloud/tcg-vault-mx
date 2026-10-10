@@ -10,6 +10,10 @@ Este proyecto se trabaja con un equipo de subagentes con roles separados. Tú (l
 4. **backend** y **frontend** trabajan en paralelo, cada uno en su carpeta; backend usa el contrato como interfaz y frontend usa el contrato **y** el sistema de diseño.
 5. **qa** verifica que funciona: además de tests unitarios y contrato, **levanta la plataforma y corre la suite E2E** (los flujos críticos de `PROJECT.md`, de punta a punta contra el stack corriendo) y emite veredicto. *(Cadencia: por work stream corre unitarios + contrato + smoke E2E de los flujos tocados; la suite E2E completa corre en el cierre de release — ver «Cadencia de gates».)*
 6. **techlead** revisa que esté bien hecho (diseño, mantenibilidad, deuda técnica) y emite veredicto.
+6-bis. **tester-e2e** recorre los flujos críticos de `PROJECT.md` **desde el navegador, contra el stack real con
+   datos sembrados**, antes de **cada publicación**; su veredicto es **gate de publicación**, no opcional. Un
+   flujo «verde» contra mocks no cuenta. **ux-review** corre por release. *(De dónde viene: en TCG Hunt el dueño
+   encontró 14 defectos en producción con capturas; tester-e2e aparece 2 veces en los documentos del proyecto.)*
 7. **Fase de seguridad (obligatoria):** **pentester** (red team) ataca la app —incluida la BD y el dinero— y produce `docs/PENTEST_NOTES.md`; luego **seguridad** (blue team) revisa el código, consolida esos hallazgos y emite veredicto en `docs/SECURITY_NOTES.md`. Blanco autorizado: **staging** (o local); producción solo en ventana autorizada. *(Cadencia: por release, no por cambio — ver «Cadencia de gates».)*
 8. Si QA, techlead o seguridad rechazan, el hallazgo vuelve al rol responsable (nunca lo corrige otro rol).
 9. Si backend o frontend necesitan cambiar el contrato, la solicitud pasa por el arquitecto primero.
@@ -30,15 +34,24 @@ Este proyecto se trabaja con un equipo de subagentes con roles separados. Tú (l
 | `docs/PENTEST_NOTES.md` | pentester | todos |
 | `docs/SECURITY_NOTES.md` | seguridad | todos |
 | `docs/TECH_DEBT.md` | el rol dueño del código anotado (a petición del techlead) | todos |
+| `docs/DECISIONES.md` | product-owner (una línea por decisión del humano) | todos |
+| `CLAUDE.md`, `.claude/agents/`, `.claude/templates/`, `HECHOS.md`, `PENDIENTES.md`, `HISTORIAL.md`, `TRASPASO.md` | orquestador | todos |
 
-Ningún agente escribe fuera de sus rutas. **QA** y **techlead** no escriben en ninguna ruta: solo leen y reportan. **pentester** y **seguridad** solo leen y prueban; su única escritura es su propio `docs/PENTEST_NOTES.md` / `docs/SECURITY_NOTES.md`. Ninguno de esos cuatro corrige código — todo hallazgo se enruta al **rol dueño** (backend/frontend/devops). Las suites E2E las escriben **backend** (integración/E2E en `backend/`) y **frontend** (Playwright en `frontend/`); QA las ejecuta.
+Ningún agente escribe fuera de sus rutas. **backend-lite** y **frontend-lite** (modelo barato) escriben en la
+carpeta de su rol pero **nunca en pruebas, fixtures, seeds de prueba ni candados**, y no se usan en módulos de
+dinero. **QA** y **techlead** no escriben en ninguna ruta: solo leen y reportan. **pentester** y **seguridad** solo leen y prueban; su única escritura es su propio `docs/PENTEST_NOTES.md` / `docs/SECURITY_NOTES.md`. Ninguno de esos cuatro corrige código — todo hallazgo se enruta al **rol dueño** (backend/frontend/devops). Las suites E2E las escriben **backend** (integración/E2E en `backend/`) y **frontend** (Playwright en `frontend/`); QA las ejecuta.
 
 ## Work streams: paralelización por sesión
 Cuando hay varios frentes de trabajo independientes, el proyecto se parte en **work streams**: conjuntos de módulos disjuntos que pueden avanzar en paralelo sin pisarse. Reglas:
 
 - **Una sesión = un work stream = una rama.** Cada sesión trabaja solo los módulos de su stream y hace merge a `main` al cerrar el stream (con sus gates por-stream aprobados). Nunca dos sesiones sobre los mismos módulos a la vez.
 - **Dentro de una sesión, el orquestador paraleliza:** backend y frontend se lanzan a la vez (no en serie), y puede lanzar varios agentes backend simultáneos si trabajan módulos disjuntos del mismo stream.
-- **Los streams los define el orquestador** al arrancar (y los anota en `PENDIENTES.md` o el handoff): qué módulos incluye cada uno y qué sesión/rama lo lleva.
+- **Los streams los define el orquestador** al arrancar (y los anota en `PENDIENTES.md`): qué módulos incluye cada uno y qué sesión/rama lo lleva.
+- **Cada agente de construcción trabaja en su propio worktree** (`isolation: "worktree"` al lanzarlo) cuando el
+  proyecto permite levantar las suites desde uno; los gates miden **un sha fijo** sobre copia del árbol entero. Así
+  nadie espera a nadie y ningún gate mide un árbol que cambia debajo. *(De dónde viene: en TCG Hunt el orquestador
+  hizo 13 commits «wip … NO verificada» como instantáneas sobre el árbol compartido, y uno rompió la ablación de un
+  agente a mitad de medición — O-14-c.)* Si el worktree no es viable, aplica O-14 tal cual.
 
 ### Mapa de módulos (este proyecto)
 | Work stream | Backend (`backend/src/modules/`) | Frontend (`frontend/src/app/[locale]/`) |
@@ -60,6 +73,39 @@ Para que el proceso completo no se corra en cada cambio menor:
 
 ## Comunicación entre roles
 Los agentes no se hablan directamente: se comunican por los documentos en `docs/` y por sus resúmenes finales. El orquestador decide a quién delegar el siguiente paso según esos resúmenes.
+
+## Documentos: estado, no bitácora
+Cada documento de `docs/` y `PROJECT.md` describe **cómo es el producto hoy**. La historia va a `git`, a un bloque
+«Changelog» de una línea por versión al final del documento, o a `docs/DECISIONES.md`.
+
+- **Topes orientativos**, medidos en líneas: `PROJECT.md` ~400; `API_CONTRACT.md` y `ARCHITECTURE.md` ~3 000;
+  `DESIGN_SYSTEM.md` ~2 000; cada `*_NOTES.md` ~1 500. Rebasado el tope, **el rol dueño compacta antes de añadir**:
+  lo que ya no está vigente sale. El orquestador lo comprueba con `wc -l` al cierre de cada stream.
+- **Un hecho vive en un documento.** Una rama de despliegue, un puerto, un enum, una regla de negocio: en un sitio;
+  los demás enlazan. Dos fuentes para un hecho acaban contradiciéndose.
+- **Cada `*_NOTES.md` empieza con el estado vigente** en pocas líneas (qué hay, cómo se levanta, qué está roto),
+  y lo histórico va debajo.
+- **Las decisiones del humano se integran** en la sección de `PROJECT.md` que afectan; la pregunta y la respuesta
+  literal van a `docs/DECISIONES.md`. `PROJECT.md` tiene **una sola** sección «Preguntas abiertas», que se vacía.
+
+> *De dónde viene:* en TCG Hunt la documentación llegó a **14 MB**: arquitectura 2.8 MB, contrato 2.2 MB con 74
+> versiones intercaladas, `PROJECT.md` 12 967 líneas con 17 rondas de preguntas pegadas al final. Cada rol tiene la
+> instrucción «lee el contrato» y nadie podía; todos buscaban con `grep`, y el historial atribuye **nueve
+> diagnósticos falsos en una sesión** a concluir desde un `grep` sin abrir el contexto. Dos líneas del mismo
+> documento de devops decían ramas de despliegue distintas.
+
+## Condiciones de veredicto y deuda técnica
+- **«Aprobado con condiciones» exige, por cada condición: dueño, fecha de caducidad y candado que la cobre** (un
+  check que se pone rojo solo al vencer). Si falta uno de los tres, el veredicto es **RECHAZADO**. Vale para QA,
+  techlead y seguridad, y para todo modo «solo reporte» o excepción de CI.
+- **`docs/TECH_DEBT.md` es una cola, no un sumidero:** lleva un **índice tabular** arriba (ID, qué, dueño, medido
+  el, comprobación de cierre), igual que `PENDIENTES.md`. Cada stream **cierra al menos tres fichas** de los módulos
+  que toca antes de fusionar, o el techlead dice por qué no. Una ficha sin comprobación de cierre no entra.
+
+> *De dónde viene:* «aprobado con condiciones» aparece 20 veces en los documentos de TCG Hunt y la tienda salió a
+> producción con el veredicto de seguridad diciendo que el DoD no quedaba cerrado. La única condición que se cobró
+> sola fue la que tenía fecha y candado (`dast-report-only-expiry`), y mordió el 2026-10-06. La deuda técnica llegó
+> a **515 fichas con 31 cerradas**.
 
 ## Reglas del orquestador
 
@@ -241,10 +287,38 @@ mío**. O lo mido, o lo relayo diciendo **de quién es y con qué N**.
 **Comprobación:** toda proporción en un mensaje mío lleva su **N** y su autor. `5/5` sin N es una afirmación sin
 medición, y se trata como **NO MEDIDO**.
 
+### O-16 · Lo que le pido comprobar al dueño, lo recorrí yo antes desde su pantalla
+Todo paso de verificación que le dé al dueño es ejecutable **con lo que él ve**: clics, textos visibles, pantallas
+con nombre. Nada de «pega `?status=banana` en la barra de direcciones». Si yo no lo puedo seguir desde su pantalla,
+no es un paso de verificación: es una petición de que haga mi trabajo.
+
+> *De dónde viene:* le di al dueño pasos de revisión imposibles de ejecutar desde la tienda y una severidad
+> inflada (O-1-bis, 2026-09-13). Él los intentó, con capturas, y fue él quien midió que no servían.
+
+**Comprobación:** antes de mandar un paso al dueño, lo enumero como él lo vería y digo con qué lo recorrí yo
+(navegador, captura). Un paso con un parámetro de URL o un comando va al rol técnico, no al dueño.
+
+### O-17 · Una regla nacida del error de un rol se escribe en el fichero de ese rol, no solo aquí
+Cuando una regla nueva sale de un error de `backend`, `qa`, `devops`… la escribo en `.claude/agents/<rol>.md`
+(sección «Doctrina medida»), además de aquí si es mía. Un rol que no tiene la regla en su prompt depende de que yo
+me acuerde de reinyectarla en cada encargo, y el día que no me acuerdo el error vuelve.
+
+> *De dónde viene:* medido el 2026-10-10 en el cierre de TCG Hunt: 15 reglas aquí, en 345 líneas, y en los 12
+> ficheros de rol **cero** menciones a N, proporción, copia del árbol, sha, mutación o commit, con cero cambios en
+> toda la historia. El `5/5` de O-15 lo reportó un backend al que ningún prompt le había pedido N.
+
+**Comprobación:** cada regla nueva en este fichero que nombre a un rol tiene su línea en el fichero de ese rol en el
+mismo commit. `grep -l "<palabra clave de la regla>" .claude/agents/*.md` la encuentra.
+
 ## Arranque y traspaso de sesión
-- **Tres ficheros, tres papeles:** `HECHOS.md` (lo que el dueño estableció y lo medido de infraestructura; no
-  se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y **comprobación**, y sus
-  cuerpos verbatim), `HISTORIAL.md` (lo cerrado, verbatim; nunca se enruta trabajo desde ahí sin re-medir).
+- **Tres ficheros, tres papeles, desde el día uno:** `HECHOS.md` (lo que el dueño estableció y lo medido de
+  infraestructura; no se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y
+  **comprobación**, y sus cuerpos verbatim), `HISTORIAL.md` (lo cerrado, verbatim; nunca se enruta trabajo desde
+  ahí sin re-medir). `scripts/new-project.sh` los copia en blanco desde `.claude/templates/` al crear el proyecto:
+  el primer encargo del orquestador ya los encuentra. *(En TCG Hunt nacieron a mitad del proyecto, después de
+  preguntarle al dueño cinco veces lo mismo.)*
+- **Un solo fichero de traspaso:** `TRASPASO.md`. No hay `HANDOFF.md` ni variantes: dos ficheros de traspaso son
+  dos fuentes para un hecho, y uno de los dos siempre está viejo.
 - **Traspaso a una sesión hija:** el orquestador la crea él mismo (herramienta `create_session`, mismo entorno)
   con el prompt guardado en `TRASPASO.md`, **después** de dejar `PENDIENTES.md` limpio y commiteado. El prompt
   no lleva estado de memoria: lleva rutas y SHAs. Si la hija muere, el dueño la rearma pegando `TRASPASO.md`.
@@ -307,6 +381,13 @@ El coste no se reparte por rol sino por **si el error se nota o no** y por **si 
 prueba es el contrato entre los dos, y no hay ambigüedad que negociar. Encaja con lo que este proyecto ya tiene:
 cada candado viene con su canario que demuestra que muerde.
 
+**Cómo está cableado:** el modelo de cada rol va en el frontmatter de `.claude/agents/<rol>.md` (`model:`). Los
+veredictos y el diseño van en modelo fuerte (`qa`, `techlead`, `seguridad`, `pentester`, `arquitecto`,
+`product-owner`); `tester-e2e` y `ux-review` en el más fuerte disponible porque recorren lo que el dueño verá;
+`ux-ui` en el intermedio. Para «hacer pasar la prueba que ya existe» hay dos roles con modelo barato:
+**`backend-lite`** y **`frontend-lite`**, cuyo fichero prohíbe tocar pruebas y candados y los excluye de los módulos
+de dinero. El orquestador elige el rol, no el modelo, y así la doctrina no depende de que se acuerde.
+
 ⛔ **El modelo barato no toca pruebas ni candados, solo código de producción.** Una prueba se puede hacer pasar
 debilitándola, y este proyecto ya fue mordido por esa clase — por eso existe el censo de pruebas apagadas.
 Después, el fuerte reintroduce el defecto y confirma que la prueba sigue mordiendo.
@@ -342,4 +423,6 @@ Un proyecto NO se declara listo hasta que se cumplan todos estos puntos. **devop
 - [ ] Sin **deuda técnica bloqueante** (la no bloqueante queda registrada y aceptada en `docs/TECH_DEBT.md`).
 
 ## Ciclo de vida: un proyecto por carpeta
-Esta plantilla (`.claude/agents/` + `CLAUDE.md`) es **el equipo** y no cambia entre proyectos. Lo que cambia por proyecto es `PROJECT.md`, `docs/`, `backend/` y `frontend/`. Cada proyecto vive en su propia carpeta/repo autocontenido: al terminar (DoD cumplido) NO se vacía. Para el siguiente proyecto se arranca una carpeta nueva desde la plantilla con `scripts/new-project.sh` y el equipo empieza de cero desde **product-owner**.
+Esta plantilla (`.claude/agents/` + `.claude/templates/` + `CLAUDE.md`) es **el equipo**. Entre proyectos cambia
+solo por O-17: cuando un error medido enseña algo, la regla entra aquí y en el fichero del rol, **en el proyecto
+donde se midió**, y el siguiente proyecto arranca con ella. Lo que cambia por proyecto es `PROJECT.md`, `docs/`, `backend/` y `frontend/`. Cada proyecto vive en su propia carpeta/repo autocontenido: al terminar (DoD cumplido) NO se vacía. Para el siguiente proyecto se arranca una carpeta nueva desde la plantilla con `scripts/new-project.sh` y el equipo empieza de cero desde **product-owner**.
