@@ -14009,6 +14009,17 @@ deja de dar «FALLA» **3/3** (sale rc 2); mutación «forma de antes» (un corr
 ```
 TARGET_BASE_URL='https://<host-del-backend-de-produccion>' ./scripts/edge-xff-probe.sh --i-have-a-window
 ```
+
+**Desde un runner de GitHub (2026-10-10, §96.3).** El contenedor de los agentes no llega a producción (403 CONNECT,
+re-medido 2026-10-10 con `curl` a js.stripe.com/api.stripe.com: mismo 403 de política). Workflow
+`.github/workflows/edge-xff-probe.yml`, **solo a mano** y con la frase `C6-6-INTENTOS`; corre la sonda con sus valores
+por defecto (1 ronda = 6 peticiones, sin control) — el presupuesto que autorizó el dueño, sin input para ampliarlo:
+```
+gh workflow run edge-xff-probe.yml --ref <rama-con-el-workflow> -f confirmar=C6-6-INTENTOS
+#  objetivo por defecto: vars.C6_TARGET_BASE_URL o https://tcg-vault-mx-production.up.railway.app (§23.2)
+```
+Sin secretos; el resultado sale en el resumen del run. **Cada corrida gasta 6 intentos: no repetir sin autorización.**
+
 > **[RESULTADO C6 — se rellena en la ventana autorizada: proporción N/N, control sí/no, fecha y hora]**
 
 ### 85.5 · LIVE-13 — respaldos y simulacro de restauración (`scripts/restore-drill-verify.sh`)
@@ -14899,3 +14910,98 @@ salvo donde se dice.
 
 Esta sección y el baseline vuelven con el `git revert -m 1` del commit de fusión. Para revertir solo el censo, se
 restaura el baseline de un lado y se repite `--update --motivo` sobre el árbol que quede. No toca imágenes, datos ni despliegue.
+
+## §96 · CL-1: la CSP pasa a `enforce` (con ZAP 10038/10055 en FAIL), sonda de Stripe.js y C6 desde GitHub (2026-10-10, rama `claude/salida-real`, devops)
+
+> Norma: `API_CONTRACT §14.3`, `SECURITY_NOTES` CL-1 (SEC-HDR-2) y §14.14; escrito sobre `20b676bf` (= `origin/production`).
+> Todo lo «medido» aquí se midió el 2026-10-10 en una copia `git archive HEAD` entera del árbol (O-9), salvo donde dice
+> otra cosa. Producción y Stripe **no** son alcanzables desde este contenedor (403 CONNECT, re-medido hoy).
+
+### 96.1 · Qué cambia
+
+- `frontend/src/security/csp.ts:32` → `CSP_MODE = 'enforce'`. **Línea de frontend hecha por devops por urgencia,
+  encargo del orquestador**; con ella, sus candados de fase: `csp.test.ts` («fase vigente: enforce») y
+  `middleware.test.ts` (el bloque «fase vigente» fijaba `report-only` por defecto: ahora hay un caso «sin forzar
+  fase ⇒ `Content-Security-Policy` con nonce y sin `-Report-Only`», y los tres de Report-Only fuerzan esa fase
+  porque siguen siendo la vuelta atrás de §14.3). Ningún otro fichero de `frontend/`.
+- `security/zap/baseline.conf`: **10038 y 10055 → FAIL** en el mismo cambio. `check-csp-zap-parity.sh` rc 0
+  (`CSP_MODE=enforce · 10038=FAIL · 10055=FAIL`); su canario 8/8.
+- **Sub-alertas de 10055 a WARN por clave `10055-<n>`** (nuevo en `dast-gate.py`: si el `alertRef` del JSON de ZAP
+  está en la política, manda esa clave; si no, la regla). Sin esto el DAST de release salía **rojo seguro** con la
+  política tal como la define §14.3 — leído en el código de la regla (`ContentSecurityPolicyScanRule.java`,
+  zaproxy/zap-extensions) y de su parser (salvation2 `Policy.java`), no supuesto:
+  - `10055-6` *style-src unsafe-inline*: §14.3 pone `'unsafe-inline'` en `style-src` a propósito.
+  - `10055-4` *Wildcard Directive*: `img-src … https:` (deliberado, §14.3); la regla prueba un host al azar
+    `https://<n>.owasp.org` y `https:` lo permite. ⚠️ esa alerta agrupa directivas: un `script-src *` futuro caería
+    también en WARN; lo cubre `csp.test.ts` (texto de `script-src`), no el DAST.
+  - `10055-3` *Notices*: salvation avisa «report-uri deprecated» y §14.3 usa `report-uri` (→ `POST /telemetry/csp`).
+  - Siguen en FAIL: `10055-5` (script-src unsafe-inline), `10055-10` (unsafe-eval), `10055-13` (frame-ancestors /
+    form-action sin definir), `10055-9` (malformada) y toda `10038` (`-1` sin CSP, `-3` solo Report-Only).
+  - ZAP ignora las claves `10055-n` (`zap_common.load_config` solo las guarda; solo las `IGNORE` llaman a su API).
+    Sin `alertRef` en el JSON, la alerta cae en la regla (FAIL): sin dato, no se afloja.
+  - Candado: `check-dast-gate-live.sh` 5-quater (6 casos). Mutaciones sobre la copia: gate de `HEAD` (sin soporte de
+    sub-claves) ⇒ 3 rojos **3/3**; `rule = ref` anulado ⇒ 3 rojos; sub-clave convertida en `10055 WARN` ⇒ 2 rojos.
+- **Lo que NO está medido:** el barrido ZAP real con la CSP en enforce. Lo cierra
+  `gh workflow run security-dast.yml --ref claude/salida-real -f scan_profile=baseline -f report_only=true`
+  (pasivo basta para 10038/10055) **antes** de la solicitud de fusión; la lista de WARN/FAIL sale en las anotaciones
+  del run (`gh api repos/<o>/<r>/check-runs/<job>/annotations`).
+
+Verificado en la copia: `vitest` frontend completo **4248 passed / 10 skipped**, rc 0; `tsc --noEmit` rc 0;
+`next lint` sin avisos; Playwright (build de producción, mocks) `csp.spec` + `checkout.spec` + `guest-checkout.spec`
+**29/29** (N=1) — incluye CSP-5 «en enforce el `<script>` sin nonce no se ejecuta» y el recorrido sin violaciones.
+
+### 96.2 · Sonda de Stripe.js (`scripts/csp-stripe-probe.mjs` + `.github/workflows/csp-stripe-probe.yml`)
+
+Ningún E2E comprobaba que el iframe de Stripe cargue (el `@real comprar` solo mira que el modal se abra). La sonda
+sirve en `127.0.0.1` una página con **la cabecera que produce `buildCsp(…, 'enforce')`** (importada del `.ts`, entorno
+de producción, API en un host `.invalid` para que los informes de prueba no lleguen a `/telemetry/csp` de
+producción), inserta `js.stripe.com/v3` como `loadStripe` y monta un `PaymentElement` diferido (MXN). Autoprueba:
+planta un iframe prohibido y un `<script>` sin nonce y exige ver las dos violaciones. rc 0 limpio · 1 violación ·
+2 no concluyente.
+- Local (sin red a Stripe): autoprueba **3/3**, rc 2 «es red, no política» 3/3 (correcto: no da verde sin medir).
+- Mutación «`script-src` sin `'strict-dynamic'` ni `https:`» ⇒ `✗ VIOLACIÓN script-src-elem js.stripe.com/v3` rc 1
+  **3/3**.
+- En GitHub corre solo al empujar cambios de `csp.ts`/`middleware.ts`/la sonda en `claude/**` (3 tiradas). El
+  «PaymentElement ready» exige `secrets.STRIPE_TEST_PUBLISHABLE_KEY` válida; si no, se dice «ready NO medido».
+- No cubre: el reto 3-D Secure real (el iframe del banco va DENTRO del de Stripe y lo rige la CSP de Stripe; el marco
+  que lo aloja es `js.stripe.com`/`hooks.stripe.com`, en `frame-src`), Google Identity, ni el `return_url`.
+
+Orígenes de Stripe en la política (texto de `buildCsp`, entorno de producción): `script-src 'self' 'nonce-…'
+'strict-dynamic' https:` (Stripe.js entra por `'strict-dynamic'`); `connect-src … https://api.stripe.com`;
+`frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com`; `img-src … https:`;
+`style-src 'self' 'unsafe-inline'`; `form-action 'self'` (Stripe no envía formularios desde nuestro documento).
+
+### 96.3 · C6 desde GitHub (`.github/workflows/edge-xff-probe.yml`)
+
+Ver §85.4. Manual, frase `C6-6-INTENTOS`, 1 ronda = 6 peticiones, sin control, sin secretos, `concurrency` sin
+cancelación. `push`/`pull_request` con filtro de rutas solo corren el canario (y registran el workflow: `main` está
+parado en `bb239c09`, 2026-09-15, y un workflow que nunca corrió no se puede disparar a mano). Canario local 8/8 (N=1).
+
+### 96.4 · Qué buscar en Railway tras publicar
+
+`POST /telemetry/csp` **solo registra, no guarda en BD** (`backend/src/modules/health/telemetry.controller.ts`,
+TLM-5): una línea `warn` del logger `Telemetry` por informe:
+`CSP_VIOLATION {"effectiveDirective":"…","blockedOrigin":"…","documentPath":"…","disposition":"enforce"}` (sin IP,
+UA ni usuario; tope 60/min por IP). En Railway → servicio del backend → Logs, buscar `CSP_VIOLATION`.
+`disposition":"report"` = de antes del cambio; `"enforce"` = **algo se bloqueó de verdad**. Alarma si aparece con
+`documentPath` de `/checkout`, `/pedido` o `/login`, o con `blockedOrigin` de `stripe.com`/`google.com`.
+
+### 96.5 · Hallazgos de esta medición (no arreglados aquí)
+
+- **E-8 (TTFB) nunca se midió.** `gh api …/issues?labels=ttfb&state=all` ⇒ 0 issues; `ttfb-probe.yml` solo ha corrido
+  en `pull_request` (2 runs, 2026-10-05). Su medición se dispara con `push` a `main`, y `main` no avanza. El «antes»
+  (producción sin nonce) ya no se puede medir. Lo medible hoy: `gh workflow run ttfb-probe.yml --ref production`
+  ⇒ etiqueta `despues` (Report-Only); `enforce` sirve la misma página por el mismo middleware cambiando solo el
+  nombre de la cabecera (`middleware.ts`, lectura de código, NO medición de tiempo), así que el p90 de esa corrida
+  vale para el umbral absoluto (≤ 800 ms); la subida (≤ 300 ms) queda **sin comparar**.
+- **Los `schedule` de `uptime-watch.yml`, `ttfb-probe.yml` y `db-disk-watch.yml` nunca han corrido:** GitHub solo
+  programa desde la rama por defecto (`main`), que no tiene esos ficheros (`git ls-tree origin/main`). Runs de
+  `uptime-watch`: 0 `schedule` (API, 2026-10-10). El vigía de disponibilidad (LIVE-9) no vigila.
+- `ghcr.io/zaproxy/zaproxy:stable` sin fijar (`dast-ephemeral.sh:80`, `dast-selftest.sh:36`).
+
+### 96.6 · Rollback
+
+`git revert <commit>` devuelve `CSP_MODE='report-only'`, 10038/10055 a WARN y los tests de fase a la vez (la pareja
+la vigila `check-csp-zap-parity.sh`). Vercel publica solo con el push; en caso de urgencia, *Instant Rollback* al
+despliegue anterior en Vercel (la CSP es solo frontend: el backend no cambia). Los dos workflows nuevos no tienen
+estado: borrarlos basta.
