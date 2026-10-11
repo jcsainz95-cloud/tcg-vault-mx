@@ -846,13 +846,37 @@ export class PricingService {
       if (arr) arr.push(r);
       else byKey.set(k, [r]);
     }
+    // ⭐ v1.91⟨precios⟩ errata (cuestión D, §4.PRE (c)) — BASE CONGELADA mientras hay caso `open`. La base
+    // NO es la robusta de ayer recomputada: es el ÚLTIMO VALOR SANO que la tienda PUBLICÓ. Mientras un
+    // `PriceReviewCase open` retiene el salto, ese valor es el `baselineMxnCents` que el caso guardó al
+    // abrirse. Sin esto, un pico de UNA fuente que persiste DOS barridos haría que el día 2 las quotes de
+    // ayer YA incluyeran el pico ⇒ base≈pico ⇒ jumpFactor≈1 ⇒ publica y auto-supersede el caso que el día
+    // 1 retuvo — justo lo que el candado existe para frenar. Lectura directa (sin ciclo con PriceReview).
+    const openCases = await this.prisma.priceReviewCase.findMany({
+      where: {
+        status: 'open',
+        cardProductId: null,
+        sealedProductId: null,
+        OR: keys.map((key) => ({ cardId: key.cardId, productType: key.productType, gradeKey: key.gradeKey, finish: key.finish })),
+      },
+      select: { cardId: true, productType: true, gradeKey: true, finish: true, baselineMxnCents: true },
+    });
+    const frozenBaseByKey = new Map<string, number | null>();
+    for (const c of openCases) frozenBaseByKey.set(variantKey(c), c.baselineMxnCents);
+
     for (const [k, krows] of byKey) {
       const toCand = (rs: (typeof rows)[number][]): ArbiterCandidate[] =>
         rs.map((r) => ({ source: r.source, priceMxnCents: this.liveMxnCents(r, fx), capturedDate: r.capturedDate.toISOString().slice(0, 10) }));
       const result = resolveRobustMarket(toCand(krows), dials, nowIso);
-      // baseline = robusto de las cotizaciones de ANTES de hoy (el valor sano previo al barrido).
-      const prior = krows.filter((r) => r.capturedDate.toISOString().slice(0, 10) < nowIso);
-      const baseline = prior.length > 0 ? resolveRobustMarket(toCand(prior), dials, nowIso).robustMarketMxnCents : null;
+      // Si hay caso `open` ⇒ base CONGELADA (`caso.baselineMxnCents`). Si NO ⇒ la robusta de ayer (que,
+      // sin caso abierto, SÍ fue la publicada y sana).
+      let baseline: number | null;
+      if (frozenBaseByKey.has(k)) {
+        baseline = frozenBaseByKey.get(k) ?? null;
+      } else {
+        const prior = krows.filter((r) => r.capturedDate.toISOString().slice(0, 10) < nowIso);
+        baseline = prior.length > 0 ? resolveRobustMarket(toCand(prior), dials, nowIso).robustMarketMxnCents : null;
+      }
       out.set(k, { result, baselineMxnCents: baseline });
     }
     return out;
@@ -2493,9 +2517,22 @@ export class PricingService {
     // Clave de la SERIE (SIN `capturedDate`): la fila VIGENTE es la más reciente. `cardProductId` puede
     // ser `null` (fallback PPT/graded) o un id (primario `tcgcsv_singles`) ⇒ findFirst (Prisma no tipa
     // `null` en la @@unique compuesta; invariante de un renglón/día por app).
-    // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (mercado raw), no de candidatas.
+    // ⭐ v1.91⟨precios⟩ errata (M-76, §4.PRE (i)) — DOS lecturas, por una razón medida: (1) el override
+    // manual SUPRIME al escritor de mercado (§4.1/§4.27f) sin importar la fuente, así que la comprobación
+    // del manual es source-AGNÓSTICA; (2) la serie write-on-change es POR FUENTE, para no TOMAR ni PISAR
+    // una fila de árbitro de otra fuente (`tcgdex`/`cardmarket`, misma cubeta `cardProductId=null`) ni
+    // chocar P2002. Sin (2), al añadir `source` a la `@@unique`, el `findFirst`+update cruzaría fuentes.
+    // MONEY-REF-EXEMPT: comprobación de override manual del ESCRITOR (suprime escritura), no candidata.
+    const manualPresent = await this.prisma.priceReference.findFirst({
+      where: { cardId, productType, gradeKey, finish, cardProductId, isManualOverride: true },
+      select: { id: true },
+    });
+    // No pisa el override manual del admin (§4.1/§4.27f) — ni escribe su propia fila mientras exista.
+    if (manualPresent) return;
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE POR FUENTE de un ESCRITOR (mercado raw), no de
+    // candidatas de precio. `source` en el `where` ⇒ cada fuente su serie (igual que `persistArbiterReference`).
     const current = await this.prisma.priceReference.findFirst({
-      where: { cardId, productType, gradeKey, finish, cardProductId },
+      where: { cardId, productType, gradeKey, finish, cardProductId, source: market.source as PriceSource },
       orderBy: { capturedDate: 'desc' },
       select: {
         id: true,
@@ -2508,8 +2545,6 @@ export class PricingService {
         fxBufferPct: true,
       },
     });
-    // No pisa el override manual del admin (§4.1/§4.27f) — ni le avanza la evidencia.
-    if (current?.isManualOverride) return;
 
     // ¿El VALOR es el MISMO que la fila vigente de MERCADO? → confirmar (avanzar evidencia), NO insertar.
     const sameValue =
@@ -2649,6 +2684,59 @@ export class PricingService {
         ...data,
       },
     });
+  }
+
+  /**
+   * v1.91⟨precios⟩ errata (cuestión B, §PRE.F / ARCHITECTURE §4.PRE (d)) — `accept` de la cola de
+   * revisión: promueve una `PriceReference` ROBUSTA **NO-manual** (`isManualOverride=false`,
+   * `refKind='market'`, ⛔ **nunca** `source='manual'`) como nueva base SANA. 💰 DINERO.
+   *
+   * ⚠️ **No es `applyManualOverride`:** aquél fija tier-0 (`source='manual'`, `isManualOverride=true`) y
+   * CONGELA la variante (el árbitro filtra `isManualOverride=false` y no la vuelve a tocar). `accept` NO
+   * congela: escribe una fila de mercado de una fuente ADMITIDA (la representativa de la mediana), de
+   * modo que el barrido SIGUE arbitrando la variante y un salto FUTURO vuelve a disparar el candado
+   * (§4.PRE (d)). El valor es el `proposedMxnCents` en MXN congelado (`priceUsdCents=null`): es el número
+   * que el dueño aceptó, no se re-deriva por FX.
+   */
+  async promoteRobustReference(input: {
+    cardId: string;
+    productType: ProductType;
+    gradeKey: string;
+    finish: Finish;
+    priceMxnCents: number;
+    source: string;
+    tx?: Prisma.TransactionClient;
+  }): Promise<{ ref: PriceReference }> {
+    const db = input.tx ?? this.prisma;
+    if (input.source === 'manual') {
+      // Defensa en profundidad (§PRE.F): `accept` JAMÁS escribe tier-0. Eso es exclusivo de `manual`.
+      throw new Error('promoteRobustReference: source no puede ser manual (accept no congela)');
+    }
+    const capturedDate = today();
+    const cardProductId = null;
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (accept promueve la robusta), no
+    // de candidatas de precio. Serie POR FUENTE (incluye `source`, como `persistArbiterReference`): no
+    // pisa otras fuentes.
+    const existing = await db.priceReference.findFirst({
+      where: { cardId: input.cardId, productType: input.productType, gradeKey: input.gradeKey, finish: input.finish, capturedDate, cardProductId, source: input.source as PriceSource },
+      select: { id: true },
+    });
+    const data = {
+      source: input.source as PriceSource,
+      priceUsdCents: null,
+      fxRate: null,
+      fxBufferPct: null,
+      priceMxnCents: input.priceMxnCents,
+      isManualOverride: false,
+      refKind: PriceRefKind.market,
+      evidenceDate: capturedDate,
+    };
+    const ref = existing
+      ? await db.priceReference.update({ where: { id: existing.id }, data })
+      : await db.priceReference.create({
+          data: { cardId: input.cardId, productType: input.productType, gradeKey: input.gradeKey, finish: input.finish, capturedDate, ...data },
+        });
+    return { ref };
   }
 
   /**
@@ -2952,8 +3040,22 @@ export class PricingService {
     // MONEY-REF-EXEMPT: es la lectura de la CLAVE DEL DÍA de un ESCRITOR (upsert), no una lectura de
     // candidatas. Filtrar por naturaleza aquí rompería el invariante «una fila por clave+día» (`refKind`
     // NO está en la `@@unique`): dejaría de ver la fila que existe y crearía una segunda.
+    // v1.91⟨precios⟩ errata (M-76, §4.PRE (i)): el override manual REUSA su propia serie manual O la
+    // fila-estimado del día (cut-over M-43 regla 1), pero ⛔ NUNCA una fila de MERCADO automática de
+    // OTRA fuente (`tcgdex`/`cardmarket`): con `source` en la `@@unique`, pisar una fila de árbitro la
+    // destruiría y podría chocar P2002. El `OR` deja fuera esas filas (market no-manual de fuente ≠
+    // manual): una sola fila de árbitro ⇒ `prior=null` ⇒ se CREA la manual aparte, el árbitro intacto.
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA del ESCRITOR (override), no de candidatas de precio.
     const prior = await db.priceReference.findFirst({
-      where: { cardId, productType, gradeKey, finish, capturedDate: cap, cardProductId: null },
+      where: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        capturedDate: cap,
+        cardProductId: null,
+        OR: [{ source: 'manual' }, { refKind: PriceRefKind.graded_estimate }],
+      },
     });
     // M-44b: la foto de lo que había, tomada dentro del mismo gesto que lo pisa.
     const before: ManualOverrideBefore | null = prior

@@ -33,6 +33,19 @@ export interface ReviewVariantKey {
 export type ReviewAction = 'accept' | 'keep' | 'manual';
 const REVIEW_ACTIONS: readonly ReviewAction[] = ['accept', 'keep', 'manual'];
 
+/**
+ * v1.91⟨precios⟩ errata (cuestión B) — la fuente REPRESENTATIVA de la mediana, para que `accept` escriba
+ * la `PriceReference` robusta con una fuente ADMITIDA (el barrido la sigue arbitrando). Se elige la quote
+ * cuyo `priceMxnCents` ES la mediana (`proposedMxnCents`); si ninguna coincide, la primera; ⛔ nunca
+ * `manual`. Fallback `tcgcsv_singles` (admitida) si el snapshot viene vacío/ilegible — jamás tier-0.
+ */
+export function representativeSourceOf(quotesSnapshot: unknown, proposedMxnCents: number): 'tcgdex' | 'cardmarket' | 'tcgcsv_singles' | string {
+  const quotes = Array.isArray(quotesSnapshot) ? (quotesSnapshot as QuoteSnapshot[]) : [];
+  const admitted = quotes.filter((q) => q && typeof q.source === 'string' && q.source !== 'manual');
+  const exact = admitted.find((q) => q.priceMxnCents === proposedMxnCents);
+  return exact?.source ?? admitted[0]?.source ?? 'tcgcsv_singles';
+}
+
 /** La foto de la variante para `variantKey` del `Map` de casos abiertos (sin `axis`: bloquea ambos). */
 export function reviewVariantKeyString(k: ReviewVariantKey): string {
   return [
@@ -241,23 +254,8 @@ export class PriceReviewService {
       );
     }
 
-    // Candado de estado: el caso debe estar `open` en el `where` (count===1), como el resolve de disputas.
-    // ⛔ NO idempotente: una segunda resolución es 409, no «repetir».
     const theCase = await this.prisma.priceReviewCase.findUnique({ where: { id } });
     if (!theCase) throw BusinessException.notFound('NOT_FOUND', `El caso ${id} no existe.`);
-
-    let resolvedPriceRefId: string | null = null;
-    if (action === 'manual') {
-      // Delega en la vía existente de override (tier 0 manual, §4.27f-2). Raw/sellado por carta.
-      const { ref } = await this.pricing.applyManualOverride({
-        cardId: theCase.cardId,
-        productType: theCase.productType,
-        gradeKey: theCase.gradeKey,
-        finish: theCase.finish,
-        priceMxnCents: manualPriceMxnCents as number,
-      });
-      resolvedPriceRefId = ref.id;
-    }
 
     const newStatus: PriceReviewStatus =
       action === 'accept'
@@ -266,44 +264,56 @@ export class PriceReviewService {
           ? PriceReviewStatus.kept
           : PriceReviewStatus.manual;
 
-    const guard = await this.prisma.priceReviewCase.updateMany({
-      where: { id, status: PriceReviewStatus.open },
-      data: {
-        status: newStatus,
-        resolvedAction: action,
-        resolvedByUserId: actorUserId,
-        resolvedPriceRefId,
-        resolvedAt: new Date(),
-      },
+    // ⭐ v1.91⟨precios⟩ errata (cuestión A, techlead — DINERO) — RECLAMAR ANTES DE ESCRIBIR, en UNA
+    // transacción. El código previo aplicaba el override ANTES de la guarda de estado, así que un 2º
+    // POST `manual` (doble submit o carrera) ESCRIBÍA el precio y RECIÉN devolvía 409. Ahora la guarda
+    // (`updateMany where status=open`, `count===1`) corre PRIMERO dentro de la tx: el perdedor
+    // (`count=0`) lanza CONFLICT y la tx **revierte sin escribir precio**. El ganador escribe. 💰 El
+    // perdedor NUNCA toca el precio.
+    let resolvedPriceRefId: string | null = null;
+    await this.prisma.$transaction(async (tx) => {
+      const guard = await tx.priceReviewCase.updateMany({
+        where: { id, status: PriceReviewStatus.open },
+        data: { status: newStatus, resolvedAction: action, resolvedByUserId: actorUserId, resolvedAt: new Date() },
+      });
+      if (guard.count !== 1) {
+        const current = await tx.priceReviewCase.findUnique({ where: { id }, select: { status: true, resolvedAt: true } });
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'Este caso de revisión ya fue resuelto y no puede resolverse de nuevo.',
+          { status: current?.status ?? theCase.status, resolvedAt: current?.resolvedAt ?? null },
+        );
+      }
+      if (action === 'manual') {
+        // El ÚNICO que fija tier-0 (congela la variante hasta que el dueño quite el override, §4.27f-2).
+        const { ref } = await this.pricing.applyManualOverride({
+          cardId: theCase.cardId,
+          productType: theCase.productType,
+          gradeKey: theCase.gradeKey,
+          finish: theCase.finish,
+          priceMxnCents: manualPriceMxnCents as number,
+          tx,
+        });
+        resolvedPriceRefId = ref.id;
+      } else if (action === 'accept') {
+        // ⭐ errata cuestión B (§PRE.F / §4.PRE (d)): `accept` promueve una `PriceReference` ROBUSTA
+        // NO-manual (NUNCA `source='manual'`) ⇒ el barrido SIGUE arbitrando la variante. Fuente = la
+        // representativa de la mediana (admitida, de las quotes del caso).
+        const { ref } = await this.pricing.promoteRobustReference({
+          cardId: theCase.cardId,
+          productType: theCase.productType,
+          gradeKey: theCase.gradeKey,
+          finish: theCase.finish,
+          priceMxnCents: theCase.proposedMxnCents,
+          source: representativeSourceOf(theCase.quotesSnapshot, theCase.proposedMxnCents),
+          tx,
+        });
+        resolvedPriceRefId = ref.id;
+      }
+      if (resolvedPriceRefId != null) {
+        await tx.priceReviewCase.update({ where: { id }, data: { resolvedPriceRefId } });
+      }
     });
-    if (guard.count !== 1) {
-      const current = await this.prisma.priceReviewCase.findUnique({
-        where: { id },
-        select: { status: true, resolvedAt: true },
-      });
-      throw BusinessException.conflict(
-        'CONFLICT',
-        'Este caso de revisión ya fue resuelto y no puede resolverse de nuevo.',
-        { status: current?.status ?? theCase.status, resolvedAt: current?.resolvedAt ?? null },
-      );
-    }
-
-    // `accept` ⇒ publica el propuesto como valor sano (escribe override tier 0 = lo vuelve la referencia
-    // viva). El dueño ACEPTÓ el número que el candado detuvo, así que se trata como su decisión manual.
-    if (action === 'accept') {
-      const { ref } = await this.pricing.applyManualOverride({
-        cardId: theCase.cardId,
-        productType: theCase.productType,
-        gradeKey: theCase.gradeKey,
-        finish: theCase.finish,
-        priceMxnCents: theCase.proposedMxnCents,
-      });
-      await this.prisma.priceReviewCase.update({
-        where: { id },
-        data: { resolvedPriceRefId: ref.id },
-      });
-      resolvedPriceRefId = ref.id;
-    }
 
     await this.audit.log({
       actorUserId,

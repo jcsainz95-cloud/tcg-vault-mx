@@ -43,6 +43,7 @@ import {
   revertM72,
   revertM73,
   revertM74,
+  revertM75,
   cloneSchema,
   FROZEN_B_SHA256,
   readFrozenB,
@@ -86,7 +87,7 @@ interface Env {
 const live: Env[] = [];
 let admin: PrismaClient;
 
-async function fresh(opts: { m72?: boolean; m73?: boolean; m74?: boolean } = {}): Promise<Env> {
+async function fresh(opts: { m72?: boolean; m73?: boolean; m74?: boolean; m75?: boolean } = {}): Promise<Env> {
   const m72 = opts.m72 ?? true;
   n += 1;
   const schema = `${RUN}_${n}`;
@@ -96,6 +97,8 @@ async function fresh(opts: { m72?: boolean; m73?: boolean; m74?: boolean } = {})
   const fx = await seedFixture(db, { m72 });
   if (!m72) await revertM72(admin, schema);
   // §14.13.5: la base de `production` sin #84 (sin M-74 y/o sin M-73). Primero M-74 (su orden inverso de despliegue).
+  // v1.91⟨precios⟩: M-75/M-76 preceden a la comparación con el B congelado de a7232d7a (que no las conoce).
+  if (opts.m75 === false) revertM75(schema);
   if (opts.m74 === false) revertM74(schema);
   if (opts.m73 === false) revertM73(schema);
   const env = { schema, db, fx };
@@ -1050,7 +1053,9 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
   it('T-AC3 · SIN ambas, dos esquemas GEMELOS: el B congelado de a7232d7a y el B nuevo dan el mismo código de salida y la MISMA base (salvo el rastro: id, fecha y puntoPitr; y la fecha de los bounties); el ensayo nuevo no trae 2.7, 2.8 ni G-10; A, C y D dicen lo mismo', async () => {
     // La copia congelada es el fichero de a7232d7a byte a byte.
     expect(createHash('sha256').update(readFrozenB()).digest('hex')).toBe(FROZEN_B_SHA256);
-    const a = await fresh({ m73: false, m74: false });
+    // v1.91⟨precios⟩: el B congelado de a7232d7a PRECEDE a §PRE (M-75/M-76) ⇒ no clasifica `PriceReviewCase`
+    // en su G-8. Ambos gemelos se revierten a esa era (M-75/M-76 fuera) para comparar como iguales.
+    const a = await fresh({ m73: false, m74: false, m75: false });
     // El aviso de sellado ENCENDIDO con una suscripción pendiente: el B de a7232d7a no tiene G-10, así que el nuevo
     // tampoco puede pararse aquí (sin M-74 no se evalúa; M-W10d).
     await setDial(a, 'sealed_restock_alerts', 'on');
@@ -1058,6 +1063,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     n += 1;
     const twin = `${RUN}_${n}`;
     migrateSchema(twin);
+    revertM75(twin);
     revertM74(twin);
     revertM73(twin);
     const b: Env = { schema: twin, db: new PrismaClient({ datasources: { db: { url: schemaUrl(twin) } } }), fx: a.fx };

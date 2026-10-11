@@ -1331,7 +1331,12 @@ model PriceReference {
   evidenceDate     DateTime?    @db.Date
   createdAt        DateTime     @default(now())
 
-  @@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId])
+  // v1.91⟨precios⟩ errata (M-76, §PRE.J / ARCHITECTURE §4.PRE (i)) — `source` entra a la unicidad
+  // (6→7 campos) para que las fuentes del árbitro (`tcgdex`+`cardmarket`, ambas `cardProductId=null`,
+  // mismo día) COEXISTAN en vez de colisionar (P2002) bajo `NULLS NOT DISTINCT`. `source` es NOT NULL ⇒
+  // `NULLS NOT DISTINCT` (del índice físico) sigue afectando SÓLO a `cardProductId`. Ninguna fila se
+  // reescribe. El índice físico `NULLS NOT DISTINCT` lo crea la migración M-76 (Prisma no lo expresa).
+  @@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId, source])
   @@index([cardId])
   @@index([cardProductId])
   // M-43: el predicado `MONEY_REF_WHERE` entra por `AND` en lecturas que YA filtran por `cardId`

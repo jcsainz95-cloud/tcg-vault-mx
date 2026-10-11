@@ -32264,3 +32264,74 @@ dinero. La exclusión del residuo aplanado es load-bearing y verificada.
   de oferta §BMK.3/§PRE.5); si el dueño exige que la CREACIÓN también se bloquee, es un añadido menor.
 - Composición fila-a-fila de la lista legada «precios atascados» (PSA Gengar): sigue necesitando BD de
   producción (ortogonal a `PriceReviewCase`, confirmado por código).
+
+---
+
+## 91.2 · v1.91⟨precios⟩ ERRATA — BLOQ-1 (M-76) + A/B/D + limpieza + round-trip Postgres (2026-10-11)
+
+Cerrados los hallazgos de QA/techlead/arquitecto (errata `8eec85b0`). TODO medido contra **Postgres real**
+(`stack-native.sh up --infra`, M-75+M-76 aplicadas). 💰 DINERO.
+
+**BLOQ-1 · M-76 (`source` a la unicidad de `PriceReference`) — EL ARREGLO QUE HACE QUE EL FEATURE ENTREGUE.**
+- **Migración M-76** (`20261029120000_m76_arbiter_source_unique`, NO edita M-75): `DROP INDEX
+  PriceReference_variant_capturedDate_key` + `CREATE UNIQUE INDEX PriceReference_variant_src_capturedDate_key
+  ON (…, cardProductId, source) NULLS NOT DISTINCT`. `schema.prisma` `@@unique` 6→7 (gana `source`). `source`
+  es NOT NULL ⇒ NULLS NOT DISTINCT sigue afectando SÓLO a `cardProductId`. Ninguna fila se reescribe. REVERSA
+  documentada (índice 7→6 + borra registro).
+- **Escritores arreglados (medido en el código cuáles tocan la cubeta del árbitro):**
+  - `CardProductResolver.upsertVariantPrice`: la clave compuesta de Prisma pasa a `…_cardProductId_source` ⇒
+    `source:'tcgcsv_singles'` al `key` (único escritor de su cubeta `cardProductId` no-null).
+  - `persistMarketReference`: AHORA **dos lecturas** — (1) comprobación de override manual source-AGNÓSTICA
+    (el manual SUPRIME al escritor de mercado, §4.1), (2) serie write-on-change POR FUENTE (`source` en el
+    `where`), para no TOMAR/PISAR una fila de árbitro de otra fuente ni chocar P2002.
+  - `applyManualOverride`: el `findFirst` reusa su propia serie manual O la fila-estimado (cut-over M-43),
+    pero ⛔ NUNCA una fila de mercado automática de otra fuente (`OR:[{source:'manual'},{refKind:graded_estimate}]`):
+    así un override manual sobre una variante raw con fila de árbitro NO la destruye (crea la manual aparte;
+    el tier-0 gana en lectura igual).
+  - `persistArbiterReference`: ya scopeaba por `source` (sin cambio).
+- **CONFIRMADO qué caminos legados raw de la cubeta `cardProductId=null` siguen vivos:** el fallback bulk
+  legacy (`price-ingest.service.ts:697`, `source=provider.source`, vía `persistMarketReference`). PPT apagado
+  como escritor (§4.35c), pokemontcg.io bloqueada. `persistGradedEstimateReference` (2691) y `syncCardPrice`
+  (2110) NO se tocan: son de buckets DISTINTOS (graded/sealed) y su `findFirst` DEBE ser source-agnóstico para
+  el invariante INV-D (una naturaleza por variante/día) — añadirles `source` lo rompería. Medido.
+- **ROUND-TRIP contra Postgres (la prueba que QA exigió):** `test/integration/pre-arbiter-roundtrip.e2e-spec.ts`
+  (4/4 verde): con el escritor REAL, `tcgdex`($0.11→204¢) + `cardmarket`(€0.10→202¢) + residuo
+  `pokemontcg_io`(10221¢) **COEXISTEN** para Archaludon raw `cardProductId=null` mismo día (3 filas, SIN P2002);
+  `getReferencesBatch` ⇒ **203¢** (mediana, NO 10221); `arbiterDetailForKeys` ⇒ `familyCount=2`,
+  `consensus=true`; el candado ⇒ **publica, sin caso** aunque la base fuera 10221 (2 familias concuerdan).
+
+**A · resolve(manual) reclama ANTES de escribir (techlead, DINERO).** `resolve()` corre en UNA transacción:
+el guard (`updateMany where status=open`, count===1) PRIMERO; el perdedor (count=0) lanza 409 y la tx REVIERTE
+sin escribir precio. `test/integration/pre-resolve-accept-manual.e2e-spec.ts` A (verde): 2º POST `manual` ⇒ 409
+y el override vivo sigue en el 1er valor (NO hay fila con el 2º).
+
+**B · accept NO congela (arquitecto §4.PRE (d)).** `accept` promueve una `PriceReference` ROBUSTA **NO-manual**
+(`isManualOverride=false`, `refKind='market'`, `source`=la representativa de la mediana — ⛔ nunca `'manual'`)
+vía el NUEVO `PricingService.promoteRobustReference`; `manual` es el ÚNICO que fija tier-0. Prueba B (verde):
+tras accept la fila es no-manual y de fuente admitida ⇒ el barrido la sigue arbitrando.
+
+**D · base CONGELADA mientras hay caso open (arquitecto §4.PRE (c)).** `arbiterDetailForKeys`: si hay
+`PriceReviewCase open` ⇒ `base = caso.baselineMxnCents` (congelada); si no ⇒ robusta de ayer. Canario de 2
+barridos `test/integration/pre-frozen-baseline.e2e-spec.ts` (verde): un pico de fuente única que persiste NO
+auto-supersede (la base no «sube» a incluir el pico) ⇒ el caso SIGUE en revisión.
+
+**BLOQ-2 · limpieza `P-DB-LIMPIEZA`.** `PriceReviewCase` añadido al array `conservar` de `lz_conteo`
+(`20261006_pdblimpieza_2_limpieza.sql`): es familia de precios de catálogo y mientras `open` bloquea
+publicación/compra (§4.PRE (d)). `pdb-limpieza.e2e-spec.ts`: 66/67 con el `tcg` por defecto; T-AC3 (B
+congelado de `a7232d7a`, que PRECEDE a §PRE) necesitaba no chocar G-8 con `PriceReviewCase` ⇒ nuevo helper
+`revertM75` (revierte M-76+M-75 en ambos gemelos vía las REVERSAS documentadas; `fresh({m75:false})` + T-AC3).
+**67/67 verde** con el rol superuser (requerido por `cloneSchema`'s `SET session_replication_role`). `verificacion.sql`
+(file 4) NO menciona `PriceReviewCase` ⇒ no choca.
+
+**Accesorios (3 specs rojos) — VEREDICTO: real y PRE-EXISTENTE a §PRE, NO «BD sucia».** `accessories-prep-refunds`,
+`accessories-m73-migration`, `accessories-m73-refund-shapes` FALLAN (22/146) sobre el esquema RECIÉN migrado
+(no es dato: es una aserción de FORMA de los CHECK de `PaymentRefund`). Causa: deriva M-61↔M-73 (M-73 añadió
+`payment_refund_accessory_*` que los tests escritos para M-61 no esperaban). Determinista por migración (no
+«sucia»). ⛔ Mis cambios §PRE NO tocan `PaymentRefund` ni sus migraciones (solo M-76 sobre `PriceReference`) ⇒
+unrelated a §PRE, pre-existente, **otro alcance — NO lo arreglo en esta rama** (instrucción del orquestador).
+
+**Suite:** unit **476 suites / 8504 verdes**; integración §PRE **11/11** (roundtrip 4 + frozen 2 + resolve 2 +
+variant-unique 3) + pdb-limpieza **67/67** (con superuser). `tsc` limpio.
+
+**NO MEDIDO:** las propiedades HTTP de C-EQ-1 (gate de QA, DB) y la confirmación del `FX_EUR_SERIES_ID` con token
+(TD-PRE-2) — el único cabo que activa el auto-publish de cardmarket.

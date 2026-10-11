@@ -199,14 +199,18 @@ export class CardProductResolverService {
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
     const capturedDate = today();
+    // v1.91⟨precios⟩ errata (M-76, §4.PRE (i)): `source` entró a la `@@unique` ⇒ la clave compuesta de
+    // Prisma pasa a `..._cardProductId_source`. `tcgcsv_singles` es el ÚNICO escritor de su cubeta
+    // (`cardProductId` no-null), así que añadirlo es correcto e inocuo (cada fuente, su serie).
     const key = {
-      cardId_productType_gradeKey_finish_capturedDate_cardProductId: {
+      cardId_productType_gradeKey_finish_capturedDate_cardProductId_source: {
         cardId,
         productType,
         gradeKey,
         finish,
         capturedDate,
         cardProductId,
+        source: 'tcgcsv_singles' as const,
       },
     };
     // MONEY-REF-EXEMPT: lectura de la CLAVE del upsert de un ESCRITOR (tcgcsv_singles por producto),

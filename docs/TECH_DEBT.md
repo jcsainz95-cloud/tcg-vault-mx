@@ -10538,3 +10538,33 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
 - **Comprobación:** `grep -n 'ivaRatePct' SealedValueTrend.tsx` da 0 y `grep -n 'ivaRatePct' SealedDetailView.tsx` ya
   no la muestra en el paso a `<SealedValueTrend>`; la suite del sellado sigue verde.
 - **Dueño:** frontend.
+
+### TD-PRE-1 · P3 · Barrido TCGdex = 1 llamada/carta sobre el catálogo completo (volumen a vigilar) (2026-10-11)
+- **Qué es:** el provider de TCGdex (§PRE.A, `tcgdex-bulk.provider.ts`) hace **1 llamada HTTP por carta** porque el
+  endpoint de set NO trae pricing (forma breve) y no hay bulk de precios (medido 2026-10-11: ~0.18 s/carta, sin
+  cabeceras de rate-limit, sin endpoint bulk). Para Prismatic son ~180 llamadas; para el catálogo COMPLETO son
+  decenas de miles por corrida del barrido «Actualizar precios ahora». La concurrencia está acotada a 6 y una carta
+  que falla no tumba el set, pero el **volumen total** del barrido completo no se ha medido a escala de catálogo.
+- **Riesgo:** medio-bajo. No toca dinero (el candado protege el precio); el riesgo es de TIEMPO/carga del barrido y
+  de que TCGdex aplique un rate-limit no documentado bajo carga alta. Hoy el barrido ya hace fan-out por set.
+- **Dirección:** medir la duración del barrido completo con TCGdex habilitado; si molesta, acotar a sets con hueco
+  tcgcsv (no todo el catálogo), cachear el listado de cartas por set, o un rate-limiter global.
+- **Disparador:** la primera corrida del barrido completo en staging/prod con TCGdex activo, o una queja de lentitud.
+- **Comprobación:** cronometrar `POST /admin/jobs/price-ingest` completo con TCGdex on; comparar con el baseline previo.
+- **Dueño:** backend (+ devops para el scheduler).
+
+### TD-PRE-2 · P2 · `FX_EUR_SERIES_ID` sin confirmar con token ⇒ cardmarket no vota hasta el deploy (2026-10-11)
+- **Qué es:** el id de la serie EUR/MXN de Banxico (`FX_EUR_SERIES_ID_DEFAULT='SF46410'`, `fx.service.ts`) **no se
+  pudo confirmar** contra la API SIE en vivo: el contenedor de desarrollo NO tiene `BANXICO_SIE_TOKEN` y la SIE
+  rechaza toda petición sin token de forma uniforme (no se puede sondear un id). Hasta que se confirme con el token,
+  `refreshEurFromBanxico` o bien no escribe fila EUR (id equivocado ⇒ fuera de la banda `[8,40]` ⇒ descartado) o no
+  corre, así que **cardmarket no vota el árbitro** ⇒ las singles raw sin cobertura tcgcsv (Prismatic) quedan con UNA
+  familia ⇒ el barrido las manda a REVISIÓN en vez de publicar el precio bueno automático.
+- **Riesgo:** money-SAFE (nunca publica inflado; la banda EUR descarta un id equivocado), pero **bloquea el
+  auto-publish** que el dueño espera y **llena la cola de revisión** con las Prismatic hasta que el id se confirme.
+- **Dirección:** en el deploy (o quien tenga el token), confirmar que `GET …/series/SF46410/datos/oportuno` con
+  `Bmx-Token` devuelve EUR/MXN (~20-22); si no, fijar el id correcto por config `FX_EUR_SERIES_ID` (sin redeploy).
+- **Disparador:** la ventana de deploy a staging/prod (hay token) o un token de solo lectura en dev.
+- **Comprobación:** tras el refresh, `SELECT rate FROM "FxRate" WHERE base='EUR' ORDER BY "effectiveDate" DESC LIMIT 1`
+  da ~20-22; y una Prismatic con tcgdex+cardmarket frescos publica automática (sin caso) en el barrido.
+- **Dueño:** backend (+ el humano para el token en el deploy).

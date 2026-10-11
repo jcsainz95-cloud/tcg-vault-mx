@@ -19,10 +19,15 @@ function makeService(prismaOverrides: any = {}) {
       ...(prismaOverrides.priceReviewCase ?? {}),
     },
     card: { findMany: jest.fn().mockResolvedValue([]) },
+    // v1.91 errata (A): resolve() corre en UNA transacción (guard-first). El mock ejecuta el callback
+    // con el mismo cliente (tx = prisma), así los `tx.priceReviewCase.*` caen en los mismos jest.fn.
+    $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
   const audit: any = { log: jest.fn().mockResolvedValue(undefined) };
   const pricing: any = {
     applyManualOverride: jest.fn().mockResolvedValue({ ref: { id: 'ref-1' }, before: null }),
+    // v1.91 errata (B): accept promueve una PriceReference robusta NO-manual (no congela).
+    promoteRobustReference: jest.fn().mockResolvedValue({ ref: { id: 'ref-accept' } }),
   };
   const svc = new PriceReviewService(prisma, audit, pricing);
   return { svc, prisma, audit, pricing };
@@ -150,19 +155,21 @@ describe('resolve — guardas (§PRE.F)', () => {
     });
   });
 
-  it('💰 accept ⇒ publica el propuesto como override tier 0 (vía existente) y status accepted', async () => {
+  it('💰 accept ⇒ promueve una PriceReference NO-manual (NO congela) y status accepted — errata B', async () => {
     const { svc, pricing } = makeService({
       priceReviewCase: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'id1', status: 'open', cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', proposedMxnCents: 10221, baselineMxnCents: 184 }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'id1', status: 'open', cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', proposedMxnCents: 10221, baselineMxnCents: 184, quotesSnapshot: [{ source: 'tcgdex', family: 'tcgplayer', priceMxnCents: 10221, capturedDate: '2026-10-11', stale: false }] }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         update: jest.fn().mockResolvedValue({}),
       },
     });
     const res = await svc.resolve('id1', 'accept', undefined, 'u1');
     expect(res.status).toBe('accepted');
-    expect(pricing.applyManualOverride).toHaveBeenCalledWith(
-      expect.objectContaining({ cardId: 'c1', priceMxnCents: 10221 }),
+    // ⭐ errata B: accept usa `promoteRobustReference` (NO-manual, source representativa), NO `applyManualOverride`.
+    expect(pricing.promoteRobustReference).toHaveBeenCalledWith(
+      expect.objectContaining({ cardId: 'c1', priceMxnCents: 10221, source: 'tcgdex' }),
     );
+    expect(pricing.applyManualOverride).not.toHaveBeenCalled();
   });
 
   it('💰 manual ⇒ delega en applyManualOverride con el precio a mano y status manual', async () => {
