@@ -431,6 +431,35 @@ export function pickBestRef<T extends RefRow>(rows: T[]): T | null {
 }
 
 /**
+ * v1.91⟨precios⟩ errata E-CI (§PRE.B) — candidatas del árbitro: **UNA cotización por FUENTE**, no por
+ * fila. 💰 DINERO. Reduce las filas (ya admitidas/frescas por el llamador) a la MEJOR por `source`
+ * (`isBetterRef`: desempata manual-tier/frescura/sourceRank/NULLS-LAST), y de cada fuente emite UNA
+ * `ArbiterCandidate` con su MXN vivo.
+ *
+ * ⚠️ **Por qué por FUENTE y no por fila (bug medido por CI, `references-batch-history-prune` card-3):**
+ * una carta con DOS filas de la MISMA fuente (`tcgcsv_singles`) — la genérica `cardProductId=null` y la
+ * del `set_base` — son la MISMA cotización, no dos. Promediarlas (lo que hacía el map por-fila) daba un
+ * número que NO es ninguna de las dos (`round((103199+444444)/2)=273822`) y ROMPÍA la invariante de poda
+ * (la mediana contaba filas que la poda del histórico elimina). Por fuente, `isBetterRef` elige la del
+ * `set_base` (NULLS LAST) = la que elegía el ranking legado, así la poda no cambia la salida y la mediana
+ * sigue combinando sólo cotizaciones INDEPENDIENTES (una por fuente: tcgcsv/tcgdex/cardmarket). ⛔ Las
+ * de fuente que NO vota (`manual`) se excluyen aquí (el manual es tier 0, lo decide el llamador).
+ */
+export function arbiterCandidatesBySource(rows: RefRow[], liveMxnOf: (r: RefRow) => number): ArbiterCandidate[] {
+  const bySource = new Map<string, RefRow>();
+  for (const r of rows) {
+    if (r.isManualOverride || r.source === 'manual') continue; // tier 0, no vota el árbitro
+    const cur = bySource.get(r.source);
+    if (cur == null || isBetterRef(r, cur)) bySource.set(r.source, r);
+  }
+  return [...bySource.values()].map((r) => ({
+    source: r.source,
+    priceMxnCents: liveMxnOf(r),
+    capturedDate: r.capturedDate.toISOString().slice(0, 10),
+  }));
+}
+
+/**
  * `PriceInfo` describe el VALOR DE REFERENCIA (valor de mercado), no el precio de venta.
  *
  * ### v2.1.6 (S48-M2, fase de seguridad) — DTO CERRADO
@@ -783,18 +812,12 @@ export class PricingService {
    * residuo aplanado que causaba el bug (§PRE.0).
    */
   robustMarketForRows(
-    rows: { source: string; priceMxnCents: number; priceUsdCents: number | null; isManualOverride: boolean; capturedDate: Date }[],
+    rows: RefRow[],
     dials: ArbiterDials,
     fx: { rate: number; bufferPct: number } | null,
     nowIso: string,
   ): { referenceMxnCents: number; source: string; capturedDate: string } | null {
-    const candidates: ArbiterCandidate[] = rows
-      .filter((r) => !(r.isManualOverride || r.source === 'manual'))
-      .map((r) => ({
-        source: r.source,
-        priceMxnCents: this.liveMxnCents(r, fx),
-        capturedDate: r.capturedDate.toISOString().slice(0, 10),
-      }));
+    const candidates: ArbiterCandidate[] = arbiterCandidatesBySource(rows, (r) => this.liveMxnCents(r, fx));
     const robust = resolveRobustMarket(candidates, dials, nowIso);
     if (robust.robustMarketMxnCents == null || robust.medianSource == null || robust.freshestCapturedDate == null) {
       return null;
@@ -865,8 +888,9 @@ export class PricingService {
     for (const c of openCases) frozenBaseByKey.set(variantKey(c), c.baselineMxnCents);
 
     for (const [k, krows] of byKey) {
+      // errata E-CI (§PRE.B): UNA cotización por FUENTE (no por fila), vía `isBetterRef`.
       const toCand = (rs: (typeof rows)[number][]): ArbiterCandidate[] =>
-        rs.map((r) => ({ source: r.source, priceMxnCents: this.liveMxnCents(r, fx), capturedDate: r.capturedDate.toISOString().slice(0, 10) }));
+        arbiterCandidatesBySource(rs as unknown as RefRow[], (r) => this.liveMxnCents(r, fx));
       const result = resolveRobustMarket(toCand(krows), dials, nowIso);
       // Si hay caso `open` ⇒ base CONGELADA (`caso.baselineMxnCents`). Si NO ⇒ la robusta de ayer (que,
       // sin caso abierto, SÍ fue la publicada y sana).
