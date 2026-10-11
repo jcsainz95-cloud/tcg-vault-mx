@@ -21611,3 +21611,22 @@ del override de M2); vacío o `0` ⇒ «Guardar» deshabilitado (no publica a MX
 **Medido por mí (2026-10-11, sobre `node_modules` recién instalados):** `tsc --noEmit` limpio; `next lint` de los
 ficheros tocados sin avisos; `PriceReviewSection.test.tsx` 8/8; suite vitest completa **4316 passed | 10 skipped
 (332 files), exit 0**. La E2E con el stack levantado NO se ejecutó aquí: NO MEDIDO por mí; es del gate de QA.
+
+### §116.1 · Paginación — la pantalla usaba `total` pero no paginaba (techlead; contrato §PRE.E errata B `8eec85b0`)
+
+**Hueco (techlead):** la primera versión mostraba a lo sumo 50 casos (el default del servidor) y **descartaba
+`total`** ⇒ el dueño quedaba ciego más allá de 50, y en la primera corrida del barrido puede haber >50.
+
+**Qué se hizo** (2026-10-11, sobre `8eec85b0`):
+- `getPriceReviewQueue` acepta y envía `page`/`pageSize` (contrato §PRE.E errata B: `page` ≥1 default 1; `pageSize`
+  ≥1 default 50, cap 100, fuera de rango ⇒ default, no 400). El mock `getMockPriceReviewQueue` pagina igual
+  (corta por `page`/`pageSize`, devuelve `total` = filas que cumplen el filtro, `counts.open` independiente del filtro).
+- `PriceReviewSection` manda `pageSize=50` y usa `total`: línea «Mostrando X–Y de N» (`price-review-page-info`) y
+  botones Anterior/Siguiente con `ceil(total/pageSize)`. Cambiar de estado/eje vuelve a la página 1. Controles solo
+  si hay más de una página. `counts.open` (badge) intacto.
+- i18n `admin.m10.priceReview.page.{showing,prev,next}` en es/en (paridad verde).
+
+**Medido por mí (2026-10-11, sobre `8eec85b0`):** `tsc --noEmit` limpio; `next lint` de los ficheros tocados sin
+avisos; `PriceReviewSection.test.tsx` **11/11** (incluye «pasa a la página 2 y llega al caso 51») + `i18n-parity`
+**45/45**. Suite vitest completa: **4318 passed | 10 skipped (332 files), exit 0**. La E2E con el stack levantado
+NO se ejecutó aquí: NO MEDIDO por mí; es del gate de QA.

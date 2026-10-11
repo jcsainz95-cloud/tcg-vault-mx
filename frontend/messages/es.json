@@ -4971,6 +4971,11 @@
           "open": "No hay precios por revisar. Todo está al día.",
           "other": "No hay casos con este estado."
         },
+        "page": {
+          "showing": "Mostrando {from}–{to} de {total}",
+          "prev": "Anterior",
+          "next": "Siguiente"
+        },
         "manual": {
           "title": "Poner precio a mano",
           "help": "Escribe el precio que quieres publicar para esta carta, en pesos.",

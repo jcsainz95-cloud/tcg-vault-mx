@@ -6124,17 +6124,20 @@ export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: 
 /**
  * Cola de revisión del candado anti-inflado (contrato §PRE.E, `GET /admin/pricing/review-queue`,
  * `super_admin`, read-only, paginado). CLASE E: `status` ausente ⇒ SOLO los casos `open` (no «todos»);
- * `axis` opcional filtra por eje que disparó. La respuesta trae `{ data, total, counts: { open } }`.
+ * `axis` opcional filtra por eje que disparó. Paginación (errata B): `page` (≥1, default 1) y `pageSize`
+ * (≥1, default 50, cap 100; fuera de rango ⇒ default, NO 400). La respuesta trae `{ data, total,
+ * counts: { open } }`, donde `total` es el total de filas que cumplen el filtro (no el tamaño de la
+ * página) ⇒ el frontend pagina con `ceil(total/pageSize)`; `counts.open` es independiente del filtro.
  */
 export async function getPriceReviewQueue(
-  params: { status?: PriceReviewStatus; axis?: PriceAxis } = {},
+  params: { status?: PriceReviewStatus; axis?: PriceAxis; page?: number; pageSize?: number } = {},
 ): Promise<PriceReviewQueueResponse> {
   if (!config.useMocks) {
     return apiRequest<PriceReviewQueueResponse>('/admin/pricing/review-queue', {
-      query: { status: params.status, axis: params.axis },
+      query: { status: params.status, axis: params.axis, page: params.page, pageSize: params.pageSize },
     });
   }
-  return delay(fx.getMockPriceReviewQueue(params.status, params.axis));
+  return delay(fx.getMockPriceReviewQueue(params.status, params.axis, params.page, params.pageSize));
 }
 
 /**

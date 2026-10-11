@@ -4971,6 +4971,11 @@
           "open": "No prices to review. Everything is up to date.",
           "other": "No cases with this status."
         },
+        "page": {
+          "showing": "Showing {from}–{to} of {total}",
+          "prev": "Previous",
+          "next": "Next"
+        },
         "manual": {
           "title": "Set price by hand",
           "help": "Type the price you want to publish for this card, in pesos.",

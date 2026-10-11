@@ -3994,14 +3994,22 @@ export const mockPriceReviewCases: PriceReviewCaseDTO[] = [
 export function getMockPriceReviewQueue(
   status?: PriceReviewStatus,
   axis?: PriceAxis,
+  page?: number,
+  pageSize?: number,
 ): PriceReviewQueueResponse {
   // CLASE E (contrato §PRE.E): `status` ausente ⇒ SOLO `open` (no «todos»).
   const effectiveStatus: PriceReviewStatus = status ?? 'open';
-  const data = mockPriceReviewCases.filter(
+  const filtered = mockPriceReviewCases.filter(
     (c) => c.status === effectiveStatus && (!axis || c.axis === axis),
   );
+  // Paginación (errata B): default page 1, pageSize 50, cap 100; fuera de rango ⇒ default (NO 400).
+  const size = Number.isInteger(pageSize) && (pageSize as number) >= 1 ? Math.min(pageSize as number, 100) : 50;
+  const pg = Number.isInteger(page) && (page as number) >= 1 ? (page as number) : 1;
+  const start = (pg - 1) * size;
+  const data = filtered.slice(start, start + size);
   const open = mockPriceReviewCases.filter((c) => c.status === 'open').length;
-  return { data, total: data.length, counts: { open } };
+  // `total` = total de filas que cumplen el filtro (NO el tamaño de página); `counts.open` ignora el filtro.
+  return { data, total: filtered.length, counts: { open } };
 }
 
 /** Resuelve un caso en el mock, con la MISMA guarda de estado que el backend (409 si no está `open`). */

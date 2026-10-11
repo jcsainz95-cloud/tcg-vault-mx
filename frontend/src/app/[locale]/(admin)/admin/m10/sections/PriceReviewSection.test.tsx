@@ -61,11 +61,38 @@ describe('§PRE · Precios por revisar', () => {
     expect(screen.getByTestId('price-review-open-count')).toHaveTextContent('1 caso por revisar');
   });
 
-  it('CLASE E — por defecto pide la cola con `status=open`', async () => {
+  it('CLASE E — por defecto pide la cola con `status=open` y la primera página (pageSize 50)', async () => {
     const spy = vi.spyOn(api, 'getPriceReviewQueue').mockResolvedValue({ data: [OPEN_CASE], total: 1, counts: { open: 1 } });
     renderWithProviders(<PriceReviewSection />, 'es');
     await screen.findByTestId('price-review-case-prc-1');
-    expect(spy).toHaveBeenCalledWith({ status: 'open', axis: undefined });
+    expect(spy).toHaveBeenCalledWith({ status: 'open', axis: undefined, page: 1, pageSize: 50 });
+  });
+
+  it('usa `total` del servidor: «Mostrando 1–50 de 51» y pasa a la página 2 sin perder el caso 51', async () => {
+    // El servidor devuelve 50 filas pero declara 51 en total (uno más allá de los primeros 50).
+    const firstPage = Array.from({ length: 50 }, (_, i) => ({ ...OPEN_CASE, id: `prc-${i + 1}` }));
+    const secondPage = [{ ...OPEN_CASE, id: 'prc-51' }];
+    const spy = vi
+      .spyOn(api, 'getPriceReviewQueue')
+      .mockResolvedValueOnce({ data: firstPage, total: 51, counts: { open: 51 } })
+      .mockResolvedValueOnce({ data: secondPage, total: 51, counts: { open: 51 } });
+    renderWithProviders(<PriceReviewSection />, 'es');
+    await screen.findByTestId('price-review-case-prc-1');
+    expect(screen.getByTestId('price-review-page-info')).toHaveTextContent('Mostrando 1–50 de 51');
+    // Pasar a la página 2: el dueño llega al caso 51, que sin paginación quedaba oculto.
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }));
+    await waitFor(() => expect(spy).toHaveBeenLastCalledWith({ status: 'open', axis: undefined, page: 2, pageSize: 50 }));
+    await screen.findByTestId('price-review-case-prc-51');
+    expect(screen.getByTestId('price-review-page-info')).toHaveTextContent('Mostrando 51–51 de 51');
+  });
+
+  it('con una sola página no muestra controles de paginación', async () => {
+    serve();
+    renderWithProviders(<PriceReviewSection />, 'es');
+    await screen.findByTestId('price-review-case-prc-1');
+    expect(screen.getByTestId('price-review-page-info')).toHaveTextContent('Mostrando 1–1 de 1');
+    expect(screen.queryByRole('button', { name: /Siguiente/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Anterior/ })).toBeNull();
   });
 
   it('«Aceptar» resuelve con action=accept', async () => {

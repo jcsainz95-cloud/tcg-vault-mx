@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Check, Lock, PencilLine } from 'lucide-react';
+import { Check, Lock, PencilLine, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getPriceReviewQueue, resolvePriceReviewCase } from '@/lib/api';
 import { asApiError } from '@/lib/api-client';
 import { formatMoneyCents, formatDate } from '@/lib/format';
@@ -30,6 +30,9 @@ export const PRICE_REVIEW_ANCHOR = 'precios-por-revisar';
 /** Los cinco estados del caso, en el orden de triaje (abierto primero). */
 const STATUSES: readonly PriceReviewStatus[] = ['open', 'accepted', 'kept', 'manual', 'superseded'];
 const AXES: readonly (PriceAxis | 'all')[] = ['all', 'sell', 'buy'];
+
+/** Página = default del contrato (§PRE.E errata B). Que el dueño llegue a TODOS los casos, no solo 50. */
+const PAGE_SIZE = 50;
 
 /**
  * El salto `jumpFactorMilli` viene ×1000 entero (×55 = 55000; ⛔ sin float en el contrato). Aquí se
@@ -74,12 +77,24 @@ export function PriceReviewSection() {
 
   const [status, setStatus] = useState<PriceReviewStatus>('open');
   const [axis, setAxis] = useState<PriceAxis | 'all'>('all');
+  const [page, setPage] = useState(1);
   const [manualTarget, setManualTarget] = useState<PriceReviewCaseDTO | null>(null);
   const [manualValue, setManualValue] = useState('');
 
+  // Cambiar de filtro vuelve a la página 1: la página N del filtro anterior puede no existir en el nuevo.
+  function pickStatus(s: PriceReviewStatus) {
+    setStatus(s);
+    setPage(1);
+  }
+  function pickAxis(a: PriceAxis | 'all') {
+    setAxis(a);
+    setPage(1);
+  }
+
   const queue = useQuery({
-    queryKey: ['price-review-queue', status, axis],
-    queryFn: () => getPriceReviewQueue({ status, axis: axis === 'all' ? undefined : axis }),
+    queryKey: ['price-review-queue', status, axis, page],
+    queryFn: () =>
+      getPriceReviewQueue({ status, axis: axis === 'all' ? undefined : axis, page, pageSize: PAGE_SIZE }),
   });
 
   const resolveMutation = useMutation({
@@ -114,6 +129,13 @@ export function PriceReviewSection() {
 
   const openCount = queue.data?.counts.open ?? null;
 
+  // Paginación (contrato §PRE.E errata B): `total` = filas que cumplen el filtro (NO el tamaño de la
+  // página). Con él el dueño llega a TODOS los casos, no solo los primeros 50.
+  const total = queue.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, total);
+
   return (
     <section
       id={PRICE_REVIEW_ANCHOR}
@@ -145,7 +167,7 @@ export function PriceReviewSection() {
               role="tab"
               type="button"
               aria-selected={status === s}
-              onClick={() => setStatus(s)}
+              onClick={() => pickStatus(s)}
               className={cn(
                 '-mb-px rounded-t-md px-3 py-2 text-sm font-medium',
                 status === s ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
@@ -163,7 +185,7 @@ export function PriceReviewSection() {
               key={a}
               type="button"
               aria-pressed={axis === a}
-              onClick={() => setAxis(a)}
+              onClick={() => pickAxis(a)}
               className={cn(
                 'min-h-[44px] px-3 font-mono text-[11px] uppercase tracking-[0.06em] sm:min-h-0 sm:py-2',
                 axis === a
@@ -193,23 +215,52 @@ export function PriceReviewSection() {
           (queue.data.data.length === 0 ? (
             <EmptyState tone={status === 'open' ? 'positive' : 'neutral'} title={t(`empty.${status === 'open' ? 'open' : 'other'}`)} />
           ) : (
-            <ul className="flex flex-col gap-4">
-              {queue.data.data.map((c) => (
-                <li key={c.id}>
-                  <CaseCard
-                    kase={c}
-                    locale={locale}
-                    busyAction={pendingVars?.id === c.id ? pendingVars.action : null}
-                    onAccept={() => resolveMutation.mutate({ id: c.id, action: 'accept' })}
-                    onKeep={() => resolveMutation.mutate({ id: c.id, action: 'keep' })}
-                    onManual={() => {
-                      setManualValue('');
-                      setManualTarget(c);
-                    }}
-                  />
-                </li>
-              ))}
-            </ul>
+            <div className="flex flex-col gap-4">
+              <ul className="flex flex-col gap-4">
+                {queue.data.data.map((c) => (
+                  <li key={c.id}>
+                    <CaseCard
+                      kase={c}
+                      locale={locale}
+                      busyAction={pendingVars?.id === c.id ? pendingVars.action : null}
+                      onAccept={() => resolveMutation.mutate({ id: c.id, action: 'accept' })}
+                      onKeep={() => resolveMutation.mutate({ id: c.id, action: 'keep' })}
+                      onManual={() => {
+                        setManualValue('');
+                        setManualTarget(c);
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+
+              {/* Paginación: usa `total` del servidor para que el dueño llegue a TODOS los casos, no solo a 50. */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-muted" data-testid="price-review-page-info">
+                  {t('page.showing', { from, to, total })}
+                </span>
+                {totalPages > 1 && (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={page <= 1 || queue.isFetching}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft size={16} /> {t('page.prev')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={page >= totalPages || queue.isFetching}
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    >
+                      {t('page.next')} <ChevronRight size={16} />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
           ))}
       </QueryState>
 
