@@ -3991,6 +3991,36 @@ export const mockPriceReviewCases: PriceReviewCaseDTO[] = [
   },
 ];
 
+// Relleno de casos `open` para que la cola supere UNA página (pageSize 50) y el smoke de navegador
+// pueda PAGINAR de verdad en modo mocks (criterio 889). Con los 2 curados `open` de arriba, 49 rellenos
+// ⇒ 51 abiertos: página 1 = 50 (incl. prc-1 ×55 y prc-2 sin base), página 2 = `prc-f-49`. Uno de ellos
+// (`prc-f-zero`) llega con propuesto $0 para ejercer la defensa de la condición E. ⛔ No tocar los curados.
+const PRICE_REVIEW_FILLER: PriceReviewCaseDTO[] = Array.from({ length: 49 }, (_, i) => {
+  const n = i + 1;
+  const zero = n === 25; // uno a mitad de la primera página con propuesto $0 (condición E)
+  return {
+    id: n === 49 ? 'prc-f-49' : zero ? 'prc-f-zero' : `prc-f-${n}`,
+    card: { id: `c-f-${n}`, name: `Pikachu ${n}`, setName: 'Base Set', number: String(n) },
+    finish: 'normal',
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    cardProductId: `cp-f-${n}`,
+    axis: 'sell',
+    proposedMxnCents: zero ? 0 : 300_00 + n * 100,
+    baselineMxnCents: 100_00,
+    jumpFactorMilli: zero ? 0 : 6_000,
+    sourceCount: 1,
+    familyCount: 1,
+    consensus: false,
+    quotes: [
+      { source: 'tcgdex', family: 'tcgplayer', priceMxnCents: zero ? 0 : 300_00 + n * 100, capturedDate: '2026-10-11', stale: zero },
+    ],
+    status: 'open',
+    createdAt: '2026-10-11T05:00:00Z',
+  };
+});
+mockPriceReviewCases.push(...PRICE_REVIEW_FILLER);
+
 export function getMockPriceReviewQueue(
   status?: PriceReviewStatus,
   axis?: PriceAxis,

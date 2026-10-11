@@ -21630,3 +21630,32 @@ ficheros tocados sin avisos; `PriceReviewSection.test.tsx` 8/8; suite vitest com
 avisos; `PriceReviewSection.test.tsx` **11/11** (incluye «pasa a la página 2 y llega al caso 51») + `i18n-parity`
 **45/45**. Suite vitest completa: **4318 passed | 10 skipped (332 files), exit 0**. La E2E con el stack levantado
 NO se ejecutó aquí: NO MEDIDO por mí; es del gate de QA.
+
+### §116.2 · Defensa de la condición E (propuesto $0) + smoke Playwright del criterio 889 (techlead/QA; HEAD `579e9025`)
+
+**1. Condición E — money-safe (techlead).** Un `PriceReviewCase` puede llegar con `proposedMxnCents === 0` (la
+carta perdió todas sus cotizaciones frescas pero tenía precio previo). «Aceptar» escribiría un precio $0 en la
+tienda. El backend añade el candado en servidor (422); aquí la **defensa de UI**: en `PriceReviewSection.tsx` el
+botón «Aceptar» se **deshabilita cuando `proposedMxnCents === 0`** (`=== 0` exacto; un propuesto legítimo > 0 no
+se toca), con ayuda `actions.helpZeroProposed` («Sin precio de mercado… usa Conservar o Precio a mano»). Conservar
+y Precio a mano quedan vivos. Dos pruebas de componente lo cubren (propuesto 0 ⇒ deshabilitado; propuesto 1 ⇒
+habilitado). i18n es/en.
+
+**2. Smoke Playwright (criterio 889), `frontend/e2e/price-review.spec.ts`.** Reparto mock↔real, como `admin-fx` y
+`m4-preparation`:
+- **`mockOnly`** — el smoke completo del dueño: login `super_admin` → `/es/admin/m10` → sección «Precios por
+  revisar» → ve `prc-1` (Gengar, propuesto MX$5,500, base MX$100, salto ×55, fuente `cardmarket`, cotización
+  «vieja») → ve la defensa $0 (`prc-f-zero` con «Aceptar» deshabilitado) → **pagina** (Siguiente → `prc-f-49` en la
+  página 2, «Mostrando 51–51 de 51»; Anterior vuelve) → **resuelve** Aceptar + Conservar + Precio a mano (monto
+  > 0). Depende de la cola de `src/lib/mock/fixtures.ts`; en real las resoluciones escribirían precios.
+- **`@real` / `realOnly`** — el `409` de doble resolución: intercepta `GET …/review-queue` (un caso `open` canned,
+  sin depender del seed) y `POST …/resolve` → 409, y afirma el aviso «ya se resolvió». Va bajo `realOnly` **por la
+  misma razón que `m4-preparation` `PR-11..16`**: la corrida de mocks no emite red ⇒ no hay respuesta que
+  interceptar. La forma del 409 está cubierta determinista en el test de componente.
+- Para que exista una segunda página en modo mocks, `fixtures.ts` siembra **49 casos `open` de relleno** (con los 2
+  curados ⇒ 51 abiertos); uno (`prc-f-zero`) con propuesto $0 para ejercer la defensa. ⛔ No toca los 3 curados.
+
+**Medido por mí (2026-10-11, sobre `579e9025`):** `tsc --noEmit` limpio; `next lint` sin avisos; `eslint` del spec
+sin avisos; `PriceReviewSection.test.tsx` **13/13** + `i18n-parity` **45/45**; suite vitest completa **4320 passed
+| 10 skipped (332 files), exit 0**; Playwright `price-review.spec.ts` en **modo mocks (dev server)**: **1 passed, 1
+skipped (el `@real`), exit 0**. El pase `@real` del 409 NO lo corrí aquí (no hay stack): es del gate de QA.

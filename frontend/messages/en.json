@@ -4960,6 +4960,7 @@
           "manual": "Set by hand",
           "help": "Accept publishes {proposed}. Keep leaves the current price ({baseline}). Set by hand uses whatever amount you type.",
           "helpNoBaseline": "Accept publishes {proposed}. This card had no previous healthy price. Set by hand uses whatever amount you type.",
+          "helpZeroProposed": "No market price (it dropped to $0): use \"Keep\" or \"Set by hand\". A $0 price can't be accepted.",
           "audit": "Who resolved it and when is recorded."
         },
         "resolved": "Resolved: {action} · by {who} · {when}",

@@ -148,6 +148,26 @@ describe('§PRE · Precios por revisar', () => {
     expect(await screen.findByText('No hay precios por revisar. Todo está al día.')).toBeInTheDocument();
   });
 
+  it('💰 condición E — propuesto $0 deshabilita «Aceptar» (defensa money-safe) y deja Conservar/Precio a mano', async () => {
+    serve([{ ...OPEN_CASE, id: 'prc-z', proposedMxnCents: 0, baselineMxnCents: 10000 }]);
+    renderWithProviders(<PriceReviewSection />, 'es');
+    const kase = await screen.findByTestId('price-review-case-prc-z');
+    // «Aceptar» publicaría $0 ⇒ deshabilitado.
+    expect(within(kase).getByTestId('price-review-accept-prc-z')).toBeDisabled();
+    // Las salidas sensatas siguen vivas.
+    expect(within(kase).getByRole('button', { name: /Conservar/ })).toBeEnabled();
+    expect(within(kase).getByRole('button', { name: /Precio a mano/ })).toBeEnabled();
+    // Y lo explica.
+    expect(within(kase).getByText(/Sin precio de mercado/)).toBeInTheDocument();
+  });
+
+  it('propuesto > 0 deja «Aceptar» habilitado (la defensa es `=== 0` exacto)', async () => {
+    serve([{ ...OPEN_CASE, id: 'prc-ok', proposedMxnCents: 1 }]);
+    renderWithProviders(<PriceReviewSection />, 'es');
+    const kase = await screen.findByTestId('price-review-case-prc-ok');
+    expect(within(kase).getByTestId('price-review-accept-prc-ok')).toBeEnabled();
+  });
+
   it('un caso ya resuelto no ofrece acciones, muestra quién y cuándo', async () => {
     serve(
       [

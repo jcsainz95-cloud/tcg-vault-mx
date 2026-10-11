@@ -345,6 +345,8 @@ function CaseCard({
   const t = useTranslations('admin.m10.priceReview');
   const busy = busyAction !== null;
   const isOpen = kase.status === 'open';
+  // 💰 Condición E: propuesto MX$0 ⇒ «Aceptar» publicaría $0. Defensa de UI (el backend ya da 422).
+  const zeroProposed = kase.proposedMxnCents === 0;
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4" data-testid={`price-review-case-${kase.id}`}>
@@ -430,7 +432,17 @@ function CaseCard({
       {isOpen ? (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" disabled={busy} loading={busyAction === 'accept'} onClick={onAccept}>
+            {/* 💰 Condición E (money-safe): con propuesto MX$0 (la carta perdió todas sus cotizaciones
+                frescas) «Aceptar» escribiría un precio $0 en la tienda. El backend lo rechaza (422);
+                aquí la DEFENSA de UI deshabilita el botón. Las salidas sensatas son Conservar o
+                Precio a mano. ⛔ `=== 0` exacto: un propuesto legítimo > 0 no se toca. */}
+            <Button
+              size="sm"
+              disabled={busy || zeroProposed}
+              loading={busyAction === 'accept'}
+              onClick={onAccept}
+              data-testid={`price-review-accept-${kase.id}`}
+            >
               <Check size={16} /> {t('actions.accept')}
             </Button>
             <Button size="sm" variant="secondary" disabled={busy} loading={busyAction === 'keep'} onClick={onKeep}>
@@ -441,12 +453,14 @@ function CaseCard({
             </Button>
           </div>
           <p className="max-w-[70ch] text-xs text-muted">
-            {kase.baselineMxnCents === null
-              ? t('actions.helpNoBaseline', { proposed: formatMoneyCents(kase.proposedMxnCents, locale) })
-              : t('actions.help', {
-                  proposed: formatMoneyCents(kase.proposedMxnCents, locale),
-                  baseline: formatMoneyCents(kase.baselineMxnCents, locale),
-                })}
+            {zeroProposed
+              ? t('actions.helpZeroProposed')
+              : kase.baselineMxnCents === null
+                ? t('actions.helpNoBaseline', { proposed: formatMoneyCents(kase.proposedMxnCents, locale) })
+                : t('actions.help', {
+                    proposed: formatMoneyCents(kase.proposedMxnCents, locale),
+                    baseline: formatMoneyCents(kase.baselineMxnCents, locale),
+                  })}
           </p>
           <p className="font-mono text-[11px] text-muted">{t('actions.audit')}</p>
         </div>

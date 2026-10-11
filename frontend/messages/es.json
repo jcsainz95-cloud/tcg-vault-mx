@@ -4960,6 +4960,7 @@
           "manual": "Precio a mano",
           "help": "Aceptar publica {proposed}. Conservar deja el precio actual ({baseline}). Precio a mano fija el valor que tú escribas.",
           "helpNoBaseline": "Aceptar publica {proposed}. Esta carta no tenía un precio sano previo. Precio a mano fija el valor que tú escribas.",
+          "helpZeroProposed": "Sin precio de mercado (quedó en $0): usa «Conservar» o «Precio a mano». No se puede aceptar un precio de $0.",
           "audit": "Queda registrado quién resolvió y cuándo."
         },
         "resolved": "Resuelto: {action} · por {who} · {when}",
