@@ -25,6 +25,9 @@ import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provide
 // resto de clientes de este módulo — no crea ciclo con CatalogModule).
 import { TcgcsvCatalogClient } from './providers/tcgcsv-singles.provider';
 import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
+// v1.91⟨precios⟩ (M-75, §PRE.A): provider REAL de TCGdex (tcgdex USD + cardmarket EUR) + su cliente HTTP.
+import { TcgdexHttpClient } from './providers/tcgdex-http.client';
+import { TcgdexBulkProvider } from './providers/tcgdex-bulk.provider';
 // WS-A fix-ppt (2026-08-19): cliente HTTP con throttle + resolvedor de `CardSet.pptSetId`.
 import { PptApiClient } from './providers/ppt-api.client';
 import { PptSetMapper } from './ppt-set-mapper.service';
@@ -72,6 +75,9 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
     // v1.44 (P-47, §4.35): provider primario de singles por-acabado + su cliente TCGCSV.
     TcgcsvCatalogClient,
     TcgcsvSinglesBulkPriceProvider,
+    // v1.91⟨precios⟩ (M-75, §PRE.A): TCGdex (árbitro de mediana — familias tcgplayer + cardmarket).
+    TcgdexHttpClient,
+    TcgdexBulkProvider,
     PriceIngestService,
     PriceIngestJobService,
     // v1.19-sealed-tcgcsv (§4.19): adapter + ingest + curación del mapeo + su job (mismo

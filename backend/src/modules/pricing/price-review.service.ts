@@ -152,6 +152,35 @@ export class PriceReviewService {
   }
 
   /**
+   * v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875) — GATE DE COMPRA: ¿qué variantes RAW (set_base,
+   * `cardProductId=null`) tienen caso `open`? Devuelve claves en formato `variantKey`
+   * (`cardId|productType|gradeKey|finish`) para que el cotizador de compra las ponga en «precio
+   * pendiente» (misma forma que §BMK.3) y NUNCA pague sobre un valor que el candado detuvo. 💰 DINERO.
+   */
+  async openCaseVariantKeySet(
+    keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Set<string>> {
+    const out = new Set<string>();
+    if (keys.length === 0) return out;
+    const rows = await this.prisma.priceReviewCase.findMany({
+      where: {
+        status: PriceReviewStatus.open,
+        OR: keys.map((k) => ({
+          cardId: k.cardId,
+          productType: k.productType,
+          gradeKey: k.gradeKey,
+          finish: k.finish,
+          cardProductId: null,
+          sealedProductId: null,
+        })),
+      },
+      select: { cardId: true, productType: true, gradeKey: true, finish: true },
+    });
+    for (const r of rows) out.add(`${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`);
+    return out;
+  }
+
+  /**
    * `GET /admin/pricing/review-queue` — read-only, paginado. `status` ya viene parseado (vacío ⇒ `open`,
    * CLASE E) y `axis` opcional. Respuesta `{ data, total, counts: { open } }` (§PRE.E).
    */

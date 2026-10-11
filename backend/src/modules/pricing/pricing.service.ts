@@ -89,6 +89,18 @@ import {
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
 import { variantKey } from '../../common/variant-key';
+// v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)(b)): árbitro de mediana que ENVUELVE la lectura.
+import {
+  resolveRobustMarket,
+  ArbiterCandidate,
+  ArbiterDials,
+  DEFAULT_PRICE_ARBITER_FRESHNESS_DAYS,
+  DEFAULT_PRICE_ARBITER_SOURCES,
+  DEFAULT_PRICE_CONSENSUS_TOLERANCE_PCT,
+  validatePriceArbiterFreshnessDays,
+  validatePriceConsensusTolerancePct,
+  validatePriceArbiterSources,
+} from '../../common/robust-market';
 
 function today(): Date {
   const d = new Date();
@@ -720,6 +732,133 @@ export class PricingService {
   }
 
   /**
+   * v1.91⟨precios⟩ (M-75, §PRE.B/G) — DIALES del árbitro de mediana, leídos de `ConfigSetting`, con
+   * fallback SEGURO al seed (mismo patrón money-safe que `fxSnapshotSafe`: una lectura de dial que falla
+   * o trae basura NO rompe la valuación; cae al seed, que ES el valor canónico del contrato). El
+   * resultado gobierna QUÉ fuentes votan la mediana, la ventana de frescura y la tolerancia de consenso.
+   */
+  async loadArbiterDialsSafe(): Promise<ArbiterDials> {
+    const read = async <T>(key: SettingKeyType, validate: (v: unknown) => string | null, seed: T): Promise<T> => {
+      try {
+        const raw = await this.settings.getRaw(key);
+        return validate(raw) === null ? (raw as T) : seed;
+      } catch {
+        return seed;
+      }
+    };
+    const freshnessDays = await read<number>(
+      SettingKey.PRICE_ARBITER_FRESHNESS_DAYS,
+      validatePriceArbiterFreshnessDays,
+      DEFAULT_PRICE_ARBITER_FRESHNESS_DAYS,
+    );
+    const consensusTolerancePct = await read<number>(
+      SettingKey.PRICE_CONSENSUS_TOLERANCE_PCT,
+      validatePriceConsensusTolerancePct,
+      DEFAULT_PRICE_CONSENSUS_TOLERANCE_PCT,
+    );
+    const admittedSources = await read<readonly string[]>(
+      SettingKey.PRICE_ARBITER_SOURCES,
+      validatePriceArbiterSources,
+      DEFAULT_PRICE_ARBITER_SOURCES,
+    );
+    return { freshnessDays, consensusTolerancePct, admittedSources };
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)) — EL ÁRBITRO DE MEDIANA que ENVUELVE la
+   * lectura, para UN conjunto de filas candidatas de UNA clave de variante. 💰 DINERO.
+   *
+   * Reglas (money-safe, invariante de compatibilidad legada):
+   *  - **Override manual (tier 0) INTACTO:** el llamador decide esto ANTES (si la mejor fila es manual,
+   *    NO llama aquí). El árbitro solo arbitra el tier automático.
+   *  - Vota cada fila de una fuente ADMITIDA (dial), con su `priceMxnCents` ya en MXN VIVO (`liveMxnCents`).
+   *    ⛔ `pokemontcg_io`/`pokemonpricetracker`/`manual` NUNCA votan (criterio 883; defensa en profundidad
+   *    dentro de `resolveRobustMarket`).
+   *  - Si hay ≥1 fresca admitida ⇒ devuelve la MEDIANA (centavos). Si NO hay ninguna ⇒ `null` ⇒ el
+   *    llamador CONSERVA la lectura legada (`isBetterRef`), que es el último recurso (§PRE (f)).
+   *
+   * Invariante legada: HOY, por variante, la ÚNICA fuente admitida con fila suele ser `tcgcsv_singles`
+   * (una fila) ⇒ mediana de una = esa fila = IDÉNTICO a `isBetterRef`. El número solo CAMBIA cuando
+   * entra una 2ª fuente admitida (tcgdex/cardmarket), que es la capacidad nueva — y ahí excluye el
+   * residuo aplanado que causaba el bug (§PRE.0).
+   */
+  robustMarketForRows(
+    rows: { source: string; priceMxnCents: number; priceUsdCents: number | null; isManualOverride: boolean; capturedDate: Date }[],
+    dials: ArbiterDials,
+    fx: { rate: number; bufferPct: number } | null,
+    nowIso: string,
+  ): { referenceMxnCents: number; source: string; capturedDate: string } | null {
+    const candidates: ArbiterCandidate[] = rows
+      .filter((r) => !(r.isManualOverride || r.source === 'manual'))
+      .map((r) => ({
+        source: r.source,
+        priceMxnCents: this.liveMxnCents(r, fx),
+        capturedDate: r.capturedDate.toISOString().slice(0, 10),
+      }));
+    const robust = resolveRobustMarket(candidates, dials, nowIso);
+    if (robust.robustMarketMxnCents == null || robust.medianSource == null || robust.freshestCapturedDate == null) {
+      return null;
+    }
+    return {
+      referenceMxnCents: robust.robustMarketMxnCents,
+      source: robust.medianSource,
+      capturedDate: robust.freshestCapturedDate,
+    };
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE.C / ARCHITECTURE §4.PRE (c)) — DETALLE del árbitro por variante para el
+   * CANDADO del barrido/reconcile: devuelve por clave el `RobustResult` de HOY y la `baseline` (último
+   * valor SANO de mercado ANTES de hoy). 💰 DINERO. El candado (`decideLock`) decide publicar-auto vs
+   * abrir caso con estos dos números.
+   *
+   * **baseline** = la mediana robusta de las cotizaciones admitidas con `capturedDate < hoy` (el valor
+   * que la tienda servía ANTES del barrido de hoy). `null` ⇒ la variante nunca tuvo valor sano (set
+   * nuevo) ⇒ sin base contra qué medir el salto (§4.PRE (c)).
+   */
+  async arbiterDetailForKeys(
+    keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Map<string, { result: ReturnType<typeof resolveRobustMarket>; baselineMxnCents: number | null }>> {
+    const out = new Map<string, { result: ReturnType<typeof resolveRobustMarket>; baselineMxnCents: number | null }>();
+    if (keys.length === 0) return out;
+    const dials = await this.loadArbiterDialsSafe();
+    const fx = await this.fxSnapshotSafe();
+    const nowIso = new Date().toISOString().slice(0, 10);
+    const wanted = new Set(keys.map((k) => variantKey(k)));
+    const rows = await this.prisma.priceReference.findMany({
+      where: {
+        cardId: { in: [...new Set(keys.map((k) => k.cardId))] },
+        productType: { in: [...new Set(keys.map((k) => k.productType))] },
+        gradeKey: { in: [...new Set(keys.map((k) => k.gradeKey))] },
+        finish: { in: [...new Set(keys.map((k) => k.finish))] },
+        isManualOverride: false,
+        source: { in: dials.admittedSources as PriceSource[] },
+        ...MONEY_REF_WHERE,
+      },
+      orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT,
+    });
+    const byKey = new Map<string, (typeof rows)[number][]>();
+    for (const r of rows) {
+      const k = variantKey(r);
+      if (!wanted.has(k)) continue;
+      const arr = byKey.get(k);
+      if (arr) arr.push(r);
+      else byKey.set(k, [r]);
+    }
+    for (const [k, krows] of byKey) {
+      const toCand = (rs: (typeof rows)[number][]): ArbiterCandidate[] =>
+        rs.map((r) => ({ source: r.source, priceMxnCents: this.liveMxnCents(r, fx), capturedDate: r.capturedDate.toISOString().slice(0, 10) }));
+      const result = resolveRobustMarket(toCand(krows), dials, nowIso);
+      // baseline = robusto de las cotizaciones de ANTES de hoy (el valor sano previo al barrido).
+      const prior = krows.filter((r) => r.capturedDate.toISOString().slice(0, 10) < nowIso);
+      const baseline = prior.length > 0 ? resolveRobustMarket(toCand(prior), dials, nowIso).robustMarketMxnCents : null;
+      out.set(k, { result, baselineMxnCents: baseline });
+    }
+    return out;
+  }
+
+  /**
    * v1.x-fx-live — Convierte UNA fila `PriceReference` al MXN VIGENTE.
    *
    * Regla de distinción "referencia de mercado viva" vs "precio histórico/aceptado":
@@ -923,19 +1062,37 @@ export class PricingService {
     // v1.29: agrupa por clave y elige la MEJOR fila por precedencia (override > tcgcsv_singles > PPT),
     // no simplemente «la primera del orden desc» (que podía mezclar fuentes del mismo día).
     const bestByKey = new Map<string, (typeof rows)[number]>();
+    // v1.91⟨precios⟩ (M-75, §PRE.B): TODAS las filas por clave para el ÁRBITRO DE MEDIANA.
+    const rowsByKey = new Map<string, (typeof rows)[number][]>();
     for (const r of rows) {
       const k = keyOf(r);
       if (!wanted.has(k)) continue;
       const cur = bestByKey.get(k);
       if (cur == null || isBetterRef(r, cur)) bestByKey.set(k, r);
+      const arr = rowsByKey.get(k);
+      if (arr) arr.push(r);
+      else rowsByKey.set(k, [r]);
     }
+    // v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)): la mediana ENVUELVE al ranking. Override
+    // manual (tier 0) gana ABSOLUTO (no se arbitra). Si no, el valor pasa a ser la MEDIANA de las fuentes
+    // admitidas frescas por familia — que EXCLUYE el residuo aplanado (pokemontcg_io/PPT) que coronaba
+    // cuando la primaria tenía hueco (§PRE.0). Sin fuente admitida fresca ⇒ se conserva la lectura legada.
+    const arbiterDials = await this.loadArbiterDialsSafe();
+    const nowIso = new Date().toISOString().slice(0, 10);
     for (const [k, r] of bestByKey) {
-      map.set(k, {
-        status: 'priced',
-        referenceMxnCents: this.liveMxnCents(r, fx),
-        source: r.source as PriceSourceStr,
-        capturedDate: r.capturedDate.toISOString().slice(0, 10),
-      });
+      const isManual = r.isManualOverride || r.source === 'manual';
+      const robust = isManual ? null : this.robustMarketForRows(rowsByKey.get(k) ?? [r], arbiterDials, fx, nowIso);
+      map.set(
+        k,
+        robust != null
+          ? { status: 'priced', referenceMxnCents: robust.referenceMxnCents, source: robust.source as PriceSourceStr, capturedDate: robust.capturedDate }
+          : {
+              status: 'priced',
+              referenceMxnCents: this.liveMxnCents(r, fx),
+              source: r.source as PriceSourceStr,
+              capturedDate: r.capturedDate.toISOString().slice(0, 10),
+            },
+      );
     }
     return map;
   }
@@ -974,6 +1131,8 @@ export class PricingService {
     });
     const fx = await this.fxSnapshotSafe();
     const bestByKey = new Map<string, (typeof rows)[number]>();
+    // v1.91⟨precios⟩ (M-75, §PRE.B): TODAS las filas por clave para el árbitro (productos SEPARADOS).
+    const rowsByKey = new Map<string, (typeof rows)[number][]>();
     for (const r of rows) {
       if (r.cardProductId == null) continue; // defensivo: el `where` ya lo impide.
       const k = cardProductRefKey({
@@ -985,14 +1144,26 @@ export class PricingService {
       if (!wanted.has(k)) continue;
       const cur = bestByKey.get(k);
       if (cur == null || isBetterRef(r, cur)) bestByKey.set(k, r);
+      const arr = rowsByKey.get(k);
+      if (arr) arr.push(r);
+      else rowsByKey.set(k, [r]);
     }
+    const arbiterDials = await this.loadArbiterDialsSafe();
+    const nowIso = new Date().toISOString().slice(0, 10);
     for (const [k, r] of bestByKey) {
-      map.set(k, {
-        status: 'priced',
-        referenceMxnCents: this.liveMxnCents(r, fx),
-        source: r.source as PriceSourceStr,
-        capturedDate: r.capturedDate.toISOString().slice(0, 10),
-      });
+      const isManual = r.isManualOverride || r.source === 'manual';
+      const robust = isManual ? null : this.robustMarketForRows(rowsByKey.get(k) ?? [r], arbiterDials, fx, nowIso);
+      map.set(
+        k,
+        robust != null
+          ? { status: 'priced', referenceMxnCents: robust.referenceMxnCents, source: robust.source as PriceSourceStr, capturedDate: robust.capturedDate }
+          : {
+              status: 'priced',
+              referenceMxnCents: this.liveMxnCents(r, fx),
+              source: r.source as PriceSourceStr,
+              capturedDate: r.capturedDate.toISOString().slice(0, 10),
+            },
+      );
     }
     return map;
   }
@@ -1070,22 +1241,36 @@ export class PricingService {
     });
     // Mejor fila por (cardProductId, finish) según precedencia §4.27f.
     const bestByPf = new Map<string, RefRow>();
+    // v1.91⟨precios⟩ (M-75, §PRE.B): TODAS las filas por clave para el árbitro de mediana.
+    const rowsByPf = new Map<string, RefRow[]>();
     for (const r of refs) {
       const k = `${r.cardProductId}|${r.finish}`;
       const cur = bestByPf.get(k);
       if (cur == null || isBetterRef(r, cur)) bestByPf.set(k, r);
+      const arr = rowsByPf.get(k);
+      if (arr) arr.push(r);
+      else rowsByPf.set(k, [r]);
     }
     const fx = await this.fxSnapshotSafe();
+    const arbiterDials = await this.loadArbiterDialsSafe();
+    const nowIso = new Date().toISOString().slice(0, 10);
 
     for (const p of products) {
       const prices = (p.finishes as Finish[]).map((finish) => {
-        const r = bestByPf.get(`${p.id}|${finish}`);
+        const k = `${p.id}|${finish}`;
+        const r = bestByPf.get(k);
         const priced = r != null && r.priceMxnCents > 0;
-        return {
-          finish,
-          marketReferenceMxnCents: priced ? this.liveMxnCents(r as RefRow, fx) : null,
-          capturedDate: priced ? (r as RefRow).capturedDate.toISOString().slice(0, 10) : null,
-        };
+        if (!priced) return { finish, marketReferenceMxnCents: null, capturedDate: null };
+        // §PRE.B: override manual (tier 0) intacto; si no, la MEDIANA robusta (excluye residuo aplanado).
+        const isManual = r!.isManualOverride || r!.source === 'manual';
+        const robust = isManual ? null : this.robustMarketForRows(rowsByPf.get(k) ?? [r as RefRow], arbiterDials, fx, nowIso);
+        return robust != null
+          ? { finish, marketReferenceMxnCents: robust.referenceMxnCents, capturedDate: robust.capturedDate }
+          : {
+              finish,
+              marketReferenceMxnCents: this.liveMxnCents(r as RefRow, fx),
+              capturedDate: (r as RefRow).capturedDate.toISOString().slice(0, 10),
+            };
       });
       const info: CardProductInfo = {
         productId: p.tcgplayerProductId,
@@ -2383,6 +2568,87 @@ export class PricingService {
         },
       });
     }
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE.A / ARCHITECTURE §4.PRE (e)) — ESCRITOR DE UNA FUENTE DE ÁRBITRO
+   * (`tcgdex`/`cardmarket`). 💰 DINERO: estas filas VOTAN la mediana.
+   *
+   * ⚠️ **Por qué NO reusa `persistMarketReference`.** Aquél mantiene UNA serie por
+   * `(cardId,productType,gradeKey,finish,cardProductId)` SIN mirar `source` (write-on-change con
+   * último-escritor-gana): escribir `tcgdex` y `cardmarket` por ahí haría que el segundo PISARA al
+   * primero y el árbitro vería UNA sola familia. Aquí la serie se lleva **por FUENTE** (el `findFirst`
+   * filtra `source`), así que ambas fuentes COEXISTEN en `cardProductId=null` — Postgres trata los NULL
+   * como DISTINTOS en la `@@unique`, así que no colisionan (criterio medido 2026-10-11). ⛔ NO cambia la
+   * FORMA de `PriceReference` (§PRE.H): solo añade filas con los dos valores nuevos de `source`.
+   *
+   * - `tcgdex` (USD): persiste `priceUsdCents` + `fxRate`/`fxBufferPct` ⇒ la lectura recomputa FX VIVA
+   *   (`liveMxnCents`), igual que `tcgcsv_singles`.
+   * - `cardmarket` (EUR): persiste `priceMxnCents` horneado y `priceUsdCents=null` ⇒ CONGELADO (no hay
+   *   serie EUR viva; el provider ya convirtió con la tasa EUR del día).
+   *
+   * NO toca el override manual de la variante (vive como fila `source='manual'`, otra serie) ni le
+   * avanza evidencia. Write-on-change intra-día por valor (evita filas basura diarias).
+   */
+  async persistArbiterReference(row: {
+    source: 'tcgdex' | 'cardmarket';
+    cardId: string;
+    finish: Finish;
+    productType: ProductType;
+    gradeKey: string;
+    marketCents: number;
+    currency: 'USD' | 'EUR';
+    priceMxnCents: number;
+    capturedDate: string; // 'YYYY-MM-DD'
+    cardProductId?: string | null;
+    fxRate?: number | null;
+    fxBufferPct?: number | null;
+  }): Promise<void> {
+    const cardProductId = row.cardProductId ?? null;
+    if (!(row.priceMxnCents > 0)) return; // money-safe: nunca una fila de mercado en 0/negativo.
+    const capturedDate = new Date(`${row.capturedDate}T00:00:00.000Z`);
+    if (!Number.isFinite(capturedDate.getTime())) return;
+    const isUsd = row.currency === 'USD';
+    const priceUsdCents = isUsd ? row.marketCents : null;
+    const fxRate = isUsd ? (row.fxRate ?? null) : null;
+    const fxBufferPct = isUsd ? (row.fxBufferPct ?? null) : null;
+
+    // Serie POR FUENTE (incluye `source` en el where — la diferencia con persistMarketReference).
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (árbitro), no de candidatas.
+    const current = await this.prisma.priceReference.findFirst({
+      where: { cardId: row.cardId, productType: row.productType, gradeKey: row.gradeKey, finish: row.finish, cardProductId, source: row.source },
+      orderBy: { capturedDate: 'desc' },
+      select: { id: true, capturedDate: true, priceUsdCents: true, priceMxnCents: true, fxBufferPct: true, refKind: true },
+    });
+
+    const data = {
+      source: row.source as PriceSourceStr,
+      priceUsdCents,
+      fxRate,
+      fxBufferPct,
+      priceMxnCents: row.priceMxnCents,
+      isManualOverride: false,
+      refKind: PriceRefKind.market,
+      evidenceDate: capturedDate,
+    };
+
+    // Mismo valor y misma fila de HOY ⇒ nada que hacer (idempotente intra-día). Mismo valor fila vieja
+    // ⇒ se escribe la del día (write-on-change avanza la serie). Valor nuevo ⇒ update si es de hoy, si no create.
+    if (current != null && current.capturedDate.getTime() === capturedDate.getTime()) {
+      await this.prisma.priceReference.update({ where: { id: current.id }, data });
+      return;
+    }
+    await this.prisma.priceReference.create({
+      data: {
+        cardId: row.cardId,
+        productType: row.productType,
+        gradeKey: row.gradeKey,
+        finish: row.finish,
+        capturedDate,
+        ...(cardProductId != null ? { cardProductId } : {}),
+        ...data,
+      },
+    });
   }
 
   /**

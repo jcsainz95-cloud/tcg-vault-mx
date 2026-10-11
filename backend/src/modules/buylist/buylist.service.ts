@@ -18,6 +18,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { cardProductRefKey, PricingService } from '../pricing/pricing.service';
+// v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875): gate de COMPRA sobre casos de revisión abiertos.
+import { PriceReviewService } from '../pricing/price-review.service';
 import { bountyRemainingQty } from '../pricing/bounty-progress';
 import { publicPtcgoCode, toCardDTO } from '../catalog/catalog.service';
 import { SettingsService } from '../settings/settings.service';
@@ -782,6 +784,11 @@ export class BuylistService implements OnModuleInit {
     // token, sin importar `ShipmentsModule`). `@Optional()` por los unitarios que construyen a mano: sin él la guía queda
     // SELLADA para cancelarse y la regla 10 del barrido abre la tarea a la hora.
     @Optional() private readonly moduleRef?: ModuleRef,
+    // v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875): cola de revisión del candado. @Optional por los
+    // unitarios que construyen a mano; sin ella el gate de compra NO suprime (no hay casos que leer en
+    // tests), en DI real SIEMPRE se inyecta (exportada por PricingModule). Best-effort money-safe: su
+    // fallo NO tumba la cotización (el valor ya es la MEDIANA ROBUSTA, que excluye el residuo inflado).
+    @Optional() private readonly priceReview?: PriceReviewService,
   ) {}
 
   /**
@@ -1047,7 +1054,26 @@ export class BuylistService implements OnModuleInit {
       key.gradeKey,
       key.finish,
     );
-    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, curve, override, productId);
+    const underReview = await this.underReviewSet([key]);
+    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, curve, override, productId, underReview);
+  }
+
+  /**
+   * v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875) — claves (`variantKey`) de variantes RAW set_base con
+   * caso de revisión ABIERTO. El cotizador de compra NO oferta por ellas (§BMK.3). Sin `priceReview`
+   * (tests que construyen a mano) ⇒ conjunto vacío (no suprime nada). Best-effort: un fallo de lectura
+   * NO tumba la cotización (el valor ya es la mediana robusta, sin el residuo inflado).
+   */
+  private async underReviewSet(
+    keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Set<string>> {
+    if (!this.priceReview || keys.length === 0) return new Set<string>();
+    try {
+      return await this.priceReview.openCaseVariantKeySet(keys);
+    } catch (e) {
+      this.logger.warn(`buylist: gate de revisión de precios falló (${(e as Error).message}); se cotiza con la mediana robusta.`);
+      return new Set<string>();
+    }
   }
 
   /**
@@ -1068,11 +1094,13 @@ export class BuylistService implements OnModuleInit {
     // v1.53 (§4.40.3.3, MONEY): el lote se arma SOLO con las líneas aceptadas. Un ítem `graded`/`sealed`
     // no tiene clave de variante que buscar (su gradeKey no existe sin identidad de grado) y, sobre
     // todo, no puede reventar aquí: eso tumbaría el request entero y con él las demás líneas raw.
-    const overrides = await this.pricing.getVariantOverridesBatch(
-      items
-        .filter((it) => BUYLIST_ACCEPTED_PRODUCT_TYPES.includes(it.productType))
-        .map((it) => this.overrideKeyOf(it)),
-    );
+    const acceptedKeys = items
+      .filter((it) => BUYLIST_ACCEPTED_PRODUCT_TYPES.includes(it.productType))
+      .map((it) => this.overrideKeyOf(it));
+    const overrides = await this.pricing.getVariantOverridesBatch(acceptedKeys);
+    // v1.91⟨precios⟩ (M-75, §PRE.C/5): variantes RAW con caso de revisión ABIERTO ⇒ el candado detuvo su
+    // precio ⇒ NO se oferta por ellas (precio pendiente, §BMK.3). Una query para todo el lote (sin N+1).
+    const underReview = await this.underReviewSet(acceptedKeys);
     const results: BuylistBatchQuoteResult[] = [];
     for (let index = 0; index < items.length; index++) {
       const it = items[index];
@@ -1090,6 +1118,7 @@ export class BuylistService implements OnModuleInit {
           // P-30 H2 (§4.39e): `variantKey()`, NO una interpolación a mano. Ver la nota del import.
           overrides.get(variantKey(k)) ?? null,
           it.productId,
+          underReview,
         );
         results.push({ index, cardId: it.cardId, ok: true, ...payload });
       } catch (e) {
@@ -1153,12 +1182,21 @@ export class BuylistService implements OnModuleInit {
     override?: VariantPriceOverride | null,
     // v1.30 (§4.29): productId TCGplayer. Presente ⇒ la línea es ESE CardProduct separado.
     productId?: number,
+    // v1.91⟨precios⟩ (M-75, §PRE.C/5): claves RAW set_base con caso de revisión abierto (pre-cargadas).
+    underReview?: Set<string>,
   ): Promise<BuylistQuotePayload> {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
     // TODO el dinero de esta respuesta sale del cuerpo compartido; aquí solo se arma el DTO.
     const line = await this.decideBuyLine({ card, productType, rawCondition, finish, curve, override, productId });
-    return this.toQuotePayload(card, line, productId);
+    // v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875): el candado detuvo el precio de esta variante ⇒
+    // «precio pendiente» (misma forma que §BMK.3). Solo set_base (sin productId): el candado abre casos
+    // con `cardProductId=null`. 💰 Nunca se paga sobre un valor que el candado marcó para revisión.
+    const detained =
+      productId == null &&
+      underReview != null &&
+      underReview.has(variantKey({ cardId: card.id, productType, gradeKey: line.gradeKey, finish: line.finish }));
+    return this.toQuotePayload(card, line, productId, detained);
   }
 
   /**
@@ -1272,7 +1310,20 @@ export class BuylistService implements OnModuleInit {
    * READ-ONLY (doctrina v1.12 de endpoints anónimos): reporta `precio_pendiente` SIN escribir en la
    * cola; quien escala sigue siendo `createRequest`.
    */
-  private toQuotePayload(card: Card, line: BuyLineDecision, productId?: number): BuylistQuotePayload {
+  private toQuotePayload(card: Card, line: BuyLineDecision, productId?: number, detained?: boolean): BuylistQuotePayload {
+    // v1.91⟨precios⟩ (M-75, §PRE.C/5): variante con caso de revisión abierto ⇒ se FUERZA «precio
+    // pendiente» (status + referencePrice), reutilizando §BMK.3. El dato crudo (`line`) NO se toca.
+    if (detained) {
+      return {
+        rarity: card.rarity ?? null,
+        finish: line.finish,
+        ...(productId != null ? { productId } : {}),
+        priceBasis: 'pending',
+        quote: { status: 'precio_pendiente' as const, quotedPriceCents: null, currency: 'MXN' as const },
+        referencePrice: { status: 'pending' as const },
+        paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+      };
+    }
     return {
       // `rarity` se conserva como dato INFORMATIVO/de display del catálogo: el monto NO depende de ella.
       rarity: card.rarity ?? null,

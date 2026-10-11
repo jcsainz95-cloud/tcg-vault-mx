@@ -388,7 +388,10 @@ describe('§4.39e — P-30 H2: `buylist` deja de interpolar la llave canónica a
     // código.
     // v1.51 (ciclo de oferta): el seam en LOTE que comparten la mesa y la emisión añade un séptimo
     // consumidor —el lookup del override por línea—, y **usa el helper**. Censo, no tope.
-    expect((buylist?.text.match(/variantKey\(/g) ?? []).length).toBe(7);
+    // v1.91⟨precios⟩ (M-75, §PRE.C/5): el GATE DE COMPRA sobre casos de revisión abiertos añade un
+    // OCTAVO consumidor —la clave de la variante detenida en `quoteCardForFinish`—, y **usa el helper**.
+    // Censo, no tope (el invariante real —cero interpolaciones a mano— es el test de arriba, intacto).
+    expect((buylist?.text.match(/variantKey\(/g) ?? []).length).toBe(8);
   });
 
   it('la POSICIÓN se llavea con `variantPositionKey()` — la canónica MÁS la identidad de producto', () => {
