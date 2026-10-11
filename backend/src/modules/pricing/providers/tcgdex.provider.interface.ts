@@ -1,15 +1,14 @@
 /**
  * tcgdex.provider.interface.ts — v1.91⟨precios⟩ (M-75, §PRE.A / ARCHITECTURE §4.PRE (e)) — CONTRATO del
- * provider de TCGdex, DIFERIDO.
+ * provider de TCGdex.
  *
- * ⛔ IMPLEMENTACIÓN DIFERIDA (BACKEND_NOTES §91): la FORMA exacta de la API de TCGdex (`holo` vs
- * `holofoil`, dónde vive `marketPrice`, el EUR de Cardmarket) está SIN CONFIRMAR y este contenedor NO
- * alcanza `api.tcgdex.net`. El orquestador está pidiendo al dueño abrir el dominio para medir la forma.
+ * ✅ IMPLEMENTADO (2026-10-11, egress abierto; forma CONFIRMADA contra `api.tcgdex.net`, fixtures en
+ * `test/fixtures/tcgdex/`). El provider real vive en `tcgdex-bulk.provider.ts` (cliente HTTP
+ * `tcgdex-http.client.ts` + parser `tcgdex-shape.ts` + mapper `tcgdex-set-mapper.ts`).
  *
  * Esta interfaz es lo que el RESTO del código (árbitro de mediana + candado) espera que el provider
- * ESCRIBA, para poder construir el árbitro YA y probarlo con FIXTURES (ver `common/robust-market.spec.ts`
- * y `price-review.service.spec.ts`). Cuando el dominio se abra y se confirme la forma, el provider real
- * se construye contra ESTA interfaz sin tocar el árbitro.
+ * ESCRIBA. El árbitro se probó con FIXTURES con esta forma (ver `common/robust-market.spec.ts` y
+ * `tcgdex-bulk.provider.spec.ts`).
  *
  * Lo que el provider debe garantizar al escribir filas `PriceReference`:
  *  - `source` ∈ {`tcgdex`, `cardmarket`} — las dos ÚNICAS fuentes nuevas que votan el árbitro.
@@ -36,9 +35,13 @@ export interface TcgdexPriceRow {
   source: 'tcgdex' | 'cardmarket';
   cardId: string;
   finish: Finish;
-  /** Entero MXN FX-horneado (ya convertido por Banxico). */
+  /** Importe en la moneda del sub-feed, CENTAVOS enteros (USD¢ para tcgdex, EUR¢ para cardmarket). */
+  marketCents: number;
+  /** 'USD' (tcgdex) o 'EUR' (cardmarket). Define cómo hornea FX el escritor (USD recomputa vivo; EUR congela). */
+  currency: 'USD' | 'EUR';
+  /** Entero MXN FX-horneado (ya convertido por Banxico con la tasa de su moneda). */
   priceMxnCents: number;
-  /** 'YYYY-MM-DD' del volcado. */
+  /** 'YYYY-MM-DD' del volcado = el `updated` del sub-feed (tcgplayer ~horario, cardmarket ~diario). */
   capturedDate: string;
   /** El productType es `raw` para singles (el árbitro arbitra mercado raw/sealed). */
   productType: 'raw' | 'sealed';
@@ -46,12 +49,23 @@ export interface TcgdexPriceRow {
   cardProductId?: string | null;
 }
 
+/** Lo que el provider necesita del llamador para un set: su id TCGdex, nuestras cartas y las tasas FX. */
+export interface TcgdexFetchInput {
+  tcgdexSetId: string;
+  /** Nuestras cartas del set, por número (el join es por set+número+acabado, criterio 884). */
+  cards: { cardId: string; number: string }[];
+  /** Tasa USD→MXN con colchón (para el sub-feed tcgplayer). */
+  fxUsd: { rate: number; bufferPct: number };
+  /** Tasa EUR→MXN con colchón (para el sub-feed cardmarket); `null` ⇒ cardmarket NO vota este barrido. */
+  fxEur: { rate: number; bufferPct: number } | null;
+}
+
 /**
- * El provider (DIFERIDO) implementará esto: dado un set, trae sus cotizaciones por variante de ambos
- * sub-feeds. El llamador (barrido `price-ingest`) persiste cada fila como `PriceReference` y deja que
- * `resolveRobustMarket()` arbitre.
+ * El provider: dado un set (su id TCGdex, nuestras cartas y las tasas FX), trae las cotizaciones por
+ * variante de ambos sub-feeds. El llamador (barrido `price-ingest`) persiste cada fila como
+ * `PriceReference` (vía `persistArbiterReference`) y deja que `resolveRobustMarket()` arbitre.
  */
 export interface TcgdexBulkPriceProvider {
   /** Precios por variante de un set (ambos sub-feeds). `[]` si TCGdex no cubre el set. */
-  fetchSetPrices(tcgdexSetId: string): Promise<TcgdexPriceRow[]>;
+  fetchSetPrices(input: TcgdexFetchInput): Promise<TcgdexPriceRow[]>;
 }
